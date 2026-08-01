@@ -2013,4 +2013,34 @@ EXAMPLES
     <counter name="HandshakeTimeout" summary="Authentication handshake timeouts with the event service" />
 </tile>
 
+<enum name="SnapType">
+    <int value="0" name="Full" label="Full snapshot" />
+    <int value="1" name="Incremental" label="Incremental snapshot" />
+</enum>
+
+<tile name="snapmk">
+    <counter name="SnapshotsCreated" enum="SnapType" summary="Number of snapshots created (includes in-progress)" />
+    <gauge name="LastSnapshotSlotStarted" enum="SnapType" summary="Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot" />
+    <gauge name="LastSnapshotSlotFinished" enum="SnapType" summary="Slot of the most recently finished snapshot creation. Zero if no snapshot has finished since boot" />
+    <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
+    <counter name="BytesWritten" summary="Number of compressed bytes written" />
+    <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
+    <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing data" />
+</tile>
+
+<tile name="snapzp">
+    <counter name="AccountsCompressed" summary="Number of accounts processed" />
+    <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
+    <counter name="BytesWritten" summary="Number of compressed bytes written" />
+    <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
+    <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing accounts" />
+</tile>
+
+<tile name="snaprd">
+    <counter name="BytesRead" summary="Number of bytes read from the account database file" />
+    <gauge name="ExportProgressBytes" summary="Account database read progress in bytes of the current snapshot creation job" />
+    <gauge name="ExportTotalBytes" summary="Total bytes to be read from account database for the current snapshot creation job" />
+    <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
+</tile>
+
 </metrics>

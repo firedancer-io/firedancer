@@ -17,6 +17,7 @@
 #include "fd_backup.h"
 #include "fd_backup_cache.h"
 #include "fd_backup_visited.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 
@@ -79,6 +80,14 @@ struct fd_snapzp {
     ulong       data_rem;
     ulong       data_pad;
   } disk;
+
+  struct {
+    ulong accounts_compressed;
+    ulong bytes_compressed;
+    ulong bytes_written;
+    ulong io_blocked_ticks;
+    ulong compress_ticks;
+  } metrics;
 
   __attribute__((aligned(4096))) uchar raw_buf1 [ RAW_BUF_SZ  ];
   __attribute__((aligned(4096))) uchar comp_buf1[ COMP_BUF_SZ ];
@@ -280,10 +289,15 @@ msg_start( fd_snapzp_t *                 ctx,
 static void
 zip_work( fd_snapzp_t * ctx ) {
   if( FD_LIKELY( ctx->raw_buf.size - ctx->raw_buf.pos < ctx->zst_in_rec ) ) return;
+  ulong raw_pos = ctx->raw_buf.pos;
+  long  t0      = fd_tickcount();
   ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, ZSTD_e_continue );
+  long  t1  = fd_tickcount();
   if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
     FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_continue) failed: %s", ZSTD_getErrorName( ret ) ));
   }
+  ctx->metrics.bytes_compressed += ctx->raw_buf.pos - raw_pos;
+  ctx->metrics.compress_ticks   += (ulong)( t1-t0 );
 }
 
 /* zip_flush ends the current Zstandard compression frame and does a
@@ -305,13 +319,18 @@ zip_flush( fd_snapzp_t * ctx ) {
   }
 
   /* Finish content compression frame */
+  ulong raw_pos = ctx->raw_buf.pos;
+  long  t0      = fd_tickcount();
   ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, ZSTD_e_end );
+  long  t1  = fd_tickcount();
   if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
     FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_end) failed: %s", ZSTD_getErrorName( ret ) ));
   }
   if( FD_UNLIKELY( ret!=0UL ) ) {
     FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_end) did not finish frame" ));
   }
+  ctx->metrics.bytes_compressed += ctx->raw_buf.pos - raw_pos;
+  ctx->metrics.compress_ticks   += (ulong)( t1-t0 );
   FD_TEST( ctx->raw_buf.pos == ctx->raw_buf.size );
   ctx->raw_buf.pos  = 0UL;
   ctx->raw_buf.size = 0UL;
@@ -357,9 +376,14 @@ zip_flush( fd_snapzp_t * ctx ) {
   ulong off = __atomic_fetch_add( ctx->file_off, comp_asz, __ATOMIC_RELAXED );
   FD_TEST( fd_ulong_is_aligned( off,      4096UL ) );
   FD_TEST( fd_ulong_is_aligned( comp_asz, 4096UL ) );
-  if( FD_UNLIKELY( pwrite( ctx->snap_fd, comp_head, comp_asz, (long)off )!=(long)comp_asz ) ) {
+  t0 = fd_tickcount();
+  long write_sz = pwrite( ctx->snap_fd, comp_head, comp_asz, (long)off );
+  t1 = fd_tickcount();
+  if( FD_UNLIKELY( write_sz!=(long)comp_asz ) ) {
     FD_LOG_ERR(( "pwrite failed: %i-%s", errno, fd_io_strerror( errno ) ));
   }
+  ctx->metrics.bytes_written    += comp_asz;
+  ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
 
   /* Free compressed buffer */
   ctx->comp_buf.pos = 0UL;
@@ -419,6 +443,7 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
       FD_CHECK_ERR( err!=FD_BACKUP_CACHE_ERR_SPACE, "Zstandard buffer too small" );
     }
     FD_CHECK_ERR( err==FD_BACKUP_CACHE_SUCCESS, "unexpected cache error code" );
+    ctx->metrics.accounts_compressed++;
   }
 }
 
@@ -454,6 +479,7 @@ msg_acc_delta( fd_snapzp_t *                 ctx,
     ulong data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
     if( data_pad ) fd_memset( ctx->raw + start + sizeof(snap_acc_hdr_t) + data_len, 0, data_pad );
     ctx->raw_buf.size = start + sizeof(snap_acc_hdr_t) + data_len + data_pad;
+    ctx->metrics.accounts_compressed++;
   }
 }
 
@@ -593,6 +619,7 @@ msg_acc_disk( fd_snapzp_t * ctx,
       fd_memset( ctx->raw + ctx->raw_buf.size, 0, ctx->disk.data_pad );
       ctx->raw_buf.size += ctx->disk.data_pad;
     }
+    ctx->metrics.accounts_compressed++;
     memset( &ctx->disk, 0, sizeof(ctx->disk) );
   }
 }
@@ -675,6 +702,7 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
       fd_memset( ctx->raw + ctx->raw_buf.size, 0, data_pad );
       ctx->raw_buf.size += data_pad;
     }
+    ctx->metrics.accounts_compressed++;
   }
 }
 
@@ -742,12 +770,22 @@ returnable_frag( fd_snapzp_t *       ctx,
   return 0;
 }
 
+static void
+metrics_write( fd_snapzp_t * ctx ) {
+  FD_MCNT_SET( SNAPZP, ACCOUNTS_COMPRESSED,         ctx->metrics.accounts_compressed );
+  FD_MCNT_SET( SNAPZP, BYTES_COMPRESSED,            ctx->metrics.bytes_compressed    );
+  FD_MCNT_SET( SNAPZP, BYTES_WRITTEN,               ctx->metrics.bytes_written       );
+  FD_MCNT_SET( SNAPZP, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks    );
+  FD_MCNT_SET( SNAPZP, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks      );
+}
+
 #define STEM_BURST 1UL
 #define STEM_LAZY  9400UL
 #define STEM_CALLBACK_CONTEXT_TYPE    fd_snapzp_t
 #define STEM_CALLBACK_CONTEXT_ALIGN   alignof(fd_snapzp_t)
 #define STEM_CALLBACK_BEFORE_CREDIT   before_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #include "../../disco/stem/fd_stem.c"
 
 #ifndef FD_TILE_TEST

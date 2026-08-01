@@ -1862,6 +1862,52 @@
 
 </div>
 
+## Snapmk Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | counter | Number of snapshots created (includes in-progress) (Full snapshot) |
+| <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | counter | Number of snapshots created (includes in-progress) (Incremental snapshot) |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;started</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot (Full snapshot) |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;started</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | gauge | Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot (Incremental snapshot) |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;finished</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Slot of the most recently finished snapshot creation. Zero if no snapshot has finished since boot (Full snapshot) |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;finished</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | gauge | Slot of the most recently finished snapshot creation. Zero if no snapshot has finished since boot (Incremental snapshot) |
+| <span class="metrics-name">snapmk_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
+| <span class="metrics-name">snapmk_&#8203;bytes_&#8203;written</span> | counter | Number of compressed bytes written |
+| <span class="metrics-name">snapmk_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snapmk_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing data |
+
+</div>
+
+## Snapzp Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapzp_&#8203;accounts_&#8203;compressed</span> | counter | Number of accounts processed |
+| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
+| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;written</span> | counter | Number of compressed bytes written |
+| <span class="metrics-name">snapzp_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snapzp_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing accounts |
+
+</div>
+
+## Snaprd Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaprd_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database file |
+| <span class="metrics-name">snaprd_&#8203;export_&#8203;progress_&#8203;bytes</span> | gauge | Account database read progress in bytes of the current snapshot creation job |
+| <span class="metrics-name">snaprd_&#8203;export_&#8203;total_&#8203;bytes</span> | gauge | Total bytes to be read from account database for the current snapshot creation job |
+| <span class="metrics-name">snaprd_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
+
+</div>
+
 ## Resolh Tile
 
 <div class="metrics">
