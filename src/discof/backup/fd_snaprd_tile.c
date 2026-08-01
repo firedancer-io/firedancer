@@ -2,6 +2,7 @@
    This tile is typically either sleeping or doing iowait. */
 
 #include "fd_backup.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
@@ -48,6 +49,13 @@ struct fd_snaprd {
     ulong  chunk;
     ulong  mtu;
   } out;
+
+  struct {
+    ulong bytes_read;
+    ulong export_progress_bytes;
+    ulong export_total_bytes;
+    ulong io_blocked_ticks;
+  } metrics;
 };
 
 typedef struct fd_snaprd fd_snaprd_t;
@@ -97,6 +105,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->in_ctl     = NULL;
   ctx->in_ctl_seq = 0UL;
   ctx->idle_cnt   = 0UL;
+  memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   /* snaprd queries accdb partition info to figure out where to read */
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snaprd.accdb_obj_id );
@@ -155,6 +164,7 @@ backup_disk_begin( fd_snaprd_t * ctx ) {
   }
 
   ctx->part_cnt = 0UL;
+  ulong export_total_bytes = 0UL;
   for( ulong i=0UL; i<part_max; i++ ) {
     fd_accdb_shmem_partition_info_t info[1];
     fd_accdb_shmem_partition_info( ctx->accdb, i, info );
@@ -166,7 +176,10 @@ backup_disk_begin( fd_snaprd_t * ctx ) {
     ctx->part[ ctx->part_cnt ].file_off = info->file_offset;
     ctx->part[ ctx->part_cnt ].sz       = info->write_offset;
     ctx->part_cnt++;
+    export_total_bytes += info->write_offset;
   }
+  ctx->metrics.export_progress_bytes = 0UL;
+  ctx->metrics.export_total_bytes    = export_total_bytes;
 
   /* An accdb with no data on disk yields an empty stream, which snapmk
      still has to see terminated (a zero size frag carrying eom). */
@@ -214,6 +227,7 @@ after_credit( fd_snaprd_t *       ctx,
     ulong   src_off = ctx->part_file_off + ctx->part_cur;
 
     ulong read_sz = 0UL;
+    long  t0      = fd_tickcount();
     while( read_sz<frag_sz ) {
       long res = pread( FD_ACCDB_FD_RO, out+read_sz, frag_sz-read_sz, (long)(src_off+read_sz) );
       if( FD_UNLIKELY( res<0L && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
@@ -225,6 +239,10 @@ after_credit( fd_snaprd_t *       ctx,
       }
       read_sz += (ulong)res;
     }
+    long t1 = fd_tickcount();
+    ctx->metrics.bytes_read            += read_sz;
+    ctx->metrics.export_progress_bytes += read_sz;
+    if( FD_LIKELY( frag_sz ) ) ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
 
     ctx->part_cur += frag_sz;
 
@@ -246,10 +264,19 @@ after_credit( fd_snaprd_t *       ctx,
   }
 }
 
+static void
+metrics_write( fd_snaprd_t * ctx ) {
+  FD_MCNT_SET  ( SNAPRD, BYTES_READ,                  ctx->metrics.bytes_read             );
+  FD_MGAUGE_SET( SNAPRD, EXPORT_PROGRESS_BYTES,       ctx->metrics.export_progress_bytes );
+  FD_MGAUGE_SET( SNAPRD, EXPORT_TOTAL_BYTES,          ctx->metrics.export_total_bytes    );
+  FD_MCNT_SET  ( SNAPRD, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks      );
+}
+
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snaprd_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snaprd_t)
 #define STEM_CALLBACK_BEFORE_CREDIT before_credit
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_snaprd = {

@@ -61,6 +61,7 @@
 #include "../fd_startup.h"
 #include "../replay/fd_replay_tile.h"
 #include "../restore/utils/fd_ssarchive.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../tango/fseq/fd_fseq.h"
@@ -218,6 +219,19 @@ struct fd_snapmk {
 
   /* startup related */
   fd_startup_gate_t startup_gate[1];
+
+  struct {
+    ulong snapshots_created_full;
+    ulong snapshots_created_incremental;
+    ulong last_snapshot_slot_started_full;
+    ulong last_snapshot_slot_started_incremental;
+    ulong last_snapshot_slot_finished_full;
+    ulong last_snapshot_slot_finished_incremental;
+    ulong bytes_compressed;
+    ulong bytes_written;
+    ulong io_blocked_ticks;
+    ulong compress_ticks;
+  } metrics;
 };
 
 typedef struct fd_snapmk fd_snapmk_t;
@@ -473,10 +487,15 @@ zip_flush( fd_snapmk_t *     ctx,
            ZSTD_EndDirective directive ) {
 
   /* Compress chunk */
+  ulong raw_pos = ctx->raw_buf.pos;
+  long  t0  = fd_tickcount();
   ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, directive );
+  long  t1  = fd_tickcount();
   if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
     FD_LOG_ERR(( "ZSTD_compressStream2 failed: %s", ZSTD_getErrorName( ret ) ));
   }
+  ctx->metrics.bytes_compressed += ctx->raw_buf.pos - raw_pos;
+  ctx->metrics.compress_ticks   += (ulong)( t1-t0 );
 
   /* Move uncompressed bytes to left */
   if( ctx->raw_buf.pos < ctx->raw_buf.size ) {
@@ -493,17 +512,21 @@ zip_flush( fd_snapmk_t *     ctx,
   /* Write compressed bytes to file */
   ulong comp_wr_;
   ulong comp_sz = ctx->comp_buf.pos;
+  t0 = fd_tickcount();
   int wr_err = fd_io_write(
       ctx->snap_fd,
       ctx->comp,
       comp_sz, comp_sz,
       &comp_wr_ );
+  t1 = fd_tickcount();
   if( FD_UNLIKELY( wr_err ) ) {
     FD_LOG_ERR(( "fd_io_write failed: %s", fd_io_strerror( wr_err ) ));
   }
   if( FD_UNLIKELY( comp_wr_ != comp_sz ) ) {
     FD_LOG_ERR(( "fd_io_write did not write full buffer (expected %lu bytes, wrote %lu bytes)", comp_sz, comp_wr_ ));
   }
+  ctx->metrics.bytes_written    += comp_wr_;
+  ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
 }
@@ -526,6 +549,7 @@ zip_align( fd_snapmk_t * ctx ) {
     pad_sz += 4096UL;
   }
   if( pad_sz>0UL ) {
+    long t0 = fd_tickcount();
     uchar frame_hdr[ 8 ];
     FD_STORE( uint, frame_hdr,   ZSTD_MAGIC_SKIPPABLE_START );
     FD_STORE( uint, frame_hdr+4, (uint)( pad_sz-8 ) );
@@ -539,6 +563,9 @@ zip_align( fd_snapmk_t * ctx ) {
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_io_write failed: %i-%s", err, fd_io_strerror( err ) ));
     }
+    long t1 = fd_tickcount();
+    ctx->metrics.bytes_written    += pad_sz;
+    ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
   }
   atomic_store_explicit( ctx->file_off_p, aoff, memory_order_release );
 }
@@ -625,10 +652,12 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
   if( FD_UNLIKELY( ctx->incremental ) ) {
     inode->full_slot = ctx->base_slot;
     inode->incr_slot = ctx->bank->f.slot;
+    ctx->metrics.last_snapshot_slot_finished_incremental = ctx->bank->f.slot;
   } else {
     inode->full_slot = ctx->bank->f.slot;
     inode->incr_slot = ULONG_MAX;
     ctx->base_slot   = ctx->bank->f.slot;
+    ctx->metrics.last_snapshot_slot_finished_full = ctx->bank->f.slot;
   }
 
   ctx->snap_fd = -1;
@@ -1414,6 +1443,13 @@ snap_start( fd_snapmk_t *                  ctx,
   ctx->disk_out_idx       = -1;
   ctx->disk_batch_pending = 0;
   ctx->start_time         = fd_log_wallclock();
+  if( FD_UNLIKELY( incremental ) ) {
+    ctx->metrics.snapshots_created_incremental++;
+    ctx->metrics.last_snapshot_slot_started_incremental = ctx->bank->f.slot;
+  } else {
+    ctx->metrics.snapshots_created_full++;
+    ctx->metrics.last_snapshot_slot_started_full = ctx->bank->f.slot;
+  }
   broadcast_prepare( ctx );
 
   if( FD_UNLIKELY( incremental ) ) {
@@ -1720,6 +1756,21 @@ returnable_frag( fd_snapmk_t *       ctx,
   }
 }
 
+static void
+metrics_write( fd_snapmk_t * ctx ) {
+  FD_MCNT_SET  ( SNAPMK, SNAPSHOTS_CREATED_FULL,                  ctx->metrics.snapshots_created_full                  );
+  FD_MCNT_SET  ( SNAPMK, SNAPSHOTS_CREATED_INCREMENTAL,           ctx->metrics.snapshots_created_incremental           );
+  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_SLOT_STARTED_FULL,         ctx->metrics.last_snapshot_slot_started_full         );
+  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_SLOT_STARTED_INCREMENTAL,  ctx->metrics.last_snapshot_slot_started_incremental  );
+  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_SLOT_FINISHED_FULL,        ctx->metrics.last_snapshot_slot_finished_full        );
+  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_SLOT_FINISHED_INCREMENTAL, ctx->metrics.last_snapshot_slot_finished_incremental );
+
+  FD_MCNT_SET  ( SNAPMK, BYTES_COMPRESSED,            ctx->metrics.bytes_compressed );
+  FD_MCNT_SET  ( SNAPMK, BYTES_WRITTEN,               ctx->metrics.bytes_written    );
+  FD_MCNT_SET  ( SNAPMK, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks );
+  FD_MCNT_SET  ( SNAPMK, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks   );
+}
+
 #define STEM_BURST SNAPMK_STEM_BURST
 #define STEM_LAZY  SNAPMK_STEM_LAZY
 #define STEM_CALLBACK_CONTEXT_TYPE    fd_snapmk_t
@@ -1728,6 +1779,7 @@ returnable_frag( fd_snapmk_t *       ctx,
 #define STEM_CALLBACK_CHECK_CREDIT    check_credit
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #include "../../disco/stem/fd_stem.c"
 
 /* snapmk_run contains a bunch of boilerplate to hijack flow control
