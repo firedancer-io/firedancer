@@ -19,6 +19,9 @@ endif
 $(call add-hdrs,fd_top_votes.h)
 $(call add-objs,fd_top_votes,fd_flamenco)
 
+$(call add-hdrs,fd_top_votes_v2.h)
+$(call add-objs,fd_top_votes_v2,fd_flamenco)
+
 $(call add-hdrs,fd_vote_stakes.h)
 $(call add-objs,fd_vote_stakes,fd_flamenco)
 
@@ -33,6 +36,8 @@ $(call make-unit-test,test_vote_stakes,test_vote_stakes,fd_flamenco fd_ballet fd
 $(call run-unit-test,test_vote_stakes)
 $(call make-unit-test,test_top_votes,test_top_votes,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_top_votes)
+$(call make-unit-test,test_top_votes_v2,test_top_votes_v2 fd_top_votes_v2,fd_ballet fd_util)
+$(call run-unit-test,test_top_votes_v2)
 $(call make-unit-test,test_new_votes,test_new_votes,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_new_votes)
 $(call make-unit-test,test_collector_overrides,test_collector_overrides,fd_flamenco fd_ballet fd_util)
