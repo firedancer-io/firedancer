@@ -1908,6 +1908,21 @@
 
 </div>
 
+## Snapsv Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapsv_&#8203;snapshots_&#8203;available</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Number of snapshot files currently available for download (Full snapshot) |
+| <span class="metrics-name">snapsv_&#8203;snapshots_&#8203;available</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | gauge | Number of snapshot files currently available for download (Incremental snapshot) |
+| <span class="metrics-name">snapsv_&#8203;http_&#8203;request_&#8203;served</span> | counter | Number of HTTP requests served |
+| <span class="metrics-name">snapsv_&#8203;conn_&#8203;active</span> | gauge | The number of active HTTP connections to the snapshot service |
+| <span class="metrics-name">snapsv_&#8203;bytes_&#8203;read</span> | counter | Bytes read from all requests to the snapshot service |
+| <span class="metrics-name">snapsv_&#8203;bytes_&#8203;written</span> | counter | Bytes written to all responses on the snapshot service |
+
+</div>
+
 ## Resolh Tile
 
 <div class="metrics">

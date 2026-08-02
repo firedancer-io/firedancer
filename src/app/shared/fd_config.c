@@ -461,6 +461,8 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO( layout.execle_tile_count );
   CFG_HAS_NON_ZERO( layout.snapzp_tile_count );
+  CFG_HAS_NON_ZERO( layout.snapsv_tile_count );
+  CFG_HAS_NON_ZERO( layout.snapsv_io_worker_count );
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }
@@ -482,6 +484,14 @@ fd_config_validatef( fd_configf_t const * config ) {
   }
 
   CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
+  if( FD_UNLIKELY( config->snapshots.server.idle_timeout_millis<100UL ||
+                   config->snapshots.server.idle_timeout_millis>=60000UL ) ) {
+    FD_LOG_ERR(( "`snapshots.server.idle_timeout_millis` must be in [100,60000)" ));
+  }
+  if( FD_UNLIKELY( config->snapshots.server.send_timeout_millis<100UL ||
+                   config->snapshots.server.send_timeout_millis>=60000UL ) ) {
+    FD_LOG_ERR(( "`snapshots.server.send_timeout_millis` must be in [100,60000)" ));
+  }
 
   if( FD_UNLIKELY( config->snapshots.max_full_snapshots_to_keep>FD_SSARCHIVE_MAX_ENTRIES ) ) {
     FD_LOG_ERR(( "`snapshots.max_full_snapshots_to_keep` is %u but must be at most %lu",

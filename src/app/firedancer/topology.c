@@ -219,6 +219,9 @@ fd_topo_initialize( config_t * config ) {
   ulong execle_tile_cnt = config->firedancer.layout.execle_tile_count;
   ulong snapzp_tile_cnt = config->firedancer.layout.enable_snapshot_production
                           ? config->firedancer.layout.snapzp_tile_count : 0UL;
+  ulong snapsv_tile_cnt = ( config->firedancer.snapshots.server.enabled &&
+                            config->firedancer.layout.enable_snapshot_production )
+                          ? config->firedancer.layout.snapsv_tile_count : 0UL;
 
   ulong gossvf_tile_cnt = config->firedancer.layout.gossvf_tile_count;
   ulong execrp_tile_cnt = config->firedancer.layout.execrp_tile_count;
@@ -230,6 +233,14 @@ fd_topo_initialize( config_t * config ) {
   int telemetry_enabled = config->telemetry && strcmp( config->tiles.event.url, "" );
   int leader_enabled    = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled    = config->tiles.rserve.enabled;
+
+  if( FD_UNLIKELY( snapmk_enabled ) ) {
+    FD_CHECK_ERR( config->firedancer.snapshots.max_full_snapshots_to_keep,
+                  "[snapshots.max_full_snapshots_to_keep] must be nonzero when [layout.snapzp_tile_count] is nonzero" );
+    FD_CHECK_ERR( !config->firedancer.snapshots.incremental_snapshot_interval_slots ||
+                  config->firedancer.snapshots.max_incremental_snapshots_to_keep,
+                  "[snapshots.max_incremental_snapshots_to_keep] must be nonzero when incremental snapshot production is enabled" );
+  }
 
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
 
@@ -367,6 +378,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snapmk_out"    );
     fd_topob_wksp( topo, "snaprd"        );
     fd_topob_wksp( topo, "snaprd_out"    );
+    if( snapsv_tile_cnt ) fd_topob_wksp( topo, "snapsv" );
   }
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -512,6 +524,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile( topo, "snapmk", "snapmk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
     FOR(snapzp_tile_cnt) fd_topob_tile( topo, "snapzp", "snapzp", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
     /**/                 fd_topob_tile( topo, "snaprd", "snaprd", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+    FOR(snapsv_tile_cnt) fd_topob_tile( topo, "snapsv", "snapsv", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   }
 
   /**/                 fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 )->allow_shutdown = 1;
@@ -658,6 +671,7 @@ fd_topo_initialize( config_t * config ) {
   if( snapmk_enabled ) {
     /*               */fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "snapmk_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
+  FOR(snapsv_tile_cnt) fd_topob_tile_in (   topo, "snapsv",  i,            "metric_in", "snapmk_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "admin_replay",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_admin",  0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "admin",   0UL,                       "admin_replay",  0UL                                                );
@@ -1167,6 +1181,17 @@ fd_topo_initialize( config_t * config ) {
   config->topo = *topo;
 }
 
+static void
+parse_listen_addr( char const *    cstr,
+                   char const *    key,
+                   fd_ip6_addr_t * out ) {
+  if( FD_UNLIKELY( !fd_cstr_to_ip46_addr( cstr, out ) ) )
+    FD_LOG_ERR(( "[%s] `%s` is not a valid IPv4 or IPv6 address", key, cstr ));
+  if( FD_UNLIKELY( fd_ip6_addr_is_scoped( out->addr ) && !out->scope_id ) )
+    FD_LOG_ERR(( "[%s] `%s` is scoped to a network interface, which must be named by a "
+                 "zone ID (e.g. `%s%%eth0`)", key, cstr, cstr ));
+}
+
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
@@ -1598,8 +1623,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rpc" ) ) ) {
 
-    if( FD_UNLIKELY( !fd_cstr_to_ip46_addr( config->tiles.rpc.rpc_listen_address, &tile->rpc.listen_addr ) ) )
-      FD_LOG_ERR(( "failed to parse rpc listen address `%s`", config->tiles.rpc.rpc_listen_address ));
+    parse_listen_addr( config->tiles.rpc.rpc_listen_address, "tiles.rpc.rpc_listen_address", &tile->rpc.listen_addr );
     tile->rpc.listen_port = config->tiles.rpc.rpc_listen_port;
     tile->rpc.delay_startup = config->tiles.rpc.delay_startup;
     tile->rpc.max_http_connections      = config->tiles.rpc.max_http_connections;
@@ -1682,6 +1706,30 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->snaprd.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     FD_TEST( tile->snaprd.accdb_obj_id!=ULONG_MAX );
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "snapsv" ) ) ) {
+
+    tile->snapsv.snap_max      = config->firedancer.snapshots.max_full_snapshots_to_keep +
+                                 config->firedancer.snapshots.max_incremental_snapshots_to_keep;
+    tile->snapsv.conn_max      = config->firedancer.snapshots.server.max_http_connections;
+    tile->snapsv.io_worker_cnt = config->firedancer.layout.snapsv_io_worker_count;
+    tile->snapsv.idle_timeout_millis = config->firedancer.snapshots.server.idle_timeout_millis;
+    tile->snapsv.send_timeout_millis = config->firedancer.snapshots.server.send_timeout_millis;
+    tile->snapsv.send_buffer_size_kib = config->firedancer.snapshots.server.send_buffer_size_kib;
+
+    /* An empty listen address defaults to the RPC listen address */
+    char const * listen_address = config->firedancer.snapshots.server.http_listen_address;
+    char const * listen_key     = "snapshots.server.http_listen_address";
+    if( FD_LIKELY( !listen_address[0] ) ) {
+      listen_address = config->tiles.rpc.rpc_listen_address;
+      listen_key     = "tiles.rpc.rpc_listen_address";
+    }
+    parse_listen_addr( listen_address, listen_key, &tile->snapsv.listen_addr );
+
+    uint listen_port = config->firedancer.snapshots.server.http_listen_port;
+    FD_CHECK_ERR( listen_port && listen_port<=USHORT_MAX,
+                  "[snapshots.server.http_listen_port] must be in [1,65535]" );
+    tile->snapsv.listen_port = (ushort)listen_port;
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

@@ -1,0 +1,35 @@
+
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+uint logfile_fd, uint ring_fd, uint pool_min_fd, uint pool_max_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# file server: asynchronous network and file I/O.
+io_uring_enter: (eq (arg 0) ring_fd)
+
+# file server: closing a connection.
+#
+# Connection sockets are direct descriptors, so they only exist in the
+# ring's file table and close(2) cannot reach them.  They are closed by
+# dropping them from that table.
+io_uring_register: (and (eq (arg 0) ring_fd)
+                        (eq (arg 1) IORING_REGISTER_FILES_UPDATE))
+
+# snapshot: acquire/release cooperative read locks while serving files.
+fcntl: (and (>= (arg 0) pool_min_fd)
+            (<= (arg 0) pool_max_fd)
+            (eq (arg 1) "F_SETLK"))

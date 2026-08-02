@@ -47,6 +47,7 @@ class Tile(Enum):
     SNAPMK = 50
     SNAPZP = 51
     SNAPRD = 52
+    SNAPSV = 53
 
     RESOLH = 100
     BANK = 101

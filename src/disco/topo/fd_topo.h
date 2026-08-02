@@ -419,6 +419,10 @@ struct fd_topo_tile {
 
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
+
+      int    snapshot_server_enabled;
+      char   snapshot_server_host[ 256 ];
+      ushort snapshot_server_port;
     } rpc;
 
     struct {
@@ -714,6 +718,17 @@ struct fd_topo_tile {
     struct {
       ulong accdb_obj_id;
     } snaprd;
+
+    struct {
+      ulong         snap_max;
+      ulong         conn_max;
+      uint          io_worker_cnt;
+      ulong         idle_timeout_millis;
+      ulong         send_timeout_millis;
+      ulong         send_buffer_size_kib;
+      fd_ip6_addr_t listen_addr;
+      ushort        listen_port;
+    } snapsv;
   };
 };
 

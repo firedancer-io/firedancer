@@ -538,7 +538,8 @@ STEM_(run1)( ulong                        in_cnt,
       .min_cr_avail        = &min_cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
       .out_reliable        = out_reliable,
-      .cons_seq            = cons_seq
+      .cons_seq            = cons_seq,
+      .in                  = in
     };
 #endif
 

@@ -39,6 +39,7 @@
 struct fd_snapmk_msg_found {
   ulong slot;      /* snapshot slot */
   ulong base_slot; /* ULONG_MAX if full snapshot */
+  ulong sz;        /* snapshot file size */
   uint  pool_idx;  /* FD_SNAP_FD( pool_idx ) -> snap file descriptor */
   uint  reserved;
   char  name[ FD_SNAP_NAME_MAX ];
@@ -53,6 +54,7 @@ typedef struct fd_snapmk_msg_found fd_snapmk_msg_found_t;
 struct fd_snapmk_msg_created {
   ulong slot;      /* snapshot slot */
   ulong base_slot; /* ULONG_MAX if full snapshot */
+  ulong sz;        /* snapshot file size */
   uint  pool_idx;  /* FD_SNAP_FD( pool_idx ) -> snap file descriptor */
   uint  reserved;
   char  name[ FD_SNAP_NAME_MAX ];

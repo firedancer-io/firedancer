@@ -7,9 +7,18 @@
 #include "fd_io_uring_sys.h"
 #include <linux/io_uring.h>
 #include <errno.h>
+#include <sys/uio.h>
 #include "../../util/fd_util_base.h"
 
 FD_PROTOTYPES_BEGIN
+
+static inline int
+fd_io_uring_register_buffers( int                  ring_fd,
+                              struct iovec const * iovecs,
+                              ulong                iovec_cnt ) {
+  if( FD_UNLIKELY( iovec_cnt > UINT_MAX ) ) return -EINVAL;
+  return fd_io_uring_register( ring_fd, FD_IORING_REGISTER_BUFFERS, iovecs, (uint)iovec_cnt );
+}
 
 static inline int
 fd_io_uring_register_files( int         ring_fd,
@@ -17,6 +26,18 @@ fd_io_uring_register_files( int         ring_fd,
                             ulong       fd_cnt ) {
   if( FD_UNLIKELY( fd_cnt > UINT_MAX ) ) return -EINVAL;
   return fd_io_uring_register( ring_fd, FD_IORING_REGISTER_FILES, fds, (uint)fd_cnt );
+}
+
+static inline int
+fd_io_uring_register_files_update( int         ring_fd,
+                                   unsigned    off,
+                                   const int * files,
+                                   unsigned    nr_files ) {
+	struct io_uring_rsrc_update up = {
+		.offset	= off,
+		.data	= (unsigned long) files,
+	};
+  return fd_io_uring_register( ring_fd, FD_IORING_REGISTER_FILES_UPDATE, &up, nr_files );
 }
 
 static inline int

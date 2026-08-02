@@ -92,6 +92,8 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.execle_tile_count                            );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
   CFG_POP      ( uint,   layout.snapzp_tile_count                            );
+  CFG_POP      ( uint,   layout.snapsv_tile_count                            );
+  CFG_POP      ( uint,   layout.snapsv_io_worker_count                       );
 
   CFG_POP      ( ulong,  accounts.max_accounts                               );
   CFG_POP      ( ulong,  accounts.cache_size_gib                             );
@@ -120,6 +122,14 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  snapshots.full_snapshot_interval_slots              );
   CFG_POP      ( ulong,  snapshots.incremental_snapshot_interval_slots       );
   CFG_POP      ( ulong,  snapshots.max_incremental_snapshot_accounts         );
+
+  CFG_POP      ( bool,   snapshots.server.enabled                            );
+  CFG_POP      ( cstr,   snapshots.server.http_listen_address                );
+  CFG_POP      ( uint,   snapshots.server.http_listen_port                   );
+  CFG_POP      ( ulong,  snapshots.server.max_http_connections               );
+  CFG_POP      ( ulong,  snapshots.server.idle_timeout_millis                );
+  CFG_POP      ( ulong,  snapshots.server.send_timeout_millis                );
+  CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );

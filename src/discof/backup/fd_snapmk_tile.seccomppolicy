@@ -94,5 +94,7 @@ exit: (eq (arg 0) 0)
 
 # snapshot producer: power saving
 #
-# The snapmk tile usually sleeps on a futex to save power.
-futex: (eq (arg 1) FUTEX_WAIT)
+# The snapmk tile usually sleeps on a futex to save power, and wakes
+# other power saving tiles (snapsv).
+futex: (or (eq (arg 1) FUTEX_WAIT)
+           (eq (arg 1) FUTEX_WAKE))
