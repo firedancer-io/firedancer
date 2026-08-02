@@ -661,6 +661,14 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
   ctx->final_sz = (ulong)file_sz;
 
   fd_backup_inode_t * inode = &ctx->pool[ ctx->snap_idx ];
+  struct flock lock = {
+    .l_type   = F_UNLCK,
+    .l_whence = SEEK_SET
+  };
+  if( FD_UNLIKELY( fcntl( ctx->snap_fd, F_SETLK, &lock ) ) ) {
+    FD_LOG_ERR(( "fcntl(F_UNLCK, %s) failed: %i-%s",
+                 inode->name, errno, fd_io_strerror( errno ) ));
+  }
   if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, inode->name, ctx->snap_dir_fd, ctx->final_name ) ) ) {
     FD_LOG_ERR(( "renameat(%s, %s) failed: %s", inode->name, ctx->final_name, fd_io_strerror( errno ) ));
   }
@@ -1383,7 +1391,7 @@ snap_pool_acquire( fd_snapmk_t *       ctx,
 
   if( FD_UNLIKELY( ctx->pool[ snap_pool_idx ].full_slot==ULONG_MAX ) ) return snap_pool_idx; /* free */
 
-  /* recycle */
+  /* recycle (signals consumers to unlock) */
 
   FD_CHECK_ERR( snap_pool_idx < ctx->snap_max, "invalid snap_pool_idx" );
 
@@ -1397,8 +1405,20 @@ snap_pool_acquire( fd_snapmk_t *       ctx,
   fd_cstr_ncpy( msg->name, inode->name, sizeof(msg->name) );
   snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_DELETED );
 
+  /* do a blocking wait for the file to become free  */
+
+  int snap_fd = FD_SNAP_FD( snap_pool_idx );
+  struct flock lock = {
+    .l_type   = F_WRLCK,
+    .l_whence = SEEK_SET
+  };
+  if( FD_UNLIKELY( fcntl( snap_fd, F_SETLKW, &lock ) ) ) {
+    FD_LOG_ERR(( "fcntl(F_SETLKW, %s) failed: %i-%s",
+                 ctx->pool[ snap_pool_idx ].name, errno, fd_io_strerror( errno ) ));
+  }
+
   FD_LOG_INFO(( "evicting old snapshot file: %s", inode->name ));
-  if( FD_UNLIKELY( ftruncate( FD_SNAP_FD( snap_pool_idx ), 0L ) ) ) {
+  if( FD_UNLIKELY( ftruncate( snap_fd, 0L ) ) ) {
     FD_LOG_ERR(( "ftruncate(%s) failed: %s", inode->name, fd_io_strerror( errno ) ));
   }
 
@@ -1485,7 +1505,12 @@ snap_start( fd_snapmk_t *                  ctx,
              "snapshot-%lu-%s.tar.zst", ctx->bank->f.slot, encoded_hash ) );
   }
 
-  ctx->snap_idx = snap_pool_acquire( ctx, stem );
+  uint snap_idx = snap_pool_acquire( ctx, stem );
+  if( FD_UNLIKELY( snap_idx==UINT_MAX ) ) {
+    snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_RUNNING, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+    return 0; /* not ready */
+  }
+  ctx->snap_idx = snap_idx;
   ctx->snap_fd  = FD_SNAP_FD( ctx->snap_idx );
 
   snapmk_msg_alloc( ctx )->started = (fd_snapmk_msg_started_t) {
