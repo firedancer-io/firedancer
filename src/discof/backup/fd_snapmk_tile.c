@@ -48,9 +48,12 @@
 #include <stdio.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <stdatomic.h>
 
+#include "fd_snapmk_tile.h"
 #include "fd_backup.h"
 #include "fd_snap_pool.h"
 #include "fd_backup_cache.h"
@@ -76,7 +79,9 @@
    Asserted at init.  Sizes the per-link snaprd-seq shadow rings. */
 #define FD_SNAPMK_ZP_DEPTH 1024
 
-#define SNAPMK_STEM_BURST 1UL
+/* SNAPMK_STEM_BURST: number of snapmk_out frags published in one event
+   loop cycle (snapmk_zp links are exempt) */
+#define SNAPMK_STEM_BURST 3UL
 #define SNAPMK_STEM_LAZY  8700UL
 
 /* snapmk lifecycle states */
@@ -99,6 +104,7 @@
 #define SNAPMK_STATE_FAIL               16 /* error state, doing cleanup */
 #define SNAPMK_STATE_SLEEP              17 /* sleep until FUTEX_WAKE */
 #define SNAPMK_STATE_STARTUP            18 /* waiting for system startup */
+#define SNAPMK_STATE_STARTUP_BURST      19 /* publish pre-existing snaps */
 
 /* power saving (sleeping) */
 #define IDLE_THRES (16384UL)   /* no of idle busy loop iters before sleeping */
@@ -144,6 +150,10 @@ struct fd_snapmk {
 
   struct {
     ulong  out_idx;
+    void * mem;
+    ulong  chunk;
+    ulong  chunk0;
+    ulong  wmark;
   } out;
 
   ulong zp_rr_idx; /* round-robin cursor over zp out links */
@@ -219,6 +229,7 @@ struct fd_snapmk {
 
   /* startup related */
   fd_startup_gate_t startup_gate[1];
+  ulong             startup_pool_idx;
 
   struct {
     ulong snapshots_created_full;
@@ -336,6 +347,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->idle_iter          = 0UL;
 
   fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
+  ctx->startup_pool_idx = 0UL;
 
   ctx->incremental = 0;
   ctx->base_slot   = ULONG_MAX;
@@ -435,6 +447,11 @@ unprivileged_init( fd_topo_t const *      topo,
   if( 0!=strcmp( out_link->name, "snapmk_out" ) ) {
     FD_LOG_ERR(( "Unexpected output link \"%s\"", out_link->name ));
   }
+  FD_CHECK_ERR( out_link->mtu >= sizeof(fd_snapmk_msg_t), "snapmk_out link MTU too small" );
+  ctx->out.mem    = fd_wksp_containing( out_link->dcache );
+  ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.mem, out_link->dcache );
+  ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.mem, out_link->dcache, out_link->mtu );
+  ctx->out.chunk  = ctx->out.chunk0;
 
   ctx->zst = ZSTD_initStaticCStream( _zstd, ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   FD_TEST( ctx->zst );
@@ -1094,6 +1111,35 @@ snapmk_replay_sleep( fd_snapmk_t * ctx ) {
   }
 }
 
+/* snapmk_msg_alloc allocates space for a snapmk_out payload. */
+
+static fd_snapmk_msg_t *
+snapmk_msg_alloc( fd_snapmk_t * ctx ) {
+  return fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
+}
+
+/* snapmk_msg_publish publishes a msg and frag on snapmk_out. */
+
+static void
+snapmk_msg_publish( fd_snapmk_t *       ctx,
+                    fd_stem_context_t * stem,
+                    ulong               msg_type ) {
+  ulong sz;
+  switch( msg_type ) { /* known at compile time */
+  case FD_SNAPMK_MSG_CREATED: sz = sizeof(fd_snapmk_msg_created_t); break;
+  case FD_SNAPMK_MSG_DELETED: sz = sizeof(fd_snapmk_msg_deleted_t); break;
+  case FD_SNAPMK_MSG_STARTED: sz = sizeof(fd_snapmk_msg_started_t); break;
+  case FD_SNAPMK_MSG_FAILED:  sz = sizeof(fd_snapmk_msg_failed_t);  break;
+  case FD_SNAPMK_MSG_FOUND:   sz = sizeof(fd_snapmk_msg_found_t);   break;
+  default:
+    FD_LOG_CRIT(( "invalid msg_type %lu", msg_type ));
+  }
+  ulong chunk = ctx->out.chunk;
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->out.out_idx, msg_type, chunk, sz, 0UL, 0UL, tspub );
+  ctx->out.chunk = fd_dcache_compact_next( chunk, sz, ctx->out.chunk0, ctx->out.wmark );
+}
+
 /* after_credit runs every run loop iteration, provided that all out
    links have at least STEM_BURST credit available, or check_credit
    passed. */
@@ -1239,15 +1285,25 @@ after_credit( fd_snapmk_t *       ctx,
     ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, 0 );
     if( broadcast( ctx, stem, ctl, charge_busy ) ) {
       snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_RUNNING, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
-      fd_stem_publish( stem, ctx->out.out_idx, ctx->bank->idx, 0UL, 0UL, ctl, 0UL, 0UL );
+      fd_snapmk_msg_created_t * msg = &snapmk_msg_alloc( ctx )->created;
+      *msg = (fd_snapmk_msg_created_t) {
+        .slot      = ctx->bank->f.slot,
+        .base_slot = ctx->incremental ? ctx->base_slot : ULONG_MAX,
+        .pool_idx  = ctx->snap_idx
+      };
+      fd_cstr_ncpy( msg->name, ctx->final_name, sizeof(msg->name) );
+      snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_CREATED );
       ctx->state = SNAPMK_STATE_SLEEP;
       ctx->snap_idx = UINT_MAX;
     }
     break;
   }
   case SNAPMK_STATE_FAIL: {
-    ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, /* err */ 1 );
-    fd_stem_publish( stem, ctx->out.out_idx, ctx->bank->idx, 0UL, 0UL, ctl, 0UL, 0UL );
+    snapmk_msg_alloc( ctx )->failed = (fd_snapmk_msg_failed_t) {
+      .slot      = ctx->bank->f.slot,
+      .base_slot = ctx->base_slot
+    };
+    snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_FAILED );
     ctx->snap_idx = UINT_MAX;
     ctx->state    = SNAPMK_STATE_SLEEP;
     *charge_busy  = 1;
@@ -1255,9 +1311,33 @@ after_credit( fd_snapmk_t *       ctx,
   }
   case SNAPMK_STATE_STARTUP: /* wait for startup */
     if( FD_UNLIKELY( fd_startup_gate_idle( ctx->startup_gate ) ) ) {
-      ctx->state = SNAPMK_STATE_SLEEP;
+      ctx->state = SNAPMK_STATE_STARTUP_BURST;
+      fd_snap_pool_recover( ctx->snap_dir_fd, ctx->snap_dir, ctx->pool, ctx->snap_max );
     }
     break;
+  case SNAPMK_STATE_STARTUP_BURST: { /* burst publish pre-existing snaps */
+    if( FD_UNLIKELY( ctx->startup_pool_idx >= ctx->snap_max ) ) {
+      ctx->state = SNAPMK_STATE_SLEEP;
+      break;
+    }
+    ulong snap_idx = ctx->startup_pool_idx++;
+    fd_backup_inode_t * inode = &ctx->pool[ snap_idx ];
+    if( FD_UNLIKELY( inode->full_slot==ULONG_MAX ) ) break;
+    fd_snapmk_msg_found_t * msg = &snapmk_msg_alloc( ctx )->found;
+    *msg = (fd_snapmk_msg_found_t) {
+      .slot         = inode->incr_slot!=ULONG_MAX ? inode->incr_slot : inode->full_slot,
+      .base_slot    = inode->incr_slot!=ULONG_MAX ? inode->full_slot : ULONG_MAX,
+      .pool_idx     = (uint)snap_idx,
+      .fs_timestamp = LONG_MAX
+    };
+    fd_cstr_ncpy( msg->name, inode->name, sizeof(msg->name) );
+    struct stat st;
+    if( FD_LIKELY( 0==fstat( FD_SNAP_FD( snap_idx ), &st ) ) ) {
+      msg->fs_timestamp = ((long)st.st_mtim.tv_sec*(long)1e9) + (long)st.st_mtim.tv_nsec;
+    }
+    snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_FOUND );
+    break;
+  }
   default:
     FD_LOG_CRIT(( "invalid state %u", ctx->state ));
   }
@@ -1297,7 +1377,8 @@ snap_pool_select( fd_snapmk_t * ctx ) {
    file.  May recycle an existing snapshot. */
 
 static uint
-snap_pool_acquire( fd_snapmk_t * ctx ) {
+snap_pool_acquire( fd_snapmk_t *       ctx,
+                   fd_stem_context_t * stem ) {
   uint snap_pool_idx = snap_pool_select( ctx );
 
   if( FD_UNLIKELY( ctx->pool[ snap_pool_idx ].full_slot==ULONG_MAX ) ) return snap_pool_idx; /* free */
@@ -1307,6 +1388,15 @@ snap_pool_acquire( fd_snapmk_t * ctx ) {
   FD_CHECK_ERR( snap_pool_idx < ctx->snap_max, "invalid snap_pool_idx" );
 
   fd_backup_inode_t * inode = &ctx->pool[ snap_pool_idx ];
+  fd_snapmk_msg_deleted_t * msg = &snapmk_msg_alloc( ctx )->deleted;
+  *msg = (fd_snapmk_msg_deleted_t) {
+    .slot      = inode->incr_slot!=ULONG_MAX ? inode->incr_slot : inode->full_slot,
+    .base_slot = inode->incr_slot!=ULONG_MAX ? inode->full_slot : ULONG_MAX,
+    .pool_idx  = snap_pool_idx
+  };
+  fd_cstr_ncpy( msg->name, inode->name, sizeof(msg->name) );
+  snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_DELETED );
+
   FD_LOG_INFO(( "evicting old snapshot file: %s", inode->name ));
   if( FD_UNLIKELY( ftruncate( FD_SNAP_FD( snap_pool_idx ), 0L ) ) ) {
     FD_LOG_ERR(( "ftruncate(%s) failed: %s", inode->name, fd_io_strerror( errno ) ));
@@ -1331,20 +1421,18 @@ snap_pool_acquire( fd_snapmk_t * ctx ) {
 
 static int
 snap_start( fd_snapmk_t *                  ctx,
+            fd_stem_context_t *            stem,
             fd_replay_snap_start_t const * msg ) {
   switch( ctx->state ) {
   case SNAPMK_STATE_IDLE:
   case SNAPMK_STATE_SLEEP:
     break;
   case SNAPMK_STATE_STARTUP:
+  case SNAPMK_STATE_STARTUP_BURST:
     return 0; /* not ready yet */
   default:
     FD_LOG_ERR(( "invariant violation: snapshot creation requested state is %u", ctx->state ));
   }
-
-  /* The snapshot loading pipeline might have changed available snaps
-     since booting, reconcile. */
-  fd_snap_pool_recover( ctx->snap_dir_fd, ctx->snap_dir, ctx->pool, ctx->snap_max );
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
   FD_TEST( bank );
@@ -1354,6 +1442,8 @@ snap_start( fd_snapmk_t *                  ctx,
   if( FD_UNLIKELY( incremental ) ) {
     FD_CHECK_CRIT( msg->base_slot!=ULONG_MAX, "incremental snapshot requested without a base full snapshot" );
     ctx->base_slot = msg->base_slot;
+  } else {
+    ctx->base_slot = ULONG_MAX;
   }
   ctx->incremental = incremental;
 
@@ -1379,6 +1469,9 @@ snap_start( fd_snapmk_t *                  ctx,
     FD_LOG_CRIT(( "unexpected accdb snapshot sync state %lu", sync_ack ));
   }
 
+  /* user might have changed available snapshots */
+  fd_snap_pool_recover( ctx->snap_dir_fd, ctx->snap_dir, ctx->pool, ctx->snap_max );
+
   /* final name of snap (during compression has a "partial" name) */
   uchar snap_hash[ 32 ];
   fd_blake3_hash( ctx->bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, snap_hash );
@@ -1392,8 +1485,15 @@ snap_start( fd_snapmk_t *                  ctx,
              "snapshot-%lu-%s.tar.zst", ctx->bank->f.slot, encoded_hash ) );
   }
 
-  ctx->snap_idx = snap_pool_acquire( ctx );
+  ctx->snap_idx = snap_pool_acquire( ctx, stem );
   ctx->snap_fd  = FD_SNAP_FD( ctx->snap_idx );
+
+  snapmk_msg_alloc( ctx )->started = (fd_snapmk_msg_started_t) {
+    .slot      = ctx->bank->f.slot,
+    .base_slot = ctx->base_slot,
+    .pool_idx  = ctx->snap_idx
+  };
+  snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_STARTED );
 
   if( FD_UNLIKELY( ftruncate( ctx->snap_fd, 0L ) ) ) {
     FD_LOG_ERR(( "ftruncate(%s) failed: %i-%s", ctx->pool[ ctx->snap_idx ].name, errno, fd_io_strerror( errno ) ));
@@ -1740,7 +1840,7 @@ returnable_frag( fd_snapmk_t *       ctx,
     switch( sig ) {
     case REPLAY_SIG_SNAP_START: {
       fd_replay_snap_start_t const * msg = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
-      int res = snap_start( ctx, msg );
+      int res = snap_start( ctx, stem, msg );
       if( res==0 ) return 1; /* not ready yet */
       break;
     }

@@ -22,8 +22,8 @@
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/pack/fd_pack.h"
-#include "../../discof/backup/fd_backup.h"
-#include "../../discof/reasm/fd_reasm.h"
+#include "../backup/fd_snapmk_tile.h"
+#include "../reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/genesis_hash.h"
@@ -35,7 +35,6 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../repair/fd_repair_tile.h"
 #include "../repair/fd_repair_tile.h"
-#include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
@@ -2617,7 +2616,8 @@ snapmk_start( fd_replay_tile_t *  ctx,
 
 static void
 snapmk_done( fd_replay_tile_t *  ctx,
-             fd_stem_context_t * stem ) {
+             fd_stem_context_t * stem,
+             int                 success ) {
   (void)stem;
 
   FD_CHECK_CRIT( ctx->snapmk.active, "spurious snap complete msg (not creating snapshot)" );
@@ -2628,7 +2628,9 @@ snapmk_done( fd_replay_tile_t *  ctx,
   FD_CHECK_CRIT( bank->refcnt > 0UL, "invalid snapmk.bank_idx refcnt" );
 
   /* A completed full snapshot becomes the base of later incrementals. */
-  if( FD_LIKELY( !ctx->snapmk.incremental ) ) ctx->snapmk.base_slot = bank->f.slot;
+  if( FD_LIKELY( success && !ctx->snapmk.incremental ) ) {
+    ctx->snapmk.base_slot = bank->f.slot;
+  }
 
   bank->refcnt--;
   ctx->snapmk.active = 0;
@@ -2637,13 +2639,16 @@ snapmk_done( fd_replay_tile_t *  ctx,
 static void
 msg_snapmk( fd_replay_tile_t *  ctx,
             fd_stem_context_t * stem,
-            ulong               orig ) {
-  switch( orig ) {
-  case FD_BACKUP_ORIG_DONE:
-    snapmk_done( ctx, stem );
+            ulong               msg_type ) {
+  switch( msg_type ) {
+  case FD_SNAPMK_MSG_CREATED:
+    snapmk_done( ctx, stem, 1 );
+    break;
+  case FD_SNAPMK_MSG_FAILED:
+    snapmk_done( ctx, stem, 0 );
     break;
   default:
-    FD_LOG_ERR(( "unknown snapmk message (orig=%lu)", orig ));
+    break;
   }
 }
 
@@ -2861,7 +2866,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_SNAPMK:
-      msg_snapmk( ctx, stem, fd_frag_meta_ctl_orig( ctl ) );
+      msg_snapmk( ctx, stem, sig );
       break;
     case IN_KIND_ADMIN:
       msg_admin( ctx, stem, fd_frag_meta_ctl_orig( ctl ), sig );
@@ -3150,7 +3155,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
-    else if( !strcmp( link->name, "snapmk_replay" ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
+    else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
 
