@@ -3128,7 +3128,8 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
                             fd_ed25519_sig_t const * sig0 ) {
   ulong cnt = 0;
   ulong next = ULONG_MAX;
-  static fd_txn_e_t query_e = {0};
+
+  fd_txn_e_t query_e = {0};
   fd_memcpy( query_e.txnp[0].payload, sig0, FD_TXN_SIGNATURE_SZ );
   for( ulong idx = sig2txn_idx_query_const( pack->signature_map, &query_e, ULONG_MAX, pack->pool );
       idx!=ULONG_MAX; idx=next ) {
