@@ -61,6 +61,13 @@ newfstatat: (and (eq (arg 0) dir_fd)
 ftruncate: (and (>= (arg 0) pool_min_fd)
                 (<= (arg 0) pool_max_fd))
 
+# snapshot: "deleting" a snapshot truncates its pool file to zero
+# use co-operative locking to avoid rugging a user.
+fcntl: (and (>= (arg 0) pool_min_fd)
+            (<= (arg 0) pool_max_fd)
+            (or (eq (arg 1) "F_SETLK")
+                (eq (arg 1) "F_SETLKW")))
+
 # snapshot: a completed snapshot is renamed from its
 # ".snapshot-x<i>.partial" placeholder name to the final snapshot name,
 # and an evicted snapshot is renamed back to its placeholder name.
