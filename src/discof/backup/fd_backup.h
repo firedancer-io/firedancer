@@ -1,21 +1,21 @@
 #ifndef HEADER_fd_src_discof_backup_fd_backup_h
 #define HEADER_fd_src_discof_backup_fd_backup_h
 
-/* fd_backup.h produces Solana snapshots from Firedancer state. */
+/* fd_backup.h provides the internal ABI for snapshot production IPC. */
 
 #include "../restore/utils/fd_ssarchive.h"
 #include "../../util/archive/fd_tar.h"
 
-/* tango frag type in fd_frag_meta_t::ctl::orig */
+/* tango frag type in fd_frag_meta_t::ctl::orig
+   Used by links snapmk_zp, snaprd_mk. */
 #define FD_BACKUP_ORIG_START          1  /* mk->zp: start compressing */
 #define FD_BACKUP_ORIG_ACC_CACHE      2  /* mk->zp: pointers to cached account */
 #define FD_BACKUP_ORIG_ACC_DISK       3  /* mk->zp: disk offset to cold account */
 #define FD_BACKUP_ORIG_FLUSH          4  /* mk->zp: flush compress buffer */
 #define FD_BACKUP_ORIG_DONE           5  /* mk->zp: stop compressing; mk->replay: free bank_idx */
 #define FD_BACKUP_ORIG_ACC_DISK_BATCH 6  /* mk->zp: batch of cold accounts within one rd frag */
-#define FD_BACKUP_ORIG_DISK_START     7  /* mk->rd: start reading from disk */
-#define FD_BACKUP_ORIG_DISK_FRAG      8  /* rd->mk: accdb file frag */
-#define FD_BACKUP_ORIG_ACC_DELTA      9  /* mk->zp: address of account */
+#define FD_BACKUP_ORIG_DISK_FRAG      7  /* rd->mk: accdb file frag */
+#define FD_BACKUP_ORIG_ACC_DELTA      8  /* mk->zp: address of account */
 
 /* FD_BACKUP_CACHE_PARA controls the batch size of ultra-sparse random
    index lookups from acc_map.  Tunes memory-level parallelism settings
