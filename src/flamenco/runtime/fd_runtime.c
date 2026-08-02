@@ -965,11 +965,17 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* Set up the transaction accounts and other txn ctx metadata. This
      also resolves ALUT-referenced account keys and validates account
-     locks before accounts are acquired.  Bundle txns bind to the pool
-     acquired and validated once for the whole bundle by
-     fd_runtime_prepare_bundle_accounts and never acquire. */
+     locks before accounts are acquired.  Bundle transactions bind to
+     the pool acquired and validated once for the whole bundle by
+     fd_runtime_prepare_bundle_accounts() and never acquire on a
+     per-transaction basis.  However, the implicit programdata state
+     must be re-derived here per-transaction, and not once up front.  An
+     earlier bundle transaction can deploy a program, which changes
+     whether a pool account parses as a program account, and therefore
+     which PD account is being implicitly accounted for. */
   if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
     fd_executor_setup_accounts_for_txn_bundle( runtime, txn_in, txn_out );
+    err = fd_runtime_setup_bundle_executables( runtime, bank, txn_out );
   } else {
     err = fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
   }
@@ -1321,14 +1327,17 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   memset( txn_out->accounts.rm_vote, 0, sizeof(txn_out->accounts.rm_vote) );
   txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
 
-  /* For bundle txns the resolved key list and executable list (incl the
-     provenance/pd_write/skipped-size arrays) are bound once up-front by
-     fd_runtime_prepare_bundle_accounts (before this runs per-txn), so
-     preserve them here.  For a non-bundle txn they are rebuilt in
-     fd_executor_setup_accounts_for_txn, so reset them.
-     executable_cur_len needs no reset: it is written per-element for
-     every i in [0, executable_cnt) before any read (its sentinel is
-     ULONG_MAX, so a zero memset would be wrong anyway). */
+  /* For bundle transactions the resolved key list is bound once up
+     front by fd_runtime_prepare_bundle_accounts() before this runs per
+     transaction, so preserve it here.  The executable list is rebuilt
+     per transaction by fd_runtime_setup_bundle_executables(), which
+     sets every element it reports, so it needs no reset either.  For a
+     non-bundle transaction the executable list is built in
+     fd_executor_setup_accounts_for_txn(), which only writes the entries
+     it acquires, so reset it here.  executable_cur_len needs no reset:
+     it is written per-element for every i in [0, executable_cnt) before
+     any read (its sentinel is ULONG_MAX, so a zero memset would be
+     wrong anyway). */
   if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) {
     memset( txn_out->accounts.executable_from_parent, 0, sizeof(txn_out->accounts.executable_from_parent) );
     memset( txn_out->accounts.executable_pd_write,    0, sizeof(txn_out->accounts.executable_pd_write) );
@@ -1962,13 +1971,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   fd_pubkey_t   programdata_keys[ FD_BUNDLE_ACCT_MAX ];
   uchar const * pd_pubkeys      [ FD_BUNDLE_ACCT_MAX ];
   int           pd_writable     [ FD_BUNDLE_ACCT_MAX ];
-  int           pd_probe_write  [ FD_BUNDLE_ACCT_MAX ]; /* current-fork pd_write probe, per acquire_b pool entry */
-  ulong         pd_probe_len    [ FD_BUNDLE_ACCT_MAX ]; /* current-fork committed size (ULONG_MAX = no gen-match) */
-  ulong         pd_probe_lamports[ FD_BUNDLE_ACCT_MAX ]; /* current-fork committed lamports */
   ulong         pd_cnt = 0UL;
-  fd_pubkey_t   skip_keys[ FD_BUNDLE_ACCT_MAX ]; /* deployed-this-slot programdata: size-only accounting */
-  ulong         skip_lens[ FD_BUNDLE_ACCT_MAX ];
-  ulong         skip_cnt = 0UL;
 
   FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
 
@@ -1980,26 +1983,11 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
 
     fd_pubkey_t const * programdata_key = &program_loader_state->inner.program.programdata_address;
-    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
-      /* Deployed this slot: no parent copy to acquire, but Agave still
-         counts its current-fork size toward loaded-accounts-data-size
-         before the invoke fails.  Record for the binding loop below
-         (mirrors the single-txn skipped-key probe). */
-      int   skip_pd  = 0;
-      ulong skip_len = 0UL;
-      ulong skip_lamports = 0UL;
-      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len, &skip_lamports ) ) {
-        int dup = 0;
-        for( ulong u=0UL; u<skip_cnt; u++ ) if( FD_UNLIKELY( !memcmp( skip_keys[ u ].uc, programdata_key->uc, 32UL ) ) ) { dup = 1; break; }
-        if( !dup ) {
-          FD_TEST( skip_cnt<FD_BUNDLE_ACCT_MAX );
-          skip_keys[ skip_cnt ] = *programdata_key;
-          skip_lens[ skip_cnt ] = skip_len;
-          skip_cnt++;
-        }
-      }
-      continue;
-    }
+    /* PD is not live as of the parent, so there is nothing to acquire
+       from the parent.  We will still need its latest length for loaded
+       accounts data size, but that is taken care of per transaction by
+       fd_runtime_setup_bundle_executables() without acquiring. */
+    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) continue;
 
     /* Already part of the transaction account pool, or already queued. */
     if( reuse_bundle_executable( runtime, programdata_key ) ) continue;
@@ -2023,72 +2011,123 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   }
   runtime->accounts.executable_cnt = pd_cnt;
 
-  for( ulong u=0UL; u<pd_cnt; u++ ) {
-    int   pd  = 0;
-    ulong len = ULONG_MAX;
-    ulong lamports = 0UL;
-    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pd_pubkeys[ u ], &pd, &len, &lamports );
-    pd_probe_write[ u ] = pd;
-    pd_probe_len  [ u ] = len;
-    pd_probe_lamports[ u ] = lamports;
-  }
-
-  /* Bind each txn's BPF-upgradeable programdata accounts to the shared
-    pre-acquired pool, once and for all here.  This is the per-txn
-    executable list consumed during execution; computing it up-front
-    (instead of per-txn in fd_executor_setup_accounts_for_txn_bundle)
-    avoids redoing the program-state inspection on every txn.  The
-    accounts are looked up in the shared pool by key, since per-txn
-    account[] pointers are not bound until setup.  fd_runtime_new_txn_out
-    preserves these fields for bundle txns. */
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_out_t * txn_out = &txn_outs[ i ];
-    ushort         exe_cnt = 0;
-    txn_out->accounts.executable_skipped_cnt = 0;
-    for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {
-      fd_acc_t * acc = reuse_bundle_executable( runtime, &txn_out->accounts.keys[ j ] );
-      if( FD_UNLIKELY( !acc ) ) continue;
-      if( FD_UNLIKELY( memcmp( acc->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
-      fd_bpf_state_t program_loader_state[1];
-      if( FD_UNLIKELY( fd_bpf_loader_program_get_state( acc, program_loader_state )!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
-      if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
-
-      fd_acc_t * programdata = reuse_bundle_executable( runtime, &program_loader_state->inner.program.programdata_address );
-      if( FD_UNLIKELY( !programdata ) ) {
-        /* Deployed this slot (no parent copy, no pool binding): forward
-           the size-only record so fd_collect_loaded_account still counts
-           it, as Agave does before the DelayVisibility failure. */
-        for( ulong u=0UL; u<skip_cnt; u++ ) {
-          if( FD_UNLIKELY( !memcmp( skip_keys[ u ].uc, program_loader_state->inner.program.programdata_address.uc, 32UL ) ) ) {
-            ushort s = txn_out->accounts.executable_skipped_cnt++;
-            txn_out->accounts.executable_skipped_key[ s ] = skip_keys[ u ];
-            txn_out->accounts.executable_skipped_len[ s ] = skip_lens[ u ];
-            break;
-          }
-        }
-        continue;
-      }
-      int from_parent = ( programdata>=runtime->accounts.executable ) &&
-                        ( programdata< runtime->accounts.executable+runtime->accounts.executable_cnt ) &&
-                        ( bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val );
-      txn_out->accounts.executable[ exe_cnt ]             = programdata;
-      txn_out->accounts.executable_from_parent[ exe_cnt ] = from_parent;
-      if( from_parent ) {
-        ulong pool_idx = (ulong)( programdata - runtime->accounts.executable );
-        txn_out->accounts.executable_pd_write[ exe_cnt ]     = pd_probe_write[ pool_idx ];
-        txn_out->accounts.executable_cur_len[ exe_cnt ]      = pd_probe_len[ pool_idx ];
-        txn_out->accounts.executable_cur_lamports[ exe_cnt ] = pd_probe_lamports[ pool_idx ];
-      } else {
-        txn_out->accounts.executable_pd_write[ exe_cnt ]     = 0;
-        txn_out->accounts.executable_cur_len[ exe_cnt ]      = ULONG_MAX;
-        txn_out->accounts.executable_cur_lamports[ exe_cnt ] = 0UL;
-      }
-      exe_cnt++;
-    }
-    txn_out->accounts.executable_cnt = exe_cnt;
-  }
-
   return FD_RUNTIME_EXECUTE_SUCCESS;
 
 # undef FD_BUNDLE_ACCT_MAX
+}
+
+int
+fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
+                                     fd_bank_t *    bank,
+                                     fd_txn_out_t * txn_out ) {
+  FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
+
+  ushort exe_cnt = 0;
+  txn_out->accounts.executable_skipped_cnt = 0;
+  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+    /* The checks below mimic the ones in the non-bundle path.  The
+       difference is only the source of state as of this transaction.
+       Here it's from the live pool when possible, and in the non-bundle
+       path it's from the accdb. */
+    fd_acc_t * acc = txn_out->accounts.account[ i ]; /* This has gone through zero-lamport reset by fd_executor_setup_accounts_for_txn_bundle(). */
+    if( FD_LIKELY( memcmp( acc->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
+    fd_bpf_state_t program_loader_state[1];
+    if( FD_UNLIKELY( fd_bpf_loader_program_get_state( acc, program_loader_state )!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
+    if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
+
+    fd_pubkey_t const * programdata_key = &program_loader_state->inner.program.programdata_address;
+
+    /* Declared PD is charged as a plain top-level transaction account
+       and is preferred by fd_runtime_get_executable_account(). */
+    if( FD_UNLIKELY( fd_runtime_find_index_of_account( txn_out, programdata_key )!=ULONG_MAX ) ) continue;
+
+    fd_acc_t * programdata = reuse_bundle_executable( runtime, programdata_key );
+
+    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
+      /* PD is not live as of the parent.  Length only, and no
+         executable[] entry, so the loader reports "Program is not
+         deployed" exactly as the non-bundle path does.  The non-bundle
+         path takes the length from the latest accdb view committed on
+         this fork.  The equivalent here is the live pool copy, which an
+         earlier bundle transaction may have created, resized or
+         drained. */
+      ulong skip_len;
+      if( FD_LIKELY( programdata ) ) {
+        /* A dead PD must contribute nothing to loaded accounts data
+           size.  Like every other consumer, the lamports need to be
+           checked first.  The pool copy that programdata points to has
+           an up to date lamports, but it is not necessarily otherwise
+           normalized: zero length, non-executable, and system-owned.
+           The reset in setup_accounts_for_txn_bundle() only covers the
+           declared accounts of the transaction.  If PD were declared,
+           it would have short circuited above.  So an in-bundle Close
+           leaves PD here at zero lamports with length at
+           SIZE_OF_UNINITIALIZED. */
+        skip_len = programdata->lamports ? programdata->data_len : 0UL;
+      } else {
+        /* At this point, this PD
+           - has no pool copy, so no bundle transaction declares PD, and
+           - it is not live on the parent.
+
+           So PD was created this slot by something outside the bundle,
+           and only the latest accdb view has the length we need for
+           accounting. */
+        int   probe_pd  = 0;
+        ulong probe_len = 0UL;
+        ulong probe_lamports = 0UL;
+        if( FD_UNLIKELY( !fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &probe_pd, &probe_len, &probe_lamports ) ) ) continue;
+        skip_len = probe_len;
+      }
+      ushort s = txn_out->accounts.executable_skipped_cnt++;
+      txn_out->accounts.executable_skipped_key[ s ] = *programdata_key;
+      txn_out->accounts.executable_skipped_len[ s ] = skip_len;
+      continue;
+    }
+
+    /* At this point, PD exists in the parent.  So prepare() must have
+       acquired PD, either in accounts[] if a bundle transaction
+       declares it, or in executable[] aka implied load from the parent.
+       A miss would imply that a pool account only began parsing as
+       Program{PD} after prepare() computed the acquire set, naming a PD
+       no bundle transaction declares.  This should not be possible,
+       because only the DeployWithMaxDataLen instruction writes
+       Program{PD}.  The instruction declares PD, and its CreateAccount
+       CPI cannot succeed against a PD that is already live on the
+       parent.  We cannot acquire the PD at this point, since a
+       mid-bundle acquire of an account the bundle might be holding as
+       writable would violate the accdb acquire contract.  So fail the
+       bundle. */
+    if( FD_UNLIKELY( !programdata ) ) {
+      FD_BASE58_ENCODE_32_BYTES( programdata_key->uc, pd_str );
+      FD_BASE58_ENCODE_64_BYTES( txn_out->details.signature.uc, sig_str );
+      FD_LOG_INFO(( "dropping bundle: bundle txn %s in slot %lu implies unacquired programdata %s", sig_str, bank->f.slot, pd_str ));
+      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+    }
+
+    int from_parent = ( programdata>=runtime->accounts.executable ) &&
+                      ( programdata< runtime->accounts.executable+runtime->accounts.executable_cnt ) &&
+                      ( bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val );
+    txn_out->accounts.executable[ exe_cnt ]             = programdata;
+    txn_out->accounts.executable_from_parent[ exe_cnt ] = from_parent;
+    if( from_parent ) {
+      /* A from_parent copy is one no bundle transaction declared, hence
+         one no bundle transaction could have modified, because mutating
+         PD requires declaring it writable.  So the probe from accdb
+         reports the latest state that we need. */
+      int   pd  = 0;
+      ulong len = ULONG_MAX;
+      ulong lamports = 0UL;
+      fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &pd, &len, &lamports );
+      txn_out->accounts.executable_pd_write    [ exe_cnt ] = pd;
+      txn_out->accounts.executable_cur_len     [ exe_cnt ] = len;
+      txn_out->accounts.executable_cur_lamports[ exe_cnt ] = lamports;
+    } else {
+      txn_out->accounts.executable_pd_write    [ exe_cnt ] = 0;
+      txn_out->accounts.executable_cur_len     [ exe_cnt ] = ULONG_MAX;
+      txn_out->accounts.executable_cur_lamports[ exe_cnt ] = 0UL;
+    }
+    exe_cnt++;
+  }
+  txn_out->accounts.executable_cnt = exe_cnt;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }

@@ -787,7 +787,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     ulong out_sz = 0UL;
     FD_TEST( !fd_bpf_state_encode( &state, program_data_buf, SIZE_OF_PROGRAM, &out_sz ) );
   }
-  create_test_account( env->mini->runtime->accdb, env->fork_id, &program_key, 1000000UL,
+  create_test_account( env->mini->runtime->accdb, env->bank->parent_accdb_fork_id, &program_key, 1000000UL,
                        SIZE_OF_PROGRAM, program_data_buf,
                        &fd_solana_bpf_loader_upgradeable_program_id );
 
@@ -803,7 +803,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     ulong out_sz = 0UL;
     FD_TEST( !fd_bpf_state_encode( &state, programdata_data_buf, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   }
-  create_test_account( env->mini->runtime->accdb, env->fork_id, &programdata_key, 1000000UL,
+  create_test_account( env->mini->runtime->accdb, env->bank->parent_accdb_fork_id, &programdata_key, 1000000UL,
                        PROGRAMDATA_METADATA_SIZE, programdata_data_buf,
                        &fd_solana_bpf_loader_upgradeable_program_id );
 
