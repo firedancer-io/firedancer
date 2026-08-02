@@ -357,7 +357,7 @@ telemetry = true
 # transactions since genesis, just those since a recent snapshot.
 #
 # Firedancer supports creating, downloading, and unpacking snapshots.
-# It does not yet support serving snapshots to other nodes.
+# It can also serve snapshots to other nodes via a HTTP file server.
 [snapshots]
     # Whether to enable loading from incremental snapshots.
     #
@@ -542,6 +542,47 @@ telemetry = true
             # if a peer is frequently selected by the automatic logic
             # but does not yield successful / usable snapshots.
             block_list = []
+
+    # Configures the embedded HTTP file server used to serve snapshots
+    # to other nodes.
+    [snapshots.server]
+        # True if the snapshot server should be enabled.
+        # The snapshot server requires at least Linux 6.7.
+        enabled = false
+
+        # The IP address to listen on.  By default, this is the same as
+        # [tiles.rpc].rpc_listen_address.
+        #
+        # Exposing the snapshot server to the internet from a production
+        # validator is not recommended as it increases the attack
+        # surface of the validator.  It also allows arbitrary peers to
+        # connect to your validator and waste resources on snapshot
+        # downloads.
+        http_listen_address = ""
+
+        # The TCP port to listen on.
+        # Firedancer runs a HTTP/1.1 server supporting Range requests on
+        # this port.
+        http_listen_port = 8902
+
+        # The maximum number of concurrent snapshot downloads to allow.
+        max_http_connections = 128
+
+        # When no valid snapshot requests are seen on a HTTP connection
+        # for longer than the specified duration, the HTTP connection is
+        # gracefully closed.  Allowed range: [100,60000).
+        idle_timeout_millis = 1000
+
+        # When a snapshot download is stuck without making progress for
+        # longer than the specified duration (in milliseconds), the
+        # HTTP connection is aborted.  Allowed range: [100,60000).
+        send_timeout_millis = 10000
+
+        # Per-connection buffer size for outgoing snapshot data.
+        # Two buffers of this size are used per connection (one for
+        # reading snapshot data, one for sending).  Larger values result
+        # in more memory use.  Must be a power of two.
+        send_buffer_size_kib = 64
 
 [consensus]
     # The shred version is a small hash of the genesis block and any
@@ -935,6 +976,13 @@ telemetry = true
     # consume CPU when idle.  If set to 0, snapshot creation and all
     # associated tiles are disabled.
     snapzp_tile_count = 6
+
+    # How many snapshot server tiles to run.  These tiles do not consume
+    # CPU when idle.
+    snapsv_tile_count = 1
+
+    # How many snapshot server io_uring worker kernel threads to run.
+    snapsv_io_worker_count = 1
 
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network

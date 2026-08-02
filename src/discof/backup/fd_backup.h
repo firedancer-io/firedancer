@@ -48,8 +48,9 @@
    recycled by truncating and renaming it. */
 
 #define FD_SNAP_FD_BASE (200000)
-#define FD_SNAP_FD(     i ) (FD_SNAP_FD_BASE                 +(int)(i))
-#define FD_SNAP_DIO_FD( i ) (FD_SNAP_FD_BASE+(int)FD_SNAP_MAX+(int)(i))
+#define FD_SNAP_FD(     i ) (FD_SNAP_FD_BASE                     +(int)(i))
+#define FD_SNAP_DIO_FD( i ) (FD_SNAP_FD_BASE+   (int)FD_SNAP_MAX +(int)(i))
+#define FD_SNAP_RO_FD(  i ) (FD_SNAP_FD_BASE+(2*(int)FD_SNAP_MAX)+(int)(i))
 
 /* fd_backup_inode_t annotates a snapshot file descriptor. */
 

@@ -112,6 +112,8 @@ struct fd_configf {
     uint execle_tile_count;
     uint execrp_tile_count;
     uint snapzp_tile_count;
+    uint snapsv_tile_count;
+    uint snapsv_io_worker_count;
   } layout;
 
   struct {
@@ -159,6 +161,16 @@ struct fd_configf {
     ulong full_snapshot_interval_slots;
     ulong incremental_snapshot_interval_slots;
     ulong max_incremental_snapshot_accounts;
+
+    struct {
+      int enabled;
+      char http_listen_address[ 64 ];
+      uint http_listen_port;
+      ulong max_http_connections;
+      ulong idle_timeout_millis;
+      ulong send_timeout_millis;
+      ulong send_buffer_size_kib;
+    } server;
   } snapshots;
 
   struct {

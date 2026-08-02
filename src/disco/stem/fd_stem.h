@@ -15,6 +15,7 @@ struct fd_stem_context {
    ulong             cr_decrement_amount;
    int *             out_reliable;
    ulong const *     cons_seq;
+   struct fd_stem_tile_in * in;
 };
 
 typedef struct fd_stem_context fd_stem_context_t;

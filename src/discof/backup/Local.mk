@@ -1,6 +1,6 @@
 $(call add-objs,fd_snap_pool,fd_discof)
 ifdef FD_HAS_ATOMIC
-$(call add-objs,fd_snapmk_tile fd_snapzp_tile fd_snaprd_tile,fd_discof)
+$(call add-objs,fd_snapmk_tile fd_snapzp_tile fd_snaprd_tile fd_snapsv_tile,fd_discof)
 $(call add-objs,fd_backup_cache,fd_discof)
 endif
 $(call add-objs,fd_ssmanifest_writer fd_txncache_writer,fd_discof)

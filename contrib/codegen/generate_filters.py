@@ -52,6 +52,8 @@ SYSCALL_ARGS = {
     "getdents64":      (  "int", "long",   "int",   None,   None,    None  ),
     "getsockopt":      (  "int",  "int",   "int", "long", "long",    None  ),
     "ioctl":           (  "int",  "int",  "long",   None,   None,    None  ),
+    "io_uring_enter":  (  "int",  "int",   "int",  "int", "long",   "int"  ),
+    "io_uring_register": ("int",  "int",  "long",  "int",   None,    None  ),
     "kill":            (  "int",  "int",    None,   None,   None,    None  ),
     "lseek":           (  "int", "long",   "int",   None,   None,    None  ),
     "madvise":         ( "long", "long",   "int",   None,   None,    None  ),

@@ -363,11 +363,13 @@ main_pid_namespace( void * _args ) {
   }
 
   initialize_accdb_fd( config );
-  ulong snap_max             = 0UL;
-  int   snapshot_dio_enabled = 0;
+  ulong snap_max                = 0UL;
+  int   snapshot_upload_enabled = 0;
+  int   snapshot_dio_enabled    = 0;
   if( config->is_firedancer ) {
-    snap_max             = initialize_snapshot_fds( config );
-    snapshot_dio_enabled = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
+    snap_max                = initialize_snapshot_fds( config );
+    snapshot_upload_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
+    snapshot_dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
   }
 
   struct spawn_cgroup spawn_cg = {0};
@@ -430,11 +432,16 @@ main_pid_namespace( void * _args ) {
         int tile_uses_snap_fd     = !strcmp( tile->name, "snapct" ) ||
                                     !strcmp( tile->name, "snapmk" );
         int tile_uses_snap_dio_fd = !strcmp( tile->name, "snapzp" );
+        int tile_uses_snap_rd_fd  = !strcmp( tile->name, "snapsv" );
         for( ulong j=0UL; j<snap_max; j++ ) {
           if( FD_UNLIKELY( -1==fcntl( FD_SNAP_FD( j ), F_SETFD, tile_uses_snap_fd ? 0 : FD_CLOEXEC ) ) )
             FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           if( snapshot_dio_enabled ) {
             if( FD_UNLIKELY( -1==fcntl( FD_SNAP_DIO_FD( j ), F_SETFD, tile_uses_snap_dio_fd ? 0 : FD_CLOEXEC ) ) )
+              FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          }
+          if( snapshot_upload_enabled ) {
+            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_RO_FD( j ), F_SETFD, tile_uses_snap_rd_fd ? 0 : FD_CLOEXEC ) ) )
               FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
         }
@@ -478,6 +485,8 @@ main_pid_namespace( void * _args ) {
       if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( snapshot_dio_enabled )
         if( FD_UNLIKELY( -1==close( FD_SNAP_DIO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( snapshot_upload_enabled )
+        if( FD_UNLIKELY( -1==close( FD_SNAP_RO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
 
@@ -1062,7 +1071,8 @@ initialize_snapshot_fds( config_t const * config ) {
                          (config->firedancer.snapshots.sources.gossip.allow_any ||
                           config->firedancer.snapshots.sources.gossip.allow_list_cnt ||
                           config->firedancer.snapshots.sources.servers_cnt);
-  int dio_enabled = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
+  int upload_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
+  int dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
   fd_snap_pool_layout_t layout = fd_snap_pool_layout( config->firedancer.snapshots.max_full_snapshots_to_keep,
                                                       config->firedancer.snapshots.max_incremental_snapshots_to_keep,
                                                       config->firedancer.snapshots.incremental_snapshots,
@@ -1174,6 +1184,13 @@ initialize_snapshot_fds( config_t const * config ) {
       if( FD_UNLIKELY( -1==dio_fd ) ) FD_LOG_ERR(( "openat(%s/%s, O_DIRECT) failed (%i-%s)", snap_dir, inode->name, errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==dup2( dio_fd, FD_SNAP_DIO_FD( i ) ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==close( dio_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
+    if( upload_enabled ) {
+      int ro_fd = openat( dir_fd, inode->name, O_RDONLY|O_NOFOLLOW );
+      if( FD_UNLIKELY( -1==ro_fd ) ) FD_LOG_ERR(( "openat(%s/%s, O_RDONLY) failed (%i-%s)", snap_dir, inode->name, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==dup2( ro_fd, FD_SNAP_RO_FD( i ) ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
 

@@ -79,6 +79,9 @@
    Asserted at init.  Sizes the per-link snaprd-seq shadow rings. */
 #define FD_SNAPMK_ZP_DEPTH 1024
 
+/* Max number of reliable snapmk_out consumers */
+#define SNAPMK_OUT_CONS_MAX 64
+
 /* SNAPMK_STEM_BURST: number of snapmk_out frags published in one event
    loop cycle (snapmk_zp links are exempt) */
 #define SNAPMK_STEM_BURST 3UL
@@ -154,6 +157,10 @@ struct fd_snapmk {
     ulong  chunk;
     ulong  chunk0;
     ulong  wmark;
+
+    ulong const * cons_fseq[ SNAPMK_OUT_CONS_MAX ];
+    ulong         cons_cnt;
+    ulong *       seq_prod;
   } out;
 
   ulong zp_rr_idx; /* round-robin cursor over zp out links */
@@ -452,6 +459,20 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.mem, out_link->dcache );
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.mem, out_link->dcache, out_link->mtu );
   ctx->out.chunk  = ctx->out.chunk0;
+
+  FD_TEST( out_link->mcache );
+  ctx->out.seq_prod = fd_mcache_seq_laddr( out_link->mcache );
+  ctx->out.cons_cnt = 0UL;
+  for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+    fd_topo_tile_t const * consumer = &topo->tiles[ j ];
+    for( ulong k=0UL; k<consumer->in_cnt; k++ ) {
+      if( FD_LIKELY( consumer->in_link_id[ k ]!=tile->out_link_id[ ctx->out.out_idx ] ) ) continue;
+      if( FD_UNLIKELY( !consumer->in_link_reliable[ k ] ) ) continue;
+      FD_CHECK_ERR( ctx->out.cons_cnt<SNAPMK_OUT_CONS_MAX, "too many snapmk_out consumers" );
+      FD_TEST( consumer->in_link_fseq[ k ] );
+      ctx->out.cons_fseq[ ctx->out.cons_cnt++ ] = consumer->in_link_fseq[ k ];
+    }
+  }
 
   ctx->zst = ZSTD_initStaticCStream( _zstd, ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   FD_TEST( ctx->zst );
@@ -1126,6 +1147,19 @@ snapmk_msg_alloc( fd_snapmk_t * ctx ) {
   return fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
 }
 
+/* wake all reliable consumers by unconditionally waking them (snapsv
+   tiles).  This is inefficient (does a FUTEX_WAKE syscall), but
+   acceptable given the very low frag production rate.  */
+
+static void
+snapmk_out_wake( fd_snapmk_t *       ctx,
+                 fd_stem_context_t * stem ) {
+  fd_mcache_seq_update( ctx->out.seq_prod, stem->seqs[ ctx->out.out_idx ] );
+  if( FD_UNLIKELY( -1==syscall( SYS_futex, (uint *)ctx->out.seq_prod, FUTEX_WAKE, INT_MAX, NULL, NULL, 0 ) ) ) {
+    FD_LOG_ERR(( "FUTEX_WAKE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
 /* snapmk_msg_publish publishes a msg and frag on snapmk_out. */
 
 static void
@@ -1146,6 +1180,7 @@ snapmk_msg_publish( fd_snapmk_t *       ctx,
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->out.out_idx, msg_type, chunk, sz, 0UL, 0UL, tspub );
   ctx->out.chunk = fd_dcache_compact_next( chunk, sz, ctx->out.chunk0, ctx->out.wmark );
+  snapmk_out_wake( ctx, stem );
 }
 
 /* after_credit runs every run loop iteration, provided that all out
@@ -1297,6 +1332,7 @@ after_credit( fd_snapmk_t *       ctx,
       *msg = (fd_snapmk_msg_created_t) {
         .slot      = ctx->bank->f.slot,
         .base_slot = ctx->incremental ? ctx->base_slot : ULONG_MAX,
+        .sz        = ctx->final_sz,
         .pool_idx  = ctx->snap_idx
       };
       fd_cstr_ncpy( msg->name, ctx->final_name, sizeof(msg->name) );
@@ -1340,9 +1376,9 @@ after_credit( fd_snapmk_t *       ctx,
     };
     fd_cstr_ncpy( msg->name, inode->name, sizeof(msg->name) );
     struct stat st;
-    if( FD_LIKELY( 0==fstat( FD_SNAP_FD( snap_idx ), &st ) ) ) {
-      msg->fs_timestamp = ((long)st.st_mtim.tv_sec*(long)1e9) + (long)st.st_mtim.tv_nsec;
-    }
+    if( FD_UNLIKELY( 0!=fstat( FD_SNAP_FD( snap_idx ), &st ) ) ) break;
+    msg->sz           = (ulong)st.st_size;
+    msg->fs_timestamp = ((long)st.st_mtim.tv_sec*(long)1e9) + (long)st.st_mtim.tv_nsec;
     snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_FOUND );
     break;
   }

@@ -2043,4 +2043,12 @@ EXAMPLES
     <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
 </tile>
 
+<tile name="snapsv">
+    <gauge name="SnapshotsAvailable" enum="SnapType" summary="Number of snapshot files currently available for download" />
+    <counter name="HttpRequestServed" summary="Number of HTTP requests served" />
+    <gauge name="ConnActive" summary="The number of active HTTP connections to the snapshot service" />
+    <counter name="BytesRead" summary="Bytes read from all requests to the snapshot service" />
+    <counter name="BytesWritten" summary="Bytes written to all responses on the snapshot service" />
+</tile>
+
 </metrics>
