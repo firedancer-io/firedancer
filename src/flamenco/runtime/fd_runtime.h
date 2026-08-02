@@ -406,6 +406,37 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
                                     fd_txn_out_t *      txn_outs,
                                     ulong               txn_cnt );
 
+/* Sets up txn_out's implicit loader v3 programdata list for conformant
+   loader semantics and loaded account data size accounting.  An
+   implicit loader v3 PD may either be bound against the shared bundle
+   account pool acquired by fd_runtime_prepare_bundle_accounts(), or be
+   probed against the current accdb fork, depending on its liveness and
+   declaration.
+
+   This must be called for every bundle transaction, at that
+   transaction's setup, and not once up front for the whole bundle.
+   Whether a pool account parses as UpgradeableLoaderState::Program, and
+   hence which programdata account the transaction implicitly loads, can
+   change during the bundle, because an earlier bundle transaction can
+   deploy a program.  Deriving the list up front would cause a bundle
+   transaction following an in-bundle deploy to charge nothing for the
+   implied programdata, where a replay of the same transactions would
+   charge 64+programdata length.  This must be called after
+   fd_executor_setup_accounts_for_txn_bundle() because it must observe
+   the zero-lamport reset, which causes an account to be zero length,
+   non-executable, and system-owned.
+
+   This only ever binds to accounts the once-per-bundle prepare()
+   already acquired, so it acquires nothing and cannot deadlock.
+   Returns FD_RUNTIME_EXECUTE_SUCCESS on success, or a txn error if the
+   binding could not be maintained, in which case the caller must not
+   commit the bundle. */
+
+int
+fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
+                                     fd_bank_t *    bank,
+                                     fd_txn_out_t * txn_out );
+
 /* fd_runtime_fini_bundle must be called unconditionally after
    attempting to execute a bundle regardless of success or failure.
    Under the hood it is responsible for freeing any account references
