@@ -297,22 +297,59 @@ fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
                        uint               address,
                        ushort             port ) {
-  int sockfd = socket( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 );
+  fd_ip6_addr_t addr6 = {0};
+  fd_ip6_addr_ip4_mapped( addr6.addr, address );
+  return fd_http_server_listen6( http, &addr6, port );
+}
+
+fd_http_server_t *
+fd_http_server_listen6( fd_http_server_t *    http,
+                        fd_ip6_addr_t const * address,
+                        ushort                port ) {
+  /* An IPv4 address is served by an AF_INET socket, anything else by a
+     dual stack AF_INET6 socket */
+  int ip4 = fd_ip6_addr_is_ip4_mapped( address->addr ) && !address->scope_id;
+
+  int sockfd = socket( ip4 ? AF_INET : AF_INET6, SOCK_STREAM | SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
 
   int optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
     FD_LOG_ERR(( "setsockopt failed (%i-%s)", errno, strerror( errno ) ));
 
-  struct sockaddr_in addr = {
-    .sin_family      = AF_INET,
-    .sin_port        = fd_ushort_bswap( port ),
-    .sin_addr.s_addr = address,
-  };
+  union {
+    struct sockaddr_in  ip4;
+    struct sockaddr_in6 ip6;
+  } addr = {0};
+  ulong addr_sz;
 
-  if( FD_UNLIKELY( -1==bind( sockfd, fd_type_pun( &addr ), sizeof( addr ) ) ) ) {
-    FD_LOG_ERR(( "bind(%i,AF_INET," FD_IP4_ADDR_FMT ":%u) failed (%i-%s)",
-                 sockfd, FD_IP4_ADDR_FMT_ARGS( address ), port,
+  if( ip4 ) {
+    addr.ip4 = (struct sockaddr_in){
+      .sin_family      = AF_INET,
+      .sin_port        = fd_ushort_bswap( port ),
+      .sin_addr.s_addr = fd_ip6_addr_to_ip4( address->addr ),
+    };
+    addr_sz = sizeof(struct sockaddr_in);
+  } else {
+    /* Accept IPv4 clients too (as IPv4-mapped peers) if the socket is
+       bound to the wildcard address */
+    int v6only = 0;
+    if( FD_UNLIKELY( -1==setsockopt( sockfd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof( v6only ) ) ) )
+      FD_LOG_ERR(( "setsockopt(IPV6_V6ONLY) failed (%i-%s)", errno, strerror( errno ) ));
+
+    addr.ip6 = (struct sockaddr_in6){
+      .sin6_family   = AF_INET6,
+      .sin6_port     = fd_ushort_bswap( port ),
+      .sin6_scope_id = address->scope_id,
+    };
+    memcpy( addr.ip6.sin6_addr.s6_addr, address->addr, 16UL );
+    addr_sz = sizeof(struct sockaddr_in6);
+  }
+
+  if( FD_UNLIKELY( -1==bind( sockfd, fd_type_pun( &addr ), (uint)addr_sz ) ) ) {
+    char addr_cstr[ FD_IP6_ADDR_CSTR_MAX ];
+    FD_LOG_ERR(( "bind(%i,%s:%u) failed (%i-%s)",
+                 sockfd, fd_ip6_addr_cstr( addr_cstr, address ), port,
                  errno, fd_io_strerror( errno ) ));
   }
   if( FD_UNLIKELY( -1==listen( sockfd, (int)http->max_conns ) ) ) FD_LOG_ERR(( "listen failed (%i-%s)", errno, fd_io_strerror( errno ) ));

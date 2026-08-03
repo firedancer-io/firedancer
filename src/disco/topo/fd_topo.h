@@ -7,6 +7,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../util/net/fd_ip6.h"
 #include "../pack/fd_pack.h" /* for FD_PACK_ACCT_BLOCKLIST_MAX */
 
 /* Maximum number of workspaces that may be present in a topology. */
@@ -403,7 +404,7 @@ struct fd_topo_tile {
     } gui;
 
     struct {
-      uint   listen_addr;
+      fd_ip6_addr_t listen_addr;
       ushort listen_port;
 
       ulong max_http_connections;

@@ -487,7 +487,7 @@ struct fd_config {
 
     struct {
       int    enabled;
-      char   rpc_listen_address[ 16 ];
+      char   rpc_listen_address[ 64 ];
       ushort rpc_listen_port;
       ulong  max_http_connections;
       ulong  max_websocket_connections;

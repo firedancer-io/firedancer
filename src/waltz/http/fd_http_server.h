@@ -30,6 +30,7 @@
    progress. */
 
 #include "../../util/fd_util_base.h"
+#include "../../util/net/fd_ip6.h"
 
 #define FD_HTTP_SERVER_ALIGN       (128UL)
 
@@ -288,10 +289,25 @@ fd_http_server_delete( void * shhttp );
 int
 fd_http_server_fd( fd_http_server_t * http );
 
+/* fd_http_server_listen binds and listens on the given IPv4 address
+   and port.  Logs an error and exits the process on failure. */
+
 fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
                        uint               address,
                        ushort             port );
+
+/* fd_http_server_listen6 binds and listens on the given IPv6 address
+   and port.  Logs an error and exits the process on failure.
+
+   An IPv4-mapped address without a zone ID creates an AF_INET socket,
+   any other address creates a dual stack AF_INET6 socket, which also
+   accepts IPv4 clients if bound to the wildcard address (::). */
+
+fd_http_server_t *
+fd_http_server_listen6( fd_http_server_t *    http,
+                        fd_ip6_addr_t const * address,
+                        ushort                port );
 
 /* Close an active connection.  The connection ID must be an open
    open connection in [0, max_connection_cnt).  The connection will
