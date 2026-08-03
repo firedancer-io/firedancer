@@ -468,7 +468,7 @@ fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
   fd_accdb_partition_t * partition_pool = (fd_accdb_partition_t *)( (uchar *)accdb + accdb->partition_pool_off );
   fd_accdb_partition_t * partition = partition_pool_ele( partition_pool, partition_idx );
 
-  if( FD_UNLIKELY( partition->bytes_freed<(accdb->partition_sz*3UL/10UL) ) ) return;
+  if( FD_UNLIKELY( partition->bytes_freed<(accdb->partition_sz*FD_ACCDB_COMPACTION_THRESHOLD_PCT/100UL) ) ) return;
   if( FD_UNLIKELY( partition->marked_compaction ) ) return;
 
   /* While a snapshot load is in flight, defer all compaction so the
@@ -516,7 +516,7 @@ fd_accdb_shmem_bytes_freed( fd_accdb_shmem_t * accdb,
 
   /* Fast-path exit: skip the lock if clearly below threshold or
      already enqueued. */
-  if( FD_LIKELY( partition->bytes_freed<(accdb->partition_sz*3UL/10UL) ) ) return;
+  if( FD_LIKELY( partition->bytes_freed<(accdb->partition_sz*FD_ACCDB_COMPACTION_THRESHOLD_PCT/100UL) ) ) return;
   if( FD_UNLIKELY( partition->marked_compaction ) ) return;
 
   spin_lock_acquire( &accdb->partition_lock );

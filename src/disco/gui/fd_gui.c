@@ -123,10 +123,11 @@ fd_gui_new( void *                   shmem,
   gui->summary.egress_maxq  = fd_gui_rate_deque_join( fd_gui_rate_deque_new( egress_maxq_mem  ) );
 
   gui->summary.network_stats_has_prev = 0;
-  gui->summary.net_rate_ema_ready     = 0;
   gui->summary.net_rate_prev_ts       = 0L;
-  fd_memset( gui->summary.ingress_ema, 0, sizeof(gui->summary.ingress_ema) );
-  fd_memset( gui->summary.egress_ema,  0, sizeof(gui->summary.egress_ema)  );
+  for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) {
+    fd_gui_ema_init( &gui->summary.ingress_ema[ i ], now, FD_GUI_NETWORK_EMA_HALF_LIFE_NS );
+    fd_gui_ema_init( &gui->summary.egress_ema [ i ], now, FD_GUI_NETWORK_EMA_HALF_LIFE_NS );
+  }
 
   gui->leader_active = 0;
 
@@ -280,6 +281,13 @@ fd_gui_new( void *                   shmem,
   memset( gui->summary.accdb->partition_prev_bytes_read,     0, sizeof(gui->summary.accdb->partition_prev_bytes_read)     );
   memset( gui->summary.accdb->partition_prev_write_ops,      0, sizeof(gui->summary.accdb->partition_prev_write_ops)      );
   memset( gui->summary.accdb->partition_prev_bytes_written,  0, sizeof(gui->summary.accdb->partition_prev_bytes_written)  );
+  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+    fd_gui_ema_init( &gui->summary.accdb->tier_fill_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
+    fd_gui_ema_init( &gui->summary.accdb->tier_free_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
+  }
+  gui->summary.accdb->tier_sample_nanos              = LONG_MAX;
+  gui->summary.accdb->next_compaction_remaining_secs = 0.0;
+  gui->summary.accdb->next_compaction_partition_idx  = ULONG_MAX;
 
   /* Build the per-tile accdb slot table from the topology.  Order
      matters only for stable JSON ordering: RW joiners first, RO
@@ -765,15 +773,9 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
       double rate_in  = (double)d_in[ i ]  / dt_sec;
       double rate_out = (double)d_out[ i ] / dt_sec;
 
-      if( FD_UNLIKELY( !gui->summary.net_rate_ema_ready ) ) {
-        gui->summary.ingress_ema[ i ] = rate_in;
-        gui->summary.egress_ema[ i ]  = rate_out;
-      } else {
-        gui->summary.ingress_ema[ i ] = fd_gui_ema( gui->summary.net_rate_prev_ts, now, rate_in,  gui->summary.ingress_ema[ i ], FD_GUI_NETWORK_EMA_HALF_LIFE_NS );
-        gui->summary.egress_ema[ i ]  = fd_gui_ema( gui->summary.net_rate_prev_ts, now, rate_out, gui->summary.egress_ema[ i ],  FD_GUI_NETWORK_EMA_HALF_LIFE_NS );
-      }
+      fd_gui_ema_advance( &gui->summary.ingress_ema[ i ], now, rate_in  );
+      fd_gui_ema_advance( &gui->summary.egress_ema [ i ], now, rate_out );
     }
-    gui->summary.net_rate_ema_ready = 1;
   }
   gui->summary.net_rate_prev_ts = now;
 
@@ -786,12 +788,12 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
      Insert:  pop tail entries whose value <= new value (they can
               never become the maximum), then push the new entry.
      Expire:  pop head entries older than 5 minutes. */
-  if( FD_LIKELY( gui->summary.net_rate_ema_ready ) ) {
+  if( FD_LIKELY( gui->summary.ingress_ema[ 0 ].last_update_nanos ) ) {
     double sum_in  = 0.0;
     double sum_out = 0.0;
     for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) {
-      sum_in  += gui->summary.ingress_ema[ i ];
-      sum_out += gui->summary.egress_ema[ i ];
+      sum_in  += gui->summary.ingress_ema[ i ].value;
+      sum_out += gui->summary.egress_ema[ i ].value;
     }
 
     while( !fd_gui_rate_deque_empty( gui->summary.ingress_maxq ) && fd_gui_rate_deque_peek_head_const( gui->summary.ingress_maxq )->ts_nanos<now-FD_GUI_NET_RATE_MAX_WINDOW_NS ) {
@@ -985,6 +987,91 @@ fd_gui_accounts_stats_snap( fd_gui_t *                gui,
     gui->summary.accdb->tile_cur_committed        [ s ] = t_committed;
     gui->summary.accdb->tile_cur_acquire_calls    [ s ] = t_acquire_calls;
   }
+
+  if( FD_UNLIKELY( !gui->accdb_shmem ) ) return;
+
+  /* Snapshot per-partition utilization and fragmentation and also
+     their respective per-tier rate of growth. Actively-compacting
+     partitions excluded so relocation churn does not degrade estimates. */
+  ulong pcnt = fd_ulong_min( fd_accdb_shmem_partition_max( gui->accdb_shmem ), FD_GUI_MAX_PARTITIONS );
+  gui->summary.accdb->partition_cnt = pcnt;
+
+  double tier_fill_delta[ FD_ACCDB_COMPACTION_LAYER_CNT ] = { 0.0 };
+  double tier_free_delta[ FD_ACCDB_COMPACTION_LAYER_CNT ] = { 0.0 };
+  ulong  compaction_idx   = ULONG_MAX;
+  ulong  compaction_layer = FD_ACCDB_COMPACTION_LAYER_CNT;
+  ulong  compaction_state = 0UL;
+  for( ulong p=0UL; p<pcnt; p++ ) {
+    fd_accdb_shmem_partition_info_t   prev_info =  gui->summary.accdb->partitions[ p ];
+    fd_accdb_shmem_partition_info_t * info      = &gui->summary.accdb->partitions[ p ];
+    fd_accdb_shmem_partition_info( gui->accdb_shmem, p, info );
+
+    if( FD_UNLIKELY( info->compaction_state && ( compaction_state<info->compaction_state || ( compaction_state==info->compaction_state && info->layer<compaction_layer ) ) ) ) {
+      compaction_idx   = p;
+      compaction_layer = info->layer;
+      compaction_state = info->compaction_state;
+    }
+
+    if( FD_LIKELY( info->layer<FD_ACCDB_COMPACTION_LAYER_CNT ) ) {
+      /* Only the <=3 write-head partitions advance, and freed bytes
+         land in a handful of partitions per 100ms snap. */
+      if( FD_UNLIKELY( info->write_offset>prev_info.write_offset ) )
+        tier_fill_delta[ info->layer ] += (double)(info->write_offset-prev_info.write_offset);
+      if( FD_UNLIKELY( info->compaction_state!=2 && info->bytes_freed>prev_info.bytes_freed ) )
+        tier_free_delta[ info->layer ] += (double)(info->bytes_freed-prev_info.bytes_freed);
+    }
+  }
+
+  /* First snap has no valid deltas. */
+  if( FD_LIKELY( gui->summary.accdb->tier_sample_nanos!=LONG_MAX ) ) {
+    double dt_sec = (double)(cur->sample_time_nanos-gui->summary.accdb->tier_sample_nanos)/1e9;
+    if( FD_LIKELY( dt_sec>0.0 ) ) {
+      for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+        fd_gui_ema_advance( &gui->summary.accdb->tier_fill_bps_ema[ k ], cur->sample_time_nanos, tier_fill_delta[ k ]/dt_sec );
+        fd_gui_ema_advance( &gui->summary.accdb->tier_free_bps_ema[ k ], cur->sample_time_nanos, tier_free_delta[ k ]/dt_sec );
+      }
+    }
+  }
+  gui->summary.accdb->tier_sample_nanos = cur->sample_time_nanos;
+
+  /* Estimate next compaction time/partition. */
+  double next_secs = 0.0;
+  ulong  next_idx  = ULONG_MAX;
+  double partition_sz = (double)fd_accdb_shmem_partition_sz( gui->accdb_shmem );
+  double tier_live_bytes[ FD_ACCDB_COMPACTION_LAYER_CNT ] = { 0.0 };
+  for( ulong p=0UL; p<pcnt; p++ ) {
+    fd_accdb_shmem_partition_info_t const * info = &gui->summary.accdb->partitions[ p ];
+    if( info->layer<FD_ACCDB_COMPACTION_LAYER_CNT && info->compaction_state!=2 && info->write_offset>info->bytes_freed && info->compaction_offset<info->write_offset )
+      tier_live_bytes[ info->layer ] += (double)(info->write_offset-info->bytes_freed);
+  }
+  for( ulong p=0UL; p<pcnt; p++ ) {
+    fd_accdb_shmem_partition_info_t const * info = &gui->summary.accdb->partitions[ p ];
+    if( FD_LIKELY( info->compaction_state || !info->write_offset ) ) continue;
+    if( FD_UNLIKELY( info->layer>=FD_ACCDB_COMPACTION_LAYER_CNT ) ) continue;
+    if( FD_UNLIKELY( info->compaction_offset>=info->write_offset ) ) continue; /* compacted, awaiting reclaim */
+
+    double free_bps  = gui->summary.accdb->tier_free_bps_ema[ info->layer ].value;
+    double live      = info->write_offset>info->bytes_freed ? (double)(info->write_offset-info->bytes_freed) : 0.0;
+    double frag_rate = tier_live_bytes[ info->layer ]>0.0 ? free_bps*live/tier_live_bytes[ info->layer ] : 0.0;
+    double deficit   = (double)FD_ACCDB_COMPACTION_THRESHOLD_PCT/100.0*partition_sz - (double)info->bytes_freed;
+    double frag_secs = deficit<=0.0 ? 0.0 : ( frag_rate>0.0 ? deficit/frag_rate : -1.0 );
+    double fill_secs = 0.0;
+    if( FD_UNLIKELY( info->is_write_head ) ) {
+      double fill_bps = gui->summary.accdb->tier_fill_bps_ema[ info->layer ].value;
+      fill_secs = fill_bps>0.0 ? (partition_sz-(double)info->write_offset)/fill_bps : -1.0;
+    }
+
+    if( FD_UNLIKELY( frag_secs<0.0 || fill_secs<0.0 ) ) continue; /* no usable rate estimate (EMA warm-up) */
+    double est = fmax( frag_secs, fill_secs );
+    if( next_idx==ULONG_MAX || est<next_secs ) {
+      next_secs = est;
+      next_idx  = p;
+    }
+  }
+
+  int has_compaction = compaction_idx!=ULONG_MAX;
+  gui->summary.accdb->next_compaction_remaining_secs = fd_double_if( has_compaction, 0.0,            next_secs );
+  gui->summary.accdb->next_compaction_partition_idx  = fd_ulong_if(  has_compaction, compaction_idx, next_idx  );
 }
 
 /* Snapshot all of the data from metrics to construct a view of the
@@ -1344,6 +1431,10 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   /* state transitions */
   if( FD_UNLIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
+    for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+      fd_gui_ema_init( &gui->summary.accdb->tier_fill_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
+      fd_gui_ema_init( &gui->summary.accdb->tier_free_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
+    }
   } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && wfs_state==FD_GOSSIP_WFS_STATE_DONE && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_tower!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( gui->summary.wfs_enabled ) ) {
       if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) {
@@ -1356,6 +1447,10 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
         fd_http_server_ws_broadcast( gui->http );
       }
       gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
+      for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+        fd_gui_ema_init( &gui->summary.accdb->tier_fill_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
+        fd_gui_ema_init( &gui->summary.accdb->tier_free_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
+      }
     } else {
       gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
     }

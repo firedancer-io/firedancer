@@ -770,10 +770,10 @@ fd_gui_printf_network_metrics( fd_gui_t *                     gui,
     jsonp_ulong( gui->http, NULL, cur->out.metric  );
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "ingress_ema" );
-    for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) jsonp_double( gui->http, NULL, fd_double_if( gui->summary.net_rate_ema_ready, gui->summary.ingress_ema[ i ], 0.0 ) );
+    for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) jsonp_double( gui->http, NULL, gui->summary.ingress_ema[ i ].value );
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "egress_ema" );
-    for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) jsonp_double( gui->http, NULL, fd_double_if( gui->summary.net_rate_ema_ready, gui->summary.egress_ema[ i ], 0.0 ) );
+    for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) jsonp_double( gui->http, NULL, gui->summary.egress_ema[ i ].value );
   jsonp_close_array( gui->http );
   fd_gui_rate_entry_t const * ingress_max_head = fd_gui_rate_deque_empty( gui->summary.ingress_maxq ) ? NULL : fd_gui_rate_deque_peek_head_const( gui->summary.ingress_maxq );
   fd_gui_rate_entry_t const * egress_max_head  = fd_gui_rate_deque_empty( gui->summary.egress_maxq )  ? NULL : fd_gui_rate_deque_peek_head_const( gui->summary.egress_maxq );
@@ -1202,57 +1202,43 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
     }
     gui->summary.accdb->agg_misses_win[ i ] = agg_misses_delta;
 
-    /* Per-partition deltas.  Snap each partition's current cumulative
-       counters from accdb_shmem, diff against prev, push into ring.
-       Also keep the most-recent snapshot for non-rate fields. */
-    if( FD_LIKELY( gui->accdb_shmem ) ) {
-      ulong pcnt = fd_accdb_shmem_partition_max( gui->accdb_shmem );
-      if( pcnt>FD_GUI_MAX_PARTITIONS ) pcnt = FD_GUI_MAX_PARTITIONS;
-      gui->summary.accdb->partition_cnt = pcnt;
-      for( ulong p=0UL; p<pcnt; p++ ) {
-        fd_accdb_shmem_partition_info_t info;
-        fd_accdb_shmem_partition_info( gui->accdb_shmem, p, &info );
-        gui->summary.accdb->partitions[ p ] = info;
+    /* Per-partition deltas.  Diff against prev and push into ring. */
+    for( ulong p=0UL; p<gui->summary.accdb->partition_cnt; p++ ) {
+      fd_accdb_shmem_partition_info_t const * info = &gui->summary.accdb->partitions[ p ];
 
-        /* Pool slots get reused: when a partition is released and
-           re-acquired, change_partition zeroes its counters.  Detect
-           the reset (any counter dropped below its previous value) and
-           treat this sample as the start of a new lifecycle — emit a
-           zero delta rather than letting the unsigned subtract wrap
-           into a giant rate. */
-        int reset = info.read_ops      < gui->summary.accdb->partition_prev_read_ops     [ p ] ||
-                    info.bytes_read    < gui->summary.accdb->partition_prev_bytes_read   [ p ] ||
-                    info.write_ops     < gui->summary.accdb->partition_prev_write_ops    [ p ] ||
-                    info.bytes_written < gui->summary.accdb->partition_prev_bytes_written[ p ];
-        if( FD_UNLIKELY( reset ) ) {
-          gui->summary.accdb->partition_prev_read_ops     [ p ] = info.read_ops;
-          gui->summary.accdb->partition_prev_bytes_read   [ p ] = info.bytes_read;
-          gui->summary.accdb->partition_prev_write_ops    [ p ] = info.write_ops;
-          gui->summary.accdb->partition_prev_bytes_written[ p ] = info.bytes_written;
-          /* Also wipe the historical window so an old lifecycle's
-             samples don't keep contributing to this slot's rate. */
-          for( ulong k=0UL; k<FD_GUI_ACCDB_WIN_SAMPLES; k++ ) {
-            gui->summary.accdb->partition_read_ops_win    [ p ][ k ] = 0UL;
-            gui->summary.accdb->partition_bytes_read_win  [ p ][ k ] = 0UL;
-            gui->summary.accdb->partition_write_ops_win   [ p ][ k ] = 0UL;
-            gui->summary.accdb->partition_bytes_written_win[p ][ k ] = 0UL;
-          }
+      /* Pool slots get reused: when a partition is released and
+         re-acquired, change_partition zeroes its counters.  Detect
+         the reset (any counter dropped below its previous value) and
+         treat this sample as the start of a new lifecycle — emit a
+         zero delta rather than letting the unsigned subtract wrap
+         into a giant rate. */
+      int reset = info->read_ops      < gui->summary.accdb->partition_prev_read_ops     [ p ] ||
+                  info->bytes_read    < gui->summary.accdb->partition_prev_bytes_read   [ p ] ||
+                  info->write_ops     < gui->summary.accdb->partition_prev_write_ops    [ p ] ||
+                  info->bytes_written < gui->summary.accdb->partition_prev_bytes_written[ p ];
+      if( FD_UNLIKELY( reset ) ) {
+        gui->summary.accdb->partition_prev_read_ops     [ p ] = info->read_ops;
+        gui->summary.accdb->partition_prev_bytes_read   [ p ] = info->bytes_read;
+        gui->summary.accdb->partition_prev_write_ops    [ p ] = info->write_ops;
+        gui->summary.accdb->partition_prev_bytes_written[ p ] = info->bytes_written;
+        /* Also wipe the historical window so an old lifecycle's
+           samples don't keep contributing to this slot's rate. */
+        for( ulong k=0UL; k<FD_GUI_ACCDB_WIN_SAMPLES; k++ ) {
+          gui->summary.accdb->partition_read_ops_win     [ p ][ k ] = 0UL;
+          gui->summary.accdb->partition_bytes_read_win   [ p ][ k ] = 0UL;
+          gui->summary.accdb->partition_write_ops_win    [ p ][ k ] = 0UL;
+          gui->summary.accdb->partition_bytes_written_win[ p ][ k ] = 0UL;
         }
-        ulong d_read_ops      = info.read_ops      - gui->summary.accdb->partition_prev_read_ops     [ p ];
-        ulong d_bytes_read    = info.bytes_read    - gui->summary.accdb->partition_prev_bytes_read   [ p ];
-        ulong d_write_ops     = info.write_ops     - gui->summary.accdb->partition_prev_write_ops    [ p ];
-        ulong d_bytes_written = info.bytes_written - gui->summary.accdb->partition_prev_bytes_written[ p ];
-
-        gui->summary.accdb->partition_read_ops_win    [ p ][ i ] = d_read_ops;
-        gui->summary.accdb->partition_bytes_read_win  [ p ][ i ] = d_bytes_read;
-        gui->summary.accdb->partition_write_ops_win   [ p ][ i ] = d_write_ops;
-        gui->summary.accdb->partition_bytes_written_win[p ][ i ] = d_bytes_written;
-
-        gui->summary.accdb->partition_prev_read_ops     [ p ] = info.read_ops;
-        gui->summary.accdb->partition_prev_bytes_read   [ p ] = info.bytes_read;
-        gui->summary.accdb->partition_prev_write_ops    [ p ] = info.write_ops;
-        gui->summary.accdb->partition_prev_bytes_written[ p ] = info.bytes_written;
       }
+      gui->summary.accdb->partition_read_ops_win     [ p ][ i ] = info->read_ops      - gui->summary.accdb->partition_prev_read_ops     [ p ];
+      gui->summary.accdb->partition_bytes_read_win   [ p ][ i ] = info->bytes_read    - gui->summary.accdb->partition_prev_bytes_read   [ p ];
+      gui->summary.accdb->partition_write_ops_win    [ p ][ i ] = info->write_ops     - gui->summary.accdb->partition_prev_write_ops    [ p ];
+      gui->summary.accdb->partition_bytes_written_win[ p ][ i ] = info->bytes_written - gui->summary.accdb->partition_prev_bytes_written[ p ];
+
+      gui->summary.accdb->partition_prev_read_ops     [ p ] = info->read_ops;
+      gui->summary.accdb->partition_prev_bytes_read   [ p ] = info->bytes_read;
+      gui->summary.accdb->partition_prev_write_ops    [ p ] = info->write_ops;
+      gui->summary.accdb->partition_prev_bytes_written[ p ] = info->bytes_written;
     }
 
     /* Per-tile deltas.  Cumulative values were snapped from each tile's
@@ -1368,6 +1354,13 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
 
       jsonp_open_object( gui->http, "compaction" );
         jsonp_ulong(  gui->http, "in_compaction",            cur->in_compaction            );
+        if( FD_LIKELY( gui->summary.accdb->next_compaction_partition_idx!=ULONG_MAX ) ) {
+          jsonp_double( gui->http, "next_compaction_remaining_seconds", gui->summary.accdb->next_compaction_remaining_secs );
+          jsonp_ulong(  gui->http, "next_compaction_partition_idx",     gui->summary.accdb->next_compaction_partition_idx  );
+        } else {
+          jsonp_null( gui->http, "next_compaction_remaining_seconds" );
+          jsonp_null( gui->http, "next_compaction_partition_idx"     );
+        }
         jsonp_ulong(  gui->http, "compactions_requested",    cur->compactions_requested    );
         jsonp_ulong(  gui->http, "compactions_completed",    cur->compactions_completed    );
         jsonp_ulong(  gui->http, "accounts_relocated_bytes", cur->accounts_relocated_bytes );
@@ -1587,7 +1580,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
             jsonp_double( gui->http, "fragmentation",     fragmentation );
             jsonp_double( gui->http, "used_frac",         used_frac );
             jsonp_double( gui->http, "fragmented_frac",   fragmented_frac );
-            jsonp_double( gui->http, "compaction_trigger_frac", 0.30 );
+            jsonp_double( gui->http, "compaction_trigger_frac", (double)FD_ACCDB_COMPACTION_THRESHOLD_PCT/100.0 );
             jsonp_double( gui->http, "age_seconds",       age_seconds );
             jsonp_double( gui->http, "filled_seconds",    filled_seconds );
             jsonp_ulong(  gui->http, "compaction_state",  (ulong)info->compaction_state );
@@ -2691,14 +2684,14 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_close_object( peers->http );
           }
 
-          long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long ref_egress_push_bps           = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long ref_ingress_push_bps          = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_egress_pull_response_bps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long ref_egress_pull_response_bps  = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long cur_ingress_pull_response_bps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long ref_ingress_pull_response_bps = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+          long ref_egress_push_bps           = (long)ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+          long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+          long ref_ingress_push_bps          = (long)ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+          long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long ref_egress_pull_response_bps  = (long)ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long ref_ingress_pull_response_bps = (long)ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
 
           if( FD_UNLIKELY( ref->valid && cur_ingress_pull_response_bps!=ref_ingress_pull_response_bps ) ) {
             jsonp_open_object( peers->http, NULL );
@@ -2775,10 +2768,10 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
           FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
           jsonp_string( peers->http, "IP Addr", peer_addr );
 
-          long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_egress_pull_response_bps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long cur_ingress_pull_response_bps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+          long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+          long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
 
           jsonp_long  ( peers->http, "Ingress Pull", cur_ingress_pull_response_bps );
           jsonp_long  ( peers->http, "Ingress Push", cur_ingress_push_bps );
