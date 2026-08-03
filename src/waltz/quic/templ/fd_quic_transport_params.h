@@ -232,6 +232,13 @@ X( retry_source_connection_id,                                                  
   "a Retry packet; see Section 7.3. This transport parameter is only sent by a "       \
   "server.",                                                                           \
   0, 0,                                                                                \
+  __VA_ARGS__ )                                                                        \
+X( max_datagram_frame_size,                                                            \
+  0x20,                                                                                \
+  VARINT,                                                                              \
+  DFT_UNKNOWN,                                                                         \
+  "RFC 9221 maximum DATAGRAM frame size. Omitting this parameter disables DATAGRAM.",  \
+  FD_QUIC_VARINT_MIN, FD_QUIC_VARINT_MAX,                                              \
   __VA_ARGS__ )
 
 #define FD_QUIC_PREFERRED_ADDRESS_SZ_MAX (61)
@@ -326,4 +333,3 @@ fd_quic_encode_transport_params( uchar *                            buf,
                                  fd_quic_transport_params_t const * params );
 
 #endif /* HEADER_fd_src_waltz_quic_templ_fd_quic_transport_params_h */
-

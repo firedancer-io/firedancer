@@ -325,6 +325,7 @@
 | <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">handshake_&#8203;done</span>"} | counter | QUIC frames received (HANDSHAKE_DONE frame) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ping</span>"} | counter | QUIC frames received (PING frame) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">padding</span>"} | counter | QUIC frames received (PADDING frame) |
+| <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">datagram</span>"} | counter | QUIC frames received (DATAGRAM frame) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">noop</span>"} | counter | ACK events (Non-ACK-eliciting packet) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">new</span>"} | counter | ACK events (New ACK range) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">merged</span>"} | counter | ACK events (Merged into existing ACK range) |
@@ -1539,6 +1540,7 @@
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">handshake_&#8203;done</span>"} | counter | QUIC frames received (HANDSHAKE_DONE frame) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ping</span>"} | counter | QUIC frames received (PING frame) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">padding</span>"} | counter | QUIC frames received (PADDING frame) |
+| <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">datagram</span>"} | counter | QUIC frames received (DATAGRAM frame) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;parse_&#8203;failed</span> | counter | QUIC frames that failed to parse |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;meta_&#8203;acquired</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Attempts to acquire QUIC frame metadata (Success) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;meta_&#8203;acquired</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;empty_&#8203;pool</span>"} | counter | Attempts to acquire QUIC frame metadata (PktMetaPoolEmpty) |
@@ -1775,17 +1777,17 @@
 | <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Database writes that hit MAP_FULL and were dropped (epoch) |
 | <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Database writes that hit MAP_FULL and were dropped (tile_stats) |
 | <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Database writes that hit MAP_FULL and were dropped (txn_waterfall) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (scheduler_counts) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (tile_timers) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (shred_events) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (txn_start) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (txn_end) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (tower) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (slot) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (leader_slot) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (epoch) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (tile_stats) |
-| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Appends that had to evict to make room before writing (slow reserve path) (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Database writes that evicted records before succeeding (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Database writes that evicted records before succeeding (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Database writes that evicted records before succeeding (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Database writes that evicted records before succeeding (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Database writes that evicted records before succeeding (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Database writes that evicted records before succeeding (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Database writes that evicted records before succeeding (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Database writes that evicted records before succeeding (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Database writes that evicted records before succeeding (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Database writes that evicted records before succeeding (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Database writes that evicted records before succeeding (txn_waterfall) |
 
 </div>
 

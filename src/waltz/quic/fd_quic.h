@@ -16,9 +16,10 @@
    For example, incoming RX that exceeds the throughput of one fd_quic_t
    may be load balanced based on QUIC dest conn ID, or UDP src flow ID.
 
-   This implementation aims to be compliant to RFC 9000 and RFC 9001:
+   This implementation partially implements the following specifications:
    - https://datatracker.ietf.org/doc/html/rfc9000
    - https://datatracker.ietf.org/doc/html/rfc9001
+   - https://datatracker.ietf.org/doc/html/rfc9221
 
    ### Memory Management
 
@@ -162,6 +163,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   X( sign_ctx,                    "%p",     ptr,   "",             __VA_ARGS__ ) \
   X( keylog_file,                 "%s",     value, "",             __VA_ARGS__ ) \
   X( initial_rx_max_stream_data,  "%lu",    units, "bytes",        __VA_ARGS__ ) \
+  X( max_datagram_frame_size,     "%lu",    units, "bytes",        __VA_ARGS__ ) \
   X( net.dscp,                    "0x%02x", value, "",             __VA_ARGS__ )
 
   /* Protocol config ***************************************/
@@ -216,6 +218,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   char keylog_file[ FD_QUIC_PATH_LEN+1UL ];
 
   ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
+  ulong max_datagram_frame_size;    /* RFC 9221 RX frame limit; zero disables DATAGRAM */
 
   /* Network config ****************************************/
 
@@ -272,6 +275,12 @@ typedef int
                             ulong            data_sz,
                             int              fin );
 
+typedef void
+(* fd_quic_cb_datagram_rx_t)( fd_quic_conn_t * conn,
+                              uchar const *    data,
+                              ulong            data_sz,
+                              void *           quic_ctx );
+
 /* fd_quic_cb_tls_keylog_t is called when a new encryption secret
    becomes available.  line is a cstr containing the secret in NSS key
    log format (intended for tests only). */
@@ -294,6 +303,7 @@ struct fd_quic_callbacks {
   fd_quic_cb_conn_final_t              conn_final;        /* non-NULL, with quic_ctx   */
   fd_quic_cb_stream_notify_t           stream_notify;     /* non-NULL, with stream_ctx */
   fd_quic_cb_stream_rx_t               stream_rx;         /* non-NULL, with stream_ctx */
+  fd_quic_cb_datagram_rx_t             datagram_rx;       /* nullable, with quic_ctx   */
   fd_quic_cb_tls_keylog_t              tls_keylog;        /* nullable, with quic_ctx   */
 
 };
@@ -338,7 +348,7 @@ union fd_quic_metrics {
     ulong initial_token_len_cnt[ 3 ];   /* number of Initial packets grouped by token length */
 
     /* Frame metrics */
-    ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */
+    ulong frame_rx_cnt[ 23 ];      /* number of frames received (indexed by implementation-defined IDs) */
     ulong frame_rx_err_cnt;        /* number of frames failed */
 
     /* Handshake metrics */

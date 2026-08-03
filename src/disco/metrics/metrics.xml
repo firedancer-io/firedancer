@@ -520,6 +520,7 @@ EXAMPLES
     <int value="19" name="HandshakeDone" label="HANDSHAKE_DONE frame" />
     <int value="20" name="Ping" label="PING frame" />
     <int value="21" name="Padding" label="PADDING frame" />
+    <int value="22" name="Datagram" label="DATAGRAM frame" />
 </enum>
 
 <enum name="QuicStreamCloseType">

@@ -174,102 +174,103 @@ quic_frame_rx_total{kind="quic",kind_id="0",quic_frame_type="connection_close_ap
 quic_frame_rx_total{kind="quic",kind_id="0",quic_frame_type="handshake_done"} 96
 quic_frame_rx_total{kind="quic",kind_id="0",quic_frame_type="ping"} 97
 quic_frame_rx_total{kind="quic",kind_id="0",quic_frame_type="padding"} 98
+quic_frame_rx_total{kind="quic",kind_id="0",quic_frame_type="datagram"} 99
 
 # HELP quic_ack_tx_total ACK events
 # TYPE quic_ack_tx_total counter
-quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="noop"} 99
-quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="new"} 100
-quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="merged"} 101
-quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="drop"} 102
-quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="cancel"} 103
+quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="noop"} 100
+quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="new"} 101
+quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="merged"} 102
+quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="drop"} 103
+quic_ack_tx_total{kind="quic",kind_id="0",quic_ack_tx="cancel"} 104
 
 # HELP quic_service_duration_seconds Duration spent in service
 # TYPE quic_service_duration_seconds histogram
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 104
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 209
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 315
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 422
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 530
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 639
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 749
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 860
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 972
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 1085
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 1199
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 1314
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1430
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1547
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1665
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 1784
-quic_service_duration_seconds_sum{kind="quic",kind_id="0"} 1.1999999999999999e-07
-quic_service_duration_seconds_count{kind="quic",kind_id="0"} 1784
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 105
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 211
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 318
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 426
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 535
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 645
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 756
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 868
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 981
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 1095
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 1210
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 1326
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1443
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1561
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1680
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 1800
+quic_service_duration_seconds_sum{kind="quic",kind_id="0"} 1.2100000000000001e-07
+quic_service_duration_seconds_count{kind="quic",kind_id="0"} 1800
 
 # HELP quic_rx_duration_seconds Duration spent processing packets
 # TYPE quic_rx_duration_seconds histogram
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 121
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 243
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 366
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 490
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 615
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 741
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 868
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 996
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 1125
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 1255
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 1386
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 1518
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1651
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1785
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1920
-quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 2056
-quic_rx_duration_seconds_sum{kind="quic",kind_id="0"} 1.37e-07
-quic_rx_duration_seconds_count{kind="quic",kind_id="0"} 2056
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 122
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 245
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 369
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 494
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 620
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 747
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 875
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 1004
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 1134
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 1265
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 1397
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 1530
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1664
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1799
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1935
+quic_rx_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 2072
+quic_rx_duration_seconds_sum{kind="quic",kind_id="0"} 1.3799999999999999e-07
+quic_rx_duration_seconds_count{kind="quic",kind_id="0"} 2072
 
 # HELP quic_frame_parse_failed_total QUIC frames that failed to parse
 # TYPE quic_frame_parse_failed_total counter
-quic_frame_parse_failed_total{kind="quic",kind_id="0"} 138
+quic_frame_parse_failed_total{kind="quic",kind_id="0"} 139
 
 # HELP quic_pkt_crypto_failed_total Packets that failed decryption
 # TYPE quic_pkt_crypto_failed_total counter
-quic_pkt_crypto_failed_total{kind="quic",kind_id="0",quic_encryption_level="initial"} 139
-quic_pkt_crypto_failed_total{kind="quic",kind_id="0",quic_encryption_level="early"} 140
-quic_pkt_crypto_failed_total{kind="quic",kind_id="0",quic_encryption_level="handshake"} 141
-quic_pkt_crypto_failed_total{kind="quic",kind_id="0",quic_encryption_level="app"} 142
+quic_pkt_crypto_failed_total{kind="quic",kind_id="0",quic_encryption_level="initial"} 140
+quic_pkt_crypto_failed_total{kind="quic",kind_id="0",quic_encryption_level="early"} 141
+quic_pkt_crypto_failed_total{kind="quic",kind_id="0",quic_encryption_level="handshake"} 142
+quic_pkt_crypto_failed_total{kind="quic",kind_id="0",quic_encryption_level="app"} 143
 
 # HELP quic_pkt_no_key_total Packets that failed decryption due to missing key
 # TYPE quic_pkt_no_key_total counter
-quic_pkt_no_key_total{kind="quic",kind_id="0",quic_encryption_level="initial"} 143
-quic_pkt_no_key_total{kind="quic",kind_id="0",quic_encryption_level="early"} 144
-quic_pkt_no_key_total{kind="quic",kind_id="0",quic_encryption_level="handshake"} 145
-quic_pkt_no_key_total{kind="quic",kind_id="0",quic_encryption_level="app"} 146
+quic_pkt_no_key_total{kind="quic",kind_id="0",quic_encryption_level="initial"} 144
+quic_pkt_no_key_total{kind="quic",kind_id="0",quic_encryption_level="early"} 145
+quic_pkt_no_key_total{kind="quic",kind_id="0",quic_encryption_level="handshake"} 146
+quic_pkt_no_key_total{kind="quic",kind_id="0",quic_encryption_level="app"} 147
 
 # HELP quic_pkt_net_header_invalid_total Packets dropped due to weird IP or UDP header
 # TYPE quic_pkt_net_header_invalid_total counter
-quic_pkt_net_header_invalid_total{kind="quic",kind_id="0"} 147
+quic_pkt_net_header_invalid_total{kind="quic",kind_id="0"} 148
 
 # HELP quic_pkt_header_invalid_total Packets dropped due to weird QUIC header
 # TYPE quic_pkt_header_invalid_total counter
-quic_pkt_header_invalid_total{kind="quic",kind_id="0"} 148
+quic_pkt_header_invalid_total{kind="quic",kind_id="0"} 149
 
 # HELP quic_pkt_undersize_total QUIC packets dropped due to being too small
 # TYPE quic_pkt_undersize_total counter
-quic_pkt_undersize_total{kind="quic",kind_id="0"} 149
+quic_pkt_undersize_total{kind="quic",kind_id="0"} 150
 
 # HELP quic_pkt_oversize_total QUIC packets dropped due to being too large
 # TYPE quic_pkt_oversize_total counter
-quic_pkt_oversize_total{kind="quic",kind_id="0"} 150
+quic_pkt_oversize_total{kind="quic",kind_id="0"} 151
 
 # HELP quic_pkt_rx_version_negotiation_total QUIC version negotiation packets received
 # TYPE quic_pkt_rx_version_negotiation_total counter
-quic_pkt_rx_version_negotiation_total{kind="quic",kind_id="0"} 151
+quic_pkt_rx_version_negotiation_total{kind="quic",kind_id="0"} 152
 
 # HELP quic_pkt_tx_retry_total QUIC Retry packets sent
 # TYPE quic_pkt_tx_retry_total counter
-quic_pkt_tx_retry_total{kind="quic",kind_id="0"} 152
+quic_pkt_tx_retry_total{kind="quic",kind_id="0"} 153
 
 # HELP quic_pkt_tx_retransmitted_total QUIC packets retransmitted
 # TYPE quic_pkt_tx_retransmitted_total counter
-quic_pkt_tx_retransmitted_total{kind="quic",kind_id="0",quic_encryption_level="initial"} 153
-quic_pkt_tx_retransmitted_total{kind="quic",kind_id="0",quic_encryption_level="early"} 154
-quic_pkt_tx_retransmitted_total{kind="quic",kind_id="0",quic_encryption_level="handshake"} 155
-quic_pkt_tx_retransmitted_total{kind="quic",kind_id="0",quic_encryption_level="app"} 156
+quic_pkt_tx_retransmitted_total{kind="quic",kind_id="0",quic_encryption_level="initial"} 154
+quic_pkt_tx_retransmitted_total{kind="quic",kind_id="0",quic_encryption_level="early"} 155
+quic_pkt_tx_retransmitted_total{kind="quic",kind_id="0",quic_encryption_level="handshake"} 156
+quic_pkt_tx_retransmitted_total{kind="quic",kind_id="0",quic_encryption_level="app"} 157
