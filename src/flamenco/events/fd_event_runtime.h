@@ -47,6 +47,7 @@ fd_event_txn_err_from_txn_err( int err ) {
     case FD_RUNTIME_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED:        return FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED;
     case FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR:      return FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
     case FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE:              return FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE;
+    case FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION:                     return FD_EVENT_RUNTIME_TXN_TXN_ERR_UNSUPPORTED_VERSION;
     default:                                                         FD_LOG_ERR(( "unmapped runtime txn err %d", err ));
   }
 }

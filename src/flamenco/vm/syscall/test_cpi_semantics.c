@@ -281,7 +281,7 @@ env_build( fd_svm_mini_t *        mini,
   memset( instr, 0, sizeof(fd_instr_info_t) );
   instr->program_id = 0;
   ulong outer_acct_total = 1UL + cfg->n_outer;
-  FD_TEST( outer_acct_total <= FD_INSTR_ACCT_MAX );
+  FD_TEST( outer_acct_total <= FD_TXN_INSTR_ACCT_MAX );
   instr->acct_cnt = (ushort)outer_acct_total;
 
   uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};

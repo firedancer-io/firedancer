@@ -48,12 +48,12 @@
 # define FD_CHKDUP_FOOTPRINT  FD_LAYOUT_FINI( FD_LAYOUT_APPEND(                                         \
                                                              FD_LAYOUT_APPEND( FD_LAYOUT_INIT,               \
                                                              FD_CHKDUP_ALIGN, 32*FD_CHKDUP_IMPL ), \
-                                                             32UL,                 (1UL<<8)*32UL    ),       \
+                                                             32UL,                 (1UL<<7)*32UL    ),       \
                                                    FD_CHKDUP_ALIGN )
 
-FD_STATIC_ASSERT( (1UL<<8)==2*FD_TXN_ACCT_ADDR_MAX, "hash table size" );
+FD_STATIC_ASSERT( (1UL<<7)==2*FD_TXN_ACCT_ADDR_MAX, "hash table size" );
 
-/* Fixed size (just over 8kB) and safe for declaration on the stack or
+/* Fixed size (just over 4kB) and safe for declaration on the stack or
    inclusion in a struct. */
 struct fd_chkdup_private;
 typedef struct fd_chkdup_private fd_chkdup_t;
@@ -317,7 +317,7 @@ static const fd_acct_addr_t chkdup_null_addr = {{ 0 }};
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
 #define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
-#define MAP_LG_SLOT_CNT 8
+#define MAP_LG_SLOT_CNT 7
 #include "../../util/tmpl/fd_map.c"
 
 
@@ -326,7 +326,7 @@ struct __attribute__((aligned(FD_CHKDUP_ALIGN))) fd_chkdup_private {
   uchar  entropy[ 32*FD_CHKDUP_IMPL ];
 #endif
 
-  fd_chkdup_waddr_t hashmap[ 1UL<<8 ];
+  fd_chkdup_waddr_t hashmap[ 1UL<<7 ];
 };
 
 static inline void *

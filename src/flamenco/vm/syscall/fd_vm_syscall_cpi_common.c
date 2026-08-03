@@ -59,7 +59,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
                                           fd_pubkey_t const *               program_id,
                                           uchar const *                     cpi_instr_data,
                                           fd_instr_info_t *                 out_instr,
-                                          fd_pubkey_t                       out_instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ] ) {
+                                          fd_pubkey_t                       out_instr_acct_keys[ FD_TXN_INSTR_ACCT_MAX ] ) {
 
   out_instr->program_id   = UCHAR_MAX;
   out_instr->stack_height = (uchar)( vm->instr_ctx->runtime->instr.stack_sz+1 );
@@ -795,7 +795,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs.
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L895 */
-  fd_pubkey_t cpi_instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  fd_pubkey_t cpi_instr_acct_keys[ FD_TXN_INSTR_ACCT_MAX ];
   fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->runtime->instr.trace[ vm->instr_ctx->runtime->instr.trace_length++ ];
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute, cpi_instr_acct_keys );
@@ -805,7 +805,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Prepare the instruction for execution in the runtime. This is required by the runtime
      before we can pass an instruction to the executor. */
-  fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  fd_instruction_account_t instruction_accounts[ FD_TXN_INSTR_ACCT_MAX ];
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction( instruction_to_execute, vm->instr_ctx, program_id, cpi_instr_acct_keys, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   /* Errors are propagated in the function itself. */
@@ -853,7 +853,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* translate_accounts_common ***************************************************************
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1049-L1193 */
-  fd_vm_cpi_translated_account_t translated_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  fd_vm_cpi_translated_account_t translated_accounts[ FD_TXN_INSTR_ACCT_MAX ];
   ulong translated_accounts_len = 0UL;
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     vm,

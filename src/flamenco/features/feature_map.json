@@ -262,7 +262,7 @@
   {"name":"bls_pubkey_management_in_vote_account","pubkey":"AnAP9zPV4KL7czAPQbFhpDKV2tx7g4UGNbK9wvXwjaRo","old":"2uxQgtKa2ECHGs67Zdj7dgmzn2w9HiqhdcedwCWfYzzq"},
   {"name":"relax_programdata_account_check_migration","pubkey":"rexav5eNTUSNT1K2N7cfRjnthwhcP5BC25v2tA4rW4h"},
   {"name":"remove_simple_vote_from_cost_model","pubkey":"2GCrNXbzmt4xrwdcKS2RdsLzsgu4V5zHAemW57pcHT6a","hardcode_for_fuzzing":1},
-  {"name":"limit_instruction_accounts","pubkey":"6aHuNsUmwSzCEMjrBzBCYaxHAyAcQBjVES92JigHBDuC","old":"DqbnFPASg7tHmZ6qfpdrt2M6MWoSeiicWPXxPhxqFCQ"},
+  {"name":"limit_instruction_accounts","pubkey":"6aHuNsUmwSzCEMjrBzBCYaxHAyAcQBjVES92JigHBDuC","old":"DqbnFPASg7tHmZ6qfpdrt2M6MWoSeiicWPXxPhxqFCQ","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"validator_admission_ticket","pubkey":"VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ"},
   {"name":"discard_unexpected_data_complete_shreds","pubkey":"disCA4efguFL6Wqa4pGdG7jpjC7C5uiKzKnhEBqchBe","old":"dcomRRWHXP1FVWPqi9Mm4oxJhF4ehC795SvAtUdA9os"},
   {"name":"create_account_allow_prefund","pubkey":"6sPDzwyARRExKH52LECxcGoqziH8G7SZofwuxi8Ja331"},
@@ -288,5 +288,6 @@
   {"name":"set_lamports_per_byte_to_6960","pubkey":"5AqsUgSb6cgLizSaNiFn3o9XB7VUtKDtDZfcKEjEDmni"},
   {"name":"relax_post_exec_min_balance_check","pubkey":"DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg"},
   {"name":"upgrade_bpf_stake_program_to_v5_1","pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr"},
-  {"name":"custom_commission_collector","pubkey":"3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf"}
+  {"name":"custom_commission_collector","pubkey":"3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf"},
+  {"name":"enable_tx_v1","pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"}
 ]
