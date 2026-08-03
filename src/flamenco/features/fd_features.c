@@ -47,6 +47,8 @@ fd_features_enable_cleaned_up( fd_features_t * f ) {
   }
 }
 
+static uchar one_off_forced[ FD_FEATURE_ID_CNT ];
+
 void
 fd_features_enable_one_offs( fd_features_t * f, char const * * one_offs, uint one_offs_cnt, ulong slot ) {
   uchar pubkey[32];
@@ -57,6 +59,7 @@ fd_features_enable_one_offs( fd_features_t * f, char const * * one_offs, uint on
          id = fd_feature_iter_next( id ) ) {
       if( !memcmp( &id->id, pubkey, sizeof(fd_pubkey_t) ) ) {
         fd_features_set( f, id, slot );
+        one_off_forced[ id->index ] = (uchar)( slot!=FD_FEATURE_DISABLED );
         break;
       }
     }
@@ -132,5 +135,6 @@ fd_features_restore( fd_bank_t *  bank,
                                    !fd_feature_iter_done( id );
                                id = fd_feature_iter_next( id ) ) {
     fd_feature_restore( bank, accdb, id, &id->id );
+    if( FD_UNLIKELY( one_off_forced[ id->index ] ) ) fd_features_set( &bank->f.features, id, 0UL );
   }
 }
