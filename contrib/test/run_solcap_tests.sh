@@ -7,7 +7,7 @@ DUMP=${DUMP:="./dump"}
 OBJDIR=${OBJDIR:-build/native/gcc}
 SKIP_INGEST=${SKIP_INGEST:-0}
 
-LEDGER="mainnet-424669000-solcap-v4.2.0-beta.1-vat"
+LEDGER="mainnet-424669000-solcap-v4.2.0-beta.1-vat-untouched"
 REDOWNLOAD=1
 
 WATCH=( )
@@ -71,7 +71,7 @@ if [[ ! -e $DUMP/$LEDGER ]]; then
 fi
 
 # fd requires the snapshots path to not be group/world accessible.
-chmod -R 0700 $DUMP/$LEDGER
+chmod -R 0700 $DUMP/$LEDGER 2>/dev/null || true
 
 # Clone and build solcap-tools.  Capture output to a log and only print
 # it on failure, so a broken clone/fetch/checkout/build surfaces its

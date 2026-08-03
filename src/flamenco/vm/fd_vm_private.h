@@ -436,6 +436,11 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
     return sentinel; /* Illegal write */
   }
 
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/transaction.rs#L546 */
+  if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].acc_region_meta_idx!=ULONG_MAX ) ) {
+    vm->acc_region_metas[ vm->input_mem_regions[ region_idx ].acc_region_meta_idx ].acc->touched = 1;
+  }
+
   ulong start_region_idx = region_idx;
 
   ulong adjusted_haddr = vm->input_mem_regions[ start_region_idx ].haddr + offset - vm->input_mem_regions[ start_region_idx ].vaddr_offset;
