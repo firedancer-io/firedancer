@@ -7,8 +7,13 @@ DUMP=${DUMP:="./dump"}
 OBJDIR=${OBJDIR:-build/native/gcc}
 SKIP_INGEST=${SKIP_INGEST:-0}
 
-LEDGER="mainnet-424669000-solcap"
+LEDGER="mainnet-424669000-solcap-v4.2.0-beta.1-vat"
 REDOWNLOAD=1
+
+WATCH=( )
+if [[ -n "${CI:-}" ]]; then
+  WATCH=( "--no-watch" )
+fi
 
 BACKTEST_LOG="/tmp/ledger_log_solcap"
 
@@ -65,6 +70,9 @@ if [[ ! -e $DUMP/$LEDGER ]]; then
   download_and_extract_ledger
 fi
 
+# fd requires the snapshots path to not be group/world accessible.
+chmod -R 0700 $DUMP/$LEDGER
+
 # Clone and build solcap-tools.  Capture output to a log and only print
 # it on failure, so a broken clone/fetch/checkout/build surfaces its
 # error in CI instead of failing silently.
@@ -105,6 +113,8 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
     verify_tile_count = 2
     execrp_tile_count = 6
 [tiles]
+    [tiles.replay]
+        enable_features = [ "VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ" ]
     [tiles.gui]
         enabled = false
     [tiles.rpc]
@@ -156,7 +166,7 @@ if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
 fi
 
 echo "Running backtest (full log at ${BACKTEST_LOG}) ..."
-$OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-424669000-solcap_current.toml
+$OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-424669000-solcap_current.toml "${WATCH[@]}"
 
 # Run solcap-tools diff and check the summary for zero differences
 echo "Running solcap-tools diff ..."

@@ -14,6 +14,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../../../ballet/utf8/fd_utf8.h"
 #include "../../accdb/fd_accdb.h"
+#include "../../../ballet/txn/fd_txn.h"
 
 /* Custom error types */
 
@@ -150,14 +151,19 @@ typedef struct fd_system_program_instruction fd_system_program_instruction_t;
 /* fd_system_program_instruction_decode reads a bincode-encoded
    SystemInstruction from [data, data+data_sz).  Variable-length seed
    fields in the output point directly into `data`, so the caller must
-   keep that buffer alive.  Returns 0 on success, -1 on decode error. */
+   keep that buffer alive.  Returns 0 on success, -1 on decode error.
+
+   Only bytes up to FD_TXN_MTU_V0 are parsed, the rest are discarded,
+   matching Agave's limited_deserialize(data, PACKET_DATA_SIZE). */
 
 static inline int
 fd_system_program_instruction_decode( fd_system_program_instruction_t * out,
                                       uchar const *                     data,
                                       ulong                             data_sz ) {
   uchar const * _payload    = data;
-  ulong const   _payload_sz = data_sz;
+  /* limited_deserialize(data, PACKET_DATA_SIZE)
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/system/src/system_processor.rs#L324 */
+  ulong const   _payload_sz = fd_ulong_min( data_sz, FD_TXN_MTU_V0 );
   ulong         _i          = 0UL;
 
 # define CHECK( cond )   { if( FD_UNLIKELY( !(cond) ) ) { return -1; } }

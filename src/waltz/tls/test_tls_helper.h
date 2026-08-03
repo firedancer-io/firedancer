@@ -9,7 +9,7 @@
 /* Common routines for fd_tls unit tests */
 
 /* fd_tls_test_rand creates an fd_tls provider from an fd_rng_t.
-   This is a deliberately insecure, deterministic RNG inteded for tests. */
+   This is a deliberately insecure, deterministic RNG intended for tests. */
 
 static void *
 fd_tls_test_rand_read( void * ctx,

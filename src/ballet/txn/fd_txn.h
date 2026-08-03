@@ -36,6 +36,13 @@
 /* FD_TXN_V0: The second transaction format.  Includes a version number and
    potentially some address lookup tables */
 #define FD_TXN_V0      ((uchar)0x00)
+/* FD_TXN_V1: The third transaction format ("Transaction V1").
+   See https://github.com/solana-foundation/solana-improvement-documents/pull/385
+
+   This format removes support for address lookup tables and is the
+   only transaction format that supports an MTU greater than 1232
+   bytes. */
+#define FD_TXN_V1      ((uchar)0x01)
 
 /* FD_TXN_SIGNATURE_SZ: The size (in bytes) of an Ed25519 signature. */
 #define FD_TXN_SIGNATURE_SZ (64UL)
@@ -53,28 +60,20 @@
 
 
 /* FD_TXN_SIG_MAX: The (inclusive) maximum number of signatures a transaction
-   can have.  Note: for the current MTU size of 1232 B, the maximum that a
-   valid transaction can have is 12 signatures. The most I've seen in practice
-   is about 7.
+   can have.
 
-   FD_TXN_ACTUAL_SIG_MAX: used to allocate arrays of signatures, pubkeys, etc.
+   For V0 transactions, which have an MTU of 1232 B, the maximum signatures
+   that can fit in the MTU is 12.
 
-   From the spec: "The Solana runtime verifies that the number of signatures
-   [stored as a compact-u16] matches the number in the first 8 bits of the
-   message header."
-   Thus this value must live in the range where compact-u16 and uint8
-   representations are identical, hence a max of 127. */
-#define FD_TXN_SIG_MAX               (127UL)
-#define FD_TXN_ACTUAL_SIG_MAX        (12UL)
+   For V1 transactions, the spec explicitly limits the maximum number of
+   signatures to 12. */
+#define FD_TXN_SIG_MAX (12UL)
 
 /* FD_TXN_ACCT_ADDR_MAX: The (inclusive) maximum number of account addresses
-   that a transaction can have.  The spec only guarantees <= 256, but the
-   current MTU of 1232 B restricts this to 35 account addresses.  An artificial
-   limit of 64 is currently in place, but this is being changed to 128 in the
-   near future (https://github.com/solana-labs/solana/issues/27241), so we'll
-   use 128. */
-/* https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139 */
-#define FD_TXN_ACCT_ADDR_MAX         (128UL)
+   that a transaction can have.
+
+   The account lock limit currently limits this to 64. */
+#define FD_TXN_ACCT_ADDR_MAX (64UL)
 
 /* FD_TXN_ADDR_TABLE_LOOKUP_MAX: The (inclusive) maximum number of address
    tables that this transaction references.  The spec is pretty sloppy about
@@ -86,8 +85,13 @@
 #define FD_TXN_ADDR_TABLE_LOOKUP_MAX (127UL)
 
 /* FD_TXN_INSTR_MAX: The (inclusive) maximum number of instructions a transaction
-   can have.  As of Solana 1.15.0, this is limited to 64. */
+   can have. */
 #define FD_TXN_INSTR_MAX             (64UL)
+
+/* FD_TXN_INSTR_ACCT_MAX: The (inclusive) maximum number of accounts a
+   single instruction can reference.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/lib.rs#L17 */
+#define FD_TXN_INSTR_ACCT_MAX        (255UL)
 
 
 /* FD_TXN_MAX_SZ: The maximum amount of memory (in bytes) that a fd_txn can
@@ -95,25 +99,51 @@
    worst-case transaction is a V0 transaction with only two account
    addresses (a program and a fee payer), and tons of empty instructions (no
    accounts, no data) and as many address table lookups loading a single
-   account as possible. */
-#define FD_TXN_MAX_SZ                (852UL)
+   account as possible.
+
+   Worst-case V0 transaction: only 2 accounts, 64 empty instructions
+   (no accounts, no data), 24 address lookup table lookups loading
+   a single account:
+     sizeof(fd_txn_t)                    =  22
+     64 × sizeof(fd_txn_instr_t)         = 640 +
+     24 × sizeof(fd_txn_acct_addr_lut_t) = 192 +
+                                         = 854
+
+   Worst-case V1 transaction: 64 empty instructions, no ALTs as
+   ALTs are not allowed in V1 transactions:
+     sizeof(fd_txn_t)                    =  22
+     64 × sizeof(fd_txn_instr_t)         = 640 +
+                                         = 662
+
+   So the worst-case parsed transaction size is the V0 transaction
+   case. */
+#define FD_TXN_MAX_SZ                (854UL)
 
 
 /* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
-   transaction. */
-#define FD_TXN_MTU                  (1232UL)
+   transaction, across all transaction version formats. */
+#define FD_TXN_MTU                  (4096UL)
+
+/* FD_TXN_MTU_V0: The maximum size (in bytes, inclusive) of a serialized
+   legacy or V0 transaction.
+
+   Any transaction that has an MTU larger than this is required to
+   use the transaction V1 format. */
+#define FD_TXN_MTU_V0               (1232UL)
 
 /* FD_TXN_MIN_SERIALIZED_SZ: The minimum size (in bytes) of a serialized
-   transaction, using fd_txn_parse() verification rules. */
+   transaction, using fd_txn_parse() verification rules.
+
+   Minimum legacy transaction size: 134
+   Minimum v0 transaction size:     136
+   Minimum v1 transaction size:     138 */
 #define FD_TXN_MIN_SERIALIZED_SZ     (134UL)
 
 /* BEGIN Agave limits */
 
-/* "Maximum number of accounts that a transaction may lock.
-    128 was chosen because it is the minimum number of accounts
-    needed for the Neon EVM implementation."
-   https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/src/transaction/sanitized.rs#L30 */
-#define MAX_TX_ACCOUNT_LOCKS         (128UL)
+/* Maximum number of accounts that a transaction may lock. */
+#define MAX_TX_ACCOUNT_LOCKS         (64UL)
+
 /* In the FD runtime, we've sized things assuming up to
    MAX_TX_ACCOUNT_LOCKS accounts per transaction. We rely on the txn
    parser to enforce this limit, up till the point of
@@ -185,7 +215,7 @@ typedef struct fd_txn_instr fd_txn_instr_t;
    - potentially (if it's a V2 transaction) some address lookup tables. */
 struct fd_txn {
   /* transaction_version: The version number of this transaction. Currently
-     must be one of { FD_TXN_VLEGACY, FD_TXN_V0 }. */
+     must be one of { FD_TXN_VLEGACY, FD_TXN_V0, FD_TXN_V1 }. */
   uchar       transaction_version;
 
   /* signature_cnt: The number of signatures in this transaction. signature_cnt
@@ -198,16 +228,26 @@ struct fd_txn {
      Specifically, if uchar const * payload is a pointer to the first byte of
      the transaction data in the packet, then signature i starts at
      (payload+signature_off)[ FD_TXN_SIGNATURE_SZ*i ] for i in
-     [0, signature_cnt).
+     [0, signature_cnt). */
 
-     Note that signature_off is always 1 in current transaction versions. */
   ushort      signature_off;
 
-  /* message_off: The offset (relative to the start of the transaction) in
-     bytes where the 'message' starts.
+  /* message_off: The offset (relative to the start of the transaction)
+     in bytes where the 'message' starts.
 
-     The message, which is the part of the packet covered by the signatures,
-     spans from this offset to the end of the packet. */
+     The message is the part of the transaction covered by the
+     signatures.
+
+     For legacy/V0 transactions, the signatures are at the front of the
+     packet and the message is at the end, so the message spans from
+     message_off to the end of the packet.
+
+     For V1 transactions, the message is at the front of the packet and
+     the signatures are at the end, so the message spans from
+     message_off to signature_off.
+
+     Use fd_txn_msg_sz( txn, payload_sz ) to determine the length of
+     the message. */
   ushort      message_off;
 
   /* readonly_signed_cnt: Of the signature_cnt signatures, readonly_signed_cnt
@@ -273,8 +313,19 @@ struct fd_txn {
      [0, FD_TXN_ADDT_ADDR_MAX - acct_addr_cnt]. Since acct_addr_cnt > 0,
      addr_table_adtl_cnt < 256. */
   uchar      addr_table_adtl_cnt;
+
   uchar      _padding_reserved_1; /* explicit padding the compiler would have
                                      inserted anyways */
+
+  /* v1_txn_config_values_off: The offset relative to the start of the
+     transaction of the config values region.  The config values region
+     contains the fields which the V1 config mask indicates are
+     present, packed together.  Fields which are not present are not
+     included, not set to zero.
+
+     Legacy/V0 transactions have no config mask, so this field is 0
+     for legacy/v0 transactions. */
+  ushort     v1_txn_config_values_off;
 
   /* From the address table lookups, we can add the following to the above table
                                                 Index Range                                         |   Signer?    |  Writeable?
@@ -682,10 +733,11 @@ static inline ulong              FD_FN_CONST fd_txn_acct_iter_idx( fd_txn_acct_i
    payload+payload_sz), i.e. this method will read no more than
    payload_sz bytes from payload, but it will reject the transaction if
    it contains extra padding at the end or continues past
-   payload+payload_sz.  payload_sz <= FD_TXN_MTU.
+   payload+payload_sz.
 
    out_buf is the memory where the parsed transaction will be stored.
-   out_buf must have room for at least FD_TXN_MAX_SZ bytes.
+   out_buf must be non-NULL and have room for at least FD_TXN_MAX_SZ
+   bytes.
 
    Returns the total size of the resulting fd_txn struct on success and
    0 on failure.  On failure, the contents of out_buf are undefined,
@@ -712,6 +764,26 @@ fd_txn_parse_core( uchar const             * payload,
 static inline ulong
 fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt ) {
   return fd_txn_parse_core( payload, payload_sz, out_buf, counters_opt, NULL );
+}
+
+/* fd_txn_msg_sz returns the size in bytes of the signed message region
+   of a transaction - not including the transaction signatures.
+
+   The message bytes begin at message_off, relative to the start of
+   the payload.
+
+   Where these bytes are located in the transaction payload is
+   dependent on the transaction format: legacy/V0 transactions have
+   signatures at the front and then the message, whereas V1
+   transactions have the message at the front and then the signatures.
+
+   fd_txn_msg_sz and message_off should always be used together. */
+FD_FN_PURE static inline ulong
+fd_txn_msg_sz( fd_txn_t const * txn,
+               ulong            payload_sz ) {
+  ulong msg_end = ( txn->transaction_version==FD_TXN_V1 ) ? (ulong)txn->signature_off
+                                                          : payload_sz;
+  return msg_end - (ulong)txn->message_off;
 }
 
 /* fd_txn_is_writable: Is the account at the supplied index writable

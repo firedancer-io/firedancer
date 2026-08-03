@@ -380,7 +380,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
     } else if ( !strcmp(in_link->name, "txsend_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_TXSEND;
       FD_TEST( !strcmp( out_link->name, "sign_txsend" ) );
-      FD_TEST( in_link->mtu==FD_TXN_MTU  );
+      FD_TEST( in_link->mtu==FD_TXN_MTU_V0  );
       FD_TEST( out_link->mtu==64UL*2UL );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;

@@ -375,7 +375,7 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
   }
 
   remove_tracking( ping_tracker, peer );
-  peer->valid_until_nanos = now+20L*60L*1000L*1000L*1000L; /* 20 mintues of validity */
+  peer->valid_until_nanos = now+20L*60L*1000L*1000L*1000L; /* 20 minutes of validity */
   peer->next_ping_nanos   = now+18L*60L*1000L*1000L*1000L; /* 18 minutes til we start trying to refresh */
   if( FD_UNLIKELY( peer->state==FD_PING_TRACKER_STATE_INVALID || peer->state==FD_PING_TRACKER_STATE_UNPINGED ) ) {
     ping_tracker->change_fn( ping_tracker->change_fn_ctx, peer->identity_pubkey.b, peer->address, now, FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );

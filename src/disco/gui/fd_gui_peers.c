@@ -527,7 +527,7 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
   fd_gui_peers_node_t * peer = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, peer_sock, NULL, peers->contact_info_table );
 
   /* We set MAP_MULTI=1 since there are not guarantees that duplicates
-     sockets wont exist. In cases where we see multiple sockets the
+     sockets won't exist. In cases where we see multiple sockets the
      update timestamp in fd_gui_peers_node_t is the tiebreaker */
   for( fd_gui_peers_node_t * p = peer; p!=NULL; p=(fd_gui_peers_node_t *)fd_gui_peers_node_sock_map_ele_next_const( p, NULL, peers->contact_info_table ) ) {
     if( peer->row.update_time_nanos>p->row.update_time_nanos ) peer = p;

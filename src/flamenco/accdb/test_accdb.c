@@ -82,6 +82,16 @@ test_setup( int * out_fd,
                         partition_cnt, partition_sz, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
 }
 
+static fd_accdb_t *
+test_join_writer( int fd ) {
+  ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots );
+  void * mem = aligned_alloc( fd_accdb_align(), fp );
+  FD_TEST( mem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, 0UL, NULL ) );
+  FD_TEST( accdb );
+  return accdb;
+}
+
 static void
 test_teardown( fd_accdb_t * accdb,
                int          fd ) {
@@ -202,12 +212,13 @@ test_pd_write_bit_and_probe( void ) {
 
   int   pd;
   ulong len;
+  ulong lamports;
 
   /* Write on f1 with pd_write=1 -> probe on f1 sees bit=1, gen-match,
      returns the committed data_len. */
   accdb_write_pd( accdb, f1, pk, 500UL, data, sizeof(data), owner, 1 );
   pd = 0; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len )==1 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len, &lamports )==1 );
   FD_TEST( pd==1 );
   FD_TEST( len==sizeof(data) );
 
@@ -215,21 +226,21 @@ test_pd_write_bit_and_probe( void ) {
      out_data_len untouched. */
   fd_accdb_fork_id_t c = fd_accdb_attach_child( accdb, f1 );
   pd = 1; len = 0xdeadUL;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len )==0 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len, &lamports )==0 );
   FD_TEST( pd==0 );
   FD_TEST( len==0xdeadUL ); /* untouched */
 
   /* OR-sticky: overwrite on f1 with pd_write=0 must NOT clear the bit. */
   accdb_write_pd( accdb, f1, pk, 501UL, data, sizeof(data), owner, 0 );
   pd = 0; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len )==1 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len, &lamports )==1 );
   FD_TEST( pd==1 ); /* survived the pd_write=0 overwrite */
 
   /* New version on child fork c with pd_write=0 -> probe on c sees bit=0
      (new current-gen version, no deploy-status write this slot). */
   accdb_write_pd( accdb, c, pk, 502UL, data, sizeof(data), owner, 0 );
   pd = 1; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len )==1 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len, &lamports )==1 );
   FD_TEST( pd==0 );
   FD_TEST( len==sizeof(data) );
 
@@ -241,14 +252,15 @@ test_pd_write_bit_and_probe( void ) {
   accdb_write_pd( accdb, f2, pk2, 999UL, data, 64UL, owner, 0 ); /* fund it first */
   accdb_write_pd( accdb, f2, pk2, 0UL,   NULL, 4UL,  owner, 1 ); /* close: lamports=0, pd_write=1 */
   pd = 0; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk2, &pd, &len )==1 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk2, &pd, &len, &lamports )==1 );
   FD_TEST( pd==1 );      /* bit reported despite lamports==0 */
   FD_TEST( len==4UL );   /* post-close committed len */
+  FD_TEST( lamports==0UL );
 
   /* Not-found -> returns 0, pd=0, out_data_len untouched. */
   uchar pk3[32]; memset( pk3, 0x44, 32UL );
   pd = 1; len = 0xbeefUL;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk3, &pd, &len )==0 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk3, &pd, &len, &lamports )==0 );
   FD_TEST( pd==0 );
   FD_TEST( len==0xbeefUL );
 
@@ -263,7 +275,7 @@ test_pd_write_bit_and_probe( void ) {
   FD_TEST( accdb_read( accdb, f1, pk4, NULL, NULL, &rlen, NULL )==1 );
   FD_TEST( rlen==big );
   pd = 0; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk4, &pd, &len )==1 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk4, &pd, &len, &lamports )==1 );
   FD_TEST( pd==1 );
   FD_TEST( len==big );
   free( bigbuf );
@@ -1361,6 +1373,95 @@ test_incremental_cross_fork_override( void ) {
   test_teardown( accdb, fd );
 }
 
+/* Verify a retry reuses entries moved to the free stack after lazy
+   allocation is exhausted. */
+static void
+test_incremental_retry_reuses_acc_pool( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 5UL, 8UL, 64UL, 64UL, 1UL<<30UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+  fd_accdb_t * background = test_join_writer( fd );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+  acc_pool_shmem_t * pool = test_shmem_mem->acc_pool;
+
+  uchar full_pk[ 32UL ] = { 0xC0 };
+  ulong replaced_lamports;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, full_pk, 10UL, 1UL, 0UL, 0,
+                                        &replaced_lamports )==1 );
+
+  fd_accdb_snapshot_recovery_t recovery;
+  fd_accdb_snapshot_save_whead( accdb, &recovery );
+
+  test_background_ctx_t bg_ctx = { .accdb = background, .stop = 0 };
+  pthread_t bg_thread;
+  FD_TEST( !pthread_create( &bg_thread, NULL, run_background, &bg_ctx ) );
+
+  for( ulong attempt=0UL; attempt<2UL; attempt++ ) {
+    fd_accdb_fork_id_t failed = fd_accdb_attach_child( accdb, root );
+    for( ulong i=0UL; i<2UL; i++ ) {
+      uchar failed_pk[ 32UL ] = {0};
+      failed_pk[ 0 ] = (uchar)(0xD0UL + 2UL*attempt + i);
+      FD_TEST( fd_accdb_snapshot_write_one( accdb, failed, failed_pk,
+                                            20UL+attempt, 2UL+i, 0UL, 0,
+                                            &replaced_lamports )==1 );
+    }
+    fd_accdb_purge( accdb, failed );
+    fd_accdb_snapshot_revert_whead( accdb, &recovery );
+    FD_TEST( shmetrics->accounts_total==1UL );
+  }
+
+  ulong top_before  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy_before = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( acc_pool_private_vidx_idx( top_before  )<5UL );
+  FD_TEST( acc_pool_private_vidx_idx( lazy_before )==acc_pool_idx_null() );
+  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==2UL );
+
+  fd_accdb_fork_id_t success = fd_accdb_attach_child( accdb, root );
+  uchar success_pk[ 32UL ] = { 0xE0 };
+  uchar const * pubkeys[ 2 ] = { full_pk, success_pk };
+  ulong slots      [ 2 ] = { 30UL, 30UL };
+  ulong lamports   [ 2 ] = { 10UL, 20UL };
+  ulong data_lens  [ 2 ] = { 0UL,  0UL };
+  int   executables[ 2 ] = { 0,    0 };
+  ulong ignored, replaced, loaded, ignored_lamports;
+
+  FD_TEST( !fd_accdb_snapshot_write_batch( accdb, success, 2UL, pubkeys, slots,
+                                           lamports, data_lens, executables,
+                                           &ignored, &replaced, &loaded,
+                                           &replaced_lamports, &ignored_lamports ) );
+  FD_TEST( !ignored && replaced==1UL && loaded==1UL );
+  FD_TEST( replaced_lamports==1UL && !ignored_lamports );
+  FD_TEST( acc_pool_private_vidx_idx( FD_VOLATILE_CONST( pool->ver_top ) )==acc_pool_idx_null() );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_before );
+
+  fd_accdb_advance_root( accdb, success );
+  fd_accdb_snapshot_load_end( accdb );
+
+  fd_accdb_fork_id_t next = fd_accdb_attach_child( accdb, success );
+  FD_TEST( shmetrics->accounts_total==2UL );
+
+  /* Drain the replaced full-snapshot account. */
+  fd_accdb_advance_root( accdb, next );
+  while( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )!=FD_ACCDB_CMD_IDLE ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
+  FD_TEST( !test_shmem_mem->deferred_acc_buf_cnt );
+
+  FD_VOLATILE( bg_ctx.stop ) = 1;
+  FD_TEST( !pthread_join( bg_thread, NULL ) );
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ulong read_lamports;
+    FD_TEST( accdb_read( accdb, next, pubkeys[ i ], &read_lamports,
+                         NULL, NULL, NULL ) );
+    FD_TEST( read_lamports==lamports[ i ] );
+  }
+
+  free( background );
+  test_teardown( accdb, fd );
+}
+
 /* test_sentinel_index_wrap is a regression for issue #543: at the
    maximum partition_cnt==8192 the initial write-head sentinel's packed
    partition index (partition_cnt) does not fit in the 13-bit index
@@ -1506,6 +1607,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_incremental_cross_fork_override ..." ));
   test_incremental_cross_fork_override();
+
+  FD_LOG_NOTICE(( "test_incremental_retry_reuses_acc_pool ..." ));
+  test_incremental_retry_reuses_acc_pool();
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();

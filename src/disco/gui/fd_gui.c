@@ -1918,7 +1918,7 @@ fd_gui_request_timeline_shreds( fd_gui_t *    gui,
   if( FD_UNLIKELY( fd_gui_cjson_parse_ns( end_param,   &end_ns   ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   if( FD_UNLIKELY( !(start_ns>=0L && start_ns<LONG_MAX) || !(end_ns>=0L && end_ns<LONG_MAX) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   if( FD_UNLIKELY( end_ns<start_ns ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  if( FD_UNLIKELY( end_ns-start_ns>10L*1000L*1000L*1000L ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST; /* TODO: tune/remove */
+  if( FD_UNLIKELY( end_ns-start_ns>60L*1000L*1000L*1000L ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST; /* TODO: tune/remove */
 
   fd_gui_printf_timeline_query_shreds( gui, topic, start_ns, end_ns, request_id );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );

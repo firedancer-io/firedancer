@@ -84,7 +84,7 @@ typedef struct __attribute__((packed)) {
     uchar acct_cnt; /* = 0 */
     uchar data_sz; /* = 9 */
     uchar set_cu_price; /* = 3 */
-    ulong micro_lamports_per_cu; /* Prefereably less than 10k or so */
+    ulong micro_lamports_per_cu; /* Preferably less than 10k or so */
   } _1;
   /* Start of second instruction */
   struct __attribute__((packed)) {
@@ -114,7 +114,7 @@ typedef struct __attribute__((packed)) {
     uchar acct_cnt; /* = 0 */
     uchar data_sz; /* = 9 */
     uchar set_cu_price; /* = 3 */
-    ulong micro_lamports_per_cu; /* Prefereably less than 10k or so */
+    ulong micro_lamports_per_cu; /* Preferably less than 10k or so */
   } _1;
   /* Start of second instruction */
   struct __attribute__((packed)) {
@@ -295,7 +295,7 @@ after_credit( fd_benchg_ctx_t *   ctx,
       break;
 
     default:
-      FD_LOG_ERR(( "Unkown transaction mode %i", ctx->transaction_mode ));
+      FD_LOG_ERR(( "Unknown transaction mode %i", ctx->transaction_mode ));
       break;
   }
 

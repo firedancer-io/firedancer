@@ -107,9 +107,9 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
    we won't record any additional shred updates for these slots.
 
    All shred events for a given slot will be places in a contiguous
-   chunk in the array, and the bounding indicies are stored in the
+   chunk in the array, and the bounding indices are stored in the
    slot history.  Within a slot chunk, shred events are ordered in the
-   ordered they were recorded by the gui tile.
+   order they were recorded by the gui tile.
 
    Ideally, we have enough space to store an epoch's worth of events,
    but we are limited by realistic memory consumption.  Instead, we pick

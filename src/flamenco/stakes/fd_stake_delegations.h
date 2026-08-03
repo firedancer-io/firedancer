@@ -66,7 +66,7 @@
    These operations are internally synchronized with a read-write lock
    because multiple executor tiles may be trying to call
    stake_delegations_fork_update() at the same time, and the replay tile
-   can simulatenously be calling fd_stake_delegations_evict_fork()
+   can simultaneously be calling fd_stake_delegations_evict_fork()
    */
 
 #define FD_STAKE_DELEGATIONS_ALIGN (128UL)

@@ -135,7 +135,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
 
-  int vat_in_prev = epoch>=vat_epoch+1UL ? 1 : 0;
+  int vat_in_prev = ( epoch>=vat_epoch+1UL || bank->f.features.validator_admission_ticket==0UL ) ? 1 : 0;
 
   fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
@@ -932,7 +932,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
      TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
-     be moved in the future. The Agave call heirarchy looks something like this:
+     be moved in the future. The Agave call hierarchy looks something like this:
             process_single_slot
                    v
             confirm_full_slot
@@ -1369,7 +1369,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
     }
   }
 
-  /* Transaction sanitization.  If a transaction can't be commited or is
+  /* Transaction sanitization.  If a transaction can't be committed or is
      fees-only, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
   ulong cu_before = txn_out->details.compute_budget.compute_meter;
@@ -1392,7 +1392,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
   }
 }
 
-/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
+/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responsible
    for the bulk of the pre-transaction execution checks in the runtime.
    They aim to preserve the ordering present in the Agave client to match
    parity in terms of error codes. Sigverify is kept separate from the rest
@@ -1965,6 +1965,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   int           pd_writable     [ FD_BUNDLE_ACCT_MAX ];
   int           pd_probe_write  [ FD_BUNDLE_ACCT_MAX ]; /* current-fork pd_write probe, per acquire_b pool entry */
   ulong         pd_probe_len    [ FD_BUNDLE_ACCT_MAX ]; /* current-fork committed size (ULONG_MAX = no gen-match) */
+  ulong         pd_probe_lamports[ FD_BUNDLE_ACCT_MAX ]; /* current-fork committed lamports */
   ulong         pd_cnt = 0UL;
   fd_pubkey_t   skip_keys[ FD_BUNDLE_ACCT_MAX ]; /* deployed-this-slot programdata: size-only accounting */
   ulong         skip_lens[ FD_BUNDLE_ACCT_MAX ];
@@ -1987,7 +1988,8 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
          (mirrors the single-txn skipped-key probe). */
       int   skip_pd  = 0;
       ulong skip_len = 0UL;
-      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len ) ) {
+      ulong skip_lamports = 0UL;
+      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len, &skip_lamports ) ) {
         int dup = 0;
         for( ulong u=0UL; u<skip_cnt; u++ ) if( FD_UNLIKELY( !memcmp( skip_keys[ u ].uc, programdata_key->uc, 32UL ) ) ) { dup = 1; break; }
         if( !dup ) {
@@ -2025,9 +2027,11 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   for( ulong u=0UL; u<pd_cnt; u++ ) {
     int   pd  = 0;
     ulong len = ULONG_MAX;
-    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pd_pubkeys[ u ], &pd, &len );
+    ulong lamports = 0UL;
+    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pd_pubkeys[ u ], &pd, &len, &lamports );
     pd_probe_write[ u ] = pd;
     pd_probe_len  [ u ] = len;
+    pd_probe_lamports[ u ] = lamports;
   }
 
   /* Bind each txn's BPF-upgradeable programdata accounts to the shared
@@ -2072,11 +2076,13 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
       txn_out->accounts.executable_from_parent[ exe_cnt ] = from_parent;
       if( from_parent ) {
         ulong pool_idx = (ulong)( programdata - runtime->accounts.executable );
-        txn_out->accounts.executable_pd_write[ exe_cnt ] = pd_probe_write[ pool_idx ];
-        txn_out->accounts.executable_cur_len[ exe_cnt ]  = pd_probe_len  [ pool_idx ];
+        txn_out->accounts.executable_pd_write[ exe_cnt ]     = pd_probe_write[ pool_idx ];
+        txn_out->accounts.executable_cur_len[ exe_cnt ]      = pd_probe_len[ pool_idx ];
+        txn_out->accounts.executable_cur_lamports[ exe_cnt ] = pd_probe_lamports[ pool_idx ];
       } else {
-        txn_out->accounts.executable_pd_write[ exe_cnt ] = 0;
-        txn_out->accounts.executable_cur_len[ exe_cnt ]  = ULONG_MAX;
+        txn_out->accounts.executable_pd_write[ exe_cnt ]     = 0;
+        txn_out->accounts.executable_cur_len[ exe_cnt ]      = ULONG_MAX;
+        txn_out->accounts.executable_cur_lamports[ exe_cnt ] = 0UL;
       }
       exe_cnt++;
     }

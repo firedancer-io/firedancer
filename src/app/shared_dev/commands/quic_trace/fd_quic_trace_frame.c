@@ -180,6 +180,39 @@ fd_quic_trace_conn_close_1_frame(
 
 FRAME_STUB( handshake_done )
 
+static ulong
+fd_quic_trace_datagram_0_frame(
+    fd_quic_trace_frame_ctx_t *  context,
+    fd_quic_datagram_0_frame_t * frame FD_PARAM_UNUSED,
+    uchar const *                p     FD_PARAM_UNUSED,
+    ulong                        p_sz ) {
+  printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu datagram len=%4lu (i)\n",
+          fd_log_wallclock(),
+          context->conn_id,
+          fd_uint_bswap( context->src_ip ),
+          context->src_port,
+          context->pkt_num,
+          p_sz );
+  return p_sz;
+}
+
+static ulong
+fd_quic_trace_datagram_1_frame(
+    fd_quic_trace_frame_ctx_t *  context,
+    fd_quic_datagram_1_frame_t * frame,
+    uchar const *                p FD_PARAM_UNUSED,
+    ulong                        p_sz ) {
+  if( FD_UNLIKELY( frame->length>p_sz ) ) return FD_QUIC_PARSE_FAIL;
+  printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu datagram len=%4lu (e)\n",
+          fd_log_wallclock(),
+          context->conn_id,
+          fd_uint_bswap( context->src_ip ),
+          context->src_port,
+          context->pkt_num,
+          frame->length );
+  return frame->length;
+}
+
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                                   \
   static ulong fd_quic_trace1_##NAME(                                     \
       void *        const ctx,                                            \

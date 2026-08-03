@@ -202,7 +202,7 @@
         /* At this point, pair key is not cached.  If we are not allowed
            to acquire this pair, fail.  Otherwise, evict the least
            recently used evictable line (this should always be possible
-           if quotas are confiured correctly) to make room to cache this
+           if quotas are configured correctly) to make room to cache this
            pair.  Connect this line to meta element ele_idx, set the
            line's reference count appropriately, bump the line's version
            and move the line to the desired location in the eviction

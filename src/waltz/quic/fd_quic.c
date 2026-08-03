@@ -551,6 +551,9 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                0                       );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                     (ulong)max_ack_delay_ms );
   /*                         */tp->disable_active_migration_present = 1;
+  if( config->max_datagram_frame_size && quic->cb.datagram_rx ) {
+    FD_QUIC_TRANSPORT_PARAM_SET( tp, max_datagram_frame_size, config->max_datagram_frame_size );
+  }
 
   /* Compute max inflight pkt cnt per conn */
   state->max_inflight_frame_cnt_conn = limits->inflight_frame_cnt - limits->min_inflight_frame_cnt_conn * (limits->conn_cnt-1);
@@ -933,7 +936,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
 
   FD_DTRACE_PROBE_4( quic_handle_frame, id, conn->our_conn_id, pkt_type, pkt->pkt_number );
 
-  fd_quic_frame_ctx_t frame_context[1] = {{ quic, conn, pkt }};
+  fd_quic_frame_ctx_t frame_context[1] = {{ quic, conn, pkt, 0UL }};
   if( FD_UNLIKELY( !fd_quic_frame_type_allowed( pkt_type, id ) ) ) {
     FD_DTRACE_PROBE_4( quic_err_frame_not_allowed, id, conn->our_conn_id, pkt_type, pkt->pkt_number );
     fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
@@ -2723,6 +2726,10 @@ fd_quic_apply_peer_params( fd_quic_conn_t *                   conn,
     tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
   }
   conn->tx_max_datagram_sz = (uint)tx_max_datagram_sz;
+  conn->tx_max_datagram_frame_sz = fd_ulong_if(
+      peer_tp->max_datagram_frame_size_present,
+      peer_tp->max_datagram_frame_size,
+      0UL );
 
   /* initial max_streams */
 
@@ -5423,6 +5430,47 @@ fd_quic_handle_handshake_done_frame(
   }
 
   return 0;
+}
+
+static ulong
+fd_quic_handle_datagram( fd_quic_frame_ctx_t * context,
+                         uchar const *         data,
+                         ulong                 data_sz,
+                         ulong                 header_sz ) {
+  fd_quic_t * quic = context->quic;
+  ulong max_frame_sz = quic->config.max_datagram_frame_size;
+  if( FD_UNLIKELY( !max_frame_sz || !quic->cb.datagram_rx ) ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+  if( FD_UNLIKELY( header_sz+data_sz > max_frame_sz ) ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+  quic->cb.datagram_rx( context->conn, data, data_sz, quic->cb.quic_ctx );
+  return data_sz;
+}
+
+static ulong
+fd_quic_handle_datagram_0_frame(
+    fd_quic_frame_ctx_t *        context,
+    fd_quic_datagram_0_frame_t * frame FD_PARAM_UNUSED,
+    uchar const *                p,
+    ulong                        p_sz ) {
+  return fd_quic_handle_datagram( context, p, p_sz, context->frame_sz );
+}
+
+static ulong
+fd_quic_handle_datagram_1_frame(
+    fd_quic_frame_ctx_t *        context,
+    fd_quic_datagram_1_frame_t * frame,
+    uchar const *                p,
+    ulong                        p_sz ) {
+  if( FD_UNLIKELY( frame->length>p_sz ) ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+  return fd_quic_handle_datagram( context, p, frame->length, context->frame_sz );
 }
 
 /* initiate the shutdown of a connection

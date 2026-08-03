@@ -132,7 +132,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,       /* Memory to place the 
                       fd_txn_t *          txn,           /* The Firedancer parsed transaction representation. */
                       int                 is_simple_vote /* If the transaction is a "simple vote" or not. */ );
 
-/* This function takes a pointer to an fd_bank_abi_txn_t as constucted
+/* This function takes a pointer to an fd_bank_abi_txn_t as constructed
    by fd_bank_abi_txn_init and returns a pointer to the expanded address
    lookup tables, with the writable accounts being first.  If the
    transaction does not load any accounts from an address lookup table

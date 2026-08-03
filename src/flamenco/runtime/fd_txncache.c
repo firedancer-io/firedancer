@@ -388,6 +388,7 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
   fd_rwlock_write( tc->shmem->lock );
 
   blockcache_t * fork = &tc->blockcache_pool[ fork_id.val ];
+  FD_TEST( fork->shmem->parent_id.val!=USHORT_MAX );
 
   blockcache_t * parent_fork = &tc->blockcache_pool[ fork->shmem->parent_id.val ];
   if( FD_UNLIKELY( root_slist_ele_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )!=parent_fork->shmem ) ) {
@@ -411,6 +412,7 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
      forks of the pruned siblings as well. */
   remove_children( tc, parent_fork, fork );
   parent_fork->shmem->child_id = fork_id;
+  fork->shmem->sibling_id = (fd_txncache_fork_id_t){ .val = USHORT_MAX };
 
   /* Now, the earliest known rooted fork can likely be removed since its
      blockhashes cannot be referenced anymore (they are older than 151

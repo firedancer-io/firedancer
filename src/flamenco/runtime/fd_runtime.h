@@ -13,7 +13,7 @@
 #include "../accdb/fd_accdb.h"
 
 /* The general structure for executing transactions in Firedancer can
-   be thought as a state maching where transaction execution is a
+   be thought of as a state machine where transaction execution is a
    deterministic state transition over various data structures.
 
    The starting and ending state before a transaction is executed is
@@ -196,7 +196,7 @@ struct fd_runtime {
        data, etc) */
     ulong vm_commit_cum_ticks;
 
-    /* Ticks spent in top-levl VM interpreter (includes CPI setup/commit
+    /* Ticks spent in top-level VM interpreter (includes CPI setup/commit
        ticks) */
     ulong vm_exec_cum_ticks;
 
@@ -300,6 +300,7 @@ struct fd_txn_out {
     int        executable_from_parent[ MAX_TX_ACCOUNT_LOCKS ]; /* 1 => read-only copy from the parent fork (loader gates on pd_write); 0 => current-fork copy (loader keeps the slot check) */
     int        executable_pd_write[ MAX_TX_ACCOUNT_LOCKS ];    /* probe result: deploy-status-changing write committed on the current fork this slot */
     ulong      executable_cur_len[ MAX_TX_ACCOUNT_LOCKS ];     /* current-fork committed data length, ULONG_MAX if none; for loaded-account-size accounting */
+    ulong      executable_cur_lamports[ MAX_TX_ACCOUNT_LOCKS ];/* current-fork committed lamports; only meaningful when executable_cur_len!=ULONG_MAX. */
 
     /* Programdata deployed this slot has no executable[] entry, but
        Agave still counts its size toward loaded-accounts-data-size
@@ -360,7 +361,7 @@ fd_runtime_block_execute_finalize( fd_bank_t *        bank,
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of
    the transaction execution are set in the fd_txn_out_t.  The caller
-   is responisble for correctly setting up the fd_txn_in_t and the
+   is responsible for correctly setting up the fd_txn_in_t and the
    fd_runtime_t handles.
 
    TODO: fd_runtime_t and fd_bank_t should be const here. */

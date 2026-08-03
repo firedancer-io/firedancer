@@ -444,12 +444,15 @@ fd_http_server_ws_broadcast( fd_http_server_t * http );
 
 /* fd_http_server_poll needs to be continuously called in a spin loop to
    drive the HTTP server forward.  Setting poll_timeout==0 makes it a
-   non-blocking socket ppoll(2).   Returns 1 if there was any work to do
-   on the HTTP server, or 0 otherwise. */
+   non-blocking socket ppoll(2).  conn_max limits the number of existing
+   HTTP or WebSocket connections serviced, or ULONG_MAX for no limit.
+   Pending listener connections may additionally be accepted.  Returns 1
+   if there was any work to do on the HTTP server, or 0 otherwise. */
 
 int
 fd_http_server_poll( fd_http_server_t * http,
-                     int                poll_timeout );
+                     int                poll_timeout,
+                     ulong              conn_max );
 
 FD_PROTOTYPES_END
 

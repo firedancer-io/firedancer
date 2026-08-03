@@ -9,6 +9,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../../accdb/fd_accdb.h"
 #include "../../progcache/fd_progcache_base.h"
+#include "../../../ballet/txn/fd_txn.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
@@ -160,6 +161,10 @@ typedef struct fd_bpf_state fd_bpf_state_t;
 
 /* fd_bpf_instruction_decode parses a bincode-encoded
    UpgradeableLoaderInstruction from [data, data+data_sz).
+
+   Only bytes up to FD_TXN_MTU_V0 are parsed, the rest are discarded,
+   matching Agave's limited_deserialize(data, PACKET_DATA_SIZE).
+
    Variable-length fields (`write.bytes`) point directly into `data`, so
    callers must keep that buffer alive.  Trailing bytes beyond the parsed
    region are accepted (matches Agave's default `allow_trailing_bytes()`).
@@ -170,7 +175,9 @@ fd_bpf_instruction_decode( fd_bpf_instruction_t * out,
                            uchar const *          data,
                            ulong                  data_sz ) {
   uchar const * _payload    = data;
-  ulong const   _payload_sz = data_sz;
+  /* limited_deserialize(data, PACKET_DATA_SIZE)
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/bpf_loader/src/lib.rs#L157 */
+  ulong const   _payload_sz = fd_ulong_min( data_sz, FD_TXN_MTU_V0 );
   ulong         _i          = 0UL;
 
 # define CHECK( cond )   { if( FD_UNLIKELY( !(cond) ) ) { return -1; } }

@@ -502,7 +502,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   }
 
   /* Every transaction in the bundle should be executed in order against
-     different transaciton contexts. */
+     different transaction contexts. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
 
     fd_txn_p_t *   txn     = &txns[ i ];
@@ -533,7 +533,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   }
 
   /* If all of the transactions in the bundle executed successfully, we
-     can commit the transactions in order.  At this point, we cann also
+     can commit the transactions in order.  At this point, we can also
      accumulate unused CUs to the rebate.  Otherwise, if any transaction
      fails, we need to exclude all the bundle transactions and rebate
      all of the CUs. */

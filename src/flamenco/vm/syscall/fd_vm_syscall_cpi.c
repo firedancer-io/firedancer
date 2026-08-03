@@ -23,7 +23,7 @@ TODO: should we move this out of the CPI section?
 
 The bulk of the logic is concerned with unifying the privileges for each duplicated account,
 ensuring that each duplicate account referenced has the same privileges. It also performs some
-priviledge checks, for example ensuring the necessary signatures are present.
+privilege checks, for example ensuring the necessary signatures are present.
 
 TODO: instruction calling convention: const parameters after non-const.
 
@@ -59,23 +59,23 @@ int
 fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
                            fd_exec_instr_ctx_t *    instr_ctx,
                            fd_pubkey_t const *      callee_program_id_pubkey,
-                           fd_pubkey_t const        instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
-                           fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
+                           fd_pubkey_t const        instr_acct_keys[ FD_TXN_INSTR_ACCT_MAX ],
+                           fd_instruction_account_t instruction_accounts[ FD_TXN_INSTR_ACCT_MAX ],
                            ulong *                  instruction_accounts_cnt,
                            fd_pubkey_t const *      signers,
                            ulong                    signers_cnt ) {
 
   /* De-duplicate the instruction accounts, using the same logic as Solana */
   ulong deduplicated_instruction_accounts_cnt = 0;
-  fd_instruction_account_t deduplicated_instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ] = {0};
+  fd_instruction_account_t deduplicated_instruction_accounts[ FD_TXN_INSTR_ACCT_MAX ] = {0};
   ulong duplicate_indicies_cnt                                                                     = 0;
-  ulong duplicate_indices[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ]                                    = {0};
+  ulong duplicate_indices[ FD_TXN_INSTR_ACCT_MAX ]                                    = {0};
 
   /* This function is either called by a true CPI or by a native cpi invocation.
      The native CPI invocation is never called with more than 3 instruction
      accounts, and the true CPI is never called with more than
-     FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS. */
-  if( FD_UNLIKELY( callee_instr->acct_cnt > FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
+     FD_TXN_INSTR_ACCT_MAX. */
+  if( FD_UNLIKELY( callee_instr->acct_cnt > FD_TXN_INSTR_ACCT_MAX ) ) {
     FD_LOG_CRIT(( "invariant violation: too many accounts %u", callee_instr->acct_cnt ));
   }
 
@@ -126,7 +126,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
       /* In the case where the callee instruction is NOT a duplicate, we need to
          create the deduplicated_instruction_accounts fd_instruction_account_t object. */
 
-      /* Add the instruction account to the duplicate indicies array */
+      /* Add the instruction account to the duplicate indices array */
       duplicate_indices[duplicate_indicies_cnt++] = deduplicated_instruction_accounts_cnt;
 
       /* Initialize the instruction account in the deduplicated_instruction_accounts array */
@@ -244,7 +244,7 @@ static int
 fd_vm_syscall_cpi_check_instruction( ulong           acct_cnt,
                                      ulong           data_sz ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L146-L161 */
-  if( FD_UNLIKELY( acct_cnt > FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
+  if( FD_UNLIKELY( acct_cnt > FD_TXN_INSTR_ACCT_MAX ) ) {
     // SyscallError::MaxInstructionAccountsExceeded
     return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
   }

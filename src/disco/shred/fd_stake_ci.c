@@ -325,7 +325,7 @@ void
 fd_stake_ci_set_identity( fd_stake_ci_t *     info,
                           fd_pubkey_t const * identity_key ) {
   /* None of the stakes are changing, so we just need to regenerate the
-     sdests, sightly adjusting the destination IP addresses.  The only
+     sdests, slightly adjusting the destination IP addresses.  The only
      corner case is if the new identity is not present. */
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_per_epoch_info_t * ei = info->epoch_info+i;

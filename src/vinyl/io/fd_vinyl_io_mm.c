@@ -357,7 +357,7 @@ fd_vinyl_io_mm_rewind( fd_vinyl_io_t * io,
                        ulong           seq ) {
   fd_vinyl_io_mm_t * mm = (fd_vinyl_io_mm_t *)io; /* Note: io must be non-NULL to have even been called */
 
-  /* Validate input argments.  Unlike forgot, we do allow rewinding to
+  /* Validate input arguments.  Unlike forgot, we do allow rewinding to
      before seq_ancient as the region of sequence space reported to the
      caller as written is still accurate. */
 
@@ -423,7 +423,7 @@ fd_vinyl_io_mm_fini( fd_vinyl_io_t * io ) {
   ulong seq_future  = mm->base->seq_future;
 
   if( FD_UNLIKELY( mm->rd_head                                ) ) FD_LOG_WARNING(( "fini completing outstanding reads" ));
-  if( FD_UNLIKELY( fd_vinyl_seq_ne( seq_present, seq_future ) ) ) FD_LOG_WARNING(( "fini discarding uncommited blocks" ));
+  if( FD_UNLIKELY( fd_vinyl_seq_ne( seq_present, seq_future ) ) ) FD_LOG_WARNING(( "fini discarding uncommitted blocks" ));
 
   return io;
 }

@@ -21,7 +21,7 @@ pattern_fill( uchar *    buf,
 
 static void
 test_rstream_empty( void ) {
-  /* fmemopen returns NULL when passing sz==0UL, work aroung glibc bug. */
+  /* fmemopen returns NULL when passing sz==0UL, work around glibc bug. */
   FILE * c_file = fmemopen( NULL, 1UL, "wb+" ); FD_TEST( c_file );
   FD_TEST( fseek( c_file, 0L, SEEK_END )==0L );
   ZSTD_DStream * dstream = ZSTD_createDStream();

@@ -19,16 +19,6 @@
 
 #define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
 
-/* limit_instruction_accounts limits the number of accounts an
-   instruction can reference to 255. Any transactions that violate this
-   limit are invalid and cannot be included in a block.
-
-   To avoid feature-gating Pack, we always throw out transactions that
-   violate this limit.
-
-   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/runtime-transaction/src/runtime_transaction/sdk_transactions.rs#L93-L99 */
-#define FD_PACK_MAX_ACCOUNTS_PER_INSTRUCTION (255UL)
-
 /* Each block is limited to 32k parity shreds.  We don't want pack to
    produce a block with so many transactions we can't shred it, but the
    correspondence between transactions and parity shreds is somewhat

@@ -31,6 +31,35 @@ uchar payload_c[ FD_TXN_MTU ];
 uchar min_okay[  FD_TXN_MTU ];
 uchar max_okay[  FD_TXN_MTU ];
 
+uchar legacy_buf[ FD_TXN_MTU ];
+
+static ulong
+build_legacy_one_instr( uchar * buf, ushort instr_acct_cnt ) {
+  ulong o = 0UL;
+  buf[ o++ ] = 0x01;                                         /* signature count = 1 (compact-u16)   */
+  for( ulong j=0UL; j<64UL; j++ ) buf[ o++ ] = 0;            /* 1 signature                          */
+  buf[ o++ ] = 0x01;                                         /* header: num_required_signatures = 1  */
+  buf[ o++ ] = 0x00;                                         /* header: num_readonly_signed = 0      */
+  buf[ o++ ] = 0x01;                                         /* header: num_readonly_unsigned = 1    */
+  buf[ o++ ] = 0x02;                                         /* account address count = 2            */
+  for( ulong a=0UL; a<2UL; a++ )
+    for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(a*32UL+j); /* 2 addresses                   */
+  for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(0xB0+j);     /* recent blockhash              */
+  buf[ o++ ] = 0x01;                                         /* instruction count = 1                */
+  buf[ o++ ] = 0x01;                                         /* program_id index = 1                 */
+  /* acct_cnt (compact-u16) */
+  ushort v = instr_acct_cnt;
+  for(;;) {
+    uchar b = (uchar)( v & 0x7F );
+    v = (ushort)( v >> 7 );
+    if( v ) buf[ o++ ] = (uchar)( b | 0x80 );
+    else  { buf[ o++ ] = b; break; }
+  }
+  for( ulong k=0UL; k<instr_acct_cnt; k++ ) buf[ o++ ] = 0;  /* account indices (all 0)              */
+  buf[ o++ ] = 0x00;                                         /* instruction data length = 0          */
+  return o;
+}
+
 void txn1_correctness( void ) {
   fd_txn_parse_counters_t  counters = {0};
   static uchar const first_sig_byte [  4 ] = {   97, 189,  11, 108 };
@@ -77,6 +106,22 @@ void txn1_correctness( void ) {
   FD_TEST( ix[ 6 ].data_sz    == 12UL );
   FD_TEST( transaction1[ ix[ 6 ].acct_off ] ==  14UL );
   FD_TEST( transaction1[ ix[ 6 ].data_off ] == 211UL );
+
+  { /* exactly 255 accounts parses */
+    ulong sz = build_legacy_one_instr( legacy_buf, (ushort)FD_TXN_INSTR_ACCT_MAX );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( fd_txn_parse( legacy_buf, sz, out_buf, &counters ) );
+    FD_TEST( counters.success_cnt==1UL );
+    FD_TEST( parsed->transaction_version == FD_TXN_VLEGACY );
+    FD_TEST( parsed->instr_cnt           == 1 );
+    FD_TEST( parsed->instr[0].acct_cnt   == (ushort)FD_TXN_INSTR_ACCT_MAX );
+  }
+  { /* 256 accounts is rejected */
+    ulong sz = build_legacy_one_instr( legacy_buf, (ushort)(FD_TXN_INSTR_ACCT_MAX+1UL) );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( legacy_buf, sz, out_buf, &counters ) );
+    FD_TEST( counters.failure_cnt==1UL );
+  }
 }
 void txn2_correctness( void ) {
   fd_txn_parse_counters_t counters = {0};
@@ -221,6 +266,227 @@ void test_mutate( uchar const * payload,
 }
 
 
+/* V1 transaction (SIMD-0385) test helpers.
+
+   build_v1 assembles a V1 transaction into buf from the given parameters
+   and returns its serialized size.  Layout mirrors Agave
+   transaction-view try_new_as_v1:
+     VersionByte | LegacyHeader(3) | ConfigMask(u32 LE) | Blockhash(32) |
+     NumInstr | NumAddr | Addresses | ConfigValues | InstrHeaders |
+     InstrPayloads | Signatures (at the end) */
+
+struct v1_instr {
+  uchar  program_id;
+  uchar  acct_cnt;
+  ushort data_sz;
+  uchar  accts[ 8 ]; /* up to 8 account indices for tests */
+};
+typedef struct v1_instr v1_instr_t;
+
+static ulong
+build_v1( uchar       * buf,
+          uchar         num_req_sig,
+          uchar         ro_signed,
+          uchar         ro_unsigned,
+          uint          config_mask,
+          uchar         num_addr,
+          v1_instr_t const * instrs,
+          uchar         instr_cnt ) {
+  ulong o = 0UL;
+  buf[ o++ ] = (uchar)0x81;          /* version byte: MESSAGE_VERSION_PREFIX | 1 */
+  buf[ o++ ] = num_req_sig;
+  buf[ o++ ] = ro_signed;
+  buf[ o++ ] = ro_unsigned;
+  /* config mask u32 LE */
+  buf[ o++ ] = (uchar)( config_mask        & 0xFF );
+  buf[ o++ ] = (uchar)((config_mask >>  8) & 0xFF );
+  buf[ o++ ] = (uchar)((config_mask >> 16) & 0xFF );
+  buf[ o++ ] = (uchar)((config_mask >> 24) & 0xFF );
+  for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(0xB0+j); /* blockhash */
+  buf[ o++ ] = instr_cnt;
+  buf[ o++ ] = num_addr;
+  /* addresses */
+  for( ulong a=0UL; a<num_addr; a++ )
+    for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(a*32UL+j);
+  /* config values: one 4-byte word per set bit.  When the heap-size bit
+     (bit 4, the highest bit) is set its word is last and must hold a valid
+     heap size, so use 64 KiB; the other words are arbitrary. */
+  ulong nvals = (ulong)fd_uint_popcnt( config_mask );
+  for( ulong v=0UL; v<nvals; v++ ) {
+    uint word = ( ((config_mask>>4)&1U) && (v==nvals-1UL) ) ? 64U*1024U : 0x0400U;
+    buf[o++]=(uchar)( word        & 0xFF );
+    buf[o++]=(uchar)((word >>  8) & 0xFF );
+    buf[o++]=(uchar)((word >> 16) & 0xFF );
+    buf[o++]=(uchar)((word >> 24) & 0xFF );
+  }
+  /* instruction headers */
+  for( ulong j=0UL; j<instr_cnt; j++ ) {
+    buf[ o++ ] = instrs[j].program_id;
+    buf[ o++ ] = instrs[j].acct_cnt;
+    buf[ o++ ] = (uchar)( instrs[j].data_sz       & 0xFF );
+    buf[ o++ ] = (uchar)((instrs[j].data_sz >> 8) & 0xFF );
+  }
+  /* instruction payloads (account indices then data) */
+  for( ulong j=0UL; j<instr_cnt; j++ ) {
+    for( ulong k=0UL; k<instrs[j].acct_cnt; k++ ) buf[ o++ ] = instrs[j].accts[k];
+    for( ulong k=0UL; k<instrs[j].data_sz;  k++ ) buf[ o++ ] = (uchar)k;
+  }
+  /* signatures */
+  for( ulong s=0UL; s<num_req_sig; s++ )
+    for( ulong j=0UL; j<64UL; j++ ) buf[ o++ ] = (uchar)(0x40+s);
+  return o;
+}
+
+static uchar v1_buf[ FD_TXN_MTU ];
+
+void txn_v1_correctness( void ) {
+  fd_txn_parse_counters_t counters = {0};
+  fd_txn_t * parsed = (fd_txn_t *)out_buf;
+
+  /* --- Minimal valid V1: 1 sig, 2 addrs, 1 instr (program=1, 1 acct, no data), no config --- */
+  {
+    v1_instr_t ix[1] = { { .program_id=1, .acct_cnt=1, .data_sz=0, .accts={0} } };
+    ulong sz = build_v1( v1_buf, /*num_req_sig*/1, /*ro_signed*/0, /*ro_unsigned*/1,
+                         /*config_mask*/0u, /*num_addr*/2, ix, /*instr_cnt*/1 );
+    counters = (fd_txn_parse_counters_t){0};
+    ulong out_sz = fd_txn_parse( v1_buf, sz, out_buf, &counters );
+    FD_TEST( out_sz );
+    FD_TEST( counters.success_cnt==1UL );
+    FD_TEST( parsed->transaction_version          == FD_TXN_V1 );
+    FD_TEST( parsed->signature_cnt                == 1 );
+    FD_TEST( parsed->message_off                  == 0 ); /* message starts at byte 0 in V1 */
+    FD_TEST( parsed->readonly_signed_cnt          == 0 );
+    FD_TEST( parsed->readonly_unsigned_cnt        == 1 );
+    FD_TEST( parsed->acct_addr_cnt                == 2 );
+    FD_TEST( parsed->addr_table_lookup_cnt        == 0 ); /* no ALTs in V1 */
+    FD_TEST( parsed->addr_table_adtl_cnt          == 0 );
+    FD_TEST( parsed->instr_cnt                    == 1 );
+    FD_TEST( parsed->instr[0].program_id          == 1 );
+    FD_TEST( parsed->instr[0].acct_cnt            == 1 );
+    FD_TEST( parsed->instr[0].data_sz             == 0 );
+    /* signatures are at the very end */
+    FD_TEST( parsed->signature_off                == sz - 64UL );
+    /* blockhash sits right after the 4-byte config mask + 3-byte header + version */
+    FD_TEST( parsed->recent_blockhash_off         == 8 );
+    FD_TEST( v1_buf[ parsed->recent_blockhash_off ] == 0xB0 );
+  }
+
+  /* --- Valid V1 with full config mask (priority fee + CU + loaded + heap) --- */
+  {
+    v1_instr_t ix[1] = { { .program_id=1, .acct_cnt=0, .data_sz=3, .accts={0} } };
+    ulong sz = build_v1( v1_buf, 1, 0, 1, /*mask*/0x1Fu, 2, ix, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    ulong out_sz = fd_txn_parse( v1_buf, sz, out_buf, &counters );
+    FD_TEST( out_sz );
+    /* config values region = 5 words * 4 bytes, located after the addresses */
+    FD_TEST( parsed->v1_txn_config_values_off == 8UL+32UL+1UL+1UL+2UL*32UL );
+  }
+
+  /* --- V1 heap size (bit 4) sanitization: the value must be a multiple of
+     1 KiB in [32 KiB, 256 KiB], else the transaction is rejected --- */
+  {
+    v1_instr_t ix[1] = { { .program_id=1, .acct_cnt=0, .data_sz=0, .accts={0} } };
+    ulong sz = build_v1( v1_buf, 1, 0, 1, /*mask*/0x10u, 2, ix, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( fd_txn_parse( v1_buf, sz, out_buf, &counters ) ); /* build_v1 wrote a valid 64 KiB heap */
+    ulong heap_off = parsed->v1_txn_config_values_off; /* the only config word is the heap */
+
+    uint accept[] = { 32U*1024U, 64U*1024U, 256U*1024U };
+    for( ulong t=0UL; t<sizeof(accept)/sizeof(accept[0]); t++ ) {
+      fd_memcpy( v1_buf + heap_off, &accept[t], sizeof(uint) );
+      counters = (fd_txn_parse_counters_t){0};
+      FD_TEST( fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+    }
+    uint reject[] = { 16U*1024U, 512U*1024U, 32U*1024U+1U }; /* <min, >max, non-multiple */
+    for( ulong t=0UL; t<sizeof(reject)/sizeof(reject[0]); t++ ) {
+      fd_memcpy( v1_buf + heap_off, &reject[t], sizeof(uint) );
+      counters = (fd_txn_parse_counters_t){0};
+      FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+    }
+  }
+
+  /* --- Rejection cases --- */
+  v1_instr_t ix1[1] = { { .program_id=1, .acct_cnt=1, .data_sz=0, .accts={0} } };
+
+  /* truncation: a valid transaction parsed with too few bytes must fail
+     (CHECK_LEFT catches the missing trailing signature bytes) */
+  {
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 2, ix1, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz-1UL, out_buf, &counters ) );
+    FD_TEST( counters.failure_cnt==1UL );
+  }
+
+  /* bad version byte (0x82 = version 2) */
+  {
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 2, ix1, 1 );
+    v1_buf[0] = (uchar)0x82;
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* reserved config mask bit set (bit 5) */
+  {
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0x20u, 2, ix1, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* priority-fee bit pairing violated (bit 0 set, bit 1 clear) */
+  {
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0x01u, 2, ix1, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* program id is the fee payer (index 0) */
+  {
+    v1_instr_t ix[1] = { { .program_id=0, .acct_cnt=1, .data_sz=0, .accts={0} } };
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 2, ix, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* program id out of range (>= num_addr) */
+  {
+    v1_instr_t ix[1] = { { .program_id=2, .acct_cnt=1, .data_sz=0, .accts={0} } };
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 2, ix, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* account index out of range (>= num_addr) */
+  {
+    v1_instr_t ix[1] = { { .program_id=1, .acct_cnt=1, .data_sz=0, .accts={2} } };
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 2, ix, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* num_addr exceeds FD_TXN_ACCT_ADDR_MAX (64) */
+  {
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 65, ix1, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* readonly_signed >= num_req_sig (fee payer not writable) */
+  {
+    ulong sz = build_v1( v1_buf, 1, 1, 0, 0u, 2, ix1, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* trailing-byte rejection when payload_sz_opt is NULL */
+  {
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 2, ix1, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz+1UL, out_buf, &counters ) );
+  }
+
+  FD_LOG_NOTICE(( "v1 parse tests pass" ));
+}
+
 void test_performance( uchar const * payload,
                        ulong sz ) {
   const ulong test_count = 10000000UL;
@@ -241,6 +507,7 @@ main( int     argc,
 
   txn1_correctness( );
   txn2_correctness( );
+  txn_v1_correctness( );
 
   test_performance( transaction1, transaction1_sz );
   test_performance( transaction2, transaction2_sz );

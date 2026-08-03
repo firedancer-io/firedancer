@@ -54,7 +54,24 @@ test_rent_exempt_vector[] = {
   { .data_len=    82, .lamports_per_byte_year=46980000, .exemption_threshold_bits=0x3f236b06e70b7421UL, .min_balance=   1461600UL },
   { .data_len=     8, .lamports_per_byte_year=    3480, .exemption_threshold_bits=0x4000000000000000UL, .min_balance=    946560UL },
   { .data_len=     8, .lamports_per_byte_year=46980000, .exemption_threshold_bits=0x3f236b06e70b7421UL, .min_balance=    946560UL },
-  { .data_len=     9, .lamports_per_byte_year=46980000, .exemption_threshold_bits=0x3f236b06e70b7421UL, .min_balance=    953520UL }
+  { .data_len=     9, .lamports_per_byte_year=46980000, .exemption_threshold_bits=0x3f236b06e70b7421UL, .min_balance=    953520UL },
+
+  /* Thresholds 1.0 and 2.0 with a product exceeding 2^53, where integer
+     and double arithmetic disagree.  lamports_per_byte_year sits at the
+     largest value each threshold admits, and 10485760 is the largest
+     account data length. */
+  { .data_len=    4993, .lamports_per_byte_year=1759197129867UL, .exemption_threshold_bits=0x3ff0000000000000UL, .min_balance=    9008848502048907UL },
+  { .data_len=10485760, .lamports_per_byte_year=1759197129867UL, .exemption_threshold_bits=0x3ff0000000000000UL, .min_balance=18446744073706816896UL },
+  { .data_len=   10113, .lamports_per_byte_year= 879598564933UL, .exemption_threshold_bits=0x4000000000000000UL, .min_balance=   18015937806957706UL },
+  { .data_len=10485760, .lamports_per_byte_year= 879598564933UL, .exemption_threshold_bits=0x4000000000000000UL, .min_balance=18446744073696331008UL },
+  { .data_len=10485760, .lamports_per_byte_year= 116163352091UL, .exemption_threshold_bits=0x3ff0000000000000UL, .min_balance= 1218075899730791808UL },
+  { .data_len=10485760, .lamports_per_byte_year= 116163352091UL, .exemption_threshold_bits=0x4000000000000000UL, .min_balance= 2436151799461583616UL },
+  { .data_len=10485760, .lamports_per_byte_year=         6960UL, .exemption_threshold_bits=0x3ff0000000000000UL, .min_balance=         72981780480UL },
+
+  /* Any other threshold keeps the double computation, saturating like a
+     Rust `as u64` cast. */
+  { .data_len=     200, .lamports_per_byte_year=         3480UL, .exemption_threshold_bits=0x3ff8000000000000UL, .min_balance=             1712160UL },
+  { .data_len=10485760, .lamports_per_byte_year=1759197129867UL, .exemption_threshold_bits=0x3ff8000000000000UL, .min_balance=18446744073709551615UL }
 };
 #define test_rent_exempt_vector_end (fd_rent_exempt_fixture_t const *)( (uchar const *)test_rent_exempt_vector + sizeof(test_rent_exempt_vector) )
 

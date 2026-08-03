@@ -2304,7 +2304,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   // STEP 5.
   //   For any cache lines we have retrieved, which we might potentially
   //   be about to trash (by writing stuff in there), we need to write
-  //   them back to disk first if they are dirty.  This is the proces of
+  //   them back to disk first if they are dirty.  This is the process of
   //   "persisting" (a/k/a evicting) whatever was previously in the
   //   cache line we are about to use.
   //
@@ -2665,7 +2665,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     /* We are guaranteed that if an account is in the cache, the bytes
        are available (all cache operations are atomic via refcnt CAS),
        but we are not guaranteed that if something is _not_ in the cache
-       that it has been written back to disk yet.  In paticular, if we
+       that it has been written back to disk yet.  In particular, if we
        are trying to read an account that another thread is in the
        process of evicting, we know they removed it from the cache, but
        we don't know exactly when they will have written it back fully
@@ -3541,7 +3541,8 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
                              fd_accdb_fork_id_t fork_id,
                              uchar const *      pubkey,
                              int *              out_pd_write,
-                             ulong *            out_data_len ) {
+                             ulong *            out_data_len,
+                             ulong *            out_lamports ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE();
@@ -3565,19 +3566,24 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
   int   pd        = 0;
   int   gen_match = 0;
   ulong len       = 0UL;
+  ulong lamports  = 0UL;
   if( FD_LIKELY( acc!=UINT_MAX ) ) {
     fd_accdb_accmeta_t const * m = &accdb->acc_pool[ acc ];
     uint es   = FD_VOLATILE_CONST( m->executable_size );
     gen_match = ( m->key.generation==fork->shmem->generation );
     pd        = gen_match && FD_ACCDB_SIZE_PD_WRITE( es );
     len       = FD_ACCDB_SIZE_DATA( es );
+    lamports  = FD_VOLATILE_CONST( m->lamports );
   }
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
 
   *out_pd_write = pd;
-  if( gen_match ) *out_data_len = len;
+  if( gen_match ) {
+    *out_data_len = len;
+    *out_lamports = lamports;
+  }
   return gen_match;
 }
 
@@ -3821,7 +3827,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
   int replace = !!accmeta;
 
   if( FD_UNLIKELY( !accmeta ) ) {
-    accmeta = acc_pool_acquire( accdb->acc_pool_join );
+    accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
     if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
 
     uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
@@ -4010,7 +4016,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       replaced_lamports += accmeta->lamports;
       replaced++;
     } else {
-      accmeta = acc_pool_acquire( accdb->acc_pool_join );
+      accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
       if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading" ));
 
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
