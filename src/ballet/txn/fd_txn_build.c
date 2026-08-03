@@ -285,14 +285,14 @@ fd_txn_b_cu16_write( uchar * out,
 
 __attribute__((always_inline)) static inline uint
 fd_txn_build_core( fd_txn_builder_t *        builder,
-                   uchar                     out_[ FD_TXN_MTU ] ) {
+                   uchar                     out_[ FD_TXN_MTU_V0 ] ) {
 #define ACCT( i ) (&builder->acct[ builder->acct_map[ i ] ])
 
   ulong cnt[ FD_TXN_B_ACCT_PRIO_CNT ];
   fd_txn_b_bake( builder, cnt );
 
   uchar *       out      = out_;
-  uchar * const end      = out + FD_TXN_MTU;
+  uchar * const end      = out + FD_TXN_MTU_V0;
 
   ulong const rw_sig_cnt = cnt[ 0 ] + cnt[ 1 ];
   ulong const ro_sig_cnt = cnt[ 2 ];
@@ -408,13 +408,13 @@ fd_txn_build_core( fd_txn_builder_t *        builder,
 
 uint
 fd_txn_build_raw( fd_txn_builder_t * builder,
-                  uchar              out[ FD_TXN_MTU ] ) {
+                  uchar              out[ FD_TXN_MTU_V0 ] ) {
   return fd_txn_build_core( builder, out );
 }
 
 uint
 fd_txn_build( fd_txn_builder_t *  builder,
-              uchar               out[ FD_TXN_MTU ],
+              uchar               out[ FD_TXN_MTU_V0 ],
               fd_txn_t * restrict out_txn,
               ushort *            opt_out_txn_t_sz ) {
   uint payload_sz = fd_txn_build_core( builder, out );

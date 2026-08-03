@@ -340,8 +340,7 @@ FD_UNIT_TEST( instruction_count_is_bounded ) {
   FD_TEST( fd_txn_builder_fee_payer_set( builder, &fee ) );
   fd_txn_builder_blockhash_set( builder, &bhash );
   for( ulong i=0UL; i<FD_TXN_INSTR_MAX; i++ ) {
-    fd_acct_addr_t prog_i = addr( (uchar)( 0x40UL + i ) );
-    FD_TEST( fd_txn_builder_instr_open( builder, &prog_i, NULL, 0UL ) );
+    FD_TEST( fd_txn_builder_instr_open( builder, &program, NULL, 0UL ) );
     fd_txn_builder_instr_close( builder );
   }
   FD_TEST( !fd_txn_builder_instr_open( builder, &program, NULL, 0UL ) );

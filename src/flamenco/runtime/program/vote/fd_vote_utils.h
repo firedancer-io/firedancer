@@ -3,6 +3,7 @@
 
 #include "fd_vote_codec.h"
 #include "../../../../ballet/txn/fd_txn.h"
+#include "../../fd_runtime_const.h"
 
 /* Vote utility functions shared across vote program logic.
    Merged from the former fd_vote_common.h and fd_vote_lockout.h. */
@@ -41,14 +42,14 @@ fd_vote_lockout_landed_votes_from_lockouts( fd_vote_lockout_t * lockouts,
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L985 */
 int
 fd_vote_verify_authorized_signer( fd_pubkey_t const * authorized,
-                                  fd_pubkey_t const * signers[static FD_TXN_SIG_MAX],
+                                  fd_pubkey_t const * signers[static FD_INSTR_SIGNERS_MAX],
                                   ulong               signers_cnt );
 
 /* lambda function: https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L873 */
 int
 fd_vote_signature_verify( fd_pubkey_t *       epoch_authorized_voter,
                           int                 authorized_withdrawer_signer,
-                          fd_pubkey_t const * signers[static FD_TXN_SIG_MAX],
+                          fd_pubkey_t const * signers[static FD_INSTR_SIGNERS_MAX],
                           ulong               signers_cnt );
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L668 */

@@ -2214,13 +2214,14 @@ FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
 
-  uchar * payload = block->fec_buf+block->fec_buf_soff;
-  ulong pay_sz = 0UL;
-  ulong txn_sz = fd_txn_parse_core( payload,
-                                    fd_ulong_min( FD_TXN_MTU, block->fec_buf_sz-block->fec_buf_soff ),
-                                    txn,
-                                    NULL,
-                                    &pay_sz );
+  uchar * payload   = block->fec_buf+block->fec_buf_soff;
+  ulong   remaining = block->fec_buf_sz-block->fec_buf_soff;
+  ulong   pay_sz    = 0UL;
+  ulong   txn_sz    = fd_txn_parse_core( payload,
+                                         remaining,
+                                         txn,
+                                         NULL,
+                                         &pay_sz );
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */

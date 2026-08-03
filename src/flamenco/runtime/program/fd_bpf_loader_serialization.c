@@ -799,7 +799,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L236-L239 */
   ulong num_ix_accounts = instr_ctx->instr->acct_cnt;
-  if( FD_UNLIKELY( num_ix_accounts>FD_BPF_INSTR_ACCT_MAX ) ) {
+  if( FD_UNLIKELY( num_ix_accounts>FD_TXN_INSTR_ACCT_MAX ) ) {
     return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED;
   }
 

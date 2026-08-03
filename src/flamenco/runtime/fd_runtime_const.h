@@ -9,6 +9,15 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MAX_FORK_CNT (4096UL)
 
+/* FD_INSTR_SIGNERS_MAX: The (inclusive) maximum number of distinct
+   signers a single instruction can have.
+
+   This is the runtime bound, which is larger than the transaction
+   parser bound because during CPI calls PDAs can be promoted to
+   signers. Therefore in the runtime, the effective limit is the
+   amount of distinct accounts the transaction can access. */
+#define FD_INSTR_SIGNERS_MAX FD_TXN_ACCT_ADDR_MAX
+
 /* FD_RUNTIME_MAX_{STAKE,VOTE}_ACCOUNTS are the maximum number of stake
    and vote accounts that the system supports: anything larger will
    result in a crash. The bounds were set with the intention of making a
@@ -137,63 +146,6 @@ FD_PROTOTYPES_BEGIN
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L37-L38 */
 #define FD_RUNTIME_EBPF_HOST_ALIGN  (16UL)
 
-/* FD_INSTR_ACCT_MAX is the maximum number of accounts that can
-   be referenced by a single instruction.
-
-   This is different from FD_BPF_INSTR_ACCT_MAX, which is enforced by the
-   BPF serializer. It is possible to pass in more than FD_BPF_INSTR_ACCT_MAX
-   instruction accounts in a transaction (for example mainnet transaction)
-   3eDdfZE6HswPxFKrtnQPsEmTkyL1iP57gRPEXwaqNGAqF1paGXCYYMwh7z4uQDUMgFor742sikVSQZW1gFRDhPNh).
-
-   A transaction like this will be loaded and sanitized, but will fail in the
-   bpf serialization stage. It is also possible to invoke a native program with
-   more than FD_BPF_INSTR_ACCT_MAX instruction accounts that will execute successfully.
-
-   Therefore we need to derive a bound from a worst-case transaction: one that
-   has the maximum possible number of instruction accounts at the expense of
-   everything else. This is a legacy transaction with a single account address,
-   a single signature, a single instruction with empty data and as many
-   instruction accounts as possible.
-
-   Therefore, the maximum number of instruction accounts is:
-     (MTU - fixed overhead) / (size of instruction account)
-   = (MTU
-       - signature count (1 byte, value=1)
-       - signature (64 bytes)
-       - signature count in header (1 byte)
-       - readonly signed count (1 byte)
-       - readonly unsigned count (1 byte)
-       - account count (1 byte, compact-u16 value=1)
-       - 1 account address (32 bytes)
-       - recent blockhash (32 bytes)
-       - instruction count (1 byte, compact-u16 value=1)
-       - program id index (1 byte)
-       - instruction account count (2 bytes)
-       - data len (1 byte, value=0)
-   = 1232 - 1 - 64 - 1 - 1 - 1 - 1 - 32 - 32 - 1 - 1 - 2 - 1
-   = 1094
-
-   TODO: SIMD-406 (https://github.com/solana-foundation/solana-improvement-documents/pull/406)
-   limits the number of instruction accounts to 255 in transaction sanitization.
-
-   Once the corresponding feature gate has been activated, we can reduce
-   FD_INSTR_ACCT_MAX to 255. We cannot reduce this before as this would cause
-   the result of the get_processed_sibling_instruction syscall to diverge from
-   Agave. */
-#define FD_INSTR_ACCT_MAX           (1094UL)
-
-/* FD_BPF_INSTR_ACCT_MAX is the maximum number of accounts that
-   an instruction that goes through the bpf loader serializer can reference.
-
-   The BPF loader has a lower limit for the number of instruction accounts
-   than is enforced in transaction sanitization.
-
-   TODO: remove this limit once SIMD-406 is activated, as we can then use the
-   same limit everywhere.
-
-   https://github.com/anza-xyz/agave/blob/v3.1.4/transaction-context/src/lib.rs#L30-L32 */
-#define FD_BPF_INSTR_ACCT_MAX       (255UL)
-
 /* FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT is the per-unique-account
    serialization overhead EXCLUDING the account's data body: the fixed
    metadata fields, plus the realloc headroom (MAX_PERMITTED_DATA_INCREASE)
@@ -253,12 +205,12 @@ FD_PROTOTYPES_BEGIN
                                                                    account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT                  +     \
                                                                    ((direct_mapping) ? 0UL : ((ulong)FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT +              \
                                                                                               (ulong)FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN))       +     \
-                                                                   (FD_BPF_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
+                                                                   (FD_TXN_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
                                                                    sizeof(ulong)                      /* instr data len */                          +     \
                                                                    FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN  /* instr data  */                             +     \
                                                                    sizeof(fd_pubkey_t)                /* program id     */                          +     \
                                                                    (FD_BPF_ALIGN_OF_U128-1UL) +                                                           \
-                                                                   FD_BPF_INSTR_ACCT_MAX*sizeof(ulong) /* direct_account_pointers_in_program_input */),   \
+                                                                   FD_TXN_INSTR_ACCT_MAX*sizeof(ulong) /* direct_account_pointers_in_program_input */),   \
                                                                    FD_RUNTIME_EBPF_HOST_ALIGN ))
 
 
@@ -267,16 +219,36 @@ FD_PROTOTYPES_BEGIN
 
 /* FD_SYSVAR_INSTRUCTIONS_FOOTPRINT bounds the worst-case serialized
    size of the sysvar instructions account.  See
-   fd_sysvar_instructions.c for the format.  Worst case:
+   fd_sysvar_instructions.c for the format.
+
+   Worst case size for V0/legacy transactions.  Each bullet is bounded by
+   its own maximum; those maxima compete for the same 1232-byte tx and
+   can't all be reached at once, so the sum is a deliberately loose
+   over-estimate:
      - 2 bytes header (num_instructions)
-     - FD_TXN_INSTR_MAX * 2 = 128 bytes (instruction offsets)
+     - instruction offsets: 2 bytes * FD_TXN_INSTR_MAX (64) = 128 bytes
      - per-instr fixed: 2 (num_accounts) + 32 (program_id) + 2 (data_len)
        = 36 bytes * FD_TXN_INSTR_MAX (64) = 2304 bytes
-     - per-acct ref: 33 bytes * FD_INSTR_ACCT_MAX (1094) = 36102 bytes
-     - instr data total: bounded by FD_TXN_MTU (1232 bytes)
+     - account refs: each takes 1 byte (an index) in the tx but serializes
+       to 33 bytes (1 flag + 32-byte pubkey); a 1232-byte tx holds at most
+       ~1094 indices across all its instructions, so 33 * 1094 = 36102 bytes
+     - instr data: bounded by the legacy MTU FD_TXN_MTU_V0 (1232 bytes)
      - 2 bytes tail (current_instr_idx)
-   Total: 39770 bytes, rounded up to 40960. */
-#define FD_SYSVAR_INSTRUCTIONS_FOOTPRINT (40960UL)
+   Total: 39770 bytes
+
+   Worst case size for V1 transactions:
+   Instruction start offsets are u16, so an accepted sysvar has every
+   offset <= 65535; a larger offset overflows and is rejected (matching
+   agave).  The worst case is the last instruction starting at 65535:
+
+     - 65535 bytes (offset of the last instruction)
+     - per-acct ref: 33 bytes * 255 = 8415 bytes
+     - per-instr fixed: 2 (num_accounts) + 32 (program_id) + 2 (data_len)
+       = 36 bytes
+     - instr data: bounded by FD_TXN_MTU (4096 bytes)
+     - 2 bytes tail (current_instr_idx)
+   Total: 78084 bytes, rounded up to 81920. */
+#define FD_SYSVAR_INSTRUCTIONS_FOOTPRINT (81920UL)
 
 #define FD_HARD_FORKS_MAX (64UL)
 

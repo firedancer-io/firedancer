@@ -110,15 +110,15 @@ test_null( checker    f,
 static int
 test_duplicates( checker    f,
                  fd_rng_t * rng ) {
-  fd_acct_addr_t l0[128];
+  fd_acct_addr_t l0[FD_TXN_ACCT_ADDR_MAX];
 
   fd_chkdup_t _mem[1];
   fd_chkdup_t * chkdup = fd_chkdup_join( fd_chkdup_new( _mem, rng ) );
   ulong base = fd_rng_uint_roll( rng, P-1UL )+1UL;
-  populate_unique( base, l0, 128UL*sizeof(fd_acct_addr_t) );
+  populate_unique( base, l0, FD_TXN_ACCT_ADDR_MAX*sizeof(fd_acct_addr_t) );
 
-  for( ulong i=0UL; i<128UL; i++ ) {
-    for( ulong j=0UL; j<128UL; j++ ) {
+  for( ulong i=0UL; i<FD_TXN_ACCT_ADDR_MAX; i++ ) {
+    for( ulong j=0UL; j<FD_TXN_ACCT_ADDR_MAX; j++ ) {
       if( FD_UNLIKELY( i==j ) ) continue;
       /* Make j the same as i */
       fd_acct_addr_t temp = l0[j];
@@ -128,12 +128,12 @@ test_duplicates( checker    f,
          l0_cnt+l1_cnt > max(i, j). */
       ulong l0_cnt = fd_rng_ulong_roll( rng, fd_ulong_max( i, j )+2UL );
       /* Given l0_cnt, then l1_cnt > max(i,j)-l0_cnt.  We also know that
-         l0_cnt+l1_cnt<=128.  This implies l1_cnt in
-         [max(i,j)-l0_cnt+1, 129-l0_cnt ).  In other words, we generate
-         a random value in
-         [0, 129-l0_cnt - (max(i,j)-l0_cnt+1) ) and add max(i,j)-l0_cnt+1.
-         [0, 128-max(i,j) ) */
-      ulong l1_cnt = fd_rng_ulong_roll( rng, 128UL-fd_ulong_max( i, j ) ) + fd_ulong_max( i, j )+1UL - l0_cnt;
+         l0_cnt+l1_cnt<=FD_TXN_ACCT_ADDR_MAX.  This implies l1_cnt in
+         [max(i,j)-l0_cnt+1, FD_TXN_ACCT_ADDR_MAX+1-l0_cnt ).  In other words,
+         we generate a random value in
+         [0, FD_TXN_ACCT_ADDR_MAX+1-l0_cnt - (max(i,j)-l0_cnt+1) ) and add
+         max(i,j)-l0_cnt+1.  [0, FD_TXN_ACCT_ADDR_MAX-max(i,j) ) */
+      ulong l1_cnt = fd_rng_ulong_roll( rng, FD_TXN_ACCT_ADDR_MAX-fd_ulong_max( i, j ) ) + fd_ulong_max( i, j )+1UL - l0_cnt;
       if( FD_UNLIKELY( 0==f( chkdup, l0, l0_cnt, l0+l0_cnt, l1_cnt ) ) ) return 0;
       l0[j] = temp;
     }

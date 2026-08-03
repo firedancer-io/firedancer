@@ -1429,12 +1429,6 @@ test_reject( void ) {
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_ADD );
 
   i++;
-  make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );
-  txn = TXN( &txnp_scratch[ i ] );
-  txn->instr[ 0 ].acct_cnt = 256;
-  FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT );
-
-  i++;
   make_transaction( i, 1000001U, 500U, 11.0, "A", "A", NULL, NULL );
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE_ACCT );
 

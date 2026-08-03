@@ -101,7 +101,7 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
                                  ulong                       target_epoch,
                                  uchar const *               bls_pubkey,
                                  int                         authorized_withdrawer_signer,
-                                 fd_pubkey_t const *         signers[ FD_TXN_SIG_MAX ],
+                                 fd_pubkey_t const *         signers[ FD_INSTR_SIGNERS_MAX ],
                                  ulong                       signers_cnt );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L738-L743 */
