@@ -537,7 +537,8 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
 
 /* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
    using software prefetching to overlap hash chain memory latency with
-   useful work.  Each pubkey[i] points to a 32-byte public key.
+   useful work.  This function is not thread safe and must not be called
+   concurrently.  Each pubkey[i] points to a 32-byte public key.
    *out_replaced_lamports is set to the sum of the lamports of all
    accounts replaced by this batch (i.e. the previous lamports value of
    each account whose acc was overwritten).  *out_ignored_lamports is

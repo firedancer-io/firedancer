@@ -1775,8 +1775,8 @@ allocate_next_write( fd_accdb_t * accdb,
    published later by fd_accdb_flush_metrics. */
 
 static inline ulong
-allocate_next_write_batched( fd_accdb_t * accdb,
-                             ulong        sz ) {
+allocate_next_write_defer_metrics( fd_accdb_t * accdb,
+                                   ulong        sz ) {
   ulong partition_idx;
   ulong file_offset = reserve_next_write( accdb, sz, &partition_idx );
 
@@ -4139,7 +4139,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
          Mark the space as immediately freed since it is dead on
          arrival. */
       ulong dead_sz  = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-      ulong dead_off = allocate_next_write_batched( accdb, dead_sz );
+      ulong dead_off = allocate_next_write_defer_metrics( accdb, dead_sz );
       fd_accdb_shmem_bytes_freed( accdb->shmem, dead_off, dead_sz );
       ignored_lamports += lamports[ i ];
       ignored++;
@@ -4190,7 +4190,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     accmeta->lamports        = lamports[ i ];
     accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] );
     ulong entry_sz       = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-    ulong file_off       = allocate_next_write_batched( accdb, entry_sz );
+    ulong file_off       = allocate_next_write_defer_metrics( accdb, entry_sz );
     accmeta->offset_fork = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
     used_bytes_added    += entry_sz;
   }
