@@ -14,8 +14,8 @@
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* SlotState::parents_ready in votor.rs, flattened into one votor-level
-   map keyed by (window start, parent). */
+/* SlotState::parents_ready, flattened into one votor-level map keyed by
+   (window start, parent). */
 
 #define AG_VOTOR_PARENTS_READY_MAX (8UL) /* per window start */
 
@@ -176,7 +176,7 @@ out_reset( ag_votor_t * self ) {
   self->out.timeout_cnt = 0UL;
 }
 
-/* Predicates (Votor::is_retired / has_voted / received_shred). */
+/* Predicates. */
 
 static int
 is_retired( ag_votor_t * self,
@@ -651,8 +651,8 @@ ag_consensus_message_de( ag_consensus_message_t * out,
                          uchar const *            payload,
                          ulong                    sz,
                          ushort                   shred_version ) {
-  /* VersionedWireConsensusMessage (wire.rs): u8 version, u8 kind, body,
-     u16 LE shred_version. */
+  /* VersionedWireConsensusMessage: u8 version, u8 kind, body, u16 LE
+     shred_version. */
   if( FD_UNLIKELY( sz<2UL ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED;
   uchar version = payload[0];
   uchar kind    = payload[1];

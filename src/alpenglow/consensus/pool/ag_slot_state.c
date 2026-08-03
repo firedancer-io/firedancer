@@ -17,8 +17,6 @@ struct stake_map {
 };
 typedef struct stake_map stake_map_t;
 
-/* parents: BTreeMap<BlockHash, ParentStatus> */
-
 struct parent_status {
   fd_hash_t hash;
   ulong     next;
@@ -54,9 +52,9 @@ typedef struct set set_t;
 
 typedef parent_status_t parents_pool_t;
 
-/* SlotVotes (slot_state.rs), stored as running BLS aggregates instead of
-   individual votes (the PERF note in slot_state.rs): one incrementally
-   built aggregate per vote kind whose signer bitmask is also the presence
+/* SlotVotes, stored as running BLS aggregates instead of individual
+   votes (per the reference's PERF note): one incrementally built
+   aggregate per vote kind whose signer bitmask is also the presence
    set.  notar / notar_fallback sign (slot, hash), so those two kinds keep
    one aggregate per block hash (bounded like the voted_stakes maps).  own
    retains this validator's individual votes for standstill re-broadcast
@@ -96,11 +94,9 @@ struct slot_votes {
 };
 typedef struct slot_votes slot_votes_t;
 
-/* SlotVotedStake (slot_state.rs). */
-
 struct slot_voted_stake {
-  stake_map_t notar;          /* BTreeMap<BlockHash, Stake> */
-  stake_map_t notar_fallback; /* BTreeMap<BlockHash, Stake> */
+  stake_map_t notar;
+  stake_map_t notar_fallback;
   ulong       skip;
   ulong       skip_fallback;
   ulong       finalize;
@@ -108,8 +104,6 @@ struct slot_voted_stake {
   ulong       top_notar;
 };
 typedef struct slot_voted_stake slot_voted_stake_t;
-
-/* SlotCertificates (slot_state.rs). */
 
 struct slot_certificates {
   int                      has_notar;         ag_notar_cert_t      notar;
@@ -121,9 +115,9 @@ struct slot_certificates {
 };
 typedef struct slot_certificates slot_certificates_t;
 
-/* Mirrors SlotState in pool/slot_state.rs (same field names and order);
-   the pool and map handles are fd_pool/fd_map_chain plumbing for the field
-   they follow, own_id/validator_max come from ValidatorEpochInfo/sizing. */
+/* Mirrors SlotState (same field names and order); the pool and map
+   handles are fd_pool/fd_map_chain plumbing for the field they follow,
+   own_id/validator_max come from ValidatorEpochInfo/sizing. */
 
 struct __attribute__((aligned(128UL))) ag_slot_state {
   slot_votes_t votes;
@@ -133,10 +127,10 @@ struct __attribute__((aligned(128UL))) ag_slot_state {
   slot_certificates_t certificates;
 
   parents_pool_t * parents_pool;
-  parents_map_t *  parents;    /* BTreeMap<BlockHash, ParentStatus> */
+  parents_map_t *  parents;
 
-  set_t pending_safe_to_notar; /* BTreeSet<BlockHash> */
-  set_t sent_safe_to_notar;    /* BTreeSet<BlockHash> */
+  set_t pending_safe_to_notar;
+  set_t sent_safe_to_notar;
   int   sent_safe_to_skip;
   uint  own_agg_logged;        /* per-cert-kind bits: own aggregation reached threshold post-cert (logged once) */
 
@@ -342,8 +336,7 @@ agg_map_get_or_insert( agg_map_t *       map,
   return &e->agg;
 }
 
-/* Which hash (if any) validator v signed in this map:
-   votes.notar[v] as an Option<block_hash>. */
+/* Which hash (if any) validator v signed in this map. */
 
 static hashagg_t const *
 agg_map_find_signer( agg_map_t const * map,
@@ -354,15 +347,11 @@ agg_map_find_signer( agg_map_t const * map,
   return NULL;
 }
 
-/* self.parents.get(&hash): NULL == Entry::Vacant */
-
 static parent_status_t *
 parents_get( ag_slot_state_t * slot_state,
              fd_hash_t const * hash ) {
   return parents_map_ele_query( slot_state->parents, hash, NULL, slot_state->parents_pool );
 }
-
-/* BTreeSet<BlockHash> contains / insert / remove */
 
 static int
 set_contains( set_t const * set,
@@ -441,8 +430,6 @@ out_push_repair( ag_slot_state_outputs_t * out,
   b->hash = *hash;
 }
 
-/* is_notar_fallback (SlotState::is_notar_fallback). */
-
 FD_FN_PURE int
 ag_slot_state_is_notar_fallback( ag_slot_state_t const * slot_state,
                                  fd_hash_t const *       block_hash ) {
@@ -452,8 +439,6 @@ ag_slot_state_is_notar_fallback( ag_slot_state_t const * slot_state,
   }
   return 0;
 }
-
-/* check_safe_to_notar (SlotState::check_safe_to_notar). */
 
 static int
 check_safe_to_notar( ag_slot_state_t * slot_state,
@@ -517,8 +502,6 @@ log_own_agg_complete( ag_slot_state_t * slot_state,
   FD_LOG_NOTICE(( "own %s aggregation complete slot=%lu at %lu%% (cert was received first)",
                   ag_cert_type_to_string( kind ), slot_state->slot, total ? stake*100UL/total : 0UL ));
 }
-
-/* count_notar_stake (SlotState::count_notar_stake). */
 
 static ag_slot_state_outputs_t
 count_notar_stake( ag_slot_state_t * slot_state,
@@ -595,8 +578,6 @@ count_notar_stake( ag_slot_state_t * slot_state,
   return outputs;
 }
 
-/* count_notar_fallback_stake (SlotState::count_notar_fallback_stake). */
-
 static ag_slot_state_outputs_t
 count_notar_fallback_stake( ag_slot_state_t * slot_state,
                             fd_hash_t const * block_hash,
@@ -623,8 +604,6 @@ count_notar_fallback_stake( ag_slot_state_t * slot_state,
 
   return outputs;
 }
-
-/* count_skip_stake (SlotState::count_skip_stake). */
 
 static ag_slot_state_outputs_t
 count_skip_stake( ag_slot_state_t * slot_state,
@@ -676,8 +655,6 @@ count_skip_stake( ag_slot_state_t * slot_state,
   return outputs;
 }
 
-/* count_finalize_stake (SlotState::count_finalize_stake). */
-
 static ag_slot_state_outputs_t
 count_finalize_stake( ag_slot_state_t * slot_state,
                       ulong             stake ) {
@@ -701,8 +678,6 @@ count_finalize_stake( ag_slot_state_t * slot_state,
 
   return outputs;
 }
-
-/* add_cert (SlotState::add_cert). */
 
 void
 ag_slot_state_add_cert( ag_slot_state_t * slot_state,
@@ -744,8 +719,6 @@ ag_slot_state_add_cert( ag_slot_state_t * slot_state,
     FD_LOG_ERR(( "invalid cert kind %u", cert->kind ));
   }
 }
-
-/* add_vote (SlotState::add_vote). */
 
 ag_slot_state_outputs_t
 ag_slot_state_add_vote( ag_slot_state_t * slot_state,
@@ -822,7 +795,6 @@ ag_slot_state_add_vote( ag_slot_state_t * slot_state,
 void
 ag_slot_state_notify_parent_known( ag_slot_state_t * slot_state,
                                    fd_hash_t const * hash ) {
-  /* self.parents.entry(hash).or_insert(ParentStatus::Known) */
   if( parents_get( slot_state, hash ) ) return;
   parent_status_t * e = parents_pool_ele_acquire( slot_state->parents_pool );
   e->hash   = *hash;
@@ -842,8 +814,6 @@ ag_slot_state_notify_parent_certified( ag_slot_state_t * slot_state,
   }
   return check_safe_to_notar( slot_state, hash );
 }
-
-/* check_slashable_offence (SlotState::check_slashable_offence). */
 
 FD_FN_PURE int
 ag_slot_state_check_slashable_offence( ag_slot_state_t const * slot_state,
@@ -899,8 +869,6 @@ ag_slot_state_check_slashable_offence( ag_slot_state_t const * slot_state,
   }
   return AG_SLASHABLE_NONE;
 }
-
-/* should_ignore_vote (SlotState::should_ignore_vote). */
 
 FD_FN_PURE int
 ag_slot_state_should_ignore_vote( ag_slot_state_t const * slot_state,

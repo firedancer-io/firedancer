@@ -6,8 +6,7 @@ ag_vote_payload_bytes_to_sign( uchar *           out,
                                ulong             slot,
                                fd_hash_t const * h,
                                ushort            shred_version ) {
-  /* VotePayloadToSign (agave votor-messages/src/wire.rs): u8 tags start
-     at 1 in Vote variant order. */
+  /* VotePayloadToSign: u8 tags start at 1 in Vote variant order. */
   ulong o = 0UL;
   out[o] = (uchar)( kind+1U ); o += 1UL;
   FD_STORE( ulong, out+o, slot ); o += 8UL;
@@ -30,8 +29,6 @@ sign_payload( ag_aggsig_sig_t *      sig,
   ulong sz = ag_vote_payload_bytes_to_sign( buf, kind, slot, h, shred_version );
   ag_aggsig_sign_bytes( sig, sk, buf, sz );
 }
-
-/* IndividualSignature::verify over the vote's VotePayload. */
 
 static int
 verify_payload( ag_aggsig_sig_t const * sig,
@@ -240,7 +237,7 @@ ag_vote_serialize( ag_vote_t const * self,
                    uchar *           out,
                    ulong             out_max,
                    ushort            shred_version ) {
-  /* VersionedWireConsensusMessage::V1 (wire.rs): u8 version (1), u8
+  /* VersionedWireConsensusMessage::V1: u8 version (1), u8
      WireConsensusMessageKind tag (kind+1), body (slot [+ block_id],
      192B sig, u16 rank -- the packed ag_*_vote_t layout), u16 LE
      shred_version. */

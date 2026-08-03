@@ -5,20 +5,14 @@
 #include "../ag_vote.h"
 #include "../ag_cert.h"
 #include "../ag_epoch_info.h"
-#include "../ag_pool_event.h"        /* ag_pool_event_t (Rust PoolEvent). */
-
-/* ParentStatus (slot_state.rs). */
+#include "../ag_pool_event.h"        /* ag_pool_event_t */
 
 #define AG_PARENT_STATUS_KNOWN     (1)
 #define AG_PARENT_STATUS_CERTIFIED (2)
 
-/* SafeToNotarStatus (slot_state.rs). */
-
 #define AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR  (0)
 #define AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK  (1)
 #define AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES (2)
-
-/* SlashableOffence (alpenglow/src/consensus/pool.rs). */
 
 #define AG_SLASHABLE_NONE                        (0)
 #define AG_SLASHABLE_NOTAR_DIFFERENT_HASH        (1)

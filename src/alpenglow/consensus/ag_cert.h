@@ -11,8 +11,6 @@
 #define AG_CERT_TYPE_SKIP           (4U)
 #define AG_CERT_TYPE_GENESIS        (5U)
 
-/* CertError (cert.rs). */
-
 #define AG_CERT_SUCCESS              ( 0)
 #define AG_CERT_ERR_SLOT_MISMATCH    (-1)
 #define AG_CERT_ERR_BLOCK_HASH_MISMATCH (-2)
@@ -176,8 +174,8 @@ ag_cert_check_sig( ag_cert_t const *       self,
                    ag_epoch_info_t const * epoch_info );
 
 /* ag_cert_de deserializes a network cert body as carried in a
-   WireConsensusMessageV1 (agave votor-messages/src/wire.rs, kind tags
-   7-12 mapped to AG_CERT_TYPE_* by the caller):
+   WireConsensusMessageV1 (kind tags 7-12 mapped to AG_CERT_TYPE_* by the
+   caller):
 
      slot (8) [| block_id (32)] | sig (192) | bitmap len (u64 LE) | bitmap
 
@@ -194,7 +192,7 @@ ag_cert_de( ag_cert_t *   out,
             ulong *       opt_consumed );
 
 /* ag_block_final_cert_de deserializes a finalization cert as carried in
-   a block footer (agave entry/src/block_component.rs):
+   a block footer:
 
      slot (8) | block_id (32) | final_aggregate | has_notar (1) | [notar_aggregate]
 

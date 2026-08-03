@@ -43,8 +43,6 @@ struct ag_votor_out {
 };
 typedef struct ag_votor_out ag_votor_out_t;
 
-/* BlockInfo in blockstore.rs */
-
 struct ag_block_info {
   fd_hash_t     hash;
   ag_block_id_t parent;
@@ -69,10 +67,10 @@ struct ag_votor_blockstore_event {
 };
 typedef struct ag_votor_blockstore_event ag_votor_blockstore_event_t;
 
-/* Mirrors SlotState in votor.rs (same field names and order); slot/next
-   are fd_pool/fd_map_chain plumbing.  Option<Hash> fields use the
-   all-zeros hash as None.  parents_ready (a per-slot BTreeSet<BlockId>
-   in Rust) is flattened into a votor-level (slot, parent) map. */
+/* Mirrors SlotState (same field names and order); slot/next are
+   fd_pool/fd_map_chain plumbing.  Option<Hash> fields use the all-zeros
+   hash as None.  parents_ready (a per-slot BTreeSet<BlockId> in Rust) is
+   flattened into a votor-level (slot, parent) map. */
 
 struct __attribute__((aligned(128UL))) ag_votor_slot_state {
   ulong slot; /* map key */
@@ -97,8 +95,7 @@ typedef struct ag_votor ag_votor_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* ag_consensus_message_de deserializes a VersionedWireConsensusMessage
-   (agave votor-messages/src/wire.rs):
+/* ag_consensus_message_de deserializes a VersionedWireConsensusMessage:
 
      u8 version tag (1=V1) | u8 WireConsensusMessageKind tag | body |
      u16 LE shred_version
@@ -108,9 +105,8 @@ FD_PROTOTYPES_BEGIN
    rejected AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED.  A message whose
    trailing shred_version differs from shred_version is dropped with
    AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION (mismatches are dropped,
-   not banned, per wire.rs).  Returns AG_CONSENSUS_MESSAGE_DE_SUCCESS
-   or a negative AG_CONSENSUS_MESSAGE_DE_ERR_*; out is valid only on
-   success. */
+   not banned).  Returns AG_CONSENSUS_MESSAGE_DE_SUCCESS or a negative
+   AG_CONSENSUS_MESSAGE_DE_ERR_*; out is valid only on success. */
 
 int
 ag_consensus_message_de( ag_consensus_message_t * out,

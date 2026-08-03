@@ -68,9 +68,9 @@ typedef struct ag_vote ag_vote_t;
 FD_PROTOTYPES_BEGIN
 
 /* ag_vote_payload_bytes_to_sign writes the signed vote payload
-   (VotePayloadToSign, agave votor-messages/src/wire.rs): u8 tag
-   (kind+1), slot u64 LE, block_id for (fallback) notar votes, u16 LE
-   shred_version.  Returns the payload size. */
+   (VotePayloadToSign): u8 tag (kind+1), slot u64 LE, block_id for
+   (fallback) notar votes, u16 LE shred_version.  Returns the payload
+   size. */
 
 ulong
 ag_vote_payload_bytes_to_sign( uchar *           out,
@@ -196,7 +196,7 @@ ag_vote_serialize( ag_vote_t const * self,
                    ulong             out_max,
                    ushort            shred_version );
 
-/* Accessors (Vote::slot / signer / block_hash). */
+/* Accessors. */
 
 FD_FN_PURE static inline ulong
 ag_vote_slot( ag_vote_t const * self ) {

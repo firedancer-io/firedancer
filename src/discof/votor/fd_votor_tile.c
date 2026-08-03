@@ -72,11 +72,7 @@
    pool from handle_votor_out and the PoolEvents that produces stay on the
    pool's channel for a later after_credit iteration.  Emitted votes/certs
    are queued as FD_VOTOR_SIG_* frags onto the `publishes` deque, drained one
-   frag per after_credit call (exactly like Tower).
-
-   Rust cross-references below are GitHub permalinks pinned to the commits
-   checked out at ~/projects/alpenglow (qkniep/alpenglow @ c415a42) and
-   ~/projects/agave-alpenglow (anza-xyz/alpenglow @ 9f284c913f). */
+   frag per after_credit call (exactly like Tower). */
 
 #define LOGGING 0
 
@@ -187,10 +183,9 @@ typedef struct in_ctx in_ctx_t;
    can exist while the root is in E.  Entries arrive one epoch per EPOCH
    msg (stake weights + BLS pubkeys, update_epoch_vtrs); the E+2
    publication doubles as the epoch-advance signal, retiring curr.
-   Agave retains 5 (MAX_LEADER_SCHEDULE_STAKES,
-   https://github.com/anza-xyz/alpenglow/blob/9f284c913f/runtime/src/bank.rs#L221)
-   as legacy slack for non-consensus consumers (RPC, snapshots, tower
-   vote verification); consensus only ever reads two. */
+   Agave retains 5 (MAX_LEADER_SCHEDULE_STAKES) as legacy slack for
+   non-consensus consumers (RPC, snapshots, tower vote verification);
+   consensus only ever reads two. */
 
 /* vtr_epoch_set_t is one set of epoch stakes. epoch==ULONG_MAX marks an
    empty entry in the epoch map */
@@ -455,8 +450,7 @@ epoch_info_vtrs( fd_votor_tile_t const * ctx,
    The reference chains sleeps -- DELTA_TIMEOUT + DELTA_FIRST_SLICE, then
    DELTA_BLOCK - DELTA_FIRST_SLICE for the window's first slot and
    DELTA_BLOCK for each one after -- which telescopes to the deadlines
-   above.
-   https://github.com/qkniep/alpenglow/blob/c415a42/src/consensus/votor.rs#L306 */
+   above. */
 
 static void
 schedule_timeout( fd_votor_tile_t * ctx,
@@ -480,8 +474,7 @@ schedule_timeout( fd_votor_tile_t * ctx,
   fd_timeout_heap_ele_insert( ctx->timeouts_heap, timeout, ctx->timeouts_pool );
 }
 
-/* own-vote loopback: Alpenglow::handle_all2all_message
-   https://github.com/qkniep/alpenglow/blob/c415a42/src/consensus.rs#L330 */
+/* own-vote loopback: Alpenglow::handle_all2all_message */
 
 static void
 handle_votor_out( fd_votor_tile_t * ctx ) {
@@ -653,10 +646,7 @@ votor_set_active_epoch( fd_votor_tile_t * ctx,
   return 1;
 }
 
-/* Alpenglow::handle_disseminator_shred
-   https://github.com/qkniep/alpenglow/blob/c415a42/src/consensus.rs#L349
-
-   halt_signing backpressure lives in before_frag (returns -1 to leave the
+/* halt_signing backpressure lives in before_frag (returns -1 to leave the
    slot-completed frag on the mcache). */
 
 static void
@@ -719,15 +709,13 @@ handle_replay_message( fd_votor_tile_t *   ctx,
     ag_block_id_t block  = { .slot = slot_completed->slot,        .hash = slot_completed->block_id        };
     ag_block_id_t parent = { .slot = slot_completed->parent_slot, .hash = slot_completed->parent_block_id };
 
-    /* 2. PoolImpl::add_block
-          https://github.com/qkniep/alpenglow/blob/c415a42/src/consensus/pool.rs#L500 */
+    /* 2. PoolImpl::add_block */
 
     if( FD_LIKELY( block.slot>parent.slot ) ) {
       ag_pool_add_block( ctx->pool, &block, &parent );
     }
 
-    /* 3. BlockstoreEvent (FirstShred + Block).
-          https://github.com/qkniep/alpenglow/blob/c415a42/src/consensus/blockstore.rs#L27 */
+    /* 3. BlockstoreEvent (FirstShred + Block). */
 
     {
       ag_votor_blockstore_event_t fs = { .kind = AG_VOTOR_BLOCKSTORE_EVENT_FIRST_SHRED };
@@ -919,7 +907,6 @@ handle_contact_info_update( fd_votor_tile_t *                  ctx,
 /* broadcast sends one serialized ConsensusMessage to every peer we hold a
    live outbound connection to, one unidirectional QUIC stream per message
    (TrivialAll2All::broadcast sends to every validator in the set).
-   https://github.com/qkniep/alpenglow/blob/c415a42/src/all2all/trivial.rs#L38
 
    Peers without a live conn are skipped: the ContactInfo path re-dials
    them, and Alpenglow tolerates partial delivery (a vote missed by one
@@ -956,8 +943,7 @@ broadcast( fd_votor_tile_t * ctx,
    and Votor (which broadcasts it); the C core leaves the bundle to the
    caller via ag_pool_recover_from_standstill's out params, so the
    re-broadcast lands here -- the tile is what owns the All2All transport.
-   Polled every DELTA_BLOCK like the reference loop.
-   https://github.com/qkniep/alpenglow/blob/c415a42/src/consensus.rs#L313 */
+   Polled every DELTA_BLOCK like the reference loop. */
 
 static void
 standstill_poll( fd_votor_tile_t * ctx ) {
@@ -996,9 +982,6 @@ standstill_poll( fd_votor_tile_t * ctx ) {
   }
 }
 
-/* Alpenglow::handle_all2all_message
-   https://github.com/qkniep/alpenglow/blob/c415a42/src/consensus.rs#L330 */
-
 static void
 handle_all2all_message( fd_votor_tile_t *              ctx,
                         ag_consensus_message_t const * msg ) {
@@ -1015,7 +998,7 @@ handle_all2all_message( fd_votor_tile_t *              ctx,
       FD_LOG_WARNING(( "slashable offence detected: validator %u slot %lu", ag_vote_signer( &msg->inner.vote ), ag_vote_slot( &msg->inner.vote ) ));
       break;
     default:
-      /* invalid votes are ignored (consensus.rs:338) */
+      /* invalid votes are ignored */
       FD_LOG_DEBUG(( "ignoring invalid vote: %s", ag_pool_strerror( err ) ));
       break;
     }
@@ -1025,9 +1008,7 @@ handle_all2all_message( fd_votor_tile_t *              ctx,
     /* ag_pool_add_cert checks the threshold and the aggregate signature
        against the validator set the pool was built for, so a cert outside
        the active epoch cannot be verified here; the epoch switch off the
-       replayed tip (handle_replay_message) brings the pool forward.
-       Bank::get_rank_map
-       https://github.com/anza-xyz/alpenglow/blob/9f284c913f/runtime/src/bank.rs#L2352 */
+       replayed tip (handle_replay_message) brings the pool forward. */
     ulong cert_slot  = ag_cert_slot( &msg->inner.cert );
     ulong cert_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, cert_slot, NULL );
     if( FD_UNLIKELY( cert_epoch!=ctx->active_epoch ) ) { count_drop( &ctx->rx_drop_cert, "cert outside the active epoch" ); break; }
@@ -1661,10 +1642,7 @@ after_credit( fd_votor_tile_t *   ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
 
-  /* Votor::voting_loop
-     https://github.com/qkniep/alpenglow/blob/c415a42/src/consensus/votor.rs#L109
-
-     Drain the pool's votor_event_channel (Votor::pool_receiver) in place --
+  /* Drain the pool's votor_event_channel (Votor::pool_receiver) in place --
      the own-vote loopback in handle_votor_out appends to it while we
      iterate -- then the due timeouts (timeout_receiver). */
 
@@ -1862,7 +1840,6 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !strcmp( tile->tower.identity_key, "" ) ) ) FD_LOG_ERR(( "missing [paths.identity_key]" ));
 
   /* BLSKeypair::derive_from_signer with BLS_KEYPAIR_DERIVE_SEED
-     https://github.com/anza-xyz/alpenglow/blob/9f284c913f/votor-messages/src/consensus_message.rs#L18
      TODO: switch to the authorized-voter keypair (via the sign tile?). */
 
   uchar const * id_kp = fd_keyload_load( tile->tower.identity_key, /* pubkey only: */ 0 );

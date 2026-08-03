@@ -316,7 +316,7 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
-/* Alpenglow VotePayloadToSign (votor-messages/src/wire.rs), as built by
+/* Alpenglow VotePayloadToSign, as built by
    ag_vote_payload_bytes_to_sign: u8 tag (Vote variant + 1), slot u64 LE,
    block_id (32 bytes, (fallback) notar only), shred_version u16 LE.
    Signed with the BLS voting key rather than the identity key, so it

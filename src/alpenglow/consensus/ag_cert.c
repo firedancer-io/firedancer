@@ -696,7 +696,7 @@ ag_cert_serialize( ag_cert_t const * self,
                    uchar *           out,
                    ulong             out_max,
                    ushort            shred_version ) {
-  /* VersionedWireConsensusMessage::V1 (wire.rs): u8 version (1), u8
+  /* VersionedWireConsensusMessage::V1: u8 version (1), u8
      WireConsensusMessageKind tag (kind+7), body (slot [+ block_id], 192B
      sig, u64 LE bitmap length, bitmap), u16 LE shred_version.  A mixed
      cert with no fallback signers is encoded Base2 like the single-set

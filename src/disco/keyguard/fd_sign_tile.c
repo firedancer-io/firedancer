@@ -93,7 +93,6 @@ derive_fields( fd_sign_ctx_t * ctx ) {
   ctx->concat[ ctx->public_key_base58_sz ] = '-';
 
   /* BLSKeypair::derive_from_signer with BLS_KEYPAIR_DERIVE_SEED
-     https://github.com/anza-xyz/alpenglow/blob/9f284c913f/votor-messages/src/consensus_message.rs#L18
      Re-derived on keyswitch so the voting key follows the identity. */
   static char const derive_msg[] = "bls-key-derive-alpenglow"; /* "bls-key-derive-" || BLS_KEYPAIR_DERIVE_SEED */
   uchar ikm[ 64 ];

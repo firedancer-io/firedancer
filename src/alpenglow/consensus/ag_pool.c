@@ -275,8 +275,6 @@ ag_pool_slot_state( ag_pool_t * self,
   return e->slot_state;
 }
 
-/* send_parent_ready_events (PoolImpl::send_parent_ready_events). */
-
 static void
 send_parent_ready_events( ag_pool_t *               self,
                           ag_parent_ready_t const * parents,
@@ -289,8 +287,6 @@ send_parent_ready_events( ag_pool_t *               self,
     self->votor_event_channel[ self->votor_event_cnt++ ] = event;
   }
 }
-
-/* prune (PoolImpl::prune). */
 
 static void
 prune( ag_pool_t * self ) {
@@ -317,8 +313,6 @@ prune( ag_pool_t * self ) {
 
 }
 
-/* handle_finalization (PoolImpl::handle_finalization). */
-
 static void
 handle_finalization( ag_pool_t *                     self,
                      ag_finalization_event_t const * event ) {
@@ -342,8 +336,6 @@ ag_pool_prune_to_root( ag_pool_t *       self,
   ag_finality_tracker_prune_to( self->finality_tracker, root_slot, root_hash );
   prune( self );
 }
-
-/* add_valid_cert (PoolImpl::add_valid_cert). */
 
 static void
 add_valid_cert( ag_pool_t *       self,
@@ -421,8 +413,6 @@ add_valid_cert( ag_pool_t *       self,
   self->votor_event_channel[ self->votor_event_cnt++ ] = event;
 }
 
-/* add_cert (PoolImpl::add_cert). */
-
 int
 ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert ) {
@@ -460,8 +450,6 @@ ag_pool_add_cert( ag_pool_t *       self,
   add_valid_cert( self, cert );
   return AG_POOL_SUCCESS;
 }
-
-/* add_vote (PoolImpl::add_vote). */
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
@@ -505,8 +493,6 @@ ag_pool_add_vote( ag_pool_t *       self,
 
   return AG_POOL_SUCCESS;
 }
-
-/* add_block (PoolImpl::add_block). */
 
 void
 ag_pool_add_block( ag_pool_t *           self,
@@ -585,8 +571,6 @@ push_vote( ag_vote_t *  votes,
   memcpy( &v->inner, inner, inner_sz );
 }
 
-/* get_certs (PoolImpl::get_certs). */
-
 static void
 get_certs( ag_pool_t * self,
            ulong       from_slot,
@@ -618,8 +602,6 @@ get_certs( ag_pool_t * self,
   }
 }
 
-/* get_final_certs (PoolImpl::get_final_certs). */
-
 static void
 get_final_certs( ag_pool_t * self,
                  ulong       slot,
@@ -642,8 +624,6 @@ get_final_certs( ag_pool_t * self,
     push_cert( certs, certs_cnt, certs_max, AG_CERT_TYPE_NOTAR, nc, sizeof(*nc) );
   }
 }
-
-/* get_own_votes (PoolImpl::get_own_votes). */
 
 static void
 get_own_votes( ag_pool_t * self,
@@ -673,8 +653,6 @@ get_own_votes( ag_pool_t * self,
     if( sfv ) push_vote( votes, votes_cnt, votes_max, AG_VOTE_TYPE_SKIP_FALLBACK, sfv, sizeof(*sfv) );
   }
 }
-
-/* recover_from_standstill (PoolImpl::recover_from_standstill). */
 
 void
 ag_pool_recover_from_standstill( ag_pool_t * self,
