@@ -136,10 +136,12 @@ privileged_init( fd_topo_t const *      topo,
 
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
     if( FD_UNLIKELY( -1==ctx->local_full_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", full_path, errno, fd_io_strerror( errno ) ));
+    posix_fadvise( ctx->local_full_fd, 0L, 0L, POSIX_FADV_SEQUENTIAL );
 
     if( FD_LIKELY( incr_slot!=ULONG_MAX ) ) {
       ctx->local_incr_fd = open( incr_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
       if( FD_UNLIKELY( -1==ctx->local_incr_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", incr_path, errno, fd_io_strerror( errno ) ));
+      posix_fadvise( ctx->local_incr_fd, 0L, 0L, POSIX_FADV_SEQUENTIAL );
     }
   }
 
