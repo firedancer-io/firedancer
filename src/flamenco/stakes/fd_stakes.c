@@ -615,7 +615,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
   /* Accumulate stakes across all delegations for all vote accounts. */
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, epoch, new_rate_activation_epoch );
       !fd_stake_delegations_iter_done( iter );
       fd_stake_delegations_iter_next( iter ) ) {
 
@@ -952,7 +952,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
   /* Now accumulate vote stakes for all stake delegations. */
 
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, epoch, new_rate_activation_epoch );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
 
@@ -1187,8 +1187,12 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      entry are summed using the new fixed point arithmetic. We only
      need to do this once, at the feature activation epoch boundary.
 
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477 */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477
+
+     The same recomputation needs to be done as soon as fallback stake
+     accounts are enabled. */
+  int fallback = fd_stake_delegations_pubkey_fallback( stake_delegations );
+  if( FD_UNLIKELY( fallback || FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
     fd_stake_history_t history[1];
     if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, history ) ) ) {
       FD_LOG_CRIT(( "invariant violation: StakeHistory sysvar missing or invalid" ));
@@ -1197,13 +1201,15 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     ulong activating   = 0UL;
     ulong deactivating = 0UL;
 
+    int use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
+
     fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, new_rate_activation_epoch );
          !fd_stake_delegations_iter_done( iter );
          fd_stake_delegations_iter_next( iter ) ) {
       fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
       fd_stake_history_entry_t      acc              = fd_stakes_activating_and_deactivating(
-          stake_delegation, bank->f.epoch, history, new_rate_activation_epoch, 1 );
+          stake_delegation, bank->f.epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math );
       effective    += acc.effective;
       activating   += acc.activating;
       deactivating += acc.deactivating;
@@ -1253,26 +1259,46 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
                                    fd_acc_t const *    acc,
                                    fd_bank_t *         bank ) {
 
-  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-
-  /* fd_stakes_get_state returns NULL for closed/invalid accounts. */
-  fd_stake_state_t const * stake_state = fd_stakes_get_state( acc );
-  if( FD_LIKELY( stake_state != NULL &&
-                 stake_state->stake_type == FD_STAKE_STATE_STAKE &&
-                 stake_state->stake.stake.delegation.stake != 0UL ) ) {
-
-    ulong new_stake = stake_state->stake.stake.delegation.stake;
-    fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
-                                      &stake_state->stake.stake.delegation.voter_pubkey,
-                                      new_stake,
-                                      stake_state->stake.stake.delegation.activation_epoch,
-                                      stake_state->stake.stake.delegation.deactivation_epoch,
-                                      stake_state->stake.stake.credits_observed,
-                                      acc->lamports,
-                                      (uint)acc->data_len,
-                                      fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
-
-  } else {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+  fd_stake_state_t const * stake_state       = fd_stakes_get_state( acc );
+  fd_stake_state_t const * prior_stake_state = NULL;
+  if( FD_LIKELY( acc->prior_lamports && !memcmp( acc->prior_owner, &fd_solana_stake_program_id, 32UL ) ) ) {
+    prior_stake_state = fd_stake_state_view( acc->prior_data, acc->prior_data_len );
   }
+
+  int current_has_delegation = stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE;
+  int prior_has_delegation   = prior_stake_state && prior_stake_state->stake_type==FD_STAKE_STATE_STAKE;
+
+  /* If the current stake state isn't a delegation and it was a
+     delegation in the previous stake state, insert a tombstone into the
+     stake delegation's fork. */
+  if( FD_UNLIKELY( !current_has_delegation ) ) {
+    if( FD_LIKELY( !prior_has_delegation ) ) return; /* nothing to remove from */
+    fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+    return;
+  }
+
+  /* Agave replaces the cached version of the account whenever the
+     account changes. */
+
+  int account_changed = acc->prior_lamports  !=acc->lamports   ||
+                        acc->prior_executable!=acc->executable ||
+                        acc->prior_data_len  !=acc->data_len   ||
+                        memcmp( acc->prior_owner, acc->owner, sizeof(fd_pubkey_t) );
+  if( FD_LIKELY( !account_changed && acc->data_len ) ) {
+    account_changed = !!memcmp( acc->prior_data, acc->data, acc->data_len );
+  }
+  if( FD_LIKELY( prior_has_delegation && !account_changed ) ) return;
+
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
+  ulong new_stake = stake_state->stake.stake.delegation.stake;
+  fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
+                                    &stake_state->stake.stake.delegation.voter_pubkey,
+                                    new_stake,
+                                    stake_state->stake.stake.delegation.activation_epoch,
+                                    stake_state->stake.stake.delegation.deactivation_epoch,
+                                    stake_state->stake.stake.credits_observed,
+                                    acc->lamports,
+                                    (uint)acc->data_len,
+                                    fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
 }

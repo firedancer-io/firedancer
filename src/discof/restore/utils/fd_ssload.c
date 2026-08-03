@@ -455,9 +455,6 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   fd_stake_delegations_reset( stake_delegations );
   for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
     fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
-    if( FD_UNLIKELY( elem->stake_delegation==0UL ) ) {
-      continue;
-    }
     fd_stake_delegations_root_update(
         stake_delegations,
         (fd_pubkey_t *)elem->stake_pubkey,

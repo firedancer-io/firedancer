@@ -48,6 +48,17 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
 
+
+/* FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK is the number of stake
+   accounts that the system can support.  FD_RUNTIME_STAKE_ACCOUNTS is
+   the measure of active stake accounts while _FALLBACK is the measure
+   of total stake accounts that the network can support.  This is a
+   measured and chosen threshold based on what the wider network on
+   mainnet can reasonably support across clients and valdiator
+   hardware. */
+
+#define FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK (100000000UL)
+
 /* The expected stake and vote account values are based on observed
    values on mainnet and testnet allowing for some growth.  These are
    chosen to size various caches and maps: they are not intended to be

@@ -1,12 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_stake_delegations_h
 #define HEADER_fd_src_flamenco_stakes_fd_stake_delegations_h
 
+#include "../runtime/fd_runtime_const.h"
 #include "../runtime/sysvar/fd_sysvar_base.h"
 #include "../accdb/fd_accdb.h"
 #include "../fd_rwlock.h"
-#include "../../util/tmpl/fd_map.h"
 
-#define FD_STAKE_DELEGATIONS_MAGIC (0xF17EDA2CE757A3E0) /* FIREDANCER STAKE V0 */
+#define FD_STAKE_DELEGATIONS_MAGIC (0xF17EDA2CE757A3E1) /* FIREDANCER STAKE V1 */
 
 /* fd_stake_delegations_t is a cache of stake accounts mapping the
    pubkey of the stake account to various information including
@@ -23,9 +23,19 @@
       representation of the stake delegations.  Each fork will hold its
       own set of deltas.  These are then applied to the root set when
       the fork is finalized.  This is implemented as each bank having
-      its own dlist of deltas which are allocated from a pool which is
-      shared across all stake delegation forks.  The caller is expected
-      to create a new fork index for each bank and add deltas to it.
+      its own map of deltas which are allocated from a pool shared
+      across all stake delegation forks.  The caller is expected to
+      create a new fork index for each bank and add deltas to it.
+
+   There is a third structure, the pubkey fallback tier, which just
+   holds one slim (pubkey, refcnt) entry for every stake account
+   referenced by the root or by a live fork delta.  It will contain a
+   superset of all stake accounts across forks and the root.  The
+   purpose of this is to handle cases where the existing capacity gets
+   exceeded.  Regular operation will never use this tier for execution.
+   It is meant to allow rewards to continue (with the help of the
+   accounts database) in the event that the existing capacity gets
+   exceeded.
 
    There are some important invariants wrt fd_stake_delegations_t:
    1. After execution has started, there will be no invalid stake
@@ -57,21 +67,15 @@
       reward distribution.
    The stake accounts are read-only during the epoch boundary.
 
-   The concurrency model is limited: most operations are not allowed to
-   be concurrent with each other with the exception of operations that
-   operate on the stake delegations's delta pool:
-    fd_stake_delegations_fork_update()
-    fd_stake_delegations_fork_remove()
-    fd_stake_delegations_evict_fork()
-   These operations are internally synchronized with a read-write lock
-   because multiple executor tiles may be trying to call
-   stake_delegations_fork_update() at the same time, and the replay tile
-   can simultaneously be calling fd_stake_delegations_evict_fork()
-   */
+   The concurrency model is: every mutating operation takes the struct's
+   write lock for its whole duration, so mutators are safe to call
+   concurrently from any tile.  fd_stake_delegations_{mark,unmark}_delta
+   and the iterator are the exception: the caller holds the write lock
+   across the whole mark/iterate/unmark bracket. */
 
-#define FD_STAKE_DELEGATIONS_ALIGN (128UL)
-
-#define FD_STAKE_DELEGATIONS_FORK_MAX (4096UL)
+#define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
+#define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
+#define FD_STAKE_DELEGATIONS_FORK_MAP_CHAIN_CNT (8192UL)
 
 /* The warmup cooldown rate can only be one of two values: 0.25 or 0.09.
    The reason that the double is mapped to an enum is to save space in
@@ -101,16 +105,12 @@ struct fd_stake_delegation {
   ulong       lamports;
   ulong       credits_observed;
   uint        acc_dlen;
-  uint        next_; /* Internal pool/map/dlist usage */
-
-  union {
-    uint      prev_; /* Internal dlist usage for delta  */
-    uint      delta_idx; /* Tracking for stake delegation iteration */
-  };
+  uint        next_;     /* Internal pool/map usage */
+  uint        delta_idx; /* Tracking for stake delegation iteration */
   ushort      activation_epoch;
   ushort      deactivation_epoch;
   union {
-    uchar     is_tombstone; /* Internal dlist/delta usage */
+    uchar     is_tombstone; /* Internal delta usage */
     uchar     dne_in_root;  /* Tracking for stake delegation iteration */
   };
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
@@ -119,6 +119,16 @@ struct fd_stake_delegation {
                          if the element has been reclaimed. */
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
+
+/* Used for the pubkey fallback tier.  Holds a reference to a stake
+   account that is referenced by the root or by a live fork delta. */
+
+struct fd_stake_delegation_ref {
+  fd_pubkey_t stake_account;
+  uint        next_;  /* Internal pool/map usage */
+  uint        refcnt;
+};
+typedef struct fd_stake_delegation_ref fd_stake_delegation_ref_t;
 
 struct fd_stake_delegations {
   ulong magic;
@@ -132,11 +142,20 @@ struct fd_stake_delegations {
                           [0, wmk) has been acquired at least once, so its in_use byte is
                           well defined. */
 
-  /* Delta pool + fork  */
-  ulong       delta_pool_offset_;
-  ulong       fork_pool_offset_;
-  ulong       dlist_offsets_[ FD_STAKE_DELEGATIONS_FORK_MAX ];
-  fd_rwlock_t delta_lock;
+  /* Delta pool + fork and fork map  */
+  ulong delta_pool_offset_;
+  ulong fork_pool_offset_;
+  ulong fork_map_offset_;
+
+  /* Guards every mutating operation on the struct. */
+  fd_rwlock_t lock;
+
+  /* Pubkey fallback tier. */
+  ulong pubkey_pool_offset_;
+  ulong pubkey_map_offset_;
+  ulong max_pubkeys_;
+  ulong pubkey_idx_wmk_; /* One past the highest pubkey pool index ever acquired */
+  int   pubkey_fallback;
 
   /* Stake totals for the current root. */
   ulong effective_stake;
@@ -145,12 +164,27 @@ struct fd_stake_delegations {
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
+#define FD_STAKE_DELEGATIONS_ITER_BATCH (32UL)
+
 struct fd_stake_delegations_iter {
   fd_stake_delegation_t * root_pool;
   fd_stake_delegation_t * delta_pool;
   fd_stake_delegation_t * ele;
   ulong                   idx;
   ulong                   wmk;
+
+  /* Fallback mode only. */
+  int                            fallback;
+  ulong                          scan_idx;
+  ulong                          batch_cnt;
+  ulong                          batch_idx;
+  fd_stake_delegations_t const * stake_delegations;
+  fd_accdb_t *                   accdb;
+  fd_accdb_fork_id_t             accdb_fork_id;
+  ulong                          epoch;
+  ulong *                        warmup_cooldown_rate_epoch;
+  ulong                          batch_pool_idx[ FD_STAKE_DELEGATIONS_ITER_BATCH ];
+  fd_stake_delegation_t          batch[ FD_STAKE_DELEGATIONS_ITER_BATCH ];
 };
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 
@@ -171,23 +205,26 @@ ulong
 fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
-   delegations struct for a given amount of max stake accounts,
-   expected stake accounts, and max live slots. */
+   delegations struct for a given amount of max stake accounts, max
+   fallback stake accounts, expected stake accounts, and max live slots . */
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
+                                ulong max_fallback_stake_accounts,
                                 ulong expected_stake_accounts,
                                 ulong max_live_slots );
 
 /* fd_stake_delegations_new creates a new stake delegations struct
-   with a given amount of max and expected stake accounts and max live
-   slots.  It formats a memory region which is sized based off the pool
-   capacity, expected map occupancy, and per-fork delta structures. */
+   with a given amount of max, max fallback, and expected stake accounts
+   and max live slots.  It formats a memory region which is sized based
+   off the pool capacity, expected map occupancy, and per-fork delta
+   structures. */
 
 void *
 fd_stake_delegations_new( void * mem,
                           ulong  seed,
                           ulong  max_stake_accounts,
+                          ulong  max_fallback_stake_accounts,
                           ulong  expected_stake_accounts,
                           ulong  max_live_slots );
 
@@ -256,11 +293,25 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               fd_accdb_t *               accdb,
                               fd_accdb_fork_id_t         fork_id );
 
-/* fd_stake_delegations_cnt returns the number of stake delegations
+/* fd_stake_delegations_base_cnt returns the number of stake delegations
    in the base of stake delegations struct. */
 
 ulong
-fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations );
+fd_stake_delegations_base_cnt( fd_stake_delegations_t const * stake_delegations );
+
+/* fd_stake_delegations_pubkey_cnt returns the number of entries in the
+   pubkey fallback tier. */
+
+ulong
+fd_stake_delegations_pubkey_cnt( fd_stake_delegations_t const * stake_delegations );
+
+/* fd_stake_delegations_pubkey_fallback returns non-zero if the stake
+   delegations struct has entered fallback mode. */
+
+FD_FN_PURE static inline int
+fd_stake_delegations_pubkey_fallback( fd_stake_delegations_t const * stake_delegations ) {
+  return stake_delegations->pubkey_fallback;
+}
 
 /* fd_stake_delegations_new_fork allocates a new fork index for the
    stake delegations.  The fork index is returned to the caller. */
@@ -268,12 +319,9 @@ fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations );
 ushort
 fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations );
 
-/* fd_stake_delegations_fork_update will insert a new stake delegation
-   delta for the fork.  If an entry already exists in the fork, a new
-   one will be inserted without removing the old one.
-
-   TODO: Add a per fork map so multiple entries aren't needed for the
-   same stake account. */
+/* fd_stake_delegations_fork_update upserts a stake delegation delta for
+   the fork.  If an entry already exists for the stake account in this
+   fork, it is overwritten in place. */
 
 void
 fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
@@ -292,10 +340,8 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
    entry for the given fork.  The function will not actually remove or
    free any resources corresponding to the stake account.  The reason a
    tombstone is stored is because each fork corresponds to a set of
-   stake delegation deltas for a given slot.  This function may insert a
-   'duplicate' entry for the same stake account but it will be resolved
-   by the time the delta is applied to a base stake delegations
-   object. */
+   stake delegation deltas for a given slot.  If an entry already exists
+   for the stake account in this fork, it is overwritten in place. */
 
 void
 fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,
@@ -369,13 +415,17 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
    stake delegation.  It is not safe to modify the stake delegation
    while iterating through it.
 
-   Under the hood, the iterator is just a wrapper over the iterator in
-   fd_map_chain.c.
+   Under the hood, the iterator walks the root pool, redirecting to the
+   delta pool for entries a marked fork has changed.  If the struct is
+   in fallback mode it instead walks the pubkey fallback tier and reads
+   each stake account out of the accounts database, in which case the
+   pointer returned by fd_stake_delegations_iter_ele is only valid until
+   the next call to fd_stake_delegations_iter_next.
 
    Example use:
 
    fd_stake_delegations_iter_t iter_[1];
-   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, fork_id, epoch, warmup_cooldown_rate_epoch );
         !fd_stake_delegations_iter_done( iter );
         fd_stake_delegations_iter_next( iter ) ) {
      fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
@@ -383,8 +433,18 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
 */
 
 fd_stake_delegations_iter_t *
-fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
-                                fd_stake_delegations_t const * stake_delegations );
+fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *   iter,
+                                fd_stake_delegations_t const *  stake_delegations,
+                                fd_accdb_t *                    accdb,
+                                fd_accdb_fork_id_t              accdb_fork_id,
+                                ulong                           epoch,
+                                ulong *                         warmup_cooldown_rate_epoch );
+
+/* fd_stake_delegations_iter_advance_fallback is the out-of-line advance
+   used in fallback mode.  Not for direct use. */
+
+void
+fd_stake_delegations_iter_advance_fallback( fd_stake_delegations_iter_t * iter );
 
 static inline fd_stake_delegation_t *
 fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter ) {
@@ -398,13 +458,18 @@ fd_stake_delegations_iter_idx( fd_stake_delegations_iter_t * iter ) {
 
 static inline void
 fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter ) {
+  if( FD_UNLIKELY( iter->fallback ) ) {
+    iter->batch_idx++;
+    fd_stake_delegations_iter_advance_fallback( iter );
+    return;
+  }
   iter->idx++;
   fd_stake_delegations_iter_advance_private( iter );
 }
 
 static inline int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
-  return iter->idx>=iter->wmk;
+  return !iter->ele;
 }
 
 FD_PROTOTYPES_END
