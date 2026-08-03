@@ -126,6 +126,16 @@ done
 
 FORMATTED_ONE_OFFS=$(echo "$ONE_OFFS" | sed -E 's/([^,]+)/"\1"/g')
 
+# The rewritten VAT ledgers were verified with validator_admission_ticket
+# forced active, but their snapshots do not contain the feature account
+# (it was never activated on-chain); force it active for replay too.
+VAT_FEATURE='"VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ"'
+if [[ -n "$FORMATTED_ONE_OFFS" ]]; then
+  FORMATTED_ONE_OFFS="$VAT_FEATURE, $FORMATTED_ONE_OFFS"
+else
+  FORMATTED_ONE_OFFS="$VAT_FEATURE"
+fi
+
 export LLVM_PROFILE_FILE=$OBJDIR/cov/raw/ledger_test_$LEDGER.profraw
 mkdir -p $OBJDIR/cov/raw
 
@@ -256,6 +266,8 @@ cat <<EOF > ${CONFIG_FILE}
     genesis = "$DUMP/$LEDGER/genesis.bin"
 [development]
     fixed_fec_sets = false
+    [development.genesis]
+        validate_genesis_hash = false
     [development.ledger_input]
         path = "$LEDGER_INPUT"
         end_slot = $END_SLOT

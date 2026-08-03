@@ -299,7 +299,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
   ulong curr_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot, NULL );
   ulong vat_epoch  = fd_slot_to_epoch( epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
 
-  if( curr_epoch>=vat_epoch+1UL ) {
+  if( curr_epoch>=vat_epoch+1UL || bank->f.features.validator_admission_ticket==0UL ) {
     accum_vote_stakes_vat( bank, runtime_stack, &total_stake, &ts_ele_cnt );
   } else {
     accum_vote_stakes_no_vat( bank, accdb, runtime_stack, &total_stake, &ts_ele_cnt );
