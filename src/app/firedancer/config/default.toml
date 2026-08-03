@@ -996,11 +996,11 @@ telemetry = true
     # is optimized. Options set to an explicit value are never
     # modified regardless of auto_level's value.
     #
-    #  "standard"
+    #  "standard" (default)
     #   Enables networking features which auto configuration
     #   determines are safe and supported on this system.
     #
-    #  "minimal" (default)
+    #  "minimal"
     #   Resolves all "auto" options to their most conservative
     #   values.  This will reduce networking performance and is
     #   a worst case backup.
@@ -1011,7 +1011,7 @@ telemetry = true
     #   your validator work, please report your issue with "standard"
     #   as a bug at https://github.com/firedancer-io/firedancer/issues
     #   with the prefix "auto config: ", alongside your log file.
-    auto_level = "minimal"
+    auto_level = "standard"
 
     # The provider determines which Linux networking stack is used by
     # Firedancer.  Possible values for the option are:
