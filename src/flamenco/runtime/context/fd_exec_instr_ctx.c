@@ -98,7 +98,7 @@ fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * c
 
 int
 fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
-                               fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX],
+                               fd_pubkey_t const *         signers[static FD_INSTR_SIGNERS_MAX],
                                ulong *                     signers_cnt ) {
   ulong j = 0UL;
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
@@ -114,8 +114,8 @@ fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
       }
 
       /* This should never be possible */
-      if( FD_UNLIKELY( j>=FD_TXN_SIG_MAX ) ) {
-        FD_LOG_CRIT(( "invariant violation: too many signers (cnt=%lu, FD_TXN_SIG_MAX=%lu)", j, (ulong)FD_TXN_SIG_MAX ));
+      if( FD_UNLIKELY( j>=FD_INSTR_SIGNERS_MAX ) ) {
+        FD_LOG_CRIT(( "invariant violation: too many signers (cnt=%lu, FD_INSTR_SIGNERS_MAX=%lu)", j, (ulong)FD_INSTR_SIGNERS_MAX ));
       }
 
       signers[j++] = pubkey;

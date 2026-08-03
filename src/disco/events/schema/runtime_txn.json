@@ -50,7 +50,8 @@
                 "bundle_peer":                             { "description": "Transaction was part of a bundle in which another transaction failed" },
                 "blockhash_nonce_already_advanced":        { "description": "Durable-nonce txn was rejected because its nonce account has already been advanced" },
                 "blockhash_fail_advance_nonce_instr":      { "description": "Durable-nonce txn failed to advance its nonce account" },
-                "blockhash_fail_wrong_nonce":              { "description": "Durable-nonce txn's recent_blockhash did not match the stored nonce" }
+                "blockhash_fail_wrong_nonce":              { "description": "Durable-nonce txn's recent_blockhash did not match the stored nonce" },
+                "unsupported_version":                     { "description": "Transaction uses a message version that is not supported" }
             }
         },
         "exec_err": {

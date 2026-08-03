@@ -5,6 +5,8 @@
 #include "../fd_runtime_const.h"
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
+#include "../fd_executor.h"
+#include "../sysvar/fd_sysvar_instructions.h"
 #include "../program/fd_compute_budget_program.h"
 #include "../program/fd_system_program.h"
 #include "../../features/fd_features.h"
@@ -274,6 +276,82 @@ test_sanitize_compute_unit_limits_heap_size( void ) {
   FD_LOG_NOTICE(( "test_sanitize_compute_unit_limits_heap_size: PASSED" ));
 }
 
+static int
+run_v1_heap_case( fd_bank_t * bank, uint config_mask, uint heap_val ) {
+  /* static: fd_txn_out_t is multi-MB (per-bundle account arrays + the
+     instructions-sysvar scratch buffer), so it must not go on the stack. */
+  static fd_txn_p_t txnp;
+  fd_memset( &txnp, 0, sizeof(txnp) );
+  fd_txn_t * txn = TXN( &txnp );
+  txn->transaction_version      = FD_TXN_V1;
+  txn->instr_cnt                = 0;
+  txn->signature_cnt            = 0;
+  txn->v1_txn_config_values_off = 64;
+  fd_memcpy( txnp.payload + 4UL, &config_mask, sizeof(uint) );
+  /* With only bit 4 (heap) set, the heap word is the first ConfigValues
+     word, i.e. at values_off + 0. */
+  fd_memcpy( txnp.payload + 64UL, &heap_val, sizeof(uint) );
+  txnp.payload_sz = 128UL;
+
+  fd_txn_in_t txn_in = {0};
+  txn_in.txn = &txnp;
+
+  static fd_txn_out_t txn_out;
+  fd_memset( &txn_out, 0, sizeof(txn_out) );
+  fd_compute_budget_details_new( &txn_out.details.compute_budget );
+
+  return fd_executor_verify_transaction( bank, &txn_in, &txn_out );
+}
+
+static void
+test_sanitize_txn_v1_config_heap_size( fd_bank_t * bank ) {
+  /* bit 4 unset -> default 32 KiB */
+  FD_TEST( run_v1_heap_case( bank, 0x00, 0U         )==FD_RUNTIME_EXECUTE_SUCCESS );
+  /* explicit valid heap sizes: min, mid, max */
+  FD_TEST( run_v1_heap_case( bank, 0x10,  32U*1024U )==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( run_v1_heap_case( bank, 0x10,  64U*1024U )==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( run_v1_heap_case( bank, 0x10, 256U*1024U )==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_LOG_NOTICE(( "test_sanitize_txn_v1_config_heap_size: PASSED" ));
+}
+
+static void
+test_v1_feature_gate( void ) {
+  static fd_bank_t bank_off;
+  fd_memset( &bank_off, 0, sizeof(bank_off) );
+  bank_off.f.slot = 1UL;
+  fd_features_enable_all( &bank_off.f.features );
+  bank_off.f.features.enable_tx_v1 = FD_FEATURE_DISABLED;
+
+  FD_TEST( run_v1_heap_case( &bank_off, 0x10, 64U*1024U )==FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION );
+  FD_TEST( run_v1_heap_case( &bank_off, 0x10, 16U*1024U )==FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION );
+  FD_LOG_NOTICE(( "test_v1_feature_gate: PASSED" ));
+}
+
+static void
+test_sysvar_instructions_overflow( void ) {
+  static fd_txn_p_t txnp;
+  fd_memset( &txnp, 0, sizeof(txnp) );
+  fd_txn_t * txn = TXN( &txnp );
+  txn->transaction_version = FD_TXN_V1;
+  txn->instr_cnt           = 2;
+
+  txn->instr[0].acct_cnt = 1984; txn->instr[0].data_sz = 21;
+  txn->instr[1].acct_cnt = 0;    txn->instr[1].data_sz = 0;
+  FD_TEST( fd_sysvar_instructions_offsets_overflow( txn )==0 );   /* start[1]==65535 -> accepted */
+
+  txn->instr[0].data_sz = 22;
+  FD_TEST( fd_sysvar_instructions_offsets_overflow( txn )==1 );   /* start[1]==65536 -> rejected */
+
+  fd_txn_in_t txn_in = {0};
+  txn_in.txn = &txnp;
+  static fd_txn_out_t txn_out;
+  fd_memset( &txn_out, 0, sizeof(txn_out) );
+  FD_TEST( fd_sysvar_instructions_serialize_account( &txn_in, &txn_out, 0UL )
+           ==FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED );
+
+  FD_LOG_NOTICE(( "test_sysvar_instructions_overflow: PASSED" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -290,6 +368,9 @@ main( int     argc,
   test_calculate_allocated_accounts_data_size_invalid_ix( &bank );
 
   test_sanitize_compute_unit_limits_heap_size();
+  test_sanitize_txn_v1_config_heap_size( &bank );
+  test_v1_feature_gate();
+  test_sysvar_instructions_overflow();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

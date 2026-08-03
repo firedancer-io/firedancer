@@ -23,7 +23,7 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
                                 ulong                           sz,
                                 int                             sign_type ) {
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
-  if( sz > FD_TXN_MTU ) return 0;
+  if( sz > FD_TXN_MTU_V0 ) return 0;
   /* Each vote transaction may have 1 or 2 signers.  The first byte in
      the transaction message is the number of signers. */
   ulong off = 0UL;

@@ -54,7 +54,7 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
    acquire an fd_instr_info_t element with the same lifetime as the txn_ctx */
 int
 fd_executor_txn_verify( fd_txn_p_t *  txn_p,
-                        fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] );
+                        fd_sha512_t * shas[ FD_TXN_SIG_MAX ] );
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L144-L178 */
 int

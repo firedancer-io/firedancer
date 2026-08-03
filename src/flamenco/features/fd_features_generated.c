@@ -1820,7 +1820,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x52\xd1\xb6\xb3\x5a\x56\x28\x74\x22\x0c\xa4\x14\xc4\x5b\xf8\xb5\x41\xa9\xab\xc4\xe9\x73\x7d\xf5\xc7\x62\x41\x5a\x84\xd7\x5b\x33"},
                                  /* 6aHuNsUmwSzCEMjrBzBCYaxHAyAcQBjVES92JigHBDuC */
     .name                      = "limit_instruction_accounts",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, validator_admission_ticket)>>3,
     .id                        = {"\x07\x36\xf2\xe3\x3a\x52\xff\xd2\x69\xb9\x98\xdc\x58\xcf\x07\xc0\x35\xc3\x8a\x0e\xab\x82\xa0\x89\xb8\xb7\x5e\xc2\x0f\xcb\x39\x97"},
@@ -1970,6 +1971,12 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\xd3\x92\xa1\x2c\xdc\xf8\xe8\x25\x59\xf2\x43\xe3\x56\xbd\xed\xb3\x1f\xcd\x3d\x89\x09\x4b\xaa\x8b\x4a\x5d\x64\xd1\x85\x32\x81"},
                                  /* s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr */
     .name                      = "upgrade_bpf_stake_program_to_v5_1",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, enable_tx_v1)>>3,
+    .id                        = {"\x0d\x4f\xd7\xe8\x29\xe6\x92\x9c\x56\xb8\xe2\x3f\xa7\xe8\x00\x6b\xcd\xc2\x52\xd9\x6c\x9b\x8b\xd8\xc3\x89\x6a\x0d\x2e\xcc\x35\xd5"},
+                                 /* txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL */
+    .name                      = "enable_tx_v1",
     .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
@@ -2277,6 +2284,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_286 0x0b606154993bf43dUL, .val = &ids[286]
 #define MAP_PERFECT_287 0x8ab30f17e7e3b4b5UL, .val = &ids[287]
 #define MAP_PERFECT_288 0xe8f8dc2ca192d30cUL, .val = &ids[288]
+#define MAP_PERFECT_289 0x9c92e629e8d74f0dUL, .val = &ids[289]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2576,4 +2584,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_696         
 FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_6960                           )>>3==286UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, relax_post_exec_min_balance_check                       )>>3==287UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5_1                       )>>3==288UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_tx_v1                                            )>>3==289UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

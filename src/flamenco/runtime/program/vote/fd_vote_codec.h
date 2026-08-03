@@ -686,6 +686,9 @@ fd_vote_account_epoch_credits( uchar const * data,
    data (deques, arrays) is placed in memory embedded within the
    sub-structs of instruction.
 
+   Only bytes up to FD_TXN_MTU_V0 are parsed, the rest are discarded,
+   matching Agave's limited_deserialize(data, PACKET_DATA_SIZE).
+
    On success returns instruction.  Returns NULL on failure (malformed
    data). */
 

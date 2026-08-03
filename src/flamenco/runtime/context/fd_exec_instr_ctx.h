@@ -151,7 +151,7 @@ fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * c
 
 int
 fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
-                               fd_pubkey_t const *         signers[ static FD_TXN_SIG_MAX ],
+                               fd_pubkey_t const *         signers[ static FD_INSTR_SIGNERS_MAX ],
                                ulong *                     signers_cnt );
 
 /* fd_exec_instr_ctx_any_signed matches
@@ -176,7 +176,7 @@ fd_exec_instr_ctx_any_signed( fd_exec_instr_ctx_t const * ctx,
    Loop conditions could be optimized to allow for unroll/vectorize */
 
 static inline int
-fd_signers_contains( fd_pubkey_t const * signers[ static FD_TXN_SIG_MAX ],
+fd_signers_contains( fd_pubkey_t const * signers[ static FD_INSTR_SIGNERS_MAX ],
                      ulong               signers_cnt,
                      fd_pubkey_t const * pubkey ) {
   for( ulong i=0; i<signers_cnt; i++ )

@@ -60,10 +60,6 @@ fd_hash_32( ulong        seed,
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
 typedef struct {
-  fd_ed25519_sig_t sig;
-} wrapped_sig_t;
-
-typedef struct {
   fd_acct_addr_t key;
 } wrapped_acct_t;
 
@@ -77,7 +73,6 @@ struct fd_pack_private_ord_txn {
     fd_txn_p_t   txn[1];  /* txn is an alias for txn_e->txnp */
     fd_txn_e_t   txn_e[1];
     fd_txn_e_t   _txn_e;  /* Non-array type needed for map_chain */
-    struct{ uchar _sig_cnt; wrapped_sig_t sig; };
   };
 
   /* Since this struct can be in one of several trees, it's helpful to
@@ -139,12 +134,11 @@ struct fd_pack_private_ord_txn {
 };
 typedef struct fd_pack_private_ord_txn fd_pack_ord_txn_t;
 
-/* What we want is that the payload starts at byte 0 of
-   fd_pack_ord_txn_t so that the trick with the signature map works
-   properly.  GCC and Clang seem to disagree on the rules of offsetof.
-   */
+/* We require that the payload starts at byte 0 of fd_pack_ord_txn_t,
+   because we cast back and forth between fd_txn_p_t* and
+   fd_pack_ord_txn_t*.
+   GCC and Clang seem to disagree on the rules of offsetof. */
 FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn          )==0UL, fd_pack_ord_txn_t );
-FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, sig          )==1UL, fd_pack_ord_txn_t );
 #if FD_USING_CLANG
 FD_STATIC_ASSERT( offsetof( fd_txn_p_t,             payload )==0UL, fd_pack_ord_txn_t );
 #else
@@ -288,10 +282,12 @@ typedef struct fd_pack_wcost_ele fd_pack_wcost_ele_t;
 #define MAP_PREV               sigmap_prev
 #define MAP_NEXT               sigmap_next
 #define MAP_IDX_T              ushort
-#define MAP_KEY_T              wrapped_sig_t
-#define MAP_KEY                sig
-#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0),(k1), FD_TXN_SIGNATURE_SZ) )
-#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key), 64UL )
+
+#define MAP_KEY_T              fd_txn_e_t
+#define MAP_KEY                _txn_e
+#define TXNE_TO_SIG(ptr)       (__extension__({ fd_txn_p_t const * __p = (ptr)->txnp; __p->payload + TXN(__p)->signature_off;  }))
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( TXNE_TO_SIG(k0), TXNE_TO_SIG(k1), FD_TXN_SIGNATURE_SZ) )
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), TXNE_TO_SIG(key), 64UL )
 #include "../../util/tmpl/fd_map_chain.c"
 
 
@@ -1316,13 +1312,6 @@ validate_transaction( fd_pack_t               * pack,
   if( FD_UNLIKELY( bundle_blacklist & !!check_bundle_blacklist             ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
   /*           ... that use a blocklisted account */
   if( FD_UNLIKELY( acct_blocklist                                          ) ) return FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST;
-  /*           ... that have an instruction with too many accounts */
-  /*               TODO: move this check into the transaction parser
-                   when limit_instruction_accounts is activated
-                   everywhere. */
-  for( ushort i=0; i<txn->instr_cnt; i++ ) {
-    if( FD_UNLIKELY( txn->instr[ i ].acct_cnt > FD_PACK_MAX_ACCOUNTS_PER_INSTRUCTION ) ) return FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT;
-  }
 
   return 0;
 }
@@ -1548,7 +1537,7 @@ fd_pack_insert_bundle_cancel( fd_pack_t          * pack,
 
 /* Explained below */
 #define BUNDLE_L_PRIME 37896771UL
-#define BUNDLE_N       309415UL
+#define BUNDLE_N       313721UL
 #define RC_TO_REL_BUNDLE_IDX( r, c ) (BUNDLE_N - ((ulong)(r) * 1UL<<32)/((ulong)(c) * BUNDLE_L_PRIME))
 
 int
@@ -1701,7 +1690,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      are both uints, and the comparison is done by cross-multiplication
      as ulongs.  We actually use the c_i value for testing if
      transactions fit, etc.  so let's assume that's fixed, and we know
-     it's in the range [1020, 1,573,166].
+     it's in the range [1020, 1,551,570].
 
      This means, if c_0, c_1, ... c_4 are the CU costs of the
      transactions in the first bundle, we require r_0/c_0 > r_1/c_1 >
@@ -1770,10 +1759,10 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 
      Thus, we'd like to make N as big as possible, avoiding overflow.
      r_0, ..., r_4 are all uints, and taking the bounds from above,
-     given that for any i, i' c_i/c_{i'} <= 1573166/1020 < 1543, we have
-               r_i < 1 + 1573166 * Lj + 8*1543.
+     given that for any i, i' c_i/c_{i'} <= 1551570/1020 < 1522, we have
+               r_i < 1 + 1551570 * Lj + 8*1522.
      To avoid overflow, we assert the right-hand side is < 2^32, which
-     implies N <= 309415.
+     implies N <= 313721.
 
      We want to use a fixed point representation for L so that the
      entire computation can be done with integer arithmetic.  We can do
@@ -1781,16 +1770,16 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      we compute ceil( c_4*Lj ) as floor( (c_4 * L' * j + 2^s - 1)/2^s ),
      so c_4 * L' * j + 2^s should fit in a ulong.  With j<=N, this gives
      s<=32, so we set s=32, which means L' = 37896771 >= 9/1020 * 2^32.
-     Note that 1 + 1573166 * L' * N + 8*1543 + 2^32 is approximately
-     2^63.999995.
+     Note that 1 + 1551570 * L' * N + 8*1522 + 2^32 is approximately
+     2^63.999992.
 
      Note that this is all checked by a proof of the code translated
      into Z3.  Unfortunately CBMC was too slow to prove this code
      directly. */
      FD_STATIC_ASSERT( FD_PACK_MIN_TXN_COST==   1020UL, adjust_constants );
-     FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST==1573166UL, adjust_constants );
+     FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST==1551570UL, adjust_constants );
 #define BUNDLE_L_PRIME 37896771UL
-#define BUNDLE_N       309415UL
+#define BUNDLE_N       313721UL
 
   if( FD_UNLIKELY( pack->relative_bundle_idx>BUNDLE_N ) ) {
     FD_LOG_WARNING(( "Too many bundles inserted without allowing pending bundles to go empty. "
@@ -2125,33 +2114,28 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       _mm512_stream_si512( (void*)(out_txnp->payload+1088UL), _mm512_load_epi64( cur->txn->payload+1088UL ) );
       _mm512_stream_si512( (void*)(out_txnp->payload+1152UL), _mm512_load_epi64( cur->txn->payload+1152UL ) );
       _mm512_stream_si512( (void*)(out_txnp->payload+1216UL), _mm512_load_epi64( cur->txn->payload+1216UL ) );
-      /* Copied out to 1280 bytes, which copies some other fields we needed to
-         copy anyway. */
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz     )+sizeof(((fd_txn_p_t*)NULL)->payload_sz    )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, blockhash_slot )+sizeof(((fd_txn_p_t*)NULL)->blockhash_slot)<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, scheduler_arrival_time_nanos )+sizeof(((fd_txn_p_t*)NULL)->scheduler_arrival_time_nanos )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_tpu     )+sizeof(((fd_txn_p_t*)NULL)->source_tpu    )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_ipv4    )+sizeof(((fd_txn_p_t*)NULL)->source_ipv4   )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, pack_alloc     )+sizeof(((fd_txn_p_t*)NULL)->pack_alloc    )<=1280UL, nt_memcpy );
 
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags          )+sizeof(((fd_txn_p_t*)NULL)->flags         )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, _              )                                            <=1280UL, nt_memcpy );
-      const ulong offset_into_txn = 1280UL - offsetof(fd_txn_p_t, _ );
-      fd_memcpy( offset_into_txn+(uchar *)TXN(out_txnp), offset_into_txn+(uchar const *)txn,
-          fd_ulong_max( offset_into_txn, fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) )-offset_into_txn );
+      /* For V1 transactions, the payload can be up to 4096 bytes so we copy an additional 2816 bytes. */
+      if( FD_UNLIKELY( txn->transaction_version==FD_TXN_V1 ) ) {
+        for( ulong off=1280UL; off<FD_TPU_MTU; off+=64UL ) {
+          _mm512_stream_si512( (void*)(out_txnp->payload+off), _mm512_load_epi64( cur->txn->payload+off ) );
+        }
+      }
 #endif
     } else {
-      fd_memcpy( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz                                           );
-      fd_memcpy( TXN(out_txnp),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-      out_txnp->payload_sz                      = cur->txn->payload_sz;
-      out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
-      out_txnp->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
-      out_txnp->pack_alloc                      = cur->txn->pack_alloc;
-      out_txnp->scheduler_arrival_time_nanos    = cur->txn->scheduler_arrival_time_nanos;
-      out_txnp->source_tpu                      = cur->txn->source_tpu;
-      out_txnp->source_ipv4                     = cur->txn->source_ipv4;
-      out_txnp->flags                           = cur->txn->flags;
+      fd_memcpy( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
     }
+
+    out_txnp->payload_sz                                = cur->txn->payload_sz;
+    out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
+    out_txnp->pack_cu.non_execution_cus                 = cur->txn->pack_cu.non_execution_cus;
+    out_txnp->pack_alloc                                = cur->txn->pack_alloc;
+    out_txnp->scheduler_arrival_time_nanos              = cur->txn->scheduler_arrival_time_nanos;
+    out_txnp->source_tpu                                = cur->txn->source_tpu;
+    out_txnp->source_ipv4                               = cur->txn->source_ipv4;
+    out_txnp->flags                                     = cur->txn->flags;
+    fd_memcpy( TXN(out_txnp), txn, fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+
     /* Copy the ALT accounts from the source fd_txn_e_t */
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
 #if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
@@ -3159,7 +3143,10 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
                             fd_ed25519_sig_t const * sig0 ) {
   ulong cnt = 0;
   ulong next = ULONG_MAX;
-  for( ulong idx = sig2txn_idx_query_const( pack->signature_map, (wrapped_sig_t const *)sig0, ULONG_MAX, pack->pool );
+
+  fd_txn_e_t query_e = {0};
+  fd_memcpy( query_e.txnp[0].payload, sig0, FD_TXN_SIGNATURE_SZ );
+  for( ulong idx = sig2txn_idx_query_const( pack->signature_map, &query_e, ULONG_MAX, pack->pool );
       idx!=ULONG_MAX; idx=next ) {
     /* Iterating while deleting, not just this element, but perhaps the
        whole bundle, feels a bit dangerous, but is actually fine because
@@ -3268,9 +3255,7 @@ fd_pack_verify( fd_pack_t * pack,
       fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
       fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
-      fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
-
-      fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, (wrapped_sig_t const *)sig0, NULL, pool );
+      fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, &cur->_txn_e, NULL, pool );
       VERIFY_TEST( in_tbl, "signature missing from sig2txn" );
 
       VERIFY_TEST( (ulong)(cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==fd_ulong_min( k, 3UL )+1UL, "treap element had bad root" );
@@ -3354,8 +3339,7 @@ fd_pack_verify( fd_pack_t * pack,
     /* Although pack allows multiple transactions with the same
        signature in sig2txn (MAP_MULTI==1), the noncemap checks prevent
        multiple nonce transactions with the same signature. */
-    wrapped_sig_t sig = FD_LOAD( wrapped_sig_t, fd_txn_get_signatures( TXN( ord->txn ), ord->txn->payload ) );
-    VERIFY_TEST( ord==sig2txn_ele_query_const( pack->signature_map, &sig, NULL, pool ), "noncemap and sig2txn desynced" );
+    VERIFY_TEST( ord==sig2txn_ele_query_const( pack->signature_map, &ord->_txn_e, NULL, pool ), "noncemap and sig2txn desynced" );
   }
   VERIFY_TEST( txn_cnt>=noncemap_key_cnt, "phantom txns in noncemap" );
   VERIFY_TEST( !noncemap_verify( pack->noncemap, trp_pool_max( pool ), pool ), "noncemap corrupt" );
