@@ -1473,6 +1473,55 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   }
 
   FD_LOG_NOTICE(( "test bundle cancelled vote op not applied... ok" ));
+
+  /* ==========================================================================
+     Test: commit skips write-locked accounts left untouched
+     ========================================================================== */
+
+  {
+    fd_pubkey_t gate_key = { .ul[0] = 0xF00DUL };
+    create_test_account( env->mini->runtime->accdb, env->fork_id, &gate_key, 7000000UL, 0UL, NULL, &system );
+    fd_pubkey_t gate_keys[2] = { pubkey1, gate_key };
+
+    serialize_bundle_txn( &txn_p, gate_keys, 2UL, 0UL );
+    env->txn_in.txn                 = &txn_p;
+    env->txn_in.bundle.is_bundle    = 0;
+    env->txn_in.bundle.prev_txn_cnt = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+    FD_TEST( env->txn_out[0].err.is_committable );
+    FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+    FD_TEST( env->txn_out[0].accounts.is_writable[1]==1 );
+    FD_TEST( env->txn_out[0].accounts.account[1]->lamports==7000000UL );
+    FD_TEST( env->txn_out[0].accounts.account[1]->touched==0 );
+
+    /* Simulate state that changed without any mutable access: commit
+       must not publish a new version of the untouched account. */
+    env->txn_out[0].accounts.account[1]->lamports = 8000000UL;
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+
+    serialize_bundle_txn( &txn_p, gate_keys, 2UL, 0UL );
+    env->txn_in.txn                 = &txn_p;
+    env->txn_in.bundle.is_bundle    = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
+    FD_TEST( env->txn_out[1].err.is_committable );
+    FD_TEST( env->txn_out[1].accounts.account[1]->lamports==7000000UL ); /* prior version retained */
+
+    /* Touched counterpart: the same mutation marked touched must publish. */
+    env->txn_out[1].accounts.account[1]->lamports = 8000000UL;
+    env->txn_out[1].accounts.account[1]->touched  = 1;
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
+
+    serialize_bundle_txn( &txn_p, gate_keys, 2UL, 0UL );
+    env->txn_in.txn                 = &txn_p;
+    env->txn_in.bundle.is_bundle    = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
+    FD_TEST( env->txn_out[2].err.is_committable );
+    FD_TEST( env->txn_out[2].accounts.account[1]->lamports==8000000UL ); /* new version published */
+    env->txn_out[2].err.is_committable = 0;
+    fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[2], 0 );
+
+    FD_LOG_NOTICE(( "test untouched account commit skipped... ok" ));
+  }
 }
 
 int

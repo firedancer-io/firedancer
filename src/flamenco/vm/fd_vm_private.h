@@ -387,6 +387,8 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
       ulong memset_sz = fd_ulong_sat_sub( new_region_sz, vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len );
       fd_memset( vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data+vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len, 0, memset_sz );
       vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len = new_region_sz;
+      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/transaction.rs#L546 */
+      vm->acc_region_metas[ region->acc_region_meta_idx ].acc->touched = 1;
       region->region_sz = (uint)new_region_sz;
     }
   }
