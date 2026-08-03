@@ -15,6 +15,7 @@
    table a custom sort key. */
 
 #include "fd_gui_config_parse.h"
+#include "fd_gui_ema.h"
 
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
@@ -103,35 +104,14 @@ typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
 /* Some table columns are rates of change, which require keeping a
    historical value / timestamp. */
 struct fd_gui_peers_metric_rate {
-  ulong cur;
-  ulong ref;
-  long rate_ema; /* units per sec. live_table treaps use this field to sort table entries */
-  long update_timestamp_ns; /* time when cur was last copied over to ref */
+  ulong        cur;
+  ulong        ref;
+  fd_gui_ema_t rate_ema; /* units per sec. live_table treaps use this field to sort table entries */
+  long         update_timestamp_ns; /* time when cur was last copied over to ref */
 };
 typedef struct fd_gui_peers_metric_rate fd_gui_peers_metric_rate_t;
 
 #define FD_GUI_PEERS_EMA_HALF_LIFE_NS (3000000000L)
-
-/* fd_gui_ema computes an adaptive exponential moving average tick.
-   Given the previous EMA value, a new sample, timestamps, and a
-   half-life (all in nanoseconds), returns the updated EMA.  On the
-   first call (last_update_nanos==0) the new sample is returned as-is
-   to seed the series. */
-
-static inline double
-fd_gui_ema( long   last_update_nanos,
-            long   now_nanos,
-            double new_sample,
-            double prev_ema,
-            long   half_life_ns ) {
-  if( FD_UNLIKELY( last_update_nanos==0L ) ) return new_sample;
-
-  long dt = now_nanos - last_update_nanos;
-  if( FD_UNLIKELY( dt<=0L ) ) return prev_ema;
-
-  double alpha = 1.0 - exp( -0.69314718055994 * (double)dt / (double)half_life_ns );
-  return alpha * new_sample + (1.0 - alpha) * prev_ema;
-}
 
 struct fd_gui_peers_voter {
   fd_vote_stake_weight_t weight;
@@ -305,7 +285,8 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 static int live_table_col_pubkey_lt( void const * a, void const * b ) { return memcmp( ((fd_pubkey_t *)a)->uc, ((fd_pubkey_t *)b)->uc, 32UL ) < 0;   }
-static int live_table_col_long_lt  ( void const * a, void const * b ) { return *(long *)a < *(long *)b;                                              }
+
+static int live_table_col_double_lt( void const * a, void const * b ) { return *(double *)a < *(double *)b;                                          }
 static int live_table_col_uchar_lt ( void const * a, void const * b ) { return *(uchar *)a < *(uchar *)b;                                            }
 static int live_table_col_ipv4_lt  ( void const * a, void const * b ) { return fd_uint_bswap(*(uint *)a) < fd_uint_bswap(*(uint *)b);                }
 static int live_table_col_name_lt  ( void const * a, void const * b ) { return memcmp( (char *)a, (char *)b, FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ) < 0; }
@@ -324,10 +305,10 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
   LIVE_TABLE_COL_ENTRY( "Name",         row.name,                                                                     live_table_col_name_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Country",      row.country_code_idx,                                                         live_table_col_uchar_lt  ), \
   LIVE_TABLE_COL_ENTRY( "IP Addr",      row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,         live_table_col_ipv4_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), )
+  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1, -1 } })
@@ -340,8 +321,8 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_MAX_SORT_KEY_CNT (2UL)
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
-  LIVE_TABLE_COL_ENTRY( "Ingress Total", row.gossvf_rx_sum.rate_ema, live_table_col_long_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Total",  row.gossip_tx_sum.rate_ema, live_table_col_long_lt )  )
+  LIVE_TABLE_COL_ENTRY( "Ingress Total", row.gossvf_rx_sum.rate_ema.value, live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Total",  row.gossip_tx_sum.rate_ema.value, live_table_col_double_lt )  )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_BW_TRACKING_INGRESS_SORT_KEY ((fd_gui_peers_bandwidth_tracking_sort_key_t){ .col = { 0, 1 }, .dir = { -1, 0 } })

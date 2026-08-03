@@ -1521,6 +1521,8 @@ since process start.
         },
         "compaction": {
             "in_compaction": 1,
+            "next_compaction_remaining_seconds": 0.0,
+            "next_compaction_partition_idx": 184,
             "compactions_requested": 184,
             "compactions_completed": 183,
             "accounts_relocated_bytes": 9382913024,
@@ -1600,25 +1602,25 @@ since process start.
                 "file_offset": 6597069766656,
                 "tier": 0,
                 "write_offset": 12884901888,
-                "bytes_freed": 0,
-                "read_ops": 41,
-                "bytes_read": 167936,
+                "bytes_freed": 4187593113,
+                "read_ops": 18320,
+                "bytes_read": 5153960755,
                 "write_ops": 8421,
                 "bytes_written": 12884901888,
-                "read_ops_per_sec": 0.4,
-                "bytes_read_per_sec": 4096.0,
-                "write_ops_per_sec": 819.0,
-                "bytes_written_per_sec": 10485760.0,
-                "utilization": 0.375,
-                "fragmentation": 0.0,
-                "used_frac": 0.375,
-                "fragmented_frac": 0.0,
+                "read_ops_per_sec": 210.0,
+                "bytes_read_per_sec": 41943040.0,
+                "write_ops_per_sec": 0.0,
+                "bytes_written_per_sec": 0.0,
+                "utilization": 1.0,
+                "fragmentation": 0.325,
+                "used_frac": 1.0,
+                "fragmented_frac": 0.325,
                 "compaction_trigger_frac": 0.30,
-                "age_seconds": 184.2,
-                "filled_seconds": 0.0,
-                "compaction_state": 0,
-                "compaction_frac": 0.0,
-                "is_write_head": true
+                "age_seconds": 9182.4,
+                "filled_seconds": 8710.9,
+                "compaction_state": 2,
+                "compaction_frac": 0.15,
+                "is_write_head": false
             }
         ]
     }
@@ -1648,13 +1650,15 @@ since process start.
 | used_bytes        | `number` | Bytes currently in use by live account data (excluding fragmentation) |
 
 **`Compaction`**
-| Field                    | Type     | Description |
-|--------------------------|----------|-------------|
-| in_compaction            | `number` | Non-zero if a partition is currently being compacted |
-| compactions_requested    | `number` | Total number of partition compactions enqueued since startup |
-| compactions_completed    | `number` | Total number of partition compactions completed since startup |
-| accounts_relocated_bytes | `number` | Total bytes of account data rewritten by compaction since startup |
-| relocated_bytes_per_sec  | `number` | Recent rate at which compaction is rewriting account data, in bytes per second |
+| Field                             | Type           | Description |
+|-----------------------------------|----------------|-------------|
+| in_compaction                     | `number`       | Non-zero if a partition is currently being compacted |
+| next_compaction_remaining_seconds | `number\|null` | Estimated time remaining, in seconds, until the next compaction starts. `0` if a compaction is currently in progress (`in_compaction` is non-zero). `null` if no compaction is currently projected |
+| next_compaction_partition_idx     | `number\|null` | Index of the partition estimated to be compacted next. If a compaction is currently in progress (`in_compaction` is non-zero), this is the index of the partition being compacted. `null` if no compaction is currently projected |
+| compactions_requested             | `number`       | Total number of partition compactions enqueued since startup |
+| compactions_completed             | `number`       | Total number of partition compactions completed since startup |
+| accounts_relocated_bytes          | `number`       | Total bytes of account data rewritten by compaction since startup |
+| relocated_bytes_per_sec           | `number`       | Recent rate at which compaction is rewriting account data, in bytes per second |
 
 **`Cache`**
 | Field        | Type            | Description |
