@@ -428,6 +428,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  fd_epoch_credits_t *    epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
@@ -453,7 +454,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
     }
 
-    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+    fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
     calculate_stake_points_and_credits( epoch_credits,
                                         stake_history,
@@ -513,6 +514,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
+  fd_epoch_credits_t *          epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
@@ -571,7 +573,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
     if( is_recalculation || FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
-      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+      fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
       /* We have not cached the stake points yet if we are recalculating
          stake rewards so we need to recalculate them. */
@@ -659,7 +661,8 @@ setup_stake_partitions( fd_bank_t *                    bank,
                         ulong                          total_rewards,
                         uint128                        total_points ) {
 
-  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  fd_stake_rewards_t * stake_rewards     = fd_bank_stake_rewards_modify( bank );
+  fd_epoch_credits_t * epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
@@ -696,7 +699,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
         continue;
       }
 
-      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+      fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
       fd_calculated_stake_points_t stake_points_result[1];
       calculate_stake_points_and_credits(
@@ -1299,7 +1302,8 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   fd_vote_rewards_map_reset( vote_ele_map );
 
-  ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
+  ulong                epoch_credits_len = *fd_bank_epoch_credits_len( bank );
+  fd_epoch_credits_t * epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   if( FD_LIKELY( !snapshot_boot ) ) {
 
@@ -1311,7 +1315,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
        retain. */
 
     for( ulong i=0UL; i<epoch_credits_len; i++ ) {
-      fd_epoch_credits_t const * epoch_credits = &fd_bank_epoch_credits( bank )[i];
+      fd_epoch_credits_t const * epoch_credits = &epoch_credits_arr[i];
 
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
       vote_ele->pubkey       = *(fd_pubkey_t const *)epoch_credits->pubkey;
@@ -1347,7 +1351,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
     fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
 
     for( ulong i=0UL; i<epoch_credits_len; i++ ) {
-      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
+      fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[i];
       fd_pubkey_t const *  pubkey        = (fd_pubkey_t const *)epoch_credits->pubkey;
 
       /* Get the t-1 stake account information.  This is guaranteed to be
@@ -1390,7 +1394,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
     /* Publish the resolved commissions so that any later repositioning
        of this fork's window reuses them. */
     for( ulong i=0UL; i<epoch_credits_len; i++ ) {
-      fd_bank_epoch_credits( bank )[i].commission = runtime_stack->stakes.vote_ele[i].commission;
+      epoch_credits_arr[i].commission = runtime_stack->stakes.vote_ele[i].commission;
     }
   }
 
