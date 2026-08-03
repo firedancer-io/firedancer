@@ -445,24 +445,28 @@ main( int     argc,
     ulong const workload_iter = 8192UL;
     ulong const warmup        = 1024UL;
 
-    #define BUF_SZ 32UL
-    char buf[BUF_SZ];
-    for( ulong i = 0UL; i < BUF_SZ; i++ )
+    ulong const sizes[] = { 32UL, 64UL, 128UL, 512UL, 1232UL };
+    ulong const size_cnt = sizeof(sizes) / sizeof(sizes[0]);
+    char buf[1232UL];
+    for( ulong i = 0UL; i < sizeof(buf); i++ )
       buf[i] = (char)fd_rng_uchar( rng );
 
-    for( ulong i = 0UL; i < warmup; i++ ) {
-      ulong result = fd_hash( i, buf, BUF_SZ );
-      FD_COMPILER_FORGET( result );
+    for( ulong j = 0UL; j < size_cnt; j++ ) {
+      ulong sz = sizes[j];
+      for( ulong i = 0UL; i < warmup; i++ ) {
+        ulong result = fd_hash( i, buf, sz );
+        FD_COMPILER_FORGET( result );
+      }
+      FD_HW_MFENCE();
+      long dt = fd_log_wallclock();
+      for( ulong i = 0UL; i < workload_iter; i++ ) {
+        ulong result = fd_hash( i, buf, sz );
+        FD_COMPILER_FORGET( result );
+      }
+      dt = fd_log_wallclock() - dt;
+      double ns_byte = ((double)(dt)) / ((double)(workload_iter * sz));
+      FD_LOG_NOTICE(( "fd_hash: %.3f ns/byte (sz %lu)", ns_byte, sz ));
     }
-    FD_HW_MFENCE();
-    long dt = fd_log_wallclock();
-    for( ulong i = 0UL; i < workload_iter; i++ ) {
-      ulong result = fd_hash( i, buf, BUF_SZ );
-      FD_COMPILER_FORGET( result );
-    }
-    dt = fd_log_wallclock() - dt;
-    double ns_byte = ((double)(dt)) / ((double)(workload_iter * BUF_SZ));
-    FD_LOG_NOTICE(( "fd_hash: %.3f ns/byte (sz %lu)", ns_byte, BUF_SZ ));
   }
 
   fd_rng_delete( fd_rng_leave( rng ) );
