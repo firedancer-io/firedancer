@@ -14,7 +14,7 @@
 
 #define NAME "snapwr"
 
-#define FD_SNAPWR_WRITE_BUF_SZ  (8UL<<20)   /* 8MiB */
+#define FD_SNAPWR_WRITE_BUF_SZ  (2UL<<20)   /* 2MiB */
 
 struct fd_snapwr_out {
   ulong       idx;
