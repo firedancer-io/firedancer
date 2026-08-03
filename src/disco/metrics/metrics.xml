@@ -1345,7 +1345,9 @@ EXAMPLES
     <gauge name="SlotLastInsertFailed"     summary="Most recent slot we failed to insert into the forest" />
     <counter name="ChainVerifyFailed" summary="Times any block failed chained merkle verification" />
     <gauge name="SlotLastChainVerifyFailed" summary="Most recent slot that failed chained merkle verification" />
-
+    <counter name="ShredBlockIdFailed" summary="Times we failed to verify a shred for block id response" />
+    <counter name="FecRootFailed" summary="Times we failed to verify a FEC root response" />
+    <counter name="ParentFecCountFailed" summary="Times we failed to verify a parent FEC count response" />
 </tile>
 
 <enum name="RserveSentResponseTypes">

@@ -933,6 +933,9 @@
 | <span class="metrics-name">repair_&#8203;slot_&#8203;last_&#8203;insert_&#8203;failed</span> | gauge | Most recent slot we failed to insert into the forest |
 | <span class="metrics-name">repair_&#8203;chain_&#8203;verify_&#8203;failed</span> | counter | Times any block failed chained merkle verification |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;last_&#8203;chain_&#8203;verify_&#8203;failed</span> | gauge | Most recent slot that failed chained merkle verification |
+| <span class="metrics-name">repair_&#8203;shred_&#8203;block_&#8203;id_&#8203;failed</span> | counter | Times we failed to verify a shred for block id response |
+| <span class="metrics-name">repair_&#8203;fec_&#8203;root_&#8203;failed</span> | counter | Times we failed to verify a FEC root response |
+| <span class="metrics-name">repair_&#8203;parent_&#8203;fec_&#8203;count_&#8203;failed</span> | counter | Times we failed to verify a parent FEC count response |
 
 </div>
 

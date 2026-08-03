@@ -65,7 +65,7 @@ install_epoch( fd_votor_tile_t * ctx ) {
   /* Recover the production ranking: update_epoch_vtrs left the ranked set
      in ctx->validators, and validators[r].pubkey is the id_key of the
      source validator that ranked r. */
-  vtr_epoch_set_t const * s = epoch_set( ctx, 0UL );
+  vtr_epoch_set_t const * s = NULL;//epoch_set( ctx, 0UL );
   FD_TEST( s && s->validator_cnt==TEST_NV && s->have_own_id );
   own_rank = s->own_id;
   for( ulong r=0UL; r<TEST_NV; r++ ) {
@@ -98,7 +98,7 @@ setup_ctx( fd_wksp_t * wksp ) {
   ((fd_votor_tile_t *)scratch)->sign_fn  = ag_aggsig_sign_local;
   ((fd_votor_tile_t *)scratch)->sign_ctx = &test_sk[ 0 ];
 
-  fd_votor_tile_t * ctx = init_choreo( scratch, tile );
+  fd_votor_tile_t * ctx = NULL;//init_choreo( scratch, tile );
   FD_TEST( ctx );
 
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );

@@ -60,7 +60,8 @@ fd_inflights_request_insert( fd_inflights_t *    table,
                              ulong               nonce,
                              fd_pubkey_t const * pubkey,
                              ulong               slot,
-                             ulong               shred_idx ) {
+                             ulong               shred_idx,
+                             fd_hash_t const *   block_id ) {
   if( FD_UNLIKELY( !fd_inflight_pool_free( table->pool ) ) ) {
     if( FD_LIKELY( !fd_inflight_dlist_is_empty( table->popped_dl, table->pool ) ) ) {
       fd_inflight_t * evict = fd_inflight_dlist_ele_pop_head( table->popped_dl, table->pool );
@@ -86,6 +87,8 @@ fd_inflights_request_insert( fd_inflights_t *    table,
   inflight_req->key.shred_idx  = shred_idx;
   inflight_req->timestamp_ns   = fd_log_wallclock();
   inflight_req->pubkey         = *pubkey;
+  if( FD_UNLIKELY( block_id ) ) inflight_req->block_id = *block_id;
+  else                          fd_memset( &inflight_req->block_id, 0, sizeof(fd_hash_t) );
 
   fd_inflight_map_ele_insert     ( table->map,            inflight_req, table->pool );
   fd_inflight_dlist_ele_push_tail( table->outstanding_dl, inflight_req, table->pool );
@@ -96,7 +99,8 @@ fd_inflights_request_match( fd_inflights_t * table,
                              ulong           nonce,
                              ulong           slot,
                              ulong           shred_idx,
-                             fd_pubkey_t *   peer_out ) {
+                             fd_pubkey_t *   peer_out,
+                             fd_hash_t *     block_id_out ) {
   fd_inflight_key_t query[1] = {{ .slot = slot, .shred_idx = shred_idx, .nonce = nonce }};
   /* In the unlikely case that there are multiple requests (outstanding
      or popped) with the same (slot, shred_idx, nonce) tuple, we'll
@@ -116,8 +120,9 @@ fd_inflights_request_match( fd_inflights_t * table,
       /* Take oldest one (probably only one, but req_ts initialized to
          now, so all are older than it. */
       if( FD_LIKELY( inflight_req->timestamp_ns<req_ts ) ) {
-        req_ts    = inflight_req->timestamp_ns;
-        *peer_out = inflight_req->pubkey;
+        req_ts        = inflight_req->timestamp_ns;
+        *peer_out     = inflight_req->pubkey;
+        *block_id_out = inflight_req->block_id;
       }
 
       /* Remove the element from the inflight table */

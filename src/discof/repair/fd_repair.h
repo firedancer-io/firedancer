@@ -373,6 +373,19 @@ ag_repair_response_de( ag_repair_response_t * response,
                        uchar const *          buf,
                        ulong                  buf_sz );
 
+/* ag_repair_parent_fec_count_verify / ag_repair_fec_set_root_verify
+   verifies a deserialized Alpenglow repair metadata response against
+   the block id (double-merkle root) the request was made for.  Both
+   return 0 if the response's merkle proof is valid for block_id, -1
+   otherwise. */
+int
+ag_repair_parent_fec_count_verify( ag_parent_fec_count_res_t const * res,
+                                   fd_hash_t const *                 block_id );
+int
+ag_repair_fec_set_root_verify( ag_fec_root_res_t const * res,
+                               fd_hash_t const *         block_id,
+                               uint                      fec_set_idx );
+
 /* fd_repair_sz returns the bincode-serialized sz of msg. */
 
 static inline ulong
