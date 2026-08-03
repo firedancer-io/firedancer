@@ -218,7 +218,8 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
 
   if( FD_UNLIKELY( !built_for ) ) {
     ulong per_epoch_bytes = fd_gui_hist_bytes_per_epoch();
-    ulong epoch_n = fd_ulong_max( FD_GUI_HIST_MIN_EPOCHS, store_bytes / fd_ulong_max( per_epoch_bytes, 1UL ) );
+    ulong epoch_n = fd_ulong_min( fd_ulong_max( FD_GUI_HIST_MIN_EPOCHS, store_bytes / fd_ulong_max( per_epoch_bytes, 1UL ) ), FD_GUI_HIST_MAX_EPOCHS );
+    FD_TEST( FD_GUI_HIST_MAX_EPOCHS>=FD_GUI_HIST_MIN_EPOCHS );
 
     for( int i=0; i<FD_GUI_HIST_CNT; i++ ) {
       int   ts     = fd_gui_hist_is_timeseries( i );
