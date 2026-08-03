@@ -4,10 +4,11 @@
 /* fd_progcache.h provides program cache data structures.
 
    Lock ordering:
-   global txn lock, clock lock, txn lock, recm chain_lock, rec.lock */
+   global txn lock, txn lock, recm chain_lock, rec.lock
+   cache.lock[c] guards class c's free list and nests under nothing. */
 
 #include "fd_progcache_rec.h" /* includes fd_progcache_base.h */
-#include "fd_progcache_xid.h"
+#include "fd_progcache_class.h"
 #include "../fd_rwlock.h"
 #include "../runtime/fd_runtime_const.h"
 #include "fd_progcache_xid.h"
@@ -17,7 +18,12 @@
 
 #define FD_PROGCACHE_SHMEM_MAGIC (0xf17eda2ce7fc2c03UL)
 
-#define FD_PROGCACHE_SPAD_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH * (20UL<<20))
+/* spill.lock serializes spilling, so at most one CPI stack is resident:
+   the exact worst case is one full stack of top-class programs.  Exact
+   means no slack, so this holds only while every value footprint is a
+   multiple of fd_progcache_val_align() (fd_progcache_shmem_new checks). */
+
+#define FD_PROGCACHE_SPAD_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH * FD_PROGCACHE_SLOT_TOP_SZ)
 
 struct fd_progcache_shmem {
 
@@ -25,13 +31,20 @@ struct fd_progcache_shmem {
   ulong wksp_tag;
   ulong seed;
 
-  ulong alloc_gaddr;
-
   struct {
-    uint  max;
+    uint  max;        /* record array capacity; >= sum of nslot (pow2) */
     ulong map_gaddr;
-    ulong pool_gaddr;
     ulong ele_gaddr;
+    ulong state_gaddr; /* uchar[max] per-record CLOCK/liveness state */
+
+    /* Deferred-reclaim list, shared across joins so a record deleted by one
+       tile is reclaimed even when another tile is its final reader: a record
+       removed from the map but still reader-locked is pushed here, and any
+       join's fd_progcache_reclaim_work drains it once the readers release.
+       reclaim_head indexes the rec array (UINT_MAX = empty); reclaim_lock
+       guards list mutation. */
+    fd_rwlock_t reclaim_lock;
+    uint        reclaim_head;
   } rec;
 
   struct __attribute__((aligned(64))) {
@@ -55,24 +68,30 @@ struct fd_progcache_shmem {
     uchar              spad[ FD_PROGCACHE_SPAD_MAX ] __attribute__((aligned(64UL)));
   } spill;
 
+  /* Size-class cache.  The record array is partitioned by class: class c
+     owns records [rec_base[c], rec_base[c]+nslot[c]), and record idx's value
+     storage is the fixed-size arena slot at (idx - rec_base[c]).  A value is
+     stored in the smallest class whose slot holds it
+     (fd_progcache_class); no borrowing across classes.  A full class
+     evicts within itself using a per-class CLOCK hand that walks only that
+     class's record range.  The arenas are wksp allocations (gaddrs are
+     wksp-relative); the free lists live inside this shmem region.  lock[c]
+     guards class c's free list and CLOCK hand. */
   struct {
-    fd_rwlock_t lock;
-    ulong       head;
-    ulong       cbits_gaddr;
-  } clock;
+    fd_rwlock_t lock       [ FD_PROGCACHE_CLASS_CNT ]; /* one lock per class */
+    ulong       nslot      [ FD_PROGCACHE_CLASS_CNT ]; /* records per class */
+    ulong       rec_base   [ FD_PROGCACHE_CLASS_CNT ]; /* first rec idx of class c */
+    ulong       arena_gaddr[ FD_PROGCACHE_CLASS_CNT ]; /* value arena base (0 for nx) */
+    ulong       free_gaddr [ FD_PROGCACHE_CLASS_CNT ]; /* fd_prog_freestack of free rec idx */
+    ulong       clock_hand [ FD_PROGCACHE_CLASS_CNT ]; /* CLOCK cursor (absolute rec idx) */
+    ulong       free_cnt   [ FD_PROGCACHE_CLASS_CNT ]; /* free-list depth; written under lock[c], read relaxed */
+  } cache;
 
 };
 
 FD_STATIC_ASSERT( FD_PROGCACHE_SPAD_MAX<=UINT_MAX, "layout" );
 
 /* Declare a separately-chained concurrent hash map for cache entries */
-
-#define POOL_NAME       fd_prog_recp
-#define POOL_ELE_T      fd_progcache_rec_t
-#define POOL_IDX_T      uint
-#define POOL_NEXT       map_next
-#define POOL_IMPL_STYLE 1
-#include "../../util/tmpl/fd_pool_para.c"
 
 #define MAP_NAME              fd_prog_recm
 #define MAP_ELE_T             fd_progcache_rec_t
@@ -85,6 +104,32 @@ FD_STATIC_ASSERT( FD_PROGCACHE_SPAD_MAX<=UINT_MAX, "layout" );
 #define MAP_MAGIC             (0xf173da2ce77ecdb8UL)
 #define MAP_IMPL_STYLE        1
 #include "../../util/tmpl/fd_map_chain_para.c"
+
+/* Per-class free-list of record indices: a bounded LIFO, one instance per
+   class, guarded by that class's lock (single writer at a time). */
+#define STACK_NAME fd_prog_freestack
+#define STACK_T    uint
+#include "../../util/tmpl/fd_stack.c"
+
+/* fd_progcache_class_free_cnt returns the number of free records in class c.
+   Sampling takes no lock, so the value may be stale by an in-flight
+   acquire/release, which is fine for metrics. */
+static inline ulong
+fd_progcache_class_free_cnt( fd_progcache_shmem_t * pc,
+                             ulong                  c ) {
+  return __atomic_load_n( &pc->cache.free_cnt[ c ], __ATOMIC_RELAXED );
+}
+
+/* fd_progcache_rec_class returns the size class owning record rec_idx
+   (record ranges are contiguous and ascending by class). */
+
+static inline ulong
+fd_progcache_rec_class( fd_progcache_shmem_t const * pc,
+                        ulong                        rec_idx ) {
+  ulong c = 0UL;
+  while( c+1UL<FD_PROGCACHE_CLASS_CNT && rec_idx >= pc->cache.rec_base[ c+1UL ] ) c++;
+  return c;
+}
 
 /* Declare a tree / hash map hybrid of fork graph nodes (externally
    synchronized) */
@@ -121,18 +166,17 @@ struct __attribute__((aligned(64))) fd_progcache_txn {
 #define  MAP_IMPL_STYLE        1
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* Declare fd_progcache_join_t now that we have all dependencies */
-
-typedef struct fd_prog_clock fd_prog_clock_t;
+/* fd_progcache_join_t depends on the declarations above */
 
 struct fd_progcache_join {
 
   fd_progcache_shmem_t * shmem;
 
   struct {
-    fd_prog_recm_t map[1];
-    fd_prog_recp_t pool[1];
-    uint           reclaim_head;
+    fd_prog_recm_t       map[1];
+    fd_progcache_rec_t * ele;   /* record array (partitioned by size class) */
+    ulong                max;
+    uchar *              state; /* per-record CLOCK/liveness byte (see fd_progcache_clock.h) */
   } rec;
 
   struct {
@@ -140,12 +184,7 @@ struct fd_progcache_join {
     fd_progcache_txn_t * pool;
   } txn;
 
-  void *       data_base;
-  fd_alloc_t * alloc;
-
-  struct {
-    atomic_ulong * bits;
-  } clock;
+  void * data_base;
 
 };
 
@@ -154,16 +193,61 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_progcache_shmem_align( void );
 
+/* Progcache workspace geometry.  Every conversion between a workspace
+   size and the shared-memory budget inside it goes through these, so the
+   forward and inverse directions cannot disagree.
+
+   fd_progcache_wksp_part_max is the partition count progcache asks of a
+   workspace of wksp_sz bytes.  Topology reserves this many.
+
+   fd_progcache_shared_sz returns the bytes of a wksp_sz workspace that
+   are usable for progcache shared memory, i.e. wksp_sz less the
+   workspace header and partition table.  0 if wksp_sz is too small.
+
+   fd_progcache_wksp_sz is the inverse: the smallest workspace size (to
+   1 MiB) whose fd_progcache_shared_sz covers shared_sz.  It is defined
+   in terms of fd_progcache_shared_sz, so
+     fd_progcache_shared_sz( fd_progcache_wksp_sz( n ) ) >= n
+   holds by construction (checked by test_progcache). */
+
 FD_FN_CONST ulong
+fd_progcache_wksp_part_max( ulong wksp_sz );
+
+FD_FN_CONST ulong
+fd_progcache_shared_sz( ulong wksp_sz );
+
+FD_FN_CONST ulong
+fd_progcache_wksp_sz( ulong shared_sz );
+
+/* fd_progcache_min_wksp_sz returns the smallest progcache workspace size
+   (bytes) that provisions successfully for the given txn_max: metadata
+   footprint + wksp overhead + the minimum value-arena budget.  Config
+   validation and topology setup both use it, so every "too small" error
+   reports the same number. */
+
+ulong
+fd_progcache_min_wksp_sz( ulong txn_max );
+
+/* fd_progcache_shmem_{footprint,new} size and construct a program cache.
+   txn_max bounds concurrent fork-graph nodes; shared_sz is the total shared
+   memory budget: metadata (this shmem, footprint) plus the per-class value
+   arenas (separate wksp allocations made by shmem_new from the same
+   workspace).  The exact split is derived internally: the record capacity
+   is the budget's provisionable slot count rounded up to a power of two,
+   metadata is sized for that capacity, and every remaining byte is
+   provisioned into value slots.  footprint returns 0 if shared_sz cannot
+   give every class at least one slot. */
+
+ulong
 fd_progcache_shmem_footprint( ulong txn_max,
-                              ulong rec_max );
+                              ulong shared_sz );
 
 fd_progcache_shmem_t *
 fd_progcache_shmem_new( void * shmem,
                         ulong  wksp_tag,
                         ulong  seed,
                         ulong  txn_max,
-                        ulong  rec_max );
+                        ulong  shared_sz );
 
 fd_progcache_join_t *
 fd_progcache_shmem_join( fd_progcache_join_t *  ljoin,

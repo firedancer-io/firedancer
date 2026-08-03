@@ -8,8 +8,4 @@ $(call make-unit-test,test_dns_resolve,test_dns_resolve,fd_disco fd_ballet fd_ta
 $(call run-unit-test,test_topob)
 endif
 endif
-ifdef FD_HAS_DOUBLE
-$(call add-hdrs,fd_wksp_mon.h)
-$(call add-objs,fd_wksp_mon,fd_disco)
-endif
 endif

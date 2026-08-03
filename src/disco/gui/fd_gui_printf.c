@@ -8,6 +8,7 @@
 #include "../../ballet/utf8/fd_utf8.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/progcache/fd_progcache.h"
 #include "../../disco/topo/fd_topob.h"
 
 static void
@@ -1041,14 +1042,21 @@ fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
     spill_bytes     += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_SPILL_BYTES    ) ];
   }
 
+  /* Slots are fixed size, so free_bytes is an upper bound: a program only
+     fits a free slot of its own class or larger. */
   ulong free_bytes = 0UL;
   ulong size_bytes = 0UL;
-
-  fd_topo_tile_t const * replay = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
-  volatile ulong const * replay_metrics = fd_metrics_tile( replay->metrics );
-
-  free_bytes = replay_metrics[ MIDX( GAUGE, REPLAY, PROGCACHE_FREE_BYTES ) ];
-  size_bytes = replay_metrics[ MIDX( GAUGE, REPLAY, PROGCACHE_SIZE_BYTES ) ];
+  ulong replay_idx = fd_topo_find_tile( topo, "replay", 0UL );
+  if( FD_LIKELY( replay_idx!=ULONG_MAX ) ) {
+    volatile ulong const * m0 = fd_metrics_tile( topo->tiles[ replay_idx ].metrics );
+    for( ulong c=0UL; c<FD_PROGCACHE_CLASS_CNT; c++ ) {
+      ulong mx = m0[ MIDX( GAUGE, REPLAY, PROGCACHE_CLASS_MAX  ) + c ];
+      ulong us = m0[ MIDX( GAUGE, REPLAY, PROGCACHE_CLASS_USED ) + c ];
+      size_bytes +=  mx       * fd_progcache_slot_sz[ c ];
+      free_bytes += (mx - us) * fd_progcache_slot_sz[ c ];
+    }
+    size_bytes += FD_PROGCACHE_SPAD_MAX;
+  }
 
   jsonp_open_envelope( gui->http, "summary", "live_program_cache" );
     jsonp_open_object( gui->http, "value" );

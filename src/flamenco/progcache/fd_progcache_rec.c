@@ -1,69 +1,96 @@
 #include "fd_progcache.h"
+#include "fd_progcache_clock.h"
 #include "../vm/fd_vm.h" /* fd_vm_syscall_register_slot, fd_vm_validate */
-#include "../../util/alloc/fd_alloc.h"
+#include "../../util/racesan/fd_racesan_target.h"
 
-#include <stdlib.h>
+/* A free record is always write-locked: pop/push transitions the lock
+   between 0xFFFF (free) and 1 (read-locked by the acquirer), so a stale
+   speculative reader (racing on a chain snapshot that still references a
+   reused record index) can never lock a free record, and its transient
+   tryread on a live one is drained by fd_progcache_rec_abandon before the
+   record is recycled.
 
-/* Can be overridden by test executables */
-__attribute__((weak)) int const fd_progcache_use_malloc = 0;
-static inline _Bool
-use_malloc( void ) {
-  _Bool use_malloc = !!fd_progcache_use_malloc;
-  FD_COMPILER_FORGET( use_malloc ); /* prevent constant propagation */
-  return use_malloc;
-}
+   lock is therefore the last member of fd_progcache_rec_t: clearing a
+   record up to offsetof(lock) resets all of its state and none of its
+   lock. */
 
-void *
-fd_progcache_val_alloc( fd_progcache_rec_t *  rec,
-                        fd_progcache_join_t * join,
-                        ulong                 val_align,
-                        ulong                 val_footprint ) {
-  if( rec->data_gaddr ) fd_progcache_val_free( rec, join );
-  ulong  val_max = 0UL;
-  void * mem;
-  ulong  gaddr;
-  if( FD_UNLIKELY( use_malloc() ) ) { /* test only */
-    mem = aligned_alloc( val_align, val_footprint );
-    if( FD_UNLIKELY( !mem ) ) return NULL;
-    val_max = val_footprint;
-    gaddr   = (ulong)mem;
-  } else {
-    mem = fd_alloc_malloc_at_least( join->alloc, val_align, val_footprint, &val_max );
-    if( FD_UNLIKELY( !mem ) ) return NULL;
-    FD_CHECK_CRIT( val_max<=UINT_MAX, "massive" ); /* unreachable */
-    gaddr = fd_wksp_gaddr_fast( join->data_base, mem );
+fd_progcache_rec_t *
+fd_progcache_rec_acquire( fd_progcache_join_t * join,
+                          ulong                 val_footprint ) {
+  ulong c = fd_progcache_class( val_footprint ); /* footprint 0 -> nx class */
+  if( FD_UNLIKELY( c>=FD_PROGCACHE_CLASS_CNT ) ) return NULL; /* larger than top class (unreachable for a valid program) */
+
+  /* Pop a free record from the class fitting val_footprint.  Returns NULL
+     if the class is full (the caller evicts within the class and retries,
+     else spills).  No cross-class borrowing. */
+  fd_progcache_shmem_t * pc = join->shmem;
+
+  fd_rwlock_write( &pc->cache.lock[ c ] );
+  uint * freestack = fd_prog_freestack_join( fd_wksp_laddr_fast( join->data_base, pc->cache.free_gaddr[ c ] ) );
+  if( FD_UNLIKELY( fd_prog_freestack_empty( freestack ) ) ) {
+    fd_rwlock_unwrite( &pc->cache.lock[ c ] );
+    return NULL; /* class full */
   }
-  rec->data_gaddr = gaddr;
-  rec->data_max   = (uint)val_max;
-  return mem;
+  uint idx = fd_prog_freestack_pop( freestack );
+  __atomic_store_n( &pc->cache.free_cnt[ c ],
+                    __atomic_load_n( &pc->cache.free_cnt[ c ], __ATOMIC_RELAXED )-1UL,
+                    __ATOMIC_RELAXED );
+  fd_rwlock_unwrite( &pc->cache.lock[ c ] );
+  fd_racesan_hook( "prog_rec_acquire:post_pop" );
+
+  /* Init in-flight record.  lock is excluded from the memset and
+     downgraded to a read lock last. */
+  fd_progcache_rec_t * rec = join->rec.ele + idx;
+  memset( rec, 0, offsetof(fd_progcache_rec_t, lock) );
+  rec->exists        = 1;
+  rec->txn_idx       = UINT_MAX;
+  rec->reclaim_next  = UINT_MAX;
+  rec->calldests_off = UINT_MAX;
+
+  /* Attach value storage: the record's own arena slot (none for nx) */
+  ulong slot_sz = fd_progcache_slot_sz[ c ];
+  if( slot_sz ) {
+    rec->data_gaddr = pc->cache.arena_gaddr[ c ] + (ulong)( idx - pc->cache.rec_base[ c ] )*slot_sz;
+    rec->data_max   = (uint)slot_sz;
+  }
+
+  fd_racesan_hook( "prog_rec_acquire:pre_handoff" );
+  atomic_store_explicit( &rec->lock.value, (ushort)1, memory_order_release ); /* free (write-locked) -> read-locked by caller */
+  return rec;
 }
 
 void
-fd_progcache_val_free1( fd_progcache_rec_t * rec,
-                        void *               val,
-                        fd_alloc_t *         alloc ) {
-  if( FD_UNLIKELY( use_malloc() ) ) { /* test only */
-    free( val );
-  } else {
-    fd_alloc_free( alloc, val );
-  }
+fd_progcache_rec_release( fd_progcache_join_t * join,
+                          fd_progcache_rec_t *  rec ) {
+  fd_progcache_shmem_t * pc  = join->shmem;
+  ulong                  idx = (ulong)( rec - join->rec.ele );
+  ulong                  c   = fd_progcache_rec_class( pc, idx );
+
+  rec->exists     = 0;
   rec->data_gaddr = 0UL;
   rec->data_max   = 0U;
-  rec->rodata_off = 0U;
-  rec->rodata_sz  = 0U;
+  /* lock stays write-locked (the free-record invariant) */
+
+  fd_progcache_state_clear( join->rec.state, idx );
+  fd_racesan_hook( "prog_rec_release:pre_push" );
+  fd_rwlock_write( &pc->cache.lock[ c ] );
+  fd_prog_freestack_push( fd_prog_freestack_join( fd_wksp_laddr_fast( join->data_base, pc->cache.free_gaddr[ c ] ) ), (uint)idx );
+  __atomic_store_n( &pc->cache.free_cnt[ c ],
+                    __atomic_load_n( &pc->cache.free_cnt[ c ], __ATOMIC_RELAXED )+1UL,
+                    __ATOMIC_RELAXED );
+  fd_rwlock_unwrite( &pc->cache.lock[ c ] );
 }
 
 void
-fd_progcache_val_free( fd_progcache_rec_t *  rec,
-                       fd_progcache_join_t * join ) {
-  if( !rec->data_gaddr ) return;
-  void * mem = fd_wksp_laddr_fast( join->data_base, rec->data_gaddr );
-
-  /* Illegal to call val_free on a spill-allocated buffer */
-  FD_TEST( !( (ulong)mem >= (ulong)join->shmem->spill.spad &&
-              (ulong)mem <  (ulong)join->shmem->spill.spad+FD_PROGCACHE_SPAD_MAX ) );
-
-  fd_progcache_val_free1( rec, mem, join->alloc );
+fd_progcache_rec_abandon( fd_progcache_join_t * join,
+                          fd_progcache_rec_t *  rec ) {
+  /* The wait below is unbounded, so every speculative tryread must be paired
+     with an unread on every path.  A single dropped reference pins the record
+     and this loop never ends. */
+  fd_rwlock_unread( &rec->lock );
+  fd_racesan_hook( "prog_rec_abandon:post_unread" );
+  while( FD_UNLIKELY( !fd_rwlock_trywrite( &rec->lock ) ) ) FD_SPIN_PAUSE();
+  fd_progcache_rec_release( join, rec );
 }
 
 FD_FN_PURE ulong
@@ -120,8 +147,6 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
 
   rec->calldests_off = has_calldests ? (uint)( (ulong)calldests_mem - (ulong)val ) : UINT_MAX;
   rec->rodata_off    = (uint)( (ulong)rodata_mem - (ulong)val );
-  rec->entry_pc      = 0;
-  rec->rodata_sz     = 0;
 
   rec->text_cnt      = elf_info->text_cnt;
   rec->text_off      = elf_info->text_off;

@@ -13,8 +13,9 @@
    ### Fork management
 
    The program cache is fork-aware (using transactions).  Txn-level
-   operations take an exclusive lock over the cache (record ops are
-   stalled indefinitely until the txn completes).
+   operations (attach/publish/cancel) take the fork graph's exclusive
+   lock; record reads never block on it, and inserts hold it shared only
+   while publishing.
 
    ### Cache entry
 
@@ -22,9 +23,9 @@
    (typically only zero or one, in rare cases where the program content
    differs across forks multiple).
 
-   A cache entry consists of a progcache_rec object (from a preallocated
-   object pool), and a variable-sized fd_progcache_entry struct
-   (from an fd_alloc heap).
+   A cache entry is a progcache_rec object.  Records are partitioned by
+   size class and double as value slots: an executable entry's program
+   data lives in its own class's arena slot (see fd_progcache.h).
 
    ### Cache fill policy
 
@@ -37,12 +38,9 @@
    ### Cache evict policy
 
    Cache eviction (i.e. force removal of potentially useful records)
-   happens on fill.  Specifically, cache eviction is triggered when a
-   cache fill fails to allocate from the wksp (fd_alloc) heap.
-
-   fd_progcache further has a concept of "generations" (gen).  Each
-   cache fill operation specifies a 'gen' number.  Only entries with a
-   lower 'gen' number may get evicted.
+   happens on fill: when a fill finds its size class full, it evicts
+   within that class (per-class CLOCK), and falls back to the spill
+   scratch if no record frees up.
 
    ### Garbage collect policy
 
@@ -62,8 +60,7 @@ struct fd_progcache_metrics {
   ulong lookup_cnt;
   ulong hit_cnt;
   ulong miss_cnt;
-  ulong oom_heap_cnt;
-  ulong oom_desc_cnt;
+  ulong class_full_cnt;
   ulong fill_cnt;
   ulong fill_tot_sz;
   ulong spill_cnt;
@@ -72,9 +69,42 @@ struct fd_progcache_metrics {
   ulong evict_tot_sz;
   ulong cum_pull_ticks;
   ulong cum_load_ticks;
+
+  /* Per-size-class breakdowns.  Non-executable entries are attributed to
+     the nx class, so all four arrays span the same classes. */
+  ulong hit_per_class  [ FD_PROGCACHE_CLASS_CNT ];
+  ulong fill_per_class [ FD_PROGCACHE_CLASS_CNT ];
+  ulong evict_per_class[ FD_PROGCACHE_CLASS_CNT ];
+  ulong spill_per_class[ FD_PROGCACHE_CLASS_CNT ];
 };
 
 typedef struct fd_progcache_metrics fd_progcache_metrics_t;
+
+/* FD_PROGCACHE_METRICS_WRITE publishes the per-joiner progcache metrics
+   for tile prefix TILE.  TILE must declare the ProgcacheLookup/... and
+   ProgcacheClass* counters in metrics.xml (e.g. EXECLE, EXECRP).  m must
+   be a fd_progcache_metrics_t const * for the joiner whose counters
+   should be published.  The caller supplies fd_metrics.h. */
+
+#define FD_PROGCACHE_METRICS_WRITE( TILE, m ) do {                                    \
+    fd_progcache_metrics_t const * _m = (m);                                          \
+    FD_MCNT_SET( TILE, PROGCACHE_LOOKUP,                _m->lookup_cnt      );        \
+    FD_MCNT_SET( TILE, PROGCACHE_HIT,                   _m->hit_cnt         );        \
+    FD_MCNT_SET( TILE, PROGCACHE_MISS,                  _m->miss_cnt        );        \
+    FD_MCNT_SET( TILE, PROGCACHE_CLASS_FULL,            _m->class_full_cnt  );        \
+    FD_MCNT_SET( TILE, PROGCACHE_FILL,                  _m->fill_cnt        );        \
+    FD_MCNT_SET( TILE, PROGCACHE_FILL_BYTES,            _m->fill_tot_sz     );        \
+    FD_MCNT_SET( TILE, PROGCACHE_SPILL,                 _m->spill_cnt       );        \
+    FD_MCNT_SET( TILE, PROGCACHE_SPILL_BYTES,           _m->spill_tot_sz    );        \
+    FD_MCNT_SET( TILE, PROGCACHE_EVICTION,              _m->evict_cnt       );        \
+    FD_MCNT_SET( TILE, PROGCACHE_EVICTION_BYTES,        _m->evict_tot_sz    );        \
+    FD_MCNT_SET( TILE, PROGCACHE_DURATION_SECONDS,      _m->cum_pull_ticks  );        \
+    FD_MCNT_SET( TILE, PROGCACHE_LOAD_DURATION_SECONDS, _m->cum_load_ticks  );        \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_HIT,      _m->hit_per_class   );         \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_FILL,     _m->fill_per_class  );         \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_EVICTION, _m->evict_per_class );         \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_SPILL,    _m->spill_per_class );         \
+  } while(0)
 
 /* fd_progcache_t is a thread-local client to a program cache instance.
    This struct is quite large and therefore not local/stack
@@ -112,7 +142,9 @@ fd_progcache_join( fd_progcache_t *       ljoin,
 #define FD_PROGCACHE_SCRATCH_ALIGN     (64UL)
 #define FD_PROGCACHE_SCRATCH_FOOTPRINT FD_RUNTIME_ACC_SZ_MAX
 
-/* fd_progcache_leave detaches the caller from a program cache. */
+/* fd_progcache_leave detaches the caller from a program cache, first draining
+   the shared reclaim list so no record is left orphaned outside the map.
+   Long-lived tiles never detach; workspace teardown releases the cache. */
 
 void *
 fd_progcache_leave( fd_progcache_t *        cache,

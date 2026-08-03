@@ -3,64 +3,74 @@
 #include "fd_progcache_reclaim.h"
 #include "../../util/racesan/fd_racesan_target.h"
 
-void
-fd_prog_clock_init( atomic_ulong * cbits,
-                    ulong          rec_max ) {
-  fd_memset( cbits, 0, fd_prog_cbits_footprint( rec_max ) );
-}
+int
+fd_progcache_evict( fd_progcache_t * cache,
+                    ulong            sz ) {
+  fd_progcache_join_t *  join  = cache->join;
+  fd_progcache_shmem_t * shmem = join->shmem;
+  uchar *                state = join->rec.state;
 
-void
-fd_prog_clock_evict( fd_progcache_t * cache,
-                     ulong            rec_rem_,
-                     ulong            heap_rem_ ) {
-  fd_progcache_join_t *  join    = cache->join;
-  fd_progcache_shmem_t * shmem   = join->shmem;
-  fd_progcache_rec_t *   rec0    = join->rec.pool->ele;
-  ulong                  rec_max = join->rec.pool->ele_max;
-  atomic_ulong *         cbits   = join->clock.bits;
+  /* Map the value size to its class (footprint 0 -> nx class) and evict one
+     entry from that class's CLOCK, freeing its record for reuse. */
+  ulong class_idx = fd_progcache_class( sz );
+  if( FD_UNLIKELY( class_idx>=FD_PROGCACHE_CLASS_CNT ) ) return 0; /* larger than top class (unreachable) */
 
-  /* Fetch and lock CLOCK head */
-  fd_rwlock_write( &shmem->clock.lock );
-  ulong head = shmem->clock.head;
-  if( FD_UNLIKELY( head >= rec_max ) ) head = 0UL;
+  ulong base  = shmem->cache.rec_base[ class_idx ];
+  ulong nslot = shmem->cache.nslot   [ class_idx ];
+  if( FD_UNLIKELY( !nslot ) ) return 0;
 
-  long  rec_rem  = (long)rec_rem_;
-  long  heap_rem = (long)heap_rem_;
-  ulong iter_rem = 2UL*rec_max;
-  while( (rec_rem>0L || heap_rem>0L) && iter_rem ) {
-    iter_rem--;
-    atomic_ulong * slot_p = fd_prog_cbits_slot( cbits, head );
+  /* The scan holds no class-wide lock: the hand advances atomically, the state
+     bits are updated with atomic RMWs, and a victim is owned by write-locking
+     the record itself.  Two scanners therefore cannot pick the same record, and
+     a concurrent reclaim never waits on this scan.  The class lock is taken only
+     by the free-list operations in rec_acquire / rec_release. */
 
-    ulong slot    = atomic_load_explicit( slot_p, memory_order_relaxed );
-    int   visited = fd_ulong_extract_bit( slot, fd_prog_visited_bit( head ) );
-    int   exists  = fd_ulong_extract_bit( slot, fd_prog_exists_bit ( head ) );
+  int evicted = 0;
+  for( ulong iter=0UL; iter<2UL*nslot; iter++ ) {
+
+    /* Claim the next slot in this class's range.  The stored hand starts at
+       the class base and only ever increments, so the modulo keeps the
+       derived index inside the class. */
+    ulong raw  = __atomic_fetch_add( &shmem->cache.clock_hand[ class_idx ], 1UL, __ATOMIC_RELAXED );
+    ulong hand = base + ( (raw-base) % nslot );
+
+    uchar st = __atomic_load_n( &state[ hand ], __ATOMIC_RELAXED );
     fd_racesan_hook( "prog_clock_evict:post_load_bits" );
+    if( !( st & FD_PROGCACHE_REC_LIVE ) ) continue;
 
-    if( exists ) {
-      ulong mask = 0UL;
-      if( visited ) {
-        mask = 1UL<<fd_prog_visited_bit( head );
-      } else {
-        long res = fd_prog_delete_rec( cache->join, rec0+head );
-        fd_racesan_hook( "prog_clock_evict:post_delete" );
-        if( res>=0L ) {
-          rec_rem--;
-          heap_rem -= res;
-          cache->metrics->evict_cnt++;
-          cache->metrics->evict_tot_sz += (ulong)res;
-          mask = 3UL<<fd_prog_visited_bit( head );
-        }
-      }
-      if( mask ) atomic_fetch_and_explicit( slot_p, ~mask, memory_order_relaxed );
+    if( st & FD_PROGCACHE_REC_VISITED ) {
+      __atomic_fetch_and( &state[ hand ], (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED ); /* second chance */
+      continue;
     }
 
-    head++;
-    if( head>=rec_max ) head = 0UL;
+    /* Take the record for eviction.  The CAS succeeds only when nobody holds it,
+       and once held no reader can join: lookups use fd_rwlock_tryread, which
+       fails against a write holder.  Free records sit on the class free list
+       write-locked, so the CAS cannot take one however stale the bits above are.
+       A record that cannot be taken stays mapped and live -- deleting it would
+       drop a live entry without freeing its slot. */
+    fd_progcache_rec_t * rec = join->rec.ele + hand;
+    if( FD_UNLIKELY( !fd_rwlock_trywrite( &rec->lock ) ) ) continue;
+
+    long res = fd_progcache_delete_rec( join, rec );
+    fd_racesan_hook( "prog_clock_evict:post_delete" );
+
+    /* Retire the slot's state while the record is still owned.  Releasing
+       first would let another join reclaim and refill the slot, and this
+       store would then clear the new occupant's bits. */
+    __atomic_fetch_and( &state[ hand ], (uchar)~( FD_PROGCACHE_REC_LIVE|FD_PROGCACHE_REC_VISITED ), __ATOMIC_RELAXED );
+
+    fd_rwlock_unwrite( &rec->lock );
+
+    if( res>=0L ) {
+      evicted = 1;
+      cache->metrics->evict_cnt++;
+      cache->metrics->evict_tot_sz += (ulong)res;
+      cache->metrics->evict_per_class[ class_idx ]++;
+      break;
+    }
   }
 
-  /* Write back and unlock CLOCK head */
-  shmem->clock.head = head;
-  fd_rwlock_unwrite( &shmem->clock.lock );
-
-  fd_prog_reclaim_work( join );
+  fd_progcache_reclaim_work( join );
+  return evicted;
 }

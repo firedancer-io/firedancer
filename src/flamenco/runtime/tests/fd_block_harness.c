@@ -145,10 +145,6 @@ fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_accdb_purge( runner->accdb, runner->bank->accdb_fork_id );
   int charge_busy = 0;
   fd_accdb_background( runner->accdb, &charge_busy );
-
-  /* Compact the progcache allocator so empty superblocks are returned
-     to the workspace.  Required for the leak check to pass. */
-  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 /* Sets up block execution context from an input test case to execute

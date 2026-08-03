@@ -20,7 +20,6 @@ Constructed using a full topology which is pruned down. */
 #include "../../../../discof/restore/utils/fd_slot_delta_parser.h"
 #include "../../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../../discof/restore/utils/fd_ssmsg.h"
-#include "../../../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../../../ballet/shred/fd_shred.h"
 #include "../../../../discof/backtest/fd_backtest_src.h"
 #include "../../../../flamenco/runtime/fd_cost_tracker.h"
@@ -374,10 +373,8 @@ forktest_topo( config_t * config ) {
   }
 
   setup_topo_progcache( topo, "progcache",
-      fd_progcache_est_rec_max( config->firedancer.runtime.program_cache.heap_size_mib<<20,
-                                config->firedancer.runtime.program_cache.mean_cache_entry_size ),
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.runtime.program_cache.heap_size_mib<<20 );
+      config->firedancer.runtime.program_cache_size_mib<<20 );
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ))!=ULONG_MAX );
   fd_topo_obj_t * progcache_obj = &topo->objs[ progcache_obj_id ];
 

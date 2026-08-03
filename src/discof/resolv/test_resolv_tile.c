@@ -5,6 +5,11 @@
 
 #define TOPO_TAG 2UL
 
+/* The test drives the tile without a topology, so the startup gate has no
+   replay status gauge to watch.  fd_startup_gate_init then never touches
+   its topo argument. */
+int volatile const fd_startup_skip_checks = 1; /* fd_startup.c */
+
 static fd_svm_mini_t * mini;
 static uchar           metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
@@ -164,11 +169,18 @@ test_env_create( test_env_t * env ) {
     .out_reliable        = env->out_reliable
   };
 
-  env->tile_mem = fd_wksp_alloc_laddr( mini->wksp, scratch_align(), scratch_footprint( NULL ), TOPO_TAG );
+  /* scratch_footprint sizes the tile's accdb join from the tile config,
+     so it needs the same live-slot count the mini was created with. */
+  fd_topo_tile_t tile[1] = {0};
+  tile->resolv.max_live_slots = mini->accdb_max_live_slots;
+
+  env->tile_mem = fd_wksp_alloc_laddr( mini->wksp, scratch_align(), scratch_footprint( tile ), TOPO_TAG );
   FD_TEST( env->tile_mem );
   FD_SCRATCH_ALLOC_INIT( l, env->tile_mem );
   env->ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_resolv_ctx_t), sizeof(fd_resolv_ctx_t) );
   fd_memset( env->ctx, 0, sizeof(fd_resolv_ctx_t) );
+
+  fd_startup_gate_init( env->ctx->startup_gate, NULL, 2UL /* in link cnt */ );
 
   env->ctx->completed_slot     = 200UL;
   env->ctx->flush_pool_idx     = ULONG_MAX;

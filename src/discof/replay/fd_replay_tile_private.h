@@ -2,7 +2,6 @@
 #define HEADER_fd_src_discof_replay_fd_replay_tile_private_h
 
 #include "fd_vote_tracker.h"
-#include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -71,7 +70,6 @@ struct fd_replay_tile {
   fd_rng_t rng[ 1 ];
 
   fd_progcache_join_t progcache[1];
-  fd_wksp_mon_t       progcache_wksp_mon[1];
 
   fd_accdb_t *    accdb;
   fd_txncache_t * txncache;

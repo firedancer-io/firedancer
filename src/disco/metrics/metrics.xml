@@ -1030,16 +1030,19 @@ EXAMPLES
     <counter name="ProgcacheLookup" summary="Program cache lookups" />
     <counter name="ProgcacheHit" summary="Program cache hits" />
     <counter name="ProgcacheMiss" summary="Program cache misses" />
-    <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory events (heap)" />
-    <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory events (descriptor table)" />
+    <counter name="ProgcacheClassFull" summary="Program cache insertions that found their size class full, requiring an eviction or a spill" />
     <counter name="ProgcacheFill" summary="Program cache insertions" />
     <counter name="ProgcacheFillBytes" summary="Bytes inserted into program cache" />
-    <counter name="ProgcacheSpill" summary="Program cache spills (OOM fallback mechanism)" />
-    <counter name="ProgcacheSpillBytes" summary="Bytes spilled from program cache (OOM fallback mechanism)" />
+    <counter name="ProgcacheSpill" summary="Program cache spills (fallback used when the size class is full)" />
+    <counter name="ProgcacheSpillBytes" summary="Bytes spilled from program cache (fallback used when the size class is full)" />
     <counter name="ProgcacheEviction" summary="Program cache evictions" />
     <counter name="ProgcacheEvictionBytes" summary="Bytes evicted from program cache" />
     <counter name="ProgcacheDurationSeconds" converter="seconds" summary="Time spent on program cache operations, in seconds" />
     <counter name="ProgcacheLoadDurationSeconds" converter="seconds" summary="Time spent loading programs, in seconds" />
+    <counter name="ProgcacheClassHit" enum="ProgcacheClass" summary="Program cache hits, broken down by size class" />
+    <counter name="ProgcacheClassFill" enum="ProgcacheClass" summary="Program cache insertions, broken down by size class" />
+    <counter name="ProgcacheClassEviction" enum="ProgcacheClass" summary="Program cache evictions, broken down by size class" />
+    <counter name="ProgcacheClassSpill" enum="ProgcacheClass" summary="Program cache spills, broken down by size class" />
 
     <counter name="AccdbAccountAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountWritableAcquired" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
@@ -1170,6 +1173,16 @@ EXAMPLES
     <int value="1" name="GarbageCollect" label="Garbage collecting old account data" />
 </enum>
 
+<enum name="ProgcacheClass">
+    <int value="0" name="Class0" label="&lt;=128 KiB" />
+    <int value="1" name="Class1" label="128-512 KiB" />
+    <int value="2" name="Class2" label="512 KiB-1 MiB" />
+    <int value="3" name="Class3" label="1-2 MiB" />
+    <int value="4" name="Class4" label="2-4 MiB" />
+    <int value="5" name="Class5" label="4-11 MiB" />
+    <int value="6" name="ClassNx" label="non-executable" />
+</enum>
+
 <enum name="AccdbCacheClass">
     <int value="0" name="Class0" label="0-128 B" />
     <int value="1" name="Class1" label="129-512 B" />
@@ -1291,14 +1304,8 @@ EXAMPLES
     <!-- extensive program cache metrics.  Useful for development, will be
         cut down with time -->
     <counter name="ProgcacheRooted" summary="Program cache entries rooted" />
-    <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
-    <gauge name="ProgcacheFreePartition" summary="Free program cache heap partitions (indicates fragmentation)" />
-    <gauge name="ProgcacheFreeBytes" summary="Free bytes in the program cache heap" />
-    <gauge name="ProgcacheSizeBytes" summary="Total size of the program cache heap" />
-    <gauge name="ProgcacheFreePartitionMaxBytes" summary="Largest free heap partition in program cache" />
-    <gauge name="ProgcacheUsedPartitionMedianBytes" summary="Median used heap partition size in program cache" />
-    <gauge name="ProgcacheUsedPartitionMeanBytes" summary="Mean used heap partition size in program cache" />
-    <counter name="ProgcacheDurationSeconds" converter="seconds" summary="Time spent doing program cache tasks, in seconds" />
+    <gauge name="ProgcacheClassUsed" enum="ProgcacheClass" summary="Occupied program cache value slots, broken down by size class" />
+    <gauge name="ProgcacheClassMax" enum="ProgcacheClass" summary="Total program cache value slot capacity, broken down by size class" />
 
     <counter name="AccdbAccountAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountWritableAcquired" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
@@ -1776,16 +1783,19 @@ EXAMPLES
     <counter name="ProgcacheLookup" summary="Program cache lookups" />
     <counter name="ProgcacheHit" summary="Program cache hits" />
     <counter name="ProgcacheMiss" summary="Program cache misses" />
-    <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory events (heap)" />
-    <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory events (descriptor table)" />
+    <counter name="ProgcacheClassFull" summary="Program cache insertions that found their size class full, requiring an eviction or a spill" />
     <counter name="ProgcacheFill" summary="Program cache insertions" />
     <counter name="ProgcacheFillBytes" summary="Bytes inserted into program cache" />
-    <counter name="ProgcacheSpill" summary="Program cache spills (OOM fallback mechanism)" />
-    <counter name="ProgcacheSpillBytes" summary="Bytes spilled from program cache (OOM fallback mechanism)" />
+    <counter name="ProgcacheSpill" summary="Program cache spills (fallback used when the size class is full)" />
+    <counter name="ProgcacheSpillBytes" summary="Bytes spilled from program cache (fallback used when the size class is full)" />
     <counter name="ProgcacheEviction" summary="Program cache evictions" />
     <counter name="ProgcacheEvictionBytes" summary="Bytes evicted from program cache" />
     <counter name="ProgcacheDurationSeconds" converter="seconds" summary="Time spent on program cache operations, in seconds" />
     <counter name="ProgcacheLoadDurationSeconds" converter="seconds" summary="Time spent loading programs, in seconds" />
+    <counter name="ProgcacheClassHit" enum="ProgcacheClass" summary="Program cache hits, broken down by size class" />
+    <counter name="ProgcacheClassFill" enum="ProgcacheClass" summary="Program cache insertions, broken down by size class" />
+    <counter name="ProgcacheClassEviction" enum="ProgcacheClass" summary="Program cache evictions, broken down by size class" />
+    <counter name="ProgcacheClassSpill" enum="ProgcacheClass" summary="Program cache spills, broken down by size class" />
 
     <counter name="AccdbAccountAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountWritableAcquired" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />

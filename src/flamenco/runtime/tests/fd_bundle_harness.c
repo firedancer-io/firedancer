@@ -28,9 +28,6 @@ fd_solfuzz_bundle_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_accdb_purge( runner->accdb, runner->bank->accdb_fork_id );
   int charge_busy = 0;
   fd_accdb_background( runner->accdb, &charge_busy );
-
-  /* Keep the runner reusable across many bundle inputs. */
-  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 static fd_txn_p_t *

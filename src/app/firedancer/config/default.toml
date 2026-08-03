@@ -663,16 +663,11 @@ telemetry = true
     # or test environments to decrease memory usage or test edge cases.
     max_fork_width = 32
 
+    # Total size of the program cache workspace in MiB.
+    #
     # The program cache pre-loads frequently executed programs for
     # faster transaction execution.
-    [runtime.program_cache]
-        # The size of the loaded program cache in MiB.
-        heap_size_mib = 768
-
-        # The mean expected heap utilization of a cache entry.  Controls
-        # the size of metadata structures (e.g. cache entry table).  It
-        # is not recommended to change this setting.
-        mean_cache_entry_size = 131072
+    program_cache_size_mib = 2048
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to

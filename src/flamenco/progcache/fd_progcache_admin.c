@@ -10,24 +10,22 @@
 /* FIXME get rid of this thread-local */
 FD_TL fd_progcache_admin_metrics_t fd_progcache_admin_metrics_g;
 
-/* Algorithm to estimate size of cache metadata structures (rec_pool
-   object pool and rec_map hashchain table).
+#if FD_HAS_RACESAN
+#include <stdio.h>
 
-   FIXME Carefully balance this */
+/* Trace validation support, compiled out unless racesan is enabled (like the
+   hooks).  When a test points fd_progcache_trace_fp at a file, publish_one
+   emits one line per call:
 
-static ulong
-fd_progcache_est_rec_max1( ulong wksp_footprint,
-                           ulong mean_cache_entry_size ) {
-  return wksp_footprint / mean_cache_entry_size;
-}
+     E <the txn's record list, snapshotted before any detach> O <detach order>
 
-ulong
-fd_progcache_est_rec_max( ulong wksp_footprint,
-                          ulong mean_cache_entry_size ) {
-  ulong est = fd_progcache_est_rec_max1( wksp_footprint, mean_cache_entry_size );
-  if( FD_UNLIKELY( est>(1UL<<31) ) ) FD_LOG_ERR(( "fd_progcache_est_rec_max(wksp_footprint=%lu,mean_cache_entry_size=%lu) failed: invalid parameters", wksp_footprint, mean_cache_entry_size ));
-  return fd_ulong_max( est, 2048UL );
-}
+   The snapshot is ground truth: it is taken while phase 2 still holds
+   txn->lock and nothing has been detached, so every member still has
+   txn_idx set and any reclaimer must block.  A checker compares the two
+   halves and feeds the shape to progcache_walk.qnt. */
+FILE * fd_progcache_trace_fp;
+#define FD_PROGCACHE_TRACE_MAX 64UL
+#endif
 
 /* Begin transaction-level operations.  It is assumed that txn data
    structures are not concurrently modified.  This includes txn_pool and
@@ -95,6 +93,7 @@ fd_progcache_attach_child( fd_progcache_join_t *  cache,
   else cache->txn.pool[ sibling_prev_idx ].sibling_next_idx = (uint)txn_idx;
 
   *_child_tail_idx = (uint)txn_idx;
+  fd_racesan_hook( "prog_attach_child:post_link" );
 
   fd_prog_txnm_idx_insert( cache->txn.map, txn_idx, cache->txn.pool );
 
@@ -105,7 +104,7 @@ fd_progcache_attach_child( fd_progcache_join_t *  cache,
 static void
 fd_progcache_cancel_one( fd_progcache_join_t * cache,
                          fd_progcache_txn_t *  txn ) {
-  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
+  ulong rec_max = cache->rec.max;
   ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
 
   fd_rwlock_write( &txn->lock );
@@ -121,13 +120,14 @@ fd_progcache_cancel_one( fd_progcache_join_t * cache,
   for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; ) {
     if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (cancel_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
-    fd_progcache_rec_t * rec = &cache->rec.pool->ele[ idx ];
+    fd_progcache_rec_t * rec = &cache->rec.ele[ idx ];
     uint next_idx = rec->next_idx;
     if( FD_UNLIKELY( next_idx!=UINT_MAX && (ulong)next_idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (cancel_one next_idx=%u rec_max=%lu)", next_idx, rec_max ));
     atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
     fd_racesan_hook( "prog_cancel_one:post_orphan" );
-    fd_prog_delete_rec( cache, rec );
+    fd_progcache_delete_rec( cache, rec );
+    fd_racesan_hook( "prog_cancel_one:post_delete" );
     idx = next_idx;
   }
 
@@ -243,13 +243,56 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
 
   /* Phase 3: Detach records */
 
-  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
-  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; idx = cache->rec.pool->ele[ idx ].next_idx ) {
+  ulong rec_max = cache->rec.max;
+
+#if FD_HAS_RACESAN
+  uint  trace_expect[ FD_PROGCACHE_TRACE_MAX ]; ulong trace_expect_cnt = 0UL;
+  uint  trace_seen  [ FD_PROGCACHE_TRACE_MAX ]; ulong trace_seen_cnt   = 0UL;
+  if( fd_progcache_trace_fp ) {
+    for( uint i = txn->rec_head_idx;
+         i!=UINT_MAX && (ulong)i<rec_max && trace_expect_cnt<FD_PROGCACHE_TRACE_MAX;
+         i = cache->rec.ele[ i ].next_idx ) trace_expect[ trace_expect_cnt++ ] = i;
+    /* Begin marker: a walk that never terminates leaves a B with no matching
+       E, which is the only evidence a diverging implementation produces. */
+    char  bbuf[ 1024 ]; int bn = snprintf( bbuf, sizeof(bbuf), "B" );
+    for( ulong i=0UL; i<trace_expect_cnt; i++ )
+      bn += snprintf( bbuf+bn, sizeof(bbuf)-(ulong)bn, " %u", trace_expect[i] );
+    fprintf( fd_progcache_trace_fp, "%s\n", bbuf );
+    fflush( fd_progcache_trace_fp );
+  }
+#endif
+
+  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; ) {
     if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (publish_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
-    atomic_store_explicit( &cache->rec.pool->ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
+    fd_progcache_rec_t * rec = &cache->rec.ele[ idx ];
+    /* Snapshot the link before detaching.  Clearing txn_idx lets a concurrent
+       reclaim take the record without txn->lock, and once it is freed the slot
+       can be reused and its next_idx overwritten. */
+    uint next_idx = rec->next_idx;
+    if( FD_UNLIKELY( next_idx!=UINT_MAX && (ulong)next_idx >= rec_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (publish_one next_idx=%u rec_max=%lu)", next_idx, rec_max ));
+    atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
     fd_progcache_admin_metrics_g.root_cnt++;
+#if FD_HAS_RACESAN
+    if( fd_progcache_trace_fp && trace_seen_cnt<FD_PROGCACHE_TRACE_MAX )
+      trace_seen[ trace_seen_cnt++ ] = idx;
+#endif
+    fd_racesan_hook( "prog_publish_one:phase3_detach" );
+    idx = next_idx;
   }
+
+#if FD_HAS_RACESAN
+  if( fd_progcache_trace_fp ) {
+    /* one fprintf so concurrent fibers cannot interleave a line */
+    char  buf[ 1024 ]; int n = 0;
+    n += snprintf( buf+n, sizeof(buf)-(ulong)n, "E" );
+    for( ulong i=0UL; i<trace_expect_cnt; i++ ) n += snprintf( buf+n, sizeof(buf)-(ulong)n, " %u", trace_expect[i] );
+    n += snprintf( buf+n, sizeof(buf)-(ulong)n, " O" );
+    for( ulong i=0UL; i<trace_seen_cnt; i++ )   n += snprintf( buf+n, sizeof(buf)-(ulong)n, " %u", trace_seen[i] );
+    fprintf( fd_progcache_trace_fp, "%s\n", buf );
+  }
+#endif
 
   txn->rec_head_idx = UINT_MAX;
   txn->rec_tail_idx = UINT_MAX;
@@ -263,6 +306,7 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
       if( FD_UNLIKELY( child_idx >= txn_max ) )
         FD_LOG_CRIT(( "progcache: corruption detected (publish_one child_idx=%lu txn_max=%lu)", child_idx, txn_max ));
       cache->txn.pool[ child_idx ].parent_idx = UINT_MAX;
+      fd_racesan_hook( "prog_publish_one:reparent" );
       child_idx = cache->txn.pool[ child_idx ].sibling_next_idx;
     }
   }
@@ -292,7 +336,6 @@ fd_progcache_advance_root( fd_progcache_join_t *  cache,
   /* Detach records from txns without acquiring record locks */
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
-  fd_rwlock_write( &cache->shmem->clock.lock );
 
   ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
   uint txn_idx = (uint)fd_prog_txnm_idx_query( cache->txn.map, &fork_id, UINT_MAX, cache->txn.pool );
@@ -316,10 +359,9 @@ fd_progcache_advance_root( fd_progcache_join_t *  cache,
 
   fd_progcache_txn_publish_one( cache, txn );
 
-  fd_rwlock_unwrite( &cache->shmem->clock.lock );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
 
-  fd_prog_reclaim_work( cache );
+  fd_progcache_reclaim_work( cache );
 }
 
 void
@@ -330,7 +372,6 @@ fd_progcache_cancel_fork( fd_progcache_join_t *  cache,
   }
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
-  fd_rwlock_write( &cache->shmem->clock.lock );
 
   fd_progcache_txn_t * txn = fd_prog_txnm_ele_query( cache->txn.map, &fork_id, NULL, cache->txn.pool );
   if( FD_UNLIKELY( !txn ) ) {
@@ -338,16 +379,16 @@ fd_progcache_cancel_fork( fd_progcache_join_t *  cache,
   }
   fd_progcache_cancel_tree( cache, txn );
 
-  fd_rwlock_unwrite( &cache->shmem->clock.lock );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
-  fd_prog_reclaim_work( cache );
+  fd_progcache_reclaim_work( cache );
 }
 
-/* reset_rec_map frees all records in a progcache instance. */
+/* reset_rec_map frees all records in a progcache instance.  Requires
+   quiescence (no concurrent readers): the trywrite below fails loudly if a
+   reader is still active. */
 
 static void
 reset_rec_map( fd_progcache_join_t * cache ) {
-  fd_progcache_rec_t * rec0 = cache->rec.pool->ele;
   ulong chain_cnt = fd_prog_recm_chain_cnt( cache->rec.map );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
     for(
@@ -357,16 +398,13 @@ reset_rec_map( fd_progcache_join_t * cache ) {
       fd_progcache_rec_t * rec = fd_prog_recm_iter_ele( iter );
       ulong next = fd_prog_recm_private_idx( rec->map_next );
 
-      if( rec->exists ) {
-        fd_prog_recm_query_t rec_query[1];
-        int err = fd_prog_recm_remove( cache->rec.map, &rec->pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
-        if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
-        fd_progcache_val_free( rec, cache );
-      }
+      fd_prog_recm_query_t rec_query[1];
+      int err = fd_prog_recm_remove( cache->rec.map, &rec->pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
+      if( FD_UNLIKELY( !fd_rwlock_trywrite( &rec->lock ) ) )
+        FD_LOG_CRIT(( "fd_progcache_reset requires quiescence: record still read-locked" ));
+      fd_progcache_rec_release( cache, rec );
 
-      rec->exists = 0;
-      fd_prog_clock_remove( cache->clock.bits, (ulong)( rec-rec0 ) );
-      fd_prog_recp_release( cache->rec.pool, rec );
       iter.ele_idx = next;
     }
   }
@@ -401,6 +439,16 @@ clear_txn_list( fd_progcache_join_t * join,
 
 void
 fd_progcache_reset( fd_progcache_join_t * cache ) {
+  /* Reset recycles the txn pool and all records, so it requires quiescence
+     (no concurrent readers, no deferred reclaim outstanding).  Drain the
+     shared reclaim list first: a pending record still references a txn pool
+     entry that reset is about to recycle.  Fail loudly if the precondition
+     is violated rather than corrupt state. */
+  fd_progcache_reclaim_work( cache );
+  if( FD_UNLIKELY( cache->shmem->rec.reclaim_head!=UINT_MAX ) )
+    FD_LOG_CRIT(( "fd_progcache_reset requires quiescence: reclaim queue not drained (active readers?)" ));
+  if( FD_UNLIKELY( cache->shmem->spill.lock.value || cache->shmem->spill.rec_used || cache->shmem->spill.spad_used ) )
+    FD_LOG_CRIT(( "fd_progcache_reset requires quiescence: spill in use" ));
   clear_txn_list( cache, cache->shmem->txn.child_head_idx );
   cache->shmem->txn.child_head_idx = UINT_MAX;
   cache->shmem->txn.child_tail_idx = UINT_MAX;
@@ -462,11 +510,10 @@ fd_progcache_verify( fd_progcache_join_t * join ) {
   TEST( shmem->magic==FD_PROGCACHE_SHMEM_MAGIC );
   TEST( shmem->wksp_tag );
 
-  TEST( !fd_prog_recp_verify( join->rec.pool ) );
   TEST( !fd_prog_recm_verify( join->rec.map ) );
 
-  ulong rec_max = fd_prog_recp_ele_max( join->rec.pool );
-  fd_progcache_rec_t * rec0 = join->rec.pool->ele;
+  ulong rec_max = join->rec.max;
+  fd_progcache_rec_t * rec0 = join->rec.ele;
 
   ulong txn_max = fd_prog_txnp_max( join->txn.pool );
   TEST( !fd_prog_txnm_verify( join->txn.map, txn_max, join->txn.pool ) );
@@ -519,23 +566,63 @@ fd_progcache_verify( fd_progcache_join_t * join ) {
       fd_progcache_rec_t * rec = fd_prog_recm_iter_ele( iter );
       TEST( rec->exists );
 
-      /* Verify clock exists bit is set for mapped records */
+      /* Verify state is LIVE for mapped records */
       ulong rec_idx = (ulong)( rec - rec0 );
       TEST( rec_idx<rec_max );
-      atomic_ulong * slot_p = fd_prog_cbits_slot( join->clock.bits, rec_idx );
-      ulong slot_val = atomic_load_explicit( slot_p, memory_order_relaxed );
-      TEST( fd_ulong_extract_bit( slot_val, fd_prog_exists_bit( rec_idx ) ) );
+      uchar st = __atomic_load_n( &join->rec.state[ rec_idx ], __ATOMIC_RELAXED );
+      TEST( st & FD_PROGCACHE_REC_LIVE );
     }
   }
 
   {
     ulong reclaim_cnt = 0UL;
-    for( uint idx = join->rec.reclaim_head; idx!=UINT_MAX; ) {
+    for( uint idx = join->shmem->rec.reclaim_head; idx!=UINT_MAX; ) {
       TEST( idx<rec_max );
       TEST( reclaim_cnt<rec_max ); /* cycle detection */
       idx = rec0[ idx ].reclaim_next;
       reclaim_cnt++;
     }
+  }
+
+  /* Per-class slot accounting.  At quiescence every slot of a class is in
+     exactly one of three states: on the class free list, live, or awaiting
+     reclaim after an eviction cleared its live bit.  Reconciling the three
+     against nslot detects both a leaked slot (accounted < nslot) and a slot
+     freed twice (a repeated index inflates the free count past nslot). */
+
+  ulong pending_cnt[ FD_PROGCACHE_CLASS_CNT ] = {0};
+  for( uint idx = shmem->rec.reclaim_head; idx!=UINT_MAX; idx = rec0[ idx ].reclaim_next ) {
+    /* A record deleted by cancel/publish keeps its live bit and is counted
+       as live below; only an evicted one has had it cleared. */
+    if( __atomic_load_n( &join->rec.state[ idx ], __ATOMIC_RELAXED ) & FD_PROGCACHE_REC_LIVE ) continue;
+    pending_cnt[ fd_progcache_rec_class( shmem, (ulong)idx ) ]++;
+  }
+
+  for( ulong c=0UL; c<FD_PROGCACHE_CLASS_CNT; c++ ) {
+    ulong base  = shmem->cache.rec_base[ c ];
+    ulong nslot = shmem->cache.nslot   [ c ];
+    TEST( base+nslot<=rec_max );
+
+    uint * freestack = fd_prog_freestack_join( fd_wksp_laddr_fast( join->data_base, shmem->cache.free_gaddr[ c ] ) );
+    ulong  free_cnt  = fd_prog_freestack_cnt( freestack );
+    TEST( free_cnt<=nslot );
+    TEST( free_cnt==fd_progcache_class_free_cnt( shmem, c ) ); /* counter tracks the list */
+
+    for( ulong i=0UL; i<free_cnt; i++ ) {
+      ulong idx = (ulong)freestack[ i ];
+      TEST( idx>=base && idx<base+nslot );  /* free slot belongs to this class */
+      TEST( !( __atomic_load_n( &join->rec.state[ idx ], __ATOMIC_RELAXED ) & FD_PROGCACHE_REC_LIVE ) );
+      TEST( !rec0[ idx ].exists );
+      /* A free record stays write-locked so a stale speculative reader can
+         never lock one. */
+      TEST( FD_VOLATILE_CONST( rec0[ idx ].lock.value )==FD_RWLOCK_WRITE_LOCK );
+    }
+
+    ulong live_cnt = 0UL;
+    for( ulong idx=base; idx<base+nslot; idx++ )
+      live_cnt += !!( __atomic_load_n( &join->rec.state[ idx ], __ATOMIC_RELAXED ) & FD_PROGCACHE_REC_LIVE );
+
+    TEST( free_cnt+live_cnt+pending_cnt[ c ]==nslot );
   }
 
 # undef TEST

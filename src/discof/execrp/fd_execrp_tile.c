@@ -132,20 +132,7 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET      ( EXECRP, POH_HASHED,     ctx->metrics.poh_hash_cnt  );
   FD_MCNT_ENUM_COPY( EXECRP, TXN_RESULT,   ctx->metrics.txn_result    );
 
-  fd_progcache_metrics_t * pm = ctx->progcache->metrics;
-  FD_MCNT_SET( EXECRP, PROGCACHE_LOOKUP,                 pm->lookup_cnt     );
-  FD_MCNT_SET( EXECRP, PROGCACHE_HIT,                    pm->hit_cnt        );
-  FD_MCNT_SET( EXECRP, PROGCACHE_MISS,                   pm->miss_cnt       );
-  FD_MCNT_SET( EXECRP, PROGCACHE_OOM_HEAP,               pm->oom_heap_cnt   );
-  FD_MCNT_SET( EXECRP, PROGCACHE_OOM_DESC,               pm->oom_desc_cnt   );
-  FD_MCNT_SET( EXECRP, PROGCACHE_FILL,                   pm->fill_cnt       );
-  FD_MCNT_SET( EXECRP, PROGCACHE_FILL_BYTES,             pm->fill_tot_sz    );
-  FD_MCNT_SET( EXECRP, PROGCACHE_SPILL,                  pm->spill_cnt      );
-  FD_MCNT_SET( EXECRP, PROGCACHE_SPILL_BYTES,            pm->spill_tot_sz   );
-  FD_MCNT_SET( EXECRP, PROGCACHE_EVICTION,               pm->evict_cnt      );
-  FD_MCNT_SET( EXECRP, PROGCACHE_EVICTION_BYTES,         pm->evict_tot_sz   );
-  FD_MCNT_SET( EXECRP, PROGCACHE_DURATION_SECONDS,       pm->cum_pull_ticks );
-  FD_MCNT_SET( EXECRP, PROGCACHE_LOAD_DURATION_SECONDS,  pm->cum_load_ticks );
+  FD_PROGCACHE_METRICS_WRITE( EXECRP, ctx->progcache->metrics );
 
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_SETUP,  ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_EXEC,   ctx->metrics.txn_exec_cum_ticks    );

@@ -21,7 +21,7 @@ There exist two kinds of users:
   - fills cache on demand
   - evicts old records lazily (when out of space)
 - replay thread (replay tile):
-  - garbage collects old records in background
+  - advances the root and cancels dead forks, deleting their records
 
 ## Terminology
 
@@ -46,7 +46,7 @@ matter for concurrency:
   has finished one txn, but has not yet started executing the next)
 
 A "resource" is a collection of objects sharing a life cycle (e.g. a
-fixed-size pool descriptor plus a variable-size heap allocation).
+cache record and its value slot).
 Reclamation ends a resource's lifetime.  The same underlying memory may
 back a new resource, but it is logically distinct.
 
@@ -70,7 +70,7 @@ The program cache maintains its own fork graph and supports the standard
 set of operations:
 - attach_child: create a fork
 - cancel: remove a fork and all its nodes/children
-- attach_root: promote a fork graph node to root and evict its siblings
+- advance_root: promote a fork graph node to root and cancel its siblings
 
 The program cache uses a variation of the accounts database structure
 design.  The fork graph is expressed as an n-ary tree:
@@ -137,10 +137,14 @@ Each record access considers the following slot numbers:
 ### Record life cycle
 
 Records have the following states:
-- hidden: resources allocated, but invisible (cannot be referenced by
-  any thread)
+- free: on its size class's free list, kept write-locked (a stale
+  speculative reader can never lock a free record)
+- in-flight: acquired and being loaded, invisible (not in the map)
 - published: owned by a fork, visible to users
 - rooted: finalized by consensus (not owned by a fork), visible
+
+A program is fully loaded and validated before its record is published,
+so the map only ever contains complete records.
 
 ### Record lookup
 
@@ -149,28 +153,30 @@ Lookup walks the bucket chain and selects the best matching revision.
 
 ### Record deletion
 
-Records to be deleted are immediately removed from the record map.  The
-deleting thread then spins on the rwlock until all readers release,
-after which it reclaims the record's data allocation.
-
-The record descriptor itself is reclaimed according to these rules:
-- Records that are part of a transaction defer reclamation to rooting/
-  cancellation (replay tile)
-- Records that are already rooted are immediately reclaimed
+Records to be deleted are immediately removed from the record map.  If
+the record is still read-locked, it is pushed onto a deferred-reclaim
+list shared across all threads; whichever thread next runs reclaim
+(after eviction, rooting, cancellation) frees it once its readers have
+released.  Reclamation returns the record to its class free list.
 
 ### Cache replacement policy
 
-Progcache uses the CLOCK cache replacement policy over hash map buckets.
-Any thread that inserts records also runs cache replacement.
+The program cache uses the CLOCK cache replacement policy, independently per
+size class: each class has its own hand that walks only that class's
+record range.  Any thread whose insert finds its class full runs cache
+replacement.
 
-CLOCK eviction is suppressed while rooting or fork cancellation is in
-progress.
+If eviction cannot free a record (all victims still read-locked), the
+insert falls back to a spill scratch: an exclusively-locked buffer sized
+for one full CPI stack of top-class programs, guaranteeing every fill
+completes without deadlock.  Spill records are never published to the
+map.
 
 ## Details
 
 ### Concurrency
 
-Progcache uses reader-writer spinlocks heavily (read operations require
+The program cache uses reader-writer spinlocks heavily (read operations require
 atomic CAS) for sequencing concurrent accesses and ref-counting based
 reclamation.  This is a deliberately conservative design, currently
 preferred over approaches like QSBR.
@@ -194,19 +200,28 @@ currently executing transaction, which could take multiple milliseconds.
 
 ### Allocator
 
-Progcache currently uses the general-purpose fd_wksp (large objects)
-and fd_alloc (tiny objects) allocators.  On OOM (failure to allocate a
-new object), the cache replacement algorithm does random evictions with
-a heuristic.
+Memory is divided into size classes, each with a fixed number of slots:
 
-It is a desirable future improvement to harmonize the allocator with
-the cache replacement algorithm (e.g. by making the latter sizeclass
-aware, or by supporting heap compaction).
+| class | slot size          |
+|-------|--------------------|
+| 0     | 128 KiB            |
+| 1     | 512 KiB            |
+| 2     | 1 MiB              |
+| 3     | 2 MiB              |
+| 4     | 4 MiB              |
+| 5     | 11 MiB             |
+| nx    | non-executable     |
+
+A program occupies one slot of the smallest class that fits it.  The
+spill region is shared by all exec tiles and stays write-locked to one
+tile for its whole execution, so tiles that need it while it is held
+spin.  Sizing the cache linearly in the number of exec tiles avoids
+spilling entirely.
 
 ## Verification
 
-Progcache is a complex component:
-- Uses a general-purpose heap allocator (use-after-free risk)
+The program cache is a complex component:
+- Recycles fixed records and value slots (use-after-free risk)
 - Thread-concurrent with complex locking rules (deadlock risk)
 - Maintains a multi-versioned index (algorithmic complexity)
 - Does cache eviction (use-after-free risk, correctness risk)
@@ -217,11 +232,8 @@ To address these risks, we use various dynamic analysis tooling:
 
 ### AddressSanitizer
 
-Compiler tool for detecting invalid memory accesses.
-
-Uses compile-time instrumentation which is a mix of automatic
-hooks inserted by the compiler and `asan_poison` calls in our
-code.
+Compiler tool for detecting invalid memory accesses
+(compile-time instrumentation).
 
 ### Valgrind memcheck
 
@@ -259,3 +271,48 @@ Explores interleavings of progcache interactions on different simulated threads.
 (ASan, Valgrind, fd_racesan instrumented)
 
 ----------------
+
+### Quint models
+
+`progcache_walk.qnt` and `progcache_txn_recycle.qnt` model two concurrent
+interactions at instruction granularity, in the places where the reasoning is
+easy to get wrong.  Each is parameterised so that the same machine can be
+checked in a deliberately broken configuration as well as the real one: a
+"no violation" verdict is only worth having if the model is able to produce a
+violation at all.
+
+    quint verify progcache_walk.qnt --main=buggy --invariant=walkSound
+    quint verify progcache_walk.qnt --main=fixed --invariants walkSound walkComplete
+
+`progcache_walk.qnt` covers publish_one's record walk against deferred reclaim
+and slot reuse.  `buggy` reads the next link after clearing txn_idx and is
+expected to fail; `fixed` snapshots the link first.
+
+    quint verify progcache_txn_recycle.qnt --main=txnRecycle --invariant=noStaleUnlink
+    quint verify progcache_txn_recycle.qnt --main=noCas      --invariant=noStaleUnlink
+    quint verify progcache_txn_recycle.qnt --main=lockReinit --invariant=noForeignUnlock
+
+`progcache_txn_recycle.qnt` covers a reclaimer that blocks on txn->lock while
+the txn is published and its pool entry handed to another fork.  The real
+configuration holds; `noCas` shows that the CAS on rec->txn_idx is what makes
+it hold, and `lockReinit` shows that re-initialising txn->lock on pool reuse
+would break lock ownership.
+
+### Trace validation
+
+Under racesan, `publish_one` logs each record walk; the deterministic
+`publish_reclaim_reuse_walk` scenario pins the reclaim/reuse window that
+randomised weaving does not reach, and the weaves cover breadth.
+`contrib/quint/check_trace_conformance.sh` checks the logged walks against
+`progcache_walk.qnt`; see that script's header for the trace format, the two
+checking layers, and the exit codes.
+
+    make -j BUILDDIR=clang-racesan CC=clang EXTRAS=racesan test_progcache_racesan
+    contrib/quint/check_trace_conformance.sh
+
+The abstraction maps a record on the list to its position and anything else to 0
+(the model's record from another fork); relabelling by order of appearance would
+erase exactly the distinction being checked.  The check runs in one direction
+only: observed behaviour must be admitted by the model, not the converse.  The
+model is configured for a two-record list, so longer walks are covered by the
+structural layer alone.
