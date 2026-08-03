@@ -70,6 +70,14 @@ jsonp_double( fd_http_server_t * http,
 }
 
 static void
+jsonp_double_4dp( fd_http_server_t * http,
+                  char const *       key,
+                  double             value ) {
+  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%.4f,", key, value );
+  else                   fd_http_server_printf( http, "%.4f,", value );
+}
+
+static void
 jsonp_ulong_as_str( fd_http_server_t * http,
                     char const *       key,
                     ulong              value ) {
@@ -1373,7 +1381,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
       }
 
       jsonp_open_object( gui->http, "cache" );
-        jsonp_double( gui->http, "hit_rate_ema", agg_hit_rate );
+        jsonp_double_4dp( gui->http, "hit_rate_ema", agg_hit_rate );
         jsonp_ulong(  gui->http, "size_bytes",   cache_size_bytes );
 
         jsonp_open_array( gui->http, "classes" );
@@ -1402,8 +1410,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
                  writes_per_sec = acquired_writable (per class). */
               jsonp_double( gui->http, "reads_per_sec",  fmax( 0.0, acq_rate - acq_wr_rate ) );
               jsonp_double( gui->http, "writes_per_sec", acq_wr_rate );
-              jsonp_double( gui->http, "hit_rate_ema",
-                            acq_rate>0.0 ? fmax( 0.0, 1.0 - nf_rate / acq_rate ) : 0.0 );
+              jsonp_double_4dp( gui->http, "hit_rate_ema", acq_rate>0.0 ? fmax( 0.0, 1.0 - nf_rate / acq_rate ) : 0.0 );
             jsonp_close_object( gui->http );
           }
         jsonp_close_array( gui->http );
@@ -1465,8 +1472,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
             jsonp_double( gui->http, "committed_per_sec",         t_cm_rate     );
             jsonp_double( gui->http, "acquire_calls_per_sec",     t_ac_rate     );
 
-            jsonp_double( gui->http, "hit_rate_ema",
-                          t_acq_rate>0.0 ? fmax( 0.0, 1.0 - t_nf_rate / t_acq_rate ) : 0.0 );
+            jsonp_double_4dp( gui->http, "hit_rate_ema", t_acq_rate>0.0 ? fmax( 0.0, 1.0 - t_nf_rate / t_acq_rate ) : 0.0 );
 
             /* 60-second sparkline history.  Emit oldest-first so the
                frontend treats index 0 as the leftmost (oldest) sample. */
