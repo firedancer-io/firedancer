@@ -547,8 +547,8 @@ deprecate_rent_exemption_threshold( fd_bank_t *        bank,
   /* We don't refresh the sysvar cache here. The cache is refreshed in
      fd_sysvar_cache_restore, which is called at the start of every
      block in fd_runtime_block_execute_prepare, after this function. */
-  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
   bank->f.rent = rent;
+  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
 }
 
 static void
@@ -559,8 +559,8 @@ set_lamports_per_byte( fd_bank_t *        bank,
   fd_rent_t rent = bank->f.rent;
   rent.lamports_per_uint8_year = lamports_per_byte;
 
-  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
   bank->f.rent = rent;
+  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
 }
 
 // https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391
