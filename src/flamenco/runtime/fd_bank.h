@@ -278,6 +278,7 @@ struct fd_bank {
   ushort                 vote_stakes_fork_id;
   ushort                 collector_overrides_fork_id;
   uchar                  stake_rewards_fork_id;
+  uchar                  epoch_credits_fork_id;
   ushort                 stake_delegations_fork_id;
   ushort                 new_votes_fork_id;
   ulong                  cost_tracker_pool_idx;
@@ -419,8 +420,20 @@ struct fd_banks {
 
   ulong dead_banks_deque_offset;
 
+  /* The epoch credits of every rewarded vote account are captured when a
+     bank crosses an epoch boundary, and are read again for the rest of
+     the epoch: by a recalculation that repositions a stake rewards
+     window, and by snapshot creation.  Sibling banks crossing the same
+     boundary capture different sets, so the store holds one set per
+     boundary-crossing fork, inherited by descendants and reference
+     counted so that a set lives exactly as long as the banks reading it.
+     There is one more set than max_fork_width because a bank sitting
+     behind a boundary still holds the previous epoch's set while every
+     fork crosses. */
+
   ulong epoch_credits_offset;
-  ulong epoch_credits_len;
+  ulong epoch_credits_len_offset;
+  ulong epoch_credits_refcnt_offset;
 
   ulong snapshot_commission_t_3_offset;
   ulong snapshot_commission_t_3_len;
@@ -444,11 +457,20 @@ typedef struct fd_banks fd_banks_t;
 /* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
 
+/* fd_bank_epoch_credits{,_len} return the epoch credits of the fork the
+   bank belongs to.  fd_bank_epoch_credits_new_fork acquires a fresh set
+   for the bank and must be called before the bank captures new epoch
+   credits, i.e. when it crosses an epoch boundary or restores a
+   snapshot. */
+
 fd_epoch_credits_t *
 fd_bank_epoch_credits( fd_bank_t * bank );
 
 ulong *
 fd_bank_epoch_credits_len( fd_bank_t * bank );
+
+void
+fd_bank_epoch_credits_new_fork( fd_bank_t * bank );
 
 fd_stashed_commission_t *
 fd_bank_snapshot_commission_t_3( fd_bank_t * bank );

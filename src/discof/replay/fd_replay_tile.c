@@ -1526,10 +1526,10 @@ can_process_fec( fd_replay_tile_t * ctx,
         - backfill: the parent FEC's bank was never created or has been
           evicted and must be reconstructed. */
 
+  int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
     int is_new_block   = fec->fec_set_idx==0U;
     int is_eqvoc       = fec->eqvoc && !parent->eqvoc;
-    int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
     if( FD_UNLIKELY( is_new_block || is_eqvoc || invalid_parent ) ) {
       ctx->metrics.banks_full++;
       if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;

@@ -428,6 +428,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  fd_epoch_credits_t *    epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
@@ -453,7 +454,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
     }
 
-    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+    fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
     calculate_stake_points_and_credits( epoch_credits,
                                         stake_history,
@@ -513,6 +514,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
+  fd_epoch_credits_t *          epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
@@ -571,7 +573,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
     if( is_recalculation || FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
-      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+      fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
       /* We have not cached the stake points yet if we are recalculating
          stake rewards so we need to recalculate them. */
@@ -643,22 +645,24 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   }
 }
 
+/* setup_stake_partitions hashes every stake reward of the epoch into
+   its partition.  Only the rewards landing inside the fork's current
+   window are retained; see fd_stake_rewards.h.  The fork must already
+   have been initialized and its window positioned by the caller. */
+
 static void
 setup_stake_partitions( fd_bank_t *                    bank,
                         fd_accdb_t *                   accdb,
                         fd_stake_history_t const *     stake_history,
                         fd_stake_delegations_t const * stake_delegations,
                         fd_runtime_stack_t *           runtime_stack,
-                        fd_hash_t const *              parent_blockhash,
-                        ulong                          starting_block_height,
-                        uint                           num_partitions,
+                        uchar                          fork_idx,
                         ulong                          rewarded_epoch,
                         ulong                          total_rewards,
                         uint128                        total_points ) {
 
-  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
-  uchar fork_idx = fd_stake_rewards_init( stake_rewards, bank->f.epoch, parent_blockhash, starting_block_height, (uint)num_partitions );
-  bank->stake_rewards_fork_id = fork_idx;
+  fd_stake_rewards_t * stake_rewards     = fd_bank_stake_rewards_modify( bank );
+  fd_epoch_credits_t * epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
@@ -695,7 +699,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
         continue;
       }
 
-      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+      fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
       fd_calculated_stake_points_t stake_points_result[1];
       calculate_stake_points_and_credits(
@@ -815,18 +819,27 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                                                 runtime_stack->stakes.stake_rewards_cnt,
                                                                                 bank->f.slot_params.stake_account_stores_per_block );
 
-  setup_stake_partitions(
-      bank,
-      accdb,
-      stake_history,
-      stake_delegations,
-      runtime_stack,
-      parent_blockhash,
-      starting_block_height,
-      num_partitions,
-      rewarded_epoch,
-      *rewards_out,
-      total_points );
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  uchar                fork_idx      = fd_stake_rewards_init( stake_rewards,
+                                                              bank->f.epoch,
+                                                              parent_blockhash,
+                                                              starting_block_height,
+                                                              num_partitions,
+                                                              runtime_stack->stakes.stake_rewards_cnt );
+  if( FD_UNLIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+    fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
+  }
+  bank->stake_rewards_fork_id = fork_idx;
+
+  setup_stake_partitions( bank,
+                          accdb,
+                          stake_history,
+                          stake_delegations,
+                          runtime_stack,
+                          fork_idx,
+                          rewarded_epoch,
+                          *rewards_out,
+                          total_points );
 
   return total_points;
 }
@@ -1144,13 +1157,24 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   bank->f.capitalization = bank->f.capitalization + lamports_distributed;
 }
 
+static void
+recalculate_partitioned_rewards( fd_banks_t *         banks,
+                                 fd_bank_t *          bank,
+                                 fd_accdb_t *         accdb,
+                                 fd_runtime_stack_t * runtime_stack,
+                                 fd_capture_ctx_t *   capture_ctx,
+                                 int                  snapshot_boot,
+                                 uint                 win_lo );
+
 /* Process reward distribution for the block if it is inside reward interval.
 
    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L45-L136 */
 void
-fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
-                                         fd_accdb_t *       accdb,
-                                         fd_capture_ctx_t * capture_ctx ) {
+fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
+                                         fd_bank_t *          bank,
+                                         fd_accdb_t *         accdb,
+                                         fd_runtime_stack_t * runtime_stack,
+                                         fd_capture_ctx_t *   capture_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L46-L48 */
   if( FD_LIKELY( bank->stake_rewards_fork_id==UCHAR_MAX ) ) return;
 
@@ -1181,6 +1205,17 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L110-L114 */
   if( FD_LIKELY( block_height>=distribution_starting_block_height && block_height<distribution_end_exclusive ) ) {
     ulong partition_idx = block_height-distribution_starting_block_height;
+
+    /* The rewards of this partition are only in memory if the window
+       covers it.  If they are not, re-derive the window that does. */
+    uchar fork_id = bank->stake_rewards_fork_id;
+    if( FD_UNLIKELY( partition_idx<(ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
+                     partition_idx>(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id ) ) ) {
+      FD_LOG_INFO(( "reward partition is not in the window, recalculating" ));
+      recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 0, (uint)partition_idx );
+      stake_rewards = fd_bank_stake_rewards_modify( bank );
+    }
+
     distribute_epoch_rewards_in_partition( stake_rewards, partition_idx, bank, accdb, capture_ctx );
   }
 
@@ -1188,6 +1223,7 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L116-L135 */
   if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
     fd_sysvar_epoch_rewards_set_inactive( bank, accdb, capture_ctx );
+    fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
     bank->stake_rewards_fork_id = UCHAR_MAX;
   }
 }
@@ -1243,80 +1279,122 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
     Re-calculates partitioned stake rewards.
     This updates the slot context's epoch reward status with the recalculated partitioned rewards.
 
-    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521 */
-void
-fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
-                                            fd_bank_t *               bank,
-                                            fd_accdb_t *              accdb,
-                                            fd_runtime_stack_t *      runtime_stack,
-                                            fd_capture_ctx_t *        capture_ctx ) {
+    Everything the calculation needs survives in the epoch rewards
+    sysvar and in the bank, so the partitions can be rebuilt at any
+    point during the distribution interval.  The rebuilt partitions
+    always go into a freshly acquired fork, with its window starting at
+    win_lo, so that banks reading the fork this bank was using keep the
+    entries they computed for themselves.  snapshot_boot selects where
+    the vote commissions come from: a bank restored from a snapshot has
+    to resolve them, every other caller reuses the ones the epoch
+    boundary resolved.
 
-  /* If the snapshot was loaded while partitioned epoch rewards is
-     active, then the vote rewards map must be populated with the state
-     of the vote accounts as of the end of the previous epoch boundary.
-     The epoch credits for these accounts are stored in the bank along
-     with the t-3 commission.  With this, it's possible to recalculate
-     the rewards for the previous epoch boundary.  We need the
-     commission from the end of the t-3 epoch if we are calculating
-     rewards for the transition from epoch t-1 to t since there needs to
-     be a 2 epoch commission gap for the delay_commission_updates
-     feature. */
+    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521 */
+static void
+recalculate_partitioned_rewards( fd_banks_t *              banks,
+                                 fd_bank_t *               bank,
+                                 fd_accdb_t *              accdb,
+                                 fd_runtime_stack_t *      runtime_stack,
+                                 fd_capture_ctx_t *        capture_ctx,
+                                 int                       snapshot_boot,
+                                 uint                      win_lo ) {
 
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   fd_vote_rewards_map_reset( vote_ele_map );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ushort             vs_fork_idx = bank->vote_stakes_fork_id;
+  ulong                epoch_credits_len = *fd_bank_epoch_credits_len( bank );
+  fd_epoch_credits_t * epoch_credits_arr = fd_bank_epoch_credits( bank );
 
-  int vat_active = FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket );
-  int vat_in_t_2 = 0;
-  if( FD_UNLIKELY( vat_active ) ) {
-    ulong vat_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
-    vat_in_t_2 = bank->f.epoch>=vat_epoch+1UL;
-  }
+  if( FD_LIKELY( !snapshot_boot ) ) {
 
-  fd_top_votes_t const * top_votes_t_1 = fd_bank_top_votes_t_1_query( bank );
-  fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
+    /* The rewards of this epoch were computed once already, at the epoch
+       boundary or at snapshot load, and only the window is moving.  The
+       commissions resolved back then are stored with the epoch credits
+       and must be reused: they come from a vote account snapshot two
+       epochs behind the rewarded epoch, which the vote stakes no longer
+       retain. */
 
-  ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
-  for( ulong i=0UL; i<epoch_credits_len; i++ ) {
-    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
-    fd_pubkey_t const *  pubkey        = (fd_pubkey_t const *)epoch_credits->pubkey;
+    for( ulong i=0UL; i<epoch_credits_len; i++ ) {
+      fd_epoch_credits_t const * epoch_credits = &epoch_credits_arr[i];
 
-    /* Get the t-1 stake account information.  This is guaranteed to be
-       valid since the epoch credits are populated from the t-1 stakes
-       in the snapshot manifest. */
-    ushort commission_t_1 = 0;
-    if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
-    else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
-
-    /* Now get the t-2 information (if it exists).  This is not
-       guaranteed to be valid since it's possible for a vote account to
-       have been created in the last epoch. */
-    int    exists_t_2     = 0;
-    ushort commission_t_2 = 0;
-    if( vat_in_t_2 ) exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
-    else             exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
-
-    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
-    vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
-    vote_ele->vote_rewards = 0UL;
-    if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-      vote_ele->commission = exists_t_2 ? commission_t_2 : commission_t_1;
-    } else {
-      vote_ele->commission = commission_t_1;
+      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
+      vote_ele->pubkey       = *(fd_pubkey_t const *)epoch_credits->pubkey;
+      vote_ele->vote_rewards = 0UL;
+      vote_ele->commission   = epoch_credits->commission;
+      fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
     }
-    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
-  }
 
-  /* Copy in historical commission information if it exists. */
-  if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-    ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
-    fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
-    for( ulong i=0UL; i<commission_t_3_len; i++ ) {
-      fd_stashed_commission_t const * ele = &commission_t_3[i];
-      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
-      if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
+  } else {
+
+    /* If the snapshot was loaded while partitioned epoch rewards is
+       active, then the vote rewards map must be populated with the state
+       of the vote accounts as of the end of the previous epoch boundary.
+       The epoch credits for these accounts are stored in the bank along
+       with the t-3 commission.  With this, it's possible to recalculate
+       the rewards for the previous epoch boundary.  We need the
+       commission from the end of the t-3 epoch if we are calculating
+       rewards for the transition from epoch t-1 to t since there needs to
+       be a 2 epoch commission gap for the delay_commission_updates
+       feature. */
+
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    ushort             vs_fork_idx = bank->vote_stakes_fork_id;
+
+    int vat_active = FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket );
+    int vat_in_t_2 = 0;
+    if( FD_UNLIKELY( vat_active ) ) {
+      ulong vat_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+      vat_in_t_2 = bank->f.epoch>=vat_epoch+1UL;
+    }
+
+    fd_top_votes_t const * top_votes_t_1 = fd_bank_top_votes_t_1_query( bank );
+    fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
+
+    for( ulong i=0UL; i<epoch_credits_len; i++ ) {
+      fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[i];
+      fd_pubkey_t const *  pubkey        = (fd_pubkey_t const *)epoch_credits->pubkey;
+
+      /* Get the t-1 stake account information.  This is guaranteed to be
+         valid since the epoch credits are populated from the t-1 stakes
+         in the snapshot manifest. */
+      ushort commission_t_1 = 0;
+      if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
+      else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
+
+      /* Now get the t-2 information (if it exists).  This is not
+         guaranteed to be valid since it's possible for a vote account to
+         have been created in the last epoch. */
+      int    exists_t_2     = 0;
+      ushort commission_t_2 = 0;
+      if( vat_in_t_2 ) exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
+      else             exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
+
+      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
+      vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
+      vote_ele->vote_rewards = 0UL;
+      if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+        vote_ele->commission = exists_t_2 ? commission_t_2 : commission_t_1;
+      } else {
+        vote_ele->commission = commission_t_1;
+      }
+      fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
+    }
+
+    /* Copy in historical commission information if it exists. */
+    if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+      ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
+      fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
+      for( ulong i=0UL; i<commission_t_3_len; i++ ) {
+        fd_stashed_commission_t const * ele = &commission_t_3[i];
+        fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
+        if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
+      }
+    }
+
+    /* Publish the resolved commissions so that any later repositioning
+       of this fork's window reuses them. */
+    for( ulong i=0UL; i<epoch_credits_len; i++ ) {
+      epoch_credits_arr[i].commission = runtime_stack->stakes.vote_ele[i].commission;
     }
   }
 
@@ -1360,18 +1438,45 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       runtime_stack,
       1 );
 
+  /* The recomputed rewards go into a fork of their own rather than over
+     the window the bank is holding: banks that branched off this one
+     share that window and are entitled to the entries they already have,
+     which were computed from their own delegations. */
+
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  uchar                fork_idx      = fd_stake_rewards_init( stake_rewards,
+                                                              bank->f.epoch,
+                                                              &epoch_rewards_sysvar->parent_blockhash,
+                                                              epoch_rewards_sysvar->distribution_starting_block_height,
+                                                              (uint)epoch_rewards_sysvar->num_partitions,
+                                                              runtime_stack->stakes.stake_rewards_cnt );
+  if( FD_LIKELY( win_lo ) ) {
+    fd_stake_rewards_window_advance( stake_rewards, fork_idx, &epoch_rewards_sysvar->parent_blockhash, win_lo );
+  }
+  if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+    fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
+  }
+  bank->stake_rewards_fork_id = fork_idx;
+
   setup_stake_partitions(
       bank,
       accdb,
       stake_history,
       stake_delegations,
       runtime_stack,
-      &epoch_rewards_sysvar->parent_blockhash,
-      epoch_rewards_sysvar->distribution_starting_block_height,
-      (uint)epoch_rewards_sysvar->num_partitions,
+      fork_idx,
       rewarded_epoch,
       epoch_rewards_sysvar->total_rewards,
       epoch_rewards_sysvar->total_points.ud );
 
   fd_bank_stake_delegations_end_frontier_query( banks, bank );
+}
+
+void
+fd_rewards_recalculate_partitioned_rewards( fd_banks_t *         banks,
+                                            fd_bank_t *          bank,
+                                            fd_accdb_t *         accdb,
+                                            fd_runtime_stack_t * runtime_stack,
+                                            fd_capture_ctx_t *   capture_ctx ) {
+  recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 1, 0U );
 }

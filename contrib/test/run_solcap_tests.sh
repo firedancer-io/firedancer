@@ -70,6 +70,8 @@ if [[ ! -e $DUMP/$LEDGER ]]; then
   download_and_extract_ledger
 fi
 
+rm -f $DUMP/$LEDGER/accounts.db
+
 # fd requires the snapshots path to not be group/world accessible.
 chmod -R 0700 $DUMP/$LEDGER
 

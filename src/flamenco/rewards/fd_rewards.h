@@ -74,16 +74,19 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *         banks,
                                             fd_capture_ctx_t *   capture_ctx );
 
 /* fd_distribute_partitioned_epoch_rewards pays out rewards to stake
-   accounts.  Called at the beginning of a few slots per epoch.
+   accounts.  Called at the beginning of a few slots per epoch or when
+   partitioned rewards need to be recalculated (rewards windowing).
 
    Call stack is as follows:
    - distribute_epoch_rewards_in_partition
      - for each stake account: distribute_epoch_reward_to_stake_acc */
 
 void
-fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
-                                         fd_accdb_t *       accdb,
-                                         fd_capture_ctx_t * capture_ctx );
+fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
+                                         fd_bank_t *          bank,
+                                         fd_accdb_t *         accdb,
+                                         fd_runtime_stack_t * runtime_stack,
+                                         fd_capture_ctx_t *   capture_ctx );
 
 /* fd_rewards_get_reward_distribution_num_blocks returns the number of
    blocks required to distribute rewards for a given epoch schedule and

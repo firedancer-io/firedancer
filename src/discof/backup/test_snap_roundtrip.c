@@ -114,8 +114,8 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   fd_epoch_credits_t * ec_seed = fd_bank_epoch_credits( bank );
   memset( &ec_seed[0], 0, sizeof(fd_epoch_credits_t) );
   memset( &ec_seed[1], 0, sizeof(fd_epoch_credits_t) );
-  fd_memcpy( ec_seed[0].pubkey, &vote0, 32UL ); ec_seed[0].cnt = 1UL; ec_seed[0].epoch[0] = (ushort)bank->f.epoch; ec_seed[0].credits_delta[0] = 5U;
-  fd_memcpy( ec_seed[1].pubkey, &vote1, 32UL ); ec_seed[1].cnt = 1UL; ec_seed[1].epoch[0] = (ushort)bank->f.epoch; ec_seed[1].credits_delta[0] = 7U;
+  fd_memcpy( ec_seed[0].pubkey, &vote0, 32UL ); ec_seed[0].cnt = 1; ec_seed[0].epoch[0] = (ushort)bank->f.epoch; ec_seed[0].credits_delta[0] = 5U;
+  fd_memcpy( ec_seed[1].pubkey, &vote1, 32UL ); ec_seed[1].cnt = 1; ec_seed[1].epoch[0] = (ushort)bank->f.epoch; ec_seed[1].credits_delta[0] = 7U;
   *fd_bank_epoch_credits_len( bank ) = 2UL;
   fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
   fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };

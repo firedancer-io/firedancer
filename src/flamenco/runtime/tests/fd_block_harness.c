@@ -343,7 +343,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[i];
     fd_memcpy( ec->pubkey, prev_vote_accs->address, sizeof(fd_pubkey_t) );
-    ec->cnt          = prev_vote_accs->epoch_credits_count;
+    ec->cnt          = (ushort)prev_vote_accs->epoch_credits_count;
     ec->base_credits = ec->cnt > 0UL ? prev_vote_accs->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
       ec->epoch[j]              = (ushort)prev_vote_accs->epoch_credits[j].epoch;
