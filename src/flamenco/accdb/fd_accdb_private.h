@@ -4,6 +4,9 @@
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_cache.h"
 
+/* Multiplier on the acc_map chain head count.  Must be a power of two. */
+#define FD_ACCDB_CHAIN_SCALE (4UL)
+
 /* Maximum accounts a single acquire may request.
    FD_ACCDB_MAX_TX_ACCOUNT_LOCKS mirrors the mainnet per-transaction
    account-lock limit (Agave get_transaction_account_lock_limit == 64;
@@ -100,6 +103,12 @@ typedef struct fd_accdb_fork_shmem fd_accdb_fork_shmem_t;
 #define POOL_IMPL_STYLE 0
 
 #include "../../util/tmpl/fd_pool_para.c"
+
+static FD_FN_CONST inline ulong
+fd_accdb_chain_cnt( ulong max_accounts ) {
+  return fd_ulong_min( (ulong)UINT_MAX+1UL,
+                       fd_ulong_pow2_up( FD_ACCDB_CHAIN_SCALE*((max_accounts>>1) + (max_accounts&1UL)) ) );
+}
 
 struct fd_accdb_partition {
   ulong marked_compaction;

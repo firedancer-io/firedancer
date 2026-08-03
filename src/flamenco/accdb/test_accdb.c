@@ -949,6 +949,14 @@ test_many_accounts_hash_chains( void ) {
   test_teardown( accdb, fd );
 }
 
+static void
+test_chain_cnt( void ) {
+  ulong chain_max = (ulong)UINT_MAX + 1UL;
+  FD_TEST( fd_accdb_chain_cnt( 1UL<<31        )==chain_max );
+  FD_TEST( fd_accdb_chain_cnt( (1UL<<31)+1UL )==chain_max );
+  FD_TEST( fd_accdb_chain_cnt( UINT_MAX-1UL   )==chain_max );
+}
+
 void
 test_mainnet_footprint( void ) {
   /* Mainnet-scale parameters:
@@ -983,7 +991,8 @@ test_mainnet_footprint( void ) {
 
   /* Derived values for component breakdown */
   ulong txn_max   = max_live_slots * max_account_writes_per_slot;
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
+  ulong chain_cnt = fd_accdb_chain_cnt( max_accounts );
+  FD_TEST( chain_cnt==FD_ACCDB_CHAIN_SCALE*fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) ) );
 
   ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
   FD_TEST( fd_accdb_cache_class_cnt( cache_footprint, 640UL, cache_class_max ) );
@@ -1589,6 +1598,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_many_accounts_hash_chains ..." ));
   test_many_accounts_hash_chains();
+
+  FD_LOG_NOTICE(( "test_chain_cnt ..." ));
+  test_chain_cnt();
 
   FD_LOG_NOTICE(( "test_mainnet_footprint ..." ));
   test_mainnet_footprint();
