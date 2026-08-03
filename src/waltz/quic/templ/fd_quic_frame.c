@@ -50,6 +50,7 @@ fd_quic_frame_metric_id[ FD_QUIC_FRAME_TYPE_CNT ] = {
     rc = fd_quic_decode_##NAME( frame, p0, (ulong)(p1-p0) );              \
     if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;\
     p0 += rc;                                                             \
+    ctx->frame_sz = rc;                                                   \
                                                                           \
     rc = fd_quic_handle_##NAME( ctx, frame, p0, (ulong)(p1-p0) );         \
     if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;\

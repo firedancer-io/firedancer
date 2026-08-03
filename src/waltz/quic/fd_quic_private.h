@@ -135,6 +135,7 @@ struct fd_quic_frame_ctx {
   fd_quic_t *      quic;
   fd_quic_conn_t * conn;
   fd_quic_pkt_t *  pkt;
+  ulong            frame_sz;
 };
 
 typedef struct fd_quic_frame_ctx fd_quic_frame_ctx_t;

@@ -325,6 +325,7 @@
 | <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">handshake_&#8203;done</span>"} | counter | QUIC frames received (HANDSHAKE_DONE frame) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ping</span>"} | counter | QUIC frames received (PING frame) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">padding</span>"} | counter | QUIC frames received (PADDING frame) |
+| <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">datagram</span>"} | counter | QUIC frames received (DATAGRAM frame) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">noop</span>"} | counter | ACK events (Non-ACK-eliciting packet) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">new</span>"} | counter | ACK events (New ACK range) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">merged</span>"} | counter | ACK events (Merged into existing ACK range) |
@@ -1541,6 +1542,7 @@
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">handshake_&#8203;done</span>"} | counter | QUIC frames received (HANDSHAKE_DONE frame) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ping</span>"} | counter | QUIC frames received (PING frame) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">padding</span>"} | counter | QUIC frames received (PADDING frame) |
+| <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">datagram</span>"} | counter | QUIC frames received (DATAGRAM frame) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;parse_&#8203;failed</span> | counter | QUIC frames that failed to parse |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;meta_&#8203;acquired</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Attempts to acquire QUIC frame metadata (Success) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;meta_&#8203;acquired</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;empty_&#8203;pool</span>"} | counter | Attempts to acquire QUIC frame metadata (PktMetaPoolEmpty) |

@@ -928,6 +928,47 @@ FD_UNIT_TEST( quic_ack_unsent_future_pktnum ) {
   FD_TEST( conn->highest_acked[ 2 ] == 0UL );
 }
 
+static ulong datagram_rx_cnt;
+static uchar datagram_rx_buf[ 64 ];
+static ulong datagram_rx_sz;
+
+static void
+test_datagram_rx( fd_quic_conn_t * conn FD_PARAM_UNUSED,
+                  uchar const *    data,
+                  ulong            data_sz,
+                  void *           quic_ctx FD_PARAM_UNUSED ) {
+  datagram_rx_cnt++;
+  datagram_rx_sz = data_sz;
+  FD_TEST( data_sz<=sizeof(datagram_rx_buf) );
+  fd_memcpy( datagram_rx_buf, data, data_sz );
+}
+
+FD_UNIT_TEST( quic_datagram_frames ) {
+  fd_quic_t * quic = sandbox->quic;
+  quic->config.max_datagram_frame_size = 64UL;
+  quic->cb.datagram_rx = test_datagram_rx;
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  datagram_rx_cnt = 0UL;
+  uchar with_len[] = { 0x31, 0x03, 'a', 'b', 'c', 0x01 };
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, with_len, sizeof(with_len) );
+  FD_TEST( datagram_rx_cnt==1UL );
+  FD_TEST( datagram_rx_sz==3UL );
+  FD_TEST( !memcmp( datagram_rx_buf, "abc", 3UL ) );
+
+  uchar no_len[] = { 0x30, 'x', 'y' };
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, no_len, sizeof(no_len) );
+  FD_TEST( datagram_rx_cnt==2UL );
+  FD_TEST( datagram_rx_sz==2UL );
+  FD_TEST( !memcmp( datagram_rx_buf, "xy", 2UL ) );
+
+  uchar oversized[ 65 ] = { 0x31, 0x40, 0x3e };
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, oversized, sizeof(oversized) );
+  FD_TEST( conn->reason==FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+  FD_TEST( datagram_rx_cnt==2UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
