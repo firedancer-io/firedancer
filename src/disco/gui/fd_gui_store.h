@@ -102,6 +102,10 @@ typedef struct fd_gui_store_private fd_gui_store_t;
    can host.  It bounds the per-ring metrics arrays below. */
 #define FD_GUI_STORE_MAX_RINGS (64UL)
 
+/* FD_GUI_STORE_TS_IDX_DEPTH is the depth of the time-series index
+   array, measured in one second window buckets. */
+#define FD_GUI_STORE_TS_IDX_DEPTH (30UL*24UL*60UL*60UL) /* 30 days of 1s windows */
+
 struct fd_gui_store_desc {
   char const * name;    /* the name of the ring.  Must be non-NULL and unique within the store */
   int          kind;    /* FD_GUI_STORE_KIND_KV or FD_GUI_STORE_KIND_TS */

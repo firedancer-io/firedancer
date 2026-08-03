@@ -9,12 +9,6 @@
 
 #define FD_GUI_STORE_PAGE_SZ (4096UL)
 
-/* FD_GUI_STORE_TS_IDX_DEPTH is the depth of the time-series index array.
-
-   Must be greater than FD_GUI_HIST_TS_SKEW_NS, so a live record's
-   window-index bucket can never be aliased/wrapped off. */
-#define FD_GUI_STORE_TS_IDX_DEPTH (30UL*24UL*60UL*60UL) /* 30 days of 1s windows */
-
 struct fd_gui_store_ts_idx_ent {
   ulong window;     /* bucket window (==ULONG_MAX if empty) */
   ulong first_cur;  /* lowest cursor tagged with this window */
