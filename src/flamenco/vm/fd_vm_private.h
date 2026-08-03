@@ -437,7 +437,8 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/transaction.rs#L546 */
-  if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].acc_region_meta_idx!=ULONG_MAX ) ) {
+  if( FD_UNLIKELY( write && vm->acc_region_metas &&
+                   vm->input_mem_regions[ region_idx ].acc_region_meta_idx!=ULONG_MAX ) ) {
     fd_acc_t * touched_acc = vm->acc_region_metas[ vm->input_mem_regions[ region_idx ].acc_region_meta_idx ].acc;
     if( FD_LIKELY( touched_acc ) ) touched_acc->touched = 1;
   }
