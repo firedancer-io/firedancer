@@ -135,7 +135,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
 
-  int vat_in_prev = epoch>=vat_epoch+1UL ? 1 : 0;
+  int vat_in_prev = ( epoch>=vat_epoch+1UL || bank->f.features.validator_admission_ticket==0UL ) ? 1 : 0;
 
   fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
