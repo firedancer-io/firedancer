@@ -1,5 +1,6 @@
 #include "fd_repair.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
 
 void *
 fd_repair_new( void * shmem, fd_pubkey_t * identity_key ) {
@@ -264,6 +265,49 @@ ag_repair_response_de( ag_repair_response_t * response,
 
   response->nonce = fd_uint_load_4_fast( cur );
   return 0;
+}
+
+/* verify_merkle_proof reconstructs the double-merkle root from leaf at
+   leaf_idx + proof and checks it equals block_id.  0 on match, -1 else. */
+
+static int
+verify_merkle_proof( fd_bmtree_node_t * leaf,
+                     ulong              leaf_idx,
+                     uchar const *      proof,
+                     ulong              proof_len,
+                     fd_hash_t const *  block_id ) {
+  fd_bmtree_node_t root[1];
+  if( FD_UNLIKELY( !fd_bmtree_from_proof( leaf, leaf_idx, root, proof, proof_len, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ ) ) ) return -1;
+  if( FD_UNLIKELY( 0!=memcmp( root->hash, block_id->uc, sizeof(fd_hash_t) ) ) ) return -1;
+  return 0;
+}
+
+int
+ag_repair_parent_fec_count_verify( ag_parent_fec_count_res_t const * res,
+                                   fd_hash_t const *                 block_id ) {
+  /* The parent-info leaf is the last of the tree's fec_set_count+1
+     leaves, so the proof must be exactly as deep as that tree. */
+  if( FD_UNLIKELY( res->proof_len != fd_bmtree_depth( res->fec_set_count+1UL )-1UL ) ) return -1;
+
+  fd_bmtree_node_t leaf[1];
+  fd_sha256_t sha[1];
+  fd_sha256_init  ( sha );
+  fd_sha256_append( sha, &res->parent_slot,       sizeof(ulong)     );
+  fd_sha256_append( sha, res->parent_block_id.uc, sizeof(fd_hash_t) );
+  fd_sha256_append( sha, &res->fec_set_count,     sizeof(uint)      );
+  fd_sha256_fini  ( sha, leaf->hash );
+
+  return verify_merkle_proof( leaf, res->fec_set_count, res->parent_proof[0], res->proof_len, block_id );
+}
+
+int
+ag_repair_fec_set_root_verify( ag_fec_root_res_t const * res,
+                               fd_hash_t const *         block_id,
+                               uint                      fec_set_idx ) {
+  fd_bmtree_node_t leaf[1];
+  memcpy( leaf->hash, res->root.uc, sizeof(fd_hash_t) );
+
+  return verify_merkle_proof( leaf, fec_set_idx / FD_FEC_SHRED_CNT, res->fec_proof[0], res->proof_len, block_id );
 }
 
 int

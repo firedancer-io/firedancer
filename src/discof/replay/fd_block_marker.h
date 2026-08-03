@@ -60,4 +60,6 @@ struct __attribute__((packed)) fd_block_marker {
 };
 typedef struct fd_block_marker fd_block_marker_t;
 
+#define AG_BLOCK_HEADER_V1_SZ 54
+
 #endif /*HEADER_fd_src_discof_replay_fd_block_marker_h */

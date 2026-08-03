@@ -643,7 +643,7 @@ handle_replay_message( fd_votor_tile_t *   ctx,
       if( FD_UNLIKELY( !ei ) ) FD_LOG_CRIT(( "no validator epoch info for epoch %lu", cert_epoch ));
       int err = ag_pool_add_cert( ctx->pool, ctx->shred_version, cert, ei );
       /* must succeed because this is from the replay tile */
-      if( FD_UNLIKELY( err!=AG_POOL_SUCCESS && err!=AG_ADD_CERT_ERR_DUPLICATE ) ) {
+      if( FD_UNLIKELY( err!=AG_POOL_SUCCESS && err!=AG_ADD_CERT_ERR_DUPLICATE && err!=AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS ) ) {
         FD_LOG_CRIT(( "ag_pool_add_cert failed for cert %lu: %d. first unpruned slot: %lu, slot: %lu, finalized slot: %lu",
                       i, err, ag_pool_first_unpruned_slot( ctx->pool ), ag_cert_slot( cert ), ag_pool_finalized_slot( ctx->pool ) ));
       }

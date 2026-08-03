@@ -805,6 +805,13 @@ typedef struct {
 
 static uchar shred_buf[FD_SHRED_MAX_SZ];
 
+/* parent block id declared by make_shred's BlockHeader marker for slot
+   (arbitrary but deterministic and nonzero) */
+static inline fd_hash_t
+marker_parent_bid( ulong slot ) {
+  return (fd_hash_t){ .ul = { 0xb10cUL, slot } };
+}
+
 static inline fd_shred_t *
 make_shred( ulong slot, uint shred_idx, int slot_complete, int make_parent_marker ) {
   fd_shred_t * shred = (fd_shred_t *)fd_type_pun(shred_buf);
@@ -814,17 +821,141 @@ make_shred( ulong slot, uint shred_idx, int slot_complete, int make_parent_marke
   shred->fec_set_idx = (shred_idx / 32) * 32;
   shred->data.parent_off = 1; /* parent = slot - 1 (only read for idx 0) */
   shred->data.flags = slot_complete ? FD_SHRED_DATA_FLAG_SLOT_COMPLETE : 0;
+  shred->data.size = FD_SHRED_DATA_HEADER_SZ + AG_BLOCK_HEADER_V1_SZ;
+
+  /* poison the (static, reused) payload so a marker written by a
+     previous call can't leak into this shred: a nonzero entry count
+     parses as an entry batch, not a marker */
+  uchar * payload = shred_buf + FD_SHRED_DATA_HEADER_SZ;
+  memset( payload, 0xFF, AG_BLOCK_HEADER_V1_SZ );
+
   if( make_parent_marker ) {
-    /* populate payload */
-    FD_LOG_WARNING(( "make_shred: parent marker not implemented" ));
+    /* BlockHeader marker declaring parent (slot-1, marker_parent_bid(slot)) */
+    memset( payload, 0, AG_BLOCK_HEADER_V1_SZ );
+    fd_block_marker_t * marker = (fd_block_marker_t *)fd_type_pun( payload );
+    marker->marker_flag                    = 0UL; /* entry count 0 -> marker */
+    marker->version                        = 1;
+    marker->variant                        = HEADER;
+    marker->length                         = 41;
+    marker->data.header.header_version     = 1;
+    marker->data.header.v1.parent_slot     = slot - 1UL;
+    marker->data.header.v1.parent_block_id = marker_parent_bid( slot );
   }
   return (fd_shred_t *)shred_buf;
+}
+
+/* build_double_merkle constructs the Alpenglow double-merkle tree over
+   fec_roots[0..fec_set_cnt) with the parent-info leaf appended (see
+   ag_repair_response_verify) and returns the block id (tree root) in
+   bid_out.  proofs_out[i] receives the inclusion proof for leaf i, i in
+   [0, fec_set_cnt] (index fec_set_cnt is the parent-info leaf), and
+   proof_len_out the per-leaf proof node count. */
+
+static void
+build_double_merkle( fd_hash_t const * fec_roots,
+                     uint              fec_set_cnt,
+                     ulong             parent_slot,
+                     fd_hash_t const * parent_block_id,
+                     fd_hash_t *       bid_out,
+                     ag_proof_node_t (*proofs_out)[ AG_MAX_FEC_PROOF_NODE_CNT ],
+                     ulong *           proof_len_out ) {
+  static uchar __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN))) bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( AG_MAX_FEC_PROOF_NODE_CNT+1UL ) ];
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( bmtree_mem, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, AG_MAX_FEC_PROOF_NODE_CNT+1UL );
+
+  fd_bmtree_node_t leaf[1] = {{{ 0 }}};
+  for( uint i=0; i<fec_set_cnt; i++ ) {
+    memcpy( leaf->hash, fec_roots[i].uc, sizeof(fd_hash_t) );
+    fd_bmtree_commit_append( tree, leaf, 1UL );
+  }
+
+  fd_sha256_t sha[1];
+  fd_sha256_init  ( sha );
+  fd_sha256_append( sha, &parent_slot,        sizeof(ulong)     );
+  fd_sha256_append( sha, parent_block_id->uc, sizeof(fd_hash_t) );
+  fd_sha256_append( sha, &fec_set_cnt,        sizeof(uint)      );
+  fd_sha256_fini  ( sha, leaf->hash );
+  fd_bmtree_commit_append( tree, leaf, 1UL );
+
+  memcpy( bid_out->uc, fd_bmtree_commit_fini( tree ), sizeof(fd_hash_t) );
+
+  for( uint i=0; i<=fec_set_cnt; i++ ) {
+    int proof_cnt = fd_bmtree_get_proof( tree, proofs_out[i][0], i );
+    FD_TEST( proof_cnt>=0 );
+    *proof_len_out = (ulong)proof_cnt;
+  }
+}
+
+/* test_ag_response_verify -- exercise ag_repair_response_verify against
+   a reference double-merkle tree, including rejection of tampered
+   responses. */
+
+static void
+test_ag_response_verify( void ) {
+  ulong const PARENT_SLOT = 41;
+  uint  const FEC_CNT     = 5; /* odd leaf pairing exercises the unpaired-node self-join */
+
+  fd_hash_t fec_roots[ 5 ];
+  for( uint i=0; i<FEC_CNT; i++ ) fec_roots[i] = (fd_hash_t){ .ul = { i+1UL, 0xabc } };
+  fd_hash_t parent_bid = { .ul = { 77 } };
+
+  fd_hash_t       bid;
+  ag_proof_node_t proofs[ 6 ][ AG_MAX_FEC_PROOF_NODE_CNT ];
+  ulong           proof_len = ULONG_MAX;
+  build_double_merkle( fec_roots, FEC_CNT, PARENT_SLOT, &parent_bid, &bid, proofs, &proof_len );
+  FD_TEST( proof_len==fd_bmtree_depth( FEC_CNT+1UL )-1UL );
+
+  /* parent fec count response */
+  ag_repair_response_t resp = {
+    .kind = AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT,
+    .parent_fec_set_res = {
+      .fec_set_count   = FEC_CNT,
+      .parent_slot     = PARENT_SLOT,
+      .parent_block_id = parent_bid,
+      .proof_len       = proof_len,
+    },
+  };
+  memcpy( resp.parent_fec_set_res.parent_proof, proofs[ FEC_CNT ], proof_len*FD_SHRED_MERKLE_NODE_SZ );
+  FD_TEST( 0==ag_repair_parent_fec_count_verify( &resp.parent_fec_set_res, &bid ) );
+
+  ag_repair_response_t bad;
+
+  bad = resp; bad.parent_fec_set_res.fec_set_count--;            /* lie about the fec count (same proof sz) */
+  FD_TEST( -1==ag_repair_parent_fec_count_verify( &bad.parent_fec_set_res, &bid ) );
+  bad = resp; bad.parent_fec_set_res.parent_slot++;              /* lie about the parent slot */
+  FD_TEST( -1==ag_repair_parent_fec_count_verify( &bad.parent_fec_set_res, &bid ) );
+  bad = resp; bad.parent_fec_set_res.parent_block_id.uc[0] ^= 1; /* lie about the parent block id */
+  FD_TEST( -1==ag_repair_parent_fec_count_verify( &bad.parent_fec_set_res, &bid ) );
+  bad = resp; bad.parent_fec_set_res.parent_proof[0][0] ^= 1;    /* corrupt the proof */
+  FD_TEST( -1==ag_repair_parent_fec_count_verify( &bad.parent_fec_set_res, &bid ) );
+  bad = resp; bad.parent_fec_set_res.proof_len--;                /* truncate the proof */
+  FD_TEST( -1==ag_repair_parent_fec_count_verify( &bad.parent_fec_set_res, &bid ) );
+  fd_hash_t not_bid = bid; not_bid.uc[0] ^= 1;                   /* wrong block id */
+  FD_TEST( -1==ag_repair_parent_fec_count_verify( &resp.parent_fec_set_res, &not_bid ) );
+
+  /* fec set root responses, one per leaf */
+  for( uint f=0; f<FEC_CNT; f++ ) {
+    ag_repair_response_t rresp = {
+      .kind = AG_REPAIR_RESPONSE_FEC_SET_ROOT,
+      .fec_set_root = { .root = fec_roots[f], .proof_len = proof_len },
+    };
+    memcpy( rresp.fec_set_root.fec_proof, proofs[ f ], proof_len*FD_SHRED_MERKLE_NODE_SZ );
+    FD_TEST( 0==ag_repair_fec_set_root_verify( &rresp.fec_set_root, &bid, f*FD_FEC_SHRED_CNT ) );
+
+    bad = rresp; bad.fec_set_root.root.uc[0] ^= 1;               /* lie about the fec set root */
+    FD_TEST( -1==ag_repair_fec_set_root_verify( &bad.fec_set_root, &bid, f*FD_FEC_SHRED_CNT ) );
+    /* right root and proof, but for a different fec_set_idx than requested */
+    FD_TEST( -1==ag_repair_fec_set_root_verify( &rresp.fec_set_root, &bid, (f+1U)*FD_FEC_SHRED_CNT ) );
+  }
+
+  FD_LOG_NOTICE(( "pass: test_ag_response_verify" ));
 }
 
 static void
 test_alpenglow_repair_full_path( fd_wksp_t * wksp ) {
   ctx_t ctx[1];
   setup_ctx( ctx, wksp, /* slot_max */ 512, 1 );   /* assume setup wires ctx->chainer too */
+  fd_hash_t root = { .ul = { 67 } };
+  fd_chainer_init( ctx->chainer, 0UL, &root );            /* root=0 so slot 2 > root (below-root guard in after_alpen_repair) */
 
   /* add a couple policy peers for repair */
   fd_pubkey_t peer = (fd_pubkey_t){ .ul = { 1 } };
@@ -848,13 +979,20 @@ test_alpenglow_repair_full_path( fd_wksp_t * wksp ) {
 
   fd_hash_t bid_v0, bid_v1; /* double-merkle block ids */
   bid_v0 = (fd_hash_t){ .ul = { 6 } };
-  bid_v1 = (fd_hash_t){ .ul = { 7 } }; /* certified alternate's double-merkle root, must be non-zero and != bid_v0
-                                          ({0} collides with the unknown/not-yet-finalized block_id sentinel) */
+
+  /* bid_v1 is the certified alternate's double-merkle root, computed
+     over the mr_good FEC roots so repair responses can carry real
+     inclusion proofs.  (A real root is non-zero and != bid_v0; {0}
+     collides with the unknown/not-yet-finalized block_id sentinel.) */
+  ag_proof_node_t proofs[ 4 ][ AG_MAX_FEC_PROOF_NODE_CNT ];
+  ulong           proof_len = ULONG_MAX;
+  build_double_merkle( mr_good, TOTAL_SHREDS / 32, SLOT, &bid_v0, &bid_v1, proofs, &proof_len );
+
   fd_shred_t * shred = NULL;
 
   /* -------- Phase 1: ingest turbine version 0 (+ dups) -------- */
    for( uint s=0; s<TOTAL_SHREDS; s++ ) {
-     shred = make_shred( SLOT, s, (s==TOTAL_SHREDS-1), 0 );
+     shred = make_shred( SLOT, s, (s==TOTAL_SHREDS-1), s==0 /* shred 0 carries the block header */ );
      after_alpen_shred( ctx, 0, shred, 0, &mr_bad[s / 32] );          /* first receipt: changed */
      if( s % 32 == 31 ) {
        FD_TEST( !after_alpen_fec( ctx, shred, &mr_bad[s / 32] ) );
@@ -893,17 +1031,19 @@ test_alpenglow_repair_full_path( fd_wksp_t * wksp ) {
   ag_repair_parent_fec_count_req_t * req = &sign.msg.parent_fec_set_count;
   FD_TEST( req->slot==SLOT && fd_hash_eq( &req->block_id, &bid_v1 ) );
 
-  /* simulate return response for parent fec count */
+  /* simulate return response for parent fec count, carrying the real
+     inclusion proof of the parent-info leaf (leaf index fec_set_count) */
   ag_parent_fec_count_res_t res = {
     .fec_set_count = TOTAL_SHREDS / 32,
     .parent_slot = SLOT,
     .parent_block_id = bid_v0,
-    .proof_len = 0,
-    .parent_proof = {{0}},
+    .proof_len = proof_len,
   };
+  memcpy( res.parent_proof, proofs[ TOTAL_SHREDS / 32 ], proof_len*FD_SHRED_MERKLE_NODE_SZ );
   ag_repair_response_t resp = (ag_repair_response_t){
     .kind = AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT,
-    .parent_fec_set_res = res
+    .parent_fec_set_res = res,
+    .nonce = req->nonce
   };
 
   after_alpen_repair( ctx, &resp );
@@ -916,10 +1056,13 @@ test_alpenglow_repair_full_path( fd_wksp_t * wksp ) {
     ag_repair_fec_root_req_t * req = &sign.msg.fec_set_root;
     FD_TEST( req->slot==SLOT && req->fec_set_idx==f*FD_FEC_SHRED_CNT );
 
-    /* simulate return response for fec root */
+    /* simulate return response for fec root, carrying the real
+       inclusion proof for leaf f */
     ag_fec_root_res_t res = {
-      .root = mr_good[f]
+      .root = mr_good[f],
+      .proof_len = proof_len,
     };
+    memcpy( res.fec_proof, proofs[ f ], proof_len*FD_SHRED_MERKLE_NODE_SZ );
     ag_repair_response_t resp = (ag_repair_response_t){
       .kind = AG_REPAIR_RESPONSE_FEC_SET_ROOT,
       .fec_set_root = res,
@@ -940,7 +1083,7 @@ test_alpenglow_repair_full_path( fd_wksp_t * wksp ) {
 #endif
   /* -------- Phase 4: verified shreds fill -> alt completes -------- */
   for( uint idx=0; idx<TOTAL_SHREDS; idx++ ) {
-    shred = make_shred( SLOT, idx, idx==TOTAL_SHREDS-1, 0 );
+    shred = make_shred( SLOT, idx, idx==TOTAL_SHREDS-1, idx==0 /* shred 0 carries the block header */ );
     after_alpen_shred( ctx, 0, shred, 0, &mr_good[idx / 32] );
     FD_TEST(!after_alpen_fec( ctx, shred, &mr_good[idx / 32] ) );
   }
@@ -954,23 +1097,30 @@ test_alpenglow_repair_full_path( fd_wksp_t * wksp ) {
    Setup (root slotv = slot 0, so slot 1's parent is present):
      slot 1 v0 : tip unknown, parent (slot 0 root) present -> not orphan
      slot 2 v0 : tip known, gap at idx 1, parent (slot 1) present -> not orphan
-     slot 2 v1 : notar-fallback, tip known, parent unknown -> orphan
-                 (verified_parent_fec_count doesn't set parent_slot)
+     slot 2 v1 : notar-fallback, tip + parent known via
+                 verified_parent_fec_count -> not orphan.  That call
+                 creates the (unknown) parent version slot 1 v1, whose
+                 own parent is unknown -> slot 1 v1 is the orphan.
 
    Expected order (one request per call, same `now` so reqlim dedups
    across calls):
-     1. Shred(slot 2, idx 0)           orphan-pass shred-0 for v1
+     1. Shred(slot 1, idx 0)           orphan-pass shred-0 for the created
+                                       parent version slot 1 v1
                                        (parent unknown -> no Orphan req)
-     2. HighestShred(slot 1)           shred-fill, unknown tip
+     2. HighestShred(slot 1)           shred-fill, v0 unknown tip
+                                       (slot 1 v1's HighestShred dedups)
      3. Shred(slot 2, idx 1)           shred-fill, v0 gap
-     4. ShredForBlockId(slot 2, idx 0) shred-fill, v1 block-id repair */
+     4. ShredForBlockId(slot 2, idx 0) shred-fill, v1 block-id repair
+                                       (gated on the authorized fec 0 root
+                                       from the simulated getFecRoot) */
 static void
 test_repair_request_order( fd_wksp_t * wksp ) {
   ctx_t ctx[1];
   setup_ctx( ctx, wksp, 512, 1 );
 
+  fd_hash_t root = { .ul = { 67 } };
   /* root at slot 0 */
-  fd_chainer_init( ctx->chainer, 0UL );
+  fd_chainer_init( ctx->chainer, 0UL, &root );
 
   fd_pubkey_t   peer = { .ul = { 1 } };
   fd_ip4_port_t ip   = { .addr = 1, .port = 0 };
@@ -983,22 +1133,28 @@ test_repair_request_order( fd_wksp_t * wksp ) {
   fd_shred_t * shred;
 
   /* slot 1 v0: one shred, no slot-complete -> complete_idx unknown */
-  shred = make_shred( 1, 0, /*slot_complete*/0, 0 );
+  shred = make_shred( 1, 0, /*slot_complete*/0, 1 /* block header: parent slot 0 */ );
   after_alpen_shred( ctx, 0, shred, 0, &mr );
 
   /* slot 2 v0: shreds 0,2..31 then fec-complete (32..63) -> complete_idx=63, gap at idx 1 */
   for( uint i = 0; i < 32; i++ ) {
     if( i == 1 ) continue;
-    shred = make_shred( 2, i, 0, 0 );
+    shred = make_shred( 2, i, 0, i==0 /* shred 0 carries the block header */ );
     after_alpen_shred( ctx, 0, shred, 0, &mr );
   }
   shred = make_shred( 2, 63, /*slot_complete*/1, 0 );
   after_alpen_fec( ctx, shred, &mr );
 
   /* slot 2 v1: notar-fallback for a different block_id + proof-verified
-     fec-count so its tip is known (parent_slot stays unknown -> orphan) */
+     fec-count so its tip and parent (slot 1, parent_bid) are known; this
+     creates the parent version slot 1 v1, which becomes the orphan */
   fd_chainer_notar_fallback( ctx->chainer, 2, bid );
-  fd_chainer_verified_parent_fec_count( ctx->chainer, 2, &bid, /*fec_set_cnt*/2, &parent_bid );
+  fd_chainer_verified_parent_fec_count( ctx->chainer, 2, &bid, /*fec_set_cnt*/2, 1, &parent_bid );
+
+  /* authorize v1's fec 0 root (simulates a proof-verified getFecRoot
+     response) -- the shred-fill pass gates ShredForBlockId on it */
+  fd_hash_t v1_fec0_mr = { .ul = { 43 } };
+  fd_chainer_verified_hash_insert( ctx->chainer, 2, &bid, 0, &v1_fec0_mr );
 
   /* drive the walk, same `now` so reqlim dedups across calls; each call
      emits one request until all four are out */
@@ -1019,9 +1175,9 @@ test_repair_request_order( fd_wksp_t * wksp ) {
   sign_req_t * r3 = fd_signs_map_query( ctx->signs_map, k0+3UL, NULL );
   FD_TEST( r0 && r1 && r2 && r3 );
 
-  /* 1st: orphan-pass shred-0 for slot 2 v1 (parent unknown -> no Orphan) */
+  /* 1st: orphan-pass shred-0 for slot 1 v1 (parent unknown -> no Orphan) */
   FD_TEST( r0->msg.kind == FD_REPAIR_KIND_SHRED );
-  FD_TEST( r0->msg.shred.slot == 2UL && r0->msg.shred.shred_idx == 0UL );
+  FD_TEST( r0->msg.shred.slot == 1UL && r0->msg.shred.shred_idx == 0UL );
 
   /* 2nd: shred-fill HighestShred for slot 1 (unknown tip) */
   FD_TEST( r1->msg.kind == FD_REPAIR_KIND_HIGHEST_SHRED );
@@ -1037,7 +1193,7 @@ test_repair_request_order( fd_wksp_t * wksp ) {
   FD_TEST( r3->msg.shred_block_id.shred_idx == 0UL );
   FD_TEST( fd_hash_eq( &r3->msg.shred_block_id.block_id, &bid ) );
 
-  FD_LOG_NOTICE(( "pass: repair request order (orphan shred-0 s2/v1, HighestShred s1, Shred s2, ShredForBlockId s2/v1)" ));
+  FD_LOG_NOTICE(( "pass: repair request order (orphan shred-0 s1/v1, HighestShred s1, Shred s2, ShredForBlockId s2/v1)" ));
 }
 
 int main( int argc, char ** argv ) {
@@ -1062,6 +1218,8 @@ int main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1UL );
   test_after_fec_dup_confirm_larger_slot( wksp );
+
+  test_ag_response_verify();
 
   fd_wksp_reset( wksp, 1UL );
   test_alpenglow_repair_full_path( wksp );

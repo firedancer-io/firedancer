@@ -38,6 +38,11 @@ struct __attribute__((aligned(128UL))) fd_inflight {
   /* Reserved for DLL eviction */
   ulong             prevll;      /* pool index of previous element in DLL */
   ulong             nextll;      /* pool index of next element in DLL */
+
+  /* block_id of a ShredForBlockId request, else all-zero.  A non-zero
+     block_id marks this inflight as a block-id repair, so the response
+     shred can be verified against the version's authorized FEC root. */
+  fd_hash_t         block_id;
 };
 typedef struct fd_inflight fd_inflight_t;
 
@@ -150,16 +155,20 @@ fd_inflights_new( void * shmem,
 fd_inflights_t *
 fd_inflights_join( void * shmem );
 
+/* block_id is the ShredForBlockId version being repaired, or NULL (or
+   all-zero) for a plain positional shred request. */
 void
-fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t const * pubkey, ulong slot, ulong shred_idx );
+fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t const * pubkey, ulong slot, ulong shred_idx, fd_hash_t const * block_id );
 
 /* Matches a shred response to an inflight entry.  Returns the RTT in
    nanoseconds if a match is found, 0 otherwise.  This will remove all
    entries with the same (nonce, slot, shred_idx) tuple from both the
    outstanding and popped maps, and credits the response to the oldest
-   entry. */
+   entry.  On a match, *block_id_out is set to the matched entry's
+   block_id (all-zero if it was a plain shred request); untouched
+   otherwise. */
 long
-fd_inflights_request_match( fd_inflights_t * table, ulong nonce, ulong slot, ulong shred_idx, fd_pubkey_t * peer_out );
+fd_inflights_request_match( fd_inflights_t * table, ulong nonce, ulong slot, ulong shred_idx, fd_pubkey_t * peer_out, fd_hash_t * block_id_out );
 
 /* Important! Caller must guarantee that the request list is not empty.
    This function cannot fail and will always try to populate the output
