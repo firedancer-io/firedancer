@@ -9,6 +9,9 @@ from deepdiff.helper import COLORED_COMPACT_VIEW
 
 ### Formatted with Black ###
 
+SERVER1_URL = "http://localhost:8899"
+SERVER2_URL = "http://solana-testnet-rpc.jumpisolated.com:8899"
+
 
 class RPCTester:
     def __init__(self, server1_url: str, server2_url: str):
@@ -27,8 +30,11 @@ class RPCTester:
             )
             response.raise_for_status()
             return {"msg": response.json(), "status": response.status_code}
-        except requests.exceptions.RequestException:
-            return {"msg": response.text, "status": response.status_code}
+        except requests.exceptions.RequestException as e:
+            response = getattr(e, "response", None)
+            if response is not None:
+                return {"msg": response.text, "status": response.status_code}
+            return {"msg": str(e), "status": None}
 
     def compare_responses(
         self,
@@ -61,6 +67,7 @@ class RPCTester:
             exclude_obj_callback=lambda obj, path: (
                 (isinstance(obj, str) and obj.startswith("Firedancer Error"))
                 or obj == -32065
+                or "\'tpu\'" in path or "\'tpuForwards\'" in path
             ),
             view=COLORED_COMPACT_VIEW,
         )
@@ -127,9 +134,9 @@ def run_test_suite(
 
     for i, test_case in enumerate(test_cases, 1):
         payload = test_case["payload"]
+        description = test_case.get("description", f"Test case {i}")
         exclude_paths = test_case.get("exclude_paths")
         prediff = test_case.get("prediff")
-        description = test_case.get("description", f"Test case {i}")
 
         result = tester.test_rpc_method(payload, exclude_paths, prediff, description)
         results.append({"test": description, "passed": result})
@@ -153,8 +160,11 @@ def run_test_suite(
 ALL_TYPES = [
     0,
     1,
+    0.0,
+    1.0,
     1.1,
     -1,
+    -1.0,
     -1.1,
     9999999999999,
     None,
@@ -167,7 +177,48 @@ ALL_TYPES = [
     {},
     [1],
     {"1": 1},
+    1e16,
 ]
+
+def get_rpc_result(url: str, method: str, params=None):
+    payload = {"jsonrpc": "2.0", "id": 0, "method": method}
+    if params is not None:
+        payload["params"] = params
+
+    response = requests.post(
+        url, json=payload, headers={"Content-Type": "application/json"}, timeout=10
+    )
+    response.raise_for_status()
+    msg = response.json()
+    if not isinstance(msg, dict) or "result" not in msg:
+        raise RuntimeError(f"failed to fetch {method} from {url}: {msg}")
+    return msg["result"]
+
+
+def get_current_slot_epoch():
+    params = [{"commitment": "finalized"}]
+    epoch_info1 = get_rpc_result(SERVER1_URL, "getEpochInfo", params)
+    epoch_info2 = get_rpc_result(SERVER2_URL, "getEpochInfo", params)
+
+    slot1 = int(epoch_info1["absoluteSlot"])
+    slot2 = int(epoch_info2["absoluteSlot"])
+    epoch1 = int(epoch_info1["epoch"])
+    epoch2 = int(epoch_info2["epoch"])
+    slot = min(slot1, slot2)
+    epoch = min(epoch1, epoch2)
+
+    print(
+        f"Live slot/epoch: server1={slot1}/{epoch1}, "
+        f"server2={slot2}/{epoch2}, using={slot}/{epoch}"
+    )
+
+    return {"slot": slot, "epoch": epoch}
+
+# okay to perform RPC tests on import since this is a test file
+CURRENT_SLOT_EPOCH = get_current_slot_epoch()
+CURRENT_SLOT = CURRENT_SLOT_EPOCH["slot"]
+CURRENT_EPOCH = CURRENT_SLOT_EPOCH["epoch"]
+
 
 MISC = [
     {
@@ -692,6 +743,418 @@ GET_SLOT = [
     },
 ]
 
+GET_SLOT_LEADER = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeader",
+        },
+        "description": f"getSlotLeader success",
+        "exclude_paths": [
+            "root['msg']['result']"
+        ],  # leader identity depends on the (racy) finalized slot
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSlotLeader",
+                "params": [{"commitment": e}],
+            },
+            "description": f"getSlotLeader params[0]['commitment']={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['result']"],
+        }
+        for e in [*ALL_TYPES, "finalized", "confirmed", "processed"]
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSlotLeader",
+                "params": [{"minContextSlot": e}],
+            },
+            "description": f"getSlotLeader params[0]['minContextSlot']={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['result']",
+                "root['msg']['error']['data']['contextSlot']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSlotLeader",
+                "params": e,
+            },
+            "description": f"getSlotLeader params={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['error']['data']",
+                "root['msg']['result']",
+            ],
+        }
+        for e in [*ALL_TYPES, *[[_e] for _e in ALL_TYPES]]
+    ],
+]
+
+GET_SLOT_LEADERS = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeaders",
+            "params": [0, 0],
+        },
+        "description": f"getSlotLeaders limit=0 (empty)",
+    },  # limit=0 returns [] without consulting the schedule -> deterministic
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeaders",
+            "params": [0, 5001],
+        },
+        "description": f"getSlotLeaders limit>max",
+    },  # -> "Invalid limit; max 5000" on both -> deterministic
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeaders",
+            "params": [18446744073709551616, 0],
+        },
+        "description": f"getSlotLeaders startSlot overflows u64",
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSlotLeaders",
+                "params": [e, 10],
+            },
+            "description": f"getSlotLeaders params[0] (startSlot)={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['error']['data']",
+                "root['msg']['result']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSlotLeaders",
+                "params": [0, e],
+            },
+            "description": f"getSlotLeaders params[1] (limit)={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['error']['data']",
+                "root['msg']['result']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSlotLeaders",
+                "params": e,
+            },
+            "description": f"getSlotLeaders params={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['error']['data']",
+                "root['msg']['result']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+]
+
+GET_LEADER_SCHEDULE = [
+    {
+        "payload": {"jsonrpc": "2.0", "id": 0, "method": "getLeaderSchedule"},
+        "description": "getLeaderSchedule no params (current epoch)",
+        # The two reference clusters have different schedules -> only the
+        # response shape is comparable.
+        "exclude_paths": ["root['msg']['result']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getLeaderSchedule",
+            "params": [None],
+        },
+        "description": "getLeaderSchedule params=[null] (current epoch)",
+        "exclude_paths": ["root['msg']['result']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getLeaderSchedule",
+            "params": [CURRENT_SLOT],
+        },
+        "description": f"getLeaderSchedule params=[{CURRENT_SLOT}]",
+        "exclude_paths": ["root['msg']['result']"],
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getLeaderSchedule",
+                "params": [None, {"commitment": e}],
+            },
+            "description": f"getLeaderSchedule commitment={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['result']",
+                "root['msg']['error']['data']",
+            ],
+        }
+        for e in [*ALL_TYPES, "finalized", "confirmed", "processed"]
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getLeaderSchedule",
+                "params": [None, {"identity": e}],
+            },
+            "description": f"getLeaderSchedule identity={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['result']",
+                "root['msg']['error']['data']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getLeaderSchedule",
+                "params": [e],
+            },
+            "description": f"getLeaderSchedule params[0]={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['result']",
+                "root['msg']['error']['data']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getLeaderSchedule",
+                "params": e,
+            },
+            "description": f"getLeaderSchedule params={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['result']",
+                "root['msg']['error']['data']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getLeaderSchedule",
+                "params": [{"identity": e}],
+            },
+            "description": f"getLeaderSchedule wrapper identity={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['result']",
+                "root['msg']['error']['data']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getLeaderSchedule",
+                "params": [{"identity": e}],
+            },
+            "description": f"getLeaderSchedule wrapper identity string={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['result']",
+                "root['msg']['error']['data']",
+            ],
+        }
+        for e in [
+            "0O0O0O0O0O0O0O0O0O0O0O0O0O0O0O0O",
+            "deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+        ]
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getLeaderSchedule",
+                "params": [None, e],
+            },
+            "description": f"getLeaderSchedule params=[null, {json.dumps(e)}]",
+            "exclude_paths": [
+                "root['msg']['result']",
+                "root['msg']['error']['data']",
+            ],
+        }
+        for e in [0, 1, 1.1, -1, True, "abc", "", [1], []]
+    ],
+]
+
+GET_CURRENT_SLOT_EPOCH = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeaders",
+            "params": [CURRENT_SLOT, 1],
+        },
+        "description": f"getSlotLeaders live startSlot={CURRENT_SLOT} limit=1",
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getAccountInfo",
+            "params": [
+                "11111111111111111111111111111111",
+                {
+                    "encoding": "base64",
+                    "commitment": "finalized",
+                    "minContextSlot": CURRENT_SLOT,
+                },
+            ],
+        },
+        "description": f"getAccountInfo live minContextSlot={CURRENT_SLOT}",
+        "exclude_paths": ["root['msg']['result']['context']['slot']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getBalance",
+            "params": [
+                "SysvarRent111111111111111111111111111111111",
+                {"commitment": "finalized", "minContextSlot": CURRENT_SLOT},
+            ],
+        },
+        "description": f"getBalance live minContextSlot={CURRENT_SLOT}",
+        "exclude_paths": ["root['msg']['result']['context']['slot']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getBlockHeight",
+            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+        },
+        "description": f"getBlockHeight live minContextSlot={CURRENT_SLOT}",
+        "exclude_paths": ["root['msg']['result']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getEpochInfo",
+            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+        },
+        "description": f"getEpochInfo live epoch={CURRENT_EPOCH} minContextSlot={CURRENT_SLOT}",
+        "exclude_paths": [
+            "root['msg']['result']['absoluteSlot']",
+            "root['msg']['result']['blockHeight']",
+            "root['msg']['result']['slotIndex']",
+            "root['msg']['result']['transactionCount']",
+        ],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getLatestBlockhash",
+            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+        },
+        "description": f"getLatestBlockhash live minContextSlot={CURRENT_SLOT}",
+        "exclude_paths": [
+            "root['msg']['result']['context']['slot']",
+            "root['msg']['result']['value']",
+        ],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlot",
+            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+        },
+        "description": f"getSlot live minContextSlot={CURRENT_SLOT}",
+        "exclude_paths": ["root['msg']['result']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeader",
+            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+        },
+        "description": f"getSlotLeader live minContextSlot={CURRENT_SLOT}",
+        "exclude_paths": ["root['msg']['result']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getTransactionCount",
+            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+        },
+        "description": f"getTransactionCount live minContextSlot={CURRENT_SLOT}",
+        "exclude_paths": ["root['msg']['result']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getMultipleAccounts",
+            "params": [
+                [
+                    "11111111111111111111111111111111",
+                    "SysvarRent111111111111111111111111111111111",
+                ],
+                {
+                    "encoding": "base64",
+                    "commitment": "finalized",
+                    "minContextSlot": CURRENT_SLOT,
+                },
+            ],
+        },
+        "description": f"getMultipleAccounts live minContextSlot={CURRENT_SLOT}",
+        "exclude_paths": ["root['msg']['result']['context']['slot']"],
+    },
+]
+
 GET_TRANSACTION_COUNT = [
     {
         "payload": {
@@ -857,8 +1320,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     tester = RPCTester(
-        server1_url="http://localhost:8899",
-        server2_url="http://solana-testnet-rpc.jumpisolated.com:8899",
+        server1_url=SERVER1_URL,
+        server2_url=SERVER2_URL,
     )
 
     test_suite = [
@@ -874,6 +1337,10 @@ if __name__ == "__main__":
         *GET_LATEST_BLOCKHASH,
         *GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION,
         *GET_SLOT,
+        *GET_SLOT_LEADER,
+        *GET_SLOT_LEADERS,
+        *GET_LEADER_SCHEDULE,
+        *GET_CURRENT_SLOT_EPOCH,
         *GET_TRANSACTION_COUNT,
         *GET_CLUSTER_NODES,
         *GET_EPOCH_INFO,
