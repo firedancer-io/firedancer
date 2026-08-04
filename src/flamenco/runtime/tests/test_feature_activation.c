@@ -220,6 +220,41 @@ test_wrong_owner_skipped( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_wrong_owner_skipped: PASSED" ));
 }
 
+/* Test: restoring features reads the final account state from accdb
+   instead of retaining a previously observed valid state. */
+
+static void
+test_restore_uses_final_account_state( fd_svm_mini_t * mini ) {
+  fd_feature_id_t const * feat = find_non_cleaned_up_feature();
+  FD_TEST( feat );
+
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch       = TEST_SLOTS_PER_EPOCH;
+  params->init_feature_accounts = 0;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  fd_features_disable_all( &root_bank->f.features );
+
+  fd_feature_t active = { .is_active = 1, .activation_slot = 1UL };
+  create_feature_account( mini, &feat->id, &active, sizeof(fd_feature_t) );
+
+  fd_features_restore( root_bank, mini->runtime->accdb );
+  FD_TEST( get_feature_slot( root_bank, feat )==1UL );
+
+  /* Replace the valid feature account with an invalid final state.  A
+     stale streamed observation would leave the feature active, while
+     restoring from accdb must disable it. */
+  create_feature_account_wrong_owner( mini, &feat->id, &active, sizeof(fd_feature_t) );
+  fd_features_set( &root_bank->f.features, feat, 1UL );
+
+  fd_features_restore( root_bank, mini->runtime->accdb );
+  FD_TEST( get_feature_slot( root_bank, feat )==FD_FEATURE_DISABLED );
+
+  FD_LOG_NOTICE(( "test_restore_uses_final_account_state: PASSED" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_svm_mini_limits_t limits[1];
@@ -230,6 +265,7 @@ main( int argc, char ** argv ) {
   test_too_small_account_skipped( mini );
   test_already_active_recognized( mini );
   test_wrong_owner_skipped( mini );
+  test_restore_uses_final_account_state( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );
