@@ -310,8 +310,8 @@ struct fd_txn {
 
   /* addr_table_adtl_cnt: The total number of account addresses summed across
      all the address lookup tables. addr_table_adtl_cnt in
-     [0, FD_TXN_ADDT_ADDR_MAX - acct_addr_cnt]. Since acct_addr_cnt > 0,
-     addr_table_adtl_cnt < 256. */
+     [0, FD_TXN_ACCT_ADDR_MAX - acct_addr_cnt]. Since acct_addr_cnt > 0,
+     addr_table_adtl_cnt < 64. */
   uchar      addr_table_adtl_cnt;
 
   uchar      _padding_reserved_1; /* explicit padding the compiler would have
