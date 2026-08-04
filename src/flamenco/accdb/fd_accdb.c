@@ -2557,6 +2557,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       out_accs[ i ].prior_data = NULL;
       out_accs[ i ].commit = 0;
       out_accs[ i ].pd_write = 0;
+      out_accs[ i ].touched = 0;
       out_accs[ i ]._writable = 0;
       out_accs[ i ]._original_size_class = ULONG_MAX;
       out_accs[ i ]._original_cache_idx = ULONG_MAX;
@@ -2586,6 +2587,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
     out_accs[ i ].commit = 0;
     out_accs[ i ].pd_write = 0;
+    out_accs[ i ].touched = 0;
     out_accs[ i ]._writable = writable[ i ];
     if( FD_UNLIKELY( writable[ i ] && accmetas[ i ] ) ) out_accs[ i ]._overwrite = accdb->fork_pool[ fork_id.val ].shmem->generation==accmetas[ i ]->key.generation;
     else                                            out_accs[ i ]._overwrite = 0;
