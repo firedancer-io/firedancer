@@ -471,16 +471,31 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/inflation_rewards/mod.rs#L161-L173 */
 static int
-delegation_may_need_adjustment( ulong current_delegation,
-                                ulong new_delegation_with_rewards,
-                                ulong lamports_with_rewards,
-                                ulong minimum_lamports ) {
+delegation_may_need_adjustment( fd_bank_t *                   bank,
+                                fd_stake_delegation_t const * stake_delegation,
+                                fd_stake_history_t const *    stake_history,
+                                ulong                         rewarded_epoch,
+                                ulong                         new_delegation_with_rewards,
+                                ulong                         lamports_with_rewards,
+                                ulong                         minimum_lamports ) {
   ulong new_delegation = fd_ulong_min(
     new_delegation_with_rewards,
     fd_ulong_sat_sub( lamports_with_rewards, minimum_lamports )
   );
 
-  return !!( new_delegation!=current_delegation );
+  if( FD_LIKELY( new_delegation==stake_delegation->stake ) ) return 0;
+
+  /* Delegations that are neither effective nor activating are left
+     alone.  This is checked last because it can walk many stake history
+     entries. */
+  fd_stake_history_entry_t status = fd_stakes_activating_and_deactivating(
+    stake_delegation,
+    rewarded_epoch,
+    stake_history,
+    &bank->f.warmup_cooldown_rate_epoch,
+    FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
+
+  return !( status.effective==0UL && status.activating==0UL );
 }
 
 /* Calculates epoch rewards for stake/vote accounts.
@@ -551,7 +566,10 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
          below the rent exempt minimum balance, it needs to be queued
          for update (and thus affects the epoch reward partitions). */
       if( !delegation_may_need_adjustment(
-            stake_delegation->stake,
+            bank,
+            stake_delegation,
+            stake_history,
+            rewarded_epoch,
             stake_delegation->stake,
             stake_delegation->lamports,
             fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
@@ -612,7 +630,10 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       /* staker rewards is 0 in the error case, so we can just use
          the current stake and lamports in the function args. */
       if( !delegation_may_need_adjustment(
-            stake_delegation->stake,
+            bank,
+            stake_delegation,
+            stake_history,
+            rewarded_epoch,
             stake_delegation->stake,
             stake_delegation->lamports,
             fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
@@ -688,7 +709,10 @@ setup_stake_partitions( fd_bank_t *                    bank,
            below the rent exempt minimum balance, it needs to be queued
            for update (and thus affects the epoch reward partitions). */
         if( !delegation_may_need_adjustment(
-              stake_delegation->stake,
+              bank,
+              stake_delegation,
+              stake_history,
+              rewarded_epoch,
               stake_delegation->stake,
               stake_delegation->lamports,
               fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
@@ -733,7 +757,10 @@ setup_stake_partitions( fd_bank_t *                    bank,
         /* staker rewards is 0 in the error case, so we can just use
            the current stake and lamports in the function args. */
         if( !delegation_may_need_adjustment(
-              stake_delegation->stake,
+              bank,
+              stake_delegation,
+              stake_history,
+              rewarded_epoch,
               stake_delegation->stake,
               stake_delegation->lamports,
               fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {

@@ -164,15 +164,15 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_250ms-o
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_300ms-out-of-order-v4.2.0-beta.1-vat --zst 2 -m 50000 -e 2364
 # SIMD-0437/0438 (rent lamports_per_byte) + SIMD-0194 (deprecate threshold) + SIMD-0392 (relax_post_exec_min_balance_check);
 # localnet, features activate @ slot 256; boot @ snapshot-200 to replay it OFF+ON across the boundary.
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_relax_only-v4.2.0-beta.1-vat -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6333-v4.2.0-beta.1-vat -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_5080-v4.2.0-beta.1-vat -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_2575-v4.2.0-beta.1-vat -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_1322-v4.2.0-beta.1-vat -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_696-v4.2.0-beta.1-vat -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6960-v4.2.0-beta.1-vat -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_1-v4.2.0-beta.1-vat -m 50000 -e 1250
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_1_boundary-v4.2.0-beta.1-vat -m 2000000 -e 1850
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_relax_only-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6333-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_5080-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_2575-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_1322-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_696-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6960-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_1 -m 50000 -e 1795
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_1_boundary -m 2000000 -e 1850
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_tx_v1 -m 2000000 -e 637
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-closeslot -m 10000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-poison -m 10000 -e 562
