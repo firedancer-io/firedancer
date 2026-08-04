@@ -753,8 +753,9 @@ static inline int shred_src( ulong sig ) {
     case SHRED_SIG_SRC_RECONSTRUCTED:
       return SHRED_SRC_RECOVERED;
     case SHRED_SIG_SRC_REPAIR:
-    case SHRED_SIG_SRC_BAD_REPAIR:
       return SHRED_SRC_REPAIR;
+    case SHRED_SIG_SRC_BAD_REPAIR:
+      return SHRED_SRC_TURBINE; /* like fec_resolver, treat bad repair shreds as turbine shreds */
     case SHRED_SIG_SRC_LEADER:
       return SHRED_SRC_LEADER;
     default: FD_LOG_CRIT((  "bad shred sig src %u", sig_src ));
