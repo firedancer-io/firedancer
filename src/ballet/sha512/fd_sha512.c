@@ -161,7 +161,7 @@ fd_sha512_core_ref( ulong *       state,        /* 64-byte aligned, 8 entries */
 # define Ch(x,y,z)  (((x) & (y)) ^ ((~(x)) & (z)))
 # define Maj(x,y,z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
 
-  ulong const * W = (ulong const *)block;
+  uchar const * W = block;
   do {
     ulong a = state[0];
     ulong b = state[1];
@@ -176,7 +176,7 @@ fd_sha512_core_ref( ulong *       state,        /* 64-byte aligned, 8 entries */
 
     ulong i;
     for( i=0UL; i<16UL; i++ ) {
-      X[i] = fd_ulong_bswap( W[i] );
+      X[i] = fd_ulong_bswap( FD_LOAD( ulong, W + i*sizeof(ulong) ) );
       ulong T1 = X[i] + h + Sigma1(e) + Ch(e, f, g) + K[i];
       ulong T2 = Sigma0(a) + Maj(a, b, c);
       h = g;
@@ -215,7 +215,7 @@ fd_sha512_core_ref( ulong *       state,        /* 64-byte aligned, 8 entries */
     state[6] += g;
     state[7] += h;
 
-    W += 16UL;
+    W += 16UL*sizeof(ulong);
   } while( --block_cnt );
 
 # undef ROTR
@@ -386,15 +386,15 @@ fd_sha512_fini( fd_sha512_t * sha,
 
   /* Unpack the result into md (annoying bswaps here) */
 
-  ulong * hash = (ulong *)_hash;
-  hash[0] = fd_ulong_bswap( state[0] );
-  hash[1] = fd_ulong_bswap( state[1] );
-  hash[2] = fd_ulong_bswap( state[2] );
-  hash[3] = fd_ulong_bswap( state[3] );
-  hash[4] = fd_ulong_bswap( state[4] );
-  hash[5] = fd_ulong_bswap( state[5] );
-  hash[6] = fd_ulong_bswap( state[6] );
-  hash[7] = fd_ulong_bswap( state[7] );
+  uchar * hash = (uchar *)_hash;
+  FD_STORE( ulong, hash,      fd_ulong_bswap( state[0] ) );
+  FD_STORE( ulong, hash+ 8UL, fd_ulong_bswap( state[1] ) );
+  FD_STORE( ulong, hash+16UL, fd_ulong_bswap( state[2] ) );
+  FD_STORE( ulong, hash+24UL, fd_ulong_bswap( state[3] ) );
+  FD_STORE( ulong, hash+32UL, fd_ulong_bswap( state[4] ) );
+  FD_STORE( ulong, hash+40UL, fd_ulong_bswap( state[5] ) );
+  FD_STORE( ulong, hash+48UL, fd_ulong_bswap( state[6] ) );
+  FD_STORE( ulong, hash+56UL, fd_ulong_bswap( state[7] ) );
   return _hash;
 }
 
@@ -449,15 +449,15 @@ fd_sha512_hash( void const * _data,
   *((ulong *)(buf+FD_SHA512_PRIVATE_BUF_MAX- 8UL)) = fd_ulong_bswap( bit_cnt_lo );
   fd_sha512_core( state, buf, 1UL );
 
-  ulong * hash = (ulong *)_hash;
-  hash[0] = fd_ulong_bswap( state[0] );
-  hash[1] = fd_ulong_bswap( state[1] );
-  hash[2] = fd_ulong_bswap( state[2] );
-  hash[3] = fd_ulong_bswap( state[3] );
-  hash[4] = fd_ulong_bswap( state[4] );
-  hash[5] = fd_ulong_bswap( state[5] );
-  hash[6] = fd_ulong_bswap( state[6] );
-  hash[7] = fd_ulong_bswap( state[7] );
+  uchar * hash = (uchar *)_hash;
+  FD_STORE( ulong, hash,      fd_ulong_bswap( state[0] ) );
+  FD_STORE( ulong, hash+ 8UL, fd_ulong_bswap( state[1] ) );
+  FD_STORE( ulong, hash+16UL, fd_ulong_bswap( state[2] ) );
+  FD_STORE( ulong, hash+24UL, fd_ulong_bswap( state[3] ) );
+  FD_STORE( ulong, hash+32UL, fd_ulong_bswap( state[4] ) );
+  FD_STORE( ulong, hash+40UL, fd_ulong_bswap( state[5] ) );
+  FD_STORE( ulong, hash+48UL, fd_ulong_bswap( state[6] ) );
+  FD_STORE( ulong, hash+56UL, fd_ulong_bswap( state[7] ) );
   return _hash;
 }
 
@@ -503,13 +503,13 @@ fd_sha384_hash( void const * _data,
   *((ulong *)(buf+FD_SHA512_PRIVATE_BUF_MAX- 8UL)) = fd_ulong_bswap( bit_cnt_lo );
   fd_sha512_core( state, buf, 1UL );
 
-  ulong * hash = (ulong *)_hash;
-  hash[0] = fd_ulong_bswap( state[0] );
-  hash[1] = fd_ulong_bswap( state[1] );
-  hash[2] = fd_ulong_bswap( state[2] );
-  hash[3] = fd_ulong_bswap( state[3] );
-  hash[4] = fd_ulong_bswap( state[4] );
-  hash[5] = fd_ulong_bswap( state[5] );
+  uchar * hash = (uchar *)_hash;
+  FD_STORE( ulong, hash,      fd_ulong_bswap( state[0] ) );
+  FD_STORE( ulong, hash+ 8UL, fd_ulong_bswap( state[1] ) );
+  FD_STORE( ulong, hash+16UL, fd_ulong_bswap( state[2] ) );
+  FD_STORE( ulong, hash+24UL, fd_ulong_bswap( state[3] ) );
+  FD_STORE( ulong, hash+32UL, fd_ulong_bswap( state[4] ) );
+  FD_STORE( ulong, hash+40UL, fd_ulong_bswap( state[5] ) );
   return _hash;
 }
 

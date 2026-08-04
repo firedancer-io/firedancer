@@ -145,7 +145,7 @@ fd_sha256_core_ref( uint *        state,
 # define Ch(x,y,z)  (((x) & (y)) ^ ((~(x)) & (z)))
 # define Maj(x,y,z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
 
-  uint const * W = (uint const *)block;
+  uchar const * W = block;
   do {
     uint a = state[0];
     uint b = state[1];
@@ -160,7 +160,7 @@ fd_sha256_core_ref( uint *        state,
 
     ulong i;
     for( i=0UL; i<16UL; i++ ) {
-      X[i] = fd_uint_bswap( W[i] );
+      X[i] = fd_uint_bswap( FD_LOAD( uint, W + i*sizeof(uint) ) );
       uint T1 = X[i] + h + Sigma1(e) + Ch(e, f, g) + fd_sha256_K[i];
       uint T2 = Sigma0(a) + Maj(a, b, c);
       h = g;
@@ -199,7 +199,7 @@ fd_sha256_core_ref( uint *        state,
     state[6] += g;
     state[7] += h;
 
-    W += 16UL;
+    W += 16UL*sizeof(uint);
   } while( --block_cnt );
 
 # undef ROTATE
