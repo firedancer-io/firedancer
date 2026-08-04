@@ -2020,7 +2020,7 @@ test_simd0232_relax_deposit( fd_svm_mini_t * mini,
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, relax_post_exec_min_balance_check, 0UL );
   fd_pubkey_t relax_id[1];
-  FD_TEST( fd_base58_decode_32( "DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg", relax_id->uc ) );
+  FD_TEST( fd_base58_decode_32( "BY4JhHLahVzS9ynfDz4exzGPbVXhFmJvEyMWsXbDBqME", relax_id->uc ) );
   activate_feature_account_( mini, relax_id );
 
   /* One lamport: rent-paying before and after the deposit. */
