@@ -195,7 +195,7 @@ typedef struct fd_configf fd_configf_t;
 struct fd_config_net {
   char auto_level[ 12 ]; /* "standard" or "minimal" */
 
-  char provider[ 8 ]; /* "xdp" or "socket" */
+  char provider[ 8 ]; /* "xdp", "ibverbs" or "socket" */
 
   char interface[ IF_NAMESIZE ];
   char bind_address[ 16 ];

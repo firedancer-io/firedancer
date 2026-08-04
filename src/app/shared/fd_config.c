@@ -562,11 +562,13 @@ fd_config_validate( fd_config_t const * config ) {
       FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\", \"dedicated\", or \"auto\"",
                    config->net.xdp.rss_queue_mode  ));
     }
+  } else if( 0==strcmp( config->net.provider, "ibverbs" ) ) {
+    /**/
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\" or \"socket\"",
+    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\", \"ibverbs\" or \"socket\"",
                  config->net.provider ));
   }
 

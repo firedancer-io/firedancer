@@ -10,6 +10,7 @@ CPPFLAGS:=-isystem ./$(OPT)/include
 RUSTFLAGS:=-C force-frame-pointers=yes
 CFLAGS=-std=c17 -fwrapv
 LDFLAGS:=-lm -ldl -L./$(OPT)/lib
+IBVERBS_LIBS:=-libverbs
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
 AR:=ar

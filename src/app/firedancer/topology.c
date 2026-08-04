@@ -1093,8 +1093,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->event.url, config->tiles.event.url, sizeof(tile->event.url) );
     fd_cstr_ncpy( tile->event.action, config->action, sizeof(tile->event.action) );
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "net"   ) ||
+                          !strcmp( tile->name, "sock"  ) ||
+                          !strcmp( tile->name, "ibeth" ) ) ) {
 
+    tile->net.bind_address                     = config->net.bind_address_parsed;
     tile->net.shred_listen_port                = config->tiles.shred.shred_listen_port;
     if( config->firedancer.layout.enable_block_production ) {
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;

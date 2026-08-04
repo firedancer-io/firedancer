@@ -142,6 +142,7 @@ check_fedora_pkgs () {
     pkgconf            # build system
     gcc                # compiler
     gcc-c++            # compiler
+    libibverbs-devel   # ibverbs networking library
 
     cmake              # Agave (RocksDB)
     clang-devel        # Agave (bindgen)
@@ -180,6 +181,7 @@ check_debian_pkgs () {
     diffutils          # build system
     build-essential    # C/C++ compiler
     pkgconf            # build system
+    libibverbs-dev     # ibverbs networking library
 
     cmake              # Agave (protobuf-src)
     libclang-dev       # Agave (bindgen)
@@ -219,6 +221,7 @@ check_alpine_pkgs () {
     grep             # build system
     make             # build system
     perl             # OpenSSL
+    rdma-core-dev    # ibverbs networking library
   )
   if [[ $DEVMODE == 1 ]]; then
     REQUIRED_APKS+=( autoconf automake bison flex gettext perl protobuf-dev )
@@ -268,6 +271,7 @@ check_macos_pkgs () {
 check_arch_pkgs () {
   local REQUIRED_PKGS=(
     base-devel        # C/C++ compiler, make, etc.
+    rdma-core         # ibverbs networking library
     curl              # download rustup
     cmake             # Agave (protobuf-src)
     clang             # Agave (bindgen)

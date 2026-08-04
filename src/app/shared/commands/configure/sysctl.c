@@ -183,7 +183,7 @@ check( config_t const * config,
     sock_params[ 0 ].value = config->net.socket.receive_buffer_size;
     sock_params[ 1 ].value = config->net.socket.send_buffer_size;
     r = check_param_list( sock_params );
-  } else {
+  } else if( strcmp( config->net.provider, "ibverbs" ) ) {
     FD_LOG_ERR(( "unknown net provider: %s", config->net.provider ));
   }
   if( r.result!=CONFIGURE_OK ) return r;
