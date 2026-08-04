@@ -922,7 +922,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
       alut_addrs[i].b[1] = (uchar)( 0xF0 + i );
     }
 
-    create_test_account( env->mini->runtime->accdb, env->fork_id, &alut_key, 1000000UL,
+    create_test_account( env->mini->runtime->accdb, env->bank->parent_accdb_fork_id, &alut_key, 1000000UL,
                          (uint)alut_data_sz, alut_data,
                          &fd_solana_address_lookup_table_program_id );
 

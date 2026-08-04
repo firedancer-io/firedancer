@@ -809,16 +809,34 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
       FD_LOG_DEBUG(( "fd_executor_setup_txn_alut_account_keys(): failed to get slot hashes" ));
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
+    /* Resolve the ALT against the parent.  This is because the
+       scheduler does not treat the ALT itself as a dependency, so a
+       transaction resolving/reading a table can be scheduled
+       concurrently with one extending/writing it.  This would violate
+       the accdb acquire contract if they both used the same fork_id.
+       Similar to the case of implied loader v3 ProgramData reads, we
+       acquire from the parent.
+
+       Only the fork_id changes.  The slot stays this bank's slot, which
+       is always larger than the parent's last_extended_slot, and thus
+       revealing every address as of the end of the parent slot.  The
+       slot hashes sysvar also stays this bank's, since the deactivation
+       window is relative to the executing slot.
+
+       Unlike with implied loader v3 ProgramData, no special handling is
+       needed here for loaded account data size on the ALT.  ALT size
+       accounting is stateless. */
+    FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
     fd_acct_addr_t * accts_alt = fd_type_pun( &txn_out->accounts.keys[txn_out->accounts.cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
                                                          runtime->accdb,
-                                                         bank->accdb_fork_id,
+                                                         bank->parent_accdb_fork_id,
                                                          bank->f.slot,
                                                          slot_hashes_view,
                                                          accts_alt );
-    txn_out->accounts.cnt += TXN( txn_in->txn )->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+    txn_out->accounts.cnt += TXN( txn_in->txn )->addr_table_adtl_cnt;
 
   }
   return FD_RUNTIME_EXECUTE_SUCCESS;
