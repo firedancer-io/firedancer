@@ -297,6 +297,15 @@ main( int     argc,
       FD_TEST( fd_is_pow2( x ) );
       FD_TEST( !fd_is_pow2( (uint)~x ) );
     }
+
+    FD_TEST( !fd_is_pow2( INT_MIN ) );
+    FD_TEST( !fd_is_pow2( -2      ) );
+    FD_TEST( !fd_is_pow2( -1      ) );
+    FD_TEST( !fd_is_pow2(  0      ) );
+    FD_TEST(  fd_is_pow2(  1      ) );
+    FD_TEST(  fd_is_pow2(  2      ) );
+    FD_TEST( !fd_is_pow2(  3      ) );
+
     for( int n=0; n<=w; n++ ) { uint x = (uint)((n<w) ? (1UL<<n) : 0UL); FD_TEST( fd_pow2( uint, n )==x ); }
     for( int b=0; b< w; b++ ) {
       uint mask  = (uint)(1UL<<b);
