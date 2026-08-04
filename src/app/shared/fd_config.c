@@ -8,6 +8,7 @@
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
+#include "../../disco/net/fd_net_tile.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
 
 #include <unistd.h>
@@ -588,12 +589,27 @@ fd_config_validate( fd_config_t const * config ) {
       FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\", \"dedicated\", or \"auto\"",
                    config->net.xdp.rss_queue_mode  ));
     }
+  } else if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+    if( FD_UNLIKELY( !config->is_firedancer ) ) {
+      FD_LOG_ERR(( "invalid `net.provider`: \"mlx5\" is only supported by Firedancer" ));
+    }
+    CFG_HAS_POW2( net.mlx5.mlx5_rx_queue_size );
+    CFG_HAS_POW2( net.mlx5.mlx5_tx_queue_size );
+    if( FD_UNLIKELY( config->net.mlx5.mlx5_rx_queue_size<=FD_MLX5_BATCH_SIZE ||
+                     config->net.mlx5.mlx5_tx_queue_size< FD_MLX5_BATCH_SIZE ) )
+      FD_LOG_ERR(( "invalid mlx5 queue depth: RX must exceed %u and TX must be at least %u",
+                   FD_MLX5_BATCH_SIZE, FD_MLX5_BATCH_SIZE ));
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\" or \"socket\"",
-                 config->net.provider ));
+    if( FD_UNLIKELY( config->is_firedancer ) ) {
+      FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"mlx5\", \"xdp\" or \"socket\"",
+                   config->net.provider ));
+    } else {
+      FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\" or \"socket\"",
+                   config->net.provider ));
+    }
   }
 
   CFG_HAS_NON_ZERO( tiles.netlink.max_routes           );

@@ -28,6 +28,10 @@ typedef struct fd_net_rx_bounds fd_net_rx_bounds_t;
 
 #define FD_NET_BOND_SLAVE_MAX 16U
 
+/* FD_MLX5_BATCH_SIZE is the descriptor and completion batch size. */
+
+#define FD_MLX5_BATCH_SIZE 64U
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_net_rx_bounds_init initializes a bounds checker for RX packets
@@ -73,8 +77,13 @@ FD_PROTOTYPES_END
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_topos_net_tiles appends the net and netlnk tiles to the
-   topology.  These tiles provide fast XDP networking. */
+/* fd_net_tile_name returns the tile name used by a configured network provider. */
+
+char const *
+fd_net_tile_name( char const * provider );
+
+/* fd_topos_net_tiles appends the selected network provider tiles to
+   the topology. */
 
 /* FIXME layering violation */
 struct fd_config_net;

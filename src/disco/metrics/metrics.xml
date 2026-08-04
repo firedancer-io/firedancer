@@ -417,6 +417,7 @@ EXAMPLES
     <int value="1" name="RouteType" label="Unsupported route type" />
     <int value="2" name="Interface" label="Interface not available" />
     <int value="3" name="SourceIp" label="No source IP address chosen" />
+    <int value="4" name="UnsupportedInterface" label="Interface type not supported" />
 </enum>
 
 <tile name="net">
@@ -457,6 +458,24 @@ EXAMPLES
     <counter name="GrePktTxNoRoute" summary="GRE packet transmit jobs dropped due to route failure" />
     <counter name="PktRxSrcInvalid" summary="Incoming packets dropped due to invalid source IP address" />
     <gauge name="RouteCount" enum="RouteTable" summary="IPv4 routes installed in the forwarding table" />
+</tile>
+
+<tile name="mlx5">
+    <counter name="PktRx" summary="Number of packets successfully published to output links." />
+    <counter name="PktRxBytes" summary="Number of bytes in packets successfully published to output links (including Ethernet header)." />
+    <counter name="RxOutOfBuffer" summary="Number of packets dropped by the NIC because this QP's receive queue had no posted buffer." />
+    <counter name="PktRxMalformed" summary="Number of packets dropped because the Ethernet, IPv4, or UDP header was malformed." />
+    <counter name="PktRxRouteFail" summary="Number of packets dropped because the destination UDP port could not be routed to an output link." />
+    <gauge name="RxBufferBusy" summary="Number of RX buffers not currently posted to the NIC." />
+    <gauge name="RxBufferIdle" summary="Number of RX buffers currently posted to the NIC." />
+    <counter name="PktTxCompleted" summary="Number of packets completed by the NIC for transmission." />
+    <counter name="PktTxBytes" summary="Number of bytes transmitted (including Ethernet header)." />
+    <counter name="PktTxNoBuffer" summary="Number of transmit jobs dropped because no TX buffer was available." />
+    <counter name="PktTxRouteFail" enum="RouteFail" summary="Number of transmit jobs dropped because route or source address selection failed." />
+    <counter name="PktTxInvalid" summary="Number of transmit jobs dropped because the IPv4 version or header length was invalid." />
+    <counter name="PktTxNoNeighbor" summary="Number of transmit jobs dropped because the next-hop neighbor was unresolved." />
+    <gauge name="TxBufferBusy" summary="Number of TX buffers pending or submitted to the NIC." />
+    <gauge name="TxBufferIdle" summary="Number of TX buffers available for a new transmit job." />
 </tile>
 
 <enum name="SocketError">
