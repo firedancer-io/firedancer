@@ -1640,6 +1640,17 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     fd_cstr_ncpy( tile->rpc.identity_key_path, config->paths.identity_key, sizeof(tile->rpc.identity_key_path) );
 
+    tile->rpc.snapshot_server_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
+    if( FD_LIKELY( tile->rpc.snapshot_server_enabled ) ) {
+      fd_cstr_ncpy( tile->rpc.snapshot_server_host, config->firedancer.gossip.host,
+                    sizeof(tile->rpc.snapshot_server_host) );
+
+      uint listen_port = config->firedancer.snapshots.server.http_listen_port;
+      FD_CHECK_ERR( listen_port && listen_port<=USHORT_MAX,
+                    "[snapshots.server.http_listen_port] must be in [1,65535]" );
+      tile->rpc.snapshot_server_port = (ushort)listen_port;
+    }
+
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 
     tile->backtest.root_distance = config->firedancer.development.backtest.root_distance;

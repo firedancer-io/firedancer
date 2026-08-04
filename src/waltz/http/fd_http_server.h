@@ -98,6 +98,8 @@ struct fd_http_server_request {
   uchar        method;        /* One of FD_HTTP_SERVER_METHOD_* indicating what the method of the request is */
   char const * path;          /* The NUL termoinated path component of the request.  Not sanitized and may contain arbitrary content.  Path is the full HTTP path of the request, for example
                                  "/img/monkeys/gorilla.jpg" */
+  char const * path_raw;      /* The non-NUL-terminated path component backed by the connection request buffer.  Valid until the response has been sent */
+  ulong        path_len;      /* The length of path_raw */
 
   void *       ctx;           /* The user provided context pointer passed when constructing the HTTP server */
 
@@ -149,6 +151,8 @@ struct fd_http_server_response {
   char const * content_type;     /* Content-Type to set in the HTTP response */
   char const * cache_control;    /* Cache-Control to set in the HTTP response */
   char const * content_encoding; /* Content-Encoding to set in the HTTP response */
+  char const * location[2];      /* Location to set in the HTTP response (concatenated) */
+  ulong        location_len[2];  /* Lengths of the two location fragments */
 
   char const * access_control_allow_origin;
   char const * access_control_allow_methods;
