@@ -1127,6 +1127,11 @@ dynamic_port_range = "8900-9000"
         #  "true", "false" or "auto" (default)
         native_bond = "auto"
 
+    [net.mlx5]
+        rx_queue_size = 16384
+        tx_queue_size = 16384
+        batch_size = 32
+
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
         # Raises net.core.rmem_max accordingly

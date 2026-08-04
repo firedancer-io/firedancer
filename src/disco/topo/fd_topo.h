@@ -128,7 +128,7 @@ typedef struct fd_topo_net_tile fd_topo_net_tile_t;
    credits from consumers. */
 struct fd_topo_tile {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
-  char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
+  char  name[ 8UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
   int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
@@ -201,6 +201,22 @@ struct fd_topo_tile {
 
       int xsk_core_dump;
     } xdp;
+
+    struct {
+      fd_topo_net_tile_t net;
+
+      ulong umem_dcache_obj_id;
+      char  if_name[ 16 ];
+      uint  rx_queue_size;
+      uint  tx_queue_size;
+      uint  batch_size;
+
+      ulong netdev_tbl_obj_id;
+      ulong route_max;
+      ulong route_peer_max;
+      ulong route_peer_seed;
+      ulong neigh4_obj_id;
+    } mlx5;
 
     struct {
       fd_topo_net_tile_t net;

@@ -1,0 +1,10 @@
+# logfile_fd: optional Firedancer log file
+# async_fd: nonblocking uverbs async event descriptor
+uint logfile_fd, uint async_fd
+
+read: (eq (arg 0) async_fd)
+
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+fsync: (eq (arg 0) logfile_fd)

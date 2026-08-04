@@ -1116,6 +1116,11 @@ telemetry = true
     #   for hosts which do not support XDP, and to support experimental
     #   features that are not yet implemented in the XDP stack.
     #
+    #  "mlx5" (experimental)
+    #   Provides a kernel-bypass data path that drives mlx5 hardware queues
+    #   directly, without libibverbs, libmlx5, or other networking libraries.
+    #   Supported on Mellanox ConnectX-4 and newer NICs.
+    #
     # Using the XDP networking stack is strongly preferred where
     # possible, as it is faster and better tested by the development
     # team.
@@ -1304,6 +1309,13 @@ telemetry = true
         # Its possible values are:
         #  "true", "false" or "auto" (default)
         native_bond = "auto"
+
+    # Direct mlx5 networking configuration.  Only active when
+    # [net.provider] is "mlx5".
+    [net.mlx5]
+        rx_queue_size = 16384
+        tx_queue_size = 16384
+        batch_size = 32
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.  Raises
