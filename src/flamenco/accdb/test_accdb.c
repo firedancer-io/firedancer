@@ -1430,6 +1430,95 @@ test_deferred_write_stats_rollover( void ) {
   test_teardown( accdb, fd );
 }
 
+static void
+test_default_deferred_write_stats( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+
+  fd_accdb_attach_child( accdb, SENTINEL );
+
+  uchar pubkey[ 32UL ] = { 0xC0 };
+  ulong data_len = 123UL;
+  ulong replaced_lamports;
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pubkey, 1UL, 1UL, data_len, 0, &replaced_lamports )==1 );
+
+  fd_accdb_shmem_partition_info_t info;
+  fd_accdb_shmem_partition_info( test_shmem_mem, 0UL, &info );
+  FD_TEST( shmetrics->disk_current_bytes==0UL );
+  FD_TEST( info.bytes_written==0UL );
+  FD_TEST( info.write_ops==0UL );
+
+  fd_accdb_flush_metrics( accdb );
+
+  ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
+  fd_accdb_shmem_partition_info( test_shmem_mem, 0UL, &info );
+  FD_TEST( shmetrics->disk_current_bytes==entry_sz );
+  FD_TEST( info.bytes_written==entry_sz );
+  FD_TEST( info.write_ops==1UL );
+
+  test_teardown( accdb, fd );
+}
+
+static void
+test_deferred_write_stats_two_joiners( void ) {
+  int fd;
+  ulong psz = 11UL<<20UL;
+  fd_accdb_t * accdb_a = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, psz,
+                                        TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+  fd_accdb_t * accdb_b = test_join_writer( fd );
+
+  fd_accdb_attach_child( accdb_a, SENTINEL );
+
+  uchar pubkey_a[ 32UL ] = { 0xC1 };
+  uchar pubkey_b[ 32UL ] = { 0xC2 };
+  ulong entry_sz_a = 4UL<<20UL;
+  ulong entry_sz_b = 8UL<<20UL;
+  ulong replaced_lamports;
+
+  FD_TEST( fd_accdb_snapshot_write_one( accdb_a, SENTINEL, pubkey_a, 1UL, 1UL,
+                                        entry_sz_a-sizeof(fd_accdb_disk_meta_t), 0, &replaced_lamports )==1 );
+  FD_TEST( fd_accdb_snapshot_write_one( accdb_b, SENTINEL, pubkey_b, 1UL, 1UL,
+                                        entry_sz_b-sizeof(fd_accdb_disk_meta_t), 0, &replaced_lamports )==1 );
+
+  FD_TEST( fd_accdb_shmem_partition_max( test_shmem_mem )==2UL );
+
+  ulong old_idx = ULONG_MAX;
+  ulong new_idx = ULONG_MAX;
+  for( ulong p=0UL; p<2UL; p++ ) {
+    fd_accdb_shmem_partition_info_t info;
+    fd_accdb_shmem_partition_info( test_shmem_mem, p, &info );
+    if( info.is_write_head ) new_idx = p;
+    else                     old_idx = p;
+    FD_TEST( info.bytes_written==0UL );
+    FD_TEST( info.write_ops==0UL );
+  }
+  FD_TEST( old_idx!=ULONG_MAX && new_idx!=ULONG_MAX );
+
+  fd_accdb_flush_metrics( accdb_b );
+
+  fd_accdb_shmem_partition_info_t old_info;
+  fd_accdb_shmem_partition_info_t new_info;
+  fd_accdb_shmem_partition_info( test_shmem_mem, old_idx, &old_info );
+  fd_accdb_shmem_partition_info( test_shmem_mem, new_idx, &new_info );
+  FD_TEST( old_info.bytes_written==0UL );
+  FD_TEST( old_info.write_ops==0UL );
+  FD_TEST( new_info.bytes_written==entry_sz_b );
+  FD_TEST( new_info.write_ops==1UL );
+
+  fd_accdb_flush_metrics( accdb_a );
+
+  fd_accdb_shmem_partition_info( test_shmem_mem, old_idx, &old_info );
+  fd_accdb_shmem_partition_info( test_shmem_mem, new_idx, &new_info );
+  FD_TEST( old_info.bytes_written==entry_sz_a );
+  FD_TEST( old_info.write_ops==1UL );
+  FD_TEST( new_info.bytes_written==entry_sz_b );
+  FD_TEST( new_info.write_ops==1UL );
+
+  free( accdb_b );
+  test_teardown( accdb_a, fd );
+}
+
 /* test_incremental_cross_fork_override verifies that incremental
    cross-fork overrides create new acc_pool entries with txn records,
    and that purging the incremental fork + revert_whead fully restores
@@ -1734,6 +1823,12 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_deferred_write_stats_rollover ..." ));
   test_deferred_write_stats_rollover();
+
+  FD_LOG_NOTICE(( "test_default_deferred_write_stats ..." ));
+  test_default_deferred_write_stats();
+
+  FD_LOG_NOTICE(( "test_deferred_write_stats_two_joiners ..." ));
+  test_deferred_write_stats_two_joiners();
 
   FD_LOG_NOTICE(( "test_incremental_cross_fork_override ..." ));
   test_incremental_cross_fork_override();

@@ -622,9 +622,8 @@ fd_accdb_shmetrics( fd_accdb_t * accdb );
 fd_accdb_metrics_t const *
 fd_accdb_metrics( fd_accdb_t * accdb );
 
-/* fd_accdb_flush_metrics publishes the disk-space counters that the
-   snapshot loader holds back.  Called from both snapin housekeeping
-   and accdb functions that require updated metrics. */
+/* fd_accdb_flush_metrics publishes this joiner's pending layer-0 write
+   metrics.  Normal layer-0 writes defer these metrics by default. */
 
 void
 fd_accdb_flush_metrics( fd_accdb_t * accdb );

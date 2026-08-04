@@ -1728,6 +1728,8 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
 
 static inline void
 metrics_write( fd_tower_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MCNT_SET( TOWER, FRAG_NOT_READY_DROPPED, ctx->metrics.not_ready );
 
   FD_MCNT_SET  ( TOWER, FRAG_IGNORED,  ctx->metrics.ignored_cnt  );

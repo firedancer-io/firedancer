@@ -116,6 +116,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_execle_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MCNT_ENUM_COPY( EXECLE, TXN_RESULT, ctx->metrics.txn_result );
   FD_MCNT_ENUM_COPY( EXECLE, TXN_LANDED, ctx->metrics.txn_landed );
 

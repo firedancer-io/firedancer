@@ -141,6 +141,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MCNT_SET  ( REPLAY, STORE_QUERY_ACQUIRED,      ctx->metrics.store_query_acquire      );
   FD_MCNT_SET  ( REPLAY, STORE_QUERY_RELEASED,      ctx->metrics.store_query_release      );
   FD_MHIST_COPY( REPLAY, STORE_QUERY_WAIT_SECONDS, ctx->metrics.store_query_wait         );

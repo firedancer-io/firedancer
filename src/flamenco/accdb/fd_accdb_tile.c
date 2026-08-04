@@ -43,6 +43,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_accdb_tile_ctx_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( ctx->accdb );
 
   FD_MGAUGE_SET( ACCDB, ACCOUNT_COUNT,          metrics->accounts_total );
