@@ -583,12 +583,34 @@ fd_config_validate( fd_config_t const * config ) {
       FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\", \"dedicated\", or \"auto\"",
                    config->net.xdp.rss_queue_mode  ));
     }
+  } else if( 0==strcmp( config->net.provider, "ibverbs" ) ) {
+    if( FD_UNLIKELY( !config->is_firedancer ) ) {
+      FD_LOG_ERR(( "invalid `net.provider`: \"ibverbs\" is only supported by Firedancer" ));
+    }
+    if( FD_UNLIKELY( !config->net.ibverbs.rdma_device[0] ) )
+      FD_LOG_ERR(( "invalid `net.ibverbs.rdma_device`: must be \"auto\" or an RDMA device name" ));
+    CFG_HAS_POW2( net.ibverbs.rx_queue_size );
+    CFG_HAS_POW2( net.ibverbs.tx_queue_size );
+    CFG_HAS_POW2( net.ibverbs.batch_size );
+    if( FD_UNLIKELY( config->net.ibverbs.batch_size>64U ||
+                     config->net.ibverbs.batch_size>=config->net.ibverbs.rx_queue_size ||
+                     config->net.ibverbs.batch_size>config->net.ibverbs.tx_queue_size ) )
+      FD_LOG_ERR(( "invalid `net.ibverbs.batch_size`: must not exceed 64 or the TX queue depth, and must be smaller than the RX queue depth" ));
+    if( FD_UNLIKELY( !config->net.ibverbs.flow_rule_max || config->net.ibverbs.flow_rule_max>64U ) )
+      FD_LOG_ERR(( "invalid `net.ibverbs.flow_rule_max`: must be in [1,64]" ));
+    if( FD_UNLIKELY( config->net.ibverbs.rdma_port>255U ) )
+      FD_LOG_ERR(( "invalid `net.ibverbs.rdma_port`: must be in [0,255]" ));
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\" or \"socket\"",
-                 config->net.provider ));
+    if( FD_UNLIKELY( config->is_firedancer ) ) {
+      FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\", \"ibverbs\" or \"socket\"",
+                   config->net.provider ));
+    } else {
+      FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\" or \"socket\"",
+                   config->net.provider ));
+    }
   }
 
   CFG_HAS_NON_ZERO( tiles.netlink.max_routes           );

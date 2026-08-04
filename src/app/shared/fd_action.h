@@ -152,6 +152,10 @@ union fdctl_args {
   } udpecho;
 
   struct {
+    ushort listen_port;
+  } pktgen;
+
+  struct {
     char topo[ 64 ];
   } metrics;
 

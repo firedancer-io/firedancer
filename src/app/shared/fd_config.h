@@ -212,7 +212,7 @@ typedef struct fd_configf fd_configf_t;
 struct fd_config_net {
   char auto_level[ 12 ]; /* "standard" or "minimal" */
 
-  char provider[ 8 ]; /* "xdp" or "socket" */
+  char provider[ 8 ]; /* "xdp", "ibverbs" or "socket" */
 
   char interface[ IF_NAMESIZE ];
   char bind_address[ 16 ];
@@ -233,6 +233,15 @@ struct fd_config_net {
     int  listen_gre;
     int  native_bond; /* true/false or "auto" */
   } xdp;
+
+  struct {
+    char rdma_device[ 64 ]; /* "auto" or an RDMA device name */
+    uint rdma_port;         /* zero selects the matching port automatically */
+    uint rx_queue_size;
+    uint tx_queue_size;
+    uint batch_size;
+    uint flow_rule_max;
+  } ibverbs;
 
   struct {
     uint receive_buffer_size;

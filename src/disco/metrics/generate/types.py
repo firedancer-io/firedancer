@@ -43,6 +43,7 @@ class Tile(Enum):
     GUI = 38
     METRIC = 39
     RPC = 40
+    IBETH = 41
 
     SNAPMK = 50
     SNAPZP = 51
