@@ -1081,8 +1081,16 @@ telemetry = true
 # fanning in from these various network senders to transmit on the
 # queues we have available.
 [net]
-    # The provider determines which Linux networking stack is used by
-    # Firedancer.  Possible values for the option are:
+    # The provider determines how Firedancer sends and receives
+    # packets.  Possible values for the option are:
+    #
+    #  "mlx5"
+    #   Use Linux uverbs to create mlx5 hardware resources, then drive
+    #   the hardware queues directly through a kernel-bypass data path.
+    #   This does not depend on libibverbs or libmlx5. Testing has shown
+    #   significantly higher packet rates than XDP. The mlx5 provider
+    #   requires Linux 5.8 or newer and a Mellanox ConnectX NIC of
+    #   version 4 or later, as these are mlx5 based.
     #
     #  "xdp" (default)
     #   Use Linux express data path APIs for high performance
@@ -1096,10 +1104,6 @@ telemetry = true
     #   best-effort basis.  The socket option is provided as a fallback
     #   for hosts which do not support XDP, and to support experimental
     #   features that are not yet implemented in the XDP stack.
-    #
-    # Using the XDP networking stack is strongly preferred where
-    # possible, as it is faster and better tested by the development
-    # team.
     provider = "xdp"
 
     # Which interface to bind to for network traffic.  Currently,
@@ -1123,6 +1127,20 @@ telemetry = true
     # less memory.  Larger values decrease link overruns caused by
     # excessive latency.
     ingress_buffer_size = 16384
+
+    # mlx5 networking provider configuration.  Only active if
+    # [net.provider] is set to "mlx5".
+    [net.mlx5]
+        # mlx5 uses metadata queues shared between the NIC
+        # hardware and Firedancer userspace to relay events about
+        # incoming and outgoing packets.  This setting defines the
+        # number of entries in these metadata queues, which has to
+        # be a power of two.
+        #
+        # Smaller values use less memory.  Larger values reduce packet
+        # loss caused by excessive scheduling or inter-CPU latency.
+        mlx5_rx_queue_size = 32768
+        mlx5_tx_queue_size = 32768
 
     # This section contains XDP-specific network configuration.
     # Only active if [net.provider] is set to "xdp".

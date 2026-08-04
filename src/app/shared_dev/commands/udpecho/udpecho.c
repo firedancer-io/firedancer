@@ -49,6 +49,7 @@ udpecho_topo( config_t * config ) {
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
   fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, 0, tile_to_cpu );
+  char const * net_tile_name = fd_net_tile_name( config->net.provider );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
 
   fd_topob_wksp( topo, "l4swap" );
@@ -56,7 +57,7 @@ udpecho_topo( config_t * config ) {
 
   fd_topob_link( topo, "quic_net", "l4swap", 2048UL, FD_NET_MTU, 1UL );
   fd_topob_tile_out( topo, "l4swap", 0UL, "quic_net", 0UL );
-  fd_topob_tile_in( topo, "net", 0UL, "metric_in", "quic_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, net_tile_name, 0UL, "metric_in", "quic_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   fd_topos_net_rx_link( topo, "net_quic", 0UL, config->net.ingress_buffer_size );
   fd_topob_tile_in( topo, "l4swap", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -84,7 +85,9 @@ udpecho_cmd_fn( args_t *   args,
                 config_t * config ) {
   udpecho_topo( config );
   fd_topo_t *      topo        = &config->topo;
-  fd_topo_tile_t * net_tile    = &topo->tiles[ fd_topo_find_tile( topo, "net",    0UL ) ];
+  ulong            net_tile_id = fd_topo_find_tile( topo, fd_net_tile_name( config->net.provider ), 0UL );
+  if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
+  fd_topo_tile_t * net_tile    = &topo->tiles[ net_tile_id ];
   fd_topo_tile_t * metric_tile = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
 
   net_tile->net.legacy_transaction_listen_port = args->udpecho.listen_port;

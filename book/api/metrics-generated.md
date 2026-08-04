@@ -203,6 +203,7 @@
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">route_&#8203;type</span>"} | counter | Packet transmit jobs dropped due to route failure (Unsupported route type) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">interface</span>"} | counter | Packet transmit jobs dropped due to route failure (Interface not available) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">source_&#8203;ip</span>"} | counter | Packet transmit jobs dropped due to route failure (No source IP address chosen) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">unsupported_&#8203;interface</span>"} | counter | Packet transmit jobs dropped due to route failure (Interface type not supported) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;neighbor</span> | counter | Packet transmit jobs dropped due to unresolved neighbor |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;ring_&#8203;full</span> | counter | Packet transmit jobs dropped due to XDP TX ring full or missing completions |
 | <span class="metrics-name">net_&#8203;tx_&#8203;buffer_&#8203;busy</span> | gauge | Transmit buffers currently busy |
@@ -1859,6 +1860,34 @@
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;read_&#8203;operation</span> | counter | Number of read operations performed on the account database |
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied out of the account database cache on a cache hit |
+
+</div>
+
+## Mlx5 Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx</span> | counter | Number of packets successfully published to output links. |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Number of bytes in packets successfully published to output links (including Ethernet header). |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;out_&#8203;of_&#8203;buffer</span> | counter | Number of packets dropped by the NIC because this QP's receive queue had no posted buffer. |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;malformed</span> | counter | Number of packets dropped because the Ethernet, IPv4, or UDP header was malformed. |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;route_&#8203;fail</span> | counter | Number of packets dropped because the destination UDP port could not be routed to an output link. |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;busy</span> | gauge | Number of RX buffers not currently posted to the NIC. |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;idle</span> | gauge | Number of RX buffers currently posted to the NIC. |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Number of packets completed by the NIC for transmission. |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;bytes</span> | counter | Number of bytes transmitted (including Ethernet header). |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;buffer</span> | counter | Number of transmit jobs dropped because no TX buffer was available. |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">no_&#8203;route</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (No matching route) |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">route_&#8203;type</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Unsupported route type) |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">interface</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Interface not available) |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">source_&#8203;ip</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (No source IP address chosen) |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">unsupported_&#8203;interface</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Interface type not supported) |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;invalid</span> | counter | Number of transmit jobs dropped because the IPv4 version or header length was invalid. |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;neighbor</span> | counter | Number of transmit jobs dropped because the next-hop neighbor was unresolved. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;busy</span> | gauge | Number of TX buffers pending or submitted to the NIC. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;idle</span> | gauge | Number of TX buffers available for a new transmit job. |
 
 </div>
 

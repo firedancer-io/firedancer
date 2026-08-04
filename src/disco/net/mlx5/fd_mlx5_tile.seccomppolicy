@@ -1,0 +1,46 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# async_fd: This is the file descriptor for the asynchronous uverbs
+# event descriptor. Used to check for async events from uverbs during
+# housekeeping (mostly queue errors and device errors).
+#
+# qp_stats_fd: This is the file descriptor for the RDMA netlink socket
+# we use to check QP specific hardware counters (namely out-of-buffer).
+uint logfile_fd, uint async_fd, uint qp_stats_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# mlx5: drain uverbs async events so device and queue failures are
+#       detected by the tile
+#
+# arg 0 is the nonblocking uverbs async event descriptor.
+read: (eq (arg 0) async_fd)
+
+# mlx5: periodically request the QP out-of-buffer counter over RDMA
+#       netlink
+#
+# arg 0 is the RDMA netlink socket and arg 3 is the send flags.
+sendto: (and (eq (arg 0) qp_stats_fd)
+             (eq (arg 3) 0))
+
+# mlx5: receive replies to QP counter requests over RDMA netlink
+#
+# MSG_TRUNC reports the full datagram size so oversized replies can be
+# rejected.  Arg 0 is the RDMA netlink socket and arg 3 is the receive
+# flags.
+recvfrom: (and (eq (arg 0) qp_stats_fd)
+               (eq (arg 3) MSG_TRUNC))

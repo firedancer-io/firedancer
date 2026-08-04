@@ -881,8 +881,9 @@ repair_cmd_fn_catchup( args_t *   args,
   FD_TEST( repair_net_links );
   FD_TEST( net_shred_links  );
 
+  char const * net_tile_name = fd_net_tile_name( config->net.provider );
   for( ulong i = 0UL; i < net_cnt; i++ ) {
-    ulong tile_idx = fd_topo_find_tile( &config->topo, "net", i );
+    ulong tile_idx = fd_topo_find_tile( &config->topo, net_tile_name, i );
     if( FD_UNLIKELY( tile_idx == ULONG_MAX ) ) FD_LOG_ERR(( "net tile %lu not found", i ));
     fd_topo_tile_t * tile = &config->topo.tiles[ tile_idx ];
 
@@ -1049,9 +1050,10 @@ repair_cmd_fn_metrics( args_t *   args,
   FD_TEST( repair_net_links );
   FD_TEST( net_shred_links );
 
+  char const * net_tile_name = fd_net_tile_name( config->net.provider );
   for( ulong i = 0UL; i < net_tile_cnt; i++ ) {
     /* process all repair_net links */
-    ulong tile_idx = fd_topo_find_tile( &config->topo, "net", i );
+    ulong tile_idx = fd_topo_find_tile( &config->topo, net_tile_name, i );
     if( FD_UNLIKELY( tile_idx == ULONG_MAX ) ) FD_LOG_ERR(( "net tile %lu not found", i ));
     fd_topo_tile_t * tile = &config->topo.tiles[ tile_idx ];
 
