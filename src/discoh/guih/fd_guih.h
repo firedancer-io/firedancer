@@ -811,8 +811,8 @@ struct fd_guih {
       ulong end_slot;
       ulong target_slot_duration_nanos;
       fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
-      fd_vote_stake_weight_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+      fd_vote_stake_weight_t stakes[ MAX_STAKE_WEIGHTS ];
 
       ulong rankings_slot; /* One more than the largest slot we've processed into our rankings */
       fd_guih_slot_rankings_t rankings[ 1 ]; /* global slot rankings */

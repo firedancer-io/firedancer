@@ -115,8 +115,6 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
     verify_tile_count = 2
     execrp_tile_count = 6
 [tiles]
-    [tiles.replay]
-        enable_features = [ "VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ" ]
     [tiles.gui]
         enabled = false
     [tiles.rpc]

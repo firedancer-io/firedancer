@@ -16,11 +16,9 @@
 
    Vote account state can differ across forks crossing the boundary,
    so entries carry a fork membership bitmask.  Fork ids rotate at
-   every boundary, independently of fd_vote_stakes (which stops
-   rotating once validator_admission_ticket is active).  Entry
-   content is immutable after creation: forks capturing identical
-   state share an entry via their fork bit; divergent state gets a
-   distinct entry.
+   every boundary.  Entry content is immutable after creation: forks
+   capturing identical state share an entry via their fork bit;
+   divergent state gets a distinct entry.
 
    Concurrent queries are allowed; mutating operations take an
    exclusive lock internally.  The structure is only modified during
@@ -45,7 +43,7 @@ fd_collector_overrides_align( void );
 
 /* fd_collector_overrides_footprint returns the footprint for at most
    max_overrides entries.  Entries per epoch tag are bounded by the
-   VAT-admitted vote account set (FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT):
+   VAT-admitted vote account set (FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS):
    the admitted-set capture path enforces the bound directly, and the
    pre-VAT capture path creates no entries because non-default
    collectors require the custom_commission_collector feature, which

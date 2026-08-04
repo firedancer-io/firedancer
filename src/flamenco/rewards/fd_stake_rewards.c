@@ -2,8 +2,6 @@
 #include "fd_rewards_base.h"
 #include "../../ballet/siphash13/fd_siphash13.h"
 
-#define MAX_SUPPORTED_FORKS (128UL)
-
 #define FD_STAKE_REWARDS_MAGIC (0xF17EDA2CE757A4E0) /* FIREDANCER STAKE V0 */
 
 struct fork {
@@ -42,7 +40,7 @@ typedef struct fork_info fork_info_t;
 struct fd_stake_rewards {
   ulong       magic;
   ulong       max_stake_accounts; /* entries a fork's storage can hold */
-  fork_info_t fork_info[MAX_SUPPORTED_FORKS];
+  fork_info_t fork_info[ FD_STAKE_REWARDS_MAX_FORK_WIDTH ];
   ulong       fork_pool_offset;
   ulong       partitions_offset;
   ulong       epoch;
@@ -122,6 +120,9 @@ fd_stake_rewards_align( void ) {
 ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
                             ulong max_fork_width ) {
+  if( FD_UNLIKELY( max_stake_accounts>=(ulong)UINT_MAX ) ) return 0UL;
+  if( FD_UNLIKELY( max_fork_width>FD_STAKE_REWARDS_MAX_FORK_WIDTH ) ) return 0UL;
+
   ulong partition_ele_cnt = fd_ulong_sat_mul( max_fork_width, max_stake_accounts );
 
   ulong l = FD_LAYOUT_INIT;
@@ -147,6 +148,11 @@ fd_stake_rewards_new( void * shmem,
   /* Entries are addressed by uint indices within a fork's storage. */
   if( FD_UNLIKELY( max_stake_accounts>=(ulong)UINT_MAX ) ) {
     FD_LOG_WARNING(( "max_stake_accounts is too large" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( max_fork_width>FD_STAKE_REWARDS_MAX_FORK_WIDTH ) ) {
+    FD_LOG_WARNING(( "max_fork_width %lu exceeds maximum %lu",
+                     max_fork_width, FD_STAKE_REWARDS_MAX_FORK_WIDTH ));
     return NULL;
   }
   ulong partition_ele_cnt = fd_ulong_sat_mul( max_fork_width, max_stake_accounts );
@@ -196,7 +202,7 @@ fd_stake_rewards_join( void * shmem ) {
 void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
   fork_pool_reset( get_fork_pool( stake_rewards ) );
-  for( ulong i=0UL; i<MAX_SUPPORTED_FORKS; i++ ) stake_rewards->fork_info[i].refcnt = 0UL;
+  for( ulong i=0UL; i<FD_STAKE_REWARDS_MAX_FORK_WIDTH; i++ ) stake_rewards->fork_info[i].refcnt = 0UL;
   stake_rewards->epoch = ULONG_MAX;
 }
 

@@ -2109,7 +2109,7 @@ void
 fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           fd_epoch_info_msg_t const * epoch_info,
                           long                        now ) {
-  FD_TEST( epoch_info->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+  FD_TEST( epoch_info->staked_vote_cnt<=MAX_STAKE_WEIGHTS );
   FD_TEST( epoch_info->slot_cnt<=MAX_SLOTS_PER_EPOCH );
   FD_TEST( epoch_info->staked_vote_cnt );
 
@@ -2126,8 +2126,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                                                                              epoch_info->start_slot,
                                                                              epoch_info->slot_cnt,
                                                                              epoch_info->staked_vote_cnt,
-                                                                             gui->epoch.stakes_scratch,
-                                                                             0UL ) );
+                                                                             gui->epoch.stakes_scratch ) );
   FD_TEST( lsched );
 
   int created = 0;
@@ -2150,8 +2149,8 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
     memset( epoch->is_voter,      0,                                 sizeof(epoch->is_voter)      );
     memset( epoch->skipped,       0,                                 sizeof(epoch->skipped)       );
     epoch->epoch_schedule = epoch_info->epoch_schedule;
-    epoch->pub_cnt        = fd_ulong_min( lsched->pub_cnt, FD_GUI_EPOCH_PUB_CNT );
-    epoch->stakes_cnt     = fd_ulong_min( epoch_info->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS );
+    epoch->pub_cnt        = lsched->pub_cnt;
+    epoch->stakes_cnt     = epoch_info->staked_vote_cnt;
     fd_memcpy( epoch->pub,    lsched->pub,   epoch->pub_cnt*sizeof(fd_pubkey_t) );
     fd_memcpy( epoch->sched,  lsched->sched, fd_ulong_min( lsched->sched_cnt, FD_GUI_EPOCH_SCHED_CNT )*sizeof(uint) );
     fd_memcpy( epoch->stakes, gui->epoch.stakes_scratch, epoch->stakes_cnt*sizeof(fd_vote_stake_weight_t) );

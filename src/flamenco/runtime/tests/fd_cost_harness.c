@@ -16,7 +16,7 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
 
   if( FD_UNLIKELY( !input->has_tx || !input->has_features ) ) return 0UL;
 
-  fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
+  fd_banks_clear_bank( runner->banks, runner->bank );
   runner->bank->f.slot = 1UL;
   FD_TEST( fd_solfuzz_pb_restore_features( &runner->bank->f.features, &input->features ) );
 

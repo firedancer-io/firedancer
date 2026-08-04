@@ -1806,8 +1806,8 @@ returnable_frag( fd_tower_tile_t *   ctx,
   }
   case IN_KIND_EPOCH: {
     fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    FD_TEST( msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
-    FD_TEST( msg->staked_id_cnt<=MAX_SHRED_DESTS );
+    FD_TEST( msg->staked_vote_cnt<=MAX_STAKE_WEIGHTS );
+    FD_TEST( msg->staked_id_cnt<=MAX_STAKE_WEIGHTS );
     fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
     fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
     return 0;

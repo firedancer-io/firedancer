@@ -3,10 +3,8 @@
 
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
-#include "../stakes/fd_new_votes.h"
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_top_votes.h"
-#include "../stakes/fd_vote_stakes.h"
 #include "../stakes/fd_collector_overrides.h"
 #include "../progcache/fd_progcache_xid.h"
 #include "../fd_rwlock.h"
@@ -95,10 +93,9 @@ FD_PROTOTYPES_BEGIN
   modified, a new element of the pool is acquired and the data is
   copied over from the parent.
 
-  Currently, there are two delta-based fields, fd_stake_delegations_t
-  and fd_new_votes_t.  The full state for these is stored in
-  fd_banks_t in out-of-line memory, with each bank carrying the fork
-  index for its delta.
+  fd_stake_delegations_t stores its full state in fd_banks_t in
+  out-of-line memory, with each bank carrying the fork index for its
+  delta.
 
   The cost tracker is allocated from a pool.  The lifetime of a cost
   tracker element starts when the bank is linked to a parent with a
@@ -275,12 +272,10 @@ struct fd_bank {
   fd_progcache_fork_id_t progcache_fork_id;
   fd_accdb_fork_id_t     accdb_fork_id;
   fd_accdb_fork_id_t     parent_accdb_fork_id;
-  ushort                 vote_stakes_fork_id;
   ushort                 collector_overrides_fork_id;
   uchar                  stake_rewards_fork_id;
   uchar                  epoch_credits_fork_id;
   ushort                 stake_delegations_fork_id;
-  ushort                 new_votes_fork_id;
   ulong                  cost_tracker_pool_idx;
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
@@ -360,12 +355,6 @@ struct fd_banks_prune_cancel_info {
 };
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 
-fd_vote_stakes_t *
-fd_bank_vote_stakes( fd_bank_t const * bank );
-
-fd_new_votes_t *
-fd_bank_new_votes( fd_bank_t const * bank );
-
 fd_stake_delegations_t *
 fd_bank_stake_delegations_modify( fd_bank_t * bank );
 
@@ -411,10 +400,7 @@ struct fd_banks {
 
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
 
-  ulong vote_stakes_pool_offset;
   ulong collector_overrides_offset;
-
-  ulong new_votes_offset;
 
   ulong stake_rewards_offset;
 
@@ -559,20 +545,6 @@ fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
 
 fd_stake_delegations_t *
 fd_banks_stake_delegations_root_query( fd_banks_t * banks );
-
-/* fd_banks_new_votes_fork_indices collects the new_votes fork ids
-   along the ancestry chain from `bank` up to (and including) the root
-   bank.  Valid (non-USHORT_MAX) fork ids are written into
-   fork_indices_out in child-to-root order.
-
-   The caller must provide an array large enough to hold all possible
-   ancestors; banks->max_total_banks is always sufficient.
-
-   Returns the number of entries written. */
-
-ulong
-fd_banks_new_votes_fork_indices( fd_bank_t * bank,
-                                 ushort *    fork_indices_out );
 
 /* fd_banks_pool_used_cnt returns the number of bank pool elements
    currently in use. */
@@ -825,8 +797,7 @@ fd_banks_can_start_bank( fd_banks_t * banks );
 
 void
 fd_banks_clear_bank( fd_banks_t * banks,
-                     fd_bank_t *  bank,
-                     ulong        max_vote_accounts );
+                     fd_bank_t *  bank );
 
 FD_PROTOTYPES_END
 

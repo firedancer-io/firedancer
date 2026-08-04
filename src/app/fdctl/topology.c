@@ -245,8 +245,8 @@ fd_topo_initialize( config_t * config ) {
 
     /* The size of plugin_out is the max of the message size from
        gossip_plugi and stake_out. */
-    FD_TEST( FD_STAKE_OUT_MTU>=8UL+108000UL*(60UL+12UL*6UL) );
-    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    FD_STAKE_OUT_MTU,             1UL  );
+    ulong plugin_out_mtu = fd_ulong_max( FD_STAKE_OUT_MTU, 8UL+108000UL*(60UL+12UL*6UL) );
+    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    plugin_out_mtu,               1UL  );
     /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    128UL,                                    4098*8UL,                     1UL  );
     /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    128UL,                                    8UL+108000UL*(60UL+12UL*6UL), 1UL  );
     /**/                 fd_topob_link( topo, "pohh_plugin",  "plugin_in",    128UL,                                    16UL,                         1UL  );

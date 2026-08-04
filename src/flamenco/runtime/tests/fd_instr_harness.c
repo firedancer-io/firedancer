@@ -46,7 +46,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_out->accounts.executable_skipped_cnt = 0;
 
   /* Bank manager */
-  fd_banks_clear_bank( runner->banks, runner->bank, 4UL );
+  fd_banks_clear_bank( runner->banks, runner->bank );
 
   /* Restore features */
   FD_TEST( test_ctx->has_features );

@@ -80,8 +80,7 @@ fd_epoch_leaders_new( void  *                  shmem,
                       ulong                    slot0,
                       ulong                    slot_cnt,
                       ulong                    pub_cnt,
-                      fd_vote_stake_weight_t * stakes,
-                      ulong                    excluded_stake ) {
+                      fd_vote_stake_weight_t * stakes ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -104,8 +103,6 @@ fd_epoch_leaders_new( void  *                  shmem,
      vote addr per rotation   (align=32, footprint=32*ceil(slot_cnt/4))
      (up to 60 bytes of padding to align to 64)
      list of pubkeys          (align=32, footprint=32*pub_cnt)
-     the indeterminate pubkey (align=32, footprint=32)
-     leader membership bitset (align=8, footprint=8*ceil((pub_cnt+1)/64))
      (possibly 32 bytes of padding to align to 64)
 
      but in order to generate the list of indices, we want to use
@@ -118,8 +115,6 @@ fd_epoch_leaders_new( void  *                  shmem,
      done with the wsample object.  There's a lot of type punning going
      on here, so watch out. */
   ulong sched_cnt = (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION;
-
-  ulong leader_bits_word_cnt = FD_EPOCH_LEADERS_BITSET_WORD_CNT( pub_cnt );
 
   fd_epoch_leaders_t * leaders = (fd_epoch_leaders_t *)fd_type_pun( (void *)laddr );
   laddr += sizeof(fd_epoch_leaders_t);
@@ -149,12 +144,11 @@ fd_epoch_leaders_new( void  *                  shmem,
 
   void * _wsample = fd_wsample_new_init( wsample_mem, rng, pub_cnt, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
   for( ulong i=0UL; i<pub_cnt; i++ ) _wsample = fd_wsample_new_add( _wsample, stakes[i].stake );
-  fd_wsample_t * wsample = fd_wsample_join( fd_wsample_new_fini( _wsample, excluded_stake ) );
+  fd_wsample_t * wsample = fd_wsample_join( fd_wsample_new_fini( _wsample, 0UL ) );
   FD_TEST( wsample );
 
-  /* Generate samples.  We need uints, so we can't use sample_many.  Map
-     any FD_WSAMPLE_INDETERMINATE values to pub_cnt. */
-  for( ulong i=0UL; i<sched_cnt; i++ ) sched[ i ] = (uint)fd_ulong_min( fd_wsample_sample( wsample ), pub_cnt );
+  /* Generate samples.  We need uints, so we can't use sample_many. */
+  for( ulong i=0UL; i<sched_cnt; i++ ) sched[ i ] = (uint)fd_wsample_sample( wsample );
 
   /* Clean up the wsample object */
   fd_wsample_delete( fd_wsample_leave( wsample ) );
@@ -163,34 +157,18 @@ fd_epoch_leaders_new( void  *                  shmem,
   /* Now we can use the space for the pubkeys */
   for( ulong i=0UL; i<pub_cnt; i++ ) memcpy( pubkeys+i, &stakes[ i ].id_key, 32UL );
 
-  /* copy indeterminate leader to the last spot */
-  static const uchar fd_indeterminate_leader[32] = { FD_INDETERMINATE_LEADER };
-  memcpy( pubkeys+pub_cnt, fd_indeterminate_leader, 32UL );
-
   /* record the leader vote address per rotation */
-  for( ulong i=0UL; i<sched_cnt; i++ ) {
-    if( FD_UNLIKELY( sched[ i ]==(uint)pub_cnt ) ) memcpy( vote_addr+i, fd_indeterminate_leader,       32UL );
-    else                                           memcpy( vote_addr+i, &stakes[ sched[ i ] ].vote_key, 32UL );
-  }
-
-  ulong leader_bits_laddr = fd_ulong_align_up( (ulong)(pubkeys+pub_cnt+1UL), alignof(ulong) );
-  ulong * leader_bits = (ulong *)fd_type_pun( (void *)leader_bits_laddr );
-
-  FD_TEST( leader_bits_laddr + leader_bits_word_cnt*sizeof(ulong) <= (ulong)shmem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
-  for( ulong i=0UL; i<leader_bits_word_cnt; i++ ) leader_bits[i] = 0UL;
-  for( ulong i=0UL; i<sched_cnt; i++ ) leader_bits[ sched[i]>>6 ] |= (1UL<<(sched[i]&63UL));
+  for( ulong i=0UL; i<sched_cnt; i++ ) memcpy( vote_addr+i, &stakes[ sched[ i ] ].vote_key, 32UL );
 
   /* Construct the final struct */
-  leaders->epoch                = epoch;
-  leaders->slot0                = slot0;
-  leaders->slot_cnt             = slot_cnt;
-  leaders->pub                  = pubkeys;
-  leaders->pub_cnt              = pub_cnt;
-  leaders->sched                = sched;
-  leaders->sched_cnt            = sched_cnt;
-  leaders->vote_addr            = vote_addr;
-  leaders->leader_bits          = leader_bits;
-  leaders->leader_bits_word_cnt = leader_bits_word_cnt;
+  leaders->epoch     = epoch;
+  leaders->slot0     = slot0;
+  leaders->slot_cnt  = slot_cnt;
+  leaders->pub       = pubkeys;
+  leaders->pub_cnt   = pub_cnt;
+  leaders->sched     = sched;
+  leaders->sched_cnt = sched_cnt;
+  leaders->vote_addr = vote_addr;
 
   return (void *)shmem;
 }

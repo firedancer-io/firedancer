@@ -312,10 +312,10 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_epoch( fd_gossip_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
-    FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
-  if( FD_UNLIKELY( msg->staked_id_cnt>MAX_SHRED_DESTS ) )
-    FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
+  if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "epoch stakes exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
+  if( FD_UNLIKELY( msg->staked_id_cnt>MAX_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "epoch id weights exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
 
   fd_stake_weight_t const * weights = fd_epoch_info_msg_id_weights( msg );
   fd_gossip_stakes_update( ctx->gossip, weights, msg->staked_id_cnt );
@@ -451,7 +451,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       ctx->wfs_peers.total  = 0UL;
       memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
 
-      FD_TEST( manifest->vote_accounts_len<=FD_VOTE_ACCOUNTS_MAX );
+      FD_TEST( manifest->vote_accounts_len<=FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS );
       for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
           if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
           ctx->wfs_stake.total += manifest->vote_accounts[ i ].stake;

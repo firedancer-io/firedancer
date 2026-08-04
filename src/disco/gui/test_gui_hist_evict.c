@@ -463,45 +463,47 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
 
 #define RR_A_EPOCH (50UL)
 #define RR_A_START (7000UL)
-#define RR_B_EPOCH (51UL)
-#define RR_B_START (8000UL)
-#define RR_C_EPOCH (52UL)
-#define RR_C_START (9000UL)
 #define RR_SLOT_CNT (5UL)
 
 static void
 test_epoch_region_reclaimed( fd_gui_t * gui ) {
-  /* Three epochs durable (satisfies the >= FD_GUI_HIST_MIN_EPOCHS eviction
-     guard so the oldest can be evicted while two keepers remain). */
-  put_epoch( gui, RR_A_EPOCH, RR_A_START, RR_SLOT_CNT );
-  put_epoch( gui, RR_B_EPOCH, RR_B_START, RR_SLOT_CNT );
-  put_epoch( gui, RR_C_EPOCH, RR_C_START, RR_SLOT_CNT );
-  /* the older epoch's time-series window is bounded by the next epoch's first
-     completed slot, so give each a replay meta. */
-  put_slot( gui, RR_A_START, slot_complete_ns( 1000UL ) );
-  put_slot( gui, RR_B_START, slot_complete_ns( 2000UL ) );
-  put_slot( gui, RR_C_START, slot_complete_ns( 3000UL ) );
+  ulong const epoch_region_capacity =
+      FD_GUI_STORE_REGION_SZ / fd_ulong_align_up( sizeof(fd_gui_epoch_t), 8UL );
+  FD_TEST( epoch_region_capacity>0UL );
 
-  FD_TEST( epoch_present( gui, RR_A_EPOCH ) );
-  FD_TEST( epoch_present( gui, RR_B_EPOCH ) );
-  FD_TEST( epoch_present( gui, RR_C_EPOCH ) );
+  /* Keep three epochs durable so the oldest remains evictable while two
+     keepers survive. */
+  for( ulong ordinal=0UL; ordinal<3UL; ordinal++ ) {
+    ulong epoch = RR_A_EPOCH + ordinal;
+    ulong start = RR_A_START + ordinal*RR_SLOT_CNT;
+    put_epoch( gui, epoch, start, RR_SLOT_CNT );
+    put_slot( gui, start, slot_complete_ns( 1000UL + ordinal ) );
+  }
 
-  /* Footprint before eviction: two EPOCH records means at least two
-     EPOCH regions are claimed (the record is ~one region each). */
+  /* Rotate until the oldest live record is the final slot in its region.
+     This is a no-op when each epoch record already occupies a whole region. */
+  for( ulong ordinal=3UL; ordinal<epoch_region_capacity+2UL; ordinal++ ) {
+    FD_TEST( fd_gui_hist_evict_oldest( gui )==1 );
+    ulong epoch = RR_A_EPOCH + ordinal;
+    ulong start = RR_A_START + ordinal*RR_SLOT_CNT;
+    put_epoch( gui, epoch, start, RR_SLOT_CNT );
+    put_slot( gui, start, slot_complete_ns( 1000UL + ordinal ) );
+  }
+
+  ulong oldest = RR_A_EPOCH + epoch_region_capacity - 1UL;
+  FD_TEST( epoch_present( gui, oldest      ) );
+  FD_TEST( epoch_present( gui, oldest+1UL ) );
+  FD_TEST( epoch_present( gui, oldest+2UL ) );
+
+  /* The next eviction advances the EPOCH watermark across a region boundary. */
   ulong used_before = fd_gui_store_used_bytes( gui->db );
   FD_TEST( used_before>0UL );
 
-  /* Evict the older epoch.  The EPOCH phase must advance the watermark and
-     reclaim the region, not just clear the index entry. */
   FD_TEST( fd_gui_hist_evict_oldest( gui )==1 );
-  FD_TEST( !epoch_present( gui, RR_A_EPOCH ) );
-  FD_TEST(  epoch_present( gui, RR_B_EPOCH ) );
-  FD_TEST(  epoch_present( gui, RR_C_EPOCH ) );
+  FD_TEST( !epoch_present( gui, oldest      ) );
+  FD_TEST(  epoch_present( gui, oldest+1UL ) );
+  FD_TEST(  epoch_present( gui, oldest+2UL ) );
 
-  /* The committed footprint must have dropped by at least one region.  Before
-     the fix this stayed flat (the EPOCH region was leaked into the
-     frag-but-committed pile), which is exactly the MAP_FULL-under-eviction
-     bug this guards against. */
   ulong used_after = fd_gui_store_used_bytes( gui->db );
   FD_TEST( used_after<used_before );
 

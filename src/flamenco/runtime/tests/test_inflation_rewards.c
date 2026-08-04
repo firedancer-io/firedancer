@@ -5,6 +5,7 @@
 #include "../../stakes/fd_stake_types.h"
 #include "../program/fd_vote_program.h"
 #include "../program/vote/fd_vote_codec.h"
+#include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../fd_system_ids.h"
@@ -34,16 +35,29 @@ read_stake( fd_svm_mini_t *     mini,
 }
 
 static void
+mock_validator_keys_idx( ulong         hash_seed,
+                         ulong         validator_idx,
+                         fd_pubkey_t * identity_out,
+                         fd_pubkey_t * vote_out,
+                         fd_pubkey_t * stake_out ) {
+  /* Mirrors the single RNG stream fd_svm_mini_init_mock_validators
+     draws from, so validator i's keys are the i'th triple. */
+  fd_rng_t rng[1];
+  fd_rng_join( fd_rng_new( rng, (uint)hash_seed, 0UL ) );
+  for( ulong i=0UL; i<=validator_idx; i++ ) {
+    for( ulong j=0UL; j<4UL; j++ ) identity_out->ul[j] = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) vote_out->ul[j]     = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) stake_out->ul[j]    = fd_rng_ulong( rng );
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+static void
 mock_validator_keys( ulong         hash_seed,
                      fd_pubkey_t * identity_out,
                      fd_pubkey_t * vote_out,
                      fd_pubkey_t * stake_out ) {
-  fd_rng_t rng[1];
-  fd_rng_join( fd_rng_new( rng, (uint)hash_seed, 0UL ) );
-  for( ulong j=0UL; j<4UL; j++ ) identity_out->ul[j] = fd_rng_ulong( rng );
-  for( ulong j=0UL; j<4UL; j++ ) vote_out->ul[j]     = fd_rng_ulong( rng );
-  for( ulong j=0UL; j<4UL; j++ ) stake_out->ul[j]    = fd_rng_ulong( rng );
-  fd_rng_delete( fd_rng_leave( rng ) );
+  mock_validator_keys_idx( hash_seed, 0UL, identity_out, vote_out, stake_out );
 }
 
 static void
@@ -59,8 +73,8 @@ patch_vote_account( fd_svm_mini_t *     mini,
   fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote_key->key );
   FD_TEST( acc.lamports > 0UL );
   ulong data_sz = acc.data_len;
-  FD_TEST( data_sz<=FD_VOTE_STATE_V3_SZ );
-  uchar data_copy[ FD_VOTE_STATE_V3_SZ ];
+  FD_TEST( data_sz<=FD_VOTE_STATE_V4_SZ );
+  uchar data_copy[ FD_VOTE_STATE_V4_SZ ];
   memcpy( data_copy, acc.data, data_sz );
   uchar owner_copy[32]; memcpy( owner_copy, acc.owner, 32 );
   ulong lamports_copy = acc.lamports;
@@ -69,21 +83,21 @@ patch_vote_account( fd_svm_mini_t *     mini,
 
   fd_vote_state_versioned_t versioned[1];
   FD_TEST( fd_vote_state_versioned_deserialize( versioned, data_copy, data_sz ) );
-  FD_TEST( versioned->kind==fd_vote_state_versioned_enum_v3 );
-  fd_vote_state_v3_t * vs = &versioned->v3;
-  vs->commission = new_commission;
-  fd_vote_epoch_credits_t * ec = deq_fd_vote_epoch_credits_t_push_tail_nocopy( vs->epoch_credits );
+  fd_vsv_set_commission( versioned, new_commission );
+  fd_vote_epoch_credits_t * epoch_credits = fd_vsv_get_epoch_credits_mutable( versioned );
+  fd_vote_epoch_credits_t * ec = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits );
   *ec = (fd_vote_epoch_credits_t){ .epoch=epoch, .credits=credits, .prev_credits=prev_credits };
 
-  uchar new_data[ FD_VOTE_STATE_V3_SZ ] = {0};
-  FD_TEST( !fd_vote_state_versioned_serialize( versioned, new_data, sizeof(new_data) ) );
+  uchar new_data[ FD_VOTE_STATE_V4_SZ ] = {0};
+  ulong new_data_sz = versioned->kind==fd_vote_state_versioned_enum_v4 ? FD_VOTE_STATE_V4_SZ : FD_VOTE_STATE_V3_SZ;
+  FD_TEST( !fd_vote_state_versioned_serialize( versioned, new_data, new_data_sz ) );
 
   fd_acc_t new_acc = {0};
   memcpy( new_acc.pubkey, vote_key->key, 32 );
   memcpy( new_acc.owner, owner_copy, 32 );
   new_acc.lamports   = lamports_copy;
   new_acc.executable = exec_copy;
-  new_acc.data_len   = sizeof(new_data);
+  new_acc.data_len   = new_data_sz;
   new_acc.data       = new_data;
   fd_svm_mini_put_account_rooted( mini, &new_acc );
 }
@@ -268,7 +282,9 @@ patch_vote_account_v4( fd_svm_mini_t *     mini,
   FD_STORE( ushort, data+o, (ushort)( (uint)commission*100U ) ); o += 2UL; /* inflation bps */
   FD_STORE( ushort, data+o, (ushort)0 ); o += 2UL;                   /* block revenue bps */
   FD_STORE( ulong, data+o, 0UL ); o += 8UL;                          /* pending_delegator_rewards */
-  data[ o++ ] = 0;                                                   /* bls pubkey = None */
+  data[ o++ ] = 1;                                                   /* bls pubkey = Some */
+  memset( data+o, 0xBB, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  o += FD_BLS_PUBKEY_COMPRESSED_SZ;
   FD_STORE( ulong, data+o, 0UL ); o += 8UL;                          /* votes len */
   data[ o++ ] = 0;                                                   /* root slot = None */
   FD_STORE( ulong, data+o, 0UL ); o += 8UL;                          /* authorized voters len */
@@ -431,6 +447,49 @@ patch_stake_activation_epoch( fd_svm_mini_t *     mini,
       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 }
 
+/* Re-points an existing stake account at a different vote account,
+   preserving its activation epoch and stake so it stays fully
+   effective. */
+static void
+redelegate_stake( fd_svm_mini_t *     mini,
+                  ulong               root_idx,
+                  fd_pubkey_t const * stake_key,
+                  fd_pubkey_t const * new_vote_key ) {
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, stake_key->key );
+  FD_TEST( acc.lamports > 0UL );
+  fd_stake_state_t const * ss_orig = fd_stake_state_view( acc.data, acc.data_len );
+  FD_TEST( ss_orig && ss_orig->stake_type==FD_STAKE_STATE_STAKE );
+  fd_stake_state_t ss_new = *ss_orig;
+  ss_new.stake.stake.delegation.voter_pubkey = *new_vote_key;
+  uchar owner_copy[32]; memcpy( owner_copy, acc.owner, 32 );
+  ulong lamports_copy = acc.lamports;
+  int   exec_copy     = acc.executable;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+
+  uchar new_data[ FD_STAKE_STATE_SZ ] = {0};
+  FD_STORE( fd_stake_state_t, new_data, ss_new );
+  fd_acc_t new_acc = {0};
+  memcpy( new_acc.pubkey, stake_key->key, 32 );
+  memcpy( new_acc.owner, owner_copy, 32 );
+  new_acc.lamports   = lamports_copy;
+  new_acc.executable = exec_copy;
+  new_acc.data_len   = sizeof(new_data);
+  new_acc.data       = new_data;
+  fd_svm_mini_put_account_rooted( mini, &new_acc );
+
+  fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( mini->banks );
+  fd_stake_delegations_root_update( sd, stake_key, new_vote_key,
+      ss_new.stake.stake.delegation.stake,
+      ss_new.stake.stake.delegation.activation_epoch,
+      ss_new.stake.stake.delegation.deactivation_epoch,
+      ss_new.stake.stake.credits_observed,
+      new_acc.lamports,
+      (uint)new_acc.data_len,
+      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+}
+
 static void
 test_activation_epoch_skips_reward( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
@@ -455,6 +514,16 @@ test_activation_epoch_skips_reward( fd_svm_mini_t * mini ) {
   patch_vote_account( mini, root_idx, &vote_key, 0, 0UL, 2UL, 0UL );
 
   patch_stake_activation_epoch( mini, root_idx, &stake_key, &vote_key, 0UL );
+
+  /* Under VAT only vote accounts with non-zero effective stake are
+     admitted, and an unadmitted voter's delegations are skipped by the
+     reward path entirely.  The stake patched above is warming up in the
+     rewarded epoch, so give the vote account a second, fully effective
+     delegation to keep it admitted.  Otherwise
+     force_credits_update_with_skipped_reward is never reached. */
+  fd_pubkey_t identity_key_1, vote_key_1, stake_key_1;
+  mock_validator_keys_idx( params->hash_seed, 1UL, &identity_key_1, &vote_key_1, &stake_key_1 );
+  redelegate_stake( mini, root_idx, &stake_key_1, &vote_key );
 
   fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
   ulong stake_lam_before = read_lamports( mini, root_fk, &stake_key );

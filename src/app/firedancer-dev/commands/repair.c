@@ -82,7 +82,7 @@ repair_verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
 
   for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
     int found = 0;
-    for( ulong j=0UL; j<FD_EPOCH_STAKES_LEN; j++ ) {
+    for( ulong j=0UL; j<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
       if( manifest->epoch_stakes[j].epoch==i ) {
         found = 1;
         break;
@@ -107,7 +107,6 @@ repair_generate_epoch_info_msg( ulong                                       epoc
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
-  epoch_info_msg->excluded_id_stake = 0UL;
   epoch_info_msg->ns_per_slot       = FD_SLOT_PARAMS_400MS.ns_per_slot;
 
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
@@ -147,7 +146,7 @@ repair_load_manifest( fd_topo_t *  topo,
 
   fd_snapshot_manifest_t * manifest = aligned_alloc( alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
   FD_TEST( manifest );
-  for( ulong i=0UL; i<FD_EPOCH_STAKES_LEN; i++ ) manifest->epoch_stakes[i].epoch = ULONG_MAX;
+  for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) manifest->epoch_stakes[i].epoch = ULONG_MAX;
 
   uchar * buf = aligned_alloc( 128UL, MANIFEST_LOAD_MAX_SZ );
   FD_TEST( buf );
@@ -222,7 +221,7 @@ repair_load_manifest( fd_topo_t *  topo,
   ulong epoch_stakes_base      = epoch > 0UL ? epoch - 1UL : 0UL;
   ulong leader_schedule_epoch  = fd_slot_to_leader_schedule_epoch( schedule, manifest->slot );
   ulong cur_idx = epoch - epoch_stakes_base;
-  FD_TEST( cur_idx < FD_EPOCH_STAKES_LEN );
+  FD_TEST( cur_idx < FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN );
 
   ulong * epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
   ulong epoch_sz = repair_generate_epoch_info_msg( epoch, schedule, &manifest->epoch_stakes[cur_idx], epoch_dst );
@@ -234,7 +233,7 @@ repair_load_manifest( fd_topo_t *  topo,
 
   if( leader_schedule_epoch >= epoch + 1UL ) {
     ulong next_idx = epoch + 1UL - epoch_stakes_base;
-    FD_TEST( next_idx < FD_EPOCH_STAKES_LEN );
+    FD_TEST( next_idx < FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN );
 
     epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
     epoch_sz = repair_generate_epoch_info_msg( epoch + 1UL, schedule, &manifest->epoch_stakes[next_idx], epoch_dst );

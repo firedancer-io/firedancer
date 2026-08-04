@@ -42,7 +42,7 @@ typedef struct fd_top_votes fd_top_votes_t;
 
 /* FD_TOP_VOTES_MAX_FOOTPRINT is the footprint of the fd_top_votes_t
    structure when the max number of vote accounts is
-   FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT (2000). */
+   FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS (2000). */
 
 #define FD_TOP_VOTES_MAX_FOOTPRINT (210432UL)
 
@@ -55,17 +55,16 @@ ulong
 fd_top_votes_align( void );
 
 /* fd_top_votes_footprint returns the footprint of the fd_top_votes_t
-   structure given a max number of vote accounts. */
+   structure. */
 
 ulong
-fd_top_votes_footprint( ulong vote_accounts_max );
+fd_top_votes_footprint( void );
 
 /* fd_top_votes_new creates a new fd_top_votes_t structure given a
-   memory buffer, a max number of vote accounts, and a seed. */
+   memory buffer and a seed. */
 
 void *
 fd_top_votes_new( void * mem,
-                  ushort vote_accounts_max,
                   ulong  seed );
 
 /* fd_top_votes_join joins a fd_top_votes_t structure from a memory
@@ -81,6 +80,12 @@ fd_top_votes_join( void * mem );
 void
 fd_top_votes_init( fd_top_votes_t * top_votes );
 
+/* fd_top_votes_cnt returns the number of entries in the top votes set.
+   Invalidated entries remain in the set and are included in the
+   count. */
+
+ulong
+fd_top_votes_cnt( fd_top_votes_t const * top_votes );
 
 /* fd_top_votes_insert inserts a new vote account into the top votes set
    given a vote account, node account, and commission.  If the vote

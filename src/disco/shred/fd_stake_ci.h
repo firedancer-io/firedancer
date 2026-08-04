@@ -31,14 +31,13 @@ struct fd_per_epoch_info_private {
   ulong epoch;
   ulong start_slot;
   ulong slot_cnt;
-  ulong excluded_id_stake;
 
   /* Invariant: These are always joined and use the memory below for
      their footprint. */
   fd_epoch_leaders_t * lsched;
   fd_shred_dest_t    * sdest;
 
-  uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+  uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
   uchar __attribute__((aligned(FD_SHRED_DEST_ALIGN   ))) _sdest [ MAX_SHRED_DEST_FOOTPRINT ];
 };
 typedef struct fd_per_epoch_info_private fd_per_epoch_info_t;
@@ -55,11 +54,10 @@ struct fd_stake_ci {
     ulong slot_cnt;
     ulong staked_vote_cnt;
     ulong staked_id_cnt;
-    ulong excluded_id_stake;
   } scratch[1];
 
-  fd_vote_stake_weight_t   vote_stake_weight[ MAX_COMPRESSED_STAKE_WEIGHTS ];
-  fd_stake_weight_t        stake_weight     [ MAX_SHRED_DESTS ];
+  fd_vote_stake_weight_t   vote_stake_weight[ MAX_STAKE_WEIGHTS ];
+  fd_stake_weight_t        stake_weight     [ MAX_STAKE_WEIGHTS ];
   fd_shred_dest_weighted_t shred_dest       [ MAX_SHRED_DESTS ];
 
   fd_shred_dest_weighted_t shred_dest_temp[ MAX_SHRED_DESTS ];
