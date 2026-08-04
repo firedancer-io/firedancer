@@ -177,9 +177,9 @@ test_env_setup( fd_svm_mini_t * mini ) {
   /* VM acc_region_metas */
   static fd_vm_acc_region_meta_t arm[3];
   memset( arm, 0, sizeof(arm) );
-  arm[0].acc = txn_out->accounts.account[0];
-  arm[1].acc = txn_out->accounts.account[1];  arm[1].original_data_len = INIT_DLEN;
-  arm[2].acc = txn_out->accounts.account[2];  arm[2].original_data_len = INIT_DLEN;
+  arm[0].acc = txn_out->accounts.account[0];  arm[0].touched = &txn_out->accounts.touched[0];
+  arm[1].acc = txn_out->accounts.account[1];  arm[1].touched = &txn_out->accounts.touched[1];  arm[1].original_data_len = INIT_DLEN;
+  arm[2].acc = txn_out->accounts.account[2];  arm[2].touched = &txn_out->accounts.touched[2];  arm[2].original_data_len = INIT_DLEN;
 
   /* Initialize VM */
   static uchar rodata[100];
