@@ -28,6 +28,10 @@ typedef struct fd_net_rx_bounds fd_net_rx_bounds_t;
 
 #define FD_NET_BOND_SLAVE_MAX 16U
 
+/* Max descriptor and completion batch allowed. */
+
+#define FD_MLX5_BATCH_MAX 1024U
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_net_rx_bounds_init initializes a bounds checker for RX packets

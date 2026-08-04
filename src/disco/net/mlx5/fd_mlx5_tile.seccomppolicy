@@ -1,0 +1,17 @@
+# logfile_fd: optional Firedancer log file
+# async_fd: nonblocking uverbs async event descriptor
+# qp_stats_fd: RDMA netlink socket for QP-specific hardware counters
+uint logfile_fd, uint async_fd, uint qp_stats_fd
+
+read: (eq (arg 0) async_fd)
+
+sendto: (and (eq (arg 0) qp_stats_fd)
+             (eq (arg 3) 0))
+
+recvfrom: (and (eq (arg 0) qp_stats_fd)
+               (eq (arg 3) 0))
+
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+fsync: (eq (arg 0) logfile_fd)

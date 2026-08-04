@@ -1862,6 +1862,33 @@
 
 </div>
 
+## Mlx5 Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;pkt_&#8203;cnt</span> | counter | Number of packets successfully published to output links. |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;bytes_&#8203;total</span> | counter | Number of bytes in packets successfully published to output links (including Ethernet header). |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;cqe_&#8203;err_&#8203;cnt</span> | counter | Number of RX CQEs reporting an error. |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;out_&#8203;of_&#8203;buffer_&#8203;cnt</span> | counter | Number of packets dropped by the NIC because this QP's receive queue had no posted buffer. |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;malformed_&#8203;cnt</span> | counter | Number of packets dropped because the Ethernet, IPv4, or UDP header was malformed. |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of packets dropped because the destination UDP port could not be routed to an output link. |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;busy</span> | gauge | Number of RX buffers not currently posted to the NIC. |
+| <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;idle</span> | gauge | Number of RX buffers currently posted to the NIC. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;pkt_&#8203;cnt</span> | counter | Number of packets completed by the NIC for transmission. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes transmitted (including Ethernet header). |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;cqe_&#8203;err_&#8203;cnt</span> | counter | Number of TX CQEs reporting an error. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;no_&#8203;buffer_&#8203;cnt</span> | counter | Number of transmit jobs dropped because no TX buffer was available. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of transmit jobs dropped because route or source address selection failed. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;neighbor_&#8203;unresolved_&#8203;cnt</span> | counter | Number of transmit jobs dropped because the next-hop neighbor was unresolved. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;gre_&#8203;unsupported_&#8203;cnt</span> | counter | Number of transmit jobs dropped because the selected route requires unsupported GRE encapsulation. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;submit_&#8203;fail_&#8203;cnt</span> | counter | Number of transmit jobs dropped because submission to the NIC failed. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;busy</span> | gauge | Number of TX buffers pending or submitted to the NIC. |
+| <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;idle</span> | gauge | Number of TX buffers available for a new transmit job. |
+
+</div>
+
 ## Snapmk Tile
 
 <div class="metrics">

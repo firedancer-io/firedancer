@@ -459,6 +459,27 @@ EXAMPLES
     <gauge name="RouteCount" enum="RouteTable" summary="IPv4 routes installed in the forwarding table" />
 </tile>
 
+<tile name="mlx5">
+    <counter name="RxPktCnt" summary="Number of packets successfully published to output links." />
+    <counter name="RxBytesTotal" summary="Number of bytes in packets successfully published to output links (including Ethernet header)." />
+    <counter name="RxCqeErrCnt" summary="Number of RX CQEs reporting an error." />
+    <counter name="RxOutOfBufferCnt" summary="Number of packets dropped by the NIC because this QP's receive queue had no posted buffer." />
+    <counter name="RxMalformedCnt" summary="Number of packets dropped because the Ethernet, IPv4, or UDP header was malformed." />
+    <counter name="RxRouteFailCnt" summary="Number of packets dropped because the destination UDP port could not be routed to an output link." />
+    <gauge name="RxBufferBusy" summary="Number of RX buffers not currently posted to the NIC." />
+    <gauge name="RxBufferIdle" summary="Number of RX buffers currently posted to the NIC." />
+    <counter name="TxPktCnt" summary="Number of packets completed by the NIC for transmission." />
+    <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
+    <counter name="TxCqeErrCnt" summary="Number of TX CQEs reporting an error." />
+    <counter name="TxNoBufferCnt" summary="Number of transmit jobs dropped because no TX buffer was available." />
+    <counter name="TxRouteFailCnt" summary="Number of transmit jobs dropped because route or source address selection failed." />
+    <counter name="TxNeighborUnresolvedCnt" summary="Number of transmit jobs dropped because the next-hop neighbor was unresolved." />
+    <counter name="TxGreUnsupportedCnt" summary="Number of transmit jobs dropped because the selected route requires unsupported GRE encapsulation." />
+    <counter name="TxSubmitFailCnt" summary="Number of transmit jobs dropped because submission to the NIC failed." />
+    <gauge name="TxBufferBusy" summary="Number of TX buffers pending or submitted to the NIC." />
+    <gauge name="TxBufferIdle" summary="Number of TX buffers available for a new transmit job." />
+</tile>
+
 <enum name="SocketError">
     <int value="0" name="NoError" label="No error" />
     <int value="1" name="Slow" label="ENOBUFS, EAGAIN error" />
