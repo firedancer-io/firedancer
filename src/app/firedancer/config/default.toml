@@ -601,7 +601,7 @@ telemetry = true
     # have enough memory available, you could dedicate it all to the
     # cache and then never read from or write to disk during operation.
     #
-    # The default value of 11 GiB is large enough to have near-optimal
+    # The default value of 12 GiB is large enough to have near-optimal
     # performance on mainnet.  The cache size has a minimum bound below
     # which the validator will refuse to boot, which depends on whether
     # bundles are enabled and certain other factors.  Transactions
@@ -610,7 +610,7 @@ telemetry = true
     # memory needed to hold a worst case atomic unit of accounts (either
     # a single large, transaction, or a large bundle of large
     # transactions, if enabled).
-    cache_size_gib = 11
+    cache_size_gib = 12
 
 [runtime]
     # Certain slots are considered "live" in the validator if we must
