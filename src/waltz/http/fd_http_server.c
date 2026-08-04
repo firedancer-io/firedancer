@@ -692,6 +692,8 @@ read_conn_http( fd_http_server_t * http,
 
     .method                    = method_enum,
     .path                      = path_nul_terminated,
+    .path_raw                  = path,
+    .path_len                  = path_len,
 
     .ctx                       = http->callback_ctx,
 
@@ -923,11 +925,17 @@ write_conn_http( fd_http_server_t * http,
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 204 No Content\r\nContent-Length: %lu\r\n", body_len ) );
           break;
         }
+        case 302:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 302 Found\r\nContent-Length: 0\r\n" ) );
+          break;
         case 400: {
           ulong body_len = conn->response.static_body ? conn->response.static_body_len : conn->response._body_len;
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\n", body_len ) );
           break;
         }
+        case 403:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n" ) );
+          break;
         case 404:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n" ) );
           break;
@@ -936,6 +944,9 @@ write_conn_http( fd_http_server_t * http,
           break;
         case 500:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
+          break;
+        case 501:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 501 Not Implemented\r\nContent-Length: 0\r\n" ) );
           break;
         default:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
@@ -961,6 +972,18 @@ write_conn_http( fd_http_server_t * http,
         ulong content_encoding_len;
         FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &content_encoding_len, "Content-Encoding: %s\r\n", conn->response.content_encoding ) );
         response_len += content_encoding_len;
+      }
+      if( FD_LIKELY( conn->response.location[ 0 ] ) ) {
+        ulong location_len;
+        FD_TEST( conn->response.location_len[0]<=(ulong)INT_MAX );
+        FD_TEST( conn->response.location_len[1]<=(ulong)INT_MAX );
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &location_len,
+                                       "Location: %.*s%.*s\r\n",
+                                       (int)conn->response.location_len[0],
+                                       conn->response.location[0],
+                                       (int)conn->response.location_len[1],
+                                       conn->response.location[1] ? conn->response.location[1] : "" ) );
+        response_len += location_len;
       }
       if( FD_LIKELY( conn->response.access_control_allow_origin ) ) {
         ulong access_control_allow_origin_len;

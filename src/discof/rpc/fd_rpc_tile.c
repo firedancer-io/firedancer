@@ -293,6 +293,10 @@ struct fd_rpc_tile {
      data bytes returned by the readonly accdb path.  Sized to the
      runtime account data maximum.  Must not be in accdb shmem. */
   uchar accdb_data_buf[ FD_RUNTIME_ACC_SZ_MAX ];
+
+  /* Redirect to snapshot server */
+  int    snapshot_server_enabled;
+  char   snapshot_server_url[ 288UL ];
 };
 
 typedef struct fd_rpc_tile fd_rpc_tile_t;
@@ -2134,6 +2138,20 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     return response;
   }
 
+  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET &&
+                   ( !strncmp( request->path, "/snapshot",             9UL ) ||
+                     !strncmp( request->path, "/incremental-snapshot", 21UL ) ) ) ) {
+    if( FD_UNLIKELY( !ctx->snapshot_server_enabled ) ) {
+      return (fd_http_server_response_t){ .status = 403 }; /* forbidden */
+    }
+    return (fd_http_server_response_t){
+      .status       = 302,
+      .location     = { ctx->snapshot_server_url, request->path_raw },
+      .location_len = { strlen( ctx->snapshot_server_url ), request->path_len },
+    };
+  }
+
+
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET ) ) {
     return (fd_http_server_response_t){ .status = 404 };
   }
@@ -2390,6 +2408,13 @@ privileged_init( fd_topo_t const *      topo,
     .ws_message = rpc_ws_message,
   };
   ctx->http = fd_http_server_join( fd_http_server_new( _http, http_params, callbacks, ctx ) );
+  ctx->snapshot_server_enabled = tile->rpc.snapshot_server_enabled;
+  if( FD_LIKELY( ctx->snapshot_server_enabled ) ) {
+    FD_TEST( fd_cstr_printf_check(
+        ctx->snapshot_server_url, sizeof(ctx->snapshot_server_url), NULL,
+        "http://%s:%u", tile->rpc.snapshot_server_host,
+        tile->rpc.snapshot_server_port ) );
+  }
   fd_http_server_listen6( ctx->http, &tile->rpc.listen_addr, tile->rpc.listen_port );
   char listen_addr_cstr[ FD_IP6_ADDR_CSTR_MAX ]; fd_ip6_addr_cstr( listen_addr_cstr, &tile->rpc.listen_addr );
   FD_LOG_NOTICE(( "rpc server listening at %shttp://%s:%u%s", fd_log_style_bold(), listen_addr_cstr, tile->rpc.listen_port, fd_log_style_normal() ));
