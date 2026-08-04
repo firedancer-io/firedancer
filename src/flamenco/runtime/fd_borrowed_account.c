@@ -13,9 +13,6 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
     return err;
   }
 
-  /* Agave self.touch() */
-  borrowed_acct->acc->touched = 1;
-
   if ( data_out != NULL )
     *data_out = borrowed_acct->acc->data;
   if ( dlen_out != NULL )
@@ -52,8 +49,7 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
-  /* Agave self.touch() */
-  borrowed_acct->acc->touched = 1;
+  /* Agave self.touch() is a no-op */
 
   /* Copy into owner
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L761 */
@@ -86,8 +82,7 @@ fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
-  /* Agave self.touch() */
-  borrowed_acct->acc->touched = 1;
+  /* Agave self.touch() is a no-op */
 
   borrowed_acct->acc->lamports = lamports;
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -104,8 +99,7 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
     return err;
   }
 
-  /* Agave self.touch() */
-  borrowed_acct->acc->touched = 1;
+  /* Agave self.touch() is a no-op */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L868 */
   if( FD_UNLIKELY( !fd_borrowed_account_update_accounts_resize_delta( borrowed_acct, data_sz, &err ) ) ) {
@@ -137,8 +131,7 @@ fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
-  /* Agave self.touch() */
-  borrowed_acct->acc->touched = 1;
+  /* Agave self.touch() is a no-op */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L890 */
   if( FD_UNLIKELY( !fd_borrowed_account_update_accounts_resize_delta( borrowed_acct, new_len, &err ) ) ) {
@@ -182,8 +175,7 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
-  /* Agave self.touch() */
-  borrowed_acct->acc->touched = 1;
+  /* Agave self.touch() is a no-op */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1027 */
   borrowed_acct->acc->executable = !!is_executable;
