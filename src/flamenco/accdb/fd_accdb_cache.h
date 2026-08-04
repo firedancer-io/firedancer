@@ -42,29 +42,63 @@
 #define FD_ACCDB_CACHE_LINE_BITS    (29)
 #define FD_ACCDB_CACHE_LINE_MAX     (1UL<<FD_ACCDB_CACHE_LINE_BITS)
 
-/* min_reserved is supplied at runtime by the caller (see
-   fd_accdb_cache_class_cnt and fd_accdb_shmem_new).  It is the minimum
-   number of slots reserved per class so a worst-case batch of
-   transactions can always execute fully in-memory.
+/* Maximum accounts a single acquire may request.
+   FD_ACCDB_MAX_TX_ACCOUNT_LOCKS mirrors the mainnet per-transaction
+   account-lock limit.  FD_ACCDB_MAX_TXN_PER_ACQUIRE mirrors
+   FD_PACK_MAX_TXN_PER_BUNDLE, a bundle coalesces up to that many
+   transactions into one acquire. */
+#define FD_ACCDB_MAX_TX_ACCOUNT_LOCKS (64UL)
+#define FD_ACCDB_MAX_TXN_PER_ACQUIRE  (5UL)
+#define FD_ACCDB_MAX_ACQUIRE_CNT      (FD_ACCDB_MAX_TXN_PER_ACQUIRE*FD_ACCDB_MAX_TX_ACCOUNT_LOCKS)
 
-   The floor is driven by the per-class peak that
-   fd_accdb_acquire_a can atomically increment for the simultaneously-
-   live transactions (a bundle of up to 5).  Per pubkey, per class, the
-   acquire reservation can add up to:
+/* min_reserved is the minimum number of slots reserved per class so a
+   worst-case batch of transactions can always execute fully in-memory.
+
+   The floor is driven by the per-class peak that fd_accdb_acquire_a can
+   atomically increment for the simultaneously live transactions (a
+   bundle of up to 5).  Per pubkey, per class, the acquire reservation
+   can add up to:
      +1 for the existing account's own size class (cache read line)
      +1 for the writable staging buffer (added to EVERY class)
      +1 for the unknown-programdata placeholder (added to EVERY class,
-         unconditionally per pubkey under MAYBE_PROGRAMDATA)
+        unconditionally per pubkey under MAYBE_PROGRAMDATA, regardless
+        of writable/existence, refunded later by acquire_b)
    = 3 slots in the worst-case-matching class for a writable account
-   that already exists there.  Solana requires at least one read-only
-   pubkey per txn (the invoked program), which can contribute at most
-   2 (no writable +1 every class), so the per-txn worst case is:
-     63 * 3 + 1 * 2 = 191 slots per class per txn.
+   that already exists there.
 
-   Bundles enabled:  5 * 191 = 955  (worst case 5-transaction bundle)
-   Bundles disabled:     191       (worst case single transaction)
+   So worst case (all 64 writable + existing in the same class) gives
+   64 * (1+1+1) = 192 slots per class per transaction.
 
-   See src/app/firedancer/topology.c for the canonical derivation. */
+   A read-only pubkey contributes at most (1)+(3) = 2 in any class (no
+   writable +1 every class).  Unfortunately
+   - The bundle path acquires every deduped pubkey writable.
+   - We do NOT subtract for a read-only program.  While program accounts
+     referenced for invocation must be read-only, a transaction with
+     zero instructions is valid, so there need not be an invoked program
+     at all.
+   - We do NOT subtract for the fee payer cannot-be-programdata
+     constraint: the fee payer is still writable and still receives the
+     placeholder reservation at (3) — only an acquire_a code change
+     could exploit that.  Likewise, the read-only program likely lives
+     in a BPF size class (class 3+), but we do not assume which class:
+     we just deduct the writable (2) contribution that any read-only
+     pubkey can never provide.)
+
+   To summarize:
+
+   Bundles disabled: 3 *  64 = 192 slots/class (worst case single transaction)
+   Bundles enabled:  5 * 192 = 960 slots/class (worst case 5-transaction bundle)
+
+   The above works out to ~2.10 GiB minimum cache budget for bundles
+   disabled, and ~10.47 GiB minimum cache budget for bundles enabled. */
+
+#define FD_ACCDB_CACHE_MIN_RESERVED_TXN (3UL*FD_ACCDB_MAX_TX_ACCOUNT_LOCKS)
+#define FD_ACCDB_CACHE_MIN_RESERVED_BUNDLE (3UL*FD_ACCDB_MAX_ACQUIRE_CNT)
+
+FD_FN_CONST static inline ulong
+fd_accdb_cache_min_reserved( int bundle_enabled ) {
+  return bundle_enabled ? FD_ACCDB_CACHE_MIN_RESERVED_BUNDLE : FD_ACCDB_CACHE_MIN_RESERVED_TXN;
+}
 
 static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
   128UL+FD_ACCDB_CACHE_META_SZ,      /* class 0: 0-128 B     */

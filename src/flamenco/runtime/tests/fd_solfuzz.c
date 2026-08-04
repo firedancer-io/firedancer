@@ -91,7 +91,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   ulong const partition_cnt        = 8192UL;
   ulong const partition_sz         = (1UL<<30UL);
   ulong const cache_footprint      = (12UL<<30UL);
-  ulong const cache_min_reserved   = 5UL*191UL;
+  ulong const cache_min_reserved   = fd_accdb_cache_min_reserved( 1 );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( max_accounts, max_live_slots,
                                                    writes_per_slot, partition_cnt,

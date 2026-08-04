@@ -23,7 +23,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define TEST_CACHE_MIN_RESERVED (191UL)
+#define TEST_CACHE_MIN_RESERVED FD_ACCDB_CACHE_MIN_RESERVED_TXN
 #define TEST_CACHE_FOOTPRINT    (4UL<<30UL)
 #define TEST_PARTITION_CNT      (8192UL)
 #define TEST_PARTITION_SZ       (1UL<<30UL)
