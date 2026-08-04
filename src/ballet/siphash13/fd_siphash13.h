@@ -87,6 +87,42 @@ fd_siphash13_hash( void const * data,
                    ulong        k0,
                    ulong        k1 );
 
+/* fd_siphash13_fini_x32 is an inline specialization of
+
+     fd_siphash13_append( sip_primed, data, 32UL );
+     return fd_siphash13_fini( sip );
+
+   where sip_primed is a primed hasher whose absorbed byte count is a
+   multiple of 8 (so there are no residual bytes) and then exactly 32
+   bytes are appended to it. */
+
+FD_FN_PURE static inline ulong
+fd_siphash13_fini_x32( fd_siphash13_t const * primed,
+                       void const *           data ) {
+  ulong         v[ 4 ] = { primed->v[0], primed->v[1], primed->v[2], primed->v[3] };
+  uchar const * d      = (uchar const *)data;
+
+  /* append */
+  for( ulong i=0UL; i<4UL; i++ ) {
+    ulong m = FD_LOAD( ulong, d+8UL*i );
+    v[ 3 ] ^= m;
+    FD_SIPHASH_ROUND( v );
+    v[ 0 ] ^= m;
+  }
+
+  /* fini */
+  ulong b = (primed->n+32UL)<<56;
+  v[ 3 ] ^= b;
+  FD_SIPHASH_ROUND( v );
+  v[ 0 ] ^= b;
+
+  v[ 2 ] ^= 0xffUL;
+  FD_SIPHASH_ROUND( v );
+  FD_SIPHASH_ROUND( v );
+  FD_SIPHASH_ROUND( v );
+  return v[ 0 ]^v[ 1 ]^v[ 2 ]^v[ 3 ];
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_siphash13_fd_siphash13_h */
