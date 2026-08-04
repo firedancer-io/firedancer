@@ -1785,35 +1785,39 @@ fd_guih_handle_slot_end( fd_guih_t * gui,
   fd_guih_tile_stats_snap( gui, slot->waterfall_end, slot->tile_stats_end, now );
 }
 
+/* Everything the reset-slot message drives beyond its parent array:
+   vote distance and state, the walk that marks slots skipped or not,
+   the completed slot, the slot duration estimate and catch-up, and the
+   skip rate.
+
+   Split out because under alpenglow there is no reset-slot message --
+   it is produced by a TowerBFT path that does not run -- and almost all
+   of this is consensus agnostic.  The only part left behind in the
+   legacy handler is clearing slots off an abandoned fork, which is the
+   one piece that needs the parent array the message carries.
+
+   _slot is the head of the fork being built on; last_vote is the last
+   slot this validator voted for, or ULONG_MAX if it has not voted.
+   parents is that fork's ancestors, highest first: the walk below marks
+   a slot skipped precisely when it is NOT the next entry, so the list is
+   what makes skip detection possible at all, and without it the skip
+   rate can only ever read zero. */
+
 static void
-fd_guih_handle_reset_slot_legacy( fd_guih_t *    gui,
-                                 uchar const * msg,
-                                 long          now ) {
-  ulong last_landed_vote = FD_LOAD( ulong, msg );
-
-  ulong parent_cnt = FD_LOAD( ulong, msg + 8UL );
-  FD_TEST( parent_cnt<4096UL );
-
-  ulong _slot = FD_LOAD( ulong, msg + 16UL );
-
-  for( ulong i=0UL; i<parent_cnt; i++ ) {
-    ulong parent_slot = FD_LOAD( ulong, msg + (2UL+i)*8UL );
-    fd_guih_slot_t * slot = fd_guih_get_slot( gui, parent_slot );
-    if( FD_UNLIKELY( !slot ) ) {
-      ulong parent_parent_slot = ULONG_MAX;
-      if( FD_UNLIKELY( i!=parent_cnt-1UL) ) parent_parent_slot = FD_LOAD( ulong, msg + (3UL+i)*8UL );
-      fd_guih_clear_slot( gui, parent_slot, parent_parent_slot );
-    }
-  }
-
-  if( FD_UNLIKELY( gui->summary.vote_distance!=_slot-last_landed_vote ) ) {
-    gui->summary.vote_distance = _slot-last_landed_vote;
+fd_guih_update_slot_progress( fd_guih_t *   gui,
+                              ulong         _slot,
+                              ulong         last_vote,
+                              ulong const * parents,
+                              ulong         parent_cnt,
+                              long          now ) {
+  if( FD_UNLIKELY( gui->summary.vote_distance!=_slot-last_vote ) ) {
+    gui->summary.vote_distance = _slot-last_vote;
     fd_guih_printf_vote_distance( gui );
     fd_http_server_ws_broadcast( gui->http );
   }
 
   if( FD_LIKELY( gui->summary.vote_state!=FD_GUIH_VOTE_STATE_NON_VOTING ) ) {
-    if( FD_UNLIKELY( last_landed_vote==ULONG_MAX || (last_landed_vote+150UL)<_slot ) ) {
+    if( FD_UNLIKELY( last_vote==ULONG_MAX || (last_vote+150UL)<_slot ) ) {
       if( FD_UNLIKELY( gui->summary.vote_state!=FD_GUIH_VOTE_STATE_DELINQUENT ) ) {
         gui->summary.vote_state = FD_GUIH_VOTE_STATE_DELINQUENT;
         fd_guih_printf_vote_state( gui );
@@ -1848,7 +1852,7 @@ fd_guih_handle_reset_slot_legacy( fd_guih_t *    gui,
     int should_republish = slot->must_republish;
     slot->must_republish = 0;
 
-    if( FD_UNLIKELY( parent_slot!=FD_LOAD( ulong, msg + (2UL+parent_slot_idx)*8UL ) ) ) {
+    if( FD_UNLIKELY( parent_slot!=parents[ parent_slot_idx ] ) ) {
       /* We are between two parents in the rooted chain, which means
          we were skipped. */
       if( FD_UNLIKELY( !slot->skipped ) ) {
@@ -1947,6 +1951,31 @@ fd_guih_handle_reset_slot_legacy( fd_guih_t *    gui,
       fd_http_server_ws_broadcast( gui->http );
     }
   }
+}
+
+static void
+fd_guih_handle_reset_slot_legacy( fd_guih_t *    gui,
+                                 uchar const * msg,
+                                 long          now ) {
+  ulong last_landed_vote = FD_LOAD( ulong, msg );
+
+  ulong parent_cnt = FD_LOAD( ulong, msg + 8UL );
+  FD_TEST( parent_cnt<4096UL );
+
+  ulong _slot = FD_LOAD( ulong, msg + 16UL );
+
+  for( ulong i=0UL; i<parent_cnt; i++ ) {
+    ulong parent_slot = FD_LOAD( ulong, msg + (2UL+i)*8UL );
+    fd_guih_slot_t * slot = fd_guih_get_slot( gui, parent_slot );
+    if( FD_UNLIKELY( !slot ) ) {
+      ulong parent_parent_slot = ULONG_MAX;
+      if( FD_UNLIKELY( i!=parent_cnt-1UL) ) parent_parent_slot = FD_LOAD( ulong, msg + (3UL+i)*8UL );
+      fd_guih_clear_slot( gui, parent_slot, parent_parent_slot );
+    }
+  }
+
+  fd_guih_update_slot_progress( gui, _slot, last_landed_vote,
+                                (ulong const *)( msg + 16UL ), parent_cnt, now );
 }
 
 static void
@@ -2258,6 +2287,80 @@ fd_guih_handle_block_engine_update( fd_guih_t *                              gui
   fd_http_server_ws_broadcast( gui->http );
 }
 
+/* Raise a slot and its ancestors to at least level, stopping at the
+   first one already there.  The chain below that point was raised by an
+   earlier call, so the walk is incremental after the first one. */
+
+static void
+fd_guih_raise_slot_chain( fd_guih_t * gui,
+                          ulong       from_slot,
+                          int         level ) {
+  /* Slot 0 is always rooted, so there is no need to walk to i==from_slot. */
+  for( ulong i=0UL; i<fd_ulong_min( from_slot, FD_GUIH_SLOTS_CNT ); i++ ) {
+    ulong _slot = from_slot - i;
+
+    /* Returns NULL for a slot we have not replayed, or one that has
+       been evicted or purged -- the migration purges the last TowerBFT
+       blocks, so this is reachable rather than defensive. */
+    fd_guih_slot_t * slot = fd_guih_get_slot( gui, _slot );
+    if( FD_UNLIKELY( !slot ) ) break;
+
+    if( FD_LIKELY( slot->level>=level ) ) break;
+
+    slot->level = level;
+    fd_guih_printf_slot( gui, _slot );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+}
+
+/* The alpenglow replacement for SLOT_ROOTED, SLOT_RESET and
+   SLOT_OPTIMISTICALLY_CONFIRMED, none of which are produced once
+   TowerBFT stops running.  See fd_plugin_msg_consensus_update_t.
+
+   Only one chain walk is needed even though two slots arrive.  Under
+   alpenglow the root is chosen from blocks that already carry a
+   finalization certificate, so root <= finalized always, and FINALIZED
+   sits above ROOTED in the level ladder -- raising the chain to
+   FINALIZED already satisfies every level>=ROOTED test.  The root slot
+   is still reported on its own for the summary panel. */
+
+static void
+fd_guih_handle_consensus_update( fd_guih_t *   gui,
+                                 uchar const * msg,
+                                 long          now ) {
+  fd_plugin_msg_consensus_update_t const * update = (fd_plugin_msg_consensus_update_t const *)msg;
+
+  if( FD_LIKELY( update->finalized_slot!=ULONG_MAX ) ) {
+    fd_guih_raise_slot_chain( gui, update->finalized_slot, FD_GUIH_SLOT_LEVEL_FINALIZED );
+  }
+
+  if( FD_LIKELY( update->root_slot!=ULONG_MAX ) ) {
+    /* Only reachable before the first finalization certificate, since
+       after that the walk above has already covered the root. */
+    fd_guih_raise_slot_chain( gui, update->root_slot, FD_GUIH_SLOT_LEVEL_ROOTED );
+
+    if( FD_LIKELY( gui->summary.slot_rooted!=update->root_slot ) ) {
+      gui->summary.slot_rooted = update->root_slot;
+      fd_guih_printf_root_slot( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+  }
+
+  /* The rest of what the reset-slot message used to drive.  Its walk
+     runs from the fork head down and stops at the first slot already
+     rooted or better, so the chain raised above bounds it -- under
+     alpenglow that is a handful of slots, not the whole history.
+
+     Slots off an abandoned fork are not cleared: the legacy handler
+     does that from the same parent array, but only for slots the gui
+     has never seen, and alpenglow finalizes fast enough that stale
+     forks are short lived. */
+  if( FD_LIKELY( update->reset_slot!=ULONG_MAX ) ) {
+    fd_guih_update_slot_progress( gui, update->reset_slot, update->vote_slot,
+                                  update->parents, update->parent_cnt, now );
+  }
+}
+
 void
 fd_guih_plugin_message( fd_guih_t *   gui,
                        ulong        plugin_msg,
@@ -2318,6 +2421,10 @@ fd_guih_plugin_message( fd_guih_t *   gui,
     }
     case FD_PLUGIN_MSG_GENESIS_HASH_KNOWN: {
       fd_guih_handle_genesis_hash( gui, msg );
+      break;
+    }
+    case FD_PLUGIN_MSG_CONSENSUS_UPDATE: {
+      fd_guih_handle_consensus_update( gui, msg, now );
       break;
     }
     default:
