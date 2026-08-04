@@ -4,17 +4,6 @@
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_cache.h"
 
-/* Maximum accounts a single acquire may request.
-   FD_ACCDB_MAX_TX_ACCOUNT_LOCKS mirrors the mainnet per-transaction
-   account-lock limit (Agave get_transaction_account_lock_limit == 64;
-   the increase_tx_account_lock_limit feature -> 128 is assumed never to
-   activate).  FD_ACCDB_MAX_TXN_PER_ACQUIRE mirrors
-   FD_PACK_MAX_TXN_PER_BUNDLE, a bundle coalesces up to that many
-   transactions into one acquire. */
-#define FD_ACCDB_MAX_TX_ACCOUNT_LOCKS (64UL)
-#define FD_ACCDB_MAX_TXN_PER_ACQUIRE  (5UL)
-#define FD_ACCDB_MAX_ACQUIRE_CNT      (FD_ACCDB_MAX_TXN_PER_ACQUIRE*FD_ACCDB_MAX_TX_ACCOUNT_LOCKS)
-
 static inline void
 spin_lock_acquire( int * lock ) {
 # if FD_HAS_THREADS

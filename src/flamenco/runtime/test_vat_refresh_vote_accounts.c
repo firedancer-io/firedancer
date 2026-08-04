@@ -339,7 +339,7 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
   ulong const accdb_partition_cnt  = 8UL;
   ulong const accdb_partition_sz   = 1UL<<26UL; /* 64 MiB */
   ulong const accdb_cache_footprint   = 4UL<<30UL; /* 4 GiB (cache minimum) */
-  ulong const accdb_cache_min_reserved = 191UL;   /* single-txn worst case */
+  ulong const accdb_cache_min_reserved = fd_accdb_cache_min_reserved( 0 );
   ulong const accdb_joiner_cnt     = 1UL;
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( accdb_max_accounts, accdb_max_live_slots,
