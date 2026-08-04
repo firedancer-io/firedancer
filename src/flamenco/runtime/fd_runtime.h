@@ -325,6 +325,10 @@ struct fd_txn_out {
     uchar new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
     uchar rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
 
+    /* Set when the transaction modifies the account (agave's touch).
+       Only touched writable accounts are committed. */
+    uchar touched     [ MAX_TX_ACCOUNT_LOCKS ];
+
     ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */
     ulong nonce_rollback_data_len;
     uchar nonce_rollback_data[ FD_RUNTIME_ACC_SZ_MAX ];

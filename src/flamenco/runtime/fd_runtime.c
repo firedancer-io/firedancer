@@ -1157,6 +1157,9 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
          payer account. */
       if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
+      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/account_saver.rs#L120-L122 */
+      if( FD_UNLIKELY( !txn_out->accounts.touched[ i ] ) ) continue;
+
       fd_pubkey_t const * pubkey = &txn_out->accounts.keys[ i ];
 
       /* Only the txn that owns the accdb reference commits the account
@@ -1349,9 +1352,9 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->accounts.is_bundle          = txn_in->bundle.is_bundle;
   if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) txn_out->accounts.cnt= 0UL;
 
-  FD_STATIC_ASSERT( offsetof(fd_txn_out_t, accounts.rm_vote)-offsetof(fd_txn_out_t, accounts.stake_update)==3UL*MAX_TX_ACCOUNT_LOCKS, txn_out_flags_contiguous );
+  FD_STATIC_ASSERT( offsetof(fd_txn_out_t, accounts.touched)-offsetof(fd_txn_out_t, accounts.stake_update)==4UL*MAX_TX_ACCOUNT_LOCKS, txn_out_flags_contiguous );
   memset( txn_out->accounts.is_writable,  0, sizeof(txn_out->accounts.is_writable) );
-  memset( txn_out->accounts.stake_update, 0, 4UL*MAX_TX_ACCOUNT_LOCKS );
+  memset( txn_out->accounts.stake_update, 0, 5UL*MAX_TX_ACCOUNT_LOCKS );
   txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
 
   /* For bundle transactions the resolved key list is bound once up

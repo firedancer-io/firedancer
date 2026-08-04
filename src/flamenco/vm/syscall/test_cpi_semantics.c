@@ -321,6 +321,7 @@ env_build( fd_svm_mini_t *        mini,
   for( ulong i=0UL; i<cfg->n_outer; i++ ) {
     ulong block = i*ACCT_SERIALIZED_SZ;
     arm[ 1UL + i ].acc             = g_acct_entries[ cfg->outer[i].acct_idx ];
+    arm[ 1UL + i ].touched           = &txn_out->accounts.touched[ 1UL + cfg->outer[i].acct_idx ];
     arm[ 1UL + i ].original_data_len = cfg->accts[ cfg->outer[i].acct_idx ].dlen;
     arm[ 1UL + i ].vm_key_addr       = FD_VM_MEM_MAP_INPUT_REGION_START + block + 8UL;
     arm[ 1UL + i ].vm_owner_addr     = FD_VM_MEM_MAP_INPUT_REGION_START + block + 40UL;
