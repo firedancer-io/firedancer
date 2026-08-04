@@ -1323,10 +1323,6 @@ fd_executor_setup_accounts_for_txn_bundle( fd_runtime_t *      runtime,
     if( !found ) txn_out->accounts.account_acquired[ i ] = 1U;
   }
 
-  /* The executable (programdata) accounts were bound for every txn
-     up-front by fd_runtime_prepare_bundle_accounts and are preserved
-     across fd_runtime_new_txn_out for bundle txns, so there is nothing
-     to do here. */
   txn_out->accounts.is_setup         = 1;
   txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
 }
