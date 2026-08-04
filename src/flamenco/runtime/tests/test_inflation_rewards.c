@@ -1030,22 +1030,27 @@ test_hash_rewards_windowed( void ) {
   uchar seen[ 1024 ] = { 0 };
   ulong total_count = 0UL;
 
-  uint win_lo = 0U;
+  uint  win_lo        = 0U;
+  ulong remaining_cnt = reward_cnt;
+  ulong remaining_sum = reward_cnt*(reward_cnt+1UL)/2UL;
   while( win_lo<num_partitions ) {
-    if( win_lo ) fd_stake_rewards_window_advance( sr, fork_idx, &blockhash, win_lo );
+    if( win_lo ) fd_stake_rewards_window_advance( sr, fork_idx, &blockhash, win_lo, remaining_cnt );
 
     for( ulong i=0UL; i<reward_cnt; i++ ) {
+      if( seen[ i ] ) continue;
       fd_pubkey_t pubkey = {{ 0 }};
       FD_STORE( ulong, pubkey.key, i );
       fd_stake_rewards_insert( sr, fork_idx, &pubkey, i+1UL, i );
     }
 
-    /* The total is over the whole epoch regardless of the window. */
-    FD_TEST( fd_stake_rewards_total_rewards( sr, fork_idx )==reward_cnt*(reward_cnt+1UL)/2UL );
+    /* The total covers everything inserted, not just the window. */
+    FD_TEST( fd_stake_rewards_total_rewards( sr, fork_idx )==remaining_sum );
 
     uint win_hi = fd_stake_rewards_window_hi( sr, fork_idx );
     FD_TEST( win_hi>=win_lo );
 
+    ulong window_count = 0UL;
+    ulong window_sum   = 0UL;
     for( uint p=win_lo; p<=win_hi; p++ ) {
       for( fd_stake_rewards_iter_init( sr, fork_idx, p );
            !fd_stake_rewards_iter_done( sr );
@@ -1059,18 +1064,64 @@ test_hash_rewards_windowed( void ) {
         FD_TEST( lamports==i+1UL );
         FD_TEST( credits_observed==i );
         seen[ i ] = 1;
-        total_count++;
+        window_count++;
+        window_sum += lamports;
       }
     }
 
-    win_lo = win_hi+1U;
+    total_count   += window_count;
+    remaining_cnt -= window_count;
+    remaining_sum -= window_sum;
+    win_lo         = win_hi+1U;
   }
 
   FD_TEST( total_count==reward_cnt );
+  FD_TEST( !remaining_cnt );
+  FD_TEST( !remaining_sum );
 
   free( mem );
 
   FD_LOG_NOTICE(( "test_hash_rewards_windowed: PASSED" ));
+}
+
+static void
+test_hash_rewards_window_sizing( void ) {
+  ulong const capacity       = 1024UL;
+  uint  const num_partitions = 256U;
+  ulong const reward_cnt     = 2048UL; /* eight per partition */
+
+  ulong footprint = fd_stake_rewards_footprint( capacity, 1UL );
+  void * mem = aligned_alloc( fd_stake_rewards_align(), footprint );
+  FD_TEST( mem );
+
+  fd_stake_rewards_t * sr = fd_stake_rewards_join(
+      fd_stake_rewards_new( mem, capacity, 1UL ) );
+  FD_TEST( sr );
+
+  fd_hash_t blockhash = {{ 0 }};
+  memset( blockhash.hash, 0x5C, sizeof(blockhash.hash) );
+
+  /* 1014 of the 1024 entries are usable, so 126 partitions fit. */
+  uchar fork_idx = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL, num_partitions, reward_cnt );
+  FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx )==0U   );
+  FD_TEST( fd_stake_rewards_window_hi( sr, fork_idx )==125U );
+
+  /* Paying [0,125] leaves 130 partitions holding 1040 rewards, which is
+     still eight per partition, so the next window is just as wide.
+     Dividing 1040 by all 256 partitions instead asks for 249, which
+     covers the whole remainder and holds all 1040 of them. */
+  fd_stake_rewards_window_advance( sr, fork_idx, &blockhash, 126U, 1040UL );
+  FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx )==126U );
+  FD_TEST( fd_stake_rewards_window_hi( sr, fork_idx )==251U );
+
+  /* Once the remainder fits, the window covers all of it. */
+  fd_stake_rewards_window_advance( sr, fork_idx, &blockhash, 252U, 32UL );
+  FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx )==252U );
+  FD_TEST( fd_stake_rewards_window_hi( sr, fork_idx )==255U );
+
+  free( mem );
+
+  FD_LOG_NOTICE(( "test_hash_rewards_window_sizing: PASSED" ));
 }
 
 static void
@@ -2362,6 +2413,7 @@ main( int     argc,
   test_epoch_rewards_sysvar_lifecycle( mini );
   test_hash_rewards_into_partitions();
   test_hash_rewards_windowed();
+  test_hash_rewards_window_sizing();
   test_hash_rewards_into_partitions_empty();
   test_hash_rewards_pubkeys_across_forks();
   test_hash_rewards_purge_first_fork();

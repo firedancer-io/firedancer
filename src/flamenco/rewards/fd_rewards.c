@@ -1466,7 +1466,11 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
                                                               (uint)epoch_rewards_sysvar->num_partitions,
                                                               runtime_stack->stakes.stake_rewards_cnt );
   if( FD_LIKELY( win_lo ) ) {
-    fd_stake_rewards_window_advance( stake_rewards, fork_idx, &epoch_rewards_sysvar->parent_blockhash, win_lo );
+    fd_stake_rewards_window_advance( stake_rewards,
+                                     fork_idx,
+                                     &epoch_rewards_sysvar->parent_blockhash,
+                                     win_lo,
+                                     runtime_stack->stakes.stake_rewards_cnt );
   }
   if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
     fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
