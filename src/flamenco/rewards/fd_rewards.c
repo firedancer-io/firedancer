@@ -444,6 +444,11 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
        to ensure that we audit the feature properly if this happens. */
 
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+
+    if( FD_LIKELY( stake_delegation_idx<runtime_stack->max_stake_accounts ) ) {
+      runtime_stack->stakes.stake_points_result[ stake_delegation_idx ].vote_idx = idx;
+    }
+
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
     fd_calculated_stake_points_t   stake_points_result_[1];
@@ -552,13 +557,19 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
     calculated_stake_rewards->success = 0;
 
-    fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
-    fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+    int cached = !is_recalculation && stake_delegation_idx<runtime_stack->max_stake_accounts;
+    uint idx;
+    if( FD_LIKELY( cached ) ) {
+      idx = runtime_stack->stakes.stake_points_result[ stake_delegation_idx ].vote_idx;
+    } else {
+      fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
+      fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+      idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+    }
 
     /* Stake account may need to be adjusted to meet rent-exempt minimum
        balance requirements based on new rent and delegation parameters.
        https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L568-L608 */
-    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) {
       if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) continue;
 
@@ -590,7 +601,9 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
-    if( is_recalculation || FD_UNLIKELY( stake_delegation_idx>=runtime_stack->max_stake_accounts ) ) {
+    if( FD_LIKELY( cached ) ) {
+      stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
+    } else {
       fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
       /* We have not cached the stake points yet if we are recalculating
@@ -603,8 +616,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
           FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
           stake_points_result_ );
       stake_points_result = stake_points_result_;
-    } else {
-      stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
     }
 
     /* redeem_rewards is actually just responsible for calculating the

@@ -10,6 +10,9 @@
 struct fd_calculated_stake_points {
   fd_w_u128_t points;
   ulong       new_credits_observed;
+  uint        vote_idx; /* Caches this delegation's vote_rewards_map index.  UINT_MAX if the
+                           vote account is not in the rewards map.  Not populated during
+                           recalculation due to lack of the points phase. */
   uchar       force_credits_update_with_skipped_reward;
 };
 typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
@@ -40,7 +43,7 @@ typedef struct fd_vote_rewards fd_vote_rewards_t;
 #define MAP_ELE_T              fd_vote_rewards_t
 #define MAP_KEY                pubkey
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( (seed)^FD_LOAD( ulong, ((uchar const *)(key))+24UL ) ))
 #define MAP_NEXT               next
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
@@ -57,7 +60,7 @@ typedef struct fd_stake_accum fd_stake_accum_t;
 #define MAP_ELE_T              fd_stake_accum_t
 #define MAP_KEY                pubkey
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( (seed)^FD_LOAD( ulong, ((uchar const *)(key))+24UL ) ))
 #define MAP_NEXT               next
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
