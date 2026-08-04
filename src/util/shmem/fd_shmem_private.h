@@ -143,13 +143,16 @@ fd_shmem_private_path( char const * name,    /* Valid name */
 /* fd_shmem_private_map_rand maps a private+anonymous pages of default
    page size at a random virtual address.  align specifies the minimum
    alignment of the first byte to map.  size is the minimum number of
-   bytes to map.  Returns a virtual address on success, and MAP_FAILED
-   on failure. */
+   bytes to map.  mode is a FD_SHMEM_JOIN_MODE_* value.  Returns 0 on
+   success with `mem` holding the mapped virtual address, and a
+   strerror friendly error code on failure (logs details, `mem`
+   untouched). */
 
-void *
-fd_shmem_private_map_rand( ulong size,
-                           ulong align,
-                           int   prot );
+int
+fd_shmem_private_map_rand( ulong  size,
+                           ulong  align,
+                           int    mode,  /* FD_SHMEM_JOIN_MODE_* */
+                           void * mem ); /* non-NULL */
 
 FD_PROTOTYPES_END
 

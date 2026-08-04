@@ -24,9 +24,10 @@ fd_wksp_demand_paged_new( char const * name,
   footprint = fd_ulong_align_up( footprint, FD_SHMEM_HUGE_PAGE_SZ );
 
   /* Acquire anonymous demand-paged memory */
-  void * mem = fd_shmem_private_map_rand( footprint, FD_SHMEM_HUGE_PAGE_SZ, PROT_READ|PROT_WRITE );
-  if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
-    FD_LOG_WARNING(( "fd_shmem_private_map_rand() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  void * mem;
+  int    map_err = fd_shmem_private_map_rand( footprint, FD_SHMEM_HUGE_PAGE_SZ, FD_SHMEM_JOIN_MODE_READ_WRITE, &mem );
+  if( FD_UNLIKELY( map_err ) ) {
+    FD_LOG_WARNING(( "fd_shmem_private_map_rand() failed (%i-%s)", map_err, fd_io_strerror( map_err ) ));
     return NULL;
   }
 
