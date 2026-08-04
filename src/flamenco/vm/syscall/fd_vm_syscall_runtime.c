@@ -1,5 +1,4 @@
 #include "fd_vm_syscall.h"
-#include "../../runtime/program/fd_vote_program.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/fd_system_ids.h"
 #include "fd_vm_syscall_macros.h"
@@ -401,15 +400,10 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
 
   ulong stake = 0UL;
-  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, validator_admission_ticket ) ) {
-    /* It's okay to ignore if an account is invalid since these stakes
-       are calculated from an older snapshot of vote account stakes. */
-    fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
-    fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL, NULL, NULL );
-  } else {
-    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( vm->instr_ctx->bank );
-    fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->vote_stakes_fork_id, vote_address, &stake, NULL, NULL );
-  }
+  /* It's okay to ignore if an account is invalid since these stakes
+     are calculated from an older snapshot of vote account stakes. */
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
+  fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL, NULL, NULL );
 
   *_ret = stake;
 

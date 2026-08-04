@@ -526,7 +526,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
   ulong num_slots  = 32UL;
 
   fd_vote_stake_weight_t fixture_stakes[1] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
-  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, start_slot - 1, num_slots + MOCK_SLOT_MAX + 100, 1UL, fixture_stakes, 0UL ) );
+  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, start_slot - 1, num_slots + MOCK_SLOT_MAX + 100, 1UL, fixture_stakes ) );
   ctx->mleaders->init_done[0] = 1;
 
   for( ulong slot = start_slot; slot < start_slot + num_slots; slot++ ) {
@@ -637,7 +637,7 @@ eqvoc_setup( fd_wksp_t * wksp ) {
 
   fd_vote_stake_weight_t eqvoc_stakes[1] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
   ulong eqvoc_slot_cnt = EQVOC_BOOT_CNT + MOCK_SLOT_MAX + 100;
-  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, EQVOC_START_SLOT - 1, eqvoc_slot_cnt, 1UL, eqvoc_stakes, 0UL ) );
+  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, EQVOC_START_SLOT - 1, eqvoc_slot_cnt, 1UL, eqvoc_stakes ) );
   ctx->mleaders->init_done[0] = 1;
 
   for( ulong slot = EQVOC_START_SLOT; slot < EQVOC_START_SLOT + EQVOC_BOOT_CNT; slot++ ) {

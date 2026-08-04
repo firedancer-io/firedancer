@@ -14,7 +14,6 @@
 #include "../../runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../runtime/program/fd_vote_program.h"
 #include "../../stakes/fd_stake_types.h"
-#include "../../stakes/fd_vote_stakes.h"
 #include "../../stakes/fd_stake_delegations.h"
 #include "../../stakes/fd_top_votes.h"
 #include "../../leaders/fd_leaders.h"
@@ -163,8 +162,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   void *          accdb_join;    FD_TEST( (accdb_join     = fd_wksp_alloc_laddr( wksp, fd_accdb_align(),           accdb_join_sz,                  wksp_tag )) );
   void *          pcache_mem;    FD_TEST( (pcache_mem     = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), pcache_sz,                      wksp_tag )) );
   uchar *         scratch;       FD_TEST( (scratch        = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT, wksp_tag )) );
-  void *          txncache_shmem; FD_TEST( (txncache_shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(),  txncache_shmem_sz,             wksp_tag )) );
-  void *          txncache_mem;   FD_TEST( (txncache_mem   = fd_wksp_alloc_laddr( wksp, fd_txncache_align(),        txncache_sz,                   wksp_tag )) );
+  void *          txncache_shmem; FD_TEST( (txncache_shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(), txncache_shmem_sz,              wksp_tag )) );
+  void *          txncache_mem;   FD_TEST( (txncache_mem   = fd_wksp_alloc_laddr( wksp, fd_txncache_align(),       txncache_sz,                    wksp_tag )) );
   void *          banks_mem;     FD_TEST( (banks_mem      = fd_wksp_alloc_laddr( wksp, fd_banks_align(),           banks_sz,                       wksp_tag )) );
   fd_runtime_t *  runtime;       FD_TEST( (runtime        = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t),      sizeof(fd_runtime_t),           wksp_tag )) );
   void *          rstack_mem;    FD_TEST( (rstack_mem     = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(),   runtime_stack_sz,               wksp_tag )) );
@@ -282,16 +281,12 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 
   ulong const N             = params->mock_validator_cnt;
   ulong const uniform_stake = 1000000000UL; /* 1 SOL */
-  ulong const vote_min_bal  = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V3_SZ );
+  ulong const vote_min_bal  = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ );
   ulong const stake_min_bal = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_STAKE_STATE_SZ );
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  fd_vote_stakes_reset( vote_stakes );
+  ulong const vote_bal      = fd_ulong_max( vote_min_bal, uniform_stake );
 
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
-  fd_top_votes_init( top_votes_t_1 );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
-  fd_top_votes_init( top_votes_t_2 );
 
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( mini->banks );
 
@@ -320,15 +315,20 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
     /* Vote account */
 
     {
-      uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
+      uchar vote_state_data[ FD_VOTE_STATE_V4_SZ ] = {0};
 
       fd_vote_state_versioned_t versioned[1];
-      fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
+      FD_TEST( fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v4 ) );
 
-      fd_vote_state_v3_t * vs   = &versioned->v3;
-      vs->node_pubkey           = identity_key;
-      vs->authorized_withdrawer = identity_key;
-      vs->commission            = 100;
+      fd_vote_state_v4_t * vs               = &versioned->v4;
+      vs->node_pubkey                        = identity_key;
+      vs->authorized_withdrawer              = identity_key;
+      vs->inflation_rewards_collector        = vote_key;
+      vs->block_revenue_collector            = identity_key;
+      vs->inflation_rewards_commission_bps   = 1234U;
+      vs->block_revenue_commission_bps       = 10000U;
+      vs->has_bls_pubkey_compressed          = 1U;
+      fd_memset( vs->bls_pubkey_compressed, 0xBB, FD_BLS_PUBKEY_COMPRESSED_SZ );
 
       fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( vs->authorized_voters.pool );
       *ele = (fd_vote_authorized_voter_t){
@@ -340,10 +340,10 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
       FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
       fd_acc_t acc = fd_accdb_write_one( accdb, root_fk, vote_key.uc );
-      acc.lamports = vote_min_bal;
+      acc.lamports = vote_bal;
       fd_memcpy( acc.owner, fd_solana_vote_program_id.uc, 32UL );
-      fd_memcpy( acc.data, vote_state_data, FD_VOTE_STATE_V3_SZ );
-      acc.data_len = FD_VOTE_STATE_V3_SZ;
+      fd_memcpy( acc.data, vote_state_data, FD_VOTE_STATE_V4_SZ );
+      acc.data_len = FD_VOTE_STATE_V4_SZ;
       acc.commit = 1;
       fd_accdb_unwrite_one( accdb, &acc );
     }
@@ -384,11 +384,13 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 
     /* Populate bank structures */
 
-    fd_vote_stakes_root_insert_key ( vote_stakes, &vote_key, &identity_key, uniform_stake, 0, 0UL );
-    fd_vote_stakes_root_update_meta( vote_stakes, &vote_key, &identity_key, uniform_stake, 0, 0UL );
+    fd_top_votes_insert( top_votes_t_1, &vote_key, &identity_key, uniform_stake, 1234U );
+    fd_top_votes_insert( top_votes_t_2, &vote_key, &identity_key, uniform_stake, 1234U );
 
-    fd_top_votes_insert( top_votes_t_1, &vote_key, &identity_key, uniform_stake, 0 );
-    fd_top_votes_insert( top_votes_t_2, &vote_key, &identity_key, uniform_stake, 0 );
+    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ i ];
+    fd_memcpy( epoch_credits->pubkey, &vote_key, sizeof(fd_pubkey_t) );
+    epoch_credits->cnt          = 0UL;
+    epoch_credits->base_credits = 0UL;
 
     fd_stake_delegations_root_update( stake_delegations,
                                       &stake_key, &vote_key,
@@ -406,8 +408,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
       .stake    = uniform_stake,
     };
   }
-
-  fd_vote_stakes_genesis_fini( vote_stakes );
+  *fd_bank_epoch_credits_len( bank ) = N;
 
   /* Create leader schedule */
 
@@ -417,7 +418,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 
   void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
-      leaders_mem, epoch, slot0, slot_cnt, N, stakes, 0UL ) ) );
+      leaders_mem, epoch, slot0, slot_cnt, N, stakes ) ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   free( stakes );
@@ -426,6 +427,13 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 ulong
 fd_svm_mini_reset( fd_svm_mini_t *        mini,
                    fd_svm_mini_params_t * params ) {
+
+  ulong mock_validator_max = fd_ulong_min( mini->banks->max_vote_accounts, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+  if( FD_UNLIKELY( params->mock_validator_cnt>mock_validator_max ) ) {
+    FD_LOG_WARNING(( "mock_validator_cnt %lu exceeds capacity %lu",
+                     params->mock_validator_cnt, mock_validator_max ));
+    return ULONG_MAX;
+  }
 
   /* Reset accdb: destroy and recreate shmem + join.
      The accdb shmem and join memory are wksp allocations that remain
@@ -621,6 +629,8 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
     FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
   }
+
+  *fd_bank_epoch_credits_len( bank ) = 0UL;
 
   if( params->mock_validator_cnt ) {
     fd_svm_mini_init_mock_validators( mini, bank, params );

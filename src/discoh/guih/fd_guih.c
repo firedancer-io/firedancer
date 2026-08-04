@@ -1647,7 +1647,7 @@ void
 fd_guih_handle_leader_schedule( fd_guih_t *                    gui,
                                fd_stake_weight_msg_t const * leader_schedule,
                                long                          now ) {
-  FD_TEST( leader_schedule->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+  FD_TEST( leader_schedule->staked_vote_cnt<=MAX_STAKE_WEIGHTS );
   FD_TEST( leader_schedule->slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
   ulong idx = leader_schedule->epoch % 2UL;
@@ -1674,8 +1674,7 @@ fd_guih_handle_leader_schedule( fd_guih_t *                    gui,
                                                                                gui->epoch.epochs[ idx ].start_slot,
                                                                                leader_schedule->slot_cnt,
                                                                                leader_schedule->staked_vote_cnt,
-                                                                               gui->epoch.epochs[ idx ].stakes,
-                                                                               0UL ) );
+                                                                               gui->epoch.epochs[ idx ].stakes ) );
 
   if( FD_UNLIKELY( leader_schedule->start_slot==0UL ) ) {
     gui->epoch.epochs[ 0 ].start_time = now;
@@ -2277,7 +2276,7 @@ fd_guih_plugin_message( fd_guih_t *   gui,
       break;
     }
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
-      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==7*sizeof(ulong), "new fields breaks things" );
+      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==6*sizeof(ulong), "new fields breaks things" );
       fd_guih_handle_leader_schedule( gui, (fd_stake_weight_msg_t *)msg, now );
       break;
     }

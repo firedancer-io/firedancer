@@ -2,6 +2,8 @@
 #include "fd_genesis_parse.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/program/fd_vote_program.h"
+#include "../runtime/program/vote/fd_vote_state_versioned.h"
+#include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../stakes/fd_stake_types.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
@@ -101,9 +103,17 @@ main( int     argc,
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, result_mem, account, i );
     if( fd_pubkey_eq( &account->pubkey, &options->vote_pubkey ) ) {
-      FD_TEST( account->data_len == FD_VOTE_STATE_V3_SZ );
+      FD_TEST( account->data_len == FD_VOTE_STATE_V4_SZ );
       FD_TEST( !memcmp( account->owner.key, fd_solana_vote_program_id.key, 32 ) );
-      FD_TEST( account->lamports > 0UL );
+      FD_TEST( fd_vsv_is_correct_size_owner_and_init( account->owner.uc, account->data, account->data_len ) );
+      FD_TEST( fd_vote_account_is_v4_with_bls_pubkey( account->data, account->data_len ) );
+      fd_rent_t rent = {
+        .lamports_per_uint8_year = genesis->rent.lamports_per_uint8_year,
+        .exemption_threshold     = genesis->rent.exemption_threshold,
+        .burn_percent            = genesis->rent.burn_percent
+      };
+      FD_TEST( account->lamports > fd_rent_exempt_minimum_balance( &rent, FD_VOTE_STATE_V4_SZ ) );
+
       found_vote = 1;
       break;
     }

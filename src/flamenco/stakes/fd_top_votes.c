@@ -73,20 +73,19 @@ fd_top_votes_align( void ) {
 }
 
 ulong
-fd_top_votes_footprint( ulong vote_accounts_max ) {
-  ulong map_chain_cnt = map_chain_cnt_est( vote_accounts_max );
+fd_top_votes_footprint( void ) {
+  ulong map_chain_cnt = map_chain_cnt_est( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_top_votes_align(), sizeof(fd_top_votes_t) );
-  l = FD_LAYOUT_APPEND( l, pool_align(),         pool_footprint( vote_accounts_max ) );
-  l = FD_LAYOUT_APPEND( l, heap_align(),         heap_footprint( vote_accounts_max ) );
+  l = FD_LAYOUT_APPEND( l, pool_align(),         pool_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+  l = FD_LAYOUT_APPEND( l, heap_align(),         heap_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
   l = FD_LAYOUT_APPEND( l, map_align(),          map_footprint( map_chain_cnt ) );
   return FD_LAYOUT_FINI( l, fd_top_votes_align() );
 }
 
 void *
 fd_top_votes_new( void * mem,
-                  ushort vote_accounts_max,
                   ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -98,32 +97,32 @@ fd_top_votes_new( void * mem,
     return NULL;
   }
 
-  ulong map_chain_cnt = map_chain_cnt_est( vote_accounts_max );
+  ulong map_chain_cnt = map_chain_cnt_est( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_top_votes_t * top_votes = FD_SCRATCH_ALLOC_APPEND( l, fd_top_votes_align(), sizeof(fd_top_votes_t) );
-  void *           pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),         pool_footprint( vote_accounts_max ) );
-  void *           heap_mem  = FD_SCRATCH_ALLOC_APPEND( l, heap_align(),         heap_footprint( vote_accounts_max ) );
+  void *           pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),         pool_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+  void *           heap_mem  = FD_SCRATCH_ALLOC_APPEND( l, heap_align(),         heap_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
   void *           map_mem   = FD_SCRATCH_ALLOC_APPEND( l, map_align(),          map_footprint( map_chain_cnt ) );
 
-  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_top_votes_align() ) != (ulong)top_votes + fd_top_votes_footprint( vote_accounts_max ) ) ) {
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_top_votes_align() ) != (ulong)top_votes + fd_top_votes_footprint() ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_top_votes_footprint( vote_accounts_max )>FD_TOP_VOTES_MAX_FOOTPRINT ) ) {
+  if( FD_UNLIKELY( fd_top_votes_footprint()>FD_TOP_VOTES_MAX_FOOTPRINT ) ) {
     FD_LOG_WARNING(( "fd_top_votes_new: bad footprint" ));
     return NULL;
   }
 
-  vote_ele_t * pool = pool_join( pool_new( pool_mem, vote_accounts_max ) );
+  vote_ele_t * pool = pool_join( pool_new( pool_mem, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
   if( FD_UNLIKELY( !pool ) ) {
     FD_LOG_WARNING(( "Failed to create top votes pool" ));
     return NULL;
   }
   top_votes->pool_off = (ulong)pool - (ulong)mem;
 
-  heap_t * heap = heap_join( heap_new( heap_mem, vote_accounts_max ) );
+  heap_t * heap = heap_join( heap_new( heap_mem, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
   if( FD_UNLIKELY( !heap ) ) {
     FD_LOG_WARNING(( "Failed to create top votes heap" ));
     return NULL;
@@ -174,6 +173,11 @@ fd_top_votes_init( fd_top_votes_t * top_votes ) {
 
   map_reset( map );
   pool_reset( pool );
+}
+
+ulong
+fd_top_votes_cnt( fd_top_votes_t const * top_votes ) {
+  return pool_used( get_pool( top_votes ) );
 }
 
 void

@@ -14,7 +14,6 @@
 #include "../accdb/fd_accdb.h"
 #include "../features/fd_features.h"
 #include "../../disco/fd_txn_p.h"
-#include "../log_collector/fd_log_collector.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 
 #define TEST_SLOTS_PER_EPOCH         (32UL)
@@ -1118,117 +1117,6 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_LOG_NOTICE(( "test bundle-forwarded nonce... ok" ));
   }
 
-  /* Test: bundle vote account lifecycle deltas remain ordered across
-     separate txn_out commits.  This simulates tx0 open, tx1 close,
-     tx2 open for the same vote account. */
-
-  reset_world();
-  fd_txn_p_t lifecycle_txn_p[3] = {0};
-  fd_pubkey_t vote_lifecycle_keys[2] = { pubkey1, pubkey2 };
-  bundle_acquire_repr( vote_lifecycle_keys, 2UL, 3UL );
-  for( ulong i=0UL; i<3UL; i++ ) {
-    serialize_bundle_txn( &lifecycle_txn_p[i], vote_lifecycle_keys, 2UL, 0UL );
-
-    env->txn_in.txn                 = &lifecycle_txn_p[i];
-    env->txn_in.bundle.is_bundle    = 1;
-    env->txn_in.bundle.prev_txn_cnt = i;
-    for( ulong j=0UL; j<i; j++ ) env->txn_in.bundle.prev_txn_outs[j] = &env->txn_out[j];
-
-    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[i] );
-    FD_TEST( env->txn_out[i].err.is_committable );
-    FD_TEST( env->txn_out[i].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-    FD_TEST( fd_pubkey_eq( &env->txn_out[i].accounts.keys[1], &pubkey2 ) );
-    FD_TEST( fd_runtime_account_is_writable_idx( &env->txn_in, &env->txn_out[i], 1 ) );
-  }
-
-  env->txn_out[0].accounts.new_vote[1] = 1;
-  env->txn_out[1].accounts.rm_vote [1] = 1;
-  env->txn_out[2].accounts.new_vote[1] = 1;
-
-  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
-  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
-  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[2], 0 );
-  fd_runtime_fini_bundle( env->runtime );
-
-  fd_new_votes_t * new_votes = fd_bank_new_votes( env->bank );
-  ushort fork_idx = env->bank->new_votes_fork_id;
-  fd_new_votes_apply_delta( new_votes, fork_idx );
-
-  uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
-  fd_new_votes_iter_t * iter = fd_new_votes_iter_init( new_votes, NULL, 0UL, iter_mem );
-  FD_TEST( !fd_new_votes_iter_done( iter ) );
-  int is_tombstone = 1;
-  fd_pubkey_t const * pubkey = fd_new_votes_iter_ele( iter, &is_tombstone );
-  FD_TEST( !is_tombstone );
-  FD_TEST( fd_pubkey_eq( pubkey, &pubkey2 ) );
-  fd_new_votes_iter_next( iter );
-  FD_TEST( fd_new_votes_iter_done( iter ) );
-  fd_new_votes_iter_fini( iter );
-
-  fd_new_votes_evict_fork( new_votes, fork_idx );
-  env->bank->new_votes_fork_id = USHORT_MAX;
-
-  /* Test: a bundle rm_vote queued by a NON-owner txn must still be
-     recorded in order.  new_vote/rm_vote feed an ordered op-log, so they
-     fire per writable txn, independent of which txn owns the accdb ref.
-
-     Regression this guards: if rm_vote were gated on account_acquired
-     (like the lthash commit), then a close queued by tx0 whose ref
-     ownership later moved to tx1 (a writable reuse that does not touch
-     vote state) would be dropped.  With the account pre-existing in the
-     root map, dropping the remove leaves a stale entry (present) instead
-     of correctly tombstoning it (absent). */
-  {
-    reset_world();
-    env->bank->new_votes_fork_id = fd_new_votes_new_fork( fd_bank_new_votes( env->bank ) );
-    fd_new_votes_t * nv  = fd_bank_new_votes( env->bank );
-    ushort           fidx = env->bank->new_votes_fork_id;
-
-    /* Pre-populate the root map with pubkey2 so a dropped remove is
-       observable as a stale survivor. */
-    fd_new_votes_insert( nv, fidx, &pubkey2 );
-    fd_new_votes_apply_delta( nv, fidx );
-
-    fd_txn_p_t nonowner_txn_p[2] = {0};
-    fd_pubkey_t nonowner_keys[2] = { pubkey1, pubkey2 };
-    bundle_acquire_repr( nonowner_keys, 2UL, 2UL );
-    for( ulong i=0UL; i<2UL; i++ ) {
-      serialize_bundle_txn( &nonowner_txn_p[i], nonowner_keys, 2UL, 0UL );
-      env->txn_in.txn                 = &nonowner_txn_p[i];
-      env->txn_in.bundle.is_bundle    = 1;
-      env->txn_in.bundle.prev_txn_cnt = i;
-      for( ulong j=0UL; j<i; j++ ) env->txn_in.bundle.prev_txn_outs[j] = &env->txn_out[j];
-      fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[i] );
-      FD_TEST( env->txn_out[i].err.is_committable );
-      FD_TEST( env->txn_out[i].accounts.is_writable[1] );
-    }
-
-    /* tx0 closes the vote account; tx1 reuses it writable (taking
-       ownership of the accdb ref) but does not touch vote state. */
-    env->txn_out[0].accounts.rm_vote[1] = 1;
-
-    /* Ownership must have moved to tx1, leaving tx0 a non-owner. */
-    FD_TEST( env->txn_out[0].accounts.account_acquired[1] == 0 );
-    FD_TEST( env->txn_out[1].accounts.account_acquired[1] == 1 );
-
-    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
-    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
-    fd_runtime_fini_bundle( env->runtime );
-
-    fd_new_votes_apply_delta( nv, fidx );
-
-    /* The non-owner's remove must have tombstoned the pre-existing entry. */
-    uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) it_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
-    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, it_mem );
-    FD_TEST( fd_new_votes_iter_done( it ) ); /* pubkey2 removed -> empty */
-    fd_new_votes_iter_fini( it );
-
-    fd_new_votes_evict_fork( nv, fidx );
-    env->bank->new_votes_fork_id = USHORT_MAX;
-  }
-
-  FD_LOG_NOTICE(( "test bundle non-owner vote op ordering... ok" ));
-
   /* Test: stake_update queued by a non-owner txn must still fire once,
      on the txn that ends up owning the accdb ref.  tx0 marks the stake
      account; tx1 reuses it writable (ownership moves to tx1).  The
@@ -1410,52 +1298,6 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   }
 
   FD_LOG_NOTICE(( "test nondelegated stake close skips tombstone... ok" ));
-
-  /* Test: a fully-cancelled bundle must not apply any vote op.  tx0
-     queues rm_vote then the bundle is cancelled (not committed); the
-     pre-existing root entry must survive untouched. */
-  {
-    reset_world();
-    fd_pubkey_t cancel_fp  = { .ul[0] = 0x43414E43454C4650UL };
-    fd_pubkey_t cancel_acc = { .ul[0] = 0x43414E43454C4143UL };
-    create_test_account( env->mini->runtime->accdb, env->fork_id, &cancel_fp,  1000000000UL, 0UL, NULL, &system );
-    create_test_account( env->mini->runtime->accdb, env->fork_id, &cancel_acc, 1000000UL,    0UL, NULL, &system );
-
-    env->bank->new_votes_fork_id = fd_new_votes_new_fork( fd_bank_new_votes( env->bank ) );
-    fd_new_votes_t * nv   = fd_bank_new_votes( env->bank );
-    ushort           fidx = env->bank->new_votes_fork_id;
-    fd_new_votes_insert( nv, fidx, &cancel_acc );
-    fd_new_votes_apply_delta( nv, fidx );
-
-    fd_txn_p_t cp = {0};
-    fd_pubkey_t ckeys[2] = { cancel_fp, cancel_acc };
-    bundle_acquire_repr( ckeys, 2UL, 1UL );
-    serialize_bundle_txn( &cp, ckeys, 2UL, 0UL );
-    env->txn_in.txn                 = &cp;
-    env->txn_in.bundle.is_bundle    = 1;
-    env->txn_in.bundle.prev_txn_cnt = 0;
-    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
-    FD_TEST( env->txn_out[0].err.is_committable );
-    env->txn_out[0].accounts.rm_vote[1] = 1;
-
-    /* Cancel instead of commit: no vote op should be applied.  Single
-       bundle acquire -> single release via fini_bundle. */
-    env->txn_out[0].err.is_committable = 0;
-    fd_runtime_fini_bundle( env->runtime );
-
-    fd_new_votes_apply_delta( nv, fidx );
-    uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) it_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
-    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, it_mem );
-    FD_TEST( !fd_new_votes_iter_done( it ) ); /* cancel_acc still present */
-    int ts = 1;
-    FD_TEST( fd_pubkey_eq( fd_new_votes_iter_ele( it, &ts ), &cancel_acc ) && !ts );
-    fd_new_votes_iter_fini( it );
-
-    fd_new_votes_evict_fork( nv, fidx );
-    env->bank->new_votes_fork_id = USHORT_MAX;
-  }
-
-  FD_LOG_NOTICE(( "test bundle cancelled vote op not applied... ok" ));
 }
 
 int

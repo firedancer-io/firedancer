@@ -1,4 +1,5 @@
 #include "fd_multi_epoch_leaders.h"
+#include "../runtime/fd_runtime_const.h"
 
 FD_STATIC_ASSERT( alignof(fd_multi_epoch_leaders_t)<=FD_MULTI_EPOCH_LEADERS_ALIGN, alignment );
 
@@ -6,7 +7,7 @@ static uchar mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ]
   __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
 
 #define SLOTS_PER_EPOCH 1000 /* Just for testing */
-#define STAKE_MSG_SZ ( FD_STAKE_CI_STAKE_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * FD_STAKE_CI_STAKE_MSG_RECORD_SZ )
+#define STAKE_MSG_SZ ( FD_STAKE_CI_STAKE_MSG_HEADER_SZ + MAX_STAKE_WEIGHTS * FD_STAKE_CI_STAKE_MSG_RECORD_SZ )
 uchar stake_msg[ STAKE_MSG_SZ ];
 
 static fd_stake_weight_msg_t *
@@ -20,7 +21,6 @@ generate_stake_msg( uchar *      _buf,
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = strlen(stakers);
   buf->staked_id_cnt     = 0UL;
-  buf->excluded_id_stake = 0UL;
 
   fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( buf + 1 );
   ulong i = 0UL;
@@ -227,32 +227,36 @@ test_next_slot( void ) {
 }
 
 static void
+test_message_bounds( void ) {
+  FD_TEST( sizeof(fd_stake_weight_msg_t)==6UL*sizeof(ulong) );
+  FD_TEST( FD_STAKE_CI_STAKE_MSG_SZ==
+           FD_STAKE_CI_STAKE_MSG_HEADER_SZ+
+           FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS*
+             (FD_STAKE_CI_STAKE_MSG_RECORD_SZ+FD_STAKE_CI_ID_WEIGHT_RECORD_SZ) );
+}
+
+static void
 test_limits( void ) {
-  /* Test with maximum number of compressed stake weights */
+  /* Test with the maximum number of stake weights. */
   fd_multi_epoch_leaders_t * mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
 
-  for( ulong stake_weight_cnt=MAX_COMPRESSED_STAKE_WEIGHTS-2UL; stake_weight_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS+2UL; stake_weight_cnt++ ) {
+  for( ulong stake_weight_cnt=MAX_STAKE_WEIGHTS-2UL; stake_weight_cnt<=MAX_STAKE_WEIGHTS; stake_weight_cnt++ ) {
     fd_stake_weight_msg_t * buf = fd_type_pun( stake_msg );
     buf->epoch                  = stake_weight_cnt;
     buf->start_slot             = stake_weight_cnt * SLOTS_PER_EPOCH;
     buf->slot_cnt               = SLOTS_PER_EPOCH;
     buf->staked_vote_cnt        = 0UL;
     buf->staked_id_cnt          = 0UL;
-    buf->excluded_id_stake      = 0UL;
 
     fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( buf + 1 );
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
-      if( FD_LIKELY( i<MAX_COMPRESSED_STAKE_WEIGHTS ) ) {
-        memset( vote_stake_weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
-        memset( vote_stake_weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
-        FD_STORE( ulong, vote_stake_weights[i].vote_key.uc, fd_ulong_bswap( i ) );
-        FD_STORE( ulong, vote_stake_weights[i].id_key.uc, fd_ulong_bswap( i ) );
-        vote_stake_weights[i].stake = stake;
-        buf->staked_vote_cnt++;
-      } else {
-        buf->excluded_id_stake += stake;
-      }
+      memset( vote_stake_weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+      memset( vote_stake_weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+      FD_STORE( ulong, vote_stake_weights[i].vote_key.uc, fd_ulong_bswap( i ) );
+      FD_STORE( ulong, vote_stake_weights[i].id_key.uc, fd_ulong_bswap( i ) );
+      vote_stake_weights[i].stake = stake;
+      buf->staked_vote_cnt++;
     }
     fd_multi_epoch_leaders_stake_msg_init( mleaders, buf );
     fd_multi_epoch_leaders_stake_msg_fini( mleaders );
@@ -326,6 +330,7 @@ main( int     argc,
   test_cancel();
   test_ordering();
   test_next_slot();
+  test_message_bounds();
   test_limits();
   test_get_sorted_lscheds();
 

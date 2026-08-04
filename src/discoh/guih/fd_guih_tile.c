@@ -228,8 +228,8 @@ during_frag( fd_guih_ctx_t * ctx,
     } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
       ulong staked_vote_cnt = FD_LOAD( ulong, src+8UL );
       ulong staked_id_cnt   = FD_LOAD( ulong, src+16UL );
-      FD_TEST( staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
-      FD_TEST( staked_id_cnt<=MAX_SHRED_DESTS );
+      FD_TEST( staked_vote_cnt<=MAX_STAKE_WEIGHTS );
+      FD_TEST( staked_id_cnt<=MAX_STAKE_WEIGHTS );
       sz = fd_stake_weight_msg_sz( staked_vote_cnt, staked_id_cnt );
     }
   }

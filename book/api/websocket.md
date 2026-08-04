@@ -1863,8 +1863,8 @@ once they are confirmed (the prior epoch has fully rooted).
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
 | target_slot_duration_nanos | `number` | The cluster-wide target slot duration, in nanoseconds, for the epoch. This is typically `400000000` (400ms) on most clusters unless a `reduce_slot_time` feature gate is in effect |
-| excluded_stake_lamports | `string` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But it is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
-| staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
+| excluded_stake_lamports | `string` | Always zero. Firedancer tracks the complete validator-admission-ticket stake set.
+| staked_pubkeys | `string[]` | All validator identity keys in the validator-admission-ticket stake set for this epoch, capped at 2,000 entries |
 | staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
 | leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divided by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
 

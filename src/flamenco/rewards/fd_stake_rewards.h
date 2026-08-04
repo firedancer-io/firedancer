@@ -45,7 +45,8 @@
   and forking conditions, the pool capacity can exceed which would
   cause the validator to crash.  These conditions don't exist today. */
 
-#define FD_STAKE_REWARDS_ALIGN (128UL)
+#define FD_STAKE_REWARDS_ALIGN          (128UL)
+#define FD_STAKE_REWARDS_MAX_FORK_WIDTH (128UL)
 
 struct fd_stake_rewards;
 typedef struct fd_stake_rewards fd_stake_rewards_t;

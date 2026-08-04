@@ -9,10 +9,52 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_LIVE_SLOTS   16UL
-#define MAX_TXN_PER_SLOT 4096UL
-#define VALIDATOR_CNT    3UL
-#define ROOT_SLOT        474UL /* epoch 1 with 432 slots/epoch */
+#define MAX_LIVE_SLOTS      16UL
+#define MAX_TXN_PER_SLOT    4096UL
+#define VALIDATOR_CNT       3UL
+#define ROOT_SLOT           474UL /* epoch 1 with 432 slots/epoch */
+#define EPOCH_CREDITS_CNT   3UL
+
+/* The mock validators created by svm_mini have empty credit histories,
+   which leaves the encoder's base/delta reconstruction unexercised.
+   Seed distinct base, credits, and previous credits per entry so a
+   dropped base or a swapped credits/prev_credits pair is caught. */
+
+static void
+seed_epoch_credits( fd_bank_t * bank ) {
+  ulong len = *fd_bank_epoch_credits_len( bank );
+  FD_TEST( len==VALIDATOR_CNT );
+  FD_TEST( EPOCH_CREDITS_CNT<=FD_EPOCH_CREDITS_MAX );
+  for( ulong i=0UL; i<len; i++ ) {
+    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[ i ];
+    ec->cnt          = EPOCH_CREDITS_CNT;
+    ec->base_credits = 10000UL + 1000UL*i;
+    for( ulong j=0UL; j<EPOCH_CREDITS_CNT; j++ ) {
+      ec->epoch[ j ]              = (ushort)( j+1UL );
+      ec->prev_credits_delta[ j ] = (uint)( 100UL*j + 7UL*i );
+      ec->credits_delta[ j ]      = (uint)( 100UL*j + 7UL*i + 50UL );
+    }
+  }
+}
+
+static void
+check_epoch_credits( fd_bank_t *                                bank,
+                     fd_snapshot_manifest_vote_stakes_t const * vs ) {
+  fd_epoch_credits_t const * ec  = NULL;
+  ulong                      len = *fd_bank_epoch_credits_len( bank );
+  for( ulong i=0UL; i<len; i++ ) {
+    fd_epoch_credits_t const * cand = &fd_bank_epoch_credits( bank )[ i ];
+    if( !memcmp( cand->pubkey, vs->vote, 32UL ) ) { ec = cand; break; }
+  }
+  FD_TEST( ec );
+  FD_TEST( ec->cnt==EPOCH_CREDITS_CNT );
+  FD_TEST( vs->epoch_credits_history_len==ec->cnt );
+  for( ulong j=0UL; j<ec->cnt; j++ ) {
+    FD_TEST( vs->epoch_credits[j].epoch       ==(ulong)ec->epoch[j] );
+    FD_TEST( vs->epoch_credits[j].credits     ==ec->base_credits+(ulong)ec->credits_delta[j] );
+    FD_TEST( vs->epoch_credits[j].prev_credits==ec->base_credits+(ulong)ec->prev_credits_delta[j] );
+  }
+}
 
 typedef struct {
   fd_txncache_t * tc;
@@ -109,25 +151,22 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   static fd_hash_t const block_id = { .ul = { 0x0123456789ABCDEFUL, 0xFEDCBA9876543210UL, 0x0F1E2D3C4B5A6978UL, 0x8877665544332211UL } };
   bank->f.block_id = block_id;
 
-  /* Seed two vote accounts with epoch credits so the encoder emits
-     vote entries, then set non-default SIMD-0232 collectors: distinct
-     inflation and block collectors for vote0 on the t_1 tag (epoch),
-     and a block-only override for vote1 on the t_2 tag (epoch-1). */
+  /* Select two existing vote accounts, then set non-default SIMD-0232
+     collectors: distinct inflation and block collectors for vote0 on
+     the t_1 tag (epoch), and a block-only override for vote1 on the
+     t_2 tag (epoch-1). */
   FD_TEST( bank->f.epoch>=1UL );
-  fd_pubkey_t vote0 = { .ul = { 0x51, 10 } }; fd_pubkey_t node0 = { .ul = { 0x52, 11 } };
-  fd_pubkey_t vote1 = { .ul = { 0x53, 12 } }; fd_pubkey_t node1 = { .ul = { 0x54, 13 } };
-  ushort const commission_t_1 = 1234U;
-  ushort const commission_t_2 = 5678U;
-  fd_vote_stakes_t * vs_seed  = fd_bank_vote_stakes( bank );
-  ushort             vs_root  = fd_vote_stakes_get_root_idx( vs_seed );
-  fd_vote_stakes_insert( vs_seed, vs_root, &vote0, &node0, &node0, 1000UL, 1000UL, commission_t_1, commission_t_2, 1, 1, bank->f.epoch );
-  fd_vote_stakes_insert( vs_seed, vs_root, &vote1, &node1, &node1, 2000UL, 2000UL, commission_t_1, commission_t_2, 1, 1, bank->f.epoch );
-  fd_epoch_credits_t * ec_seed = fd_bank_epoch_credits( bank );
-  memset( &ec_seed[0], 0, sizeof(fd_epoch_credits_t) );
-  memset( &ec_seed[1], 0, sizeof(fd_epoch_credits_t) );
-  fd_memcpy( ec_seed[0].pubkey, &vote0, 32UL ); ec_seed[0].cnt = 1; ec_seed[0].epoch[0] = (ushort)bank->f.epoch; ec_seed[0].credits_delta[0] = 5U;
-  fd_memcpy( ec_seed[1].pubkey, &vote1, 32UL ); ec_seed[1].cnt = 1; ec_seed[1].epoch[0] = (ushort)bank->f.epoch; ec_seed[1].credits_delta[0] = 7U;
-  *fd_bank_epoch_credits_len( bank ) = 2UL;
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+  fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
+  FD_TEST( !fd_top_votes_iter_done( top_votes, iter ) );
+  fd_pubkey_t vote0;
+  fd_top_votes_iter_ele( top_votes, iter, &vote0, NULL, NULL, NULL, NULL, NULL, NULL );
+  fd_top_votes_iter_next( top_votes, iter );
+  FD_TEST( !fd_top_votes_iter_done( top_votes, iter ) );
+  fd_pubkey_t vote1;
+  fd_top_votes_iter_ele( top_votes, iter, &vote1, NULL, NULL, NULL, NULL, NULL, NULL );
+
   fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
   fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };
   fd_pubkey_t blk1  = { .ul = { 0xCC, 3 } };
@@ -135,6 +174,8 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   ushort co_root = fd_collector_overrides_get_root_idx( co );
   fd_collector_overrides_upsert( co, co_root, bank->f.epoch,     &vote0, 1, &infl0, 1, &blk0 );
   fd_collector_overrides_upsert( co, co_root, bank->f.epoch-1UL, &vote1, 0, NULL,   1, &blk1 );
+
+  seed_epoch_credits( bank );
 
   ulong manifest_sz = fd_snap_manifest_serialized_sz( bank );
   FD_TEST( manifest_sz>0UL );
@@ -201,7 +242,7 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
     int seen_t1_vote0 = 0; int seen_t1_vote1 = 0;
     for( ulong i=0UL; i<t1->vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * vs = &t1->vote_stakes[i];
-      FD_TEST( vs->commission==commission_t_1 );
+      check_epoch_credits( bank, vs );
       if( !memcmp( vs->vote, &vote0, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, &infl0, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk0,  32UL ) );
@@ -216,10 +257,11 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
     }
     FD_TEST( seen_t1_vote0 && seen_t1_vote1 );
 
+    /* Only the t_1 entries carry credit histories. */
     int seen_t2_vote1 = 0; int seen_t2_vote0 = 0;
     for( ulong i=0UL; i<t2->vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * vs = &t2->vote_stakes[i];
-      FD_TEST( vs->commission==commission_t_2 );
+      FD_TEST( !vs->epoch_credits_history_len );
       if( !memcmp( vs->vote, &vote1, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk1,    32UL ) );
@@ -235,6 +277,7 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
     for( ulong i=0UL; i<t3->vote_stakes_len; i++ ) {
       FD_TEST( !memcmp( t3->vote_stakes[i].commission_inflation, zero32, 32UL ) );
       FD_TEST( !memcmp( t3->vote_stakes[i].commission_block,     zero32, 32UL ) );
+      FD_TEST( !t3->vote_stakes[i].epoch_credits_history_len );
     }
   }
 
@@ -245,6 +288,11 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
                     manifest->epoch_stakes[i].epoch,
                     manifest->epoch_stakes[i].total_stake,
                     manifest->epoch_stakes[i].vote_stakes_len ));
+    ulong expected_vote_cnt = (bank->f.epoch>0UL && i==0UL) ? 0UL : VALIDATOR_CNT;
+    FD_TEST( manifest->epoch_stakes[i].vote_stakes_len==expected_vote_cnt );
+    for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
+      FD_TEST( manifest->epoch_stakes[i].vote_stakes[j].commission==1234U );
+    }
   }
 
   free( parser_mem );

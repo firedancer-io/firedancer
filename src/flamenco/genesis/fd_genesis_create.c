@@ -6,6 +6,9 @@
 #include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/genesis/src/main.rs#L69 */
+#define FD_GENESIS_VAT_MINIMUM_LAMPORTS (1600000000UL*100UL)
+
 /* TODO: Unify type with the one in fd_genesis_parse.c */
 
 struct fd_rust_duration {
@@ -291,16 +294,20 @@ genesis_create( void *                       buf,
 
   ulong const vote_account_index = genesis->accounts_len++;
 
-  uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
+  uchar vote_state_data[ FD_VOTE_STATE_V4_SZ ] = {0};
 
   FD_SCRATCH_SCOPE_BEGIN {
     fd_vote_state_versioned_t versioned[1];
-    fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
+    fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v4 );
 
-    fd_vote_state_v3_t * vote_state   = &versioned->v3;
-    vote_state->node_pubkey           = options->identity_pubkey;
-    vote_state->authorized_withdrawer = options->identity_pubkey;
-    vote_state->commission            = 100;
+    fd_vote_state_v4_t * vote_state              = &versioned->v4;
+    vote_state->node_pubkey                      = options->identity_pubkey;
+    vote_state->authorized_withdrawer            = options->identity_pubkey;
+    vote_state->inflation_rewards_collector      = options->vote_pubkey;
+    vote_state->block_revenue_collector          = options->identity_pubkey;
+    vote_state->inflation_rewards_commission_bps = 10000;
+    vote_state->block_revenue_commission_bps     = 0;
+    vote_state->has_bls_pubkey_compressed        = 1;
 
     fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
     *voter = (fd_vote_authorized_voter_t) {
@@ -321,7 +328,8 @@ genesis_create( void *                       buf,
   uchar stake_data[ FD_STAKE_STATE_SZ ] = {0};
 
   ulong stake_state_min_bal = fd_rent_exempt_minimum_balance( &genesis->rent, FD_STAKE_STATE_SZ   );
-  ulong vote_min_bal        = fd_rent_exempt_minimum_balance( &genesis->rent, FD_VOTE_STATE_V3_SZ );
+  ulong vote_min_bal        = fd_rent_exempt_minimum_balance( &genesis->rent, FD_VOTE_STATE_V4_SZ ) +
+                              FD_GENESIS_VAT_MINIMUM_LAMPORTS;
 
   do {
     FD_STORE( fd_stake_state_t, stake_data, ((fd_stake_state_t) {
@@ -387,7 +395,7 @@ genesis_create( void *                       buf,
     .key     = options->vote_pubkey,
     .account = (fd_genesis_account_t) {
       .lamports   = vote_min_bal,
-      .data_len   = FD_VOTE_STATE_V3_SZ,
+      .data_len   = FD_VOTE_STATE_V4_SZ,
       .data       = vote_state_data,
       .owner      = fd_solana_vote_program_id
     }

@@ -102,13 +102,15 @@ int main( int argc, char ** argv ) {
   /* Test stake delegations where is_tombstone == 0 */
 
   ulong const max_stake_accounts = 10UL;
-  ulong const expected_stake_accounts = fd_ulong_min( max_stake_accounts, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS );
 
   /* Leaves headroom above the root plus delta maximum of 90 so that the
      fallback cases below have somewhere to put entries. */
   ulong const max_fallback_stake_accounts = 512UL;
 
   ulong const max_live_slots = 32UL;
+
+  ulong const expected_stake_accounts = max_stake_accounts;
+
   void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( max_stake_accounts, max_fallback_stake_accounts, expected_stake_accounts, max_live_slots ), wksp_tag );
   FD_TEST( stake_delegations_mem );
 

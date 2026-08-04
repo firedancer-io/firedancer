@@ -51,7 +51,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
   /* Initialize bank from input txn bank */
-  fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
+  fd_banks_clear_bank( runner->banks, runner->bank );
   runner->bank->f.slot            = slot;
   runner->bank->accdb_fork_id     = fd_accdb_attach_child( accdb, runner->root_fork_id );
   runner->bank->parent_accdb_fork_id = runner->bank->accdb_fork_id;

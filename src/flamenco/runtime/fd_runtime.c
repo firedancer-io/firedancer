@@ -26,6 +26,8 @@
 #include "program/fd_precompiles.h"
 #include "program/vote/fd_vote_state_versioned.h"
 
+FD_STATIC_ASSERT( MAX_STAKE_WEIGHTS==FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, vat_stake_weights );
+
 /*
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1254-L1258
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1749
@@ -55,7 +57,6 @@ void
 fd_runtime_update_next_leaders( fd_bank_t *          bank,
                                 fd_runtime_stack_t * runtime_stack ) {
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
 
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL ) + 1UL;
@@ -64,7 +65,8 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
 
   fd_top_votes_t const *   top_votes_t_1    = fd_bank_top_votes_t_1_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( top_votes_t_1, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_1, epoch_weights );
+  FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
@@ -73,53 +75,18 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
       slot0,
       slot_cnt,
       stake_weight_cnt,
-      epoch_weights,
-      0UL ) );
+      epoch_weights ) );
   if( FD_UNLIKELY( !leaders ) ) {
     FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
   }
 
-  /* Populate a compressed set of stake weights for a valid leader
-     schedule. */
-  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.next_stake_weights;
-  ulong idx = 0UL;
+  memcpy( runtime_stack->epoch_weights.next_stake_weights, epoch_weights, stake_weight_cnt*sizeof(fd_vote_stake_weight_t) );
+  runtime_stack->epoch_weights.next_stake_weights_cnt = stake_weight_cnt;
 
-  int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
-
-  for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
-    fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
-    fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
-    ulong               stake       = epoch_weights[i].stake;
-
-    if( FD_LIKELY( !needs_compression || fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
-      stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
-      idx++;
-    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
-      stake_weights[ idx-1UL ].stake += stake;
-    } else {
-      stake_weights[ idx ].id_key   = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].vote_key = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].stake    = stake;
-      idx++;
-    }
-  }
-  runtime_stack->epoch_weights.next_stake_weights_cnt = idx;
-
-  /* Produce truncated set of id weights to send to Shred tile for
-     Turbine tree computation. */
   ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
-  ulong excluded_stake = 0UL;
-  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
-    for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
-      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
-    }
-  }
-  staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
+  FD_TEST( staked_cnt<=MAX_STAKE_WEIGHTS );
   memcpy( runtime_stack->epoch_weights.next_id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  runtime_stack->epoch_weights.next_id_weights_cnt      = staked_cnt;
-  runtime_stack->epoch_weights.next_id_weights_excluded  = excluded_stake;
+  runtime_stack->epoch_weights.next_id_weights_cnt = staked_cnt;
 }
 
 void
@@ -128,18 +95,14 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
 
-  ulong epoch     = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL );
-  ulong vat_epoch = fd_slot_to_epoch ( epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
-  ulong slot0     = fd_epoch_slot0   ( epoch_schedule, epoch );
-  ulong slot_cnt  = fd_epoch_slot_cnt( epoch_schedule, epoch );
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-
-  int vat_in_prev = ( epoch>=vat_epoch+1UL || bank->f.features.validator_admission_ticket==0UL ) ? 1 : 0;
+  ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL );
+  ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
+  ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, vat_in_prev );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, epoch_weights );
+  FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */
@@ -150,53 +113,18 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
       slot0,
       slot_cnt,
       stake_weight_cnt,
-      epoch_weights,
-      0UL ) );
+      epoch_weights ) );
   if( FD_UNLIKELY( !leaders ) ) {
     FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
   }
 
-  /* Populate a compressed set of stake weights for a valid leader
-     schedule. */
-  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.stake_weights;
-  ulong idx = 0UL;
+  memcpy( runtime_stack->epoch_weights.stake_weights, epoch_weights, stake_weight_cnt*sizeof(fd_vote_stake_weight_t) );
+  runtime_stack->epoch_weights.stake_weights_cnt = stake_weight_cnt;
 
-  int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
-
-  for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
-    fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
-    fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
-    ulong               stake       = epoch_weights[i].stake;
-
-    if( FD_LIKELY( !needs_compression || fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
-      stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
-      idx++;
-    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
-      stake_weights[ idx-1UL ].stake += stake;
-    } else {
-      stake_weights[ idx ].id_key   = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].vote_key = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].stake    = stake;
-      idx++;
-    }
-  }
-  runtime_stack->epoch_weights.stake_weights_cnt = idx;
-
-  /* Produce truncated set of id weights to send to Shred tile for
-     Turbine tree computation. */
   ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
-  ulong excluded_stake = 0UL;
-  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
-    for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
-      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
-    }
-  }
-  staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
+  FD_TEST( staked_cnt<=MAX_STAKE_WEIGHTS );
   memcpy( runtime_stack->epoch_weights.id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  runtime_stack->epoch_weights.id_weights_cnt      = staked_cnt;
-  runtime_stack->epoch_weights.id_weights_excluded = excluded_stake;
+  runtime_stack->epoch_weights.id_weights_cnt = staked_cnt;
 }
 
 /******************************************************************************/
@@ -1107,26 +1035,6 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
       fd_pubkey_t const * pubkey = &txn_out->accounts.keys[ i ];
 
-      /* new_vote/rm_vote feed an ordered op-log (fd_new_votes), not a
-         net-state cache, so they must fire per writable txn before the
-         account_acquired gate below.  In a bundle the accdb ref is
-         owned by a single (last writable) txn, but every writable txn
-         that created/closed a vote account must contribute its op in
-         order so create->delete->recreate replays identically to a
-         per-txn commit.  These flags are left on the txn that set them
-         (not carried), so each fires exactly where the vote program
-         recorded it. */
-      if( FD_UNLIKELY( txn_out->accounts.new_vote[ i ] &&
-                       !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
-        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-        fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
-      }
-      if( FD_UNLIKELY( txn_out->accounts.rm_vote[i] &&
-                       !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
-        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-        fd_new_votes_remove( new_votes, bank->new_votes_fork_id, pubkey );
-      }
-
       /* Only the txn that owns the accdb reference commits the account
          state.  In a bundle, an account is owned by its last writable
          user (account_acquired==1); every other txn referencing it has
@@ -1599,9 +1507,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
     fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
     fd_memcpy( top_votes_t_2, top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
   }
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  fd_vote_stakes_genesis_fini( vote_stakes );
 
   bank->f.epoch = 0UL;
   bank->f.capitalization = capitalization;

@@ -374,7 +374,7 @@ struct fd_gui_slot_rankings {
 typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 
 #define FD_GUI_EPOCH_SCHED_CNT ((MAX_SLOTS_PER_EPOCH+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION)
-#define FD_GUI_EPOCH_PUB_CNT   (MAX_COMPRESSED_STAKE_WEIGHTS+1UL) /* +1 for indeterminate leader */
+#define FD_GUI_EPOCH_PUB_CNT   (MAX_STAKE_WEIGHTS)
 
 #define FD_GUI_VOTE_LATENCY_NOT_VOTED ((uchar)(UCHAR_MAX))     /* vote missing */
 #define FD_GUI_VOTE_LATENCY_MAX       ((uchar)(UCHAR_MAX-1UL)) /* largest observable vote latency */
@@ -400,8 +400,8 @@ struct fd_gui_epoch {
   ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
   ulong               stakes_cnt;        /* number of entries in stakes[] */
   uint                sched[ FD_GUI_EPOCH_SCHED_CNT ]; /* rotation -> index into pub[] */
-  fd_pubkey_t         pub[ FD_GUI_EPOCH_PUB_CNT ];     /* deduped leaders (+ indeterminate) */
-  fd_vote_stake_weight_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+  fd_pubkey_t         pub[ FD_GUI_EPOCH_PUB_CNT ];     /* deduped leaders */
+  fd_vote_stake_weight_t stakes[ MAX_STAKE_WEIGHTS ];
 };
 
 typedef struct fd_gui_epoch fd_gui_epoch_t;
@@ -878,8 +878,8 @@ struct fd_gui {
     int                 has_epoch_schedule;
     fd_epoch_schedule_t epoch_schedule;
 
-    uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) lsched_scratch[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
-    fd_vote_stake_weight_t stakes_scratch[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) lsched_scratch[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+    fd_vote_stake_weight_t stakes_scratch[ MAX_STAKE_WEIGHTS ];
   } epoch;
 
   fd_gui_peers_ctx_t * peers; /* full-client */

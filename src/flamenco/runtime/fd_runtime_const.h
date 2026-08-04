@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 
-#include "../leaders/fd_leaders.h"
-#include "../../ballet/txn/fd_txn.h" /* for fd_acct_addr_t */
+#include "../../ballet/txn/fd_txn.h" /* for FD_TXN_ACCT_ADDR_MAX */
 #include "../vm/fd_vm_base.h" /* fd_vm_trace_t */
 
 FD_PROTOTYPES_BEGIN
@@ -18,36 +17,21 @@ FD_PROTOTYPES_BEGIN
    amount of distinct accounts the transaction can access. */
 #define FD_INSTR_SIGNERS_MAX FD_TXN_ACCT_ADDR_MAX
 
-/* FD_RUNTIME_MAX_{STAKE,VOTE}_ACCOUNTS are the maximum number of stake
-   and vote accounts that the system supports: anything larger will
-   result in a crash. The bounds were set with the intention of making a
-   dos vector to mint stake/vote accounts financially infeasible.  A
-   reasonable value to guard against this attack is roughly 550,000 SOL.
+/* FD_RUNTIME_MAX_STAKE_ACCOUNTS is the maximum number of stake accounts
+   that the system supports: anything larger will result in a crash.
+   The bounds were set with the intention of making a dos vector to mint
+   stake accounts financially infeasible.  Similarly, the number of
+   stake accounts that the system supports is also the maximum number of
+   staked vote accounts that the system supports since in the worst case
+   we have one stake account per vote account.
 
-   For vote accounts, the limit is set to 19,000,000 because the rent
-   exempt reserve of creating a valid vote account is ~0.03 SOL.  For
-   each vote account, it also must be staked.  Each stake account has a
-   rent exempt value of ~0.022 SOL.  This means the cost of minting 20M
-   vote accounts is:
-   19,000,000 accounts * 0.02685 SOL = 510,150 SOL.
-   19,000,000 accounts * 0.00228 SOL = 43,320 SOL.
-   Total cost: 553,470 SOL.
-   In reality, the cost is slightly higher because of transaction fees
-   and various CU costs to create the vote and stake accounts.
+   Prior to the feature upgrade_bpf_stake_program_to_v5, which
+   introduced the minimum 1 SOL delegation amount, there were 1.6
+   million stake accounts on mainnet.  With a bound of 2.15 million
+   stake accounts, this means an attacker would need roughly 0.75
+   million SOL to attack the system which is a reasonable bound. */
 
-   For stake accounts, the rent exempt reserve is 0.00228 SOL.  However,
-   new stake accounts must have a minimum balance of 1 SOL as of the
-   feature upgrade_bpf_stake_program_to_v5.  Stake accounts created
-   after the feature must have a balance of 1.00228 SOL.  To guard
-   against a potential attack, we need to guard against the creation of
-   550,000 SOL worth of stake accounts: 550,000 SOL / 1.00228 SOL =
-   roughly 550,000 stake accounts.  In addition to the 1.6 million stake
-   accounts which exist on mainnet today, we must support roughly 2.15
-   million stake accounts. */
-
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
-
 
 /* FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK is the number of stake
    accounts that the system can support.  FD_RUNTIME_STAKE_ACCOUNTS is
@@ -59,17 +43,31 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK (100000000UL)
 
-/* The expected stake and vote account values are based on observed
-   values on mainnet and testnet allowing for some growth.  These are
-   chosen to size various caches and maps: they are not intended to be
-   exact as they are not consensus critical values. */
+/* The runtime only supports post-validator_admission_ticket banks.  The
+   accumulator can still see one distinct voter per stake account before
+   the final eligible set is reduced to the VAT limit below. */
 
-#define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2150000UL)
-#define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS  (16384UL)
+#define FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS (FD_RUNTIME_MAX_STAKE_ACCOUNTS)
 
-#define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
+/* Maximum number of vote accounts eligible to receive rewards or
+   meaningfully contribute to consensus after
+   validator_admission_ticket activation. */
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT (2000UL)
+#define FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS (2000UL)
+
+/* Bound on the snapshot manifest's vote account map, which holds
+   every staked voter rather than only the VAT-admitted set.  Wait
+   for supermajority is the sole consumer. */
+
+#define FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS (40200UL)
+
+/* The maximum number of epoch stakes that are needed to be parsed out
+   from the manifest.  Agave produced snapshots include 5 epoch stakes,
+   but only 3 are required for consensus. */
+
+#define FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN (3UL)
+
+#define FD_RUNTIME_SLOTS_PER_EPOCH (432000UL)
 
 /* Maximum amount of writable accounts per transaction
    https://github.com/anza-xyz/agave/blob/v3.0.8/runtime/src/bank.rs#L2946 */
@@ -262,15 +260,6 @@ FD_PROTOTYPES_BEGIN
 #define FD_SYSVAR_INSTRUCTIONS_FOOTPRINT (81920UL)
 
 #define FD_HARD_FORKS_MAX (64UL)
-
-/* Snapshot manifest array bounds.  They are used to size arrays and
-   validate parsed lengths throughout the entire architecture. */
-
-#define FD_VOTE_ACCOUNTS_MAX     (40200UL)
-#define FD_STAKE_DELEGATIONS_MAX FD_RUNTIME_MAX_STAKE_ACCOUNTS
-#define FD_EPOCH_STAKES_LEN      (3UL)
-#define FD_EPOCH_VOTE_STAKES_MAX (40200UL)
-
 
 FD_PROTOTYPES_END
 

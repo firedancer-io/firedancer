@@ -145,7 +145,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
   }
 
   mock_epoch_boundary_fork_cnt++;
-  bank->vote_stakes_fork_id = fd_vote_stakes_new_child( fd_bank_vote_stakes( bank ) );
   bank->stake_rewards_fork_id = fd_stake_rewards_init( fd_bank_stake_rewards_modify( bank ),
                                                        bank->f.epoch,
                                                        &bank->f.prev_bank_hash,
@@ -1272,7 +1271,7 @@ test_epoch_boundary_fork_width_evict( fd_wksp_t * wksp ) {
 
   static fd_replay_tile_t ctx[ 1 ];
   ulong const max_fork_width = 4UL;
-  ulong const max_boundary_child_forks = max_fork_width - 1UL; /* vote stakes reserves one fork for root */
+  ulong const max_boundary_child_forks = max_fork_width - 1UL; /* stake rewards reserves one fork for root */
   setup_ctx_with_fork_width( ctx, wksp, max_fork_width );
 
   mock_epoch_boundary_enabled = 1;

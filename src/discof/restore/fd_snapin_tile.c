@@ -353,7 +353,7 @@ verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
   /* ensure all required epochs are present in epoch stakes */
   for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
     int found = 0;
-    for( ulong j=0UL; j<FD_EPOCH_STAKES_LEN; j++ ) {
+    for( ulong j=0UL; j<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
       if( manifest->epoch_stakes[j].epoch==i ) {
         found = 1;
         break;
@@ -720,7 +720,7 @@ process_manifest( fd_snapin_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( fd_ssload_manifest_validate( manifest, FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) ) {
+  if( FD_UNLIKELY( fd_ssload_manifest_validate( manifest, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) ) {
     FD_LOG_WARNING(( "snapshot manifest validation failed" ));
     transition_malformed( ctx, stem );
     return;

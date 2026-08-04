@@ -69,14 +69,14 @@ struct fd_gossip_tile_ctx {
 
      We keep a copy of the snapshot bank's votes states in an array here
      for quick look up. */
-  fd_vote_stake_weight_t wfs_stakes_scratch[ FD_VOTE_ACCOUNTS_MAX ];
-  fd_stake_weight_t      wfs_stakes        [ FD_VOTE_ACCOUNTS_MAX ];
+  fd_vote_stake_weight_t wfs_stakes_scratch[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+  fd_stake_weight_t      wfs_stakes        [ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
   ulong                  wfs_stakes_cnt;
 
   /* wfs_active is used to keep track of nodes we've already labeled as
      being active on gossip, so we don't double count their stake. */
-  uchar             wfs_active[ FD_VOTE_ACCOUNTS_MAX ];
-  int               wfs_state;
+  uchar wfs_active[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+  int   wfs_state;
 
   struct {
     ulong online;
