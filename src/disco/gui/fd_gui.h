@@ -45,7 +45,7 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 /* ---- History Buffers ------------------------------------------------ */
 
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L)
-#define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
+#define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (300UL)
 
 #define FD_GUI_PROGCACHE_HISTORY_CNT               (600UL) /* 60s / 100ms */
 
