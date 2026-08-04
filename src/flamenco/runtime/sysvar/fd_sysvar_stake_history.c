@@ -133,3 +133,14 @@ fd_sysvar_stake_history_query( fd_stake_history_t const * view,
   if( FD_UNLIKELY( index>=view->len ) ) return NULL;
   return &view->entries[index];
 }
+
+int
+fd_sysvar_stake_history_is_contiguous( fd_stake_history_t const * view ) {
+  if( FD_UNLIKELY( !view || !view->len ) ) return 1;
+  ulong newest = view->entries[0].epoch;
+  if( FD_UNLIKELY( view->len-1UL>newest ) ) return 0;
+  for( ulong i=1UL; i<view->len; i++ ) {
+    if( FD_UNLIKELY( view->entries[i].epoch!=newest-i ) ) return 0;
+  }
+  return 1;
+}
