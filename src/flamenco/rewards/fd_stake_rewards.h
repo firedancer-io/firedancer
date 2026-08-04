@@ -148,7 +148,8 @@ void
 fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
                                  uchar                fork_idx,
                                  fd_hash_t const *    parent_blockhash,
-                                 uint                 win_lo );
+                                 uint                 win_lo,
+                                 ulong                max_rewards_cnt );
 
 /* fd_stake_rewards_window_{lo,hi} return the inclusive range of
    partition indices that a stake rewards fork currently holds.  If the

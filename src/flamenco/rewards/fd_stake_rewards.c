@@ -28,7 +28,6 @@ struct fork_info {
   uint  partition_cnt;
   uint  win_lo;
   uint  win_hi;
-  uint  win_sz;
   uint  partition_idxs_head[MAX_PARTITIONS_PER_EPOCH];
   uint  partition_idxs_tail[MAX_PARTITIONS_PER_EPOCH];
   ulong starting_block_height;
@@ -71,14 +70,14 @@ window_sz( ulong capacity,
            uint  partitions_cnt,
            ulong max_rewards_cnt ) {
 
-  /* Percentage of the window capacity left unused when the epoch's
-     rewards do not all fit.  Rewards are scattered uniformly over the
-     partitions, so the entry count of a window of W partitions has a
-     mean of at most W*max_rewards_cnt/partitions_cnt and a sd of the
-     square root of that mean.  Reserving a hundredth of the capacity
-     puts the overflow threshold at sqrt(capacity)/100 deviations above
-     the mean, which is over thirteen deviations at the production
-     capacity of 2150000 stake accounts. */
+  /* Percentage of the window capacity left unused when the rewards do
+     not all fit.  Rewards are scattered uniformly over the partitions,
+     so the entry count of a window of W partitions has a mean of at
+     most W*max_rewards_cnt/partitions_cnt and a sd of the square root
+     of that mean.  Reserving a hundredth of the capacity puts the
+     overflow threshold at sqrt(capacity)/100 deviations above the mean,
+     which is over thirteen deviations at the production capacity of
+     2150000 stake accounts. */
   if( FD_LIKELY( max_rewards_cnt<=capacity ) ) return partitions_cnt;
 
   ulong usable = fd_ulong_max( fd_ulong_sat_sub( capacity, fd_ulong_max( capacity*1UL/100UL, 1UL ) ), 1UL );
@@ -89,14 +88,17 @@ window_sz( ulong capacity,
 static void
 window_reset( fd_stake_rewards_t * stake_rewards,
               uchar                fork_idx,
-              uint                 win_lo ) {
+              uint                 win_lo,
+              ulong                max_rewards_cnt ) {
   /* reset the window to start at win_lo and drop whatever the window
      used to hold.  The win_hi will either be the end of rewards or the
      end of the partition window, whichever is smaller. */
 
   fork_info_t * fork_info = &stake_rewards->fork_info[fork_idx];
 
-  uint win_end                   = fd_uint_min( win_lo+fork_info->win_sz, fork_info->partition_cnt );
+  uint remaining_cnt             = fd_uint_sat_sub( fork_info->partition_cnt, win_lo );
+  uint win_sz                    = window_sz( stake_rewards->max_stake_accounts, remaining_cnt, max_rewards_cnt );
+  uint win_end                   = fd_uint_min( win_lo+win_sz, fork_info->partition_cnt );
   fork_info->win_lo              = win_lo;
   fork_info->win_hi              = fd_uint_max( fd_uint_sat_sub( win_end, 1UL ), win_lo );
   fork_info->ele_cnt             = 0U;
@@ -212,9 +214,8 @@ fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
   fork_pool_idx_release( get_fork_pool( stake_rewards ), (ulong)fork_idx );
   stake_rewards->fork_info[fork_idx].partition_cnt         = 0U;
   stake_rewards->fork_info[fork_idx].starting_block_height = 0UL;
-  stake_rewards->fork_info[fork_idx].win_sz                = 0U;
   stake_rewards->fork_info[fork_idx].refcnt                = 0UL;
-  window_reset( stake_rewards, fork_idx, 0U );
+  window_reset( stake_rewards, fork_idx, 0U, 0UL );
 }
 
 void
@@ -268,8 +269,7 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
   stake_rewards->fork_info[fork_idx].partition_cnt         = partitions_cnt;
   stake_rewards->fork_info[fork_idx].starting_block_height = starting_block_height;
-  stake_rewards->fork_info[fork_idx].win_sz                = window_sz( stake_rewards->max_stake_accounts, partitions_cnt, max_rewards_cnt );
-  window_reset( stake_rewards, fork_idx, 0U );
+  window_reset( stake_rewards, fork_idx, 0U, max_rewards_cnt );
 
   return fork_idx;
 }
@@ -278,9 +278,10 @@ void
 fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
                                  uchar                fork_idx,
                                  fd_hash_t const *    parent_blockhash,
-                                 uint                 win_lo ) {
+                                 uint                 win_lo,
+                                 ulong                max_rewards_cnt ) {
   prime_hasher( stake_rewards, parent_blockhash );
-  window_reset( stake_rewards, fork_idx, win_lo );
+  window_reset( stake_rewards, fork_idx, win_lo, max_rewards_cnt );
 }
 
 uint
