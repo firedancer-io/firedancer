@@ -164,7 +164,7 @@ fd_poseidon_fini( fd_poseidon_t * pos,
     fd_poseidon_apply_mds         ( pos->state, width, params );
   }
 
-  /* Directly convert scalar into return hash buffer - hash MUST be FD_UINT256_ALIGNED */
+  /* Convert through a local scalar: hash only needs to be byte aligned. */
   fd_bn254_scalar_t scalar_hash[1];
   fd_bn254_scalar_from_mont( scalar_hash, &pos->state[0] );
   if( pos->big_endian ) {

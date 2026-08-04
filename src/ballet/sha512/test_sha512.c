@@ -253,6 +253,51 @@ main( int     argc,
 # undef CHUNK_SZ
 # undef INPUT_SZ
 
+  /* Test unaligned message and hash buffers.  Both are only required to
+     be byte aligned.  Sizes below span the sub-block, exact-block and
+     multi-block paths through the compression function. */
+
+  {
+    static ulong const unaligned_sz[] = { 0UL, 1UL, 63UL, 64UL, 111UL, 128UL, 129UL, 255UL, 256UL, 384UL };
+
+    uchar ref512[  64UL     ] __attribute__((aligned(64)));
+    uchar ref384[  48UL     ] __attribute__((aligned(64)));
+    uchar in    [ 384UL+8UL ] __attribute__((aligned(128)));
+    uchar out   [  64UL+8UL ] __attribute__((aligned(128)));
+
+    for( ulong idx=0UL; idx<(sizeof(unaligned_sz)/sizeof(ulong)); idx++ ) {
+      ulong sz = unaligned_sz[ idx ];
+
+      FD_TEST( fd_sha512_hash( buf, sz, ref512 )==ref512 );
+      FD_TEST( fd_sha384_hash( buf, sz, ref384 )==ref384 );
+
+      for( ulong in_off=0UL; in_off<8UL; in_off++ ) {
+        uchar * msg = in + in_off;
+        memcpy( msg, buf, sz );
+
+        for( ulong out_off=0UL; out_off<8UL; out_off++ ) {
+          uchar * hash_out = out + out_off;
+
+          memset( out, 0, sizeof(out) );
+          FD_TEST( fd_sha512_hash( msg, sz, hash_out )==hash_out );
+          FD_TEST( !memcmp( hash_out, ref512, FD_SHA512_HASH_SZ ) );
+
+          memset( out, 0, sizeof(out) );
+          FD_TEST( fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), msg, sz ), hash_out )==hash_out );
+          FD_TEST( !memcmp( hash_out, ref512, FD_SHA512_HASH_SZ ) );
+
+          memset( out, 0, sizeof(out) );
+          FD_TEST( fd_sha384_hash( msg, sz, hash_out )==hash_out );
+          FD_TEST( !memcmp( hash_out, ref384, FD_SHA384_HASH_SZ ) );
+
+          memset( out, 0, sizeof(out) );
+          FD_TEST( fd_sha384_fini( fd_sha512_append( fd_sha384_init( sha ), msg, sz ), hash_out )==hash_out );
+          FD_TEST( !memcmp( hash_out, ref384, FD_SHA384_HASH_SZ ) );
+        }
+      }
+    }
+  }
+
   /* clean up */
 
   FD_TEST( fd_sha512_leave( NULL )==NULL ); /* null sha */
