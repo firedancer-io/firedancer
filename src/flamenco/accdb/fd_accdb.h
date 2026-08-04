@@ -41,6 +41,8 @@ struct fd_accdb_entry {
   int     commit;
   int     pd_write;
 
+  int     touched;
+
   int     _writable;
   int     _overwrite;
 
