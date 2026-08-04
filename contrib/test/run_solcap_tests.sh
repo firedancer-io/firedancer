@@ -7,7 +7,7 @@ DUMP=${DUMP:="./dump"}
 OBJDIR=${OBJDIR:-build/native/gcc}
 SKIP_INGEST=${SKIP_INGEST:-0}
 
-LEDGER="mainnet-424669000-solcap-v4.2.0-beta.1-vat-untouched"
+LEDGER="mainnet-424669000-solcap-v4.2.0-beta.1-vat"
 REDOWNLOAD=1
 
 WATCH=( )

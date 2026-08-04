@@ -1105,9 +1105,6 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
          payer account. */
       if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
-      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/account_saver.rs#L120-L122 */
-      if( FD_UNLIKELY( !txn_out->accounts.account[ i ]->touched ) ) continue;
-
       fd_pubkey_t const * pubkey = &txn_out->accounts.keys[ i ];
 
       /* new_vote/rm_vote feed an ordered op-log (fd_new_votes), not a
