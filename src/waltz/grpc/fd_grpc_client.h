@@ -231,7 +231,7 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
    (recvmsg(2) and sendmsg(2)).  Uses MSG_NOSIGNAL|MSG_DONTWAIT flags.
 
    Returns -1 if an error was encountered, and errno will be set.
-   Otherwise, returns 0. */
+   Returns 1 if send would block with EAGAIN.  Otherwise, returns 0. */
 
 int
 fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
