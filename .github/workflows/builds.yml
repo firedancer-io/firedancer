@@ -141,39 +141,48 @@ jobs:
           extras: +dev
 
       - name: Build command line args
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          CHECK_RUN: ${{ inputs.check_run }}
+          EXIT_ON_ERR: ${{ inputs.exit_on_err }}
+          MACHINE: ${{ inputs.machine }}
+          GCC: ${{ inputs.gcc }}
+          NO_OPTIMIZATION: ${{ inputs.no_optimization }}
+          VERBOSE: ${{ inputs.verbose }}
+          GCC_EXCEPTIONS: ${{ inputs.gcc_exceptions }}
         run: |
           ARGS=""
           # dry-run
-          if [ "${{ inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
           # check-run
-          if [ "${{ inputs.check_run }}" == "true" ]; then
+          if [ "$CHECK_RUN" == "true" ]; then
             ARGS="$ARGS --check-run --no-deps"
           fi
           # exit-on-err
-          if [ "${{ inputs.exit_on_err }}" == "true" ]; then
+          if [ "$EXIT_ON_ERR" == "true" ]; then
             ARGS="$ARGS --exit-on-err"
           fi
           # machine
-          if [ ! -z "${{ inputs.machine }}" ] && [ "${{ inputs.machine }}" != "all" ]; then
-            ARGS="$ARGS --machines ${{ inputs.machine }}"
+          if [ ! -z "$MACHINE" ] && [ "$MACHINE" != "all" ]; then
+            ARGS="$ARGS --machines $MACHINE"
           fi
           # gcc
-          if [ ! -z "${{ inputs.gcc }}" ] && [ "${{ inputs.gcc }}" != "all" ]; then
-            ARGS="$ARGS --gcc-versions ${{ inputs.gcc }}"
+          if [ ! -z "$GCC" ] && [ "$GCC" != "all" ]; then
+            ARGS="$ARGS --gcc-versions $GCC"
           fi
           # no-optimization
-          if [ "${{ inputs.no_optimization }}" == "true" ]; then
+          if [ "$NO_OPTIMIZATION" == "true" ]; then
             ARGS="$ARGS --no-optimization"
           fi
           # verbose
-          if [ "${{ inputs.verbose }}" == "true" ]; then
+          if [ "$VERBOSE" == "true" ]; then
             ARGS="$ARGS --verbose"
           fi
           # exceptions
-          if [ ! -z "${{ inputs.gcc_exceptions }}" ] && [ "${{ inputs.gcc_exceptions }}" != "none" ]; then
-            no_spaces=$(tr -d '[:space:]' <<< "${{ inputs.gcc_exceptions }}")
+          if [ ! -z "$GCC_EXCEPTIONS" ] && [ "$GCC_EXCEPTIONS" != "none" ]; then
+            no_spaces=$(tr -d '[:space:]' <<< "$GCC_EXCEPTIONS")
             IFS=';' read -r -a exceptions <<< "$no_spaces"
             for exception in ${exceptions[@]}; do
               ARGS="$ARGS --gcc-except $exception"
@@ -204,39 +213,48 @@ jobs:
           extras: +dev
 
       - name: Build command line args
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          CHECK_RUN: ${{ inputs.check_run }}
+          EXIT_ON_ERR: ${{ inputs.exit_on_err }}
+          MACHINE: ${{ inputs.machine }}
+          CLANG: ${{ inputs.clang }}
+          NO_OPTIMIZATION: ${{ inputs.no_optimization }}
+          VERBOSE: ${{ inputs.verbose }}
+          CLANG_EXCEPTIONS: ${{ inputs.clang_exceptions }}
         run: |
           ARGS=""
           # dry-run
-          if [ "${{ inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
           # check-run
-          if [ "${{ inputs.check_run }}" == "true" ]; then
+          if [ "$CHECK_RUN" == "true" ]; then
             ARGS="$ARGS --check-run --no-deps"
           fi
           # exit-on-err
-          if [ "${{ inputs.exit_on_err }}" == "true" ]; then
+          if [ "$EXIT_ON_ERR" == "true" ]; then
             ARGS="$ARGS --exit-on-err"
           fi
           # machine
-          if [ ! -z "${{ inputs.machine }}" ] && [ "${{ inputs.machine }}" != "all" ]; then
-            ARGS="$ARGS --machines ${{ inputs.machine }}"
+          if [ ! -z "$MACHINE" ] && [ "$MACHINE" != "all" ]; then
+            ARGS="$ARGS --machines $MACHINE"
           fi
           # clang
-          if [ ! -z "${{ inputs.clang }}" ] && [ "${{ inputs.clang }}" != "all" ]; then
-            ARGS="$ARGS --clang-versions ${{ inputs.clang }}"
+          if [ ! -z "$CLANG" ] && [ "$CLANG" != "all" ]; then
+            ARGS="$ARGS --clang-versions $CLANG"
           fi
           # no-optimization
-          if [ "${{ inputs.no_optimization }}" == "true" ]; then
+          if [ "$NO_OPTIMIZATION" == "true" ]; then
             ARGS="$ARGS --no-optimization"
           fi
           # verbose
-          if [ "${{ inputs.verbose }}" == "true" ]; then
+          if [ "$VERBOSE" == "true" ]; then
             ARGS="$ARGS --verbose"
           fi
           # exceptions
-          if [ ! -z "${{ inputs.clang_exceptions }}" ] && [ "${{ inputs.clang_exceptions }}" != "none" ]; then
-            no_spaces=$(tr -d '[:space:]' <<< "${{ inputs.clang_exceptions }}")
+          if [ ! -z "$CLANG_EXCEPTIONS" ] && [ "$CLANG_EXCEPTIONS" != "none" ]; then
+            no_spaces=$(tr -d '[:space:]' <<< "$CLANG_EXCEPTIONS")
             IFS=';' read -r -a exceptions <<< "$no_spaces"
             for exception in ${exceptions[@]}; do
               ARGS="$ARGS --clang-except $exception"
