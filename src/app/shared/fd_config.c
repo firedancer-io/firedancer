@@ -433,8 +433,29 @@ fd_config_fill( fd_config_t * config,
     }
   }
 
-  if( FD_UNLIKELY( config->is_firedancer && strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) && (!config->consensus.expected_shred_version || config->consensus.wait_for_vote_to_start_leader) ) ) {
-    FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    int has_bank_hash = !!strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
+    int has_slot      = !!config->firedancer.consensus.wait_for_supermajority_at_slot;
+
+    if( FD_UNLIKELY( has_bank_hash && !has_slot ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] is set but "
+                   "[consensus.wait_for_supermajority_at_slot] is 0 (disabled). "
+                   "Both must be configured together." ));
+    }
+    if( FD_UNLIKELY( has_slot && !has_bank_hash ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_at_slot] is set but "
+                   "[consensus.wait_for_supermajority_with_bank_hash] is empty. "
+                   "Both must be configured together." ));
+    }
+    if( FD_UNLIKELY( has_bank_hash && !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash,
+                                              "11111111111111111111111111111111" ) ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] decodes to all zeros, "
+                   "which is not a valid bank hash." ));
+    }
+    if( FD_UNLIKELY( has_bank_hash && (!config->consensus.expected_shred_version || config->consensus.wait_for_vote_to_start_leader) ) ) {
+      FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires "
+                   "consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
+    }
   }
 
 }

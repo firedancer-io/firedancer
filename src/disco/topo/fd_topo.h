@@ -450,6 +450,7 @@ struct fd_topo_tile {
       char  vote_account_path[ PATH_MAX ];
 
       fd_hash_t wait_for_supermajority_with_bank_hash;
+      ulong     wait_for_supermajority_at_slot;
       ushort expected_shred_version;
       int    wait_for_vote_to_start_leader;
 
@@ -613,7 +614,8 @@ struct fd_topo_tile {
 #define FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED (FD_TOPO_MAX_RESOLVED_ADDRS*FD_TOPO_SNAPSHOTS_SERVERS_MAX)
 
     struct fd_topo_tile_snapct {
-      char snapshots_path[ PATH_MAX ];
+      char  snapshots_path[ PATH_MAX ];
+      ulong wait_for_supermajority_at_slot;
 
       ulong entrypoints_cnt;
       char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
@@ -648,6 +650,8 @@ struct fd_topo_tile {
     } snapld;
 
     struct {
+      ulong     wait_for_supermajority_at_slot;
+      fd_hash_t wait_for_supermajority_with_bank_hash;
       ulong max_live_slots;
       ulong accdb_obj_id;
       ulong txncache_obj_id;
