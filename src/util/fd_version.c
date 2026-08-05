@@ -21,6 +21,16 @@ unhex( int c ) {
   return -1;
 }
 
+char *
+fd_version_cstr_format( char * buf,
+                        ulong  bufsz,
+                        ulong  major,
+                        ulong  minor,
+                        ulong  patch ) {
+  fd_cstr_printf( buf, bufsz, NULL, major>=26UL ? "%lu.%02lu.%lu" : "%lu.%lu.%lu", major, minor, patch );
+  return buf;
+}
+
 void
 fd_version_private_commit_ref_init( void ) {
   char const * str = fd_commit_ref_private;
@@ -45,8 +55,6 @@ fd_version_private_boot( int *    pargc,
                          char *** pargv ) {
   (void)pargc; (void)pargv;
   static char ver_cstr[ 512 ];
-  fd_cstr_printf( ver_cstr, sizeof(ver_cstr), NULL, "%lu.%lu.%lu",
-                  fd_major_version, fd_minor_version, fd_patch_version );
-  fd_version_cstr = ver_cstr;
+  fd_version_cstr = fd_version_cstr_format( ver_cstr, sizeof(ver_cstr), fd_major_version, fd_minor_version, fd_patch_version );
   fd_version_private_commit_ref_init();
 }
