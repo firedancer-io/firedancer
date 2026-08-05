@@ -16,6 +16,16 @@ extern uint         fd_commit_ref_u32;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_version_cstr_format formats the given version as a cstr into buf.
+   Versions with major 26 or later use calendar versioning. Returns buf. */
+
+char *
+fd_version_cstr_format( char * buf,
+                        ulong  bufsz,
+                        ulong  major,
+                        ulong  minor,
+                        ulong  patch );
+
 void
 fd_version_private_boot( int *    pargc,
                          char *** pargv );
