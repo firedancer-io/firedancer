@@ -171,6 +171,7 @@ update_hashes_per_tick( fd_poh_t * poh,
     FD_TEST( !poh->last_hashcnt );
     poh->slot = poh->reset_slot;
     poh->hashcnt = 0UL;
+    fd_memcpy( poh->hash, poh->reset_hash, 32UL );
   }
 }
 
@@ -240,8 +241,9 @@ fd_poh_begin_leader( fd_poh_t * poh,
   FD_TEST( ticks_per_slot==poh->ticks_per_slot );
   update_hashes_per_tick( poh, hashcnt_per_tick );
 
-  if( FD_LIKELY( poh->state==STATE_FOLLOWER ) ) poh->state = STATE_WAITING_FOR_SLOT;
-  else                                          poh->state = STATE_LEADER;
+  FD_TEST( poh->slot<=poh->next_leader_slot );
+  if( FD_LIKELY( poh->slot<poh->next_leader_slot ) ) poh->state = STATE_WAITING_FOR_SLOT;
+  else                                               poh->state = STATE_LEADER;
 
   poh->microblocks_lower_bound = 0UL;
   poh->leader_slot_start_ns    = slot_start_ns;
