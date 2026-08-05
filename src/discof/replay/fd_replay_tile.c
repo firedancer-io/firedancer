@@ -2596,7 +2596,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       if( sig==FD_VOTOR_SIG_ROOTED ) {
         ag_votor_rooted_t const * rooted = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         process_votor_rooted( ctx, stem, rooted );
-      } else if( sig==FD_VOTOR_SIG_SLOT_DONE ) {
+      } else if( sig==FD_VOTOR_SIG_SLOT ) {
         /* TODO what is the reset slot fr.... */
         ag_votor_slot_done_t const * slot_done = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         ctx->reset_slot = slot_done->reset_slot;

@@ -495,12 +495,6 @@ telemetry = true
             block_list = []
 
 [consensus]
-    # Whether to enable Alpenglow consensus.
-    #
-    # If set to true, the validator will use Alpenglow consensus.
-    # If set to false, the validator will use TowerBFT consensus.
-    alpenglow = true
-
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
     # out any shred traffic from validators that disagree with this
@@ -781,6 +775,13 @@ telemetry = true
     # controlling those tiles are ignored, and all tile-relevant options
     # are ignored as the tiles are not booted to begin with.
     enable_block_production = true
+
+    # Whether to run tiles involved in Alpenglow consensus.
+    #
+    # If set to true, the validator will use Alpenglow consensus, and
+    # the votor tile is booted in place of the tower tile.  If set to
+    # false, the validator will use TowerBFT consensus.
+    enable_alpenglow = true
 
     # How many net tiles to run.  This is configurable and designed to
     # scale out for future network conditions, but there is no need to
@@ -2021,6 +2022,13 @@ telemetry = true
         # this file path in NSS SSLKEYLOGFILE format.  An empty string
         # (the default) disables key logging.
         ssl_key_log_file = ""
+
+        # Have the votor tile also publish the votes and certificates it
+        # RECEIVES on votor_out, so `firedancer-dev votor-monitor` has peer
+        # traffic to draw.  Off by default: votor_out's consumers are
+        # reliable, so these are frags they would not otherwise have to
+        # consume.  `firedancer-dev dev --votor-monitor` turns it on.
+        monitor = false
 
     # Tuning for the accounts database.  These options are for advanced
     # users and should not be changed in production.

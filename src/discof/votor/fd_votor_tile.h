@@ -24,16 +24,27 @@
 #include "../../alpenglow/ag_alpenglow_base.h"
 #include "../../disco/topo/fd_topo.h"
 
-/* The out link votor_out carries one ag_votor_msg_t per frag, tagged with
-   one of the FD_VOTOR_SIG_* sigs below.
+/* Three kinds of message flow through the votor tile, and each one flows
+   in BOTH directions -- the same FD_VOTOR_SIG_* value tags the inbound
+   frag and the outbound one, so handle_slot / handle_cert / handle_vote
+   are the tile's whole consensus ingress surface:
 
-   - FD_VOTOR_SIG_VOTE      : broadcast a single Alpenglow vote (consumed by
-                              the gossip / send tile and All2All-broadcast).
-   - FD_VOTOR_SIG_CERT      : broadcast a single Alpenglow certificate.
-   - FD_VOTOR_SIG_SLOT_DONE : 1-to-1 with the completion of a replayed slot.
-                              Echoes the replay_slot/replay_bank_idx back to
-                              replay (so it can drop the bank refcount) and
-                              tells replay/poh which fork to reset onto.
+   - FD_VOTOR_SIG_VOTE : in  a peer's vote, over QUIC.
+                         out a vote the votor cast, to All2All-broadcast.
+   - FD_VOTOR_SIG_CERT : in  a peer's cert over QUIC, or one replay lifted
+                             out of a block footer.
+                         out a cert the pool built, to All2All-broadcast.
+   - FD_VOTOR_SIG_SLOT : in  replay completed (or killed) a slot.
+                         out 1-to-1 with the completion of a replayed slot:
+                             echoes the replay_slot/replay_bank_idx back to
+                             replay (so it can drop the bank refcount) and
+                             tells replay/poh which fork to reset onto.
+
+   The remaining sigs are outbound only:
+
+   - FD_VOTOR_SIG_NOTARFB   : a block version that gathered (fallback) notar
+                              votes or certs and that we may not have locally;
+                              repair fetches it.
    - FD_VOTOR_SIG_FINALIZED : consensus finalized a slot (a final / fast-final
                               cert).  Cert-driven; fired as soon as finalization
                               advances, independent of whether we have replayed
@@ -45,10 +56,28 @@
 
 #define FD_VOTOR_SIG_VOTE      (0UL)
 #define FD_VOTOR_SIG_CERT      (1UL)
-#define FD_VOTOR_SIG_SLOT_DONE (2UL)
+#define FD_VOTOR_SIG_SLOT      (2UL)
 #define FD_VOTOR_SIG_NOTARFB   (3UL)
 #define FD_VOTOR_SIG_FINALIZED (4UL)
 #define FD_VOTOR_SIG_ROOTED    (5UL)
+
+/* FD_VOTOR_SIG_RX is OR'd into the sig of a VOTE or CERT frag that the
+   tile RECEIVED, and is clear on one it originated.  The kind says WHAT
+   the message is and is the same in both directions; this says which way
+   this particular frag went.
+
+   It matters for certs especially: a cert the pool built by aggregating
+   votes it collected is a different event from the same cert arriving
+   ready-made from a peer, and the payload alone cannot tell them apart
+   (unlike a vote, where the signer rank identifies us).
+
+   Only VOTE and CERT ever carry it, so a consumer matching SLOT /
+   NOTARFB / FINALIZED / ROOTED compares against the bare value as
+   before; one that cares about votes or certs masks it off with
+   FD_VOTOR_SIG_KIND. */
+
+#define FD_VOTOR_SIG_RX        (0x100UL)
+#define FD_VOTOR_SIG_KIND(sig) ( (sig) & 0xFFUL )
 
 /* fd_votor_slot_done_t is published once per completed replay slot.  It
    mirrors the relevant subset of fd_tower_slot_done_t: the replay slot and
@@ -78,7 +107,7 @@ typedef struct ag_votor_notar_slot ag_votor_rooted_t;
 union ag_votor_msg {
   ag_vote_t                 vote;      /* FD_VOTOR_SIG_VOTE      */
   ag_cert_t                 cert;      /* FD_VOTOR_SIG_CERT      */
-  ag_votor_slot_done_t      slot_done; /* FD_VOTOR_SIG_SLOT_DONE */
+  ag_votor_slot_done_t      slot_done; /* FD_VOTOR_SIG_SLOT      */
   ag_votor_notar_fallback_t notar_fallback; /* FD_VOTOR_SIG_NOTARFB */
   ag_votor_finalized_t      finalized; /* FD_VOTOR_SIG_FINALIZED */
   ag_votor_rooted_t         rooted;    /* FD_VOTOR_SIG_ROOTED    */

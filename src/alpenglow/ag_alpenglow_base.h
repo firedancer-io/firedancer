@@ -2,9 +2,23 @@
 #define HEADER_fd_src_alpenglow_ag_alpenglow_base_h
 
 #include "../flamenco/fd_flamenco_base.h"
+#include "types/ag_slot.h"
 
-#define AG_ALPENGLOW_SLOTS_PER_WINDOW (4UL)
-#define AG_ALPENGLOW_SLOTS_PER_EPOCH  (18000UL)
+/* ag_alpenglow_base.h is the C stand-in for the reference impl's crate
+   root: what lib.rs / consensus.rs / types.rs expose to every module.
+   Anything belonging to one module lives in that module's header --
+   notably the quorum predicates, which are EpochInfo methods
+   (ag_epoch_info_is_*_quorum), not free functions.
+
+   What is here, and where it comes from:
+
+     AG_ALPENGLOW_DELTA_*                        consensus.rs
+     AG_ALPENGLOW_*_QUORUM_NUMER / _DENOM        consensus.rs (the *_QUORUM_THRESHOLD Fractions)
+     ag_alpenglow_fraction_is_met                types/fraction.rs (Fraction::is_met)
+     ag_block_id_t                               lib.rs (pub type BlockId = (Slot, BlockHash))
+
+   types/ag_slot.h is included here rather than by each user, mirroring
+   the crate root re-exporting types::{Slot, SLOTS_PER_*}. */
 
 /* VAT caps the number of validators */
 #define AG_ALPENGLOW_VALIDATOR_MAX (2000UL)
@@ -35,50 +49,6 @@ ag_alpenglow_fraction_is_met( ulong stake,
                               ulong numer,
                               ulong denom ) {
   return (uint128)stake*(uint128)denom >= (uint128)total*(uint128)numer;
-}
-
-FD_FN_CONST static inline int
-ag_alpenglow_is_weakest_quorum( ulong stake,
-                                ulong total ) {
-  return ag_alpenglow_fraction_is_met( stake, total, AG_ALPENGLOW_WEAKEST_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
-}
-
-FD_FN_CONST static inline int
-ag_alpenglow_is_weak_quorum( ulong stake,
-                             ulong total ) {
-  return ag_alpenglow_fraction_is_met( stake, total, AG_ALPENGLOW_WEAK_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
-}
-
-FD_FN_CONST static inline int
-ag_alpenglow_is_quorum( ulong stake,
-                        ulong total ) {
-  return ag_alpenglow_fraction_is_met( stake, total, AG_ALPENGLOW_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
-}
-
-FD_FN_CONST static inline int
-ag_alpenglow_is_strong_quorum( ulong stake,
-                               ulong total ) {
-  return ag_alpenglow_fraction_is_met( stake, total, AG_ALPENGLOW_STRONG_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
-}
-
-FD_FN_CONST static inline ulong
-ag_alpenglow_first_slot_in_window( ulong slot ) {
-  return ( slot / AG_ALPENGLOW_SLOTS_PER_WINDOW ) * AG_ALPENGLOW_SLOTS_PER_WINDOW;
-}
-
-FD_FN_CONST static inline ulong
-ag_alpenglow_last_slot_in_window( ulong slot ) {
-  return ag_alpenglow_first_slot_in_window( slot ) + AG_ALPENGLOW_SLOTS_PER_WINDOW - 1UL;
-}
-
-FD_FN_CONST static inline int
-ag_alpenglow_is_start_of_window( ulong slot ) {
-  return ( slot % AG_ALPENGLOW_SLOTS_PER_WINDOW )==0UL;
-}
-
-FD_FN_CONST static inline int
-ag_alpenglow_is_genesis_window( ulong slot ) {
-  return slot < AG_ALPENGLOW_SLOTS_PER_WINDOW;
 }
 
 FD_FN_PURE static inline int

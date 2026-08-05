@@ -18,6 +18,7 @@ $(call add-objs,commands/gossip_dump,fd_firedancer_dev)
 $(call add-objs,commands/reasm,fd_firedancer_dev)
 $(call add-objs,commands/votor-test,fd_firedancer_dev)
 $(call add-objs,commands/votor,fd_firedancer_dev)
+$(call add-objs,commands/votor_monitor,fd_firedancer_dev)
 $(call add-objs,commands/forktest/forktest commands/forktest/fd_forktest_tile,fd_firedancer_dev)
 
 ifdef FD_HAS_SSE

@@ -23,7 +23,8 @@ dev_cmd_args( int *    pargc,
               char *** pargv,
               args_t * args ) {
   args->dev.parent_pipefd = -1;
-  args->dev.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+  args->dev.no_watch  = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+  args->dev.votor_monitor  = fd_env_strip_cmdline_contains( pargc, pargv, "--votor-monitor" );
   args->dev.no_configure = fd_env_strip_cmdline_contains( pargc, pargv, "--no-configure" );
   args->dev.no_init_workspaces = fd_env_strip_cmdline_contains( pargc, pargv, "--no-init-workspaces" );
   args->dev.no_agave = fd_env_strip_cmdline_contains( pargc, pargv, "--no-agave"  ) ||
@@ -140,7 +141,8 @@ run_firedancer_threaded( config_t * config,
 void
 dev_cmd_fn( args_t *   args,
             config_t * config,
-            void ( * agave_main )( config_t const * ) ) {
+            void ( * agave_main )( config_t const * ),
+            void ( * monitor_main )( args_t *, config_t * ) ) {
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,
@@ -153,10 +155,24 @@ dev_cmd_fn( args_t *   args,
   update_config_for_dev( config );
   if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
 
+  /* The consensus view needs the votor tile to echo the votes and certs
+     it receives; that has to be decided before the topology is built. */
+  if( FD_UNLIKELY( args->dev.votor_monitor && monitor_main ) ) config->firedancer.development.votor.monitor = 1;
+  else                                               args->dev.votor_monitor = 0;
+
   if( FD_LIKELY( args->dev.no_watch ) ) {
-    if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );
-    else {
+    if( FD_LIKELY( !config->development.no_clone ) ) {
+      /* run_firedancer takes over this process, so there is no thread
+         left to draw on.  Attach from another terminal instead. */
+      if( FD_UNLIKELY( args->dev.votor_monitor ) )
+        FD_LOG_WARNING(( "--votor-monitor with --no-watch needs --no-clone; "
+                         "otherwise run `firedancer-dev votor-monitor` in another terminal" ));
+      run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );
+    } else {
       run_firedancer_threaded( config , !args->dev.no_init_workspaces, agave_main );
+      /* the tiles are threads in this process; this thread is otherwise
+         just idling, so it can draw */
+      if( FD_UNLIKELY( args->dev.votor_monitor ) ) monitor_main( args, config );
       for(;;) pause();
     }
   } else {
@@ -180,11 +196,19 @@ dev_cmd_fn( args_t *   args,
         if( FD_UNLIKELY( -1==close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       }
 
-      args_t watch_args;
-      watch_args.watch.drain_output_fd = pipefd[0];
-
+      /* --votor-monitor swaps the log watcher for the Alpenglow consensus
+         view.  Both are just a child process drawing to the terminal
+         while the validator runs in the other child. */
       watch_pid = fork();
-      if( !watch_pid ) watch_cmd_fn( &watch_args, config );
+      if( !watch_pid ) {
+        if( FD_UNLIKELY( args->dev.votor_monitor ) ) {
+          monitor_main( args, config );
+        } else {
+          args_t watch_args;
+          watch_args.watch.drain_output_fd = pipefd[0];
+          watch_cmd_fn( &watch_args, config );
+        }
+      }
 
       if( FD_UNLIKELY( close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 

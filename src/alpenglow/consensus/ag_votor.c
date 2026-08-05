@@ -72,7 +72,7 @@ ag_votor_align( void ) {
 
 static ulong
 parent_ready_max( ulong slot_max ) {
-  return fd_ulong_max( slot_max/AG_ALPENGLOW_SLOTS_PER_WINDOW, 1UL )*AG_VOTOR_PARENTS_READY_MAX;
+  return fd_ulong_max( slot_max/AG_SLOTS_PER_WINDOW, 1UL )*AG_VOTOR_PARENTS_READY_MAX;
 }
 
 ulong
@@ -201,15 +201,15 @@ received_shred( ag_votor_t * self,
 
 static ulong
 first_unpruned_slot( ag_votor_t const * self ) {
-  return ag_alpenglow_first_slot_in_window( self->highest_final_cert_slot );
+  return ag_slot_first_slot_in_window( self->highest_final_cert_slot );
 }
 
 static void
 set_timeouts( ag_votor_t * self,
               ulong        slot ) {
-  FD_TEST( ag_alpenglow_is_start_of_window( slot ) );
+  FD_TEST( ag_slot_is_start_of_window( slot ) );
   out_push_timeout( self, AG_VOTOR_TIMEOUT_CRASHED_LEADER, slot );
-  ulong last = ag_alpenglow_last_slot_in_window( slot );
+  ulong last = ag_slot_last_slot_in_window( slot );
   for( ulong s=slot; s<=last; s++ ) {
     out_push_timeout( self, AG_VOTOR_TIMEOUT_TIMEOUT, s );
   }
@@ -240,7 +240,7 @@ try_notar( ag_votor_t *            self,
   fd_hash_t const * hash        = &block_info->hash;
   ulong             parent_slot = block_info->parent.slot;
   fd_hash_t const * parent_hash = &block_info->parent.hash;
-  ulong             first_slot  = ag_alpenglow_first_slot_in_window( slot );
+  ulong             first_slot  = ag_slot_first_slot_in_window( slot );
 
   if( slot==first_slot ) {
     if( !parent_ready_contains( self, slot, &block_info->parent ) ) return 0;
@@ -270,8 +270,8 @@ static void
 try_skip_window( ag_votor_t * self,
                  ulong        slot ) {
   FD_TEST( slot >= first_unpruned_slot( self ) );
-  ulong first = ag_alpenglow_first_slot_in_window( slot );
-  ulong last  = ag_alpenglow_last_slot_in_window( slot );
+  ulong first = ag_slot_first_slot_in_window( slot );
+  ulong last  = ag_slot_last_slot_in_window( slot );
   for( ulong s=first; s<=last; s++ ) {
     if( has_voted( self, s ) ) continue;
     ag_votor_slot_state_t * state = slot_state_mut( self, s );
@@ -359,7 +359,7 @@ handle_cert_created( ag_votor_t *      votor,
   case AG_CERT_TYPE_FAST_FINAL: {
     ulong slot = ag_cert_slot( cert );
 
-    set_timeouts( votor, ag_alpenglow_first_slot_in_window( slot ) );
+    set_timeouts( votor, ag_slot_first_slot_in_window( slot ) );
 
     votor->highest_final_cert_slot = fd_ulong_max( votor->highest_final_cert_slot, slot );
     prune( votor );

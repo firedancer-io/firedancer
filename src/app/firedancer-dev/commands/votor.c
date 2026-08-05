@@ -1,7 +1,7 @@
 /* firedancer-dev votor -- minimal topology that ingests Alpenglow votes
    from the live cluster and builds certificates, logging them.
 
-   Tiles: metric net sign | gossvf gossip ipecho | agepoch | votor
+   Tiles: metric net sign | gossvf gossip ipecho | epoch | votor
 
    gossip is not optional: peers only open an Alpenglow QUIC connection to
    us if our identity is in their epoch staked-node map AND our gossip
@@ -10,13 +10,22 @@
    nothing is ever sent to us.
 
    The votor tile's consensus path is gated on an epoch validator set,
-   which in production only the replay tile publishes.  agepoch stands in
+   which in production only the replay tile publishes.  The epoch tile stands in
    for it: it loads a dumped set (stakes + compressed BLS pubkeys) from a
    file and publishes it on replay_epoch, plus a synthetic replayed tip on
    replay_out -- update_epoch_vtrs installs a set but never activates it;
    only votor_set_active_epoch does, driven from the replayed tip.
 
-   votor_out has no consumer; certs are observed in the log. */
+   This thread draws the live view: it polls votor_out and renders the
+   per-slot stake aggregation, the certs that form and the notarized /
+   finalized / rooted verdicts.  The votor tile is told to echo the votes
+   and certs it RECEIVES onto votor_out as well
+   (quic.alpenglow_publish_rx), which is dev-only -- in production that
+   link's consumers are reliable, so the extra frags would backpressure
+   consensus.
+
+   Keys: [space] pause  [q] quit
+   --frames N renders N frames and exits, for capturing into a log. */
 
 #define _GNU_SOURCE
 
@@ -36,12 +45,23 @@
 #include "../../../util/net/fd_ip4.h"
 
 #include "core_subtopo.h"
+#include "votor_monitor.h"
 #include "gossip.h"
 
+#include "../../../alpenglow/consensus/ag_pool.h"
+#include "../../../alpenglow/consensus/ag_votor.h"
+#include "../../../disco/keyguard/fd_keyload.h"
+#include "../../../discof/votor/fd_votor_tile.h"
+
 #include <errno.h>
+#include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <termios.h>
+#include <time.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 extern configure_stage_t fd_cfg_stage_keys;
@@ -54,12 +74,10 @@ resolve_gossip_entrypoints( config_t * config );
 
 /* Epoch dump file, written by contrib/alpenglow/dump_epoch.py.  Little
    endian, header followed by voter_cnt records ordered arbitrarily (the
-   votor re-ranks with ag_epoch_info_rank). */
+   votor re-ranks with ag_epoch_info_rank).  Dev tool: the two files are
+   expected to move together, so a mismatch just fails to parse. */
 
-#define AGEPOCH_MAGIC (0x4147455001UL) /* "AGEP" 01 */
-
-struct __attribute__((packed)) agepoch_hdr {
-  ulong               magic;
+struct __attribute__((packed)) hdr {
   ulong               epoch;
   ulong               start_slot;
   ulong               slot_cnt;
@@ -67,68 +85,68 @@ struct __attribute__((packed)) agepoch_hdr {
   ulong               voter_cnt;
   fd_epoch_schedule_t epoch_schedule;
 };
-typedef struct agepoch_hdr agepoch_hdr_t;
+typedef struct hdr hdr_t;
 
-struct __attribute__((packed)) agepoch_voter {
+struct __attribute__((packed)) voter {
   fd_pubkey_t vote_key;
   fd_pubkey_t id_key;
   ulong       stake;
   uchar       bls[ FD_EPOCH_INFO_BLS_PUBKEY_SZ ];
 };
-typedef struct agepoch_voter agepoch_voter_t;
+typedef struct voter voter_t;
 
 /* Locked against contrib/alpenglow/dump_epoch.py. */
-FD_STATIC_ASSERT( sizeof(agepoch_hdr_t)==81UL,    agepoch_hdr_sz   );
-FD_STATIC_ASSERT( sizeof(agepoch_voter_t)==120UL, agepoch_voter_sz );
+FD_STATIC_ASSERT( sizeof(hdr_t)==73UL,    hdr_sz   );
+FD_STATIC_ASSERT( sizeof(voter_t)==120UL, voter_sz );
 
-#define AGEPOCH_OUT_EPOCH  (0UL)
-#define AGEPOCH_OUT_REPLAY (1UL)
-#define AGEPOCH_OUT_CNT    (2UL)
+#define OUT_EPOCH  (0UL)
+#define OUT_REPLAY (1UL)
+#define OUT_CNT    (2UL)
 
-struct agepoch_out {
+struct out {
   void * mem;
   ulong  chunk0;
   ulong  wmark;
   ulong  chunk;
   ulong  mtu;
 };
-typedef struct agepoch_out agepoch_out_t;
+typedef struct out out_t;
 
-struct agepoch_ctx {
-  agepoch_out_t   out[ AGEPOCH_OUT_CNT ];
-  agepoch_hdr_t   hdr;
-  agepoch_voter_t voters[ FD_EPOCH_INFO_MAX_VOTERS ];
+struct ctx {
+  out_t     out[ OUT_CNT ];
+  hdr_t     hdr;
+  voter_t   voters[ FD_EPOCH_INFO_MAX_VOTERS ];
 
-  ulong           slot;
-  fd_hash_t       parent_block_id;
-  long            next_epoch_ts;
-  long            next_slot_ts;
-  long            slot_period_ns;
+  ulong     slot;
+  fd_hash_t parent_block_id;
+  long      next_epoch_ts;
+  long      next_slot_ts;
+  long      slot_period_ns;
 };
-typedef struct agepoch_ctx agepoch_ctx_t;
+typedef struct ctx ctx_t;
 
-static char  agepoch_file[ PATH_MAX ];
-static ulong agepoch_slot_period_ns;
+static char  epoch_file[ PATH_MAX ];
+static ulong slot_period_ns;
 
 FD_FN_CONST static inline ulong
-agepoch_scratch_align( void ) {
-  return alignof(agepoch_ctx_t);
+scratch_align( void ) {
+  return alignof(ctx_t);
 }
 
 FD_FN_PURE static inline ulong
-agepoch_scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return sizeof(agepoch_ctx_t);
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(ctx_t);
 }
 
 static void
-agepoch_out_init( fd_topo_t const *      topo,
-                  fd_topo_tile_t const * tile,
-                  agepoch_ctx_t *        ctx,
-                  ulong                  out_idx,
-                  char const *           name ) {
+out_init( fd_topo_t const *      topo,
+          fd_topo_tile_t const * tile,
+          ctx_t *                ctx,
+          ulong                  out_idx,
+          char const *           name ) {
   fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ out_idx ] ];
   if( FD_UNLIKELY( strcmp( link->name, name ) ) )
-    FD_LOG_ERR(( "agepoch output %lu expected %s, got %s", out_idx, name, link->name ));
+    FD_LOG_ERR(( "epoch output %lu expected %s, got %s", out_idx, name, link->name ));
   ctx->out[ out_idx ].mtu    = link->mtu;
   ctx->out[ out_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
   ctx->out[ out_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->out[ out_idx ].mem, link->dcache );
@@ -137,50 +155,48 @@ agepoch_out_init( fd_topo_t const *      topo,
 }
 
 static void
-agepoch_load( agepoch_ctx_t * ctx ) {
-  FILE * f = fopen( agepoch_file, "rb" );
+load_epoch( ctx_t * ctx ) {
+  FILE * f = fopen( epoch_file, "rb" );
   if( FD_UNLIKELY( !f ) )
     FD_LOG_ERR(( "fopen(%s) failed (%i-%s); generate it with contrib/alpenglow/dump_epoch.py",
-                 agepoch_file, errno, fd_io_strerror( errno ) ));
+                 epoch_file, errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( 1UL!=fread( &ctx->hdr, sizeof(agepoch_hdr_t), 1UL, f ) ) )
-    FD_LOG_ERR(( "%s: truncated header", agepoch_file ));
-  if( FD_UNLIKELY( ctx->hdr.magic!=AGEPOCH_MAGIC ) )
-    FD_LOG_ERR(( "%s: bad magic %#lx", agepoch_file, ctx->hdr.magic ));
+  if( FD_UNLIKELY( 1UL!=fread( &ctx->hdr, sizeof(hdr_t), 1UL, f ) ) )
+    FD_LOG_ERR(( "%s: truncated header", epoch_file ));
   if( FD_UNLIKELY( !ctx->hdr.voter_cnt || ctx->hdr.voter_cnt>FD_EPOCH_INFO_MAX_VOTERS ) )
-    FD_LOG_ERR(( "%s: voter_cnt %lu out of range", agepoch_file, ctx->hdr.voter_cnt ));
+    FD_LOG_ERR(( "%s: voter_cnt %lu out of range", epoch_file, ctx->hdr.voter_cnt ));
 
-  if( FD_UNLIKELY( ctx->hdr.voter_cnt!=fread( ctx->voters, sizeof(agepoch_voter_t), ctx->hdr.voter_cnt, f ) ) )
-    FD_LOG_ERR(( "%s: truncated voter records", agepoch_file ));
+  if( FD_UNLIKELY( ctx->hdr.voter_cnt!=fread( ctx->voters, sizeof(voter_t), ctx->hdr.voter_cnt, f ) ) )
+    FD_LOG_ERR(( "%s: truncated voter records", epoch_file ));
   fclose( f );
 
-  FD_LOG_NOTICE(( "agepoch loaded %s: epoch %lu, %lu voters, start_slot %lu, tip_slot %lu",
-                  agepoch_file, ctx->hdr.epoch, ctx->hdr.voter_cnt, ctx->hdr.start_slot, ctx->hdr.tip_slot ));
+  FD_LOG_NOTICE(( "epoch loaded %s: epoch %lu, %lu voters, start_slot %lu, tip_slot %lu",
+                  epoch_file, ctx->hdr.epoch, ctx->hdr.voter_cnt, ctx->hdr.start_slot, ctx->hdr.tip_slot ));
 }
 
 static void
-agepoch_unprivileged_init( fd_topo_t const *      topo,
-                           fd_topo_tile_t const * tile ) {
-  agepoch_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  memset( ctx, 0, sizeof(agepoch_ctx_t) );
-  FD_TEST( tile->out_cnt==AGEPOCH_OUT_CNT );
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
+  ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  memset( ctx, 0, sizeof(ctx_t) );
+  FD_TEST( tile->out_cnt==OUT_CNT );
 
-  agepoch_out_init( topo, tile, ctx, AGEPOCH_OUT_EPOCH,  "replay_epoch" );
-  agepoch_out_init( topo, tile, ctx, AGEPOCH_OUT_REPLAY, "replay_out"   );
+  out_init( topo, tile, ctx, OUT_EPOCH,  "replay_epoch" );
+  out_init( topo, tile, ctx, OUT_REPLAY, "replay_out"   );
 
-  agepoch_load( ctx );
+  load_epoch( ctx );
   ctx->slot           = ctx->hdr.tip_slot;
-  ctx->slot_period_ns = (long)agepoch_slot_period_ns;
+  ctx->slot_period_ns = (long)slot_period_ns;
 }
 
-/* agepoch_publish_epoch emits the loaded validator set.  Republished
+/* publish_epoch emits the loaded validator set.  Republished
    periodically: update_epoch_vtrs re-ranks the same epoch in place, so it
    is idempotent, and it covers the votor joining the link late. */
 
 static void
-agepoch_publish_epoch( agepoch_ctx_t *     ctx,
-                       fd_stem_context_t * stem ) {
-  agepoch_out_t *       out = &ctx->out[ AGEPOCH_OUT_EPOCH ];
+publish_epoch( ctx_t *             ctx,
+               fd_stem_context_t * stem ) {
+  out_t *               out = &ctx->out[ OUT_EPOCH ];
   fd_epoch_info_msg_t * msg = fd_chunk_to_laddr( out->mem, out->chunk );
 
   msg->epoch             = ctx->hdr.epoch;
@@ -195,7 +211,7 @@ agepoch_publish_epoch( agepoch_ctx_t *     ctx,
   fd_vote_stake_weight_t * sw  = fd_epoch_info_msg_stake_weights( msg );
   uchar *                  bls = fd_epoch_info_msg_bls_pubkeys  ( msg );
   for( ulong i=0UL; i<ctx->hdr.voter_cnt; i++ ) {
-    agepoch_voter_t const * v = &ctx->voters[ i ];
+    voter_t const * v = &ctx->voters[ i ];
     sw[ i ].vote_key = v->vote_key;
     sw[ i ].id_key   = v->id_key;
     sw[ i ].stake    = v->stake;
@@ -204,20 +220,20 @@ agepoch_publish_epoch( agepoch_ctx_t *     ctx,
 
   ulong sz = fd_epoch_info_msg_sz( ctx->hdr.voter_cnt, 0UL );
   ulong ts = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, AGEPOCH_OUT_EPOCH, 0UL, out->chunk, sz, 0UL, ts, ts );
+  fd_stem_publish( stem, OUT_EPOCH, 0UL, out->chunk, sz, 0UL, ts, ts );
   out->chunk = fd_dcache_compact_next( out->chunk, out->mtu, out->chunk0, out->wmark );
 }
 
-/* agepoch_publish_slot emits a synthetic replayed tip.  The votor needs a
+/* publish_slot emits a synthetic replayed tip.  The votor needs a
    tip in the dumped epoch to activate its validator set; the block ids are
    fabricated, so notarization of these slots is meaningless -- what is
    under test is ingest, signature verification and cert aggregation of the
    real votes arriving over QUIC. */
 
 static void
-agepoch_publish_slot( agepoch_ctx_t *     ctx,
-                      fd_stem_context_t * stem ) {
-  agepoch_out_t *              out = &ctx->out[ AGEPOCH_OUT_REPLAY ];
+publish_slot( ctx_t *             ctx,
+              fd_stem_context_t * stem ) {
+  out_t *                      out = &ctx->out[ OUT_REPLAY ];
   fd_replay_slot_completed_t * msg = fd_chunk_to_laddr( out->mem, out->chunk );
 
   ulong slots_per_epoch = ctx->hdr.epoch_schedule.slots_per_epoch;
@@ -235,20 +251,20 @@ agepoch_publish_slot( agepoch_ctx_t *     ctx,
   ctx->slot++;
 
   ulong ts = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, AGEPOCH_OUT_REPLAY, REPLAY_SIG_SLOT_COMPLETED, out->chunk,
+  fd_stem_publish( stem, OUT_REPLAY, REPLAY_SIG_SLOT_COMPLETED, out->chunk,
                    sizeof(fd_replay_slot_completed_t), 0UL, ts, ts );
   out->chunk = fd_dcache_compact_next( out->chunk, out->mtu, out->chunk0, out->wmark );
 }
 
 static void
-agepoch_after_credit( agepoch_ctx_t *     ctx,
-                      fd_stem_context_t * stem,
-                      int *               opt_poll_in,
-                      int *               charge_busy ) {
+after_credit( ctx_t *             ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
   long now = fd_log_wallclock();
 
   if( FD_UNLIKELY( now>=ctx->next_epoch_ts ) ) {
-    agepoch_publish_epoch( ctx, stem );
+    publish_epoch( ctx, stem );
     ctx->next_epoch_ts = now + (long)5e9;
     *charge_busy = 1;
     return;
@@ -257,43 +273,39 @@ agepoch_after_credit( agepoch_ctx_t *     ctx,
   if( FD_UNLIKELY( !ctx->next_slot_ts ) ) ctx->next_slot_ts = now;
   if( FD_LIKELY( now<ctx->next_slot_ts ) ) return;
 
-  agepoch_publish_slot( ctx, stem );
+  publish_slot( ctx, stem );
   ctx->next_slot_ts = now + ctx->slot_period_ns;
   *opt_poll_in = 0;
   *charge_busy = 1;
 }
 
 static int
-agepoch_returnable_frag( agepoch_ctx_t *     ctx  FD_PARAM_UNUSED,
-                         ulong               in_idx FD_PARAM_UNUSED,
-                         ulong               seq  FD_PARAM_UNUSED,
-                         ulong               sig  FD_PARAM_UNUSED,
-                         ulong               chunk FD_PARAM_UNUSED,
-                         ulong               sz   FD_PARAM_UNUSED,
-                         ulong               ctl  FD_PARAM_UNUSED,
-                         ulong               tsorig FD_PARAM_UNUSED,
-                         ulong               tspub FD_PARAM_UNUSED,
-                         fd_stem_context_t * stem FD_PARAM_UNUSED ) {
+returnable_frag( ctx_t *             ctx  FD_PARAM_UNUSED,
+                 ulong               in_idx FD_PARAM_UNUSED,
+                 ulong               seq  FD_PARAM_UNUSED,
+                 ulong               sig  FD_PARAM_UNUSED,
+                 ulong               chunk FD_PARAM_UNUSED,
+                 ulong               sz   FD_PARAM_UNUSED,
+                 ulong               ctl  FD_PARAM_UNUSED,
+                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tspub FD_PARAM_UNUSED,
+                 fd_stem_context_t * stem FD_PARAM_UNUSED ) {
   return 0;
 }
 
 #define STEM_BURST (1UL)
 #define STEM_LAZY  ((long)1000000L)
 
-#define STEM_CALLBACK_CONTEXT_TYPE    agepoch_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN   alignof(agepoch_ctx_t)
-#define STEM_CALLBACK_AFTER_CREDIT    agepoch_after_credit
-#define STEM_CALLBACK_RETURNABLE_FRAG agepoch_returnable_frag
+#define STEM_CALLBACK_CONTEXT_TYPE    ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN   alignof(ctx_t)
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../../disco/stem/fd_stem.c"
 
-/* The agepoch tile lives in this command rather than the tile registry, so
-   the "tile" object callbacks are overridden to size it (see backtest /
-   votor-test for the same pattern). */
-
 static fd_topo_tile_t const *
-agepoch_tile_for_obj( fd_topo_t const *     topo,
-                      fd_topo_obj_t const * obj ) {
+tile_for_obj( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
     if( FD_LIKELY( tile->tile_obj_id==obj->id ) ) return tile;
@@ -303,10 +315,10 @@ agepoch_tile_for_obj( fd_topo_t const *     topo,
 }
 
 static ulong
-agepoch_tile_footprint( fd_topo_t const *     topo,
-                        fd_topo_obj_t const * obj ) {
-  fd_topo_tile_t const * tile = agepoch_tile_for_obj( topo, obj );
-  if( FD_UNLIKELY( !strcmp( tile->name, "epoch" ) ) ) return agepoch_scratch_footprint( tile );
+obj_footprint( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  fd_topo_tile_t const * tile = tile_for_obj( topo, obj );
+  if( FD_UNLIKELY( !strcmp( tile->name, "epoch" ) ) ) return scratch_footprint( tile );
 
   fd_topo_run_tile_t runner = fdctl_tile_run( tile );
   if( FD_LIKELY( runner.scratch_footprint ) ) return runner.scratch_footprint( tile );
@@ -314,10 +326,10 @@ agepoch_tile_footprint( fd_topo_t const *     topo,
 }
 
 static ulong
-agepoch_tile_align( fd_topo_t const *     topo,
-                    fd_topo_obj_t const * obj ) {
-  fd_topo_tile_t const * tile = agepoch_tile_for_obj( topo, obj );
-  if( FD_UNLIKELY( !strcmp( tile->name, "epoch" ) ) ) return agepoch_scratch_align();
+obj_align( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  fd_topo_tile_t const * tile = tile_for_obj( topo, obj );
+  if( FD_UNLIKELY( !strcmp( tile->name, "epoch" ) ) ) return scratch_align();
 
   fd_topo_run_tile_t runner = fdctl_tile_run( tile );
   if( FD_LIKELY( runner.scratch_align ) ) return runner.scratch_align();
@@ -325,9 +337,9 @@ agepoch_tile_align( fd_topo_t const *     topo,
 }
 
 static ulong
-agepoch_tile_loose( fd_topo_t const *     topo,
-                    fd_topo_obj_t const * obj ) {
-  fd_topo_tile_t const * tile = agepoch_tile_for_obj( topo, obj );
+obj_loose( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  fd_topo_tile_t const * tile = tile_for_obj( topo, obj );
   if( FD_UNLIKELY( !strcmp( tile->name, "epoch" ) ) ) return 0UL;
 
   fd_topo_run_tile_t runner = fdctl_tile_run( tile );
@@ -335,22 +347,22 @@ agepoch_tile_loose( fd_topo_t const *     topo,
   return 0UL;
 }
 
-static fd_topo_obj_callbacks_t fd_obj_cb_agepoch_tile = {
+static fd_topo_obj_callbacks_t obj_cb_tile = {
   .name      = "tile",
-  .footprint = agepoch_tile_footprint,
-  .align     = agepoch_tile_align,
-  .loose     = agepoch_tile_loose,
+  .footprint = obj_footprint,
+  .align     = obj_align,
+  .loose     = obj_loose,
   .new       = NULL,
 };
 
 static void
-agepoch_callbacks( fd_topo_obj_callbacks_t ** callbacks,
+install_callbacks( fd_topo_obj_callbacks_t ** callbacks,
                    ulong                      callbacks_cnt ) {
   ulong i;
   for( i=0UL; CALLBACKS[ i ]; i++ ) {
     if( FD_UNLIKELY( i+1UL>=callbacks_cnt ) ) FD_LOG_ERR(( "too many topology callbacks" ));
     callbacks[ i ] = CALLBACKS[ i ];
-    if( FD_UNLIKELY( !strcmp( CALLBACKS[ i ]->name, "tile" ) ) ) callbacks[ i ] = &fd_obj_cb_agepoch_tile;
+    if( FD_UNLIKELY( !strcmp( CALLBACKS[ i ]->name, "tile" ) ) ) callbacks[ i ] = &obj_cb_tile;
   }
   callbacks[ i ] = NULL;
 }
@@ -365,6 +377,12 @@ votor_topo( config_t * config ) {
   fd_cstr_ncpy( config->net.provider, "socket", sizeof(config->net.provider) );
   config->development.sandbox  = 0;
   config->development.no_clone = 1;
+
+  /* One net tile only.  The sock tile assigns its receive sockets to
+     absolute file descriptors starting at RX_SOCK_FD_MIN with no kind_id
+     offset, so a second sock tile in this single-process topology races to
+     dup3 onto the same fds ("file descriptor N already exists"). */
+  config->layout.net_tile_count = 1U;
 
   /* Only gossip and alpenglow listen; everything else is off. */
   config->tiles.shred.shred_listen_port             = 0U;
@@ -402,7 +420,7 @@ votor_topo( config_t * config ) {
     topo->tiles[ net_id ].net.alpenglow_client_listen_port = client_port;
   }
 
-  /* agepoch: stands in for replay's epoch / tip publications. */
+  /* epoch: stands in for replay's epoch / tip publications. */
   fd_topob_wksp( topo, "epoch"      );
   fd_topob_wksp( topo, "replay_epoch" );
   fd_topob_wksp( topo, "replay_out"   );
@@ -411,8 +429,8 @@ votor_topo( config_t * config ) {
 
   /* is_agave=1 so fd_topo_run_single_process( .., 0, .. ) skips it: the
      epoch tile is command-local and is not in the fdctl tile registry, so
-     main runs it itself (votor_run_agepoch). */
-  fd_topob_tile   ( topo, "epoch", "epoch", "metric_in", tile_to_cpu[ topo->tile_cnt ], 1, 0, 0 );
+     main runs it itself (votor_run_epoch). */
+  fd_topob_tile   ( topo, "epoch", "epoch", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   fd_topob_tile_out( topo, "epoch", 0UL, "replay_epoch", 0UL );
   fd_topob_tile_out( topo, "epoch", 0UL, "replay_out",   0UL );
 
@@ -431,6 +449,7 @@ votor_topo( config_t * config ) {
     fd_topos_net_rx_link( topo, "net_alpenglow", i, config->net.ingress_buffer_size );
 
   fd_topo_tile_t * votor = fd_topob_tile( topo, "votor", "votor", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
+  votor->quic.alpenglow_publish_rx = 1; /* dev: let the viewer see peer votes/certs */
   votor->tower.max_live_slots = 1024UL;
   fd_cstr_ncpy( votor->tower.identity_key, config->paths.identity_key, sizeof(votor->tower.identity_key) );
   votor->quic.max_concurrent_connections = config->tiles.quic.max_concurrent_connections;
@@ -464,13 +483,30 @@ votor_topo( config_t * config ) {
   for( ulong i=0UL; i<config->layout.net_tile_count; i++ ) fd_topos_net_tile_finish( topo, i );
 
   fd_topo_obj_callbacks_t * callbacks[ 64 ];
-  agepoch_callbacks( callbacks, sizeof(callbacks)/sizeof(callbacks[ 0 ]) );
+  install_callbacks( callbacks, sizeof(callbacks)/sizeof(callbacks[ 0 ]) );
   fd_topob_auto_layout( topo, 0 );
   fd_topob_finish( topo, callbacks );
 }
 
-static void
-votor_run_agepoch( fd_topo_t * topo ) {
+static fd_topo_run_tile_t epoch_run_tile = {
+  .name              = "epoch",
+  .scratch_align     = scratch_align,
+  .scratch_footprint = scratch_footprint,
+  .unprivileged_init = unprivileged_init,
+  .run               = stem_run,
+};
+
+/* votor_tile_run resolves the local epoch tile; everything else is a
+   normal firedancer tile. */
+
+static fd_topo_run_tile_t
+votor_tile_run( fd_topo_tile_t const * tile ) {
+  if( FD_UNLIKELY( !strcmp( tile->name, "epoch" ) ) ) return epoch_run_tile;
+  return fdctl_tile_run( tile );
+}
+
+static void FD_FN_UNUSED
+votor_run_epoch( fd_topo_t * topo ) {
   ulong tile_id = fd_topo_find_tile( topo, "epoch", 0UL );
   FD_TEST( tile_id!=ULONG_MAX );
 
@@ -481,9 +517,9 @@ votor_run_agepoch( fd_topo_t * topo ) {
   fd_metrics_register( tile->metrics );
   fd_event_register( topo, tile );
 
-  agepoch_unprivileged_init( topo, tile );
+  unprivileged_init( topo, tile );
   stem_run( topo, tile );
-  FD_LOG_ERR(( "agepoch stem_run returned" ));
+  FD_LOG_ERR(( "epoch stem_run returned" ));
 }
 
 static void
@@ -491,8 +527,10 @@ votor_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args FD_PARAM_UNUSED ) {
   char const * file = fd_env_strip_cmdline_cstr( pargc, pargv, "--epoch-file", NULL, "epoch.bin" );
-  fd_cstr_ncpy( agepoch_file, file, sizeof(agepoch_file) );
-  agepoch_slot_period_ns = fd_env_strip_cmdline_ulong( pargc, pargv, "--slot-period-ns", NULL, 216000000UL );
+  fd_cstr_ncpy( epoch_file, file, sizeof(epoch_file) );
+  slot_period_ns = fd_env_strip_cmdline_ulong( pargc, pargv, "--slot-period-ns", NULL, 216000000UL );
+
+  votor_monitor_args( pargc, pargv );
 }
 
 static void
@@ -520,9 +558,12 @@ votor_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   FD_LOG_NOTICE(( "votor ingest topology: alpenglow port %u, epoch file %s",
-                  (uint)config->tiles.alpenglow.listen_port, agepoch_file ));
-  fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
-  votor_run_agepoch( &config->topo );
+                  (uint)config->tiles.alpenglow.listen_port, epoch_file ));
+
+  /* Every tile, including the local epoch tile, runs under the topology
+     runner; this thread draws the live view off votor_out. */
+  fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, votor_tile_run );
+  votor_monitor_run( config );
 }
 
 static void
@@ -540,3 +581,4 @@ action_t fd_action_votor = {
   .usage       = "votor [--epoch-file <path>] [--slot-period-ns <ns>]",
   .args_help   = votor_args_help
 };
+

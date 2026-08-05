@@ -85,6 +85,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   gossip.host                                         );
 
   CFG_POP      ( bool,   layout.enable_block_production                      );
+  CFG_POP      ( bool,   layout.enable_alpenglow                             );
   CFG_POP      ( uint,   layout.execrp_tile_count                            );
   CFG_POP      ( uint,   layout.sign_tile_count                              );
   CFG_POP      ( uint,   layout.resolv_tile_count                            );
@@ -130,6 +131,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   development.forktest.affinity                       );
 
   CFG_POP      ( cstr,   development.votor.ssl_key_log_file                  );
+  CFG_POP      ( bool,   development.votor.monitor                           );
 
   return config;
 }
@@ -156,7 +158,6 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.genesis                                    );
     CFG_POP    ( cstr,   paths.accounts                                   );
     CFG_POP    ( cstr,   paths.shredb                                     );
-    CFG_POP    ( bool,   consensus.alpenglow                              );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1   ( cstr,   ledger.path,                 frankendancer.paths.ledger );

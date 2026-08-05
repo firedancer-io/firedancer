@@ -3,7 +3,7 @@
 #define TEST_SHRED_VERSION ((ushort)514)
 #include <stdlib.h>
 
-#define SPW AG_ALPENGLOW_SLOTS_PER_WINDOW
+#define SPW AG_SLOTS_PER_WINDOW
 
 #define MAXV 4UL
 static ag_aggsig_sk_t      g_sk  [ MAXV ];
@@ -292,7 +292,7 @@ test_prunes_to_finalized_window( fd_wksp_t * wksp ) {
   void * mem; ag_votor_t * v = make_votor( wksp, 0UL, &out, &mem );
 
   ulong finalized    = SPW + 1UL;
-  ulong window_start = ag_alpenglow_first_slot_in_window( finalized );
+  ulong window_start = ag_slot_first_slot_in_window( finalized );
   FD_TEST( window_start > 0UL );
   FD_TEST( window_start < finalized );
 
@@ -315,7 +315,7 @@ test_prunes_to_finalized_window( fd_wksp_t * wksp ) {
 
   FD_TEST( ag_votor_highest_final_cert_slot( v )==finalized );
 
-  for( ulong s=window_start; s<=ag_alpenglow_last_slot_in_window( window_start ); s++ ) {
+  for( ulong s=window_start; s<=ag_slot_last_slot_in_window( window_start ); s++ ) {
     FD_TEST( ag_votor_slot_state( v, s ) != NULL );
   }
 

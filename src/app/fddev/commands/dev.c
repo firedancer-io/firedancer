@@ -24,7 +24,7 @@ spawn_agave( config_t const * config ) {
 void
 fddev_dev_cmd_fn( args_t *   args,
                            config_t * config ) {
-  dev_cmd_fn( args, config, spawn_agave );
+  dev_cmd_fn( args, config, spawn_agave, NULL );
 }
 
 action_t fd_action_dev = {

@@ -74,7 +74,7 @@ ag_epoch_info_voting_pubkeys( ag_epoch_info_t const * ei ) {
 FD_FN_PURE static inline ag_validator_info_t const *
 ag_epoch_info_leader( ag_epoch_info_t const * ei,
                       ulong                   slot ) {
-  ulong window    = slot / AG_ALPENGLOW_SLOTS_PER_WINDOW;
+  ulong window    = slot / AG_SLOTS_PER_WINDOW;
   ulong leader_id = window % ei->validator_cnt;
   return ag_epoch_info_validator( ei, leader_id );
 }
@@ -82,25 +82,29 @@ ag_epoch_info_leader( ag_epoch_info_t const * ei,
 FD_FN_PURE static inline ulong
 ag_epoch_info_total_stake( ag_epoch_info_t const * ei ) { return ei->total_stake; }
 
+/* EpochInfo::is_*_quorum -- THRESHOLD.is_met( stake, self.total_stake() )
+   with the thresholds from consensus.rs (AG_ALPENGLOW_*_QUORUM_NUMER).
+   20% / 40% / 60% / 80%. */
+
 FD_FN_PURE static inline int
 ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * ei,
                                  ulong                   stake ) {
-  return ag_alpenglow_is_weakest_quorum( stake, ei->total_stake );
+  return ag_alpenglow_fraction_is_met( stake, ei->total_stake, AG_ALPENGLOW_WEAKEST_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
 }
 FD_FN_PURE static inline int
 ag_epoch_info_is_weak_quorum( ag_epoch_info_t const * ei,
                               ulong                   stake ) {
-  return ag_alpenglow_is_weak_quorum   ( stake, ei->total_stake );
+  return ag_alpenglow_fraction_is_met( stake, ei->total_stake, AG_ALPENGLOW_WEAK_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
 }
 FD_FN_PURE static inline int
 ag_epoch_info_is_quorum( ag_epoch_info_t const * ei,
                          ulong                   stake ) {
-  return ag_alpenglow_is_quorum        ( stake, ei->total_stake );
+  return ag_alpenglow_fraction_is_met( stake, ei->total_stake, AG_ALPENGLOW_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
 }
 FD_FN_PURE static inline int
 ag_epoch_info_is_strong_quorum( ag_epoch_info_t const * ei,
                                 ulong                   stake ) {
-  return ag_alpenglow_is_strong_quorum ( stake, ei->total_stake );
+  return ag_alpenglow_fraction_is_met( stake, ei->total_stake, AG_ALPENGLOW_STRONG_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
 }
 
 FD_PROTOTYPES_END

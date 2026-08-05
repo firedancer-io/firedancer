@@ -192,6 +192,7 @@ extern action_t fd_action_reasm;
 extern action_t fd_action_tower;
 extern action_t fd_action_votor_test;
 extern action_t fd_action_votor;
+extern action_t fd_action_votor_monitor;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_ipecho_server;
 extern action_t fd_action_send_test;
@@ -236,6 +237,7 @@ action_t * ACTIONS[] = {
   &fd_action_tower,
   &fd_action_votor_test,
   &fd_action_votor,
+  &fd_action_votor_monitor,
   &fd_action_shred_version,
   &fd_action_ipecho_server,
   &fd_action_send_test,

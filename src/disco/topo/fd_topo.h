@@ -276,6 +276,11 @@ struct fd_topo_tile {
       uint   alpenglow_ip_addr;            /* votor tile: our IPv4 (network order), src for the broadcast client */
       ushort alpenglow_listen_port;        /* votor tile: alpenglow server UDP port                           */
       ushort alpenglow_client_listen_port; /* votor tile: alpenglow outbound client UDP source port            */
+      /* votor tile, dev only: also publish the votes/certs RECEIVED from
+         peers on votor_out, so `firedancer-dev votor` can draw live
+         consensus.  Off in production -- votor_out's consumers are
+         reliable, so the extra frags would backpressure consensus. */
+      int    alpenglow_publish_rx;
     } quic;
 
     struct {

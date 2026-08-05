@@ -1,6 +1,6 @@
 /* test_votor_tile drives the Votor tile's consensus core (ag_votor +
    ag_pool) the same way the alpenglow consensus tests do, but THROUGH the
-   tile's drive functions (handle_replay_message / ag_pool_add_vote + the
+   tile's drive functions (handle_slot / ag_pool_add_vote + the
    after_credit-style pool event drain) rather than against the core
    directly.
 
@@ -23,7 +23,7 @@ static ushort         own_rank;
 /* install_epoch builds a real fd_epoch_info_msg_t for epoch 0 (TEST_NV
    unit-stake voters; source 0 carries our identity and voting key) and
    feeds it through the production update_epoch_vtrs.  The pool / votor are
-   rebuilt lazily by handle_replay_message on the first slot completion,
+   rebuilt lazily by handle_slot on the first slot completion,
    as in production. */
 
 static void
@@ -131,7 +131,9 @@ complete_slot( fd_votor_tile_t * ctx,
   sc.block_id        = block_id;
   sc.parent_block_id = parent_block_id;
   sc.bank_idx        = slot; /* arbitrary */
-  handle_replay_message( ctx, REPLAY_SIG_SLOT_COMPLETED, &sc, 0UL, NULL );
+  ag_block_id_t blk = { .slot = sc.slot,        .hash = sc.block_id        };
+  ag_block_id_t par = { .slot = sc.parent_slot, .hash = sc.parent_block_id };
+  handle_slot( ctx, &blk, &par, sc.bank_idx, 0 /* dead */ );
 }
 
 /* drain the pool's votor event channel through the votor, exactly like
@@ -181,7 +183,7 @@ test_vote_emitted( fd_wksp_t * wksp ) {
 
   FD_TEST( ctx->init==1 );
   FD_TEST( count_pubs( ctx, FD_VOTOR_SIG_VOTE      )>=1UL ); /* a notar vote was cast */
-  FD_TEST( count_pubs( ctx, FD_VOTOR_SIG_SLOT_DONE )==1UL ); /* exactly one slot_done */
+  FD_TEST( count_pubs( ctx, FD_VOTOR_SIG_SLOT )==1UL ); /* exactly one slot_done */
 
   /* the slot_done frag should echo back the bank_idx and reset onto slot 1. */
   int found_done = 0;
@@ -189,7 +191,7 @@ test_vote_emitted( fd_wksp_t * wksp ) {
        !publishes_iter_done( ctx->publishes, it );
        it = publishes_iter_next( ctx->publishes, it ) ) {
     publish_t const * p = publishes_iter_ele_const( ctx->publishes, it );
-    if( p->sig==FD_VOTOR_SIG_SLOT_DONE ) {
+    if( p->sig==FD_VOTOR_SIG_SLOT ) {
       FD_TEST( p->msg.slot_done.replay_slot==1UL );
       FD_TEST( p->msg.slot_done.replay_bank_idx==1UL );
       FD_TEST( p->msg.slot_done.reset_slot==1UL );
@@ -281,11 +283,12 @@ test_dead_slot( fd_wksp_t * wksp ) {
   memset( dead, 0, sizeof(dead) );
   dead->slot     = 2UL;
   dead->block_id = mk_hash( 0xC4 );
-  handle_replay_message( ctx, REPLAY_SIG_SLOT_DEAD, dead, 0UL, NULL );
+  ag_block_id_t dead_blk = { .slot = dead->slot, .hash = dead->block_id };
+  handle_slot( ctx, &dead_blk, NULL, ULONG_MAX, 1 /* dead */ );
 
   /* dead slots before the root are ignored. */
-  dead->slot = 0UL;
-  handle_replay_message( ctx, REPLAY_SIG_SLOT_DEAD, dead, 0UL, NULL );
+  dead_blk.slot = 0UL;
+  handle_slot( ctx, &dead_blk, NULL, ULONG_MAX, 1 /* dead */ );
 
   FD_LOG_NOTICE(( "pass: test_dead_slot" ));
 }

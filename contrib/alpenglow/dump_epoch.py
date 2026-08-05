@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Dump the Alpenglow epoch validator set for `firedancer-dev votor`.
 
-Writes the binary consumed by the agepoch tile in
+Writes the binary consumed by epoch_tile in
 src/app/firedancer-dev/commands/votor.c:
 
-    header (81B, packed LE)
-        u64 magic = 0x4147455001
+    header (73B, packed LE)
         u64 epoch
         u64 start_slot
         u64 slot_cnt
@@ -38,7 +37,6 @@ import struct
 import sys
 import urllib.request
 
-MAGIC = 0x4147455001
 
 # VoteStateV4 field offsets: u32 version, node_pubkey, authorized_withdrawer,
 # inflation_rewards_collector, block_revenue_collector, u16 commission,
@@ -143,8 +141,7 @@ def main():
         sys.exit("no admitted voters -- nothing to dump")
 
     hdr = struct.pack(
-        "<QQQQQQQQBQQ",
-        MAGIC,
+        "<QQQQQQQBQQ",
         epoch,
         start_slot,
         info["slotsInEpoch"],
@@ -156,7 +153,7 @@ def main():
         sched["firstNormalEpoch"],
         sched["firstNormalSlot"],
     )
-    assert len(hdr) == 81, len(hdr)
+    assert len(hdr) == 73, len(hdr)
 
     with open(args.out, "wb") as f:
         f.write(hdr)

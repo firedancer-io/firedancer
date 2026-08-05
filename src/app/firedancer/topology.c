@@ -406,7 +406,7 @@ fd_topo_initialize( config_t * config ) {
   int telemetry_enabled = config->telemetry && strcmp( config->tiles.event.url, "" );
   int leader_enabled    = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled    = config->tiles.rserve.enabled;
-  int alpenglow         = config->consensus.alpenglow;
+  int alpenglow_enabled = !!config->firedancer.layout.enable_alpenglow;
 
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
 
@@ -435,7 +435,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "txsend_sign"   );
   fd_topob_wksp( topo, "sign_txsend"   );
 
-  if( alpenglow ) {
+  if( alpenglow_enabled ) {
     /* Votor tile (Alpenglow consensus + folded-in QUIC ingress). */
     fd_topob_wksp( topo, "votor"         );
     fd_topob_wksp( topo, "votor_out"     );
@@ -623,7 +623,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU,                    1UL ); /* TODO: Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
-  if( alpenglow ) {
+  if( alpenglow_enabled ) {
     /* votor_net carries QUIC TX frames (handshake/ack) back to the net tile.
        votor_out has no consumer yet (bring-up: votor only logs the kind). */
     fd_topob_link( topo, "votor_net",     "net_votor",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
@@ -667,10 +667,10 @@ fd_topo_initialize( config_t * config ) {
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_gossvf", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
-  if( rserve_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve", i, config->net.ingress_buffer_size );
-  /**/                 FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_txsend", i, config->net.ingress_buffer_size );
-  if(  alpenglow )     FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_alpenglow", i, config->net.ingress_buffer_size );
-  if( leader_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
+  if( rserve_enabled )    FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve",    i, config->net.ingress_buffer_size );
+  /**/                    FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_txsend",    i, config->net.ingress_buffer_size );
+  if( alpenglow_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_alpenglow", i, config->net.ingress_buffer_size );
+  if( leader_enabled )    FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",      i, config->net.ingress_buffer_size );
 
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch */
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
@@ -946,7 +946,7 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
-  if( alpenglow ) {
+  if( alpenglow_enabled ) {
     /* Votor (Alpenglow consensus + folded-in QUIC ingress).  It consumes raw
        frames on the alpenglow port (running the QUIC server in its frag
        callbacks) plus the same consensus inputs as tower (unreliable for this
@@ -1102,11 +1102,11 @@ fd_topo_initialize( config_t * config ) {
   }
 
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.larger_max_cost_per_block );
-  /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  if( !alpenglow )     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
-  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  /**/                     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( !alpenglow_enabled ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  FOR(execrp_tile_cnt)     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(execle_tile_cnt)     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(resolv_tile_cnt)     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<32UL ) ) FD_LOG_ERR(( "max_live_slots must be >= 32 in order to support tower rooting" ));
@@ -1134,7 +1134,7 @@ fd_topo_initialize( config_t * config ) {
     FOR(shred_tile_cnt)    fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    if(!alpenglow)        {fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );}
+    if(!alpenglow_enabled){fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );}
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1234,7 +1234,7 @@ fd_topo_initialize( config_t * config ) {
       accdb_joiners );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  if( !alpenglow ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( !alpenglow_enabled ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_UNLIKELY( !snapshots_enabled ) ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "genesi", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
@@ -1314,8 +1314,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->net.repair_client_listen_port        = config->tiles.repair.repair_client_listen_port;
     tile->net.repair_serve_listen_port         = config->tiles.rserve.repair_serve_listen_port;
     tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
-    tile->net.alpenglow_listen_port            = config->consensus.alpenglow ? config->tiles.alpenglow.listen_port : 0;
-    tile->net.alpenglow_client_listen_port     = config->consensus.alpenglow ? config->tiles.alpenglow.client_port : 0;
+    tile->net.alpenglow_listen_port            = config->firedancer.layout.enable_alpenglow ? config->tiles.alpenglow.listen_port : 0;
+    tile->net.alpenglow_client_listen_port     = config->firedancer.layout.enable_alpenglow ? config->tiles.alpenglow.client_port : 0;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
@@ -1473,7 +1473,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->repair.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->repair.slot_max                  = config->tiles.repair.slot_max;
     tile->repair.repair_sign_cnt           = config->firedancer.layout.sign_tile_count - 1; /* -1 because this excludes the keyguard client */
-    tile->repair.is_alpenglow              = config->consensus.alpenglow;
+    tile->repair.is_alpenglow              = config->firedancer.layout.enable_alpenglow;
     for( ulong i=0; i<tile->in_cnt; i++ ) {
       if( !strcmp( config->topo.links[ tile->in_link_id[ i ] ].name, "sign_repair" ) ) {
         tile->repair.repair_sign_depth = config->topo.links[ tile->in_link_id[ i ] ].depth;
@@ -1590,6 +1590,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->quic.alpenglow_ip_addr              = config->net.ip_addr;
     tile->quic.alpenglow_listen_port          = config->tiles.alpenglow.listen_port;
     tile->quic.alpenglow_client_listen_port   = config->tiles.alpenglow.client_port;
+    tile->quic.alpenglow_publish_rx           = config->firedancer.development.votor.monitor;
     fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->quic.key_log_path ), config->firedancer.development.votor.ssl_key_log_file, sizeof(tile->quic.key_log_path) ) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {

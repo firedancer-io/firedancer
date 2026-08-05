@@ -39,6 +39,17 @@ test_quorums( void ) {
   FD_TEST( !ag_epoch_info_is_strong_quorum( e11, 7UL ) );
   FD_TEST(  ag_epoch_info_is_strong_quorum( e11, 9UL ) );
   free( m11 );
+
+  void * m5; ag_epoch_info_t * e5 = make_epoch( 5UL, &m5 );
+  FD_TEST( !ag_epoch_info_is_weakest_quorum( e5, 0UL ) );
+  FD_TEST(  ag_epoch_info_is_weakest_quorum( e5, 1UL ) );
+  free( m5 );
+
+  void * m100; ag_epoch_info_t * e100 = make_epoch( 100UL, &m100 );
+  FD_TEST(  ag_epoch_info_is_quorum       ( e100, 60UL ) );
+  FD_TEST(  ag_epoch_info_is_strong_quorum( e100, 80UL ) );
+  FD_TEST( !ag_epoch_info_is_strong_quorum( e100, 79UL ) );
+  free( m100 );
 }
 
 static void

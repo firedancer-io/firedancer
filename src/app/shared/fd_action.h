@@ -52,6 +52,7 @@ union fdctl_args {
   struct {
     int  parent_pipefd;
     int  no_watch;
+    int  votor_monitor;
     int  no_configure;
     int  no_init_workspaces;
     int  no_agave;

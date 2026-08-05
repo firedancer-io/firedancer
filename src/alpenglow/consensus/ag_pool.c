@@ -280,7 +280,7 @@ send_parent_ready_events( ag_pool_t *               self,
                           ag_parent_ready_t const * parents,
                           ulong                     parents_cnt ) {
   for( ulong i=0UL; i<parents_cnt; i++ ) {
-    FD_TEST( ag_alpenglow_is_start_of_window( parents[i].slot ) );
+    FD_TEST( ag_slot_is_start_of_window( parents[i].slot ) );
     ag_pool_event_t event = { .kind = AG_POOL_EVENT_PARENT_READY };
     event.inner.parent_ready.slot   = parents[i].slot;
     event.inner.parent_ready.parent = parents[i].parent;
@@ -418,7 +418,7 @@ ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert ) {
   ulong slot = ag_cert_slot( cert );
 
-  ulong slot_far_in_future = ag_pool_finalized_slot( self ) + 2UL*AG_ALPENGLOW_SLOTS_PER_EPOCH;
+  ulong slot_far_in_future = ag_pool_finalized_slot( self ) + 2UL*AG_SLOTS_PER_EPOCH;
   if( FD_UNLIKELY( slot < ag_pool_first_unpruned_slot( self ) || slot >= slot_far_in_future ) ) return AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS;
 
   if( FD_UNLIKELY( !ag_cert_check_threshold( cert, self->epoch_info ) ) ) return AG_ADD_CERT_ERR_THRESHOLD_NOT_MET;
@@ -457,7 +457,7 @@ ag_pool_add_vote( ag_pool_t *       self,
 
   ulong slot = ag_vote_slot( vote );
 
-  ulong slot_far_in_future = ag_pool_finalized_slot( self ) + 2UL*AG_ALPENGLOW_SLOTS_PER_EPOCH;
+  ulong slot_far_in_future = ag_pool_finalized_slot( self ) + 2UL*AG_SLOTS_PER_EPOCH;
   if( slot < ag_pool_first_unpruned_slot( self ) || slot >= slot_far_in_future ) {
     return AG_ADD_VOTE_ERR_SLOT_OUT_OF_BOUNDS;
   }

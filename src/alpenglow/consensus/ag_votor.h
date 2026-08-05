@@ -14,6 +14,25 @@
 #define AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED   (-2) /* unknown version / Genesis kinds */
 #define AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION (-3)
 
+/* ag_consensus_message_t is agave's ConsensusMessage -- the tagged union
+   of everything validators send each other over All2All:
+
+     pub enum ConsensusMessage {
+       Vote(VoteMessage),
+       Certificate(Certificate),
+     }
+
+   https://github.com/anza-xyz/alpenglow/blob/9f284c913f/votor-messages/src/consensus_message.rs#L68
+
+   Note the Vote arm: agave's VoteMessage is { vote: Vote, signature,
+   rank }, i.e. the vote proper plus the signature over it and the
+   signer's epoch rank.  The C ag_vote_t carries all three inline (each
+   ag_*_vote_t ends with sig + signer), so ag_vote_t corresponds to
+   VoteMessage, NOT to agave's bare Vote enum.
+
+   The wire form is VersionedWireConsensusMessage (wire.rs); see
+   ag_consensus_message_de below. */
+
 struct ag_consensus_message {
   uint kind;
   union {

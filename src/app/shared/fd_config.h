@@ -59,7 +59,6 @@ struct fd_configh {
     ulong  known_validators_cnt;
     char   known_validators[ 16 ][ 256 ];
     int    os_network_limits_test;
-    int    alpenglow;
   } consensus;
 
   struct {
@@ -107,6 +106,7 @@ struct fd_configf {
 
   struct {
     int  enable_block_production;
+    int  enable_alpenglow;
     uint sign_tile_count;
     uint gossvf_tile_count;
     uint resolv_tile_count;
@@ -181,6 +181,12 @@ struct fd_configf {
 
     struct {
       char ssl_key_log_file[ PATH_MAX ];
+      /* Have the votor tile publish the votes and certs it RECEIVES on
+         votor_out, so the consensus monitor has peer traffic to draw.
+         Off by default: votor_out's consumers are reliable, so the extra
+         frags are work they would not otherwise do.  Set by
+         `firedancer-dev dev --votor-monitor`. */
+      int  monitor;
     } votor;
   } development;
 
@@ -287,7 +293,6 @@ struct fd_config {
     char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
 
     int wait_for_vote_to_start_leader;
-    int alpenglow;
   } consensus;
 
   struct {

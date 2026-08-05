@@ -1,8 +1,8 @@
 #include "ag_pool.h"
 #include "ag_cert.h"
 
-#define SLOTS_PER_WINDOW AG_ALPENGLOW_SLOTS_PER_WINDOW
-#define SLOTS_PER_EPOCH  AG_ALPENGLOW_SLOTS_PER_EPOCH
+#define SLOTS_PER_WINDOW AG_SLOTS_PER_WINDOW
+#define SLOTS_PER_EPOCH  AG_SLOTS_PER_EPOCH
 #define NV               (11UL)
 
 /* Votes bind the cluster shred version; any fixed value works as long as

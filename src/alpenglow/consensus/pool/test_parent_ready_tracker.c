@@ -1,6 +1,6 @@
 #include "ag_parent_ready_tracker.c"
 
-#define SLOTS_PER_WINDOW AG_ALPENGLOW_SLOTS_PER_WINDOW
+#define SLOTS_PER_WINDOW AG_SLOTS_PER_WINDOW
 
 static ag_block_id_t
 random_block_id( ulong slot ) {
@@ -100,7 +100,7 @@ test_basic( fd_wksp_t * wksp ) {
   for( ulong s=1UL; s<=2UL*SLOTS_PER_WINDOW; s++ ) {
     ag_block_id_t block = random_block_id( s );
     ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out, &out_cnt );
-    if( s==ag_alpenglow_last_slot_in_window( s ) ) {
+    if( s==ag_slot_last_slot_in_window( s ) ) {
       FD_TEST( out_contains( out, out_cnt, s+1UL, &block ) );
     } else {
       FD_TEST( out_cnt==0UL );
@@ -120,7 +120,7 @@ test_genesis( fd_wksp_t * wksp ) {
 
   for( ulong slot=0UL; slot<SLOTS_PER_WINDOW; slot++ ) {
     ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
-    if( slot==ag_alpenglow_last_slot_in_window( slot ) ) {
+    if( slot==ag_slot_last_slot_in_window( slot ) ) {
       FD_TEST( out_contains( out, out_cnt, slot+1UL, &genesis ) );
     } else {
       FD_TEST( out_cnt==0UL );
@@ -145,7 +145,7 @@ test_skips( fd_wksp_t * wksp ) {
 
   for( ulong s=0UL; s<SLOTS_PER_WINDOW; s++ ) {
     ag_parent_ready_tracker_mark_skipped( tracker, s, out, &out_cnt );
-    if( s==ag_alpenglow_last_slot_in_window( s ) ) {
+    if( s==ag_slot_last_slot_in_window( s ) ) {
       FD_TEST( out_contains( out, out_cnt, s+1UL, &block   ) );
       FD_TEST( out_contains( out, out_cnt, s+1UL, &genesis ) );
     } else {

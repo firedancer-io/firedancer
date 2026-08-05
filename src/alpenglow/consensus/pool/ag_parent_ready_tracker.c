@@ -192,7 +192,7 @@ ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
 
   for( ulong s=slot+1UL; ; s++ ) {
     ag_parent_ready_state_t * fstate = ag_parent_ready_tracker_slot_state( self, s );
-    if( ag_alpenglow_is_start_of_window( s ) ) {
+    if( ag_slot_is_start_of_window( s ) ) {
       ag_parent_ready_state_add_to_ready( fstate, id );
       FD_TEST( *out_cnt < AG_PARENT_READY_OUT_MAX );
       out[ *out_cnt ].slot   = s;
@@ -219,7 +219,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
   ulong         potential_cnt = 0UL;
 
   ulong root            = self->root;
-  ulong first           = ag_alpenglow_first_slot_in_window( marked_slot );
+  ulong first           = ag_slot_first_slot_in_window( marked_slot );
 
   for( ulong s=marked_slot; ; s-- ) {
     if( s>=first && s<=marked_slot && s>=root ) {
@@ -251,7 +251,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
 
   for( ulong s=marked_slot+1UL; ; s++ ) {
     ag_parent_ready_state_t * fstate = ag_parent_ready_tracker_slot_state( self, s );
-    if( ag_alpenglow_is_start_of_window( s ) ) {
+    if( ag_slot_is_start_of_window( s ) ) {
       for( ulong i=0UL; i<potential_cnt; i++ ) {
         ag_parent_ready_state_add_to_ready( fstate, &potential_parents[i] );
         FD_TEST( *out_cnt < AG_PARENT_READY_OUT_MAX );
