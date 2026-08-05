@@ -131,7 +131,8 @@ struct fd_configf {
   } gossip;
 
   struct {
-    char wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+    ulong wait_for_supermajority_at_slot;
+    char  wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
   } consensus;
 
   struct {

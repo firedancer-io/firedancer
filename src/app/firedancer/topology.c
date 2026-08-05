@@ -1317,6 +1317,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapct" ) ) ) {
 
     fd_memcpy( tile->snapct.snapshots_path, config->paths.snapshots, PATH_MAX );
+    tile->snapct.wait_for_supermajority_at_slot = config->firedancer.consensus.wait_for_supermajority_at_slot;
     tile->snapct.entrypoints_cnt = fd_ulong_min( config->gossip.entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
     for( ulong i=0UL; i<tile->snapct.entrypoints_cnt; i++ ) {
       fd_cstr_ncpy( tile->snapct.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(tile->snapct.entrypoints[ i ]) );
@@ -1358,6 +1359,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
+    tile->snapin.wait_for_supermajority_at_slot = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    if( FD_LIKELY( !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) ) ) {
+      memset( tile->snapin.wait_for_supermajority_with_bank_hash.uc, 0, sizeof(fd_pubkey_t) );
+    } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, tile->snapin.wait_for_supermajority_with_bank_hash.uc ) ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] failed to parse" ));
+    }
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
@@ -1412,6 +1419,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, tile->replay.wait_for_supermajority_with_bank_hash.uc ) ) ) {
       FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] failed to parse" ));
     }
+    tile->replay.wait_for_supermajority_at_slot = config->firedancer.consensus.wait_for_supermajority_at_slot;
 
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
     tile->replay.full_snapshot_interval_slots        = config->firedancer.snapshots.full_snapshot_interval_slots;
