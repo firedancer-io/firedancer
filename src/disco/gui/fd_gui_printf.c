@@ -603,6 +603,14 @@ fd_gui_printf_vote_balance( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_vote_commission( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui->http, "summary", "vote_commission" );
+    if( FD_LIKELY( gui->summary.vote_commission!=USHORT_MAX ) ) jsonp_ulong( gui->http, "value", (ulong)gui->summary.vote_commission );
+    else                                                        jsonp_null ( gui->http, "value" );
+  jsonp_close_envelope( gui->http );
+}
+
+void
 fd_gui_printf_estimated_slot_duration_nanos( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "estimated_slot_duration_nanos" );
     jsonp_ulong( gui->http, "value", gui->summary.estimated_slot_duration_nanos );

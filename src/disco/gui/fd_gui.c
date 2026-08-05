@@ -194,6 +194,7 @@ fd_gui_new( void *                   shmem,
 
   gui->summary.identity_account_balance      = 0UL;
   gui->summary.vote_account_balance          = 0UL;
+  gui->summary.vote_commission               = USHORT_MAX;
   gui->summary.estimated_slot_duration_nanos = 0UL;
 
   gui->summary.vote_distance = 0UL;
@@ -418,6 +419,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_schedule_strategy,
     fd_gui_printf_identity_balance,
     fd_gui_printf_vote_balance,
+    fd_gui_printf_vote_commission,
     fd_gui_printf_estimated_slot_duration_nanos,
     fd_gui_printf_root_slot,
     fd_gui_printf_storage_slot,
@@ -2705,6 +2707,12 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
   if( FD_UNLIKELY( tower->vote_acct_bal!=ULONG_MAX && gui->summary.vote_account_balance!=tower->vote_acct_bal ) ) {
     gui->summary.vote_account_balance = tower->vote_acct_bal;
     fd_gui_printf_vote_balance( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
+  if( FD_UNLIKELY( gui->summary.vote_commission!=tower->vote_acct_com ) ) {
+    gui->summary.vote_commission = tower->vote_acct_com;
+    fd_gui_printf_vote_commission( gui );
     fd_http_server_ws_broadcast( gui->http );
   }
 
