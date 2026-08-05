@@ -522,7 +522,9 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 2UL, 0UL ) );
   FD_TEST( ctx->reasm );
 
-  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL ), 1UL );
+  /* Use FD_STORE_ALIGN (not fd_store_align()) so the base address
+     satisfies the internal 128-byte alignment of fd_store_fec_t. */
+  void * store_mem = fd_wksp_alloc_laddr( wksp, FD_STORE_ALIGN, fd_store_footprint( 2UL, 1UL ), 1UL );
   FD_TEST( store_mem );
   ctx->store = fd_store_join( fd_store_new( store_mem, 1UL, 2UL, 1UL ) );
   FD_TEST( ctx->store );
@@ -1721,18 +1723,18 @@ main( int     argc,
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_consensus_root_notification_handoff( wksp );
-  test_epoch_boundary_fork_width_evict( wksp );
-  test_banks_full_prune_leaf( wksp );
-  test_banks_evict_backfill( wksp );
-  test_backfill_partial_sched_capacity( wksp );
-  test_double_confirm_backfill( wksp );
-  test_partial_exec_evict( wksp );
-  test_eqvoc_mid_slot_evicted( wksp );
-  test_confirm( wksp );
-  test_eqvoc_last_fec( wksp );
-  test_eqvoc_first_fec( wksp );
-  test_stale_redeliver( wksp );
+  test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
+  test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
+  test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
+  test_banks_evict_backfill( wksp );                fd_wksp_reset( wksp, 42U );
+  test_backfill_partial_sched_capacity( wksp );     fd_wksp_reset( wksp, 42U );
+  test_double_confirm_backfill( wksp );             fd_wksp_reset( wksp, 42U );
+  test_partial_exec_evict( wksp );                  fd_wksp_reset( wksp, 42U );
+  test_eqvoc_mid_slot_evicted( wksp );              fd_wksp_reset( wksp, 42U );
+  test_confirm( wksp );                             fd_wksp_reset( wksp, 42U );
+  test_eqvoc_last_fec( wksp );                      fd_wksp_reset( wksp, 42U );
+  test_eqvoc_first_fec( wksp );                     fd_wksp_reset( wksp, 42U );
+  test_stale_redeliver( wksp );                     fd_wksp_reset( wksp, 42U );
   test_eqvoc_child_confirm( wksp );
 
   fd_halt();
