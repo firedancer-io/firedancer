@@ -2490,6 +2490,286 @@ be empty.
 
 :::
 
+#### Aggregate timeline queries
+
+The aggregate timeline queries provide compact, bucketed views of slot
+information over a query time range.
+
+All aggregate timeline queries accept the same parameters.
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound of the UNIX nanosecond timestamp window |
+| end_ns      | `string` | Inclusive upper bound of the UNIX nanosecond timestamp window |
+| granularity | `string` | Number of slots/epochs represented by each bucket |
+
+Supported slot granularities are:
+
+```text
+slot-1, slot-4, slot-16, slot-64, slot-256, slot-1024,
+slot-4096, slot-16384, slot-65536, slot-262144, epoch-1
+```
+
+`epoch-1` returns one bucket per actual epoch.  An epoch contains 432000
+slots on mainnet, but the frontend shouldn't make size/alignment
+assumptions here. For example, testnet epochs are misaligned due to
+warmup epochs. `epoch-1` permits a 300-day query duration.
+
+For `slot-N`, the bucket containing slot `s` begins at `floor(s/N)*N`.
+Bucket alignment does not change across epoch boundaries. The maximum
+query duration is `N * 60 seconds`. 
+
+`timeline.query_agg` defines the bucket intervals used for all aggregate
+queries.  A response includes every bucket whose known interval
+intersects the requested interval.  A bucket with a null timestamp bound
+is also included when at least one adjacent bucket intersects.  The
+first bucket's start timestamp may precede `start_ns`, and the last
+bucket's end timestamp may follow `end_ns`.
+
+Query responses include only rooted slots as of the time the request is
+received.  `end_slot` is the inclusive highest rooted slot represented
+by a response.  The last returned bucket can therefore be a partial
+bucket whose remaining slots have not rooted yet. Separate aggregate
+queries can observe different `end_slot` values if slots are rooted
+between requests. Responses with the same `end_slot` form a consistent
+snapshot and can be combined by matching bucket `slot_delta` values. If
+`end_slot` differs, clients should repair the final partial bucket using
+finer-grained channels such as `slot.query`. Clients should also use
+other channels if they want to render non-rooted slots.
+
+Responses use parallel arrays to minimize network bandwidth. Buckets are
+returned in increasing slot order, but timestamps across buckets don't
+have any ordering guarantees. Bucket identities and alignment are stable
+across `query_agg*` queries, so clients can retrieve timestamps using
+`timeline.query_agg` and combine them with other aggregate responses.
+
+#### `timeline.query_agg`
+| frequency | type       | example |
+|-----------|------------|---------|
+| *Request* | `AggQuery` | below   |
+
+Returns the timestamp interval for each bucket. This query defines the
+bucket timestamps used to select results for all
+aggregate timeline queries.  Its buckets can be reconciled with
+`query_agg_shreds`, `query_agg_compute`, and `query_agg_revenue` by
+matching `slot_delta` values.
+
+| Field             | Type                    | Description |
+|-------------------|-------------------------|-------------|
+| granularity       | `string`                | Requested granularity |
+| reference_slot    | `number\|null`          | First slot of the earliest returned bucket, or `null` when no buckets are returned |
+| end_slot          | `number\|null`          | Inclusive highest rooted slot represented by the response, or `null` when no buckets are returned |
+| reference_ts_us   | `number\|null`          | Smallest non-null timestamp represented by the response, in UNIX microseconds, or `null` when no timestamp is known |
+| slot_delta        | `number[]`              | `reference_slot + slot_delta[i]` is the first slot of bucket `i` |
+| start_ts_delta_us | `(number\|null)[]`      | When non-null, `reference_ts_us + start_ts_delta_us[i]` is the timestamp of the first shred received in bucket `i`, in UNIX microseconds |
+| end_ts_delta_us   | `(number\|null)[]`      | When non-null, `reference_ts_us + end_ts_delta_us[i]` is the timestamp of the last slot-complete event in bucket `i`, in UNIX microseconds |
+
+A bucket starts when its first shred is received, through either turbine
+or repair, and ends at its last slot-complete event. A bucket containing
+no received shreds has a null start timestamp, and a bucket containing
+only skipped slots has a null end timestamp. When aggregating any field,
+null slot-level values are ignored. The bucket value is null only if all
+represented slot-level values for that field are null.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg",
+    "id": 34,
+    "params": {
+        "start_ns": "1739657041000000000",
+        "end_ns": "1739657101000000000",
+        "granularity": "slot-4"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg",
+    "id": 34,
+    "value": {
+        "granularity": "slot-4",
+        "reference_slot": 289245044,
+        "end_slot": 289245050,
+        "reference_ts_us": 1739657040800000,
+        "slot_delta": [0, 4],
+        "start_ts_delta_us": [0, 1600000],
+        "end_ts_delta_us": [1600000, 3200000]
+    }
+}
+```
+
+:::
+
+#### `timeline.query_agg_shreds`
+| frequency | type             | example |
+|-----------|------------------|---------|
+| *Request* | `AggShredsQuery` | below   |
+
+Returns aggregate shred counts for each bucket.
+
+| Field          | Type           | Description |
+|----------------|----------------|-------------|
+| granularity    | `string`       | Requested granularity |
+| reference_slot | `number\|null` | First slot of the earliest returned bucket, or `null` when no buckets are returned |
+| end_slot       | `number\|null` | Inclusive highest rooted slot represented by the response, or `null` when no buckets are returned |
+| slot_delta     | `number[]`     | `reference_slot + slot_delta[i]` is the first slot of bucket `i` |
+| shreds         | `(number\|null)[]` | Total number of block shreds, including data and coding shreds, in bucket `i` |
+| turbine        | `(number\|null)[]` | Unique data and coding shreds first received through turbine in bucket `i` |
+| repair         | `(number\|null)[]` | Unique data and coding shreds first received through repair in bucket `i` |
+| reconstructed  | `(number\|null)[]` | Data shreds reconstructed locally rather than received through turbine or repair in bucket `i` |
+| published      | `(number\|null)[]` | Data and coding shreds published locally in bucket `i`; slots not produced by this validator contribute zero |
+
+Shreds are deduplicated by `(slot, shred index)`.  A shred observed
+through multiple sources is assigned to the source through which it was
+first successfully received.  `shreds` is generally larger than
+`turbine + repair + reconstructed`: `shreds` includes all block shreds,
+while only data shreds can be reconstructed.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_shreds",
+    "id": 33,
+    "params": {
+        "start_ns": "1739657041000000000",
+        "end_ns": "1739657101000000000",
+        "granularity": "slot-4"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_shreds",
+    "id": 33,
+    "value": {
+        "granularity": "slot-4",
+        "reference_slot": 289245044,
+        "end_slot": 289245050,
+        "slot_delta": [0, 4],
+        "shreds": [4821, 5010],
+        "turbine": [3200, 3300],
+        "repair": [800, 900],
+        "reconstructed": [300, 350],
+        "published": [0, 5010]
+    }
+}
+```
+
+:::
+
+#### `timeline.query_agg_compute`
+| frequency | type              | example |
+|-----------|-------------------|---------|
+| *Request* | `AggComputeQuery` | below   |
+
+Returns aggregate compute-unit consumption for each bucket.
+
+| Field             | Type                    | Description |
+|-------------------|-------------------------|-------------|
+| granularity       | `string`                | Requested granularity |
+| reference_slot    | `number\|null`          | First slot of the earliest returned bucket, or `null` when no buckets are returned |
+| end_slot          | `number\|null`          | Inclusive highest rooted slot represented by the response, or `null` when no buckets are returned |
+| slot_delta        | `number[]`              | `reference_slot + slot_delta[i]` is the first slot of bucket `i` |
+| compute_units     | `(number\|null)[]`      | Sum of known consensus-relevant compute units consumed in bucket `i`, or `null` when every represented value is unknown |
+| max_compute_units | `number\|null`          | Maximum known per-slot compute-unit limit for any epoch represented by the response, or `null` when every represented value is unknown |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_compute",
+    "id": 35,
+    "params": {
+        "start_ns": "1739657041000000000",
+        "end_ns": "1739657101000000000",
+        "granularity": "slot-4"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_compute",
+    "id": 35,
+    "value": {
+        "granularity": "slot-4",
+        "reference_slot": 289245044,
+        "end_slot": 289245050,
+        "slot_delta": [0, 4],
+        "compute_units": [141000000, 132000000],
+        "max_compute_units": 48000000
+    }
+}
+```
+
+:::
+
+#### `timeline.query_agg_revenue`
+| frequency | type              | example |
+|-----------|-------------------|---------|
+| *Request* | `AggRevenueQuery` | below   |
+
+Returns aggregate revenue from all observed rooted slots in each
+bucket, regardless of which validator produced them.
+
+| Field          | Type                    | Description |
+|----------------|-------------------------|-------------|
+| granularity    | `string`                | Requested granularity |
+| reference_slot | `number\|null`          | First slot of the earliest returned bucket, or `null` when no buckets are returned |
+| end_slot       | `number\|null`          | Inclusive highest rooted slot represented by the response, or `null` when no buckets are returned |
+| slot_delta     | `number[]`              | `reference_slot + slot_delta[i]` is the first slot of bucket `i` |
+| txn_fees       | `(string\|null)[]`      | Sum of known transaction fees after burning in bucket `i`, in lamports, or `null` when every represented value is unknown |
+| prio_fees      | `(string\|null)[]`      | Sum of known priority fees after burning in bucket `i`, in lamports, or `null` when every represented value is unknown |
+| tips           | `(string\|null)[]`      | Sum of known tips after block-builder commission in bucket `i`, in lamports, or `null` when every represented value is unknown |
+
+Revenue values remain decimal strings because an aggregate can exceed
+`Number.MAX_SAFE_INTEGER`.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_revenue",
+    "id": 36,
+    "params": {
+        "start_ns": "1739657041000000000",
+        "end_ns": "1739657101000000000",
+        "granularity": "slot-4"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_revenue",
+    "id": 36,
+    "value": {
+        "granularity": "slot-4",
+        "reference_slot": 289245044,
+        "end_slot": 289245050,
+        "slot_delta": [0, 4],
+        "txn_fees": ["1234000", "1350000"],
+        "prio_fees": ["821000", "915000"],
+        "tips": ["430000", "0"]
+    }
+}
+```
+
+:::
+
 ### slot
 Slots are opportunities for a leader to produce a block. A slot can be
 in one of five levels, and in typical operation a slot moves through
