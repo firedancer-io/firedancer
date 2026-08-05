@@ -27,10 +27,13 @@ fd_url_parse_cstr( fd_url_t *   const url,
 
   char const * const authority = scheme+scheme_len;
 
-  /* Find beginning of path */
+  /* Find end of authority */
   char const * authority_end;
   for( authority_end = authority;
-       authority_end < url_end && *authority_end!='/';
+       authority_end < url_end &&
+       *authority_end != '/'   &&
+       *authority_end != '?'   &&
+       *authority_end != '#';
        authority_end++ ) {
     if( FD_UNLIKELY( *authority_end=='@' ) ) {
       *opt_err = FD_URL_ERR_USERINFO;
@@ -105,22 +108,24 @@ fd_url_parse_endpoint( fd_url_t *   url_,
   *is_ssl = ( url->scheme_len==8UL );
 
   *tcp_port = *is_ssl ? 443 : 80;
-  if( url->port_len ) {
-    if( FD_UNLIKELY( url->port_len > 5 ) ) {
-    invalid_port:
-      FD_LOG_WARNING(( "Invalid %s `%.*s`: invalid port number", ctx, (int)url_str_len, url_str ));
-      return -1;
-    }
+  if( FD_LIKELY( !url->port ) ) return 0;
+  if( FD_UNLIKELY( !url->port_len || url->port_len>5UL ) ) goto invalid_port;
 
-    char port_cstr[6];
-    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( port_cstr ), url->port, url->port_len ) );
-    ulong port_no = fd_cstr_to_ulong( port_cstr );
-    if( FD_UNLIKELY( !port_no || port_no>USHORT_MAX ) ) goto invalid_port;
-
-    *tcp_port = (ushort)port_no;
+  ulong port_no = 0UL;
+  for( ulong i=0UL; i<url->port_len; i++ ) {
+    uchar c = (uchar)url->port[ i ];
+    if( FD_UNLIKELY( c<(uchar)'0' || c>(uchar)'9' ) ) goto invalid_port;
+    port_no = 10UL*port_no + (ulong)(c-(uchar)'0');
   }
+  if( FD_UNLIKELY( !port_no || port_no>USHORT_MAX ) ) goto invalid_port;
+
+  *tcp_port = (ushort)port_no;
 
   return 0;
+
+invalid_port:
+  FD_LOG_WARNING(( "Invalid %s `%.*s`: invalid port number", ctx, (int)url_str_len, url_str ));
+  return -1;
 }
 
 
