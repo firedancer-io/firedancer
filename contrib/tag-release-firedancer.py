@@ -4,6 +4,16 @@ from geoip_db import update_dbip, read_version_mk, write_version_mk
 
 VERSION_MK = 'src/app/firedancer/version.mk'
 
+def format_version(version_major: int, version_minor: int, version_patch: int) -> str:
+    if version_major >= 26:
+        return f'{version_major}.{version_minor:02d}.{version_patch}'
+    return f'{version_major}.{version_minor}.{version_patch}'
+
+def format_release_branch(version_major: int, version_minor: int) -> str:
+    if version_major >= 26:
+        return f'v{version_major}.{version_minor:02d}'
+    return f'v{version_major}.{version_minor}'
+
 def main():
     update_dbip()
 
@@ -12,8 +22,9 @@ def main():
     git_branch = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], stdout=subprocess.PIPE, check=True)
     git_branch = git_branch.stdout.decode('utf-8').strip()
 
-    if git_branch != f'v{version_major}.{version_minor}':
-        print('Error: branch name must match the major.minor version in version.mk (like v1.1)')
+    release_branch = format_release_branch(version_major, version_minor)
+    if git_branch != release_branch:
+        print(f'Error: branch name must match the version in version.mk ({release_branch})')
         exit(1)
 
     version_patch += 1
@@ -28,7 +39,7 @@ def main():
     else:
         print("No changes to geoip db. Skipping commit")
 
-    version = f'v{version_major}.{version_minor}.{version_patch}'
+    version = f'v{format_version(version_major, version_minor, version_patch)}'
     print(f"Creating commit and tagging version {version}")
     subprocess.run(['git', 'add', VERSION_MK], check=True)
     subprocess.run(['git', 'commit', '-m', f'Increment version to {version}'], check=True)

@@ -142,10 +142,13 @@ fd_bootinfo_write( config_t const * config ) {
   char const * c_bold   = fd_log_style_bold();
   char const * c_dim    = fd_log_style_dim();
 
+  char version[ 32UL ];
+  fd_version_cstr_format( version, sizeof(version), info.fd_version[ 0 ], info.fd_version[ 1 ], info.fd_version[ 2 ] );
+
   ulong mem_gib = (fd_topo_mlock( &config->topo )+((1UL<<30UL)-1UL))>>30UL;
-  FD_LOG_NOTICE(( "booting validator %s%s%s version %lu.%lu.%lu %s(%.11s)%s pid %lu with %s%lu%s tiles and %s%lu GiB%s memory at %s%s%s",
+  FD_LOG_NOTICE(( "booting validator %s%s%s version %s %s(%.11s)%s pid %lu with %s%lu%s tiles and %s%lu GiB%s memory at %s%s%s",
                   c_bold, info.name, c_normal,
-                  info.fd_version[ 0 ], info.fd_version[ 1 ], info.fd_version[ 2 ],
+                  version,
                   c_dim, info.commit_ref, c_normal,
                   info.pid,
                   c_bold, config->topo.tile_cnt, c_normal,
@@ -349,7 +352,7 @@ fd_bootinfo_print( fd_bootinfo_instance_t const * instances,
     }
 
     char version[ 32UL ];
-    FD_TEST( fd_cstr_printf_check( version, sizeof(version), NULL, "%lu.%lu.%lu", info->fd_version[ 0 ], info->fd_version[ 1 ], info->fd_version[ 2 ] ) );
+    fd_version_cstr_format( version, sizeof(version), info->fd_version[ 0 ], info->fd_version[ 1 ], info->fd_version[ 2 ] );
 
     char commit[ 12UL ] = {0};
     strncpy( commit, info->commit_ref, sizeof(commit)-1UL );
@@ -385,10 +388,13 @@ fd_bootinfo_notice( fd_bootinfo_instance_t const * instance ) {
   char const * c_dim    = fd_log_style_dim();
   char const * c_live   = fd_log_colorize() ? BOOTINFO_GREEN : "";
 
-  FD_LOG_NOTICE(( "attached to %slive%s validator %s%s%s version %lu.%lu.%lu %s(%.11s)%s pid %lu up %s at %s%s%s",
+  char version[ 32UL ];
+  fd_version_cstr_format( version, sizeof(version), info->fd_version[ 0 ], info->fd_version[ 1 ], info->fd_version[ 2 ] );
+
+  FD_LOG_NOTICE(( "attached to %slive%s validator %s%s%s version %s %s(%.11s)%s pid %lu up %s at %s%s%s",
                   c_live, c_normal,
                   c_bold, info->name, c_normal,
-                  info->fd_version[ 0 ], info->fd_version[ 1 ], info->fd_version[ 2 ],
+                  version,
                   c_dim, info->commit_ref, c_normal,
                   info->pid,
                   uptime,
