@@ -170,9 +170,21 @@ prepare_ledger_dir() {
     cd $LEDGER_DIR
 
     # Only extract genesis.bin: the tarball also bundles a stub rocksdb/ that
-    # would shadow the real ledger if extracted.
-    wget -q -O genesis.tar.bz2 $GENESIS_FILE
-    tar -xjf genesis.tar.bz2 genesis.bin
+    # would shadow the real ledger if extracted. The RPC endpoint sometimes
+    # returns an empty/truncated body, so verify by extracting and retry.
+    local genesis_ok=""
+    for attempt in 1 2 3 4 5; do
+        if wget -q -O genesis.tar.bz2 $GENESIS_FILE && tar -xjf genesis.tar.bz2 genesis.bin; then
+            genesis_ok=1
+            break
+        fi
+        send_slack_message "Genesis download from \`$GENESIS_FILE\` failed (attempt $attempt/5). Retrying in 1 minute."
+        sleep 60
+    done
+    if [ -z "$genesis_ok" ]; then
+        send_slack_message "@here genesis download from \`$GENESIS_FILE\` failed after 5 attempts. Exiting."
+        exit 1
+    fi
 }
 
 # Download and extract the ledger's rocksdb archive into $LEDGER_DIR/rocksdb.
