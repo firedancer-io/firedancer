@@ -42,6 +42,7 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
                                        ulong        in0_vaddr,
                                        ulong        in1_vaddr,
                                        ulong        result_point_vaddr,
+                                       ulong        result_sz,
                                        ulong        expected_ret_code,
                                        int          expected_syscall_ret,
                                        void *       expected_result_host_ptr ) {
@@ -51,9 +52,9 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
     FD_TEST( syscall_ret == expected_syscall_ret );
     test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
-    const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
-        FD_TEST( memcmp( result_point_host_addr, expected_result_host_ptr, 32 ) == 0 );
+        const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, result_sz );
+        FD_TEST( memcmp( result_point_host_addr, expected_result_host_ptr, result_sz ) == 0 );
     }
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
@@ -329,6 +330,7 @@ main( int     argc,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,
+      32UL, // result_sz
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -366,6 +368,7 @@ main( int     argc,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,
+      32UL, // result_sz
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -400,6 +403,7 @@ main( int     argc,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,
+      32UL, // result_sz
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -438,6 +442,7 @@ main( int     argc,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,
+      32UL, // result_sz
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -466,6 +471,7 @@ main( int     argc,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ, // result_sz
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
