@@ -1,4 +1,5 @@
 $(call add-hdrs,fd_stake_types.h)
+ifdef FD_HAS_INT128
 ifdef FD_HAS_DOUBLE
 $(call add-hdrs,fd_stakes.h)
 $(call add-objs,fd_stakes,fd_flamenco)
@@ -15,16 +16,21 @@ $(call make-unit-test,test_warmup_cooldown_allowance,test_warmup_cooldown_allowa
 $(call run-unit-test,test_warmup_cooldown_allowance)
 endif
 endif
+endif
 
+ifdef FD_HAS_INT128
 $(call add-hdrs,fd_top_votes.h)
 $(call add-objs,fd_top_votes,fd_flamenco)
+endif
 
 $(call add-hdrs,fd_collector_overrides.h)
 $(call add-objs,fd_collector_overrides,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_top_votes,test_top_votes,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_top_votes)
+endif
 $(call make-unit-test,test_collector_overrides,test_collector_overrides,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_collector_overrides)
 endif

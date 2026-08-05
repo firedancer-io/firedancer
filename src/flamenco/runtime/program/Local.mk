@@ -3,8 +3,10 @@
 $(call add-hdrs,fd_builtin_programs.h)
 $(call add-objs,fd_builtin_programs,fd_flamenco)
 
+ifdef FD_HAS_INT128
 $(call add-hdrs,fd_bpf_loader_serialization.h)
 $(call add-objs,fd_bpf_loader_serialization,fd_flamenco)
+endif
 
 ### Precompiles
 
@@ -13,8 +15,10 @@ $(call add-objs,fd_precompiles,fd_flamenco)
 
 ### Native programs
 
+ifdef FD_HAS_INT128
 $(call add-hdrs,fd_bpf_loader_program.h)
 $(call add-objs,fd_bpf_loader_program,fd_flamenco)
+endif
 
 $(call add-hdrs,fd_compute_budget_program.h)
 $(call add-objs,fd_compute_budget_program,fd_flamenco)
@@ -35,6 +39,7 @@ $(call add-objs,fd_native_cpi,fd_flamenco)
 
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_HOSTED
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_bpf_loader_serialization,test_bpf_loader_serialization,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_bpf_loader_serialization)
 
@@ -46,6 +51,7 @@ $(call run-unit-test,test_vote_program)
 
 $(call make-unit-test,test_create_account_allow_prefund,test_create_account_allow_prefund,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_create_account_allow_prefund)
+endif
 endif
 endif
 
