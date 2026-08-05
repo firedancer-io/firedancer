@@ -223,6 +223,8 @@ test_load_complete_signal( void ) {
 
   /* READING_FULL_FILE with matching bytes sets load_complete */
   ctx->state                    = FD_SNAPCT_STATE_READING_FULL_FILE;
+  ctx->is_full                  = 1;
+  ctx->is_file                  = 1;
   ctx->metrics.full.bytes_read  = 1000UL;
   ctx->metrics.full.bytes_total = 1000UL;
   snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
@@ -231,6 +233,8 @@ test_load_complete_signal( void ) {
 
   /* READING_INCREMENTAL_HTTP with matching bytes sets load_complete */
   ctx->state                           = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+  ctx->is_full                         = 0;
+  ctx->is_file                         = 0;
   ctx->metrics.incremental.bytes_read  = 500UL;
   ctx->metrics.incremental.bytes_total = 500UL;
   snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
@@ -238,16 +242,22 @@ test_load_complete_signal( void ) {
   ctx->load_complete = 0;
 
   /* Ignored during reset states */
-  ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
+  ctx->state   = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
+  ctx->is_full = 1;
+  ctx->is_file = 1;
   snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
   FD_TEST( ctx->load_complete==0 );
 
-  ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
+  ctx->state   = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
+  ctx->is_full = 0;
+  ctx->is_file = 0;
   snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
   FD_TEST( ctx->load_complete==0 );
 
   /* Ignored when already malformed */
   ctx->state                    = FD_SNAPCT_STATE_READING_FULL_HTTP;
+  ctx->is_full                  = 1;
+  ctx->is_file                  = 0;
   ctx->malformed                = 1;
   ctx->metrics.full.bytes_read  = 1000UL;
   ctx->metrics.full.bytes_total = 1000UL;
