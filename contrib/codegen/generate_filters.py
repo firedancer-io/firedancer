@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.12
 
 # THE OUTPUT OF THIS SCRIPT HAS TO BE AUDITED.
 # We have the choice to spend a lot of energy verifying this compiler or

@@ -1,7 +1,11 @@
 $(call add-hdrs,fd_alut.h)
 
+ifdef FD_HAS_ATOMIC
+ifdef FD_HAS_ALLOCA
 $(call add-hdrs,fd_accdb_svm.h)
 $(call add-objs,fd_accdb_svm,fd_flamenco)
+endif
+endif
 
 $(call add-hdrs,fd_blockhashes.h)
 $(call add-objs,fd_blockhashes,fd_flamenco)
@@ -11,9 +15,9 @@ $(call add-objs,fd_core_bpf_migration,fd_flamenco)
 $(call add-hdrs,fd_executor.h)
 $(call add-objs,fd_executor,fd_flamenco)
 
+ifdef FD_HAS_ATOMIC
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
-ifdef FD_HAS_ATOMIC
 $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_hashes)
 endif
