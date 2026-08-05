@@ -9,17 +9,24 @@ fd_backup_cache_init( fd_backup_cache_t *        backup,
                       fd_accdb_accmeta_t const * acc_pool,
                       ulong                      max_accounts,
                       ulong                      acc_map_seed,
-                      ulong                      chain_mask ) {
+                      ulong                      chain_mask,
+                      ulong *                    epoch_slot,
+                      ulong const *              epoch ) {
+  FD_TEST( epoch_slot );
+  FD_TEST( epoch      );
   *backup = (fd_backup_cache_t) {
     .acc_map            = acc_map,
     .acc_pool           = acc_pool,
     .max_accounts       = max_accounts,
     .acc_map_seed       = acc_map_seed,
     .chain_mask         = (uint)chain_mask,
+    .epoch_slot         = epoch_slot,
+    .epoch              = epoch,
     .cache_class        = 0UL,
     .cache_idx          = 0UL,
     .root_generation    = 0
   };
+  FD_VOLATILE( *epoch_slot ) = ULONG_MAX; /* idle until first section */
   for( ulong i=0UL; i<FD_ACCDB_CACHE_CLASS_CNT; i++ ) {
     backup->cache    [ i ] = cache    [ i ];
     backup->cache_max[ i ] = cache_max[ i ];
@@ -29,7 +36,8 @@ fd_backup_cache_init( fd_backup_cache_t *        backup,
 
 fd_backup_cache_t *
 fd_backup_cache_join( fd_backup_cache_t * backup,
-                      fd_accdb_shmem_t *  accdb ) {
+                      fd_accdb_shmem_t *  accdb,
+                      ulong *             epoch_fseq ) {
   ulong max_live_slots = accdb->max_live_slots;
   ulong max_accounts   = accdb->max_accounts;
 
@@ -54,7 +62,9 @@ fd_backup_cache_join( fd_backup_cache_t * backup,
       _acc_map,
       _acc_pool_ele,  max_accounts,
       accdb->seed,
-      chain_cnt-1UL
+      chain_cnt-1UL,
+      epoch_fseq,
+      &accdb->epoch
   );
   return backup;
 }
@@ -169,6 +179,10 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
     return NULL;
   }
 
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *backup->epoch_slot ) = FD_VOLATILE_CONST( *backup->epoch );
+  FD_HW_MFENCE();
+
   /* Scan through cache lines (sequentially)
      This discovers any cached account (rooted or not), therefore may
      produce account indices that become invalid.  These are filtered
@@ -218,6 +232,9 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
   /* Filter out freed/invisible and non-rooted accounts */
 
   filter_batch( backup, frag );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *backup->epoch_slot ) = ULONG_MAX;
   return frag;
 }
 
@@ -229,6 +246,8 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
                       ulong *             out_sz,
                       ulong               out_max ) {
   FD_TEST( pubkey );
+
+  FD_DCHECK_CRIT( FD_VOLATILE_CONST( *ctx->epoch_slot )!=ULONG_MAX, "caller must publish epoch" );
 
   if( FD_UNLIKELY( (ulong)acc_idx>=ctx->max_accounts ) ) {
     return FD_BACKUP_CACHE_ERR_MISS;

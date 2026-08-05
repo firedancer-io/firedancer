@@ -379,7 +379,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( accdb_shmem_ro );
   ctx->accdb_shmem = accdb_shmem_ro;
   ctx->accdb_snapshot_sync = &accdb_shmem_ro->snapshot_sync;
-  fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro );
+  ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.accdb_epoch_obj_id ) );
+  FD_TEST( epoch_fseq );
+  fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq );
   {
     FD_SCRATCH_ALLOC_INIT( l, accdb_shmem_ro );
     FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN, sizeof(fd_accdb_shmem_t) );
@@ -1591,6 +1593,8 @@ snap_start( fd_snapmk_t *                  ctx,
     .max_accounts       = ctx->acc_cache->max_accounts,
     .acc_map_seed       = ctx->acc_cache->acc_map_seed,
     .chain_mask         = ctx->acc_cache->chain_mask,
+    .epoch_slot         = ctx->acc_cache->epoch_slot,
+    .epoch              = ctx->acc_cache->epoch,
     .root_generation    = (uint)root_generation
   };
 

@@ -1474,6 +1474,8 @@ background_advance_root( fd_accdb_t *       accdb,
 void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id ) {
+  FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING,
+                 "fd_accdb_advance_root called during snapshot production" );
   wait_cmd( accdb );
   submit_cmd( accdb, FD_ACCDB_CMD_ADVANCE_ROOT, fork_id.val );
 }
@@ -4218,44 +4220,9 @@ fd_accdb_background( fd_accdb_t * accdb,
                      int *        charge_busy ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
 
-  /* process snapshot requests first */
-  ulong * snap_sync_p = &accdb->shmem->snapshot_sync;
+  ulong * snap_sync_p = &shmem->snapshot_sync;
   ulong   snap_sync   = fd_accdb_snapshot_sync_state( snap_sync_p );
-  if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
-    switch( snap_sync ) {
-    case FD_ACCDB_SNAPSHOT_SYNC_RUNNING:
-      /* while producing a snapshot, limit background tasks to cache
-         pre-eviction, but pause all other tasks (like advance_root,
-         purge, and compaction) */
-      background_preevict( accdb, charge_busy, 0 );
-      return;
-    case FD_ACCDB_SNAPSHOT_SYNC_DONE:
-      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
-      break;
-    case FD_ACCDB_SNAPSHOT_SYNC_START_FULL:
-      delta_reset( accdb );
-      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
-      *charge_busy = 1;
-      return;
-    case FD_ACCDB_SNAPSHOT_SYNC_START_INCR:
-      if( delta_is_valid( accdb->shmem ) ) {
-        fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
-      } else {
-        /* cannot produce incrementals because delta ran out of space,
-           therefore don't know which accounts changed */
-        fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_FAIL );
-      }
-      *charge_busy = 1;
-      return;
-    case FD_ACCDB_SNAPSHOT_SYNC_FAIL:
-      /* wait for client to acknowledge */
-      break;
-    default:
-      FD_LOG_CRIT(( "corrupt snapshot_sync state %lu", snap_sync ));
-    }
-  }
 
-  /* process cnc requests */
   uint op = FD_VOLATILE_CONST( shmem->cmd_op );
   if( FD_UNLIKELY( op!=FD_ACCDB_CMD_IDLE ) ) {
     fd_accdb_fork_id_t fork_id = { .val = FD_VOLATILE_CONST( shmem->cmd_fork_id ) };
@@ -4288,6 +4255,38 @@ fd_accdb_background( fd_accdb_t * accdb,
     FD_VOLATILE( shmem->cmd_op ) = FD_ACCDB_CMD_IDLE;
     *charge_busy = 1;
     return;
+  }
+
+  if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
+    switch( snap_sync ) {
+    case FD_ACCDB_SNAPSHOT_SYNC_RUNNING:
+      /* while producing a snapshot, don't do compaction work */
+      background_preevict( accdb, charge_busy, 0 );
+      return;
+    case FD_ACCDB_SNAPSHOT_SYNC_DONE:
+      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+      break;
+    case FD_ACCDB_SNAPSHOT_SYNC_START_FULL:
+      delta_reset( accdb );
+      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+      *charge_busy = 1;
+      return;
+    case FD_ACCDB_SNAPSHOT_SYNC_START_INCR:
+      if( delta_is_valid( accdb->shmem ) ) {
+        fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+      } else {
+        /* cannot produce incrementals because delta ran out of space,
+           therefore don't know which accounts changed */
+        fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_FAIL );
+      }
+      *charge_busy = 1;
+      return;
+    case FD_ACCDB_SNAPSHOT_SYNC_FAIL:
+      /* wait for client to acknowledge */
+      break;
+    default:
+      FD_LOG_CRIT(( "corrupt snapshot_sync state %lu", snap_sync ));
+    }
   }
 
   background_preevict( accdb, charge_busy, 0 );
