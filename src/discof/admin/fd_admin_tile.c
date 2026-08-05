@@ -260,7 +260,6 @@ find_identity_keyswitch( fd_admin_tile_ctx_t * ctx,
 static int FD_FN_SENSITIVE
 poll_set_identity( fd_admin_tile_ctx_t * ctx,
                    ulong *               state,
-                   ulong *               halted_seq,
                    ulong                 identity_outset,
                    uchar *               keypair ) {
   fd_topo_t const * topo = ctx->topo;
@@ -292,7 +291,6 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       if( FD_LIKELY( replay->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         fd_memzero_explicit( replay->bytes, 64UL );
         FD_COMPILER_MFENCE();
-        *halted_seq = replay->result;
         *state = FD_SET_IDENTITY_STATE_LEADER_HALTED;
         FD_LOG_INFO(( "Leader pipeline successfully paused..." ));
       } else if( FD_UNLIKELY( replay->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
@@ -592,10 +590,9 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   }
 
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
-  ulong halted_seq      = 0UL;
   ulong identity_outset = (ulong)fd_log_wallclock();
   for(;;) {
-    if( FD_UNLIKELY( poll_set_identity( ctx, &state, &halted_seq, identity_outset, req->keypair ) ) ) break;
+    if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, req->keypair ) ) ) break;
   }
 
   memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );
