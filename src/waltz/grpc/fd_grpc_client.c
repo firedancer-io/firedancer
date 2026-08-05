@@ -418,10 +418,10 @@ fd_grpc_client_request_continue1( fd_grpc_client_t * client ) {
   fd_h2_stream_t *      h2_stream = &stream->s;
   fd_h2_tx_op_copy( client->conn, h2_stream, client->frame_tx, client->request_tx_op );
   if( FD_UNLIKELY( client->request_tx_op->chunk_sz ) ) return 0;
+  client->request_stream = NULL;
   if( FD_UNLIKELY( h2_stream->state != FD_H2_STREAM_STATE_CLOSING_TX ) ) return 0;
   client->metrics->stream_chunks_tx_cnt++;
   /* Request finished */
-  client->request_stream = NULL;
   client->callbacks->tx_complete( client->ctx, stream->request_ctx );
   return 1;
 }
@@ -455,7 +455,7 @@ fd_grpc_client_request_is_blocked( fd_grpc_client_t * client ) {
 
 int
 fd_grpc_client_request_stream_busy( fd_grpc_client_t * client ) {
-  return client->request_stream != NULL;
+  return client->request_stream && client->request_tx_op->chunk_sz;
 }
 
 fd_grpc_h2_stream_t *
@@ -638,6 +638,8 @@ fd_grpc_client_stream_send_msg(
   if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx ) ) ) return 0;
   if( FD_UNLIKELY( client->request_tx_op->chunk_sz > 0UL ) ) return 0;
   if( FD_UNLIKELY( client->request_stream != NULL && client->request_stream != stream ) ) return 0; /* Another stream has a request in progress */
+  if( FD_UNLIKELY( stream->s.state!=FD_H2_STREAM_STATE_OPEN &&
+                   stream->s.state!=FD_H2_STREAM_STATE_CLOSING_RX ) ) return 0;
 
   /* Encode message */
   FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
@@ -679,6 +681,8 @@ fd_grpc_client_stream_send_msg1(
   if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx ) ) ) return 0;
   if( FD_UNLIKELY( client->request_tx_op->chunk_sz > 0UL ) ) return 0;
   if( FD_UNLIKELY( client->request_stream != NULL && client->request_stream != stream ) ) return 0; /* Another stream has a request in progress */
+  if( FD_UNLIKELY( stream->s.state!=FD_H2_STREAM_STATE_OPEN &&
+                   stream->s.state!=FD_H2_STREAM_STATE_CLOSING_RX ) ) return 0;
 
   /* Validate protobuf size */
   FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
@@ -719,8 +723,11 @@ fd_grpc_client_stream_close(
   if( FD_UNLIKELY( client->conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) return 0;
   if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx ) ) ) return 0;
   if( FD_UNLIKELY( client->request_stream != NULL ) ) return 0; /* Another request in progress */
+  if( FD_UNLIKELY( stream->s.state!=FD_H2_STREAM_STATE_OPEN &&
+                   stream->s.state!=FD_H2_STREAM_STATE_CLOSING_RX ) ) return 0;
 
   /* Send empty DATA frame with END_STREAM flag to close the stream */
+  fd_h2_stream_close_tx( &stream->s, client->conn );
   fd_h2_tx_prepare( client->conn, client->frame_tx, FD_H2_FRAME_TYPE_DATA, FD_H2_FLAG_END_STREAM, stream->s.stream_id );
   fd_h2_tx_commit( client->conn, client->frame_tx );
 
