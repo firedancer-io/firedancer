@@ -200,7 +200,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( epoch_fseq );
   ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
-  FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro ) );
+  FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq ) );
   ctx->visited_set = visited_set_join( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
   FD_TEST( ctx->visited_set );
 
@@ -394,17 +394,27 @@ zip_flush( fd_snapzp_t * ctx ) {
    fallback to disk reads when a cache read is torn by eviction. */
 
 static void
-accmeta_await_evict( fd_snapzp_t *       ctx,
-                     fd_pubkey_t const * pubkey,
-                     uint                acc_idx ) {
-  (void)pubkey;
+accmeta_await_evict( fd_snapzp_t * ctx,
+                     uint          acc_idx ) {
   FD_CHECK_CRIT( acc_idx < ctx->acc_cache->max_accounts, "invalid account index" );
 
+  ulong *       epoch_slot = ctx->acc_cache->epoch_slot;
+  ulong const * epoch      = ctx->acc_cache->epoch;
+
   fd_accdb_accmeta_t const * acc = &ctx->acc_cache->acc_pool[ acc_idx ];
-  ulong off_packed = FD_VOLATILE_CONST( acc->offset_fork );
-  while( FD_UNLIKELY( (off_packed & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) {
+  for(;;) {
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
+    FD_HW_MFENCE();
+
+    ulong off_packed = FD_VOLATILE_CONST( acc->offset_fork );
+    int   done       = ( off_packed & FD_ACCDB_OFF_MASK )!=FD_ACCDB_OFF_INVAL;
+
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
+
+    if( FD_LIKELY( done ) ) break;
     FD_SPIN_PAUSE(); /* FIXME yield to OS instead? */
-    off_packed = FD_VOLATILE_CONST( acc->offset_fork );
   }
 
   FD_COMPILER_MFENCE();
@@ -421,29 +431,51 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
                fd_backup_cache_msg_t const * batch ) {
   FD_CHECK_CRIT( ctx->snap_fd>=0, "invalid snapshot file descriptor" );
 
+  ulong *       epoch_slot = ctx->acc_cache->epoch_slot;
+  ulong const * epoch      = ctx->acc_cache->epoch;
+  int           in_epoch   = 0;
+
   ZSTD_inBuffer * buf = &ctx->raw_buf;
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
     fd_pubkey_t const * pubkey  = &batch->pubkey [ i ];
     uint                acc_idx =  batch->acc_idx[ i ];
     if( acc_idx==UINT_MAX ) continue;
-    /* copy cached account into snapshot stream */
-    int err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, ctx->raw, &buf->size, RAW_BUF_SZ );
-    if( err==FD_BACKUP_CACHE_ERR_MISS ) {
-      accmeta_await_evict( ctx, pubkey, acc_idx );
-      continue;
+
+    if( FD_UNLIKELY( !in_epoch ) ) {
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
+      /* a lock prefix is an expensive CPU pipeline hazard, therefore
+         we hold onto our epoch for multiple accounts */
+      FD_HW_MFENCE();
+      in_epoch = 1;
     }
+
+    int err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, ctx->raw, &buf->size, RAW_BUF_SZ );
     if( FD_UNLIKELY( err==FD_BACKUP_CACHE_ERR_SPACE ) ) {
-      /* not enough buffer space, flush and retry */
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
       zip_flush( ctx );
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
+      FD_HW_MFENCE();
       err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, ctx->raw, &buf->size, RAW_BUF_SZ );
-      if( err==FD_BACKUP_CACHE_ERR_MISS ) {
-        accmeta_await_evict( ctx, pubkey, acc_idx );
-        continue;
-      }
       FD_CHECK_ERR( err!=FD_BACKUP_CACHE_ERR_SPACE, "Zstandard buffer too small" );
+    }
+
+    if( FD_UNLIKELY( err==FD_BACKUP_CACHE_ERR_MISS ) ) {
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
+      in_epoch = 0;
+      accmeta_await_evict( ctx, acc_idx );
+      continue;
     }
     FD_CHECK_ERR( err==FD_BACKUP_CACHE_SUCCESS, "unexpected cache error code" );
     ctx->metrics.accounts_compressed++;
+  }
+
+  if( FD_LIKELY( in_epoch ) ) {
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
   }
 }
 
