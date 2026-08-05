@@ -1007,9 +1007,10 @@ fd_log_private_open_path( int          cmdline,
     char tag[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     fd_log_wallclock_cstr( fd_log_wallclock(), tag );
     for( ulong b=0UL; tag[b]; b++ ) if( tag[b]==' ' || tag[b]=='-' || tag[b]=='.' || tag[b]==':' ) tag[b] = '_';
-    ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%lu.%lu.%lu_%lu_%s_%s_%s",
-                               fd_major_version, fd_minor_version, fd_patch_version,
-                               fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
+    char version[ 32UL ];
+    fd_version_cstr_format( version, sizeof(version), fd_major_version, fd_minor_version, fd_patch_version );
+    ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%s_%lu_%s_%s_%s",
+                               version, fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
     if( len==1023UL ) { fd_log_private_fprintf_0( STDERR_FILENO, "default log path too long; unable to boot\n" ); exit(1); }
   }
   else if( log_path_sz==1UL    ) fd_log_private_path[0] = '\0'; /* User disabled */

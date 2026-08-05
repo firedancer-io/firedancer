@@ -12,14 +12,14 @@
    approach the boundary. */
 
 typedef uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)))
-    _lsched_t[FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH)];
+    _lsched_t[FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH)];
 
 #define MULTI_EPOCH_LEADERS_EPOCH_CNT (2UL)
 FD_STATIC_ASSERT(MULTI_EPOCH_LEADERS_EPOCH_CNT == 2UL, "This implementation depends on epoch_cnt==2");
 
 struct fd_multi_epoch_leaders_priv {
   fd_epoch_leaders_t * lsched       [ MULTI_EPOCH_LEADERS_EPOCH_CNT ];
-  fd_vote_stake_weight_t vote_stake_weight [ MAX_COMPRESSED_STAKE_WEIGHTS ];
+  fd_vote_stake_weight_t vote_stake_weight [ MAX_STAKE_WEIGHTS ];
 
   /* has that epoch's mem experienced a stake_msg_fini? */
   int                  init_done    [ MULTI_EPOCH_LEADERS_EPOCH_CNT ];
@@ -103,10 +103,7 @@ fd_multi_epoch_leaders_get_stake_cnt( fd_multi_epoch_leaders_t const * mleaders 
 
 /* fd_multi_epoch_leaders_get_leader_for_slot returns a pointer to the selected
    public key given a slot.  Returns NULL if slot is not in epochs tracked
-   by multi-epoch leader object. If the leader for slot is part of the
-   excluded_stake for that epoch, instead of returning the correct value
-   (which is not known), returns a pointer to a pubkey with value
-   FD_INDETERMINATE_LEADER. */
+   by multi-epoch leader object. */
 
 FD_FN_PURE fd_pubkey_t const *
 fd_multi_epoch_leaders_get_leader_for_slot( fd_multi_epoch_leaders_t const * mleaders,
@@ -144,8 +141,6 @@ fd_multi_epoch_leaders_get_sorted_lscheds( fd_multi_epoch_leaders_t const * mlea
         - It was either never initialized with that epoch information, or
         - It was overwritten by another epoch with the same parity
       - leader_q does not have a leader slot in the epochs tracked
-      - leader_q was part of the excluded_stake for that epoch, and the lsched
-        returns FD_INDETERMINATE_LEADER as the leader for leader_q's slots.
 */
 
 FD_FN_PURE ulong

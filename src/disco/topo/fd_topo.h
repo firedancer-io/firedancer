@@ -7,6 +7,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../util/net/fd_ip6.h"
 #include "../pack/fd_pack.h" /* for FD_PACK_ACCT_BLOCKLIST_MAX */
 
 /* Maximum number of workspaces that may be present in a topology. */
@@ -384,11 +385,13 @@ struct fd_topo_tile {
       char   identity_key_path[ PATH_MAX ];
       char   vote_key_path[ PATH_MAX ];
       char   accounts_database_path[ PATH_MAX ];
+      char   gui_database_path[ PATH_MAX ];
 
       ulong  max_http_connections;
       ulong  max_websocket_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      ulong  db_size_gib;
       int    schedule_strategy;
 
       int websocket_compression;
@@ -401,7 +404,7 @@ struct fd_topo_tile {
     } gui;
 
     struct {
-      uint   listen_addr;
+      fd_ip6_addr_t listen_addr;
       ushort listen_port;
 
       ulong max_http_connections;
@@ -416,6 +419,10 @@ struct fd_topo_tile {
 
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
+
+      int    snapshot_server_enabled;
+      char   snapshot_server_host[ 256 ];
+      ushort snapshot_server_port;
     } rpc;
 
     struct {
@@ -446,6 +453,8 @@ struct fd_topo_tile {
       ulong heap_size_gib;
       ulong sched_depth;
       ulong max_live_slots;
+      ulong full_snapshot_interval_slots;
+      ulong incremental_snapshot_interval_slots;
 
       /* not specified in TOML */
 
@@ -544,15 +553,6 @@ struct fd_topo_tile {
     } pktgen;
 
     struct {
-      ulong end_slot;
-      char  rocksdb_path[ PATH_MAX ];
-      char  ingest_mode[ 32 ];
-
-      /* Set internally by the archiver tile */
-      int archive_fd;
-    } archiver;
-
-    struct {
       char  ledger_format[ 16 ];
       char  ledger_path[ PATH_MAX ];
       ulong end_slot;
@@ -586,6 +586,8 @@ struct fd_topo_tile {
       ulong rpc_epoch_obj_id;
       ulong resolv_epoch_obj_ids[ 16 ];
       ulong resolv_epoch_obj_cnt;
+      ulong snapzp_epoch_obj_ids[ 64 ];
+      ulong snapzp_epoch_obj_cnt;
     } accdb;
 
     struct {
@@ -627,9 +629,6 @@ struct fd_topo_tile {
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
       long wait_for_peers_timeout_nanos;
-
-      uint target_uid;
-      uint target_gid;
     } snapct;
 
     struct {
@@ -693,6 +692,43 @@ struct fd_topo_tile {
       int   recent_only;
       ulong recent_slots_per_file;
     } solcap;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong visited_set_obj_id;
+      ulong banks_obj_id;
+      ulong zp_fseq_id;
+      ulong txncache_obj_id;
+      ulong max_accounts;
+      ulong max_live_slots;
+      uint  max_full_snapshots_to_keep;
+      char  snapshots_path[ PATH_MAX ];
+      uint  max_incremental_snapshots_to_keep;
+    } snapmk;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong accdb_epoch_obj_id;
+      ulong visited_set_obj_id;
+      ulong zp_fseq_id;
+      ulong max_live_slots;
+      uint  snap_fd_cnt;
+    } snapzp;
+
+    struct {
+      ulong accdb_obj_id;
+    } snaprd;
+
+    struct {
+      ulong         snap_max;
+      ulong         conn_max;
+      uint          io_worker_cnt;
+      ulong         idle_timeout_millis;
+      ulong         send_timeout_millis;
+      ulong         send_buffer_size_kib;
+      fd_ip6_addr_t listen_addr;
+      ushort        listen_port;
+    } snapsv;
   };
 };
 

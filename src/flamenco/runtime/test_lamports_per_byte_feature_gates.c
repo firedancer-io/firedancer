@@ -88,6 +88,21 @@ verify_rent( fd_svm_mini_t * mini,
   FD_TEST( cache_rent->exemption_threshold==TEST_EXEMPTION_THRESHOLD );
   FD_TEST( cache_rent->burn_percent==TEST_BURN_PERCENT );
   verify_minimum_balance( cache_rent, expected_lamports_per_byte );
+
+  /* The rent sysvar account must be funded for the rent exempt minimum of
+     the NEW rent, not the rent that was in effect before the gate
+     activated.  This catches the bank rent being assigned after the sysvar
+     write rather than before it, which sizes the account with the old
+     lamports per byte year.  The bound is >= rather than == because
+     fd_sysvar_account_update() tops up via max(minimum, current), so a gate
+     that lowers the rate leaves the higher balance from a previous gate in
+     place. */
+  fd_acc_t rent_account = fd_accdb_read_one( mini->runtime->accdb,
+                                             fd_svm_mini_fork_id( mini, bank_idx ),
+                                             fd_sysvar_rent_id.uc );
+  FD_TEST( rent_account.lamports>=fd_ulong_max(
+             expected_minimum_balance( expected_lamports_per_byte, FD_SYSVAR_RENT_BINCODE_SZ ), 1UL ) );
+  fd_accdb_unread_one( mini->runtime->accdb, &rent_account );
 }
 
 static void

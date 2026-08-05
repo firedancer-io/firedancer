@@ -5,6 +5,7 @@
 #include "fd_alut.h"
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_stake_types.h"
+#include "../stakes/fd_stakes.h"
 #include "program/fd_system_program.h"
 #include "program/fd_bpf_loader_program.h"
 #include "sysvar/fd_sysvar.h"
@@ -13,12 +14,16 @@
 #include "../accdb/fd_accdb.h"
 #include "../features/fd_features.h"
 #include "../../disco/fd_txn_p.h"
-#include "../log_collector/fd_log_collector.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 
 #define TEST_SLOTS_PER_EPOCH         (32UL)
 #define TEST_PARENT_SLOT             (9UL)
 #define TEST_CHILD_SLOT              (10UL)
+
+/* These tests never drive stake delegations into pubkey fallback mode, so
+   the iterator never needs to resolve anything out of an accounts
+   database. */
+#define NO_RESOLVE NULL, ((fd_accdb_fork_id_t){ .val = USHORT_MAX }), 0UL, NULL
 
 struct test_env {
   fd_svm_mini_t *    mini;
@@ -53,7 +58,7 @@ static fd_stake_delegation_t const *
 find_visible_stake_delegation( fd_stake_delegations_t const * stake_delegations,
                                fd_pubkey_t const *            stake_account ) {
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, NO_RESOLVE );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
@@ -781,7 +786,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     ulong out_sz = 0UL;
     FD_TEST( !fd_bpf_state_encode( &state, program_data_buf, SIZE_OF_PROGRAM, &out_sz ) );
   }
-  create_test_account( env->mini->runtime->accdb, env->fork_id, &program_key, 1000000UL,
+  create_test_account( env->mini->runtime->accdb, env->bank->parent_accdb_fork_id, &program_key, 1000000UL,
                        SIZE_OF_PROGRAM, program_data_buf,
                        &fd_solana_bpf_loader_upgradeable_program_id );
 
@@ -797,7 +802,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     ulong out_sz = 0UL;
     FD_TEST( !fd_bpf_state_encode( &state, programdata_data_buf, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   }
-  create_test_account( env->mini->runtime->accdb, env->fork_id, &programdata_key, 1000000UL,
+  create_test_account( env->mini->runtime->accdb, env->bank->parent_accdb_fork_id, &programdata_key, 1000000UL,
                        PROGRAMDATA_METADATA_SIZE, programdata_data_buf,
                        &fd_solana_bpf_loader_upgradeable_program_id );
 
@@ -924,7 +929,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
       alut_addrs[i].b[1] = (uchar)( 0xF0 + i );
     }
 
-    create_test_account( env->mini->runtime->accdb, env->fork_id, &alut_key, 1000000UL,
+    create_test_account( env->mini->runtime->accdb, env->bank->parent_accdb_fork_id, &alut_key, 1000000UL,
                          (uint)alut_data_sz, alut_data,
                          &fd_solana_address_lookup_table_program_id );
 
@@ -1112,117 +1117,6 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_LOG_NOTICE(( "test bundle-forwarded nonce... ok" ));
   }
 
-  /* Test: bundle vote account lifecycle deltas remain ordered across
-     separate txn_out commits.  This simulates tx0 open, tx1 close,
-     tx2 open for the same vote account. */
-
-  reset_world();
-  fd_txn_p_t lifecycle_txn_p[3] = {0};
-  fd_pubkey_t vote_lifecycle_keys[2] = { pubkey1, pubkey2 };
-  bundle_acquire_repr( vote_lifecycle_keys, 2UL, 3UL );
-  for( ulong i=0UL; i<3UL; i++ ) {
-    serialize_bundle_txn( &lifecycle_txn_p[i], vote_lifecycle_keys, 2UL, 0UL );
-
-    env->txn_in.txn                 = &lifecycle_txn_p[i];
-    env->txn_in.bundle.is_bundle    = 1;
-    env->txn_in.bundle.prev_txn_cnt = i;
-    for( ulong j=0UL; j<i; j++ ) env->txn_in.bundle.prev_txn_outs[j] = &env->txn_out[j];
-
-    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[i] );
-    FD_TEST( env->txn_out[i].err.is_committable );
-    FD_TEST( env->txn_out[i].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-    FD_TEST( fd_pubkey_eq( &env->txn_out[i].accounts.keys[1], &pubkey2 ) );
-    FD_TEST( fd_runtime_account_is_writable_idx( &env->txn_in, &env->txn_out[i], 1 ) );
-  }
-
-  env->txn_out[0].accounts.new_vote[1] = 1;
-  env->txn_out[1].accounts.rm_vote [1] = 1;
-  env->txn_out[2].accounts.new_vote[1] = 1;
-
-  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
-  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
-  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[2], 0 );
-  fd_runtime_fini_bundle( env->runtime );
-
-  fd_new_votes_t * new_votes = fd_bank_new_votes( env->bank );
-  ushort fork_idx = env->bank->new_votes_fork_id;
-  fd_new_votes_apply_delta( new_votes, fork_idx );
-
-  uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
-  fd_new_votes_iter_t * iter = fd_new_votes_iter_init( new_votes, NULL, 0UL, iter_mem );
-  FD_TEST( !fd_new_votes_iter_done( iter ) );
-  int is_tombstone = 1;
-  fd_pubkey_t const * pubkey = fd_new_votes_iter_ele( iter, &is_tombstone );
-  FD_TEST( !is_tombstone );
-  FD_TEST( fd_pubkey_eq( pubkey, &pubkey2 ) );
-  fd_new_votes_iter_next( iter );
-  FD_TEST( fd_new_votes_iter_done( iter ) );
-  fd_new_votes_iter_fini( iter );
-
-  fd_new_votes_evict_fork( new_votes, fork_idx );
-  env->bank->new_votes_fork_id = USHORT_MAX;
-
-  /* Test: a bundle rm_vote queued by a NON-owner txn must still be
-     recorded in order.  new_vote/rm_vote feed an ordered op-log, so they
-     fire per writable txn, independent of which txn owns the accdb ref.
-
-     Regression this guards: if rm_vote were gated on account_acquired
-     (like the lthash commit), then a close queued by tx0 whose ref
-     ownership later moved to tx1 (a writable reuse that does not touch
-     vote state) would be dropped.  With the account pre-existing in the
-     root map, dropping the remove leaves a stale entry (present) instead
-     of correctly tombstoning it (absent). */
-  {
-    reset_world();
-    env->bank->new_votes_fork_id = fd_new_votes_new_fork( fd_bank_new_votes( env->bank ) );
-    fd_new_votes_t * nv  = fd_bank_new_votes( env->bank );
-    ushort           fidx = env->bank->new_votes_fork_id;
-
-    /* Pre-populate the root map with pubkey2 so a dropped remove is
-       observable as a stale survivor. */
-    fd_new_votes_insert( nv, fidx, &pubkey2 );
-    fd_new_votes_apply_delta( nv, fidx );
-
-    fd_txn_p_t nonowner_txn_p[2] = {0};
-    fd_pubkey_t nonowner_keys[2] = { pubkey1, pubkey2 };
-    bundle_acquire_repr( nonowner_keys, 2UL, 2UL );
-    for( ulong i=0UL; i<2UL; i++ ) {
-      serialize_bundle_txn( &nonowner_txn_p[i], nonowner_keys, 2UL, 0UL );
-      env->txn_in.txn                 = &nonowner_txn_p[i];
-      env->txn_in.bundle.is_bundle    = 1;
-      env->txn_in.bundle.prev_txn_cnt = i;
-      for( ulong j=0UL; j<i; j++ ) env->txn_in.bundle.prev_txn_outs[j] = &env->txn_out[j];
-      fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[i] );
-      FD_TEST( env->txn_out[i].err.is_committable );
-      FD_TEST( env->txn_out[i].accounts.is_writable[1] );
-    }
-
-    /* tx0 closes the vote account; tx1 reuses it writable (taking
-       ownership of the accdb ref) but does not touch vote state. */
-    env->txn_out[0].accounts.rm_vote[1] = 1;
-
-    /* Ownership must have moved to tx1, leaving tx0 a non-owner. */
-    FD_TEST( env->txn_out[0].accounts.account_acquired[1] == 0 );
-    FD_TEST( env->txn_out[1].accounts.account_acquired[1] == 1 );
-
-    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
-    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
-    fd_runtime_fini_bundle( env->runtime );
-
-    fd_new_votes_apply_delta( nv, fidx );
-
-    /* The non-owner's remove must have tombstoned the pre-existing entry. */
-    uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) it_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
-    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, it_mem );
-    FD_TEST( fd_new_votes_iter_done( it ) ); /* pubkey2 removed -> empty */
-    fd_new_votes_iter_fini( it );
-
-    fd_new_votes_evict_fork( nv, fidx );
-    env->bank->new_votes_fork_id = USHORT_MAX;
-  }
-
-  FD_LOG_NOTICE(( "test bundle non-owner vote op ordering... ok" ));
-
   /* Test: stake_update queued by a non-owner txn must still fire once,
      on the txn that ends up owning the accdb ref.  tx0 marks the stake
      account; tx1 reuses it writable (ownership moves to tx1).  The
@@ -1282,51 +1176,128 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
   FD_LOG_NOTICE(( "test bundle non-owner stake_update carry... ok" ));
 
-  /* Test: a fully-cancelled bundle must not apply any vote op.  tx0
-     queues rm_vote then the bundle is cancelled (not committed); the
-     pre-existing root entry must survive untouched. */
+  /* Test: a lamport-only stake account change must create a fork delta
+     so the delegation cache tracks the balance used by epoch rewards. */
   {
     reset_world();
-    fd_pubkey_t cancel_fp  = { .ul[0] = 0x43414E43454C4650UL };
-    fd_pubkey_t cancel_acc = { .ul[0] = 0x43414E43454C4143UL };
-    create_test_account( env->mini->runtime->accdb, env->fork_id, &cancel_fp,  1000000000UL, 0UL, NULL, &system );
-    create_test_account( env->mini->runtime->accdb, env->fork_id, &cancel_acc, 1000000UL,    0UL, NULL, &system );
+    fd_pubkey_t stake_acct = { .ul[0] = 0x53544B454E4F4F50UL };
+    fd_pubkey_t vote_acct  = { .ul[0] = 0x564F54454E4F4F50UL };
+    uchar prior_data[ FD_STAKE_STATE_SZ ] = {0};
+    uchar data      [ FD_STAKE_STATE_SZ ] = {0};
+    FD_STORE( fd_stake_state_t, prior_data, ((fd_stake_state_t){
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = { .meta = { .staker = stake_acct, .withdrawer = stake_acct },
+                 .stake = { .delegation = { .voter_pubkey = vote_acct, .stake = 5UL,
+                                            .activation_epoch = 0UL, .deactivation_epoch = ULONG_MAX,
+                                            .warmup_cooldown_rate = 0.25 } } } }) );
+    fd_memcpy( data, prior_data, sizeof(data) );
 
-    env->bank->new_votes_fork_id = fd_new_votes_new_fork( fd_bank_new_votes( env->bank ) );
-    fd_new_votes_t * nv   = fd_bank_new_votes( env->bank );
-    ushort           fidx = env->bank->new_votes_fork_id;
-    fd_new_votes_insert( nv, fidx, &cancel_acc );
-    fd_new_votes_apply_delta( nv, fidx );
+    fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
+    fd_stake_delegations_root_update( root, &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegation_t const * root_delegation = fd_stake_delegation_root_query( root, &stake_acct );
+    FD_TEST( root_delegation );
 
-    fd_txn_p_t cp = {0};
-    fd_pubkey_t ckeys[2] = { cancel_fp, cancel_acc };
-    bundle_acquire_repr( ckeys, 2UL, 1UL );
-    serialize_bundle_txn( &cp, ckeys, 2UL, 0UL );
-    env->txn_in.txn                 = &cp;
-    env->txn_in.bundle.is_bundle    = 1;
-    env->txn_in.bundle.prev_txn_cnt = 0;
-    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
-    FD_TEST( env->txn_out[0].err.is_committable );
-    env->txn_out[0].accounts.rm_vote[1] = 1;
+    fd_acc_t acc = {
+      .lamports       = 2000000001UL,
+      .data_len       = FD_STAKE_STATE_SZ,
+      .data           = data,
+      .prior_lamports = 2000000000UL,
+      .prior_data_len = FD_STAKE_STATE_SZ,
+      .prior_data     = prior_data,
+    };
+    fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
+    fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
 
-    /* Cancel instead of commit: no vote op should be applied.  Single
-       bundle acquire -> single release via fini_bundle. */
-    env->txn_out[0].err.is_committable = 0;
-    fd_runtime_fini_bundle( env->runtime );
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
 
-    fd_new_votes_apply_delta( nv, fidx );
-    uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) it_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
-    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, it_mem );
-    FD_TEST( !fd_new_votes_iter_done( it ) ); /* cancel_acc still present */
-    int ts = 1;
-    FD_TEST( fd_pubkey_eq( fd_new_votes_iter_ele( it, &ts ), &cancel_acc ) && !ts );
-    fd_new_votes_iter_fini( it );
-
-    fd_new_votes_evict_fork( nv, fidx );
-    env->bank->new_votes_fork_id = USHORT_MAX;
+    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    fd_stake_delegation_t const * updated_delegation = find_visible_stake_delegation( frontier, &stake_acct );
+    FD_TEST( updated_delegation );
+    FD_TEST( updated_delegation!=root_delegation );
+    FD_TEST( updated_delegation->lamports==2000000001UL );
+    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
   }
 
-  FD_LOG_NOTICE(( "test bundle cancelled vote op not applied... ok" ));
+  FD_LOG_NOTICE(( "test lamport-only stake change creates delta... ok" ));
+
+  /* Test: a change outside the cached delegation fields must still
+     create a fork delta. */
+  {
+    reset_world();
+    fd_pubkey_t stake_acct = { .ul[0] = 0x53544B454D455441UL };
+    fd_pubkey_t vote_acct  = { .ul[0] = 0x564F54454D455441UL };
+    uchar prior_data[ FD_STAKE_STATE_SZ ] = {0};
+    uchar data      [ FD_STAKE_STATE_SZ ] = {0};
+    FD_STORE( fd_stake_state_t, prior_data, ((fd_stake_state_t){
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = { .meta = { .staker = stake_acct, .withdrawer = stake_acct },
+                 .stake = { .delegation = { .voter_pubkey = vote_acct, .stake = 5UL,
+                                            .activation_epoch = 0UL, .deactivation_epoch = ULONG_MAX,
+                                            .warmup_cooldown_rate = 0.25 } } } }) );
+    fd_memcpy( data, prior_data, sizeof(data) );
+    FD_STORE( long, data + offsetof(fd_stake_state_t, stake.meta.unix_timestamp), 1L );
+
+    fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
+    fd_stake_delegations_root_update( root, &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegation_t const * root_delegation = fd_stake_delegation_root_query( root, &stake_acct );
+    FD_TEST( root_delegation );
+
+    fd_acc_t acc = {
+      .lamports       = 2000000000UL,
+      .data_len       = FD_STAKE_STATE_SZ,
+      .data           = data,
+      .prior_lamports = 2000000000UL,
+      .prior_data_len = FD_STAKE_STATE_SZ,
+      .prior_data     = prior_data,
+    };
+    fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
+    fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
+
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
+
+    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    fd_stake_delegation_t const * updated_delegation = find_visible_stake_delegation( frontier, &stake_acct );
+    FD_TEST( updated_delegation );
+    FD_TEST( updated_delegation!=root_delegation );
+    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+  }
+
+  FD_LOG_NOTICE(( "test stake metadata change creates delta... ok" ));
+
+  /* Test: closing an initialized (never delegated) stake account must
+     not create a removal tombstone. */
+  {
+    reset_world();
+    fd_pubkey_t stake_acct = { .ul[0] = 0x53544B454E4F4445UL };
+    uchar prior_data[ 124UL ] = {0};
+    FD_STORE( uint, prior_data, FD_STAKE_STATE_INITIALIZED );
+
+    fd_acc_t acc = {
+      .lamports       = 0UL,
+      .data_len       = 0UL,
+      .data           = NULL,
+      .prior_lamports = 2000000000UL,
+      .prior_data_len = sizeof(prior_data),
+      .prior_data     = prior_data,
+    };
+    fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
+
+    fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
+    FD_TEST( !fd_stake_delegation_root_query( root, &stake_acct ) );
+
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
+
+    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    FD_TEST( frontier );
+    FD_TEST( !fd_stake_delegation_root_query( root, &stake_acct ) );
+    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+  }
+
+  FD_LOG_NOTICE(( "test nondelegated stake close skips tombstone... ok" ));
 }
 
 int

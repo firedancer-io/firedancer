@@ -14,10 +14,6 @@
 
 static void
 fd_solfuzz_bundle_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  if( runner->bank->new_votes_fork_id!=USHORT_MAX ) {
-    fd_new_votes_evict_fork( fd_bank_new_votes( runner->bank ), runner->bank->new_votes_fork_id );
-    runner->bank->new_votes_fork_id = USHORT_MAX;
-  }
   fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
   fd_progcache_reset( runner->progcache->join );
@@ -45,7 +41,7 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
   /* Initialize bank from input txn bank */
-  fd_banks_clear_bank( runner->banks, runner->bank, 2048UL );
+  fd_banks_clear_bank( runner->banks, runner->bank );
 
   runner->bank->f.slot = slot;
   runner->bank->bank_seq = runner->bank->idx;
@@ -59,7 +55,6 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
 
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( runner->banks );
   runner->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
-  runner->bank->new_votes_fork_id = fd_new_votes_new_fork( fd_bank_new_votes( runner->bank ) );
 
   fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
   runner->bank->f.rbh_lamports_per_sig = txn_bank->rbh_lamports_per_signature;
@@ -182,10 +177,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
   fd_memset( effects->vote_updates, 0, update_max*sizeof(fd_exec_test_vote_update_t) );
   effects->vote_updates_count = 0UL;
 
-  effects->new_votes = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_new_vote_t),
-                                                update_max*sizeof(fd_exec_test_new_vote_t) );
-  if( FD_UNLIKELY( _l>output_end ) ) abort();
-  fd_memset( effects->new_votes, 0, update_max*sizeof(fd_exec_test_new_vote_t) );
+  effects->new_votes       = NULL;
   effects->new_votes_count = 0UL;
 
   fd_runtime_t *       runtime      = runner->runtime;
@@ -299,20 +291,6 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
     effects->vote_updates       = NULL;
     effects->new_votes_count    = 0UL;
     effects->new_votes          = NULL;
-  } else {
-    ushort fork_idx = runner->bank->new_votes_fork_id;
-    uchar iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ] __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN)));
-    fd_new_votes_iter_t * iter = fd_new_votes_iter_init( fd_bank_new_votes( runner->bank ), &fork_idx, 1UL, iter_mem );
-    for( ; !fd_new_votes_iter_done( iter ); fd_new_votes_iter_next( iter ) ) {
-      FD_TEST( effects->new_votes_count<update_max );
-
-      fd_exec_test_new_vote_t * new_vote = &effects->new_votes[effects->new_votes_count++];
-      int is_tombstone;
-      fd_pubkey_t const * pubkey = fd_new_votes_iter_ele( iter, &is_tombstone );
-      new_vote->is_tombstone = !!is_tombstone;
-      fd_memcpy( new_vote->address, pubkey, sizeof(fd_pubkey_t) );
-    }
-    fd_new_votes_iter_fini( iter );
   }
 
   *effects_out = effects;

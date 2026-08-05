@@ -338,6 +338,11 @@ advance_account_batch( fd_ssparse_t *                ssparse,
   ulong avail = fd_ulong_min( data_sz, ssparse->acc_vec_bytes - ssparse->tar.file_bytes_consumed );
   if( FD_UNLIKELY( avail<(4*136UL) ) ) return FD_SSPARSE_ADVANCE_AGAIN;
 
+  /* Prefetch data to reduce cache misses in hot path. */
+  for( ulong i=0UL; i<fd_ulong_min( avail, 4096UL ); i+=64UL ) {
+    __builtin_prefetch( (uchar *)data+i, 0, 0 );
+  }
+
   /* Skip over accounts until we reached EOF or batch is full */
   result->account_batch.batch_cnt = 0;
   ulong off = 0UL;
@@ -374,8 +379,8 @@ advance_account_batch( fd_ssparse_t *                ssparse,
     off = next_off;
   }
 
-  /* Not worth batching if current chunk contains too few accounts. */
-  if( FD_UNLIKELY( result->account_batch.batch_cnt!=FD_SSPARSE_ACC_BATCH_MAX ) ) {
+  /* Skip if no batches to process. */
+  if( FD_UNLIKELY( !result->account_batch.batch_cnt ) ) {
     return FD_SSPARSE_ADVANCE_AGAIN;
   }
 
@@ -448,7 +453,6 @@ advance_account_header( fd_ssparse_t *                ssparse,
   result->account_header.hash       = hdr+104UL;
   result->account_header.slot       = ssparse->slot;
 
-  ssparse->account.owner               = hdr+64UL;
   ssparse->account.data_len            = result->account_header.data_len;
   ssparse->account.data_bytes_consumed = 0UL;
   ssparse->state = FD_SSPARSE_STATE_ACCOUNT_DATA;
@@ -483,7 +487,6 @@ advance_account_data( fd_ssparse_t *                ssparse,
   ssparse->account.data_bytes_consumed += consume;
   result->bytes_consumed                = consume;
 
-  result->account_data.owner    = ssparse->account.owner;
   result->account_data.data_sz  = consume;
   result->account_data.data     = data;
 

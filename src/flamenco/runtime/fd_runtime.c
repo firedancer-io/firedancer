@@ -26,6 +26,8 @@
 #include "program/fd_precompiles.h"
 #include "program/vote/fd_vote_state_versioned.h"
 
+FD_STATIC_ASSERT( MAX_STAKE_WEIGHTS==FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, vat_stake_weights );
+
 /*
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1254-L1258
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1749
@@ -55,7 +57,6 @@ void
 fd_runtime_update_next_leaders( fd_bank_t *          bank,
                                 fd_runtime_stack_t * runtime_stack ) {
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
 
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL ) + 1UL;
@@ -64,7 +65,8 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
 
   fd_top_votes_t const *   top_votes_t_1    = fd_bank_top_votes_t_1_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( top_votes_t_1, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_1, epoch_weights );
+  FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
@@ -73,53 +75,18 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
       slot0,
       slot_cnt,
       stake_weight_cnt,
-      epoch_weights,
-      0UL ) );
+      epoch_weights ) );
   if( FD_UNLIKELY( !leaders ) ) {
     FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
   }
 
-  /* Populate a compressed set of stake weights for a valid leader
-     schedule. */
-  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.next_stake_weights;
-  ulong idx = 0UL;
+  memcpy( runtime_stack->epoch_weights.next_stake_weights, epoch_weights, stake_weight_cnt*sizeof(fd_vote_stake_weight_t) );
+  runtime_stack->epoch_weights.next_stake_weights_cnt = stake_weight_cnt;
 
-  int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
-
-  for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
-    fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
-    fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
-    ulong               stake       = epoch_weights[i].stake;
-
-    if( FD_LIKELY( !needs_compression || fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
-      stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
-      idx++;
-    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
-      stake_weights[ idx-1UL ].stake += stake;
-    } else {
-      stake_weights[ idx ].id_key   = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].vote_key = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].stake    = stake;
-      idx++;
-    }
-  }
-  runtime_stack->epoch_weights.next_stake_weights_cnt = idx;
-
-  /* Produce truncated set of id weights to send to Shred tile for
-     Turbine tree computation. */
   ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
-  ulong excluded_stake = 0UL;
-  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
-    for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
-      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
-    }
-  }
-  staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
+  FD_TEST( staked_cnt<=MAX_STAKE_WEIGHTS );
   memcpy( runtime_stack->epoch_weights.next_id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  runtime_stack->epoch_weights.next_id_weights_cnt      = staked_cnt;
-  runtime_stack->epoch_weights.next_id_weights_excluded  = excluded_stake;
+  runtime_stack->epoch_weights.next_id_weights_cnt = staked_cnt;
 }
 
 void
@@ -128,18 +95,14 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
 
-  ulong epoch     = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL );
-  ulong vat_epoch = fd_slot_to_epoch ( epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
-  ulong slot0     = fd_epoch_slot0   ( epoch_schedule, epoch );
-  ulong slot_cnt  = fd_epoch_slot_cnt( epoch_schedule, epoch );
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-
-  int vat_in_prev = epoch>=vat_epoch+1UL ? 1 : 0;
+  ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL );
+  ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
+  ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, vat_in_prev );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, epoch_weights );
+  FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */
@@ -150,53 +113,18 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
       slot0,
       slot_cnt,
       stake_weight_cnt,
-      epoch_weights,
-      0UL ) );
+      epoch_weights ) );
   if( FD_UNLIKELY( !leaders ) ) {
     FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
   }
 
-  /* Populate a compressed set of stake weights for a valid leader
-     schedule. */
-  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.stake_weights;
-  ulong idx = 0UL;
+  memcpy( runtime_stack->epoch_weights.stake_weights, epoch_weights, stake_weight_cnt*sizeof(fd_vote_stake_weight_t) );
+  runtime_stack->epoch_weights.stake_weights_cnt = stake_weight_cnt;
 
-  int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
-
-  for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
-    fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
-    fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
-    ulong               stake       = epoch_weights[i].stake;
-
-    if( FD_LIKELY( !needs_compression || fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
-      stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
-      idx++;
-    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
-      stake_weights[ idx-1UL ].stake += stake;
-    } else {
-      stake_weights[ idx ].id_key   = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].vote_key = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].stake    = stake;
-      idx++;
-    }
-  }
-  runtime_stack->epoch_weights.stake_weights_cnt = idx;
-
-  /* Produce truncated set of id weights to send to Shred tile for
-     Turbine tree computation. */
   ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
-  ulong excluded_stake = 0UL;
-  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
-    for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
-      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
-    }
-  }
-  staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
+  FD_TEST( staked_cnt<=MAX_STAKE_WEIGHTS );
   memcpy( runtime_stack->epoch_weights.id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  runtime_stack->epoch_weights.id_weights_cnt      = staked_cnt;
-  runtime_stack->epoch_weights.id_weights_excluded = excluded_stake;
+  runtime_stack->epoch_weights.id_weights_cnt = staked_cnt;
 }
 
 /******************************************************************************/
@@ -204,11 +132,11 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 /******************************************************************************/
 
 /* Validates the fee collector account before depositing fees.  Returns
-   0 on success.  Returns 1 if the fee collector is not owned by the
-   system program or if the fee collector's rent state transition is
-   invalid.
+   0 on success.  Returns 1 (fee is burned) if the fee collector is not
+   owned by the system program, the deposit overflows the collector's
+   balance, or the rent state transition is invalid.
 
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L230 */
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/runtime/src/bank/fee_distribution.rs#L205-L229 */
 static int
 fd_runtime_validate_fee_collector( fd_bank_t const * bank,
                                    fd_acc_t const *  collector,
@@ -218,10 +146,11 @@ fd_runtime_validate_fee_collector( fd_bank_t const * bank,
   /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L208 */
   if( FD_UNLIKELY( memcmp( collector->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L229 */
+  /* Lamport overflow burns the fee.
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/runtime/src/bank/fee_distribution.rs#L210-L214 */
   ulong pre_balance = collector->lamports;
   ulong post_balance;
-  FD_TEST( !__builtin_uaddl_overflow( pre_balance, fee, &post_balance ) );
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( pre_balance, fee, &post_balance ) ) ) return 1;
 
   return !!fd_executor_check_static_account_rent_state_transition(
     pre_balance,
@@ -230,6 +159,36 @@ fd_runtime_validate_fee_collector( fd_bank_t const * bank,
     &bank->f.rent,
     FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check )
   );
+}
+
+/* Validates an external SIMD-0232 block revenue collector after the
+   fee reward has been added.  Returns 0 to deposit, 1 to burn.  The
+   vote account itself is always valid and must not be passed here.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L231-L270 */
+
+static int
+fd_runtime_validate_block_revenue_collector( fd_bank_t const *   bank,
+                                             fd_pubkey_t const * collector_id,
+                                             ulong               pre_lamports,
+                                             fd_acc_t const *    collector ) {
+  /* Must be a system program owned account. */
+  if( FD_UNLIKELY( memcmp( collector->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
+
+  /* Must not be a reserved account. */
+  if( FD_UNLIKELY( fd_pubkey_is_active_reserved_key( collector_id ) ||
+                   fd_pubkey_is_pending_reserved_key( collector_id ) ) ) return 1;
+
+  /* The incinerator is exempt from the rent check so the deposit
+     always works.  Incinerator funds are burned at the end of the
+     block. */
+  if( FD_UNLIKELY( fd_pubkey_eq( collector_id, &fd_sysvar_incinerator_id ) ) ) return 0;
+
+  /* Must be rent-exempt after the deposit.  With
+     relax_post_exec_min_balance_check (SIMD-0392) a pre-existing
+     account may stay rent-paying. */
+  int is_rent_exempt = collector->lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, collector->data_len );
+  return !is_rent_exempt &&
+         ( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) || !pre_lamports );
 }
 
 /* fd_runtime_settle_fees settles transaction fees accumulated during a
@@ -263,13 +222,52 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
     fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, bank->f.slot );
     if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
 
+    /* Per SIMD-0232, the fee reward goes to the leader's block revenue
+       collector from the vote account state the leader schedule was
+       derived from (captured entering the previous epoch, tag
+       epoch-1); default is the leader identity.
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L121-L148 */
+    int custom_commission_collector = FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector );
+
+    fd_pubkey_t const * collector_id = leader;
+    fd_pubkey_t const * leader_vote  = NULL;
+    fd_pubkey_t         override_collector;
+    if( custom_commission_collector ) {
+      leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
+      if( FD_UNLIKELY( !leader_vote ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get_vote(%lu) returned NULL", bank->f.slot ));
+      int flags = fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
+                                                bank->collector_overrides_fork_id,
+                                                fd_ulong_sat_sub( bank->f.epoch, 1UL ),
+                                                leader_vote,
+                                                NULL,
+                                                &override_collector );
+      if( FD_UNLIKELY( flags & FD_COLLECTOR_OVERRIDE_BLOCK ) ) collector_id = &override_collector;
+    }
+
     /* Pay out reward portion of collected fees (increasing capitalization) */
     fd_accdb_svm_update_t update[1];
-    fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, leader, 1 );
-    if( FD_UNLIKELY( fd_runtime_validate_fee_collector( bank, &acc, fee_reward ) ) ) {  /* validation failed */
-      FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
+    fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, collector_id, 1 );
+    int burn;
+    if( custom_commission_collector ) {
+      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L184-L204 */
+      ulong post_balance;
+      burn = __builtin_uaddl_overflow( acc.lamports, fee_reward, &post_balance );
+      if( FD_LIKELY( !burn ) ) {
+        acc.lamports = post_balance;
+        /* The vote account itself is always a valid collector. */
+        if( !fd_pubkey_eq( collector_id, leader_vote ) ) {
+          burn = fd_runtime_validate_block_revenue_collector( bank, collector_id, update->lamports_before, &acc );
+        }
+      }
+      if( FD_UNLIKELY( burn ) ) acc.lamports = update->lamports_before;
     } else {
-      acc.lamports += fee_reward; /* guaranteed to not overflow, checked above */
+      burn = fd_runtime_validate_fee_collector( bank, &acc, fee_reward );
+      if( FD_LIKELY( !burn ) ) {
+        acc.lamports += fee_reward; /* guaranteed to not overflow, checked above */
+      }
+    }
+    if( FD_UNLIKELY( burn ) ) {
+      FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
     }
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   }
@@ -477,8 +475,8 @@ deprecate_rent_exemption_threshold( fd_bank_t *        bank,
   /* We don't refresh the sysvar cache here. The cache is refreshed in
      fd_sysvar_cache_restore, which is called at the start of every
      block in fd_runtime_block_execute_prepare, after this function. */
-  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
   bank->f.rent = rent;
+  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
 }
 
 static void
@@ -489,8 +487,8 @@ set_lamports_per_byte( fd_bank_t *        bank,
   fd_rent_t rent = bank->f.rent;
   rent.lamports_per_uint8_year = lamports_per_byte;
 
-  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
   bank->f.rent = rent;
+  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
 }
 
 // https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391
@@ -615,9 +613,28 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
-  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "stake_delegations is NULL" ));
+  }
+
+  /* Wipe WARMED tags awarded under the old floating point math when the
+     fixed point math activates.  This will force all the effective
+     stakes to be re-computed using the post-activation math.
+     Unfortunately, one wipe at the activation boundary is not enough.
+     The consensus root lags the replay frontier.  So
+     post-activation/post-boundary, when the unrooted pre-activation
+     blocks root and their deltas are applied into the root, their
+     pre-activation tags will also leak into the root pool.  So the
+     award sites record whether any live WARMED tag might have been
+     computed with the pre-activation floating point math, and we wipe
+     whenever that is the case.  We expect the invalidation to fire
+     exactly twice: at the activation boundary and at the first boundary
+     after it, unless some extremely sparse epochs happen after
+     activation.  Tags are only used at boundaries for now, and this
+     runs before any use. */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) && stake_delegations->fp_warmed_awarded ) ) {
+    fd_stake_delegations_invalidate_warmed( stake_delegations );
   }
 
   fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations,
@@ -684,7 +701,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *         banks,
       *is_epoch_boundary = 0;
     }
 
-    fd_distribute_partitioned_epoch_rewards( bank, accdb, capture_ctx );
+    fd_distribute_partitioned_epoch_rewards( banks, bank, accdb, runtime_stack, capture_ctx );
   } else {
     *is_epoch_boundary = 0;
   }
@@ -862,7 +879,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
      TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
-     be moved in the future. The Agave call heirarchy looks something like this:
+     be moved in the future. The Agave call hierarchy looks something like this:
             process_single_slot
                    v
             confirm_full_slot
@@ -895,11 +912,17 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* Set up the transaction accounts and other txn ctx metadata. This
      also resolves ALUT-referenced account keys and validates account
-     locks before accounts are acquired.  Bundle txns bind to the pool
-     acquired and validated once for the whole bundle by
-     fd_runtime_prepare_bundle_accounts and never acquire. */
+     locks before accounts are acquired.  Bundle transactions bind to
+     the pool acquired and validated once for the whole bundle by
+     fd_runtime_prepare_bundle_accounts() and never acquire on a
+     per-transaction basis.  However, the implicit programdata state
+     must be re-derived here per-transaction, and not once up front.  An
+     earlier bundle transaction can deploy a program, which changes
+     whether a pool account parses as a program account, and therefore
+     which PD account is being implicitly accounted for. */
   if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
     fd_executor_setup_accounts_for_txn_bundle( runtime, txn_in, txn_out );
+    err = fd_runtime_setup_bundle_executables( runtime, bank, txn_out );
   } else {
     err = fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
   }
@@ -1036,26 +1059,6 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
       fd_pubkey_t const * pubkey = &txn_out->accounts.keys[ i ];
-
-      /* new_vote/rm_vote feed an ordered op-log (fd_new_votes), not a
-         net-state cache, so they must fire per writable txn before the
-         account_acquired gate below.  In a bundle the accdb ref is
-         owned by a single (last writable) txn, but every writable txn
-         that created/closed a vote account must contribute its op in
-         order so create->delete->recreate replays identically to a
-         per-txn commit.  These flags are left on the txn that set them
-         (not carried), so each fires exactly where the vote program
-         recorded it. */
-      if( FD_UNLIKELY( txn_out->accounts.new_vote[ i ] &&
-                       !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
-        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-        fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
-      }
-      if( FD_UNLIKELY( txn_out->accounts.rm_vote[i] &&
-                       !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
-        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-        fd_new_votes_remove( new_votes, bank->new_votes_fork_id, pubkey );
-      }
 
       /* Only the txn that owns the accdb reference commits the account
          state.  In a bundle, an account is owned by its last writable
@@ -1251,14 +1254,17 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   memset( txn_out->accounts.rm_vote, 0, sizeof(txn_out->accounts.rm_vote) );
   txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
 
-  /* For bundle txns the resolved key list and executable list (incl the
-     provenance/pd_write/skipped-size arrays) are bound once up-front by
-     fd_runtime_prepare_bundle_accounts (before this runs per-txn), so
-     preserve them here.  For a non-bundle txn they are rebuilt in
-     fd_executor_setup_accounts_for_txn, so reset them.
-     executable_cur_len needs no reset: it is written per-element for
-     every i in [0, executable_cnt) before any read (its sentinel is
-     ULONG_MAX, so a zero memset would be wrong anyway). */
+  /* For bundle transactions the resolved key list is bound once up
+     front by fd_runtime_prepare_bundle_accounts() before this runs per
+     transaction, so preserve it here.  The executable list is rebuilt
+     per transaction by fd_runtime_setup_bundle_executables(), which
+     sets every element it reports, so it needs no reset either.  For a
+     non-bundle transaction the executable list is built in
+     fd_executor_setup_accounts_for_txn(), which only writes the entries
+     it acquires, so reset it here.  executable_cur_len needs no reset:
+     it is written per-element for every i in [0, executable_cnt) before
+     any read (its sentinel is ULONG_MAX, so a zero memset would be
+     wrong anyway). */
   if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) {
     memset( txn_out->accounts.executable_from_parent, 0, sizeof(txn_out->accounts.executable_from_parent) );
     memset( txn_out->accounts.executable_pd_write,    0, sizeof(txn_out->accounts.executable_pd_write) );
@@ -1299,7 +1305,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
     }
   }
 
-  /* Transaction sanitization.  If a transaction can't be commited or is
+  /* Transaction sanitization.  If a transaction can't be committed or is
      fees-only, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
   ulong cu_before = txn_out->details.compute_budget.compute_meter;
@@ -1322,7 +1328,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
   }
 }
 
-/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
+/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responsible
    for the bulk of the pre-transaction execution checks in the runtime.
    They aim to preserve the ordering present in the Agave client to match
    parity in terms of error codes. Sigverify is kept separate from the rest
@@ -1467,12 +1473,11 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
     if( !memcmp( account->owner.uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
-         stake delegations cache. We should only add stake accounts that
-         have a valid non-zero stake. */
+         stake delegations cache.  Like Agave, membership is decided by
+         the variant alone: a delegation of zero is still a delegation. */
       fd_stake_state_t const * stake_state = fd_stake_state_view( acc_data, account->data_len );
       if( FD_UNLIKELY( !stake_state ) ) { FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 ); FD_LOG_ERR(( "invalid stake account %s", stake_b58 )); }
       if( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) continue;
-      if( !stake_state->stake.stake.delegation.stake ) continue;
 
       fd_stake_delegations_root_update(
           stake_delegations,
@@ -1530,9 +1535,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
     fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
     fd_memcpy( top_votes_t_2, top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
   }
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  fd_vote_stakes_genesis_fini( vote_stakes );
 
   bank->f.epoch = 0UL;
   bank->f.capitalization = capitalization;
@@ -1893,12 +1895,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   fd_pubkey_t   programdata_keys[ FD_BUNDLE_ACCT_MAX ];
   uchar const * pd_pubkeys      [ FD_BUNDLE_ACCT_MAX ];
   int           pd_writable     [ FD_BUNDLE_ACCT_MAX ];
-  int           pd_probe_write  [ FD_BUNDLE_ACCT_MAX ]; /* current-fork pd_write probe, per acquire_b pool entry */
-  ulong         pd_probe_len    [ FD_BUNDLE_ACCT_MAX ]; /* current-fork committed size (ULONG_MAX = no gen-match) */
   ulong         pd_cnt = 0UL;
-  fd_pubkey_t   skip_keys[ FD_BUNDLE_ACCT_MAX ]; /* deployed-this-slot programdata: size-only accounting */
-  ulong         skip_lens[ FD_BUNDLE_ACCT_MAX ];
-  ulong         skip_cnt = 0UL;
 
   FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
 
@@ -1910,25 +1907,11 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
 
     fd_pubkey_t const * programdata_key = &program_loader_state->inner.program.programdata_address;
-    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
-      /* Deployed this slot: no parent copy to acquire, but Agave still
-         counts its current-fork size toward loaded-accounts-data-size
-         before the invoke fails.  Record for the binding loop below
-         (mirrors the single-txn skipped-key probe). */
-      int   skip_pd  = 0;
-      ulong skip_len = 0UL;
-      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len ) ) {
-        int dup = 0;
-        for( ulong u=0UL; u<skip_cnt; u++ ) if( FD_UNLIKELY( !memcmp( skip_keys[ u ].uc, programdata_key->uc, 32UL ) ) ) { dup = 1; break; }
-        if( !dup ) {
-          FD_TEST( skip_cnt<FD_BUNDLE_ACCT_MAX );
-          skip_keys[ skip_cnt ] = *programdata_key;
-          skip_lens[ skip_cnt ] = skip_len;
-          skip_cnt++;
-        }
-      }
-      continue;
-    }
+    /* PD is not live as of the parent, so there is nothing to acquire
+       from the parent.  We will still need its latest length for loaded
+       accounts data size, but that is taken care of per transaction by
+       fd_runtime_setup_bundle_executables() without acquiring. */
+    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) continue;
 
     /* Already part of the transaction account pool, or already queued. */
     if( reuse_bundle_executable( runtime, programdata_key ) ) continue;
@@ -1952,68 +1935,123 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   }
   runtime->accounts.executable_cnt = pd_cnt;
 
-  for( ulong u=0UL; u<pd_cnt; u++ ) {
-    int   pd  = 0;
-    ulong len = ULONG_MAX;
-    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pd_pubkeys[ u ], &pd, &len );
-    pd_probe_write[ u ] = pd;
-    pd_probe_len  [ u ] = len;
-  }
-
-  /* Bind each txn's BPF-upgradeable programdata accounts to the shared
-    pre-acquired pool, once and for all here.  This is the per-txn
-    executable list consumed during execution; computing it up-front
-    (instead of per-txn in fd_executor_setup_accounts_for_txn_bundle)
-    avoids redoing the program-state inspection on every txn.  The
-    accounts are looked up in the shared pool by key, since per-txn
-    account[] pointers are not bound until setup.  fd_runtime_new_txn_out
-    preserves these fields for bundle txns. */
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_out_t * txn_out = &txn_outs[ i ];
-    ushort         exe_cnt = 0;
-    txn_out->accounts.executable_skipped_cnt = 0;
-    for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {
-      fd_acc_t * acc = reuse_bundle_executable( runtime, &txn_out->accounts.keys[ j ] );
-      if( FD_UNLIKELY( !acc ) ) continue;
-      if( FD_UNLIKELY( memcmp( acc->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
-      fd_bpf_state_t program_loader_state[1];
-      if( FD_UNLIKELY( fd_bpf_loader_program_get_state( acc, program_loader_state )!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
-      if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
-
-      fd_acc_t * programdata = reuse_bundle_executable( runtime, &program_loader_state->inner.program.programdata_address );
-      if( FD_UNLIKELY( !programdata ) ) {
-        /* Deployed this slot (no parent copy, no pool binding): forward
-           the size-only record so fd_collect_loaded_account still counts
-           it, as Agave does before the DelayVisibility failure. */
-        for( ulong u=0UL; u<skip_cnt; u++ ) {
-          if( FD_UNLIKELY( !memcmp( skip_keys[ u ].uc, program_loader_state->inner.program.programdata_address.uc, 32UL ) ) ) {
-            ushort s = txn_out->accounts.executable_skipped_cnt++;
-            txn_out->accounts.executable_skipped_key[ s ] = skip_keys[ u ];
-            txn_out->accounts.executable_skipped_len[ s ] = skip_lens[ u ];
-            break;
-          }
-        }
-        continue;
-      }
-      int from_parent = ( programdata>=runtime->accounts.executable ) &&
-                        ( programdata< runtime->accounts.executable+runtime->accounts.executable_cnt ) &&
-                        ( bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val );
-      txn_out->accounts.executable[ exe_cnt ]             = programdata;
-      txn_out->accounts.executable_from_parent[ exe_cnt ] = from_parent;
-      if( from_parent ) {
-        ulong pool_idx = (ulong)( programdata - runtime->accounts.executable );
-        txn_out->accounts.executable_pd_write[ exe_cnt ] = pd_probe_write[ pool_idx ];
-        txn_out->accounts.executable_cur_len[ exe_cnt ]  = pd_probe_len  [ pool_idx ];
-      } else {
-        txn_out->accounts.executable_pd_write[ exe_cnt ] = 0;
-        txn_out->accounts.executable_cur_len[ exe_cnt ]  = ULONG_MAX;
-      }
-      exe_cnt++;
-    }
-    txn_out->accounts.executable_cnt = exe_cnt;
-  }
-
   return FD_RUNTIME_EXECUTE_SUCCESS;
 
 # undef FD_BUNDLE_ACCT_MAX
+}
+
+int
+fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
+                                     fd_bank_t *    bank,
+                                     fd_txn_out_t * txn_out ) {
+  FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
+
+  ushort exe_cnt = 0;
+  txn_out->accounts.executable_skipped_cnt = 0;
+  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+    /* The checks below mimic the ones in the non-bundle path.  The
+       difference is only the source of state as of this transaction.
+       Here it's from the live pool when possible, and in the non-bundle
+       path it's from the accdb. */
+    fd_acc_t * acc = txn_out->accounts.account[ i ]; /* This has gone through zero-lamport reset by fd_executor_setup_accounts_for_txn_bundle(). */
+    if( FD_LIKELY( memcmp( acc->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
+    fd_bpf_state_t program_loader_state[1];
+    if( FD_UNLIKELY( fd_bpf_loader_program_get_state( acc, program_loader_state )!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
+    if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
+
+    fd_pubkey_t const * programdata_key = &program_loader_state->inner.program.programdata_address;
+
+    /* Declared PD is charged as a plain top-level transaction account
+       and is preferred by fd_runtime_get_executable_account(). */
+    if( FD_UNLIKELY( fd_runtime_find_index_of_account( txn_out, programdata_key )!=ULONG_MAX ) ) continue;
+
+    fd_acc_t * programdata = reuse_bundle_executable( runtime, programdata_key );
+
+    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
+      /* PD is not live as of the parent.  Length only, and no
+         executable[] entry, so the loader reports "Program is not
+         deployed" exactly as the non-bundle path does.  The non-bundle
+         path takes the length from the latest accdb view committed on
+         this fork.  The equivalent here is the live pool copy, which an
+         earlier bundle transaction may have created, resized or
+         drained. */
+      ulong skip_len;
+      if( FD_LIKELY( programdata ) ) {
+        /* A dead PD must contribute nothing to loaded accounts data
+           size.  Like every other consumer, the lamports need to be
+           checked first.  The pool copy that programdata points to has
+           an up to date lamports, but it is not necessarily otherwise
+           normalized: zero length, non-executable, and system-owned.
+           The reset in setup_accounts_for_txn_bundle() only covers the
+           declared accounts of the transaction.  If PD were declared,
+           it would have short circuited above.  So an in-bundle Close
+           leaves PD here at zero lamports with length at
+           SIZE_OF_UNINITIALIZED. */
+        skip_len = programdata->lamports ? programdata->data_len : 0UL;
+      } else {
+        /* At this point, this PD
+           - has no pool copy, so no bundle transaction declares PD, and
+           - it is not live on the parent.
+
+           So PD was created this slot by something outside the bundle,
+           and only the latest accdb view has the length we need for
+           accounting. */
+        int   probe_pd  = 0;
+        ulong probe_len = 0UL;
+        ulong probe_lamports = 0UL;
+        if( FD_UNLIKELY( !fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &probe_pd, &probe_len, &probe_lamports ) ) ) continue;
+        skip_len = probe_len;
+      }
+      ushort s = txn_out->accounts.executable_skipped_cnt++;
+      txn_out->accounts.executable_skipped_key[ s ] = *programdata_key;
+      txn_out->accounts.executable_skipped_len[ s ] = skip_len;
+      continue;
+    }
+
+    /* At this point, PD exists in the parent.  So prepare() must have
+       acquired PD, either in accounts[] if a bundle transaction
+       declares it, or in executable[] aka implied load from the parent.
+       A miss would imply that a pool account only began parsing as
+       Program{PD} after prepare() computed the acquire set, naming a PD
+       no bundle transaction declares.  This should not be possible,
+       because only the DeployWithMaxDataLen instruction writes
+       Program{PD}.  The instruction declares PD, and its CreateAccount
+       CPI cannot succeed against a PD that is already live on the
+       parent.  We cannot acquire the PD at this point, since a
+       mid-bundle acquire of an account the bundle might be holding as
+       writable would violate the accdb acquire contract.  So fail the
+       bundle. */
+    if( FD_UNLIKELY( !programdata ) ) {
+      FD_BASE58_ENCODE_32_BYTES( programdata_key->uc, pd_str );
+      FD_BASE58_ENCODE_64_BYTES( txn_out->details.signature.uc, sig_str );
+      FD_LOG_INFO(( "dropping bundle: bundle txn %s in slot %lu implies unacquired programdata %s", sig_str, bank->f.slot, pd_str ));
+      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+    }
+
+    int from_parent = ( programdata>=runtime->accounts.executable ) &&
+                      ( programdata< runtime->accounts.executable+runtime->accounts.executable_cnt ) &&
+                      ( bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val );
+    txn_out->accounts.executable[ exe_cnt ]             = programdata;
+    txn_out->accounts.executable_from_parent[ exe_cnt ] = from_parent;
+    if( from_parent ) {
+      /* A from_parent copy is one no bundle transaction declared, hence
+         one no bundle transaction could have modified, because mutating
+         PD requires declaring it writable.  So the probe from accdb
+         reports the latest state that we need. */
+      int   pd  = 0;
+      ulong len = ULONG_MAX;
+      ulong lamports = 0UL;
+      fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &pd, &len, &lamports );
+      txn_out->accounts.executable_pd_write    [ exe_cnt ] = pd;
+      txn_out->accounts.executable_cur_len     [ exe_cnt ] = len;
+      txn_out->accounts.executable_cur_lamports[ exe_cnt ] = lamports;
+    } else {
+      txn_out->accounts.executable_pd_write    [ exe_cnt ] = 0;
+      txn_out->accounts.executable_cur_len     [ exe_cnt ] = ULONG_MAX;
+      txn_out->accounts.executable_cur_lamports[ exe_cnt ] = 0UL;
+    }
+    exe_cnt++;
+  }
+  txn_out->accounts.executable_cnt = exe_cnt;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }

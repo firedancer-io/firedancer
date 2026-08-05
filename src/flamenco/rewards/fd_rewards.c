@@ -15,6 +15,195 @@
 
 #include <math.h>
 
+/* A note on the calculation of points for inflation rewards at the
+   epoch boundary.
+
+   As of today there are more than 1.5 million stake delegations on
+   mainnet (1,583,562 at the 987->988 boundary).  Each and every one of
+   them could in theory earn some lamports of inflation rewards, so at
+   the boundary each and every delegation is looked at to compute its
+   share.  A delegation's share is directly proportional to its
+   "points", and the points are essentially the area under a curve where
+   the y axis is the delegation's effective stake and the x axis is the
+   monotonically increasing vote credits.
+
+     points = SUM over eligible epochs e of ( effective(e) * credits_owed(e) )
+
+   There are two dimensions to this summation formula.  (1) A vote
+   account monotonically ticks up its vote credit as it votes, and
+   records its per-epoch credit history as (epoch,final,initial) tuples,
+   where the [initial,final] ranges are contiguous and non-overlapping.
+   That is to say, initial[n]=final[n-1].  A stake delegation stores a
+   watermark, credits_observed, of how far it has already been paid
+   along the corresponding vote account's credit history.  What the
+   stake delegation is owed for an epoch is the part of that epoch's
+   [initial,final] that sits above the credits_observed.  The credit
+   history is capped at 64 epochs, so the sum is never more than 64
+   terms long.  The epochs that overlap [credits_observed,final[last]]
+   are the ones that contribute to the sum.  This is the x axis.  (2)
+   Delegated stake ramps up to the full delegated amount over one or
+   more epochs when it's activating, and ramps down gradually to 0 when
+   it's deactivating.  So the effective stake at an epoch, aka
+   effective(e), is not always simply the delegated amount.  Computing
+   effective(e) involves running a simulation of the ramp, encoded in
+   the activating_and_deactivating() function.  This is the y axis.
+
+     stake |        ______________P________________
+           |       /                               \
+           | L   U/  warmup               cooldown  \D     R
+         0 |_____/                                   \____________
+           +-----+---------------------------------+--------------->  vote credits
+            activation         activated          deactivation    cooled down
+            (ramps up)   (effective=delegated)    (ramps down)    (effective=0)
+
+   So under a reference implementation, the worst case is 64 effective()
+   computations per delegation.  The delegations that tend to hit this
+   case are dust delegations, either activated or deactivated, whose
+   tiny or zero points share keeps rounding their rewards down to zero.
+   As a result, reward doesn't pay out to a dust delegation, so it never
+   advances its credits_observed, and over time it gets pegged at the
+   worst case 64-term sum.  Roughly 14% of delegations are multi-term
+   evaluations like this, and they account for ~89% (11.3M of 12.6M) of
+   all the effective() invocations the points pass does.  A minority of
+   delegations demanding the overwhelming majority of work, and they
+   barely get any rewards, if at all.
+
+   The good news is that the shape of the warmup/cooldown curve isn't
+   arbitrary.  Observe that within a given boundary, a delegation's
+   (activation_epoch,deactivation_epoch,stake) are fixed, and on this
+   frozen tuple the effective stake curve is a single hump aka at most
+   one peak.  The plot above shows the fullest warmup/cooldown curve
+   within a boundary.  It rises during warmup (U) from 0 (L,
+   epoch<=activation), sits on a flat plateau (P) at exactly the height
+   of delegated stake, optionally ramps back down (D) after
+   deactivation, and rests on a flat zero floor (R).  It never goes down
+   and then back up within a given boundary.  In practice, the summation
+   usually runs over just a subsection of this full curve.  Depending on
+   which of the five zones {L,U,P,D,R} the first and the last
+   contributing terms (the "o"s below) sit on the warmup/cooldown curve,
+   there can be up to 15 unique possible subsection spans.  As of the
+   987->988 boundary, the following three cases cover almost the entire
+   points pass of a reference implementation.  The other spans are
+   either rare or already cheap to evaluate.  We exploit the shape of
+   each case to short circuit step-by-step summation.
+
+   Case 1: Every contributing term sits on the zero floor.  The
+   delegation deactivated at or before the epoch its watermark froze.
+   This is the common fate of deactivated and abandoned dust stake whose
+   reward payout stopped at deactivation.  This accounts for 79.8% of
+   the effective() invocations and 88.4% of the effective() iterations
+   in the points pass.  This is the R->R span.
+
+           stake |
+                 |
+               0 | o--o--o--o--o
+                 '--------------->  vote credits
+                   ^ every contributing term sits past full deactivation
+
+   Case 2: The contributing terms straddle the hump.  A few terms ride
+   the hump, and the rest sit on the zero floor.  This accounts for just
+   0.05% of the effective() invocations and 0.04% of the effective()
+   iterations in the points pass.  This is a tiny population (230
+   delegations) but catching the 0-tail of this case is a free side
+   effect of trying to short circuit Case 1.  This is the {L,U,P,D}->R
+   spans.
+
+           stake | o--o--.
+                 |        \
+               0 |         o--o--o
+                 '----------------->  vote credits
+                           ^ first full deactivation term
+
+   Case 3: Every contributing term sits on the plateau.  The delegation
+   is fully activated and, almost always, never deactivated.  This is
+   the fate of activated dust whose reward keeps rounding down to zero
+   while its vote account keeps voting.  This accounts for 19.8% of the
+   effective() invocations and 11.6% of the effective() iterations in
+   the points pass.  This is the P->P span.  As a side note, P->P also
+   includes a small sliver, ~14.8K delegations here, that deactivated no
+   earlier than the epoch of its last contributing term.  The stake is
+   still fully effective at the deactivation epoch itself.  The fast
+   path below doesn't cover these.
+
+           stake | o--o--o--o--o
+                 |
+               0 |________________
+                 '--------------->  vote credits
+
+   We try to short circuit multi-term Cases 1 and 3, as well as the
+   multi-term tail floor of Case 2.  The short circuit conditions do not
+   have to be fully precise, they just need to be conservative but not
+   overly conservative and ideally cheap so as to net a performance win
+   for most of the case population.
+
+   Further observe that the vast majority (84%, 1.33M of 1.58M) of stake
+   delegations have an up-to-date (>=initial[last]) credits watermark
+   and they are almost all either single-term Case 1 or single-term Case
+   3.  We fast path 1.27M of these with delegation state tags.  The
+   small delta is almost entirely fresh delegations in the just-ended
+   epoch.
+
+   Note that VAT doesn't make the problem of dust points go away.  If we
+   were to apply VAT on the 987->988 boundary, 96.3% of effective() and
+   98.5% of iterations in effective() would still survive.
+   Unfortunately, there's just a lot of abandoned dust stake pointing at
+   validators that are still live and voting.
+
+   ===
+
+   For the data minded, the full census of the possible spans at the
+   reference points pass of the 987->988 boundary:
+
+     span   delegations    invocations            iterations
+     R->R       182,920     10,067,849 (79.8%)    14,585,005 (88.4%)  Case 1
+     P->R           225          5,745 (0.05%)         6,902 (0.04%)  Case 2
+     L->R             5            164                     0          Case 2
+     P->P     1,327,803      2,500,408 (19.8%)     1,905,636 (11.6%)  Case 3
+     L->L        49,087         49,087 (0.4%)              0
+     L->P             3             42                    11
+     other            0              0                     0
+     none        23,519              0                     0
+     total    1,583,562     12,623,295            16,497,554
+
+   The L->L span is fresh delegations from the just-ended epoch.  Their
+   contributing term sits at or before the activation epoch, so every
+   effective() invocation early exits from the all-activating branch
+   without entering the simulation loop, hence zero iterations.  "other"
+   is the nine spans that include either the U or D ramp zones.  They
+   are all empty, because under today's mainnet warmup/cooldown budget
+   both ramps complete in a single epoch step, so no term ever observes
+   a partially warmed or partially cooled stake.  "none" is delegations
+   with no contributing terms, i.e. their watermark already caught up to
+   the vote credits.
+
+   And broken down by how much each fast/slow path covers:
+
+     span  fast/slow path                delegations  invocations   iterations
+     P->P  single-term state tag           1,268,371 /  1,268,371 /  1,094,607
+           single-term effective()            12,745 /     12,745 /     12,265
+           multi-term is_warmed_plateau()     44,683 /  1,179,761 /    777,412
+           slow path                           2,004 /     39,531 /     21,352
+     R->R  early exit at 0-tail              181,263 / 10,066,192 / 14,581,965
+           single-term state tag                  22 /         22 /         22
+           single-term effective()             1,635 /      1,635 /      3,018
+     L->L  single-term effective()            49,006 /     49,006 /          0
+           single-term state tag                  81 /         81 /          0
+     P->R  early exit at 0-tail                  225 /      5,745 /      6,902
+     L->R  early exit at 0-tail                    5 /        164 /          0
+     L->P  slow path                               3 /         42 /         11
+
+   The single-term effective() branch gets taken on state tag misses,
+   including fresh L->L delegations whose tag is still WARMING/UNKNOWN,
+   P->P stakes that deactivated during the rewarded epoch (tag COOLING,
+   though every term is still fully effective) or whose delinquent
+   vote's last credit entry predates the rewarded epoch, and a few stale
+   R->R.  The 81 L->L state tag hits are accounts that delegated and
+   deactivated in the same epoch because activation==deactivation
+   classifies as COOLED with effective 0.  The P->P slow path is taken
+   by multi-term stakes that deactivated no earlier than their last
+   contributing term, so they get rejected by is_warmed_plateau() and
+   the 0-tail exit doesn't happen either. */
+
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
 total( fd_inflation_t const * inflation, double year ) {
@@ -33,7 +222,10 @@ static double
 validator( fd_inflation_t const * inflation, double year) {
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/src/inflation.rs#L96-L99 */
   FD_LOG_DEBUG(("Validator Rate: %.16f %.16f %.16f %.16f %.16f", year, total( inflation, year ), foundation( inflation, year ), inflation->taper, inflation->initial));
-  return total( inflation, year ) - foundation( inflation, year );
+  /* We need 2 independent rounded ops like in Agave. Volatile blocks FMA contraction.
+     https://github.com/anza-xyz/solana-sdk/blob/inflation%40v3.1.1/inflation/src/lib.rs#L105-L116 */
+  volatile double foundation_portion = foundation( inflation, year );
+  return total( inflation, year ) - foundation_portion;
 }
 
 /* Calculates the starting slot for inflation from the activation slot. The activation slot is the earliest
@@ -89,12 +281,109 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
                                                    inflation_start_slot, inflation_start_slot + num_slots );
 }
 
-/* For a given stake and vote_state, calculate how many points were earned (credits * stake) and new value
-   for credits_observed were the points paid
+/* Returns 1 if effective stake is clearly a warmed plateau.
 
-    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L109 */
+   This function seeks to conservatively prove that the given stake has
+   effective=delegated throughout its entire multi-term points
+   calculation.  Concretely, this boils down to the following.
+
+   - The stake is not slated for deactivation.  This removes the
+     downramp.
+   - The first contributing epoch is > the activation epoch.
+   - The stake easily activated at activation epoch+1.  This removes the
+     upramp.
+
+   These conditions constrain the warmup/cooldown curve to a flat
+   plateau at effective=delegated.  What makes this conservative is that
+   there could be false negatives only: this function says that a stake
+   is not a multi-term plateau when in fact it is.  We do a single-step
+   warmup simulation in this function, and the stake is rejected if it
+   failed to easily warm up in a single epoch one past the activation
+   epoch.  So a stake that took >=2 epochs to warm up may well be fully
+   warmed up by the time of its first contributing epoch.  We make this
+   tradeoff because this function is meant to be a fast detector and in
+   practice most stake activate quickly under today's mainnet warmup
+   budget.  Another case of false negative rejections is for multi-term
+   stakes that deactivated no earlier than the last contributing epoch.
+   We could easily eliminate this class of false negatives by passing in
+   the last contributing epoch and comparing against deactivation epoch.
+   We make this tradeoff because this class is empirically small and
+   this function becomes that much easier to reason about by virtue of
+   cleanly eliminating the deactivation simulation. */
+static inline int
+is_warmed_plateau( fd_stake_delegation_t const * stake,
+                   ulong                         first_contributing_epoch,
+                   fd_stake_history_t const *    stake_history,
+                   ulong *                       new_rate_activation_epoch,
+                   int                           use_fixed_point_stake_math ) {
+  /* Slated for deactivation. */
+  if( stake->deactivation_epoch!=USHORT_MAX ) return 0;
+
+  /* is_bootstrap(): https://github.com/solana-program/stake/blob/interface%40v4.3.1/interface/src/state.rs#L892
+     Stake activated as per protocol. */
+  if( stake->activation_epoch==USHORT_MAX ) {
+    return 1;
+  }
+
+  ulong ae = stake->activation_epoch;
+  if( ae>=first_contributing_epoch ) return 0;
+
+  /* Dropped out of history: https://github.com/solana-program/stake/blob/interface%40v4.3.1/interface/src/state.rs#L969
+     Stake activated as per protocol. */
+  fd_stake_history_entry_t const * e = fd_sysvar_stake_history_query( stake_history, ae );
+  if( FD_UNLIKELY( !e ) ) {
+    return 1;
+  }
+
+  /* Note that e may not actually be epoch ae's entry on a
+     non-contiguous window.  That is fine here because the reference
+     simulation's first step reads the exact same entry via the exact
+     same query and the exact same allowance function below, and
+     acceptance means the simulation completes warmup on that first
+     step, before reading any other entry.  Similarly, the NULL return
+     from the query above may also be spurious, and that's fine because
+     Agave also just assumes fully effective. */
+
+  /* Agave claims this is a "should have been fully effective" branch.
+     Practically this branch probably won't be taken and so we will
+     conservatively reject the fast path in this branch. */
+  if( FD_UNLIKELY( e->activating==0UL ) ) return 0;
+
+  /* Run a single-step simulation and see if stake easily activated. */
+  ulong newly_effective;
+  if( use_fixed_point_stake_math ) {
+    newly_effective = fd_ulong_max( fd_stake_calculate_activation_allowance( ae+1UL, stake->stake, e, new_rate_activation_epoch ), 1UL );
+  } else {
+#if FD_HAS_DOUBLE
+    newly_effective = fd_ulong_max( fd_stake_calculate_change_allowance_float( ae+1UL, stake->stake, e->activating, e->effective, new_rate_activation_epoch ), 1UL );
+#else
+    return 0;
+#endif
+  }
+  if( newly_effective>=stake->stake ) {
+    return 1;
+  }
+  return 0;
+}
+
+/* Inverted activation and deactivation epochs shouldn't really be
+   possible on delegations created by the stake program.  To be safe, we
+   will fall back to the slow path if any of these are detected. */
+static inline int
+stake_epochs_are_normal( fd_stake_delegation_t const * stake ) {
+  return stake->activation_epoch==USHORT_MAX   ||
+         stake->deactivation_epoch==USHORT_MAX ||
+         stake->activation_epoch<=stake->deactivation_epoch;
+}
+
+/* For a given stake and epoch credit history, calculate how many
+   points, aka (credits * stake) were earned and the new value for
+   credits_observed if the points were to materialize to non-zero
+   inflation rewards.
+
+   https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L109 */
 static void
-calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits,
+calculate_stake_points_and_credits( fd_epoch_credits_t const *     epoch_credits,
                                     fd_stake_history_t const *     stake_history,
                                     fd_stake_delegation_t const *  stake,
                                     ulong *                        new_rate_activation_epoch,
@@ -119,7 +408,7 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
   }
 
   /* If the Vote account has the same amount of credits observed as the Stake account,
-      then the Vote account hasn't earnt any credits and so there is nothing to update.
+      then the Vote account hasn't earned any credits and so there is nothing to update.
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L148 */
   if( FD_UNLIKELY( credits_in_vote == credits_in_stake ) ) {
@@ -129,6 +418,8 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
     return;
   }
 
+  int coalesce_eligible = stake_epochs_are_normal( stake ) && epoch_credits->fast_path_ok;
+
   /* Calculate the points for each epoch credit */
   uint128 points               = 0;
   ulong   new_credits_observed = credits_in_stake;
@@ -137,11 +428,10 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
     ulong final_epoch_credits   = base + epoch_credits->credits_delta[ i ];
     ulong initial_epoch_credits = base + epoch_credits->prev_credits_delta[ i ];
 
-    /* Vote account credits can only increase or stay the same, so
-       initial_epoch_credits <= final_epoch_credits always holds. */
-    FD_TEST( initial_epoch_credits<=final_epoch_credits );
+    /* All production inputs should satisfy
+       initial_epoch_credits <= final_epoch_credits
 
-    /* If final_epoch_credits <= credits_in_stake, then:
+       If final_epoch_credits <= credits_in_stake, then:
         initial_epoch_credits <= final_epoch_credits <= credits_in_stake
 
        * earned_credits = 0 since both conditions are false.
@@ -150,7 +440,7 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
 
        Since earned_credits = 0 and new_credits_observed stays the same,
        points computation can be skipped. */
-    if( FD_LIKELY( final_epoch_credits<=credits_in_stake ) ) continue;
+    if( FD_LIKELY( epoch_credits->fast_path_ok && final_epoch_credits<=credits_in_stake ) ) continue;
 
     uint128 earned_credits = 0;
     if( FD_LIKELY( credits_in_stake < initial_epoch_credits ) ) {
@@ -161,12 +451,14 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
 
     new_credits_observed = fd_ulong_max( new_credits_observed, final_epoch_credits );
 
-    ulong stake_amount = fd_stakes_activating_and_deactivating(
-        stake,
-        epoch_credits->epoch[ i ],
-        stake_history,
-        new_rate_activation_epoch,
-        use_fixed_point_stake_math ).effective;
+    ulong stake_amount = fd_stakes_activating_and_deactivating( stake, epoch_credits->epoch[ i ], stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+    if( coalesce_eligible && stake_amount==0UL && epoch_credits->epoch[ i ]>stake->deactivation_epoch ) {
+      /* Multi-term Cases 1 and 2.  Note that
+         deactivation_epoch!=USHORT_MAX is implied since epoch[ i ] is
+         also a ushort. */
+      new_credits_observed = credits_in_vote;
+      break;
+    }
 
     points += (uint128)stake_amount * earned_credits;
   }
@@ -216,6 +508,56 @@ fd_vote_commission_split( ushort                  commission,
   }
 
   #undef MAX_BPS
+}
+
+/* Validates an external SIMD-0232 inflation commission collector
+   after all rewards routed to it have been added.  Returns 0 to
+   deposit, 1 to burn.  The vote account itself is always valid and
+   must not be passed here.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L231-L270 */
+static int
+fd_rewards_validate_commission_collector( fd_bank_t const *   bank,
+                                          fd_pubkey_t const * collector,
+                                          fd_acc_t const *    account,
+                                          ulong               rewards ) {
+  /* Must be a system program owned account. */
+  if( FD_UNLIKELY( memcmp( account->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
+
+  /* Must not be a reserved account. */
+  if( FD_UNLIKELY( fd_pubkey_is_active_reserved_key( collector ) ||
+                   fd_pubkey_is_pending_reserved_key( collector ) ) ) return 1;
+
+  ulong post_balance;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( account->lamports, rewards, &post_balance ) ) ) return 1;
+
+  /* The incinerator is exempt from the rent check so the deposit
+     always works.  Incinerator funds are burned at the end of the
+     rewards distribution block. */
+  if( FD_UNLIKELY( fd_pubkey_eq( collector, &fd_sysvar_incinerator_id ) ) ) return 0;
+
+  /* Must be rent-exempt after the deposit.  With
+     relax_post_exec_min_balance_check (SIMD-0392) a pre-existing
+     account may stay rent-paying. */
+  int is_rent_exempt = post_balance>=fd_rent_exempt_minimum_balance( &bank->f.rent, account->data_len );
+  return !is_rent_exempt &&
+         ( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) || !account->lamports );
+}
+
+/* Resolves the SIMD-0232 inflation commission collector from the vote
+   account state at the start of the distribution epoch (tag
+   bank->f.epoch); defaults to the vote account.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L667-L672 */
+static void
+fd_rewards_inflation_collector( fd_bank_t *         bank,
+                                fd_pubkey_t const * vote_pubkey,
+                                fd_pubkey_t *       collector_out ) {
+  *collector_out = *vote_pubkey;
+  fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
+                                bank->collector_overrides_fork_id,
+                                bank->f.epoch,
+                                vote_pubkey,
+                                collector_out,
+                                NULL );
 }
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
@@ -347,21 +689,114 @@ fd_rewards_get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch
   return get_reward_distribution_num_blocks( epoch_schedule, slot, total_stake_accounts, stake_account_stores_per_block );
 }
 
+static void
+read_stake_history( fd_accdb_t *         accdb,
+                    fd_accdb_fork_id_t   fork_id,
+                    uchar                data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
+                    fd_stake_history_t * stake_history ) {
+  fd_acc_t ro = fd_accdb_read_one( accdb, fork_id, fd_sysvar_stake_history_id.uc );
+  if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  fd_memcpy( data, ro.data, copy_sz );
+  fd_accdb_unread_one( accdb, &ro );
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, data, copy_sz ) ) ) {
+    FD_LOG_ERR(( "Unable to decode stake history sysvar" ));
+  }
+}
+
+/* calculate_stake_points_and_credits() with some fast paths. */
+static inline void
+calculate_stake_points_fast( fd_epoch_credits_t *           epoch_credits,
+                             fd_stake_history_t const *     stake_history,
+                             fd_stake_delegation_t const *  stake,
+                             ulong *                        new_rate_activation_epoch,
+                             int                            use_fixed_point_stake_math,
+                             ulong                          rewarded_epoch,
+                             fd_calculated_stake_points_t * result ) {
+  if( FD_UNLIKELY( !stake_epochs_are_normal( stake ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( stake->stake_account.uc, stake_account_str );
+    FD_BASE58_ENCODE_32_BYTES( stake->vote_account.uc,  vote_account_str  );
+    FD_LOG_INFO(( "stake delegation (stake_account=%s vote_account=%s delegated=%lu balance=%lu credits_observed=%lu) activation epoch %u > deactivation epoch %u",
+                  stake_account_str, vote_account_str, stake->stake, stake->lamports, stake->credits_observed, stake->activation_epoch, stake->deactivation_epoch ));
+    calculate_stake_points_and_credits( epoch_credits, stake_history, stake, new_rate_activation_epoch, use_fixed_point_stake_math, result );
+    return;
+  }
+
+  ulong cnt = epoch_credits->cnt;
+  if( FD_LIKELY( epoch_credits->fast_path_ok && cnt ) ) {
+    ulong base             = epoch_credits->base_credits;
+    ulong credits_in_stake = stake->credits_observed;
+    ulong credits_in_vote  = base+epoch_credits->credits_delta[ cnt-1UL ];
+    if( FD_LIKELY( credits_in_vote>credits_in_stake ) ) {
+      ulong initial_last = base+epoch_credits->prev_credits_delta[ cnt-1UL ];
+      int fast = 0;
+
+      if( FD_LIKELY( credits_in_stake>=initial_last ) ) {
+        /* Single-term. */
+        ulong target_epoch = epoch_credits->epoch[ cnt-1UL ];
+        ulong effective_stake;
+        if( FD_LIKELY( target_epoch==rewarded_epoch && (stake->state==FD_STAKE_DELEGATION_STATE_WARMED||stake->state==FD_STAKE_DELEGATION_STATE_COOLED) ) ) { /* See the block comment for state tags for why we need target_epoch==rewarded_epoch. */
+          /* Single-term Case 3 or Case 1. */
+          effective_stake = stake->state==FD_STAKE_DELEGATION_STATE_WARMED ? stake->stake : 0UL;
+        } else {
+          /* We could let this branch fall through to the slow path,
+             whose loop will skip a whole bunch of epoch credits only to
+             get to the final and only contributing term.  Computing it
+             right here reduces about 800 instructions retired per such
+             delegation. */
+          effective_stake = fd_stakes_activating_and_deactivating( stake, target_epoch, stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+        }
+        result->points.ud            = (uint128)effective_stake * (uint128)( credits_in_vote - credits_in_stake );
+        result->new_credits_observed = credits_in_vote;
+        fast = 1;
+      } else {
+        /* Multi-term. */
+        ulong first_contributing_idx = 0UL;
+        while( base+epoch_credits->credits_delta[ first_contributing_idx ]<=credits_in_stake ) first_contributing_idx++;
+        FD_TEST( first_contributing_idx<cnt ); /* Guaranteed found because of the earlier credits_in_vote>credits_in_stake gate. */
+        /* Multi-term Case 3.  effective=delegated at the earliest
+           contributing term, and no deactivation at all, so the plateau
+           simplifies the points calculation to a single closed form
+           multiplication. */
+        if( FD_LIKELY( is_warmed_plateau( stake, epoch_credits->epoch[ first_contributing_idx ], stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ) ) ) {
+          ulong start_credits          = fd_ulong_max( credits_in_stake, base+epoch_credits->prev_credits_delta[ 0UL ] );
+          result->points.ud            = (uint128)stake->stake*(uint128)(credits_in_vote-start_credits);
+          result->new_credits_observed = credits_in_vote;
+          fast = 1;
+        }
+      }
+
+      if( FD_LIKELY( fast ) ) {
+        result->force_credits_update_with_skipped_reward = 0;
+        return;
+      }
+    }
+  }
+  /* Potentially term-by-term slow path fallback for anything we can't
+     conservatively prove to take the fast paths so far.  In this
+     callee, early exit at the first fully deactivated term is the
+     0-tail short circuit fast path for multi-term Cases 1 and 2. */
+  calculate_stake_points_and_credits( epoch_credits, stake_history, stake, new_rate_activation_epoch, use_fixed_point_stake_math, result );
+}
+
 /* Calculates epoch reward points from stake/vote accounts.
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L445 */
 static uint128
 calculate_reward_points_partitioned( fd_bank_t *                    bank,
+                                     fd_accdb_t *                   accdb,
                                      fd_stake_delegations_t const * stake_delegations,
                                      fd_stake_history_t const *     stake_history,
+                                     ulong                          rewarded_epoch,
                                      fd_runtime_stack_t *           runtime_stack ) {
   /* Calculate the points for each stake delegation */
   uint128 total_points = 0;
 
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  fd_epoch_credits_t *    epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
@@ -374,24 +809,30 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
        to ensure that we audit the feature properly if this happens. */
 
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+
+    if( FD_LIKELY( stake_delegation_idx<runtime_stack->max_stake_accounts ) ) {
+      runtime_stack->stakes.stake_points_result[ stake_delegation_idx ].vote_idx = idx;
+    }
+
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
-    if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
+    if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->max_stake_accounts ) ) {
       stake_points_result = stake_points_result_;
     } else {
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
     }
 
-    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+    fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
-    calculate_stake_points_and_credits( epoch_credits,
-                                        stake_history,
-                                        stake_delegation,
-                                        &bank->f.warmup_cooldown_rate_epoch,
-                                        FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                        stake_points_result );
+    calculate_stake_points_fast( epoch_credits,
+                                 stake_history,
+                                 stake_delegation,
+                                 &bank->f.warmup_cooldown_rate_epoch,
+                                 FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                 rewarded_epoch,
+                                 stake_points_result );
 
     total_points += stake_points_result->points.ud;
   }
@@ -401,16 +842,31 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/inflation_rewards/mod.rs#L161-L173 */
 static int
-delegation_may_need_adjustment( ulong current_delegation,
-                                ulong new_delegation_with_rewards,
-                                ulong lamports_with_rewards,
-                                ulong minimum_lamports ) {
+delegation_may_need_adjustment( fd_bank_t *                   bank,
+                                fd_stake_delegation_t const * stake_delegation,
+                                fd_stake_history_t const *    stake_history,
+                                ulong                         rewarded_epoch,
+                                ulong                         new_delegation_with_rewards,
+                                ulong                         lamports_with_rewards,
+                                ulong                         minimum_lamports ) {
   ulong new_delegation = fd_ulong_min(
     new_delegation_with_rewards,
     fd_ulong_sat_sub( lamports_with_rewards, minimum_lamports )
   );
 
-  return !!( new_delegation!=current_delegation );
+  if( FD_LIKELY( new_delegation==stake_delegation->stake ) ) return 0;
+
+  /* Delegations that are neither effective nor activating are left
+     alone.  This is checked last because it can walk many stake history
+     entries. */
+  fd_stake_history_entry_t status = fd_stakes_activating_and_deactivating(
+    stake_delegation,
+    rewarded_epoch,
+    stake_history,
+    &bank->f.warmup_cooldown_rate_epoch,
+    FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
+
+  return !( status.effective==0UL && status.activating==0UL );
 }
 
 /* Calculates epoch rewards for stake/vote accounts.
@@ -431,6 +887,7 @@ delegation_may_need_adjustment( ulong current_delegation,
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L323 */
 static void
 calculate_stake_vote_rewards( fd_bank_t *                    bank,
+                              fd_accdb_t *                   accdb,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_capture_ctx_t *             capture_ctx FD_PARAM_UNUSED,
                               fd_stake_history_t const *     stake_history,
@@ -443,9 +900,10 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
+  fd_epoch_credits_t *          epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
@@ -458,20 +916,26 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
        to ensure that we audit the feature properly if this happens. */
 
     fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
-    if( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) {
+    if( stake_delegation_idx>=runtime_stack->max_stake_accounts ) {
       calculated_stake_rewards = calculated_stake_rewards_;
     } else {
       calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation_idx ];
     }
     calculated_stake_rewards->success = 0;
 
-    fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
-    fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+    int cached = !is_recalculation && stake_delegation_idx<runtime_stack->max_stake_accounts;
+    uint idx;
+    if( FD_LIKELY( cached ) ) {
+      idx = runtime_stack->stakes.stake_points_result[ stake_delegation_idx ].vote_idx;
+    } else {
+      fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
+      fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+      idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+    }
 
     /* Stake account may need to be adjusted to meet rent-exempt minimum
        balance requirements based on new rent and delegation parameters.
        https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L568-L608 */
-    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) {
       if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) continue;
 
@@ -479,7 +943,10 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
          below the rent exempt minimum balance, it needs to be queued
          for update (and thus affects the epoch reward partitions). */
       if( !delegation_may_need_adjustment(
-            stake_delegation->stake,
+            bank,
+            stake_delegation,
+            stake_history,
+            rewarded_epoch,
             stake_delegation->stake,
             stake_delegation->lamports,
             fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
@@ -500,21 +967,22 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
-    if( is_recalculation || FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
-      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+    if( FD_LIKELY( cached ) ) {
+      stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
+    } else {
+      fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
       /* We have not cached the stake points yet if we are recalculating
-         stake rewards so we need to recalculate them. */
-      calculate_stake_points_and_credits(
-          epoch_credits,
-          stake_history,
-          stake_delegation,
-          &bank->f.warmup_cooldown_rate_epoch,
-          FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-          stake_points_result_ );
+         stake rewards so we need to recalculate them.  ULONG_MAX
+         disables the tag fast path. */
+      calculate_stake_points_fast( epoch_credits,
+                                   stake_history,
+                                   stake_delegation,
+                                   &bank->f.warmup_cooldown_rate_epoch,
+                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                   ULONG_MAX,
+                                   stake_points_result_ );
       stake_points_result = stake_points_result_;
-    } else {
-      stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
     }
 
     /* redeem_rewards is actually just responsible for calculating the
@@ -540,7 +1008,10 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       /* staker rewards is 0 in the error case, so we can just use
          the current stake and lamports in the function args. */
       if( !delegation_may_need_adjustment(
-            stake_delegation->stake,
+            bank,
+            stake_delegation,
+            stake_history,
+            rewarded_epoch,
             stake_delegation->stake,
             stake_delegation->lamports,
             fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
@@ -573,24 +1044,27 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   }
 }
 
+/* setup_stake_partitions hashes every stake reward of the epoch into
+   its partition.  Only the rewards landing inside the fork's current
+   window are retained; see fd_stake_rewards.h.  The fork must already
+   have been initialized and its window positioned by the caller. */
+
 static void
 setup_stake_partitions( fd_bank_t *                    bank,
+                        fd_accdb_t *                   accdb,
                         fd_stake_history_t const *     stake_history,
                         fd_stake_delegations_t const * stake_delegations,
                         fd_runtime_stack_t *           runtime_stack,
-                        fd_hash_t const *              parent_blockhash,
-                        ulong                          starting_block_height,
-                        uint                           num_partitions,
+                        uchar                          fork_idx,
                         ulong                          rewarded_epoch,
                         ulong                          total_rewards,
                         uint128                        total_points ) {
 
-  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
-  uchar fork_idx = fd_stake_rewards_init( stake_rewards, bank->f.epoch, parent_blockhash, starting_block_height, (uint)num_partitions );
-  bank->stake_rewards_fork_id = fork_idx;
+  fd_stake_rewards_t * stake_rewards     = fd_bank_stake_rewards_modify( bank );
+  fd_epoch_credits_t * epoch_credits_arr = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
@@ -599,7 +1073,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
     fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
     fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
 
-    if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
+    if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->max_stake_accounts ) ) {
 
       calculated_stake_rewards = calculated_stake_rewards_;
 
@@ -613,7 +1087,10 @@ setup_stake_partitions( fd_bank_t *                    bank,
            below the rent exempt minimum balance, it needs to be queued
            for update (and thus affects the epoch reward partitions). */
         if( !delegation_may_need_adjustment(
-              stake_delegation->stake,
+              bank,
+              stake_delegation,
+              stake_history,
+              rewarded_epoch,
               stake_delegation->stake,
               stake_delegation->lamports,
               fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
@@ -624,16 +1101,16 @@ setup_stake_partitions( fd_bank_t *                    bank,
         continue;
       }
 
-      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+      fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
       fd_calculated_stake_points_t stake_points_result[1];
-      calculate_stake_points_and_credits(
-          epoch_credits,
-          stake_history,
-          stake_delegation,
-          &bank->f.warmup_cooldown_rate_epoch,
-          FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-          stake_points_result );
+      calculate_stake_points_fast( epoch_credits,
+                                   stake_history,
+                                   stake_delegation,
+                                   &bank->f.warmup_cooldown_rate_epoch,
+                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                   ULONG_MAX,
+                                   stake_points_result );
 
       /* redeem_rewards is actually just responsible for calculating the
          vote and stake rewards for each stake account.  It does not do
@@ -658,7 +1135,10 @@ setup_stake_partitions( fd_bank_t *                    bank,
         /* staker rewards is 0 in the error case, so we can just use
            the current stake and lamports in the function args. */
         if( !delegation_may_need_adjustment(
-              stake_delegation->stake,
+              bank,
+              stake_delegation,
+              stake_history,
+              rewarded_epoch,
               stake_delegation->stake,
               stake_delegation->lamports,
               fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
@@ -697,18 +1177,17 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                              fd_capture_ctx_t *             capture_ctx,
                              ulong                          rewarded_epoch,
                              ulong *                        rewards_out ) {
-  fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
-  if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, ro.data, ro.data_len ) ) ) {
-    FD_LOG_ERR(( "Unable to decode stake history sysvar" ));
-  }
+  read_stake_history( accdb, bank->accdb_fork_id, stake_history_data, stake_history );
 
   /* Calculate the epoch reward points from stake/vote accounts */
   uint128 total_points = calculate_reward_points_partitioned(
       bank,
+      accdb,
       stake_delegations,
       stake_history,
+      rewarded_epoch,
       runtime_stack );
 
   /* If there are no points, then we set the rewards to 0. */
@@ -729,6 +1208,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
      use the vote states from the end of the current_epoch. */
   calculate_stake_vote_rewards(
       bank,
+      accdb,
       stake_delegations,
       capture_ctx,
       stake_history,
@@ -745,19 +1225,28 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                                                 runtime_stack->stakes.stake_rewards_cnt,
                                                                                 bank->f.slot_params.stake_account_stores_per_block );
 
-  setup_stake_partitions(
-      bank,
-      stake_history,
-      stake_delegations,
-      runtime_stack,
-      parent_blockhash,
-      starting_block_height,
-      num_partitions,
-      rewarded_epoch,
-      *rewards_out,
-      total_points );
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  uchar                fork_idx      = fd_stake_rewards_init( stake_rewards,
+                                                              bank->f.epoch,
+                                                              parent_blockhash,
+                                                              starting_block_height,
+                                                              num_partitions,
+                                                              runtime_stack->stakes.stake_rewards_cnt );
+  if( FD_UNLIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+    fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
+  }
+  bank->stake_rewards_fork_id = fork_idx;
 
-  fd_accdb_unread_one( accdb, &ro );
+  setup_stake_partitions( bank,
+                          accdb,
+                          stake_history,
+                          stake_delegations,
+                          runtime_stack,
+                          fork_idx,
+                          rewarded_epoch,
+                          *rewards_out,
+                          total_points );
+
   return total_points;
 }
 
@@ -827,27 +1316,98 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                       rewards_calc_result );
 
 
-  /* Iterate over all the vote reward nodes and distribute the rewards
-     to the vote accounts.  After each reward has been paid out,
-     calcualte the lthash for each vote account. */
+  /* Distribute the commission rewards.  distributed_rewards includes
+     burned and incinerated amounts: the epoch rewards sysvar counts
+     them as distributed.
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L186-L217 */
   ulong distributed_rewards = 0UL;
-  for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
-       !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
-       iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
+  if( FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector ) ) {
+    /* Aggregate rewards per collector before validation: several small
+       rewards may collectively make a new collector rent-exempt.
+       stake_accum is free for reuse as scratch here. */
+    fd_stake_accum_t *     collector_pool = runtime_stack->stakes.stake_accum;
+    fd_stake_accum_map_t * collector_map  = runtime_stack->stakes.stake_accum_map;
+    fd_stake_accum_map_reset( collector_map );
+    ulong collector_cnt = 0UL;
 
-    uint idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
-    fd_vote_rewards_t * ele = &vote_ele_pool[idx];
+    for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
+         !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
+         iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
+      uint                idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
+      fd_vote_rewards_t * ele = &vote_ele_pool[idx];
 
-    ulong rewards = runtime_stack->stakes.vote_ele[ idx ].vote_rewards;
-    if( rewards==0UL ) {
-      continue;
+      ulong rewards = ele->vote_rewards;
+      if( FD_UNLIKELY( !rewards ) ) continue;
+      distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+
+      fd_pubkey_t collector;
+      fd_rewards_inflation_collector( bank, &ele->pubkey, &collector );
+
+      fd_stake_accum_t * collector_reward = fd_stake_accum_map_ele_query( collector_map, &collector, NULL, collector_pool );
+      if( FD_UNLIKELY( !collector_reward ) ) {
+        FD_TEST( collector_cnt<runtime_stack->max_vote_accounts );
+        collector_reward         = &collector_pool[ collector_cnt++ ];
+        collector_reward->pubkey = collector;
+        collector_reward->stake  = rewards;
+        fd_stake_accum_map_ele_insert( collector_map, collector_reward, collector_pool );
+      } else {
+        collector_reward->stake = fd_ulong_sat_add( collector_reward->stake, rewards );
+      }
     }
 
-    /* Credit rewards to vote account (creating a new system account if
-       it does not exist) */
-    fd_pubkey_t const * vote_pubkey = &ele->pubkey;
-    fd_accdb_svm_credit( bank, accdb, capture_ctx, vote_pubkey, rewards );
-    distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+    for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( collector_map, collector_pool );
+         !fd_stake_accum_map_iter_done( iter, collector_map, collector_pool );
+         iter = fd_stake_accum_map_iter_next( iter, collector_map, collector_pool ) ) {
+      fd_stake_accum_t * collector_reward = fd_stake_accum_map_iter_ele( iter, collector_map, collector_pool );
+
+      /* A collector that is itself a self-collecting vote account is
+         paid only its own reward; rewards routed to it by other vote
+         accounts are burned (it is not system-owned).
+         https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L70-L124 */
+      fd_vote_rewards_t * self_ele = fd_vote_rewards_map_ele_query( vote_ele_map, &collector_reward->pubkey, NULL, vote_ele_pool );
+      int is_vote_account = 0;
+      if( self_ele && self_ele->vote_rewards ) {
+        fd_pubkey_t self_collector;
+        fd_rewards_inflation_collector( bank, &self_ele->pubkey, &self_collector );
+        is_vote_account = fd_pubkey_eq( &self_collector, &self_ele->pubkey );
+      }
+      ulong rewards = is_vote_account ? self_ele->vote_rewards : collector_reward->stake;
+
+      fd_acc_t account = fd_accdb_read_one( accdb, bank->accdb_fork_id, collector_reward->pubkey.uc );
+      int      burn;
+      if( is_vote_account ) {
+        /* The vote account itself only needs the overflow check. */
+        ulong post_balance;
+        burn = __builtin_uaddl_overflow( account.lamports, rewards, &post_balance );
+      } else {
+        burn = fd_rewards_validate_commission_collector( bank, &collector_reward->pubkey, &account, rewards );
+      }
+      fd_accdb_unread_one( accdb, &account );
+
+      if( FD_UNLIKELY( burn ) ) continue;
+
+      /* Credit rewards to the collector (creating a new system account
+         if it does not exist). */
+      fd_accdb_svm_credit( bank, accdb, capture_ctx, &collector_reward->pubkey, rewards );
+    }
+  } else {
+    for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
+         !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
+         iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
+
+      uint idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
+      fd_vote_rewards_t * ele = &vote_ele_pool[idx];
+
+      ulong rewards = ele->vote_rewards;
+      if( rewards==0UL ) {
+        continue;
+      }
+
+      /* Credit rewards to vote account (creating a new system account if
+         it does not exist) */
+      fd_accdb_svm_credit( bank, accdb, capture_ctx, &ele->pubkey, rewards );
+      distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+    }
   }
 
   /* Verify that we didn't pay any more than we expected to */
@@ -1003,13 +1563,24 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   bank->f.capitalization = bank->f.capitalization + lamports_distributed;
 }
 
+static void
+recalculate_partitioned_rewards( fd_banks_t *         banks,
+                                 fd_bank_t *          bank,
+                                 fd_accdb_t *         accdb,
+                                 fd_runtime_stack_t * runtime_stack,
+                                 fd_capture_ctx_t *   capture_ctx,
+                                 int                  snapshot_boot,
+                                 uint                 win_lo );
+
 /* Process reward distribution for the block if it is inside reward interval.
 
    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L45-L136 */
 void
-fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
-                                         fd_accdb_t *       accdb,
-                                         fd_capture_ctx_t * capture_ctx ) {
+fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
+                                         fd_bank_t *          bank,
+                                         fd_accdb_t *         accdb,
+                                         fd_runtime_stack_t * runtime_stack,
+                                         fd_capture_ctx_t *   capture_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L46-L48 */
   if( FD_LIKELY( bank->stake_rewards_fork_id==UCHAR_MAX ) ) return;
 
@@ -1040,6 +1611,17 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L110-L114 */
   if( FD_LIKELY( block_height>=distribution_starting_block_height && block_height<distribution_end_exclusive ) ) {
     ulong partition_idx = block_height-distribution_starting_block_height;
+
+    /* The rewards of this partition are only in memory if the window
+       covers it.  If they are not, re-derive the window that does. */
+    uchar fork_id = bank->stake_rewards_fork_id;
+    if( FD_UNLIKELY( partition_idx<(ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
+                     partition_idx>(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id ) ) ) {
+      FD_LOG_INFO(( "reward partition is not in the window, recalculating" ));
+      recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 0, (uint)partition_idx );
+      stake_rewards = fd_bank_stake_rewards_modify( bank );
+    }
+
     distribute_epoch_rewards_in_partition( stake_rewards, partition_idx, bank, accdb, capture_ctx );
   }
 
@@ -1047,6 +1629,7 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L116-L135 */
   if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
     fd_sysvar_epoch_rewards_set_inactive( bank, accdb, capture_ctx );
+    fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
     bank->stake_rewards_fork_id = UCHAR_MAX;
   }
 }
@@ -1102,80 +1685,110 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
     Re-calculates partitioned stake rewards.
     This updates the slot context's epoch reward status with the recalculated partitioned rewards.
 
-    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521 */
-void
-fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
-                                            fd_bank_t *               bank,
-                                            fd_accdb_t *              accdb,
-                                            fd_runtime_stack_t *      runtime_stack,
-                                            fd_capture_ctx_t *        capture_ctx ) {
+    Everything the calculation needs survives in the epoch rewards
+    sysvar and in the bank, so the partitions can be rebuilt at any
+    point during the distribution interval.  The rebuilt partitions
+    always go into a freshly acquired fork, with its window starting at
+    win_lo, so that banks reading the fork this bank was using keep the
+    entries they computed for themselves.  snapshot_boot selects where
+    the vote commissions come from: a bank restored from a snapshot has
+    to resolve them, every other caller reuses the ones the epoch
+    boundary resolved.
 
-  /* If the snapshot was loaded while partitioned epoch rewards is
-     active, then the vote rewards map must be populated with the state
-     of the vote accounts as of the end of the previous epoch boundary.
-     The epoch credits for these accounts are stored in the bank along
-     with the t-3 commission.  With this, it's possible to recalculate
-     the rewards for the previous epoch boundary.  We need the
-     commission from the end of the t-3 epoch if we are calculating
-     rewards for the transition from epoch t-1 to t since there needs to
-     be a 2 epoch commission gap for the delay_commission_updates
-     feature. */
+    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521 */
+static void
+recalculate_partitioned_rewards( fd_banks_t *              banks,
+                                 fd_bank_t *               bank,
+                                 fd_accdb_t *              accdb,
+                                 fd_runtime_stack_t *      runtime_stack,
+                                 fd_capture_ctx_t *        capture_ctx,
+                                 int                       snapshot_boot,
+                                 uint                      win_lo ) {
 
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   fd_vote_rewards_map_reset( vote_ele_map );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ushort             vs_fork_idx = bank->vote_stakes_fork_id;
+  ulong                epoch_credits_len = *fd_bank_epoch_credits_len( bank );
+  fd_epoch_credits_t * epoch_credits_arr = fd_bank_epoch_credits( bank );
 
-  int vat_active = FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket );
-  int vat_in_t_2 = 0;
-  if( FD_UNLIKELY( vat_active ) ) {
-    ulong vat_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
-    vat_in_t_2 = bank->f.epoch>=vat_epoch+1UL;
-  }
+  if( FD_LIKELY( !snapshot_boot ) ) {
 
-  fd_top_votes_t const * top_votes_t_1 = fd_bank_top_votes_t_1_query( bank );
-  fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
+    /* The rewards of this epoch were computed once already, at the epoch
+       boundary or at snapshot load, and only the window is moving.  The
+       commissions resolved back then are stored with the epoch credits
+       and must be reused: they come from a vote account snapshot two
+       epochs behind the rewarded epoch, which the top votes sets no
+       longer retain. */
 
-  ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
-  for( ulong i=0UL; i<epoch_credits_len; i++ ) {
-    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
-    fd_pubkey_t const *  pubkey        = (fd_pubkey_t const *)epoch_credits->pubkey;
+    for( ulong i=0UL; i<epoch_credits_len; i++ ) {
+      fd_epoch_credits_t const * epoch_credits = &epoch_credits_arr[i];
 
-    /* Get the t-1 stake account information.  This is guaranteed to be
-       valid since the epoch credits are populated from the t-1 stakes
-       in the snapshot manfiest. */
-    ushort commission_t_1 = 0;
-    if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
-    else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
-
-    /* Now get the t-2 information (if it exists).  This is not
-       guaranteed to be valid since it's possible for a vote account to
-       have been created in the last epoch. */
-    int    exists_t_2     = 0;
-    ushort commission_t_2 = 0;
-    if( vat_in_t_2 ) exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
-    else             exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
-
-    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
-    vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
-    vote_ele->vote_rewards = 0UL;
-    if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-      vote_ele->commission = exists_t_2 ? commission_t_2 : commission_t_1;
-    } else {
-      vote_ele->commission = commission_t_1;
+      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
+      vote_ele->pubkey       = *(fd_pubkey_t const *)epoch_credits->pubkey;
+      vote_ele->vote_rewards = 0UL;
+      vote_ele->commission   = epoch_credits->commission;
+      fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
     }
-    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
-  }
 
-  /* Copy in historical commission information if it exists. */
-  if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-    ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
-    fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
-    for( ulong i=0UL; i<commission_t_3_len; i++ ) {
-      fd_stashed_commission_t const * ele = &commission_t_3[i];
-      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
-      if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
+  } else {
+
+    /* If the snapshot was loaded while partitioned epoch rewards is
+       active, then the vote rewards map must be populated with the state
+       of the vote accounts as of the end of the previous epoch boundary.
+       The epoch credits for these accounts are stored in the bank along
+       with the t-3 commission.  With this, it's possible to recalculate
+       the rewards for the previous epoch boundary.  We need the
+       commission from the end of the t-3 epoch if we are calculating
+       rewards for the transition from epoch t-1 to t since there needs to
+       be a 2 epoch commission gap for the delay_commission_updates
+       feature. */
+
+    fd_top_votes_t const * top_votes_t_1 = fd_bank_top_votes_t_1_query( bank );
+    fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
+
+    for( ulong i=0UL; i<epoch_credits_len; i++ ) {
+      fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[i];
+      fd_pubkey_t const *  pubkey        = (fd_pubkey_t const *)epoch_credits->pubkey;
+
+      /* Get the t-1 stake account information.  This is guaranteed to be
+         valid since the epoch credits are populated from the t-1 stakes
+         in the snapshot manifest. */
+      ushort commission_t_1 = 0;
+      FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
+
+      /* Now get the t-2 information (if it exists).  This is not
+         guaranteed to be valid since it's possible for a vote account to
+         have been created in the last epoch. */
+      int    exists_t_2     = 0;
+      ushort commission_t_2 = 0;
+      exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
+
+      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
+      vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
+      vote_ele->vote_rewards = 0UL;
+      if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+        vote_ele->commission = exists_t_2 ? commission_t_2 : commission_t_1;
+      } else {
+        vote_ele->commission = commission_t_1;
+      }
+      fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
+    }
+
+    /* Copy in historical commission information if it exists. */
+    if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+      ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
+      fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
+      for( ulong i=0UL; i<commission_t_3_len; i++ ) {
+        fd_stashed_commission_t const * ele = &commission_t_3[i];
+        fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
+        if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
+      }
+    }
+
+    /* Publish the resolved commissions so that any later repositioning
+       of this fork's window reuses them. */
+    for( ulong i=0UL; i<epoch_credits_len; i++ ) {
+      epoch_credits_arr[i].commission = runtime_stack->stakes.vote_ele[i].commission;
     }
   }
 
@@ -1193,7 +1806,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   }
 
   /* If partitioned rewards are active, the rewarded epoch is always the immediately
-      preceeding epoch.
+      preceding epoch.
 
       https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L566 */
   FD_LOG_DEBUG(( "epoch rewards is active" ));
@@ -1201,17 +1814,15 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   ulong const epoch          = bank->f.epoch;
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
-  fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
-  if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, ro.data, ro.data_len ) ) ) {
-    FD_LOG_ERR(( "Unable to decode stake history sysvar" ));
-  }
+  read_stake_history( accdb, bank->accdb_fork_id, stake_history_data, stake_history );
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
 
   calculate_stake_vote_rewards(
       bank,
+      accdb,
       stake_delegations,
       capture_ctx,
       stake_history,
@@ -1221,18 +1832,49 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       runtime_stack,
       1 );
 
+  /* The recomputed rewards go into a fork of their own rather than over
+     the window the bank is holding: banks that branched off this one
+     share that window and are entitled to the entries they already have,
+     which were computed from their own delegations. */
+
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  uchar                fork_idx      = fd_stake_rewards_init( stake_rewards,
+                                                              bank->f.epoch,
+                                                              &epoch_rewards_sysvar->parent_blockhash,
+                                                              epoch_rewards_sysvar->distribution_starting_block_height,
+                                                              (uint)epoch_rewards_sysvar->num_partitions,
+                                                              runtime_stack->stakes.stake_rewards_cnt );
+  if( FD_LIKELY( win_lo ) ) {
+    fd_stake_rewards_window_advance( stake_rewards,
+                                     fork_idx,
+                                     &epoch_rewards_sysvar->parent_blockhash,
+                                     win_lo,
+                                     runtime_stack->stakes.stake_rewards_cnt );
+  }
+  if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+    fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
+  }
+  bank->stake_rewards_fork_id = fork_idx;
+
   setup_stake_partitions(
       bank,
+      accdb,
       stake_history,
       stake_delegations,
       runtime_stack,
-      &epoch_rewards_sysvar->parent_blockhash,
-      epoch_rewards_sysvar->distribution_starting_block_height,
-      (uint)epoch_rewards_sysvar->num_partitions,
+      fork_idx,
       rewarded_epoch,
       epoch_rewards_sysvar->total_rewards,
       epoch_rewards_sysvar->total_points.ud );
 
-  fd_accdb_unread_one( accdb, &ro );
   fd_bank_stake_delegations_end_frontier_query( banks, bank );
+}
+
+void
+fd_rewards_recalculate_partitioned_rewards( fd_banks_t *         banks,
+                                            fd_bank_t *          bank,
+                                            fd_accdb_t *         accdb,
+                                            fd_runtime_stack_t * runtime_stack,
+                                            fd_capture_ctx_t *   capture_ctx ) {
+  recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 1, 0U );
 }

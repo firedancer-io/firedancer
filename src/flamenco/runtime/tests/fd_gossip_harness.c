@@ -328,7 +328,7 @@ convert_bloom( fd_spad_t *                   spad,
      https://github.com/tov/bv-rs/blob/0.11.1/src/bit_vec/mod.rs#L243-L245 */
   ulong bits_blocks   = (bloom->bits_len + 63UL) / 64UL;
   ulong bits_byte_len = bits_blocks * sizeof(bloom->bits[0]);
-  out->bits = alloc_bytes( spad, (uchar const *)bloom->bits, bits_byte_len );
+  out->bits = bits_byte_len ? alloc_bytes( spad, (uchar const *)bloom->bits, bits_byte_len ) : NULL;
   /* Mask trailing bits beyond bits_len in the last block of the
      protobuf copy.  bv::BitVec::get_block() returns get_masked_block()
      which zeros bits past bit_len() in the last block.
@@ -426,7 +426,7 @@ fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
                           ulong *               out_sz,
                           uchar const *         in,
                           ulong                 in_sz ) {
-  if( FD_UNLIKELY( in_sz>FD_TPU_MTU ) ) FD_LOG_CRIT(( "invariant violation: gossip input %lu bytes exceeds MTU %lu, check fuzzer configuration", in_sz, FD_TPU_MTU ));
+  if( FD_UNLIKELY( in_sz>FD_GOSSIP_MTU ) ) FD_LOG_CRIT(( "invariant violation: gossip input %lu bytes exceeds MTU %lu, check fuzzer configuration", in_sz, FD_GOSSIP_MTU ));
 
   fd_gossip_message_t msg[1] = {0};
   fd_exec_test_gossip_effects_t effects = FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO;

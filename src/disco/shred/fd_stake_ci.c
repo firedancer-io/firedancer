@@ -28,10 +28,9 @@ fd_stake_ci_new( void             * mem,
     ei->epoch             = i;
     ei->start_slot        = 0UL;
     ei->slot_cnt          = 0UL;
-    ei->excluded_id_stake = 0UL;
 
-    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL,    info->vote_stake_weight,  0UL ) );
-    ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key, 0UL ) );
+    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL, info->vote_stake_weight ) );
+    ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key ) );
   }
   info->identity_key[ 0 ] = *identity_key;
 
@@ -47,13 +46,13 @@ void * fd_stake_ci_delete( void          * mem  ) { return mem;          }
 void
 fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
                             fd_stake_weight_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) ) {
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_STAKE_WEIGHTS ) ) {
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_STAKE_WEIGHTS ));
   }
-  if( FD_UNLIKELY( msg->staked_id_cnt > MAX_SHRED_DESTS ) ) {
+  if( FD_UNLIKELY( msg->staked_id_cnt > MAX_STAKE_WEIGHTS ) ) {
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu id weights in it,"
-                 " but the maximum allowed is %lu", msg->staked_id_cnt, MAX_SHRED_DESTS ));
+                 " but the maximum allowed is %lu", msg->staked_id_cnt, MAX_STAKE_WEIGHTS ));
   }
 
   info->scratch->epoch             = msg->epoch;
@@ -61,7 +60,6 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
   info->scratch->slot_cnt          = msg->slot_cnt;
   info->scratch->staked_vote_cnt   = msg->staked_vote_cnt;
   info->scratch->staked_id_cnt     = msg->staked_id_cnt;
-  info->scratch->excluded_id_stake = msg->excluded_id_stake;
 
   fd_memcpy( info->vote_stake_weight, fd_stake_weight_msg_stake_weights( msg ), msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
   fd_memcpy( info->stake_weight,      fd_stake_weight_msg_id_weights( msg ),    msg->staked_id_cnt*sizeof(fd_stake_weight_t) );
@@ -70,13 +68,13 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
 void
 fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
                             fd_epoch_info_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) ) {
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_STAKE_WEIGHTS ) ) {
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_STAKE_WEIGHTS ));
   }
-  if( FD_UNLIKELY( msg->staked_id_cnt > MAX_SHRED_DESTS ) ) {
+  if( FD_UNLIKELY( msg->staked_id_cnt > MAX_STAKE_WEIGHTS ) ) {
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu id weights in it,"
-                 " but the maximum allowed is %lu", msg->staked_id_cnt, MAX_SHRED_DESTS ));
+                 " but the maximum allowed is %lu", msg->staked_id_cnt, MAX_STAKE_WEIGHTS ));
   }
 
 
@@ -85,7 +83,6 @@ fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
   info->scratch->slot_cnt            = msg->slot_cnt;
   info->scratch->staked_vote_cnt     = msg->staked_vote_cnt;
   info->scratch->staked_id_cnt       = msg->staked_id_cnt;
-  info->scratch->excluded_id_stake   = msg->excluded_id_stake;
 
   fd_memcpy( info->vote_stake_weight, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
   fd_memcpy( info->stake_weight,      fd_epoch_info_msg_id_weights( msg ),    msg->staked_id_cnt*sizeof(fd_stake_weight_t) );
@@ -188,12 +185,11 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   new_ei->epoch             = epoch;
   new_ei->start_slot        = info->scratch->start_slot;
   new_ei->slot_cnt          = info->scratch->slot_cnt;
-  new_ei->excluded_id_stake = info->scratch->excluded_id_stake;
 
   new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,
-                                                                info->scratch->staked_vote_cnt, info->vote_stake_weight, 0UL ) );
+                                                                info->scratch->staked_vote_cnt, info->vote_stake_weight ) );
   new_ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( new_ei->_sdest, info->shred_dest, j,
-                                                                new_ei->lsched, info->identity_key,  info->scratch->excluded_id_stake ) );
+                                                                new_ei->lsched, info->identity_key ) );
   log_summary( "stake update", info );
 }
 
@@ -269,17 +265,11 @@ fd_stake_ci_dest_add_fini_impl( fd_stake_ci_t       * info,
 
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
-  ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j, ei->lsched, info->identity_key,
-                                                      ei->excluded_id_stake ) );
+  ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j, ei->lsched, info->identity_key ) );
 
   if( FD_UNLIKELY( ei->sdest==NULL ) ) {
-    /* Happens if the identity key is not present, which can only happen
-       if the current validator's stake is not in the top 40,200.  We
-       could initialize ei->sdest to a dummy value, but having the wrong
-       stake weights could lead to potentially slashable issues
-       elsewhere (e.g. we might product a block when we're not actually
-       leader).  We're just going to terminate in this case. */
-    FD_LOG_ERR(( "Too many validators have higher stake than this validator.  Cannot continue." ));
+    /* The bounded destination table must always retain our identity. */
+    FD_LOG_ERR(( "Identity key is missing from the shred destination table.  Cannot continue." ));
   }
 }
 
@@ -325,7 +315,7 @@ void
 fd_stake_ci_set_identity( fd_stake_ci_t *     info,
                           fd_pubkey_t const * identity_key ) {
   /* None of the stakes are changing, so we just need to regenerate the
-     sdests, sightly adjusting the destination IP addresses.  The only
+     sdests, slightly adjusting the destination IP addresses.  The only
      corner case is if the new identity is not present. */
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_per_epoch_info_t * ei = info->epoch_info+i;
@@ -365,8 +355,7 @@ fd_stake_ci_set_identity( fd_stake_ci_t *     info,
 
       fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
-      ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j+1UL, ei->lsched, identity_key,
-                                                          ei->excluded_id_stake ) );
+      ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j+1UL, ei->lsched, identity_key ) );
       FD_TEST( ei->sdest );
     }
 
@@ -383,9 +372,9 @@ refresh_sdest( fd_stake_ci_t *            info,
   sort_pubkey_inplace( shred_dest_temp + staked_cnt, cnt - staked_cnt );
 
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
-  ei->sdest = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, shred_dest_temp, cnt, ei->lsched, info->identity_key, ei->excluded_id_stake ) );
+  ei->sdest = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, shred_dest_temp, cnt, ei->lsched, info->identity_key ) );
   if( FD_UNLIKELY( ei->sdest==NULL ) ) {
-    FD_LOG_ERR(( "Too many validators have higher stake than this validator.  Cannot continue." ));
+    FD_LOG_ERR(( "Identity key is missing from the shred destination table.  Cannot continue." ));
   }
 }
 

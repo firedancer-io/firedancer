@@ -2,7 +2,6 @@
 #define HEADER_fd_src_discof_restore_utils_fd_ssload_h
 
 #include "fd_ssmsg.h"
-#include "../../../flamenco/runtime/fd_blockhashes.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -13,8 +12,12 @@ FD_PROTOTYPES_BEGIN
    epoch stakes), epoch credits downcasting safety (epoch fits ushort,
    credit deltas fit uint), and epoch stakes index bounds.
    max_vote_accounts and max_stake_accounts must equal
-   FD_RUNTIME_MAX_VOTE_ACCOUNTS and FD_RUNTIME_MAX_STAKE_ACCOUNTS
-   respectively; mismatches are rejected as a configuration error.
+   FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS and FD_RUNTIME_MAX_STAKE_ACCOUNTS
+   respectively; mismatches are rejected as a configuration error.  The
+   historical epoch-stakes maps are capped by
+   FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, while the snapshot vote-account
+   map, which covers every staked voter rather than only the admitted
+   set, is capped by the larger FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS.
    Returns 0 on success, -1 on failure (corrupt manifest or
    configuration mismatch).  This function only reads the manifest
    and has no side effects. */

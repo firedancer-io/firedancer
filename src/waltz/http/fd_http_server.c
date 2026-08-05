@@ -17,8 +17,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define FD_HTTP_SERVER_POLL_CHUNK_SZ 128UL
-
 #if FD_HAS_ZSTD
 #define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
 #define ZSTD_STATIC_LINKING_ONLY
@@ -299,22 +297,59 @@ fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
                        uint               address,
                        ushort             port ) {
-  int sockfd = socket( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 );
+  fd_ip6_addr_t addr6 = {0};
+  fd_ip6_addr_ip4_mapped( addr6.addr, address );
+  return fd_http_server_listen6( http, &addr6, port );
+}
+
+fd_http_server_t *
+fd_http_server_listen6( fd_http_server_t *    http,
+                        fd_ip6_addr_t const * address,
+                        ushort                port ) {
+  /* An IPv4 address is served by an AF_INET socket, anything else by a
+     dual stack AF_INET6 socket */
+  int ip4 = fd_ip6_addr_is_ip4_mapped( address->addr ) && !address->scope_id;
+
+  int sockfd = socket( ip4 ? AF_INET : AF_INET6, SOCK_STREAM | SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
 
   int optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
     FD_LOG_ERR(( "setsockopt failed (%i-%s)", errno, strerror( errno ) ));
 
-  struct sockaddr_in addr = {
-    .sin_family      = AF_INET,
-    .sin_port        = fd_ushort_bswap( port ),
-    .sin_addr.s_addr = address,
-  };
+  union {
+    struct sockaddr_in  ip4;
+    struct sockaddr_in6 ip6;
+  } addr = {0};
+  ulong addr_sz;
 
-  if( FD_UNLIKELY( -1==bind( sockfd, fd_type_pun( &addr ), sizeof( addr ) ) ) ) {
-    FD_LOG_ERR(( "bind(%i,AF_INET," FD_IP4_ADDR_FMT ":%u) failed (%i-%s)",
-                 sockfd, FD_IP4_ADDR_FMT_ARGS( address ), port,
+  if( ip4 ) {
+    addr.ip4 = (struct sockaddr_in){
+      .sin_family      = AF_INET,
+      .sin_port        = fd_ushort_bswap( port ),
+      .sin_addr.s_addr = fd_ip6_addr_to_ip4( address->addr ),
+    };
+    addr_sz = sizeof(struct sockaddr_in);
+  } else {
+    /* Accept IPv4 clients too (as IPv4-mapped peers) if the socket is
+       bound to the wildcard address */
+    int v6only = 0;
+    if( FD_UNLIKELY( -1==setsockopt( sockfd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof( v6only ) ) ) )
+      FD_LOG_ERR(( "setsockopt(IPV6_V6ONLY) failed (%i-%s)", errno, strerror( errno ) ));
+
+    addr.ip6 = (struct sockaddr_in6){
+      .sin6_family   = AF_INET6,
+      .sin6_port     = fd_ushort_bswap( port ),
+      .sin6_scope_id = address->scope_id,
+    };
+    memcpy( addr.ip6.sin6_addr.s6_addr, address->addr, 16UL );
+    addr_sz = sizeof(struct sockaddr_in6);
+  }
+
+  if( FD_UNLIKELY( -1==bind( sockfd, fd_type_pun( &addr ), (uint)addr_sz ) ) ) {
+    char addr_cstr[ FD_IP6_ADDR_CSTR_MAX ];
+    FD_LOG_ERR(( "bind(%i,%s:%u) failed (%i-%s)",
+                 sockfd, fd_ip6_addr_cstr( addr_cstr, address ), port,
                  errno, fd_io_strerror( errno ) ));
   }
   if( FD_UNLIKELY( -1==listen( sockfd, (int)http->max_conns ) ) ) FD_LOG_ERR(( "listen failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -657,6 +692,8 @@ read_conn_http( fd_http_server_t * http,
 
     .method                    = method_enum,
     .path                      = path_nul_terminated,
+    .path_raw                  = path,
+    .path_len                  = path_len,
 
     .ctx                       = http->callback_ctx,
 
@@ -888,11 +925,17 @@ write_conn_http( fd_http_server_t * http,
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 204 No Content\r\nContent-Length: %lu\r\n", body_len ) );
           break;
         }
+        case 302:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 302 Found\r\nContent-Length: 0\r\n" ) );
+          break;
         case 400: {
           ulong body_len = conn->response.static_body ? conn->response.static_body_len : conn->response._body_len;
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\n", body_len ) );
           break;
         }
+        case 403:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n" ) );
+          break;
         case 404:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n" ) );
           break;
@@ -901,6 +944,9 @@ write_conn_http( fd_http_server_t * http,
           break;
         case 500:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
+          break;
+        case 501:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 501 Not Implemented\r\nContent-Length: 0\r\n" ) );
           break;
         default:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
@@ -926,6 +972,18 @@ write_conn_http( fd_http_server_t * http,
         ulong content_encoding_len;
         FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &content_encoding_len, "Content-Encoding: %s\r\n", conn->response.content_encoding ) );
         response_len += content_encoding_len;
+      }
+      if( FD_LIKELY( conn->response.location[ 0 ] ) ) {
+        ulong location_len;
+        FD_TEST( conn->response.location_len[0]<=(ulong)INT_MAX );
+        FD_TEST( conn->response.location_len[1]<=(ulong)INT_MAX );
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &location_len,
+                                       "Location: %.*s%.*s\r\n",
+                                       (int)conn->response.location_len[0],
+                                       conn->response.location[0],
+                                       (int)conn->response.location_len[1],
+                                       conn->response.location[1] ? conn->response.location[1] : "" ) );
+        response_len += location_len;
       }
       if( FD_LIKELY( conn->response.access_control_allow_origin ) ) {
         ulong access_control_allow_origin_len;
@@ -1187,7 +1245,8 @@ write_conn( fd_http_server_t * http,
 
 int
 fd_http_server_poll( fd_http_server_t * http,
-                     int                poll_timeout ) {
+                     int                poll_timeout,
+                     ulong              conn_max ) {
   int nfds = fd_syscall_poll( http->pollfds, (uint)( http->max_conns+http->max_ws_conns+1UL ), poll_timeout );
   if( FD_UNLIKELY( 0==nfds ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;
@@ -1199,24 +1258,39 @@ fd_http_server_poll( fd_http_server_t * http,
     accept_conns( http );
   }
 
-  /* Service existing connections in chunks of
-     FD_HTTP_SERVER_POLL_CHUNK_SZ to bound the amount of work done per
-     poll call.  poll_conn_idx tracks where we left off so all
-     connections get serviced fairly over multiple calls. */
+  /* Service up to conn_max ready connections in round-robin order. */
   ulong conn_cnt = http->max_conns+http->max_ws_conns;
-  ulong start    = http->poll_conn_idx;
-  ulong end      = start+FD_HTTP_SERVER_POLL_CHUNK_SZ;
-  if( FD_UNLIKELY( end>conn_cnt ) ) end = conn_cnt;
+  ulong idx      = http->poll_conn_idx;
+  ulong work_cnt = 0UL;
 
-  for( ulong i=start; i<end; i++ ) {
+  for( ulong j=0UL; j<conn_cnt; j++ ) {
+    if( FD_UNLIKELY( work_cnt>=conn_max ) ) break;
+
+    ulong i = idx;
+    idx = fd_ulong_if( idx+1UL>=conn_cnt, 0UL, idx+1UL );
+
     if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
-    if( FD_LIKELY( http->pollfds[ i ].revents & POLLIN  ) ) read_conn(  http, i );
+
+    int read_ready  = !!(http->pollfds[ i ].revents & POLLIN);
+    int write_ready = 0;
+    if( FD_UNLIKELY( http->pollfds[ i ].revents & POLLOUT ) ) {
+      if( FD_LIKELY( i<http->max_conns ) ) {
+        write_ready = http->conns[ i ].state!=FD_HTTP_SERVER_CONNECTION_STATE_READING;
+      } else {
+        struct fd_http_server_ws_connection const * conn = &http->ws_conns[ i-http->max_conns ];
+        write_ready = conn->pong_state!=FD_HTTP_SERVER_PONG_STATE_NONE || conn->send_frame_cnt;
+      }
+    }
+    if( FD_UNLIKELY( !read_ready && !write_ready ) ) continue;
+    work_cnt++;
+
+    if( FD_LIKELY( read_ready ) ) read_conn( http, i );
     if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
     if( FD_LIKELY( http->pollfds[ i ].revents & POLLOUT ) ) write_conn( http, i );
     /* No need to handle POLLHUP, read() will return 0 soon enough. */
   }
 
-  http->poll_conn_idx = fd_ulong_if( end>=conn_cnt, 0UL, end );
+  http->poll_conn_idx = idx;
 
   return 1;
 }

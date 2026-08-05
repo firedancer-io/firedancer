@@ -408,7 +408,7 @@ fd_reasm_remove( fd_reasm_t     * reasm,
 
        We search up the tree until the theoretical boundary of a bank.
        This is usually when we jump to a parent slot, but if an
-       equivocation occured, this could also be the middle of the slot.
+       equivocation occurred, this could also be the middle of the slot.
 
        0 ── 32 ──  64 ──  96          (confirmed)
               └──  64' ── 96' ── 128' (eqvoc)

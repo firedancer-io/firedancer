@@ -241,6 +241,98 @@ static ulong event_bytes_written_samples_idx = 0UL;
 static ulong event_bytes_written_samples[ 100UL ];
 static ulong event_bytes_read_samples_idx = 0UL;
 static ulong event_bytes_read_samples[ 100UL ];
+
+/* Peer discovery follows logistic growth so the per-capita rate
+   (dn/dt)/n is linear in n and hits zero at n=N_total.  A streaming
+   least-squares of per-capita rate vs count over 150ms buckets projects
+   N_total.
+
+   The displayed bar is n/N_total slew-limited to 60%/s (the raw
+   projection can jump when the fit locks on) and capped at 90%.  The
+   final 10% is walked by the table-quiet gap against the tile's
+   500ms saturation deadline, so full coincides exactly with the
+   tile's PEER_SATURATED condition, which is mirrored here. */
+
+static long   gossip_bucket_nanos = 0L;
+static ulong  gossip_bucket_peers = 0UL;
+static double gossip_sx = 0.0, gossip_sy = 0.0, gossip_sxx = 0.0, gossip_sxy = 0.0, gossip_sw = 0.0;
+static ulong  gossip_peer_hwm = 0UL;
+static long   gossip_peer_hwm_nanos = 0L;
+static long   gossip_disp_nanos = 0L;
+static double gossip_disp_pct = 0.0;
+static double gossip_conv_pct = 0.0;
+static int    gossip_saturated = 0;
+
+#define GOSSIP_SAT_QUIET_SECS (0.5)  /* FD_GOSSIP_PEER_SAT_QUIET_NS */
+#define GOSSIP_BAR_SLEW       (60.0) /* %/s */
+#define GOSSIP_BAR_FIT_CAP    (90.0) /* % from the fit, rest from the quiet gap */
+
+static void
+sample_gossip( config_t const * config,
+               ulong const *    cur_tile,
+               long             now ) {
+  ulong tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
+  if( FD_UNLIKELY( tile_idx==ULONG_MAX || gossip_saturated ) ) return;
+
+  ulong const * t = &cur_tile[ tile_idx*FD_METRICS_TOTAL_SZ ];
+  ulong peers = t[ MIDX( GAUGE, GOSSIP, CRDS_PEER_STAKED ) ]+t[ MIDX( GAUGE, GOSSIP, CRDS_PEER_UNSTAKED ) ];
+
+  if( FD_UNLIKELY( peers>gossip_peer_hwm ) ) {
+    gossip_peer_hwm       = peers;
+    gossip_peer_hwm_nanos = now;
+  } else if( FD_UNLIKELY( peers>1UL && gossip_peer_hwm_nanos &&
+                          (double)(now-gossip_peer_hwm_nanos)/1e9>GOSSIP_SAT_QUIET_SECS ) ) {
+    /* Mirrors the tile's PEER_SATURATED condition. */
+    gossip_saturated = 1;
+    gossip_conv_pct  = 100.0;
+    return;
+  }
+
+  /* Feed the regression once discovery is underway (the entrypoint
+     alone doesn't count). */
+  if( FD_LIKELY( peers>=10UL ) ) {
+    if( FD_UNLIKELY( !gossip_bucket_nanos ) ) {
+      gossip_bucket_nanos = now;
+      gossip_bucket_peers = peers;
+    } else if( FD_UNLIKELY( (double)(now-gossip_bucket_nanos)/1e9>=0.15 ) ) {
+      double dt = (double)(now-gossip_bucket_nanos)/1e9;
+      double x  = 0.5*(double)(peers+gossip_bucket_peers);
+      double y  = ((double)peers-(double)gossip_bucket_peers)/dt/x; /* per-capita rate */
+      gossip_sx += x; gossip_sy += y; gossip_sxx += x*x; gossip_sxy += x*y; gossip_sw += 1.0;
+      gossip_bucket_nanos = now;
+      gossip_bucket_peers = peers;
+    }
+  }
+
+  double target = 0.0;
+  if( FD_LIKELY( gossip_sw>=4.0 ) ) {
+    double den = gossip_sw*gossip_sxx-gossip_sx*gossip_sx;
+    if( FD_LIKELY( den>1e-9 ) ) {
+      double slope     = (gossip_sw*gossip_sxy-gossip_sx*gossip_sy)/den;
+      double intercept = (gossip_sy-slope*gossip_sx)/gossip_sw;
+      if( FD_LIKELY( slope<-1e-12 && intercept>0.0 ) ) {
+        double total = -intercept/slope; /* n where per-capita rate hits zero */
+        target = fd_double_if( total>0.0, 100.0*(double)peers/total, 0.0 );
+        target = fd_double_if( target>GOSSIP_BAR_FIT_CAP, GOSSIP_BAR_FIT_CAP, target );
+      }
+    }
+  }
+
+  if( FD_UNLIKELY( !gossip_disp_nanos ) ) gossip_disp_nanos = now;
+  double step = GOSSIP_BAR_SLEW*(double)(now-gossip_disp_nanos)/1e9;
+  gossip_disp_nanos = now;
+  if( FD_LIKELY( target>gossip_disp_pct ) )
+    gossip_disp_pct = fd_double_if( gossip_disp_pct+step>target, target, gossip_disp_pct+step );
+
+  double gap = 0.0;
+  if( FD_LIKELY( peers>1UL && gossip_peer_hwm_nanos ) )
+    gap = (double)(now-gossip_peer_hwm_nanos)/1e9/GOSSIP_SAT_QUIET_SECS;
+
+  double pct = gossip_disp_pct+(100.0-GOSSIP_BAR_FIT_CAP)*gap;
+  pct = fd_double_if( pct>99.0, 99.0, pct );
+  gossip_conv_pct = fd_double_if( pct>gossip_conv_pct, pct, gossip_conv_pct );
+}
+
 /* Accounts */
 static ulong accdb_samples_idx = 0UL;
 static ulong accdb_acquired_samples[ 200UL ];
@@ -283,6 +375,14 @@ static ulong rserve_rps_other_rej_samples[ 100UL ];
 
 #define BGREEN  "\033[92m"
 #define BYELLOW "\033[93m"
+
+/* Cluster accents matching the GUI palette. */
+#define CLUS_MAINNET  "\033[38;5;43m"  /* #1CE7C2 */
+#define CLUS_TESTNET  "\033[38;5;178m" /* #E7B81C */
+#define CLUS_DEVNET   "\033[38;5;166m" /* #E7601C */
+#define CLUS_PYTHNET  "\033[38;5;129m" /* #9D1CE7 */
+#define CLUS_PYTHTEST "\033[38;5;162m" /* #E71C88 */
+#define CLUS_UNKNOWN  "\033[38;5;245m" /* #898989 */
 
 #define CLEARLN "\033[K"
 
@@ -930,7 +1030,8 @@ write_gossip( config_t const * config,
               ulong const *    prev_link ) {
   ulong gossip_tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
   if( gossip_tile_idx==ULONG_MAX ) return 0U;
-  char * contact_info = COUNT( cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V2 ) ] );
+  ulong const * t = &cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ ];
+  char * contact_info = COUNT( t[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V2 ) ] );
 
   ulong gossip_total_ticks = total_regime( &cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ ] );
   gossip_total_ticks = fd_ulong_max( gossip_total_ticks, 1UL );
@@ -942,13 +1043,15 @@ write_gossip( config_t const * config,
          K( "rx" ) "%s"
          K( "tx" ) "%s"
          K( "crds" ) "%s"
-         K( "peers" ) "%s"
-         K( "busy" ) "%s%3.0f" U( "%%" ) RESET
-         K( "backp" ) "%s%3.0f" U( "%%" ) RESET CLEARLN "\n",
+         K( "peers" ) "%s ",
     DIFF_LINK_BYTES( "net_gossvf", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     DIFF_LINK_BYTES( "gossip_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
-    COUNT( total_crds( &cur_tile[ fd_topo_find_tile( &config->topo, "gossip", 0UL )*FD_METRICS_TOTAL_SZ ] ) ),
-    contact_info,
+    COUNT( total_crds( t ) ),
+    contact_info );
+  if( FD_UNLIKELY( gossip_saturated ) ) PRINT( GREEN "✓" RESET DIM " saturated" RESET );
+  else                                  PRINT( "%s " DIM "%3.0f%%" RESET, BAR( gossip_conv_pct, 8UL ), gossip_conv_pct );
+  PRINT( K( "busy" ) "%s%3.0f" U( "%%" ) RESET
+         K( "backp" ) "%s%3.0f" U( "%%" ) RESET CLEARLN "\n",
     sev_color( gossip_busy_pct ), gossip_busy_pct,
     sev_color( gossip_backp_pct ), gossip_backp_pct );
   return 1U;
@@ -1324,10 +1427,19 @@ write_node_info( config_t const *       config,
     has_genesis_b58 = 1;
   }
 
-  char const * cluster_str = "";
+  char const * cluster_str   = "";
+  char const * cluster_color = "";
   if( has_genesis_b58 ) {
     ulong cluster_id = fd_genesis_cluster_identify( genesis_hash_b58 );
     cluster_str = cluster_id==FD_CLUSTER_MAINNET_BETA ? "mainnet" : fd_genesis_cluster_name( cluster_id );
+    switch( cluster_id ) {
+      case FD_CLUSTER_MAINNET_BETA: cluster_color = CLUS_MAINNET;  break;
+      case FD_CLUSTER_TESTNET:      cluster_color = CLUS_TESTNET;  break;
+      case FD_CLUSTER_DEVNET:       cluster_color = CLUS_DEVNET;   break;
+      case FD_CLUSTER_PYTHNET:      cluster_color = CLUS_PYTHNET;  break;
+      case FD_CLUSTER_PYTHTEST:     cluster_color = CLUS_PYTHTEST; break;
+      default:                      cluster_color = CLUS_UNKNOWN;  break;
+    }
   }
 
   char uptime_str[ 32UL ];
@@ -1366,15 +1478,16 @@ write_node_info( config_t const *       config,
   char sv_field  [ 32 ]; fmt_field( sv_field,   sizeof(sv_field),   shred_ver,    has_shred_ver,    7 );
 
   PRINT( ROWH( "◈", ORANGE, "node        " )
+         K( "cluster" ) "%s" BOLD "%s" RESET
          K( "id" ) BOLD "%s" RESET
          K( "vote" ) "%s"
-         K( "cluster" ) BOLD "%s" RESET
          K( "uptime" ) "%s"
          K( "shred" ) "%s"
          K( "genesis" ) "%s",
+    cluster_color,
+    clus_field,
     id_field,
     vote_field,
-    clus_field,
     up_field,
     sv_field,
     has_genesis_b58 ? genesis_short : DIM "-" RESET );
@@ -1566,6 +1679,9 @@ run( config_t const * config,
 
       /* Accounts */
       sample_accdb( config, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ );
+
+      /* Gossip */
+      sample_gossip( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, now );
 
       /* Repair server */
       shreds_stored_sample[ shreds_stored_samples_idx%(sizeof(shreds_stored_sample)/sizeof(shreds_stored_sample[0])) ] = (ulong)diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, RSERVE, SHREDS_CURRENT ) );

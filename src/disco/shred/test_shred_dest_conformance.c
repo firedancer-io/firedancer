@@ -6,7 +6,7 @@ uchar _stake_ci_broadcast[ 64UL*1024UL*1024UL ] __attribute__((aligned(128UL)));
 
 uchar _stake_msg_mem[ FD_STAKE_CI_STAKE_MSG_SZ ];
 
-static fd_stake_weight_t id_scratch[ MAX_STAKED_LEADERS ];
+static fd_stake_weight_t id_scratch[ MAX_STAKE_WEIGHTS ];
 
 /* Cluster data from deterministic Rust test */
 static const struct {
@@ -119,7 +119,6 @@ test_shred_dest_conformance( void ) {
   stake_msg->epoch = 123UL;
   stake_msg->start_slot = 0UL;
   stake_msg->slot_cnt = 432000UL;
-  stake_msg->excluded_id_stake = 0UL;
 
   /* Count staked nodes and build stake weights */
   fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( stake_msg + 1 );

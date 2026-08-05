@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
+#include "../../discof/backup/fd_backup_visited.h"
 
 #include "../../discof/admin/fd_adminctl.h"
 
@@ -17,7 +18,7 @@
 static ulong
 banks_footprint( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  return fd_banks_footprint( VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
+  return fd_banks_footprint( VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
 }
 
 static ulong
@@ -31,7 +32,7 @@ banks_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
   int larger_max_cost_per_block = fd_pod_queryf_int( topo->props, 0, "obj.%lu.larger_max_cost_per_block", obj->id );
   ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
-  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_VOTE_ACCOUNTS, larger_max_cost_per_block, seed ) );
+  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, larger_max_cost_per_block, seed ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_banks = {
@@ -158,7 +159,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_store = {
 static ulong
 accdb_footprint( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  return fd_accdb_shmem_footprint( VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("cache_footprint"), VAL("cache_min_reserved"), VAL("joiner_cnt") );
+  return fd_accdb_shmem_footprint( VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("cache_footprint"), VAL("cache_min_reserved"), VAL("joiner_cnt"), VAL("max_incremental_accounts") );
 }
 
 static ulong
@@ -170,7 +171,7 @@ accdb_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 accdb_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_accdb_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("partition_sz"), VAL("cache_footprint"), VAL("cache_min_reserved"), (int)VAL("bundle_enabled"), VAL("seed"), VAL("joiner_cnt") ) );
+  FD_TEST( fd_accdb_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("partition_sz"), VAL("cache_footprint"), VAL("cache_min_reserved"), (int)VAL("bundle_enabled"), VAL("seed"), VAL("joiner_cnt"), VAL("max_incremental_accounts") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_accdb = {
@@ -230,6 +231,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss = {
   .footprint = rnonce_ss_footprint,
   .align     = rnonce_ss_align,
   .new       = rnonce_ss_new,
+};
+
+static ulong
+backup_vis_footprint_cb( fd_topo_t const *     topo,
+                         fd_topo_obj_t const * obj ) {
+  return visited_set_footprint( VAL("max_accounts") );
+}
+
+static ulong
+backup_vis_align_cb( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return visited_set_align();
+}
+
+static void
+backup_vis_new_cb( fd_topo_t const *     topo,
+                   fd_topo_obj_t const * obj ) {
+  FD_TEST( visited_set_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_accounts") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_backup_vis = {
+  .name      = "backup_vis",
+  .footprint = backup_vis_footprint_cb,
+  .align     = backup_vis_align_cb,
+  .new       = backup_vis_new_cb,
 };
 
 #undef VAL

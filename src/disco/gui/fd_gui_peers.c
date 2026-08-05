@@ -527,7 +527,7 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
   fd_gui_peers_node_t * peer = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, peer_sock, NULL, peers->contact_info_table );
 
   /* We set MAP_MULTI=1 since there are not guarantees that duplicates
-     sockets wont exist. In cases where we see multiple sockets the
+     sockets won't exist. In cases where we see multiple sockets the
      update timestamp in fd_gui_peers_node_t is the tiebreaker */
   for( fd_gui_peers_node_t * p = peer; p!=NULL; p=(fd_gui_peers_node_t *)fd_gui_peers_node_sock_map_ele_next_const( p, NULL, peers->contact_info_table ) ) {
     if( peer->row.update_time_nanos>p->row.update_time_nanos ) peer = p;
@@ -887,10 +887,10 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
   ulong epoch_idx = epoch_info->epoch % 2UL;
   if( FD_UNLIKELY( peers->epochs[ epoch_idx ].epoch!=ULONG_MAX && peers->epochs[ epoch_idx ].epoch>=epoch_info->epoch ) ) return;
 
-  if( FD_UNLIKELY( epoch_info->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
-    FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
-  if( FD_UNLIKELY( epoch_info->staked_id_cnt>MAX_SHRED_DESTS ) )
-    FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
+  if( FD_UNLIKELY( epoch_info->staked_vote_cnt>MAX_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "epoch stakes exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
+  if( FD_UNLIKELY( epoch_info->staked_id_cnt>MAX_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "epoch id weights exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
 
   fd_vote_stake_weight_t const * weights = fd_epoch_info_msg_stake_weights( epoch_info );
 
@@ -1078,9 +1078,9 @@ fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
   fd_vote_stake_weight_t * vote_scratch = peers->scratch.manifest_vote_weights;
   ulong vote_scratch_cnt = 0UL;
   ulong vote_accounts_sz = manifest->vote_accounts_len;
-  if( FD_UNLIKELY( vote_accounts_sz>FD_VOTE_ACCOUNTS_MAX ) ) {
-    FD_LOG_WARNING(( "vote accounts %lu exceeds maximum %lu", vote_accounts_sz, FD_VOTE_ACCOUNTS_MAX ));
-    vote_accounts_sz = FD_VOTE_ACCOUNTS_MAX;
+  if( FD_UNLIKELY( vote_accounts_sz>FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
+    FD_LOG_WARNING(( "vote accounts %lu exceeds maximum %lu", vote_accounts_sz, FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
+    vote_accounts_sz = FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS;
   }
   for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
     if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;

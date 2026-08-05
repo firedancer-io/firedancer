@@ -44,6 +44,8 @@ typedef struct fd_exec_test_epoch_credit {
     uint64_t prev_credits;
 } fd_exec_test_epoch_credit_t;
 
+typedef PB_BYTES_ARRAY_T(32) fd_exec_test_prev_vote_account_inflation_rewards_collector_t;
+typedef PB_BYTES_ARRAY_T(32) fd_exec_test_prev_vote_account_block_revenue_collector_t;
 typedef struct fd_exec_test_prev_vote_account {
     pb_byte_t address[32];
     pb_byte_t node_pubkey[32];
@@ -54,6 +56,11 @@ epoch rewards during the distribution phase. */
     pb_size_t epoch_credits_count;
     struct fd_exec_test_epoch_credit *epoch_credits;
     fd_exec_test_vote_account_version_t version;
+    /* SIMD-0232 collector accounts.  Empty/absent means the default
+collector applies (the vote account address for inflation
+rewards, node_pubkey for block revenue). */
+    fd_exec_test_prev_vote_account_inflation_rewards_collector_t inflation_rewards_collector;
+    fd_exec_test_prev_vote_account_block_revenue_collector_t block_revenue_collector;
 } fd_exec_test_prev_vote_account_t;
 
 typedef struct fd_exec_test_block_bank {
@@ -177,7 +184,7 @@ extern "C" {
 #define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_DEFAULT   {0, 0, 0}
-#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN, {0, {0}}, {0, {0}}}
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT     {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT {0, 0, 0, 0, 0, {0}}
@@ -186,7 +193,7 @@ extern "C" {
 #define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_ZERO      {0, 0, 0}
-#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN, {0, {0}}, {0, {0}}}
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO        {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO {0, 0, 0, 0, 0, {0}}
@@ -209,6 +216,8 @@ extern "C" {
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_COMMISSION_BPS_TAG 4
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_EPOCH_CREDITS_TAG 5
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_VERSION_TAG 6
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INFLATION_REWARDS_COLLECTOR_TAG 7
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_BLOCK_REVENUE_COLLECTOR_TAG 8
 #define FD_EXEC_TEST_BLOCK_BANK_BLOCKHASH_QUEUE_TAG 1
 #define FD_EXEC_TEST_BLOCK_BANK_RBH_LAMPORTS_PER_SIGNATURE_TAG 2
 #define FD_EXEC_TEST_BLOCK_BANK_FEE_RATE_GOVERNOR_TAG 3
@@ -271,7 +280,9 @@ X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, node_pubkey,       2) \
 X(a, STATIC,   SINGULAR, UINT64,   stake,             3) \
 X(a, STATIC,   SINGULAR, UINT32,   commission_bps,    4) \
 X(a, POINTER,  REPEATED, MESSAGE,  epoch_credits,     5) \
-X(a, STATIC,   SINGULAR, UENUM,    version,           6)
+X(a, STATIC,   SINGULAR, UENUM,    version,           6) \
+X(a, STATIC,   SINGULAR, BYTES,    inflation_rewards_collector,   7) \
+X(a, STATIC,   SINGULAR, BYTES,    block_revenue_collector,   8)
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_CALLBACK NULL
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_DEFAULT NULL
 #define fd_exec_test_prev_vote_account_t_epoch_credits_MSGTYPE fd_exec_test_epoch_credit_t

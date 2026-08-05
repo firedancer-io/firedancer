@@ -660,6 +660,18 @@ fd_vote_account_commission_bps( uchar const * data,
                                 int           commission_rate_in_bps,
                                 ushort *      out );
 
+/* Reads the SIMD-0232 commission collectors directly from raw
+   bincode-encoded vote account data.  Pre-v4 states have no collector
+   fields and return the defaults: vote_pubkey (inflation) and
+   node_pubkey (block revenue).  Returns 0 on success, 1 on error. */
+int
+fd_vote_account_collectors( uchar const *       data,
+                            ulong               data_sz,
+                            fd_pubkey_t const * vote_pubkey,
+                            fd_pubkey_t const * node_pubkey,
+                            fd_pubkey_t *       inflation_rewards_collector_out,
+                            fd_pubkey_t *       block_revenue_collector_out );
+
 /* Reads the last_timestamp directly from raw bincode-encoded vote
    account data.  Returns 0 on success, 1 on error. */
 int
@@ -685,6 +697,9 @@ fd_vote_account_epoch_credits( uchar const * data,
    bincode-encoded data into the provided instruction struct.  Dynamic
    data (deques, arrays) is placed in memory embedded within the
    sub-structs of instruction.
+
+   Only bytes up to FD_TXN_MTU_V0 are parsed, the rest are discarded,
+   matching Agave's limited_deserialize(data, PACKET_DATA_SIZE).
 
    On success returns instruction.  Returns NULL on failure (malformed
    data). */

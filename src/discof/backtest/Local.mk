@@ -10,8 +10,4 @@ $(call make-unit-test,test_libc_zstd,test_libc_zstd,fd_discof fd_util)
 $(call run-unit-test,test_libc_zstd)
 endif
 
-ifdef FD_HAS_ROCKSDB
-$(call add-objs,fd_backtest_src_rocksdb,fd_discof)
-$(call make-bin,fd_blockstore2shredcap,fd_blockstore2shredcap,fd_discof fd_flamenco fd_ballet fd_util,$(ROCKSDB_LIBS))
-endif
 endif

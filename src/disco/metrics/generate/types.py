@@ -44,6 +44,11 @@ class Tile(Enum):
     METRIC = 39
     RPC = 40
 
+    SNAPMK = 50
+    SNAPZP = 51
+    SNAPRD = 52
+    SNAPSV = 53
+
     RESOLH = 100
     BANK = 101
     POHH = 102

@@ -174,7 +174,7 @@ fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
      [r]P == 0 <==> [x+1]P + ψ([x]P) + ψ²([x]P) = ψ³([2x]P)
      See also: https://github.com/Consensys/gnark-crypto/blob/v0.12.1/ecc/bn254/g2.go#L404
 
-     For reference, the followings also work:
+     For reference, the following also work:
 
      1) very slow: 256-bit scalar mul
 

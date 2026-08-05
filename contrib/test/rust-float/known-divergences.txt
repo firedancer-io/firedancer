@@ -1,0 +1,52 @@
+# Cases where the C and Rust streams are allowed to differ.
+#
+# One "op operand [operand]" key per line.  The run fails on a differing
+# line whose key is not listed; a listed case that happens to agree is
+# fine.
+#
+# Which nan payload an operation propagates, and which sign of zero min
+# and max return, are unspecified.  No compiler is wrong and none is
+# consistent with the others: this list is the union over gcc 11.4 to
+# 16.1, clang 15.0 to 21.1 and rustc 1.92.0, 1.97.1 and 1.94-nightly, 36
+# pairs whose individual counts run from 16 to 35.  All but two cases
+# have a nan operand; those two are min and max of +0 and -0.
+#
+# A differing case that is not already listed is a real misalignment.
+# Add to this list only after understanding why it diverges.
+add 7ff0000000000001 fff0000000000001
+add 7ff8000000000000 fff8000000000000
+add fff0000000000001 7ff8000deadbeef0
+add fff8000000000000 7ff0000000000001
+ceil 7ff0000000000001
+ceil fff0000000000001
+floor 7ff0000000000001
+floor fff0000000000001
+max 0000000000000000 8000000000000000
+max 7ff0000000000001 fff0000000000001
+max 7ff8000000000000 fff8000000000000
+max fff0000000000001 7ff8000deadbeef0
+max fff8000000000000 7ff0000000000001
+min 0000000000000000 8000000000000000
+min 7ff0000000000001 fff0000000000001
+min 7ff8000000000000 fff8000000000000
+min fff0000000000001 7ff8000deadbeef0
+min fff8000000000000 7ff0000000000001
+mul 7ff0000000000001 fff0000000000001
+mul 7ff8000000000000 fff8000000000000
+mul_add 7ff0000000000001 fff0000000000001
+muladd 7ff0000000000001 fff0000000000001
+mul_add 7ff8000000000000 fff8000000000000
+muladd 7ff8000000000000 fff8000000000000
+muladd fff0000000000000 7ff8000000000000
+mul_add fff0000000000001 7ff8000deadbeef0
+muladd fff0000000000001 7ff8000deadbeef0
+mul_add fff8000000000000 7ff0000000000001
+muladd fff8000000000000 7ff0000000000001
+mul fff0000000000001 7ff8000deadbeef0
+mul fff8000000000000 7ff0000000000001
+rem fff0000000000001 7ff8000deadbeef0
+rem fff8000000000000 7ff0000000000001
+rint 7ff0000000000001
+rint fff0000000000001
+trunc 7ff0000000000001
+trunc fff0000000000001

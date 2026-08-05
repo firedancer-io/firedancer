@@ -91,11 +91,11 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   ulong const partition_cnt        = 8192UL;
   ulong const partition_sz         = (1UL<<30UL);
   ulong const cache_footprint      = (12UL<<30UL);
-  ulong const cache_min_reserved   = 5UL*191UL;
+  ulong const cache_min_reserved   = fd_accdb_cache_min_reserved( 1 );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( max_accounts, max_live_slots,
                                                    writes_per_slot, partition_cnt,
-                                                   cache_footprint, cache_min_reserved, 1UL );
+                                                   cache_footprint, cache_min_reserved, 1UL, 0UL );
   ulong accdb_join_sz  = fd_accdb_footprint( max_live_slots );
 
   fd_solfuzz_runner_t * runner       = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),                                 wksp_tag );
@@ -104,7 +104,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(),   fd_progcache_shmem_footprint( txn_max, rec_max ),            wksp_tag );
   uchar *               scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,                              wksp_tag );
   void *                spad_mem     = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),                               wksp_tag );
-  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 2048UL ),    wksp_tag );
+  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 32768UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner       ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed"                                            )); goto bail1; }
   if( FD_UNLIKELY( !accdb_shmem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_shmem) failed"                                               )); goto bail1; }
   if( FD_UNLIKELY( !accdb_join   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_join) failed"                                                )); goto bail1; }
@@ -125,7 +125,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( accdb_shmem, max_accounts, max_live_slots,
                           writes_per_slot, partition_cnt,
-                          partition_sz, cache_footprint, cache_min_reserved, 1, 42UL, 1UL ) );
+                          partition_sz, cache_footprint, cache_min_reserved, 1, 42UL, 1UL, 0UL ) );
   if( FD_UNLIKELY( !shmem ) ) goto bail1;
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL ) );
   if( FD_UNLIKELY( !accdb ) ) goto bail1;
@@ -149,7 +149,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
   /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
-  runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max, 2048UL, 2048UL, 0, 8888UL ) );
+  runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
   runner->bank = fd_banks_init_bank( runner->banks );
   if( FD_UNLIKELY( !runner->bank ) ) goto bail2;

@@ -56,7 +56,14 @@
    when memory pressure is high.  An evicted FEC - if valid - will be
    requested by repair and eventually re-delivered to replay, where
    hopefully by then there will be pool capacity to insert and replay
-   the FEC. */
+   the FEC.
+
+   SNAPSHOT PRODUCTION
+
+   Snapshot production is either periodically scheduled (driven by
+   replay tile) or externally requested (through admin tile).  The
+   replay tile stops compaction (via snapshot_sync) and rooting until
+   the snapshot is created. */
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
@@ -71,6 +78,11 @@
 #define REPLAY_SIG_REASM_EVICTED  (7)
 #define REPLAY_SIG_WFS_DONE       (8)
 #define REPLAY_SIG_DROP_BANK_REF  (9)
+#define REPLAY_SIG_SNAP_START    (10)
+
+/* replay_out mcache seq[i] slots */
+#define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
+#define REPLAY_SYNC_SNAP (1UL) /* mcache->seq[1]: last published snap msg (acq-rel) */
 
 /* fd_replay_slot_completed promises that it will deliver at most 2
    frags for a given slot (at most 2 equivocating blocks).  The first
@@ -111,6 +123,8 @@ struct fd_replay_slot_completed {
   /* Reference to the bank for this completed slot. */
   ulong bank_idx;
   ulong bank_seq;
+  ulong parent_bank_idx;   /* parent bank's pool index (ULONG_MAX if none) */
+  ulong parent_bank_seq;   /* parent bank's app-wide seq    (ULONG_MAX if none) */
   fd_accdb_fork_id_t accdb_fork_id;
 
   long first_fec_set_received_nanos;      /* timestamp when replay received the first fec of the slot from turbine or repair */
@@ -154,11 +168,13 @@ typedef struct fd_replay_slot_dead fd_replay_slot_dead_t;
 struct fd_replay_oc_advanced {
   ulong slot;
   ulong bank_idx;
+  ulong bank_seq;  /* fork discriminator of the optimistically-confirmed bank */
 };
 typedef struct fd_replay_oc_advanced fd_replay_oc_advanced_t;
 
 struct fd_replay_root_advanced {
   ulong     bank_idx;
+  ulong     bank_seq;  /* fork discriminator of the rooted bank */
   ulong     slot;
   fd_hash_t bank_hash;
 };
@@ -194,6 +210,15 @@ struct fd_replay_drop_bank_ref {
 };
 typedef struct fd_replay_drop_bank_ref fd_replay_drop_bank_ref_t;
 
+/* The replay tile broadcasts fd_replay_snap_start_t
+   (REPLAY_SIG_SNAP_START) just before starting snapshot creation. */
+
+struct fd_replay_snap_start {
+  ulong bank_idx;
+  ulong base_slot;
+  ulong slot; /* ==base_slot implies full snapshot, else incremental */
+};
+typedef struct fd_replay_snap_start fd_replay_snap_start_t;
 
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;

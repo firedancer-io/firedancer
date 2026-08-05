@@ -262,7 +262,7 @@ typedef struct {
   fd_shred_features_activation_t features_activation[1];
 
   /* max_shred_idx is the exclusive upper bound for shred
-     indicies. We need to reject any shred with an
+     indices. We need to reject any shred with an
      index >= current_max_shred_idx, but we also want to reject anything
      that is part of an FEC set whose highest shred index would reach
      the bound.
@@ -519,8 +519,8 @@ during_frag( fd_shred_ctx_t * ctx,
     uchar const *               dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_epoch_info_msg_t const * epoch_msg    = fd_type_pun_const( dcache_entry );
 
-    FD_TEST( epoch_msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
-    FD_TEST( epoch_msg->staked_id_cnt<=MAX_SHRED_DESTS );
+    FD_TEST( epoch_msg->staked_vote_cnt<=MAX_STAKE_WEIGHTS );
+    FD_TEST( epoch_msg->staked_id_cnt<=MAX_STAKE_WEIGHTS );
 
     fd_stake_ci_epoch_msg_init( ctx->stake_ci, epoch_msg );
 

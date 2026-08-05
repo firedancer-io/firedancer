@@ -22,7 +22,6 @@ static fd_murmur3_32_test_vector_t const fd_murmur3_32_test_vector[] = {
   { 0x11f49d86U, "sol_sha256",                            10UL, 0 },
   { 0xd7793abbU, "sol_keccak256",                         13UL, 0 },
   { 0x17e40350U, "sol_secp256k1_recover",                 21UL, 0 },
-  { 0x174c5122U, "sol_blake3",                            10UL, 0 },
   { 0xaa2607caU, "sol_curve_validate_point",              24UL, 0 },
   { 0xdd1c41a6U, "sol_curve_group_op",                    18UL, 0 },
   { 0xd56b5fe9U, "sol_get_clock_sysvar",                  20UL, 0 },

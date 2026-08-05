@@ -105,11 +105,15 @@ struct fd_configf {
 
   struct {
     int  enable_block_production;
+    int  enable_snapshot_production;
     uint sign_tile_count;
     uint gossvf_tile_count;
     uint resolv_tile_count;
     uint execle_tile_count;
     uint execrp_tile_count;
+    uint snapzp_tile_count;
+    uint snapsv_tile_count;
+    uint snapsv_io_worker_count;
   } layout;
 
   struct {
@@ -154,6 +158,19 @@ struct fd_configf {
     uint max_retry_abort;
     uint min_download_speed_mibs;
     ulong wait_for_peers_timeout_seconds;
+    ulong full_snapshot_interval_slots;
+    ulong incremental_snapshot_interval_slots;
+    ulong max_incremental_snapshot_accounts;
+
+    struct {
+      int enabled;
+      char http_listen_address[ 64 ];
+      uint http_listen_port;
+      ulong max_http_connections;
+      ulong idle_timeout_millis;
+      ulong send_timeout_millis;
+      ulong send_buffer_size_kib;
+    } server;
   } snapshots;
 
   struct {
@@ -193,6 +210,8 @@ struct fd_configf {
 typedef struct fd_configf fd_configf_t;
 
 struct fd_config_net {
+  char auto_level[ 12 ]; /* "standard" or "minimal" */
+
   char provider[ 8 ]; /* "xdp" or "socket" */
 
   char interface[ IF_NAMESIZE ];
@@ -203,16 +222,16 @@ struct fd_config_net {
   uint ingress_buffer_size;
 
   struct {
-    char xdp_mode[ 8 ];
-    int  xdp_zero_copy;
-    char poll_mode[ 16 ]; /* "prefbusy" or "softirq" */
+    char xdp_mode[ 8 ]; /* "drv", "skb" or "auto" */
+    int  xdp_zero_copy; /* true/false or "auto" */
+    char poll_mode[ 16 ]; /* "prefbusy", "softirq" or "auto" */
 
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
     char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
     int  listen_gre;
-    int  native_bond;
+    int  native_bond; /* true/false or "auto" */
   } xdp;
 
   struct {
@@ -262,6 +281,7 @@ struct fd_config {
     char genesis[ PATH_MAX ];
     char accounts[ PATH_MAX ];
     char shredb[ PATH_MAX ];
+    char guidb[ PATH_MAX ];
   } paths;
 
   struct {
@@ -279,6 +299,10 @@ struct fd_config {
        here for easy communication to child processes. */
     int  log_fd;
   } log;
+
+  /* Necessary to output auto config's decisions/observed system info
+     to log file, since auto config runs before the log file is setup. */
+  char auto_config_log[ 512 ];
 
   struct {
     ushort expected_shred_version;
@@ -475,11 +499,12 @@ struct fd_config {
       ulong  max_websocket_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      ulong  db_size_gib;
     } gui;
 
     struct {
       int    enabled;
-      char   rpc_listen_address[ 16 ];
+      char   rpc_listen_address[ 64 ];
       ushort rpc_listen_port;
       ulong  max_http_connections;
       ulong  max_websocket_connections;

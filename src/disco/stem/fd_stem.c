@@ -53,6 +53,12 @@
    the before_credit function is doing work that should be accounted for
    as part of the tiles busy indicator.
 
+     CHECK_CREDIT
+   Is called every iteration of the stem run loop. This callback
+   overrides the default backpressure check (can the run loop produce
+   STEM_BURST frags on any out link without exceeding flow control
+   credits).
+
       AFTER_CREDIT
    Is called every iteration of the stem run loop, whether there is a
    new frag ready to receive or not, except in cases where the stem is
@@ -410,7 +416,11 @@ STEM_(run1)( ulong                        in_cnt,
         ulong cons_idx = event_idx;
 
         /* Receive flow control credits from this out. */
-        cons_seq[ cons_idx ] = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
+        ulong this_cons_seq = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
+        cons_seq[ cons_idx ] = this_cons_seq;
+#ifdef STEM_CALLBACK_RECV_CREDIT
+        STEM_CALLBACK_RECV_CREDIT( ctx, cons_out[ cons_idx ], out_seq[ cons_out[ cons_idx ] ], this_cons_seq );
+#endif
 
       } else if( FD_LIKELY( event_idx>cons_cnt ) ) { /* in fctl for in in_idx */
         ulong in_idx = event_idx - cons_cnt - 1UL;
@@ -528,6 +538,8 @@ STEM_(run1)( ulong                        in_cnt,
       .min_cr_avail        = &min_cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
       .out_reliable        = out_reliable,
+      .cons_seq            = cons_seq,
+      .in                  = in
     };
 #endif
 
@@ -544,7 +556,11 @@ STEM_(run1)( ulong                        in_cnt,
      different threads of execution.  We only count the transition
      from not backpressured to backpressured. */
 
-    if( FD_UNLIKELY( min_cr_avail<burst ) ) {
+    int is_backpressured = min_cr_avail<burst;
+#ifdef STEM_CALLBACK_CHECK_CREDIT
+    STEM_CALLBACK_CHECK_CREDIT( ctx, &stem, &charge_busy_before, &is_backpressured );
+#endif
+    if( FD_UNLIKELY( is_backpressured ) ) {
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();

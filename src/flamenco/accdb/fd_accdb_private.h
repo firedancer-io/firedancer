@@ -1,19 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_private_h
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_private_h
 
+#include "fd_accdb_base.h"
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_cache.h"
-
-/* Maximum accounts a single acquire may request.
-   FD_ACCDB_MAX_TX_ACCOUNT_LOCKS mirrors the mainnet per-transaction
-   account-lock limit (Agave get_transaction_account_lock_limit == 64;
-   the increase_tx_account_lock_limit feature -> 128 is assumed never to
-   activate).  FD_ACCDB_MAX_TXN_PER_ACQUIRE mirrors
-   FD_PACK_MAX_TXN_PER_BUNDLE, a bundle coalesces up to that many
-   transactions into one acquire. */
-#define FD_ACCDB_MAX_TX_ACCOUNT_LOCKS (64UL)
-#define FD_ACCDB_MAX_TXN_PER_ACQUIRE  (5UL)
-#define FD_ACCDB_MAX_ACQUIRE_CNT      (FD_ACCDB_MAX_TXN_PER_ACQUIRE*FD_ACCDB_MAX_TX_ACCOUNT_LOCKS)
 
 static inline void
 spin_lock_acquire( int * lock ) {
@@ -37,12 +27,6 @@ spin_lock_release( int * lock ) {
   *lock = 0;
 # endif
 }
-
-#ifndef FD_ACCDB_NO_FORK_ID
-struct fd_accdb_fork_id { ushort val; };
-typedef struct fd_accdb_fork_id fd_accdb_fork_id_t;
-#endif
-
 struct __attribute__((packed)) fd_accdb_disk_meta {
   uchar pubkey[ 32UL ];
   uint  size;
@@ -546,6 +530,10 @@ struct fd_accdb_shmem_private {
      and never decremented. */
   ulong epoch __attribute__((aligned(64)));
 
+  /* Synchronization with snapshot producer to inhibit compaction
+     Holds one of FD_ACCDB_SNAPSHOT_SYNC_* */
+  ulong snapshot_sync __attribute__((aligned(64)));
+
   /* Each joiner epoch is padded to a full cache line to prevent
      false sharing between joiners writing to adjacent slots. */
   struct __attribute__((aligned(64))) { ulong val; } joiner_epochs[ FD_ACCDB_MAX_JOINERS ];
@@ -588,6 +576,29 @@ struct fd_accdb_shmem_private {
   acc_pool_shmem_t  acc_pool [1];
   fork_pool_shmem_t fork_pool[1];
   txn_pool_shmem_t  txn_pool [1];
+
+  /* Track accounts modified since full snapshot.
+
+       ------------++++++++.......                       - pruned blocks
+       ^           ^      ^      ^                       + active blocks
+       full snap   root   head   incremental (future)    . future blocks
+
+     The validator thus needs to track the addresses of all accounts
+     that have changed since the last full snapshot.  accdb forks cannot
+     be used for this as fork information at the full snapshot slot is
+     discarded.
+
+     accdb deltas track this missing information. */
+
+  struct {
+    ulong seed;
+    ulong chain_off;
+    uint  chain_cnt;  /* power of 2 */
+    uint  chain_mask; /* chain_cnt-1, contiguous runs of one bits */
+    ulong ele_off;
+    ulong ele_max;
+    ulong head; /* bump alloc head */
+  } delta;
 
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };

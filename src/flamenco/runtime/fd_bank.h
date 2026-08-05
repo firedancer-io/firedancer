@@ -3,10 +3,9 @@
 
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
-#include "../stakes/fd_new_votes.h"
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_top_votes.h"
-#include "../stakes/fd_vote_stakes.h"
+#include "../stakes/fd_collector_overrides.h"
 #include "../progcache/fd_progcache_xid.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
@@ -94,10 +93,9 @@ FD_PROTOTYPES_BEGIN
   modified, a new element of the pool is acquired and the data is
   copied over from the parent.
 
-  Currently, there are two delta-based fields, fd_stake_delegations_t
-  and fd_new_votes_t.  The full state for these is stored in
-  fd_banks_t in out-of-line memory, with each bank carrying the fork
-  index for its delta.
+  fd_stake_delegations_t stores its full state in fd_banks_t in
+  out-of-line memory, with each bank carrying the fork index for its
+  delta.
 
   The cost tracker is allocated from a pool.  The lifetime of a cost
   tracker element starts when the bank is linked to a parent with a
@@ -274,10 +272,10 @@ struct fd_bank {
   fd_progcache_fork_id_t progcache_fork_id;
   fd_accdb_fork_id_t     accdb_fork_id;
   fd_accdb_fork_id_t     parent_accdb_fork_id;
-  ushort                 vote_stakes_fork_id;
+  ushort                 collector_overrides_fork_id;
   uchar                  stake_rewards_fork_id;
+  uchar                  epoch_credits_fork_id;
   ushort                 stake_delegations_fork_id;
-  ushort                 new_votes_fork_id;
   ulong                  cost_tracker_pool_idx;
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
@@ -357,12 +355,6 @@ struct fd_banks_prune_cancel_info {
 };
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 
-fd_vote_stakes_t *
-fd_bank_vote_stakes( fd_bank_t const * bank );
-
-fd_new_votes_t *
-fd_bank_new_votes( fd_bank_t const * bank );
-
 fd_stake_delegations_t *
 fd_bank_stake_delegations_modify( fd_bank_t * bank );
 
@@ -391,15 +383,16 @@ typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 #include "../../util/tmpl/fd_deque.c"
 
 struct fd_banks {
-  ulong magic;              /* ==FD_BANKS_MAGIC */
-  ulong max_total_banks;    /* Maximum number of banks */
-  ulong max_fork_width;     /* Maximum fork width executing through any given slot. */
-  ulong max_stake_accounts; /* Maximum number of stake accounts */
-  ulong max_vote_accounts;  /* Maximum number of vote accounts */
-  ulong root_idx;           /* root idx */
-  ulong bank_seq;           /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
-  ulong evict_rr_idx;       /* internal index for round-robin banks eviction */
-  ulong prunable_idx;       /* index of pending prunable bank, ULONG_MAX if none */
+  ulong magic;                       /* ==FD_BANKS_MAGIC */
+  ulong max_total_banks;             /* Maximum number of banks */
+  ulong max_fork_width;              /* Maximum fork width executing through any given slot. */
+  ulong max_stake_accounts;          /* Maximum number of stake accounts */
+  ulong max_vote_accounts;           /* Maximum number of vote accounts */
+  ulong root_idx;                    /* root idx */
+  ulong bank_seq;                    /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
+  ulong evict_rr_idx;                /* internal index for round-robin banks eviction */
+  ulong prunable_idx;                /* index of pending prunable bank, ULONG_MAX if none */
+  ulong max_fallback_stake_accounts; /* Maximum number of stake accounts nameable by the pubkey fallback tier */
 
   ulong curr_fork_width;
 
@@ -407,16 +400,26 @@ struct fd_banks {
 
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
 
-  ulong vote_stakes_pool_offset;
-
-  ulong new_votes_offset;
+  ulong collector_overrides_offset;
 
   ulong stake_rewards_offset;
 
   ulong dead_banks_deque_offset;
 
+  /* The epoch credits of every rewarded vote account are captured when a
+     bank crosses an epoch boundary, and are read again for the rest of
+     the epoch: by a recalculation that repositions a stake rewards
+     window, and by snapshot creation.  Sibling banks crossing the same
+     boundary capture different sets, so the store holds one set per
+     boundary-crossing fork, inherited by descendants and reference
+     counted so that a set lives exactly as long as the banks reading it.
+     There is one more set than max_fork_width because a bank sitting
+     behind a boundary still holds the previous epoch's set while every
+     fork crosses. */
+
   ulong epoch_credits_offset;
-  ulong epoch_credits_len;
+  ulong epoch_credits_len_offset;
+  ulong epoch_credits_refcnt_offset;
 
   ulong snapshot_commission_t_3_offset;
   ulong snapshot_commission_t_3_len;
@@ -437,8 +440,14 @@ struct fd_banks {
 };
 typedef struct fd_banks fd_banks_t;
 
-/* Bank accesssors and mutators.  Different accessors are emitted for
+/* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
+
+/* fd_bank_epoch_credits{,_len} return the epoch credits of the fork the
+   bank belongs to.  fd_bank_epoch_credits_new_fork acquires a fresh set
+   for the bank and must be called before the bank captures new epoch
+   credits, i.e. when it crosses an epoch boundary or restores a
+   snapshot. */
 
 fd_epoch_credits_t *
 fd_bank_epoch_credits( fd_bank_t * bank );
@@ -446,8 +455,14 @@ fd_bank_epoch_credits( fd_bank_t * bank );
 ulong *
 fd_bank_epoch_credits_len( fd_bank_t * bank );
 
+void
+fd_bank_epoch_credits_new_fork( fd_bank_t * bank );
+
 fd_stashed_commission_t *
 fd_bank_snapshot_commission_t_3( fd_bank_t * bank );
+
+fd_collector_overrides_t *
+fd_bank_collector_overrides( fd_bank_t const * bank );
 
 ulong *
 fd_bank_snapshot_commission_t_3_len( fd_bank_t * bank );
@@ -497,9 +512,9 @@ void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 
 /* fd_bank_stake_delegations_frontier_query() will return a pointer to
-   the full stake delegations for the current frontier. The caller is
-   responsible that there are no concurrent readers or writers to
-   the stake delegations returned by this function.
+   the full stake delegations for the current frontier.  It takes the
+   stake delegations write lock, excluding mutators in other tiles until
+   fd_bank_stake_delegations_end_frontier_query() releases it.
 
    Under the hood, the function applies all of the stake delegation
    deltas from all banks starting from the root down to the current bank
@@ -530,20 +545,6 @@ fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
 
 fd_stake_delegations_t *
 fd_banks_stake_delegations_root_query( fd_banks_t * banks );
-
-/* fd_banks_new_votes_fork_indices collects the new_votes fork ids
-   along the ancestry chain from `bank` up to (and including) the root
-   bank.  Valid (non-USHORT_MAX) fork ids are written into
-   fork_indices_out in child-to-root order.
-
-   The caller must provide an array large enough to hold all possible
-   ancestors; banks->max_total_banks is always sufficient.
-
-   Returns the number of entries written. */
-
-ulong
-fd_banks_new_votes_fork_indices( fd_bank_t * bank,
-                                 ushort *    fork_indices_out );
 
 /* fd_banks_pool_used_cnt returns the number of bank pool elements
    currently in use. */
@@ -595,6 +596,7 @@ ulong
 fd_banks_footprint( ulong max_total_banks,
                     ulong max_fork_width,
                     ulong max_stake_accounts,
+                    ulong max_fallback_stake_accounts,
                     ulong max_vote_accounts );
 
 /* fd_banks_new() creates a new fd_banks_t struct.  This function
@@ -607,6 +609,7 @@ fd_banks_new( void * mem,
               ulong  max_total_banks,
               ulong  max_fork_width,
               ulong  max_stake_accounts,
+              ulong  max_fallback_stake_accounts,
               ulong  max_vote_accounts,
               int    larger_max_cost_per_block,
               ulong  seed );
@@ -794,8 +797,7 @@ fd_banks_can_start_bank( fd_banks_t * banks );
 
 void
 fd_banks_clear_bank( fd_banks_t * banks,
-                     fd_bank_t *  bank,
-                     ulong        max_vote_accounts );
+                     fd_bank_t *  bank );
 
 FD_PROTOTYPES_END
 

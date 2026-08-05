@@ -131,7 +131,19 @@ test_publish_slot_done_identity_mismatch( void ) {
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
   FD_TEST( pub->msg.slot_done.has_vote_txn==1 );
+  FD_TEST( pub->msg.slot_done.is_voting==1 );
   FD_TEST( pub->msg.slot_done.authority_idx==ULONG_MAX );
+  publishes_pop_head_nocopy( ctx->publishes );
+
+  /* Matching identity but no votable slot: voter with no vote txn */
+  fd_tower_out_t out_no_vote = out;
+  out_no_vote.vote_slot = ULONG_MAX;
+  publish_slot_done( ctx, &sc, &out_no_vote, 1, 100UL, 0UL, NULL );
+  pub = publishes_peek_head( ctx->publishes );
+  FD_TEST( pub );
+  FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
+  FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
+  FD_TEST( pub->msg.slot_done.is_voting==1 );
   publishes_pop_head_nocopy( ctx->publishes );
 
   /* Other identity prevents vote publishing */
@@ -142,6 +154,7 @@ test_publish_slot_done_identity_mismatch( void ) {
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
   FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
+  FD_TEST( pub->msg.slot_done.is_voting==0 );
 
   fd_wksp_delete( fd_wksp_leave( wksp ) );
 
@@ -499,10 +512,10 @@ mock_topo_with_accdb( fd_wksp_t *      wksp,
   fd_topo_wksp_t * topo_wksp = fd_topob_wksp( topo, "wksp" );
   topo_wksp->wksp = wksp;
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
   void * shmem_mem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), shmem_fp, 1UL );
   FD_TEST( shmem_mem );
-  FD_TEST( fd_accdb_shmem_new( shmem_mem, max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt ) );
+  FD_TEST( fd_accdb_shmem_new( shmem_mem, max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
 
   fd_topo_obj_t * shmem_obj = fd_topob_obj( topo, "accdb_shmem", "wksp" );
   shmem_obj->wksp_id = topo_wksp->id;
@@ -555,7 +568,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
   ulong num_slots  = 32UL;
 
   fd_vote_stake_weight_t fixture_stakes[1] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
-  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, start_slot - 1, num_slots + MOCK_SLOT_MAX + 100, 1UL, fixture_stakes, 0UL ) );
+  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, start_slot - 1, num_slots + MOCK_SLOT_MAX + 100, 1UL, fixture_stakes ) );
   ctx->mleaders->init_done[0] = 1;
 
   for( ulong slot = start_slot; slot < start_slot + num_slots; slot++ ) {
@@ -666,7 +679,7 @@ eqvoc_setup( fd_wksp_t * wksp ) {
 
   fd_vote_stake_weight_t eqvoc_stakes[1] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
   ulong eqvoc_slot_cnt = EQVOC_BOOT_CNT + MOCK_SLOT_MAX + 100;
-  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, EQVOC_START_SLOT - 1, eqvoc_slot_cnt, 1UL, eqvoc_stakes, 0UL ) );
+  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, EQVOC_START_SLOT - 1, eqvoc_slot_cnt, 1UL, eqvoc_stakes ) );
   ctx->mleaders->init_done[0] = 1;
 
   for( ulong slot = EQVOC_START_SLOT; slot < EQVOC_START_SLOT + EQVOC_BOOT_CNT; slot++ ) {

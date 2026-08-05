@@ -111,6 +111,31 @@ fdctl_cfg_get_bool( int *                 out,
   return 1;
 }
 
+/* Handles true, false, "true", "false" and "auto" */
+static inline int
+fdctl_cfg_get_boolau( int *                 out,
+                      ulong                 out_sz FD_PARAM_UNUSED,
+                      fd_pod_info_t const * info,
+                      char const *          path ) {
+  if( info->val_type==FD_POD_VAL_TYPE_CSTR ) {
+    char const * info_val = (char const *)info->val;
+    if( !strcmp( info_val, "auto"  ) ) {
+      *out = 2;
+      return 1;
+    } else if( !strcmp( info_val, "true"  ) ) {
+      *out = 1;
+      return 1;
+    } else if( !strcmp( info_val, "false" ) ) {
+      *out = 0;
+      return 1;
+    }
+    FD_LOG_WARNING(( "invalid value of `%s` entered for `%s`, must be true, false or auto. ",
+                     info_val, path ));
+    return 0;
+  }
+  return fdctl_cfg_get_bool( out, out_sz, info, path );
+}
+
 static inline int
 fdctl_cfg_get_float( float *               out,
                      ulong                 out_sz FD_PARAM_UNUSED,

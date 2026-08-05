@@ -178,6 +178,39 @@ test_websocket_disabled( fd_rpc_tile_t * ctx ) {
   ctx->http->max_ws_conns = max_ws_conns;
 }
 
+static void
+test_snapshot_redirect( fd_rpc_tile_t * ctx ) {
+  ctx->snapshot_server_enabled = 1;
+  fd_cstr_fini( fd_cstr_append_cstr( fd_cstr_init( ctx->snapshot_server_url ), "http://127.0.0.1:8902" ) );
+
+  char const * paths[] = {
+    "/snapshot.tar.bz2",
+    "/snapshot-123-hash.tar.zst",
+    "/incremental-snapshot.tar.bz2",
+    "/incremental-snapshot-100-123-hash.tar.zst",
+  };
+  for( ulong i=0UL; i<sizeof(paths)/sizeof(paths[0]); i++ ) {
+    fd_http_server_request_t request = {
+      .connection_id = 0UL,
+      .method        = FD_HTTP_SERVER_METHOD_GET,
+      .path          = paths[i],
+      .path_raw      = paths[i],
+      .path_len      = strlen( paths[i] ),
+    };
+    fd_http_server_response_t response = rpc_http_request1( ctx, &request );
+    FD_TEST( response.status==302UL );
+    FD_TEST( response.location );
+    FD_TEST( response.location_len[0]==strlen( "http://127.0.0.1:8902" ) );
+    FD_TEST( !memcmp( response.location[0], "http://127.0.0.1:8902", response.location_len[0] ) );
+    FD_TEST( response.location_len[1]==strlen( paths[i] ) );
+    FD_TEST( !memcmp( response.location[1], paths[i], response.location_len[1] ) );
+  }
+
+  fd_http_server_request_t request = { .connection_id = 0UL, .method = FD_HTTP_SERVER_METHOD_GET, .path = "/health" };
+  FD_TEST( rpc_http_request1( ctx, &request ).status!=302UL );
+  ctx->snapshot_server_enabled = 0;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -210,10 +243,10 @@ main( int     argc,
   ulong const joiner_cnt                  = 2UL; /* writer + readonly rpc */
 
   fd_topo_obj_t * accdb_shmem_obj = fd_topob_obj( topo, "accdb_shmem", "wksp" );
-  ulong accdb_shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
+  ulong accdb_shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
   void * accdb_shmem_mem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), accdb_shmem_fp, 1UL );
   FD_TEST( accdb_shmem_mem );
-  FD_TEST( fd_accdb_shmem_new( accdb_shmem_mem, max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt ) );
+  FD_TEST( fd_accdb_shmem_new( accdb_shmem_mem, max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
   accdb_shmem_obj->wksp_id = topo_wksp->id;
   accdb_shmem_obj->offset  = fd_wksp_gaddr_fast( wksp, accdb_shmem_mem );
   fd_pod_insert_ulong( topo->props, "accdb", accdb_shmem_obj->id );
@@ -256,6 +289,7 @@ main( int     argc,
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
   strcpy( tile->name, "rpc" );
   tile->rpc.max_live_slots            = max_live_slots;
+  tile->rpc.max_http_connections      = 2UL;
   tile->rpc.max_http_request_length   = FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN;
   tile->rpc.max_websocket_connections = 2UL;
   tile->rpc.send_buffer_size_mb       = 64UL;
@@ -284,6 +318,7 @@ main( int     argc,
   FD_TEST( ctx->http->oring_sz );
   unprivileged_init( topo, tile );
 
+  test_snapshot_redirect( ctx );
   test_websocket_disabled( ctx );
 
   expect_ws_rpc_response( ctx, 0UL,

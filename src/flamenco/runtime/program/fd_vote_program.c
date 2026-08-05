@@ -361,7 +361,7 @@ check_and_filter_proposed_vote_state( fd_exec_instr_ctx_t *       ctx,
   ulong filter_votes_index = deq_fd_vote_lockout_t_cnt( proposed_lockouts );
 
   /* We need to iterate backwards here because proposed_lockouts_indexes_to_filter[ i ] is a
-     strictly increasing value. Forward iterating can lead to the proposed lockout indicies to get
+     strictly increasing value. Forward iterating can lead to the proposed lockout indices to get
      shifted leading to popping the wrong proposed lockouts or out of bounds accessing. We need
      to be sure of handling underflow in this case. */
 
@@ -724,7 +724,7 @@ authorize( fd_exec_instr_ctx_t *         ctx,
            int                           target_version,
            fd_pubkey_t const *           authorized,
            fd_vote_authorize_t const *   vote_authorize,
-           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+           fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
            ulong                         signers_cnt,
            fd_sol_sysvar_clock_t const * clock,
            int                           is_vote_authorize_with_bls_enabled ) {
@@ -850,7 +850,7 @@ update_validator_identity( fd_exec_instr_ctx_t *   ctx,
                            int                     target_version,
                            fd_borrowed_account_t * vote_account,
                            fd_pubkey_t const *     node_pubkey,
-                           fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX],
+                           fd_pubkey_t const *     signers[static FD_INSTR_SIGNERS_MAX],
                            ulong                   signers_cnt,
                            int                     custom_commission_collector_enabled ) {
   fd_vote_state_versioned_t * vote_state_versioned = &ctx->runtime->vote_program.update_validator_identity.vote_state;
@@ -890,7 +890,6 @@ static int
 is_commission_update_allowed( ulong slot, fd_epoch_schedule_t const * epoch_schedule ) {
   if( FD_LIKELY( epoch_schedule->slots_per_epoch > 0UL ) ) {
     ulong relative_slot = fd_ulong_sat_sub( slot, epoch_schedule->first_normal_slot );
-    // TODO underflow and overflow edge cases in addition to div by 0
     relative_slot %= epoch_schedule->slots_per_epoch;
     return fd_ulong_sat_mul( relative_slot, 2 ) <= epoch_schedule->slots_per_epoch;
   } else {
@@ -904,7 +903,7 @@ update_commission( fd_exec_instr_ctx_t *         ctx,
                    int                           target_version,
                    fd_borrowed_account_t *       vote_account,
                    uchar                         commission,
-                   fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                   fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                    ulong                         signers_cnt,
                    fd_epoch_schedule_t const *   epoch_schedule,
                    fd_sol_sysvar_clock_t const * clock,
@@ -956,7 +955,7 @@ update_commission_bps( fd_exec_instr_ctx_t *                    ctx,
                        fd_borrowed_account_t *                  vote_account,
                        int                                      target_version,
                        fd_update_commission_bps_args_t const *  args,
-                       fd_pubkey_t const *                      signers[static FD_TXN_SIG_MAX],
+                       fd_pubkey_t const *                      signers[static FD_INSTR_SIGNERS_MAX],
                        ulong                                    signers_cnt,
                        int                                      block_revenue_sharing ) {
   fd_vote_state_versioned_t * vote_state_versioned = &ctx->runtime->vote_program.update_commission_bps.vote_state;
@@ -996,6 +995,75 @@ update_commission_bps( fd_exec_instr_ctx_t *                    ctx,
   return fd_vsv_set_vote_account_state( ctx, vote_account, vote_state_versioned );
 }
 
+/* Updates the vote account's commission collector (SIMD-0232).
+   collector_account==NULL means the collector is the vote account
+   itself, which is exempt from the collector constraints.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L907-L935 */
+static int
+update_commission_collector( fd_exec_instr_ctx_t *         ctx,
+                             fd_borrowed_account_t *       vote_account,
+                             int                           target_version,
+                             fd_borrowed_account_t const * collector_account,
+                             fd_commission_kind_t const *  kind,
+                             fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
+                             ulong                         signers_cnt,
+                             fd_rent_t const *             rent ) {
+  fd_vote_state_versioned_t * vote_state_versioned = &ctx->runtime->vote_program.update_commission_collector.vote_state;
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L916 */
+  int rc = get_vote_state_handler_checked( vote_account, target_version, 0, vote_state_versioned );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L918-L919 */
+  rc = fd_vote_verify_authorized_signer(
+      fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
+      signers,
+      signers_cnt
+  );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  /* An external collector must be system program owned, rent-exempt,
+     and not reserved (checked via the writable flag).
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L866-L905 */
+  fd_pubkey_t const * new_collector_key;
+  if( !collector_account ) {
+    new_collector_key = (fd_pubkey_t const *)vote_account->acc->pubkey;
+  } else {
+    if( FD_UNLIKELY( !fd_pubkey_eq( fd_borrowed_account_get_owner( collector_account ), &fd_solana_system_program_id ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    }
+
+    if( FD_UNLIKELY( fd_borrowed_account_get_lamports( collector_account ) <
+                     fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( collector_account ) ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+
+    if( FD_UNLIKELY( !fd_borrowed_account_is_writable( collector_account ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    new_collector_key = (fd_pubkey_t const *)collector_account->acc->pubkey;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L923-L930 */
+  switch( kind->discriminant ) {
+    case fd_commission_kind_enum_inflation_rewards: {
+      fd_vsv_set_inflation_rewards_collector( vote_state_versioned, new_collector_key );
+      break;
+    }
+    case fd_commission_kind_enum_block_revenue: {
+      fd_vsv_set_block_revenue_collector( vote_state_versioned, new_collector_key );
+      break;
+    }
+    default: {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L934 */
+  return fd_vsv_set_vote_account_state( ctx, vote_account, vote_state_versioned );
+}
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L848C8-L903 */
 static int
 withdraw( fd_exec_instr_ctx_t *         ctx,
@@ -1003,7 +1071,7 @@ withdraw( fd_exec_instr_ctx_t *         ctx,
           int                           target_version,
           ulong                         lamports,
           ushort                        to_account_index,
-          fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+          fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
           ulong                         signers_cnt,
           fd_rent_t const *             rent_sysvar,
           fd_sol_sysvar_clock_t const * clock,
@@ -1144,16 +1212,19 @@ process_vote( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* We know that the size of the vote_slots is bounded by the number of
-     slots that can fit inside of an instruction.  A very loose bound is
-     assuming that the entire transaction is just filled with a vote
-     slot deque (1232 bytes per transaction/8 bytes per slot) == 154
-     slots.  The footprint of a deque is as follows:
+     slots that can fit inside of an instruction.  Because the
+     instructions are deserialized with
+     limited_deserialize(data, PACKET_DATA_SIZE), we can use
+     FD_TXN_MTU_V0 as a bound on the size of the instruction. If this
+     instruction is filled only with a vote slot deque, we get
+     (1232/8) == 154 slots.
+     The footprint of a deque is as follows:
      fd_ulong_align_up( fd_ulong_align_up( 32UL, alignof(DEQUE_T) ) + sizeof(DEQUE_T)*max, alignof(DEQUE_(private_t)) );
      So, the footprint in our case is:
      fd_ulong_align_up( fd_ulong_align_up( 32UL, alignof(ulong) ) + sizeof(ulong)*154, alignof(DEQUE_(private_t)) );
      Which is equal to
      fd_ulong_align_up( 32UL + 154 * 8UL, 8UL ) = 1264UL; */
-  #define VOTE_SLOTS_MAX             (FD_TXN_MTU/sizeof(ulong))
+  #define VOTE_SLOTS_MAX             (FD_TXN_MTU_V0/sizeof(ulong))
   #define VOTE_SLOTS_DEQUE_FOOTPRINT (1264UL )
   #define VOTE_SLOTS_DEQUE_ALIGN     (8UL)
   FD_TEST( deq_ulong_footprint( VOTE_SLOTS_MAX ) == VOTE_SLOTS_DEQUE_FOOTPRINT );
@@ -1196,7 +1267,7 @@ initialize_account( fd_exec_instr_ctx_t *         ctx,
                     fd_borrowed_account_t *       vote_account,
                     int                           target_version,
                     fd_vote_init_t *              vote_init,
-                    fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                    fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                     ulong                         signers_cnt,
                     fd_sol_sysvar_clock_t const * clock ) {
   int rc;
@@ -1232,7 +1303,7 @@ initialize_account_v2( fd_exec_instr_ctx_t *         ctx,
                        fd_borrowed_account_t *       vote_account,
                        int                           target_version,
                        fd_vote_init_v2_t *           vote_init_v2,
-                       fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                       fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                        ulong                         signers_cnt,
                        fd_sol_sysvar_clock_t const * clock ) {
   int rc;
@@ -1277,7 +1348,7 @@ process_vote_with_account( fd_exec_instr_ctx_t *         ctx,
                            fd_slot_hashes_t const *      slot_hashes,
                            fd_sol_sysvar_clock_t const * clock,
                            fd_vote_t *                   vote,
-                           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                           fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                            ulong                         signers_cnt ) {
   fd_vote_state_versioned_t * versioned = &ctx->runtime->vote_program.process_vote.vote_state;
 
@@ -1380,7 +1451,7 @@ process_vote_state_update( fd_exec_instr_ctx_t *         ctx,
                            fd_slot_hashes_t const *      slot_hashes,
                            fd_sol_sysvar_clock_t const * clock,
                            fd_vote_state_update_t *      vote_state_update,
-                           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                           fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                            ulong                         signers_cnt ) {
   fd_vote_state_versioned_t * versioned = &ctx->runtime->vote_program.process_vote.vote_state;
 
@@ -1457,7 +1528,7 @@ process_tower_sync( fd_exec_instr_ctx_t *         ctx,
                     fd_slot_hashes_t const *      slot_hashes,
                     fd_sol_sysvar_clock_t const * clock,
                     fd_tower_sync_t *             tower_sync,
-                    fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                    fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                     ulong                         signers_cnt ) {
   fd_vote_state_versioned_t * versioned = &ctx->runtime->vote_program.tower_sync.vote_state;
 
@@ -1559,7 +1630,7 @@ process_authorize_with_seed_instruction( /* invoke_context */
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
   if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-  fd_pubkey_t * expected_authority_keys[FD_TXN_SIG_MAX] = { 0 };
+  fd_pubkey_t * expected_authority_keys[FD_INSTR_SIGNERS_MAX] = { 0 };
   ulong         expected_authority_keys_cnt             = 0UL;
   fd_pubkey_t   single_signer                           = { 0 };
 
@@ -1621,8 +1692,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   int target_version = VOTE_STATE_TARGET_VERSION_V4;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L69
-  fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
-  ulong               signers_cnt             = 0UL;
+  fd_pubkey_t const * signers[FD_INSTR_SIGNERS_MAX] = { 0 };
+  ulong               signers_cnt                   = 0UL;
   fd_exec_instr_ctx_get_signers( ctx, signers, &signers_cnt );
 
   /* Some of these features are not implemented yet. As such, they are
@@ -1632,7 +1703,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   int bls_pubkey_management_in_vote_account = FD_FEATURE_ACTIVE_BANK( ctx->bank, bls_pubkey_management_in_vote_account );
   int delay_commission_updates              = FD_FEATURE_ACTIVE_BANK( ctx->bank, delay_commission_updates );
   int commission_rate_in_basis_points       = FD_FEATURE_ACTIVE_BANK( ctx->bank, commission_rate_in_basis_points );
-  int custom_commission_collector           = 0;
+  int custom_commission_collector           = FD_FEATURE_ACTIVE_BANK( ctx->bank, custom_commission_collector );
   int block_revenue_sharing                 = 0;
   int vote_account_initialize_v2            = 0;
 
@@ -1648,7 +1719,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
       vote_account_initialize_v2;
 
   fd_vote_instruction_t instruction[1];
-  if( FD_UNLIKELY( !fd_vote_instruction_deserialize( instruction, ctx->instr->data, fd_ulong_min( ctx->instr->data_sz, FD_TXN_MTU ) ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_instruction_deserialize( instruction, ctx->instr->data, ctx->instr->data_sz ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -2260,24 +2331,60 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     break;
   }
 
-  /* UpdateCommissionCollector
+  /* UpdateCommissionCollector (SIMD-0232)
    *
    * Instruction:
    * https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/instruction.rs#L202-L210
    *
    * Processor:
-   * https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_processor.rs#L348-L376
+   * https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L383-L408
    *
    * Notes:
-   * - Unimplemented (gated on custom_commission_collector)
+   * - Feature gated on custom_commission_collector
    */
   case fd_vote_instruction_enum_update_commission_collector: {
+    /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L384-L390 */
     if( FD_UNLIKELY( !custom_commission_collector ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
-    /* TODO: fill in when implementing custom_commission_collector */
-    FD_LOG_CRIT(( "unimplemented: update_commission_collector" ));
+    /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L392 */
+    if( FD_UNLIKELY( ctx->instr->acct_cnt < 3 ) ) {
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      break;
+    }
+
+    /* If instruction account 1 is the vote account itself, no account
+       is borrowed.
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L83-L98 */
+    fd_pubkey_t const * collector_key = NULL;
+    rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 1, &collector_key );
+    if( FD_UNLIKELY( rc ) ) return rc;
+
+    fd_guarded_borrowed_account_t collector = {0};
+    fd_borrowed_account_t const * collector_account = NULL;
+    if( !fd_pubkey_eq( collector_key, (fd_pubkey_t const *)me.acc->pubkey ) ) {
+      FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 1, &collector );
+      collector_account = &collector;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L395-L398 */
+    fd_rent_t rent_;
+    fd_rent_t const * rent = fd_sysvar_cache_rent_read( ctx->sysvar_cache, &rent_ );
+    if( FD_UNLIKELY( !rent ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+
+    rc = update_commission_collector(
+        ctx,
+        &me,
+        target_version,
+        collector_account,
+        &instruction->update_commission_collector,
+        signers,
+        signers_cnt,
+        rent
+    );
+
+    break;
   }
 
   /* DepositDelegatorRewards

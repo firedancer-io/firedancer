@@ -116,6 +116,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_execle_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MCNT_ENUM_COPY( EXECLE, TXN_RESULT, ctx->metrics.txn_result );
   FD_MCNT_ENUM_COPY( EXECLE, TXN_LANDED, ctx->metrics.txn_landed );
 
@@ -262,6 +264,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt = (fd_txn_ns_dt_t){0};
+  trailer->bank_seq  = bank->bank_seq;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
@@ -501,7 +504,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   }
 
   /* Every transaction in the bundle should be executed in order against
-     different transaciton contexts. */
+     different transaction contexts. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
 
     fd_txn_p_t *   txn     = &txns[ i ];
@@ -532,7 +535,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   }
 
   /* If all of the transactions in the bundle executed successfully, we
-     can commit the transactions in order.  At this point, we cann also
+     can commit the transactions in order.  At this point, we can also
      accumulate unused CUs to the rebate.  Otherwise, if any transaction
      fails, we need to exclude all the bundle transactions and rebate
      all of the CUs. */
@@ -652,6 +655,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
     trailer->pack_txn_idx = ctx->_txn_idx + i;
     trailer->tips         = tips[ i ];
+    trailer->bank_seq     = bank->bank_seq;
 
     ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 

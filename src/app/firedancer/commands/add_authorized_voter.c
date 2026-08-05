@@ -78,9 +78,8 @@ add_authorized_voter( args_t *   args,
       FD_LOG_NOTICE(( "authorized voter key %s%s%s added successfully", fd_log_style_bold(), voter_key_base58, fd_log_style_normal() ));
       break;
     }
-    case FD_ADD_AUTHORIZED_VOTER_RESULT_PAYLOAD_TOO_SMALL:
-    case FD_ADD_AUTHORIZED_VOTER_RESULT_UNSUPPORTED_PAYLOAD_VERSION:
-    case FD_ADD_AUTHORIZED_VOTER_RESULT_UNEXPECTED_PAYLOAD_SIZE:
+    case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
+    case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
     case FD_ADD_AUTHORIZED_VOTER_RESULT_KEYPAIR_MISMATCH:
       FD_LOG_ERR(( "Failed to add authorized voter key: the command was not able to "
                    "successfully communicate with the running Firedancer process. It "

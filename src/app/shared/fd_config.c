@@ -1,11 +1,13 @@
 #define _GNU_SOURCE
 #include "fd_config.h"
+#include "fd_config_auto.h"
 #include "fd_config_private.h"
 
 #include "../platform/fd_net_util.h"
 #include "../platform/fd_sys_util.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
+#include "../../discof/restore/utils/fd_ssarchive.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -118,6 +120,13 @@ fd_config_fillf( fd_config_t * config ) {
     replace( config->paths.shredb, "{name}", config->name );
   } else {
     FD_TEST( fd_cstr_printf_check( config->paths.shredb, sizeof(config->paths.shredb), NULL, "%s/shreds.db", config->paths.base ) );
+  }
+
+  if( FD_UNLIKELY( strcmp( config->paths.guidb, "" ) ) ) {
+    replace( config->paths.guidb, "{user}", config->user );
+    replace( config->paths.guidb, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.guidb, sizeof(config->paths.guidb), NULL, "%s/gui.db", config->paths.base ) );
   }
 
   for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
@@ -381,6 +390,8 @@ fd_config_fill( fd_config_t * config,
     fd_config_fillh( config );
   }
 
+  fd_config_auto( config );
+
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
     if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
@@ -390,7 +401,7 @@ fd_config_fill( fd_config_t * config,
     if( FD_UNLIKELY( config->development.bench.disable_status_cache ) )          FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
   }
 
-  /* When running a local cluster, some options are overriden by default
+  /* When running a local cluster, some options are overridden by default
      to make starting and running in development environments a little
      easier and less strict. */
   if( FD_UNLIKELY( is_local_cluster ) ) {
@@ -449,6 +460,9 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
   CFG_HAS_NON_ZERO( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO( layout.execle_tile_count );
+  CFG_HAS_NON_ZERO( layout.snapzp_tile_count );
+  CFG_HAS_NON_ZERO( layout.snapsv_tile_count );
+  CFG_HAS_NON_ZERO( layout.snapsv_io_worker_count );
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }
@@ -470,6 +484,23 @@ fd_config_validatef( fd_configf_t const * config ) {
   }
 
   CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
+  if( FD_UNLIKELY( config->snapshots.server.idle_timeout_millis<100UL ||
+                   config->snapshots.server.idle_timeout_millis>=60000UL ) ) {
+    FD_LOG_ERR(( "`snapshots.server.idle_timeout_millis` must be in [100,60000)" ));
+  }
+  if( FD_UNLIKELY( config->snapshots.server.send_timeout_millis<100UL ||
+                   config->snapshots.server.send_timeout_millis>=60000UL ) ) {
+    FD_LOG_ERR(( "`snapshots.server.send_timeout_millis` must be in [100,60000)" ));
+  }
+
+  if( FD_UNLIKELY( config->snapshots.max_full_snapshots_to_keep>FD_SSARCHIVE_MAX_ENTRIES ) ) {
+    FD_LOG_ERR(( "`snapshots.max_full_snapshots_to_keep` is %u but must be at most %lu",
+                 config->snapshots.max_full_snapshots_to_keep, FD_SSARCHIVE_MAX_ENTRIES ));
+  }
+  if( FD_UNLIKELY( config->snapshots.max_incremental_snapshots_to_keep>FD_SSARCHIVE_MAX_ENTRIES ) ) {
+    FD_LOG_ERR(( "`snapshots.max_incremental_snapshots_to_keep` is %u but must be at most %lu",
+                 config->snapshots.max_incremental_snapshots_to_keep, FD_SSARCHIVE_MAX_ENTRIES ));
+  }
 
   CFG_HAS_NON_ZERO( accounts.max_accounts   );
   CFG_HAS_NON_ZERO( accounts.cache_size_gib );
@@ -523,11 +554,25 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
   CFG_HAS_NON_ZERO( net.ingress_buffer_size );
+  if( 0!=strcmp( config->net.auto_level, "standard" ) &&
+      0!=strcmp( config->net.auto_level, "minimal"  ) ) {
+    FD_LOG_ERR(( "invalid `net.auto_level`: \"%s\"; must be \"standard\" or \"minimal\"",
+                 config->net.auto_level ));
+  }
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
+    if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
+        0!=strcmp( config->net.xdp.xdp_mode, "drv"     ) &&
+        0!=strcmp( config->net.xdp.xdp_mode, "auto"    ) &&
+        0!=strcmp( config->net.xdp.xdp_mode, "default" ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.xdp_mode`: \"%s\"; must be \"skb\", \"drv\", \"auto\" or \"default\"",
+                   config->net.xdp.xdp_mode ));
+    }
 
-    if( 0!=strcmp( config->net.xdp.poll_mode, "prefbusy" ) && 0!=strcmp( config->net.xdp.poll_mode, "softirq" ) ) {
-      FD_LOG_ERR(( "invalid `net.xdp.poll_mode`: must be \"prefbusy\" or \"softirq\"" ));
+    if( 0!=strcmp( config->net.xdp.poll_mode, "prefbusy" ) &&
+        0!=strcmp( config->net.xdp.poll_mode, "softirq"  ) &&
+        0!=strcmp( config->net.xdp.poll_mode, "auto"     ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.poll_mode`: \"%s\"; must be \"prefbusy\", \"softirq\" or \"auto\"",
+                   config->net.xdp.poll_mode ));
     }
 
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
@@ -542,7 +587,8 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: must be \"xdp\" or \"socket\"" ));
+    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\" or \"socket\"",
+                 config->net.provider ));
   }
 
   CFG_HAS_NON_ZERO( tiles.netlink.max_routes           );

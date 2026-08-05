@@ -1,10 +1,11 @@
-[layout]
-    shred_tile_count = 4
+user = "{user}"
 [tiles]
     [tiles.gui]
-        enabled = false
-    [tiles.rpc]
-        enabled = false
+        enabled = true
+        gui_listen_address = "0.0.0.0"
+        db_size_gib = 10
+    [tiles.metric]
+        prometheus_listen_address = "0.0.0.0"
 [accounts]
     max_accounts = {index_max}
 [runtime]
@@ -12,11 +13,6 @@
     max_fork_width = 4
     [runtime.program_cache]
         heap_size_mib = 4096
-[development]
-    sandbox = false
-    no_agave = true
-    no_clone = true
-    fixed_fec_sets = true
 [log]
     level_stderr = "DEBUG"
     path = "{log}"
@@ -25,7 +21,6 @@
     accounts = "{ledger}/accounts.db"
     genesis = "{ledger}/genesis.bin"
 [snapshots]
-    incremental_snapshots = false
     max_full_snapshots_to_keep = 5
     [snapshots.sources]
         servers = []
@@ -34,9 +29,10 @@
             allow_list = []
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
-[development.ledger_input]
-    format = "rocksdb"
-    path = "{ledger}/rocksdb"
-    end_slot = {end_slot}
-[development.backtest]
-    root_distance = 32
+[development]
+    [development.ledger_input]
+        format = "pcap"
+        path = "{ledger}/shreds.pcapng.zst"
+        end_slot = {end_slot}
+    [development.backtest]
+        root_distance = 32

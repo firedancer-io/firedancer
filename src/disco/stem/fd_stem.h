@@ -14,6 +14,8 @@ struct fd_stem_context {
    ulong *           min_cr_avail;
    ulong             cr_decrement_amount;
    int *             out_reliable;
+   ulong const *     cons_seq;
+   struct fd_stem_tile_in * in;
 };
 
 typedef struct fd_stem_context fd_stem_context_t;
@@ -32,7 +34,7 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;
 
-static inline void
+static inline ulong
 fd_stem_publish( fd_stem_context_t * stem,
                  ulong               out_idx,
                  ulong               sig,
@@ -60,6 +62,7 @@ fd_stem_publish( fd_stem_context_t * stem,
     *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );
   }
   *seqp = fd_seq_inc( seq, 1UL );
+  return seq;
 }
 
 static inline ulong

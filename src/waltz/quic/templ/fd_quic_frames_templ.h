@@ -360,3 +360,25 @@ FD_TEMPL_DEF_STRUCT_BEGIN(handshake_done_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x1e,0x1e )
 FD_TEMPL_DEF_STRUCT_END(handshake_done_frame)
 
+/* RFC 9221 Unreliable Datagram Extension
+
+   DATAGRAM Frame {
+     Type (i) = 0x30,
+     Datagram Data (..),
+   }
+
+   DATAGRAM Frame {
+      Type (i) = 0x31,
+      Length (i),
+      Datagram Data (..),
+   }
+   Figure 1: DATAGRAM Frame Format */
+
+FD_TEMPL_DEF_STRUCT_BEGIN(datagram_0_frame)
+  FD_TEMPL_MBR_FRAME_TYPE( type, 0x30,0x30 )
+FD_TEMPL_DEF_STRUCT_END(datagram_0_frame)
+
+FD_TEMPL_DEF_STRUCT_BEGIN(datagram_1_frame)
+  FD_TEMPL_MBR_FRAME_TYPE( type, 0x31,0x31 )
+  FD_TEMPL_MBR_ELEM_VARINT( length, ulong )
+FD_TEMPL_DEF_STRUCT_END(datagram_1_frame)

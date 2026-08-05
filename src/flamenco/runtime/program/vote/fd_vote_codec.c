@@ -393,9 +393,11 @@ ser_epoch_credits( fd_vote_epoch_credits_t const * epoch_credits,
    inflation_rewards_commission_bps, block_revenue_commission_bps,
    and pending_delegator_rewards before the first variable field. */
 
-#define WIRE_OFF_NODE_PUBKEY       (4UL)
-#define WIRE_OFF_V1V3_COMMISSION   (68UL)  /* 4 + 32 + 32 */
-#define WIRE_OFF_V4_COMMISSION_BPS (132UL) /* 4 + 32 + 32 + 32 + 32 */
+#define WIRE_OFF_NODE_PUBKEY                    (4UL)
+#define WIRE_OFF_V1V3_COMMISSION                (68UL)  /* 4 + 32 + 32 */
+#define WIRE_OFF_V4_INFLATION_REWARDS_COLLECTOR (68UL)  /* 4 + 32 + 32 */
+#define WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR     (100UL) /* 4 + 32 + 32 + 32 */
+#define WIRE_OFF_V4_COMMISSION_BPS              (132UL) /* 4 + 32 + 32 + 32 + 32 */
 
 /* Byte size of a Lockout on the wire: u64 slot + u32 confirmation_count */
 #define WIRE_LOCKOUT_SZ     (12UL)
@@ -452,6 +454,38 @@ fd_vote_account_commission_bps( uchar const * data,
       if( !commission_rate_in_basis_points ) {
         *out = (*out / 100U) * 100U;
       }
+      return 0;
+    default:
+      return 1;
+  }
+}
+
+int
+fd_vote_account_collectors( uchar const *       data,
+                            ulong               data_sz,
+                            fd_pubkey_t const * vote_pubkey,
+                            fd_pubkey_t const * node_pubkey,
+                            fd_pubkey_t *       inflation_rewards_collector_out,
+                            fd_pubkey_t *       block_revenue_collector_out ) {
+  uchar const * ptr       = data;
+  ulong         remaining = data_sz;
+
+  uint discriminant;
+  READ_U32( discriminant, &ptr, &remaining );
+
+  switch( discriminant ) {
+    case fd_vote_state_versioned_enum_v1_14_11: /* fallthrough */
+    case fd_vote_state_versioned_enum_v3:
+      /* Pre-v4 vote states have no collector fields: default to the
+         vote account (inflation) and the node identity (block
+         revenue). */
+      *inflation_rewards_collector_out = *vote_pubkey;
+      *block_revenue_collector_out     = *node_pubkey;
+      return 0;
+    case fd_vote_state_versioned_enum_v4:
+      CHECK( data_sz>=WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR+32UL );
+      fd_memcpy( inflation_rewards_collector_out, data+WIRE_OFF_V4_INFLATION_REWARDS_COLLECTOR, 32UL );
+      fd_memcpy( block_revenue_collector_out,     data+WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR,     32UL );
       return 0;
     default:
       return 1;
@@ -1060,7 +1094,8 @@ deser_vote_authorize_with_seed( fd_vote_authorize_with_seed_args_t * out,
 
   ulong seed_len;
   READ_U64( seed_len, data, sz );
-  CHECK( seed_len<=FD_TXN_MTU );
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/vote/src/vote_processor.rs#L42-L49 */
+  CHECK( seed_len<=FD_VOTE_INSTR_SEED_MAX );
   out->current_authority_derived_key_seed_len = seed_len;
 
   READ_BYTES( out->current_authority_derived_key_seed, seed_len, data, sz );
@@ -1079,7 +1114,8 @@ deser_vote_authorize_checked_with_seed( fd_vote_authorize_checked_with_seed_args
 
   ulong seed_len;
   READ_U64( seed_len, data, sz );
-  CHECK( seed_len<=FD_TXN_MTU );
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/vote/src/vote_processor.rs#L130 */
+  CHECK( seed_len<=FD_VOTE_INSTR_SEED_MAX );
   out->current_authority_derived_key_seed_len = seed_len;
 
   READ_BYTES( out->current_authority_derived_key_seed, seed_len, data, sz );
@@ -1189,6 +1225,9 @@ fd_vote_instruction_t *
 fd_vote_instruction_deserialize( fd_vote_instruction_t * instruction,
                                  uchar const *           data,
                                  ulong                   data_sz ) {
+  /* limited_deserialize(data, PACKET_DATA_SIZE)
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/vote/src/vote_processor.rs#L130 */
+  data_sz = fd_ulong_min( data_sz, FD_TXN_MTU_V0 );
   CHECK_RET_NULL( !fd_vote_instruction_deserialize_inner( instruction, data, data_sz ) );
   return instruction;
 }

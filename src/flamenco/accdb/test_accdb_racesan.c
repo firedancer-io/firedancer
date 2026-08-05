@@ -33,9 +33,7 @@
 
 #include "fd_accdb.h"
 #include "fd_accdb_cache.h"
-#define FD_ACCDB_NO_FORK_ID
 #include "fd_accdb_private.h"
-#undef FD_ACCDB_NO_FORK_ID
 #include "../../util/fd_util.h"
 #include "../../util/racesan/fd_racesan_async.h"
 #include "../../util/racesan/fd_racesan_weave.h"
@@ -84,14 +82,14 @@ test_shmem_new_cfg2( ulong cache_fp,
   g_fd = memfd_create( "accdb_racesan", 0 );
   if( FD_UNLIKELY( g_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS, T_WRITES_PER_SLOT, T_PARTITION_CNT, cache_fp, cache_min_reserved, T_JOINER_CNT );
+  ulong shmem_fp = fd_accdb_shmem_footprint( T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS, T_WRITES_PER_SLOT, T_PARTITION_CNT, cache_fp, cache_min_reserved, T_JOINER_CNT, 0UL );
   FD_TEST( shmem_fp );
   g_shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( g_shmem_mem );
   g_shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( g_shmem_mem, T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS,
                           T_WRITES_PER_SLOT, T_PARTITION_CNT,
-                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, T_JOINER_CNT ) );
+                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, T_JOINER_CNT, 0UL ) );
   FD_TEST( g_shmem );
   return g_shmem;
 }
@@ -641,7 +639,8 @@ fiber_probe_exec( void * _ctx ) {
   fiber_t * f = _ctx;
   int   pd  = 7;          /* poison: probe must overwrite */
   ulong len = 0xdeadUL;
-  int   r   = fd_accdb_probe_pd_this_fork( f->accdb, f->probe.fork_id, f->probe.pubkey, &pd, &len );
+  ulong lamports = 0xdeadUL;
+  int   r   = fd_accdb_probe_pd_this_fork( f->accdb, f->probe.fork_id, f->probe.pubkey, &pd, &len, &lamports );
   FD_TEST( pd==0 || pd==1 );
   FD_TEST( r==0 || r==1 );
   if( !r ) FD_TEST( len==0xdeadUL ); /* no gen-match => out_data_len untouched */
@@ -1909,14 +1908,14 @@ test_setup( int * out_fd,
      drives the other), so the shmem must admit a second joiner with its
      own epoch slot. */
   ulong cache_fp = HEAD_TEST_CACHE_FOOTPRINT;
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 640UL, 2UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 640UL, 2UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, 640UL, 0, 42UL, 2UL ) );
+                          partition_sz, cache_fp, 640UL, 0, 42UL, 2UL, 0UL ) );
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
   test_shmem     = shmem;
@@ -2550,7 +2549,8 @@ test_probe_vs_pd_commit( void ) {
     /* Post-commit: the pd_write=1 overwrite is durable on A. */
     int   pd  = 0;
     ulong len = ULONG_MAX;
-    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, a, key, &pd, &len )==1 );
+    ulong lamports = 0UL;
+    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, a, key, &pd, &len, &lamports )==1 );
     FD_TEST( pd==1 );
 
     fd_accdb_advance_root( ctl, a );
@@ -2659,7 +2659,8 @@ test_pd_parent_read_vs_child_write( void ) {
     /* writer's commits landed on C, parent copy intact */
     int   pd  = 0;
     ulong len = ULONG_MAX;
-    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, c, key_d, &pd, &len )==1 );
+    ulong lamports = 0UL;
+    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, c, key_d, &pd, &len, &lamports )==1 );
     FD_TEST( pd==0 ); /* plain lamport writes: no pd_write */
 
     fd_accdb_advance_root( ctl, p );

@@ -15,8 +15,8 @@
 
 /* Maximum number of read-only accdb consumer fseqs the accdb tile can
    bind external_epoch_slots[] to.  Bumped as new RO consumers are
-   added.  Today: rpc tile (optional). */
-#define FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS (8UL)
+   added.  Today: snapzp tiles, rpc tile (optional). */
+#define FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS (128UL)
 
 struct fd_accdb_tile_ctx {
   fd_accdb_t * accdb;
@@ -43,6 +43,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_accdb_tile_ctx_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( ctx->accdb );
 
   FD_MGAUGE_SET( ACCDB, ACCOUNT_COUNT,          metrics->accounts_total );
@@ -128,6 +130,14 @@ unprivileged_init( fd_topo_t const *      topo,
   }
   for( ulong i=0UL; i<tile->accdb.resolv_epoch_obj_cnt; i++ ) {
     ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.resolv_epoch_obj_ids[ i ] ) );
+    FD_TEST( fseq );
+    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
+    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
+  }
+  for( ulong i=0UL; i<tile->accdb.snapzp_epoch_obj_cnt; i++ ) {
+    ulong obj_id = tile->accdb.snapzp_epoch_obj_ids[ i ];
+    if( FD_UNLIKELY( obj_id==ULONG_MAX ) ) continue;
+    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.snapzp_epoch_obj_ids[ i ] ) );
     FD_TEST( fseq );
     FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
     external_epoch_slots[ external_epoch_cnt++ ] = fseq;

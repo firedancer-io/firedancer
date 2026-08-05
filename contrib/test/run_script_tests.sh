@@ -56,3 +56,7 @@ wait
 for f in `ls $LOG_PATH`; do
   echo $f: `tail -n 2 $LOG_PATH/$f | grep -v "^Log"`
 done
+
+# Consensus objects must not contain floating-point FMA instructions
+# (bit-for-bit Agave compatibility; see the script for details).
+contrib/test/check_fp_fma.sh || exit 1

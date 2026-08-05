@@ -286,10 +286,10 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
     }
     case IN_KIND_EPOCH: {
       fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
-        FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
-      if( FD_UNLIKELY( msg->staked_id_cnt>MAX_SHRED_DESTS ) )
-        FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
+      if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_STAKE_WEIGHTS ) )
+        FD_LOG_ERR(( "epoch stakes exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
+      if( FD_UNLIKELY( msg->staked_id_cnt>MAX_STAKE_WEIGHTS ) )
+        FD_LOG_ERR(( "epoch id weights exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
 
       ulong msg_sz = fd_epoch_info_msg_sz( msg->staked_vote_cnt, msg->staked_id_cnt );
       fd_memcpy( ctx->stake.msg_buf, msg, msg_sz );

@@ -16,6 +16,9 @@ struct overflow_close_state {
 
 typedef struct overflow_close_state overflow_close_state_t;
 
+static fd_http_server_params_t
+default_test_params( void );
+
 static fd_http_server_response_t
 request_noop( fd_http_server_request_t const * request ) {
   (void)request;
@@ -23,6 +26,24 @@ request_noop( fd_http_server_request_t const * request ) {
     .status = 400,
   };
   return response;
+}
+
+static ulong request_cnt;
+
+static fd_http_server_response_t
+request_count( fd_http_server_request_t const * request ) {
+  request_cnt++;
+  return request_noop( request );
+}
+
+static fd_http_server_response_t
+request_redirect( fd_http_server_request_t const * request ) {
+  static char const prefix[] = "http://127.0.0.1:8902";
+  return (fd_http_server_response_t) {
+    .status       = 302UL,
+    .location     = { prefix, request->path_raw },
+    .location_len = { sizeof(prefix)-1UL, request->path_len },
+  };
 }
 
 static void
@@ -69,11 +90,11 @@ test_oring( void ) {
   };
 
   /* zstd cctx estimate assumes the single-threaded vendored build */
-  uchar scratch[ 1632896 ] __attribute__((aligned(128UL)));
+  uchar scratch[ 1633152 ] __attribute__((aligned(128UL)));
 #if FD_HAS_ZSTD
-  FD_TEST( fd_http_server_footprint( params )==1632896 );
+  FD_TEST( fd_http_server_footprint( params )==1633152 );
 #else
-  FD_TEST( fd_http_server_footprint( params )==329344 );
+  FD_TEST( fd_http_server_footprint( params )==329472 );
   FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
 #endif
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
@@ -198,7 +219,7 @@ test_content_length_overflow_close( void ) {
   send_all( client_fd, req, strlen( req ) );
 
   for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) {
-    fd_http_server_poll( http, 1 );
+    fd_http_server_poll( http, 1, ULONG_MAX );
   }
 
   FD_TEST( state.close_cnt==1UL );
@@ -207,6 +228,113 @@ test_content_length_overflow_close( void ) {
   close( client_fd );
   close( fd_http_server_fd( http ) );
   fd_http_server_delete( fd_http_server_leave( http ) );
+}
+
+static void
+test_poll_conn_max( void ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 2UL,
+    .max_ws_connection_cnt = 0UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1024UL,
+  };
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_count,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = server_addr.sin_port,
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  int client_fds[ 2 ];
+  char const req[] = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+  for( ulong i=0UL; i<2UL; i++ ) {
+    client_fds[ i ] = socket( AF_INET, SOCK_STREAM, 0 );
+    FD_TEST( client_fds[ i ]>=0 );
+    FD_TEST( !connect( client_fds[ i ], fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+    send_all( client_fds[ i ], req, sizeof( req )-1UL );
+  }
+
+  request_cnt = 0UL;
+  FD_TEST( fd_http_server_poll( http, 1, 1UL ) ); /* Accept both clients. */
+  FD_TEST( http->metrics.connection_cnt==2UL );
+  FD_TEST( request_cnt==0UL );
+
+  FD_TEST( fd_http_server_poll( http, 1, 1UL ) );
+  FD_TEST( request_cnt==1UL );
+  FD_TEST( fd_http_server_poll( http, 1, 1UL ) );
+  FD_TEST( request_cnt==2UL );
+
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( !close( client_fds[ i ] ) );
+  FD_TEST( !close( fd_http_server_fd( http ) ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+static void
+test_location_raw_path( void ) {
+  fd_http_server_params_t params = default_test_params();
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_redirect,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = server_addr.sin_port,
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  char const req[] = "GET /snapshot-123-hash.tar.zst HTTP/1.1\r\nHost: localhost\r\n\r\n";
+  send_all( client_fd, req, sizeof(req)-1UL );
+
+  char response[ 1024 ];
+  ulong response_sz = 0UL;
+  char const expected[] = "Location: http://127.0.0.1:8902/snapshot-123-hash.tar.zst\r\n";
+  for( ulong i=0UL; i<200UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+    long received = recv( client_fd, response+response_sz, sizeof(response)-1UL-response_sz, MSG_DONTWAIT );
+    if( FD_UNLIKELY( received<0L && errno!=EAGAIN && errno!=EWOULDBLOCK ) )
+      FD_LOG_ERR(( "recv failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( received>0L ) response_sz += (ulong)received;
+    response[ response_sz ] = '\0';
+    if( strstr( response, expected ) ) break;
+  }
+  FD_TEST( strstr( response, expected ) );
+
+  FD_TEST( !close( client_fd ) );
+  FD_TEST( !close( fd_http_server_fd( http ) ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
 }
 
 static void
@@ -249,7 +377,7 @@ test_close_reason( char const * req,
   send_all( client_fd, req, strlen( req ) );
 
   for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) {
-    fd_http_server_poll( http, 1 );
+    fd_http_server_poll( http, 1, ULONG_MAX );
   }
 
   FD_TEST( state.close_cnt==1UL );
@@ -345,6 +473,8 @@ main( int     argc,
 
   test_oring();
   test_content_length_overflow_close();
+  test_poll_conn_max();
+  test_location_raw_path();
   test_transfer_encoding_close();
   test_duplicate_content_length_different_close();
   test_ws_bad_key_close();

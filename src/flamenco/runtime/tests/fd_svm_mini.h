@@ -65,6 +65,7 @@ struct fd_svm_mini_limits {
   /* consensus */
   ulong max_vote_accounts;
   ulong max_stake_accounts;
+  ulong max_fallback_stake_accounts;
 
   /* accdb */
   ulong max_accounts;
@@ -165,6 +166,7 @@ fd_svm_mini_limits_default( fd_svm_mini_limits_t * limits ) {
     .max_fork_width           = 4UL,
     .max_vote_accounts        = 256UL,
     .max_stake_accounts       = 256UL,
+    .max_fallback_stake_accounts = 4096UL,
     .max_accounts             = 128UL,
     .max_account_space_bytes  = 32UL<<20,
     .max_progcache_recs       = 256UL,
@@ -218,7 +220,8 @@ fd_svm_mini_params_default( fd_svm_mini_params_t * params ) {
 /* fd_svm_mini_reset destroys all existing runtime state (banks, accdb,
    etc), and initializes them according to params.  This operation
    invalidates any handle previously acquired through svm_mini.  Returns
-   the initial bank index (rooted). */
+   the initial bank index (rooted), or ULONG_MAX if mock_validator_cnt
+   exceeds the configured vote-account capacity. */
 
 ulong
 fd_svm_mini_reset( fd_svm_mini_t *        mini,

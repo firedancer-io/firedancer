@@ -46,7 +46,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_out->accounts.executable_skipped_cnt = 0;
 
   /* Bank manager */
-  fd_banks_clear_bank( runner->banks, runner->bank, 4UL );
+  fd_banks_clear_bank( runner->banks, runner->bank );
 
   /* Restore features */
   FD_TEST( test_ctx->has_features );
@@ -258,9 +258,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Load instruction accounts */
 
-  if( FD_UNLIKELY( test_ctx->instr_accounts_count > FD_INSTR_ACCT_MAX ) ) {
+  if( FD_UNLIKELY( test_ctx->instr_accounts_count > FD_TXN_INSTR_ACCT_MAX ) ) {
     FD_LOG_ERR(( "invariant violation: too many instruction accounts (%lu > %lu)",
-                 (ulong)test_ctx->instr_accounts_count, (ulong)FD_INSTR_ACCT_MAX ));
+                 (ulong)test_ctx->instr_accounts_count, (ulong)FD_TXN_INSTR_ACCT_MAX ));
   }
 
   /* Restore sysvar cache */

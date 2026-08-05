@@ -3,6 +3,7 @@
 
 #include "../../disco/fd_txn_p.h"
 #include "../../flamenco/fd_flamenco_base.h"
+#include "../../choreo/tower/fd_tower_serdes.h"
 
 /* Exec tile task types. */
 #define FD_EXECRP_TT_TXN_EXEC      (1UL) /* Transaction execution. */
@@ -86,12 +87,15 @@ struct fd_execrp_txn_exec_done_msg {
 
   /* used by monitoring tools */
   ulong  slot;
+  ulong  bank_seq;
   ushort start_shred_idx;
   ushort end_shred_idx;
 
   /* vote.slot==ULONG_MAX if this was not a vote transaction */
   struct {
-    ulong slot;
+    ulong       slot;
+    ulong       vote_slots[ 31UL ];
+    uchar       vote_slot_cnt;
     fd_pubkey_t identity[ 1 ];
     fd_pubkey_t vote_acct[ 1 ];
   } vote;

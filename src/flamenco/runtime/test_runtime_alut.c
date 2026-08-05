@@ -30,6 +30,7 @@ typedef struct {
   fd_wksp_t *         wksp;
   fd_accdb_t *        accdb;
   fd_accdb_fork_id_t  fork_id;
+  fd_accdb_fork_id_t  parent_fork;
 } test_ctx_t;
 
 /* Setup function for each test */
@@ -45,8 +46,9 @@ test_setup( fd_wksp_t * wksp ) {
   ulong root_idx  = fd_svm_mini_reset( g_mini, params );
   ulong child_idx = fd_svm_mini_attach_child( g_mini, root_idx, TEST_SLOT );
 
-  ctx->accdb   = g_mini->runtime->accdb;
-  ctx->fork_id = fd_svm_mini_fork_id( g_mini, child_idx );
+  ctx->accdb       = g_mini->runtime->accdb;
+  ctx->fork_id     = fd_svm_mini_fork_id( g_mini, child_idx );
+  ctx->parent_fork = fd_svm_mini_fork_id( g_mini, root_idx );
   return ctx;
 }
 
@@ -2003,6 +2005,114 @@ test_max_transaction_alts( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( txn );
 }
 
+/* Test case 29: parent-fork resolution equivalence.
+
+   fd_executor_setup_txn_alut_account_keys() resolves against the parent
+   fork, because the dispatcher does not order an ALT's readers against
+   its writers and a same-fork read-only acquire may not overlap a
+   writable one.  That is only sound because an ALT Extend applied
+   during the executing slot is invisible during that slot: the address
+   lookup table program records last_extended_slot_start_index on the
+   first extend of a slot only, and records the count as of the start of
+   the slot, which is what the parent copy holds.
+
+   This lays the same table down twice, the pre-extend version on the
+   parent fork, an extended version on the child, and requires both
+   forks to resolve identically at the executing slot.  It fails if the
+   ALT program is ever relaxed to bump the start index on every extend,
+   which would make the parent copy unsound. */
+
+static void
+test_alt_parent_fork_equivalence( fd_wksp_t * wksp ) {
+  FD_LOG_NOTICE(( "Test 29: parent-fork resolution equivalence" ));
+
+  test_ctx_t * ctx = test_setup( wksp );
+
+  uchar alt_key[32]; memset( alt_key, 0xA7, 32UL );
+
+  /* Parent fork: 2 addresses, last extended before the executing slot,
+     so all 2 are visible. */
+  uchar parent_data[ FD_LOOKUP_TABLE_META_SIZE + 2*32 ];
+  fd_alut_meta_t parent_meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_PARENT_SLOT,
+    .last_extended_slot_start_index = 0,
+    .has_authority                  = 0,
+  };
+  FD_TEST( fd_alut_state_encode( &parent_meta, parent_data, FD_LOOKUP_TABLE_META_SIZE )==0 );
+  fd_acct_addr_t * parent_addrs = (fd_acct_addr_t *)( parent_data + FD_LOOKUP_TABLE_META_SIZE );
+  for( ulong i=0UL; i<2UL; i++ ) { memset( parent_addrs[i].b, 0, 32UL ); parent_addrs[i].b[0] = (uchar)(0x40+i); }
+  create_test_account( ctx, ctx->parent_fork, alt_key, fd_solana_address_lookup_table_program_id.key, parent_data, sizeof(parent_data), 1000000UL, 0 );
+
+  /* Child fork: extended twice during the executing slot to 4
+     addresses.  Only the first extend of the slot records the start
+     index, and it records the pre-extend count, so start_index stays 2
+     and the two new addresses are invisible this slot. */
+  uchar child_data[ FD_LOOKUP_TABLE_META_SIZE+4*32 ];
+  fd_alut_meta_t child_meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_SLOT,
+    .last_extended_slot_start_index = 2,
+    .has_authority                  = 0,
+  };
+  FD_TEST( fd_alut_state_encode( &child_meta, child_data, FD_LOOKUP_TABLE_META_SIZE )==0 );
+  fd_acct_addr_t * child_addrs = (fd_acct_addr_t *)( child_data + FD_LOOKUP_TABLE_META_SIZE );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    memset( child_addrs[i].b, 0, 32UL );
+    child_addrs[i].b[0] = (uchar)(0x40+i);
+  }
+  create_test_account( ctx, ctx->fork_id, alt_key, fd_solana_address_lookup_table_program_id.key, child_data, sizeof(child_data), 1000000UL, 0 );
+
+  fd_slot_hashes_t * hashes = create_slot_hashes_view( wksp, 10 );
+
+  /* Both visible addresses, resolved off each fork. */
+  ulong writable_counts[1] = { 2UL };
+  fd_txn_t * txn = alloc_txn( wksp, 1, 2 );
+  uchar payload[4096];
+  create_test_transaction( txn, payload, FD_TXN_V0, 1, writable_counts, NULL );
+  memcpy( payload + fd_txn_get_address_tables( txn )[0].addr_off, alt_key, 32UL );
+
+  fd_acct_addr_t from_child[256];  memset( from_child, 0, sizeof(from_child) );
+  fd_acct_addr_t from_parent[256]; memset( from_parent, 0, sizeof(from_parent) );
+
+  int child_err  = fd_runtime_load_txn_address_lookup_tables( txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, from_child );
+  int parent_err = fd_runtime_load_txn_address_lookup_tables( txn, payload, ctx->accdb, ctx->parent_fork, TEST_SLOT, hashes, from_parent );
+
+  FD_TEST( child_err ==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( parent_err==child_err );
+  FD_TEST( !memcmp( from_parent, from_child, 2UL*sizeof(fd_acct_addr_t) ) );
+  FD_TEST( from_parent[0].b[0]==0x40 );
+  FD_TEST( from_parent[1].b[0]==0x41 );
+
+  /* The first address appended during the executing slot must be out of
+     range off either fork, with the same error.  Index 2 is the
+     discriminating one: if the on-chain guard were relaxed so a second
+     extend bumped the start index, the child would resolve it and the
+     parent would not. */
+  ulong wr_oob[1] = { 3UL };
+  fd_txn_t * txn_oob = alloc_txn( wksp, 1, 3 );
+  uchar payload_oob[4096];
+  create_test_transaction( txn_oob, payload_oob, FD_TXN_V0, 1, wr_oob, NULL );
+  memcpy( payload_oob + fd_txn_get_address_tables( txn_oob )[0].addr_off, alt_key, 32UL );
+
+  /* create_test_transaction fills indices 0,1,2 -- index 2 is the one
+     that must be rejected. */
+  int child_oob  = fd_runtime_load_txn_address_lookup_tables( txn_oob, payload_oob, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, from_child );
+  int parent_oob = fd_runtime_load_txn_address_lookup_tables( txn_oob, payload_oob, ctx->accdb, ctx->parent_fork, TEST_SLOT, hashes, from_parent );
+
+  FD_TEST( child_oob ==FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX );
+  FD_TEST( parent_oob==child_oob );
+
+  FD_LOG_NOTICE(( "Test 29 passed: parent and child forks resolve identically at the executing slot" ));
+
+  test_teardown( ctx );
+  destroy_slot_hashes_view( hashes );
+  fd_wksp_free_laddr( txn_oob );
+  fd_wksp_free_laddr( txn );
+}
+
 /* -----------------------------------------------------------------------
    Wire-format tests for fd_alut_state_encode / fd_alut_state_decode.
 
@@ -2256,6 +2366,7 @@ main( int argc, char ** argv ) {
   test_alt_deactivation_boundary( wksp );
   test_alt_duplicate_indices( wksp );
   test_max_transaction_alts( wksp );
+  test_alt_parent_fork_equivalence( wksp );
 
   fd_wksp_delete_anonymous( wksp );
 

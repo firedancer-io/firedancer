@@ -110,7 +110,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xf4\x84\xea\xee\xb8\xa4\x94\xe9\x28\x63\x46\xac\x46\x52\xff\x97\xa2\xca\x0d\x75\x29\xce\x59\x81\x14\x6e\x83\x07\x1f\x14\x9d\xb2"},
                                  /* HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3 */
     .name                      = "blake3_syscall_enabled",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, dedupe_config_program_signers)>>3,
     .id                        = {"\x73\x15\x7f\xdd\x92\xe0\xa1\x10\xaa\xbb\x79\xc2\x61\x81\x1e\xd2\xf7\xd5\x72\x9c\x19\xd7\x3e\x17\xd0\xbb\xb0\x23\xa7\x9d\x86\xaf"},
@@ -1753,7 +1754,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\xb8\x30\xab\xeb\x2f\x79\xf4\x53\xf9\xb1\x27\x15\xb8\x75\x56\xc4\x82\x1a\x67\xe0\x03\xa8\x07\x5e\x13\xa7\x58\xdd\xf7\xa2\x1d"},
                                  /* rent6iVy6PDoViPBeJ6k5EJQrkj62h7DPyLbWGHwjrC */
     .name                      = "deprecate_rent_exemption_threshold",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, static_instruction_limit)>>3,
     .id                        = {"\x4b\x3e\xa0\x91\xa9\xb6\xb5\xda\x05\x3a\x32\x6f\x7c\x18\xd9\x0d\x60\x87\x99\x76\xfb\xc6\x6f\x18\xc1\xfa\x37\x38\x94\x41\xc1\xf9"},
@@ -1820,13 +1822,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x52\xd1\xb6\xb3\x5a\x56\x28\x74\x22\x0c\xa4\x14\xc4\x5b\xf8\xb5\x41\xa9\xab\xc4\xe9\x73\x7d\xf5\xc7\x62\x41\x5a\x84\xd7\x5b\x33"},
                                  /* 6aHuNsUmwSzCEMjrBzBCYaxHAyAcQBjVES92JigHBDuC */
     .name                      = "limit_instruction_accounts",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, validator_admission_ticket)>>3,
     .id                        = {"\x07\x36\xf2\xe3\x3a\x52\xff\xd2\x69\xb9\x98\xdc\x58\xcf\x07\xc0\x35\xc3\x8a\x0e\xab\x82\xa0\x89\xb8\xb7\x5e\xc2\x0f\xcb\x39\x97"},
                                  /* VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ */
     .name                      = "validator_admission_ticket",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, discard_unexpected_data_complete_shreds)>>3,
     .id                        = {"\x09\x68\x3f\x18\x94\x78\x40\x21\xfc\x16\xac\x9a\xba\x18\x25\x43\x4d\x62\x51\x4c\x4c\xed\x53\x36\x8c\x79\xfd\xdf\x52\xfb\x29\x01"},
@@ -1850,7 +1854,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x5a\x97\x0f\x6d\x79\x4d\x43\xf5\x93\x88\x4b\xb9\xe2\xf1\x18\x5f\xa3\x02\x70\xbe\x4c\xce\x7e\x21\x52\xc1\xb0\xad\x2f\xf6\xcc\xd0"},
                                  /* 76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B */
     .name                      = "delay_commission_updates",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, validate_chained_block_id)>>3,
     .id                        = {"\x0d\xbc\x3b\x61\x39\xea\x5b\x7f\xaf\xf2\x76\x43\x0d\x88\xc7\xa7\xb1\x87\x26\x38\x0f\xf1\x91\xe7\xf6\x4a\xdb\xbf\x52\xf2\x1b\x26"},
@@ -1881,7 +1886,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xcb\x2d\x5e\xc6\xdb\xd8\x88\xd3\xda\xf5\x45\x1b\x70\x19\x53\x07\xdd\x79\xf6\xd3\x71\x9c\x8b\xe1\x53\x8d\x09\xaf\x98\x5e\x6e\x14"},
                                  /* Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj */
     .name                      = "commission_rate_in_basis_points",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, loader_v3_minimum_extend_program_size)>>3,
     .id                        = {"\x08\x18\x1e\xb9\x12\xa0\x56\xbe\x46\xe6\x2f\x6c\xd5\xe7\x97\xde\x2a\xd0\x2b\xe0\x09\xa9\x01\x36\x6a\x7f\x33\x74\x31\x4f\x47\xf6"},
@@ -1962,8 +1968,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, relax_post_exec_min_balance_check)>>3,
-    .id                        = {"\xb5\xb4\xe3\xe7\x17\x0f\xb3\x8a\xd3\x7c\x18\xf7\x8a\xfe\x4c\x43\x3c\x0c\xc6\x6a\x59\xb9\x5c\xdd\x47\xdc\x15\x4f\x1b\x15\xcd\x7d"},
-                                 /* DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg */
+    .id                        = {"\x9c\x89\x9c\x85\x3f\xc6\x53\x41\xf5\x7c\xe2\x11\x9c\xd8\x96\x80\xed\xb2\x37\x04\xab\xfa\x57\x78\xc2\x5c\x0e\xbd\xd2\xc1\xe2\x65"},
+                                 /* BY4JhHLahVzS9ynfDz4exzGPbVXhFmJvEyMWsXbDBqME */
     .name                      = "relax_post_exec_min_balance_check",
     .cleaned_up                = 0 },
 
@@ -1971,6 +1977,18 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\xd3\x92\xa1\x2c\xdc\xf8\xe8\x25\x59\xf2\x43\xe3\x56\xbd\xed\xb3\x1f\xcd\x3d\x89\x09\x4b\xaa\x8b\x4a\x5d\x64\xd1\x85\x32\x81"},
                                  /* s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr */
     .name                      = "upgrade_bpf_stake_program_to_v5_1",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, custom_commission_collector)>>3,
+    .id                        = {"\x21\xf8\xbe\xce\x1c\x74\xd8\x1d\x21\xe8\x9b\xfb\x4c\xfb\xb5\x28\x83\x6b\xb6\x00\x94\x4d\x10\x21\x9e\x32\xf5\xf1\x3f\xa2\x95\xce"},
+                                 /* 3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf */
+    .name                      = "custom_commission_collector",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, enable_tx_v1)>>3,
+    .id                        = {"\x0d\x4f\xd7\xe8\x29\xe6\x92\x9c\x56\xb8\xe2\x3f\xa7\xe8\x00\x6b\xcd\xc2\x52\xd9\x6c\x9b\x8b\xd8\xc3\x89\x6a\x0d\x2e\xcc\x35\xd5"},
+                                 /* txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL */
+    .name                      = "enable_tx_v1",
     .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
@@ -2276,8 +2294,10 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_284 0xb8e3d94b5613cdebUL, .val = &ids[284]
 #define MAP_PERFECT_285 0x078408ee87746a0bUL, .val = &ids[285]
 #define MAP_PERFECT_286 0x0b606154993bf43dUL, .val = &ids[286]
-#define MAP_PERFECT_287 0x8ab30f17e7e3b4b5UL, .val = &ids[287]
+#define MAP_PERFECT_287 0x4153c63f859c899cUL, .val = &ids[287]
 #define MAP_PERFECT_288 0xe8f8dc2ca192d30cUL, .val = &ids[288]
+#define MAP_PERFECT_289 0x1dd8741ccebef821UL, .val = &ids[289]
+#define MAP_PERFECT_290 0x9c92e629e8d74f0dUL, .val = &ids[290]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2577,4 +2597,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_696         
 FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_6960                           )>>3==286UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, relax_post_exec_min_balance_check                       )>>3==287UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5_1                       )>>3==288UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, custom_commission_collector                             )>>3==289UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_tx_v1                                            )>>3==290UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

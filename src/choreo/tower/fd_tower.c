@@ -586,7 +586,7 @@ switch_check( fd_tower_t * tower,
 /* threshold_check checks if we pass the threshold required to vote for
    `slot`.  Returns 1 if we pass the threshold check, 0 otherwise.
 
-   The following psuedocode describes the algorithm:
+   The following pseudocode describes the algorithm:
 
    ```
    simulate that we have voted for `slot`
@@ -682,6 +682,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_votes_t * votes FD_PARAM_UNUSED,
                          ulong *      reset_slot,
                          fd_hash_t *  reset_block_id,
+                         ulong *      reset_bank_seq,
                          ulong *      vote_slot,
                          fd_hash_t *  vote_block_id,
                          fd_hash_t *  vote_bank_hash,
@@ -707,6 +708,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
     FD_LOG_DEBUG(( "[%s] case 0a: not recent (slot %lu <= root %lu). reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, best_blk->slot, tower->root, best_blk->slot, best_blk_id ));
     *reset_slot     = best_blk->slot;
     *reset_block_id = best_blk->id;
+    *reset_bank_seq = best_blk->bank_seq;
     *vote_slot      = ULONG_MAX;
     *vote_block_id  = (fd_hash_t){0};
     *root_slot      = ULONG_MAX;
@@ -725,6 +727,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
     tower_blk->voted_block_id  = best_blk->id;
     *reset_slot                = best_blk->slot;
     *reset_block_id            = best_blk->id;
+    *reset_bank_seq            = best_blk->bank_seq;
     *vote_slot                 = best_blk->slot;
     *vote_block_id             = best_blk->id;
     *vote_bank_hash            = tower_blk->bank_hash;
@@ -906,6 +909,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   FD_TEST( reset_blk ); /* always a reset_blk */
   *reset_slot     = reset_blk->slot;
   *reset_block_id = reset_blk->id;
+  *reset_bank_seq = reset_blk->bank_seq;
   *vote_slot      = ULONG_MAX;
   *vote_block_id  = (fd_hash_t){0};
   *vote_bank_hash  = (fd_hash_t){0};
@@ -986,7 +990,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
    A typical validator setup involves two nodes, a primary and a backup.
    The primary is a valid fee payer, and the one landing votes recording
    the latest state of its tower on-chain.  The two nodes' towers will
-   usually be identical but occassionally diverge when one node votes
+   usually be identical but occasionally diverge when one node votes
    for slots that the other one doesn't.  This usually happens when
    there are multiple forks.
 

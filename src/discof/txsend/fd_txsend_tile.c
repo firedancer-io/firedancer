@@ -598,7 +598,7 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
 
   uchar *       signatures = payload + txn->signature_off;
   uchar const * message    = payload + txn->message_off;
-  ulong         message_sz = slot_done->vote_txn_sz - txn->message_off;
+  ulong         message_sz = fd_txn_msg_sz( txn, slot_done->vote_txn_sz );
   fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, slot_done->authority_idx, message, message_sz );
 
   FD_BASE58_ENCODE_64_BYTES( signatures, vote_sig_b58 );
@@ -659,8 +659,8 @@ during_frag( fd_txsend_tile_t * ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark, ctx->in[ in_idx ].mtu ));
 
     fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    FD_TEST( msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS ); /* implicit sz verification since sz field on frag_meta too small */
-    FD_TEST( msg->staked_id_cnt<=MAX_SHRED_DESTS );
+    FD_TEST( msg->staked_vote_cnt<=MAX_STAKE_WEIGHTS ); /* implicit sz verification since sz field on frag_meta too small */
+    FD_TEST( msg->staked_id_cnt<=MAX_STAKE_WEIGHTS );
   } else {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark, ctx->in[ in_idx ].mtu ));

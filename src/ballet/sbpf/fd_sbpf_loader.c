@@ -1467,7 +1467,7 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
        differs from its file offset.
      - slices (nullable, must hold up to e_shnum entries) / *out_slice_cnt
        (nullable): the section-header indices of the read-only sections, in
-       section-header order.
+       section-header order (excluding SHT_NOBITS).
    Applies the bounds and reject_broken_elfs checks that the read-only
    assembly relies on.  Returns FD_SBPF_ELF_SUCCESS or an ElfError.  Both
    fd_sbpf_elf_peek_lenient (to size the buffer) and fd_sbpf_parse_ro_sections
@@ -1524,8 +1524,8 @@ fd_sbpf_lenient_ro_layout( void const *                    bin,
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
 
-    fd_sbpf_range_t section_header_range;
-    fd_shdr_get_file_range( section_header, &section_header_range );
+    fd_sbpf_range_t   section_header_range;
+    fd_sbpf_range_t * range_res = fd_shdr_get_file_range( section_header, &section_header_range );
     if( FD_UNLIKELY( section_header_range.hi>bin_sz ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
@@ -1534,6 +1534,10 @@ fd_sbpf_lenient_ro_layout( void const *                    bin,
     lowest_addr    = fd_ulong_min( lowest_addr, section_addr );
     highest_addr   = fd_ulong_max( highest_addr, fd_ulong_sat_add( section_addr, section_data_len ) );
     ro_fill_length = fd_ulong_sat_add( ro_fill_length, section_data_len );
+
+    /* skip empty ranges, e.g. SHT_NOBITS */
+    if( !range_res ) continue;
+
     if( slices ) slices[ slice_cnt ] = i;
     slice_cnt++;
   }
@@ -1714,18 +1718,6 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
   return fd_sbpf_elf_peek_lenient( info, bin, bin_sz, config );
 }
 
-/* In-place sort of read-only slice section indices by ascending file offset,
-   used by the lenient fast path to zero the gaps between read-only slices.
-   The comparator reads sh_offset from the section header table, supplied via
-   a thread-local pointer because fd_sort's SORT_BEFORE macro takes no context.
-   N is tiny (one entry per read-only section), so insertion sort is the right
-   backend. */
-static FD_TL fd_elf64_shdr const * fd_sbpf_ro_sort_shdrs;
-#define SORT_NAME        fd_sbpf_ro_idx_sort
-#define SORT_KEY_T       ulong
-#define SORT_BEFORE(a,b) ( fd_sbpf_ro_sort_shdrs[ (a) ].sh_offset < fd_sbpf_ro_sort_shdrs[ (b) ].sh_offset )
-#include "../../util/tmpl/fd_sort.c"
-
 /* Parses and concatenates the readonly data sections.  This function
    also computes and sets the rodata_sz field inside the SBPF program
    struct.  scratch is a pointer to a scratch area with size scratch_sz,
@@ -1813,10 +1805,6 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     if( FD_UNLIKELY( buf_len>bin_sz ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
-
-    /* Sort the ro slice section indices in place by ascending file offset. */
-    fd_sbpf_ro_sort_shdrs = shdrs;
-    fd_sbpf_ro_idx_sort_insert( ro_slices_shidxs, ro_slices_cnt );
 
     /* Zero the complement of the union of the ro slices within [0,buf_len). */
     ulong cursor = 0UL;

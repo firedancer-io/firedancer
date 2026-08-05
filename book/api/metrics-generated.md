@@ -325,6 +325,7 @@
 | <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">handshake_&#8203;done</span>"} | counter | QUIC frames received (HANDSHAKE_DONE frame) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ping</span>"} | counter | QUIC frames received (PING frame) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">padding</span>"} | counter | QUIC frames received (PADDING frame) |
+| <span class="metrics-name">quic_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">datagram</span>"} | counter | QUIC frames received (DATAGRAM frame) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">noop</span>"} | counter | ACK events (Non-ACK-eliciting packet) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">new</span>"} | counter | ACK events (New ACK range) |
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">merged</span>"} | counter | ACK events (Merged into existing ACK range) |
@@ -567,6 +568,7 @@
 | <span class="metrics-name">execle_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;already_&#8203;advanced</span>"} | counter | Result of loading and executing a transaction (The transaction references a nonce account that is already advanced) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;advance_&#8203;failed</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the advance instruction was not valid or failed) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;wrong_&#8203;blockhash</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the blockhash is not the correct one) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">unsupported_&#8203;version</span>"} | counter | Result of loading and executing a transaction (The transaction is a message version that is not supported by the current feature set) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">sanitize_&#8203;failure</span>"} | counter | Result of loading and executing a transaction (The process for sanitizing the transaction failed) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;in_&#8203;use</span>"} | counter | Result of loading and executing a transaction (The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;loaded_&#8203;twice</span>"} | counter | Result of loading and executing a transaction (The transaction references the same account twice) |
@@ -1182,6 +1184,7 @@
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;already_&#8203;advanced</span>"} | counter | Result of loading and executing a transaction (The transaction references a nonce account that is already advanced) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;advance_&#8203;failed</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the advance instruction was not valid or failed) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;wrong_&#8203;blockhash</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the blockhash is not the correct one) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">unsupported_&#8203;version</span>"} | counter | Result of loading and executing a transaction (The transaction is a message version that is not supported by the current feature set) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">sanitize_&#8203;failure</span>"} | counter | Result of loading and executing a transaction (The process for sanitizing the transaction failed) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;in_&#8203;use</span>"} | counter | Result of loading and executing a transaction (The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;loaded_&#8203;twice</span>"} | counter | Result of loading and executing a transaction (The transaction references the same account twice) |
@@ -1539,6 +1542,7 @@
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">handshake_&#8203;done</span>"} | counter | QUIC frames received (HANDSHAKE_DONE frame) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ping</span>"} | counter | QUIC frames received (PING frame) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">padding</span>"} | counter | QUIC frames received (PADDING frame) |
+| <span class="metrics-name">txsend_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">datagram</span>"} | counter | QUIC frames received (DATAGRAM frame) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;parse_&#8203;failed</span> | counter | QUIC frames that failed to parse |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;meta_&#8203;acquired</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Attempts to acquire QUIC frame metadata (Success) |
 | <span class="metrics-name">txsend_&#8203;frame_&#8203;meta_&#8203;acquired</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;empty_&#8203;pool</span>"} | counter | Attempts to acquire QUIC frame metadata (PktMetaPoolEmpty) |
@@ -1610,6 +1614,182 @@
 | <span class="metrics-name">gui_&#8203;websocket_&#8203;frame_&#8203;rx</span> | counter | WebSocket frames received from all connections to the GUI service |
 | <span class="metrics-name">gui_&#8203;bytes_&#8203;written</span> | counter | Bytes written to all connections to the GUI service |
 | <span class="metrics-name">gui_&#8203;bytes_&#8203;read</span> | counter | Bytes read from all connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | gauge | Bytes occupied by records present in the store ring (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | gauge | Bytes occupied by records present in the store ring (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | gauge | Bytes occupied by records present in the store ring (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | gauge | Bytes occupied by records present in the store ring (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | gauge | Bytes occupied by records present in the store ring (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | gauge | Bytes occupied by records present in the store ring (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | gauge | Bytes occupied by records present in the store ring (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | gauge | Bytes occupied by records present in the store ring (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | gauge | Bytes occupied by records present in the store ring (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | gauge | Bytes occupied by records present in the store ring (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | gauge | Bytes occupied by records present in the store ring (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;capacity_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | gauge | Total bytes of the non-free regions the store ring currently owns (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;free_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | gauge | Total bytes of the free regions the store ring currently doesn't own (same for every database) (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | gauge | Records present in the store ring (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | gauge | Records present in the store ring (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | gauge | Records present in the store ring (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | gauge | Records present in the store ring (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | gauge | Records present in the store ring (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | gauge | Records present in the store ring (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | gauge | Records present in the store ring (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | gauge | Records present in the store ring (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | gauge | Records present in the store ring (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | gauge | Records present in the store ring (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;used</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | gauge | Records present in the store ring (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;capacity</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | gauge | Record capacity of the non-free regions the store ring currently owns (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;free</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | gauge | Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ) (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;kv_&#8203;queried</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin) (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Time-series records appended into the database (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Time-series records appended into the database (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Time-series records appended into the database (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Time-series records appended into the database (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Time-series records appended into the database (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Time-series records appended into the database (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Time-series records appended into the database (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Time-series records appended into the database (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Time-series records appended into the database (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Time-series records appended into the database (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;appended</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Time-series records appended into the database (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Time-series scan calls (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Time-series scan calls (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Time-series scan calls (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Time-series scan calls (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Time-series scan calls (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Time-series scan calls (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Time-series scan calls (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Time-series scan calls (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Time-series scan calls (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Time-series scan calls (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;scanned</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Time-series scan calls (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Time-series records returned by scans (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Time-series records returned by scans (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Time-series records returned by scans (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Time-series records returned by scans (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Time-series records returned by scans (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Time-series records returned by scans (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Time-series records returned by scans (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Time-series records returned by scans (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Time-series records returned by scans (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Time-series records returned by scans (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;ts_&#8203;record_&#8203;read</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Time-series records returned by scans (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Records physically evicted from the database (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Records physically evicted from the database (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Records physically evicted from the database (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Records physically evicted from the database (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Records physically evicted from the database (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Records physically evicted from the database (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Records physically evicted from the database (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Records physically evicted from the database (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Records physically evicted from the database (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Records physically evicted from the database (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;record_&#8203;evicted</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Records physically evicted from the database (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Database eviction calls that removed at least one record (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Database eviction calls that removed at least one record (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Database eviction calls that removed at least one record (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Database eviction calls that removed at least one record (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Database eviction calls that removed at least one record (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Database eviction calls that removed at least one record (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Database eviction calls that removed at least one record (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Database eviction calls that removed at least one record (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Database eviction calls that removed at least one record (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Database eviction calls that removed at least one record (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Database eviction calls that removed at least one record (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Regions claimed from the free list by the database (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Regions claimed from the free list by the database (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Regions claimed from the free list by the database (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Regions claimed from the free list by the database (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Regions claimed from the free list by the database (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Regions claimed from the free list by the database (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Regions claimed from the free list by the database (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Regions claimed from the free list by the database (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Regions claimed from the free list by the database (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Regions claimed from the free list by the database (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;claimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Regions claimed from the free list by the database (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Regions returned to the free list by the database (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Regions returned to the free list by the database (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Regions returned to the free list by the database (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Regions returned to the free list by the database (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Regions returned to the free list by the database (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Regions returned to the free list by the database (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Regions returned to the free list by the database (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Regions returned to the free list by the database (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Regions returned to the free list by the database (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Regions returned to the free list by the database (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;region_&#8203;reclaimed</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Regions returned to the free list by the database (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Database writes that hit MAP_FULL and were dropped (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Database writes that hit MAP_FULL and were dropped (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Database writes that hit MAP_FULL and were dropped (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Database writes that hit MAP_FULL and were dropped (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Database writes that hit MAP_FULL and were dropped (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Database writes that hit MAP_FULL and were dropped (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Database writes that hit MAP_FULL and were dropped (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Database writes that hit MAP_FULL and were dropped (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Database writes that hit MAP_FULL and were dropped (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Database writes that hit MAP_FULL and were dropped (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;map_&#8203;full</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Database writes that hit MAP_FULL and were dropped (txn_waterfall) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | counter | Database writes that evicted records before succeeding (scheduler_counts) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | counter | Database writes that evicted records before succeeding (tile_timers) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | counter | Database writes that evicted records before succeeding (shred_events) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;start</span>"} | counter | Database writes that evicted records before succeeding (txn_start) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;end</span>"} | counter | Database writes that evicted records before succeeding (txn_end) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tower</span>"} | counter | Database writes that evicted records before succeeding (tower) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">slot</span>"} | counter | Database writes that evicted records before succeeding (slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">leader_&#8203;slot</span>"} | counter | Database writes that evicted records before succeeding (leader_slot) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">epoch</span>"} | counter | Database writes that evicted records before succeeding (epoch) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;stats</span>"} | counter | Database writes that evicted records before succeeding (tile_stats) |
+| <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;eviction</span><br/>{gui_&#8203;db="<span class="metrics-enum">txn_&#8203;waterfall</span>"} | counter | Database writes that evicted records before succeeding (txn_waterfall) |
 
 </div>
 
@@ -1679,6 +1859,67 @@
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;read_&#8203;operation</span> | counter | Number of read operations performed on the account database |
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied out of the account database cache on a cache hit |
+
+</div>
+
+## Snapmk Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | counter | Number of snapshots created (includes in-progress) (Full snapshot) |
+| <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | counter | Number of snapshots created (includes in-progress) (Incremental snapshot) |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;started</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot (Full snapshot) |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;started</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | gauge | Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot (Incremental snapshot) |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;finished</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Slot of the most recently finished snapshot creation. Zero if no snapshot has finished since boot (Full snapshot) |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;finished</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | gauge | Slot of the most recently finished snapshot creation. Zero if no snapshot has finished since boot (Incremental snapshot) |
+| <span class="metrics-name">snapmk_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
+| <span class="metrics-name">snapmk_&#8203;bytes_&#8203;written</span> | counter | Number of compressed bytes written |
+| <span class="metrics-name">snapmk_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snapmk_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing data |
+
+</div>
+
+## Snapzp Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapzp_&#8203;accounts_&#8203;compressed</span> | counter | Number of accounts processed |
+| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
+| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;written</span> | counter | Number of compressed bytes written |
+| <span class="metrics-name">snapzp_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snapzp_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing accounts |
+
+</div>
+
+## Snaprd Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaprd_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database file |
+| <span class="metrics-name">snaprd_&#8203;export_&#8203;progress_&#8203;bytes</span> | gauge | Account database read progress in bytes of the current snapshot creation job |
+| <span class="metrics-name">snaprd_&#8203;export_&#8203;total_&#8203;bytes</span> | gauge | Total bytes to be read from account database for the current snapshot creation job |
+| <span class="metrics-name">snaprd_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
+
+</div>
+
+## Snapsv Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapsv_&#8203;snapshots_&#8203;available</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Number of snapshot files currently available for download (Full snapshot) |
+| <span class="metrics-name">snapsv_&#8203;snapshots_&#8203;available</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | gauge | Number of snapshot files currently available for download (Incremental snapshot) |
+| <span class="metrics-name">snapsv_&#8203;http_&#8203;request_&#8203;served</span> | counter | Number of HTTP requests served |
+| <span class="metrics-name">snapsv_&#8203;conn_&#8203;active</span> | gauge | The number of active HTTP connections to the snapshot service |
+| <span class="metrics-name">snapsv_&#8203;bytes_&#8203;read</span> | counter | Bytes read from all requests to the snapshot service |
+| <span class="metrics-name">snapsv_&#8203;bytes_&#8203;written</span> | counter | Bytes written to all responses on the snapshot service |
 
 </div>
 

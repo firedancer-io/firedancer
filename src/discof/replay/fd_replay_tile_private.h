@@ -356,6 +356,8 @@ struct fd_replay_tile {
   fd_replay_out_link_t exec_out[ 1 ];
 
   fd_replay_out_link_t replay_out[1];
+  fd_replay_out_link_t snapmk_out[1];
+  ulong admin_out_idx;
 
   fd_replay_out_link_t epoch_out[1];
 
@@ -374,6 +376,20 @@ struct fd_replay_tile {
     fd_pubkey_t           vote_account;
     fd_bundle_crank_gen_t gen[1];
   } bundle;
+
+  /* snapshot producer */
+  struct {
+    uint  supported:1;
+    uint  active:1;
+    uint  incremental:1;
+    ulong bank_idx;
+    ulong scheduled_at;
+    ulong full_interval;
+    ulong next_full_slot;
+    ulong incremental_interval;
+    ulong next_incremental_slot;
+    ulong base_slot;
+  } snapmk;
 
   struct {
     ulong      store_query_acquire;

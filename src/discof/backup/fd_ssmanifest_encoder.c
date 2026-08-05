@@ -168,9 +168,13 @@ ENCODE_FN {
 
     uint vote_cnt;
     if( entry_type==2U ) {
-      vote_cnt = (uint)*fd_bank_epoch_credits_len( enc->bank );
+      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
+      vote_cnt = (uint)fd_top_votes_cnt( top_votes );
+      fd_top_votes_iter_init( top_votes, enc->top_votes_iter_mem );
     } else if( entry_type==1U ) {
-      vote_cnt = (uint)*fd_bank_epoch_credits_len( enc->bank );
+      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
+      vote_cnt = (uint)fd_top_votes_cnt( top_votes );
+      fd_top_votes_iter_init( top_votes, enc->top_votes_iter_mem );
     } else {
       vote_cnt = (uint)*fd_bank_snapshot_commission_t_3_len( enc->bank );
     }
@@ -196,22 +200,40 @@ ENCODE_FN {
     ulong       ec_cnt       = 0UL;
     fd_epoch_credits_t const * ec = NULL;
 
-    fd_vote_stakes_t * vs       = fd_bank_vote_stakes( bank );
-    ushort             fork_idx = fd_vote_stakes_get_root_idx( vs );
+    fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
+    ushort co_root = fd_collector_overrides_get_root_idx( overrides );
+    ulong  co_epoch = ULONG_MAX; /* no collector lookup */
 
     if( entry_type==2U ) {
-      ec     = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
+      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
+      fd_top_votes_iter_t *  iter      = fd_type_pun( enc->top_votes_iter_mem );
+      FD_TEST( !fd_top_votes_iter_done( top_votes, iter ) );
+      fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, NULL, NULL, NULL );
+      ec = find_epoch_credits( enc->bank, &pubkey );
+      FD_TEST( ec );
       ec_cnt = ec->cnt;
-      fd_memcpy( &pubkey, ec->pubkey, 32UL );
-      fd_vote_stakes_query_t_1( vs, fork_idx, &pubkey, &stake, &node_account, &commission );
+      co_epoch = bank->f.epoch;
     } else if( entry_type==1U ) {
-      fd_epoch_credits_t const * ec_src = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
-      fd_memcpy( &pubkey, ec_src->pubkey, 32UL );
-      fd_vote_stakes_query_t_2( vs, fork_idx, &pubkey, &stake, &node_account, &commission );
+      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
+      fd_top_votes_iter_t *  iter      = fd_type_pun( enc->top_votes_iter_mem );
+      FD_TEST( !fd_top_votes_iter_done( top_votes, iter ) );
+      fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, NULL, NULL, NULL );
+      co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
+      /* t_3 collectors are never consulted on reload; encoded as
+         zero. */
       fd_stashed_commission_t const * sc = &fd_bank_snapshot_commission_t_3( enc->bank )[ enc->vote_idx ];
       fd_memcpy( &pubkey, sc->pubkey, 32UL );
       commission = sc->commission;
+    }
+
+    /* SIMD-0232 collectors: defaults unless overridden. */
+    fd_pubkey_t inflation_collector = {0};
+    fd_pubkey_t block_collector     = {0};
+    if( FD_LIKELY( co_epoch!=ULONG_MAX ) ) {
+      inflation_collector = pubkey;
+      block_collector     = node_account;
+      fd_collector_overrides_query( overrides, co_root, co_epoch, &pubkey, &inflation_collector, &block_collector );
     }
 
     enc->total_stake += stake;
@@ -229,9 +251,9 @@ ENCODE_FN {
     PUSH_VAL( uint,       3U           ); /* variant = V4 */
     PUSH_VAL( fd_pubkey_t, node_account ); /* node_pubkey */
     PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* authorized_withdrawer */
-    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* inflation_rewards_collector */
-    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* block_revenue_collector */
-    PUSH_VAL( ushort, (ushort)((uint)commission * 100U) ); /* inflation_rewards_commission_bps */
+    PUSH_VAL( fd_pubkey_t, inflation_collector ); /* inflation_rewards_collector */
+    PUSH_VAL( fd_pubkey_t, block_collector     ); /* block_revenue_collector */
+    PUSH_VAL( ushort, commission ); /* inflation_rewards_commission_bps */
     PUSH_VAL( ushort, (ushort)0 ); /* block_revenue_commission_bps */
     PUSH_VAL( ulong,  0UL      ); /* pending_delegator_rewards */
     PUSH_VAL( uchar,  0        ); /* bls_pubkey_compressed = None */
@@ -256,6 +278,13 @@ ENCODE_FN {
     PUSH_VAL( ulong,       0UL                       ); /* rent_epoch */
 
     enc->vote_idx++;
+    if( entry_type==2U ) {
+      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
+      fd_top_votes_iter_next( top_votes, fd_type_pun( enc->top_votes_iter_mem ) );
+    } else if( entry_type==1U ) {
+      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
+      fd_top_votes_iter_next( top_votes, fd_type_pun( enc->top_votes_iter_mem ) );
+    }
     if( enc->vote_idx >= enc->vote_cnt ) enc->state = STATE_EPOCH_STAKES_EPOCH;
     break;
   }
@@ -293,6 +322,13 @@ ENCODE_FN {
   case STATE_LTHASH: {
     PUSH_VAL( uchar, 1 );
     PUSH_VAL( fd_lthash_value_t, bank->f.lthash );
+    enc->state = STATE_BLOCK_ID;
+    break;
+  }
+  case STATE_BLOCK_ID: {
+    int has_block_id = !fd_hash_check_zero( &bank->f.block_id );
+    PUSH_VAL( uchar, (uchar)has_block_id );
+    if( has_block_id ) PUSH_VAL( fd_hash_t, bank->f.block_id );
     enc->state = STATE_DONE;
     break;
   }

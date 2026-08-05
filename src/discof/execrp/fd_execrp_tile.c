@@ -44,8 +44,8 @@ struct fd_execrp_tile {
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
 
-  fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
-  fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
+  fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
+  fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
@@ -128,6 +128,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_execrp_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MCNT_SET      ( EXECRP, SIGNATURE_VERIFIED,    ctx->metrics.sigverify_cnt );
   FD_MCNT_SET      ( EXECRP, POH_HASHED,     ctx->metrics.poh_hash_cnt  );
   FD_MCNT_ENUM_COPY( EXECRP, TXN_RESULT,   ctx->metrics.txn_result    );
@@ -177,13 +179,40 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->is_fees_only    = ctx->txn_out.err.is_fees_only;
   msg->txn_exec->txn_err         = ctx->txn_out.err.txn_err;
   msg->txn_exec->slot            = ctx->slot;
+  msg->txn_exec->bank_seq        = ctx->bank->bank_seq;
   msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
   msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
 
-  if( FD_UNLIKELY( !ctx->txn_out.details.is_simple_vote || !fd_txn_parse_simple_vote( TXN( ctx->txn_in.txn ), ctx->txn_in.txn->payload, msg->txn_exec->vote.identity, msg->txn_exec->vote.vote_acct, &msg->txn_exec->vote.slot ) ) ) {
-    msg->txn_exec->vote.slot       = ULONG_MAX;
-    *msg->txn_exec->vote.identity  = (fd_pubkey_t){ 0 };
-    *msg->txn_exec->vote.vote_acct = (fd_pubkey_t){ 0 };
+  int is_vote = 0;
+  if( FD_LIKELY( ctx->txn_out.details.is_simple_vote ) ) {
+    fd_txn_t const * txn = TXN( ctx->txn_in.txn );
+    uchar const *    payload = ctx->txn_in.txn->payload;
+    fd_compact_tower_sync_serde_t tower_sync[ 1 ];
+    if( FD_LIKELY( fd_txn_parse_simple_vote( txn, payload, tower_sync ) ) ) {
+      fd_acct_addr_t const * accs = fd_txn_get_acct_addrs( txn, payload );
+      *msg->txn_exec->vote.identity  = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 0 ] );
+      *msg->txn_exec->vote.vote_acct = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ txn->signature_cnt==1 ? 1 : 2 ] );
+
+      ulong cur       = fd_ulong_if( tower_sync->root==ULONG_MAX, 0UL, tower_sync->root );
+      ulong cnt       = 0UL;
+      int   overflow  = 0;
+      for( ulong i=0UL; i<tower_sync->lockouts_cnt; i++ ) {
+        if( FD_UNLIKELY( __builtin_uaddl_overflow( cur, tower_sync->lockouts[ i ].offset, &cur ) ) ) { overflow = 1; break; }
+        msg->txn_exec->vote.vote_slots[ cnt++ ] = cur;
+      }
+      if( FD_LIKELY( !overflow ) ) {
+        msg->txn_exec->vote.vote_slot_cnt = (uchar)cnt;
+        msg->txn_exec->vote.slot          = cnt ? msg->txn_exec->vote.vote_slots[ cnt-1UL ] : cur;
+        is_vote                           = 1;
+      }
+    }
+  }
+
+  if( FD_UNLIKELY( !is_vote ) ) {
+    msg->txn_exec->vote.slot          = ULONG_MAX;
+    msg->txn_exec->vote.vote_slot_cnt = (uchar)0;
+    *msg->txn_exec->vote.identity     = (fd_pubkey_t){ 0 };
+    *msg->txn_exec->vote.vote_acct    = (fd_pubkey_t){ 0 };
   }
 
   if( FD_UNLIKELY( !msg->txn_exec->is_committable ) ) {
@@ -336,7 +365,7 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  for( ulong i=0UL; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+  for( ulong i=0UL; i<FD_TXN_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
     FD_TEST( sha );
     ctx->sha_lj[ i ] = sha;

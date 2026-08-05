@@ -63,7 +63,7 @@ int
 fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
                                   ulong                   lamports ) {
 
-  /* An account not owned by the program cannot have its blanace decrease
+  /* An account not owned by the program cannot have its balance decrease
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L775 */
   if( FD_UNLIKELY( (!fd_borrowed_account_is_owned_by_current_program( borrowed_acct )) &&
                    (lamports<borrowed_acct->acc->lamports) ) ) {
@@ -157,7 +157,7 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
   }
 
-  /* Only the owner can set the exectuable flag
+  /* Only the owner can set the executable flag
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1011 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
@@ -169,7 +169,7 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
   }
 
-  /* Don't copy the account if the exectuable flag does not change
+  /* Don't copy the account if the executable flag does not change
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1023 */
   if( fd_borrowed_account_is_executable( borrowed_acct ) == is_executable ) {
     return FD_EXECUTOR_INSTR_SUCCESS;

@@ -120,6 +120,21 @@ fd_long_sat_sub_ref( long x,
   }
 }
 
+static inline long
+fd_long_sat_mul_ref( long x,
+                     long y ) {
+  int128 ref = x;
+  ref *= y;
+
+  if( ref > LONG_MAX ) {
+    return LONG_MAX;
+  } else if( ref < LONG_MIN ) {
+    return LONG_MIN;
+  } else {
+    return (long) ref;
+  }
+}
+
 static inline uint
 fd_uint_sat_add_ref( uint x,
                        uint y ) {
@@ -228,6 +243,13 @@ main( int     argc,
     TEST(sub,0,LONG_MAX);
     TEST(add,LONG_MAX,10);
     TEST(sub,LONG_MAX - 10,LONG_MAX - 10);
+    TEST(mul,0,LONG_MAX);
+    TEST(mul,LONG_MAX,10);
+    TEST(mul,LONG_MAX - 10,LONG_MAX - 10);
+    TEST(mul,LONG_MIN,2);
+    TEST(mul,2,LONG_MIN);
+    TEST(mul,LONG_MIN,-1);
+    TEST(mul,LONG_MIN,1);
 
 #   undef TEST
 
@@ -321,6 +343,7 @@ main( int     argc,
 
     TEST(add);
     TEST(sub);
+    TEST(mul);
 
 #   undef TEST
 

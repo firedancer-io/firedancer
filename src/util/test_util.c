@@ -8,6 +8,10 @@ main( int     argc,
   FD_LOG_INFO(( "fd_minor_version = %lu", fd_minor_version ));
   FD_LOG_INFO(( "fd_patch_version = %lu", fd_patch_version ));
   FD_LOG_INFO(( "fd_version_cstr = %s", fd_version_cstr ));
+  char version[ 32UL ];
+  FD_TEST( !strcmp( fd_version_cstr_format( version, sizeof(version), 25UL, 8UL, 1UL ), "25.8.1" ) );
+  FD_TEST( !strcmp( fd_version_cstr_format( version, sizeof(version), 26UL, 8UL, 1UL ), "26.08.1" ) );
+  FD_TEST( !strcmp( fd_version_cstr_format( version, sizeof(version), 26UL, 10UL, 1UL ), "26.10.1" ) );
   FD_LOG_INFO(( "fd_commit_ref_cstr = %s", fd_commit_ref_cstr ));
   FD_LOG_INFO(( "fd_commit_ref_u32 = 0x%08x", fd_commit_ref_u32 ));
   FD_LOG_NOTICE(( "pass" ));

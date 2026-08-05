@@ -7,8 +7,13 @@ DUMP=${DUMP:="./dump"}
 OBJDIR=${OBJDIR:-build/native/gcc}
 SKIP_INGEST=${SKIP_INGEST:-0}
 
-LEDGER="mainnet-424669000-solcap"
+LEDGER="mainnet-424669000-solcap-v4.2.0-beta.1-vat"
 REDOWNLOAD=1
+
+WATCH=( )
+if [[ -n "${CI:-}" ]]; then
+  WATCH=( "--no-watch" )
+fi
 
 BACKTEST_LOG="/tmp/ledger_log_solcap"
 
@@ -65,6 +70,11 @@ if [[ ! -e $DUMP/$LEDGER ]]; then
   download_and_extract_ledger
 fi
 
+rm -f $DUMP/$LEDGER/accounts.db
+
+# fd requires the snapshots path to not be group/world accessible.
+chmod -R 0700 $DUMP/$LEDGER
+
 # Clone and build solcap-tools.  Capture output to a log and only print
 # it on failure, so a broken clone/fetch/checkout/build surfaces its
 # error in CI instead of failing silently.
@@ -105,8 +115,6 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
     verify_tile_count = 2
     execrp_tile_count = 6
 [tiles]
-    [tiles.replay]
-        enable_features = [  ]
     [tiles.gui]
         enabled = false
     [tiles.rpc]
@@ -128,15 +136,37 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
 [development.ledger_input]
-    path = "${ledger_dir}/rocksdb"
+    format = "pcap"
+    path = "${ledger_dir}/shreds.pcapng.zst"
     end_slot = 424669025
 EOF
 
 echo "Running firedancer-dev configure fini all ..."
 $OBJDIR/bin/firedancer-dev configure fini all
 
+convert_rocksdb_to_shredcap() {
+  rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+  if ! $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst.tmp --zstd; then
+    rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+    return 1
+  fi
+  mv $DUMP/$LEDGER/shreds.pcapng.zst.tmp $DUMP/$LEDGER/shreds.pcapng.zst
+}
+
+if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+  echo "Running fd_blockstore2shredcap ..."
+  if ! convert_rocksdb_to_shredcap; then
+    # A cached ledger may have a corrupt rocksdb (eg. damaged by a converter
+    # version that deleted unopened column families); re-download once.
+    echo "conversion failed; re-downloading ledger and retrying"
+    rm -rf $DUMP/$LEDGER
+    download_and_extract_ledger
+    convert_rocksdb_to_shredcap
+  fi
+fi
+
 echo "Running backtest (full log at ${BACKTEST_LOG}) ..."
-$OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-424669000-solcap_current.toml
+$OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-424669000-solcap_current.toml "${WATCH[@]}"
 
 # Run solcap-tools diff and check the summary for zero differences
 echo "Running solcap-tools diff ..."

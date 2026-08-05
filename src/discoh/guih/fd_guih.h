@@ -265,7 +265,7 @@ typedef struct fd_guih_validator_info fd_guih_validator_info_t;
    we won't record any additional shred updates for these slots.
 
    All shred events for a given slot will be places in a contiguous
-   chunk in the array, and the bounding indicies are stored in the
+   chunk in the array, and the bounding indices are stored in the
    fd_guih_slot_t slot history.  Within a slot chunk, shred events are
    ordered in the ordered they were recorded by the gui tile.
 
@@ -811,8 +811,8 @@ struct fd_guih {
       ulong end_slot;
       ulong target_slot_duration_nanos;
       fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
-      fd_vote_stake_weight_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+      fd_vote_stake_weight_t stakes[ MAX_STAKE_WEIGHTS ];
 
       ulong rankings_slot; /* One more than the largest slot we've processed into our rankings */
       fd_guih_slot_rankings_t rankings[ 1 ]; /* global slot rankings */

@@ -288,6 +288,40 @@ fd_quic_pretty_print_frame( char **           out_buf,
       break;
     }
 
+    case 0x30:
+    case 0x31:
+    {
+      ulong remain  = (ulong)( buf_end - cur_buf );
+      ulong data_sz = id==0x30U ? remain : data.datagram_1_frame.length;
+      ulong out_sz;
+
+      if( FD_UNLIKELY( data_sz > remain ) ) {
+        out_sz = safe_snprintf( *out_buf, *out_buf_sz, "\"err\": \"overflow\", " );
+        *out_buf    += out_sz;
+        *out_buf_sz -= out_sz;
+
+        return FD_QUIC_PARSE_FAIL;
+      }
+
+      out_sz = safe_snprintf( *out_buf, *out_buf_sz, "\"data\": [ " );
+      *out_buf    += out_sz;
+      *out_buf_sz -= out_sz;
+
+      for( ulong j = 0UL; j < data_sz; ++j ) {
+        out_sz = safe_snprintf( *out_buf, *out_buf_sz, "0x%02x, ", cur_buf[j] );
+        *out_buf    += out_sz;
+        *out_buf_sz -= out_sz;
+      }
+
+      out_sz = safe_snprintf( *out_buf, *out_buf_sz, "], " );
+      *out_buf    += out_sz;
+      *out_buf_sz -= out_sz;
+
+      cur_buf += data_sz;
+
+      break;
+    }
+
     case 0x1c: /* connection close */
     {
       /* the conn_close_1_frame structure is different to conn_close_0_frame */

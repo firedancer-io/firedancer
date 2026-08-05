@@ -1,4 +1,5 @@
 #include "../replay/fd_replay_tile.h"
+#include "../tower/fd_tower_tile.h"
 #include "../genesis/fd_genesi_tile.h"
 
 #include "../../third_party/cjson/cJSON_alloc.h"
@@ -44,6 +45,7 @@
 #define IN_KIND_REPLAY      (0)
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
+#define IN_KIND_TOWER       (3)
 
 /* From bzip2 docs:
       To guarantee that the compressed data will fit in its buffer,
@@ -68,6 +70,9 @@
 #define FD_RPC_HEALTH_STATUS_OK      (0)
 #define FD_RPC_HEALTH_STATUS_BEHIND  (1)
 #define FD_RPC_HEALTH_STATUS_UNKNOWN (2)
+
+/* Matches Agave's default health_check_slot_distance. */
+#define FD_RPC_HEALTH_CHECK_SLOT_DISTANCE (128UL)
 
 #define FD_RPC_METHOD_GET_ACCOUNT_INFO                       ( 0)
 #define FD_RPC_METHOD_GET_BALANCE                            ( 1)
@@ -263,7 +268,9 @@ struct fd_rpc_tile {
 
   fd_alloc_t * bz2_alloc;
 
-  long next_poll_deadline;
+  long  next_poll_deadline;
+  ulong in_cnt;
+  ulong idle_cnt;
 
   fd_keyswitch_t * keyswitch;
   uchar identity_pubkey[ 32UL ];
@@ -286,6 +293,10 @@ struct fd_rpc_tile {
      data bytes returned by the readonly accdb path.  Sized to the
      runtime account data maximum.  Must not be in accdb shmem. */
   uchar accdb_data_buf[ FD_RUNTIME_ACC_SZ_MAX ];
+
+  /* Redirect to snapshot server */
+  int    snapshot_server_enabled;
+  char   snapshot_server_url[ 288UL ];
 };
 
 typedef struct fd_rpc_tile fd_rpc_tile_t;
@@ -477,10 +488,14 @@ before_credit( fd_rpc_tile_t *     ctx,
                int *               charge_busy ) {
   (void)stem;
 
+  ctx->idle_cnt++;
+  if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
+  ctx->idle_cnt = 0UL;
+
   long now = fd_tickcount();
   int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
   if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_deadline ) ) {
-    *charge_busy = fd_http_server_poll( ctx->http, 0 );
+    *charge_busy = fd_http_server_poll( ctx->http, 0, 1UL );
     ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL )*128L*1000L);
   }
 }
@@ -646,6 +661,8 @@ returnable_frag( fd_rpc_tile_t *     ctx,
                  ulong               tspub FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
 
+  ctx->idle_cnt = 0UL;
+
   if( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) {
     switch( sig ) {
       case REPLAY_SIG_SLOT_COMPLETED: {
@@ -701,7 +718,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->confirmed_idx = msg->bank_idx;
-        ctx->cluster_confirmed_slot = msg->slot;
         break;
       }
       case REPLAY_SIG_ROOT_ADVANCED: {
@@ -720,7 +736,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         if( FD_UNLIKELY( ctx->confirmed_idx==msg->bank_idx ) ) {
           fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
           ctx->confirmed_idx = ULONG_MAX;
-          ctx->cluster_confirmed_slot = ULONG_MAX;
         }
         if( FD_UNLIKELY( ctx->finalized_idx==msg->bank_idx ) ) {
           fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -760,6 +775,14 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         break;
       }
       default: break;
+    }
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) {
+    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+      fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      if( FD_LIKELY( msg->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC ) ) {
+        if( FD_LIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) ctx->cluster_confirmed_slot = msg->slot;
+        else                                                      ctx->cluster_confirmed_slot = fd_ulong_max( ctx->cluster_confirmed_slot, msg->slot );
+      }
     }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
@@ -1616,7 +1639,7 @@ getGenesisHash( fd_rpc_tile_t * ctx,
 
     - Finally, once the cluster confirmed slot is known, which is the
       highest optimistically confirmed slot observed from both gossip,
-      and votes procesed in blocks, it is compared to our own
+      and votes processed in blocks, it is compared to our own
       optimistically confirmed slot, which is just the highest slot down
       the cluster confirmed fork that we have finished replaying
       locally.  The difference between these two slots is compared, and
@@ -1639,8 +1662,8 @@ _getHealth( fd_rpc_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
 
   ulong slots_behind = fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot );
-  if( FD_LIKELY( slots_behind<=128UL ) ) return FD_RPC_HEALTH_STATUS_OK;
-  else                                   return FD_RPC_HEALTH_STATUS_BEHIND;
+  if( FD_LIKELY( slots_behind<=FD_RPC_HEALTH_CHECK_SLOT_DISTANCE ) ) return FD_RPC_HEALTH_STATUS_OK;
+  else                                                               return FD_RPC_HEALTH_STATUS_BEHIND;
 }
 
 static fd_http_server_response_t
@@ -2115,6 +2138,20 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     return response;
   }
 
+  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET &&
+                   ( !strncmp( request->path, "/snapshot",             9UL ) ||
+                     !strncmp( request->path, "/incremental-snapshot", 21UL ) ) ) ) {
+    if( FD_UNLIKELY( !ctx->snapshot_server_enabled ) ) {
+      return (fd_http_server_response_t){ .status = 403 }; /* forbidden */
+    }
+    return (fd_http_server_response_t){
+      .status       = 302,
+      .location     = { ctx->snapshot_server_url, request->path_raw },
+      .location_len = { strlen( ctx->snapshot_server_url ), request->path_len },
+    };
+  }
+
+
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET ) ) {
     return (fd_http_server_response_t){ .status = 404 };
   }
@@ -2371,8 +2408,16 @@ privileged_init( fd_topo_t const *      topo,
     .ws_message = rpc_ws_message,
   };
   ctx->http = fd_http_server_join( fd_http_server_new( _http, http_params, callbacks, ctx ) );
-  fd_http_server_listen( ctx->http, tile->rpc.listen_addr, tile->rpc.listen_port );
-  FD_LOG_NOTICE(( "rpc server listening at %shttp://" FD_IP4_ADDR_FMT ":%u%s", fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( tile->rpc.listen_addr ), tile->rpc.listen_port, fd_log_style_normal() ));
+  ctx->snapshot_server_enabled = tile->rpc.snapshot_server_enabled;
+  if( FD_LIKELY( ctx->snapshot_server_enabled ) ) {
+    FD_TEST( fd_cstr_printf_check(
+        ctx->snapshot_server_url, sizeof(ctx->snapshot_server_url), NULL,
+        "http://%s:%u", tile->rpc.snapshot_server_host,
+        tile->rpc.snapshot_server_port ) );
+  }
+  fd_http_server_listen6( ctx->http, &tile->rpc.listen_addr, tile->rpc.listen_port );
+  char listen_addr_cstr[ FD_IP6_ADDR_CSTR_MAX ]; fd_ip6_addr_cstr( listen_addr_cstr, &tile->rpc.listen_addr );
+  FD_LOG_NOTICE(( "rpc server listening at %shttp://%s:%u%s", fd_log_style_bold(), listen_addr_cstr, tile->rpc.listen_port, fd_log_style_normal() ));
 }
 
 static inline fd_rpc_out_t
@@ -2437,6 +2482,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->bz2_alloc );
 
   ctx->next_poll_deadline = fd_tickcount();
+  ctx->in_cnt             = tile->in_cnt;
+  ctx->idle_cnt           = 0UL;
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
   ctx->genesis_tar_bz_sz = ULONG_MAX;
@@ -2463,6 +2510,7 @@ unprivileged_init( fd_topo_t const *      topo,
     if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 

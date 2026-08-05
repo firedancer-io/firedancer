@@ -15,6 +15,9 @@
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
 #include "../../../../disco/net/fd_net_tile.h"
+#include "../../../../discof/backup/fd_backup.h"
+#include "../../../../discof/backup/fd_snap_pool.h"
+#include "../../../../discof/restore/utils/fd_ssarchive.h"
 
 #include "../configure/configure.h"
 
@@ -360,6 +363,14 @@ main_pid_namespace( void * _args ) {
   }
 
   initialize_accdb_fd( config );
+  ulong snap_max                = 0UL;
+  int   snapshot_upload_enabled = 0;
+  int   snapshot_dio_enabled    = 0;
+  if( config->is_firedancer ) {
+    snap_max                = initialize_snapshot_fds( config );
+    snapshot_upload_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
+    snapshot_dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
+  }
 
   struct spawn_cgroup spawn_cg = {0};
 
@@ -401,6 +412,7 @@ main_pid_namespace( void * _args ) {
           not need the accounts.db fd.  Withhold it to keep the gui at
           least privilege. */
         if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
+        if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) tile_uses_accdb = tile_uses_accdb_ro = 0;
 
         /* snapwr writes accdb pwrite()s without joining accdb shmem, so
           it needs the RW fd despite not appearing as an accdb obj user
@@ -415,6 +427,23 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         } else {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+
+        int tile_uses_snap_fd     = !strcmp( tile->name, "snapct" ) ||
+                                    !strcmp( tile->name, "snapmk" );
+        int tile_uses_snap_dio_fd = !strcmp( tile->name, "snapzp" );
+        int tile_uses_snap_rd_fd  = !strcmp( tile->name, "snapsv" );
+        for( ulong j=0UL; j<snap_max; j++ ) {
+          if( FD_UNLIKELY( -1==fcntl( FD_SNAP_FD( j ), F_SETFD, tile_uses_snap_fd ? 0 : FD_CLOEXEC ) ) )
+            FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( snapshot_dio_enabled ) {
+            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_DIO_FD( j ), F_SETFD, tile_uses_snap_dio_fd ? 0 : FD_CLOEXEC ) ) )
+              FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          }
+          if( snapshot_upload_enabled ) {
+            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_RO_FD( j ), F_SETFD, tile_uses_snap_rd_fd ? 0 : FD_CLOEXEC ) ) )
+              FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          }
         }
       }
 
@@ -452,6 +481,13 @@ main_pid_namespace( void * _args ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong j=0UL; j<snap_max; j++ ) {
+      if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( snapshot_dio_enabled )
+        if( FD_UNLIKELY( -1==close( FD_SNAP_DIO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( snapshot_upload_enabled )
+        if( FD_UNLIKELY( -1==close( FD_SNAP_RO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
@@ -944,6 +980,222 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==accounts_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts.db read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( accounts_ro_fd, FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+/* Snapshot production prep
+   (On startup, reconcile with files in snapshot dirs, and drop old
+   files.) */
+
+static int
+matches_partial_snap_filename( char const * name ) {
+  if( FD_UNLIKELY( !strcmp( name, ".snapshot.tar.bz2-partial" ) ||
+                   !strcmp( name, ".incremental-snapshot.tar.bz2-partial" ) ) ) return 1;
+
+  if( *name=='.' ) name++;
+  char const * p;
+  if( !strncmp( name, "snapshot-x", 10UL ) ) p = name+10UL;
+  else if( !strncmp( name, "snapshot", 8UL ) ) p = name+8UL;
+  else return 0;
+  if( *p<'0' || *p>'9' ) return 0;
+  while( *p>='0' && *p<='9' ) p++;
+  return 0==strcmp( p, ".partial" );
+}
+
+static int
+snap_inode_desc( void const * _a,
+                 void const * _b ) {
+  fd_backup_inode_t const * a = (fd_backup_inode_t const *)_a;
+  fd_backup_inode_t const * b = (fd_backup_inode_t const *)_b;
+  ulong a_slot = a->incr_slot==ULONG_MAX ? a->full_slot : a->incr_slot;
+  ulong b_slot = b->incr_slot==ULONG_MAX ? b->full_slot : b->incr_slot;
+  if( FD_LIKELY( a_slot!=b_slot ) ) return a_slot>b_slot ? -1 : 1;
+  return 0;
+}
+
+static void
+drop_old_snaps( int                 snap_dir_fd,
+                char const *        snap_dir,
+                fd_backup_inode_t * snaps,
+                ulong *             snap_cnt_p,
+                ulong               snap_max ) {
+  ulong snap_cnt = *snap_cnt_p;
+  if( snap_cnt<=snap_max ) return;
+  /* drop oldest */
+  qsort( snaps, snap_cnt, sizeof(fd_backup_inode_t), snap_inode_desc );
+  for( ulong i=snap_max; i<snap_cnt; i++ ) {
+    int err = unlinkat( snap_dir_fd, snaps[ i ].name, 0 );
+    if( FD_UNLIKELY( err && errno!=ENOENT ) ) {
+      FD_LOG_WARNING(( "unlinkat(%s/%s) failed (%i-%s)", snap_dir, snaps[ i ].name, errno, fd_io_strerror( errno ) ));
+    } else if( FD_LIKELY( !err ) ) {
+      FD_LOG_INFO(( "deleted old snapshot `%s/%s`", snap_dir, snaps[ i ].name ));
+    }
+  }
+  *snap_cnt_p = snap_max;
+}
+
+static void
+snap_check_fd( char const * snap_dir,
+               char const * name,
+               int          snap_fd ) {
+  struct stat st;
+  if( FD_UNLIKELY( -1==fstat( snap_fd, &st ) ) )
+    FD_LOG_ERR(( "fstat(%s/%s) failed (%i-%s)", snap_dir, name, errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( !S_ISREG( st.st_mode ) ) )
+    FD_LOG_ERR(( "snapshot `%s/%s` is not a regular file", snap_dir, name ));
+
+  /* A link count above one means the inode is also reachable from
+     outside the snapshots directory, so chowning it below would hand
+     the target user a file we never meant to give away. */
+  if( FD_UNLIKELY( st.st_nlink!=1UL ) )
+    FD_LOG_ERR(( "snapshot `%s/%s` has unexpected link count %lu", snap_dir, name, (ulong)st.st_nlink ));
+}
+
+static void
+snap_reperm_fd( char const * snap_dir,
+                char const * name,
+                int          snap_fd,
+                uint         uid,
+                uint         gid ) {
+  if( FD_UNLIKELY( -1==fchown( snap_fd, uid, gid ) ) )
+    FD_LOG_ERR(( "fchown(%s/%s) failed (%i-%s)", snap_dir, name, errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( -1==fchmod( snap_fd, S_IRUSR|S_IWUSR ) ) )
+    FD_LOG_ERR(( "fchmod(%s/%s) failed (%i-%s)", snap_dir, name, errno, fd_io_strerror( errno ) ));
+}
+
+ulong
+initialize_snapshot_fds( config_t const * config ) {
+
+  int download_enabled = fd_topo_find_tile( &config->topo, "snapct", 0UL )!=ULONG_MAX &&
+                         (config->firedancer.snapshots.sources.gossip.allow_any ||
+                          config->firedancer.snapshots.sources.gossip.allow_list_cnt ||
+                          config->firedancer.snapshots.sources.servers_cnt);
+  int upload_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
+  int dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
+  fd_snap_pool_layout_t layout = fd_snap_pool_layout( config->firedancer.snapshots.max_full_snapshots_to_keep,
+                                                      config->firedancer.snapshots.max_incremental_snapshots_to_keep,
+                                                      config->firedancer.snapshots.incremental_snapshots,
+                                                      download_enabled );
+  ulong snap_full_max     = layout.full_max;
+  ulong snap_incr_max     = layout.incr_max;
+  ulong retained_snap_max = layout.retained_max;
+  ulong snap_max          = layout.max;
+  if( FD_UNLIKELY( !snap_max ) ) return 0UL;
+
+  char const * snap_dir = config->paths.snapshots;
+  int dir_fd = open( snap_dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
+  if( FD_UNLIKELY( -1==dir_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
+
+  /* This is additionally validated in fd_config_validatef() */
+  FD_CHECK_ERR( snap_max<=FD_SNAP_MAX, "[snapshots.max_{full,incremental}_snapshots_to_keep] is set too high" );
+  fd_backup_inode_t snap_full[ FD_SNAP_MAX ];
+  fd_backup_inode_t snap_incr[ FD_SNAP_MAX ];
+  fd_backup_inode_t scratch[ 2 ] = {
+    { .full_slot=ULONG_MAX, .incr_slot=ULONG_MAX },
+    { .full_slot=ULONG_MAX, .incr_slot=ULONG_MAX }
+  };
+  ulong             snap_full_cnt = 0UL;
+  ulong             snap_incr_cnt = 0UL;
+  FD_STATIC_ASSERT( sizeof(snap_full)+sizeof(snap_incr) < 2UL<<20, "stack overflow" );
+
+  /* First, reconcile with the existing snapshots */
+  int dir_fd2 = dup( dir_fd );
+  if( FD_UNLIKELY( -1==dir_fd2 ) ) FD_LOG_ERR(( "dup(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
+  DIR * dir = fdopendir( dir_fd2 );
+  if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "fdopendir(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
+  struct dirent * entry;
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
+    if( FD_UNLIKELY( !strcmp( entry->d_name, ".") || !strcmp( entry->d_name, ".." ) ) ) continue;
+
+    /* delete partial files */
+    if( FD_UNLIKELY( matches_partial_snap_filename( entry->d_name ) ) ) {
+      if( FD_UNLIKELY( -1==unlinkat( dir_fd, entry->d_name, 0 ) && errno!=ENOENT ) )
+        FD_LOG_ERR(( "unlinkat(%s/%s) failed (%i-%s)", snap_dir, entry->d_name, errno, fd_io_strerror( errno ) ));
+      continue;
+    }
+
+    /* decode file name */
+    int is_zstd;
+    ulong entry_full_slot, entry_incremental_slot;
+    uchar decoded_hash[ FD_HASH_FOOTPRINT ];
+    if( FD_UNLIKELY( -1==fd_ssarchive_parse_filename( entry->d_name, &entry_full_slot, &entry_incremental_slot, decoded_hash, &is_zstd ) ) ) continue;
+    if( FD_UNLIKELY( strlen( entry->d_name )>=FD_SNAP_NAME_MAX ) ) continue;
+    fd_backup_inode_t inode = (fd_backup_inode_t){
+      .full_slot = entry_full_slot,
+      .incr_slot = entry_incremental_slot
+    };
+    fd_cstr_ncpy( inode.name, entry->d_name, FD_SNAP_NAME_MAX );
+
+    /* register snapshot (and lazily delete snaps if there are too many)
+       the lazy drop must free a slot for the append below, even if
+       retention is configured at the hard capacity */
+    if( entry_incremental_slot==ULONG_MAX ) {
+      if( FD_UNLIKELY( snap_full_cnt>=FD_SNAP_MAX ) ) {
+        drop_old_snaps( dir_fd, snap_dir, snap_full, &snap_full_cnt, fd_ulong_min( snap_full_max, FD_SNAP_MAX-1UL ) );
+      }
+      snap_full[ snap_full_cnt++ ] = inode;
+    } else {
+      if( FD_UNLIKELY( snap_incr_cnt>=FD_SNAP_MAX ) ) {
+        drop_old_snaps( dir_fd, snap_dir, snap_incr, &snap_incr_cnt, fd_ulong_min( snap_incr_max, FD_SNAP_MAX-1UL ) );
+      }
+      snap_incr[ snap_incr_cnt++ ] = inode;
+    }
+  }
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
+
+  /* FIXME this should be smart enough to drop incremental snapshots
+           that no longer have a matching full snapshot. */
+  drop_old_snaps( dir_fd, snap_dir, snap_full, &snap_full_cnt, snap_full_max );
+  drop_old_snaps( dir_fd, snap_dir, snap_incr, &snap_incr_cnt, snap_incr_max );
+
+  /* zero pad */
+  for( ulong i=snap_full_cnt; i<snap_full_max; i++ ) snap_full[ i ] = (fd_backup_inode_t){ .full_slot=ULONG_MAX, .incr_slot=ULONG_MAX };
+  for( ulong i=snap_incr_cnt; i<snap_incr_max; i++ ) snap_incr[ i ] = (fd_backup_inode_t){ .full_slot=ULONG_MAX, .incr_slot=ULONG_MAX };
+
+  for( ulong i=0UL; i<snap_max; i++ ) {
+    fd_backup_inode_t * inode;
+    if(      i<snap_full_max     ) inode = &snap_full[ i ];
+    else if( i<retained_snap_max ) inode = &snap_incr[ i-snap_full_max ];
+    else                           inode = &scratch [ i-retained_snap_max ];
+
+    int snap_fd;
+    if( FD_UNLIKELY( !inode->name[ 0 ] ) ) {
+      fd_snap_pool_partial_name( inode->name, (uint)i );
+      snap_fd = openat( dir_fd, inode->name, O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, S_IRUSR|S_IWUSR );
+      if( FD_UNLIKELY( -1==snap_fd ) ) FD_LOG_ERR(( "openat(%s/%s) failed (%i-%s)", snap_dir, inode->name, errno, fd_io_strerror( errno ) ));
+    } else {
+      snap_fd = openat( dir_fd, inode->name, O_RDWR|O_CLOEXEC|O_NOFOLLOW );
+      if( FD_UNLIKELY( -1==snap_fd ) ) FD_LOG_ERR(( "openat(%s/%s) failed (%i-%s)", snap_dir, inode->name, errno, fd_io_strerror( errno ) ));
+      snap_check_fd( snap_dir, inode->name, snap_fd );
+    }
+
+    snap_reperm_fd( snap_dir, inode->name, snap_fd, config->uid, config->gid );
+
+    if( FD_UNLIKELY( -1==dup2( snap_fd, FD_SNAP_FD( i ) ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( snap_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    if( dio_enabled ) {
+      int dio_fd = openat( dir_fd, inode->name, O_WRONLY|O_DIRECT );
+      if( FD_UNLIKELY( -1==dio_fd ) ) FD_LOG_ERR(( "openat(%s/%s, O_DIRECT) failed (%i-%s)", snap_dir, inode->name, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==dup2( dio_fd, FD_SNAP_DIO_FD( i ) ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( dio_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
+    if( upload_enabled ) {
+      int ro_fd = openat( dir_fd, inode->name, O_RDONLY|O_NOFOLLOW );
+      if( FD_UNLIKELY( -1==ro_fd ) ) FD_LOG_ERR(( "openat(%s/%s, O_RDONLY) failed (%i-%s)", snap_dir, inode->name, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==dup2( ro_fd, FD_SNAP_RO_FD( i ) ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
+  if( FD_UNLIKELY( -1==close( dir_fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
+  return snap_max;
 }
 
 /* The boot sequence is a little bit involved...

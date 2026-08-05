@@ -30,6 +30,17 @@ assert_vote_invalid( fd_top_votes_t *    top_votes,
   FD_TEST( !is_valid );
 }
 
+static void
+fill_to_capacity( fd_top_votes_t * top_votes,
+                  ulong            existing_cnt ) {
+  FD_TEST( existing_cnt<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+  for( ulong i=existing_cnt; i<FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS; i++ ) {
+    fd_pubkey_t vote = { .ul = { 10000UL+i } };
+    fd_pubkey_t node = { .ul = { 20000UL+i } };
+    fd_top_votes_insert( top_votes, &vote, &node, 1000UL+i, 1 );
+  }
+}
+
 int
 main( int argc, char * argv[] ) {
   fd_boot( &argc, &argv );
@@ -78,25 +89,26 @@ main( int argc, char * argv[] ) {
     wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
   }
 
-  ushort const vote_accounts_max = 4UL;
-  ulong  const footprint         = fd_top_votes_footprint( vote_accounts_max );
+  ulong  const footprint         = fd_top_votes_footprint();
 
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_top_votes_align(), footprint, wksp_tag );
   FD_TEST( mem );
 
-  FD_TEST( fd_top_votes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) == FD_TOP_VOTES_MAX_FOOTPRINT );
+  FD_TEST( fd_top_votes_footprint() == FD_TOP_VOTES_MAX_FOOTPRINT );
 
-  FD_TEST( !fd_top_votes_new( NULL, vote_accounts_max, 0UL ) );
-  fd_top_votes_t * top_votes = fd_top_votes_join( fd_top_votes_new( mem, vote_accounts_max, 1234UL ) );
+  FD_TEST( !fd_top_votes_new( NULL, 0UL ) );
+  fd_top_votes_t * top_votes = fd_top_votes_join( fd_top_votes_new( mem, 1234UL ) );
   FD_TEST( top_votes );
 
   fd_top_votes_init( top_votes );
+  FD_TEST( fd_top_votes_cnt( top_votes )==0UL );
 
   /* Basic insertion and query */
   fd_top_votes_insert( top_votes, &vote_A, &node_A, 10UL, 1 );
   fd_top_votes_insert( top_votes, &vote_B, &node_B, 20UL, 1 );
   fd_top_votes_insert( top_votes, &vote_C, &node_C, 30UL, 1 );
   fd_top_votes_insert( top_votes, &vote_D, &node_D, 40UL, 1 );
+  FD_TEST( fd_top_votes_cnt( top_votes )==4UL );
   assert_vote_present( top_votes, &vote_A, &node_A, 10UL );
   assert_vote_present( top_votes, &vote_B, &node_B, 20UL );
   assert_vote_present( top_votes, &vote_C, &node_C, 30UL );
@@ -122,7 +134,10 @@ main( int argc, char * argv[] ) {
   FD_TEST( iter_stake_sum==(10UL+20UL+30UL+40UL) );
 
   /* When full, lower-than-min stakes are ignored. */
+  fill_to_capacity( top_votes, 4UL );
+  FD_TEST( fd_top_votes_cnt( top_votes )==FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   fd_top_votes_insert( top_votes, &vote_E, &node_E, 5UL, 1 );
+  FD_TEST( fd_top_votes_cnt( top_votes )==FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   assert_vote_absent( top_votes, &vote_E );
   assert_vote_present( top_votes, &vote_A, &node_A, 10UL );
 
@@ -140,6 +155,7 @@ main( int argc, char * argv[] ) {
   fd_top_votes_insert( top_votes, &vote_B, &node_B, 10UL, 1 );
   fd_top_votes_insert( top_votes, &vote_C, &node_C, 20UL, 1 );
   fd_top_votes_insert( top_votes, &vote_D, &node_D, 30UL, 1 );
+  fill_to_capacity( top_votes, 4UL );
   fd_top_votes_insert( top_votes, &vote_E, &node_E, 40UL, 1 );
   assert_vote_absent( top_votes, &vote_A );
   assert_vote_absent( top_votes, &vote_B );
@@ -163,6 +179,7 @@ main( int argc, char * argv[] ) {
   fd_top_votes_insert( top_votes, &vote_B, &node_B, 10UL, 1 );
   fd_top_votes_insert( top_votes, &vote_C, &node_C, 20UL, 1 );
   fd_top_votes_insert( top_votes, &vote_D, &node_D, 30UL, 1 );
+  fill_to_capacity( top_votes, 4UL );
   fd_top_votes_insert( top_votes, &vote_E, &node_E, 10UL, 1 );
   assert_vote_absent( top_votes, &vote_A );
   assert_vote_absent( top_votes, &vote_B );
@@ -179,7 +196,9 @@ main( int argc, char * argv[] ) {
   fd_top_votes_insert( top_votes, &vote_H, &node_H, 11UL, 1 );
   assert_vote_present( top_votes, &vote_H, &node_H, 11UL );
 
+  ulong cnt_before_invalidate = fd_top_votes_cnt( top_votes );
   fd_top_votes_invalidate( top_votes, &vote_H );
+  FD_TEST( fd_top_votes_cnt( top_votes )==cnt_before_invalidate );
   assert_vote_invalid( top_votes, &vote_H );
   FD_TEST( fd_top_votes_query( top_votes, &vote_C, NULL, NULL, NULL, NULL, NULL, NULL ) );
   FD_TEST( fd_top_votes_query( top_votes, &vote_D, NULL, NULL, NULL, NULL, NULL, NULL ) );
@@ -194,7 +213,7 @@ main( int argc, char * argv[] ) {
     FD_TEST( memcmp( &iter_pubkey, &vote_H, sizeof(fd_pubkey_t) ) );
     valid_iter_cnt++;
   }
-  FD_TEST( valid_iter_cnt==2UL );
+  FD_TEST( valid_iter_cnt==FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS-2UL );
 
   /* Watermark should advance if another "tie with current min when full" occurs. */
   fd_top_votes_insert( top_votes, &vote_I, &node_I, 25UL, 1 ); /* now full */
@@ -213,6 +232,7 @@ main( int argc, char * argv[] ) {
 
   /* init should reset both membership and watermark. */
   fd_top_votes_init( top_votes );
+  FD_TEST( fd_top_votes_cnt( top_votes )==0UL );
   assert_vote_absent( top_votes, &vote_C );
   fd_top_votes_insert( top_votes, &vote_M, &node_M, 11UL, 1 );
   assert_vote_present( top_votes, &vote_M, &node_M, 11UL );

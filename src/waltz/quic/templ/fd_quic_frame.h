@@ -50,9 +50,11 @@
   X(0x1b, 16, path_response,       _, _, _, 1, _)  /* Section 19.18 */  \
   X(0x1c, 17, conn_close_0,        I, H, 0, 1, N)  /* Section 19.19 */  \
   X(0x1d, 18, conn_close_1,        _, _, 0, 1, N)  /* Section 19.19 */  \
-  X(0x1e, 19, handshake_done,      _, _, _, 1, _)  /* Section 19.20 */
+  X(0x1e, 19, handshake_done,      _, _, _, 1, _)  /* Section 19.20 */  \
+  X(0x30, 22, datagram_0,          _, _, 0, 1, _)  /* RFC 9221      */  \
+  X(0x31, 22, datagram_1,          _, _, 0, 1, _)  /* RFC 9221      */
 
-#define FD_QUIC_FRAME_TYPE_CNT (0x1f) /* lookup tables should have this many entries */
+#define FD_QUIC_FRAME_TYPE_CNT (0x32) /* lookup tables should have this many entries */
 
 extern uchar const __attribute__((aligned(0x20)))
 fd_quic_frame_type_flags[ FD_QUIC_FRAME_TYPE_CNT ];

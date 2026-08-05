@@ -171,9 +171,9 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      unwritable.
 
      When the direct mapping feature is enabled, the input region will
-     no longer be a contigious buffer of host memory.  Instead
+     no longer be a contiguous buffer of host memory.  Instead
      it will compose of several fragmented regions of memory each with
-     its own read/write privleges and size.  Address translation to the
+     its own read/write privileges and size.  Address translation to the
      input region will now have to rely on a binary search lookup of the
      start of the appropriate area of physical memory. It also involves
      doing a check against if the region can be written to. */
@@ -192,10 +192,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      loaders into fd_vm_init.
      TODO: It might make more sense to allocate space for these in the VM. */
   fd_vm_input_region_t *    input_mem_regions;               /* An array of input mem regions represent the input region.
-                                                                The virtual addresses of each region are contigiuous and
+                                                                The virtual addresses of each region are contiguous and
                                                                 strictly increasing. */
   uint                      input_mem_regions_cnt;
-  fd_vm_acc_region_meta_t * acc_region_metas;                /* Represents a mapping from the instruction account indicies
+  fd_vm_acc_region_meta_t * acc_region_metas;                /* Represents a mapping from the instruction account indices
                                                                 from the instruction context to the input memory region index
                                                                 of the account's data region in the input space. */
   uchar                     is_deprecated;                   /* The vm requires additional checks in certain CPIs if the

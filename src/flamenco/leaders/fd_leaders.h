@@ -39,17 +39,18 @@
    of the fd_epoch_leaders_{align,footprint} functions. */
 
 #define FD_EPOCH_LEADERS_ALIGN (64UL)
-#define FD_EPOCH_LEADERS_BITSET_WORD_CNT( pub_cnt ) (((pub_cnt)+1UL+63UL)/64UL)
-#define FD_EPOCH_LEADERS_BITSET_FOOTPRINT( pub_cnt ) (FD_EPOCH_LEADERS_BITSET_WORD_CNT( pub_cnt )*sizeof(ulong))
 #define FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, slot_cnt )                                                     \
-  ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(                                                     \
+  ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(                                   \
     FD_LAYOUT_INIT,                                                                                         \
       alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t)                            ),                 \
       alignof(uint),               (                                                                        \
         (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)                 \
         )                                                                                ),                 \
+      32UL,                        (                                                                        \
+        (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*32UL                         \
+        )                                                                                ),                 \
       FD_EPOCH_LEADERS_ALIGN                                                             )  +               \
-      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*((pub_cnt)+1UL) + FD_EPOCH_LEADERS_BITSET_FOOTPRINT( pub_cnt ), \
+      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*(pub_cnt),                                                      \
                                        FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL ) )
 
 #define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
@@ -63,7 +64,8 @@ struct fd_epoch_leaders {
   ulong slot0;
   ulong slot_cnt;
 
-  /* pub is a lookup table for node public keys with length pub_cnt */
+  /* pub is a lookup table of node public keys, one per vote-account
+     stake entry, with length pub_cnt.  Node public keys may repeat. */
   fd_pubkey_t * pub;
   ulong         pub_cnt;
 
@@ -72,10 +74,11 @@ struct fd_epoch_leaders {
   uint *        sched;
   ulong         sched_cnt;
 
-  /* leader_bits stores whether pub[idx] appears at least once in sched.
-     Includes one extra index for the indeterminate leader at idx==pub_cnt. */
-  ulong *       leader_bits;
-  ulong         leader_bits_word_cnt;
+  /* vote_addr is the leader vote account address per rotation
+     (sched_cnt entries).  Needed by SIMD-0232 fee collection: multiple
+     vote accounts can share one node identity, so the vote address
+     cannot be recovered from pub. */
+  fd_pubkey_t * vote_addr;
 };
 typedef struct fd_epoch_leaders fd_epoch_leaders_t;
 
@@ -83,8 +86,8 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_epoch_leaders_{align,footprint} describe the required footprint
    and alignment of the leader schedule object.  pub_cnt is the number
-   of unique public keys.  slot_cnt is the number of slots in the
-   epoch. */
+   of vote-account stake entries.  slot_cnt is the number of slots in
+   the epoch. */
 
 FD_FN_CONST ulong
 fd_epoch_leaders_align( void );
@@ -104,12 +107,6 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
    `stakes` points to the first entry of pub_cnt entries of stake
    weights sorted by tuple (stake, pubkey) in descending order.
 
-   If `stakes` does not include all staked nodes, e.g. in the case of an
-   attack that swamps the network with fake validators, `stakes` should
-   contain the first `pub_cnt` of them in the normal sort order, and the
-   sum of the remaining stake must be provided in excluded_stake,
-   measured in lamports.
-
    Does NOT retain a read interest in stakes upon return.
    The caller is not joined to the object on return. */
 void *
@@ -118,8 +115,7 @@ fd_epoch_leaders_new( void  *                  shmem,
                       ulong                    slot0,
                       ulong                    slot_cnt,
                       ulong                    pub_cnt,
-                      fd_vote_stake_weight_t * stakes, /* indexed [0, pub_cnt) */
-                      ulong                    excluded_stake );
+                      fd_vote_stake_weight_t * stakes ); /* indexed [0, pub_cnt) */
 
 /* fd_epoch_leaders_join joins the caller to the leader schedule object.
    fd_epoch_leaders_leave undoes an existing join. */
@@ -136,21 +132,9 @@ fd_epoch_leaders_leave( fd_epoch_leaders_t * leaders );
 void *
 fd_epoch_leaders_delete( void * shleaders );
 
-/* FD_INDETERMINATE_LEADER has base58 encoding
-   1111111111indeterminateLeader9QSxFYNqsXA.  In hex, this pubkey ends
-   with 0x0badf00d0badf00d. */
-#define FD_INDETERMINATE_LEADER 0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x99U,0xf6U,0x0fU,0x96U,0x2cU,0xddU,\
-                                0x38U,0x21U,0xf3U,0x0cU,0x16U,0x1dU,0xe3U,0x0aU,0x0bU,0xadU,0xf0U,0x0dU,0x0bU,0xadU,0xf0U,0x0dU
-
 /* fd_epoch_leaders_get returns a pointer to the selected public key
    given a slot.  Returns NULL if slot is not in [slot0, slot0+slot_cnt)
-   given the values supplied in fd_epoch_leaders_new.
-
-   If a non-zero value was provided for excluded_stake in
-   fd_epoch_leaders_new and a validator included in the excluded_stake
-   is the leader for the requested slot, instead of returning the
-   correct value (which is not known), fd_epoch_leaders_get will return
-   a pointer to a pubkey with value FD_INDETERMINATE_LEADER. */
+   given the values supplied in fd_epoch_leaders_new. */
 
 FD_FN_PURE static inline fd_pubkey_t const *
 fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
@@ -162,14 +146,18 @@ fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
   return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ] );
 }
 
-FD_FN_PURE static inline int
-fd_epoch_leaders_is_leader_idx( fd_epoch_leaders_t const * leaders,
-                                ulong                      idx ) {
-  if( FD_UNLIKELY( leaders==NULL ) ) return 0;
-  if( FD_UNLIKELY( idx>leaders->pub_cnt ) ) return 0;
-  ulong word_idx = idx>>6;
-  if( FD_UNLIKELY( word_idx>=leaders->leader_bits_word_cnt ) ) return 0;
-  return !!( leaders->leader_bits[ word_idx ] & (1UL<<(idx&63UL)) );
+/* fd_epoch_leaders_get_vote returns a pointer to the vote account
+   address of the leader for the given slot.  Same lookup semantics as
+   fd_epoch_leaders_get. */
+
+FD_FN_PURE static inline fd_pubkey_t const *
+fd_epoch_leaders_get_vote( fd_epoch_leaders_t const * leaders,
+                           ulong                      slot ) {
+  if( FD_UNLIKELY( leaders==NULL ) ) return NULL;
+  ulong slot_delta = slot - leaders->slot0;
+  if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
+  if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
+  return (fd_pubkey_t const *)( leaders->vote_addr + slot_delta/FD_EPOCH_SLOTS_PER_ROTATION );
 }
 
 FD_PROTOTYPES_END

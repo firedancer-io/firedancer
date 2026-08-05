@@ -481,10 +481,10 @@ run_fixture( fd_svm_mini_t * mini,
   setup_instr_ctx( in, program_idx, mini, alloc, &storage, ctx );
 
   ulong                   serialized_sz = 0;
-  ulong                   pre_lens[FD_INSTR_ACCT_MAX];
-  fd_vm_input_region_t    regions[FD_INSTR_ACCT_MAX + 3];
+  ulong                   pre_lens[FD_TXN_INSTR_ACCT_MAX];
+  fd_vm_input_region_t    regions[1000];
   uint                    region_cnt = 0;
-  fd_vm_acc_region_meta_t acc_metas[FD_INSTR_ACCT_MAX];
+  fd_vm_acc_region_meta_t acc_metas[FD_TXN_INSTR_ACCT_MAX];
   ulong                   idata_offset = 0;
 
   fd_memset( pre_lens,  0, sizeof(pre_lens)  );

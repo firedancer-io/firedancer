@@ -13,7 +13,7 @@
 #include "../accdb/fd_accdb.h"
 
 /* The general structure for executing transactions in Firedancer can
-   be thought as a state maching where transaction execution is a
+   be thought of as a state machine where transaction execution is a
    deterministic state transition over various data structures.
 
    The starting and ending state before a transaction is executed is
@@ -162,6 +162,10 @@ struct fd_runtime {
 
     struct {
       fd_vote_state_versioned_t vote_state;
+    } update_commission_collector;
+
+    struct {
+      fd_vote_state_versioned_t vote_state;
     } withdraw;
 
     struct {
@@ -192,7 +196,7 @@ struct fd_runtime {
        data, etc) */
     ulong vm_commit_cum_ticks;
 
-    /* Ticks spent in top-levl VM interpreter (includes CPI setup/commit
+    /* Ticks spent in top-level VM interpreter (includes CPI setup/commit
        ticks) */
     ulong vm_exec_cum_ticks;
 
@@ -296,6 +300,7 @@ struct fd_txn_out {
     int        executable_from_parent[ MAX_TX_ACCOUNT_LOCKS ]; /* 1 => read-only copy from the parent fork (loader gates on pd_write); 0 => current-fork copy (loader keeps the slot check) */
     int        executable_pd_write[ MAX_TX_ACCOUNT_LOCKS ];    /* probe result: deploy-status-changing write committed on the current fork this slot */
     ulong      executable_cur_len[ MAX_TX_ACCOUNT_LOCKS ];     /* current-fork committed data length, ULONG_MAX if none; for loaded-account-size accounting */
+    ulong      executable_cur_lamports[ MAX_TX_ACCOUNT_LOCKS ];/* current-fork committed lamports; only meaningful when executable_cur_len!=ULONG_MAX. */
 
     /* Programdata deployed this slot has no executable[] entry, but
        Agave still counts its size toward loaded-accounts-data-size
@@ -356,7 +361,7 @@ fd_runtime_block_execute_finalize( fd_bank_t *        bank,
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of
    the transaction execution are set in the fd_txn_out_t.  The caller
-   is responisble for correctly setting up the fd_txn_in_t and the
+   is responsible for correctly setting up the fd_txn_in_t and the
    fd_runtime_t handles.
 
    TODO: fd_runtime_t and fd_bank_t should be const here. */
@@ -405,6 +410,37 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
                                     fd_txn_in_t const * txn_ins,
                                     fd_txn_out_t *      txn_outs,
                                     ulong               txn_cnt );
+
+/* Sets up txn_out's implicit loader v3 programdata list for conformant
+   loader semantics and loaded account data size accounting.  An
+   implicit loader v3 PD may either be bound against the shared bundle
+   account pool acquired by fd_runtime_prepare_bundle_accounts(), or be
+   probed against the current accdb fork, depending on its liveness and
+   declaration.
+
+   This must be called for every bundle transaction, at that
+   transaction's setup, and not once up front for the whole bundle.
+   Whether a pool account parses as UpgradeableLoaderState::Program, and
+   hence which programdata account the transaction implicitly loads, can
+   change during the bundle, because an earlier bundle transaction can
+   deploy a program.  Deriving the list up front would cause a bundle
+   transaction following an in-bundle deploy to charge nothing for the
+   implied programdata, where a replay of the same transactions would
+   charge 64+programdata length.  This must be called after
+   fd_executor_setup_accounts_for_txn_bundle() because it must observe
+   the zero-lamport reset, which causes an account to be zero length,
+   non-executable, and system-owned.
+
+   This only ever binds to accounts the once-per-bundle prepare()
+   already acquired, so it acquires nothing and cannot deadlock.
+   Returns FD_RUNTIME_EXECUTE_SUCCESS on success, or a txn error if the
+   binding could not be maintained, in which case the caller must not
+   commit the bundle. */
+
+int
+fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
+                                     fd_bank_t *    bank,
+                                     fd_txn_out_t * txn_out );
 
 /* fd_runtime_fini_bundle must be called unconditionally after
    attempting to execute a bundle regardless of success or failure.

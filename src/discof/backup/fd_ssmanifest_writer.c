@@ -1,5 +1,4 @@
 #include "fd_ssmanifest_writer.h"
-#include "../../flamenco/stakes/fd_vote_stakes.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 
 #define STATE_BLOCKHASH_QUEUE        1
@@ -21,7 +20,8 @@
 #define STATE_NODE_VOTE_ACCOUNTS    17
 #define STATE_AUTH_VOTER            18
 #define STATE_LTHASH                19
-#define STATE_DONE                  20
+#define STATE_BLOCK_ID              20
+#define STATE_DONE                  21
 #define STATE_INIT STATE_BLOCKHASH_QUEUE
 
 fd_ssmanifest_writer_t *
@@ -35,6 +35,17 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
   enc->vote_idx    = 0;
   enc->total_stake = 0UL;
   return enc;
+}
+
+static fd_epoch_credits_t const *
+find_epoch_credits( fd_bank_t *          bank,
+                    fd_pubkey_t const * pubkey ) {
+  ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
+  for( ulong i=0UL; i<epoch_credits_len; i++ ) {
+    fd_epoch_credits_t const * epoch_credits = &fd_bank_epoch_credits( bank )[ i ];
+    if( fd_memeq( epoch_credits->pubkey, pubkey, sizeof(fd_pubkey_t) ) ) return epoch_credits;
+  }
+  return NULL;
 }
 
 /* Size estimate */

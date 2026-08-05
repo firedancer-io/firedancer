@@ -18,6 +18,7 @@
 #include "../log_collector/fd_log_collector.h"
 
 #include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
+#include "../../ballet/txn/fd_txn_v1.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15 */
 struct fd_rent_state {
@@ -346,7 +347,7 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
   fd_blake3_t b3[1];
   fd_blake3_init( b3 );
   fd_blake3_append( b3, "solana-tx-message-v1", 20UL );
-  fd_blake3_append( b3, ((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->message_off),(ulong)( txn_in->txn->payload_sz - TXN( txn_in->txn )->message_off ) );
+  fd_blake3_append( b3, ((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->message_off), fd_txn_msg_sz( TXN( txn_in->txn ), (ulong)txn_in->txn->payload_sz ) );
   fd_blake3_fini( b3, &txn_out->details.blake_txn_msg_hash );
 
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
@@ -418,6 +419,33 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L98-L107
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L156-L176 */
+static inline int
+fd_executor_sanitize_txn_v1_config( fd_txn_in_t const * txn_in,
+                                    fd_txn_out_t *      txn_out ) {
+  fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
+  fd_txn_t const *              txn     = TXN( txn_in->txn );
+
+  ulong priority_fee, cu_limit, loaded, heap;
+  uint config_mask = fd_uint_load_4( (uchar const *)txn_in->txn->payload + 4 );
+  fd_txn_parse_v1_config( config_mask,
+                          (uchar const *)txn_in->txn->payload + txn->v1_txn_config_values_off,
+                          &priority_fee, &cu_limit, &loaded, &heap );
+
+
+  details->is_v1                                      = 1;
+  details->priority_fee_lamports                      = priority_fee;
+  details->has_compute_units_limit_update             = 1;
+  details->compute_unit_limit                         = cu_limit;
+  details->loaded_accounts_data_size_limit            = fd_ulong_min( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT, loaded );
+  details->has_loaded_accounts_data_size_limit_update = 0;
+  details->heap_size                                  = heap;
+  details->has_requested_heap_size                    = 0;
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
 /* `verify_transaction()` is the first function called in the
    transaction execution pipeline. It is responsible for deserializing
    the transaction, verifying the message hash (sigverify), verifying
@@ -435,23 +463,18 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_out_t *      txn_out ) {
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
 
-  /* SIMD-0406: enforce limit on number of instruction accounts.
-
-     TODO: when limit_instruction_accounts is activated everywhere,
-     remove this and make the transaction parser check stricter.
-
-     https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/runtime-transaction/src/runtime_transaction/sdk_transactions.rs#L93-L99 */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, limit_instruction_accounts ) ) ) {
-    fd_txn_t const * txn = TXN( txn_in->txn );
-    for( ushort i=0; i<txn->instr_cnt; i++ ) {
-      if( FD_UNLIKELY( txn->instr[i].acct_cnt > FD_BPF_INSTR_ACCT_MAX ) ) {
-        return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
-      }
-    }
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank.rs#L5467-L5477 */
+  if( FD_UNLIKELY( TXN( txn_in->txn )->transaction_version==FD_TXN_V1 &&
+                   !FD_FEATURE_ACTIVE_BANK( bank, enable_tx_v1 ) ) ) {
+    return FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L566-L569 */
-  err = fd_executor_compute_budget_program_execute_instructions( bank, txn_in, txn_out );
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L94-L112 */
+  if( TXN( txn_in->txn )->transaction_version==FD_TXN_V1 ) {
+    err = fd_executor_sanitize_txn_v1_config( txn_in, txn_out );
+  } else {
+    err = fd_executor_compute_budget_program_execute_instructions( bank, txn_in, txn_out );
+  }
   if( FD_UNLIKELY( err ) ) return err;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -479,24 +502,27 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
    total loaded account size.
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
-static ulong
+static int
 load_transaction_account( fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out,
                           fd_pubkey_t const * pubkey,
                           fd_acc_t *          acc,
                           uchar               unknown_acc,
-                          ulong               txn_idx ) {
+                          ulong               txn_idx,
+                          ulong *             out_loaded_sz ) {
 
-  /* Handling the sysvar instructions account explictly.
+  /* Handling the sysvar instructions account explicitly.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L817-L824 */
   if( FD_UNLIKELY( !memcmp( pubkey, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) ) {
     /* The sysvar instructions account cannot be "loaded" since it's
        constructed by the SVM and modified within each transaction's
        instruction execution only, so it incurs a loaded size cost
        of 0. */
-    fd_sysvar_instructions_serialize_account( txn_in, txn_out, txn_idx );
-    return 0UL;
+    int err = fd_sysvar_instructions_serialize_account( txn_in, txn_out, txn_idx );
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+    *out_loaded_sz = 0UL;
+    return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   /* This next block calls `account_loader::load_transaction_account()`
@@ -513,7 +539,8 @@ load_transaction_account( fd_bank_t *         bank,
     ulong base_account_size = FD_FEATURE_ACTIVE_BANK( bank, formalize_loaded_transaction_data_size ) ? FD_TRANSACTION_ACCOUNT_BASE_SIZE : 0UL;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L828-L835 */
-    return fd_ulong_sat_add( base_account_size, acc->data_len );
+    *out_loaded_sz = fd_ulong_sat_add( base_account_size, acc->data_len );
+    return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   /* The rest of this function is a no-op for us since we already set up
@@ -523,7 +550,8 @@ load_transaction_account( fd_bank_t *         bank,
      states that accounts that do not exist prior to the transaction's
      execution should not incur a loaded size cost.
      https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L566-L577 */
-  return 0UL;
+  *out_loaded_sz = 0UL;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L494-L515 */
@@ -618,9 +646,19 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
   }
   ulong programdata_sz;
   if( FD_LIKELY( programdata_ref ) ) {
-    if( FD_UNLIKELY( !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+    /* Agave charges 64+len iff on the current fork the account is
+       lamports!=0.  The length used is also from the current fork.  So
+       liveness and length must come from the current fork.
+       executable[] holds the parent fork, so prefer the current fork
+       values from the probe whenever available. */
     ulong cur = txn_out->accounts.executable_cur_len[ pd_idx ];
-    programdata_sz = ( cur!=ULONG_MAX ) ? cur : programdata_ref->data_len;
+    if( cur!=ULONG_MAX ) {
+      if( FD_UNLIKELY( !txn_out->accounts.executable_cur_lamports[ pd_idx ] ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+      programdata_sz = cur;
+    } else {
+      if( FD_UNLIKELY( !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+      programdata_sz = programdata_ref->data_len;
+    }
   } else {
     programdata_sz = 0UL;
     for( ushort i=0; i<txn_out->accounts.executable_skipped_cnt; i++ ) {
@@ -711,8 +749,12 @@ fd_executor_load_transaction_accounts( fd_bank_t *         bank,
 
     /* Load and collect any remaining accounts
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
-    ulong loaded_acc_size = load_transaction_account( bank, txn_in, txn_out, &txn_out->accounts.keys[i], acc, unknown_acc, i );
-    int err = fd_collect_loaded_account(
+    ulong loaded_acc_size = 0UL;
+    int err = load_transaction_account( bank, txn_in, txn_out, &txn_out->accounts.keys[i], acc, unknown_acc, i, &loaded_acc_size );
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+      return err;
+    }
+    err = fd_collect_loaded_account(
       txn_out,
       acc,
       loaded_acc_size,
@@ -773,6 +815,9 @@ fd_executor_validate_account_locks( fd_txn_out_t const * txn_out ) {
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget/src/compute_budget_limits.rs#L62-L70 */
 static ulong
 fd_get_prioritization_fee( fd_compute_budget_details_t const * compute_budget_details ) {
+  if( compute_budget_details->is_v1 ) {
+    return compute_budget_details->priority_fee_lamports;
+  }
   uint128 micro_lamport_fee = fd_uint128_sat_mul( compute_budget_details->compute_unit_price, compute_budget_details->compute_unit_limit );
   uint128 fee = fd_uint128_sat_add( micro_lamport_fee, MICRO_LAMPORTS_PER_LAMPORT-1UL ) / MICRO_LAMPORTS_PER_LAMPORT;
   return fee>(uint128)ULONG_MAX ? ULONG_MAX : (ulong)fee;
@@ -891,16 +936,34 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
       FD_LOG_DEBUG(( "fd_executor_setup_txn_alut_account_keys(): failed to get slot hashes" ));
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
+    /* Resolve the ALT against the parent.  This is because the
+       scheduler does not treat the ALT itself as a dependency, so a
+       transaction resolving/reading a table can be scheduled
+       concurrently with one extending/writing it.  This would violate
+       the accdb acquire contract if they both used the same fork_id.
+       Similar to the case of implied loader v3 ProgramData reads, we
+       acquire from the parent.
+
+       Only the fork_id changes.  The slot stays this bank's slot, which
+       is always larger than the parent's last_extended_slot, and thus
+       revealing every address as of the end of the parent slot.  The
+       slot hashes sysvar also stays this bank's, since the deactivation
+       window is relative to the executing slot.
+
+       Unlike with implied loader v3 ProgramData, no special handling is
+       needed here for loaded account data size on the ALT.  ALT size
+       accounting is stateless. */
+    FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
     fd_acct_addr_t * accts_alt = fd_type_pun( &txn_out->accounts.keys[txn_out->accounts.cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
                                                          runtime->accdb,
-                                                         bank->accdb_fork_id,
+                                                         bank->parent_accdb_fork_id,
                                                          bank->f.slot,
                                                          slot_hashes_view,
                                                          accts_alt );
-    txn_out->accounts.cnt += TXN( txn_in->txn )->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+    txn_out->accounts.cnt += TXN( txn_in->txn )->addr_table_adtl_cnt;
 
   }
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -1260,10 +1323,6 @@ fd_executor_setup_accounts_for_txn_bundle( fd_runtime_t *      runtime,
     if( !found ) txn_out->accounts.account_acquired[ i ] = 1U;
   }
 
-  /* The executable (programdata) accounts were bound for every txn
-     up-front by fd_runtime_prepare_bundle_accounts and are preserved
-     across fd_runtime_new_txn_out for bundle txns, so there is nothing
-     to do here. */
   txn_out->accounts.is_setup         = 1;
   txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
 }
@@ -1373,7 +1432,8 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
       int   skip_pd  = 0;
       ulong skip_len = 0UL;
-      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len ) ) {
+      ulong skip_lamports = 0UL;
+      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len, &skip_lamports ) ) {
         ushort s = txn_out->accounts.executable_skipped_cnt++;
         txn_out->accounts.executable_skipped_key[ s ] = *programdata_key;
         txn_out->accounts.executable_skipped_len[ s ] = skip_len;
@@ -1404,9 +1464,11 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     txn_out->accounts.executable_from_parent[ exe_idx ] = acquired_from_parent;
     int   pd  = 0;
     ulong len = ULONG_MAX;
-    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pubkeys[ i ], &pd, &len );
-    txn_out->accounts.executable_pd_write[ exe_idx ] = pd;
-    txn_out->accounts.executable_cur_len[ exe_idx ]  = len;
+    ulong lamports = 0UL;
+    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pubkeys[ i ], &pd, &len, &lamports );
+    txn_out->accounts.executable_pd_write[ exe_idx ]     = pd;
+    txn_out->accounts.executable_cur_len[ exe_idx ]      = len;
+    txn_out->accounts.executable_cur_lamports[ exe_idx ] = lamports;
   }
   runtime->accounts.executable_cnt += executable_acquire_cnt;
 
@@ -1419,13 +1481,13 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
 int
 fd_executor_txn_verify( fd_txn_p_t *  txn_p,
-                        fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] ) {
+                        fd_sha512_t * shas[ FD_TXN_SIG_MAX ] ) {
   fd_txn_t * txn = TXN( txn_p );
 
   uchar * signatures = txn_p->payload + txn->signature_off;
   uchar * pubkeys    = txn_p->payload + txn->acct_addr_off;
   uchar * msg        = txn_p->payload + txn->message_off;
-  ulong   msg_sz     = txn_p->payload_sz - txn->message_off;
+  ulong   msg_sz     = fd_txn_msg_sz( txn, txn_p->payload_sz );
 
   int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, shas, txn->signature_cnt );
   if( FD_UNLIKELY( res!=FD_ED25519_SUCCESS ) ) return FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;

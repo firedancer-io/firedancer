@@ -85,11 +85,15 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   gossip.host                                         );
 
   CFG_POP      ( bool,   layout.enable_block_production                      );
+  CFG_POP      ( bool,   layout.enable_snapshot_production                   );
   CFG_POP      ( uint,   layout.execrp_tile_count                            );
   CFG_POP      ( uint,   layout.sign_tile_count                              );
   CFG_POP      ( uint,   layout.resolv_tile_count                            );
   CFG_POP      ( uint,   layout.execle_tile_count                            );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
+  CFG_POP      ( uint,   layout.snapzp_tile_count                            );
+  CFG_POP      ( uint,   layout.snapsv_tile_count                            );
+  CFG_POP      ( uint,   layout.snapsv_io_worker_count                       );
 
   CFG_POP      ( ulong,  accounts.max_accounts                               );
   CFG_POP      ( ulong,  accounts.cache_size_gib                             );
@@ -115,6 +119,17 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.max_retry_abort                           );
   CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
   CFG_POP      ( ulong,  snapshots.wait_for_peers_timeout_seconds            );
+  CFG_POP      ( ulong,  snapshots.full_snapshot_interval_slots              );
+  CFG_POP      ( ulong,  snapshots.incremental_snapshot_interval_slots       );
+  CFG_POP      ( ulong,  snapshots.max_incremental_snapshot_accounts         );
+
+  CFG_POP      ( bool,   snapshots.server.enabled                            );
+  CFG_POP      ( cstr,   snapshots.server.http_listen_address                );
+  CFG_POP      ( uint,   snapshots.server.http_listen_port                   );
+  CFG_POP      ( ulong,  snapshots.server.max_http_connections               );
+  CFG_POP      ( ulong,  snapshots.server.idle_timeout_millis                );
+  CFG_POP      ( ulong,  snapshots.server.send_timeout_millis                );
+  CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
@@ -155,6 +170,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.genesis                                    );
     CFG_POP    ( cstr,   paths.accounts                                   );
     CFG_POP    ( cstr,   paths.shredb                                 );
+    CFG_POP    ( cstr,   paths.guidb                                  );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1   ( cstr,   ledger.path,                 frankendancer.paths.ledger );
@@ -182,17 +198,18 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   net.interface                                    );
   CFG_POP      ( cstr,   net.bind_address                                 );
+  CFG_POP      ( cstr,   net.auto_level                                   );
   CFG_POP      ( cstr,   net.provider                                     );
   CFG_POP      ( uint,   net.ingress_buffer_size                          );
   CFG_POP      ( cstr,   net.xdp.xdp_mode                                 );
-  CFG_POP      ( bool,   net.xdp.xdp_zero_copy                            );
+  CFG_POP      ( boolau, net.xdp.xdp_zero_copy                            );
   CFG_POP      ( cstr,   net.xdp.poll_mode                                );
   CFG_POP      ( uint,   net.xdp.xdp_rx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
   CFG_POP      ( cstr,   net.xdp.rss_queue_mode                           );
   CFG_POP      ( bool,   net.xdp.listen_gre                               );
-  CFG_POP      ( bool,   net.xdp.native_bond                              );
+  CFG_POP      ( boolau, net.xdp.native_bond                              );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 
@@ -255,6 +272,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.gui.max_websocket_connections              );
   CFG_POP      ( ulong,  tiles.gui.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.gui.send_buffer_size_mb                    );
+  CFG_POP      ( ulong,  tiles.gui.db_size_gib                            );
 
   CFG_POP      ( bool,   tiles.rpc.enabled                                );
   CFG_POP      ( cstr,   tiles.rpc.rpc_listen_address                     );

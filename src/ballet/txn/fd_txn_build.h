@@ -82,8 +82,8 @@ struct fd_txn_builder {
     uchar               map_mem[ FD_TXN_B_ADDR_MAP_SZ ];
   };
 
-  /* Bump allocator for instruction datas */
-#define FD_TXN_B_DATA_BUMP_MAX FD_TXN_MTU
+  /* Bump allocator for instruction data */
+#define FD_TXN_B_DATA_BUMP_MAX FD_TXN_MTU_V0
   uchar  data_bump[ FD_TXN_B_DATA_BUMP_MAX ];
   ushort data_bump_sz;
 
@@ -210,7 +210,7 @@ fd_txn_builder_alut_close( fd_txn_builder_t * builder );
 
 uint
 fd_txn_build_raw( fd_txn_builder_t * builder,
-                  uchar              out[ FD_TXN_MTU ] );
+                  uchar              out[ FD_TXN_MTU_V0 ] );
 
 /* fd_txn_build builds a transaction separately into a raw buffer and a
    fd_txn_t.  Serializes the transaction to out, populates out_txn,
@@ -221,7 +221,7 @@ fd_txn_build_raw( fd_txn_builder_t * builder,
 
 uint
 fd_txn_build( fd_txn_builder_t *  builder,
-              uchar               out[ FD_TXN_MTU ],
+              uchar               out[ FD_TXN_MTU_V0 ],
               fd_txn_t * restrict out_txn,
               ushort *            opt_out_txn_t_sz );
 

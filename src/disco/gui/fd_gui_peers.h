@@ -88,7 +88,6 @@ typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
 #define DLIST_NEXT  fresh_next
 #include "../../util/tmpl/fd_dlist.c"
 
-#define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
 #define FD_GUI_PEERS_NODE_UPDATE (2)
 #define FD_GUI_PEERS_NODE_DELETE (3)
@@ -405,8 +404,8 @@ struct fd_gui_peers_ctx {
     ulong epoch;
 
     ulong                    stakes_cnt;
-    fd_gui_peers_voter_t     stakes  [ MAX_COMPRESSED_STAKE_WEIGHTS ];
-    fd_gui_peers_voter_idx_t vote_idx[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    fd_gui_peers_voter_t     stakes  [ MAX_STAKE_WEIGHTS ];
+    fd_gui_peers_voter_idx_t vote_idx[ MAX_STAKE_WEIGHTS ];
   } epochs[ 2 ];
 
   union {
@@ -415,13 +414,13 @@ struct fd_gui_peers_ctx {
       ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
     };
     struct {
-      ulong wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
+      ulong wfs_peers[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
     };
     struct {
-      fd_stake_weight_t      manifest_id_weights  [ FD_VOTE_ACCOUNTS_MAX ];
-      fd_vote_stake_weight_t manifest_vote_weights[ FD_VOTE_ACCOUNTS_MAX ];
+      fd_stake_weight_t      manifest_id_weights  [ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+      fd_vote_stake_weight_t manifest_vote_weights[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
     };
-    fd_gui_peers_voter_t voters_scratch[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    fd_gui_peers_voter_t voters_scratch[ MAX_STAKE_WEIGHTS ];
     struct {
       fd_gui_peers_row_t viewport    [ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* new rows snapshotted from live_table */
       fd_gui_peers_row_t viewport_ref[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* old baseline, diff reference */
@@ -433,7 +432,7 @@ struct fd_gui_peers_ctx {
   fd_gui_ip_db_t dbip;
 
   int               wfs_enabled;
-  fd_gui_wfs_peer_t wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
+  fd_gui_wfs_peer_t wfs_peers[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
   ulong             wfs_peers_cnt;
   int               wfs_peers_valid;
   int               wfs_stakes_sent;

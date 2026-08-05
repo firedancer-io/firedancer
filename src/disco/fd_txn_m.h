@@ -147,14 +147,14 @@ fd_txn_m_realized_footprint( fd_txn_m_t const * txnm,
                               +FD_TXN_MAX_SZ,                   \
                               alignof(fd_txn_m_t) )
 
-#define FD_TPU_RESOLVED_MTU FD_ULONG_ALIGN_UP(                     \
-                              FD_ULONG_ALIGN_UP(                   \
-                                 FD_ULONG_ALIGN_UP(                \
-                                    sizeof(fd_txn_m_t)+FD_TPU_MTU, \
-                                    alignof(fd_txn_t) )            \
-                                 +FD_TXN_MAX_SZ,                   \
-                                 alignof(fd_acct_addr_t) )         \
-                              +256UL*sizeof(fd_acct_addr_t),       \
+#define FD_TPU_RESOLVED_MTU FD_ULONG_ALIGN_UP(                              \
+                              FD_ULONG_ALIGN_UP(                            \
+                                 FD_ULONG_ALIGN_UP(                         \
+                                    sizeof(fd_txn_m_t)+FD_TPU_MTU,          \
+                                    alignof(fd_txn_t) )                     \
+                                 +FD_TXN_MAX_SZ,                            \
+                                 alignof(fd_acct_addr_t) )                  \
+                              +FD_TXN_ACCT_ADDR_MAX*sizeof(fd_acct_addr_t), \
                               alignof(fd_txn_m_t) )
 
 #endif /* HEADER_fd_src_disco_fd_txn_m_h */

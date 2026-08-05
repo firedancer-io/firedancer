@@ -709,9 +709,11 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   msg->vote_slot             = out->vote_slot;
   msg->reset_slot            = out->reset_slot;
   msg->reset_block_id        = out->reset_block_id;
+  msg->reset_bank_seq        = out->reset_bank_seq;
   msg->root_slot             = out->root_slot;
   msg->root_block_id         = out->root_block_id;
   msg->replay_bank_idx       = slot_completed->bank_idx;
+  msg->replay_bank_seq       = slot_completed->bank_seq;
   msg->vote_acct_bal         = our_vote_acct_bal;
 
   ulong       authority_idx = ULONG_MAX;
@@ -722,6 +724,8 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   /* Refuse to vote if our node identity does not match the one
      specified in the vote account (hot spare check) */
   int identity_matches = found_authority && fd_pubkey_eq( identity, ctx->identity_key );
+  msg->is_voting = found_authority && identity_matches;
+
   if( FD_LIKELY( out->vote_slot!=ULONG_MAX &&
                  found_authority &&
                  identity_matches &&
@@ -745,9 +749,6 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   } else {
     msg->has_vote_txn = 0;
   }
-
-  msg->tower_cnt = 0UL; /* FIXME */
-  if( FD_LIKELY( found ) ) msg->tower_cnt = fd_tower_with_lat_from_vote_acc( msg->tower, ctx->our_vote_acct, ctx->our_vote_acct_sz );
 }
 
 static void
@@ -1433,7 +1434,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( ctx->tower,      ctx->ghost,          ctx->votes,
-                                       &out.reset_slot, &out.reset_block_id,
+                                       &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
                                        &out.vote_slot,  &out.vote_block_id,  &out.vote_bank_hash,
                                        &out.root_slot,  &out.root_block_id );
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) { /* if there is a vote slot we record it. */
@@ -1729,6 +1730,8 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
 
 static inline void
 metrics_write( fd_tower_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MCNT_SET( TOWER, FRAG_NOT_READY_DROPPED, ctx->metrics.not_ready );
 
   FD_MCNT_SET  ( TOWER, FRAG_IGNORED,  ctx->metrics.ignored_cnt  );
@@ -1807,8 +1810,8 @@ returnable_frag( fd_tower_tile_t *   ctx,
   }
   case IN_KIND_EPOCH: {
     fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    FD_TEST( msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
-    FD_TEST( msg->staked_id_cnt<=MAX_SHRED_DESTS );
+    FD_TEST( msg->staked_vote_cnt<=MAX_STAKE_WEIGHTS );
+    FD_TEST( msg->staked_id_cnt<=MAX_STAKE_WEIGHTS );
     fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
     fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
     return 0;

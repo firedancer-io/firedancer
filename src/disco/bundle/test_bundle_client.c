@@ -375,7 +375,7 @@ FD_UNIT_TEST( bundle_msg_oversized ) {
   test_bundle_env_destroy( env );
 }
 
-/* Ensure that the client resets after switching keys */
+/* Ensure that the client disconnects and halts signing while switching keys */
 
 FD_UNIT_TEST( bundle_keyswitch ) {
   test_bundle_env_t env[1];
@@ -393,9 +393,21 @@ FD_UNIT_TEST( bundle_keyswitch ) {
 
   fd_keyswitch_state( state->keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
   state->keyswitch->bytes[0] = 0x01;
-  fd_bundle_tile_housekeeping( state ); /* should switch */
+  fd_bundle_tile_housekeeping( state ); /* should halt and install the new public key */
+  FD_TEST( state->tcp_sock==-1 );
+  FD_TEST( state->halt_signing );
+  FD_TEST( fd_keyswitch_state_query( state->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !state->defer_reset );
+  FD_TEST( state->auther.pubkey[0]==0x01 );
+
+  state->sleep_check_ns = 1L;
+  fd_keyswitch_state( state->keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  fd_bundle_tile_housekeeping( state ); /* should resume with the new public key */
+  FD_TEST( !state->halt_signing );
   FD_TEST( state->defer_reset );
-  FD_TEST( state->auther.pubkey[0] == 0x01 );
+  FD_TEST( state->sleep_check_ns==0L );
+  FD_TEST( fd_keyswitch_state_query( state->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( state->auther.pubkey[0]==0x01 );
 
   test_bundle_env_destroy( env );
   fd_wksp_free_laddr( keyswitch_mem );

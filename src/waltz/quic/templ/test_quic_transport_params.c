@@ -4,6 +4,7 @@
 #include "../fd_quic_proto.h"
 #include "../fd_quic_proto.c"
 #include "fd_quic_transport_params.h"
+#include "../../../util/tmpl/fd_unit_test.c"
 
 static int
 preferred_address_equal( fd_quic_preferred_address_t const * p1,
@@ -18,8 +19,7 @@ preferred_address_equal( fd_quic_preferred_address_t const * p1,
     ( 0==memcmp( p1->reset_token,  p2->reset_token,  sizeof(p1->reset_token)  ) );
 }
 
-static void
-test_preferred_address( void ) {
+FD_UNIT_TEST( test_preferred_address ) {
 
   fd_quic_preferred_address_t preferred_address = {
     .ipv4_address = { 0x01, 0x02, 0x03, 0x04 },
@@ -94,8 +94,7 @@ test_preferred_address( void ) {
 /* test_max_size crafts the largest possible transport parameter object.
    Use every single option and fill in the largest possible value. */
 
-static void
-test_max_size( void ) {
+FD_UNIT_TEST( test_max_size ) {
 
   fd_quic_transport_params_t params = {
     /* 0x00 */
@@ -175,8 +174,7 @@ test_max_size( void ) {
    > behavior. An endpoint MUST ignore transport parameters that it does
    > not support. */
 
-static void
-test_grease( void ) {
+FD_UNIT_TEST( test_grease ) {
 
   static uchar const unknown_params[] = {
     /* Unknown transport param */
@@ -205,8 +203,7 @@ test_grease( void ) {
 }
 
 /* Test Case 1: Valid max_idle_timeout values */
-static void
-test_max_idle_timeout_valid( void ) {
+FD_UNIT_TEST( test_max_idle_timeout_valid ) {
   FD_LOG_NOTICE(( "test_max_idle_timeout_valid" ));
 
   fd_quic_transport_params_t params_in[1];
@@ -233,8 +230,7 @@ test_max_idle_timeout_valid( void ) {
 }
 
 /* Test Case 2: Valid and invalid max_udp_payload_size values */
-static void
-test_max_udp_payload_size_bounds( void ) {
+FD_UNIT_TEST( test_max_udp_payload_size_bounds ) {
   FD_LOG_NOTICE(( "test_max_udp_payload_size_bounds" ));
 
   fd_quic_transport_params_t params_in[1];
@@ -287,8 +283,7 @@ test_max_udp_payload_size_bounds( void ) {
 }
 
 /* Test Case 3: ack_delay_exponent bounds (max 20) */
-static void
-test_ack_delay_exponent_bounds( void ) {
+FD_UNIT_TEST( test_ack_delay_exponent_bounds ) {
   FD_LOG_NOTICE(( "test_ack_delay_exponent_bounds" ));
 
   fd_quic_transport_params_t params_in[1];
@@ -331,8 +326,7 @@ test_ack_delay_exponent_bounds( void ) {
 }
 
 /* Test Case 4: max_ack_delay bounds (max 2^14-1 = 16383) */
-static void
-test_max_ack_delay_bounds( void ) {
+FD_UNIT_TEST( test_max_ack_delay_bounds ) {
   FD_LOG_NOTICE(( "test_max_ack_delay_bounds" ));
 
   fd_quic_transport_params_t params_in[1];
@@ -397,8 +391,7 @@ test_max_ack_delay_bounds( void ) {
 }
 
 /* Test Case 5: Stream count bounds (max 2^60-1) */
-static void
-test_stream_count_bounds( void ) {
+FD_UNIT_TEST( test_stream_count_bounds ) {
   FD_LOG_NOTICE(( "test_stream_count_bounds" ));
 
   fd_quic_transport_params_t params_in[1];
@@ -478,8 +471,7 @@ test_stream_count_bounds( void ) {
 }
 
 /* Test Case 6: active_connection_id_limit bounds (min 2) */
-static void
-test_active_connection_id_limit_bounds( void ) {
+FD_UNIT_TEST( test_active_connection_id_limit_bounds ) {
   FD_LOG_NOTICE(( "test_active_connection_id_limit_bounds" ));
 
   fd_quic_transport_params_t params_in[1];
@@ -531,20 +523,33 @@ test_active_connection_id_limit_bounds( void ) {
   FD_TEST( ret == -1 );  /* bounds check failure in decoder */
 }
 
+FD_UNIT_TEST( test_max_datagram_frame_size_zero ) {
+  FD_LOG_NOTICE(( "test_max_datagram_frame_size_zero" ));
+
+  fd_quic_transport_params_t params_in [1] = {0};
+  fd_quic_transport_params_t params_out[1] = {0};
+  uchar buf[512];
+
+  /* RFC 9221 Section 3 defines zero as disabled DATAGRAM support.  A
+     peer may encode that value explicitly instead of omitting the
+     transport parameter. */
+  params_in->max_datagram_frame_size         = 0UL;
+  params_in->max_datagram_frame_size_present = 1;
+  ulong len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len!=FD_QUIC_ENCODE_FAIL );
+
+  int ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret==0 );
+  FD_TEST( params_out->max_datagram_frame_size_present==1 );
+  FD_TEST( params_out->max_datagram_frame_size==0UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  test_preferred_address();
-  test_max_size();
-  test_grease();
-  test_max_idle_timeout_valid();
-  test_max_udp_payload_size_bounds();
-  test_ack_delay_exponent_bounds();
-  test_max_ack_delay_bounds();
-  test_stream_count_bounds();
-  test_active_connection_id_limit_bounds();
+  fd_unit_tests( argc, argv );
 
   fd_quic_dump_transport_param_desc( stdout );
 
@@ -552,4 +557,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

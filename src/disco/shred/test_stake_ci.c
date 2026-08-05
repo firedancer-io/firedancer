@@ -8,7 +8,7 @@ uchar epoch_msg[ FD_EPOCH_INFO_MAX_MSG_SZ ];
 
 fd_pubkey_t identity_key[1];
 
-static fd_stake_weight_t id_scratch[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+static fd_stake_weight_t id_scratch[ MAX_STAKE_WEIGHTS ];
 
 static fd_stake_weight_msg_t *
 generate_stake_msg( uchar *      _buf,
@@ -20,7 +20,6 @@ generate_stake_msg( uchar *      _buf,
   buf->start_slot        = epoch * SLOTS_PER_EPOCH;
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = strlen(stakers);
-  buf->excluded_id_stake = 0UL;
 
   fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( buf );
   for( ulong i=0UL; i<buf->staked_vote_cnt; i++ ) {
@@ -44,7 +43,6 @@ generate_epoch_msg( uchar *      _buf,
   buf->start_slot        = epoch * SLOTS_PER_EPOCH;
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = strlen(stakers);
-  buf->excluded_id_stake = 0UL;
   memset( &buf->features, 0, sizeof(fd_features_t) );
 
   fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( buf );
@@ -625,42 +623,32 @@ test_limits( void ) {
   /* Cluster info cannot include more than MAX_SHRED_DESTS-1 validators.
      Any beyond that get truncated.
 
-     Vote stake weights cannot include more than MAX_COMPRESSED_STAKE_WEIGHTS.
-     Any beyond that get truncated and counted as excluded stake.
-
-     Id weights cannot include more than MAX_SHRED_DESTS public keys.
-     Any beyond that get truncated and counted as excluded stake. */
+     Vote and identity stake weights cannot include more than
+     MAX_STAKE_WEIGHTS public keys. */
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
-  for( ulong stake_weight_cnt=MAX_COMPRESSED_STAKE_WEIGHTS-2UL; stake_weight_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS+1UL; stake_weight_cnt++ ) {
+  for( ulong stake_weight_cnt=MAX_STAKE_WEIGHTS-2UL; stake_weight_cnt<=MAX_STAKE_WEIGHTS; stake_weight_cnt++ ) {
     fd_stake_weight_msg_t * buf = fd_type_pun( stake_msg );
     buf->epoch                  = stake_weight_cnt;
     buf->start_slot             = stake_weight_cnt * SLOTS_PER_EPOCH;
     buf->slot_cnt               = SLOTS_PER_EPOCH;
     buf->staked_vote_cnt        = 0UL;
     buf->staked_id_cnt          = 0UL;
-    buf->excluded_id_stake      = 0UL;
 
     fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( buf );
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
-      if( FD_LIKELY( i<MAX_COMPRESSED_STAKE_WEIGHTS ) ) {
-        memset( vote_stake_weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
-        memset( vote_stake_weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
-        if( FD_LIKELY( 127UL-i!=(ulong)'I' ) ) {
-          FD_STORE( ulong, vote_stake_weights[i].vote_key.uc, fd_ulong_bswap( i ) );
-          FD_STORE( ulong, vote_stake_weights[i].id_key.uc, fd_ulong_bswap( i ) );
-        }
-        vote_stake_weights[i].stake = stake;
-        buf->staked_vote_cnt++;
-      } else {
-        buf->excluded_id_stake += stake;
+      memset( vote_stake_weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+      memset( vote_stake_weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+      if( FD_LIKELY( 127UL-i!=(ulong)'I' ) ) {
+        FD_STORE( ulong, vote_stake_weights[i].vote_key.uc, fd_ulong_bswap( i ) );
+        FD_STORE( ulong, vote_stake_weights[i].id_key.uc, fd_ulong_bswap( i ) );
       }
+      vote_stake_weights[i].stake = stake;
+      buf->staked_vote_cnt++;
     }
 
-    ulong full_id_cnt  = compute_id_weights_from_vote_weights( id_scratch, vote_stake_weights, buf->staked_vote_cnt );
-    buf->staked_id_cnt = fd_ulong_min( full_id_cnt, MAX_SHRED_DESTS );
-    for( ulong i=buf->staked_id_cnt; i<full_id_cnt; i++ ) buf->excluded_id_stake += id_scratch[ i ].stake;
+    buf->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, vote_stake_weights, buf->staked_vote_cnt );
     fd_memcpy( fd_stake_weight_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
     fd_stake_ci_stake_msg_init( info, buf );
@@ -824,62 +812,28 @@ test_dest_update( void ) {
 
 static void
 test_dest_update_overflow( void ) {
-  /* Fill the shred dest table to MAX_SHRED_DESTS staked validators,
-     then try to add one more unstaked validator via
-     fd_stake_ci_dest_update.  This exercises ci_dest_add_one_unstaked
-     when the table is already at capacity and should hit the
-     FD_LOG_WARNING. */
+  /* Fill the shred destination table, then try to add one more
+     unstaked validator via fd_stake_ci_dest_update. */
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
-  /* Verify the table contains the identity and is otherwise empty */
   FD_TEST( fd_shred_dest_cnt_all( info->epoch_info[0].sdest )==1 );
 
-  /* Add MAX_SHRED_DESTS-2 entries*/
-  fd_epoch_info_msg_t *buf = fd_type_pun( epoch_msg );
-  buf->epoch             = 0UL;
-  buf->start_slot        = 0UL;
-  buf->slot_cnt          = SLOTS_PER_EPOCH;
-  buf->staked_vote_cnt   = MAX_SHRED_DESTS - 2UL;
-  buf->excluded_id_stake = 0UL;
-  memset( &buf->features, 0, sizeof(fd_features_t) );
-
-  fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( buf );
-  for(ulong i = 0UL; i<buf->staked_vote_cnt; i++ ) {
-    FD_STORE( ulong, weights[i].vote_key.uc, fd_ulong_bswap( i ) );
-    FD_STORE( ulong, weights[i].id_key.uc, fd_ulong_bswap( i ) );
-    weights[i].stake = i+1UL;
+  fd_shred_dest_weighted_t * dests = fd_stake_ci_dest_add_init( info );
+  for( ulong i=0UL; i<MAX_SHRED_DESTS-1UL; i++ ) {
+    memset( dests+i, 0, sizeof(fd_shred_dest_weighted_t) );
+    FD_STORE( ulong, dests[i].pubkey.uc, fd_ulong_bswap( i+1UL ) );
+    dests[i].ip4 = 0x11111111U;
+    dests[i].port = 1111U;
   }
+  fd_stake_ci_dest_add_fini( info, MAX_SHRED_DESTS-1UL );
 
-  buf->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, weights, buf->staked_vote_cnt );
-  fd_memcpy( fd_epoch_info_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
-
-  fd_stake_ci_epoch_msg_init( info, buf );  fd_stake_ci_epoch_msg_fini( info );
-
-  /* Verify the table contains MAX_SHRED_DESTS-1 entries (identity + MAX_SHRED_DESTS-2 staked) */
-  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
-  FD_TEST( sdest );
-  FD_TEST( fd_shred_dest_cnt_all( sdest )==MAX_SHRED_DESTS-1UL );
-
-  /* Add another entry */
-  fd_pubkey_t pubkey;
-  memset( pubkey.uc, 0x01, sizeof(fd_pubkey_t) );
-  FD_STORE( ulong, pubkey.uc, fd_ulong_bswap( MAX_SHRED_DESTS-1UL ) );
-  fd_stake_ci_dest_update( info, &pubkey, 0x11111111U, 1111 );
-
-  /* Verify the table is full with MAX_SHRED_DESTS */
-  sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
-  FD_TEST( sdest );
+  fd_shred_dest_t * sdest = info->epoch_info[0].sdest;
   FD_TEST( fd_shred_dest_cnt_all( sdest )==MAX_SHRED_DESTS );
 
-  /* Try to add a new unstaked validator. This calls
-     ci_dest_add_one_unstaked which should now warn and return early
-     instead of overflowing the array. */
   fd_pubkey_t new_pubkey;
   memset( new_pubkey.uc, 0x01, sizeof(fd_pubkey_t) );
   FD_STORE( ulong, new_pubkey.uc, fd_ulong_bswap( MAX_SHRED_DESTS ) );
   fd_stake_ci_dest_update( info, &new_pubkey, 0xAABBCCDDU, 7777 );
 
-  /* The table should still be at MAX_SHRED_DESTS (new entry rejected) */
-  sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
   FD_TEST( fd_shred_dest_cnt_all( sdest )==MAX_SHRED_DESTS );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );

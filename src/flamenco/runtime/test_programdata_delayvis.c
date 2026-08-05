@@ -18,6 +18,7 @@
 #include "fd_system_ids.h"
 #include "fd_executor_err.h"
 #include "fd_runtime_err.h"
+#include "fd_pubkey_utils.h"
 #include "program/fd_bpf_loader_program.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "../accdb/fd_accdb.h"
@@ -246,7 +247,8 @@ static int
 pd_write_committed_on_child( test_env_t * env ) {
   int   pd  = 0;
   ulong len = ULONG_MAX;
-  fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len );
+  ulong lamports = 0UL;
+  fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len, &lamports );
   return pd;
 }
 
@@ -583,6 +585,385 @@ test_bundle_deploy_size_counted( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "bundle deploy-this-slot size counted... ok" ));
 }
 
+/* Cross-txn bundle cases (SIMD-0186 loaded-accounts-data-size).  Each
+   runs [ txn1: mutates D or P , txn2: lists P but not D ] both as a
+   bundle and sequentially, and requires the two to agree.  The bundle
+   path binds D per txn against the shared pool; the sequential path
+   rebuilds it from accdb.  Anything an earlier bundle txn did to P or D
+   must land the same way on both. */
+
+struct pd_fields {
+  ulong loaded_sz;
+  int   txn_err;
+  int   exec_err;
+  ulong exe_cnt;
+  ulong skip_cnt;
+  ulong skip_len; /* ULONG_MAX when skip_cnt==0 */
+};
+typedef struct pd_fields pd_fields_t;
+
+static void
+pd_fields_capture( pd_fields_t * f, fd_txn_out_t const * o ) {
+  f->loaded_sz = o->details.loaded_accounts_data_size;
+  f->txn_err   = o->err.txn_err;
+  f->exec_err  = o->err.exec_err;
+  f->exe_cnt   = o->accounts.executable_cnt;
+  f->skip_cnt  = o->accounts.executable_skipped_cnt;
+  f->skip_len  = f->skip_cnt ? o->accounts.executable_skipped_len[0] : ULONG_MAX;
+}
+
+/* pd_fields_assert_same requires the same answer by the same route.
+   Comparing only loaded_sz would let a wrong-arm binding pass whenever
+   the two arms happen to produce the same number. */
+
+static void
+pd_fields_assert_same( char const *        what,
+                       pd_fields_t const * b,
+                       pd_fields_t const * s,
+                       ulong               expect ) {
+  FD_LOG_NOTICE(( "%s: bundle sz=%lu exe=%lu skip=%lu/%lu | sequential sz=%lu exe=%lu skip=%lu/%lu",
+                  what, b->loaded_sz, b->exe_cnt, b->skip_cnt, b->skip_len,
+                  s->loaded_sz, s->exe_cnt, s->skip_cnt, s->skip_len ));
+  FD_TEST( s->loaded_sz==expect     );
+  FD_TEST( b->loaded_sz==s->loaded_sz );
+  FD_TEST( b->txn_err  ==s->txn_err   );
+  FD_TEST( b->exec_err ==s->exec_err  );
+  FD_TEST( b->exe_cnt  ==s->exe_cnt   );
+  FD_TEST( b->skip_cnt ==s->skip_cnt  );
+  FD_TEST( b->skip_len ==s->skip_len  );
+}
+
+/* find_pool_acc returns the txn's copy of key, NULL if undeclared. */
+
+static fd_acc_t const *
+find_pool_acc( fd_txn_out_t const * o, fd_pubkey_t const * key ) {
+  for( ushort j=0; j<o->accounts.cnt; j++ ) {
+    if( !memcmp( o->accounts.keys[j].uc, key->uc, 32UL ) ) return o->accounts.account[j];
+  }
+  return NULL;
+}
+
+/* run_pair executes [ mutate , invoke ] and captures the invoke's
+   accounting.  bundle!=0 runs them the way fd_execle_tile:handle_bundle
+   does: one prepare, shared pool, execute both, then commit both.  mid
+   runs after the mutate, and asserts whatever precondition the case
+   depends on so it cannot pass vacuously. */
+
+typedef void (*pd_mid_fn)( test_env_t * env, int bundle );
+
+static void
+run_pair( test_env_t *  env,
+          fd_txn_p_t *  mutate,
+          fd_txn_p_t *  invoke,
+          int           bundle,
+          pd_mid_fn     mid,
+          pd_fields_t * f ) {
+  if( !bundle ) {
+    fd_txn_out_t * o = exec_single( env, mutate );
+    FD_TEST( o->err.is_committable );
+    FD_TEST( o->err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+    mid( env, 0 );
+    pd_fields_capture( f, exec_single( env, invoke ) );
+    return;
+  }
+
+  fd_txn_p_t * txns[2] = { mutate, invoke };
+  fd_txn_in_t  in[2];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    in[i]                     = (fd_txn_in_t){0};
+    in[i].txn                 = txns[i];
+    in[i].bundle.is_bundle    = 1;
+    in[i].bundle.prev_txn_cnt = i;
+    for( ulong j=0UL; j<i; j++ ) in[i].bundle.prev_txn_outs[j] = &env->txn_out[j];
+  }
+  FD_TEST( fd_runtime_prepare_bundle_accounts( env->runtime, env->bank, in, env->txn_out, 2UL )
+           ==FD_RUNTIME_EXECUTE_SUCCESS );
+
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &in[0], &env->txn_out[0] );
+  FD_TEST( env->txn_out[0].err.is_committable );
+  FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  mid( env, 1 );
+
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &in[1], &env->txn_out[1] );
+  pd_fields_capture( f, &env->txn_out[1] );
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( env->txn_out[i].err.is_committable ) ) fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[i], 0 );
+    else                                                  fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[i], 0 );
+  }
+  fd_runtime_fini_bundle( env->runtime );
+}
+
+/* ------------------------------------------------------------------ */
+
+static const fd_pubkey_t test_buffer_key = { .ul = { 0xb0ffe4UL } };
+
+/* setup_env_undeployed lays down the pre-deploy world: P a loader-owned
+   zeroed SIZE_OF_PROGRAM account (Uninitialized), D the real loader PDA
+   of P and absent on both forks, and a Buffer holding the ELF.  P is
+   loader-owned rather than system-owned because the deploy's Program{D}
+   set_state write requires it; Uninitialized parses as !=Program either
+   way, which is what makes the prebind skip the P->D derivation. */
+
+static void
+setup_env_undeployed( test_env_t * env, fd_svm_mini_t * mini ) {
+  setup_env( env, mini );
+
+  fd_accdb_t * accdb = env->runtime->accdb;
+
+  /* Re-point P at a fresh key and derive D as its loader PDA; the
+     deploy checks find_program_address( loader, [P] )==D.  setup_env's
+     P/D pair stays behind under other keys, unreferenced. */
+  env->program = (fd_pubkey_t){ .ul = { 0x50524f47554e4445UL } };
+  uchar const * seeds[1]; seeds[0] = env->program.uc;
+  ulong seed_sz    = sizeof(fd_pubkey_t);
+  uchar bump_seed  = 0;
+  uint  custom_err = 0U;
+  FD_TEST( !fd_pubkey_find_program_address( &fd_solana_bpf_loader_upgradeable_program_id, 1UL,
+                                            seeds, &seed_sz, &env->programdata, &bump_seed, &custom_err ) );
+  env->pd_dlen = PROGRAMDATA_METADATA_SIZE + test_elf_sz;
+
+  uchar uninit[ SIZE_OF_PROGRAM ] = {0};
+  put_account( accdb, env->parent_fork, &env->program,
+               fd_rent_exempt_minimum_balance( &env->bank->f.rent, SIZE_OF_PROGRAM ),
+               uninit, SIZE_OF_PROGRAM,
+               &fd_solana_bpf_loader_upgradeable_program_id, 0 );
+
+  ulong   buffer_dlen = BUFFER_METADATA_SIZE + test_elf_sz;
+  uchar * buffer_data = malloc( buffer_dlen );
+  FD_TEST( buffer_data );
+  fd_bpf_state_t buffer_state = {
+    .discriminant = FD_BPF_STATE_BUFFER,
+    .inner.buffer = {
+      .authority_address     = env->authority,
+      .has_authority_address = 1,
+    },
+  };
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &buffer_state, buffer_data, BUFFER_METADATA_SIZE, &out_sz ) );
+  memcpy( buffer_data+BUFFER_METADATA_SIZE, test_elf, test_elf_sz );
+  put_account( accdb, env->parent_fork, &test_buffer_key,
+               fd_rent_exempt_minimum_balance( &env->bank->f.rent, buffer_dlen ),
+               buffer_data, buffer_dlen,
+               &fd_solana_bpf_loader_upgradeable_program_id, 0 );
+  free( buffer_data );
+
+  /* The payer funds D's rent-exempt balance. */
+  put_account( accdb, env->parent_fork, &env->payer, 10000000000UL, NULL, 0UL, &fd_solana_system_program_id, 0 );
+}
+
+/* Instruction account order per fd_bpf_loader_program.c
+   FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN: payer, programdata, program,
+   buffer, rent, clock, system, authority. */
+
+static void
+build_deploy_txn( test_env_t * env, fd_txn_p_t * out ) {
+  struct __attribute__((packed)) { uint discriminant; ulong max_data_len; } instr_data =
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, test_elf_sz };
+  fd_pubkey_t const * accts[8] = { &env->payer, &env->programdata, &env->program, &test_buffer_key,
+                                   &fd_sysvar_rent_id, &fd_sysvar_clock_id,
+                                   &fd_solana_system_program_id, &env->authority };
+  uint                cats [8] = { FD_TXN_ACCT_CAT_WRITABLE|FD_TXN_ACCT_CAT_SIGNER,
+                                   FD_TXN_ACCT_CAT_WRITABLE,
+                                   FD_TXN_ACCT_CAT_WRITABLE,
+                                   FD_TXN_ACCT_CAT_WRITABLE,
+                                   0U, 0U, 0U,
+                                   FD_TXN_ACCT_CAT_SIGNER };
+  build_loader_txn( env, out, (uchar const *)&instr_data, sizeof(instr_data), accts, cats, 8UL );
+}
+
+/* pd_child_only_funded kills D on the parent and recreates it live on
+   the child fork only, as a deploy earlier in this slot would leave it.
+   Both paths then route through the size-only skipped arm. */
+
+static void
+pd_child_only_funded( test_env_t * env ) {
+  fd_accdb_t * accdb = env->runtime->accdb;
+
+  {
+    fd_acc_t acc = fd_accdb_write_one( accdb, env->parent_fork, env->programdata.uc );
+    acc.lamports = 0UL;
+    acc.data_len = 0UL;
+    acc.commit   = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
+  }
+  FD_TEST( !fd_accdb_exists( accdb, env->parent_fork, env->programdata.uc ) );
+
+  fd_acc_t acc = fd_accdb_write_one( accdb, env->fork_id, env->programdata.uc );
+  fd_bpf_state_t pd_state = {
+    .discriminant = FD_BPF_STATE_PROGRAM_DATA,
+    .inner.program_data = {
+      .slot                          = TEST_PARENT_SLOT-1UL,
+      .upgrade_authority_address     = env->authority,
+      .has_upgrade_authority_address = 1,
+    },
+  };
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &pd_state, acc.data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+  memcpy( acc.data+PROGRAMDATA_METADATA_SIZE, test_elf, test_elf_sz );
+  acc.data_len = env->pd_dlen;
+  acc.lamports = fd_rent_exempt_minimum_balance( &env->bank->f.rent, env->pd_dlen );
+  memcpy( acc.owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL );
+  acc.commit   = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
+}
+
+/* ------------------------------------------------------------------ */
+
+/* Case 11 (in-bundle deploy -> unlisted P): at prebind P is still
+   Uninitialized, so the P->D derivation is skipped and D lands in
+   neither executable[] nor executable_skipped_*[].  At execution
+   fd_collect_loaded_account re-reads the live pool copy of P, which
+   txn1's deploy mutated, derives D and must still count it.  Binding
+   once up front charged 0 here. */
+
+static void
+deploy_mid( test_env_t * env, int bundle ) {
+  if( bundle ) {
+    fd_acc_t const * p = find_pool_acc( &env->txn_out[0], &env->program     );
+    fd_acc_t const * d = find_pool_acc( &env->txn_out[0], &env->programdata );
+    FD_TEST( p ); FD_TEST( d );
+    fd_bpf_state_t st[1];
+    FD_TEST( fd_bpf_loader_program_get_state( p, st )==FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( st->discriminant==FD_BPF_STATE_PROGRAM );
+    FD_TEST( !memcmp( st->inner.program.programdata_address.uc, env->programdata.uc, 32UL ) );
+    FD_TEST( d->data_len==env->pd_dlen );
+  } else {
+    int   pd = 0; ulong len = ULONG_MAX; ulong lamports = 0UL;
+    FD_TEST( fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len, &lamports ) );
+    FD_TEST( len==env->pd_dlen );
+  }
+}
+
+static void
+test_bundle_deploy_size_counted2( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  pd_fields_t b[1], s[1];
+
+  setup_env_undeployed( env, mini );
+  fd_txn_p_t deploy[1]; build_deploy_txn ( env, deploy );
+  fd_txn_p_t invoke[1]; build_invoke_txn ( env, invoke );
+  run_pair( env, deploy, invoke, 1, deploy_mid, b );
+
+  setup_env_undeployed( env, mini );
+  build_deploy_txn( env, deploy );
+  build_invoke_txn( env, invoke );
+  run_pair( env, deploy, invoke, 0, deploy_mid, s );
+
+  /* payer + P, plus the implied D. */
+  pd_fields_assert_same( "in-bundle deploy -> unlisted P", b, s,
+                      3UL*FD_TRANSACTION_ACCOUNT_BASE_SIZE + SIZE_OF_PROGRAM
+                      + PROGRAMDATA_METADATA_SIZE + test_elf_sz );
+  FD_LOG_NOTICE(( "bundle in-bundle deploy size counted... ok" ));
+}
+
+/* Case 12 (in-bundle revive -> unlisted P): a transfer resurrects a
+   parent-dead D, so D is in the pool but not live on the parent.  Both
+   paths must take the skipped arm and charge nothing, since the revived
+   D is still zero length. */
+
+static void
+revive_mid( test_env_t * env, int bundle ) {
+  if( bundle ) {
+    fd_acc_t const * d = find_pool_acc( &env->txn_out[0], &env->programdata );
+    FD_TEST( d );
+    FD_TEST( d->lamports>0UL );
+    FD_TEST( d->data_len==0UL );
+  } else {
+    int   pd = 0; ulong len = ULONG_MAX; ulong lamports = 0UL;
+    FD_TEST( fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len, &lamports ) );
+    FD_TEST( lamports>0UL );
+    FD_TEST( len==0UL );
+  }
+}
+
+static void
+setup_revive( test_env_t * env, fd_svm_mini_t * mini, fd_txn_p_t * xfer, fd_txn_p_t * invoke ) {
+  setup_env( env, mini );
+  fd_accdb_t * accdb = env->runtime->accdb;
+  fd_acc_t acc = fd_accdb_write_one( accdb, env->parent_fork, env->programdata.uc );
+  acc.lamports = 0UL;
+  acc.data_len = 0UL;
+  acc.commit   = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
+  FD_TEST( !fd_accdb_exists( accdb, env->parent_fork, env->programdata.uc ) );
+
+  build_transfer_txn( env, xfer, &env->programdata, fd_rent_exempt_minimum_balance( &env->bank->f.rent, 0UL ) );
+  build_invoke_txn  ( env, invoke );
+}
+
+static void
+test_bundle_revive_pd_size_counted( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  pd_fields_t b[1], s[1];
+  fd_txn_p_t xfer[1], invoke[1];
+
+  setup_revive( env, mini, xfer, invoke );
+  run_pair( env, xfer, invoke, 1, revive_mid, b );
+
+  setup_revive( env, mini, xfer, invoke );
+  run_pair( env, xfer, invoke, 0, revive_mid, s );
+
+  pd_fields_assert_same( "in-bundle revive -> unlisted P", b, s,
+                      2UL*FD_TRANSACTION_ACCOUNT_BASE_SIZE + SIZE_OF_PROGRAM );
+  FD_LOG_NOTICE(( "bundle revive-pd size counted... ok" ));
+}
+
+/* Case 13 (in-bundle close -> unlisted P): the two paths hold a dead D
+   in different shapes.  Close leaves the pool copy at zero lamports with
+   data_len still SIZE_OF_UNINITIALIZED, since nothing normalizes it
+   mid-bundle, while the sequential replay probes a committed record that
+   fd_runtime_lthash_account normalized to length 0.  Without the
+   liveness test in fd_runtime_setup_bundle_executables the bundle charges
+   FD_TRANSACTION_ACCOUNT_BASE_SIZE+SIZE_OF_UNINITIALIZED extra. */
+
+static void
+close_mid( test_env_t * env, int bundle ) {
+  if( bundle ) {
+    fd_acc_t const * d = find_pool_acc( &env->txn_out[0], &env->programdata );
+    FD_TEST( d );
+    FD_TEST( d->lamports==0UL );
+    FD_TEST( d->data_len==SIZE_OF_UNINITIALIZED ); /* dead, not normalized */
+  } else {
+    int   pd = 0; ulong len = ULONG_MAX; ulong lamports = ULONG_MAX;
+    FD_TEST( fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len, &lamports ) );
+    FD_TEST( lamports==0UL );
+    FD_TEST( len==0UL ); /* commit normalized it */
+  }
+}
+
+static void
+setup_close( test_env_t * env, fd_svm_mini_t * mini, fd_txn_p_t * close, fd_txn_p_t * invoke ) {
+  static const fd_pubkey_t recipient = { .ul = { 0xc105ec1UL } };
+  setup_env( env, mini );
+  pd_child_only_funded( env );
+
+  uint instr_data = FD_BPF_INSTR_CLOSE;
+  fd_pubkey_t const * accts[4] = { &env->programdata, &recipient, &env->authority, &env->program };
+  uint                cats [4] = { FD_TXN_ACCT_CAT_WRITABLE, FD_TXN_ACCT_CAT_WRITABLE,
+                                   FD_TXN_ACCT_CAT_SIGNER,   FD_TXN_ACCT_CAT_WRITABLE };
+  build_loader_txn( env, close, (uchar const *)&instr_data, sizeof(instr_data), accts, cats, 4UL );
+  build_invoke_txn( env, invoke );
+}
+
+static void
+test_bundle_close_pd_size_counted( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  pd_fields_t b[1], s[1];
+  fd_txn_p_t close[1], invoke[1];
+
+  setup_close( env, mini, close, invoke );
+  run_pair( env, close, invoke, 1, close_mid, b );
+
+  setup_close( env, mini, close, invoke );
+  run_pair( env, close, invoke, 0, close_mid, s );
+
+  pd_fields_assert_same( "in-bundle close -> unlisted P", b, s,
+                      2UL*FD_TRANSACTION_ACCOUNT_BASE_SIZE + SIZE_OF_PROGRAM );
+  FD_LOG_NOTICE(( "bundle close-pd size counted... ok" ));
+}
+
+
 /* Bundle control: no same-slot mutation -> bundle invoke succeeds off
    the parent-fork binding. */
 static void
@@ -628,6 +1009,9 @@ main( int     argc,
   test_bundle_upgrade_gate          ( mini );
   test_bundle_deploy_size_counted   ( mini );
   test_bundle_invoke_baseline       ( mini );
+  test_bundle_deploy_size_counted2  ( mini );
+  test_bundle_revive_pd_size_counted( mini );
+  test_bundle_close_pd_size_counted ( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

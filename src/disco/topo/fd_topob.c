@@ -381,6 +381,7 @@ static char const * FLOATING[] = {
   "genesi", /* FIREDANCER ONLY */
   "ipecho", /* FIREDANCER ONLY */
   "admin",  /* FIREDANCER ONLY */
+  "snapsv", /* FIREDANCER ONLY */
   NULL
 };
 
@@ -405,6 +406,9 @@ static char const * POST_START[] = {
   "execrp", /* FIREDANCER only */
   "txsend", /* FIREDANCER only */
   "solcap", /* FIREDANCER only */
+  "snapmk", /* FIREDANCER ONLY */
+  "snapzp", /* FIREDANCER ONLY */
+  "snaprd", /* FIREDANCER ONLY */
   NULL
 };
 
@@ -967,7 +971,7 @@ fd_topob_finish( fd_topo_t *                topo,
     loose_sz = fd_ulong_max( loose_sz, wksp->min_loose_sz );
 
     /* Compute footprint for a workspace that can store our footprint,
-       with an extra align of padding incase gaddr_lo is not aligned. */
+       with an extra align of padding in case gaddr_lo is not aligned. */
     ulong total_wksp_footprint = fd_wksp_footprint( part_max, footprint + fd_topo_workspace_align() + loose_sz );
 
     ulong page_sz = topo->max_page_size;

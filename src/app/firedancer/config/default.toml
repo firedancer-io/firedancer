@@ -219,6 +219,20 @@ telemetry = true
     # Firedancer instance.
     shredb = ""
 
+    # File path to the GUI database file.
+    #
+    # The GUI tile maintains an on-disk event database holding past
+    # slot, transaction, and metrics data served to WebSocket clients.
+    #
+    # If no path is provided, it defaults to the `gui.db` path within the
+    # base directory above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    guidb = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -342,9 +356,8 @@ telemetry = true
 # to join the network quickly, as they do not need to replay all
 # transactions since genesis, just those since a recent snapshot.
 #
-# Firedancer does not support creating or serving snapshots to other
-# nodes, and all snapshot related configuration is for downloading and
-# using snapshots when booting the validator.
+# Firedancer supports creating, downloading, and unpacking snapshots.
+# It can also serve snapshots to other nodes via a HTTP file server.
 [snapshots]
     # Whether to enable loading from incremental snapshots.
     #
@@ -384,14 +397,19 @@ telemetry = true
     # will exit with an error.
     genesis_download = true
 
-    # Controls how many downloaded snapshots are allowed to be kept in
-    # the snapshots directory on disk.
+    # Controls how many snapshots are allowed to be kept in the
+    # snapshots directory on disk.
     #
-    # Firedancer does not currently support creating snapshots, and so
-    # these values are only checked once on boot.  Any excess snapshots
-    # will be deleted, oldest snapshot slot first.
-    max_full_snapshots_to_keep = 1
-    max_incremental_snapshots_to_keep = 1
+    # On boot, any excess snapshots are deleted, oldest snapshot slot
+    # first.  The remaining slots form a fixed pool that snapshot
+    # production then recycles, so a newly created snapshot always
+    # replaces the oldest one.
+    #
+    # A minimum of 2 is recommended so one useful snapshot remains if
+    # the validator crashes while another snapshot is still being
+    # created.
+    max_full_snapshots_to_keep = 2
+    max_incremental_snapshots_to_keep = 2
 
     # Controls how many times the validator will retry loading a full or
     # incremental snapshot before aborting.  Reasons for retrying a
@@ -411,6 +429,23 @@ telemetry = true
     # before aborting startup.  Applies when waiting for either full or
     # incremental snapshot peers.
     wait_for_peers_timeout_seconds = 30
+
+    # Target interval in slots between full snapshot creations.
+    # 0 disables full snapshot production.  Snapshots may be skipped
+    # if production cannot keep up with the schedule.
+    full_snapshot_interval_slots = 100000
+
+    # Interval in slots between periodic incremental snapshot
+    # creations.  0 disables incremental snapshot production.
+    # Snapshots may be skipped if production cannot keep up with the
+    # schedule or max_incremental_snapshot_accounts is exceeded.
+    incremental_snapshot_interval_slots = 100
+
+    # Maximum number of changed-account pubkeys retained between full
+    # snapshots for incremental snapshot creation.  Each entry uses 36
+    # bytes, plus the hash-chain index.  If this fills, incremental
+    # production pauses until the next full snapshot resets it.
+    max_incremental_snapshot_accounts = 20_000_000
 
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
@@ -508,6 +543,47 @@ telemetry = true
             # but does not yield successful / usable snapshots.
             block_list = []
 
+    # Configures the embedded HTTP file server used to serve snapshots
+    # to other nodes.
+    [snapshots.server]
+        # True if the snapshot server should be enabled.
+        # The snapshot server requires at least Linux 6.7.
+        enabled = false
+
+        # The IP address to listen on.  By default, this is the same as
+        # [tiles.rpc].rpc_listen_address.
+        #
+        # Exposing the snapshot server to the internet from a production
+        # validator is not recommended as it increases the attack
+        # surface of the validator.  It also allows arbitrary peers to
+        # connect to your validator and waste resources on snapshot
+        # downloads.
+        http_listen_address = ""
+
+        # The TCP port to listen on.
+        # Firedancer runs a HTTP/1.1 server supporting Range requests on
+        # this port.
+        http_listen_port = 8902
+
+        # The maximum number of concurrent snapshot downloads to allow.
+        max_http_connections = 128
+
+        # When no valid snapshot requests are seen on a HTTP connection
+        # for longer than the specified duration, the HTTP connection is
+        # gracefully closed.  Allowed range: [100,60000).
+        idle_timeout_millis = 1000
+
+        # When a snapshot download is stuck without making progress for
+        # longer than the specified duration (in milliseconds), the
+        # HTTP connection is aborted.  Allowed range: [100,60000).
+        send_timeout_millis = 10000
+
+        # Per-connection buffer size for outgoing snapshot data.
+        # Two buffers of this size are used per connection (one for
+        # reading snapshot data, one for sending).  Larger values result
+        # in more memory use.  Must be a power of two.
+        send_buffer_size_kib = 64
+
 [consensus]
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
@@ -601,7 +677,7 @@ telemetry = true
     # have enough memory available, you could dedicate it all to the
     # cache and then never read from or write to disk during operation.
     #
-    # The default value of 11 GiB is large enough to have near-optimal
+    # The default value of 12 GiB is large enough to have near-optimal
     # performance on mainnet.  The cache size has a minimum bound below
     # which the validator will refuse to boot, which depends on whether
     # bundles are enabled and certain other factors.  Transactions
@@ -610,7 +686,7 @@ telemetry = true
     # memory needed to hold a worst case atomic unit of accounts (either
     # a single large, transaction, or a large bundle of large
     # transactions, if enabled).
-    cache_size_gib = 11
+    cache_size_gib = 12
 
 [runtime]
     # Certain slots are considered "live" in the validator if we must
@@ -784,6 +860,19 @@ telemetry = true
     # are ignored as the tiles are not booted to begin with.
     enable_block_production = true
 
+    # Whether to run tiles involved in snapshot production.
+    #
+    # The following tiles will only run if this option is enabled:
+    #
+    #  snapmk, snaprd, snapsv, snapzp
+    #
+    # These tiles do not use up CPU cycles while idle but increase
+    # memory usage (typically by a few GiB).
+    #
+    # If snapshot production is disabled, the validator will have to
+    # download a snapshot on every restart.
+    enable_snapshot_production = true
+
     # How many net tiles to run.  This is configurable and designed to
     # scale out for future network conditions, but there is no need to
     # run more than 2 net tiles given current `mainnet` conditions.
@@ -883,6 +972,18 @@ telemetry = true
     # this parallelism supported by the accounts database.
     execrp_tile_count = 10
 
+    # How many snapshot compressor tiles to run.  These tiles do not
+    # consume CPU when idle.  If set to 0, snapshot creation and all
+    # associated tiles are disabled.
+    snapzp_tile_count = 6
+
+    # How many snapshot server tiles to run.  These tiles do not consume
+    # CPU when idle.
+    snapsv_tile_count = 1
+
+    # How many snapshot server io_uring worker kernel threads to run.
+    snapsv_io_worker_count = 1
+
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
     # conditions.  There is no need to run more than 1 shred tile given
@@ -977,6 +1078,28 @@ telemetry = true
 # fanning in from these various network senders to transmit on the
 # queues we have available.
 [net]
+    # Firedancer can automatically configure most networking
+    # options. The auto_level determines how the network stack
+    # is optimized. Options set to an explicit value are never
+    # modified regardless of auto_level's value.
+    #
+    #  "standard" (default)
+    #   Enables networking features which auto configuration
+    #   determines are safe and supported on this system.
+    #
+    #  "minimal"
+    #   Resolves all "auto" options to their most conservative
+    #   values.  This will reduce networking performance and is
+    #   a worst case backup.
+    #
+    #   If you suspect an error is caused by Firedancer's auto
+    #   configuration, try setting this to "minimal" to see if
+    #   the issue resolves. If you need "minimal" to make
+    #   your validator work, please report your issue with "standard"
+    #   as a bug at https://github.com/firedancer-io/firedancer/issues
+    #   with the prefix "auto config: ", alongside your log file.
+    auto_level = "standard"
+
     # The provider determines which Linux networking stack is used by
     # Firedancer.  Possible values for the option are:
     #
@@ -1027,7 +1150,10 @@ telemetry = true
         # This option selects the XDP provider.  Possible values for
         # this option are:
         #
-        # "skb" (default)
+        # "auto" (default)
+        #   Firedancer auto selects based on what your system is safely capable of.
+        #
+        # "skb"
         #   XDP provided by the kernel's generic network code.  This is
         #   the slowest mode, but it is well tested and compatible with
         #   all Linux network devices and drivers.
@@ -1036,18 +1162,12 @@ telemetry = true
         #   XDP provided by the device driver.  This mode is much faster
         #   than "skb" but only works for certain hardware.  May require
         #   very recent Linux versions.  Can be less stable than "skb"
-        #   mode.  Tested extensively with ConnectX NICs (mlx5), Intel
-        #   X710 (i40e), and Intel E810 (ice).
-        #   Full list of network drivers supporting XDP:
-        #   https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md#xdp
+        #   mode.  Tested extensively with ConnectX NICs (mlx5).
         #
-        # "default"
-        #   Selects "skb" or "drv" automatically.
-        #
-        # If the kernel/hardware does not support driver mode, then
-        # `firedancer run` will fail to start up with "operation not
+        # With "drv" mode chosen on kernel/hardware which does not support driver
+        # mode, then `firedancer run` will fail to start up with "operation not
         # supported".
-        xdp_mode = "skb"
+        xdp_mode = "auto"
 
         # This option helps reduce CPU usage when receiving packets.
         # If enabled, the net tile instructs the network device to copy
@@ -1056,38 +1176,52 @@ telemetry = true
         # to 100 Gbps per net tile.
         #
         # Only works when XDP is provided by the network driver (see
-        # the xdp_mode option above).  If the kernel/hardware does not
-        # support zero copy, `firedancer run` will fail to start up with
-        # "operation not supported".
-        xdp_zero_copy = false
+        # the xdp_mode option above).  If set to "true" on kernel/hardware
+        # which does not support zero copy, `firedancer run` will fail to
+        # start up with "operation not supported".
+        #
+        # xdp_zero_copy can be broken even when enabled on drivers/kernels
+        # which supposedly support it.  Support varies wildly by exact Linux
+        # version, with regressions being common.  Therefore we recommend
+        # leaving this option set to "auto".
+        #
+        # If "auto" is in use for xdp_mode or native_bond, do not manually set
+        # xdp_zero_copy to "true", and instead leave as either "auto" or "false".
+        #
+        # Its possible values are:
+        #  "true", "false" or "auto" (default)
+        xdp_zero_copy = "auto"
 
         # The poll_mode option determines how Firedancer polls NAPI (Linux's
         # high perf networking mechanisms).  Its possible values are:
         #
-        #  "softirq" (default)
+        #  "auto" (default)
+        #   Firedancer auto selects based on what your system is safely capable of.
+        #
+        #  "softirq"
         #   Relies significantly more on Linux to manage NAPI through wakeups,
         #   softirqs, and under higher network load, a separate ksoftirqd
         #   thread which Linux schedules onto a separate core.
         #
         #  "prefbusy"
-        #   Experimental option which gives Firedancer significantly more
-        #   control over how and when NAPI is polled.  Reduces networking
-        #   related IRQs and ksoftirqds to near zero on well supported NIC
-        #   drivers, increasing determinism and stability during DoS attacks
-        #   and high net load.
+        #   Option which gives Firedancer significantly more control
+        #   over how and when NAPI is polled.  Reduces networking related
+        #   IRQs and ksoftirqds to near zero on well supported NIC drivers,
+        #   increasing determinism and stability during DoS attacks and
+        #   high net load.
         #
         #   Hardware Support: Currently best supported on mlx5 (Mellanox).
         #   Depending on the driver, XDP Copy Mode can see noticeable throughput
         #   gains (up to 2.4x on mlx5, 1.5x on i40e).  Zero-copy RX throughput
         #   generally remains the same across both poll modes.
         #
-        # Extra info
+        # Extra info:
         #
-        #  Requires a kernel version of at least v5.11 (Feb 2021).
+        #  Prefbusy requires a kernel version of at least v5.11 (Feb 2021).
         #
         #  Prefbusy mode increases tail latency for other applications on
         #  the system sharing the same network interface.
-        poll_mode = "softirq"
+        poll_mode = "auto"
 
         # XDP uses metadata queues shared across the kernel and
         # userspace to relay events about incoming and outgoing packets.
@@ -1129,7 +1263,8 @@ telemetry = true
         #
         # "auto" (default)
         #   Attempts to run in "dedicated" mode but automatically falls
-        #   back to "simple" mode if necessary.
+        #   back to "simple" mode if necessary. Not affected by auto_level
+        #   and is separate from the auto configure system.
         rss_queue_mode = "auto"
 
         # Some specialized networking setups, including DoubleZero,
@@ -1151,14 +1286,13 @@ telemetry = true
 
         # Enable native network bonding support.
         #
-        # If native_bond is set to 'true' and [net.interface] is a
-        # 'bond' type network device, install XDP config at bond slave
+        # If native_bond is set to "true" and [net.interface] is a
+        # bond type network device, install XDP config at bond slave
         # devices instead of the bond device itself.
         #
-        # Requires net_tile_count to be divisble by the number of slave
-        # devices.  This causes outgoing traffic to be load balanced
-        # with an arbitrary/opaque hash policy.  Supports up to 16 slave
-        # devices.
+        # Requires net_tile_count to be divisible by the number of slave
+        # devices.  This causes outgoing traffic to be load balanced with
+        # an arbitrary/opaque hash policy.  Supports up to 16 slave devices.
         #
         # Assumes that bond memberships don't change, i.e. running `ip
         # link set dev eth1 master bond0` will crash Firedancer.
@@ -1166,7 +1300,10 @@ telemetry = true
         # or unplug cables for maintenance.  In other words, executing
         # `ip link set dev eth1 down` while Firedancer is running is
         # just fine.
-        native_bond = false
+        #
+        # Its possible values are:
+        #  "true", "false" or "auto" (default)
+        native_bond = "auto"
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.  Raises
@@ -1651,6 +1788,13 @@ telemetry = true
         # slow clients but also increase memory usage.
         send_buffer_size_mb = 5120
 
+        # The maximum size of the on disk event database.  This is an
+        # upper bound on the disk space used.  The GUI tile will start
+        # with an empty database and grow the storage file on disk up to
+        # the limit as needed.  When the database is full, the oldest
+        # values are evicted to make space for new data.
+        db_size_gib = 100
+
     [tiles.rpc]
         # If the RPC server is enabled.
         enabled = true
@@ -2014,16 +2158,15 @@ telemetry = true
         #   "auto" (default)
         #    Attempt to detect input format based on file path.
         #
-        #   "rocksdb"
-        #    Read an Agave-like blockstore RocksDB directory
-        #    The database is opened in "read only secondary" mode.
-        #    Requires a build with './deps.sh +dev'
-        #
         #   "pcap"
         #    Read a PCAP or PCAPNG file and inject all UDP packets as
         #    shreds.  Supports the following link types: ETHERNET, IPv4,
         #    or RAW (interprets first header as IPv4).
         #    Supports Zstandard (.zst) compression.
+        #
+        # rocksdb directories cannot be ingested directly;
+        # convert them to a shredcap capture first with
+        # fd_blockstore2shredcap
         #
         format = "auto"
 

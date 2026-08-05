@@ -25,7 +25,7 @@ typedef struct fd_topo_cpus fd_topo_cpus_t;
 FD_PROTOTYPES_BEGIN
 
 /* Initialize the CPU topology structure by reading information from the
-   operating system.  If the CPU toplogy cannot be determined, logs an
+   operating system.  If the CPU topology cannot be determined, logs an
    error and exits the process. */
 
 void

@@ -232,18 +232,16 @@ deser_bitvec_u8_epoch_slots( uchar const ** payload,
   uchar has_bits;
   READ_OPTION( has_bits, payload, payload_sz );
   if( FD_UNLIKELY( !has_bits ) ) {
-    ulong bits_cnt;
-    READ_U64( bits_cnt, payload, payload_sz );
-    CHECK( !bits_cnt );
+    SKIP_BYTES( 8UL, payload, payload_sz );
     return 1;
   }
 
   ulong bits_cap;
   READ_U64( bits_cap, payload, payload_sz );
-  CHECK( bits_cap );
   SKIP_BYTES( bits_cap, payload, payload_sz );
   ulong bits_cnt;
   READ_U64( bits_cnt, payload, payload_sz );
+  bits_cnt = fd_ulong_min( bits_cnt, bits_cap*8UL );
   CHECK( bits_cnt==bits_cap*8UL );
   return 1;
 }
@@ -338,25 +336,33 @@ deser_contact_info( fd_gossip_value_t * value,
      UDP header                   =    8
      PACKET_DATA_SIZE             = 1232   (= 1280 - 40 - 8)
 
+     Bytes consumed for preamble:
+       Push/Pull Response:
+         Protocol tag(4) + from(32) + values_len(8) = 44
+       Pull Request:
+         Protocol tag(4) + keys_len(8) + bloom_none(9) +
+         num_bits_set(8) + mask(8) + mask_bits(4) = 41
+       Minimum consumed for preamble: 41
+
      Bytes consumed before addrs loop:
-       Protocol tag(4) + from(32) + values_len(8) + signature(64) +
+       Preamble(41) + signature(64) +
        CrdsData tag(4) + origin(32) + wallclock_varint(1) + outset(8) +
        shred_version(2) + major(1) + minor(1) + patch(1) + commit(4) +
-       feature_set(4) + client(1) + addrs_len_varint(1)             = 168
+       feature_set(4) + client(1) + addrs_len_varint(1)             = 165
 
-     Remaining: 1232 - 168 = 1064
+     Remaining: 1232 - 165 = 1067
      Each addr: READ_ENUM(4) + READ_U32(4) = 8 bytes minimum
-     Max addrs = floor(1064/8) = 133
+     Max addrs = floor(1067/8) = 133
 
      Bytes consumed before sockets loop:
-       (same as above) + sockets_len_varint(1)                     = 169
+       (same as above) + sockets_len_varint(1)                     = 166
 
-     Remaining: 1232 - 169 = 1063
+     Remaining: 1232 - 166 = 1066
      Each socket: READ_U8(1) + READ_U8(1) + READ_U16_VARINT(1) = 3 bytes minimum
-     Max sockets = floor(1063/3) = 354  */
+     Max sockets = floor(1066/3) = 355 */
 
 #define FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES (133UL)
-#define FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS   (354UL)
+#define FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS   (355UL)
 
   uint is_ip6[ FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES ];
   union {
@@ -443,25 +449,23 @@ deser_contact_info( fd_gossip_value_t * value,
   return 1;
 }
 
+/* wincode returns a default (empty) bitvec for None and also relaxes
+   length checks.
+   https://github.com/anza-xyz/wincode/blob/wincode%40v0.5.5/wincode/src/schema/external/bv.rs#L68-L81 */
 static int
 deser_bitvec_u8_restart_last_voted_fork_slots( uchar const ** payload,
                                                ulong *        payload_sz ) {
   uchar has_bits;
   READ_OPTION( has_bits, payload, payload_sz );
   if( FD_UNLIKELY( !has_bits ) ) {
-    ulong bits_cnt;
-    READ_U64( bits_cnt, payload, payload_sz );
-    CHECK( !bits_cnt );
+    SKIP_BYTES( 8UL, payload, payload_sz );
     return 1;
   }
 
   ulong bits_cap;
   READ_U64( bits_cap, payload, payload_sz );
-  CHECK( bits_cap );
   SKIP_BYTES( bits_cap, payload, payload_sz );
-  ulong bits_cnt;
-  READ_U64( bits_cnt, payload, payload_sz );
-  CHECK( bits_cnt<=bits_cap*8UL );
+  SKIP_BYTES( 8UL, payload, payload_sz );
   return 1;
 }
 
@@ -524,6 +528,10 @@ deser_value( fd_gossip_value_t * value,
   }
 }
 
+/* wincode returns a default bitvec for None and also relaxes length
+   checks.  For Some, it additionally truncates the bitvec bits_len to
+   the bits_cap*64 if bits_len is larger.
+   https://github.com/anza-xyz/wincode/blob/wincode%40v0.5.5/wincode/src/schema/external/bv.rs#L68-L81 */
 static int
 deser_bitvec_u64( fd_gossip_bloom_t * bloom,
                   uchar const **      payload,
@@ -533,17 +541,16 @@ deser_bitvec_u64( fd_gossip_bloom_t * bloom,
   if( FD_UNLIKELY( !has_bits ) ) {
     bloom->bits_cap = 0UL;
     READ_U64( bloom->bits_len, payload, payload_sz );
-    return 0; /* Bloom sanitize rejects empty bits */
+    bloom->bits_len = 0UL;
+    return 1;
   }
 
   READ_U64( bloom->bits_cap, payload, payload_sz );
-  CHECK( bloom->bits_cap );
   ulong dummy;
   CHECK( !__builtin_mul_overflow( bloom->bits_cap, 8UL, &dummy ) );
   READ_BYTES( bloom->bits, bloom->bits_cap*8UL, payload, payload_sz );
   READ_U64( bloom->bits_len, payload, payload_sz );
-  CHECK( bloom->bits_len<=bloom->bits_cap*64UL );
-  CHECK( bloom->bits_len ); /* Bloom sanitize rejects empty bits */
+  bloom->bits_len = fd_ulong_min( bloom->bits_len, bloom->bits_cap*64UL );
   return 1;
 }
 

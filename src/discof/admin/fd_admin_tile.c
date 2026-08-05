@@ -15,6 +15,9 @@ struct fd_admin_tile_ctx {
   fd_keyswitch_t *  sign_av_keyswitch[ FD_TOPO_MAX_TILES ];
   ulong             sign_av_keyswitch_cnt;
   fd_sha512_t       sha512[ 1 ];
+
+  ulong replay_out_idx;        /* admin_replay stem out index */
+  ulong snap_create_slot_idx;  /* adminctl slot of snapshot-create command */
 };
 
 typedef struct fd_admin_tile_ctx fd_admin_tile_ctx_t;
@@ -47,6 +50,8 @@ unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
+  ctx->replay_out_idx       = ULONG_MAX;
+  ctx->snap_create_slot_idx = ULONG_MAX;
   ctx->topo = topo;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
@@ -54,6 +59,15 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->adminctl = fd_adminctl_join( fd_topo_obj_laddr( topo, adminctl_obj->id ) );
   FD_TEST( ctx->adminctl );
+
+  ctx->replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "admin_replay", 0UL );
+
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_UNLIKELY( strcmp( link->name, "replay_admin" ) ) ) {
+      FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+    }
+  }
 
   ulong tower_idx = fd_topo_find_tile( topo, "tower", 0UL );
   FD_TEST( tower_idx!=ULONG_MAX );
@@ -94,13 +108,13 @@ unprivileged_init( fd_topo_t const *      topo,
 
 /* State 0: UNLOCKED.
      The validator is not currently in the process of switching keys. */
-#define FD_SET_IDENTITY_STATE_UNLOCKED                (0UL)
+#define FD_SET_IDENTITY_STATE_UNLOCKED                 (0UL)
 
 /* State 1: LOCKED
      Some client to the validator has requested a key switch.  To do so,
      it acquired an exclusive lock on the validator to prevent the
      switch potentially being interleaved with another client. */
-#define FD_SET_IDENTITY_STATE_LOCKED                  (1UL)
+#define FD_SET_IDENTITY_STATE_LOCKED                   (1UL)
 
 /* State 2: LEADER_HALT_REQUESTED
      The first step in the key switch process is to pause the leader
@@ -115,7 +129,7 @@ unprivileged_init( fd_topo_t const *      topo,
      identity's balance as well as when the validator is the leader.
      After the leader pipeline has been halted, the validator will no
      longer become a leader until the switch has been completed. */
-#define FD_SET_IDENTITY_STATE_LEADER_HALT_REQUESTED   (2UL)
+#define FD_SET_IDENTITY_STATE_LEADER_HALT_REQUESTED    (2UL)
 
 /* State 3: LEADER_HALTED
      The Replay tile has confirmed that it has halted the leader
@@ -127,7 +141,7 @@ unprivileged_init( fd_topo_t const *      topo,
      outstanding shreds that have to be signed with the old key.  Any
      tiles related to the leader pipeline that rely on the identity key
      will not be used. */
-#define FD_SET_IDENTITY_STATE_LEADER_HALTED           (3UL)
+#define FD_SET_IDENTITY_STATE_LEADER_HALTED            (3UL)
 
 /* State 4: TOWER_HALT_REQUESTED
      Tower has been requested to stop producing new vote transactions,
@@ -154,9 +168,10 @@ unprivileged_init( fd_topo_t const *      topo,
 #define FD_SET_IDENTITY_STATE_TXSEND_FLUSHED          (7UL)
 
 /* State 8: SIGNERS_HALT_REQUESTED
-     Repair and Gossip will stop sending requests downstream to the sign
-     tile.  This is done to avoid any mismatches with the identity key.
-     Their identity keys will be switched after this step.
+     Repair, Gossip, Bundle, and Rserve will stop sending requests
+     downstream to the sign tile.  This is done to avoid any mismatches
+     with the identity key.  Their identity keys will be switched after
+     this step.
 
      These tiles use the identity key to populate messages signed by the
      sign tile:
@@ -168,12 +183,16 @@ unprivileged_init( fd_topo_t const *      topo,
            sign tile before halting any new signing requests.
        (b) Gossip.  The gossip tile sends out ContactInfo messages with
            our identity key, and also uses the identity key to sign
-           outgoing gossip messages. */
+           outgoing gossip messages.
+       (c) Bundle.  The bundle tile uses the identity key to sign an
+           authentication challenge from the bundle server.
+       (d) Rserve.  The rserve tile uses the identity key to sign
+           outgoing pings. */
 #define FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED  (8UL)
 
 /* State 9: SIGNERS_HALTED
-     Repair and Gossip are no longer sending requests to the sign tile.
-     Tower and TxSend remain halted. */
+     Repair, Gossip, Bundle, and Rserve are no longer sending requests
+     to the sign tile.  Tower and TxSend remain halted. */
 #define FD_SET_IDENTITY_STATE_SIGNERS_HALTED          (9UL)
 
 /* State 10: ALL_SWITCH_REQUESTED
@@ -181,8 +200,8 @@ unprivileged_init( fd_topo_t const *      topo,
      identity key in some way switch to the new key.  The leader
      pipeline is still halted, although it doesn't strictly need to be,
      since outgoing shreds have been flushed.  This is done to keep the
-     control flow simpler.  The sign tile is switched first to avoid any
-     potential mismatches with the identity key.
+     control flow simpler.  The sign tile's switch is requested first to
+     avoid any potential mismatches with the identity key.
 
      The other tiles using the identity key are:
        (a) Sign.  The sign tile is responsible for holding the private
@@ -190,16 +209,13 @@ unprivileged_init( fd_topo_t const *      topo,
        (b) GUI.  The GUI shows the validator identity key to the user,
            and uses the key to determine which blocks are ours for
            highlighting on the frontend.
-       (c) Bundle.  The validator must authenticate to any connected
-           bundle server with the identity key to prove it is on the
-           leader schedule.
-       (d) Gossvf.  The gossvf tile uses the identity key to detect
+       (c) Gossvf.  The gossvf tile uses the identity key to detect
            duplicate running instances of the same validator node as
            well as other message handling.
-       (e) Shred.  The shred tile uses the identity key to determine the
+       (d) Shred.  The shred tile uses the identity key to determine the
            position of the validator in the Turbine tree and to sign
            outgoing shreds.
-       (f) Event.  Outgoing events to the event server are signed with
+       (e) Event.  Outgoing events to the event server are signed with
            the identity key to authenticate the sender. */
 #define FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED    (10UL)
 
@@ -343,7 +359,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
-            strcmp( tile->name, "gossip" ) ) {
+            strcmp( tile->name, "gossip" ) &&
+            strcmp( tile->name, "bundle" ) &&
+            strcmp( tile->name, "rserve" ) ) {
           continue;
         }
 
@@ -364,7 +382,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
-            strcmp( tile->name, "gossip" ) ) {
+            strcmp( tile->name, "gossip" ) &&
+            strcmp( tile->name, "bundle" ) &&
+            strcmp( tile->name, "rserve" ) ) {
           continue;
         }
 
@@ -403,7 +423,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
                        !strcmp( tile->name, "repair" ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
-                       !strcmp( tile->name, "tower" ) ) ) continue;
+                       !strcmp( tile->name, "tower" ) ||
+                       !strcmp( tile->name, "bundle" ) ||
+                       !strcmp( tile->name, "rserve" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         if( !strcmp( tile->name, "gossvf" ) ) tile_ks->param = identity_outset;
@@ -426,7 +448,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
                        !strcmp( tile->name, "repair" ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
-                       !strcmp( tile->name, "tower" ) ) ) continue;
+                       !strcmp( tile->name, "tower" ) ||
+                       !strcmp( tile->name, "bundle" ) ||
+                       !strcmp( tile->name, "rserve" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
@@ -459,7 +483,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
-            strcmp( tile->name, "txsend" ) ) {
+            strcmp( tile->name, "txsend" ) &&
+            strcmp( tile->name, "bundle" ) &&
+            strcmp( tile->name, "rserve" ) ) {
           continue;
         }
 
@@ -481,7 +507,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
-            strcmp( tile->name, "txsend" ) ) {
+            strcmp( tile->name, "txsend" ) &&
+            strcmp( tile->name, "bundle" ) &&
+            strcmp( tile->name, "rserve" ) ) {
           continue;
         }
 
@@ -777,20 +805,20 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl add-authorized-voter payload too small: %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADD_AUTHORIZED_VOTER_RESULT_PAYLOAD_TOO_SMALL );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
   ulong version = FD_LOAD( ulong, data );
   if( FD_UNLIKELY( version!=FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION ) ) {
     FD_LOG_WARNING(( "unsupported adminctl add-authorized-voter payload version %lu", version ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADD_AUTHORIZED_VOTER_RESULT_UNSUPPORTED_PAYLOAD_VERSION );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
     return;
   }
 
   if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_add_auth_voter_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl add-authorized-voter payload_sz %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADD_AUTHORIZED_VOTER_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
@@ -812,6 +840,63 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
   }
 
   fd_adminctl_complete( adminctl, slot_idx, result );
+}
+
+static void
+snapshot_create( fd_admin_tile_ctx_t * ctx,
+                 fd_stem_context_t *   stem,
+                 ulong                 slot_idx,
+                 void const *          payload,
+                 ulong                 payload_sz ) {
+
+  fd_adminctl_t * adminctl = ctx->adminctl;
+
+  if( FD_UNLIKELY( payload_sz!=sizeof(fd_adminctl_snap_create_t) ) ) {
+    FD_LOG_WARNING(( "unexpected adminctl snapshot-create payload_sz %lu", payload_sz ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
+    return;
+  }
+  fd_adminctl_snap_create_t const * req = fd_type_pun_const( payload );
+  if( FD_UNLIKELY( req->version!=FD_ADMINCTL_SNAP_CREATE_PAYLOAD_VERSION ) ) {
+    FD_LOG_WARNING(( "unsupported adminctl snapshot-create payload version %lu", req->version ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
+    return;
+  }
+  ulong target_slot = req->slot;
+
+  if( FD_UNLIKELY( ctx->replay_out_idx==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but admin tile has no replay command link" ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->snap_create_slot_idx!=ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but another snapshot-create command is pending replay response" ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+    return;
+  }
+
+  ulong ctl   = fd_frag_meta_ctl( FD_ADMINCTL_CMD_SNAP_CREATE, 0, 0, 0 );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->replay_out_idx, target_slot, 0UL, 0UL, ctl, 0UL, tspub );
+  ctx->snap_create_slot_idx = slot_idx;
+}
+
+static void
+snapshot_create_response( fd_admin_tile_ctx_t * ctx,
+                          ulong                 sig,
+                          ulong                 ctl ) {
+
+
+  ulong result = FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_RESPONSE;
+  if( FD_LIKELY( fd_frag_meta_ctl_orig( ctl )==FD_ADMINCTL_CMD_SNAP_CREATE ) ) {
+    result = sig;
+  } else {
+    FD_LOG_ERR(( "unexpected replay admin response orig %lu", fd_frag_meta_ctl_orig( ctl ) ));
+  }
+
+  fd_adminctl_complete( ctx->adminctl, ctx->snap_create_slot_idx, result );
+  ctx->snap_create_slot_idx = ULONG_MAX;
 }
 
 /* Removing all authorized voters from the validator is the inverse of
@@ -1023,8 +1108,8 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
 
 static inline void FD_FN_SENSITIVE
 after_credit( fd_admin_tile_ctx_t * ctx,
-              fd_stem_context_t *   stem FD_PARAM_UNUSED,
-              int *                 opt_poll_in FD_PARAM_UNUSED,
+              fd_stem_context_t *   stem,
+              int *                 opt_poll_in,
               int *                 charge_busy ) {
 
   fd_adminctl_t * adminctl   = ctx->adminctl;
@@ -1052,10 +1137,30 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       get_identity( ctx, slot_idx, payload, payload_sz );
       *charge_busy = 1;
       break;
+    case FD_ADMINCTL_CMD_SNAP_CREATE:
+      snapshot_create( ctx, stem, slot_idx, payload, payload_sz );
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+      break;
     default:
       FD_LOG_WARNING(( "unexpected adminctl cmd %lu", cmd_id ));
       fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
   }
+}
+
+static void
+during_frag( fd_admin_tile_ctx_t * ctx,
+             ulong                 in_idx FD_PARAM_UNUSED,
+             ulong                 seq FD_PARAM_UNUSED,
+             ulong                 sig,
+             ulong                 chunk FD_PARAM_UNUSED,
+             ulong                 sz FD_PARAM_UNUSED,
+             ulong                 ctl ) {
+  if( FD_UNLIKELY( ctx->snap_create_slot_idx==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "unexpected replay snapshot-create response with no pending adminctl command" ));
+    return;
+  }
+  snapshot_create_response( ctx, sig, ctl );
 }
 
 static ulong
@@ -1090,6 +1195,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_admin_tile_ctx_t)
 
 #define STEM_CALLBACK_AFTER_CREDIT after_credit
+#define STEM_CALLBACK_DURING_FRAG  during_frag
 
 #include "../../disco/stem/fd_stem.c"
 

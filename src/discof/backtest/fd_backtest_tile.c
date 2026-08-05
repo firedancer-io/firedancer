@@ -146,7 +146,12 @@ before_credit( fd_backt_tile_t *   ctx,
 
   if( FD_UNLIKELY( ctx->pending_sz==ULONG_MAX ) ) {
     ulong sz = fd_backtest_src_shred( ctx->src, ctx->pending, FD_SHRED_MAX_SZ );
-    if( FD_UNLIKELY( sz>=ULONG_MAX ) ) { ctx->source_exhausted = 1; return; } /* source exhausted */
+    if( FD_UNLIKELY( sz>=ULONG_MAX ) ) { /* source exhausted */
+      if( FD_UNLIKELY( !ctx->reading_slot_cnt ) )
+        FD_LOG_ERR(( "ledger has no slots to replay in (%lu, %lu] (no rooted slots after the snapshot slot?)", ctx->start_slot, ctx->end_slot ));
+      ctx->source_exhausted = 1;
+      return;
+    }
     ctx->pending_sz = sz;
     if( FD_UNLIKELY( !fd_shred_parse( ctx->pending, ctx->pending_sz, FD_SHRED_BLK_MAX ) ) ) {
       FD_LOG_HEXDUMP_WARNING(( "invalid shred", ctx->pending, ctx->pending_sz ));
@@ -160,7 +165,13 @@ before_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( shred->slot<=ctx->start_slot ) ) { ctx->pending_sz = ULONG_MAX; return; }
 
   /* Skip shreds past end_slot */
-  if( FD_UNLIKELY( shred->slot>ctx->end_slot ) ) { ctx->source_exhausted = 1; ctx->pending_sz = ULONG_MAX; return; }
+  if( FD_UNLIKELY( shred->slot>ctx->end_slot ) ) {
+    if( FD_UNLIKELY( !ctx->reading_slot_cnt ) )
+      FD_LOG_ERR(( "ledger has no slots to replay in (%lu, %lu] (no rooted slots after the snapshot slot?)", ctx->start_slot, ctx->end_slot ));
+    ctx->source_exhausted = 1;
+    ctx->pending_sz = ULONG_MAX;
+    return;
+  }
 
   /* Handle slot transition */
   if( FD_UNLIKELY( shred->slot!=ctx->reading_slot || !ctx->reading_slot_cnt ) ) {
@@ -337,13 +348,23 @@ returnable_frag( fd_backt_tile_t *   ctx,
            release the bank reference count on it. */
         ctx->prev_root             = msg->slot;
         fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+        /* Zero the fields this mock does not explicitly populate below
+           (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
+           read the whole message. */
+        memset( dst, 0, sizeof(fd_tower_slot_done_t) );
         dst->vote_slot             = msg->slot;
         dst->reset_slot            = msg->slot;
         dst->reset_block_id        = msg->block_id;
+        dst->reset_bank_seq        = msg->bank_seq;
         dst->root_slot             = msg->slot;
         dst->root_block_id         = msg->block_id;
         dst->replay_slot           = msg->slot;
         dst->replay_bank_idx       = msg->bank_idx;
+        dst->replay_bank_seq       = msg->bank_seq;
+        dst->active_fork_cnt       = 1UL;
+        dst->authority_idx         = ULONG_MAX;
+        dst->vote_acct_bal         = ULONG_MAX;
+        dst->is_voting             = 1;
         fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
         return 0;
@@ -420,13 +441,23 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       ctx->prev_root             = root_slot;
       fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+      /* Zero the fields this mock does not explicitly populate below
+         (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
+         read the whole message. */
+      memset( dst, 0, sizeof(fd_tower_slot_done_t) );
       dst->replay_slot           = msg->slot;
       dst->replay_bank_idx       = msg->bank_idx;
+      dst->replay_bank_seq       = msg->bank_seq;
       dst->vote_slot             = msg->slot;
       dst->reset_slot            = msg->slot;
       dst->reset_block_id        = msg->block_id;
+      dst->reset_bank_seq        = msg->bank_seq;
       dst->root_slot             = root_slot;
       dst->root_block_id         = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
+      dst->active_fork_cnt       = 1UL;
+      dst->authority_idx         = ULONG_MAX;
+      dst->vote_acct_bal         = ULONG_MAX;
+      dst->is_voting             = 1;
 
       fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );

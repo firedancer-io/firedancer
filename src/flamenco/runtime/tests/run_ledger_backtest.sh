@@ -13,7 +13,7 @@ TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
-INGEST_MODE="rocksdb"
+INGEST_MODE="shredcap"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
@@ -193,15 +193,35 @@ if [[ "$DOWNLOAD_ONLY" == "true" ]]; then
   exit 0
 fi
 
-if [[ "$INGEST_MODE" == "shredcap" ]]; then
-  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
-    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
-    echo "Converted rocksdb to shredcap"
-  fi
-  LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
-else
-  LEDGER_INPUT="$DUMP/$LEDGER/rocksdb"
+if [[ "$INGEST_MODE" != "shredcap" ]]; then
+  echo "ingest mode '$INGEST_MODE' is not supported: firedancer-dev only ingests shredcap captures (RocksDB ingest lives in fd_blockstore2shredcap)"
+  exit 1
 fi
+
+convert_rocksdb_to_shredcap() {
+  rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+  if ! $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst.tmp --zstd; then
+    rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+    return 1
+  fi
+  mv $DUMP/$LEDGER/shreds.pcapng.zst.tmp $DUMP/$LEDGER/shreds.pcapng.zst
+  echo "Converted rocksdb to shredcap"
+}
+
+if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+  if ! convert_rocksdb_to_shredcap; then
+    # A cached ledger may have a corrupt rocksdb (eg. damaged by a converter
+    # version that deleted unopened column families); re-download once.
+    echo "conversion failed; re-downloading ledger and retrying"
+    rm -rf $DUMP/$LEDGER
+    download_and_extract_ledger
+    if ! convert_rocksdb_to_shredcap; then
+      echo "rocksdb to shredcap conversion failed"
+      exit 1
+    fi
+  fi
+fi
+LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
 
 chmod -R 0700 $DUMP/$LEDGER
 
@@ -236,6 +256,8 @@ cat <<EOF > ${CONFIG_FILE}
     genesis = "$DUMP/$LEDGER/genesis.bin"
 [development]
     fixed_fec_sets = false
+    [development.genesis]
+        validate_genesis_hash = false
     [development.ledger_input]
         path = "$LEDGER_INPUT"
         end_slot = $END_SLOT

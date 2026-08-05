@@ -10,9 +10,7 @@
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
-#define FD_ACCDB_NO_FORK_ID
 #include "../../../flamenco/accdb/fd_accdb_private.h"
-#undef FD_ACCDB_NO_FORK_ID
 
 #include <fcntl.h> /* open */
 #include <sys/resource.h>
@@ -96,7 +94,8 @@ snapshot_load_topo( config_t * config ) {
       1UL<<35UL,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
-      2UL );
+      2UL,
+      0UL );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   fd_topob_wksp( topo, "banks" );
@@ -452,6 +451,7 @@ snapshot_load_cmd_fn( args_t *   args,
   run_firedancer_init( config, 1, 0 );
 
   initialize_accdb_fd( config );
+  initialize_snapshot_fds( config );
 
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( topo );

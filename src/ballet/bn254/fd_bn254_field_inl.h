@@ -326,7 +326,7 @@ fd_bn254_fp2_set( fd_bn254_fp2_t * r,
   return r;
 }
 
-/* fd_bn254_fp2_from_mont sets r = a, coverting into NON Mongomery form. */
+/* fd_bn254_fp2_from_mont sets r = a, converting into NON Montgomery form. */
 static inline fd_bn254_fp2_t *
 fd_bn254_fp2_from_mont( fd_bn254_fp2_t * r,
                         fd_bn254_fp2_t const * a ) {
@@ -335,7 +335,7 @@ fd_bn254_fp2_from_mont( fd_bn254_fp2_t * r,
   return r;
 }
 
-/* fd_bn254_fp2_to_mont sets r = a, coverting into Mongomery form. */
+/* fd_bn254_fp2_to_mont sets r = a, converting into Montgomery form. */
 static inline fd_bn254_fp2_t *
 fd_bn254_fp2_to_mont( fd_bn254_fp2_t * r,
                       fd_bn254_fp2_t const * a ) {

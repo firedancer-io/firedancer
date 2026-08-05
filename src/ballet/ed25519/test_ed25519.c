@@ -400,7 +400,7 @@ test_affine_is_small_order( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar                 _s[32]; uchar *              s = _s;
   fd_ed25519_point_t    _r[1];  fd_ed25519_point_t * r = _r;
 
-  // Passsing condition
+  // Passing condition
   fd_hex_decode(s, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
   FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( ! fd_ed25519_affine_is_small_order( r ) );
