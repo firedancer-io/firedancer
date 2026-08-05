@@ -24,7 +24,6 @@ fd_hash( ulong        seed,
   uchar const * stop = p + sz;
   /* Sharing this values between 2 conditional
   compilation blocks */
-  __m256i state_vec; (void)state_vec;
   __m256i c1_vec;       (void)c1_vec;
   __m256i c2_vec;       (void)c2_vec;
   ulong h;
@@ -47,11 +46,11 @@ fd_hash( ulong        seed,
        Provides the intention clearly to the compiler.
        Same goes for other arrays used in #IF FD_HAS_AVX512 blocks. */
       FD_ALIGNED ulong arr[4] = { w, x, y, z };
-      state_vec =  _mm256_loadu_si256(( const wv_t*)arr   );
-      input_vec = _mm256_mullo_epi64( input_vec, c2_vec   );
-      state_vec =  wl_add( state_vec, input_vec           );
-      state_vec =  wv_rol( state_vec, 31                  );
-      state_vec = _mm256_mullo_epi64( state_vec, c1_vec   );
+      wv_t state_vec =  _mm256_loadu_si256(( const wv_t*)arr   );
+      input_vec =      _mm256_mullo_epi64( input_vec, c2_vec   );
+      state_vec =       wl_add( state_vec, input_vec           );
+      state_vec =       wv_rol( state_vec, 31                  );
+      state_vec =      _mm256_mullo_epi64( state_vec, c1_vec   );
       FD_ALIGNED ulong results[4];
       _mm256_storeu_si256(( wv_t*)results, state_vec );
       w = results[0]; x = results[1]; y = results[2]; z = results[3];
@@ -66,11 +65,12 @@ fd_hash( ulong        seed,
 
     h = ROTATE_LEFT( w, 1 ) + ROTATE_LEFT( x, 7 ) + ROTATE_LEFT( y, 12 ) + ROTATE_LEFT( z, 18 );
     #if FD_HAS_AVX512
+    /* state_vec shouldn't kept between upper conditional compilation block and this one because it creates much register preassure, since it puts both w x y z and state_vec at registers at the same time. */
     FD_ALIGNED ulong arr[4] = { w, x, y, z };
-    state_vec =  _mm256_loadu_si256(( const wv_t*)arr );
-    state_vec = _mm256_mullo_epi64( state_vec, c2_vec );
-    state_vec =                 wv_rol( state_vec, 31 );
-    state_vec = _mm256_mullo_epi64( state_vec, c1_vec );
+    wv_t state_vec =  _mm256_loadu_si256(( const wv_t*)arr );
+    state_vec =      _mm256_mullo_epi64( state_vec, c2_vec );
+    state_vec =                      wv_rol( state_vec, 31 );
+    state_vec =      _mm256_mullo_epi64( state_vec, c1_vec );
     FD_ALIGNED ulong results[4];
        _mm256_storeu_si256(( wv_t*)results, state_vec );
     w = results[0]; x = results[1]; y = results[2]; z = results[3];
