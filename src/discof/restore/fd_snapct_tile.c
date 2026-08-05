@@ -1825,8 +1825,17 @@ privileged_init( fd_topo_t const *      topo,
   char incremental_path[ PATH_MAX ] = {0};
   uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ] = {0};
   uchar incremental_snapshot_hash[ FD_HASH_FOOTPRINT ] = {0};
+  /* When WFS is active, always consider full+incr snapshots by default
+     regardless of the config.toml flag `incremental_snapshot`, since
+     the user may leave that flag unchanged for WFS.  The
+     required_effective_slot filter ensures only snapshots whose
+     effective slot exactly matches wfs_slot are selected, so if the
+     full snapshot is already at wfs_slot, incrementals past it are
+     disregarded. */
+  int local_incremental = tile->snapct.incremental_snapshots || tile->snapct.wait_for_supermajority_at_slot;
   if( FD_UNLIKELY( -1==fd_ssarchive_latest_pair( tile->snapct.snapshots_path,
-                                                 tile->snapct.incremental_snapshots,
+                                                 local_incremental,
+                                                 tile->snapct.wait_for_supermajority_at_slot,
                                                  &full_slot,
                                                  &incremental_slot,
                                                  full_path,

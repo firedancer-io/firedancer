@@ -126,8 +126,10 @@ privileged_init( fd_topo_t const *      topo,
   /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
      of whether snapct may do the same, because this information is
      needed here during privileged_init. */
+  int local_incremental = tile->snapld.incremental_snapshots || tile->snapld.wait_for_supermajority_at_slot;
   if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
-                                               tile->snapld.incremental_snapshots,
+                                               local_incremental,
+                                               tile->snapld.wait_for_supermajority_at_slot,
                                                &full_slot,         &incr_slot,
                                                full_path,          incr_path,
                                                &full_is_zstd,      &incr_is_zstd,

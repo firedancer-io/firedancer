@@ -21,6 +21,19 @@ typedef struct fd_ssarchive_entry fd_ssarchive_entry_t;
 #define SORT_BEFORE(a,b) ( (a).slot>(b).slot )
 #include "../../../util/tmpl/fd_sort.c"
 
+/* Search for a snapshot at the required slot in a descending-sorted
+   array.  Returns the index if found, or ULONG_MAX if not present. */
+static ulong
+ssarchive_find_by_slot( fd_ssarchive_entry_t const * entries,
+                        ulong                        cnt,
+                        ulong                        required_slot ) {
+  for( ulong j=0; j<cnt; j++ ) {
+    if( entries[ j ].slot==required_slot ) return j;
+    if( entries[ j ].slot<required_slot  ) break;
+  }
+  return ULONG_MAX;
+}
+
 static fd_ssarchive_entry_t *
 ssarchive_entry_insert( fd_ssarchive_entry_t * entries,
                         ulong *                cnt,
@@ -38,6 +51,7 @@ ssarchive_entry_insert( fd_ssarchive_entry_t * entries,
 int
 fd_ssarchive_latest_pair( char const * directory,
                           int          incremental_snapshot,
+                          ulong        required_effective_slot,
                           ulong *      full_slot,
                           ulong *      incremental_slot,
                           char         full_path[ static PATH_MAX ],
@@ -114,17 +128,27 @@ fd_ssarchive_latest_pair( char const * directory,
 
     if( FD_UNLIKELY( incremental_snapshots_cnt==0UL ) ) {
       FD_LOG_INFO(("no incremental snapshots found in `%s`, falling back to latest full snapshot", directory ));
-      *full_slot           = full_snapshots[ 0UL ].slot;
-      *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
+      ulong fi = 0UL;
+      if( required_effective_slot ) {
+        fi = ssarchive_find_by_slot( full_snapshots, full_snapshots_cnt, required_effective_slot );
+        if( fi==ULONG_MAX ) return -1;
+      }
+      *full_slot           = full_snapshots[ fi ].slot;
+      *full_is_zstd        = full_snapshots[ fi ].is_zstd;
       *incremental_slot    = ULONG_MAX;
       *incremental_is_zstd = 0;
-      FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
-      fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
+      FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ fi ].path ) );
+      incremental_path[ 0UL ] = '\0';
+      fd_memcpy( full_hash, full_snapshots[ fi ].hash, FD_HASH_FOOTPRINT );
       memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
       return 0;
     }
 
     for( ulong i=0UL; i<incremental_snapshots_cnt; i++ ) {
+      if( required_effective_slot ) {
+        if( incremental_snapshots[ i ].slot<required_effective_slot ) break; /* sorted descending */
+        if( incremental_snapshots[ i ].slot!=required_effective_slot ) continue;
+      }
       ulong base_slot = incremental_snapshots[ i ].base_slot;
       for( ulong j=0; j<full_snapshots_cnt; j++ ) {
         if( FD_LIKELY( full_snapshots[ j ].slot==base_slot ) ) {
@@ -149,13 +173,18 @@ fd_ssarchive_latest_pair( char const * directory,
     /* if we reach here, it means all incrementals are dangling (they
        don't build off any full snapshot). fallback to a full
        snapshot in that case. */
-    *full_slot           = full_snapshots[ 0UL ].slot;
-    *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
+    ulong fi = 0UL;
+    if( required_effective_slot ) {
+      fi = ssarchive_find_by_slot( full_snapshots, full_snapshots_cnt, required_effective_slot );
+      if( fi==ULONG_MAX ) return -1;
+    }
+    *full_slot           = full_snapshots[ fi ].slot;
+    *full_is_zstd        = full_snapshots[ fi ].is_zstd;
     *incremental_slot    = ULONG_MAX;
     *incremental_is_zstd = 0;
-    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ fi ].path ) );
     incremental_path[ 0UL ] = '\0';
-    fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( full_hash, full_snapshots[ fi ].hash, FD_HASH_FOOTPRINT );
     memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
     return 0;
 
@@ -164,13 +193,18 @@ fd_ssarchive_latest_pair( char const * directory,
 
     sort_ssarchive_entries_inplace( full_snapshots, full_snapshots_cnt );
 
-    *full_slot           = full_snapshots[ 0UL ].slot;
-    *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
+    ulong fi = 0UL;
+    if( required_effective_slot ) {
+      fi = ssarchive_find_by_slot( full_snapshots, full_snapshots_cnt, required_effective_slot );
+      if( fi==ULONG_MAX ) return -1;
+    }
+    *full_slot           = full_snapshots[ fi ].slot;
+    *full_is_zstd        = full_snapshots[ fi ].is_zstd;
     *incremental_slot    = ULONG_MAX;
     *incremental_is_zstd = 0;
-    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ fi ].path ) );
     incremental_path[ 0UL ] = '\0';
-    fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( full_hash, full_snapshots[ fi ].hash, FD_HASH_FOOTPRINT );
     memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
     return 0;
   }

@@ -376,6 +376,10 @@ telemetry = true
     #
     # If set to false, the validator will only load from a full
     # snapshot.
+    #
+    # When waiting for supermajority, this option is disregarded:
+    # the validator automatically considers both full and incremental
+    # snapshots as needed to reach the WFS slot.
     incremental_snapshots = true
 
     # Whether to allow downloading a new genesis file from a peer when
