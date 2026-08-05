@@ -131,11 +131,20 @@ fd_sspeer_selector_remove_by_addr( fd_sspeer_selector_t * selector,
    incremental is set, base_slot must be a valid full snapshot slot.
    Peers that do not offer an incremental snapshot
    (incr_slot==FD_SSPEER_SLOT_UNKNOWN) are excluded from incremental
-   selection. */
+   selection.
+
+   wfs_slot controls WFS (wait-for-supermajority) filtering.  When
+   wfs_slot is 0, the function returns the first eligible peer by
+   score (existing behavior).  When wfs_slot is nonzero, the function
+   prefers peers whose effective slot equals wfs_slot.  For full
+   selection (!incremental) the effective slot is full_slot; for
+   incremental selection it is incr_slot.  If no WFS-matching peer
+   exists, the best-scoring eligible peer is returned as a fallback. */
 fd_sspeer_t
 fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          int                    incremental,
-                         ulong                  base_slot );
+                         ulong                  base_slot,
+                         ulong                  wfs_slot );
 
 /* Recompute the selector's internal cluster slot from the max of
    all tracked peers' slots.  If the max changes, all peers are

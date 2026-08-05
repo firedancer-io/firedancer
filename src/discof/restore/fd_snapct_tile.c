@@ -309,7 +309,7 @@ predict_incremental( fd_snapct_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) return;
   if( FD_UNLIKELY( ctx->predicted_incremental.full_slot==FD_SSPEER_SLOT_UNKNOWN ) ) return;
 
-  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
+  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, ctx->config.wait_for_supermajority_at_slot );
 
   if( FD_LIKELY( best.addr.l ) ) {
     if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.incr_slot ) ) {
@@ -796,7 +796,7 @@ transition_after_done( fd_snapct_tile_t *  ctx,
 
   if( !ctx->is_file ) {
     /* HTTP path, try to find best incremental peer immediately. */
-    fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
+    fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, ctx->config.wait_for_supermajority_at_slot );
     if( best.addr.l ) {
       ctx->predicted_incremental.slot = best.incr_slot;
       send_expected_slot( ctx, stem, best.incr_slot );
@@ -933,7 +933,7 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS: {
       if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for peers." ));
 
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, ctx->config.wait_for_supermajority_at_slot );
       if( FD_LIKELY( best.addr.l ) ) {
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS;
         ctx->deadline_nanos = now+FD_SNAPCT_COLLECTING_PEERS_TIMEOUT;
@@ -946,7 +946,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for incremental snapshot peers." ));
 
       FD_TEST( ctx->predicted_incremental.full_slot!=FD_SSPEER_SLOT_UNKNOWN );
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
+      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, ctx->config.wait_for_supermajority_at_slot );
       if( FD_LIKELY( best.addr.l ) ) {
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
         ctx->deadline_nanos = now;
@@ -958,7 +958,7 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_COLLECTING_PEERS: {
       if( FD_UNLIKELY( !ctx->gossip.saturated && now<ctx->deadline_nanos ) ) break;
 
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, ctx->config.wait_for_supermajority_at_slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
         if( !ctx->gossip_enabled ) {
           FD_LOG_ERR(( "no peers are available and discovery of new peers via gossip is disabled. aborting." ));
@@ -994,7 +994,7 @@ after_credit( fd_snapct_tile_t *  ctx,
           if( local_incr!=ULONG_MAX && local_incr>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age ) ) {
             local_effective_slot = local_incr;
           } else {
-            fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
+            fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot, ctx->config.wait_for_supermajority_at_slot );
             if( FD_LIKELY( best_incr.addr.l ) ) {
               ctx->predicted_incremental.slot         = best_incr.incr_slot;
               ctx->local_in.incremental_snapshot_slot = ULONG_MAX; /* don't use the local incremental */
@@ -1042,7 +1042,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
           send_expected_slot( ctx, stem, best.full_slot );
         } else {
-          fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot );
+          fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot, ctx->config.wait_for_supermajority_at_slot );
           if( FD_LIKELY( best_incremental.addr.l ) ) {
             ctx->predicted_incremental.slot = best_incremental.incr_slot;
             send_expected_slot( ctx, stem, best_incremental.incr_slot );
@@ -1064,7 +1064,7 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL: {
       if( FD_UNLIKELY( now<ctx->deadline_nanos ) ) break;
 
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
+      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, ctx->config.wait_for_supermajority_at_slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
         if( !ctx->gossip_enabled ) {
           FD_LOG_ERR(( "no incremental snapshot peers are available and discovery of new peers via gossip is disabled. aborting." ));

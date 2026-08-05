@@ -509,19 +509,25 @@ fd_sspeer_selector_remove_by_addr( fd_sspeer_selector_t * selector,
 fd_sspeer_t
 fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          int                    incremental,
-                         ulong                  base_slot ) {
+                         ulong                  base_slot,
+                         ulong                  wfs_slot ) {
+  fd_sspeer_t const sentinel = {
+    .key       = { .is_url = 0 },
+    .addr      = { .l=0UL },
+    .full_slot = FD_SSPEER_SLOT_UNKNOWN,
+    .incr_slot = FD_SSPEER_SLOT_UNKNOWN,
+    .score     = FD_SSPEER_SCORE_INVALID,
+    .full_hash = {0},
+    .incr_hash = {0},
+  };
+
   if( FD_UNLIKELY( incremental && base_slot==FD_SSPEER_SLOT_UNKNOWN ) ) {
     FD_LOG_WARNING(( "incremental selection requires a valid base_slot" ));
-    return (fd_sspeer_t){
-      .key       = { .is_url = 0 },
-      .addr      = { .l=0UL },
-      .full_slot = FD_SSPEER_SLOT_UNKNOWN,
-      .incr_slot = FD_SSPEER_SLOT_UNKNOWN,
-      .score     = FD_SSPEER_SCORE_INVALID,
-      .full_hash = {0},
-      .incr_hash = {0},
-    };
+    return sentinel;
   }
+
+  int         have_fallback = 0;
+  fd_sspeer_t fallback      = sentinel;
 
   for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( selector->score_treap, selector->pool );
        !score_treap_fwd_iter_done( iter );
@@ -530,9 +536,14 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
     /* For full selection (!incremental), any valid peer is eligible.
        For incremental selection, the peer must serve the same base full
        snapshot and must actually offer an incremental snapshot. */
-    if( FD_LIKELY( peer->valid &&
-                   (!incremental ||
-                   (peer->full_slot==base_slot && peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN) ) ) ) {
+    if( FD_UNLIKELY( !peer->valid ||
+                     (incremental &&
+                     (peer->full_slot!=base_slot || peer->incr_slot==FD_SSPEER_SLOT_UNKNOWN) ) ) ) {
+      continue;
+    }
+
+    /* No WFS filtering: best score wins. */
+    if( FD_LIKELY( wfs_slot==0UL ) ) {
       fd_sspeer_t best = {
         .key       = peer->key,
         .addr      = peer->addr,
@@ -544,17 +555,49 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
       fd_memcpy( best.incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
       return best;
     }
+
+    /* WFS filtering: prefer peers whose effective slot matches
+       wfs_slot.  For full selection the effective slot is full_slot
+       (what the caller will actually download).  For incremental
+       selection the effective slot is incr_slot (guaranteed known by
+       the eligibility filter above).
+       As an example, consider peers during a WFS boot at slot 200:
+         - Peer A: full=100, incr=200 (oldest full + incremental up to WFS)
+         - Peer B: full=150, incr=200 (older full + incremental up to WFS)
+         - Peer C: full=200, no incr  (fresh full snapshot at WFS slot)
+       For full selection (incremental==0), only Peer C qualifies.
+       For incremental selection with base=100, Peers A qualifies;
+       with base=150, Peer B qualifies. */
+    ulong effective = incremental ? peer->incr_slot : peer->full_slot;
+    if( FD_LIKELY( effective==wfs_slot ) ) {
+      fd_sspeer_t best = {
+        .key       = peer->key,
+        .addr      = peer->addr,
+        .full_slot = peer->full_slot,
+        .incr_slot = peer->incr_slot,
+        .score     = peer->score,
+      };
+      fd_memcpy( best.full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
+      fd_memcpy( best.incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
+      return best;
+    }
+
+    /* Remember first eligible peer as fallback. */
+    if( FD_UNLIKELY( !have_fallback ) ) {
+      fallback = (fd_sspeer_t){
+        .key       = peer->key,
+        .addr      = peer->addr,
+        .full_slot = peer->full_slot,
+        .incr_slot = peer->incr_slot,
+        .score     = peer->score,
+      };
+      fd_memcpy( fallback.full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
+      fd_memcpy( fallback.incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
+      have_fallback = 1;
+    }
   }
 
-  return (fd_sspeer_t){
-    .key       = { .is_url = 0 },
-    .addr      = { .l=0UL },
-    .full_slot = FD_SSPEER_SLOT_UNKNOWN,
-    .incr_slot = FD_SSPEER_SLOT_UNKNOWN,
-    .score     = FD_SSPEER_SCORE_INVALID,
-    .full_hash = {0},
-    .incr_hash = {0},
-  };
+  return fallback;
 }
 
 void

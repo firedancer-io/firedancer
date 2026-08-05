@@ -320,7 +320,7 @@ test_blacklist_peer_basic( fd_ssping_t * ssping ) {
   FD_TEST( score!=FD_SSPEER_SCORE_INVALID );
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
 
-  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
   FD_TEST( best.addr.l==addr.l );
 
   ctx->peer.addr = addr;
@@ -328,7 +328,7 @@ test_blacklist_peer_basic( fd_ssping_t * ssping ) {
   blacklist_peer( ctx );
 
   /* Removed from selector, added to blacklist, invalidated in ssping. */
-  best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
   FD_TEST( best.score==FD_SSPEER_SCORE_INVALID );
   FD_TEST( fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector )==0UL );
   FD_TEST( blacklist_pool_used( ctx->blacklist_pool )==1UL );
@@ -400,7 +400,7 @@ test_blacklist_peer_cluster_slot_regression( fd_ssping_t * ssping ) {
   FD_TEST( cluster.full==500UL );
   FD_TEST( cluster.incremental==600UL );
 
-  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
   FD_TEST( best.addr.l==addr_honest.l );
   FD_TEST( best.score!=FD_SSPEER_SCORE_INVALID );
 
