@@ -243,6 +243,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_snapin_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
   FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );

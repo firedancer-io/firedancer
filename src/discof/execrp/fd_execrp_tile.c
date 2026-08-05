@@ -128,6 +128,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_execrp_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MCNT_SET      ( EXECRP, SIGNATURE_VERIFIED,    ctx->metrics.sigverify_cnt );
   FD_MCNT_SET      ( EXECRP, POH_HASHED,     ctx->metrics.poh_hash_cnt  );
   FD_MCNT_ENUM_COPY( EXECRP, TXN_RESULT,   ctx->metrics.txn_result    );

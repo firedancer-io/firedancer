@@ -511,7 +511,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   if( FD_LIKELY( -1!=ctx->in_fd ) ) {
     process_local_genesis( ctx, tile->genesi.genesis_path );
-    if( FD_UNLIKELY( ctx->bootstrap ) ) initialize_accdb( ctx->accdb, ctx->genesis, ctx->genesis_blob, ctx->lthash );
+    if( FD_UNLIKELY( ctx->bootstrap ) ) {
+      initialize_accdb( ctx->accdb, ctx->genesis, ctx->genesis_blob, ctx->lthash );
+      fd_accdb_flush_metrics( ctx->accdb );
+    }
   }
 
   FD_TEST( fd_cstr_printf_check( ctx->genesis_path, PATH_MAX, NULL, "%s", tile->genesi.genesis_path ) );
