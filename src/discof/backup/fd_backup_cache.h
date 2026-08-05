@@ -43,6 +43,9 @@ struct fd_backup_cache {
   ulong                      acc_map_seed; /* map hash function */
   uint                       chain_mask;   /* map chain count - 1 */
 
+  ulong *       epoch_slot;
+  ulong const * epoch;
+
   uint root_generation;
 
   ulong cache_class;
@@ -81,7 +84,9 @@ fd_backup_cache_init( fd_backup_cache_t *           backup,
                       fd_accdb_accmeta_t const *    acc_pool,
                       ulong                         max_accounts,
                       ulong                         acc_map_seed,
-                      ulong                         chain_mask );
+                      ulong                         chain_mask,
+                      ulong *                       epoch_slot,
+                      ulong const *                 epoch );
 
 /* fd_backup_cache_join is a convenience API for joining an accdb_shmem.
    epoch_fseq is the tile-owned external epoch slot that accdb scans
@@ -89,7 +94,8 @@ fd_backup_cache_init( fd_backup_cache_t *           backup,
 
 fd_backup_cache_t *
 fd_backup_cache_join( fd_backup_cache_t * backup,
-                      fd_accdb_shmem_t *  accdb_shmem );
+                      fd_accdb_shmem_t *  accdb_shmem,
+                      ulong *             epoch_fseq );
 
 /* fd_backup_cache_scan yields a batch of rooted accounts found in
    cache.  Returns NULL once the scan completes. */

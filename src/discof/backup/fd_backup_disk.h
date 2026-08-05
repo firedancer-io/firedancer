@@ -52,6 +52,9 @@ struct fd_snapmk_accparse {
   ulong                      acc_map_seed; /* map hash function */
   uint                       chain_mask;   /* map chain count - 1 */
 
+  ulong *       epoch_slot;
+  ulong const * epoch;
+
   visited_set_t *            visited_set;
 
   uint root_generation;
@@ -65,7 +68,7 @@ struct fd_snapmk_accparse {
   /* deslop this shit */
   uint        ps_cnt;
   ulong       ps_base_gaddr;
-  uint        ps_head    [ FD_BACKUP_DISK_PARA ];
+  ulong       ps_hash    [ FD_BACKUP_DISK_PARA ];
   uint        ps_frag_off[ FD_BACKUP_DISK_PARA ];
   ulong       ps_file_off[ FD_BACKUP_DISK_PARA ];
   fd_pubkey_t ps_pubkey  [ FD_BACKUP_DISK_PARA ];
@@ -106,7 +109,7 @@ fd_snapmk_accparse_pop( fd_snapmk_accparse_t * parse,
    otherwise. */
 
 static inline int
-fd_snapmk_accparse_keep( fd_snapmk_accparse_t * parse ) {
+fd_snapmk_accparse_keep_inner( fd_snapmk_accparse_t * parse ) {
   uint const root_generation    = parse->root_generation;
   uint const min_generation     = 0;
   int const  include_tombstones = 0;
@@ -152,6 +155,21 @@ next:
   }
 
   return 0;
+}
+
+static inline int
+fd_snapmk_accparse_keep( fd_snapmk_accparse_t * parse ) {
+  ulong *       epoch_slot = parse->epoch_slot;
+  ulong const * epoch      = parse->epoch;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
+  FD_HW_MFENCE();
+
+  int keep = fd_snapmk_accparse_keep_inner( parse );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
+  return keep;
 }
 
 static inline void
@@ -301,7 +319,7 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
   if( FD_UNLIKELY( parse->pub_pending || parse->acc_active || parse->meta_sz ) ) return;
 
   ulong const meta_sz = sizeof(fd_accdb_disk_meta_t);
-  ulong hash[ FD_BACKUP_DISK_PARA ];
+  ulong * hash     = parse->ps_hash;
   ulong seed       = parse->acc_map_seed;
   uint  chain_mask = parse->chain_mask;
   uint const *               acc_map  = parse->acc_map;
@@ -345,7 +363,6 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
     uint head = FD_VOLATILE_CONST( acc_map[ hash[ i ] ] );
     uint live = ( head!=UINT_MAX ) & ( (ulong)head<max_accounts );
     __builtin_prefetch( &acc_pool[ head & ( 0U-live ) ], 0, 0 );
-    parse->ps_head[ i ] = head;
   }
 
   parse->ps_cnt        = (uint)n;
@@ -358,9 +375,10 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
 static void
 fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
                                ulong const *          file_off,
-                               uint const *           head,
+                               ulong const *          hash,
                                uint *                 acc_idx,
                                ulong                  cnt ) {
+  uint const *               acc_map      = parse->acc_map;
   fd_accdb_accmeta_t const * acc_pool     = parse->acc_pool;
   ulong                      max_accounts = parse->max_accounts;
   uint                       root_gen     = parse->root_generation;
@@ -370,6 +388,12 @@ fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
   uint matched[ FD_BACKUP_DISK_PARA ];
   for( ulong n=0UL; n<FD_BACKUP_DISK_PARA; n++ ) matched[ n ] = UINT_MAX;
 
+  ulong *       epoch_slot = parse->epoch_slot;
+  ulong const * epoch      = parse->epoch;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
+  FD_HW_MFENCE();
+
   /* lane[i]/cur[i]: compacted live-lane list, lane index and the chain
      node it sits on.  head[] was loaded (and prefetched) when the
      batch was prestaged, a full batch resolve ago. */
@@ -378,7 +402,7 @@ fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
 
   ulong active_cnt = 0UL;
   for( ulong n=0UL; n<cnt; n++ ) {
-    uint h    = head[ n ];
+    uint h    = FD_VOLATILE_CONST( acc_map[ hash[ n ] ] );
     uint live = ( h!=UINT_MAX ) & ( (ulong)h<max_accounts );
     lane[ active_cnt ] = (uint)n;
     cur [ active_cnt ] = h;
@@ -414,6 +438,9 @@ fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
     active_cnt = next_cnt;
   }
 
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
+
   for( ulong n=0UL; n<FD_BACKUP_DISK_PARA; n++ ) {
     uint  idx  = matched[ n ];
     uint  have = idx!=UINT_MAX;
@@ -435,9 +462,9 @@ fd_snapmk_accparse_publish_batch( fd_snapmk_accparse_t *       parse,
 
   /* Move batch N out of the prestage buffer, then stage N+1 before
      resolving N so N+1's prefetches overlap N's chain walk below. */
-  uint  head    [ FD_BACKUP_DISK_PARA ];
+  ulong hash    [ FD_BACKUP_DISK_PARA ];
   ulong file_off[ FD_BACKUP_DISK_PARA ];
-  memcpy( head,            parse->ps_head,     n*sizeof(uint)        );
+  memcpy( hash,            parse->ps_hash,     n*sizeof(ulong)       );
   memcpy( file_off,        parse->ps_file_off, n*sizeof(ulong)       );
   memcpy( batch->frag_off, parse->ps_frag_off, n*sizeof(uint)        );
   memcpy( batch->pubkey,   parse->ps_pubkey,   n*sizeof(fd_pubkey_t) );
@@ -446,7 +473,7 @@ fd_snapmk_accparse_publish_batch( fd_snapmk_accparse_t *       parse,
 
   fd_snapmk_accparse_prestage( parse );
 
-  fd_snapmk_accparse_keep_batch( parse, file_off, head, batch->acc_idx, n );
+  fd_snapmk_accparse_keep_batch( parse, file_off, hash, batch->acc_idx, n );
   for( ulong i=n; i<FD_BACKUP_DISK_PARA; i++ ) batch->acc_idx[ i ] = UINT_MAX;
 
   return n;
