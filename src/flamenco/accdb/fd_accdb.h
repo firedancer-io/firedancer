@@ -623,7 +623,12 @@ fd_accdb_metrics_t const *
 fd_accdb_metrics( fd_accdb_t * accdb );
 
 /* fd_accdb_flush_metrics publishes this joiner's pending layer-0 write
-   metrics.  Normal layer-0 writes defer these metrics by default. */
+   metrics.  Normal layer-0 writes defer these metrics by default.
+
+   NOTE: A flush delayed past partition reuse can credit old counters
+   to the new partition.  The impact on metrics accuracy is expected
+   to be rare and small because partitions are rarely reused and
+   metrics flush often. */
 
 void
 fd_accdb_flush_metrics( fd_accdb_t * accdb );
