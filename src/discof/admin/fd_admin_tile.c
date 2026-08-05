@@ -145,8 +145,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
 /* State 4: TOWER_HALT_REQUESTED
      Tower has been requested to stop producing new vote transactions,
-     drain its local publish queue, and switch identity.  Gossip and
-     TxSend remain active so Tower continues receiving output credits. */
+     drain its local publish queue, and switch identity. */
 #define FD_SET_IDENTITY_STATE_TOWER_HALT_REQUESTED    (4UL)
 
 /* State 5: TOWER_HALTED
