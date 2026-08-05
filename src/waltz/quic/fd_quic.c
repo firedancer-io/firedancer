@@ -2998,6 +2998,96 @@ fd_quic_conn_tx_buf_remaining( fd_quic_conn_t * conn ) {
   return (ulong)( sizeof( conn->tx_buf_conn ) - (ulong)( conn->tx_ptr - conn->tx_buf_conn ) );
 }
 
+ulong
+fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
+                       uchar *          pkt,
+                       ulong            pkt_sz,
+                       uchar const *    dgram,
+                       ulong            dgram_sz ) {
+  if( FD_UNLIKELY( !conn || !pkt || (!dgram && dgram_sz) ) ) return 0UL;
+  if( FD_UNLIKELY( conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return 0UL;
+  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_appdata_id ) ) ) return 0UL;
+  if( FD_UNLIKELY( dgram_sz>USHORT_MAX ) ) return 0UL;
+
+  /* RFC 9221 Section 3: max_datagram_frame_size covers the complete
+     DATAGRAM frame, including type and length fields. */
+  ulong const len_sz   = fd_quic_varint_min_sz( dgram_sz );
+  ulong const frame_sz = 1UL + len_sz + dgram_sz;
+  if( FD_UNLIKELY( !conn->tx_max_datagram_frame_sz ||
+                   frame_sz>conn->tx_max_datagram_frame_sz ) ) return 0UL;
+
+  uint  const pn_space = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
+  ulong const pkt_num  = conn->pkt_number[ pn_space ];
+  uint  const pn_sz    = 4U;
+  uint  const pn_sz_enc= pn_sz-1U;
+
+  fd_quic_conn_id_t const * peer_conn_id = &conn->peer_cids[0];
+  if( FD_UNLIKELY( peer_conn_id->sz>FD_QUIC_MAX_CONN_ID_SZ ) ) return 0UL;
+
+  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+  uchar * scratch = state->crypt_scratch;
+  ulong   scratch_sz = sizeof( state->crypt_scratch );
+
+  int  const key_phase_upd = (int)conn->key_update;
+  uint const key_phase_tx  = conn->key_phase ^ (uint)key_phase_upd;
+  fd_quic_one_rtt_t one_rtt = {0};
+  one_rtt.h0              = fd_quic_one_rtt_h0( 0, !!key_phase_tx, pn_sz_enc );
+  one_rtt.dst_conn_id_len = peer_conn_id->sz;
+  one_rtt.pkt_num         = pkt_num;
+  fd_memcpy( one_rtt.dst_conn_id, peer_conn_id->conn_id, peer_conn_id->sz );
+
+  ulong const hdr_sz = fd_quic_encode_one_rtt( scratch, scratch_sz, &one_rtt );
+  if( FD_UNLIKELY( hdr_sz==FD_QUIC_ENCODE_FAIL ) ) return 0UL;
+
+  ulong padding = 0UL;
+  ulong const protected_payload_sz = frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  ulong const sample_min_sz = FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START +
+                              FD_QUIC_CRYPTO_SAMPLE_SZ;
+  if( protected_payload_sz+pn_sz < sample_min_sz ) {
+    padding = sample_min_sz - pn_sz - protected_payload_sz;
+  }
+
+  ulong const plain_sz = frame_sz + padding;
+  ulong const out_sz   = hdr_sz + plain_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  if( FD_UNLIKELY(
+      out_sz>pkt_sz ||
+      out_sz>conn->tx_max_datagram_sz ||
+      hdr_sz+plain_sz>scratch_sz
+  ) ) {
+    return 0UL;
+  }
+
+  uchar * p = scratch + hdr_sz;
+  *p++ = 0x31U; /* DATAGRAM with an explicit Length field */
+  p += fd_quic_varint_encode( p, dgram_sz );
+  if( dgram_sz ) fd_memcpy( p, dgram, dgram_sz );
+  p += dgram_sz;
+  fd_memset( p, 0, padding );
+
+#if FD_QUIC_DISABLE_CRYPTO
+  fd_memcpy( pkt, scratch, hdr_sz+plain_sz );
+  fd_memset( pkt+hdr_sz+plain_sz, 0, FD_QUIC_CRYPTO_TAG_SZ );
+#else
+  ulong cipher_sz = pkt_sz;
+  fd_quic_crypto_keys_t * hp_keys  = &conn->keys[fd_quic_enc_level_appdata_id][1];
+  fd_quic_crypto_keys_t * pkt_keys = key_phase_upd ? &conn->new_keys[1] : hp_keys;
+  int enc_res = fd_quic_crypto_encrypt(
+      pkt,
+      &cipher_sz,
+      scratch,  hdr_sz,
+      scratch + hdr_sz,
+      plain_sz,
+      pkt_keys, hp_keys,
+      pkt_num
+  );
+  if( FD_UNLIKELY( enc_res!=FD_QUIC_SUCCESS ) ) return 0UL;
+  if( FD_UNLIKELY( cipher_sz!=out_sz ) ) return 0UL;
+#endif
+
+  conn->pkt_number[ pn_space ] = pkt_num + 1UL;
+  return out_sz;
+}
+
 /* attempt to transmit buffered data
 
    prior to call, conn->tx_ptr points to the first free byte in tx_buf
