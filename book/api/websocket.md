@@ -2504,6 +2504,222 @@ be empty.
 
 :::
 
+#### Aggregate timeline queries
+
+The aggregate timeline queries provide compact views of rooted slot
+information in fixed-duration time buckets.
+
+All aggregate timeline queries accept the same parameters.
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound of the UNIX nanosecond timestamp window |
+| end_ns      | `string` | Inclusive upper bound of the UNIX nanosecond timestamp window |
+| granularity | `string` | Duration represented by each bucket |
+
+Supported granularities are:
+
+| value | duration   |
+|-------|------------|
+| `1s`  | 1 second   |
+| `30s` | 30 seconds |
+| `1m`  | 1 minute   |
+| `30m` | 30 minutes |
+| `1h`  | 1 hour     |
+| `1d`  | 1 day      |
+
+Buckets are aligned to the UNIX epoch. For a granularity of `G`
+nanoseconds, the bucket containing timestamp `t` is the half-open
+interval `[floor(t/G)*G, floor(t/G)*G+G)`. A response includes every
+bucket from the bucket containing `start_ns` through the bucket containing
+`end_ns`. Because the query bounds are inclusive, an `end_ns` exactly on
+a bucket boundary includes the bucket beginning at `end_ns`. A query may
+intersect at most 150 buckets.
+
+Query responses include only rooted slots as of the time the request is
+received. `root_slot` is the validator's rooted slot when the query begins,
+and the response includes only slots rooted through `root_slot`. A rooted,
+non-skipped slot contributes all of its values to the bucket containing its
+completion timestamp. Slots without a known completion timestamp do not
+contribute. In particular, shred counts are assigned to the slot's
+completion bucket even if the shreds were received, reconstructed, or
+published during an earlier bucket.
+
+Responses use dense parallel arrays to minimize network bandwidth.
+`reference_ts_ns` is the UNIX nanosecond timestamp at the start of bucket
+zero. For a granularity of `G` nanoseconds, array element `i` represents
+the bucket beginning at `reference_ts_ns + i*G`. Every metric array in a
+response has one element for every returned bucket. The same query window
+and granularity therefore produce identical bucket indices across all
+aggregate queries. For an array of length `N`, the exclusive end of the
+response time range is `reference_ts_ns + N*G`.
+
+The rightmost bucket can be partial because additional slots may root into
+it after the query begins. Separate queries can therefore return different
+values for that bucket if `root_slot` advances between requests.
+
+When aggregating a field, null slot-level values are ignored. A bucket
+value is `null` if no represented slot has a known value for that field.
+
+#### `timeline.query_agg_shreds`
+| frequency | type             | example |
+|-----------|------------------|---------|
+| *Request* | `AggShredsQuery` | below   |
+
+Returns aggregate shred counts for each bucket.
+
+| Field          | Type           | Description |
+|----------------|----------------|-------------|
+| granularity    | `string`       | Requested granularity |
+| reference_ts_ns | `string`      | Start of bucket zero, in UNIX nanoseconds |
+| root_slot      | `number\|null` | Rooted slot used for the response snapshot, or `null` when the validator has not rooted a slot |
+| shreds         | `(number\|null)[]` | Total number of block shreds, including data and coding shreds, in bucket `i` |
+| turbine        | `(number\|null)[]` | Unique data and coding shreds first received through turbine in bucket `i` |
+| repair         | `(number\|null)[]` | Unique data and coding shreds first received through repair in bucket `i` |
+| reconstructed  | `(number\|null)[]` | Data shreds reconstructed locally rather than received through turbine or repair in bucket `i` |
+| published      | `(number\|null)[]` | Data and coding shreds published locally in bucket `i`; slots not produced by this validator contribute zero |
+
+Shreds are deduplicated by `(slot, shred index)`.  A shred observed
+through multiple sources is assigned to the source through which it was
+first successfully received.  `shreds` is generally larger than
+`turbine + repair + reconstructed`: `shreds` includes all block shreds,
+while only data shreds can be reconstructed.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_shreds",
+    "id": 33,
+    "params": {
+        "start_ns": "1739657041000000000",
+        "end_ns": "1739657101000000000",
+        "granularity": "30s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_shreds",
+    "id": 33,
+    "value": {
+        "granularity": "30s",
+        "reference_ts_ns": "1739657040000000000",
+        "root_slot": 289245050,
+        "shreds": [4821, null, 5010],
+        "turbine": [3200, null, 3300],
+        "repair": [800, null, 900],
+        "reconstructed": [300, null, 350],
+        "published": [0, null, 5010]
+    }
+}
+```
+
+:::
+
+#### `timeline.query_agg_compute`
+| frequency | type              | example |
+|-----------|-------------------|---------|
+| *Request* | `AggComputeQuery` | below   |
+
+Returns aggregate compute-unit consumption for each bucket.
+
+| Field             | Type                    | Description |
+|-------------------|-------------------------|-------------|
+| granularity       | `string`                | Requested granularity |
+| reference_ts_ns   | `string`                | Start of bucket zero, in UNIX nanoseconds |
+| root_slot         | `number\|null`          | Rooted slot used for the response snapshot, or `null` when the validator has not rooted a slot |
+| compute_units     | `(number\|null)[]`      | Sum of known consensus-relevant compute units consumed in bucket `i`, or `null` when every represented value is unknown |
+| max_compute_units | `number\|null`          | Maximum known per-slot compute-unit limit among slots represented by the response, or `null` when every represented value is unknown |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_compute",
+    "id": 35,
+    "params": {
+        "start_ns": "1739657041000000000",
+        "end_ns": "1739657101000000000",
+        "granularity": "30s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_compute",
+    "id": 35,
+    "value": {
+        "granularity": "30s",
+        "reference_ts_ns": "1739657040000000000",
+        "root_slot": 289245050,
+        "compute_units": [141000000, null, 132000000],
+        "max_compute_units": 48000000
+    }
+}
+```
+
+:::
+
+#### `timeline.query_agg_revenue`
+| frequency | type              | example |
+|-----------|-------------------|---------|
+| *Request* | `AggRevenueQuery` | below   |
+
+Returns aggregate revenue from all observed rooted slots in each
+bucket, regardless of which validator produced them.
+
+| Field          | Type                    | Description |
+|----------------|-------------------------|-------------|
+| granularity    | `string`                | Requested granularity |
+| reference_ts_ns | `string`               | Start of bucket zero, in UNIX nanoseconds |
+| root_slot      | `number\|null`          | Rooted slot used for the response snapshot, or `null` when the validator has not rooted a slot |
+| txn_fees       | `(string\|null)[]`      | Sum of known transaction fees after burning in bucket `i`, in lamports, or `null` when every represented value is unknown |
+| prio_fees      | `(string\|null)[]`      | Sum of known priority fees after burning in bucket `i`, in lamports, or `null` when every represented value is unknown |
+| tips           | `(string\|null)[]`      | Sum of known tips after block-builder commission in bucket `i`, in lamports, or `null` when every represented value is unknown |
+
+Revenue values remain decimal strings because an aggregate can exceed
+`Number.MAX_SAFE_INTEGER`.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_revenue",
+    "id": 36,
+    "params": {
+        "start_ns": "1739657041000000000",
+        "end_ns": "1739657101000000000",
+        "granularity": "30s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_revenue",
+    "id": 36,
+    "value": {
+        "granularity": "30s",
+        "reference_ts_ns": "1739657040000000000",
+        "root_slot": 289245050,
+        "txn_fees": ["1234000", null, "1350000"],
+        "prio_fees": ["821000", null, "915000"],
+        "tips": ["430000", null, "0"]
+    }
+}
+```
+
+:::
+
 ### slot
 Slots are opportunities for a leader to produce a block. A slot can be
 in one of five levels, and in typical operation a slot moves through
