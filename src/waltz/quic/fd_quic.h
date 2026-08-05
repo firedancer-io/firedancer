@@ -571,6 +571,27 @@ fd_quic_conn_let_die( fd_quic_conn_t * conn,
                       long             keep_alive_duration_ns,
                       long             now );
 
+/* fd_quic_conn_tx_dgram builds a QUICv1 packet containing a single
+   RFC 9221 DATAGRAM frame.  The UDP datagram payload containing the
+   QUIC packet is written to [pkt,pkt+pkt_sz), and it is the caller's
+   responsibility to send it out.
+
+   dgram is the content of the DATAGRAM frame (dgram_sz bytes size).
+
+   On success, returns UDP payload size and uses up the next conn TX
+   packet number.  Returns 0 on failure.  Reasons for failure include:
+   - connection is not yet established
+   - peer does not support the DATAGRAM extension
+   - dgram_sz exceed's the peer's limit
+   - pkt_sz (UDP payload MTU) is too small */
+
+FD_QUIC_API ulong
+fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
+                       uchar *          pkt,
+                       ulong            pkt_sz,
+                       uchar const *    dgram,
+                       ulong            dgram_sz );
+
 /* Service API ********************************************************/
 
 /* fd_quic_get_next_wakeup returns the next requested service time.
