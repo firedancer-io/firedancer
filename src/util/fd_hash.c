@@ -66,8 +66,6 @@ fd_hash( ulong        seed,
 
     h = ROTATE_LEFT( w, 1 ) + ROTATE_LEFT( x, 7 ) + ROTATE_LEFT( y, 12 ) + ROTATE_LEFT( z, 18 );
     #if FD_HAS_AVX512
-    FD_ALIGNED ulong arr[4] = { w, x, y, z };
-    state_vec =  _mm256_loadu_si256(( const wv_t*)arr );
     state_vec = _mm256_mullo_epi64( state_vec, c2_vec );
     state_vec =                 wv_rol( state_vec, 31 );
     state_vec = _mm256_mullo_epi64( state_vec, c1_vec );
