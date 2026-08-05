@@ -1258,7 +1258,14 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                    "cluster restart slot. ", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
     }
     if( FD_UNLIKELY( ctx->wfs_enabled ) ) {
-      FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
+      if( FD_LIKELY( snapshot_slot==ctx->wait_for_supermajority_at_slot ) ) {
+        if( FD_UNLIKELY( ctx->wait_for_vote_to_start_leader ) ) {
+          FD_LOG_NOTICE(( "auto-overriding wait_for_vote_to_start_leader to false "
+                          "(WFS active at slot %lu)", snapshot_slot ));
+          ctx->wait_for_vote_to_start_leader = 0;
+        }
+        FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
+      }
     }
 
     /* Manifest message must arrive before DONE */
@@ -3130,6 +3137,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
 
   ctx->wfs_enabled = memcmp( tile->replay.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) );
+  ctx->wait_for_supermajority_at_slot = tile->replay.wait_for_supermajority_at_slot;
   ctx->expected_bank_hash = tile->replay.wait_for_supermajority_with_bank_hash;
   ctx->wfs_complete = !ctx->wfs_enabled;
 

@@ -94,6 +94,7 @@ struct fd_replay_tile {
   int   wfs_enabled;
   int   wfs_complete;
 
+  ulong     wait_for_supermajority_at_slot;
   fd_hash_t expected_bank_hash;
 
   ulong            blockhash_seed;

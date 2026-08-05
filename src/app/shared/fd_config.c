@@ -452,9 +452,9 @@ fd_config_fill( fd_config_t * config,
       FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] decodes to all zeros, "
                    "which is not a valid bank hash." ));
     }
-    if( FD_UNLIKELY( has_bank_hash && (!config->consensus.expected_shred_version || config->consensus.wait_for_vote_to_start_leader) ) ) {
+    if( FD_UNLIKELY( has_bank_hash && !config->consensus.expected_shred_version ) ) {
       FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires "
-                   "consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
+                   "consensus.expected_shred_version!=0." ));
     }
   }
 
