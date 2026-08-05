@@ -1729,6 +1729,7 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
 
   fd_bank_t * root = fd_banks_init_bank( ctx->banks );
   FD_TEST( root );
+  fd_features_disable_all( &root->f.features );
   root->f.slot                        = snapshot_slot;
   root->f.parent_slot                 = snapshot_slot ? (snapshot_slot - 1UL) : 0UL;
   root->f.slot_params                 = FD_SLOT_PARAMS_400MS;
@@ -1800,15 +1801,16 @@ test_wfs_auto_override( fd_wksp_t * wksp ) {
 
   fd_wksp_reset( wksp, 42U );
 
-  /* WFS enabled + slot mismatch: flag preserved. */
+  /* WFS enabled + snapshot ahead of WFS slot: WFS skipped, flag preserved. */
   memset( ctx, 0, sizeof(*ctx) );
-  root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
+  root = setup_snapshot_test_ctx( ctx, wksp, stack, 200UL );
   ctx->wfs_enabled                    = 1;
   ctx->expected_bank_hash             = root->f.bank_hash;
-  ctx->wait_for_supermajority_at_slot = 200UL;
+  ctx->wait_for_supermajority_at_slot = 100UL;
   ctx->wait_for_vote_to_start_leader  = 1;
   snapshot_done( ctx );
   FD_TEST( ctx->wait_for_vote_to_start_leader );
+  FD_TEST( ctx->wfs_complete );
 
   fd_wksp_reset( wksp, 42U );
 
