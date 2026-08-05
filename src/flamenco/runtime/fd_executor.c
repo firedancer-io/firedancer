@@ -1564,6 +1564,11 @@ fd_executor_txn_check( fd_bank_t *    bank,
     else if( !memcmp( acc->owner, &fd_solana_vote_program_id,  sizeof(fd_pubkey_t) ) ) txn_out->accounts.vote_update[ i ] = 1;
   }
 
+  /* The fee payer (account index 0) is debited during loading, outside
+     the VM, so it carries no touch flag but must still be written back.
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_processor.rs#L1116-L1120 */
+  txn_out->accounts.account[ 0 ]->touched = 1;
+
   /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_processor.rs#L1126-L1132 */
   if( FD_UNLIKELY( ending_lamports_l!=starting_lamports_l || ending_lamports_h!=starting_lamports_h ) ) {
     return FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION;
