@@ -197,6 +197,9 @@ struct fd_snapin_tile {
     ulong write_pos; /* bytes written into buf during the current streaming capture */
     uchar buf[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
   } slot_history;
+
+  ulong     wfs_slot;
+  fd_hash_t wfs_bank_hash;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -742,6 +745,19 @@ process_manifest( fd_snapin_tile_t *  ctx,
     /* https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/bank.rs#L4682 */
     transition_malformed( ctx, stem );
     return;
+  }
+
+  if( FD_UNLIKELY( ctx->wfs_slot && memcmp( ctx->wfs_bank_hash.uc, ((fd_hash_t){0}).uc, FD_HASH_FOOTPRINT )
+                   && manifest->slot==ctx->wfs_slot ) ) {
+    if( FD_UNLIKELY( memcmp( manifest->bank_hash, ctx->wfs_bank_hash.uc, FD_HASH_FOOTPRINT ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( manifest->bank_hash,   manifest_hash_enc );
+      FD_BASE58_ENCODE_32_BYTES( ctx->wfs_bank_hash.uc, expected_hash_enc );
+      FD_LOG_WARNING(( "snapshot manifest bank hash %s at WFS slot %lu does not match "
+                       "configured wait_for_supermajority_with_bank_hash %s",
+                       manifest_hash_enc, ctx->wfs_slot, expected_hash_enc ));
+      transition_malformed( ctx, stem );
+      return;
+    }
   }
 
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
@@ -1518,6 +1534,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+
+  ctx->wfs_slot      = tile->snapin.wait_for_supermajority_at_slot;
+  ctx->wfs_bank_hash = tile->snapin.wait_for_supermajority_with_bank_hash;
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
   ctx->boot_timestamp = fd_log_wallclock();
