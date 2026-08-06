@@ -3,6 +3,7 @@
 
 #include "../../util/fd_util_base.h"
 #include "../fd_flamenco_base.h"
+#include "../accdb/fd_accdb_base.h"
 
 #define FD_VOTE_STAKES_ALIGN (128UL)
 
@@ -95,6 +96,108 @@ fd_vote_stakes_update_state( fd_vote_stakes_t *  vote_stakes,
                              ulong               last_vote_slot,
                              long                last_vote_ts,
                              uchar               is_valid );
+
+void
+fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
+                        ulong              fork_id,
+                        fd_accdb_t *        accdb,
+                        fd_accdb_fork_id_t  accdb_fork_id );
+
+/* fd_vote_stakes_query_t_1 queries the fork's t-1 vote account.
+   Returns 1 if the account exists in t-1 and 0 otherwise. */
+
+int
+fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          fd_pubkey_t const *      pubkey,
+                          fd_pubkey_t *            node_account_out_opt,
+                          ulong *                  stake_out_opt,
+                          ushort *                 commission_out_opt );
+
+/* fd_vote_stakes_query_t_2 queries the t-2 vote account and fork-local
+   vote state.  Returns 1 if the account exists in t-2 and 0 otherwise. */
+
+int
+fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          fd_pubkey_t const *      pubkey,
+                          fd_pubkey_t *            node_account_out_opt,
+                          ulong *                  stake_out_opt,
+                          ulong *                  last_vote_slot_out_opt,
+                          long *                   last_vote_ts_out_opt,
+                          ushort *                 commission_out_opt,
+                          uchar *                  is_valid_out_opt );
+
+/* fd_vote_stakes_query_t_3 queries the fork's t-3 vote account.
+   Returns 1 if the account exists in t-3 and 0 otherwise. */
+
+int
+fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          fd_pubkey_t const *      pubkey,
+                          fd_pubkey_t *            node_account_out_opt,
+                          ulong *                  stake_out_opt,
+                          ushort *                 commission_out_opt );
+
+#define FD_VOTE_STAKES_T_1_ITER_FOOTPRINT (16UL)
+#define FD_VOTE_STAKES_T_1_ITER_ALIGN     (8UL)
+#define FD_VOTE_STAKES_T_2_ITER_FOOTPRINT (16UL)
+#define FD_VOTE_STAKES_T_2_ITER_ALIGN     (8UL)
+
+struct vacc_map_iter;
+typedef struct vacc_map_iter fd_vote_stakes_t_1_iter_t;
+typedef struct vacc_map_iter fd_vote_stakes_t_2_iter_t;
+
+fd_vote_stakes_t_1_iter_t *
+fd_vote_stakes_t_1_iter_init( fd_vote_stakes_t const * vote_stakes,
+                              ulong                    fork_id,
+                              uchar                    iter_mem[ static FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ] );
+
+int
+fd_vote_stakes_t_1_iter_done( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_1_iter_t * iter );
+
+void
+fd_vote_stakes_t_1_iter_next( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_1_iter_t * iter );
+
+void
+fd_vote_stakes_t_1_iter_ele( fd_vote_stakes_t const *    vote_stakes,
+                             ulong                       fork_id,
+                             fd_vote_stakes_t_1_iter_t * iter,
+                             fd_pubkey_t *               pubkey_out,
+                             fd_pubkey_t *               node_account_out_opt,
+                             ulong *                     stake_out_opt,
+                             ushort *                    commission_out_opt );
+
+fd_vote_stakes_t_2_iter_t *
+fd_vote_stakes_t_2_iter_init( fd_vote_stakes_t const * vote_stakes,
+                              ulong                    fork_id,
+                              uchar                    iter_mem[ static FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ] );
+
+int
+fd_vote_stakes_t_2_iter_done( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_2_iter_t * iter );
+
+void
+fd_vote_stakes_t_2_iter_next( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_2_iter_t * iter );
+
+void
+fd_vote_stakes_t_2_iter_ele( fd_vote_stakes_t const *    vote_stakes,
+                             ulong                       fork_id,
+                             fd_vote_stakes_t_2_iter_t * iter,
+                             fd_pubkey_t *               pubkey_out,
+                             fd_pubkey_t *               node_account_out_opt,
+                             ulong *                     stake_out_opt,
+                             ulong *                     last_vote_slot_out_opt,
+                             long *                      last_vote_ts_out_opt,
+                             ushort *                    commission_out_opt,
+                             uchar *                     is_valid_out_opt );
 
 FD_PROTOTYPES_END
 
