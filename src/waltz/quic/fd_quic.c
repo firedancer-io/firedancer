@@ -24,8 +24,11 @@
 #include "templ/fd_quic_parse_util.h"
 #include "tls/fd_quic_tls.h"
 
-#include <fcntl.h>   /* for keylog open(2)  */
-#include <unistd.h>  /* for keylog close(2) */
+#include <errno.h>       /* for errno */
+#include <fcntl.h>       /* for keylog open(2)  */
+#include <unistd.h>      /* for keylog close(2) */
+#include <sys/socket.h>  /* for socket(2), bind(2), connect(2) */
+#include <netinet/in.h>  /* for sockaddr_in */
 
 #include "../../ballet/hex/fd_hex.h"
 #include "../../ballet/x509/fd_x509_mock.h"
@@ -4094,6 +4097,12 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
   conn->tls_hs = NULL;
 
+  /* close bound UDP socket if present */
+  if( conn->sock_fd>=0 ) {
+    close( conn->sock_fd );
+    conn->sock_fd = -1;
+  }
+
   /* remove from service queue */
   fd_quic_svc_timers_cancel( state->svc_timers, conn );
 
@@ -4147,6 +4156,42 @@ fd_quic_connect( fd_quic_t * quic,
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed" )) );
     return NULL;
   }
+
+  /* Create a bound+connected UDP socket for this client connection.
+     The kernel filters incoming packets by peer address, providing
+     built-in source address filtering and route caching. */
+
+  do {
+    int sock_fd = socket( AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP );
+    if( FD_UNLIKELY( sock_fd<0 ) ) {
+      FD_LOG_WARNING(( "socket(AF_INET,SOCK_DGRAM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      break;
+    }
+
+    struct sockaddr_in self_addr = {
+      .sin_family      = AF_INET,
+      .sin_addr.s_addr = src_ip_addr,                             /* already net order */
+      .sin_port        = fd_ushort_bswap( (ushort)src_udp_port ), /* host to net */
+    };
+    if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)&self_addr, sizeof(self_addr) ) ) ) {
+      FD_LOG_WARNING(( "bind() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      close( sock_fd );
+      break;
+    }
+
+    struct sockaddr_in peer_addr = {
+      .sin_family      = AF_INET,
+      .sin_addr.s_addr = dst_ip_addr,                             /* already net order */
+      .sin_port        = fd_ushort_bswap( (ushort)dst_udp_port ), /* host to net */
+    };
+    if( FD_UNLIKELY( 0!=connect( sock_fd, (struct sockaddr const *)&peer_addr, sizeof(peer_addr) ) ) ) {
+      FD_LOG_WARNING(( "connect() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      close( sock_fd );
+      break;
+    }
+
+    conn->sock_fd = sock_fd;
+  } while(0);
 
   /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
       Take template from state and mutate certain params in-place.

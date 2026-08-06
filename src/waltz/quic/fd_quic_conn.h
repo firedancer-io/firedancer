@@ -94,6 +94,8 @@ struct fd_quic_conn {
   uint               key_phase : 1;
   uint               key_update : 1;
 
+  int                sock_fd;             /* bound UDP socket fd for client conns, -1 if unused */
+
   /* metadata used by service queue */
   fd_quic_svc_timers_conn_meta_t svc_meta;
 
@@ -279,6 +281,7 @@ fd_quic_conn_clear( fd_quic_conn_t * conn ) {
   conn->conn_gen   = conn_gen;
   conn->state      = conn_state;
   conn->stream_map = stream_map;
+  conn->sock_fd    = -1;
 }
 
 /* set the user-defined context value on the connection */
