@@ -15,5 +15,5 @@ runs:
         echo "Lock acquired, cleaning stale git lock files..."
         find .git/modules -name "*.lock" -delete 2>/dev/null || true
         echo "Updating submodules..."
-        git submodule update --init --recursive
+        git submodule update --init --recursive --force
         echo "Submodules initialized successfully"
