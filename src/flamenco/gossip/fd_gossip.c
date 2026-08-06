@@ -357,7 +357,7 @@ random_entrypoint( fd_gossip_t const * gossip ) {
   return gossip->entrypoints[ idx ];
 }
 
-ulong
+static ulong
 get_stake( fd_gossip_t const * gossip,
            uchar const *       pubkey ) {
   stake_t const * entry = stake_map_ele_query_const( gossip->stake.map, (fd_pubkey_t const *)pubkey, NULL, gossip->stake.pool );

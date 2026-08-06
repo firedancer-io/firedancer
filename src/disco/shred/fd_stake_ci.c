@@ -363,7 +363,7 @@ fd_stake_ci_set_identity( fd_stake_ci_t *     info,
   *info->identity_key = *identity_key;
 }
 
-void
+static void
 refresh_sdest( fd_stake_ci_t *            info,
                fd_shred_dest_weighted_t * shred_dest_temp,
                ulong                      cnt,
@@ -378,7 +378,7 @@ refresh_sdest( fd_stake_ci_t *            info,
   }
 }
 
-void
+static void
 ci_dest_add_one_unstaked( fd_stake_ci_t *            info,
                           fd_shred_dest_weighted_t * new_entry,
                           fd_per_epoch_info_t *      ei ) {
@@ -398,7 +398,7 @@ ci_dest_add_one_unstaked( fd_stake_ci_t *            info,
   refresh_sdest( info, info->shred_dest_temp, cur_cnt, fd_shred_dest_cnt_staked( ei->sdest ), ei );
 }
 
-void
+static void
 ci_dest_update_impl( fd_stake_ci_t *       info,
                      fd_pubkey_t const *   pubkey,
                      uint                  ip4,
@@ -415,7 +415,7 @@ ci_dest_update_impl( fd_stake_ci_t *       info,
   dest->port                      = port;
 }
 
-void
+static void
 ci_dest_remove_impl( fd_stake_ci_t *       info,
                      fd_pubkey_t const *   pubkey,
                      fd_per_epoch_info_t * ei ) {
