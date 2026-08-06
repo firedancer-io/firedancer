@@ -194,6 +194,68 @@ FD_FN_CONST static inline ulong fd_vm_instr_normal_opmode ( ulong instr ) { retu
 FD_FN_CONST static inline ulong fd_vm_instr_mem_opsize    ( ulong instr ) { return (instr>>3) &  3UL; } /* In [0,4)  */
 FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { return (instr>>5) &  7UL; } /* In [0,16) */
 
+/* Lazy page zeroing ******************************************************
+
+   fd_vm_lazy_zero_pages checks whether the 2KB page(s) covering
+   [offset, offset+sz) within a stack or heap region have been zeroed.
+   If any page's bitmap bit is clear, the page is zeroed via fd_memset
+   and the bit is set.  On the fast path (page already zeroed), this
+   costs a shift, a bit-test, and a predicted-taken branch (~3 cycles).
+
+   Also used after TLB setup to pre-zero the entire cached range so
+   that TLB hits don't need per-access bitmap checks. */
+
+static inline void
+fd_vm_lazy_zero_pages( ulong * bitmap,
+                       uchar * region_base,
+                       ulong   offset,
+                       ulong   sz ) {
+  if( FD_UNLIKELY( !sz ) ) return;
+  ulong p_lo = offset >> FD_VM_LAZY_PAGE_LG_SZ;
+  ulong p_hi = (offset + sz - 1UL) >> FD_VM_LAZY_PAGE_LG_SZ;
+  for( ulong p = p_lo; p <= p_hi; p++ ) {
+    ulong w = p >> 6;
+    ulong b = 1UL << (p & 63UL);
+    if( FD_UNLIKELY( !(bitmap[w] & b) ) ) {
+      fd_memset( region_base + (p << FD_VM_LAZY_PAGE_LG_SZ), 0, FD_VM_LAZY_PAGE_SZ );
+      bitmap[w] |= b;
+    }
+  }
+}
+
+/* fd_vm_mark_all_pages_initialized sets all bitmap bits for both
+   stack and heap, effectively disabling lazy zeroing.  Useful in test
+   harnesses that directly populate vm->heap/stack via memcpy. */
+
+static inline void
+fd_vm_mark_all_pages_initialized( fd_vm_t * vm ) {
+  fd_memset( vm->stack_zero_bitmap, 0xFF, FD_VM_LAZY_BITMAP_WORDS * sizeof(ulong) );
+  fd_memset( vm->heap_zero_bitmap,  0xFF, FD_VM_LAZY_BITMAP_WORDS * sizeof(ulong) );
+}
+
+/* fd_vm_zero_uninitialized_pages zeros every page whose bitmap bit is
+   still clear (never accessed through fd_vm_mem_haddr during execution).
+   Call after execution but before reading heap/stack for deterministic
+   comparison. */
+
+static inline void
+fd_vm_zero_uninitialized_pages( ulong * bitmap,
+                                uchar * region_base,
+                                ulong   region_sz ) {
+  /* Round up so a region_sz that is not a multiple of the page size still
+     zeros its trailing partial page (heap_max is runtime-configurable);
+     the last page only zeros its in-range bytes. */
+  ulong page_cnt = ( region_sz + FD_VM_LAZY_PAGE_SZ - 1UL ) >> FD_VM_LAZY_PAGE_LG_SZ;
+  for( ulong p = 0; p < page_cnt; p++ ) {
+    ulong w      = p >> 6;
+    ulong b      = 1UL << (p & 63UL);
+    ulong offset = p << FD_VM_LAZY_PAGE_LG_SZ;
+    if( FD_UNLIKELY( !(bitmap[w] & b) ) ) {
+      fd_memset( region_base + offset, 0, fd_ulong_min( FD_VM_LAZY_PAGE_SZ, region_sz - offset ) );
+    }
+  }
+}
+
 /* fd_vm_mem API ******************************************************/
 
 /* fd_vm_mem APIs support the fast mapping of virtual address ranges to
@@ -484,12 +546,85 @@ fd_vm_mem_haddr( fd_vm_t const * vm,
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
   }
 
+  ulong haddr = fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+
+  if( FD_LIKELY( haddr != sentinel ) &&
+      FD_UNLIKELY( region == FD_VM_STACK_REGION || region == FD_VM_HEAP_REGION ) ) {
+    fd_vm_t * vm_mut = (fd_vm_t *)vm;
+    ulong * bitmap = (region == FD_VM_STACK_REGION) ? vm_mut->stack_zero_bitmap : vm_mut->heap_zero_bitmap;
+    uchar * base   = (region == FD_VM_STACK_REGION) ? vm_mut->stack : vm_mut->heap;
+    fd_vm_lazy_zero_pages( bitmap, base, offset, sz );
+  }
+
 # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
-  if ( FD_LIKELY( sz<=sz_max ) ) {
-    fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, vm_region_haddr[ region ] + offset );
+  if ( FD_LIKELY( haddr != sentinel ) ) {
+    fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, haddr );
   }
 # endif
-  return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+  return haddr;
+}
+
+/* fd_vm_tlb_slot_t holds the single-slot soft TLB describing the covered
+   range [vaddr_lo, vaddr_lo+region_sz) (region bits included in vaddr_lo)
+   and the host address of vaddr_lo.  Callers pass a pointer to one slot,
+   so the miss handler and hit-check wrapper take a single argument rather
+   than several, keeping the miss-call argument list in registers. */
+struct fd_vm_tlb_slot {
+  ulong haddr_base;  /* host address corresponding to vaddr_lo            */
+  ulong vaddr_lo;    /* first vaddr the slot covers (region bits included) */
+  ulong region_sz;   /* byte span: slot covers [vaddr_lo, vaddr_lo+region_sz) */
+};
+typedef struct fd_vm_tlb_slot fd_vm_tlb_slot_t;
+
+/* fd_vm_mem_haddr_tlb_miss handles the TLB miss path: it translates
+   vaddr (via fd_vm_mem_haddr), populates *slot for subsequent hits, and
+   returns the host address (0 on failure).  Defined out-of-line and not
+   inlined so the hot (hit) path stays tiny.  The region tables and the
+   failure sentinel are derived from vm and the write flag rather than
+   passed in, so the argument list fits entirely in registers. */
+ulong
+fd_vm_mem_haddr_tlb_miss( fd_vm_t const *    vm,
+                          ulong              vaddr,
+                          ulong              sz,
+                          uchar              write,
+                          fd_vm_tlb_slot_t * slot,
+                          int                stack_gaps_enabled );
+
+/* fd_vm_mem_haddr_with_tlb is a TLB-accelerated wrapper around
+   fd_vm_mem_haddr that caches the most recent successful translation in
+   a single-slot "soft TLB".  On a hit it returns haddr_base + offset,
+   offset = vaddr - vaddr_lo, behind a single branch:
+
+     offset = vaddr - vaddr_lo;
+     hit    = ((long)offset >= 0) & (offset + sz <= region_sz);
+
+   The signed test enforces both vaddr >= vaddr_lo and offset < 2^63; with
+   sz < 2^32 (always true for memory ops) offset + sz cannot wrap, so this
+   one combined comparison is the entire bounds check.  offset is reused
+   for the returned host address, so there is no separate masking step.
+   On a miss it calls fd_vm_mem_haddr_tlb_miss (not inlined) to resolve
+   and populate the slot.
+
+   The slot must be invalidated (set region_sz=0) after any event that
+   could change memory mappings (syscalls, CPI).
+
+   Callers must use separate TLB slots for loads vs stores, since
+   region_ld_sz and region_st_sz can differ. */
+
+static inline __attribute__((always_inline)) ulong
+fd_vm_mem_haddr_with_tlb( fd_vm_t const *    vm,
+                          ulong              vaddr,
+                          ulong              sz,
+                          uchar              write,
+                          fd_vm_tlb_slot_t * slot,
+                          int                stack_gaps_enabled ) {
+  ulong tlb_haddr_base = slot->haddr_base;
+  ulong tlb_vaddr_lo   = slot->vaddr_lo;
+  ulong tlb_region_sz  = slot->region_sz;
+  ulong offset = vaddr - tlb_vaddr_lo;
+  if( FD_LIKELY( ((long)offset >= 0L) & ((offset + sz) <= tlb_region_sz) ) )
+    return tlb_haddr_base + offset;
+  return fd_vm_mem_haddr_tlb_miss( vm, vaddr, sz, write, slot, stack_gaps_enabled );
 }
 
 static inline ulong
