@@ -141,6 +141,8 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
 
   /* Sanity-check the epoch and skip the Alpenglow migration marker. */
 
+  int alpen_migration = 0; /* set if the tower->Alpenglow migration sentinel is present in the snapshot */
+
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     if( FD_UNLIKELY( manifest->vote_accounts[i].epoch_credits_history_len>FD_EPOCH_CREDITS_MAX ) ) {
       FD_LOG_WARNING(( "corrupt snapshot: vote_accounts[%lu].epoch_credits_history_len %lu exceeds max %lu",
@@ -149,7 +151,7 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     }
     for( ulong j=0UL; j<manifest->vote_accounts[i].epoch_credits_history_len; j++ ) {
       epoch_credits_t const * epc = &manifest->vote_accounts[i].epoch_credits[j];
-      if( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epc->epoch, epc->credits, epc->prev_credits ) ) continue;
+      if( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epc->epoch, epc->credits, epc->prev_credits ) ) { alpen_migration = 1; continue; }
       if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX ) ) {
         FD_LOG_WARNING(( "corrupt snapshot: vote_accounts[%lu].epoch_credits[%lu].epoch %lu exceeds USHORT_MAX",
                          i, j, epc->epoch ));
@@ -180,7 +182,7 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
       }
       for( ulong k=0UL; k<vs->epoch_credits_history_len; k++ ) {
         epoch_credits_t const * epc = &vs->epoch_credits[k];
-        if( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epc->epoch, epc->credits, epc->prev_credits ) ) continue;
+        if( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epc->epoch, epc->credits, epc->prev_credits ) ) { alpen_migration = 1; continue; }
         if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu exceeds USHORT_MAX",
                            i, j, k, epc->epoch ));
@@ -189,6 +191,10 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
       }
     }
   }
+
+  FD_LOG_NOTICE(( "Alpenglow migration marker %s in snapshot -> consensus is %s",
+                  alpen_migration ? "found"  : "absent",
+                  alpen_migration ? "Alpenglow" : "tower (pre-migration)" ));
 
   /* Epoch stakes index validation.  fd_slot_to_leader_schedule_epoch
      is inlined here with overflow-safe arithmetic. */

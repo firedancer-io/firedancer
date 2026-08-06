@@ -1018,13 +1018,19 @@ after_alpen_repair( ctx_t * ctx,
 
       ulong now_ms = (ulong)(fd_log_wallclock()/(long)1e6);
       for( uint i = 0; i < parent_fec_set_res->fec_set_count; i++ ) {
-        fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-        if( FD_UNLIKELY( !peer ) ) FD_LOG_ERR(("no peer found"));
-        fd_repair_msg_t * msg = ag_repair_fec_set_root( ctx->protocol, peer, now_ms, ctx->ag_nonce++,
-                                                        request->slot, &request->block_id, i*FD_FEC_SHRED_CNT );
-        if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) FD_LOG_CRIT(( "TODO: separate to different queue" ));
-        fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
-        ag_inflights_request_insert( ctx->inflights, msg->fec_set_root.nonce, AG_REPAIR_KIND_FEC_ROOT, request->slot, &request->block_id, i*FD_FEC_SHRED_CNT );
+        uint                req_nonce = ctx->ag_nonce++;
+        fd_pubkey_t const * peer      = fd_policy_peer_select( ctx->policy );
+        if( FD_LIKELY( peer ) ) {
+          fd_repair_msg_t * msg = ag_repair_fec_set_root( ctx->protocol, peer, now_ms, req_nonce,
+                                                          request->slot, &request->block_id, i*FD_FEC_SHRED_CNT );
+          if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) FD_LOG_CRIT(( "TODO: separate to different queue" ));
+          fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
+        }
+
+        /* Whether or not the request was actually sent, record it in
+           the ag inflights table.  If no peer was available we defer
+           the request until a peer is available. */
+        ag_inflights_request_insert( ctx->inflights, req_nonce, AG_REPAIR_KIND_FEC_ROOT, request->slot, &request->block_id, i*FD_FEC_SHRED_CNT );
       }
       break;
     }
@@ -1138,19 +1144,20 @@ after_votor_notar_fallback( ctx_t * ctx,
   /* else, we don't have this NF version, we need to repair for it. */
   fd_chainer_notar_fallback( ctx->chainer, nf->slot, nf->block_id );
 
-  fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-  if( FD_UNLIKELY( !peer ) ) FD_LOG_CRIT(("Handle no peers"));
-
-  ulong now_ms = (ulong)(fd_log_wallclock()/(long)1e6);
-  fd_repair_msg_t * msg = ag_repair_parent_and_fec_set_count( ctx->protocol,
-                                                              peer,
-                                                              now_ms,
-                                                              ctx->ag_nonce++,
-                                                              nf->slot,
-                                                              &nf->block_id );
-  if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) FD_LOG_CRIT(( "TODO: separate to different queue" ));
-  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
-  ag_inflights_request_insert( ctx->inflights, msg->parent_fec_set_count.nonce, AG_REPAIR_KIND_PARENT_FEC_COUNT, nf->slot, &nf->block_id, 0U );
+  uint                nonce = ctx->ag_nonce++;
+  fd_pubkey_t const * peer  = fd_policy_peer_select( ctx->policy );
+  if( FD_LIKELY( peer ) ) {
+    ulong now_ms = (ulong)(fd_log_wallclock()/(long)1e6);
+    fd_repair_msg_t * msg = ag_repair_parent_and_fec_set_count( ctx->protocol,
+                                                                peer,
+                                                                now_ms,
+                                                                nonce,
+                                                                nf->slot,
+                                                                &nf->block_id );
+    if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) FD_LOG_CRIT(( "TODO: separate to different queue" ));
+    fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
+  }
+  ag_inflights_request_insert( ctx->inflights, nonce, AG_REPAIR_KIND_PARENT_FEC_COUNT, nf->slot, &nf->block_id, 0U );
 }
 
 static inline void
@@ -1539,7 +1546,9 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
     if( FD_UNLIKELY( e->complete_idx==UINT_MAX ) ) {
       if( FD_UNLIKELY( ctx->block_id_repair_only ) ) continue; /* fec count comes from getParentAndFecSetCount */
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-      if( FD_UNLIKELY( !peer ) ) FD_LOG_CRIT(( "no peer available for HighestShred" ));
+      /* No peers available.  Nothing has been consumed for this slotv
+         and it stays in the repair treap. Retry it on next walk. */
+      if( FD_UNLIKELY( !peer ) ) break;
       if( !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_HIGHEST_SHRED, slot, UINT_MAX ), now ) ) {
         uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 0, slot, 0U, now );
         fd_repair_msg_t * msg = fd_repair_highest_shred( ctx->protocol, peer, (ulong)now_ms, nonce, slot, 0 );
@@ -1564,7 +1573,10 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
     if( FD_UNLIKELY( fd_hash_check_zero( &e->block_id ) ) ) {
       /* TODO eager repair time gate */
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-      if( FD_UNLIKELY( !peer ) ) FD_LOG_CRIT(( "handle no peer "));
+      /* No peers available (yet).  highest_requested has not advanced
+         past idx and no inflight was recorded, so the next walk retries
+         this same shred request once gossip has discovered a peer. */
+      if( FD_UNLIKELY( !peer ) ) break;
       ulong nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, idx, now );
       fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now/(ulong)1e6, (uint)nonce, slot, idx );
       *charge_busy = 1;
@@ -1582,7 +1594,7 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
       if( FD_UNLIKELY( !fd_chainer_fec_query( chainer, slot, fec_set_idx, version ) ) ) continue;
 
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-      if( FD_UNLIKELY( !peer ) ) FD_LOG_CRIT(( "handle no peer " ));
+      if( FD_UNLIKELY( !peer ) ) break;
       ulong nonce           = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, idx, now );
       fd_repair_msg_t * msg = ag_repair_shred_block_id( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, slot, &e->block_id, idx );
       *charge_busy = 1;
@@ -1822,7 +1834,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
   ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint( tile->repair.slot_max )                  );
   ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint( FD_REPAIR_PEER_MAX )                     );
-  ctx->dedup        = FD_SCRATCH_ALLOC_APPEND( l, fd_reqlim_align(),          fd_reqlim_footprint( FD_REQLIM_CACHE_MAX )                      );
+  ctx->dedup        = FD_SCRATCH_ALLOC_APPEND( l, fd_reqlim_align(),         fd_reqlim_footprint( FD_REQLIM_CACHE_MAX )                      );
   ctx->inflights    = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint()                                      );
   ctx->signs_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint( lg_sign_depth )                       );
   ctx->pong_queue   = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                    );
