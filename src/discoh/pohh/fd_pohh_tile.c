@@ -1274,7 +1274,10 @@ fd_ext_admin_rpc_set_identity( uchar const * identity_keypair,
 static inline int FD_FN_SENSITIVE
 maybe_change_identity( fd_pohh_tile_t * ctx,
                        int            definitely_not_leader ) {
-  if( FD_UNLIKELY( ctx->halted_switching_key && fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+  /* Even if we are unhalted, still ack the request.  This is because
+     if keyswitch fails, then the set identity process will send an
+     unhalt request and it needs to be processed. */
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     ctx->halted_switching_key = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     return 1;
