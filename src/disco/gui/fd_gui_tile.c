@@ -163,7 +163,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  http_fp );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),    fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),        fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }

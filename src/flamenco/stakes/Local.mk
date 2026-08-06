@@ -4,6 +4,9 @@ $(call add-hdrs,fd_stakes.h)
 $(call add-objs,fd_stakes,fd_flamenco)
 endif
 
+$(call add-hdrs,fd_vote_stakes.h)
+$(call add-objs,fd_vote_stakes,fd_flamenco)
+
 $(call add-hdrs,fd_stake_delegations.h)
 $(call add-objs,fd_stake_delegations,fd_flamenco)
 
