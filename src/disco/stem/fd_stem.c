@@ -193,8 +193,21 @@
 #error "STEM_CALLBACK_CONTEXT_ALIGN must be defined"
 #endif
 
+/* STEM_LAZY specifies the housekeeping interval in nanoseconds.
+   This tunes a randomized timer to call during_housekeeping on average
+   every STEM_LAZY ns. */
+
 #ifndef STEM_LAZY
 #define STEM_LAZY (0L)
+#endif
+
+/* STEM_FUTEX enables a futex-based cooperative scheduling protocol.
+   This allows stem to detect when downstream consumers go to sleep and
+   wakes them as necessary.  Requires all output links to be reliable.
+   Requires Linux.  Causes stem_run to issue futex(FUTEX_WAKE) syscalls. */
+
+#ifndef STEM_FUTEX
+#define STEM_FUTEX 0
 #endif
 
 #define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
@@ -231,6 +244,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
   l = FD_LAYOUT_APPEND( l, alignof(int),               out_cnt*sizeof(int)                  ); /* out_reliable */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong *),           out_cnt*sizeof(ulong *)              ); /* out_sync */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_out */
@@ -265,6 +279,7 @@ STEM_(run1)( ulong                        in_cnt,
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
   int *          out_reliable; /* out_reliable[out_idx] is 1 if out_idx has at least one reliable consumer, else 0 */
+  ulong **       out_sync;     /* fd_mcache_seq_laddr() of each mcache */
 
   /* out flow control state */
   ulong *        cr_avail;     /* number of flow control credits available to publish downstream across all outs */
@@ -331,9 +346,10 @@ STEM_(run1)( ulong                        in_cnt,
   cr_avail     = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   min_cr_avail = fd_ulong_if( cons_cnt>0UL, 0UL, ULONG_MAX );
 
-  out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  out_reliable = (int *)FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   out_cnt*sizeof(int)   );
+  out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),   out_cnt*sizeof(ulong)   );
+  out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),   out_cnt*sizeof(ulong)   );
+  out_reliable = (int *)FD_SCRATCH_ALLOC_APPEND( l, alignof(int),     out_cnt*sizeof(int)     );
+  out_sync  = (ulong **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *), out_cnt*sizeof(ulong *) );
 
   ulong cr_max = fd_ulong_if( !out_cnt || !cons_cnt, 128UL, ULONG_MAX );
 
@@ -418,6 +434,21 @@ STEM_(run1)( ulong                        in_cnt,
         /* Receive flow control credits from this out. */
         ulong this_cons_seq = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
         cons_seq[ cons_idx ] = this_cons_seq;
+
+#if STEM_FUTEX
+        /* If consumer is asleep and behind, wake it up */
+        int cons_asleep = fd_fseq_sleep_query( cons_fseq[ cons_idx ] ); /* load-acquire */
+        ulong out_idx = cons_out[ cons_idx ];
+        ulong out_seq = out_seq[ out_idx ];
+        if( FD_UNLIKELY( cons_asleep && fd_seq_lt( this_cons_seq, out_seq ) ) ) {
+          /* FIXME consider using inline asm wrappers for better codegen */
+          long res = syscall( SYS_futex, (uint const *)out_sync[ out_idx ], FUTEX_WAKE, INT_MAX, NULL, NULL, 0 );
+          if( FD_UNLIKELY( res<0 ) ) FD_LOG_ERR(( "futex(FUTEX_WAKE,%p) failed (%i-%s)", (void *)out_sync[ out_idx ], errno, fd_io_strerror( errno ) ));
+        }
+#else
+  (void)out_sync;
+#endif
+
 #ifdef STEM_CALLBACK_RECV_CREDIT
         STEM_CALLBACK_RECV_CREDIT( ctx, cons_out[ cons_idx ], out_seq[ cons_out[ cons_idx ] ], this_cons_seq );
 #endif
@@ -881,6 +912,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_NAME
 #undef STEM_
 #undef STEM_BURST
+#undef STEM_FUTEX
 #undef STEM_CALLBACK_CONTEXT_TYPE
 #undef STEM_CALLBACK_CONTEXT_ALIGN
 #undef STEM_LAZY
