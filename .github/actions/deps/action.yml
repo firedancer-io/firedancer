@@ -41,8 +41,10 @@ runs:
     - name: Set extras key value
       shell: bash
       id: extras_trimmed
+      env:
+        EXTRAS: ${{ inputs.extras }}
       run: |
-        key=$(echo "${{ inputs.extras }}" | sed 's/[[:space:]]//g')
+        key=$(echo "$EXTRAS" | sed 's/[[:space:]]//g')
         echo "extras_key=$key" >> $GITHUB_OUTPUT
 
     - name: apt-get update
@@ -52,7 +54,9 @@ runs:
 
     - id: deps-sh-hash
       shell: bash
-      run: cat /etc/os-release '${{ inputs.deps-script-path }}' | sha256sum | awk '{print "HASH=" $1}' >> "$GITHUB_OUTPUT"
+      env:
+        DEPS_SCRIPT_PATH: ${{ inputs.deps-script-path }}
+      run: cat /etc/os-release "$DEPS_SCRIPT_PATH" | sha256sum | awk '{print "HASH=" $1}' >> "$GITHUB_OUTPUT"
 
     - id: deps-sh-cache
       uses: corca-ai/local-cache@v2
@@ -64,7 +68,9 @@ runs:
 
     - name: Install system level dependencies
       shell: bash
-      run: FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' check
+      env:
+        DEPS_SCRIPT_PATH: ${{ inputs.deps-script-path }}
+      run: FD_AUTO_INSTALL_PACKAGES=1 "$DEPS_SCRIPT_PATH" check
 
     - name: Install dependencies from cache
       shell: bash
@@ -73,13 +79,20 @@ runs:
 
     - name: Install dependencies from scratch
       shell: bash
+      env:
+        COMPILER: ${{ inputs.compiler }}
+        COMPILER_VERSION: ${{ inputs.compiler-version }}
+        CXX: ${{ inputs.compiler == 'gcc' && 'g++' || 'clang++' }}
+        DEPS_SCRIPT_PATH: ${{ inputs.deps-script-path }}
+        DEPS_BUNDLE_PATH: ${{ inputs.deps-bundle-path }}
+        EXTRAS: ${{ inputs.extras }}
       run: |
-        if [[ "${{ inputs.compiler-version }}" != "system" ]]; then
-          source /opt/${{ inputs.compiler }}/${{ inputs.compiler }}-${{ inputs.compiler-version }}/activate
+        if [[ "$COMPILER_VERSION" != "system" ]]; then
+          source /opt/${COMPILER}/${COMPILER}-${COMPILER_VERSION}/activate
         fi
-        CC='${{ inputs.compiler }}' \
-        CXX='${{ inputs.compiler == 'gcc' && 'g++' || 'clang++' }}' \
+        CC="$COMPILER" \
+        CXX="$CXX" \
         FD_AUTO_INSTALL_PACKAGES=1 \
-        '${{ inputs.deps-script-path }}' ${{ inputs.extras }} fetch install
-        '${{ inputs.deps-bundle-path }}'
+        "$DEPS_SCRIPT_PATH" $EXTRAS fetch install
+        "$DEPS_BUNDLE_PATH"
       if: steps.deps-sh-cache.outputs.cache-hit != 'true'

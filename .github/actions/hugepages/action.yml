@@ -14,6 +14,9 @@ runs:
   using: composite
   steps:
     - shell: bash
+      env:
+        COUNT_GIGANTIC: ${{ inputs.count_gigantic }}
+        COUNT_HUGE: ${{ inputs.count_huge }}
       run: |
         set -x
 
@@ -28,9 +31,9 @@ runs:
            findmnt -t hugetlbfs /mnt/.fd/.huge     >/dev/null 2>&1 && \
            ! has_min_size "$gigantic_opts" && \
            ! has_min_size "$huge_opts" && \
-           [ "$gigantic_have" -ge '${{ inputs.count_gigantic }}' ] && \
-           [ "$huge_have"     -ge '${{ inputs.count_huge }}'     ]; then
-          echo "hugepages: mounts present (no min_size) and >= ${{ inputs.count_gigantic }} gigantic / ${{ inputs.count_huge }} huge pages already reserved; nothing to do"
+           [ "$gigantic_have" -ge "$COUNT_GIGANTIC" ] && \
+           [ "$huge_have"     -ge "$COUNT_HUGE"     ]; then
+          echo "hugepages: mounts present (no min_size) and >= $COUNT_GIGANTIC gigantic / $COUNT_HUGE huge pages already reserved; nothing to do"
           sudo chown -R $USER:$USER /mnt/.fd || true
           exit 0
         fi
@@ -41,8 +44,8 @@ runs:
         findmnt -t hugetlbfs -n -o TARGET | xargs -r sudo umount || true
         sudo src/util/shmem/fd_shmem_cfg reset || true
         sudo src/util/shmem/fd_shmem_cfg init 0775 $USER "" || true
-        [ "$gigantic_have" -lt '${{ inputs.count_gigantic }}' ] && \
-          sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_gigantic }}' gigantic 0
-        [ "$huge_have" -lt '${{ inputs.count_huge }}' ] && \
-          sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_huge }}' huge 0
+        [ "$gigantic_have" -lt "$COUNT_GIGANTIC" ] && \
+          sudo src/util/shmem/fd_shmem_cfg alloc "$COUNT_GIGANTIC" gigantic 0
+        [ "$huge_have" -lt "$COUNT_HUGE" ] && \
+          sudo src/util/shmem/fd_shmem_cfg alloc "$COUNT_HUGE" huge 0
         sudo chown -R $USER:$USER /mnt/.fd
