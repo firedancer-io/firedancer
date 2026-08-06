@@ -76,6 +76,7 @@ acquire_slotv( fd_chainer_t * chainer, ulong slot, ulong version ) {
   fd_slotv_map_t * slotv_map  = fd_chainer_slotv_map ( chainer );
   fd_slotv_t     * slotv_pool = fd_chainer_slotv_pool( chainer );
   FD_TEST( fd_slotv_pool_free( slotv_pool ) );
+  FD_TEST( version<FD_CHAINER_SLOT_VER_MAX );
 
   fd_slotv_t * slotv = fd_slotv_pool_ele_acquire( slotv_pool );
   slotv->key               = FD_CHAINER_SLOTV_KEY( slot, version );
@@ -89,6 +90,7 @@ acquire_slotv( fd_chainer_t * chainer, ulong slot, ulong version ) {
   slotv->highest_requested = UINT_MAX;
   slotv->in_treap          = 0;
   slotv->in_orphan         = 0;
+  slotv->fec_head          = fd_fec_pool_idx_null( fd_chainer_fec_pool( chainer ) );
 
   fd_memset( &slotv->block_id,        0, sizeof(fd_hash_t) );
   fd_memset( &slotv->parent_block_id, 0, sizeof(fd_hash_t) );
@@ -120,11 +122,6 @@ fd_chainer_init( fd_chainer_t    * chainer,
 }
 
 static inline ushort
-fec_version( ulong key ) {
-  return (ushort)fd_ulong_extract_lsb( key, 2 );
-}
-
-static inline ushort
 slotv_version( ulong key ) {
   return (ushort)fd_ulong_extract_lsb( key, 2 );
 }
@@ -132,64 +129,6 @@ slotv_version( ulong key ) {
 static inline ulong
 slotv_slot( ulong key ) {
   return key >> 17;
-}
-
-/* fd_chainer_fec_query returns the FEC for the exact (slot, fec_set_idx,
-   version), or NULL. */
-
-fd_fec_t *
-fd_chainer_fec_query( fd_chainer_t * chainer,
-                      ulong          slot,
-                      uint           fec_set_idx,
-                      ulong          version ) {
-  fd_fec_map_t * fec_map  = fd_chainer_fec_map ( chainer );
-  fd_fec_t     * fec_pool = fd_chainer_fec_pool( chainer );
-  ulong key = FD_CHAINER_FEC_KEY( slot, fec_set_idx, version );
-  return fd_fec_map_ele_query( fec_map, &key, NULL, fec_pool );
-}
-
-/* fec_exists returns the earliest version FEC if any (slot, fec_set_idx) exists, or NULL. */
-
-static fd_fec_t *
-fec_exists( fd_chainer_t * chainer, ulong slot, uint fec_set_idx ) {
-  return fd_chainer_fec_query( chainer, slot, fec_set_idx, 0 );
-}
-
-/* fec_query returns the FEC at (slot, fec_set_idx) whose merkle_root
-   matches mr, across all versions, or NULL. */
-
-static fd_fec_t *
-fec_query( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, fd_hash_t const * mr ) {
-  for( ulong v=0UL; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
-    fd_fec_t * fec = fd_chainer_fec_query( chainer, slot, fec_set_idx, v );
-    if( FD_LIKELY( fec ) && fd_hash_eq( &fec->merkle_root, mr ) ) return fec;
-  }
-  return NULL;
-}
-
-/* acquire_fec allocates and map-inserts a FEC for (slot, fec_set_idx,
-   version) with the given root.  sentinel=1 marks a not-yet-completed
-   FEC known-canonical from a notar-fallback getFecRoot. */
-
-static fd_fec_t *
-acquire_fec( fd_chainer_t    * chainer,
-             ulong             slot,
-             uint              fec_set_idx,
-             ulong             version,
-             fd_hash_t const * mr,
-             int               sentinel ) {
-  fd_fec_map_t * fec_map  = fd_chainer_fec_map ( chainer );
-  fd_fec_t     * fec_pool = fd_chainer_fec_pool( chainer );
-
-  if( FD_UNLIKELY( !fd_fec_pool_free( fec_pool ) ) ) FD_LOG_CRIT(( "fec_pool is full" ));
-  fd_fec_t * fec = fd_fec_pool_ele_acquire( fec_pool );
-  fec->key           = FD_CHAINER_FEC_KEY( slot, fec_set_idx, version );
-  fec->merkle_root   = *mr;
-  fec->slot_complete = 0;
-  fec->data_complete = 0;
-  fec->sentinel      = (uchar)sentinel;
-  fd_fec_map_ele_insert( fec_map, fec, fec_pool );
-  return fec;
 }
 
 /* slotv_query returns the slotv for the exact (slot, version), or NULL. */
@@ -201,6 +140,298 @@ slotv_query( fd_chainer_t * chainer, ulong slot, ulong version ) {
   ulong key = FD_CHAINER_SLOTV_KEY( slot, version );
   return fd_slotv_map_ele_query( slotv_map, &key, NULL, slotv_pool );
 }
+
+
+/* fd_chainer_fec_query returns the FEC for the exact (slot, fec_set_idx,
+   version), or NULL. */
+
+fd_fec_t *
+fd_chainer_fec_query( fd_chainer_t * chainer,
+                      ulong          slot,
+                      uint           fec_set_idx,
+                      ulong          version ) {
+  fd_fec_map_t * fec_map  = fd_chainer_fec_map ( chainer );
+  fd_fec_t     * fec_pool = fd_chainer_fec_pool( chainer );
+  ulong key = FD_CHAINER_FEC_KEY( slot, fec_set_idx );
+  for( ulong idx = fd_fec_map_idx_query( fec_map, &key, ULONG_MAX, fec_pool );
+             idx!=ULONG_MAX;
+             idx = fd_fec_map_idx_next_const( idx, ULONG_MAX, fec_pool ) ) {
+    fd_fec_t * fec = fd_fec_pool_ele( fec_pool, idx );
+    if( FD_LIKELY( fd_slotv_set_test( fec->versions, version ) ) ) return fec;
+  }
+  return NULL;
+}
+
+/* fec_exists returns any FEC at (slot, fec_set_idx) regardless of which
+   versions include it, or NULL. */
+
+FD_FN_UNUSED fd_fec_t *
+fec_exists( fd_chainer_t * chainer, ulong slot, uint fec_set_idx ) {
+  fd_fec_map_t * fec_map  = fd_chainer_fec_map ( chainer );
+  fd_fec_t     * fec_pool = fd_chainer_fec_pool( chainer );
+  ulong key = FD_CHAINER_FEC_KEY( slot, fec_set_idx );
+  return fd_fec_map_ele_query( fec_map, &key, NULL, fec_pool );
+}
+
+/* fec_query returns the FEC at (slot, fec_set_idx) whose merkle_root
+   matches mr, or NULL. */
+
+static fd_fec_t *
+fec_query( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, fd_hash_t const * mr ) {
+  fd_fec_map_t * fec_map  = fd_chainer_fec_map ( chainer );
+  fd_fec_t     * fec_pool = fd_chainer_fec_pool( chainer );
+  ulong key = FD_CHAINER_FEC_KEY( slot, fec_set_idx );
+  for( ulong idx = fd_fec_map_idx_query( fec_map, &key, ULONG_MAX, fec_pool );
+             idx!= ULONG_MAX;
+             idx = fd_fec_map_idx_next_const( idx, ULONG_MAX, fec_pool ) ) {
+    fd_fec_t * fec = fd_fec_pool_ele( fec_pool, idx );
+    if( FD_LIKELY( fd_hash_eq( &fec->merkle_root, mr ) ) ) return fec;
+  }
+  return NULL;
+}
+
+/* fec_join records that version includes the FEC at (slot, fec_set_idx)
+   with root mr, creating the entry if this root has not been seen at
+   this position yet.  mark sentinel.   */
+
+static fd_fec_t *
+fec_join( fd_chainer_t    * chainer,
+          ulong             slot,
+          uint              fec_set_idx,
+          ulong             version,
+          fd_hash_t const * mr,
+          int               sentinel ) {
+  fd_fec_t * fec = fec_query( chainer, slot, fec_set_idx, mr );
+  if( FD_UNLIKELY( !fec ) ) {
+    fd_fec_map_t * fec_map  = fd_chainer_fec_map ( chainer );
+    fd_fec_t     * fec_pool = fd_chainer_fec_pool( chainer );
+
+    if( FD_UNLIKELY( !fd_fec_pool_free( fec_pool ) ) ) FD_LOG_CRIT(( "fec_pool is full" ));
+    fec = fd_fec_pool_ele_acquire( fec_pool );
+    fec->key           = FD_CHAINER_FEC_KEY( slot, fec_set_idx );
+    fec->merkle_root   = *mr;
+    fec->slot_complete = 0;
+    fec->sentinel      = (uchar)sentinel;
+    fd_slotv_set_null( fec->versions );
+    fd_fec_map_ele_insert( fec_map, fec, fec_pool );
+
+    /* Thread onto this slot's FEC list, head-first (order and
+       sentinel-status does not matter, publish just needs to reach them
+       all).  The list is per-slot, so the head lives on version 0's
+       slotv. */
+    fd_slotv_t * head = slotv_query( chainer, slot, 0UL );
+    if( FD_UNLIKELY( !head ) ) head = acquire_slotv( chainer, slot, 0UL );
+    fec->slot_next = head->fec_head;
+    head->fec_head = fd_fec_pool_idx( fec_pool, fec );
+  }
+  fd_slotv_set_insert( fec->versions, version );
+  return fec;
+}
+
+/* lowest_free_repair_version returns the lowest unused version at or
+   above 1 -- version 0 is reserved for “garbage” version of the slot,
+   Returns FD_CHAINER_SLOT_VER_MAX if the slot has no free repair
+   version left; callers must treat that as "no free version" and drop. */
+
+static ulong
+lowest_free_repair_version( fd_chainer_t * chainer, ulong slot ) {
+  ulong version = 1UL;
+  for( ; version<FD_CHAINER_SLOT_VER_MAX; version++ ) {
+    if( FD_LIKELY( !slotv_query( chainer, slot, version ) ) ) break;
+  }
+  return version;
+}
+
+/* turbine_slotv returns version 0 of slot, the turbine version, creating
+   it if this is the first thing we have accepted for the slot.  Version 0
+   is reserved, so unlike a repair version this can never fail. */
+
+static fd_slotv_t *
+turbine_slotv( fd_chainer_t * chainer, ulong slot ) {
+  fd_slotv_t * slotv = slotv_query( chainer, slot, 0UL );
+  if( FD_UNLIKELY( !slotv ) ) slotv = acquire_slotv( chainer, slot, 0UL );
+  return slotv;
+}
+
+int
+fd_chainer_verify( fd_chainer_t const * chainer ) {
+# define FAIL( msg ) do { FD_LOG_WARNING(( "fd_chainer_verify: %s", msg )); return -1; } while(0)
+
+  if( FD_UNLIKELY( !chainer                                                   ) ) FAIL( "NULL chainer" );
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)chainer, fd_chainer_align() ) ) ) FAIL( "misaligned chainer" );
+  if( FD_UNLIKELY( !fd_wksp_containing( chainer )                             ) ) FAIL( "chainer must be part of a workspace" );
+  if( FD_UNLIKELY( chainer->magic!=FD_CHAINER_MAGIC                           ) ) FAIL( "bad magic" );
+
+  fd_chainer_t * chainer_ = (fd_chainer_t *)chainer;
+
+  fd_slotv_t        const * slotv_pool = fd_chainer_slotv_pool  ( chainer_ );
+  fd_slotv_map_t    const * slotv_map  = fd_chainer_slotv_map   ( chainer_ );
+  fd_slotv_repair_t const * rtreap     = fd_chainer_repair_treap( chainer_ );
+  fd_slotv_orphan_t const * otreap     = fd_chainer_orphan_treap( chainer_ );
+  fd_fec_t          const * fec_pool   = fd_chainer_fec_pool    ( chainer_ );
+  fd_fec_map_t      const * fec_map    = fd_chainer_fec_map     ( chainer_ );
+
+  if( FD_UNLIKELY( fd_slotv_map_verify( slotv_map, fd_slotv_pool_max( slotv_pool ), slotv_pool )==-1 ) ) FAIL( "slotv map corrupted" );
+  if( FD_UNLIKELY( fd_fec_map_verify  ( fec_map,   fd_fec_pool_max  ( fec_pool   ), fec_pool   )==-1 ) ) FAIL( "fec map corrupted"   );
+  if( FD_UNLIKELY( fd_slotv_repair_verify( rtreap, slotv_pool )==-1 ) ) FAIL( "repair treap corrupted" );
+  if( FD_UNLIKELY( fd_slotv_orphan_verify( otreap, slotv_pool )==-1 ) ) FAIL( "orphan treap corrupted" );
+
+  /* The root, if set, must have a version 0 and it must be connected --
+     it is by definition the start of every ancestry chain. */
+
+  if( FD_LIKELY( chainer->root!=ULONG_MAX ) ) {
+    ulong root_key = FD_CHAINER_SLOTV_KEY( chainer->root, 0UL );
+    fd_slotv_t const * root_slotv = fd_slotv_map_ele_query_const( slotv_map, &root_key, NULL, slotv_pool );
+    if( FD_UNLIKELY( !root_slotv             ) ) FAIL( "root has no version 0 slotv" );
+    if( FD_UNLIKELY( !root_slotv->connected  ) ) FAIL( "root slotv is not connected" );
+  }
+
+  ulong in_treap_cnt  = 0UL;
+  ulong in_orphan_cnt = 0UL;
+
+  /* Every FEC must appear on exactly one slot's list, so the total list
+     length has to match the number of FECs in the map -- a mismatch means
+     publish would leak (unlisted) or double-release (double-listed). */
+  ulong list_cnt = 0UL;
+  ulong fec_cnt  = 0UL;
+  ulong fec_null = fd_fec_pool_idx_null( fec_pool );
+  ulong fec_max  = fd_fec_pool_max( fec_pool );
+
+  for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( slotv_map, slotv_pool );
+                               !fd_slotv_map_iter_done( it, slotv_map, slotv_pool );
+                           it = fd_slotv_map_iter_next( it, slotv_map, slotv_pool ) ) {
+    fd_slotv_t const * slotv = fd_slotv_map_iter_ele_const( it, slotv_map, slotv_pool );
+
+    ulong slot    = FD_CHAINER_SLOTV_SLOT   ( slotv->key );
+    ulong version = FD_CHAINER_SLOTV_VERSION( slotv->key );
+
+    if( FD_UNLIKELY( FD_CHAINER_SLOTV_KEY( slot, version )!=slotv->key ) ) FAIL( "slotv key does not decode consistently" );
+    if( FD_UNLIKELY( version>=FD_CHAINER_SLOT_VER_MAX                  ) ) FAIL( "slotv version out of range" );
+
+    if( FD_UNLIKELY( fd_slotv_map_ele_query_const( slotv_map, &slotv->key, NULL, slotv_pool )!=slotv ) ) FAIL( "slotv not queryable by its own key" );
+
+    /* Nothing below the root may survive a publish. */
+
+    if( FD_UNLIKELY( chainer->root!=ULONG_MAX && slot<chainer->root ) ) FAIL( "slotv below the root" );
+
+    /* The FEC list hangs off version 0 only, so no other version may
+       claim a head, and every node on it must belong to this slot.  The
+       walk is bounded by the pool size so a cycle fails instead of
+       hanging. */
+
+    if( FD_UNLIKELY( version && slotv->fec_head!=fec_null ) ) FAIL( "non-zero version holds a fec list head" );
+
+    if( FD_LIKELY( !version ) ) {
+      ulong steps = 0UL;
+      for( ulong idx=slotv->fec_head; idx!=fec_null; ) {
+        if( FD_UNLIKELY( idx>=fec_max ) ) FAIL( "fec list idx out of range" );
+        fd_fec_t const * fec = fd_fec_pool_ele_const( fec_pool, idx );
+        if( FD_UNLIKELY( ( fec->key>>17 )!=slot ) ) FAIL( "fec list holds a fec of another slot" );
+        if( FD_UNLIKELY( ++steps>fec_max )        ) FAIL( "cycle in fec list" );
+        list_cnt++;
+        idx = fec->slot_next;
+      }
+    }
+
+    /* Shred index bookkeeping */
+
+    if( FD_UNLIKELY( slotv->complete_idx!=UINT_MAX && slotv->buffered_idx !=UINT_MAX &&
+                     slotv->buffered_idx >slotv->complete_idx ) ) FAIL( "buffered_idx > complete_idx" );
+    if( FD_UNLIKELY( slotv->complete_idx!=UINT_MAX && slotv->delivered_idx!=UINT_MAX &&
+                     slotv->delivered_idx>slotv->complete_idx ) ) FAIL( "delivered_idx > complete_idx" );
+
+    /* buffered_fec_idx is the last shred idx of a FEC set, so it is
+       always one below a multiple of FD_FEC_SHRED_CNT (UINT_MAX, the
+       "none" sentinel, satisfies this too). */
+
+    if( FD_UNLIKELY( ( slotv->buffered_fec_idx + 1U ) % FD_FEC_SHRED_CNT ) ) FAIL( "buffered_fec_idx is not the last idx of a FEC set" );
+
+    /* A buffered FEC set means all of its shreds are in hand, so the
+       contiguous FEC prefix can never run ahead of the contiguous shred
+       prefix. */
+
+    if( FD_UNLIKELY( slotv->buffered_fec_idx!=UINT_MAX &&
+                     ( slotv->buffered_idx==UINT_MAX ||
+                       slotv->buffered_idx<slotv->buffered_fec_idx ) ) ) FAIL( "buffered_fec_idx runs ahead of buffered_idx" );
+
+    /* Treap flags must agree with actual treap membership.  The treaps
+       are keyed by slotv->key, which is unique per the check above. */
+
+    if( FD_UNLIKELY( !!slotv->in_treap  != !!fd_slotv_repair_ele_query_const( rtreap, slotv->key, slotv_pool ) ) ) FAIL( "in_treap disagrees with repair treap membership" );
+    if( FD_UNLIKELY( !!slotv->in_orphan != !!fd_slotv_orphan_ele_query_const( otreap, slotv->key, slotv_pool ) ) ) FAIL( "in_orphan disagrees with orphan treap membership" );
+
+    in_treap_cnt  += !!slotv->in_treap;
+    in_orphan_cnt += !!slotv->in_orphan;
+  }
+
+  /* No treap may hold an slotv that is not in the map (a stale treap
+     link into a released pool element). */
+
+  if( FD_UNLIKELY( in_treap_cnt !=fd_slotv_repair_ele_cnt( rtreap ) ) ) FAIL( "repair treap holds slotvs that are not in the map" );
+  if( FD_UNLIKELY( in_orphan_cnt!=fd_slotv_orphan_ele_cnt( otreap ) ) ) FAIL( "orphan treap holds slotvs that are not in the map" );
+
+  for( fd_fec_map_iter_t it = fd_fec_map_iter_init( fec_map, fec_pool );
+                             !fd_fec_map_iter_done( it, fec_map, fec_pool );
+                         it = fd_fec_map_iter_next( it, fec_map, fec_pool ) ) {
+    fd_fec_t const * fec = fd_fec_map_iter_ele_const( it, fec_map, fec_pool );
+
+    fec_cnt++;
+
+    ulong slot        = fec->key>>17;
+    uint  fec_set_idx = (uint)( fec->key & 0x1FFFFUL );
+
+    if( FD_UNLIKELY( FD_CHAINER_FEC_KEY( slot, fec_set_idx )!=fec->key ) ) FAIL( "fec key does not decode consistently" );
+    if( FD_UNLIKELY( fec_set_idx % FD_FEC_SHRED_CNT                    ) ) FAIL( "fec_set_idx is not a multiple of FD_FEC_SHRED_CNT" );
+    if( FD_UNLIKELY( fec_set_idx>=FD_SHRED_BLK_MAX                     ) ) FAIL( "fec_set_idx out of range" );
+
+    if( FD_UNLIKELY( chainer->root!=ULONG_MAX && slot<chainer->root ) ) FAIL( "fec below the root" );
+
+    if( FD_UNLIKELY( fd_slotv_set_is_null( fec->versions ) ) ) FAIL( "fec claimed by no version" );
+
+    /* A FEC is threaded onto version 0's list, so version 0 must exist for
+       any slot that has one -- fec_join creates it if needed.  Without it
+       publish could never reach the slot's FECs. */
+
+    ulong anchor_key = FD_CHAINER_SLOTV_KEY( slot, 0UL );
+    if( FD_UNLIKELY( !fd_slotv_map_ele_query_const( slotv_map, &anchor_key, NULL, slotv_pool ) ) ) FAIL( "slot has a fec but no version 0 to anchor the list" );
+
+    /* A FEC is owned by the slotv of every version that includes it -- it
+       is only ever joined alongside one, and publish releases both. */
+
+    for( ulong version = fd_slotv_set_const_iter_init( fec->versions );
+                        !fd_slotv_set_const_iter_done( version );
+               version = fd_slotv_set_const_iter_next( fec->versions, version ) ) {
+      ulong slotv_key = FD_CHAINER_SLOTV_KEY( slot, version );
+      if( FD_UNLIKELY( !fd_slotv_map_ele_query_const( slotv_map, &slotv_key, NULL, slotv_pool ) ) ) FAIL( "fec has no owning slotv" );
+    }
+
+    /* A FEC merkle root appears at a position at most once and no two
+       entries at a position claim the same version, else "version v's
+       FEC at this index" is ambiguous. */
+
+    int found = 0;
+    for( ulong idx = fd_fec_map_idx_query_const( fec_map, &fec->key, ULONG_MAX, fec_pool );
+               idx!=ULONG_MAX;
+               idx = fd_fec_map_idx_next_const( idx, ULONG_MAX, fec_pool ) ) {
+      fd_fec_t const * other = fd_fec_pool_ele_const( fec_pool, idx );
+      if( other==fec ) { found = 1; continue; }
+
+      if( FD_UNLIKELY( fd_hash_eq( &other->merkle_root, &fec->merkle_root ) ) ) FAIL( "two fecs at the same position share a merkle root" );
+
+      for( ulong version = fd_slotv_set_const_iter_init( fec->versions );
+                          !fd_slotv_set_const_iter_done( version );
+                 version = fd_slotv_set_const_iter_next( fec->versions, version ) ) {
+        if( FD_UNLIKELY( fd_slotv_set_test( other->versions, version ) ) ) FAIL( "two fecs at the same position claim the same version" );
+      }
+    }
+    if( FD_UNLIKELY( !found ) ) FAIL( "fec not reachable from its own key" );
+  }
+
+  if( FD_UNLIKELY( list_cnt!=fec_cnt ) ) FAIL( "fec list total does not match the fec map" );
+
+  return 0;
+}
+#undef FAIL
 
 /* finalize_block_id computes the slotv's double-merkle block_id and
    writes it to slotv->block_id.  Returns 1 on success, 0 on failure.
@@ -253,53 +484,58 @@ fd_chainer_shred_insert( fd_chainer_t    * chainer,
                          fd_hash_t const * mr,
                          ulong             parent_slot,
                          fd_hash_t const * parent_block_id ) {
-
   uint fec_set_idx = shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
-  ulong version = 0UL;
 
-  /* If no FEC has this root, accept it only as a version 0 iff the slot
-     is still single-version (or has no version yet) and this FEC set
-     has no version yet; otherwise drop (equivocation without a
-     sentinel). */
+  /* Collect the slot versions this shred belongs to. If this shred
+     belongs to a FEC set that is already present, multiple slot versions
+     could be carrying this FEC root. */
+
+  fd_slotv_set_t slotv_with_fec[fd_slotv_set_word_cnt];
+  fd_slotv_set_null( slotv_with_fec );
+
   fd_fec_t * fec = fec_query( chainer, slot, fec_set_idx, mr );
-  if( FD_UNLIKELY( !fec ) ) {
-    if( FD_UNLIKELY( !!slotv_query( chainer, slot, 1 ) || fec_exists( chainer, slot, fec_set_idx ) ) ) return;
-    version = 0UL;
-  } else {
-    version = fec_version( fec->key );
-  }
+  if( FD_UNLIKELY( fec ) ) fd_slotv_set_copy( slotv_with_fec, fec->versions );
 
-  fd_slotv_t * slotv = slotv_query( chainer, slot, version );
-  if( FD_UNLIKELY( !slotv ) ) {
-    if( FD_LIKELY( version==0UL ) ) slotv = acquire_slotv( chainer, slot, 0UL );
-    else FD_LOG_CRIT(( "shred for version %lu of slot %lu but no slotv -- sentinel path should have created it", version, slot ));
-  }
+  /* For now, we'll always accept the shred and into the turbine version
+     of the slotv. The turbine version of the slotv can be considered a
+     garbage can that accepts any and all shreds.  Something to consider
+     - if we already have notar-fallback certs for this slot, maybe we
+     shouldn't be accepting turbine shreds / shreds that don't verify
+     into one of the notar-fallback versions at all. But for now we do. */
+  turbine_slotv( chainer, slot );
+  fd_slotv_set_insert( slotv_with_fec, 0UL );
 
-  /* update shred indexing */
-  fd_shred_idxs_insert( slotv->shred_idxs, shred_idx );
-  if( FD_UNLIKELY( slot_complete ) ) slotv->complete_idx = shred_idx;
-  while( slotv->buffered_idx + 1 < FD_SHRED_BLK_MAX && fd_shred_idxs_test( slotv->shred_idxs, slotv->buffered_idx + 1U ) ) {
-    slotv->buffered_idx++;
-  }
-  /* If equivocating, buffered_idx needs to be clamped to complete_idx */
-  if( FD_UNLIKELY( slotv->buffered_idx != UINT_MAX && slotv->complete_idx != UINT_MAX && slotv->buffered_idx > slotv->complete_idx ) ) slotv->buffered_idx = slotv->complete_idx;
+  for( ulong i = fd_slotv_set_const_iter_init( slotv_with_fec );
+                !fd_slotv_set_const_iter_done( i );
+             i = fd_slotv_set_const_iter_next( slotv_with_fec, i ) ) {
+    fd_slotv_t * slotv = slotv_query( chainer, slot, i );
 
-  /* parent_slot_batch tracks which batch the information came from so a later UpdateParent supersedes the
-     header (it may only move forward).  UINT_MAX means "nothing known
-     yet", so it is not a batch index to compare against. */
-  if( parent_slot != AG_UNKNOWN_SLOT &&
-      ( slotv->parent_slot_batch==UINT_MAX || shred_idx>slotv->parent_slot_batch ) ) {
-    slotv->parent_slot       = parent_slot;
-    slotv->parent_slot_batch = shred_idx;
-    FD_TEST( parent_block_id ); /* TODO do handholding check */
-    if( slotv_query( chainer, parent_slot, 0 ) ) {
-      // TODO is this safe? -- check for FLH case
-      fd_chainer_orphan_remove( chainer, slotv ); /* no longer unknown */
+    /* update shred indexing */
+    fd_shred_idxs_insert( slotv->shred_idxs, shred_idx );
+    if( FD_UNLIKELY( slot_complete ) ) slotv->complete_idx = shred_idx;
+    while( slotv->buffered_idx + 1 < FD_SHRED_BLK_MAX && fd_shred_idxs_test( slotv->shred_idxs, slotv->buffered_idx + 1U ) ) {
+      slotv->buffered_idx++;
     }
+    /* If equivocating, buffered_idx needs to be clamped to complete_idx */
+    if( FD_UNLIKELY( slotv->buffered_idx != UINT_MAX && slotv->complete_idx != UINT_MAX && slotv->buffered_idx > slotv->complete_idx ) ) slotv->buffered_idx = slotv->complete_idx;
 
-    slotv->parent_block_id = *parent_block_id;
-    fd_slotv_t * parent = fd_chainer_slot_version_query( chainer, parent_slot, parent_block_id );
-    if( FD_LIKELY( parent && parent->connected ) ) slotv->connected = 1;
+    /* parent_slot_batch tracks which batch the information came from so a later UpdateParent supersedes the
+       header (it may only move forward).  UINT_MAX means "nothing known
+       yet", so it is not a batch index to compare against. */
+    if( parent_slot != AG_UNKNOWN_SLOT &&
+      ( slotv->parent_slot_batch==UINT_MAX || shred_idx>slotv->parent_slot_batch ) ) {
+      slotv->parent_slot       = parent_slot;
+      slotv->parent_slot_batch = shred_idx;
+      FD_TEST( parent_block_id ); /* TODO do handholding check */
+      if( slotv_query( chainer, parent_slot, 0 ) ) {
+        // TODO is this safe? -- check for FLH case
+        fd_chainer_orphan_remove( chainer, slotv ); /* no longer unknown */
+      }
+
+      slotv->parent_block_id = *parent_block_id;
+      fd_slotv_t * parent = fd_chainer_slot_version_query( chainer, parent_slot, parent_block_id );
+      if( FD_LIKELY( parent && parent->connected ) ) slotv->connected = 1;
+    }
   }
 }
 
@@ -377,10 +613,12 @@ chainer_advance( fd_chainer_t * chainer, fd_slotv_t * seed ) {
    its possible we can still receive multiple completed versions through
    turbine if the fec_resolver done map is getting churned.
 
-   Case 1: we are recieving the first version of this FEC set.
-   Case 2: FEC with mr already exists, mark them all non-sentinel.
-   Case 3: FEC with mr does not exist, but another version of this FEC set exists with a different root ->
-           means this is equivocating, but we didn't get a getSliceHash verified insert, drop. */
+   Note the turbine slotv will only accept the first version at this
+   FEC set index.  Otherwise, we will accept this FEC if a slot version
+   created by a notar-fallback cert claims this FEC set.
+
+   Cases 1 and 2 converge: once version 0's entry exists, the fill loop
+   below treats it like any other matching version. */
 int
 fd_chainer_fec_insert( fd_chainer_t * chainer,
                        ulong          slot,
@@ -393,43 +631,49 @@ fd_chainer_fec_insert( fd_chainer_t * chainer,
     fd_chainer_shred_insert( chainer, slot, fec_set_idx_ + i, slot_complete && (i == FD_FEC_SHRED_CNT - 1), mr, AG_UNKNOWN_SLOT, NULL );
   }
 
-  /* Case 2: a FEC with this exact root already exists.  Fill every
-     version that has it (turbine dup, or getFecRoot sentinels), clearing
-     the sentinel -- one turbine/repair completion satisfies a
-     shared-prefix FEC across all versions at once. */
-  int matched = 0;
-  for( ulong v=0UL; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
-    fd_fec_t * fec = fd_chainer_fec_query( chainer, slot, fec_set_idx, v );
-    if( !fec || !fd_hash_eq( &fec->merkle_root, mr ) ) continue;
-    fec->sentinel = 0;
-    if( slot_complete ) fec->slot_complete = 1;
-    matched = 1;
+  fd_fec_t * fec = fec_query( chainer, slot, fec_set_idx, mr );
+  turbine_slotv( chainer, slot );
+  if( FD_LIKELY( !fd_chainer_fec_query( chainer, slot, fec_set_idx, 0UL ) ) ) {
+    /* turbine slotv only joins the first instance of fec_set_idx it sees */
+    fec = fec_join( chainer, slot, fec_set_idx, 0UL, mr, 0 );
+  }
+
+  /* fec is still NULL only if the turbine version already holds a
+     *different* root at this position -- a matching one would have been
+     found above, and an absent one would have been joined. Keep the
+     first-seen root and drop. */
+  if( FD_UNLIKELY( !fec ) ) return 1;
+
+  fec->sentinel = 0;
+  if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
+
+  for( ulong i = fd_slotv_set_const_iter_init( fec->versions );
+                !fd_slotv_set_const_iter_done( i );
+             i = fd_slotv_set_const_iter_next( fec->versions, i ) ) {
+    ulong v = i;
+
     fd_slotv_t * slotv = slotv_query( chainer, slot, v );
-    if( FD_LIKELY( slotv ) ) chainer_advance( chainer, slotv );
-  }
-  if( matched ) return 0;
+    FD_TEST( slotv );
 
-  /* Case 3: some other version of this FEC set exists with a different
-     root, and no sentinel authorized this root -> equivocation, drop. */
-  if( FD_UNLIKELY( fec_exists( chainer, slot, fec_set_idx ) ) ) return 1;
+    /* Extend this version's contiguous buffered FEC prefix. */
+    for(;;) {
+      fd_fec_t * next = fd_chainer_fec_query( chainer, slot, slotv->buffered_fec_idx + 1U, v );
+      if( !next || next->sentinel ) break;
+      slotv->buffered_fec_idx += FD_FEC_SHRED_CNT;
+    }
 
-  /* Case 1: first version of this FEC set -> version 0 (turbine). */
-  fd_fec_t * fec = acquire_fec( chainer, slot, fec_set_idx, 0UL, mr, 0 /* not a sentinel */ );
-  if( slot_complete ) fec->slot_complete = 1;
-  fd_slotv_t * slotv = slotv_query( chainer, slot, 0 );
-  if( FD_UNLIKELY( !slotv ) ) slotv = acquire_slotv( chainer, slot, 0 );
+    /* Slot is complete -> we can record the block_id, and we must have
+       all of its components at this point.  Only a turbine version needs
+       it computed: a notar-fallback version already learned its block_id
+       from the cert, and recomputing would be a waste. */
+    if( FD_UNLIKELY( slotv->complete_idx != UINT_MAX && slotv->buffered_fec_idx == slotv->complete_idx && fd_hash_check_zero( &slotv->block_id ) ) ) {
+      if( FD_UNLIKELY( slotv->parent_slot == AG_UNKNOWN_SLOT ) ) FD_LOG_CRIT(( "slot %lu is complete, but parent_slot is still unknown", slot ));
+      if( FD_UNLIKELY( !finalize_block_id( chainer, slotv ) ) ) FD_LOG_CRIT(( "failed to finalize block_id for slot %lu", slot ));
+    }
 
-  while( fd_chainer_fec_query( chainer, slot, slotv->buffered_fec_idx + 1, 0 ) ) {
-    slotv->buffered_fec_idx += FD_FEC_SHRED_CNT;
-  }
-
-  if( slotv->complete_idx != UINT_MAX && slotv->buffered_fec_idx == slotv->complete_idx ) {
-    /* if slot is complete, we can record the block_id. We must have
-       all the components of the block_id at this point. */
-    if( !finalize_block_id( chainer, slotv ) ) FD_LOG_CRIT(( "failed to finalize block_id for slot %lu", slot ));
+    chainer_advance( chainer, slotv );
   }
 
-  chainer_advance( chainer, slotv );
   return 0;
 }
 
@@ -450,11 +694,7 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
 
   fd_slotv_t * parent_slotv = fd_chainer_slot_version_query( chainer, parent_slot, parent_block_id );
   if( FD_UNLIKELY( !parent_slotv ) ) {
-    /* find next free version */
-    ulong v = 0;
-    for( ; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
-      if( FD_LIKELY( !slotv_query( chainer, parent_slot, v ) ) ) break;
-    }
+    ulong v = lowest_free_repair_version( chainer, parent_slot );
     if( FD_UNLIKELY( v==FD_CHAINER_SLOT_VER_MAX ) ) FD_LOG_CRIT(( "more than %d versions for slot %lu", FD_CHAINER_SLOT_VER_MAX, parent_slot ));
     parent_slotv = acquire_slotv( chainer, parent_slot, v );
     parent_slotv->block_id = *parent_block_id;
@@ -482,21 +722,22 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
   /* Already have this version's FEC entry -> nothing to fetch. */
   if( FD_UNLIKELY( fd_chainer_fec_query( chainer, slot, fec_set_idx, version ) ) ) return;
 
-  /* the same root may already be filled under another
-     version.  If it's already complete, create this version's entry
-     already-complete so delivery doesn't stall on shreds that were
-     handed to the other version.  Otherwise create a sentinel awaiting
-     shreds; a later completion fills every matching-root version at
-     once (see fd_chainer_fec_insert). */
+  /* the same root may already be completed under another version.  If
+     so, create this version's entry already-complete and replay the
+     completion through fd_chainer_fec_insert.  Otherwise create a
+     sentinel that is awaiting shreds. */
   fd_fec_t * shared = fec_query( chainer, slot, fec_set_idx, mr );
   int shared_complete = shared && !shared->sentinel;
-  fd_fec_t * fec = acquire_fec( chainer, slot, fec_set_idx, version, mr, !shared_complete /* sentinel */ );
+  fd_fec_t * fec = fec_join( chainer, slot, fec_set_idx, version, mr, !shared_complete /* sentinel */ );
+
+  if( FD_LIKELY( shared_complete ) ) {
+    fd_chainer_fec_insert( chainer, slot, fec_set_idx, shared->slot_complete, mr );
+  }
 
   if( FD_UNLIKELY ( ( shared_complete && shared->slot_complete ) ||
                     ( slotv->complete_idx - FD_FEC_SHRED_CNT + 1 == fec_set_idx ) ) )
     fec->slot_complete = 1;
 
-  fec->merkle_root = *mr;
   fd_chainer_repair_add( chainer, slotv ); /* new sentinel -> re-add for shred fill */
   chainer_advance( chainer, slotv );
 }
@@ -515,35 +756,22 @@ fd_chainer_shred_for_block_id_verify( fd_chainer_t *    chainer,
 }
 
 
-/* TODO need to handle when we get notar fallbacks before we've even
-   completed the turbine version -- in that case we might be creating two
-   copies of the exact same slotv */
 void
 fd_chainer_notar_fallback( fd_chainer_t * chainer,
                            ulong          slot,
                            fd_hash_t      block_id ) {
-  /* if we already have an slotv with this block_id, no-op. */
+  /* if we already have an slotv with this block_id, no-op.  Note
+     turbine block_id may not be computed yet. */
   if( FD_LIKELY( fd_chainer_slot_version_query( chainer, slot, &block_id ) ) ) return;
 
-  /* Assign the lowest free version so versions stay contiguous from 0 */
-  ulong version = 0;
-  for( ; version<FD_CHAINER_SLOT_VER_MAX; version++ ) {
-    if( FD_LIKELY( !slotv_query( chainer, slot, version ) ) ) break;
-  }
+  /* Assign the lowest free repair/NF cert version */
+  ulong version = lowest_free_repair_version( chainer, slot );
   if( FD_UNLIKELY( version==FD_CHAINER_SLOT_VER_MAX ) ) FD_LOG_CRIT(( "more than %d versions for slot %lu", FD_CHAINER_SLOT_VER_MAX, slot ));
 
   fd_slotv_t * slotv = acquire_slotv( chainer, slot, version );
   slotv->block_id = block_id;
 }
 
-void
-fec_remove( fd_chainer_t * chainer,
-            ulong          fec_key ) {
-  fd_fec_t * fec_pool = fd_chainer_fec_pool( chainer );
-  fd_fec_t * fec = fd_fec_map_ele_remove( fd_chainer_fec_map( chainer ), &fec_key, NULL, fec_pool );
-  if( FD_UNLIKELY( !fec ) ) return;
-  fd_fec_pool_ele_release( fec_pool, fec );
-}
 
 void
 fd_chainer_publish( fd_chainer_t *    chainer,
@@ -551,6 +779,8 @@ fd_chainer_publish( fd_chainer_t *    chainer,
                     fd_hash_t const * new_root_block_id ) {
   fd_slotv_map_t * slotv_map  = fd_chainer_slotv_map( chainer );
   fd_slotv_t     * slotv_pool = fd_chainer_slotv_pool( chainer );
+  fd_fec_map_t   * fec_map    = fd_chainer_fec_map  ( chainer );
+  fd_fec_t       * fec_pool   = fd_chainer_fec_pool ( chainer );
   ulong root = chainer->root;
   if( FD_UNLIKELY( root==ULONG_MAX ) ) return;
   FD_TEST( root < new_root );
@@ -571,15 +801,26 @@ fd_chainer_publish( fd_chainer_t *    chainer,
   for( ulong slot=root; slot<new_root; slot++ ) {
     for( ulong v=0UL; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
       fd_slotv_t * slotv = slotv_query( chainer, slot, v );
-      if( FD_UNLIKELY( !slotv ) ) break;
+      if( FD_UNLIKELY( !slotv ) ) continue; /* technically at publish time, versions should be dense */
       fd_chainer_orphan_remove( chainer, slotv );
       fd_chainer_repair_remove( chainer, slotv );
 
-      for( uint f=0UL; f<fd_ulong_min( slotv->complete_idx, 1024); f+=32 ) {
-        /* pretty easily dos-able, think we should keep a list (in any order) of the fecs for an slotv
-           ulong_min is a temp hack for now. */
-        fec_remove( chainer, FD_CHAINER_FEC_KEY( slot, f, v ) );
+      /* Release every FEC of this slot by walking its list, held by
+         version 0's slotv. */
+      if( FD_LIKELY( v==0UL ) ) {
+        ulong fec_null = fd_fec_pool_idx_null( fec_pool );
+        for( ulong idx=slotv->fec_head; idx!=fec_null; ) {
+          fd_fec_t * fec  = fd_fec_pool_ele( fec_pool, idx );
+          ulong      next = fec->slot_next;
+          ulong      key  = fec->key;
+
+          fd_fec_t * removed = fd_fec_map_ele_remove( fec_map, &key, NULL, fec_pool );
+          if( FD_LIKELY( removed ) ) fd_fec_pool_ele_release( fec_pool, removed );
+          idx = next;
+        }
+        slotv->fec_head = fec_null;
       }
+
       fd_slotv_map_ele_remove( slotv_map, &slotv->key, NULL, slotv_pool );
       fd_slotv_pool_ele_release( slotv_pool, slotv );
     }
@@ -588,15 +829,27 @@ fd_chainer_publish( fd_chainer_t *    chainer,
   chainer->root = new_root;
   for( ulong v=0UL; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
     fd_slotv_t * root_slotv = slotv_query( chainer, new_root, v );
-    if( FD_UNLIKELY( !root_slotv ) ) break;
+    if( FD_UNLIKELY( !root_slotv ) ) continue;
 
     /* Non-canonical version of the rooted slot -> drop it, same as a
        pre-root slot. */
     if( FD_UNLIKELY( canonical && root_slotv!=canonical ) ) {
       fd_chainer_orphan_remove( chainer, root_slotv );
       fd_chainer_repair_remove( chainer, root_slotv );
-      for( uint f=0U; f<fd_ulong_min( root_slotv->complete_idx, 1024 ); f+=FD_FEC_SHRED_CNT ) {
-        fec_remove( chainer, FD_CHAINER_FEC_KEY( new_root, f, v ) );
+      /* Release every FEC of this slot by walking its list, held by
+         version 0's slotv. */
+      if( FD_LIKELY( v==0UL ) ) {
+        ulong fec_null = fd_fec_pool_idx_null( fec_pool );
+        for( ulong idx=root_slotv->fec_head; idx!=fec_null; ) {
+          fd_fec_t * fec  = fd_fec_pool_ele( fec_pool, idx );
+          ulong      next = fec->slot_next;
+          ulong      key  = fec->key;
+
+          fd_fec_t * removed = fd_fec_map_ele_remove( fec_map, &key, NULL, fec_pool );
+          if( FD_LIKELY( removed ) ) fd_fec_pool_ele_release( fec_pool, removed );
+          idx = next;
+        }
+        root_slotv->fec_head = fec_null;
       }
       fd_slotv_map_ele_remove( slotv_map, &root_slotv->key, NULL, slotv_pool );
       fd_slotv_pool_ele_release( slotv_pool, root_slotv );

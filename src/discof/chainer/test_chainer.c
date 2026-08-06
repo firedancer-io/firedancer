@@ -545,7 +545,7 @@ test_publish( fd_wksp_t * wksp ) {
   FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-3UL ); /* 60, 61, 62 */
   FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0  -4UL ); /* 4 FEC sets */
 
-  fd_chainer_publish( chainer, 62UL );
+  fd_chainer_publish( chainer, 62UL, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( chainer->root==62UL );
@@ -605,7 +605,7 @@ test_publish_large_block( fd_wksp_t * wksp ) {
   FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-3UL );             /* 70, 71, 72 */
   FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0-fec_set_cnt-1UL );   /* 64 + 1 */
 
-  fd_chainer_publish( chainer, 72UL );
+  fd_chainer_publish( chainer, 72UL, NULL );
 
   FD_TEST( chainer->root==72UL );
   FD_TEST( !slotv_at( chainer, 70UL, 0UL ) );

@@ -4,32 +4,50 @@
 /* Fec chainer is an API for reassembling shreds and FECs into slots.
    It maintains 2 levels of granularity:
 
-   FECs, and SLOTVs (short for "slot versions"). FECs are keyed by
-   (slot, fec_set_idx, v), SLOTVs are keyed by (slot, v) where v is the
-   version number. Version numbers tie together the FECs and SLOTVs --
-   SLOTVs with version v "own" FECs that have the same version number.
+   FECs, and SLOTVs (short for "slot versions"). SLOTVs are keyed by
+   (slot, v) where v is the version number.  FECs are keyed by position
+   alone (slot, fec_set_idx) and carry the set of slot versions that
+   include it.
+
+   Version 0 is reserved for the turbine version of the slot, and
+   notar-fallback / parent-discovery versions are assigned from 1 up.
+   Version numbers are therefore NOT densely packed: a slot we only know
+   about from a notar-fallback cert has a v1 and no v0 until turbine (or
+   block-id repair) delivers something for it. 
 
    Under alpenglow, we can simplify equivocation handling. As turbine
    shreds arrive, each (slot, fec_set_idx) only accepts shreds of the
-   first-seen root. Any shred with a different root is dropped. i.e.,
-   on turbine shreds we only create (slot, fec_set_idx, v=0) FECs.
+   first-seen root. Any shred with a different root is dropped.
 
    When a notar-fallback cert is received for a block_id of a slot we
    don't have yet, we can add additional versions. Protocol dictates
    only 3 notar-fallbacks can arrive per slot.
 
-   Creating these additional versions starts by creating a new SLOTV
-   entry, for which the version number should increment by 1.  The
-   version numbers should be densely packed always.  A notar-fallback
-   cert should trigger getParentandFecCount requests.  The response
-   should trigger getFecRoot requests.  The v>=2 version of a FEC set
-   only exists once a getFecRoot response creates the sentinel with that
-   root. Equivocating FEC shreds are accepted iff the sentinel already
-   exists.  If the sentinel does not exist, the FEC shreds are dropped.
+   Note for the turbine slotv (v0) - it accepts THE FIRST seen of any
+   shred or FEC set. this can be populated by regular turbine shreds or
+   by alpenglow blockid repair results.
+
+   A notar-fallback cert should trigger getParentandFecCount requests.
+   The response should trigger getFecRoot requests.  The v>=1 version of
+   a FEC set only exists once a getFecRoot response creates the sentinel
+   with that root. Equivocating FEC shreds are accepted iff the sentinel
+   already exists.  If the sentinel does not exist, the FEC shreds are
+   dropped.
 
    This way -- turbine shreds are accepted without concern for whether
    the FEC sets belong to the "same slot", but notar-fallback certs
    guarantee repair of shreds that verifiably belong to the same slot.
+
+   Note that in the uncommon but not impossible case where we may be
+   taking a long to complete a block, we may receive a notar-fallback
+   cert for an honest slot that we are still in the process of receiving
+   from turbine.  Since we can't compute the block_id for a slot still
+   incomplete from turbine, we would create a redundant SLOTV entry for,
+   logically, the same slot.  In effect, this would generate an extra
+   getParentAndFecCount request and getFecRoot requests, but since we
+   already have most of the data for the slot, we can avoid
+   re-requesting the shreds.  This case should be rare enough that the
+   redundancy is worth the simplicity.
 
    *Parent Discovery*
 
@@ -52,18 +70,30 @@
 
 #define FD_CHAINER_MAGIC (0xf17eda2ce7c4a112UL) /* firedancer chainer v1 */
 
-#define FD_CHAINER_SLOT_VER_MAX 4 /* should be AG_POOL_NF_CERT_MAX + 1 */
+#define FD_CHAINER_SLOT_VER_MAX 4 /* Protocol dictates 3 notar-fallbacks per slot + 1 turbine version */
 
-/* slot:47 | fec_set_idx:15 | version:2 */
-#define FD_CHAINER_FEC_KEY( slot, fec_set_idx, version ) \
-  ( ((ulong)(slot))<<17 | ((ulong)(fec_set_idx))<<2 | (version) )
+/* slot:47 | fec_set_idx:15 */
+#define FD_CHAINER_FEC_KEY( slot, fec_set_idx ) \
+  ( ((ulong)(slot))<<17 | ((ulong)(fec_set_idx)) )
 
+#define SET_NAME fd_slotv_set
+#define SET_MAX  FD_CHAINER_SLOT_VER_MAX
+#include "../../util/tmpl/fd_set.c"
 struct fd_fec {
-  ulong     key; /* (slot, fec_set_idx, version) */
-  ulong     next; /* reserved by pool and map_chain */
-  fd_hash_t merkle_root;
+  ulong     key;       /* (slot, fec_set_idx) position, MAP_MULTI key */
+  ulong     next;      /* reserved by pool and map_chain */
+  ulong     slot_next; /* next FEC of the same slot, in no particular
+                          order (fd_fec_pool idx, idx_null terminates).
+                          The list is per-slot rather than per-version: a
+                          FEC may be shared by several versions but has only
+                          this one link, so the head lives on version 0's
+                          slotv.  Lets publish release a slot's FECs in
+                          O(k) instead of probing every position. */
+  fd_hash_t merkle_root; /* unique FEC set identifier */
+
+  fd_slotv_set_t versions[fd_slotv_set_word_cnt]; /* set of the slot versions that have
+                                                     this root at this position. */
   uchar     slot_complete;
-  uchar     data_complete; /* needed to parse UpdateParent */
   uchar     sentinel;      /* 1 if this is a sentinel FEC, i.e. we know
                               this FEC is canonically part of a
                               notar-fallback slot, but we haven't
@@ -78,6 +108,7 @@ typedef struct fd_fec fd_fec_t;
 #define MAP_NAME  fd_fec_map
 #define MAP_ELE_T fd_fec_t
 #define MAP_KEY   key
+#define MAP_MULTI 1 /* up to FD_CHAINER_SLOT_VER_MAX distinct roots may share a (slot, fec_set_idx) */
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define SET_NAME fd_shred_idxs
@@ -98,6 +129,8 @@ struct fd_slotv {
   uint            complete_idx;
   uint            buffered_idx;     /* idx of highest buffered shred */
   uint            buffered_fec_idx; /* last shred idx of highest buffered FEC set we have received completion for */
+  ulong           fec_head;         /* head of this slot's FEC list (fd_fec_pool idx).
+                                       Only maintained on version 0. List follows slot_next pointer. */
 
   ulong           parent_slot;       /* AG_UNKNOWN_SLOT if unknown */
   fd_hash_t       parent_block_id;   /* block_id of the parent slot */
@@ -296,6 +329,9 @@ fd_chainer_bfs( fd_chainer_t * chainer ) {
   return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->bfs_gaddr );
 }
 
+int
+fd_chainer_verify( fd_chainer_t const * chainer );
+
 void
 fd_chainer_init( fd_chainer_t    * chainer,
                  ulong             slot,
@@ -379,14 +415,11 @@ fd_chainer_slot_version_query( fd_chainer_t *    chainer,
                                fd_hash_t const * block_id ) {
   fd_slotv_t * slotv_pool = fd_chainer_slotv_pool( chainer );
   fd_slotv_map_t * slotv_map = fd_chainer_slotv_map( chainer );
+  /* versions are not dense */
   for( uint version = 0; version < FD_CHAINER_SLOT_VER_MAX; version++ ) {
     ulong slotv_key = FD_CHAINER_SLOTV_KEY( slot, version );
     fd_slotv_t * slotv = fd_slotv_map_ele_query( slotv_map, &slotv_key, NULL, slotv_pool );
-    if( FD_LIKELY( slotv ) ) {
-      if( FD_UNLIKELY( fd_hash_eq( &slotv->block_id, block_id ) ) ) return slotv;
-    } else {
-      return NULL;
-    }
+    if( FD_UNLIKELY( slotv && fd_hash_eq( &slotv->block_id, block_id ) ) ) return slotv;
   }
   return NULL;
 }
