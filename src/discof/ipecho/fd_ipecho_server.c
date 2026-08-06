@@ -98,7 +98,7 @@ fd_ipecho_server_new( void * shmem,
 
   for( ulong i=0UL; i<max_connection_cnt; i++ ) {
     server->pollfds[ i ].fd = -1;
-    server->pollfds[ i ].events = POLLIN | POLLOUT;
+    server->pollfds[ i ].events = POLLIN;
   }
   server->pollfds[ max_connection_cnt ].fd = -1;
 
@@ -255,6 +255,7 @@ accept_conns( fd_ipecho_server_t * server ) {
     ulong conn_id = conn_pool_idx_acquire( server->pool );
 
     server->pollfds[ conn_id ].fd = fd;
+    server->pollfds[ conn_id ].events = POLLIN;
     server->pool[ conn_id ].ipv4                   = addr.sin_addr.s_addr;
     server->pool[ conn_id ].state                  = STATE_READING;
     server->pool[ conn_id ].request_bytes_read     = 0UL;
@@ -321,6 +322,7 @@ read_conn( fd_ipecho_server_t * server,
 
   /* Now have a complete request ... buffer response */
   conn->state = STATE_WRITING;
+  server->pollfds[ conn_idx ].events = POLLOUT;
   conn->response_bytes_written = 0UL;
   memcpy( conn->response_bytes, response, sizeof(response) );
 }
@@ -365,13 +367,21 @@ fd_ipecho_server_poll( fd_ipecho_server_t * server,
 
   for( ulong i=0UL; i<server->max_connection_cnt+1UL; i++ ) {
     if( FD_UNLIKELY( -1==server->pollfds[ i ].fd ) ) continue;
+    short revents = server->pollfds[ i ].revents;
     if( FD_UNLIKELY( i==server->max_connection_cnt ) ) {
-      accept_conns( server );
+      if( FD_UNLIKELY( revents & (POLLERR | POLLHUP | POLLNVAL) ) )
+        FD_LOG_ERR(( "listen socket poll failed (revents=%#hx)", revents ));
+      if( FD_LIKELY( revents & POLLIN ) ) accept_conns( server );
     } else {
-      if( FD_LIKELY( server->pollfds[ i ].revents & POLLIN  ) ) read_conn(  server, i );
+      if( FD_UNLIKELY( revents & (POLLERR | POLLNVAL) ) ) {
+        close_conn( server, i, CLOSE_PEER_RESET );
+        continue;
+      }
+      if( FD_LIKELY( revents & POLLIN  ) ) read_conn(  server, i );
       if( FD_UNLIKELY( -1==server->pollfds[ i ].fd ) ) continue;
-      if( FD_LIKELY( server->pollfds[ i ].revents & POLLOUT ) ) write_conn( server, i );
-      /* No need to handle POLLHUP, read() will return 0 soon enough. */
+      if( FD_LIKELY( revents & POLLOUT ) ) write_conn( server, i );
+      if( FD_UNLIKELY( -1==server->pollfds[ i ].fd ) ) continue;
+      if( FD_UNLIKELY( revents & POLLHUP ) ) close_conn( server, i, CLOSE_PEER_RESET );
     }
   }
 }
