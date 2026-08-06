@@ -15,7 +15,7 @@
 #define AG_ADD_VOTE_ERR_DUPLICATE          (-4)
 #define AG_ADD_VOTE_ERR_SLASHABLE          (-5)
 
-/* AddCertError codes are disjoint from AG_ADD_VOTE_ERR_* so
+/* add-cert error codes are disjoint from AG_ADD_VOTE_ERR_* so
    ag_pool_strerror can map either. */
 
 #define AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS (-6)
@@ -104,7 +104,7 @@ ag_pool_finalized_slot( ag_pool_t const * self );
 FD_FN_PURE ulong
 ag_pool_first_unpruned_slot( ag_pool_t const * self );
 
-/* ag_pool_prune_to_root (C-only): shed all per-slot state below the
+/* ag_pool_prune_to_root sheds all per-slot state below the
    certified-final consensus root; see ag_finality_tracker_prune_to. */
 
 void
@@ -117,8 +117,9 @@ ag_pool_parents_ready( ag_pool_t * self,
                        ulong       slot,
                        ulong *     cnt );
 
-/* ag_pool_wait_for_parent_ready mirrors Pool::wait_for_parent_ready's
-   ready-now query (the Rust oneshot half is votor-side plumbing). */
+/* ag_pool_wait_for_parent_ready is the ready-now half of the query: it
+   reports whether slot already has a ready parent and writes it to
+   out_id.  Blocking until one appears is votor-side plumbing. */
 
 int
 ag_pool_wait_for_parent_ready( ag_pool_t *     self,

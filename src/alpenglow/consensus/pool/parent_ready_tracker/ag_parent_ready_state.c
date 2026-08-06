@@ -70,7 +70,7 @@ ag_parent_ready_state_wait_for_parent_ready( ag_parent_ready_state_t * self,
 
   FD_TEST( self->ready_cnt>0 );
 
-  /* sort in place (Rust block_ids.sort()): later readers observe sorted order */
+  /* sort in place: later readers observe sorted order */
   for( ulong i=1UL; i<(ulong)self->ready_cnt; i++ ) {
     ag_block_id_t key = self->ready_ids[i];
     ulong j = i;

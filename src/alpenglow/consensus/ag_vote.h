@@ -61,16 +61,15 @@ typedef struct ag_vote ag_vote_t;
 
 #define AG_VOTE_PAYLOAD_MAX (43UL) /* u8 tag + slot + block_id + shred_version */
 
-/* VersionedWireConsensusMessage::V1 vote: u8 version + u8 kind tag +
+/* V1 wire consensus message vote: u8 version + u8 kind tag +
    body (slot [+ block_id] + sig + u16 rank) + u16 shred_version */
 #define AG_VOTE_SERIALIZED_MAX (2UL + sizeof(ag_notar_vote_t) + 2UL)
 
 FD_PROTOTYPES_BEGIN
 
-/* ag_vote_payload_bytes_to_sign writes the signed vote payload
-   (VotePayloadToSign): u8 tag (kind+1), slot u64 LE, block_id for
-   (fallback) notar votes, u16 LE shred_version.  Returns the payload
-   size. */
+/* ag_vote_payload_bytes_to_sign writes the signed vote payload: u8 tag
+   (kind+1), slot u64 LE, block_id for (fallback) notar votes, u16 LE
+   shred_version.  Returns the payload size. */
 
 ulong
 ag_vote_payload_bytes_to_sign( uchar *           out,
@@ -79,8 +78,8 @@ ag_vote_payload_bytes_to_sign( uchar *           out,
                                fd_hash_t const * h,
                                ushort            shred_version );
 
-/* ag_<kind>_vote_{new,check_sig} sign / verify the vote's VotePayload
-   variant under the individual voting key. */
+/* ag_<kind>_vote_{new,check_sig} sign / verify the vote's payload under
+   the individual voting key. */
 
 void
 ag_notar_vote_new( ag_notar_vote_t *      out,
@@ -136,7 +135,7 @@ ag_final_vote_check_sig( ag_final_vote_t const * self,
                          ushort                  shred_version );
 
 /* ag_vote_new_signed builds a vote of `kind` and fills its signature by
-   calling sign( sign_ctx, ... ) over the VotePayloadToSign, so a caller
+   calling sign( sign_ctx, ... ) over the signed vote payload, so a caller
    that does not hold the voting key can still produce votes -- the votor
    tile delegates to the sign tile this way.  h is read only for the
    (fallback) notar kinds.  Equivalent to the ag_vote_new_* constructors

@@ -66,9 +66,8 @@ ag_slot_state_notify_parent_known( ag_slot_state_t * self,
                                    fd_hash_t const * hash );
 
 /* Returns the block's AG_SAFE_TO_NOTAR_STATUS_* (AWAITING_VOTES when
-   safe-to-notar was already sent); the caller emits the SafeToNotar event /
-   repair itself.  Deviates from Rust's Option<Either<PoolEvent, BlockId>>
-   return. */
+   safe-to-notar was already sent); the caller emits the safe-to-notar
+   event / repair itself. */
 
 int
 ag_slot_state_notify_parent_certified( ag_slot_state_t * self,

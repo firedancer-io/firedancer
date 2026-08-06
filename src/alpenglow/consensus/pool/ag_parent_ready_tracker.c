@@ -284,21 +284,21 @@ ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t * self,
   if( has_finalized ) {
     ag_parent_ready_tracker_mark_notar_fallback( self, finalized, scratch, &scratch_cnt );
     for( ulong i=0UL; i<scratch_cnt; i++ ) {
-      if( !have_max || scratch[i].slot >= best.slot ) { best = scratch[i]; have_max = 1; } /* >=: last max wins (Rust max_by_key) */
+      if( !have_max || scratch[i].slot >= best.slot ) { best = scratch[i]; have_max = 1; } /* >=: last max wins */
     }
   }
 
   for( ulong j=0UL; j<if_cnt; j++ ) {
     ag_parent_ready_tracker_mark_notar_fallback( self, &implicitly_finalized[j], scratch, &scratch_cnt );
     for( ulong i=0UL; i<scratch_cnt; i++ ) {
-      if( !have_max || scratch[i].slot >= best.slot ) { best = scratch[i]; have_max = 1; } /* >=: last max wins (Rust max_by_key) */
+      if( !have_max || scratch[i].slot >= best.slot ) { best = scratch[i]; have_max = 1; } /* >=: last max wins */
     }
   }
 
   for( ulong j=0UL; j<is_cnt; j++ ) {
     ag_parent_ready_tracker_mark_skipped( self, implicitly_skipped[j], scratch, &scratch_cnt );
     for( ulong i=0UL; i<scratch_cnt; i++ ) {
-      if( !have_max || scratch[i].slot >= best.slot ) { best = scratch[i]; have_max = 1; } /* >=: last max wins (Rust max_by_key) */
+      if( !have_max || scratch[i].slot >= best.slot ) { best = scratch[i]; have_max = 1; } /* >=: last max wins */
     }
   }
 

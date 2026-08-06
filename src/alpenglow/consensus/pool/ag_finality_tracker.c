@@ -187,9 +187,9 @@ ft_prune( ag_finality_tracker_t * self ) {
 }
 
 /* hash_is_zero: the all-zeros hash is the placeholder recorded by the
-   C-only mid-chain root seed (ag_finality_tracker_new / seed_root with
-   an unknown root block id at snapshot boot).  Genesis is the only zero
-   hash in Rust, and there the real hash IS zero. */
+   mid-chain root seed (ag_finality_tracker_new / seed_root with an
+   unknown root block id at snapshot boot).  Genesis is otherwise the only
+   slot whose real hash IS zero. */
 
 static inline int
 hash_is_zero( fd_hash_t const * h ) {

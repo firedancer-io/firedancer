@@ -45,11 +45,10 @@ create_validators( void ) {
   }
 }
 
-/* The pool emits PoolEvents / repair requests onto internal channels that
-   the caller drains (the Rust event senders).  event_cnt / event reads the
-   channel, and drain resets it -- a test drains to open a fresh
-   observation window, exactly as the votor tile drains once per
-   after_credit. */
+/* The pool emits events / repair requests onto internal channels that the
+   caller drains.  event_cnt / event reads the channel, and drain resets
+   it -- a test drains to open a fresh observation window, exactly as the
+   votor tile drains once per after_credit. */
 
 static ulong
 event_cnt( ag_pool_t const * pool ) {

@@ -1,6 +1,6 @@
 /* test_votor_tile drives the Votor tile's consensus core (ag_votor +
    ag_pool) the same way the alpenglow consensus tests do, but THROUGH the
-   tile's drive functions (handle_slot / ag_pool_add_vote + the
+   tile's own frag path (after_frag / ag_pool_add_vote + the
    after_credit-style pool event drain) rather than against the core
    directly.
 
@@ -23,8 +23,7 @@ static ushort         own_rank;
 /* install_epoch builds a real fd_epoch_info_msg_t for epoch 0 (TEST_NV
    unit-stake voters; source 0 carries our identity and voting key) and
    feeds it through the production update_epoch_vtrs.  The pool / votor are
-   rebuilt lazily by handle_slot on the first slot completion,
-   as in production. */
+   rebuilt lazily on the first slot completion, as in production. */
 
 static void
 install_epoch( fd_votor_tile_t * ctx ) {
@@ -104,6 +103,10 @@ setup_ctx( fd_wksp_t * wksp ) {
 
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
 
+  /* in_idx 0 stands in for the replay link (unprivileged_init assigns this
+     from the topology in production). */
+  ctx->in_kind[ 0 ] = IN_KIND_REPLAY;
+
   /* Install the epoch validator set the production way (EPOCH msg ingest). */
   install_epoch( ctx );
 
@@ -116,6 +119,18 @@ mk_hash( uchar b ) {
   return h;
 }
 
+/* drive_replay_frag stages a replay frag in msg_buf (what during_frag does
+   in production) and runs after_frag over it, exactly as stem would.  No
+   stem context is needed: the publish paths only enqueue onto
+   ctx->publishes, and only after_credit touches ctx->stem. */
+
+static void
+drive_replay_frag( fd_votor_tile_t * ctx,
+                   ulong             sig,
+                   ulong             sz ) {
+  after_frag( ctx, 0UL /* in_idx */, 0UL /* seq */, sig, sz, 0UL, 0UL, NULL /* stem */ );
+}
+
 /* drive a completed slot through the tile. */
 
 static void
@@ -124,16 +139,14 @@ complete_slot( fd_votor_tile_t * ctx,
                fd_hash_t         block_id,
                ulong             parent_slot,
                fd_hash_t         parent_block_id ) {
-  fd_replay_slot_completed_t sc;
-  memset( &sc, 0, sizeof(sc) );
-  sc.slot            = slot;
-  sc.parent_slot     = parent_slot;
-  sc.block_id        = block_id;
-  sc.parent_block_id = parent_block_id;
-  sc.bank_idx        = slot; /* arbitrary */
-  ag_block_id_t blk = { .slot = sc.slot,        .hash = sc.block_id        };
-  ag_block_id_t par = { .slot = sc.parent_slot, .hash = sc.parent_block_id };
-  handle_slot( ctx, &blk, &par, sc.bank_idx, 0 /* dead */ );
+  fd_replay_slot_completed_t * sc = fd_type_pun( ctx->msg_buf );
+  memset( sc, 0, sizeof(*sc) );
+  sc->slot            = slot;
+  sc->parent_slot     = parent_slot;
+  sc->block_id        = block_id;
+  sc->parent_block_id = parent_block_id;
+  sc->bank_idx        = slot; /* arbitrary */
+  drive_replay_frag( ctx, REPLAY_SIG_SLOT_COMPLETED, sizeof(*sc) );
 }
 
 /* drain the pool's votor event channel through the votor, exactly like
@@ -279,16 +292,15 @@ test_dead_slot( fd_wksp_t * wksp ) {
   fd_hash_t h1      = mk_hash( 0xC3 );
   complete_slot( ctx, 1UL, h1, 0UL, genesis );
 
-  fd_replay_slot_dead_t dead[1];
-  memset( dead, 0, sizeof(dead) );
+  fd_replay_slot_dead_t * dead = fd_type_pun( ctx->msg_buf );
+  memset( dead, 0, sizeof(*dead) );
   dead->slot     = 2UL;
   dead->block_id = mk_hash( 0xC4 );
-  ag_block_id_t dead_blk = { .slot = dead->slot, .hash = dead->block_id };
-  handle_slot( ctx, &dead_blk, NULL, ULONG_MAX, 1 /* dead */ );
+  drive_replay_frag( ctx, REPLAY_SIG_SLOT_DEAD, sizeof(*dead) );
 
   /* dead slots before the root are ignored. */
-  dead_blk.slot = 0UL;
-  handle_slot( ctx, &dead_blk, NULL, ULONG_MAX, 1 /* dead */ );
+  dead->slot = 0UL;
+  drive_replay_frag( ctx, REPLAY_SIG_SLOT_DEAD, sizeof(*dead) );
 
   FD_LOG_NOTICE(( "pass: test_dead_slot" ));
 }

@@ -326,7 +326,7 @@ handle_finalization( ag_pool_t *                     self,
   prune( self );
 }
 
-/* ag_pool_prune_to_root (C-only): shed all per-slot state below the
+/* ag_pool_prune_to_root sheds all per-slot state below the
    certified-final consensus root; see ag_finality_tracker_prune_to. */
 
 void
@@ -547,11 +547,11 @@ push_cert( ag_cert_t *  certs,
            int          kind,
            void const * inner,
            ulong        inner_sz ) {
-  /* The Rust reference collects the recovery bundle into unbounded Vecs.
-     Here the caller supplies a fixed buffer, so a full buffer truncates
-     the bundle (reported by ag_pool_recover_from_standstill) rather than
-     aborting: recovery re-runs every DELTA_STANDSTILL, so truncation
-     costs latency, not correctness. */
+  /* The caller supplies a fixed buffer for the recovery bundle, so a
+     full buffer truncates the bundle (reported by
+     ag_pool_recover_from_standstill) rather than aborting: recovery
+     re-runs every DELTA_STANDSTILL, so truncation costs latency, not
+     correctness. */
   if( FD_UNLIKELY( *cnt >= max ) ) return;
   ag_cert_t * c = &certs[ (*cnt)++ ];
   c->kind = (uint)kind;
@@ -668,10 +668,10 @@ ag_pool_recover_from_standstill( ag_pool_t * self,
 
   get_final_certs( self, slot, certs, certs_cnt, certs_max );
 
-  /* The reference asserts a final cert exists.  It cannot here: a pool
-     built rooted at a snapshot slot has that slot as its finalized slot
-     with no cert behind it, so bail instead of aborting -- there is
-     nothing to recover with until the first real finalization lands. */
+  /* A final cert for the finalized slot is not guaranteed: a pool built
+     rooted at a snapshot slot has that slot as its finalized slot with no
+     cert behind it, so bail instead of aborting -- there is nothing to
+     recover with until the first real finalization lands. */
   if( FD_UNLIKELY( !*certs_cnt ) ) {
     FD_LOG_WARNING(( "standstill recovery skipped: no final cert for finalized slot %lu", slot ));
     return;

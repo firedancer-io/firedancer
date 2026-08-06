@@ -14,7 +14,7 @@
    for it: it loads a dumped set (stakes + compressed BLS pubkeys) from a
    file and publishes it on replay_epoch, plus a synthetic replayed tip on
    replay_out -- update_epoch_vtrs installs a set but never activates it;
-   only votor_set_active_epoch does, driven from the replayed tip.
+   only set_active_epoch does, driven from the replayed tip.
 
    This thread draws the live view: it polls votor_out and renders the
    per-slot stake aggregation, the certs that form and the notarized /

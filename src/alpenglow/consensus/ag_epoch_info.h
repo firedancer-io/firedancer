@@ -42,8 +42,8 @@ ag_epoch_info_t * ag_epoch_info_join( void * mem );
    voters: drop zero-stake / missing / undecodable compressed BLS voting
    pubkeys, order by stake desc, tie-break by compressed BLS pubkey asc;
    rank == position.  Distinct from the leader-schedule stake sort.
-   TODO: Agave also drops duplicate BLS / node pubkeys and checks proof
-   of possession.  bls_pubkeys: 48-byte compressed keys indexed 1:1 with
+   TODO: also drop duplicate BLS / node pubkeys and check proof of
+   possession.  bls_pubkeys: 48-byte compressed keys indexed 1:1 with
    stakes.  Writes up to out_max validators into out, returns count. */
 
 ulong
@@ -82,9 +82,9 @@ ag_epoch_info_leader( ag_epoch_info_t const * ei,
 FD_FN_PURE static inline ulong
 ag_epoch_info_total_stake( ag_epoch_info_t const * ei ) { return ei->total_stake; }
 
-/* EpochInfo::is_*_quorum -- THRESHOLD.is_met( stake, self.total_stake() )
-   with the thresholds from consensus.rs (AG_ALPENGLOW_*_QUORUM_NUMER).
-   20% / 40% / 60% / 80%. */
+/* The quorum predicates: is stake at least
+   AG_ALPENGLOW_*_QUORUM_NUMER / AG_ALPENGLOW_QUORUM_DENOM of the epoch's
+   total stake -- 20% / 40% / 60% / 80%. */
 
 FD_FN_PURE static inline int
 ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * ei,

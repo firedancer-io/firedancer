@@ -472,12 +472,12 @@ ag_cert_de( ag_cert_t *   out,
 
   switch( tag ) {
   case AG_CERT_TYPE_FINAL:
-  case AG_CERT_TYPE_SKIP:               /* WireSlotCertMessage: Slot payload */
+  case AG_CERT_TYPE_SKIP:               /* slot-only payload */
     READ_U64( slot, &in, &remaining );
     break;
   case AG_CERT_TYPE_FAST_FINAL:
   case AG_CERT_TYPE_NOTAR:
-  case AG_CERT_TYPE_NOTAR_FALLBACK:     /* WireBlockCertMessage: Block { slot, block_id } payload */
+  case AG_CERT_TYPE_NOTAR_FALLBACK:     /* slot + block_id payload */
     READ_U64( slot, &in, &remaining );
     READ_HASH( block_hash, &in, &remaining );
     break;
@@ -552,8 +552,8 @@ ag_cert_de( ag_cert_t *   out,
   return AG_CERT_DE_SUCCESS;
 }
 
-/* de_footer_aggregate parses one footer VotesAggregate (96B compressed G2
-   signature + length-prefixed base2 bitmap) at in[0,in_sz) into agg.
+/* de_footer_aggregate parses one footer votes aggregate (96B compressed
+   G2 signature + length-prefixed base2 bitmap) at in[0,in_sz) into agg.
    The signature bytes remain compressed. */
 
 static int
@@ -600,8 +600,8 @@ ag_block_final_cert_de( ag_cert_t     out[ 2 ],
 
   fd_memset( out, 0, 2UL*sizeof(ag_cert_t) );
   if( has_notar ) {
-    /* Slow finalization: Finalize cert over the slot + Notarize cert over the
-       block (ValidatedBlockFinalizationCertKind::Finalize). */
+    /* Slow finalization: a final cert over the slot plus a notar cert
+       over the block. */
     ag_aggsig_t notar_agg[1];
     err = de_footer_aggregate( notar_agg, in, remaining, &consumed );
     if( FD_UNLIKELY( err ) ) return err;
@@ -614,7 +614,7 @@ ag_block_final_cert_de( ag_cert_t     out[ 2 ],
     out[1].inner.notar.agg_sig    = *notar_agg;
     *out_cert_cnt = 2UL;
   } else {
-    /* Fast finalization: a single FinalizeFast cert. */
+    /* Fast finalization: a single fast final cert. */
     out[0].kind                        = AG_CERT_TYPE_FAST_FINAL;
     out[0].inner.fast_final.slot       = slot;
     out[0].inner.fast_final.block_hash = block_hash;
@@ -696,11 +696,11 @@ ag_cert_serialize( ag_cert_t const * self,
                    uchar *           out,
                    ulong             out_max,
                    ushort            shred_version ) {
-  /* VersionedWireConsensusMessage::V1: u8 version (1), u8
-     WireConsensusMessageKind tag (kind+7), body (slot [+ block_id], 192B
-     sig, u64 LE bitmap length, bitmap), u16 LE shred_version.  A mixed
-     cert with no fallback signers is encoded Base2 like the single-set
-     certs, matching what ag_cert_de accepts. */
+  /* V1 wire consensus message: u8 version (1), u8 kind tag (kind+7),
+     body (slot [+ block_id], 192B sig, u64 LE bitmap length, bitmap),
+     u16 LE shred_version.  A mixed cert with no fallback signers is
+     encoded Base2 like the single-set certs, matching what ag_cert_de
+     accepts. */
 
   ag_aggsig_t const * base;
   ag_aggsig_t const * fb = NULL;
@@ -728,7 +728,7 @@ ag_cert_serialize( ag_cert_t const * self,
     fb   = &self->inner.skip.agg_sig_skip_fallback;
     break;
   default:
-    return 0UL; /* Genesis has no C counterpart */
+    return 0UL; /* genesis has no wire form */
   }
 
   if( fb && !ag_aggsig_signer_cnt( fb ) ) fb = NULL;

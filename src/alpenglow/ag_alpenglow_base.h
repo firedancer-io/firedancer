@@ -4,21 +4,13 @@
 #include "../flamenco/fd_flamenco_base.h"
 #include "types/ag_slot.h"
 
-/* ag_alpenglow_base.h is the C stand-in for the reference impl's crate
-   root: what lib.rs / consensus.rs / types.rs expose to every module.
-   Anything belonging to one module lives in that module's header --
-   notably the quorum predicates, which are EpochInfo methods
-   (ag_epoch_info_is_*_quorum), not free functions.
+/* ag_alpenglow_base.h holds what every alpenglow module needs: the delta
+   timeouts, the quorum thresholds and the fraction predicate over them,
+   and ag_block_id_t.  Anything belonging to one module lives in that
+   module's header -- notably the quorum predicates, which are epoch info
+   methods (ag_epoch_info_is_*_quorum), not free functions.
 
-   What is here, and where it comes from:
-
-     AG_ALPENGLOW_DELTA_*                        consensus.rs
-     AG_ALPENGLOW_*_QUORUM_NUMER / _DENOM        consensus.rs (the *_QUORUM_THRESHOLD Fractions)
-     ag_alpenglow_fraction_is_met                types/fraction.rs (Fraction::is_met)
-     ag_block_id_t                               lib.rs (pub type BlockId = (Slot, BlockHash))
-
-   types/ag_slot.h is included here rather than by each user, mirroring
-   the crate root re-exporting types::{Slot, SLOTS_PER_*}. */
+   types/ag_slot.h is included here rather than by each user. */
 
 /* VAT caps the number of validators */
 #define AG_ALPENGLOW_VALIDATOR_MAX (2000UL)

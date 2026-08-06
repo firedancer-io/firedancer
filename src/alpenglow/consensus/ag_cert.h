@@ -109,7 +109,7 @@ int ag_final_cert_try_new( ag_final_cert_t *           out,
                            ag_validator_info_t const * validators,
                            ulong                       validator_cnt );
 
-/* from-agg constructors: build a cert directly from Pool's running
+/* from-agg constructors: build a cert directly from the pool's running
    aggregate(s) (ag_slot_state stores per-kind aggregates, not individual
    votes); stake is recomputed from the signer bitmask(s) like the
    vote-array constructors.  For the dual-aggregate certs a NULL aggregate
@@ -173,16 +173,16 @@ ag_cert_check_sig( ag_cert_t const *       self,
                    ushort                  shred_version,
                    ag_epoch_info_t const * epoch_info );
 
-/* ag_cert_de deserializes a network cert body as carried in a
-   WireConsensusMessageV1 (kind tags 7-12 mapped to AG_CERT_TYPE_* by the
+/* ag_cert_de deserializes a network cert body as carried in a V1 wire
+   consensus message (kind tags 7-12 mapped to AG_CERT_TYPE_* by the
    caller):
 
      slot (8) [| block_id (32)] | sig (192) | bitmap len (u64 LE) | bitmap
 
-   kind selects the payload shape (Slot vs Block) per WireSlotCertMessage
-   / WireBlockCertMessage.  Trailing bytes after the bitmap (the V1
-   shred_version) are ignored; on success *opt_consumed (if non-NULL) is
-   set to the number of bytes read so the caller can locate them. */
+   kind selects the payload shape: slot only, or slot plus block_id.
+   Trailing bytes after the bitmap (the V1 shred_version) are ignored; on
+   success *opt_consumed (if non-NULL) is set to the number of bytes read
+   so the caller can locate them. */
 
 int
 ag_cert_de( ag_cert_t *   out,
@@ -218,10 +218,10 @@ int ag_block_final_cert_de( ag_cert_t out[ 2 ], ulong * out_cert_cnt, uchar cons
 
 int ag_block_final_cert_decompress( ag_cert_t * certs, ulong cert_cnt );
 
-/* ag_cert_serialize writes self as a VersionedWireConsensusMessage::V1
-   (the inverse of ag_cert_de plus the version / kind envelope, cf.
+/* ag_cert_serialize writes self as a V1 wire consensus message (the
+   inverse of ag_cert_de plus the version / kind envelope, cf.
    ag_vote_serialize), binding shred_version.  Returns the byte count, or
-   0 if out_max is too small or the cert kind has no wire form (Genesis). */
+   0 if out_max is too small or the cert kind has no wire form (genesis). */
 
 #define AG_CERT_SERIALIZED_MAX (2UL + 8UL + sizeof(fd_hash_t) + AG_AGGSIG_SIG_SZ + 8UL + 3UL + \
                                 (AG_AGGSIG_MAX_SIGNERS+4UL)/5UL + 2UL)

@@ -11,27 +11,17 @@
 
 #define AG_CONSENSUS_MESSAGE_DE_SUCCESS           ( 0)
 #define AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED     (-1)
-#define AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED   (-2) /* unknown version / Genesis kinds */
+#define AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED   (-2) /* unknown version / genesis kinds */
 #define AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION (-3)
 
-/* ag_consensus_message_t is agave's ConsensusMessage -- the tagged union
-   of everything validators send each other over All2All:
+/* ag_consensus_message_t is the tagged union of everything validators
+   send each other over All2All: a vote or a certificate.
 
-     pub enum ConsensusMessage {
-       Vote(VoteMessage),
-       Certificate(Certificate),
-     }
+   Note the vote arm is the vote proper plus the signature over it and
+   the signer's epoch rank; ag_vote_t carries all three inline (each
+   ag_*_vote_t ends with sig + signer).
 
-   https://github.com/anza-xyz/alpenglow/blob/9f284c913f/votor-messages/src/consensus_message.rs#L68
-
-   Note the Vote arm: agave's VoteMessage is { vote: Vote, signature,
-   rank }, i.e. the vote proper plus the signature over it and the
-   signer's epoch rank.  The C ag_vote_t carries all three inline (each
-   ag_*_vote_t ends with sig + signer), so ag_vote_t corresponds to
-   VoteMessage, NOT to agave's bare Vote enum.
-
-   The wire form is VersionedWireConsensusMessage (wire.rs); see
-   ag_consensus_message_de below. */
+   For the wire form see ag_consensus_message_de below. */
 
 struct ag_consensus_message {
   uint kind;
@@ -86,10 +76,10 @@ struct ag_votor_blockstore_event {
 };
 typedef struct ag_votor_blockstore_event ag_votor_blockstore_event_t;
 
-/* Mirrors SlotState (same field names and order); slot/next are
-   fd_pool/fd_map_chain plumbing.  Option<Hash> fields use the all-zeros
-   hash as None.  parents_ready (a per-slot BTreeSet<BlockId> in Rust) is
-   flattened into a votor-level (slot, parent) map. */
+/* Per-slot votor state; slot/next are fd_pool/fd_map_chain plumbing.
+   Optional hash fields use the all-zeros hash to mean absent.  The
+   per-slot set of ready parents is not held here: it is flattened into a
+   votor-level (slot, parent) map. */
 
 struct __attribute__((aligned(128UL))) ag_votor_slot_state {
   ulong slot; /* map key */
@@ -114,13 +104,13 @@ typedef struct ag_votor ag_votor_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* ag_consensus_message_de deserializes a VersionedWireConsensusMessage:
+/* ag_consensus_message_de deserializes a versioned wire consensus
+   message:
 
-     u8 version tag (1=V1) | u8 WireConsensusMessageKind tag | body |
-     u16 LE shred_version
+     u8 version tag (1=V1) | u8 kind tag | body | u16 LE shred_version
 
    Vote kind tags 1-5 map to AG_VOTE_TYPE_* as tag-1, cert kind tags
-   7-12 map to AG_CERT_TYPE_* as tag-7; Genesis kinds (6, 12) are
+   7-12 map to AG_CERT_TYPE_* as tag-7; genesis kinds (6, 12) are
    rejected AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED.  A message whose
    trailing shred_version differs from shred_version is dropped with
    AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION (mismatches are dropped,
@@ -139,10 +129,10 @@ ag_votor_align( void );
 FD_FN_CONST ulong
 ag_votor_footprint( ulong slot_max );
 
-/* sign / sign_ctx are how the votor signs its votes.  The Rust reference
-   stores the voting key in Votor; here the votor stores a signer so the
-   votor tile can route signing to the sign tile and hold no BLS key
-   material.  Pass ag_aggsig_sign_local with an ag_aggsig_sk_t const * as
+/* sign / sign_ctx are how the votor signs its votes.  The votor holds a
+   signer rather than the voting key itself so the votor tile can route
+   signing to the sign tile and hold no BLS key material.  Pass
+   ag_aggsig_sign_local with an ag_aggsig_sk_t const * as
    sign_ctx to sign in process (tests).  sign must be non-NULL. */
 
 void *
@@ -154,8 +144,8 @@ ag_votor_new( void *                 shmem,
               ushort                 shred_version,
               ulong                  seed );
 
-/* votes are signed over VotePayloadToSign which binds shred_version;
-   set when ipecho / gossip resolves it. */
+/* votes are signed over a payload which binds shred_version; set when
+   ipecho / gossip resolves it. */
 
 void
 ag_votor_set_shred_version( ag_votor_t * self,

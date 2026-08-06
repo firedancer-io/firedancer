@@ -51,7 +51,7 @@ test_payload_distinct( void ) {
   FD_TEST( sa==sb );
   FD_TEST( memcmp( a, b, sa )!=0 );
 
-  /* VotePayloadToSign: u8 tag (kind+1) + slot [+ block_id] + u16 shred_version */
+  /* signed payload: u8 tag (kind+1) + slot [+ block_id] + u16 shred_version */
   ulong sn = ag_vote_payload_bytes_to_sign( a, AG_VOTE_TYPE_NOTAR, 7UL, &h, TEST_SHRED_VERSION );
   ulong sk = ag_vote_payload_bytes_to_sign( b, AG_VOTE_TYPE_SKIP,  7UL, NULL, TEST_SHRED_VERSION );
   FD_TEST( sn==1UL+8UL+32UL+2UL );
@@ -66,8 +66,8 @@ test_payload_distinct( void ) {
   FD_TEST( memcmp( a, b, s0 )!=0 );
 }
 
-/* check_wire serializes v, parses the VersionedWireConsensusMessage::V1
-   vote layout field by field, verifies the wire signature validates
+/* check_wire serializes v, parses the V1 wire consensus message vote
+   layout field by field, verifies the wire signature validates
    against pk over the (rebuilt) signed payload, and round-trips the
    bytes through ag_consensus_message_de. */
 
@@ -82,19 +82,19 @@ check_wire( ag_vote_t const * v, ag_aggsig_pk_t const * pk ) {
   FD_TEST( n == 2UL + body_sz + 2UL );
 
   ulong off = 0UL;
-  FD_TEST( out[off]==(uchar)1                          ); off += 1UL; /* VersionedWireConsensusMessage::V1 */
-  FD_TEST( out[off]==(uchar)(v->kind+1U)               ); off += 1UL; /* WireConsensusMessageKind tag      */
+  FD_TEST( out[off]==(uchar)1                          ); off += 1UL; /* version tag (V1)                  */
+  FD_TEST( out[off]==(uchar)(v->kind+1U)               ); off += 1UL; /* kind tag                          */
   FD_TEST( FD_LOAD( ulong, out+off )==ag_vote_slot( v )); off += 8UL; /* slot                              */
-  if( h ) { FD_TEST( !memcmp( out+off, h->uc, 32UL ) ); off += 32UL; } /* block_id (Block kinds)           */
-  uchar const * wire_sig = out+off; off += AG_AGGSIG_SIG_SZ;           /* 192B BLSSignature                 */
+  if( h ) { FD_TEST( !memcmp( out+off, h->uc, 32UL ) ); off += 32UL; } /* block_id (notar kinds)           */
+  uchar const * wire_sig = out+off; off += AG_AGGSIG_SIG_SZ;           /* 192B BLS signature                */
   FD_TEST( FD_LOAD( ushort, out+off )==ag_vote_signer( v ) ); off += 2UL; /* u16 rank                       */
   FD_TEST( FD_LOAD( ushort, out+off )==TEST_SHRED_VERSION  ); off += 2UL; /* u16 shred_version              */
   FD_TEST( off==n );
 
   /* the in-struct vote is signed correctly ... */
   FD_TEST( ag_vote_check_sig( v, pk, TEST_SHRED_VERSION ) );
-  /* ... and the wire signature verifies over VotePayloadToSign (the
-     signed payload is rebuilt from the vote, not the wire bytes). */
+  /* ... and the wire signature verifies over the signed payload (rebuilt
+     from the vote, not the wire bytes). */
   uchar payload[ AG_VOTE_PAYLOAD_MAX ];
   ulong payload_sz = ag_vote_payload_bytes_to_sign( payload, v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION );
   ag_aggsig_sig_t sig; fd_memcpy( sig.v, wire_sig, AG_AGGSIG_SIG_SZ );

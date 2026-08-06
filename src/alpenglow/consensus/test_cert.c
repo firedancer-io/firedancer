@@ -227,7 +227,7 @@ test_thresholds( void ) {
   free( em );
 }
 
-/* put_aggregate writes one footer VotesAggregate: a compressed point at
+/* put_aggregate writes one footer votes aggregate: a compressed point at
    infinity as the signature (decompresses under real BLS without needing a
    compression helper here) + a base2 bitmap with the first signer_cnt of
    nbits ranks set.  Returns the encoded size. */

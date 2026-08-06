@@ -6,7 +6,7 @@ ag_vote_payload_bytes_to_sign( uchar *           out,
                                ulong             slot,
                                fd_hash_t const * h,
                                ushort            shred_version ) {
-  /* VotePayloadToSign: u8 tags start at 1 in Vote variant order. */
+  /* signed payload: u8 tags start at 1 in AG_VOTE_TYPE order. */
   ulong o = 0UL;
   out[o] = (uchar)( kind+1U ); o += 1UL;
   FD_STORE( ulong, out+o, slot ); o += 8UL;
@@ -237,10 +237,9 @@ ag_vote_serialize( ag_vote_t const * self,
                    uchar *           out,
                    ulong             out_max,
                    ushort            shred_version ) {
-  /* VersionedWireConsensusMessage::V1: u8 version (1), u8
-     WireConsensusMessageKind tag (kind+1), body (slot [+ block_id],
-     192B sig, u16 rank -- the packed ag_*_vote_t layout), u16 LE
-     shred_version. */
+  /* V1 wire consensus message: u8 version (1), u8 kind tag (kind+1),
+     body (slot [+ block_id], 192B sig, u16 rank -- the packed
+     ag_*_vote_t layout), u16 LE shred_version. */
   ulong body_sz = ( self->kind==AG_VOTE_TYPE_NOTAR || self->kind==AG_VOTE_TYPE_NOTAR_FALLBACK )
                   ? sizeof(ag_notar_vote_t) : sizeof(ag_final_vote_t);
   ulong sz      = 2UL + body_sz + 2UL;

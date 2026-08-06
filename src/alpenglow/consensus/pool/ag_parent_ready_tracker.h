@@ -60,8 +60,8 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
                                       ag_parent_ready_t *         out,
                                       ulong *                     out_cnt );
 
-/* Returns 1 and writes out if a parent became newly ready (deviates
-   from Rust, which returns a Vec holding at most one element). */
+/* Returns 1 and writes out if a parent became newly ready; at most one
+   parent can become ready per call. */
 
 int
 ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t * self,

@@ -67,11 +67,10 @@ ag_finalization_event_t
 ag_finality_tracker_mark_finalized( ag_finality_tracker_t * self,
                                     ulong                   slot );
 
-/* ag_finality_tracker_prune_to (C-only) force-advances the prune
-   watermark to root_slot, the certified-final consensus root published
-   by the votor.  Rust keeps undecided older slots pending in unbounded
-   maps; the bounded C pools must shed them -- one status-less slot
-   otherwise pins the prune walk and the per-slot pools exhaust
+/* ag_finality_tracker_prune_to force-advances the prune watermark to
+   root_slot, the certified-final consensus root published by the votor.
+   The bounded pools must shed undecided older slots -- one status-less
+   slot otherwise pins the prune walk and the per-slot pools exhaust
    ~slot_max slots later.  Nothing below the root can affect consensus
    again. */
 

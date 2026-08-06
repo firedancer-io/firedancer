@@ -14,8 +14,8 @@
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* SlotState::parents_ready, flattened into one votor-level map keyed by
-   (window start, parent). */
+/* The per-slot set of ready parents, flattened into one votor-level map
+   keyed by (window start, parent). */
 
 #define AG_VOTOR_PARENTS_READY_MAX (8UL) /* per window start */
 
@@ -55,9 +55,9 @@ struct __attribute__((aligned(128UL))) ag_votor {
 
   ushort         validator_index;
   ushort         shred_version;
-  /* Votor holds the voting key in the Rust reference; here it holds a
-     signer instead, so the votor tile can delegate to the sign tile and
-     never hold BLS key material itself. */
+  /* The votor holds a signer rather than the voting key itself, so the
+     votor tile can delegate to the sign tile and never hold BLS key
+     material. */
   ag_aggsig_sign_fn sign;
   void *            sign_ctx;
   ulong          highest_final_cert_slot;
@@ -438,10 +438,10 @@ ag_votor_handle_pool_event( ag_votor_t *            votor,
     break;
 
   case AG_POOL_EVENT_STANDSTILL:
-    /* PoolEvent::Standstill carries Vec<Cert> + Vec<Vote> in Rust; here the
-       recovery bundle is conveyed via ag_pool_recover_from_standstill's
-       output buffers (see ag_pool.h), so there is nothing to re-broadcast
-       from the event itself. */
+    /* The standstill event carries no payload of its own: the recovery
+       bundle is conveyed via ag_pool_recover_from_standstill's output
+       buffers (see ag_pool.h), so there is nothing to re-broadcast from
+       the event itself. */
     break;
 
   default:
@@ -651,8 +651,7 @@ ag_consensus_message_de( ag_consensus_message_t * out,
                          uchar const *            payload,
                          ulong                    sz,
                          ushort                   shred_version ) {
-  /* VersionedWireConsensusMessage: u8 version, u8 kind, body, u16 LE
-     shred_version. */
+  /* Wire layout: u8 version, u8 kind, body, u16 LE shred_version. */
   if( FD_UNLIKELY( sz<2UL ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED;
   uchar version = payload[0];
   uchar kind    = payload[1];
@@ -660,13 +659,13 @@ ag_consensus_message_de( ag_consensus_message_t * out,
   payload += 2UL; sz -= 2UL;
 
   if( kind>=1 && kind<=5 ) {
-    /* WireBlockVoteMessage / WireSlotVoteMessage: slot [+ block_id],
-       192B sig, u16 rank -- the packed ag_*_vote_t layout.  Vote kind
-       tags start at 1 in AG_VOTE_TYPE order. */
+    /* Vote body: slot [+ block_id], 192B sig, u16 rank -- the packed
+       ag_*_vote_t layout.  Vote kind tags start at 1 in AG_VOTE_TYPE
+       order. */
     uint  vkind   = (uint)kind-1U;
     ulong body_sz = ( vkind==AG_VOTE_TYPE_NOTAR || vkind==AG_VOTE_TYPE_NOTAR_FALLBACK )
                     ? sizeof(ag_notar_vote_t) : sizeof(ag_final_vote_t);
-    if( FD_UNLIKELY( sz!=body_sz+2UL ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED; /* deserialize_exact: no trailing bytes */
+    if( FD_UNLIKELY( sz!=body_sz+2UL ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED; /* no trailing bytes permitted */
     if( FD_UNLIKELY( FD_LOAD( ushort, payload+body_sz )!=shred_version ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION;
     out->kind            = AG_CONSENSUS_MESSAGE_VOTE;
     out->inner.vote.kind = vkind;
@@ -675,19 +674,19 @@ ag_consensus_message_de( ag_consensus_message_t * out,
   }
 
   if( kind>=7 && kind<=12 ) {
-    /* WireSlotCertMessage / WireBlockCertMessage: cert kind tags start
-       at 7 in AG_CERT_TYPE order (12 = Genesis, rejected by ag_cert_de). */
+    /* Cert body: cert kind tags start at 7 in AG_CERT_TYPE order
+       (12 = genesis, rejected by ag_cert_de). */
     ulong consumed;
     int err = ag_cert_de( &out->inner.cert, (uint)kind-7U, payload, sz, &consumed );
     if( FD_UNLIKELY( err==AG_CERT_DE_ERR_UNSUPPORTED ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED;
     if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS         ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED;
-    if( FD_UNLIKELY( sz!=consumed+2UL ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED; /* deserialize_exact: no trailing bytes */
+    if( FD_UNLIKELY( sz!=consumed+2UL ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED; /* no trailing bytes permitted */
     if( FD_UNLIKELY( FD_LOAD( ushort, payload+consumed )!=shred_version ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION;
     out->kind = AG_CONSENSUS_MESSAGE_CERT;
     return AG_CONSENSUS_MESSAGE_DE_SUCCESS;
   }
 
-  /* kind 6 = GenesisVote (no C counterpart), 0 / >12 = unknown */
+  /* kind 6 = genesis vote (no C counterpart), 0 / >12 = unknown */
   if( kind==6 ) return AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED;
   return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED;
 }

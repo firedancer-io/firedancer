@@ -1,8 +1,8 @@
 #include "ag_slot_state.h"
 
-/* voted_stakes.notar / notar_fallback: BTreeMap<BlockHash, Stake>.  A
-   bounded (hash, stake) array with linear scan, sized for one distinct hash
-   per validator. */
+/* voted_stakes.notar / notar_fallback map a block hash to the stake
+   accumulated for it: a bounded (hash, stake) array with linear scan,
+   sized for one distinct hash per validator. */
 
 struct hashstake {
   fd_hash_t hash;
@@ -37,7 +37,7 @@ typedef struct parent_status parent_status_t;
 #define MAP_NEXT               next
 #include "../../../util/tmpl/fd_map_chain.c"
 
-/* pending_safe_to_notar / sent_safe_to_notar: BTreeSet<BlockHash>.  A
+/* pending_safe_to_notar / sent_safe_to_notar are sets of block hashes: a
    bounded hash array with linear scan: membership requires the hash to have
    reached the weakest notar quorum, so only a handful of distinct hashes
    ever qualify per slot. */
@@ -52,14 +52,13 @@ typedef struct set set_t;
 
 typedef parent_status_t parents_pool_t;
 
-/* SlotVotes, stored as running BLS aggregates instead of individual
-   votes (per the reference's PERF note): one incrementally built
-   aggregate per vote kind whose signer bitmask is also the presence
-   set.  notar / notar_fallback sign (slot, hash), so those two kinds keep
-   one aggregate per block hash (bounded like the voted_stakes maps).  own
-   retains this validator's individual votes for standstill re-broadcast
-   (Rust reads votes[own_id]); an own vote is present iff own_id is set in
-   the corresponding aggregate's bitmask. */
+/* The slot's votes, stored as running BLS aggregates instead of
+   individual votes: one incrementally built aggregate per vote kind whose
+   signer bitmask is also the presence set.  notar / notar_fallback sign
+   (slot, hash), so those two kinds keep one aggregate per block hash
+   (bounded like the voted_stakes maps).  own retains this validator's
+   individual votes for standstill re-broadcast; an own vote is present
+   iff own_id is set in the corresponding aggregate's bitmask. */
 
 struct hashagg {
   fd_hash_t   hash;
@@ -115,9 +114,9 @@ struct slot_certificates {
 };
 typedef struct slot_certificates slot_certificates_t;
 
-/* Mirrors SlotState (same field names and order); the pool and map
-   handles are fd_pool/fd_map_chain plumbing for the field they follow,
-   own_id/validator_max come from ValidatorEpochInfo/sizing. */
+/* Per-slot vote and cert accumulation state; the pool and map handles
+   are fd_pool/fd_map_chain plumbing for the field they follow,
+   own_id/validator_max come from the epoch info and sizing. */
 
 struct __attribute__((aligned(128UL))) ag_slot_state {
   slot_votes_t votes;
@@ -419,8 +418,7 @@ static void
 out_push_repair( ag_slot_state_outputs_t * out,
                  ulong                     slot,
                  fd_hash_t const *         hash ) {
-  /* dedupe: the two pending sweeps re-check the same hashes (Rust pushes
-     duplicates; repair requests are idempotent) */
+  /* dedupe: the two pending sweeps re-check the same hashes */
   for( ulong i=0UL; i<out->block_repairs_cnt; i++ ) {
     if( !memcmp( out->block_repairs[i].hash.uc, hash->uc, sizeof(fd_hash_t) ) ) return;
   }
