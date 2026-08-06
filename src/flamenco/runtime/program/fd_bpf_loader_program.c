@@ -1418,8 +1418,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_LOG_INFO(( "Program deployed %s", program_b58 ));
 
       /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
-      FD_BASE58_ENCODE_32_BYTES( program_id->uc, program_id_b58 );
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Deployed program %s", program_id_b58 );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Deployed program %s", program_b58 );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L700 */
       fd_borrowed_account_drop( &program );
