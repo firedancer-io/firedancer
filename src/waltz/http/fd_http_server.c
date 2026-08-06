@@ -197,8 +197,8 @@ fd_http_server_new( void *                     shmem,
   ws_conn_treap_seed( http->ws_conns, params.max_ws_connection_cnt, 42UL );
 
   for( ulong i=0UL; i<params.max_connection_cnt; i++ ) {
-    http->pollfds[ i ].fd = -1;
-    http->pollfds[ i ].events = POLLIN | POLLOUT;
+    http->pollfds[ i ].fd     = -1;
+    http->pollfds[ i ].events = POLLIN;
     http->conns[ i ] = (struct fd_http_server_connection){
       .request_bytes = _request_bytes+i*params.max_request_len,
       .parent = http->conns[ i ].parent,
@@ -206,8 +206,8 @@ fd_http_server_new( void *                     shmem,
   }
 
   for( ulong i=0UL; i<params.max_ws_connection_cnt; i++ ) {
-    http->pollfds[ params.max_connection_cnt+i ].fd = -1;
-    http->pollfds[ params.max_connection_cnt+i ].events = POLLIN | POLLOUT;
+    http->pollfds[ params.max_connection_cnt+i ].fd     = -1;
+    http->pollfds[ params.max_connection_cnt+i ].events = POLLIN;
     http->ws_conns[ i ] = (struct fd_http_server_ws_connection){
       .recv_bytes = _ws_recv_bytes+i*params.max_ws_recv_frame_len,
       .send_frames = _ws_send_frames+i*params.max_ws_send_frame_cnt,
@@ -216,7 +216,7 @@ fd_http_server_new( void *                     shmem,
   }
 
   http->pollfds[ params.max_connection_cnt+params.max_ws_connection_cnt ].fd     = -1;
-  http->pollfds[ params.max_connection_cnt+params.max_ws_connection_cnt ].events = POLLIN | POLLOUT;
+  http->pollfds[ params.max_connection_cnt+params.max_ws_connection_cnt ].events = POLLIN;
 
   memset( &http->metrics, 0, sizeof( http->metrics ) );
 
@@ -334,7 +334,8 @@ close_conn( fd_http_server_t * http,
 
   if( FD_UNLIKELY( -1==close( http->pollfds[ conn_idx ].fd ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, strerror( errno ) ));
 
-  http->pollfds[ conn_idx ].fd = -1;
+  http->pollfds[ conn_idx ].fd     = -1;
+  http->pollfds[ conn_idx ].events = POLLIN;
   if( FD_LIKELY( conn_idx<http->max_conns ) ) {
     if( FD_LIKELY( http->callbacks.close    ) ) http->callbacks.close( conn_idx, reason, http->callback_ctx );
   } else {
@@ -422,7 +423,8 @@ accept_conns( fd_http_server_t * http ) {
 
     ulong conn_id = conn_pool_idx_acquire( http->conns );
 
-    http->pollfds[ conn_id ].fd = fd;
+    http->pollfds[ conn_id ].fd     = fd;
+    http->pollfds[ conn_id ].events = POLLIN;
     http->conns[ conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
     http->conns[ conn_id ].request_bytes_read     = 0UL;
     http->conns[ conn_id ].response_bytes_written = 0UL;
@@ -676,6 +678,7 @@ read_conn_http( fd_http_server_t * http,
   fd_http_server_response_t response = http->callbacks.request( &request );
   if( FD_LIKELY( http->pollfds[ conn_idx ].fd==-1 ) ) return; /* Connection was closed by callback */
   conn->response = response;
+  http->pollfds[ conn_idx ].events = POLLOUT | (response.upgrade_websocket ? POLLIN : 0);
 
 #if FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Received %s request \"%s\" from %lu (fd=%d) response code %lu", fd_http_server_method_str( method_enum ), path_nul_terminated, conn_idx, http->pollfds[ conn_idx ].fd, conn->response.status ));
@@ -773,6 +776,7 @@ again:
     if( FD_LIKELY( conn->pong_state!=FD_HTTP_SERVER_PONG_STATE_WAITING ) ) {
       conn->pong_state    = FD_HTTP_SERVER_PONG_STATE_WAITING;
       conn->pong_data_len = payload_len;
+      http->pollfds[ conn_idx ].events |= POLLOUT;
       FD_TEST( payload_len<=125UL );
       memcpy( conn->pong_data, conn->recv_bytes+conn->recv_bytes_parsed, payload_len );
     }
@@ -983,7 +987,8 @@ write_conn_http( fd_http_server_t * http,
           }
 
           int fd = http->pollfds[ conn_idx ].fd;
-          http->pollfds[ conn_idx ].fd = -1;
+          http->pollfds[ conn_idx ].fd     = -1;
+          http->pollfds[ conn_idx ].events = POLLIN;
 
           struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
 
@@ -1006,7 +1011,8 @@ write_conn_http( fd_http_server_t * http,
           }
 
           ulong ws_conn_id = ws_conn_pool_idx_acquire( http->ws_conns );
-          http->pollfds[ http->max_conns+ws_conn_id ].fd = fd;
+          http->pollfds[ http->max_conns+ws_conn_id ].fd     = fd;
+          http->pollfds[ http->max_conns+ws_conn_id ].events = POLLIN;
 
           http->ws_conns[ ws_conn_id ].pong_state               = FD_HTTP_SERVER_PONG_STATE_NONE;
           http->ws_conns[ ws_conn_id ].send_frame_cnt           = 0UL;
@@ -1089,7 +1095,10 @@ write_conn_ws( fd_http_server_t * http,
   struct fd_http_server_ws_connection * conn = &http->ws_conns[ conn_idx-http->max_conns ];
 
   if( FD_UNLIKELY( maybe_write_pong( http, conn_idx ) ) ) return;
-  if( FD_UNLIKELY( !conn->send_frame_cnt ) ) return;
+  if( FD_UNLIKELY( !conn->send_frame_cnt ) ) {
+    http->pollfds[ conn_idx ].events = POLLIN;
+    return;
+  }
 
   struct iovec iovecs[ 512UL*2UL ];
   uchar        headers[ 512UL ][ 10UL ];
@@ -1174,6 +1183,9 @@ write_conn_ws( fd_http_server_t * http,
       break;
     }
   }
+
+  if( FD_LIKELY( !conn->send_frame_cnt && conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) )
+    http->pollfds[ conn_idx ].events = POLLIN;
 }
 
 static void
@@ -1392,6 +1404,7 @@ fd_http_server_ws_send( fd_http_server_t * http,
 
   conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
   conn->send_frame_cnt++;
+  http->pollfds[ http->max_conns+ws_conn_id ].events |= POLLOUT;
 
   if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
     ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
@@ -1432,6 +1445,7 @@ fd_http_server_ws_broadcast( fd_http_server_t * http ) {
 
     conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
     conn->send_frame_cnt++;
+    http->pollfds[ http->max_conns+i ].events |= POLLOUT;
 
     if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
       ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );

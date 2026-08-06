@@ -4,6 +4,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -31,6 +32,25 @@ static fd_http_server_response_t
 request_count( fd_http_server_request_t const * request ) {
   request_cnt++;
   return request_noop( request );
+}
+
+static fd_http_server_response_t
+request_websocket( fd_http_server_request_t const * request ) {
+  return (fd_http_server_response_t) {
+    .status            = 200UL,
+    .upgrade_websocket = request->headers.upgrade_websocket,
+  };
+}
+
+static void
+ws_message_noop( ulong         ws_conn_id,
+                 uchar const * data,
+                 ulong         data_sz,
+                 void *        ctx ) {
+  (void)ws_conn_id;
+  (void)data;
+  (void)data_sz;
+  (void)ctx;
 }
 
 static void
@@ -338,6 +358,76 @@ default_test_params( void ) {
   return params;
 }
 
+static void
+test_poll_interest( void ) {
+  fd_http_server_params_t params = default_test_params();
+  fd_http_server_callbacks_t callbacks = {
+    .request    = request_websocket,
+    .ws_message = ws_message_noop,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof(server_addr);
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = server_addr.sin_port,
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof(connect_addr) ) );
+
+  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( http->metrics.connection_cnt==1UL );
+  FD_TEST( http->pollfds[ 0 ].events==POLLIN );
+  FD_TEST( !fd_http_server_poll( http, 1, ULONG_MAX ) );
+
+  char const upgrade[] =
+      "GET / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Upgrade: websocket\r\n"
+      "Connection: Upgrade\r\n"
+      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+      "Sec-WebSocket-Version: 13\r\n"
+      "\r\n";
+  send_all( client_fd, upgrade, sizeof(upgrade)-1UL );
+  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( http->pollfds[ 0 ].events==(POLLIN|POLLOUT) );
+  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( http->metrics.ws_connection_cnt==1UL );
+  FD_TEST( http->pollfds[ http->max_conns ].events==POLLIN );
+  FD_TEST( !fd_http_server_poll( http, 1, ULONG_MAX ) );
+
+  fd_http_server_printf( http, "test" );
+  FD_TEST( !fd_http_server_ws_send( http, 0UL ) );
+  FD_TEST( http->pollfds[ http->max_conns ].events==(POLLIN|POLLOUT) );
+  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( http->pollfds[ http->max_conns ].events==POLLIN );
+  FD_TEST( !fd_http_server_poll( http, 1, ULONG_MAX ) );
+
+  uchar ping[] = { 0x89U, 0x80U, 0U, 0U, 0U, 0U };
+  FD_TEST( send( client_fd, ping, sizeof(ping), 0 )==(long)sizeof(ping) );
+  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( http->pollfds[ http->max_conns ].events==(POLLIN|POLLOUT) );
+  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( http->pollfds[ http->max_conns ].events==POLLIN );
+
+  FD_TEST( !close( client_fd ) );
+  FD_TEST( !close( fd_http_server_fd( http ) ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
 void
 test_transfer_encoding_close( void ) {
   FD_LOG_NOTICE(( "Testing Transfer-Encoding rejection" ));
@@ -410,6 +500,7 @@ main( int     argc,
   test_oring();
   test_content_length_overflow_close();
   test_poll_conn_max();
+  test_poll_interest();
   test_transfer_encoding_close();
   test_duplicate_content_length_different_close();
   test_ws_bad_key_close();
