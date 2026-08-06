@@ -534,18 +534,12 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
   }
 
   if( FD_UNLIKELY( !peer ) ) return; /* NOP, peer not known yet */
+  if( FD_UNLIKELY( payload_sz<sizeof(uint) ) ) return; /* NOP, corrupt */
 
-  fd_gossip_message_t message[ 1 ];
-  int success = fd_gossip_message_deserialize( message, payload, payload_sz );
-  if( FD_UNLIKELY( !success ) ) return; /* NOP, msg unparsable */
-
-  FD_TEST( message->tag < FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT );
-  fd_ptr_if( is_rx, &peer->row.gossvf_rx[ message->tag ], &peer->row.gossip_tx[ message->tag ] )->cur += payload_sz;
+  uint tag = FD_LOAD( uint, payload );
+  if( FD_UNLIKELY( tag >= FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ) ) return; /* NOP, unknown message kind */
+  fd_ptr_if( is_rx, &peer->row.gossvf_rx[ tag ], &peer->row.gossip_tx[ tag ] )->cur += payload_sz;
   fd_ptr_if( is_rx, (fd_gui_peers_metric_rate_t *)&peer->row.gossvf_rx_sum, (fd_gui_peers_metric_rate_t *)&peer->row.gossip_tx_sum )->cur += payload_sz;
-#if LOGGING
-  if( is_rx ) FD_LOG_WARNING(("payload rx=%lu", payload_sz ));
-  else FD_LOG_WARNING(("payload tx=%lu", payload_sz ));
-#endif
 }
 
 #if FD_HAS_ZSTD
