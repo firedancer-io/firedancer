@@ -1,21 +1,29 @@
 $(call add-hdrs,fd_alut.h)
 
+ifdef FD_HAS_ATOMIC
+ifdef FD_HAS_ALLOCA
+ifdef FD_HAS_INT128
 $(call add-hdrs,fd_accdb_svm.h)
 $(call add-objs,fd_accdb_svm,fd_flamenco)
+endif
+endif
+endif
 
 $(call add-hdrs,fd_blockhashes.h)
 $(call add-objs,fd_blockhashes,fd_flamenco)
 
 $(call add-objs,fd_core_bpf_migration,fd_flamenco)
 
+ifdef FD_HAS_INT128
 $(call add-hdrs,fd_executor.h)
 $(call add-objs,fd_executor,fd_flamenco)
 
+ifdef FD_HAS_ATOMIC
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
-ifdef FD_HAS_ATOMIC
 $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_hashes)
+endif
 endif
 
 $(call add-hdrs,fd_pubkey_utils.h)
@@ -40,10 +48,13 @@ endif
 $(call add-hdrs,fd_compute_budget_details.h)
 $(call add-objs,fd_compute_budget_details,fd_flamenco)
 
+ifdef FD_HAS_INT128
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
+endif
 
 ifdef FD_HAS_ATOMIC
+ifdef FD_HAS_INT128
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_bundle_exec)
@@ -54,13 +65,16 @@ endif
 $(call make-unit-test,test_runtime_alut,test_runtime_alut,fd_flamenco_test fd_flamenco fd_tango fd_ballet fd_util fd_disco)
 $(call run-unit-test,test_runtime_alut)
 endif
+endif
 
 ifdef FD_HAS_ATOMIC
+ifdef FD_HAS_INT128
 $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_bank,test_bank,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_bank)
+endif
 endif
 endif
 
@@ -72,6 +86,7 @@ endif
 endif
 
 ifdef FD_HAS_ATOMIC
+ifdef FD_HAS_INT128
 $(call add-hdrs,fd_runtime.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stack.h fd_runtime_helpers.h)
 $(call add-objs,fd_runtime,fd_flamenco)
 ifdef FD_HAS_HOSTED
@@ -95,6 +110,7 @@ $(call make-unit-test,test_cost_model,tests/test_cost_model,fd_flamenco_test fd_
 $(call run-unit-test,test_cost_model)
 $(call make-unit-test,test_feature_activation,tests/test_feature_activation,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_feature_activation)
+endif
 endif
 endif
 

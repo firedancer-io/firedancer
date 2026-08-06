@@ -255,7 +255,7 @@ jobs:
     if: ${{ inputs.build_arm }}
     strategy:
       matrix:
-        gcc_version: [12]
+        gcc_version: [15]
     steps:
       - uses: actions/checkout@v7
 
@@ -263,7 +263,7 @@ jobs:
 
       - name: Run build
         env:
-          MACHINE: linux_gcc_neoverse_n2
+          MACHINE: linux_gcc_neoverse_n1
         run: |
           if [ "${{ matrix.gcc_version }}" != "8" ]; then
             source /opt/rh/gcc-toolset-${{ matrix.gcc_version }}/enable
