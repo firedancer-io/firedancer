@@ -24,6 +24,13 @@
 #define FD_FSEQ_APP_ALIGN     (32UL)
 #define FD_FSEQ_APP_FOOTPRINT (96UL)
 
+/* FD_FSEQ_SLEEP_BIT is a bit in fseq[1] indicating that the consumer is
+   currently asleep.  When this bit is set, the consumer will only make
+   progress (advance fseq[0]) when woken by a producer.  fseq is
+   agnostic to the sleep/wake mechanism. (typically futex on Linux). */
+
+#define FD_FSEQ_SLEEP_BIT (1UL<<0)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_fseq_{align,footprint} return the required alignment and footprint
@@ -99,10 +106,14 @@ FD_FN_PURE static inline ulong fd_fseq_seq0( ulong const * fseq ) { return fseq[
 
 static inline ulong
 fd_fseq_query( ulong const * fseq ) {
+# if FD_HAS_X86
   FD_COMPILER_MFENCE();
   ulong seq = FD_VOLATILE_CONST( fseq[0] );
   FD_COMPILER_MFENCE();
   return seq;
+# else
+  return __atomic_load_n( fseq, __ATOMIC_ACQUIRE );
+# endif
 }
 
 /* fd_fseq_update updates the sequence number stored in the fseq to seq.
@@ -113,9 +124,54 @@ fd_fseq_query( ulong const * fseq ) {
 static inline void
 fd_fseq_update( ulong * fseq,
                 ulong   seq ) {
+# if FD_HAS_X86
   FD_COMPILER_MFENCE();
   FD_VOLATILE( fseq[0] ) = seq;
   FD_COMPILER_MFENCE();
+# else
+  __atomic_store_n( fseq, seq, __ATOMIC_RELEASE );
+# endif
+}
+
+/* fd_fseq_sleep_set hints that the calling thread's sleep state.
+   sleep==0 implies that the calling thread is active and updating
+   fseq[0].  sleep==1 implies that the calling thread might not advance
+   fseq[0] until woken by another thread.  sleep should be a compile-
+   time constant.
+
+   Forms a StoreLoad barrier.  Subsequent memory accesses in program
+   order execute only once the sleep state update is visible to all
+   other threads. */
+
+static inline void
+fd_fseq_sleep_set( ulong * fseq,
+                   int     sleep ) {
+  /* On first sight, this atomic RMW looks like it could be relaxed into
+     a SeqCst store since the calling thread is the only writer to
+     fseq[1].  Implementing the StoreLoad barrier with just a SeqCst
+     store would require a stronger load operation on the query side
+     though, and ends up not being worth it. */
+  if( sleep ) { /* compile time folded */
+    __atomic_fetch_or( fseq+1, FD_FSEQ_SLEEP_BIT, __ATOMIC_SEQ_CST );
+  } else {
+    __atomic_fetch_and( fseq+1, ~FD_FSEQ_SLEEP_BIT, __ATOMIC_SEQ_CST );
+  }
+}
+
+/* fd_fseq_sleep_{start,end} are provided for convenience. */
+
+static inline void fd_fseq_sleep_start( ulong * fseq ) { fd_fseq_sleep_set( fseq, 1 ); }
+static inline void fd_fseq_sleep_end  ( ulong * fseq ) { fd_fseq_sleep_set( fseq, 0 ); }
+
+/* fd_fseq_sleep_query returns 1 if the thread advancing fseq[0] hints
+   that it is asleep, 0 otherwise.  If the calling thread desires that
+   fseq[0] advances and the return value is 1, a wake should be issued.
+   fd_fseq_new sets the sleep bit to 0, so the default return value of
+   this function is 0. */
+
+static inline int
+fd_fseq_sleep_query( ulong const * fseq ) {
+  return !!( __atomic_load_n( fseq+1, __ATOMIC_ACQUIRE ) & FD_FSEQ_SLEEP_BIT );
 }
 
 FD_PROTOTYPES_END
