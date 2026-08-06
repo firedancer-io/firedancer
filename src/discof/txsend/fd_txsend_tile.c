@@ -383,7 +383,7 @@ after_credit( fd_txsend_tile_t *  ctx,
   }
 }
 
-void
+static void
 send_vote_to_leader( fd_txsend_tile_t *  ctx,
                      fd_pubkey_t const * leader_pubkey,
                      uchar const       * vote_payload,
