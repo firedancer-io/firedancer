@@ -151,6 +151,8 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
 
   static fd_hash_t const block_id = { .ul = { 0x0123456789ABCDEFUL, 0xFEDCBA9876543210UL, 0x0F1E2D3C4B5A6978UL, 0x8877665544332211UL } };
   bank->f.block_id = block_id;
+  bank->f.parent_txn_count = 1234UL;
+  bank->f.txn_count        =   56UL;
 
   /* Select two existing vote accounts, then set non-default SIMD-0232
      collectors: distinct inflation and block collectors for vote0 on
@@ -217,6 +219,7 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( manifest->slot==bank->f.slot );
   FD_TEST( manifest->block_height==bank->f.block_height );
   FD_TEST( manifest->capitalization==bank->f.capitalization );
+  FD_TEST( manifest->transaction_count==bank->f.parent_txn_count+bank->f.txn_count );
   FD_TEST( manifest->ticks_per_slot==bank->f.ticks_per_slot );
   FD_TEST( manifest->epoch_schedule_params.slots_per_epoch==bank->f.epoch_schedule.slots_per_epoch );
   FD_TEST( manifest->rent_params.lamports_per_uint8_year==bank->f.rent.lamports_per_uint8_year );

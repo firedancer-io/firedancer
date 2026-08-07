@@ -50,7 +50,7 @@ ENCODE_FN {
     break;
   }
   case STATE_COUNTERS: {
-    PUSH_VAL( ulong,  bank->f.txn_count                                           );
+    PUSH_VAL( ulong,  bank->f.parent_txn_count + bank->f.txn_count                );
     PUSH_VAL( ulong,  bank->f.tick_height                                         );
     PUSH_VAL( ulong,  bank->f.signature_count                                     );
     PUSH_VAL( ulong,  bank->f.capitalization                                      );
