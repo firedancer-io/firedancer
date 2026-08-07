@@ -177,6 +177,7 @@ extern action_t fd_action_get_identity;
 extern action_t fd_action_ps;
 extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_snapshot_create;
+extern action_t fd_action_wait_for_restart_window;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -199,6 +200,7 @@ action_t * ACTIONS[] = {
   &fd_action_get_identity,
   &fd_action_ps,
   &fd_action_snapshot_create,
+  &fd_action_wait_for_restart_window,
   NULL,
 };
 
