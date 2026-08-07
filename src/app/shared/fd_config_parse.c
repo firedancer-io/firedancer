@@ -210,6 +210,12 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   net.xdp.rss_queue_mode                           );
   CFG_POP      ( bool,   net.xdp.listen_gre                               );
   CFG_POP      ( boolau, net.xdp.native_bond                              );
+  CFG_POP      ( cstr,   net.ibverbs.rdma_device                          );
+  CFG_POP      ( uint,   net.ibverbs.rdma_port                            );
+  CFG_POP      ( uint,   net.ibverbs.rx_queue_size                        );
+  CFG_POP      ( uint,   net.ibverbs.tx_queue_size                        );
+  CFG_POP      ( uint,   net.ibverbs.batch_size                           );
+  CFG_POP      ( uint,   net.ibverbs.flow_rule_max                        );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 

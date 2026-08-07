@@ -204,6 +204,25 @@ struct fd_topo_tile {
 
     struct {
       fd_topo_net_tile_t net;
+
+      ulong umem_dcache_obj_id;
+      char  if_name[ 16 ];
+      char  rdma_device[ 64 ];
+      uint  rdma_port;
+      uint  rx_queue_size;
+      uint  tx_queue_size;
+      uint  batch_size;
+      uint  flow_rule_max;
+
+      ulong netdev_tbl_obj_id;
+      ulong route_max;
+      ulong route_peer_max;
+      ulong route_peer_seed;
+      ulong neigh4_obj_id;
+    } ibeth;
+
+    struct {
+      fd_topo_net_tile_t net;
       /* sock specific options */
       int so_sndbuf;
       int so_rcvbuf;
