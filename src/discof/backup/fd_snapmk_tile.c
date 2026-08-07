@@ -2016,6 +2016,7 @@ snapmk_run( fd_topo_t *      topo,
              rng, stem_scratch, ctx );
 }
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_snapmk = {
   .name                     = "snapmk",
   .populate_allowed_fds     = populate_allowed_fds,
@@ -2027,3 +2028,4 @@ fd_topo_run_tile_t fd_tile_snapmk = {
   .run                      = snapmk_run,
   .allow_renameat           = 1
 };
+#endif
