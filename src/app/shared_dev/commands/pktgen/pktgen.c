@@ -303,7 +303,6 @@ render_status( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
 void
 pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
                config_t * config ) {
-  pktgen_topo( config );
   fd_topo_t *      topo         = &config->topo;
   ulong            net_tile_cnt = config->layout.net_tile_count;
   if( FD_UNLIKELY( net_tile_cnt>FD_TOPO_MAX_TILES ) ) {
@@ -414,6 +413,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
 action_t fd_action_pktgen = {
   .name        = "pktgen",
+  .topo        = pktgen_topo,
   .args        = pktgen_cmd_args,
   .fn          = pktgen_cmd_fn,
   .perm        = dev_cmd_perm,
