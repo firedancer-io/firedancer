@@ -233,6 +233,8 @@ fd_pack_footprint( ulong                    pack_depth,
    pack object.  mem is a non-NULL pointer to a region of memory in the
    local address space with the required alignment and footprint.
    pack_depth, bundle_meta_sz, bank_tile_cnt, and limits are as above.
+   The limits provided in this function are the maximum possible limits
+   this pack object can handle without being completely reformatted.
    rng is a local join to a random number generator used to perturb
    estimates.  acct_blocklist is a list of accounts that cannot be read
    or written to.  acct_blocklist is accessed acct_blocklist[i] for i in
@@ -300,6 +302,9 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
    limits->max_txn_per_microblock is ignored. Limits are inclusive, as
    per usual (i.e. a block may have exactly max_microblocks_per_block
    microblocks, but not more).  pack must be a valid local join.
+
+   These limits must be no larger than the limits provided in
+   fd_pack_new.
 
    The typical place to call this is immediately after
    fd_pack_end_block; if this is called after some microblocks have been
