@@ -7,6 +7,129 @@
 
 #include <errno.h>
 #include <signal.h>
+#include <unistd.h>
+
+/* ANSI escape codes for TUI rendering. */
+
+#define ANSI_RESET   "\033[0m"
+#define ANSI_BOLD    "\033[1m"
+#define ANSI_DIM     "\033[2m"
+#define ANSI_RED     "\033[31m"
+#define ANSI_GREEN   "\033[32m"
+#define ANSI_CLEARLN "\033[K"
+
+/* Check result codes. */
+
+#define CHECK_FAIL 0
+#define CHECK_PASS 1
+#define CHECK_SKIP 2
+
+/* Frame buffer for atomic terminal writes (following watch.c pattern). */
+
+static char  frame_buf[ 4096 ];
+static ulong frame_len;
+
+#define PRINT(...) do {                                                        \
+    ulong _print_len;                                                          \
+    FD_TEST( fd_cstr_printf_check( frame_buf+frame_len,                        \
+                                   sizeof(frame_buf)-frame_len, &_print_len,   \
+                                   __VA_ARGS__ ) );                            \
+    frame_len += _print_len;                                                   \
+  } while(0)
+
+static void
+flush_frame( void ) {
+  ulong written = 0UL;
+  while( written<frame_len ) {
+    long w = write( STDOUT_FILENO, frame_buf+written, frame_len-written );
+    if( FD_UNLIKELY( -1L==w && errno==EAGAIN ) ) continue;
+    else if( FD_UNLIKELY( -1L==w ) ) break;
+    else if( FD_UNLIKELY( 0L==w  ) ) break;
+    written += (ulong)w;
+  }
+  frame_len = 0UL;
+}
+
+/* Number of lines rendered per frame (4 checks + blank + status). */
+
+#define LINES_PER_FRAME 6UL
+
+static void
+render_check_line( char const * label,
+                   int          result,
+                   char const * desc ) {
+  char const * icon;
+  char const * desc_pre;
+  char const * desc_post;
+
+  switch( result ) {
+  case CHECK_PASS:
+    icon      = ANSI_GREEN "\xe2\x9c\x93" ANSI_RESET;  /* ✓ */
+    desc_pre  = "";
+    desc_post = "";
+    break;
+  case CHECK_FAIL:
+    icon      = ANSI_RED "\xe2\x9c\x97" ANSI_RESET;    /* ✗ */
+    desc_pre  = "";
+    desc_post = "";
+    break;
+  default: /* CHECK_SKIP */
+    icon      = ANSI_DIM "-" ANSI_RESET;
+    desc_pre  = ANSI_DIM;
+    desc_post = ANSI_RESET;
+    break;
+  }
+
+  PRINT( "  %-13s%s %s%s%s" ANSI_CLEARLN "\n", label, icon, desc_pre, desc, desc_post );
+}
+
+static void
+render_status( int          health_result,
+               char const * health_desc,
+               int          leader_result,
+               char const * leader_desc,
+               int          snapshot_result,
+               char const * snapshot_desc,
+               int          epoch_result,
+               char const * epoch_desc,
+               int          all_pass,
+               long         elapsed_s,
+               int          first_frame ) {
+  frame_len = 0UL;
+
+  /* Hide cursor and reposition if not the first frame. */
+
+  PRINT( "\033[?25l" );
+  if( FD_UNLIKELY( !first_frame ) ) {
+    PRINT( "\033[%luA\r", LINES_PER_FRAME );
+  }
+
+  render_check_line( "health",     health_result,   health_desc   );
+  render_check_line( "leader gap", leader_result,   leader_desc   );
+  render_check_line( "snapshot",   snapshot_result,  snapshot_desc );
+  render_check_line( "epoch",      epoch_result,     epoch_desc   );
+
+  PRINT( ANSI_CLEARLN "\n" );
+
+  if( FD_UNLIKELY( all_pass ) ) {
+    PRINT( "  " ANSI_GREEN ANSI_BOLD "safe to restart" ANSI_RESET ANSI_CLEARLN "\n" );
+  } else {
+    PRINT( "  waiting... (%lds elapsed)" ANSI_CLEARLN "\n", elapsed_s );
+  }
+
+  /* Clear any leftover lines below and restore cursor. */
+
+  PRINT( "\033[0J\033[?25h" );
+
+  flush_frame();
+}
+
+static void
+restore_cursor( void ) {
+  frame_len = 0UL;
+  PRINT( "\033[?25h" );
+  flush_frame();
+}
 
 static volatile int g_running = 1;
 
@@ -94,104 +217,160 @@ wait_for_restart_window_cmd_fn( args_t *   args,
   /* Poll every 5 seconds. */
 
   long const poll_interval_ns = 5L * 1000L * 1000L * 1000L;
+  long start_time  = fd_log_wallclock();
+  int  first_frame = 1;
 
   while( FD_LIKELY( g_running ) ) {
 
-    char ts_buf[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
-    fd_log_wallclock_cstr( fd_log_wallclock(), ts_buf );
-
     /* 1. Health check: replay tile status must be 1 (running). */
 
-    if( FD_UNLIKELY( !skip_health ) ) {
+    int  health_result;
+    char health_desc[ 128 ];
+
+    if( FD_UNLIKELY( skip_health ) ) {
+      health_result = CHECK_SKIP;
+      fd_cstr_printf_check( health_desc, sizeof(health_desc), NULL, "skipped" );
+    } else {
       ulong status = fd_metrics_tile( replay_tile->metrics )[ FD_METRICS_GAUGE_TILE_STATUS_OFF ];
-      if( FD_UNLIKELY( status!=1UL ) ) {
-        FD_LOG_NOTICE(( "%s  replay tile not healthy (status=%lu), waiting...", ts_buf, status ));
-        in_idle_window = 0;
-        goto sleep;
+      if( FD_LIKELY( status==1UL ) ) {
+        health_result = CHECK_PASS;
+        fd_cstr_printf_check( health_desc, sizeof(health_desc), NULL, "healthy" );
+      } else {
+        health_result = CHECK_FAIL;
+        fd_cstr_printf_check( health_desc, sizeof(health_desc), NULL, "not healthy (status=%lu)", status );
       }
     }
 
-    /* 2. Leader-slot idle gap check. */
+    /* 2. Leader-slot idle gap and epoch boundary checks. */
+
+    int  leader_result = CHECK_SKIP;
+    int  epoch_result  = CHECK_PASS;
+    char leader_desc[ 256 ];
+    char epoch_desc[ 128 ];
 
     ulong reset_slot       = fd_metrics_tile( replay_tile->metrics )[ FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF ];
     ulong next_leader_slot = fd_metrics_tile( replay_tile->metrics )[ FD_METRICS_GAUGE_REPLAY_NEXT_LEADER_SLOT_OFF ];
+    ulong idle_gap         = 0UL;
 
-    ulong idle_gap;
     if( FD_UNLIKELY( next_leader_slot==0UL ) ) {
       ulong active_stake = fd_metrics_tile( replay_tile->metrics )[ FD_METRICS_GAUGE_REPLAY_ACTIVE_STAKE_LAMPORTS_OFF ];
       if( FD_LIKELY( active_stake==0UL ) ) {
-        idle_gap = ULONG_MAX;  /* no stake -> genuinely no leader slots */
+        idle_gap = ULONG_MAX;
+        epoch_result = CHECK_PASS;
+        fd_cstr_printf_check( epoch_desc, sizeof(epoch_desc), NULL, "ok (no stake)" );
       } else {
-        /* Have stake but no known upcoming leader slot.  Near epoch end
-           and next epoch's schedule may not be computed yet. */
-        FD_LOG_NOTICE(( "%s  no upcoming leader slots known (likely near epoch boundary), waiting...", ts_buf ));
-        in_idle_window = 0;
-        goto sleep;
+        epoch_result = CHECK_FAIL;
+        fd_cstr_printf_check( epoch_desc, sizeof(epoch_desc), NULL, "near epoch boundary, schedule unknown" );
+        leader_result = CHECK_SKIP;
+        fd_cstr_printf_check( leader_desc, sizeof(leader_desc), NULL, "waiting for epoch" );
       }
-    } else if( FD_UNLIKELY( next_leader_slot<=reset_slot ) ) {
-      /* Currently leading or just finished — no idle gap. */
-      idle_gap = 0UL;
     } else {
-      idle_gap = next_leader_slot - reset_slot;
+      epoch_result = CHECK_PASS;
+      fd_cstr_printf_check( epoch_desc, sizeof(epoch_desc), NULL, "ok" );
+      if( FD_UNLIKELY( next_leader_slot<=reset_slot ) ) {
+        idle_gap = 0UL;
+      } else {
+        idle_gap = next_leader_slot - reset_slot;
+      }
     }
 
-    if( FD_UNLIKELY( idle_gap<min_idle_slots ) ) {
-      FD_LOG_NOTICE(( "%s  not enough idle time before next leader slot "
-                      "(reset_slot=%lu, next_leader=%lu, idle_gap=%lu, need=%lu)",
-                      ts_buf, reset_slot, next_leader_slot, idle_gap, min_idle_slots ));
+    if( FD_LIKELY( epoch_result!=CHECK_FAIL ) ) {
+      if( FD_LIKELY( idle_gap>=min_idle_slots ) ) {
+        leader_result = CHECK_PASS;
+        if( FD_UNLIKELY( idle_gap==ULONG_MAX ) ) {
+          fd_cstr_printf_check( leader_desc, sizeof(leader_desc), NULL, "idle (no upcoming leader slots)" );
+        } else {
+          fd_cstr_printf_check( leader_desc, sizeof(leader_desc), NULL, "idle %lu slots (need %lu)", idle_gap, min_idle_slots );
+        }
+      } else {
+        leader_result = CHECK_FAIL;
+        fd_cstr_printf_check( leader_desc, sizeof(leader_desc), NULL, "next leader in %lu slots (need %lu)", idle_gap, min_idle_slots );
+      }
+    }
+
+    /* Update idle window state.  Reset if any pre-snapshot check
+       failed; enter if all pass and we weren't already in one. */
+
+    int idle_checks_pass = ( health_result!=CHECK_FAIL ) &&
+                           ( leader_result!=CHECK_FAIL ) &&
+                           ( epoch_result!=CHECK_FAIL );
+
+    if( FD_UNLIKELY( !idle_checks_pass ) ) {
       in_idle_window = 0;
-      goto sleep;
-    }
-
-    /* We are in an idle window.  If we just entered, record snapshot
-       baselines. */
-
-    if( FD_UNLIKELY( !in_idle_window ) ) {
+    } else if( FD_UNLIKELY( !in_idle_window ) ) {
       in_idle_window = 1;
       if( !skip_snapshot && snapmk_tile ) {
         idle_window_full_baseline = fd_metrics_tile( snapmk_tile->metrics )[ FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_SLOT_FINISHED_FULL_OFF ];
       }
-      FD_LOG_NOTICE(( "%s  entered idle window (reset_slot=%lu, next_leader=%lu, idle_gap=%lu)",
-                      ts_buf, reset_slot, next_leader_slot, idle_gap ));
     }
 
     /* 3. Snapshot freshness check: a new full snapshot must have
        completed since we entered the idle window. */
 
-    if( FD_LIKELY( !skip_snapshot && snapmk_tile ) ) {
+    int  snapshot_result;
+    char snapshot_desc[ 256 ];
+
+    if( FD_UNLIKELY( skip_snapshot ) ) {
+      snapshot_result = CHECK_SKIP;
+      fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL, "skipped" );
+    } else if( FD_UNLIKELY( !in_idle_window ) ) {
+      snapshot_result = CHECK_SKIP;
+      fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL, "waiting for idle window" );
+    } else {
       ulong full_finished = fd_metrics_tile( snapmk_tile->metrics )[ FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_SLOT_FINISHED_FULL_OFF ];
 
       if( FD_UNLIKELY( full_finished<=idle_window_full_baseline ) ) {
-        FD_LOG_NOTICE(( "%s  waiting for a new full snapshot (last_full=%lu, baseline=%lu)",
-                        ts_buf, full_finished, idle_window_full_baseline ));
-        goto sleep;
-      }
+        snapshot_result = CHECK_FAIL;
+        fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL,
+                              "waiting for new full snapshot (last=%lu, baseline=%lu)",
+                              full_finished, idle_window_full_baseline );
+      } else {
+        /* Verify incremental snapshot is at least as recent as the full
+           (i.e. based on the current full).  If incremental is 0 that
+           just means none has been produced yet, which is fine. */
 
-      /* Verify incremental snapshot is at least as recent as the full
-         (i.e. based on the current full).  If incremental is 0 that
-         just means none has been produced yet, which is fine. */
-
-      ulong incr_finished = fd_metrics_tile( snapmk_tile->metrics )[ FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_SLOT_FINISHED_INCREMENTAL_OFF ];
-      if( FD_UNLIKELY( incr_finished!=0UL && incr_finished<full_finished ) ) {
-        FD_LOG_NOTICE(( "%s  incremental snapshot is stale (incr=%lu, full=%lu), waiting...",
-                        ts_buf, incr_finished, full_finished ));
-        goto sleep;
+        ulong incr_finished = fd_metrics_tile( snapmk_tile->metrics )[ FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_SLOT_FINISHED_INCREMENTAL_OFF ];
+        if( FD_UNLIKELY( incr_finished!=0UL && incr_finished<full_finished ) ) {
+          snapshot_result = CHECK_FAIL;
+          fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL,
+                                "incremental stale (incr=%lu, full=%lu)", incr_finished, full_finished );
+        } else {
+          snapshot_result = CHECK_PASS;
+          fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL, "ok (slot=%lu)", full_finished );
+        }
       }
     }
 
-    /* All checks passed — safe to restart. */
+    /* Check if all conditions are met (pass or skip). */
 
-    FD_LOG_NOTICE(( "%s  safe to restart (reset_slot=%lu, next_leader=%lu)",
-                    ts_buf, reset_slot, next_leader_slot ));
-    fd_topo_leave_workspaces( &config->topo );
-    return;
+    int all_pass = ( health_result!=CHECK_FAIL ) &&
+                   ( leader_result!=CHECK_FAIL ) &&
+                   ( epoch_result!=CHECK_FAIL ) &&
+                   ( snapshot_result!=CHECK_FAIL );
 
-sleep:
+    long elapsed_s = (fd_log_wallclock() - start_time) / (1000L * 1000L * 1000L);
+
+    /* Render the TUI panel. */
+
+    render_status( health_result, health_desc,
+                   leader_result, leader_desc,
+                   snapshot_result, snapshot_desc,
+                   epoch_result, epoch_desc,
+                   all_pass, elapsed_s, first_frame );
+    first_frame = 0;
+
+    if( FD_UNLIKELY( all_pass ) ) {
+      FD_LOG_NOTICE(( "safe to restart (reset_slot=%lu, next_leader=%lu)", reset_slot, next_leader_slot ));
+      fd_topo_leave_workspaces( &config->topo );
+      return;
+    }
+
     fd_log_wait_until( fd_log_wallclock() + poll_interval_ns );
   }
 
-  /* Interrupted by signal. */
+  /* Interrupted by signal — restore cursor and exit. */
 
+  restore_cursor();
   FD_LOG_WARNING(( "interrupted before finding a safe restart window" ));
   fd_topo_leave_workspaces( &config->topo );
   exit( 1 );
