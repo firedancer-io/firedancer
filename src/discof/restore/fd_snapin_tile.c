@@ -17,6 +17,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/features/fd_feature_snoop.h"
+#include "../../flamenco/stakes/fd_stake_types.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../disco/events/generated/fd_event_gen.h"
@@ -102,6 +103,14 @@ struct fd_snapin_tile {
     ulong       write_pos;
     uchar       buf[ sizeof(fd_feature_t) ];
   } feature_reasm;
+  struct {
+    int         capturing;
+    fd_pubkey_t pubkey;
+    ulong       lamports;
+    ulong       data_len;
+    ulong       write_pos;
+    uchar       buf[ sizeof(fd_stake_state_t) ];
+  } stake_reasm;
 
   fd_ssparse_t             ssparse[1];
   fd_ssmanifest_parser_t * manifest_parser;
@@ -782,6 +791,36 @@ process_manifest( fd_snapin_tile_t *  ctx,
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
+static void
+snoop_stake_delegation( fd_snapin_tile_t *  ctx,
+                        fd_pubkey_t const * stake_account,
+                        ulong               lamports,
+                        ulong               data_len,
+                        uchar const *       data,
+                        ulong               data_sz ) {
+  fd_stake_state_t const * stake_state = fd_stake_state_view( data, data_sz );
+  if( FD_UNLIKELY( !stake_state || stake_state->stake_type!=FD_STAKE_STATE_STAKE ) ) return;
+
+  fd_delegation_t const * delegation = &stake_state->stake.stake.delegation;
+  if( FD_UNLIKELY( ( delegation->activation_epoch!=ULONG_MAX &&
+                    delegation->activation_epoch>=(ulong)USHORT_MAX ) ||
+                   ( delegation->deactivation_epoch!=ULONG_MAX &&
+                    delegation->deactivation_epoch>=(ulong)USHORT_MAX ) ) ) return;
+
+  fd_stake_delegations_root_update(
+      fd_banks_stake_delegations_root_query( ctx->banks ),
+      stake_account,
+      &delegation->voter_pubkey,
+      delegation->stake,
+      delegation->activation_epoch,
+      delegation->deactivation_epoch,
+      stake_state->stake.stake.credits_observed,
+      lamports,
+      (uint)data_len,
+      /* fd_stake_delegations_refresh recomputes this after load. */
+      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+}
+
 static int
 process_account_batch( fd_snapin_tile_t *            ctx,
                        fd_ssparse_advance_result_t * result ) {
@@ -818,6 +857,12 @@ process_account_batch( fd_snapin_tile_t *            ctx,
     }
 
     fd_feature_snoop_account( ctx->feature_snoop, (fd_pubkey_t const *)pubkeys[ i ], lamports[ i ], e+64UL, e+136UL, data_lens[ i ] );
+
+    if( FD_UNLIKELY( lamports[ i ] &&
+                     !memcmp( e+64UL, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
+      snoop_stake_delegation( ctx, (fd_pubkey_t const *)pubkeys[ i ], lamports[ i ],
+                              data_lens[ i ], e+136UL, data_lens[ i ] );
+    }
   }
 
   ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
@@ -903,6 +948,18 @@ process_account_header( fd_snapin_tile_t * ctx,
     }
   }
 
+  ctx->stake_reasm.capturing = 0;
+  if( FD_UNLIKELY( account!=-1 &&
+                   result->account_header.lamports &&
+                   result->account_header.data_len>=sizeof(fd_stake_state_t) &&
+                   !memcmp( result->account_header.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
+    memcpy( ctx->stake_reasm.pubkey.uc, result->account_header.pubkey, sizeof(fd_pubkey_t) );
+    ctx->stake_reasm.lamports  = result->account_header.lamports;
+    ctx->stake_reasm.data_len  = result->account_header.data_len;
+    ctx->stake_reasm.write_pos = 0UL;
+    ctx->stake_reasm.capturing = 1;
+  }
+
   return 0;
 }
 
@@ -930,6 +987,19 @@ process_account_data( fd_snapin_tile_t *            ctx,
                                 ctx->feature_reasm.lamports, ctx->feature_reasm.owner,
                                 ctx->feature_reasm.buf, ctx->feature_reasm.need );
       ctx->feature_reasm.capturing = 0;
+    }
+  }
+
+  if( FD_UNLIKELY( ctx->stake_reasm.capturing ) ) {
+    ulong remaining = sizeof(ctx->stake_reasm.buf) - ctx->stake_reasm.write_pos;
+    ulong copy_sz   = fd_ulong_min( result->account_data.data_sz, remaining );
+    memcpy( ctx->stake_reasm.buf + ctx->stake_reasm.write_pos, result->account_data.data, copy_sz );
+    ctx->stake_reasm.write_pos += copy_sz;
+    if( ctx->stake_reasm.write_pos==sizeof(ctx->stake_reasm.buf) ) {
+      snoop_stake_delegation( ctx, &ctx->stake_reasm.pubkey, ctx->stake_reasm.lamports,
+                              ctx->stake_reasm.data_len, ctx->stake_reasm.buf,
+                              sizeof(ctx->stake_reasm.buf) );
+      ctx->stake_reasm.capturing = 0;
     }
   }
 }
@@ -1182,6 +1252,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->dup_capitalization                 = 0UL;
         ctx->recovery.capitalization            = 0UL;
 
+        fd_stake_delegations_reset( fd_banks_stake_delegations_root_query( ctx->banks ) );
         fd_accdb_reset( ctx->accdb );
         fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ctx->accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
@@ -1193,6 +1264,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
         fd_memset( ctx->feature_snoop, 0, sizeof(ctx->feature_snoop) );
         ctx->feature_reasm.capturing = 0;
+        ctx->stake_reasm.capturing   = 0;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
@@ -1206,6 +1278,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->slot_history.captured  = 0;
         ctx->slot_history.capturing = 0;
         ctx->feature_reasm.capturing = 0;
+        ctx->stake_reasm.capturing   = 0;
 
         /* Create a child fork for incremental writes.  On failure,
            fd_accdb_purge(child) reverts just the incremental changes.

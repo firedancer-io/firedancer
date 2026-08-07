@@ -441,24 +441,9 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     }
   }
 
-  /* Stake delegations for the current epoch. */
-  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  fd_stake_delegations_reset( stake_delegations );
-  for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
-    fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
-    fd_stake_delegations_root_update(
-        stake_delegations,
-        (fd_pubkey_t *)elem->stake_pubkey,
-        (fd_pubkey_t *)elem->vote_pubkey,
-        elem->stake_delegation,
-        elem->activation_epoch,
-        elem->deactivation_epoch,
-        elem->credits_observed,
-        0UL, /* lamports unknown until fd_stake_delegations_refresh */
-        0U,  /* acc_dlen unknown until fd_stake_delegations_refresh */
-        FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025
-    );
-  }
+  /* snapin populates the root stake delegation cache directly from the
+     account stream.  The manifest's primary stake delegations are
+     intentionally ignored. */
 
   /* We also want to set the total stake to be the total amount of stake
      at the end of the previous epoch. This value is used for the

@@ -481,8 +481,8 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
 }
 
 static void
-test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * manifest ) {
-  FD_LOG_NOTICE(( "testing recover back-to-back reset" ));
+test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_manifest_t * manifest ) {
+  FD_LOG_NOTICE(( "testing recover preserves snapin stake delegations" ));
 
   /* Set up a tiny-capacity fd_banks_t.  Call fd_ssload_recover_apply
      directly (bypassing fd_ssload_recover_validate) because the
@@ -509,6 +509,22 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
 
   fd_bank_t * bank = fd_banks_init_bank( banks );
   FD_TEST( bank );
+
+  /* snapin has already populated the root cache directly from account
+     data by the time ssload applies either manifest. */
+  uchar pubkey_s[32]; fd_memset( pubkey_s, 0x99, 32 );
+  uchar vote_s[32];   fd_memset( vote_s,   0x91, 32 );
+  fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( banks );
+  fd_stake_delegations_root_update( sd,
+                                    (fd_pubkey_t *)pubkey_s,
+                                    (fd_pubkey_t *)vote_s,
+                                    9000UL,
+                                    0UL,
+                                    ULONG_MAX,
+                                    123UL,
+                                    456UL,
+                                    197U,
+                                    FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 
   /* Manifest A: one stake delegation (pubkey_A), one vote stake
     (pubkey_X).  With slot=0, epoch=0, leader_schedule_epoch=1,
@@ -544,9 +560,10 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
   FD_TEST( bank->parent_accdb_fork_id.val==37U );
   FD_TEST( bank->txncache_fork_id.val==38U );
 
-  /* Verify entries from first apply are present. */
-  fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( banks );
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )!=NULL );
+  /* ssload must ignore the manifest's primary stake delegations and
+     leave the cache populated by snapin untouched. */
+  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_s )!=NULL );
+  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )==NULL );
   FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
 
   fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
@@ -581,18 +598,17 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
   manifest->epoch_stakes[1].vote_stakes[0].commission = 5;
   manifest->epoch_stakes[1].total_stake               = 7000UL;
 
-  /* Second apply: simulate back-to-back retry after a failed first
-     attempt.  Stale entries must be cleared. */
+  /* A second manifest apply must also leave snapin's cache untouched. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
   FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed )==0 );
   FD_TEST( bank->accdb_fork_id.val==39U );
   FD_TEST( bank->parent_accdb_fork_id.val==39U );
   FD_TEST( bank->txncache_fork_id.val==40U );
 
-  /* Stake delegations: pubkey_A must have been removed, pubkey_B must
-     be present, exactly 1 entry (not 2). */
+  /* Neither manifest-provided delegation is imported. */
+  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_s )!=NULL );
   FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )==NULL );
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_b )!=NULL );
+  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_b )==NULL );
   FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
 
   /* Top votes: pubkey_X must have been removed, pubkey_Y must be
@@ -631,7 +647,7 @@ main( int     argc,
   test_stake_delegations( manifest );
   test_vote_accounts( manifest );
   test_epoch_credits_downcasting( manifest );
-  test_recover_back_to_back_reset( wksp, manifest );
+  test_recover_preserves_snapin_stake_delegations( wksp, manifest );
 
   fd_wksp_free_laddr( manifest );
 

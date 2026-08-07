@@ -749,10 +749,9 @@ restore_default_slot_params( fd_bank_t const * bank ) {
 static void
 init_after_snapshot( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
-  /* Now that the snapshot has been loaded in, we have to refresh the
-     stake delegations since the manifest does not contain the full set
-     of data required for the stake delegations. See
-     fd_stake_delegations.h for why this is required. */
+  /* snapin seeded the root stake delegations from the account stream.
+     Refresh against the completed accdb to resolve duplicate account
+     versions, remove stale entries, and calculate activation state. */
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
