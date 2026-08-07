@@ -120,18 +120,19 @@ accum_vote_stakes( fd_bank_t *          bank,
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong                       current_slot   = bank->f.slot;
 
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
 
-  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
-       !fd_top_votes_iter_done( top_votes, iter );
-       fd_top_votes_iter_next( top_votes, iter ) ) {
+  uchar __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, iter_mem );
+       !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter );
+       fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake_t_2;
     ulong       last_vote_slot;
     long        last_vote_timestamp;
     uchar       is_valid;
-    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, NULL, &last_vote_slot, &last_vote_timestamp, &is_valid );
+    fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, NULL, &stake_t_2, &last_vote_slot, &last_vote_timestamp, NULL, &is_valid );
     if( FD_UNLIKELY( !is_valid ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */

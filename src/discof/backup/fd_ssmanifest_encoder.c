@@ -165,16 +165,16 @@ ENCODE_FN {
 
     /* entry_type: 0=T-3 commission, 1=T-2 stakes, 2=T-1 stakes+credits */
     uint entry_type = (epoch > 0UL) ? enc->epoch_idx : (uint)(enc->epoch_idx + 1U);
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    ulong              fork_id     = bank->vote_stakes_fork_id;
 
     uint vote_cnt;
     if( entry_type==2U ) {
-      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
-      vote_cnt = (uint)fd_top_votes_cnt( top_votes );
-      fd_top_votes_iter_init( top_votes, enc->top_votes_iter_mem );
+      vote_cnt = (uint)fd_vote_stakes_cnt_t_1( vote_stakes, fork_id );
+      fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, enc->top_votes_iter_mem );
     } else if( entry_type==1U ) {
-      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
-      vote_cnt = (uint)fd_top_votes_cnt( top_votes );
-      fd_top_votes_iter_init( top_votes, enc->top_votes_iter_mem );
+      vote_cnt = (uint)fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
+      fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, enc->top_votes_iter_mem );
     } else {
       vote_cnt = (uint)*fd_bank_snapshot_commission_t_3_len( enc->bank );
     }
@@ -203,21 +203,21 @@ ENCODE_FN {
     fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
     ushort co_root = fd_collector_overrides_get_root_idx( overrides );
     ulong  co_epoch = ULONG_MAX; /* no collector lookup */
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    ulong              fork_id     = bank->vote_stakes_fork_id;
 
     if( entry_type==2U ) {
-      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
-      fd_top_votes_iter_t *  iter      = fd_type_pun( enc->top_votes_iter_mem );
-      FD_TEST( !fd_top_votes_iter_done( top_votes, iter ) );
-      fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, NULL, NULL, NULL );
+      fd_vote_stakes_t_1_iter_t * iter = fd_type_pun( enc->top_votes_iter_mem );
+      FD_TEST( !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter ) );
+      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, &commission );
       ec = find_epoch_credits( enc->bank, &pubkey );
       FD_TEST( ec );
       ec_cnt = ec->cnt;
       co_epoch = bank->f.epoch;
     } else if( entry_type==1U ) {
-      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
-      fd_top_votes_iter_t *  iter      = fd_type_pun( enc->top_votes_iter_mem );
-      FD_TEST( !fd_top_votes_iter_done( top_votes, iter ) );
-      fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, NULL, NULL, NULL );
+      fd_vote_stakes_t_2_iter_t * iter = fd_type_pun( enc->top_votes_iter_mem );
+      FD_TEST( !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter ) );
+      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, &commission, NULL );
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
       /* t_3 collectors are never consulted on reload; encoded as
@@ -279,11 +279,9 @@ ENCODE_FN {
 
     enc->vote_idx++;
     if( entry_type==2U ) {
-      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
-      fd_top_votes_iter_next( top_votes, fd_type_pun( enc->top_votes_iter_mem ) );
+      fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, fd_type_pun( enc->top_votes_iter_mem ) );
     } else if( entry_type==1U ) {
-      fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
-      fd_top_votes_iter_next( top_votes, fd_type_pun( enc->top_votes_iter_mem ) );
+      fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, fd_type_pun( enc->top_votes_iter_mem ) );
     }
     if( enc->vote_idx >= enc->vote_cnt ) enc->state = STATE_EPOCH_STAKES_EPOCH;
     break;

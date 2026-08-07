@@ -429,6 +429,8 @@ mock_query_towers( fd_tower_tile_t *            ctx,
     total_stake += stake;
     prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_acc, stake, prev_voter_idx );
   }
+  ctx->vtr_cnt = FIXTURE_VTR_CNT;
+  fd_votes_update_voters( ctx->votes, ctx->vote_accs, ctx->vtr_cnt );
 
   /* No reconciliation in mock — just report not found. */
 

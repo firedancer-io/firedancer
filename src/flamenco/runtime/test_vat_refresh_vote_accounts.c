@@ -1,5 +1,5 @@
 /* Test post-VAT (SIMD-0357) epoch-boundary behavior.  The runtime always
-   filters to eligible V4+BLS vote accounts and uses top_votes for
+   filters to eligible V4+BLS vote accounts and uses vote stakes for
    historical stake, commission, and clock calculations. */
 
 #define _GNU_SOURCE
@@ -17,7 +17,7 @@
 #include "../accdb/fd_accdb_shmem.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_stake_types.h"
-#include "../stakes/fd_top_votes.h"
+#include "../stakes/fd_vote_stakes.h"
 
 #include <sys/mman.h>
 #include <unistd.h>
@@ -88,7 +88,7 @@ static ushort voter_commission( ulong i ) { return (ushort)(100U*(i+1U)); }
 
 /* Per-voter base stake (whale dominates).  Each voter's delegated stake
    for a given epoch is this base plus a distinct per-epoch bump, so the
-   stake snapshot referenced by each consumer (t-1 for top_votes /
+   stake snapshot referenced by each consumer (t-1 for vote stakes /
    total_epoch_stake, t-2 for the clock) is unique per epoch and any
    mix-up between snapshots is observable.
 
@@ -99,7 +99,7 @@ static ulong  voter_base_stake( ulong i ) { return ( i==NUM_VOTERS-1UL ) ? WHALE
 #define STAKE_EPOCH_BUMP (1000000UL) /* 0.001 SOL per epoch, << BASE_STAKE */
 static ulong  stake_for_epoch( ulong i, ulong epoch ) { return voter_base_stake( i ) + epoch*STAKE_EPOCH_BUMP; }
 
-/* Genesis stake used to seed the root top_votes sets before the first
+/* Genesis stake used to seed the root vote-stakes sets before the first
    boundary.  Treated as "epoch 0" stake. */
 static ulong  voter_stake( ulong i ) { return stake_for_epoch( i, 0UL ); }
 
@@ -277,7 +277,7 @@ prep_votes( test_env_t * env, ulong for_epoch ) {
 /* Flip a vote account's owner to the system program, which makes it fail
    fd_vsv_is_correct_size_owner_and_init() exactly as if the account had
    been closed and recreated as a non-vote account.  This invalidates it
-   in the top_votes clock path.  Setting `valid` restores the vote-program
+   in the vote-stakes clock path.  Setting `valid` restores the vote-program
    owner. */
 static void
 set_vote_account_owner_valid( test_env_t * env, ulong i, int valid ) {
@@ -373,10 +373,10 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   fd_sysvar_clock_init( env->bank, env->accdb, NULL );
   init_blockhash_queue( env );
 
-  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( env->bank );
-  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( env->bank );
-  fd_top_votes_init( top_votes_t_1 );
-  fd_top_votes_init( top_votes_t_2 );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( env->bank );
+  fd_vote_stakes_reset( vote_stakes );
+  env->bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, env->bank->f.epoch );
+  ulong fork_id = env->bank->vote_stakes_fork_id;
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
   env->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
@@ -389,8 +389,9 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
     put_vote_account_v4( env, &v, &v, commission, VOTE_ACCOUNT_LAMPORTS,
                          voter_has_bls( i ), 0UL, voter_vote_ts( i ) );
     if( voter_has_bls( i ) ) {
-      fd_top_votes_insert( top_votes_t_1, &v, &v, stake, commission );
-      fd_top_votes_insert( top_votes_t_2, &v, &v, stake, commission );
+      fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &v, &v, stake, commission );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &v, &v, stake, commission );
+      fd_vote_stakes_update_state( vote_stakes, fork_id, &v, 0UL, voter_vote_ts( i ), 1 );
     }
     add_delegated_stake_account     ( env, &s, &v, stake );
     add_bank_stake_delegation_entry ( env, &s, &v, stake );
@@ -467,12 +468,8 @@ step_slot( test_env_t * env, ulong prep_epoch ) {
 }
 
 static ulong
-top_votes_t1_cnt( fd_bank_t * bank ) {
-  fd_top_votes_t const * tv = fd_bank_top_votes_t_1_query( bank );
-  ulong cnt = 0UL;
-  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
-  for( fd_top_votes_iter_t * it = fd_top_votes_iter_init( tv, iter_mem ); !fd_top_votes_iter_done( tv, it ); fd_top_votes_iter_next( tv, it ) ) cnt++;
-  return cnt;
+vote_stakes_t1_cnt( fd_bank_t * bank ) {
+  return fd_vote_stakes_cnt_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id );
 }
 
 static long
@@ -485,14 +482,14 @@ clock_delta( test_env_t * env ) {
 /* Advance to slot k=TEST_CLOCK_SLOTS of epoch E, so that the POH offset
    is a whole number of seconds.  Voters' cached last vote is primed
    for E at the last slot of E-1 so that the boundary refresh seeds
-   the clock's top_votes_t_2 with a non-delinquent
+   the clock's t-2 vote stakes with a non-delinquent
    vote. */
 static void
 advance_into_epoch( test_env_t * env, ulong epoch ) {
   ulong boundary = epoch*TEST_SLOTS_PER_EPOCH;          /* first slot of E   */
   while( env->bank->f.slot < boundary-2UL ) step_slot( env, 0UL );
   step_slot( env, epoch );   /* last slot of E-1: prep votes for E */
-  step_slot( env, 0UL );     /* boundary slot of E (refresh seeds top_votes_t_2) */
+  step_slot( env, 0UL );     /* boundary slot of E (refresh seeds t-2 vote stakes) */
   for( ulong k=0UL; k<TEST_CLOCK_SLOTS; k++ ) step_slot( env, 0UL ); /* advance to slot k=TEST_CLOCK_SLOTS of E */
   FD_TEST( env->bank->f.epoch==epoch );
   FD_TEST( env->bank->f.slot==boundary+TEST_CLOCK_SLOTS );
@@ -541,11 +538,11 @@ test_vat_path_unconditional( fd_wksp_t * wksp ) {
   /* The runtime only supports post-VAT banks. */
   ulong const epoch = TEST_VAT_EPOCH-1UL;
   advance_into_epoch( env, epoch );
-  FD_TEST( top_votes_t1_cnt( env->bank )==NUM_VAT_ELIGIBLE );
+  FD_TEST( vote_stakes_t1_cnt( env->bank )==NUM_VAT_ELIGIBLE );
   for( ulong i=0UL; i<NUM_VOTERS; i++ ) {
     fd_pubkey_t v = vote_key( i );
     ulong stake = 0UL;
-    int found = fd_top_votes_query( fd_bank_top_votes_t_1_query( env->bank ), &v, NULL, &stake, NULL, NULL, NULL, NULL );
+    int found = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, NULL, &stake, NULL );
     FD_TEST( found==voter_has_bls( i ) );
     if( found ) FD_TEST( stake==stake_for_epoch( i, epoch ) );
   }
@@ -572,9 +569,9 @@ whale_counted_in_clock( test_env_t * env ) {
 
    All three voters (including the dominant-stake, future-voting whale)
    carry a BLS pubkey, so the whale survives VAT filtering and lives in
-   the top_votes_t_2 set the clock reads from vat_epoch+1 on.
+   the t-2 vote-stakes set the clock reads from vat_epoch+1 on.
 
-   The top_votes sets are a two-epoch pipeline (t-1 built this epoch,
+   The vote-stakes sets are a two-epoch pipeline (t-1 built this epoch,
    promoted to t-2 next epoch).  A vote account that stops parsing is
    marked invalid in the live t-2 set (not evicted), and -- because the
    invalid account is not re-inserted into t-1 -- the exclusion then
@@ -588,7 +585,7 @@ whale_counted_in_clock( test_env_t * env ) {
 static void
 test_vat_invalidate_revalidate( fd_wksp_t * wksp ) {
   /* All voters BLS-eligible (set before genesis seeding) so the whale is
-     retained under VAT and lives in top_votes_t_2. */
+     retained under VAT and lives in t-2 vote stakes. */
   bls_mask_override = 1;
   bls_mask_bits     = (1u<<NUM_VOTERS)-1u;
 
@@ -597,14 +594,14 @@ test_vat_invalidate_revalidate( fd_wksp_t * wksp ) {
 
   ulong const whale = NUM_VOTERS-1UL;
 
-  /* vat+1: first epoch the clock reads the filtered top_votes_t_2.
+  /* vat+1: first epoch the clock reads the filtered t-2 vote stakes.
      Whale present, valid, counted. */
   advance_into_epoch( env, TEST_VAT_EPOCH+1UL );
-  FD_TEST( top_votes_t1_cnt( env->bank )==NUM_VOTERS );
+  FD_TEST( vote_stakes_t1_cnt( env->bank )==NUM_VOTERS );
   FD_TEST( whale_counted_in_clock( env )==1 );
 
   /* vat+2: whale closed/recreated as a non-vote account right before the
-     boundary.  Its top_votes_t_2 entry is marked invalid (still present)
+     boundary.  Its t-2 vote-stakes entry is marked invalid (still present)
      and the clock drops it. */
   advance_into_epoch_flip( env, TEST_VAT_EPOCH+2UL, whale, 0 /*invalid*/ );
   FD_TEST( whale_counted_in_clock( env )==0 );

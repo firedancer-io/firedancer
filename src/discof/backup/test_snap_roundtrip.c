@@ -156,16 +156,17 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
      the t_1 tag (epoch), and a block-only override for vote1 on the
      t_2 tag (epoch-1). */
   FD_TEST( bank->f.epoch>=1UL );
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
-  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
-  fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
-  FD_TEST( !fd_top_votes_iter_done( top_votes, iter ) );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
+  fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, iter_mem );
+  FD_TEST( !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter ) );
   fd_pubkey_t vote0;
-  fd_top_votes_iter_ele( top_votes, iter, &vote0, NULL, NULL, NULL, NULL, NULL, NULL );
-  fd_top_votes_iter_next( top_votes, iter );
-  FD_TEST( !fd_top_votes_iter_done( top_votes, iter ) );
+  fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &vote0, NULL, NULL, NULL );
+  fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter );
+  FD_TEST( !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter ) );
   fd_pubkey_t vote1;
-  fd_top_votes_iter_ele( top_votes, iter, &vote1, NULL, NULL, NULL, NULL, NULL, NULL );
+  fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &vote1, NULL, NULL, NULL );
 
   fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
   fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };

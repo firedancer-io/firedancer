@@ -4,7 +4,7 @@
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_stake_delegations.h"
-#include "../stakes/fd_top_votes.h"
+#include "../stakes/fd_vote_stakes.h"
 #include "../stakes/fd_collector_overrides.h"
 #include "../progcache/fd_progcache_xid.h"
 #include "../fd_rwlock.h"
@@ -18,7 +18,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-#define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
+#define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2451) /* FIREDANCER BANKS V1 */
 #define FD_BANKS_MAX_BANKS (4096UL)
 #define FD_BANKS_ALIGN     (128UL)
 
@@ -272,6 +272,7 @@ struct fd_bank {
   fd_progcache_fork_id_t progcache_fork_id;
   fd_accdb_fork_id_t     accdb_fork_id;
   fd_accdb_fork_id_t     parent_accdb_fork_id;
+  ulong                  vote_stakes_fork_id;
   ushort                 collector_overrides_fork_id;
   uchar                  stake_rewards_fork_id;
   uchar                  epoch_credits_fork_id;
@@ -340,8 +341,6 @@ struct fd_bank {
     fd_hash_t              block_id;
   } f;
 
-  uchar top_votes_t_1_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
-  uchar top_votes_t_2_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 };
 typedef struct fd_bank fd_bank_t;
 
@@ -437,6 +436,7 @@ struct fd_banks {
   ulong epoch_leaders_footprint;
 
   ulong stake_delegations_offset;
+  ulong vote_stakes_offset;
 };
 typedef struct fd_banks fd_banks_t;
 
@@ -481,17 +481,8 @@ fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank,
                               ulong       epoch );
 
-fd_top_votes_t const *
-fd_bank_top_votes_t_1_query( fd_bank_t const * bank );
-
-fd_top_votes_t *
-fd_bank_top_votes_t_1_modify( fd_bank_t * bank );
-
-fd_top_votes_t const *
-fd_bank_top_votes_t_2_query( fd_bank_t const * bank );
-
-fd_top_votes_t *
-fd_bank_top_votes_t_2_modify( fd_bank_t * bank );
+fd_vote_stakes_t *
+fd_bank_vote_stakes( fd_bank_t const * bank );
 
 fd_cost_tracker_t *
 fd_bank_cost_tracker_modify( fd_bank_t * bank );

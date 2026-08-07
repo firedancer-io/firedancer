@@ -4,6 +4,7 @@
 #include "fd_stake_delegations.h"
 #include "fd_stake_types.h"
 #include "fd_stake_weight.h"
+#include "fd_vote_stakes.h"
 #include "../types/fd_cast.h"
 
 FD_PROTOTYPES_BEGIN
@@ -68,7 +69,9 @@ fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * self,
    Returns the number of items in weights (which is <= no of vote accs). */
 
 ulong
-fd_stake_weights_by_node( fd_top_votes_t const *   top_votes,
+fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          int                      use_t_1,
                           fd_vote_stake_weight_t * weights );
 
 void
