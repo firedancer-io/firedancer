@@ -802,13 +802,18 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
   if( FD_LIKELY( bank->f.slot ) ) {
-    fd_bank_t * parent = fd_banks_bank_query( banks, bank->parent_idx );
-    FD_TEST( parent );
     ulong child_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
     if( FD_UNLIKELY( child_epoch!=fd_vote_stakes_fork_epoch( bank->vote_stakes_fork_id ) ) ) {
       fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-      fd_vote_stakes_purge_fork( vote_stakes, bank->vote_stakes_fork_id );
-      bank->vote_stakes_fork_id = fd_vote_stakes_new_fork( vote_stakes, parent->vote_stakes_fork_id, child_epoch );
+      fd_bank_t * parent = fd_banks_get_parent( banks, bank );
+      if( FD_LIKELY( parent ) ) {
+        fd_vote_stakes_purge_fork( vote_stakes, bank->vote_stakes_fork_id );
+        bank->vote_stakes_fork_id = fd_vote_stakes_new_fork( vote_stakes, parent->vote_stakes_fork_id, child_epoch );
+      } else {
+        ulong old_fork_id = bank->vote_stakes_fork_id;
+        bank->vote_stakes_fork_id = fd_vote_stakes_new_fork( vote_stakes, old_fork_id, child_epoch );
+        fd_vote_stakes_purge_fork( vote_stakes, old_fork_id );
+      }
     }
   }
 
