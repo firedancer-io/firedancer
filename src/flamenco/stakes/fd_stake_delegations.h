@@ -46,15 +46,10 @@
       exist in the accounts database but not in fd_stake_delegations_t.
 
    In practice, fd_stake_delegations_t are updated in 3 cases:
-   1. During bootup when the snapshot manifest is loaded in. The cache
-      is also refreshed during the bootup process to ensure that the
-      states are valid and up-to-date.
-
-      The reason we can't populate the stake accounts from the cache
-      is because the cache in the manifest is partially incomplete:
-      all of the expected keys are there, but the values are not.
-      Notably, the credits_observed field is not available until all of
-      the accounts are loaded into the database.
+   1. During snapshot boot, snapin populates the root cache directly
+      from the account stream.  The cache is refreshed after all
+      accounts are loaded to resolve duplicate account versions, remove
+      stale entries, and calculate activation state.
 
       https://github.com/anza-xyz/agave/blob/v2.3.6/runtime/src/bank.rs#L1780-L1806
 
