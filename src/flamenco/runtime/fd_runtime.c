@@ -63,9 +63,9 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_top_votes_t const *   top_votes_t_1    = fd_bank_top_votes_t_1_query( bank );
+  fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_1, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, 1, epoch_weights );
   FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
@@ -99,9 +99,9 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
+  fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, 0, epoch_weights );
   FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
@@ -801,6 +801,17 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_runtime_stack_t * runtime_stack,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
+  if( FD_LIKELY( bank->f.slot ) ) {
+    fd_bank_t * parent = fd_banks_bank_query( banks, bank->parent_idx );
+    FD_TEST( parent );
+    ulong child_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
+    if( FD_UNLIKELY( child_epoch!=fd_vote_stakes_fork_epoch( bank->vote_stakes_fork_id ) ) ) {
+      fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+      fd_vote_stakes_purge_fork( vote_stakes, bank->vote_stakes_fork_id );
+      bank->vote_stakes_fork_id = fd_vote_stakes_new_fork( vote_stakes, parent->vote_stakes_fork_id, child_epoch );
+    }
+  }
+
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, capture_ctx, runtime_stack, is_epoch_boundary );
 
   if( FD_LIKELY( bank->f.slot ) ) {
@@ -1052,7 +1063,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
   txn_out->details.commit_start_ticks = fd_tickcount();
 
   if( FD_UNLIKELY( !txn_out->err.txn_err ) ) {
-    fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
@@ -1081,9 +1092,9 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
         if( FD_UNLIKELY( !account->lamports ||
                          !fd_vsv_is_correct_size_owner_and_init( account->owner, account->data, account->data_len ) ||
                          fd_vote_account_last_timestamp( account->data, account->data_len, &last_vote ) ) ) {
-          fd_top_votes_invalidate( top_votes, pubkey );
+          fd_vote_stakes_update_state( vote_stakes, bank->vote_stakes_fork_id, pubkey, 0UL, 0L, 0 );
         } else {
-          fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
+          fd_vote_stakes_update_state( vote_stakes, bank->vote_stakes_fork_id, pubkey, last_vote.slot, last_vote.timestamp, 1 );
         }
       }
 
@@ -1531,9 +1542,20 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
      should equal the genesis staked set. */
 
   {
-    fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
-    fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
-    fd_memcpy( top_votes_t_2, top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    ulong              fork_id     = bank->vote_stakes_fork_id;
+    uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, iter_mem );
+         !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
+         fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
+      fd_pubkey_t pubkey;
+      fd_pubkey_t node_account;
+      ulong       stake;
+      ushort      commission;
+      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, &commission );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &pubkey, &node_account, stake, commission );
+    }
+    fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );
   }
 
   bank->f.epoch = 0UL;

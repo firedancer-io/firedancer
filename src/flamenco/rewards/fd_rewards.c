@@ -1743,8 +1743,8 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
        be a 2 epoch commission gap for the delay_commission_updates
        feature. */
 
-    fd_top_votes_t const * top_votes_t_1 = fd_bank_top_votes_t_1_query( bank );
-    fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    ulong              fork_id     = bank->vote_stakes_fork_id;
 
     for( ulong i=0UL; i<epoch_credits_len; i++ ) {
       fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[i];
@@ -1754,14 +1754,14 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
          valid since the epoch credits are populated from the t-1 stakes
          in the snapshot manifest. */
       ushort commission_t_1 = 0;
-      FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
+      FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, fork_id, pubkey, NULL, NULL, &commission_t_1 ) );
 
       /* Now get the t-2 information (if it exists).  This is not
          guaranteed to be valid since it's possible for a vote account to
          have been created in the last epoch. */
       int    exists_t_2     = 0;
       ushort commission_t_2 = 0;
-      exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
+      exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, fork_id, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
 
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
       vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;

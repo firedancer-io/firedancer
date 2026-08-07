@@ -153,7 +153,7 @@ main( int     argc,
   bank = fd_svm_mini_bank( mini, root_idx );
   FD_TEST( bank );
 
-  FD_TEST( fd_top_votes_cnt( fd_bank_top_votes_t_1_query( bank ) )==0UL );
+  FD_TEST( fd_vote_stakes_cnt_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id )==0UL );
 
   /* mock_validator_cnt=1: single validator */
   params->mock_validator_cnt = 1UL;
@@ -167,7 +167,7 @@ main( int     argc,
   FD_TEST( leaders->slot_cnt==bank->f.epoch_schedule.slots_per_epoch );
   FD_TEST( fd_epoch_leaders_get( leaders, leaders->slot0 ) );
 
-  FD_TEST( fd_top_votes_cnt( fd_bank_top_votes_t_1_query( bank ) )==1UL );
+  FD_TEST( fd_vote_stakes_cnt_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id )==1UL );
 
   /* mock_validator_cnt=4: multiple validators */
   params->mock_validator_cnt = 4UL;
@@ -183,7 +183,7 @@ main( int     argc,
     FD_TEST( fd_epoch_leaders_get( leaders, s ) );
   }
 
-  FD_TEST( fd_top_votes_cnt( fd_bank_top_votes_t_1_query( bank ) )==4UL );
+  FD_TEST( fd_vote_stakes_cnt_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id )==4UL );
 
   /* Mock validators must fit the vote-account/epoch-credit capacity. */
   params->mock_validator_cnt = limits->max_vote_accounts + 1UL;

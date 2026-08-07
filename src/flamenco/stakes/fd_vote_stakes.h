@@ -36,8 +36,14 @@ fd_vote_stakes_t *
 fd_vote_stakes_join( void * mem );
 
 ulong
+fd_vote_stakes_fork_epoch( ulong fork_id );
+
+ulong
 fd_vote_stakes_init( fd_vote_stakes_t * vote_stakes,
                      ulong              epoch );
+
+void
+fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes );
 
 void
 fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
@@ -138,6 +144,14 @@ fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
                           fd_pubkey_t *            node_account_out_opt,
                           ulong *                  stake_out_opt,
                           ushort *                 commission_out_opt );
+
+ulong
+fd_vote_stakes_cnt_t_1( fd_vote_stakes_t const * vote_stakes,
+                        ulong                    fork_id );
+
+ulong
+fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
+                        ulong                    fork_id );
 
 #define FD_VOTE_STAKES_T_1_ITER_FOOTPRINT (16UL)
 #define FD_VOTE_STAKES_T_1_ITER_ALIGN     (8UL)

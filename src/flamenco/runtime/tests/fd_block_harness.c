@@ -31,7 +31,9 @@ typedef struct {
 #define LEADER_SCHEDULE_HASH_SEED 0xDEADFACEUL
 
 static void
-fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   top_votes,
+fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *                 vote_stakes,
+                                           ulong                              vote_stakes_fork_id,
+                                           int                                use_t_1,
                                            fd_exec_test_prev_vote_account_t * vote_accounts,
                                            pb_size_t                          vote_accounts_cnt ) {
   if( FD_UNLIKELY( !vote_accounts ) ) return;
@@ -50,7 +52,8 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   to
       commission = (ushort)( (uchar)( vote_accounts[i].commission_bps / 100U ) * 100U );
     }
 
-    fd_top_votes_insert( top_votes, &vote_pubkey, &node_pubkey, stake, commission );
+    if( use_t_1 ) fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission );
+    else          fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission );
   }
 }
 
@@ -258,17 +261,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
 
-  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
-  fd_top_votes_init( top_votes_t_1 );
-
-  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
-  fd_top_votes_init( top_votes_t_2 );
-
   FD_TEST( block_bank->vote_accounts_t_1_count<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   FD_TEST( block_bank->vote_accounts_t_2_count<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
-
-  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_1, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count );
-  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_2, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count );
 
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, fork_id, &test_ctx->acct_states[i], i );
@@ -278,9 +272,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
     fd_solfuzz_block_register_stake_delegation( accdb, fork_id, stake_delegations, &pubkey );
   }
-
-  /* Refresh top votes after loading accdb. */
-  fd_top_votes_refresh( top_votes_t_2, accdb, fork_id );
 
   /* reduce_stake_warmup_cooldown is activated on all clusters, so the
      new warmup/cooldown rate (0.09) applies from epoch 0 onwards. */
@@ -295,6 +286,13 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Current epoch gets updated in process_new_epoch, so use the epoch
      from the parent slot */
   bank->f.epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, parent_slot, NULL );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_reset( vote_stakes );
+  bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
+  fd_solfuzz_block_update_prev_epoch_stakes( vote_stakes, bank->vote_stakes_fork_id, 1, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count );
+  fd_solfuzz_block_update_prev_epoch_stakes( vote_stakes, bank->vote_stakes_fork_id, 0, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count );
+  fd_vote_stakes_refresh( vote_stakes, bank->vote_stakes_fork_id, accdb, fork_id );
 
   /* SIMD-0232 collector overrides from the t_1/t_2 vote account
      snapshots.  The override store was reset (and the bank's fork id
@@ -325,8 +323,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
     fd_exec_test_prev_vote_account_t const * prev_vote_accs = &block_bank->vote_accounts_t_1[i];
 
-    if( FD_UNLIKELY( !fd_top_votes_query( top_votes_t_1, (fd_pubkey_t const *)prev_vote_accs->address,
-                                          NULL, NULL, NULL, NULL, NULL, NULL ) ) ) continue;
+    if( FD_UNLIKELY( !fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t const *)prev_vote_accs->address,
+                                                NULL, NULL, NULL ) ) ) continue;
 
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len++];
