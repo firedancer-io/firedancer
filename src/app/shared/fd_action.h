@@ -208,6 +208,14 @@ union fdctl_args {
   struct {
     ulong slot;
   } snapshot_create;
+
+  struct {
+    ulong min_idle_time;
+    ulong max_delinquent_stake;
+    int   skip_snapshot_check;
+    int   skip_health_check;
+    int   skip_delinquent_check;
+  } wait_for_restart_window;
 };
 
 typedef union fdctl_args args_t;
