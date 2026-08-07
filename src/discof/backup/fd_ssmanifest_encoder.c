@@ -176,7 +176,7 @@ ENCODE_FN {
       vote_cnt = (uint)fd_top_votes_cnt( top_votes );
       fd_top_votes_iter_init( top_votes, enc->top_votes_iter_mem );
     } else {
-      vote_cnt = (uint)*fd_bank_snapshot_commission_t_3_len( enc->bank );
+      vote_cnt = (uint)*fd_bank_epoch_credits_len( enc->bank );
     }
     enc->vote_cnt    = vote_cnt;
     enc->vote_idx    = 0;
@@ -220,11 +220,18 @@ ENCODE_FN {
       fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, NULL, NULL, NULL );
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
-      /* t_3 collectors are never consulted on reload; encoded as
-         zero. */
-      fd_stashed_commission_t const * sc = &fd_bank_snapshot_commission_t_3( enc->bank )[ enc->vote_idx ];
-      fd_memcpy( &pubkey, sc->pubkey, 32UL );
-      commission = sc->commission;
+      /* The bank epoch credits will have the resolved commission for
+         the vote account.  This means that te commission stored will
+         be the t-3 commission if it existed or the t-2/t-1 commission
+         otherwise as the fallback (see delay_commision_update feature
+         for more details).  This means that the serialized commission
+         for the epoch may be inaccurate but the commission produced
+         will still produce a correct commission for the purposes of
+         rewards.  That is to say that the commission for each vote
+         account will be accurate. */
+      ec = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
+      fd_memcpy( &pubkey, ec->pubkey, 32UL );
+      commission = ec->commission;
     }
 
     /* SIMD-0232 collectors: defaults unless overridden. */
