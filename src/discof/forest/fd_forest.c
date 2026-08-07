@@ -1520,7 +1520,7 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
        notion of when we completed the slot.  consumed is also updated
        mainly for metrics.  For now we leave it alone. */
   }
-  FD_LOG_INFO(( "[%s] cleared slot %lu fec set %u", __func__, slot, fec_set_idx ));
+  // FD_LOG_INFO(( "cleared slot %lu fec set %u", slot, fec_set_idx ));
 }
 
 fd_forest_blk_t const *
