@@ -210,6 +210,32 @@
 #define STEM_FUTEX 0
 #endif
 
+/* STEM_FUTEX_SLEEP causes stem_run to stop polling and go to sleep when
+   input links are idle.  stem_run resumes as soon as a producer
+   publishes a frag.  Requires STEM_FUTEX in this stem and all producer
+   stems (deadlocks otherwise).  Requires Linux 5.16 or newer.  Causes
+   stem_run to issue futex_waitv() syscalls.  Note that this also stops
+   callbacks to BEFORE_CREDIT and AFTER_CREDIT.  Wake-up latency after a
+   sleep is bounded by the housekeeping interval of the producer. */
+
+#ifndef STEM_FUTEX_SLEEP
+#define STEM_FUTEX_SLEEP 0
+#endif
+#if STEM_FUTEX_SLEEP && !STEM_FUTEX
+#error "STEM_FUTEX_SLEEP requires STEM_FUTEX"
+#endif
+#if STEM_FUTEX_SLEEP
+#include "../../util/io_uring/fd_futex.h"
+#endif
+
+/* STEM_FUTEX_IDLE_THRES controls how soon a stem goes to sleep (see
+   STEM_FUTEX_SLEEP).  It specifies the number of consecutive run loop
+   iterations without input frags. */
+
+#ifndef STEM_FUTEX_IDLE_THRES
+#define STEM_FUTEX_IDLE_THRES (16384UL)
+#endif
+
 #define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
 
 static inline void
@@ -251,6 +277,9 @@ STEM_(scratch_footprint)( ulong in_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_seq */
   const ulong event_cnt = in_cnt + 1UL + cons_cnt;
   l = FD_LAYOUT_APPEND( l, alignof(ushort),            event_cnt*sizeof(ushort)             ); /* event_map */
+#if STEM_FUTEX_SLEEP
+  l = FD_LAYOUT_APPEND( l, alignof(fd_futex_waitv_t),  in_cnt*sizeof(fd_futex_waitv_t)      ); /* waitv */
+#endif
   return FD_LAYOUT_FINI( l, STEM_(scratch_align)() );
 }
 
@@ -294,6 +323,12 @@ STEM_(run1)( ulong                        in_cnt,
   ulong    event_seq; /* current position in housekeeping event sequence, in [0,event_cnt) */
   ushort * event_map; /* current mapping of event_seq to event idx, event_map[ event_seq ] is next event to process */
   ulong    async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
+
+  /* power saving */
+  ulong idle_cnt;           /* run loop iterations without work */
+#if STEM_FUTEX_SLEEP
+  fd_futex_waitv_t * waitv; /* input vector for futex_waitv */
+#endif
 
   /* performance metrics */
   ulong metric_in_backp;  /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
@@ -358,7 +393,8 @@ STEM_(run1)( ulong                        in_cnt,
     if( FD_UNLIKELY( !out_mcache[ out_idx ] ) ) FD_LOG_ERR(( "NULL out_mcache[%lu]", out_idx ));
 
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
-    out_seq[ out_idx ] = 0UL;
+    out_seq  [ out_idx ] = 0UL;
+    out_sync [ out_idx ] = fd_mcache_seq_laddr( out_mcache[ out_idx ] );
 
     cr_avail[ out_idx ] = out_depth[ out_idx ];
     out_reliable[ out_idx ] = 0;
@@ -405,6 +441,17 @@ STEM_(run1)( ulong                        in_cnt,
   async_min = fd_tempo_async_min( lazy, event_cnt, (float)fd_tempo_tick_per_ns( NULL ) );
   if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy %lu %lu", (ulong)lazy, event_cnt ));
 
+#if STEM_FUTEX_SLEEP
+  waitv    = (fd_futex_waitv_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_futex_waitv_t), in_cnt*sizeof(fd_futex_waitv_t) );
+  idle_cnt = 0UL;
+  for( ulong in_idx=0UL; in_idx<in_cnt; in_idx++ ) {
+    waitv[ in_idx ].val      = 0UL;
+    waitv[ in_idx ].uaddr    = (ulong)fd_mcache_seq_laddr_const( in_mcache[ in_idx ] );
+    waitv[ in_idx ].flags    = FUTEX2_SIZE_U32;
+    waitv[ in_idx ].reserved = 0U;
+  }
+#endif
+
   FD_LOG_INFO(( "Running stem, cr_max = %lu", cr_max ));
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
   long then = fd_tickcount();
@@ -439,8 +486,8 @@ STEM_(run1)( ulong                        in_cnt,
         /* If consumer is asleep and behind, wake it up */
         int cons_asleep = fd_fseq_sleep_query( cons_fseq[ cons_idx ] ); /* load-acquire */
         ulong out_idx = cons_out[ cons_idx ];
-        ulong out_seq = out_seq[ out_idx ];
-        if( FD_UNLIKELY( cons_asleep && fd_seq_lt( this_cons_seq, out_seq ) ) ) {
+        ulong seq = out_seq[ out_idx ];
+        if( FD_UNLIKELY( cons_asleep && fd_seq_lt( this_cons_seq, seq ) ) ) {
           /* FIXME consider using inline asm wrappers for better codegen */
           long res = syscall( SYS_futex, (uint const *)out_sync[ out_idx ], FUTEX_WAKE, INT_MAX, NULL, NULL, 0 );
           if( FD_UNLIKELY( res<0 ) ) FD_LOG_ERR(( "futex(FUTEX_WAKE,%p) failed (%i-%s)", (void *)out_sync[ out_idx ], errno, fd_io_strerror( errno ) ));
@@ -520,6 +567,47 @@ STEM_(run1)( ulong                        in_cnt,
 #else
         (void)ctx;
 #endif
+
+        /* go to sleep once idle for a while */
+#if STEM_FUTEX_SLEEP
+        int sleepy = idle_cnt >= STEM_FUTEX_IDLE_THRES;
+        if( FD_UNLIKELY( sleepy ) ) {
+          /* return flow control credits to upstream producers */
+          for( ulong in_idx=0UL; in_idx<in_cnt; in_idx++ ) {
+            STEM_(in_update)( &in[ in_idx ] );
+          }
+
+          /* update sync words for all reliable links */
+          for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
+            fd_mcache_seq_update( out_sync[ out_idx ], out_seq[ out_idx ] );
+          }
+
+          /* kick sleepy consumers */
+          FD_HW_MFENCE();
+          for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
+            ulong this_cons_seq = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
+            int   cons_asleep   = fd_fseq_sleep_query( cons_fseq[ cons_idx ] ); /* load-acquire */
+            ulong out_idx       = cons_out[ cons_idx ];
+            ulong seq           = out_seq[ out_idx ];
+            if( FD_UNLIKELY( cons_asleep && fd_seq_lt( this_cons_seq, seq ) ) ) {
+              /* FIXME consider using inline asm wrappers for better codegen */
+              long res = syscall( SYS_futex, (uint const *)out_sync[ out_idx ], FUTEX_WAKE, INT_MAX, NULL, NULL, 0 );
+              if( FD_UNLIKELY( res<0 ) ) FD_LOG_ERR(( "futex(FUTEX_WAKE,%p) failed (%i-%s)", (void *)out_sync[ out_idx ], errno, fd_io_strerror( errno ) ));
+            }
+          }
+
+          /* wait for any producer to wake us up */
+          for( ulong in_idx=0UL; in_idx<in_cnt; in_idx++ ) {
+            fd_fseq_sleep_start( in[ in_idx ].fseq );
+            waitv[ in_idx ].val = (ulong)FD_VOLATILE_CONST( *(uint const *)waitv[ in_idx ].uaddr );
+          }
+          long res = syscall( SYS_futex_waitv, waitv, in_cnt, 0U, NULL, CLOCK_REALTIME );
+          if( FD_UNLIKELY( res<0 && errno!=EAGAIN && errno!=ETIMEDOUT ) ) FD_LOG_ERR(( "futex_waitv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          for( ulong in_idx=0UL; in_idx<in_cnt; in_idx++ ) fd_fseq_sleep_end( in[ in_idx ].fseq );
+        }
+#else
+        (void)idle_cnt;
+#endif /* STEM_FUTEX_SLEEP */
       }
 
       /* Select which event to do next (randomized round robin) and
@@ -595,6 +683,7 @@ STEM_(run1)( ulong                        in_cnt,
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();
+      idle_cnt = 0UL;
       metric_regime_ticks[2] += housekeeping_ticks;
       long next = fd_tickcount();
       metric_regime_ticks[5] += (ulong)(next - now);
@@ -608,6 +697,7 @@ STEM_(run1)( ulong                        in_cnt,
     int poll_in = 1;
     STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, &poll_in, &charge_busy_after );
     if( FD_UNLIKELY( !poll_in ) ) {
+      idle_cnt = 0UL;
       metric_regime_ticks[1] += housekeeping_ticks;
       long next = fd_tickcount();
       metric_regime_ticks[4] += (ulong)(next - now);
@@ -688,11 +778,16 @@ STEM_(run1)( ulong                        in_cnt,
         finish_regime = &metric_regime_ticks[7];
         this_in->accum[ FD_METRICS_COUNTER_LINK_LINK_POLLING_OVERRUN_OFF ]++;
         this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ] += (uint)(-diff);
+        idle_cnt = 0UL;
 
 #ifdef STEM_CALLBACK_AFTER_POLL_OVERRUN
         STEM_CALLBACK_AFTER_POLL_OVERRUN( ctx );
 #endif
       }
+#if STEM_FUTEX_SLEEP
+      else if( FD_LIKELY( charge_busy_before || charge_busy_after ) ) idle_cnt = 0UL;
+      else idle_cnt++;
+#endif
 
       /* Don't bother with spin as polling multiple locations */
       *housekeeping_regime += housekeeping_ticks;
@@ -702,6 +797,7 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
       continue;
     }
+    idle_cnt = 0UL;
 
 #ifdef STEM_CALLBACK_BEFORE_FRAG
     int filter = STEM_CALLBACK_BEFORE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig );
@@ -913,12 +1009,16 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_
 #undef STEM_BURST
 #undef STEM_FUTEX
+#undef STEM_FUTEX_SLEEP
+#undef STEM_FUTEX_IDLE_THRES
 #undef STEM_CALLBACK_CONTEXT_TYPE
 #undef STEM_CALLBACK_CONTEXT_ALIGN
 #undef STEM_LAZY
 #undef STEM_CALLBACK_SHOULD_SHUTDOWN
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
 #undef STEM_CALLBACK_METRICS_WRITE
+#undef STEM_CALLBACK_RECV_CREDIT
+#undef STEM_CALLBACK_CHECK_CREDIT
 #undef STEM_CALLBACK_BEFORE_CREDIT
 #undef STEM_CALLBACK_AFTER_CREDIT
 #undef STEM_CALLBACK_BEFORE_FRAG
