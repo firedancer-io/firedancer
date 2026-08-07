@@ -32,9 +32,7 @@ fd_alloc_preferred_sizeclass( ulong footprint ) {
 
   /* Fixed count loop without early exit to make it easy for compiler to
      unroll and nominally eliminate all branches for fast, highly
-     deterministic performance with no consumption of BTB resources.
-     FIXME: check the compiler is doing the right thing here with
-     unrolling and branch elimination. */
+     deterministic performance with no consumption of BTB resources. */
 
   for( ulong r=0UL; r<FD_ALLOC_SIZECLASS_ITER_MAX; r++ ) {
 
