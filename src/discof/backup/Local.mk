@@ -9,4 +9,5 @@ ifdef FD_HAS_INT128
 $(call make-unit-test,test_snap_roundtrip,test_snap_roundtrip,fd_discof fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
 $(call run-unit-test,test_snap_roundtrip)
 endif
+$(call make-proof,proof_snapsv_http,fd_snapsv_http_proofs.c,--unwind 140 --unwinding-assertions)
 endif

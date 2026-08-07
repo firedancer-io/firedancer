@@ -281,19 +281,19 @@ run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3),$(4) $(LDFLAGS_EXE)))
 
 ##############################
-# Usage: $(call make-proof,name,source_file)
+# Usage: $(call make-proof,name,source_file,cbmc_flags)
 
 define _make-proof
 
 .PHONY: $(1)
 $(1):
-	$(CBMC) $(MKPATH)$(2) --c17 -DCBMC --function cbmc_main
+	$(CBMC) $(MKPATH)$(2) --c17 -DCBMC --function cbmc_main $(3)
 
 proof: $(1)
 
 endef
 
-make-proof = $(eval $(call _make-proof,$(1),$(2)))
+make-proof = $(eval $(call _make-proof,$(1),$(2),$(3)))
 
 ##############################
 ## GENERIC RULES
