@@ -32,9 +32,11 @@ printf '\n' | "$@" -march=native -E -dM - | awk '
     if( "__clang__" in define ) {
       print "FD_COMPILER_MAJOR_VERSION:=" define["__clang_major__"]
       print "CC_MAJOR_VERSION:=" define["__clang_major__"]
+      print "FD_COMPILER_VERSION:=" define["__clang_major__"] "." define["__clang_minor__"] "." define["__clang_patchlevel__"]
     } else if( "__GNUC__" in define ) {
       print "FD_COMPILER_MAJOR_VERSION:=" define["__GNUC__"]
       print "CC_MAJOR_VERSION:=" define["__GNUC__"]
+      print "FD_COMPILER_VERSION:=" define["__GNUC__"] "." define["__GNUC_MINOR__"] "." define["__GNUC_PATCHLEVEL__"]
     }
 
     emit_feature( "FD_HAS_SHANI",   "__SHA__" )
