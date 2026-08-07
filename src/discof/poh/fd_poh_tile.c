@@ -182,6 +182,16 @@ returnable_frag( fd_poh_tile_t *     ctx,
      are going to have the wait for the full block to timeout once it
      starts. */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 1;
+  /* If prior leaders skipped, it might happen that replay tells us to
+     become leader, but we haven't published the skipped ticks yet.
+
+     Skipped ticks need to be published before any microblocks, so we
+     hold the microblocks and do not mixin them yet until we have
+     published any skipped ticks.
+
+     It's fine to block pack/execles here, because the skipped ticks
+     will be published in the immediate after_credit iterations. */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) return 1;
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
     uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
     if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
