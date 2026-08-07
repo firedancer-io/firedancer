@@ -364,13 +364,6 @@ packed_partition_file_offset( accdb_offset_t const * offset,
    return (packed_partition_idx( offset )*partition_sz + packed_partition_offset( offset ));
 }
 
-/* Accounts are written to a tiered partition layout.  Layer 0 is the
-   hot write head used by acquire/release (execution).  Layers 1..N-1
-   are successively colder compaction tiers: partitions at layer K are
-   compacted into layer K+1. */
-
-#define FD_ACCDB_COMPACTION_LAYER_CNT (3UL)
-
 /* Maximum number of concurrent joiners (tiles) that can publish an
    epoch in the accdb.  Each joiner claims a slot in the shared epoch
    array during fd_accdb_new.  Must be less than or equal to 256 so

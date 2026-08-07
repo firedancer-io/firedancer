@@ -7,6 +7,15 @@
 
 #define FD_ACCDB_SHMEM_MAGIC (0xF17EDA2CE7ACCDB0UL) /* FIREDANCE ACCDB V0 */
 
+/* Accounts are written to a tiered partition layout.  Layer 0 is the
+   hot write head used by acquire/release (execution).  Layers 1..N-1
+   are successively colder compaction tiers: partitions at layer K are
+   compacted into layer K+1. */
+
+#define FD_ACCDB_COMPACTION_LAYER_CNT (3UL)
+
+#define FD_ACCDB_COMPACTION_THRESHOLD_PCT (30UL)
+
 typedef struct fd_accdb_shmem_private fd_accdb_shmem_t;
 
 struct fd_accdb_shmem_metrics {

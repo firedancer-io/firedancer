@@ -300,11 +300,11 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
       fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
       if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
       else                         gossip_stats->network_ingress_peer_names[ j ][ 0 ] = '\0';
-      gossip_stats->network_ingress_peer_bytes_per_sec[ j ] = cur->row.gossvf_rx_sum.rate_ema;
+      gossip_stats->network_ingress_peer_bytes_per_sec[ j ] = (long)cur->row.gossvf_rx_sum.rate_ema.value;
       fd_memcpy( &gossip_stats->network_ingress_peer_identities[ j ], cur->row.pubkey.uc, 32UL );
     }
 
-    gossip_stats->network_ingress_total_bytes_per_sec += cur->row.gossvf_rx_sum.rate_ema;
+    gossip_stats->network_ingress_total_bytes_per_sec += (long)cur->row.gossvf_rx_sum.rate_ema.value;
   }
 
   gossip_stats->network_ingress_total_bytes = fd_gui_metrics_gossip_total_ingress_bytes( peers->topo, gossvf_tile_cnt );
@@ -325,11 +325,11 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
       fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
       if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
       else                         gossip_stats->network_egress_peer_names[ j ][ 0 ] = '\0';
-      gossip_stats->network_egress_peer_bytes_per_sec[ j ] = cur->row.gossip_tx_sum.rate_ema;
+      gossip_stats->network_egress_peer_bytes_per_sec[ j ] = (long)cur->row.gossip_tx_sum.rate_ema.value;
       fd_memcpy( &gossip_stats->network_egress_peer_identities[ j ], cur->row.pubkey.uc, 32UL );
     }
 
-    gossip_stats->network_egress_total_bytes_per_sec += cur->row.gossip_tx_sum.rate_ema;
+    gossip_stats->network_egress_total_bytes_per_sec += (long)cur->row.gossip_tx_sum.rate_ema.value;
   }
 
   gossip_stats->network_egress_total_bytes = fd_gui_metrics_gossip_total_egress_bytes( peers->topo, gossip_tile_cnt );
@@ -728,6 +728,12 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           memset( &peer->row.gossip_tx,     0, sizeof(peer->row.gossip_tx) );
           memset( &peer->row.gossvf_rx_sum, 0, sizeof(peer->row.gossvf_rx_sum) );
           memset( &peer->row.gossip_tx_sum, 0, sizeof(peer->row.gossip_tx_sum) );
+          for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
+            fd_gui_ema_init( &peer->row.gossvf_rx[ i ].rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+            fd_gui_ema_init( &peer->row.gossip_tx[ i ].rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+          }
+          fd_gui_ema_init( &peer->row.gossvf_rx_sum.rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+          fd_gui_ema_init( &peer->row.gossip_tx_sum.rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
           peer->row.has_vote_info = 0;
           peer->row.delinquent = 0;
           peer->row.stake = ULONG_MAX;
@@ -1338,10 +1344,10 @@ fd_gui_peers_viewport_log( fd_gui_peers_ctx_t *  peers,
     FD_TEST(fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT,
                                   FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
 
-    long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-    long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-    long cur_egress_pull_response_bps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-    long cur_ingress_pull_response_bps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+    long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+    long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+    long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+    long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
 
     p = fd_cstr_append_printf( p,
                                "| %5lu | %14ld | %14ld | %14ld | %14ld | %-50s | %-15s |\n",
@@ -1455,16 +1461,16 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; !change && i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->row.gossvf_rx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
-        if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema==0L ) ) continue; /* don't update zero-bandwith peers */
+        long new_rate_ema = (long)fd_gui_ema_value( &metric->rate_ema, now, (double)new_rate );
+        if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema.value==0.0 ) ) continue; /* don't update zero-bandwith peers */
         change = 1;
       }
 
       for( ulong i=0UL; !change && i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->row.gossip_tx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
-        if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema==0L ) ) continue; /* don't update zero-bandwith peers */
+        long new_rate_ema = (long)fd_gui_ema_value( &metric->rate_ema, now, (double)new_rate );
+        if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema.value==0.0 ) ) continue; /* don't update zero-bandwith peers */
         change = 1;
       }
 
@@ -1475,8 +1481,9 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->row.gossvf_rx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
-        metric->rate_ema  = fd_long_if( new_rate_ema<100L, 0L, new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
+        long new_rate_ema = (long)fd_gui_ema_value( &metric->rate_ema, now, (double)new_rate );
+        fd_gui_ema_advance( &metric->rate_ema, now, (double)new_rate );
+        metric->rate_ema.value = fd_double_if( new_rate_ema<100L, 0.0, (double)new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
         metric->ref       = metric->cur;
         metric->update_timestamp_ns = now;
       }
@@ -1484,8 +1491,9 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->row.gossip_tx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
-        metric->rate_ema  = fd_long_if( new_rate_ema<100L, 0L, new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
+        long new_rate_ema = (long)fd_gui_ema_value( &metric->rate_ema, now, (double)new_rate );
+        fd_gui_ema_advance( &metric->rate_ema, now, (double)new_rate );
+        metric->rate_ema.value = fd_double_if( new_rate_ema<100L, 0.0, (double)new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
         metric->ref       = metric->cur;
         metric->update_timestamp_ns = now;
       }
@@ -1493,11 +1501,11 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
 
       /* bandwidth_tracking */
       fd_gui_peers_bandwidth_tracking_ele_remove( peers->bw_tracking, peer, peers->contact_info_table );
-      peer->row.gossvf_rx_sum.rate_ema = (long)fd_gui_ema( peer->row.gossvf_rx_sum.update_timestamp_ns, now, (double)((long)peer->row.gossvf_rx_sum.cur - (long)peer->row.gossvf_rx_sum.ref) * 1e9 / window, (double)peer->row.gossvf_rx_sum.rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+      fd_gui_ema_advance( &peer->row.gossvf_rx_sum.rate_ema, now, (double)((long)peer->row.gossvf_rx_sum.cur - (long)peer->row.gossvf_rx_sum.ref) * 1e9 / window );
       peer->row.gossvf_rx_sum.ref      = peer->row.gossvf_rx_sum.cur;
       peer->row.gossvf_rx_sum.update_timestamp_ns = now;
 
-      peer->row.gossip_tx_sum.rate_ema = (long)fd_gui_ema( peer->row.gossip_tx_sum.update_timestamp_ns, now, (double)((long)peer->row.gossip_tx_sum.cur - (long)peer->row.gossip_tx_sum.ref) * 1e9 / window, (double)peer->row.gossip_tx_sum.rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+      fd_gui_ema_advance( &peer->row.gossip_tx_sum.rate_ema, now, (double)((long)peer->row.gossip_tx_sum.cur - (long)peer->row.gossip_tx_sum.ref) * 1e9 / window );
       peer->row.gossip_tx_sum.ref      = peer->row.gossip_tx_sum.cur;
       peer->row.gossip_tx_sum.update_timestamp_ns = now;
       fd_gui_peers_bandwidth_tracking_ele_insert( peers->bw_tracking, peer, peers->contact_info_table );
