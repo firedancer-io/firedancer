@@ -221,9 +221,9 @@ ENCODE_FN {
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
       /* The bank epoch credits will have the resolved commission for
-         the vote account.  This means that te commission stored will
+         the vote account.  This means that the commission stored will
          be the t-3 commission if it existed or the t-2/t-1 commission
-         otherwise as the fallback (see delay_commision_update feature
+         otherwise as the fallback (see delay_commission_update feature
          for more details).  This means that the serialized commission
          for the epoch may be inaccurate but the commission produced
          will still produce a correct commission for the purposes of
