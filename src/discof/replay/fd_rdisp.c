@@ -892,8 +892,9 @@ fd_rdisp_rekey_block( fd_rdisp_t *           disp,
 /* "Registers" a reference to the account in info at transaction
    global_insert_cnt.  Returns the value of the EMA, which is an
    estimate of the probability that the next transaction also references
-   the account.  This value does not matter for correctness, which is
-   why floating point arithmetic is okay. */
+   the account.  This value does not matter for correctness, other than
+   that it is in [0, 1), which is why floating point arithmetic is
+   acceptable here. */
 static inline float
 update_ema( acct_info_t * info,
             ulong         global_insert_cnt ) {
@@ -1148,7 +1149,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
 
   if( FD_UNLIKELY( !block->staged ) ) {
     rtxn->in_degree = IN_DEGREE_UNSTAGED;
-    rtxn->score     = 0.999f;
+    rtxn->score     = 1.0f;
 
     fd_rdisp_unstaged_t * unstaged = disp->unstaged + idx;
     unstaged->block = insert_block;
@@ -1175,7 +1176,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
     uint lane = block->staging_lane;
 
     rtxn->in_degree    = 0U;
-    rtxn->score        = 0.999f;
+    rtxn->score        = 1.0f;
     /* There's not a good way to initialize w_cnt_1 to -1, which is what
        it should be at this point, but this is close.  We must be sure
        to add at least one writer (which we are assured of because we
@@ -1197,6 +1198,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
       add_edges( disp, rtxn, alts   +fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_ALT ),
                                      fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_READONLY_ALT ),           lane, 0, 1 );
   }
+  if( FD_UNLIKELY( rtxn->score>FD_RDISP_MAX_SCORE ) ) rtxn->score=FD_RDISP_MAX_SCORE;
 
   if( FD_UNLIKELY( serializing | block->last_insert_was_serializing ) ) {
     block->last_serializing = block->inserted_cnt;
