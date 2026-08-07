@@ -4161,37 +4161,41 @@ fd_quic_connect( fd_quic_t * quic,
      The kernel filters incoming packets by peer address, providing
      built-in source address filtering and route caching. */
 
-  do {
-    int sock_fd = socket( AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP );
-    if( FD_UNLIKELY( sock_fd<0 ) ) {
-      FD_LOG_WARNING(( "socket(AF_INET,SOCK_DGRAM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      break;
-    }
+  int sock_fd = socket( AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP );
+  if( FD_UNLIKELY( sock_fd<0 ) ) {
+    int err = errno;
+    FD_LOG_WARNING(( "socket(AF_INET,SOCK_DGRAM) failed (%i-%s)", err, fd_io_strerror( err ) ));
+    fd_quic_conn_free( quic, conn );
+    return NULL;
+  }
 
-    struct sockaddr_in self_addr = {
-      .sin_family      = AF_INET,
-      .sin_addr.s_addr = src_ip_addr,                             /* already net order */
-      .sin_port        = fd_ushort_bswap( (ushort)src_udp_port ), /* host to net */
-    };
-    if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)&self_addr, sizeof(self_addr) ) ) ) {
-      FD_LOG_WARNING(( "bind() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      close( sock_fd );
-      break;
-    }
+  struct sockaddr_in self_addr = {
+    .sin_family      = AF_INET,
+    .sin_addr.s_addr = src_ip_addr,                             /* already net order */
+    .sin_port        = fd_ushort_bswap( (ushort)src_udp_port ), /* host to net */
+  };
+  if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)&self_addr, sizeof(self_addr) ) ) ) {
+    int err = errno;
+    FD_LOG_WARNING(( "bind() failed (%i-%s)", err, fd_io_strerror( err ) ));
+    close( sock_fd );
+    fd_quic_conn_free( quic, conn );
+    return NULL;
+  }
 
-    struct sockaddr_in peer_addr = {
-      .sin_family      = AF_INET,
-      .sin_addr.s_addr = dst_ip_addr,                             /* already net order */
-      .sin_port        = fd_ushort_bswap( (ushort)dst_udp_port ), /* host to net */
-    };
-    if( FD_UNLIKELY( 0!=connect( sock_fd, (struct sockaddr const *)&peer_addr, sizeof(peer_addr) ) ) ) {
-      FD_LOG_WARNING(( "connect() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      close( sock_fd );
-      break;
-    }
+  struct sockaddr_in peer_addr = {
+    .sin_family      = AF_INET,
+    .sin_addr.s_addr = dst_ip_addr,                             /* already net order */
+    .sin_port        = fd_ushort_bswap( (ushort)dst_udp_port ), /* host to net */
+  };
+  if( FD_UNLIKELY( 0!=connect( sock_fd, (struct sockaddr const *)&peer_addr, sizeof(peer_addr) ) ) ) {
+    int err = errno;
+    FD_LOG_WARNING(( "connect() failed (%i-%s)", err, fd_io_strerror( err ) ));
+    close( sock_fd );
+    fd_quic_conn_free( quic, conn );
+    return NULL;
+  }
 
-    conn->sock_fd = sock_fd;
-  } while(0);
+  conn->sock_fd = sock_fd;
 
   /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
       Take template from state and mutate certain params in-place.
