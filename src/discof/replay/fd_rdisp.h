@@ -140,6 +140,13 @@
 #define FD_RDISP_MAX_BLOCK_DEPTH 0xFFFFUL   /* 16 bits */
 #define FD_RDISP_UNSTAGED        ULONG_MAX
 
+/* FD_RDISP_MAX_SCORE is the largest score that will be assigned to a
+   transaction internally.  Lower scores are better.  It should be close
+   to 1 to maximize the scoring function's dynamic range, but small
+   enough that when added to relevant sized integers, it is distinct
+   from the next integer. */
+#define FD_RDISP_MAX_SCORE 0.996f
+
 struct fd_rdisp;
 typedef struct fd_rdisp fd_rdisp_t;
 
