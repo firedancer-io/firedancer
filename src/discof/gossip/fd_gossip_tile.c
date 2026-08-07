@@ -232,7 +232,7 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
    infos — a strong convergence signal. */
 #define FD_GOSSIP_PEER_SAT_QUIET_NS (500L*1000L*1000L)
 
-void
+static void
 after_credit( fd_gossip_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in,
