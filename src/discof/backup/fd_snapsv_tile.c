@@ -21,6 +21,7 @@
 #include <sys/socket.h>
 #include <linux/futex.h>
 #include <linux/io_uring.h>
+#include "../../util/io_uring/fd_futex.h"
 #include "../../util/io_uring/fd_io_uring.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
 #include "../../util/io_uring/fd_io_uring_register.h"

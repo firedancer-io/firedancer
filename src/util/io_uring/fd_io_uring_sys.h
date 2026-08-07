@@ -99,10 +99,6 @@
 #define IORING_RECVSEND_FIXED_BUF (1U<<2)
 #endif
 
-#ifndef FUTEX2_SIZE_U32
-#define FUTEX2_SIZE_U32 0x02
-#endif
-
 struct fd_io_uring_restriction {
   ushort opcode;
   union {

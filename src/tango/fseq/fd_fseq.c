@@ -6,9 +6,10 @@
 #define FD_FSEQ_MAGIC (0xf17eda2c37f5ec00UL) /* firedancer fseq ver 0 */
 
 struct __attribute__((aligned(FD_FSEQ_ALIGN))) fd_fseq_shmem {
-  ulong magic; /* == FD_FSEQ_MAGIC */
-  ulong seq0;  /* Initial sequence number */
-  ulong seq;   /* Current sequence number */
+  ulong magic;  /* == FD_FSEQ_MAGIC */
+  ulong seq0;   /* Initial sequence number */
+  ulong seq;    /* Current sequence number */
+  ulong status; /* Misc status bits */
   /* Padding to FD_FSEQ_APP_ALIGN here */
   /* FD_FSEQ_APP_FOOTPRINT for app region here */
   /* Padding to FD_FSEQ_ALIGN here */
