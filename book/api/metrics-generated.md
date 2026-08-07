@@ -1155,6 +1155,7 @@
 | <span class="metrics-name">replay_&#8203;root_&#8203;duration_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">copy</span>"} | counter | Time spent rooting accounts, in seconds (Copying account data) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;duration_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">garbage_&#8203;collect</span>"} | counter | Time spent rooting accounts, in seconds (Garbage collecting old account data) |
 | <span class="metrics-name">replay_&#8203;runtime_&#8203;status</span> | gauge | 0=initializing, 1=loaded |
+| <span class="metrics-name">replay_&#8203;max_&#8203;idle_&#8203;window_&#8203;slots</span> | gauge | Maximum contiguous non-leader slots remaining in the current epoch for this validator, or 0 if unknown |
 
 </div>
 
