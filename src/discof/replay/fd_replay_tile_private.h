@@ -108,16 +108,17 @@ struct fd_replay_tile {
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
 
-  int          has_genesis_hash;
+  uint has_genesis_hash:1;
+  uint has_cluster_type:1;
+  uint has_genesis_timestamp:1;
+  uint has_expected_genesis_timestamp:1;
+
   char         genesis_path[ PATH_MAX ];
   fd_hash_t    genesis_hash[1];
   fd_genesis_t genesis[1];
   ulong        cluster_type;
-
-  int   has_genesis_timestamp;
-  ulong genesis_timestamp;
-  int   has_expected_genesis_timestamp;
-  ulong expected_genesis_timestamp;
+  ulong        genesis_timestamp;
+  ulong        expected_genesis_timestamp;
 
   ulong          hard_fork_cnt;
   fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];

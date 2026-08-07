@@ -1140,6 +1140,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
     ctx->next_leader_tickcount = LONG_MAX;
   }
 
+  ctx->has_cluster_type = 1;
+
   ctx->is_booted = 1;
   try_become_leader( ctx, stem );
 
@@ -1169,7 +1171,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
 static inline void
 maybe_verify_cluster_type( fd_replay_tile_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->is_booted || !ctx->has_genesis_hash ) ) {
+  if( FD_UNLIKELY( !ctx->has_cluster_type || !ctx->has_genesis_hash ) ) {
     return;
   }
 
@@ -1298,10 +1300,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fec->bank_seq        = bank->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
 
-    ctx->cluster_type = bank->f.cluster_type;
-
-    maybe_verify_cluster_type( ctx );
-
     return;
   }
 
@@ -1324,6 +1322,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                                           ctx->blockhash_seed ) ) ) {
         FD_LOG_ERR(( "Snapshot manifest recovery failed, aborting." ));
       }
+
+      ctx->has_cluster_type = 1;
+      ctx->cluster_type     = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ )->f.cluster_type;
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       /* hard_fork_cnt already validated by fd_ssload_recover. */
@@ -2782,6 +2783,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_SNAP: {
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
+      maybe_verify_cluster_type( ctx );
       maybe_verify_shred_version( ctx );
       maybe_verify_genesis_timestamp( ctx );
       break;
@@ -3000,6 +3002,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ipecho_shred_version = 0;
   fd_memcpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
   ctx->has_genesis_hash = 0;
+  ctx->has_cluster_type = 0;
   ctx->has_genesis_timestamp          = 0;
   ctx->has_expected_genesis_timestamp = 0;
   ctx->cluster_type = FD_CLUSTER_UNKNOWN;
