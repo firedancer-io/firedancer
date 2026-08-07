@@ -411,6 +411,8 @@ privileged_init( fd_topo_t const *      topo,
     { .opcode = FD_IORING_RESTRICTION_SQE_OP, .sqe_op = FD_IORING_OP_LINK_TIMEOUT },
     { .opcode      = FD_IORING_RESTRICTION_REGISTER_OP, /* deregister files */
       .register_op = FD_IORING_REGISTER_FILES_UPDATE },
+    { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
+      .sqe_flags = IOSQE_IO_LINK },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
       .sqe_flags = IOSQE_FIXED_FILE },
   };
