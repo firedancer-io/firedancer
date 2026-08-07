@@ -100,8 +100,8 @@ fd_rnonce_ss_verify( fd_rnonce_ss_t const * ss,
 #define ALLOWED_TIME_DELTA ((uint)((1000000000UL + (1UL<<24) - 1UL)/(1UL<<24)))  /* == 60 */
 
 #define CHECKN( temp ) do{ if( FD_LIKELY(                                                                                       \
-                         ( (0x7FFFFFFFUL & (fd_hash( 2270897969802886507UL, temp, sizeof(temp) ) + (((ulong)time_ns)>>24) )) -  \
-                           (0x7FFFFFFFUL & nonce) ) <= ALLOWED_TIME_DELTA ) )                                                   \
+                         ( ( (0x7FFFFFFFUL & (fd_hash( 2270897969802886507UL, temp, sizeof(temp) ) + (((ulong)time_ns)>>24) )) - \
+                             (0x7FFFFFFFUL & nonce) ) & 0x7FFFFFFFUL ) <= ALLOWED_TIME_DELTA ) )                                \
                              return 1;                                                                                          \
                        } while( 0 )
 
