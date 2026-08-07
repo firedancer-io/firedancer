@@ -57,6 +57,65 @@ check_epoch_credits( fd_bank_t *                                bank,
   }
 }
 
+#define EXTRA_DELEGATION_CNT 2UL
+
+static void
+seed_stake_delegations( fd_bank_t * bank,
+                        fd_pubkey_t stake_keys[ EXTRA_DELEGATION_CNT ],
+                        fd_pubkey_t vote_keys [ EXTRA_DELEGATION_CNT ] ) {
+  fd_stake_delegations_t * sd = fd_bank_stake_delegations_modify( bank );
+  FD_TEST( fd_stake_delegations_base_cnt( sd )==VALIDATOR_CNT );
+  for( ulong i=0UL; i<EXTRA_DELEGATION_CNT; i++ ) {
+    stake_keys[i] = (fd_pubkey_t){ .ul = { 0xD0D0D0D0UL, i+1UL, 0UL, 0UL } };
+    vote_keys [i] = (fd_pubkey_t){ .ul = { 0xE0E0E0E0UL, i+1UL, 0UL, 0UL } };
+    fd_stake_delegations_root_update( sd,
+                                      &stake_keys[i], &vote_keys[i],
+                                      7000000000UL + i,
+                                      i+1UL,   /* activation_epoch   */
+                                      i+9UL,   /* deactivation_epoch */
+                                      0UL,     /* credits_observed   */
+                                      0UL,     /* lamports, not serialized */
+                                      0U,      /* acc_dlen, not serialized */
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
+  }
+}
+
+static void
+check_stake_delegations( fd_snapshot_manifest_t const * manifest,
+                         fd_pubkey_t const              stake_keys[ EXTRA_DELEGATION_CNT ],
+                         fd_pubkey_t const              vote_keys [ EXTRA_DELEGATION_CNT ] ) {
+  FD_TEST( manifest->stake_delegations_len==VALIDATOR_CNT+EXTRA_DELEGATION_CNT );
+
+  ulong bootstrap_cnt = 0UL;
+  ulong extra_cnt     = 0UL;
+  for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
+    fd_snapshot_manifest_stake_delegation_t const * d = &manifest->stake_delegations[i];
+
+    ulong j;
+    for( j=0UL; j<EXTRA_DELEGATION_CNT; j++ ) {
+      if( !memcmp( d->stake_pubkey, &stake_keys[j], 32UL ) ) break;
+    }
+    if( j==EXTRA_DELEGATION_CNT ) {
+      /* One of svm_mini's bootstrap delegations. */
+      FD_TEST( d->activation_epoch    ==ULONG_MAX );
+      FD_TEST( d->deactivation_epoch  ==ULONG_MAX );
+      FD_TEST( d->stake_delegation    ==1000000000UL );
+      FD_TEST( d->warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 );
+      bootstrap_cnt++;
+      continue;
+    }
+
+    FD_TEST( !memcmp( d->vote_pubkey, &vote_keys[j], 32UL ) );
+    FD_TEST( d->stake_delegation    ==7000000000UL+j );
+    FD_TEST( d->activation_epoch    ==j+1UL );
+    FD_TEST( d->deactivation_epoch  ==j+9UL );
+    FD_TEST( d->warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
+    extra_cnt++;
+  }
+  FD_TEST( bootstrap_cnt==VALIDATOR_CNT );
+  FD_TEST( extra_cnt==EXTRA_DELEGATION_CNT );
+}
+
 typedef struct {
   fd_txncache_t * tc;
   void *          shmem;
@@ -178,6 +237,10 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
 
   seed_epoch_credits( bank );
 
+  fd_pubkey_t extra_stake_keys[ EXTRA_DELEGATION_CNT ];
+  fd_pubkey_t extra_vote_keys [ EXTRA_DELEGATION_CNT ];
+  seed_stake_delegations( bank, extra_stake_keys, extra_vote_keys );
+
   ulong manifest_sz = fd_snap_manifest_serialized_sz( bank );
   FD_TEST( manifest_sz>0UL );
   FD_LOG_NOTICE(( "manifest serialized size: %lu", manifest_sz ));
@@ -223,6 +286,8 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( manifest->rent_params.burn_percent==bank->f.rent.burn_percent );
   FD_TEST( manifest->has_block_id );
   FD_TEST( !memcmp( manifest->block_id, block_id.uc, sizeof(fd_hash_t) ) );
+
+  check_stake_delegations( manifest, extra_stake_keys, extra_vote_keys );
 
   /* Collector round-trip: the encoder tags t_1 entries (epoch_stakes
      key epoch+1) with the epoch override tag and t_2 entries (key
@@ -402,6 +467,32 @@ test_txncache_roundtrip( void ) {
   free( test_tc.shmem );
 }
 
+static void
+test_stake_delegations_fallback( fd_bank_t * bank,
+                                 ulong       max_stake_accounts ) {
+  FD_LOG_NOTICE(( "test_stake_delegations_fallback" ));
+
+  fd_stake_delegations_t * sd = fd_bank_stake_delegations_modify( bank );
+  FD_TEST( !fd_stake_delegations_pubkey_fallback( sd ) );
+
+  ulong overflow = max_stake_accounts + 16UL;
+  for( ulong i=0UL; i<overflow; i++ ) {
+    fd_pubkey_t stake_key = { .ul = { 0xF0F0F0F0UL, i, 0UL, 0UL } };
+    fd_pubkey_t vote_key  = { .ul = { 0xF1F1F1F1UL, i, 0UL, 0UL } };
+    fd_stake_delegations_root_update( sd, &stake_key, &vote_key,
+                                      1000UL, ULONG_MAX, ULONG_MAX, 0UL, 0UL, 0U,
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+  }
+
+  FD_TEST( fd_stake_delegations_pubkey_fallback( sd ) );
+
+  ulong base_cnt   = fd_stake_delegations_base_cnt( sd );
+  ulong pubkey_cnt = fd_stake_delegations_pubkey_cnt( sd );
+  FD_TEST( base_cnt==max_stake_accounts );
+  FD_TEST( base_cnt<pubkey_cnt );
+  FD_LOG_INFO(( "fallback mode: %lu of %lu stake accounts in the root map", base_cnt, pubkey_cnt ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -425,6 +516,7 @@ main( int     argc,
 
   test_manifest_roundtrip( bank );
   test_txncache_roundtrip();
+  test_stake_delegations_fallback( bank, limits->max_stake_accounts );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

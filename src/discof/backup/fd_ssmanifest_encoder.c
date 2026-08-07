@@ -107,15 +107,49 @@ ENCODE_FN {
     break;
   }
   case STATE_VOTE_ACCOUNTS: {
-    PUSH_VAL( ulong, 0UL ); /* zero vote_accounts */
-    PUSH_VAL( ulong, 0UL ); /* zero stake delegations */
-    PUSH_VAL( ulong, 0UL ); /* unused */
+    fd_stake_delegations_t const * sd = fd_bank_stake_delegations_modify( enc->bank );
+    FD_CHECK_ERR( !fd_stake_delegations_pubkey_fallback( sd ),
+                  "stake delegations are in pubkey fallback mode" );
+    ulong delegation_cnt = fd_stake_delegations_base_cnt( sd );
+    PUSH_VAL( ulong, 0UL             ); /* zero vote_accounts */
+    PUSH_VAL( ulong, delegation_cnt  );
+    fd_stake_delegations_iter_init( enc->stake_delegation_iter, sd,
+                                    NULL, (fd_accdb_fork_id_t){ .val=USHORT_MAX },
+                                    bank->f.epoch, NULL );
+    enc->stake_delegation_rem = delegation_cnt;
+    enc->state = delegation_cnt ? STATE_STAKE_DELEGATION : STATE_STAKE_EPOCH;
+    break;
+  }
+  case STATE_STAKE_DELEGATION: {
+    ulong batch = fd_ulong_min( enc->stake_delegation_rem, STAKE_DELEGATIONS_PER_CHUNK );
+    for( ulong i=0UL; i<batch; i++ ) {
+      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( enc->stake_delegation_iter );
+      FD_TEST( d );
+      /* USHORT_MAX is the compressed form of the ULONG_MAX sentinel
+         meaning bootstrap activation or not deactivating. */
+      ulong activation_epoch   = d->activation_epoch  ==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->activation_epoch;
+      ulong deactivation_epoch = d->deactivation_epoch==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->deactivation_epoch;
+      PUSH_VAL( fd_pubkey_t, d->stake_account    );
+      PUSH_VAL( fd_pubkey_t, d->vote_account     );
+      PUSH_VAL( ulong,       d->stake            );
+      PUSH_VAL( ulong,       activation_epoch    );
+      PUSH_VAL( ulong,       deactivation_epoch  );
+      PUSH_VAL( double,      fd_stake_delegations_warmup_cooldown_rate_to_double( d->warmup_cooldown_rate ) );
+      fd_stake_delegations_iter_next( enc->stake_delegation_iter );
+    }
+    enc->stake_delegation_rem -= batch;
+    if( !enc->stake_delegation_rem ) {
+      FD_TEST( fd_stake_delegations_iter_done( enc->stake_delegation_iter ) );
+      enc->state = STATE_STAKE_EPOCH;
+    }
+    break;
+  }
+  case STATE_STAKE_EPOCH: {
+    PUSH_VAL( ulong, 0UL           ); /* unused */
     PUSH_VAL( ulong, bank->f.epoch );
     enc->state = STATE_STAKE_HISTORY;
     break;
   }
-  case STATE_STAKE_DELEGATION: { FD_LOG_ERR(( "TODO")); }
-  case STATE_STAKE_EPOCH: { FD_LOG_ERR(( "TODO")); }
   case STATE_STAKE_HISTORY: {
     PUSH_VAL( ulong, 0UL ); /* zero stake history entries */
     enc->state = STATE_BANK_TRAILER;

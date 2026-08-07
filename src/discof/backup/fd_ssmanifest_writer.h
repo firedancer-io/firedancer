@@ -14,6 +14,8 @@ struct fd_ssmanifest_writer {
   uint        vote_cnt;
   uint        vote_idx;
   ulong       total_stake;
+  ulong       stake_delegation_rem;
+  fd_stake_delegations_iter_t stake_delegation_iter[1];
   uchar       top_votes_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ] __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN)));
 };
 
