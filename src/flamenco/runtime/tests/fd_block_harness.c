@@ -288,11 +288,17 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   bank->f.epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, parent_slot, NULL );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_bank_t *        parent      = fd_banks_get_parent( banks, bank );
+  FD_TEST( parent );
+
+  /* Restore the snapshot on the parent, then fork the execution bank
+     from it just as replay does. */
   fd_vote_stakes_reset( vote_stakes );
-  bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
-  fd_solfuzz_block_update_prev_epoch_stakes( vote_stakes, bank->vote_stakes_fork_id, 1, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count );
-  fd_solfuzz_block_update_prev_epoch_stakes( vote_stakes, bank->vote_stakes_fork_id, 0, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count );
-  fd_vote_stakes_refresh( vote_stakes, bank->vote_stakes_fork_id, accdb, fork_id );
+  parent->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
+  fd_solfuzz_block_update_prev_epoch_stakes( vote_stakes, parent->vote_stakes_fork_id, 1, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count );
+  fd_solfuzz_block_update_prev_epoch_stakes( vote_stakes, parent->vote_stakes_fork_id, 0, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count );
+  fd_vote_stakes_refresh( vote_stakes, parent->vote_stakes_fork_id, accdb, fork_id );
+  bank->vote_stakes_fork_id = fd_vote_stakes_new_fork( vote_stakes, parent->vote_stakes_fork_id, bank->f.epoch );
 
   /* SIMD-0232 collector overrides from the t_1/t_2 vote account
      snapshots.  The override store was reset (and the bank's fork id

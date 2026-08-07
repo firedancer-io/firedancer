@@ -151,7 +151,15 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
   runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
-  runner->bank = fd_banks_init_bank( runner->banks );
+
+  /* Runtime block execution requires every non-genesis bank to have a
+     parent.  Keep the root bank as that parent and run harnesses against
+     its child. */
+  fd_bank_t * root_bank = fd_banks_init_bank( runner->banks );
+  if( FD_UNLIKELY( !root_bank ) ) goto bail2;
+  runner->bank = fd_banks_new_bank( runner->banks, root_bank->idx, 0L, 0 );
+  if( FD_UNLIKELY( !runner->bank ) ) goto bail2;
+  runner->bank = fd_banks_clone_from_parent( runner->banks, runner->bank->idx );
   if( FD_UNLIKELY( !runner->bank ) ) goto bail2;
   runner->bank->f.slot = 0UL;
 
