@@ -776,6 +776,9 @@ main( int     argc,
 
   random_test( rng, rand_iters );
 
+  /* test the MAX_SCORE constant */
+  for( ulong i=0UL; i<FD_MAX_TXN_PER_SLOT; i++ ) FD_TEST( FD_RDISP_MAX_SCORE+(float)i < (float)(i+1UL) );
+
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
