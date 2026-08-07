@@ -79,6 +79,21 @@ ag_epoch_info_rank( ag_validator_info_t *          out,
     ag_aggsig_pk_t probe;
     if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( probe.v, bls, 1 ) ) ) continue; /* no / invalid BLS key */
 #endif
+
+    /* ALL copies of a duplicated key are dropped */
+
+    ulong bls_dup = 0UL, id_dup = 0UL;
+    for( ulong j=0UL; j<in_cnt; j++ ) {
+      if( FD_UNLIKELY( stakes[j].stake==0UL ) ) continue;
+#if FD_HAS_BLST
+      ag_aggsig_pk_t probe_j;
+      if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( probe_j.v, bls_pubkeys + j*AG_AGGSIG_PUBKEY_COMPRESSED_SZ, 1 ) ) ) continue;
+#endif
+      bls_dup += !memcmp( bls, bls_pubkeys + j*AG_AGGSIG_PUBKEY_COMPRESSED_SZ, AG_AGGSIG_PUBKEY_COMPRESSED_SZ );
+      id_dup  += !memcmp( stakes[i].id_key.uc, stakes[j].id_key.uc, sizeof(fd_pubkey_t) );
+    }
+    if( FD_UNLIKELY( bls_dup!=1UL || id_dup!=1UL ) ) continue; /* counts include self, so !=1 means a collision */
+
     rank[m].stake = stakes[i].stake;
     rank[m].bls   = bls;
     rank[m].src   = i;

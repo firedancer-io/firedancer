@@ -65,12 +65,67 @@ test_leader( void ) {
   free( m );
 }
 
+
+static void
+set_bls( uchar * bls_pubkeys, ulong i, uchar seed ) {
+  ag_aggsig_sk_t sk; fd_memset( sk.v, (int)seed, AG_AGGSIG_SECKEY_SZ );
+  ag_aggsig_sk_to_pk_compressed( bls_pubkeys + i*AG_AGGSIG_PUBKEY_COMPRESSED_SZ, &sk );
+}
+
+static void
+test_rank( void ) {
+# define N 8UL
+  fd_vote_stake_weight_t stakes[ N ];
+  uchar                  bls[ N*AG_AGGSIG_PUBKEY_COMPRESSED_SZ ];
+  ag_validator_info_t    out[ N ];
+
+  for( ulong i=0UL; i<N; i++ ) {
+    memset( &stakes[i], 0, sizeof(fd_vote_stake_weight_t) );
+    memset( stakes[i].id_key.uc,   (int)(0x10U+i), sizeof(fd_pubkey_t) ); /* distinct identity */
+    memset( stakes[i].vote_key.uc, (int)(0x40U+i), sizeof(fd_pubkey_t) );
+    set_bls( bls, i, (uchar)(i+1UL) );                                    /* distinct BLS key */
+  }
+
+  stakes[0].stake = 100UL;                                          /* survives -> rank 0 */
+  stakes[1].stake =  90UL;                                          /* survives -> rank 1 */
+  stakes[2].stake =   0UL;                                          /* dropped: no stake   */
+  stakes[3].stake =  80UL;                                          /* survives -> rank 2 */
+  stakes[4].stake =  70UL; set_bls( bls, 4UL, 0xAAU );              /* dropped: BLS dup    */
+  stakes[5].stake =  60UL; set_bls( bls, 5UL, 0xAAU );              /* dropped: BLS dup    */
+  stakes[6].stake =  50UL; memset( stakes[6].id_key.uc, 0xBB, 32 ); /* dropped: id dup     */
+  stakes[7].stake =  40UL; memset( stakes[7].id_key.uc, 0xBB, 32 ); /* dropped: id dup     */
+
+  ulong cnt = ag_epoch_info_rank( out, N, stakes, N, bls );
+
+  /* Both copies of a duplicated key are dropped, not just the extras. */
+  FD_TEST( cnt==3UL );
+  FD_TEST( out[0].stake==100UL && out[0].id==0UL );
+  FD_TEST( out[1].stake== 90UL && out[1].id==1UL );
+  FD_TEST( out[2].stake== 80UL && out[2].id==2UL );
+
+  /* Equal stake ties break on the compressed BLS pubkey ascending. */
+  for( ulong i=0UL; i<N; i++ ) {
+    memset( &stakes[i], 0, sizeof(fd_vote_stake_weight_t) );
+    memset( stakes[i].id_key.uc, (int)(0x10U+i), sizeof(fd_pubkey_t) );
+    set_bls( bls, i, (uchar)(i+1UL) );
+    stakes[i].stake = 7UL;
+  }
+  cnt = ag_epoch_info_rank( out, N, stakes, N, bls );
+  FD_TEST( cnt==N );
+  for( ulong r=1UL; r<cnt; r++ ) {
+    FD_TEST( memcmp( out[r-1UL].voting_pubkey.v, out[r].voting_pubkey.v, AG_AGGSIG_PUBKEY_SZ )!=0 );
+    FD_TEST( out[r].id==r );
+  }
+# undef N
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   test_quorums();
   test_leader();
+  test_rank();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
