@@ -380,9 +380,9 @@ uchar * fd_bmtree_commit_fini( fd_bmtree_commit_t * state );
 /* FIXME: Returning -1 is pretty bad here, but 0 is the legitimate
    proof size of a 1 node tree.  Is that case worth distinguishing? */
 int
-fd_bmtree_get_proof( fd_bmtree_commit_t * state,
-                     uchar *              dest,
-                     ulong                leaf_idx );
+fd_bmtree_get_proof( fd_bmtree_commit_t const * state,
+                     uchar *                    dest,
+                     ulong                      leaf_idx );
 
 /* fd_bmtree_from_proof derives the root of a Merkle tree where the
    element with hash `leaf` is the leaf_idx^th leaf and proof+hash_sz*i
