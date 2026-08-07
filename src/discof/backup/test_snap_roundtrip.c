@@ -28,6 +28,7 @@ seed_epoch_credits( fd_bank_t * bank ) {
   for( ulong i=0UL; i<len; i++ ) {
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[ i ];
     ec->cnt          = EPOCH_CREDITS_CNT;
+    ec->commission   = (ushort)( 4321U + i );
     ec->base_credits = 10000UL + 1000UL*i;
     for( ulong j=0UL; j<EPOCH_CREDITS_CNT; j++ ) {
       ec->epoch[ j ]              = (ushort)( j+1UL );
@@ -275,9 +276,20 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
     FD_TEST( seen_t2_vote1 && seen_t2_vote0 );
 
     for( ulong i=0UL; i<t3->vote_stakes_len; i++ ) {
-      FD_TEST( !memcmp( t3->vote_stakes[i].commission_inflation, zero32, 32UL ) );
-      FD_TEST( !memcmp( t3->vote_stakes[i].commission_block,     zero32, 32UL ) );
-      FD_TEST( !t3->vote_stakes[i].epoch_credits_history_len );
+      fd_snapshot_manifest_vote_stakes_t const * vs = &t3->vote_stakes[i];
+      FD_TEST( !memcmp( vs->commission_inflation, zero32, 32UL ) );
+      FD_TEST( !memcmp( vs->commission_block,     zero32, 32UL ) );
+      FD_TEST( !vs->epoch_credits_history_len );
+
+      int found = 0;
+      for( ulong j=0UL; j<*fd_bank_epoch_credits_len( bank ); j++ ) {
+        fd_epoch_credits_t const * ec = &fd_bank_epoch_credits( bank )[ j ];
+        if( memcmp( vs->vote, ec->pubkey, 32UL ) ) continue;
+        FD_TEST( vs->commission==ec->commission );
+        found = 1;
+        break;
+      }
+      FD_TEST( found );
     }
   }
 
@@ -288,10 +300,12 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
                     manifest->epoch_stakes[i].epoch,
                     manifest->epoch_stakes[i].total_stake,
                     manifest->epoch_stakes[i].vote_stakes_len ));
-    ulong expected_vote_cnt = (bank->f.epoch>0UL && i==0UL) ? 0UL : VALIDATOR_CNT;
+    ulong expected_vote_cnt = VALIDATOR_CNT;
     FD_TEST( manifest->epoch_stakes[i].vote_stakes_len==expected_vote_cnt );
-    for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
-      FD_TEST( manifest->epoch_stakes[i].vote_stakes[j].commission==1234U );
+    if( manifest->epoch_stakes[i].epoch!=bank->f.epoch-1UL ) {
+      for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
+        FD_TEST( manifest->epoch_stakes[i].vote_stakes[j].commission==1234U );
+      }
     }
   }
 
