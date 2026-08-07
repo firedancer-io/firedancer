@@ -1505,6 +1505,14 @@ snap_start( fd_snapmk_t *                  ctx,
   }
   ctx->incremental = incremental;
 
+  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_modify( bank );
+  if( FD_UNLIKELY( fd_stake_delegations_pubkey_fallback( stake_delegations ) ) ) {
+    FD_LOG_WARNING(( "cannot create snapshot, too many stake accounts (%lu exceeds capacity %lu)",
+                     fd_stake_delegations_pubkey_cnt( stake_delegations ), FD_RUNTIME_MAX_STAKE_ACCOUNTS ));
+    ctx->state = SNAPMK_STATE_FAIL;
+    return -1;
+  }
+
   /* wait for accdb root to match published root */
   fd_accdb_fork_id_t root_fork_id = bank->accdb_fork_id;
   FD_TEST( root_fork_id.val!=USHORT_MAX );

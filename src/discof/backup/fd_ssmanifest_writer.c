@@ -24,6 +24,9 @@
 #define STATE_DONE                  21
 #define STATE_INIT STATE_BLOCKHASH_QUEUE
 
+#define STAKE_DELEGATIONS_PER_CHUNK (128UL*1024UL)
+FD_STATIC_ASSERT( STAKE_DELEGATIONS_PER_CHUNK*96UL<=FD_SSMANIFEST_BUF_MIN, buffer );
+
 fd_ssmanifest_writer_t *
 fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
                            fd_bank_t *              bank ) {
@@ -34,6 +37,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
   enc->vote_cnt    = 0;
   enc->vote_idx    = 0;
   enc->total_stake = 0UL;
+  enc->stake_delegation_rem = 0UL;
   return enc;
 }
 
