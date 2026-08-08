@@ -5,6 +5,7 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../runtime/fd_hashes.h"
+#include "../../ballet/lthash/fd_lthash_adder.h" /* CAMPAIGN_BATCH_LTHASH */
 #include "../stakes/fd_stakes.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/fd_system_ids.h"
@@ -1451,7 +1452,12 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
                                       fd_capture_ctx_t * capture_ctx,
                                       fd_pubkey_t *      stake_pubkey,
                                       ulong              reward_lamports,
-                                      ulong              new_credits_observed ) {
+                                      ulong              new_credits_observed,
+                                      /* CAMPAIGN_BATCH_LTHASH */
+                                      fd_lthash_adder_t * adder_pre,
+                                      fd_lthash_value_t * sum_pre,
+                                      fd_lthash_adder_t * adder_post,
+                                      fd_lthash_value_t * sum_post ) {
   fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, stake_pubkey->uc );
   if( FD_UNLIKELY( !acc.lamports ) ) {
     fd_accdb_unwrite_one( accdb, &acc );
@@ -1466,8 +1472,11 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
 
   fd_stake_state_t stake_state[1] = { *stake_state_orig };
 
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash_simple( stake_pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, prev_hash );
+  /* CAMPAIGN_BATCH_LTHASH: enqueue the PRE-reward image; the adder copies it, so mutating
+     acc.data below is safe.  16 of these are absorbed in one AVX-512 pass. */
+  fd_lthash_adder_push_solana_account( adder_pre, sum_pre, stake_pubkey->uc,
+                                       acc.data, acc.data_len, acc.lamports,
+                                       (uchar)!!acc.executable, acc.owner );
 
   FD_TEST( !__builtin_add_overflow( acc.lamports, reward_lamports, &acc.lamports ) );
 
@@ -1514,8 +1523,23 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
   }
 
   FD_STORE( fd_stake_state_t, acc.data, *stake_state );
-  fd_lthash_value_t post[1];
-  fd_hashes_update_simple( post, prev_hash, stake_pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  /* CAMPAIGN_BATCH_LTHASH: enqueue the POST-reward image.  The bank lthash is updated ONCE per
+     partition as bank += Sum_post - Sum_pre; the group is commutative so this is
+     equivalent to applying each account's delta in turn. */
+  fd_lthash_adder_push_solana_account( adder_post, sum_post, stake_pubkey->uc,
+                                       acc.data, acc.data_len, acc.lamports,
+                                       (uchar)!!acc.executable, acc.owner );
+  /* Capture consumes account fields, not hashes (fd_hashes.c:77-88), so it stays
+     per-account and inline. */
+  if( FD_UNLIKELY( capture_ctx &&
+                   capture_ctx->capture_solcap &&
+                   bank->f.slot>=capture_ctx->solcap_start_slot ) ) {
+    fd_solana_account_meta_t solana_meta[1];
+    fd_solana_account_meta_init( solana_meta, acc.lamports, acc.owner, acc.executable );
+    fd_capture_link_write_account_update( capture_ctx, capture_ctx->current_txn_idx,
+                                          stake_pubkey, solana_meta, bank->f.slot,
+                                          acc.data, acc.data_len );
+  }
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
 
@@ -1535,6 +1559,14 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
 
+  /* CAMPAIGN_BATCH_LTHASH */
+  fd_lthash_adder_t adder_pre[1], adder_post[1];
+  fd_lthash_adder_new( adder_pre  );
+  fd_lthash_adder_new( adder_post );
+  fd_lthash_value_t sum_pre[1], sum_post[1];
+  fd_lthash_zero( sum_pre  );
+  fd_lthash_zero( sum_post );
+
   for( fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, (ushort)partition_idx );
        !fd_stake_rewards_iter_done( stake_rewards );
        fd_stake_rewards_iter_next( stake_rewards, bank->stake_rewards_fork_id ) ) {
@@ -1548,11 +1580,24 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
                                                           capture_ctx,
                                                           &pubkey,
                                                           lamports,
-                                                          credits_observed ) )  ) {
+                                                          credits_observed,
+                                                          adder_pre, sum_pre,
+                                                          adder_post, sum_post ) )  ) {
       lamports_distributed += lamports;
     } else {
       lamports_burned += lamports;
     }
+  }
+
+  /* CAMPAIGN_BATCH_LTHASH: drain any partial batches, then apply the net delta under a
+     single bank-lthash lock acquisition for the whole partition. */
+  fd_lthash_adder_flush( adder_pre,  sum_pre  );
+  fd_lthash_adder_flush( adder_post, sum_post );
+  {
+    fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
+    fd_lthash_sub( bank_lthash, sum_pre  );
+    fd_lthash_add( bank_lthash, sum_post );
+    fd_bank_lthash_end_locking_modify( bank );
   }
 
   /* Update the epoch rewards sysvar with the amount distributed and burnt */
