@@ -1448,25 +1448,26 @@ adjust_delegation_for_rent( fd_delegation_t * delegation,
 /* Distributes a single partitioned reward to a single stake account */
 static int
 distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
-                                      fd_accdb_t *       accdb,
                                       fd_capture_ctx_t * capture_ctx,
                                       fd_pubkey_t *      stake_pubkey,
                                       ulong              reward_lamports,
                                       ulong              new_credits_observed,
+                                      fd_acc_t *          accp, /* CAMPAIGN_BATCH_ACQ: pre-acquired */
                                       /* CAMPAIGN_BATCH_LTHASH */
                                       fd_lthash_adder_t * adder_pre,
                                       fd_lthash_value_t * sum_pre,
                                       fd_lthash_adder_t * adder_post,
                                       fd_lthash_value_t * sum_post ) {
-  fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, stake_pubkey->uc );
+  /* CAMPAIGN_BATCH_ACQ: the caller acquired this account as part of a batch and will release
+     the whole batch.  Both early returns leave commit at 0, which release_inner
+     skips per element (fd_accdb.c:2963+) -- exactly what unwrite_one did here. */
+  fd_acc_t acc = *accp;
   if( FD_UNLIKELY( !acc.lamports ) ) {
-    fd_accdb_unwrite_one( accdb, &acc );
     return 1; /* account does not exist */
   }
 
   fd_stake_state_t const * stake_state_orig = fd_stakes_get_state( &acc );
   if( FD_UNLIKELY( !stake_state_orig || stake_state_orig->stake_type!=FD_STAKE_STATE_STAKE ) ) {
-    fd_accdb_unwrite_one( accdb, &acc );
     return 1; /* not a valid stake account */
   }
 
@@ -1541,7 +1542,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
                                           acc.data, acc.data_len );
   }
   acc.commit = 1;
-  fd_accdb_unwrite_one( accdb, &acc );
+  *accp = acc; /* CAMPAIGN_BATCH_ACQ: released with the batch */
 
   return 0;
 }
@@ -1567,26 +1568,51 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   fd_lthash_zero( sum_pre  );
   fd_lthash_zero( sum_post );
 
-  for( fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, (ushort)partition_idx );
-       !fd_stake_rewards_iter_done( stake_rewards );
-       fd_stake_rewards_iter_next( stake_rewards, bank->stake_rewards_fork_id ) ) {
-    fd_pubkey_t pubkey;
-    ulong       lamports;
-    ulong       credits_observed;
-    fd_stake_rewards_iter_ele( stake_rewards, bank->stake_rewards_fork_id, &pubkey, &lamports, &credits_observed );
+  /* CAMPAIGN_BATCH_ACQ: acquire B accounts per call instead of 1.  fd_accdb_acquire_inner's
+     per-call cost (wave 020: prol+resv = 64%% of the acquire) is then paid
+     ceil(N/32) times instead of N times.  The acquire -> process-all -> release
+     shape is mandatory, not stylistic: only one acquire window may be open at a
+     time (fd_accdb_acquire asserts state IDLE->OPEN, release restores IDLE). */
+  FD_STATIC_ASSERT( 32UL<=FD_ACCDB_MAX_TX_ACCOUNT_LOCKS, batch_acq_within_lock_budget );
+  fd_pubkey_t   bpk  [ 32 ];
+  uchar const * bpkp [ 32 ];
+  int           bwr  [ 32 ];
+  fd_acc_t      bacc [ 32 ];
+  ulong         blam [ 32 ];
+  ulong         bcred[ 32 ];
 
-    if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
-                                                          accdb,
-                                                          capture_ctx,
-                                                          &pubkey,
-                                                          lamports,
-                                                          credits_observed,
-                                                          adder_pre, sum_pre,
-                                                          adder_post, sum_post ) )  ) {
-      lamports_distributed += lamports;
-    } else {
-      lamports_burned += lamports;
+  fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, (ushort)partition_idx );
+  while( !fd_stake_rewards_iter_done( stake_rewards ) ) {
+
+    ulong bn = 0UL;
+    while( bn<32UL && !fd_stake_rewards_iter_done( stake_rewards ) ) {
+      fd_stake_rewards_iter_ele( stake_rewards, bank->stake_rewards_fork_id,
+                                 &bpk[ bn ], &blam[ bn ], &bcred[ bn ] );
+      bpkp[ bn ] = bpk[ bn ].uc;
+      bwr [ bn ] = 1;
+      bn++;
+      fd_stake_rewards_iter_next( stake_rewards, bank->stake_rewards_fork_id );
     }
+    if( FD_UNLIKELY( !bn ) ) break;
+
+    fd_accdb_acquire( accdb, bank->accdb_fork_id, bn, bpkp, bwr, bacc );
+
+    for( ulong j=0UL; j<bn; j++ ) {
+      if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
+                                                            capture_ctx,
+                                                            &bpk[ j ],
+                                                            blam[ j ],
+                                                            bcred[ j ],
+                                                            &bacc[ j ],
+                                                            adder_pre, sum_pre,
+                                                            adder_post, sum_post ) )  ) {
+        lamports_distributed += blam[ j ];
+      } else {
+        lamports_burned += blam[ j ];
+      }
+    }
+
+    fd_accdb_release( accdb, bn, bacc );
   }
 
   /* CAMPAIGN_BATCH_LTHASH: drain any partial batches, then apply the net delta under a
