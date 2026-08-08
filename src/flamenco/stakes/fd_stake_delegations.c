@@ -627,9 +627,17 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
     stake_delegation->is_tombstone         = 0;
     stake_delegation->state                = FD_STAKE_DELEGATION_STATE_UNKNOWN;
 
-    FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
-    FD_LOG_DEBUG(( "fork_update: stake_account=%s, stake=%lu, activation_epoch=%u, deactivation_epoch=%u",
-        stake_account_out, stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch ));
+    /* CAMPAIGN_FORKUPD_DEBUG: FD_BASE58_ENCODE_32_BYTES is a separate statement and
+       FD_LOG_DEBUG is neither compiled out nor gated at the call site -- it
+       always calls fd_log_wallclock() and vsnprintf before fd_log_private_1
+       checks the level and discards the message (fd_log.c:604,707).  Reward
+       distribution reaches this path once per stake account (666,160 per epoch
+       boundary), so gate the whole thing on the level being enabled. */
+    if( FD_UNLIKELY( fd_log_level_logfile()<=0 ) ) {
+      FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
+      FD_LOG_DEBUG(( "fork_update: stake_account=%s, stake=%lu, activation_epoch=%u, deactivation_epoch=%u",
+          stake_account_out, stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch ));
+    }
   }
 
   fd_rwlock_unwrite( &stake_delegations->lock );
