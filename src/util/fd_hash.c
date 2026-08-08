@@ -1,7 +1,13 @@
 #include "fd_util_base.h"
 #include "bits/fd_bits.h"
+#include "../ballet/fd_ballet_base.h"
 
 /* A cleaner implementation of xxhash-r39 (Open Source BSD licensed). */
+#if FD_HAS_AVX512
+#include "simd/fd_avx.h"
+#else
+#include <immintrin.h>
+#endif
 
 #define ROTATE_LEFT(x,r) (((x)<<(r)) | ((x)>>(64-(r))))
 #define C1 (11400714785074694791UL)
@@ -16,7 +22,10 @@ fd_hash( ulong        seed,
          ulong        sz ) {
   uchar const * p    = ((uchar const *)buf);
   uchar const * stop = p + sz;
-
+  /* Sharing this values between 2 conditional
+  compilation blocks */
+  __m256i c1_vec;       (void)c1_vec;
+  __m256i c2_vec;       (void)c2_vec;
   ulong h;
 
   if( sz<32 ) h = seed + C5;
@@ -28,19 +37,53 @@ fd_hash( ulong        seed,
     ulong z = seed - C1;
 
     do { /* All complete blocks of 32 */
+
+      #if FD_HAS_AVX512
+      c1_vec =         _mm256_set1_epi64x(( long long)C1  );
+      c2_vec =         _mm256_set1_epi64x(( long long)C2  );
+      wv_t input_vec = _mm256_loadu_si256(( const wv_t*)p );
+      /* Temporary array, eliminated by compiler already.
+       Provides the intention clearly to the compiler.
+       Same goes for other arrays used in #IF FD_HAS_AVX512 blocks. */
+      FD_ALIGNED ulong arr[4] = { w, x, y, z };
+      wv_t state_vec =  _mm256_loadu_si256(( const wv_t*)arr   );
+      input_vec =      _mm256_mullo_epi64( input_vec, c2_vec   );
+      state_vec =       wl_add( state_vec, input_vec           );
+      state_vec =       wv_rol( state_vec, 31                  );
+      state_vec =      _mm256_mullo_epi64( state_vec, c1_vec   );
+      FD_ALIGNED ulong results[4];
+      _mm256_storeu_si256(( wv_t*)results, state_vec );
+      w = results[0]; x = results[1]; y = results[2]; z = results[3];
+      #else
       w += FD_LOAD( ulong, p    )*C2; w = ROTATE_LEFT( w, 31 ); w *= C1;
       x += FD_LOAD( ulong, p+ 8 )*C2; x = ROTATE_LEFT( x, 31 ); x *= C1;
       y += FD_LOAD( ulong, p+16 )*C2; y = ROTATE_LEFT( y, 31 ); y *= C1;
       z += FD_LOAD( ulong, p+24 )*C2; z = ROTATE_LEFT( z, 31 ); z *= C1;
+      #endif
       p += 32;
     } while( p<=stop32 );
 
     h = ROTATE_LEFT( w, 1 ) + ROTATE_LEFT( x, 7 ) + ROTATE_LEFT( y, 12 ) + ROTATE_LEFT( z, 18 );
-
+    #if FD_HAS_AVX512
+    /* state_vec shouldn't kept between upper conditional compilation block and this one because it creates much register preassure, since it puts both w x y z and state_vec at registers at the same time. */
+    FD_ALIGNED ulong arr[4] = { w, x, y, z };
+    wv_t state_vec =  _mm256_loadu_si256(( const wv_t*)arr );
+    state_vec =      _mm256_mullo_epi64( state_vec, c2_vec );
+    state_vec =                      wv_rol( state_vec, 31 );
+    state_vec =      _mm256_mullo_epi64( state_vec, c1_vec );
+    FD_ALIGNED ulong results[4];
+       _mm256_storeu_si256(( wv_t*)results, state_vec );
+    w = results[0]; x = results[1]; y = results[2]; z = results[3];
+    h ^= w; h = h*C1 + C4;
+    h ^= x; h = h*C1 + C4;
+    h ^= y; h = h*C1 + C4;
+    h ^= z; h = h*C1 + C4;
+    #else
     w *= C2; w = ROTATE_LEFT( w, 31 ); w *= C1; h ^= w; h = h*C1 + C4;
     x *= C2; x = ROTATE_LEFT( x, 31 ); x *= C1; h ^= x; h = h*C1 + C4;
     y *= C2; y = ROTATE_LEFT( y, 31 ); y *= C1; h ^= y; h = h*C1 + C4;
     z *= C2; z = ROTATE_LEFT( z, 31 ); z *= C1; h ^= z; h = h*C1 + C4;
+    #endif
   }
 
   h += ((ulong)sz);
