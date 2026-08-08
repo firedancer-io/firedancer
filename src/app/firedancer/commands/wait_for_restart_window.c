@@ -149,36 +149,21 @@ wait_for_restart_window_cmd_args( int *    pargc,
   args->wait_for_restart_window.skip_delinquent_check = !fd_env_strip_cmdline_contains( pargc, pargv, "--delinquent-check"      );
 }
 
+/* wait_for_safe_window polls the running validator until all restart
+   safety checks pass.  Returns normally on success.  Calls exit(1) if
+   interrupted by a signal. */
+
 static void
-wait_for_restart_window_cmd_fn( args_t *   args,
-                                config_t * config ) {
+wait_for_safe_window( config_t * config,
+                      ulong      min_idle_slots,
+                      int        skip_snapshot,
+                      int        skip_health ) {
 
   /* Install signal handlers for clean shutdown. */
 
   struct sigaction sa = { .sa_handler = signal_handler };
   if( FD_UNLIKELY( sigaction( SIGTERM, &sa, NULL ) ) ) FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( sigaction( SIGINT,  &sa, NULL ) ) ) FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)",  errno, fd_io_strerror( errno ) ));
-
-  if( FD_UNLIKELY( !args->wait_for_restart_window.skip_delinquent_check ) ) {
-    FD_LOG_ERR(( "--delinquent-check is not yet implemented.  "
-                 "Omit --delinquent-check to skip delinquent stake checking (the default)." ));
-  }
-
-  ulong min_idle_time = args->wait_for_restart_window.min_idle_time;
-  int   skip_snapshot  = args->wait_for_restart_window.skip_snapshot_check;
-  int   skip_health    = args->wait_for_restart_window.skip_health_check;
-
-  /* Convert min_idle_time (minutes) to slots.
-     Solana targets ~400ms per slot, so 150 slots/min. */
-
-  ulong const slots_per_min = 150UL;
-  ulong min_idle_slots = min_idle_time * slots_per_min;
-
-  FD_LOG_NOTICE(( "waiting for a safe restart window  "
-                  "(min-idle-time=%lu min, min-idle-slots=%lu, skip-snapshot=%s, skip-health=%s)",
-                  min_idle_time, min_idle_slots,
-                  skip_snapshot ? "yes" : "no",
-                  skip_health  ? "yes" : "no" ));
 
   /* Attach to the running validator's shared memory (read-only). */
 
@@ -377,6 +362,79 @@ wait_for_restart_window_cmd_fn( args_t *   args,
 }
 
 static void
+wait_for_restart_window_cmd_fn( args_t *   args,
+                                config_t * config ) {
+  if( FD_UNLIKELY( !args->wait_for_restart_window.skip_delinquent_check ) ) {
+    FD_LOG_ERR(( "--delinquent-check is not yet implemented.  "
+                 "Omit --delinquent-check to skip delinquent stake checking (the default)." ));
+  }
+
+  ulong min_idle_time = args->wait_for_restart_window.min_idle_time;
+  int   skip_snapshot  = args->wait_for_restart_window.skip_snapshot_check;
+  int   skip_health    = args->wait_for_restart_window.skip_health_check;
+
+  ulong const slots_per_min = 150UL;
+  ulong min_idle_slots = min_idle_time * slots_per_min;
+
+  FD_LOG_NOTICE(( "waiting for a safe restart window  "
+                  "(min-idle-time=%lu min, min-idle-slots=%lu, skip-snapshot=%s, skip-health=%s)",
+                  min_idle_time, min_idle_slots,
+                  skip_snapshot ? "yes" : "no",
+                  skip_health  ? "yes" : "no" ));
+
+  wait_for_safe_window( config, min_idle_slots, skip_snapshot, skip_health );
+}
+
+static void
+exit_cmd_fn( args_t *   args,
+             config_t * config ) {
+  if( FD_UNLIKELY( !args->wait_for_restart_window.skip_delinquent_check ) ) {
+    FD_LOG_ERR(( "--delinquent-check is not yet implemented.  "
+                 "Omit --delinquent-check to skip delinquent stake checking (the default)." ));
+  }
+
+  ulong min_idle_time = args->wait_for_restart_window.min_idle_time;
+  int   skip_snapshot  = args->wait_for_restart_window.skip_snapshot_check;
+  int   skip_health    = args->wait_for_restart_window.skip_health_check;
+
+  ulong const slots_per_min = 150UL;
+  ulong min_idle_slots = min_idle_time * slots_per_min;
+
+  FD_LOG_NOTICE(( "waiting for a safe exit window  "
+                  "(min-idle-time=%lu min, min-idle-slots=%lu, skip-snapshot=%s, skip-health=%s)",
+                  min_idle_time, min_idle_slots,
+                  skip_snapshot ? "yes" : "no",
+                  skip_health  ? "yes" : "no" ));
+
+  wait_for_safe_window( config, min_idle_slots, skip_snapshot, skip_health );
+
+  /* Discover the validator PID via bootinfo and send SIGTERM. */
+
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/%s.bootinfo",
+                                 config->hugetlbfs.mount_path, config->name ) );
+
+  fd_bootinfo_t info;
+  if( FD_UNLIKELY( -1==fd_bootinfo_path_read( path, &info ) ) )
+    FD_LOG_ERR(( "failed to read bootinfo at %s", path ));
+
+  if( FD_UNLIKELY( !fd_bootinfo_live( &info ) ) )
+    FD_LOG_ERR(( "validator is no longer running (pid %lu)", info.pid ));
+
+  if( FD_UNLIKELY( kill( (pid_t)info.pid, SIGTERM ) ) )
+    FD_LOG_ERR(( "kill(%lu, SIGTERM) failed (%i-%s)", info.pid, errno, fd_io_strerror( errno ) ));
+
+  FD_LOG_NOTICE(( "sent SIGTERM to validator pid %lu", info.pid ));
+}
+
+static void
+exit_cmd_args( int *    pargc,
+               char *** pargv,
+               args_t * args ) {
+  wait_for_restart_window_cmd_args( pargc, pargv, args );
+}
+
+static void
 wait_for_restart_window_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--min-idle-time",          "<minutes>", "Minimum idle time (in minutes) required before the next leader\n"
                                                                      "slot.  Converted to slots at 150 slots/min.  Default: 10" );
@@ -409,5 +467,26 @@ action_t fd_action_wait_for_restart_window = {
                     "must be explicitly opted in with --delinquent-check (which\n"
                     "currently errors).",
   .usage          = "wait-for-restart-window [OPTIONS]",
+  .args_help      = wait_for_restart_window_args_help,
+};
+
+action_t fd_action_exit = {
+  .name           = "exit",
+  .args           = exit_cmd_args,
+  .fn             = exit_cmd_fn,
+  .require_config = 0,
+  .perm           = NULL,
+  .description    = "Gracefully stop the validator after waiting for a safe restart window",
+  .detail         = "Equivalent to wait-for-restart-window followed by sending SIGTERM\n"
+                    "to the running validator.  Intended for use in systemd ExecStop=\n"
+                    "directives.\n"
+                    "\n"
+                    "Attaches to a running validator and polls every 5 seconds until\n"
+                    "all restart safety checks pass (health, leader gap, snapshot\n"
+                    "freshness).  Once safe, sends SIGTERM to the validator supervisor\n"
+                    "and exits 0.\n"
+                    "\n"
+                    "Accepts the same options as wait-for-restart-window.",
+  .usage          = "exit [OPTIONS]",
   .args_help      = wait_for_restart_window_args_help,
 };
