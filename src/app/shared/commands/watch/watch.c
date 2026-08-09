@@ -1459,6 +1459,7 @@ write_node_info( config_t const *       config,
   }
 
   ulong replay_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
+  if( FD_UNLIKELY( replay_idx==ULONG_MAX ) ) return 0U;
   ulong const * replay_metrics = &cur_tile[ replay_idx*FD_METRICS_TOTAL_SZ ];
   ulong identity_balance = replay_metrics[ MIDX( GAUGE, REPLAY, IDENTITY_BALANCE_LAMPORTS     ) ];
   ulong stake_amount     = replay_metrics[ MIDX( GAUGE, REPLAY, ACTIVE_STAKE_LAMPORTS         ) ];
