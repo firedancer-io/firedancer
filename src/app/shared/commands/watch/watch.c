@@ -1602,7 +1602,7 @@ run( config_t const * config,
 
   ulong node_info_obj_id = fd_pod_query_ulong( config->topo.props, "node_info", ULONG_MAX );
   fd_node_info_box_t * node_info = node_info_obj_id==ULONG_MAX ? NULL :
-                                   fd_node_info_box_join( fd_topo_obj_laddr( &config->topo, node_info_obj_id ) );
+  fd_node_info_box_join( fd_topo_obj_laddr( &config->topo, node_info_obj_id ) );
   FD_TEST( node_info_obj_id==ULONG_MAX || node_info );
 
   ulong tile_cnt = config->topo.tile_cnt;
