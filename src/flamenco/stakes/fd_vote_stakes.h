@@ -20,7 +20,7 @@
      most recent epoch boundary.  These caches are ref-cnt'd and fork
      specific.  After the epoch boundary slot is rooted, then there will
      only be 1 active t-1 cache.
-   - state: each bank has it's own view of the t-2 state of vote
+   - state: each bank has its own view of the t-2 state of vote
      accounts.  This is what is actually used for clock calculations
      which is a stake weighted median of the last vote slot and
      timestamp.
@@ -79,7 +79,7 @@ void
 fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes );
 
 /* fd_vote_stakes_snap_insert_t_1 inserts a new vote account into the
-   t-1 set.  This skips over any vote acccount validation and should
+   t-1 set.  This skips over any vote account validation and should
    only be used when loading in vote accounts from a snapshot. */
 
 void
@@ -91,7 +91,7 @@ fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
                                 ushort              commission );
 
 /* fd_vote_stakes_snap_insert_t_2 inserts a new vote account into the
-   t-2 set.  This skips over any vote acccount validation and should
+   t-2 set.  This skips over any vote account validation and should
    only be used when loading in vote accounts from a snapshot. */
 
 void
