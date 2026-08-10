@@ -548,11 +548,11 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_spad_t *                    spad           = dump_ctx->spad;
 
   /* Get vote and stake delegation infos */
-  fd_top_votes_t const * top_votes_t_1 = fd_bank_top_votes_t_1_query( parent_bank );
-  fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( parent_bank );
-  ulong vote_account_t_1_cnt = fd_top_votes_cnt( top_votes_t_1 );
-  ulong vote_account_t_2_cnt = fd_top_votes_cnt( top_votes_t_2 );
-  uchar top_votes_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ] __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN)));
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( parent_bank );
+  ulong              fork_id     = parent_bank->vote_stakes_fork_id;
+  ulong vote_account_t_1_cnt = fd_vote_stakes_cnt_t_1( vote_stakes, fork_id );
+  ulong vote_account_t_2_cnt = fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
+  uchar vote_stakes_iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN)));
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, parent_bank );
 
@@ -634,14 +634,14 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   ulong  co_epoch_t_1 = parent_bank->f.epoch;
   ulong  co_epoch_t_2 = fd_ulong_sat_sub( parent_bank->f.epoch, 1UL );
 
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_1, top_votes_iter_mem );
-       !fd_top_votes_iter_done( top_votes_t_1, iter );
-       fd_top_votes_iter_next( top_votes_t_1, iter ) ) {
+  for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, vote_stakes_iter_mem );
+       !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
+       fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake;
     fd_pubkey_t node;
     ushort      commission;
-    fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, &node, &stake, &commission, NULL, NULL, NULL );
+    fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node, &stake, &commission );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t1[ va_t1_cnt++ ];
@@ -668,14 +668,14 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     }
   }
 
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, top_votes_iter_mem );
-       !fd_top_votes_iter_done( top_votes_t_2, iter );
-       fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
+  for( fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, vote_stakes_iter_mem );
+       !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter );
+       fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake;
     fd_pubkey_t node;
     ushort      commission;
-    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, &node, &stake, &commission, NULL, NULL, NULL );
+    fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node, &stake, NULL, NULL, &commission, NULL );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t2[ va_t2_cnt++ ];

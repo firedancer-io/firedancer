@@ -15,7 +15,7 @@
 #include "../../runtime/program/fd_vote_program.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../../stakes/fd_stake_delegations.h"
-#include "../../stakes/fd_top_votes.h"
+#include "../../stakes/fd_vote_stakes.h"
 #include "../../leaders/fd_leaders.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -285,8 +285,8 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
   ulong const stake_min_bal = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_STAKE_STATE_SZ );
   ulong const vote_bal      = fd_ulong_max( vote_min_bal, uniform_stake );
 
-  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
-  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
 
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( mini->banks );
 
@@ -384,8 +384,9 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 
     /* Populate bank structures */
 
-    fd_top_votes_insert( top_votes_t_1, &vote_key, &identity_key, uniform_stake, 1234U );
-    fd_top_votes_insert( top_votes_t_2, &vote_key, &identity_key, uniform_stake, 1234U );
+    fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U );
+    fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_key, 0UL, 0L, 1 );
 
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ i ];
     fd_memcpy( epoch_credits->pubkey, &vote_key, sizeof(fd_pubkey_t) );

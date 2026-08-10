@@ -421,27 +421,46 @@ fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * stake_deleg
 }
 
 ulong
-fd_stake_weights_by_node( fd_top_votes_t const *   top_votes,
+fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          int                      use_t_1,
                           fd_vote_stake_weight_t * weights ) {
 
   /* We don't care if an account is invalid, we just want to get the
      stake weights: they are calculated from an older snapshot of
      vote account stakes. */
   ulong weights_cnt = 0;
-  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
-       !fd_top_votes_iter_done( top_votes, iter );
-       fd_top_votes_iter_next( top_votes, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake;
-    fd_pubkey_t node_account;
-    fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, NULL, NULL, NULL, NULL );
+  uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
+  if( use_t_1 ) {
+    for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, iter_mem );
+         !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
+         fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
+      fd_pubkey_t pubkey;
+      ulong       stake;
+      fd_pubkey_t node_account;
+      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL );
 
-    FD_TEST( weights_cnt<MAX_STAKE_WEIGHTS );
-    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
-    weights[ weights_cnt ].stake = stake;
-    weights_cnt++;
+      FD_TEST( weights_cnt<MAX_STAKE_WEIGHTS );
+      fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+      fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
+      weights[ weights_cnt ].stake = stake;
+      weights_cnt++;
+    }
+  } else {
+    for( fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, iter_mem );
+         !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter );
+         fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, iter ) ) {
+      fd_pubkey_t pubkey;
+      ulong       stake;
+      fd_pubkey_t node_account;
+      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, NULL, NULL );
+
+      FD_TEST( weights_cnt<MAX_STAKE_WEIGHTS );
+      fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+      fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
+      weights[ weights_cnt ].stake = stake;
+      weights_cnt++;
+    }
   }
 
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
@@ -493,19 +512,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           ulong *                        new_rate_activation_epoch ) {
   fd_bank_epoch_credits_new_fork( bank );
 
-  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
-  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
-
-  uchar __attribute__((aligned(FD_TOP_VOTES_ALIGN))) top_votes_t_3_mem[ FD_TOP_VOTES_MAX_FOOTPRINT ];
-
-  /* Copy over the old t-2 top votes into a temporary t-3 buffer.  Copy
-     over the old t-1 top votes to the t-2 top votes.  Reset the
-     existing t-1 top votes to prepare it for insertion. Handle the
-     transition to the next epoch. */
-  fd_memcpy( top_votes_t_3_mem, top_votes_t_2, FD_TOP_VOTES_MAX_FOOTPRINT );
-  fd_memcpy( top_votes_t_2,     top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
-  fd_top_votes_init( top_votes_t_1 );
-  fd_top_votes_t * top_votes_t_3 = fd_type_pun( top_votes_t_3_mem );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
 
   fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
   ulong epoch                      = bank->f.epoch;
@@ -604,7 +612,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     FD_TEST( !fd_vote_account_commission_bps( acc.data, acc.data_len, FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ), &commission_t_1 ) );
     FD_TEST( !fd_vote_account_node_pubkey( acc.data, acc.data_len, &node_account_t_1 ) );
 
-    fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
+    fd_vote_stakes_insert( vote_stakes, fork_id, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
     fd_accdb_unread_one( accdb, &acc );
   }
 
@@ -614,13 +622,13 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      never consulted.  Capturing after selection bounds the override
      store by the admitted set size. */
   {
-    uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) co_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
-    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_1, co_iter_mem );
-         !fd_top_votes_iter_done( top_votes_t_1, iter );
-         fd_top_votes_iter_next( top_votes_t_1, iter ) ) {
+    uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) co_iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, co_iter_mem );
+         !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
+         fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
       fd_pubkey_t vote_pubkey;
       fd_pubkey_t node_pubkey;
-      fd_top_votes_iter_ele( top_votes_t_1, iter, &vote_pubkey, &node_pubkey, NULL, NULL, NULL, NULL, NULL );
+      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &vote_pubkey, &node_pubkey, NULL, NULL );
 
       fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, vote_pubkey.uc );
       fd_pubkey_t inflation_collector;
@@ -638,32 +646,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   }
 
   /* Seed status for the t-2 top votes set for clock calculation. */
-  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) top_votes_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, top_votes_iter_mem );
-       !fd_top_votes_iter_done( top_votes_t_2, iter );
-       fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
-    fd_pubkey_t pubkey;
-    ushort      commission_t_2;
-    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, &commission_t_2, NULL, NULL, NULL );
-
-    fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
-    if( FD_UNLIKELY( !acc.lamports ) ) {
-      fd_top_votes_invalidate( top_votes_t_2, &pubkey );
-      fd_accdb_unread_one( accdb, &acc );
-      continue;
-    }
-
-    if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
-      fd_top_votes_invalidate( top_votes_t_2, &pubkey );
-      fd_accdb_unread_one( accdb, &acc );
-      continue;
-    }
-
-    fd_vote_block_timestamp_t last_vote;
-    FD_TEST( !fd_vote_account_last_timestamp( acc.data, acc.data_len, &last_vote ) );
-    fd_top_votes_update( top_votes_t_2, &pubkey, last_vote.slot, last_vote.timestamp );
-    fd_accdb_unread_one( accdb, &acc );
-  }
+  fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );
 
   /* Populate the vote rewards map with the final set of filtered vote
      accounts. */
@@ -674,19 +657,20 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* Populate the vote rewards map with the final set of filtered vote
      accounts for the t-1 epoch. */
   bank->f.total_epoch_stake = 0UL;
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_1, top_votes_iter_mem );
-       !fd_top_votes_iter_done( top_votes_t_1, iter );
-       fd_top_votes_iter_next( top_votes_t_1, iter ) ) {
+  uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) t_1_iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, t_1_iter_mem );
+       !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
+       fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake;
     ushort      commission_t_1 = 0;
-    fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, NULL, &stake, &commission_t_1, NULL, NULL, NULL );
+    fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, NULL, &stake, &commission_t_1 );
 
     ushort commission_t_3 = 0;
-    int    exists_t_3     = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3, NULL );
+    int    exists_t_3     = fd_vote_stakes_query_t_3( vote_stakes, fork_id, &pubkey, NULL, NULL, &commission_t_3 );
 
     ushort commission_t_2 = 0;
-    int    exists_t_2     = fd_top_votes_query( top_votes_t_2, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
+    int    exists_t_2     = fd_vote_stakes_query_t_2( vote_stakes, fork_id, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
     vote_ele->pubkey             = pubkey;

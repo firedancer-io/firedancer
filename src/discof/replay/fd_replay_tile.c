@@ -811,8 +811,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   bank->f.total_activating_stake   = root_delegations->activating_stake;
   bank->f.total_deactivating_stake = root_delegations->deactivating_stake;
 
-  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
-  fd_top_votes_refresh( top_votes_t_2, ctx->accdb, bank->accdb_fork_id );
+  fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -1561,8 +1560,8 @@ can_process_fec( fd_replay_tile_t * ctx,
 
   int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
-    int is_new_block   = fec->fec_set_idx==0U;
-    int is_eqvoc       = fec->eqvoc && !parent->eqvoc;
+    int is_new_block = fec->fec_set_idx==0U;
+    int is_eqvoc     = fec->eqvoc && !parent->eqvoc;
     if( FD_UNLIKELY( is_new_block || is_eqvoc || invalid_parent ) ) {
       ctx->metrics.banks_full++;
       if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
@@ -2508,8 +2507,7 @@ update_metric_active_stake( fd_bank_t const *   bank,
   ulong tot_active_stake = bank->f.total_epoch_stake;
 
   ulong stake = 0UL;
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
-  fd_top_votes_query( top_votes, vote_key, NULL, &stake, NULL, NULL, NULL, NULL );
+  fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL, &stake, NULL );
   my_active_stake = stake;
 
   FD_MGAUGE_SET( REPLAY, ACTIVE_STAKE_LAMPORTS,         my_active_stake  );

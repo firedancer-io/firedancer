@@ -695,6 +695,7 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   ulong const max_fallback_stake    = 32768UL;
   ulong const stake_footprint_small = fd_stake_delegations_footprint( max_stake_small, max_fallback_stake, max_stake_small, max_total_banks );
   ulong const stake_footprint_large = fd_stake_delegations_footprint( max_stake_large, max_fallback_stake, max_stake_large, max_total_banks );
+  ulong const vote_footprint        = fd_vote_stakes_footprint( max_total_banks, max_fork_width );
 
   fd_banks_t * banks_small = fd_banks_join( fd_banks_new( mem, max_total_banks, max_fork_width, max_stake_small, max_fallback_stake, max_vote_accounts, 0, 9991UL ) );
   FD_TEST( banks_small );
@@ -705,8 +706,8 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   FD_TEST( epoch_leaders_small );
   FD_TEST( fd_ulong_is_aligned( (ulong)root_mem_small,     fd_stake_delegations_align() ) );
   ulong const root_to_epoch_small = (ulong)epoch_leaders_small - (ulong)root_mem_small;
-  FD_TEST( root_to_epoch_small>=stake_footprint_small );
-  FD_TEST( root_to_epoch_small<(stake_footprint_small+FD_EPOCH_LEADERS_ALIGN) );
+  FD_TEST( root_to_epoch_small>=stake_footprint_small+vote_footprint );
+  FD_TEST( root_to_epoch_small<stake_footprint_small+vote_footprint+fd_vote_stakes_align()+FD_EPOCH_LEADERS_ALIGN );
 
   /* If frontier memcpy uses the wrong footprint, this region gets
      clobbered because it sits directly after the frontier stake set. */
@@ -785,8 +786,8 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   FD_TEST( epoch_leaders_large );
   FD_TEST( fd_ulong_is_aligned( (ulong)root_mem_large,     fd_stake_delegations_align() ) );
   ulong const root_to_epoch_large = (ulong)epoch_leaders_large - (ulong)root_mem_large;
-  FD_TEST( root_to_epoch_large>=stake_footprint_large );
-  FD_TEST( root_to_epoch_large<(stake_footprint_large+FD_EPOCH_LEADERS_ALIGN) );
+  FD_TEST( root_to_epoch_large>=stake_footprint_large+vote_footprint );
+  FD_TEST( root_to_epoch_large<stake_footprint_large+vote_footprint+fd_vote_stakes_align()+FD_EPOCH_LEADERS_ALIGN );
   FD_TEST( stake_footprint_large > stake_footprint_small );
   FD_TEST( root_to_epoch_large > root_to_epoch_small );
 }

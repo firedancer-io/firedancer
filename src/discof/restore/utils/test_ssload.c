@@ -566,10 +566,10 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )==NULL );
   FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
 
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
-  FD_TEST( fd_top_votes_cnt( top_votes )==1UL );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, bank->vote_stakes_fork_id )==1UL );
   ulong stake_out;
-  FD_TEST( fd_top_votes_query( top_votes, (fd_pubkey_t *)pubkey_x, NULL, &stake_out, NULL, NULL, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_x, NULL, &stake_out, NULL ) );
   FD_TEST( stake_out==5000UL );
 
   /* Manifest B: different stake delegation (pubkey_B),
@@ -613,10 +613,9 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   /* Top votes: pubkey_X must have been removed, pubkey_Y must be
      present, exactly 1 entry (not 2). */
-  top_votes = fd_bank_top_votes_t_1_query( bank );
-  FD_TEST( fd_top_votes_cnt( top_votes )==1UL );
-  FD_TEST( !fd_top_votes_query( top_votes, (fd_pubkey_t *)pubkey_x, NULL, &stake_out, NULL, NULL, NULL, NULL ) );
-  FD_TEST(  fd_top_votes_query( top_votes, (fd_pubkey_t *)pubkey_y, NULL, &stake_out, NULL, NULL, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, bank->vote_stakes_fork_id )==1UL );
+  FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_x, NULL, &stake_out, NULL ) );
+  FD_TEST(  fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_y, NULL, &stake_out, NULL ) );
   FD_TEST( stake_out==7000UL );
 
   fd_wksp_free_laddr( banks_mem );

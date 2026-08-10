@@ -271,7 +271,7 @@ struct fd_tower_tile {
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
-  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN     ))) iter_mem    [ FD_TOP_VOTES_ITER_FOOTPRINT      ];
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
 
   ulong             root_epoch;
   ulong             root_epoch_total_stake;
@@ -864,8 +864,9 @@ query_towers( fd_tower_tile_t *            ctx,
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_completed->bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
 
-  fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
-  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ];
 
 #define BATCH 64UL
   fd_pubkey_t   vote_accs[ BATCH ];
@@ -874,13 +875,13 @@ query_towers( fd_tower_tile_t *            ctx,
   int           writable[ BATCH ];
   fd_acc_t      accs[ BATCH ];
 
-  fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, iter_mem );
-  while( !fd_top_votes_iter_done( top_votes_t_2, iter ) ) {
+  fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, iter_mem );
+  while( !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter ) ) {
     ulong batch_n = 0UL;
-    while( !fd_top_votes_iter_done( top_votes_t_2, iter ) && batch_n<BATCH ) {
+    while( !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter ) && batch_n<BATCH ) {
       uchar is_valid;
-      fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_accs[ batch_n ], NULL, &stakes[ batch_n ], NULL, NULL, NULL, &is_valid );
-      fd_top_votes_iter_next( top_votes_t_2, iter );
+      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &vote_accs[ batch_n ], NULL, &stakes[ batch_n ], NULL, NULL, NULL, &is_valid );
+      fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, iter );
       total_stake += stakes[ batch_n ];
       if( FD_UNLIKELY( !is_valid ) ) continue;
       pubkeys[ batch_n ]  = vote_accs[ batch_n ].uc;
@@ -1156,8 +1157,10 @@ count_vote_txn( fd_tower_tile_t * ctx,
 static ulong
 query_epoch_voters( fd_tower_tile_t *      ctx,
                     ulong                  epoch,
-                    fd_accdb_fork_id_t     fork_id,
-                    fd_top_votes_t const * top_votes,
+                    fd_accdb_fork_id_t     accdb_fork_id,
+                    fd_vote_stakes_t *     vote_stakes,
+                    ulong                  vote_stakes_fork_id,
+                    int                    use_t_1,
                     epoch_vtr_t *          pool,
                     epoch_vtr_map_t *      map,
                     int                    update_id_keys_vote_accs ) {
@@ -1165,13 +1168,19 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
   epoch_vtr_pool_reset( pool );
   epoch_vtr_map_reset( map );
   ulong total_stake = 0UL;
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, ctx->iter_mem );
-                                   !fd_top_votes_iter_done( top_votes, iter );
-                                    fd_top_votes_iter_next( top_votes, iter ) ) {
+  fd_vote_stakes_iter_t * iter = use_t_1 ? fd_vote_stakes_t_1_iter_init( vote_stakes, vote_stakes_fork_id, ctx->iter_mem )
+                                         : fd_vote_stakes_t_2_iter_init( vote_stakes, vote_stakes_fork_id, ctx->iter_mem );
+  while( use_t_1 ? !fd_vote_stakes_t_1_iter_done( vote_stakes, vote_stakes_fork_id, iter )
+                 : !fd_vote_stakes_t_2_iter_done( vote_stakes, vote_stakes_fork_id, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake;
-    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake, NULL, NULL, NULL, NULL );
-    FD_TEST( stake>0UL ); /* top_votes only holds staked voters */
+    if( use_t_1 ) {
+      fd_vote_stakes_t_1_iter_ele( vote_stakes, vote_stakes_fork_id, iter, &pubkey, NULL, &stake, NULL );
+      fd_vote_stakes_t_1_iter_next( vote_stakes, vote_stakes_fork_id, iter );
+    } else {
+      fd_vote_stakes_t_2_iter_ele( vote_stakes, vote_stakes_fork_id, iter, &pubkey, NULL, &stake, NULL, NULL, NULL, NULL );
+      fd_vote_stakes_t_2_iter_next( vote_stakes, vote_stakes_fork_id, iter );
+    }
     total_stake += stake;
     epoch_vtr_t * vtr = epoch_vtr_pool_ele_acquire( pool );
     vtr->vote_acc = pubkey;
@@ -1182,7 +1191,7 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
        auth_vtr all-zero if the vote account is unreadable —
        count_vote_txn will reject txns whose signer can't match. */
 
-    fd_acc_t ro = fd_accdb_read_one( ctx->accdb, fork_id, pubkey.uc );
+    fd_acc_t ro = fd_accdb_read_one( ctx->accdb, accdb_fork_id, pubkey.uc );
     if( FD_LIKELY( ro.lamports && fd_vsv_is_correct_size_owner_and_init( ro.owner, ro.data, ro.data_len ) ) ) {
       fd_pubkey_t identity[1];
       ulong dummy_idx;
@@ -1213,8 +1222,9 @@ query_voters( fd_tower_tile_t *            ctx,
     if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
 
     ctx->vtr_cnt = 0;
-    ctx->root_epoch_total_stake = query_epoch_voters( ctx, epoch,     bank->accdb_fork_id, fd_bank_top_votes_t_2_query( bank ), ctx->root_epoch_vtr_pool, ctx->root_epoch_vtr_map, 1 );
-    ctx->next_epoch_total_stake = query_epoch_voters( ctx, epoch+1UL, bank->accdb_fork_id, fd_bank_top_votes_t_1_query( bank ), ctx->next_epoch_vtr_pool, ctx->next_epoch_vtr_map, 0 );
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    ctx->root_epoch_total_stake = query_epoch_voters( ctx, epoch,     bank->accdb_fork_id, vote_stakes, bank->vote_stakes_fork_id, 0, ctx->root_epoch_vtr_pool, ctx->root_epoch_vtr_map, 1 );
+    ctx->next_epoch_total_stake = query_epoch_voters( ctx, epoch+1UL, bank->accdb_fork_id, vote_stakes, bank->vote_stakes_fork_id, 1, ctx->next_epoch_vtr_pool, ctx->next_epoch_vtr_map, 0 );
   }
   ctx->root_epoch = epoch;
 
