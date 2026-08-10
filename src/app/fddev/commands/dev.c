@@ -33,5 +33,6 @@ action_t fd_action_dev = {
   .fn               = fddev_dev_cmd_fn,
   .perm             = dev_cmd_perm,
   .is_local_cluster = 1,
+  .is_multi_process = 1,
   .description      = "Start up a development validator"
 };

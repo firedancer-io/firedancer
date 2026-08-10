@@ -262,5 +262,6 @@ action_t fd_action_run_agave = {
   .args        = NULL,
   .fn          = run_agave_cmd_fn,
   .perm        = NULL,
+  .is_multi_process = 1,
   .description = "Start up the Agave side of a Firedancer validator",
 };

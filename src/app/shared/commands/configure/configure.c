@@ -282,6 +282,7 @@ action_t fd_action_configure = {
   .args           = configure_cmd_args,
   .fn             = configure_cmd_fn,
   .perm           = configure_cmd_perm,
+  .is_multi_process = 1,
   .description    = "Configure the local host so it can run Firedancer correctly",
   .detail         = "Performs the privileged, host-level setup Firedancer needs before it can run,\n"
                     "organized into stages (such as mounting huge page filesystems and tuning\n"

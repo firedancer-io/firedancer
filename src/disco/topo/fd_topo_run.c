@@ -303,33 +303,12 @@ run_tile_thread( fd_topo_t *         topo,
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", err, fd_io_strerror( err ) ));
 }
 
-static void
-join_isolation_cgroup( char const * app_name ) {
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup/%s/cgroup.procs", app_name ) );
-
-  int fd = open( path, O_WRONLY );
-  if( FD_UNLIKELY( fd<0 ) ) {
-    if( FD_LIKELY( errno==ENOENT ) ) return; /* cpuset stage not configured */
-    FD_LOG_ERR(( "open(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  }
-
-  char pid[ 32 ];
-  ulong pid_len;
-  FD_TEST( fd_cstr_printf_check( pid, sizeof(pid), &pid_len, "%ld", (long)getpid() ) );
-  if( FD_UNLIKELY( write( fd, pid, pid_len )!=(long)pid_len ) )
-    FD_LOG_ERR(( "write(%s,\"%s\") failed (%i-%s)", path, pid, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-}
-
 void
 fd_topo_run_single_process( fd_topo_t *       topo,
                             int               agave,
                             uint              uid,
                             uint              gid,
                             fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ) ) {
-  join_isolation_cgroup( topo->app_name );
-
   /* Save the current affinity, it will be restored after creating any child tiles */
   FD_CPUSET_DECL( floating_cpu_set );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
