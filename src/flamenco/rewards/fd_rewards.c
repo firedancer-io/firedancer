@@ -1450,11 +1450,10 @@ adjust_delegation_for_rent( fd_delegation_t * delegation,
    early returns below leave commit at 0, which fd_accdb_release skips. */
 
 static int
-distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
-                                      fd_capture_ctx_t * capture_ctx,
-                                      fd_pubkey_t *      stake_pubkey,
-                                      ulong              reward_lamports,
-                                      ulong              new_credits_observed,
+distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
+                                      fd_capture_ctx_t *  capture_ctx,
+                                      ulong               reward_lamports,
+                                      ulong               new_credits_observed,
                                       fd_acc_t *          acc,
                                       fd_lthash_adder_t * adder_pre,
                                       fd_lthash_value_t * sum_pre,
@@ -1469,7 +1468,8 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
     return 1; /* not a valid stake account */
   }
 
-  fd_stake_state_t stake_state[1] = { *stake_state_orig };
+  fd_pubkey_t const * stake_pubkey   = fd_type_pun_const(acc->pubkey);
+  fd_stake_state_t    stake_state[1] = { *stake_state_orig };
 
   fd_lthash_adder_push_solana_account( adder_pre, sum_pre, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
 
@@ -1557,7 +1557,10 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   ulong         reward_lamports [ STAKE_REWARD_ACC_BATCH_SZ ];
   ulong         credits_observed[ STAKE_REWARD_ACC_BATCH_SZ ];
 
-  for( ulong i=0UL; i<STAKE_REWARD_ACC_BATCH_SZ; i++ ) writable[ i ] = 1;
+  for( ulong i=0UL; i<STAKE_REWARD_ACC_BATCH_SZ; i++ ) {
+    pubkey_ptrs[ i ] = pubkeys[ i ].uc;
+    writable   [ i ] = 1;
+  }
 
   fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, (ushort)partition_idx );
   while( !fd_stake_rewards_iter_done( stake_rewards ) ) {
@@ -1571,7 +1574,6 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
                                  &pubkeys         [ batch_cnt ],
                                  &reward_lamports [ batch_cnt ],
                                  &credits_observed[ batch_cnt ] );
-      pubkey_ptrs[ batch_cnt ] = pubkeys[ batch_cnt ].uc;
     }
 
     fd_accdb_acquire( accdb, bank->accdb_fork_id, batch_cnt, pubkey_ptrs, writable, accs );
@@ -1580,7 +1582,6 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
     for( ulong i=0UL; i<batch_cnt; i++ ) {
       if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
                                                             capture_ctx,
-                                                            &pubkeys[ i ],
                                                             reward_lamports[ i ],
                                                             credits_observed[ i ],
                                                             &accs[ i ],
