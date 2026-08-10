@@ -1,4 +1,5 @@
 #include "fd_sysvar_stake_history.h"
+#include "fd_sysvar.h"
 #include "fd_sysvar_cache.h"
 #include "test_sysvar_cache_util.h"
 #include "../fd_bank.h"
@@ -125,7 +126,8 @@ test_sysvar_stake_history_update_grows_small_account( fd_wksp_t * wksp ) {
   fd_stake_history_t view[1];
   read_stake_history_view( env, acc, view );
 
-  FD_TEST( acc->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
+  /* Update must not touch the balance. */
+  FD_TEST( acc->lamports==1UL );
   FD_TEST( view->len==1UL );
   FD_TEST( fd_sysvar_stake_history_query( view, 42UL ) );
   FD_TEST( fd_sysvar_stake_history_query( view, 42UL )->effective==entry.effective );
@@ -153,7 +155,7 @@ test_sysvar_stake_history_update_truncates_large_account( fd_wksp_t * wksp ) {
   fd_stake_history_t view[1];
   read_stake_history_view( env, acc, view );
 
-  FD_TEST( acc->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
+  FD_TEST( acc->lamports==1UL );
   FD_TEST( view->len==FD_SYSVAR_STAKE_HISTORY_CAP );
   FD_TEST( view->entries[0].epoch==2000UL );
   FD_TEST( view->entries[1].epoch==1000UL );
@@ -167,7 +169,7 @@ test_sysvar_stake_history_update_truncates_large_account( fd_wksp_t * wksp ) {
 }
 
 static void
-test_sysvar_stake_history_update_tops_low_balance( fd_wksp_t * wksp ) {
+test_stake_history_ensure_rent_exempt_tops_low_balance( fd_wksp_t * wksp ) {
   test_sysvar_cache_env_t env[1];
   test_stake_history_env_setup( env, wksp );
 
@@ -180,13 +182,60 @@ test_sysvar_stake_history_update_tops_low_balance( fd_wksp_t * wksp ) {
 
   fd_acc_t acc[1];
   fd_stake_history_t view[1];
-  read_stake_history_view( env, acc, view );
 
+  /* Update writes contents, not balance. */
+  read_stake_history_view( env, acc, view );
+  FD_TEST( acc->lamports==1UL );
+  FD_TEST( view->len==1UL );
+  FD_TEST( fd_sysvar_stake_history_query( view, 7UL ) );
+  fd_accdb_unread_one( env->accdb, acc );
+
+  fd_stake_history_ensure_rent_exempt( env->bank, env->accdb, NULL );
+
+  /* Balance raised, contents untouched. */
+  read_stake_history_view( env, acc, view );
   FD_TEST( acc->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
   FD_TEST( view->len==1UL );
   FD_TEST( fd_sysvar_stake_history_query( view, 7UL ) );
 
   fd_accdb_unread_one( env->accdb, acc );
+  test_sysvar_cache_env_destroy( env );
+}
+
+static void
+test_stake_history_ensure_rent_exempt_after_create( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  test_stake_history_env_setup( env, wksp );
+
+  /* Creation must not use the rent minimum. */
+  fd_stake_history_entry_t const entry = test_stake_history_entry( 9UL );
+  fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry );
+
+  fd_acc_t acc[1];
+  fd_stake_history_t view[1];
+  read_stake_history_view( env, acc, view );
+  FD_TEST( acc->lamports==FD_SYSVAR_RENT_UNADJUSTED_INITIAL_BALANCE );
+  FD_TEST( fd_sysvar_stake_history_query( view, 9UL ) );
+  fd_accdb_unread_one( env->accdb, acc );
+
+  fd_stake_history_ensure_rent_exempt( env->bank, env->accdb, NULL );
+
+  read_stake_history_view( env, acc, view );
+  FD_TEST( acc->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
+  FD_TEST( fd_sysvar_stake_history_query( view, 9UL ) );
+
+  fd_accdb_unread_one( env->accdb, acc );
+  test_sysvar_cache_env_destroy( env );
+}
+
+static void
+test_stake_history_ensure_rent_exempt_missing_account( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  test_stake_history_env_setup( env, wksp );
+
+  /* Missing account must be a no-op. */
+  fd_stake_history_ensure_rent_exempt( env->bank, env->accdb, NULL );
+
   test_sysvar_cache_env_destroy( env );
 }
 
@@ -343,7 +392,9 @@ test_sysvar_stake_history( fd_wksp_t * wksp ) {
   test_sysvar_stake_history_update( wksp );
   test_sysvar_stake_history_update_grows_small_account( wksp );
   test_sysvar_stake_history_update_truncates_large_account( wksp );
-  test_sysvar_stake_history_update_tops_low_balance( wksp );
+  test_stake_history_ensure_rent_exempt_tops_low_balance( wksp );
+  test_stake_history_ensure_rent_exempt_after_create( wksp );
+  test_stake_history_ensure_rent_exempt_missing_account( wksp );
   test_sysvar_stake_history_update_replaces_existing_epoch( wksp );
   test_sysvar_stake_history_update_inserts_descending( wksp );
   test_sysvar_stake_history_update_at_capacity( wksp );
