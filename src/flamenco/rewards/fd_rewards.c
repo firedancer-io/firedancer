@@ -5,6 +5,7 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../runtime/fd_hashes.h"
+#include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../stakes/fd_stakes.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/fd_system_ids.h"
@@ -1444,14 +1445,49 @@ adjust_delegation_for_rent( fd_delegation_t * delegation,
   }
 }
 
+/* reward_lthash_push enqueues the current image of acc for hashing into
+   the running sum, rather than hashing it right away: the adder absorbs
+   FD_LTHASH_ADDER_PARA_CNT account images per BLAKE3 pass.  It copies
+   the account fields and data out, so acc may be modified as soon as
+   push returns.
+
+   Reward distribution keeps two (adder, sum) pairs per partition, one
+   for the pre-reward image of every account it touches and one for the
+   post-reward image, and updates the bank lthash once for the whole
+   partition as bank += sum_post - sum_pre.  That is exact rather than an
+   approximation: the lthash group is commutative and associative, so
+   summing the per-account deltas and applying the total is the same as
+   applying each delta in turn.  An account appearing twice within one
+   partition also cancels correctly, because its second pre-image is its
+   first post-image. */
+
+static inline void
+reward_lthash_push( fd_lthash_adder_t * adder,
+                    fd_lthash_value_t * sum,
+                    fd_pubkey_t const * pubkey,
+                    fd_acc_t const *    acc ) {
+  fd_lthash_adder_push_solana_account( adder,
+                                       sum,
+                                       pubkey->uc,
+                                       acc->data,
+                                       acc->data_len,
+                                       acc->lamports,
+                                       (uchar)!!acc->executable,
+                                       acc->owner );
+}
+
 /* Distributes a single partitioned reward to a single stake account */
 static int
-distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
-                                      fd_accdb_t *       accdb,
-                                      fd_capture_ctx_t * capture_ctx,
-                                      fd_pubkey_t *      stake_pubkey,
-                                      ulong              reward_lamports,
-                                      ulong              new_credits_observed ) {
+distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
+                                      fd_accdb_t *        accdb,
+                                      fd_capture_ctx_t *  capture_ctx,
+                                      fd_pubkey_t *       stake_pubkey,
+                                      ulong               reward_lamports,
+                                      ulong               new_credits_observed,
+                                      fd_lthash_adder_t * adder_pre,
+                                      fd_lthash_value_t * sum_pre,
+                                      fd_lthash_adder_t * adder_post,
+                                      fd_lthash_value_t * sum_post ) {
   fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, stake_pubkey->uc );
   if( FD_UNLIKELY( !acc.lamports ) ) {
     fd_accdb_unwrite_one( accdb, &acc );
@@ -1466,8 +1502,9 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
 
   fd_stake_state_t stake_state[1] = { *stake_state_orig };
 
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash_simple( stake_pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, prev_hash );
+  /* Enqueue the pre-reward image of the account, before any of the
+     mutations below. */
+  reward_lthash_push( adder_pre, sum_pre, stake_pubkey, &acc );
 
   FD_TEST( !__builtin_add_overflow( acc.lamports, reward_lamports, &acc.lamports ) );
 
@@ -1514,8 +1551,17 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
   }
 
   FD_STORE( fd_stake_state_t, acc.data, *stake_state );
-  fd_lthash_value_t post[1];
-  fd_hashes_update_simple( post, prev_hash, stake_pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+
+  /* Enqueue the post-reward image.  The caller folds the partition's
+     net delta into the bank lthash once, after the last account. */
+  reward_lthash_push( adder_post, sum_post, stake_pubkey, &acc );
+
+  /* The capture stays per account even though the hashing is deferred:
+     it records the account's fields, not its hash, so it does not care
+     when the lthash is accumulated. */
+  fd_hashes_capture_account( stake_pubkey->uc, acc.owner, acc.lamports, acc.executable,
+                             acc.data, acc.data_len, bank, capture_ctx );
+
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
 
@@ -1535,6 +1581,13 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
 
+  fd_lthash_adder_t adder_pre[1], adder_post[1];
+  fd_lthash_adder_new( adder_pre  );
+  fd_lthash_adder_new( adder_post );
+  fd_lthash_value_t sum_pre[1], sum_post[1];
+  fd_lthash_zero( sum_pre  );
+  fd_lthash_zero( sum_post );
+
   for( fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, (ushort)partition_idx );
        !fd_stake_rewards_iter_done( stake_rewards );
        fd_stake_rewards_iter_next( stake_rewards, bank->stake_rewards_fork_id ) ) {
@@ -1548,12 +1601,24 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
                                                           capture_ctx,
                                                           &pubkey,
                                                           lamports,
-                                                          credits_observed ) )  ) {
+                                                          credits_observed,
+                                                          adder_pre, sum_pre,
+                                                          adder_post, sum_post ) ) ) {
       lamports_distributed += lamports;
     } else {
       lamports_burned += lamports;
     }
   }
+
+  /* Drain the adders, then fold the partition's net lthash delta into
+     the bank under a single lock round-trip. */
+  fd_lthash_adder_flush( adder_pre,  sum_pre  );
+  fd_lthash_adder_flush( adder_post, sum_post );
+
+  fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
+  fd_lthash_sub( bank_lthash, sum_pre  );
+  fd_lthash_add( bank_lthash, sum_post );
+  fd_bank_lthash_end_locking_modify( bank );
 
   /* Update the epoch rewards sysvar with the amount distributed and burnt */
   fd_sysvar_epoch_rewards_distribute( bank, accdb, capture_ctx, lamports_distributed + lamports_burned );

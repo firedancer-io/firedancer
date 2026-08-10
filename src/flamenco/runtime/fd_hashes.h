@@ -87,6 +87,29 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
                          fd_bank_t               * bank,
                          fd_capture_ctx_t        * capture_ctx );
 
+/* fd_hashes_capture_account records the state of a modified account to
+   the solcap capture.  It does nothing unless capture_ctx is non-NULL,
+   solcap capture is enabled on it, and bank's slot is at or past the
+   configured capture start slot.
+
+   pubkey, owner, lamports, executable, data and data_len describe the
+   account as it should appear in the capture, i.e. after the
+   modification being recorded.
+
+   fd_hashes_update_simple calls this for the account it hashes, so
+   callers of that function need not.  Callers that accumulate the
+   lthash themselves must call this directly. */
+
+void
+fd_hashes_capture_account( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
+                           uchar const        owner[ static FD_HASH_FOOTPRINT ],
+                           ulong              lamports,
+                           int                executable,
+                           uchar const *      data,
+                           ulong              data_len,
+                           fd_bank_t *        bank,
+                           fd_capture_ctx_t * capture_ctx );
+
 /* fd_hashes_hash_bank computes the bank hash for a completed slot.  The
    bank hash is a deterministic hash of the slot's state including all
    account modifications and transaction signatures.
