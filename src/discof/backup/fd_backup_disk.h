@@ -63,7 +63,6 @@ struct fd_snapmk_accparse {
   ulong       ps_chain_idx[ FD_BACKUP_DISK_PARA ];
   uint        ps_frag_off [ FD_BACKUP_DISK_PARA ];
   ulong       ps_file_off [ FD_BACKUP_DISK_PARA ];
-  fd_pubkey_t ps_pubkey   [ FD_BACKUP_DISK_PARA ];
 };
 
 typedef struct fd_snapmk_accparse fd_snapmk_accparse_t;
@@ -82,12 +81,7 @@ FD_PROTOTYPES_BEGIN
    offset.  accdb file offsets are unique.  The record is skipped if
    no entry points at it (a superseded version still on disk), if the
    entry is unrooted or a tombstone, or if the account was already
-   emitted from cache or from another partition.
-
-   All cnt chains are walked in lockstep, one hop per pass, so that the
-   dependent load each hop needs is in flight for every record at once.
-   Lanes that hit, or that run off the end of their chain, drop out by
-   branchless compaction of lane[]/cur[]. */
+   emitted from cache or from another partition. */
 
 static inline void
 fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
@@ -98,10 +92,7 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
   fd_backup_accidx_t *       idx      = &parse->idx;
   fd_accdb_accmeta_t const * acc_pool = idx->acc_pool;
 
-  uint lane[ FD_BACKUP_DISK_PARA ]; /* record a lane is resolving */
-  uint cur [ FD_BACKUP_DISK_PARA ]; /* chain node it sits on */
-
-  for( ulong i=0UL; i<cnt; i++ ) acc_idx[ i ] = UINT_MAX;
+  uint cur[ FD_BACKUP_DISK_PARA ]; /* chain node lane i sits on */
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *idx->epoch_slot ) = FD_VOLATILE_CONST( *idx->epoch );
@@ -109,19 +100,17 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
 
   /* Chain heads were prefetched when this batch was prestaged, a full
      batch resolve ago. */
-  ulong live = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
-    uint head = FD_VOLATILE_CONST( idx->acc_map[ chain_idx[ i ] ] );
-    lane[ live ] = (uint)i;
-    cur [ live ] = head;
-    live += (ulong)fd_backup_accidx_valid( idx, head );
+    acc_idx[ i ] = UINT_MAX;
+    cur    [ i ] = FD_VOLATILE_CONST( idx->acc_map[ chain_idx[ i ] ] );
   }
 
-  while( live ) {
-    ulong next_live = 0UL;
-    for( ulong i=0UL; i<live; i++ ) {
-      uint n   = lane[ i ];
-      uint ele = cur [ i ];
+  int any;
+  do {
+    any = 0;
+    for( ulong i=0UL; i<cnt; i++ ) {
+      uint ele = cur[ i ];
+      if( !fd_backup_accidx_valid( idx, ele ) ) continue; /* lane retired */
 
       fd_accdb_accmeta_t const * m = &acc_pool[ ele ];
       uint  next = FD_VOLATILE_CONST( m->map.next       );
@@ -130,19 +119,17 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
       ulong lam  = FD_VOLATILE_CONST( m->lamports       );
 
       int hit = fd_backup_accidx_rooted( idx, gen, lam )
-              & ( ( off & FD_ACCDB_OFF_MASK )==file_off[ n ] );
-      fd_uint_store_if( hit, &acc_idx[ n ], ele );
+              & ( ( off & FD_ACCDB_OFF_MASK )==file_off[ i ] );
+      fd_uint_store_if( hit, &acc_idx[ i ], ele );
 
       /* Resolving hit and next in the same pass keeps the next node
          prefetch to the lanes that will actually use it. */
       int cont = (!hit) & fd_backup_accidx_valid( idx, next );
-      __builtin_prefetch( &acc_pool[ next & (uint)(-cont) ], 0, 0 );
-      lane[ next_live ] = n;
-      cur [ next_live ] = next;
-      next_live += (ulong)cont;
+      cur[ i ] = fd_uint_if( cont, next, UINT_MAX );
+      any     |= cont;
+      __builtin_prefetch( &acc_pool[ next & (uint)(-cont) ], 0, 3 );
     }
-    live = next_live;
-  }
+  } while( any );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX;
@@ -206,9 +193,8 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
     ulong rec      = meta_sz + data_len;
     if( parse->data_sz < rec ) break;     /* account data straddles frag end */
 
-    fd_memcpy( parse->ps_pubkey[ n ].uc, dm->pubkey, sizeof(fd_pubkey_t) );
-    chain_idx[ n ] = fd_backup_accidx_chain( idx, parse->ps_pubkey[ n ].uc );
-    __builtin_prefetch( &acc_map[ chain_idx[ n ] ], 0, 0 );
+    chain_idx[ n ] = fd_backup_accidx_chain( idx, dm->pubkey );
+    __builtin_prefetch( &acc_map[ chain_idx[ n ] ], 0, 3 );
     parse->ps_frag_off[ n ] = (uint)( parse->src_gaddr - parse->frag_base_gaddr );
     parse->ps_file_off[ n ] = parse->src_off;
     n++;
@@ -224,7 +210,7 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
   for( ulong i=0UL; i<n; i++ ) {
     uint head = FD_VOLATILE_CONST( acc_map[ chain_idx[ i ] ] );
     int  live = fd_backup_accidx_valid( idx, head );
-    __builtin_prefetch( &acc_pool[ head & (uint)(-live) ], 0, 0 );
+    __builtin_prefetch( &acc_pool[ head & (uint)(-live) ], 0, 3 );
   }
 
   parse->ps_cnt = (uint)n;
@@ -251,7 +237,6 @@ fd_snapmk_accparse_publish_batch( fd_snapmk_accparse_t *       parse,
   memcpy( chain_idx,       parse->ps_chain_idx, n*sizeof(ulong)       );
   memcpy( file_off,        parse->ps_file_off,  n*sizeof(ulong)       );
   memcpy( batch->frag_off, parse->ps_frag_off,  n*sizeof(uint)        );
-  memcpy( batch->pubkey,   parse->ps_pubkey,    n*sizeof(fd_pubkey_t) );
   parse->ps_cnt = 0U;
 
   fd_snapmk_accparse_prestage( parse );
