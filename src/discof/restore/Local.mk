@@ -14,26 +14,36 @@ $(call run-unit-test,test_snapin_tile)
 $(call add-objs,fd_snapwr_tile,fd_discof)
 endif # FD_HAS_SSE
 $(call add-objs,utils/fd_ssparse,fd_discof)
+ifdef FD_HAS_INT128
 $(call add-objs,utils/fd_ssmanifest_parser,fd_discof)
+endif
 $(call add-objs,utils/fd_ssload,fd_discof)
 $(call add-objs,utils/fd_ssping,fd_discof)
 $(call add-objs,utils/fd_http_resolver,fd_discof)
 $(call add-objs,utils/fd_slot_delta_parser,fd_discof)
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_ssmanifest_parser,utils/test_ssmanifest_parser,fd_discof fd_flamenco fd_ballet fd_util)
+endif
 $(call make-unit-test,test_slot_delta_parser,utils/test_slot_delta_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_sspeer_selector,utils/test_sspeer_selector,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_ssping,utils/test_ssping,fd_discof fd_flamenco fd_ballet fd_util)
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_ssload,utils/test_ssload,fd_discof fd_disco fd_flamenco fd_ballet fd_tango fd_util)
+endif
 $(call make-unit-test,test_ssarchive,utils/test_ssarchive,fd_discof fdctl_platform fd_ballet fd_util)
 $(call make-unit-test,test_ssparse,utils/test_ssparse,fd_discof fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_slot_delta_parser)
 $(call run-unit-test,test_sspeer_selector)
 $(call run-unit-test,test_ssarchive)
 $(call run-unit-test,test_ssparse)
+ifdef FD_HAS_INT128
 $(call run-unit-test,test_ssload)
+endif
 
 $(call make-fuzz-test,fuzz_snapshot_parser,utils/fuzz_snapshot_parser,fd_discof fd_flamenco fd_ballet fd_util)
+ifdef FD_HAS_INT128
 $(call make-fuzz-test,fuzz_ssmanifest_parser,utils/fuzz_ssmanifest_parser,fd_discof fd_flamenco fd_ballet fd_util)
+endif
 $(call make-fuzz-test,fuzz_ssarchive_parser,utils/fuzz_ssarchive_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_slot_delta_parser,utils/fuzz_slot_delta_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_sshttp,utils/fuzz_sshttp,fd_discof fd_waltz fd_flamenco fd_ballet fd_util,$(OPENSSL_LIBS))
