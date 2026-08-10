@@ -627,9 +627,19 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
     stake_delegation->is_tombstone         = 0;
     stake_delegation->state                = FD_STAKE_DELEGATION_STATE_UNKNOWN;
 
-    FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
-    FD_LOG_DEBUG(( "fork_update: stake_account=%s, stake=%lu, activation_epoch=%u, deactivation_epoch=%u",
-        stake_account_out, stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch ));
+    /* FD_LOG_DEBUG is neither compiled out nor gated at the call site,
+       and the base58 encode is a separate statement that always runs:
+       without the check below, every call formats a message that
+       fd_log_private_1 then compares against the log level and throws
+       away.  Reward distribution reaches this path once per stake
+       account, hundreds of thousands of times per epoch boundary, so
+       repeat the check the logger does internally and skip the work
+       when debug logging is off. */
+    if( FD_UNLIKELY( fd_log_level_logfile()<=0 ) ) {
+      FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
+      FD_LOG_DEBUG(( "fork_update: stake_account=%s, stake=%lu, activation_epoch=%u, deactivation_epoch=%u",
+          stake_account_out, stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch ));
+    }
   }
 
   fd_rwlock_unwrite( &stake_delegations->lock );
