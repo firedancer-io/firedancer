@@ -1084,6 +1084,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
      vote to be rooted as this creates a circular dependency. */
   ctx->identity_vote_rooted = 1;
 
+  ctx->caught_up = 1;
+
   uchar const * genesis_blob = (uchar const *)( meta+1 );
   FD_TEST( meta->bootstrap && meta->has_lthash );
   FD_TEST( fd_genesis_parse( ctx->genesis, genesis_blob, meta->blob_sz ) );
@@ -1834,9 +1836,10 @@ snapshot_target_slot( fd_replay_tile_t * ctx,
   *out_incremental = 0;
   if( FD_LIKELY( !ctx->snapmk.supported || ctx->snapmk.active ) ) return ULONG_MAX;
 
+  int caught_up  = ctx->caught_up; /* suspend periodic snaps until caught up */
   ulong full     = ULONG_MAX;
   ulong interval = ctx->snapmk.full_interval;
-  if( FD_UNLIKELY( interval ) ) {
+  if( FD_UNLIKELY( interval && caught_up ) ) {
     if( FD_UNLIKELY( ctx->snapmk.next_full_slot==ULONG_MAX ) ) {
       ctx->snapmk.next_full_slot = ((ctx->published_root_slot/interval)+1UL)*interval;
     }
@@ -1851,7 +1854,7 @@ snapshot_target_slot( fd_replay_tile_t * ctx,
      exists to serve as its base. */
   ulong incremental = ULONG_MAX;
   ulong incr_interval = ctx->snapmk.incremental_interval;
-  if( FD_UNLIKELY( incr_interval && ctx->snapmk.base_slot!=ULONG_MAX ) ) {
+  if( FD_UNLIKELY( incr_interval && caught_up && ctx->snapmk.base_slot!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( ctx->snapmk.next_incremental_slot==ULONG_MAX ) ) {
       ctx->snapmk.next_incremental_slot = ((ctx->published_root_slot/incr_interval)+1UL)*incr_interval;
     }
