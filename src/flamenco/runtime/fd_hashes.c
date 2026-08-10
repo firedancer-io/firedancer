@@ -74,8 +74,7 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
 
   fd_bank_lthash_end_locking_modify( bank );
 
-  fd_hashes_capture_account( pubkey, owner, lamports, executable,
-                             data, data_len, bank, capture_ctx );
+  fd_hashes_capture_account( pubkey, owner, lamports, executable, data, data_len, bank, capture_ctx );
 }
 
 void

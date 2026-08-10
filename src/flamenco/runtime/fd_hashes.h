@@ -96,9 +96,8 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
    account as it should appear in the capture, i.e. after the
    modification being recorded.
 
-   fd_hashes_update_simple calls this for the account it hashes, so
-   callers of that function need not.  Callers that accumulate the
-   lthash themselves must call this directly. */
+   Callers that accumulate the lthash themselves must call this
+   directly.  Callers that use fd_hashes_update_simple do not. */
 
 void
 fd_hashes_capture_account( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
