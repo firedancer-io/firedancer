@@ -1476,27 +1476,35 @@ reward_lthash_push( fd_lthash_adder_t * adder,
                                        acc->owner );
 }
 
-/* Distributes a single partitioned reward to a single stake account */
+/* Distributes a single partitioned reward to a single stake account.
+
+   stake_acc is the element that the caller acquired for stake_pubkey as
+   part of a batch, and that the caller releases along with the rest of
+   that batch.  The two early returns below therefore release nothing:
+   they leave commit at 0, and fd_accdb_release skips every element
+   whose commit bit is clear, discarding its staged changes.  On the
+   success path the modified account, commit bit included, is copied
+   back out through stake_acc, without which the release would drop the
+   write. */
+
 static int
 distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
-                                      fd_accdb_t *        accdb,
                                       fd_capture_ctx_t *  capture_ctx,
                                       fd_pubkey_t *       stake_pubkey,
                                       ulong               reward_lamports,
                                       ulong               new_credits_observed,
+                                      fd_acc_t *          stake_acc,
                                       fd_lthash_adder_t * adder_pre,
                                       fd_lthash_value_t * sum_pre,
                                       fd_lthash_adder_t * adder_post,
                                       fd_lthash_value_t * sum_post ) {
-  fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, stake_pubkey->uc );
+  fd_acc_t acc = *stake_acc;
   if( FD_UNLIKELY( !acc.lamports ) ) {
-    fd_accdb_unwrite_one( accdb, &acc );
     return 1; /* account does not exist */
   }
 
   fd_stake_state_t const * stake_state_orig = fd_stakes_get_state( &acc );
   if( FD_UNLIKELY( !stake_state_orig || stake_state_orig->stake_type!=FD_STAKE_STATE_STAKE ) ) {
-    fd_accdb_unwrite_one( accdb, &acc );
     return 1; /* not a valid stake account */
   }
 
@@ -1563,10 +1571,24 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
                              acc.data, acc.data_len, bank, capture_ctx );
 
   acc.commit = 1;
-  fd_accdb_unwrite_one( accdb, &acc );
+  *stake_acc = acc;
 
   return 0;
 }
+
+/* REWARD_ACQ_BATCH_MAX is the number of stake accounts that
+   distribute_epoch_rewards_in_partition acquires from the accounts
+   database per fd_accdb_acquire call.  Batching mainly buys
+   memory-level parallelism: each account lookup walks a short index
+   chain, and at width one every walk is serialised behind the fence at
+   the end of the acquire, so each DRAM miss is fully exposed.  The
+   width was swept rather than chosen -- 32 is measurably faster than
+   16, and 64 is not measurably faster than 32, because the parallelism
+   saturates while the per-account staging buffer copies keep growing. */
+
+#define REWARD_ACQ_BATCH_MAX (32UL)
+
+FD_STATIC_ASSERT( REWARD_ACQ_BATCH_MAX<=FD_ACCDB_MAX_TX_ACCOUNT_LOCKS, reward_acq_batch_max );
 
 /* Process reward credits for a partition of rewards.  Store the rewards
    to AccountsDB, update reward history record and total capitalization
@@ -1588,26 +1610,62 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   fd_lthash_zero( sum_pre  );
   fd_lthash_zero( sum_post );
 
-  for( fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, (ushort)partition_idx );
-       !fd_stake_rewards_iter_done( stake_rewards );
-       fd_stake_rewards_iter_next( stake_rewards, bank->stake_rewards_fork_id ) ) {
-    fd_pubkey_t pubkey;
-    ulong       lamports;
-    ulong       credits_observed;
-    fd_stake_rewards_iter_ele( stake_rewards, bank->stake_rewards_fork_id, &pubkey, &lamports, &credits_observed );
+  /* Acquire the partition's stake accounts a batch at a time instead of
+     one at a time.  The acquire -> process the whole batch -> release
+     shape is mandatory, not stylistic: at most one acquire window may be
+     open at a time, because fd_accdb_acquire asserts that the handle is
+     idle and marks it open, and fd_accdb_release restores it to idle. */
 
-    if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
-                                                          accdb,
-                                                          capture_ctx,
-                                                          &pubkey,
-                                                          lamports,
-                                                          credits_observed,
-                                                          adder_pre, sum_pre,
-                                                          adder_post, sum_post ) ) ) {
-      lamports_distributed += lamports;
-    } else {
-      lamports_burned += lamports;
+  fd_pubkey_t   pubkeys         [ REWARD_ACQ_BATCH_MAX ];
+  uchar const * pubkey_ptrs     [ REWARD_ACQ_BATCH_MAX ];
+  int           writable        [ REWARD_ACQ_BATCH_MAX ];
+  fd_acc_t      accs            [ REWARD_ACQ_BATCH_MAX ];
+  ulong         reward_lamports [ REWARD_ACQ_BATCH_MAX ];
+  ulong         credits_observed[ REWARD_ACQ_BATCH_MAX ];
+
+  /* Every stake account in a batch is acquired for write. */
+  for( ulong i=0UL; i<REWARD_ACQ_BATCH_MAX; i++ ) writable[ i ] = 1;
+
+  fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, (ushort)partition_idx );
+  while( !fd_stake_rewards_iter_done( stake_rewards ) ) {
+
+    /* Gather the next batch of rewards out of the partition. */
+    ulong batch_cnt = 0UL;
+    while( batch_cnt<REWARD_ACQ_BATCH_MAX && !fd_stake_rewards_iter_done( stake_rewards ) ) {
+      fd_stake_rewards_iter_ele( stake_rewards,
+                                 bank->stake_rewards_fork_id,
+                                 &pubkeys         [ batch_cnt ],
+                                 &reward_lamports [ batch_cnt ],
+                                 &credits_observed[ batch_cnt ] );
+      pubkey_ptrs[ batch_cnt ] = pubkeys[ batch_cnt ].uc;
+      batch_cnt++;
+      fd_stake_rewards_iter_next( stake_rewards, bank->stake_rewards_fork_id );
     }
+
+    /* The outer condition guarantees that the gather above ran at least
+       once, so this never fires.  It is worth stating anyway: it saves
+       the compiler from having to generate a zero-length batch path, and
+       an empty batch would otherwise spin the outer loop forever. */
+    if( FD_UNLIKELY( !batch_cnt ) ) break;
+
+    fd_accdb_acquire( accdb, bank->accdb_fork_id, batch_cnt, pubkey_ptrs, writable, accs );
+
+    for( ulong i=0UL; i<batch_cnt; i++ ) {
+      if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
+                                                            capture_ctx,
+                                                            &pubkeys[ i ],
+                                                            reward_lamports[ i ],
+                                                            credits_observed[ i ],
+                                                            &accs[ i ],
+                                                            adder_pre, sum_pre,
+                                                            adder_post, sum_post ) ) ) {
+        lamports_distributed += reward_lamports[ i ];
+      } else {
+        lamports_burned += reward_lamports[ i ];
+      }
+    }
+
+    fd_accdb_release( accdb, batch_cnt, accs );
   }
 
   /* Drain the adders, then fold the partition's net lthash delta into
