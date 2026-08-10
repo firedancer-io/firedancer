@@ -5,6 +5,7 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../runtime/fd_hashes.h"
+#include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../stakes/fd_stakes.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/fd_system_ids.h"
@@ -1454,7 +1455,11 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
                                       fd_pubkey_t *      stake_pubkey,
                                       ulong              reward_lamports,
                                       ulong              new_credits_observed,
-                                      fd_acc_t *         acc ) {
+                                      fd_acc_t *          acc,
+                                      fd_lthash_adder_t * adder_pre,
+                                      fd_lthash_value_t * sum_pre,
+                                      fd_lthash_adder_t * adder_post,
+                                      fd_lthash_value_t * sum_post ) {
   if( FD_UNLIKELY( !acc->lamports ) ) {
     return 1; /* account does not exist */
   }
@@ -1466,8 +1471,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
 
   fd_stake_state_t stake_state[1] = { *stake_state_orig };
 
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash_simple( stake_pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, prev_hash );
+  fd_lthash_adder_push_solana_account( adder_pre, sum_pre, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
 
   FD_TEST( !__builtin_add_overflow( acc->lamports, reward_lamports, &acc->lamports ) );
 
@@ -1514,8 +1518,8 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
   }
 
   FD_STORE( fd_stake_state_t, acc->data, *stake_state );
-  fd_lthash_value_t post[1];
-  fd_hashes_update_simple( post, prev_hash, stake_pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+  fd_lthash_adder_push_solana_account( adder_post, sum_post, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
+  fd_hashes_capture_account( stake_pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
   acc->commit = 1;
 
   return 0;
@@ -1536,6 +1540,13 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
 
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
+
+  fd_lthash_adder_t adder_pre[1], adder_post[1];
+  fd_lthash_adder_new( adder_pre  );
+  fd_lthash_adder_new( adder_post );
+  fd_lthash_value_t sum_pre[1], sum_post[1];
+  fd_lthash_zero( sum_pre  );
+  fd_lthash_zero( sum_post );
 
   /* Acquire and process stake accounts in batches of 32 */
 
@@ -1572,7 +1583,9 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
                                                             &pubkeys[ i ],
                                                             reward_lamports[ i ],
                                                             credits_observed[ i ],
-                                                            &accs[ i ] ) ) ) {
+                                                            &accs[ i ],
+                                                            adder_pre, sum_pre,
+                                                            adder_post, sum_post ) ) ) {
         lamports_distributed += reward_lamports[ i ];
       } else {
         lamports_burned += reward_lamports[ i ];
@@ -1581,6 +1594,14 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
 
     fd_accdb_release( accdb, batch_cnt, accs );
   }
+
+  fd_lthash_adder_flush( adder_pre,  sum_pre  );
+  fd_lthash_adder_flush( adder_post, sum_post );
+
+  fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
+  fd_lthash_sub( bank_lthash, sum_pre  );
+  fd_lthash_add( bank_lthash, sum_post );
+  fd_bank_lthash_end_locking_modify( bank );
 
   /* Update the epoch rewards sysvar with the amount distributed and burnt */
   fd_sysvar_epoch_rewards_distribute( bank, accdb, capture_ctx, lamports_distributed + lamports_burned );
