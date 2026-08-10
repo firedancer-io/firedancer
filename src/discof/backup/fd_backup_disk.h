@@ -7,7 +7,6 @@
 #include "fd_backup.h"
 #include "fd_backup_visited.h"
 #include "../../flamenco/accdb/fd_accdb_private.h"
-#include "../../tango/fd_tango_base.h"
 
 /* fd_snapmk_accparse_t does streaming zero-copy parsing of accdb
    partitions.  Ingests a stream of disk data (arbitrarily fragmented)
@@ -34,7 +33,6 @@ struct fd_snapmk_accparse {
   ulong acc_file_off;
 
   ulong pub_gaddr;
-  ulong pub_off;
   uint  pub_sz;
   uint  pub_acc_idx;
   uint  pub_snap_sz;
@@ -65,42 +63,17 @@ struct fd_snapmk_accparse {
     fd_accdb_disk_meta_t meta;
   };
 
-  /* deslop this shit */
   uint        ps_cnt;
   ulong       ps_base_gaddr;
   ulong       ps_hash    [ FD_BACKUP_DISK_PARA ];
   uint        ps_frag_off[ FD_BACKUP_DISK_PARA ];
   ulong       ps_file_off[ FD_BACKUP_DISK_PARA ];
   fd_pubkey_t ps_pubkey  [ FD_BACKUP_DISK_PARA ];
-  ulong       accounts_seen;
 };
 
 typedef struct fd_snapmk_accparse fd_snapmk_accparse_t;
 
 FD_PROTOTYPES_BEGIN
-
-/* Public API */
-
-/* fd_snapmk_accparse_push ingests a accdb disk data fragment.  data
-   points to data_sz bytes of data read from disk.  src_gaddr points to
-   the same data wksp-relative.  src_off is the disk offset of this
-   data frag.  You must call pop() until it returns NULL before the next
-   push. */
-
-static inline void
-fd_snapmk_accparse_push( fd_snapmk_accparse_t * parse,
-                         uchar const *          data,
-                         ulong                  data_sz,
-                         ulong                  src_gaddr,
-                         ulong                  src_off );
-
-/* fd_snapmk_accparse_pop produces a frag from accumulated source data.
-   Returns meta if a frag was produced, NULL otherwise (needs more data
-   in push()). */
-
-static inline fd_frag_meta_t *
-fd_snapmk_accparse_pop( fd_snapmk_accparse_t * parse,
-                        fd_frag_meta_t *       meta );
 
 /* Implementation */
 
@@ -172,150 +145,9 @@ fd_snapmk_accparse_keep( fd_snapmk_accparse_t * parse ) {
   return keep;
 }
 
-static inline void
-fd_snapmk_accparse_push( fd_snapmk_accparse_t * parse,
-                         uchar const *          data,
-                         ulong                  data_sz,
-                         ulong                  src_gaddr,
-                         ulong                  src_off ) {
-  parse->data            = data;
-  parse->data_sz         = data_sz;
-  parse->src_gaddr       = src_gaddr;
-  parse->src_off         = src_off;
-  parse->frag_base_gaddr = src_gaddr;
-  parse->pf_cursor       = data;
-  parse->input_active    = 1;
-}
-
-static inline fd_frag_meta_t *
-fd_snapmk_accparse_pop( fd_snapmk_accparse_t * parse,
-                        fd_frag_meta_t *       meta ) {
-  for(;;) {
-    if( FD_UNLIKELY( parse->pub_pending ) ) {
-      meta->sig    = parse->pub_gaddr;
-      meta->chunk  = parse->pub_acc_idx;
-      meta->sz     = 0;
-      meta->ctl    = (ushort)fd_frag_meta_ctl( FD_BACKUP_ORIG_ACC_DISK, parse->pub_som, parse->pub_eom, 0 );
-      meta->tsorig = 0U;
-      meta->tspub  = (uint)parse->pub_sz;
-      parse->pub_pending = 0;
-      return meta;
-    }
-
-    if( FD_UNLIKELY( !parse->data_sz ) ) return NULL;
-
-    if( FD_UNLIKELY( !parse->acc_active ) ) {
-      if( FD_UNLIKELY( !parse->meta_sz ) ) {
-        parse->acc_file_off = parse->src_off;
-        parse->acc_snap_sz  = 0U;
-        parse->acc_idx      = UINT_MAX;
-        parse->acc_keep     = 1U;
-      }
-
-      ulong meta_rem = sizeof(fd_accdb_disk_meta_t) - (ulong)parse->meta_sz;
-      ulong take     = fd_ulong_min( meta_rem, parse->data_sz );
-      fd_memcpy( parse->buf + parse->meta_sz, parse->data, take );
-      parse->meta_sz   += (uint)take;
-      parse->data      += take;
-      parse->data_sz   -= take;
-      parse->src_gaddr += take;
-      parse->src_off   += take;
-
-      if( FD_UNLIKELY( parse->meta_sz < sizeof(fd_accdb_disk_meta_t) ) ) continue;
-
-      ulong data_sz = (ulong)FD_ACCDB_SIZE_DATA( parse->meta.size );
-      ulong snap_sz = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_sz, 8UL );
-      if( FD_UNLIKELY( data_sz>UINT_MAX ) ) {
-        FD_LOG_CRIT(( "accdb disk account data too large (%lu bytes)", data_sz ));
-      }
-      if( FD_UNLIKELY( snap_sz>UINT_MAX ) ) {
-        FD_LOG_CRIT(( "snapshot account record too large (%lu bytes)", snap_sz ));
-      }
-
-      parse->accounts_seen++;
-      parse->acc_active  = 1;
-      parse->acc_off     = 0U;
-      parse->acc_sz      = (uint)data_sz;
-      parse->acc_snap_sz = (uint)snap_sz;
-      parse->meta_sz     = 0U;
-      parse->acc_keep    = (uint)fd_snapmk_accparse_keep( parse );
-
-      if( FD_UNLIKELY( !parse->acc_sz ) ) {
-        if( FD_LIKELY( parse->acc_keep ) ) {
-          parse->pub_gaddr   = 0UL;
-          parse->pub_off     = parse->src_off;
-          parse->pub_sz      = 0U;
-          parse->pub_acc_idx = parse->acc_idx;
-          parse->pub_snap_sz = parse->acc_snap_sz;
-          parse->pub_size    = parse->meta.size;
-          memcpy( &parse->pub_pubkey, parse->meta.pubkey, sizeof(fd_pubkey_t) );
-          memcpy( &parse->pub_owner,  parse->meta.owner,  sizeof(fd_pubkey_t) );
-          parse->pub_som     = 1;
-          parse->pub_eom     = 1;
-          parse->pub_pending = 1;
-        }
-        parse->acc_active = 0;
-        parse->acc_off    = 0U;
-        parse->acc_sz     = 0U;
-        continue;
-      }
-
-      continue;
-    }
-
-    ulong acc_rem = (ulong)parse->acc_sz - (ulong)parse->acc_off;
-    ulong take    = fd_ulong_min( acc_rem, parse->data_sz );
-    if( FD_UNLIKELY( !take ) ) return NULL;
-
-    if( FD_UNLIKELY( !parse->acc_keep ) ) {
-      parse->acc_off   += (uint)take;
-      parse->data      += take;
-      parse->data_sz   -= take;
-      parse->src_gaddr += take;
-      parse->src_off   += take;
-      if( FD_UNLIKELY( parse->acc_off==parse->acc_sz ) ) {
-        parse->acc_active = 0;
-        parse->acc_off    = 0U;
-        parse->acc_sz     = 0U;
-        parse->acc_keep   = 1U;
-      }
-      continue;
-    }
-
-    uint old_acc_off = parse->acc_off;
-    parse->pub_gaddr   = parse->src_gaddr;
-    parse->pub_off     = parse->src_off;
-    parse->pub_sz      = (uint)take;
-    parse->pub_acc_idx = parse->acc_idx;
-    parse->pub_snap_sz = parse->acc_snap_sz;
-    parse->pub_size    = parse->meta.size;
-    memcpy( &parse->pub_pubkey, parse->meta.pubkey, sizeof(fd_pubkey_t) );
-    memcpy( &parse->pub_owner,  parse->meta.owner,  sizeof(fd_pubkey_t) );
-    parse->pub_som     = !old_acc_off;
-    parse->pub_eom     = ( old_acc_off + take )==parse->acc_sz;
-    parse->pub_pending = 1;
-
-    parse->acc_off   += (uint)take;
-    parse->data      += take;
-    parse->data_sz   -= take;
-    parse->src_gaddr += take;
-    parse->src_off   += take;
-
-    if( FD_UNLIKELY( parse->pub_eom ) ) {
-      parse->acc_active = 0;
-      parse->acc_sz     = 0U;
-      parse->acc_off    = 0U;
-    }
-  }
-
-}
-
-/* FIXME deslop */
-
 static void
 fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
   if( FD_UNLIKELY( parse->ps_cnt ) ) return;
-  /* Only batch at a clean account boundary with no straddle carry. */
   if( FD_UNLIKELY( parse->pub_pending || parse->acc_active || parse->meta_sz ) ) return;
 
   ulong const meta_sz = sizeof(fd_accdb_disk_meta_t);
@@ -367,7 +199,6 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
 
   parse->ps_cnt        = (uint)n;
   parse->ps_base_gaddr = parse->frag_base_gaddr;
-  parse->accounts_seen += n;
 }
 
 /* FIXME deslop */

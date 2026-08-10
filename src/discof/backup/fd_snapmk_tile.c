@@ -1632,9 +1632,7 @@ snap_start( fd_snapmk_t *                  ctx,
    meta->sig set to the wksp-relative pos.  meta->tspub is the account
    data byte count for this frag.  meta->ctl.som=1 set if this is the
    first frag of an account, meta->ctl.eom=1 set if it's the last (both
-   if the frag fully contains the account).
-
-   FIXME this is ridiculously long */
+   if the frag fully contains the account). */
 
 static inline fd_frag_meta_t *
 fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
@@ -1681,7 +1679,6 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
         FD_LOG_CRIT(( "snapshot account record too large (%lu bytes)", snap_sz ));
       }
 
-      parse->accounts_seen++;
       parse->acc_active  = 1;
       parse->acc_off     = 0U;
       parse->acc_sz      = (uint)data_sz;
@@ -1692,7 +1689,6 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
       if( FD_UNLIKELY( !parse->acc_sz ) ) {
         if( FD_LIKELY( parse->acc_keep ) ) {
           parse->pub_gaddr   = 0UL;
-          parse->pub_off     = parse->src_off;
           parse->pub_sz      = 0U;
           parse->pub_acc_idx = parse->acc_idx;
           parse->pub_snap_sz = parse->acc_snap_sz;
@@ -1733,7 +1729,6 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
 
     uint old_acc_off = parse->acc_off;
     parse->pub_gaddr   = parse->src_gaddr;
-    parse->pub_off     = parse->src_off;
     parse->pub_sz      = (uint)take;
     parse->pub_acc_idx = parse->acc_idx;
     parse->pub_snap_sz = parse->acc_snap_sz;
