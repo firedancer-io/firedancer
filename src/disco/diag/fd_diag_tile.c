@@ -384,13 +384,15 @@ irq_metrics( fd_diag_tile_t * ctx ) {
   }
 
   ulong * cpu_irq = ctx->irq_cnt[ 0 ]; /* re-use as scratch memory */
+  ulong * cpu_tlb = ctx->irq_cnt[ 1 ];
+  ulong * cpu_loc = ctx->irq_cnt[ 2 ];
   if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
-  ulong device_cpu_cnt = fd_proc_interrupts_colwise( ctx->proc_interrupts_fd, cpu_irq );
-  if( FD_UNLIKELY( !device_cpu_cnt ) ) return; /* parse fail */
+  ulong cpu_cnt = fd_proc_interrupts_read( ctx->proc_interrupts_fd, cpu_irq, cpu_tlb, cpu_loc );
+  if( FD_UNLIKELY( !cpu_cnt ) ) return; /* parse fail */
 
   ulong tot_cnt       = 0UL;
   ulong undesired_cnt = 0UL;
-  for( ulong i=0UL; i<device_cpu_cnt; i++ ) {
+  for( ulong i=0UL; i<cpu_cnt; i++ ) {
     ulong since = fd_ulong_sat_sub( cpu_irq[ i ], ctx->device_irq_baseline[ i ] );
     tot_cnt += since;
     if( fd_cpuset_test( ctx->cpu_has_tile, i ) ) {
@@ -404,12 +406,7 @@ irq_metrics( fd_diag_tile_t * ctx ) {
   FD_MCNT_SET( DIAG, DEVICE_IRQ,           tot_cnt       );
   FD_MCNT_SET( DIAG, DEVICE_IRQ_UNDESIRED, undesired_cnt );
 
-  ulong * cpu_tlb = ctx->irq_cnt[ 0 ]; /* re-use as scratch memory */
-  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
-  ulong tlb_cpu_cnt = fd_proc_interrupts_tlb( ctx->proc_interrupts_fd, cpu_tlb );
-  if( FD_UNLIKELY( !tlb_cpu_cnt ) ) return; /* parse fail */
-
-  for( ulong i=0UL; i<tlb_cpu_cnt; i++ ) {
+  for( ulong i=0UL; i<cpu_cnt; i++ ) {
     ulong tile_id = ctx->cpu_to_tile[ i ];
     if( tile_id!=USHORT_MAX ) {
       ulong since = fd_ulong_sat_sub( cpu_tlb[ i ], ctx->tlb_baseline[ i ] );
@@ -417,12 +414,7 @@ irq_metrics( fd_diag_tile_t * ctx ) {
     }
   }
 
-  ulong * cpu_loc = ctx->irq_cnt[ 0 ]; /* re-use as scratch memory */
-  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
-  ulong loc_cpu_cnt = fd_proc_interrupts_loc( ctx->proc_interrupts_fd, cpu_loc );
-  if( FD_UNLIKELY( !loc_cpu_cnt ) ) return; /* parse fail */
-
-  for( ulong i=0UL; i<loc_cpu_cnt; i++ ) {
+  for( ulong i=0UL; i<cpu_cnt; i++ ) {
     ulong tile_id = ctx->cpu_to_tile[ i ];
     if( tile_id!=USHORT_MAX ) {
       ulong since = fd_ulong_sat_sub( cpu_loc[ i ], ctx->loc_baseline[ i ] );
@@ -657,22 +649,17 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( ctx->softirq_baseline,    0, sizeof( ctx->softirq_baseline    ) );
   memset( ctx->device_irq_baseline, 0, sizeof( ctx->device_irq_baseline ) );
   memset( ctx->tlb_baseline,        0, sizeof( ctx->tlb_baseline        ) );
+  memset( ctx->loc_baseline,        0, sizeof( ctx->loc_baseline        ) );
   if( FD_UNLIKELY( -1==lseek( ctx->proc_softirqs_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
   ulong softirq_cpu_cnt = fd_proc_softirqs_sum( ctx->proc_softirqs_fd, ctx->softirq_baseline );
   if( FD_UNLIKELY( !softirq_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read softirq baseline from /proc/softirqs" ));
 
   if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
-  ulong device_cpu_cnt = fd_proc_interrupts_colwise( ctx->proc_interrupts_fd, ctx->device_irq_baseline );
-  if( FD_UNLIKELY( !device_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read device IRQ baseline from /proc/interrupts" ));
-
-  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
-  ulong tlb_cpu_cnt = fd_proc_interrupts_tlb( ctx->proc_interrupts_fd, ctx->tlb_baseline );
-  if( FD_UNLIKELY( !tlb_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read TLB baseline from /proc/interrupts" ));
-
-  memset( ctx->loc_baseline, 0, sizeof( ctx->loc_baseline ) );
-  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
-  ulong loc_cpu_cnt = fd_proc_interrupts_loc( ctx->proc_interrupts_fd, ctx->loc_baseline );
-  if( FD_UNLIKELY( !loc_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read LOC baseline from /proc/interrupts" ));
+  ulong interrupt_cpu_cnt = fd_proc_interrupts_read( ctx->proc_interrupts_fd,
+                                                     ctx->device_irq_baseline,
+                                                     ctx->tlb_baseline,
+                                                     ctx->loc_baseline );
+  if( FD_UNLIKELY( !interrupt_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read IRQ baselines from /proc/interrupts" ));
 
   memset( ctx->irq_ticks_baseline, 0, sizeof( ctx->irq_ticks_baseline ) );
   if( FD_UNLIKELY( -1==lseek( ctx->proc_stat_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));

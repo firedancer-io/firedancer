@@ -163,8 +163,10 @@ read_cpu_map(  fd_io_buffered_istream_t * is,
 }
 
 ulong
-fd_proc_interrupts_colwise( int   fd,
-                            ulong per_cpu[ FD_TILE_MAX ] ) {
+fd_proc_interrupts_read( int     fd,
+                         ulong * opt_device_per_cpu,
+                         ulong * opt_tlb_per_cpu,
+                         ulong * opt_loc_per_cpu ) {
   fd_io_buffered_istream_t is[1];
   char buf[ 4096 ];
   fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
@@ -179,8 +181,12 @@ fd_proc_interrupts_colwise( int   fd,
   if( FD_UNLIKELY( !col_cnt || !cpu_cnt ) ) return 0UL;
 
   for( ulong cpu=0UL; cpu<cpu_cnt; cpu++ ) {
-    per_cpu[ cpu ] = 0UL;
+    if( FD_LIKELY( opt_device_per_cpu ) ) opt_device_per_cpu[ cpu ] = 0UL;
+    if( FD_LIKELY( opt_tlb_per_cpu    ) ) opt_tlb_per_cpu   [ cpu ] = 0UL;
+    if( FD_LIKELY( opt_loc_per_cpu    ) ) opt_loc_per_cpu   [ cpu ] = 0UL;
   }
+
+  if( FD_UNLIKELY( !opt_device_per_cpu && !opt_tlb_per_cpu && !opt_loc_per_cpu ) ) return cpu_cnt;
 
   /* Read interrupt table
      Device interrupt counters look like this:
@@ -195,10 +201,19 @@ fd_proc_interrupts_colwise( int   fd,
     if( FD_UNLIKELY( err==-1 ) ) return cpu_cnt; /* end of input */
     if( FD_UNLIKELY( err!=0 ) ) goto failed;
     if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
-    if( !isdigit( ((char const *)fd_io_buffered_istream_peek( is ))[0] ) ) {
-      /* Only count numbered interrupts */
+    char const * prefix     = fd_io_buffered_istream_peek   ( is );
+    ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
+    int          row_kind   = 0;
+    if( FD_LIKELY( opt_device_per_cpu && isdigit( prefix[0] ) ) ) {
+      row_kind = 1;
+    } else if( FD_UNLIKELY( opt_tlb_per_cpu && prefix_max>=4UL && fd_memeq( prefix, "TLB:", 4UL ) ) ) {
+      row_kind = 2;
+    } else if( FD_UNLIKELY( opt_loc_per_cpu && prefix_max>=4UL && fd_memeq( prefix, "LOC:", 4UL ) ) ) {
+      row_kind = 3;
+    } else {
       goto skip_line;
     }
+
     err = read_until( is, 0UL, skip_token );
     if( FD_UNLIKELY( err!=0 ) ) goto failed;
 
@@ -209,7 +224,10 @@ fd_proc_interrupts_colwise( int   fd,
 
       ulong irq_cnt = read_ulong( is );
       irq_cnt = fd_ulong_if( irq_cnt!=ULONG_MAX, irq_cnt, 0UL );
-      per_cpu[ col_cpu[ col_idx ] ] += irq_cnt;
+      ulong cpu_idx = col_cpu[ col_idx ];
+      if(      row_kind==1 ) opt_device_per_cpu[ cpu_idx ] += irq_cnt;
+      else if( row_kind==2 ) opt_tlb_per_cpu   [ cpu_idx ]  = irq_cnt;
+      else                   opt_loc_per_cpu   [ cpu_idx ]  = irq_cnt;
     }
 
   skip_line:
@@ -228,81 +246,6 @@ failed:
     FD_LOG_WARNING(( "read failed (%i-%s)", err, fd_io_strerror( err ) ));
   }
   return 0UL;
-}
-
-/* proc_interrupts_named_row parses a single named row (e.g. "TLB:" or
-   "LOC:") in /proc/interrupts.  Returns the number of CPUs found.  On
-   return, per_cpu[i] contains the counter for CPU i, or 0 if the row
-   was not found. */
-
-static ulong
-proc_interrupts_named_row( int          fd,
-                           char const * row_prefix,
-                           ulong        row_prefix_len,
-                           ulong        per_cpu[ FD_TILE_MAX ] ) {
-  fd_io_buffered_istream_t is[1];
-  char buf[ 4096 ];
-  fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
-
-  ushort col_cpu[ FD_TILE_MAX ];
-  ulong  col_cnt;
-  ulong  cpu_cnt;
-  int err = read_cpu_map( is, &col_cnt, &cpu_cnt, col_cpu );
-  if( FD_UNLIKELY( err!=0 ) ) goto failed;
-  if( FD_UNLIKELY( !col_cnt || !cpu_cnt ) ) return 0UL;
-
-  for( ulong cpu=0UL; cpu<cpu_cnt; cpu++ ) {
-    per_cpu[ cpu ] = 0UL;
-  }
-
-  for(;;) {
-    err = read_until( is, 64UL, skip_spaces );
-    if( FD_UNLIKELY( err==-1 ) ) return cpu_cnt; /* end of input */
-    if( FD_UNLIKELY( err!=0 ) ) goto failed;
-    if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
-
-    char const * prefix     = fd_io_buffered_istream_peek   ( is );
-    ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
-    if( FD_UNLIKELY( prefix_max>=row_prefix_len && fd_memeq( prefix, row_prefix, row_prefix_len ) ) ) {
-      err = read_until( is, 0UL, skip_token );
-      if( FD_UNLIKELY( err!=0 ) ) goto failed;
-
-      for( ulong col_idx=0UL; col_idx<col_cnt; col_idx++ ) {
-        err = read_until( is, 21UL, skip_spaces );
-        if( FD_UNLIKELY( err!=0 ) ) goto failed;
-
-        ulong irq_cnt = read_ulong( is );
-        irq_cnt = fd_ulong_if( irq_cnt!=ULONG_MAX, irq_cnt, 0UL );
-        per_cpu[ col_cpu[ col_idx ] ] = irq_cnt;
-      }
-      return cpu_cnt;
-    }
-
-    err = read_until( is, 0UL, skip_line );
-    if( FD_UNLIKELY( err!=0 ) ) {
-      if( err==-1 ) break;
-      goto failed;
-    }
-  }
-  return cpu_cnt;
-
-failed:
-  if( err!=0 ) {
-    FD_LOG_WARNING(( "read failed (%i-%s)", err, fd_io_strerror( err ) ));
-  }
-  return 0UL;
-}
-
-ulong
-fd_proc_interrupts_tlb( int   fd,
-                        ulong per_cpu[ FD_TILE_MAX ] ) {
-  return proc_interrupts_named_row( fd, "TLB:", 4UL, per_cpu );
-}
-
-ulong
-fd_proc_interrupts_loc( int   fd,
-                        ulong per_cpu[ FD_TILE_MAX ] ) {
-  return proc_interrupts_named_row( fd, "LOC:", 4UL, per_cpu );
 }
 
 ulong
