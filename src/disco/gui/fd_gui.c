@@ -6,6 +6,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../../discof/gossip/fd_gossip_tile.h"
 #include "../bundle/fd_bundle_tile.h"
+#include "../shred/fd_shred_tile.h"
 
 #include "../../ballet/base58/fd_base58.h"
 #include "../../third_party/cjson/cJSON.h"
@@ -1887,6 +1888,201 @@ fd_gui_request_slot_rankings( fd_gui_t *    gui,
   return 0;
 }
 
+static int
+fd_gui_agg_parse_granularity( char const * name, ulong * idx, ulong * slot_cnt ) {
+  if(      !strcmp( name, "slot-1"      ) ) { *idx= 0UL; *slot_cnt=     1UL; }
+  else if( !strcmp( name, "slot-4"      ) ) { *idx= 1UL; *slot_cnt=     4UL; }
+  else if( !strcmp( name, "slot-16"     ) ) { *idx= 2UL; *slot_cnt=    16UL; }
+  else if( !strcmp( name, "slot-64"     ) ) { *idx= 3UL; *slot_cnt=    64UL; }
+  else if( !strcmp( name, "slot-256"    ) ) { *idx= 4UL; *slot_cnt=   256UL; }
+  else if( !strcmp( name, "slot-1024"   ) ) { *idx= 5UL; *slot_cnt=  1024UL; }
+  else if( !strcmp( name, "slot-4096"   ) ) { *idx= 6UL; *slot_cnt=  4096UL; }
+  else if( !strcmp( name, "slot-16384"  ) ) { *idx= 7UL; *slot_cnt= 16384UL; }
+  else if( !strcmp( name, "slot-65536"  ) ) { *idx= 8UL; *slot_cnt= 65536UL; }
+  else if( !strcmp( name, "slot-262144" ) ) { *idx= 9UL; *slot_cnt=262144UL; }
+  else if( !strcmp( name, "epoch-1"     ) ) { *idx=10UL; *slot_cnt=     0UL; }
+  else return -1;
+  return 0;
+}
+
+static ulong const fd_gui_agg_slot_cnt[ FD_GUI_AGG_GRANULARITY_CNT ] = {
+  1UL, 4UL, 16UL, 64UL, 256UL, 1024UL, 4096UL, 16384UL, 65536UL, 262144UL, 0UL
+};
+
+static ulong const fd_gui_agg_level_off[ FD_GUI_AGG_GRANULARITY_CNT ] = {
+  FD_GUI_AGG_SLOT_1_OFF, FD_GUI_AGG_SLOT_4_OFF, FD_GUI_AGG_SLOT_16_OFF,
+  FD_GUI_AGG_SLOT_64_OFF, FD_GUI_AGG_SLOT_256_OFF, FD_GUI_AGG_SLOT_1024_OFF,
+  FD_GUI_AGG_SLOT_4096_OFF, FD_GUI_AGG_SLOT_16384_OFF,
+  FD_GUI_AGG_SLOT_65536_OFF, FD_GUI_AGG_SLOT_262144_OFF,
+  FD_GUI_AGG_EPOCH_1_OFF
+};
+
+static ulong const fd_gui_agg_level_cnt[ FD_GUI_AGG_GRANULARITY_CNT ] = {
+  FD_GUI_AGG_SLOT_1_CNT, FD_GUI_AGG_SLOT_4_CNT, FD_GUI_AGG_SLOT_16_CNT,
+  FD_GUI_AGG_SLOT_64_CNT, FD_GUI_AGG_SLOT_256_CNT, FD_GUI_AGG_SLOT_1024_CNT,
+  FD_GUI_AGG_SLOT_4096_CNT, FD_GUI_AGG_SLOT_16384_CNT,
+  FD_GUI_AGG_SLOT_65536_CNT, FD_GUI_AGG_SLOT_262144_CNT,
+  FD_GUI_AGG_EPOCH_1_CNT
+};
+
+static int
+fd_gui_agg_bucket_idx( fd_gui_epoch_t const * epoch,
+                       ulong                  granularity_idx,
+                       ulong                  bucket_start,
+                       ulong *                idx ) {
+  if( granularity_idx==10UL ) {
+    if( FD_UNLIKELY( bucket_start!=epoch->start_slot ) ) return 0;
+    *idx = FD_GUI_AGG_EPOCH_1_OFF;
+    return 1;
+  }
+  ulong slot_cnt = fd_gui_agg_slot_cnt[ granularity_idx ];
+  ulong first = fd_ulong_align_up( epoch->start_slot, slot_cnt );
+  if( FD_UNLIKELY( bucket_start<first ) ) return 0;
+  ulong bucket_idx = (bucket_start-first)/slot_cnt;
+  if( FD_UNLIKELY( bucket_idx>=fd_gui_agg_level_cnt[ granularity_idx ] ) ) return 0;
+  *idx = fd_gui_agg_level_off[ granularity_idx ]+bucket_idx;
+  return 1;
+}
+
+
+static ulong
+fd_gui_agg_ts_lower_bound( fd_gui_epoch_t const * epoch,
+                           long                   timestamp ) {
+  ulong lo = 0UL;
+  ulong hi = epoch->agg_ts_idx_cnt;
+  while( lo<hi ) {
+    ulong mid = lo+(hi-lo)/2UL;
+    if( epoch->agg_ts_idx_timestamp[ mid ]<timestamp ) lo=mid+1UL;
+    else                                               hi=mid;
+  }
+  return lo;
+}
+
+static int
+fd_gui_agg_resolve( fd_gui_t *             gui,
+                    ulong                  granularity_idx,
+                    ulong                  slot_cnt,
+                    ulong                  root,
+                    ulong                  bucket,
+                    fd_gui_epoch_t const ** epoch,
+                    ulong *                idx,
+                    ulong *                rooted_end ) {
+  if( FD_UNLIKELY( bucket>root ) ) return 0;
+  ulong owner_epoch = fd_slot_to_epoch( &gui->epoch.epoch_schedule, bucket, NULL );
+  *epoch = fd_gui_epoch( gui, owner_epoch );
+  if( FD_UNLIKELY( !*epoch || (*epoch)->agg_rooted_through==ULONG_MAX ||
+                   !fd_gui_agg_bucket_idx( *epoch, granularity_idx, bucket, idx ) ) ) return 0;
+  ulong bucket_end = slot_cnt ? fd_ulong_sat_add( bucket, slot_cnt-1UL )
+                              : fd_ulong_sat_add( (*epoch)->start_slot, (*epoch)->slot_cnt-1UL );
+  *rooted_end = fd_ulong_min( bucket_end, root );
+  return *rooted_end>=(*epoch)->agg_first_rooted_slot;
+}
+
+static int
+fd_gui_agg_intersects( fd_gui_epoch_t const * epoch,
+                       ulong                  idx,
+                       long                   start_ns,
+                       long                   end_ns ) {
+  long start_ts = epoch->agg_start_ts[ idx ];
+  long end_ts   = epoch->agg_end_ts  [ idx ];
+  return start_ts!=LONG_MAX && end_ts!=LONG_MAX && start_ts<=end_ns && end_ts>=start_ns;
+}
+
+static int
+fd_gui_agg_neighbor_bucket( fd_gui_t * gui,
+                            ulong      slot_cnt,
+                            ulong      bucket,
+                            int        next,
+                            ulong *    neighbor ) {
+  if( slot_cnt ) {
+    if( next ) {
+      if( FD_UNLIKELY( bucket>ULONG_MAX-slot_cnt ) ) return 0;
+      *neighbor = bucket+slot_cnt;
+    } else {
+      if( FD_UNLIKELY( bucket<slot_cnt ) ) return 0;
+      *neighbor = bucket-slot_cnt;
+    }
+    return 1;
+  }
+
+  ulong epoch = fd_slot_to_epoch( &gui->epoch.epoch_schedule, bucket, NULL );
+  if( FD_UNLIKELY( !next && !epoch ) ) return 0;
+  fd_gui_epoch_t const * adjacent = fd_gui_epoch( gui, next ? epoch+1UL : epoch-1UL );
+  if( FD_UNLIKELY( !adjacent ) ) return 0;
+  *neighbor = adjacent->start_slot;
+  return 1;
+}
+
+int
+fd_gui_agg_iter( fd_gui_t *           gui,
+                 ulong                granularity_idx,
+                 ulong                slot_cnt,
+                 long                 start_ns,
+                 long                 end_ns,
+                 ulong                root,
+                 fd_gui_agg_iter_fn_t fn,
+                 void *               ctx ) {
+  if( FD_UNLIKELY( root==ULONG_MAX || !gui->epoch.has_epoch_schedule ) ) return 0;
+  ulong newest_epoch = fd_slot_to_epoch( &gui->epoch.epoch_schedule, root, NULL );
+  ulong first_bucket = ULONG_MAX;
+  ulong last_bucket  = 0UL;
+  for( ulong age=0UL; age<FD_GUI_HIST_MAX_EPOCHS && age<=newest_epoch; age++ ) {
+    fd_gui_epoch_t const * epoch = fd_gui_epoch( gui, newest_epoch-age );
+    if( FD_UNLIKELY( !epoch || !epoch->agg_ts_idx_cnt ) ) continue;
+    ulong first = fd_gui_agg_ts_lower_bound( epoch, start_ns );
+    ulong last  = fd_gui_agg_ts_lower_bound( epoch, end_ns==LONG_MAX ? LONG_MAX : end_ns+1L );
+    ulong begin = first ? first-1UL : first;
+    ulong end   = fd_ulong_min( epoch->agg_ts_idx_cnt, fd_ulong_sat_add( last, 1UL ) );
+    for( ulong i=begin; i<end; i++ ) {
+      ulong slot   = epoch->start_slot+(ulong)epoch->agg_ts_idx_slot[ i ];
+      ulong bucket = slot_cnt ? (slot/slot_cnt)*slot_cnt : epoch->start_slot;
+      first_bucket = fd_ulong_min( first_bucket, bucket );
+      last_bucket  = fd_ulong_max( last_bucket,  bucket );
+    }
+  }
+  if( first_bucket==ULONG_MAX ) return 0;
+
+  ulong adjacent_bucket;
+  if( fd_gui_agg_neighbor_bucket( gui, slot_cnt, first_bucket, 0, &adjacent_bucket ) ) first_bucket=adjacent_bucket;
+  if( fd_gui_agg_neighbor_bucket( gui, slot_cnt, last_bucket,  1, &adjacent_bucket ) ) last_bucket =adjacent_bucket;
+
+  ulong visited = 0UL;
+  for( ulong bucket=first_bucket; bucket<=last_bucket; ) {
+    fd_gui_epoch_t const * epoch;
+    ulong idx, rooted_end;
+    if( fd_gui_agg_resolve( gui, granularity_idx, slot_cnt, root, bucket, &epoch, &idx, &rooted_end ) ) {
+      int intersects = fd_gui_agg_intersects( epoch, idx, start_ns, end_ns );
+      int missing_bound = epoch->agg_start_ts[idx]==LONG_MAX || epoch->agg_end_ts[idx]==LONG_MAX;
+      int adjacent = 0;
+      if( missing_bound ) {
+        for( int next=0; next<2; next++ ) {
+          ulong neighbor;
+          fd_gui_epoch_t const * neighbor_epoch;
+          ulong neighbor_idx, neighbor_end;
+          if( fd_gui_agg_neighbor_bucket( gui, slot_cnt, bucket, next, &neighbor ) &&
+              fd_gui_agg_resolve( gui, granularity_idx, slot_cnt, root, neighbor, &neighbor_epoch, &neighbor_idx, &neighbor_end ) )
+            adjacent |= fd_gui_agg_intersects( neighbor_epoch, neighbor_idx, start_ns, end_ns );
+        }
+      }
+      if( intersects || adjacent ) {
+        if( FD_UNLIKELY( visited>=2048UL ) ) return -1;
+        visited++;
+        fn( epoch, idx, bucket, rooted_end, ctx );
+      }
+    }
+    if( !slot_cnt ) {
+      ulong epoch = fd_slot_to_epoch( &gui->epoch.epoch_schedule, bucket, NULL );
+      fd_gui_epoch_t const * next = fd_gui_epoch( gui, epoch+1UL );
+      if( !next || next->start_slot<=bucket ) break;
+      bucket = next->start_slot;
+    } else {
+      if( bucket>ULONG_MAX-slot_cnt ) break;
+      bucket += slot_cnt;
+    }
+  }
+  return 0;
+}
+
 static inline int
 fd_gui_cjson_parse_ns( cJSON const * param,
                           long *        out ) {
@@ -1921,6 +2117,49 @@ fd_gui_request_timeline_shreds( fd_gui_t *    gui,
   if( FD_UNLIKELY( end_ns-start_ns>60L*1000L*1000L*1000L ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST; /* TODO: tune/remove */
 
   fd_gui_printf_timeline_query_shreds( gui, topic, start_ns, end_ns, request_id );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
+static int
+fd_gui_cjson_parse_decimal_ns( cJSON const * param, long * out ) {
+  if( FD_UNLIKELY( !cJSON_IsString( param ) || !param->valuestring || !param->valuestring[0] ) ) return -1;
+  ulong value=0UL;
+  for( char const * p=param->valuestring; *p; p++ ) {
+    if( FD_UNLIKELY( *p<'0' || *p>'9' ) ) return -1;
+    ulong digit=(ulong)(*p-'0');
+    if( FD_UNLIKELY( value>((ulong)LONG_MAX-digit)/10UL ) ) return -1;
+    value=value*10UL+digit;
+  }
+  *out=(long)value;
+  return 0;
+}
+
+static int
+fd_gui_request_timeline_agg( fd_gui_t *    gui,
+                             ulong         ws_conn_id,
+                             char const *  key,
+                             ulong         request_id,
+                             cJSON const * params ) {
+  cJSON const * start_param = cJSON_GetObjectItemCaseSensitive( params, "start_ns" );
+  cJSON const * end_param   = cJSON_GetObjectItemCaseSensitive( params, "end_ns" );
+  cJSON const * gran_param  = cJSON_GetObjectItemCaseSensitive( params, "granularity" );
+  long start_ns, end_ns;
+  if( FD_UNLIKELY( fd_gui_cjson_parse_decimal_ns( start_param, &start_ns ) ||
+                   fd_gui_cjson_parse_decimal_ns( end_param, &end_ns ) ||
+                   !cJSON_IsString( gran_param ) || !gran_param->valuestring || end_ns<start_ns ) )
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  ulong gran_idx, slot_cnt;
+  if( FD_UNLIKELY( fd_gui_agg_parse_granularity( gran_param->valuestring, &gran_idx, &slot_cnt ) ) )
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  long max_span = slot_cnt ? (long)slot_cnt*60L*1000L*1000L*1000L
+                           : 300L*24L*60L*60L*1000L*1000L*1000L;
+  if( FD_UNLIKELY( end_ns-start_ns>max_span ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  ulong root = gui->summary.slot_rooted;
+  if( FD_UNLIKELY( fd_gui_printf_timeline_query_agg( gui, key, gran_param->valuestring, gran_idx, slot_cnt, start_ns, end_ns, root, request_id ) ) )
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   return 0;
 }
@@ -1995,6 +2234,20 @@ fd_gui_ws_message( fd_gui_t *    gui,
     }
 
     int result = fd_gui_request_slot_rankings( gui, ws_conn_id, id, params );
+    cJSON_Delete( json );
+    return result;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "timeline" ) &&
+                        ( !strcmp( key->valuestring, "query_agg"         ) ||
+                          !strcmp( key->valuestring, "query_agg_shreds" ) ||
+                          !strcmp( key->valuestring, "query_agg_compute") ||
+                          !strcmp( key->valuestring, "query_agg_revenue") ) ) ) {
+    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+
+    int result = fd_gui_request_timeline_agg( gui, ws_conn_id, key->valuestring, id, params );
     cJSON_Delete( json );
     return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "timeline" ) && !strcmp( key->valuestring, "query_shreds" ) ) ) {
@@ -2134,6 +2387,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
   FD_TEST( epoch );
 
   if( FD_LIKELY( created ) ) {
+    fd_memset( epoch, 0, sizeof(*epoch) );
     epoch->epoch          = epoch_info->epoch;
     epoch->start_slot     = epoch_info->start_slot;
     epoch->slot_cnt       = epoch_info->slot_cnt;
@@ -2148,6 +2402,23 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
     memset( epoch->latency_exact, (int)FD_GUI_VOTE_LATENCY_NOT_VOTED, sizeof(epoch->latency_exact) );
     memset( epoch->is_voter,      0,                                 sizeof(epoch->is_voter)      );
     memset( epoch->skipped,       0,                                 sizeof(epoch->skipped)       );
+    for( ulong i=0UL; i<FD_GUI_AGG_BUCKET_CNT; i++ ) {
+      epoch->agg_start_ts[ i ] = LONG_MAX;
+      epoch->agg_end_ts  [ i ] = LONG_MAX;
+    }
+    memset( epoch->agg_skipped,       0xFF, sizeof(epoch->agg_skipped)       );
+    memset( epoch->agg_shreds,        0xFF, sizeof(epoch->agg_shreds)        );
+    memset( epoch->agg_turbine,       0xFF, sizeof(epoch->agg_turbine)       );
+    memset( epoch->agg_repair,        0xFF, sizeof(epoch->agg_repair)        );
+    memset( epoch->agg_reconstructed, 0xFF, sizeof(epoch->agg_reconstructed) );
+    memset( epoch->agg_published,     0xFF, sizeof(epoch->agg_published)     );
+    memset( epoch->agg_compute_units, 0xFF, sizeof(epoch->agg_compute_units) );
+    memset( epoch->agg_max_compute,   0xFF, sizeof(epoch->agg_max_compute)   );
+    memset( epoch->agg_txn_fees,      0xFF, sizeof(epoch->agg_txn_fees)      );
+    memset( epoch->agg_prio_fees,     0xFF, sizeof(epoch->agg_prio_fees)     );
+    memset( epoch->agg_tips,          0xFF, sizeof(epoch->agg_tips)          );
+    epoch->agg_first_rooted_slot = ULONG_MAX;
+    epoch->agg_rooted_through    = ULONG_MAX;
     epoch->epoch_schedule = epoch_info->epoch_schedule;
     epoch->pub_cnt        = lsched->pub_cnt;
     epoch->stakes_cnt     = epoch_info->staked_vote_cnt;
@@ -2175,6 +2446,116 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
 
   fd_gui_printf_epoch( gui, epoch_info->epoch );
   fd_http_server_ws_broadcast( gui->http );
+}
+
+static fd_gui_epoch_t *
+fd_gui_agg_epoch_slot( fd_gui_t * gui, ulong slot, ulong * idx ) {
+  fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+  if( FD_UNLIKELY( !epoch || slot<epoch->start_slot || slot>=epoch->start_slot+epoch->slot_cnt ) ) return NULL;
+  *idx = slot-epoch->start_slot;
+  return epoch;
+}
+
+void
+fd_gui_agg_handle_shred( fd_gui_t * gui,
+                         ulong      slot,
+                         uint       source,
+                         long       timestamp ) {
+  ulong i; fd_gui_epoch_t * epoch=fd_gui_agg_epoch_slot( gui, slot, &i );
+  if( FD_UNLIKELY( !epoch ) ) return;
+
+  if( source==SHRED_SIG_SRC_TURBINE || source==SHRED_SIG_SRC_REPAIR || source==SHRED_SIG_SRC_RECONSTRUCTED ) {
+    if( epoch->agg_turbine      [i]==ULONG_MAX ) epoch->agg_turbine      [i]=0UL;
+    if( epoch->agg_repair       [i]==ULONG_MAX ) epoch->agg_repair       [i]=0UL;
+    if( epoch->agg_reconstructed[i]==ULONG_MAX ) epoch->agg_reconstructed[i]=0UL;
+    if( source==SHRED_SIG_SRC_TURBINE       ) epoch->agg_turbine[i]++;
+    if( source==SHRED_SIG_SRC_REPAIR        ) epoch->agg_repair[i]++;
+    if( source==SHRED_SIG_SRC_RECONSTRUCTED ) epoch->agg_reconstructed[i]++;
+  }
+  if( source==SHRED_SIG_SRC_TURBINE || source==SHRED_SIG_SRC_REPAIR )
+    epoch->agg_start_ts[i] = epoch->agg_start_ts[i]==LONG_MAX ? timestamp : fd_long_min( epoch->agg_start_ts[i], timestamp );
+}
+
+static void
+fd_gui_agg_handle_published( fd_gui_t * gui, ulong slot, ulong cnt ) {
+  ulong i; fd_gui_epoch_t * epoch=fd_gui_agg_epoch_slot( gui, slot, &i );
+  if( FD_UNLIKELY( !epoch ) ) return;
+  if( epoch->agg_published    [i]==ULONG_MAX ) epoch->agg_published    [i]=0UL;
+  if( epoch->agg_turbine      [i]==ULONG_MAX ) epoch->agg_turbine      [i]=0UL;
+  if( epoch->agg_repair       [i]==ULONG_MAX ) epoch->agg_repair       [i]=0UL;
+  if( epoch->agg_reconstructed[i]==ULONG_MAX ) epoch->agg_reconstructed[i]=0UL;
+  epoch->agg_published[i] += cnt;
+}
+
+static void
+fd_gui_agg_merge( fd_gui_epoch_t *       dst_epoch,
+                  ulong                  dst_idx,
+                  fd_gui_epoch_t const * src_epoch,
+                  ulong                  src_idx ) {
+  if( src_epoch->agg_start_ts[src_idx]!=LONG_MAX ) dst_epoch->agg_start_ts[dst_idx] = dst_epoch->agg_start_ts[dst_idx]==LONG_MAX ? src_epoch->agg_start_ts[src_idx] : fd_long_min( dst_epoch->agg_start_ts[dst_idx], src_epoch->agg_start_ts[src_idx] );
+  if( src_epoch->agg_end_ts  [src_idx]!=LONG_MAX ) dst_epoch->agg_end_ts  [dst_idx] = dst_epoch->agg_end_ts  [dst_idx]==LONG_MAX ? src_epoch->agg_end_ts  [src_idx] : fd_long_max( dst_epoch->agg_end_ts  [dst_idx], src_epoch->agg_end_ts  [src_idx] );
+#define MERGE_SUM(field,max) do { if( src_epoch->field[src_idx]!=(max) ) dst_epoch->field[dst_idx] = dst_epoch->field[dst_idx]==(max) ? src_epoch->field[src_idx] : dst_epoch->field[dst_idx]+src_epoch->field[src_idx]; } while(0)
+  MERGE_SUM( agg_skipped,       ULONG_MAX   );
+  MERGE_SUM( agg_shreds,        ULONG_MAX   );
+  MERGE_SUM( agg_turbine,       ULONG_MAX   );
+  MERGE_SUM( agg_repair,        ULONG_MAX   );
+  MERGE_SUM( agg_reconstructed, ULONG_MAX   );
+  MERGE_SUM( agg_published,     ULONG_MAX   );
+  MERGE_SUM( agg_compute_units, ULONG_MAX   );
+  MERGE_SUM( agg_txn_fees,      ULONG_MAX );
+  MERGE_SUM( agg_prio_fees,     ULONG_MAX );
+  MERGE_SUM( agg_tips,          ULONG_MAX );
+#undef MERGE_SUM
+  if( src_epoch->agg_max_compute[src_idx]!=ULONG_MAX ) dst_epoch->agg_max_compute[dst_idx] = dst_epoch->agg_max_compute[dst_idx]==ULONG_MAX ? src_epoch->agg_max_compute[src_idx] : fd_ulong_max( dst_epoch->agg_max_compute[dst_idx], src_epoch->agg_max_compute[src_idx] );
+}
+
+static void
+fd_gui_agg_root_slot( fd_gui_t * gui, fd_gui_slot_t const * slot, ulong slot_num, int skipped, long now FD_PARAM_UNUSED ) {
+  ulong i; fd_gui_epoch_t * epoch=fd_gui_agg_epoch_slot( gui, slot_num, &i );
+  if( FD_UNLIKELY( !epoch ) ) return;
+
+  epoch->agg_skipped[i] = (ulong)skipped;
+  if( !skipped && FD_LIKELY( slot ) ) {
+    if( slot->completed_time!=LONG_MAX ) epoch->agg_end_ts[i]=slot->completed_time;
+    if( slot->shred_cnt!=UINT_MAX ) epoch->agg_shreds[i]=(ulong)slot->shred_cnt;
+    if( slot->compute_units!=UINT_MAX ) epoch->agg_compute_units[i]=(ulong)slot->compute_units;
+    if( slot->max_compute_units!=UINT_MAX ) epoch->agg_max_compute[i]=(ulong)slot->max_compute_units;
+    if( slot->transaction_fee!=ULONG_MAX ) epoch->agg_txn_fees[i]=slot->transaction_fee;
+    if( slot->priority_fee!=ULONG_MAX ) epoch->agg_prio_fees[i]=slot->priority_fee;
+    if( slot->tips!=ULONG_MAX ) epoch->agg_tips[i]=slot->tips;
+    if( !slot->mine ) epoch->agg_published[i]=0UL;
+  }
+
+  epoch->agg_first_rooted_slot = fd_ulong_min( epoch->agg_first_rooted_slot, slot_num );
+  epoch->agg_rooted_through    = fd_ulong_max( epoch->agg_rooted_through==ULONG_MAX ? slot_num : epoch->agg_rooted_through, slot_num );
+
+  {
+    long timestamp = epoch->agg_start_ts[i]!=LONG_MAX ? epoch->agg_start_ts[i] : epoch->agg_end_ts[i];
+    if( timestamp!=LONG_MAX && epoch->agg_ts_idx_cnt<epoch->slot_cnt ) {
+      ulong pos = epoch->agg_ts_idx_cnt++;
+      while( pos && epoch->agg_ts_idx_timestamp[ pos-1UL ]>timestamp ) {
+        epoch->agg_ts_idx_timestamp[ pos ] = epoch->agg_ts_idx_timestamp[ pos-1UL ];
+        epoch->agg_ts_idx_slot     [ pos ] = epoch->agg_ts_idx_slot     [ pos-1UL ];
+        pos--;
+      }
+      epoch->agg_ts_idx_timestamp[ pos ] = timestamp;
+      epoch->agg_ts_idx_slot     [ pos ] = (uint)i;
+    }
+  }
+
+  for( ulong granularity_idx=1UL; granularity_idx<10UL; granularity_idx++ ) {
+    ulong slot_cnt    = fd_gui_agg_slot_cnt[ granularity_idx ];
+    ulong bucket      = (slot_num/slot_cnt)*slot_cnt;
+    ulong owner_epoch = fd_slot_to_epoch( &gui->epoch.epoch_schedule, bucket, NULL );
+    fd_gui_epoch_t * owner = fd_gui_epoch( gui, owner_epoch );
+    ulong dst_idx;
+    if( FD_UNLIKELY( !owner || !fd_gui_agg_bucket_idx( owner, granularity_idx, bucket, &dst_idx ) ) ) continue;
+    if( skipped ) owner->agg_skipped[dst_idx] = owner->agg_skipped[dst_idx]==ULONG_MAX ? 1UL : owner->agg_skipped[dst_idx]+1UL;
+    else          fd_gui_agg_merge( owner, dst_idx, epoch, i );
+  }
+
+  if( skipped ) epoch->agg_skipped[FD_GUI_AGG_EPOCH_1_OFF] = epoch->agg_skipped[FD_GUI_AGG_EPOCH_1_OFF]==ULONG_MAX ? 1UL : epoch->agg_skipped[FD_GUI_AGG_EPOCH_1_OFF]+1UL;
+  else          fd_gui_agg_merge( epoch, FD_GUI_AGG_EPOCH_1_OFF, epoch, i );
 }
 
 void
@@ -2233,6 +2614,7 @@ fd_gui_handle_leader_fec( fd_gui_t * gui,
                           int        is_end_of_slot,
                           long       tsorig,
                           long       now ) {
+  fd_gui_agg_handle_published( gui, slot, fec_shred_cnt );
   for( ulong i=gui->shreds.leader_shred_cnt; i<gui->shreds.leader_shred_cnt+fec_shred_cnt; i++ ) {
     fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, now, tsorig, &(fd_gui_slot_history_shred_event_t){ .slot = (uint)slot, .timestamp = tsorig, .shred_idx = (ushort)i, .event = FD_GUI_SLOT_SHRED_SHRED_PUBLISHED } );
   }
@@ -2320,7 +2702,7 @@ void
 fd_gui_handle_root_advanced( fd_gui_t * gui,
                              ulong      _slot,
                              ulong      bank_seq,
-                             long       now FD_PARAM_UNUSED ) {
+                             long       now ) {
   fd_gui_slot_t * root = fd_gui_slot_get( gui, _slot, bank_seq );
   if( FD_UNLIKELY( !root ) ) return;
 
@@ -2338,6 +2720,8 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
     if( FD_UNLIKELY( !c || c->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
 
     c->level = FD_GUI_SLOT_LEVEL_ROOTED;
+
+    fd_gui_agg_root_slot( gui, c, cslot, 0, now );
 
     fd_gui_printf_slot( gui, cslot, c );
     fd_http_server_ws_broadcast( gui->http );
@@ -2383,6 +2767,8 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
         ulong sidx = s - sepoch->start_slot;
         if( FD_LIKELY( sidx<sepoch->slot_cnt ) ) sepoch->skipped[ sidx ] = 1;
       }
+
+      fd_gui_agg_root_slot( gui, NULL, s, 1, now );
 
       if( FD_UNLIKELY( prev_rooted==ULONG_MAX ) ) continue;
 

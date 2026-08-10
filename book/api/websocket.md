@@ -2563,13 +2563,17 @@ matching `slot_delta` values.
 | slot_delta        | `number[]`              | `reference_slot + slot_delta[i]` is the first slot of bucket `i` |
 | start_ts_delta_us | `(number\|null)[]`      | When non-null, `reference_ts_us + start_ts_delta_us[i]` is the timestamp of the first shred received in bucket `i`, in UNIX microseconds |
 | end_ts_delta_us   | `(number\|null)[]`      | When non-null, `reference_ts_us + end_ts_delta_us[i]` is the timestamp of the last slot-complete event in bucket `i`, in UNIX microseconds |
+| skipped           | `number[]`              | Number of skipped slots represented by bucket `i` |
 
 A bucket starts when its first shred is received, through either turbine
 or repair, and ends at its last slot-complete event. A bucket containing
 no received shreds has a null start timestamp, and a bucket containing
 only skipped slots has a null end timestamp. When aggregating any field,
 null slot-level values are ignored. The bucket value is null only if all
-represented slot-level values for that field are null.
+represented slot-level values for that field are null. At `slot-1`,
+observed shred information for skipped slots is returned. At coarser
+granularities, skipped slots contribute only to `skipped`; their other
+values are excluded from the rolled-up aggregate.
 
 ::: details Example
 
@@ -2598,7 +2602,8 @@ represented slot-level values for that field are null.
         "reference_ts_us": 1739657040800000,
         "slot_delta": [0, 4],
         "start_ts_delta_us": [0, 1600000],
-        "end_ts_delta_us": [1600000, 3200000]
+        "end_ts_delta_us": [1600000, 3200000],
+        "skipped": [0, 1]
     }
 }
 ```

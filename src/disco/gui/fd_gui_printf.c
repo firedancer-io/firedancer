@@ -93,6 +93,7 @@ jsonp_long_as_str( fd_http_server_t * http,
   else                   fd_http_server_printf( http, "\"%ld\",", value );
 }
 
+
 static void
 jsonp_sanitize_str( fd_http_server_t * http,
                     ulong              start_len ) {
@@ -2982,6 +2983,105 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
       fd_gui_printf_shreds_window( gui, start_ns, end_ns );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
+}
+
+struct fd_gui_agg_print_ctx {
+  fd_http_server_t * http;
+  ulong reference_slot;
+  ulong end_slot;
+  long  reference_ts_us;
+  ulong max_compute;
+  int   have_max_compute;
+  int   field;
+};
+typedef struct fd_gui_agg_print_ctx fd_gui_agg_print_ctx_t;
+
+static void
+fd_gui_agg_print_bucket( fd_gui_epoch_t const * epoch,
+                         ulong                  idx,
+                         ulong                  bucket_start,
+                         ulong                  rooted_end,
+                         void *                 _ctx ) {
+  fd_gui_agg_print_ctx_t * ctx = _ctx;
+  switch( ctx->field ) {
+  case 0:
+    ctx->reference_slot = fd_ulong_min( ctx->reference_slot, bucket_start );
+    ctx->end_slot       = ctx->end_slot==ULONG_MAX ? rooted_end : fd_ulong_max( ctx->end_slot, rooted_end );
+    if( epoch->agg_start_ts[idx]!=LONG_MAX ) ctx->reference_ts_us=fd_long_min( ctx->reference_ts_us, epoch->agg_start_ts[idx]/1000L );
+    if( epoch->agg_end_ts  [idx]!=LONG_MAX ) ctx->reference_ts_us=fd_long_min( ctx->reference_ts_us, epoch->agg_end_ts  [idx]/1000L );
+    if( epoch->agg_max_compute[idx]!=ULONG_MAX ) { ctx->have_max_compute=1; ctx->max_compute=fd_ulong_max( ctx->max_compute, epoch->agg_max_compute[idx] ); }
+    break;
+  case 1: jsonp_ulong( ctx->http, NULL, bucket_start-ctx->reference_slot ); break;
+  case 2: if( epoch->agg_start_ts[idx]!=LONG_MAX ) jsonp_long( ctx->http, NULL, epoch->agg_start_ts[idx]/1000L-ctx->reference_ts_us ); else jsonp_null( ctx->http, NULL ); break;
+  case 3: if( epoch->agg_end_ts  [idx]!=LONG_MAX ) jsonp_long( ctx->http, NULL, epoch->agg_end_ts  [idx]/1000L-ctx->reference_ts_us ); else jsonp_null( ctx->http, NULL ); break;
+  case 4: if( epoch->agg_shreds       [idx]!=ULONG_MAX ) jsonp_ulong( ctx->http, NULL, epoch->agg_shreds       [idx] ); else jsonp_null( ctx->http, NULL ); break;
+  case 5: if( epoch->agg_turbine      [idx]!=ULONG_MAX ) jsonp_ulong( ctx->http, NULL, epoch->agg_turbine      [idx] ); else jsonp_null( ctx->http, NULL ); break;
+  case 6: if( epoch->agg_repair       [idx]!=ULONG_MAX ) jsonp_ulong( ctx->http, NULL, epoch->agg_repair       [idx] ); else jsonp_null( ctx->http, NULL ); break;
+  case 7: if( epoch->agg_reconstructed[idx]!=ULONG_MAX ) jsonp_ulong( ctx->http, NULL, epoch->agg_reconstructed[idx] ); else jsonp_null( ctx->http, NULL ); break;
+  case 8: if( epoch->agg_published    [idx]!=ULONG_MAX ) jsonp_ulong( ctx->http, NULL, epoch->agg_published    [idx] ); else jsonp_null( ctx->http, NULL ); break;
+  case 9: if( epoch->agg_compute_units[idx]!=ULONG_MAX ) jsonp_ulong( ctx->http, NULL, epoch->agg_compute_units[idx] ); else jsonp_null( ctx->http, NULL ); break;
+  case 10: if( epoch->agg_txn_fees [idx]!=ULONG_MAX ) jsonp_ulong_as_str( ctx->http, NULL, epoch->agg_txn_fees [idx] ); else jsonp_null( ctx->http, NULL ); break;
+  case 11: if( epoch->agg_prio_fees[idx]!=ULONG_MAX ) jsonp_ulong_as_str( ctx->http, NULL, epoch->agg_prio_fees[idx] ); else jsonp_null( ctx->http, NULL ); break;
+  case 12: if( epoch->agg_tips     [idx]!=ULONG_MAX ) jsonp_ulong_as_str( ctx->http, NULL, epoch->agg_tips     [idx] ); else jsonp_null( ctx->http, NULL ); break;
+  case 13: if( epoch->agg_skipped  [idx]!=ULONG_MAX ) jsonp_ulong(        ctx->http, NULL, epoch->agg_skipped  [idx] ); else jsonp_null( ctx->http, NULL ); break;
+  default: break;
+  }
+}
+
+int
+fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
+                                  char const *  key,
+                                  char const *  granularity,
+                                  ulong         granularity_idx,
+                                  ulong         slot_cnt,
+                                  long          start_ns,
+                                  long          end_ns,
+                                  ulong         root,
+                                  ulong         id ) {
+  fd_gui_agg_print_ctx_t ctx = { .http=gui->http, .reference_slot=ULONG_MAX, .end_slot=ULONG_MAX, .reference_ts_us=LONG_MAX };
+#define AGG_ITER() fd_gui_agg_iter( gui, granularity_idx, slot_cnt, start_ns, end_ns, root, fd_gui_agg_print_bucket, &ctx )
+#define AGG_ARRAY(name,field_id) do { jsonp_open_array( gui->http, (name) ); ctx.field=(field_id); if( FD_UNLIKELY( AGG_ITER() ) ) return -1; jsonp_close_array( gui->http ); } while(0)
+  if( FD_UNLIKELY( AGG_ITER() ) ) return -1;
+
+  jsonp_open_envelope( gui->http, "timeline", key );
+    jsonp_ulong( gui->http, "id", id );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_string( gui->http, "granularity", granularity );
+      if( ctx.reference_slot==ULONG_MAX ) jsonp_null( gui->http, "reference_slot" );
+      else                                jsonp_ulong( gui->http, "reference_slot", ctx.reference_slot );
+      if( ctx.end_slot==ULONG_MAX ) jsonp_null( gui->http, "end_slot" );
+      else                          jsonp_ulong( gui->http, "end_slot", ctx.end_slot );
+
+      if( !strcmp( key, "query_agg" ) ) {
+        if( ctx.reference_ts_us==LONG_MAX ) jsonp_null( gui->http, "reference_ts_us" );
+        else                                jsonp_long( gui->http, "reference_ts_us", ctx.reference_ts_us );
+        AGG_ARRAY( "slot_delta",        1 );
+        AGG_ARRAY( "start_ts_delta_us", 2 );
+        AGG_ARRAY( "end_ts_delta_us",   3 );
+        AGG_ARRAY( "skipped",          13 );
+      } else if( !strcmp( key, "query_agg_shreds" ) ) {
+        AGG_ARRAY( "slot_delta",    1 );
+        AGG_ARRAY( "shreds",        4 );
+        AGG_ARRAY( "turbine",       5 );
+        AGG_ARRAY( "repair",        6 );
+        AGG_ARRAY( "reconstructed", 7 );
+        AGG_ARRAY( "published",     8 );
+      } else if( !strcmp( key, "query_agg_compute" ) ) {
+        AGG_ARRAY( "slot_delta",    1 );
+        AGG_ARRAY( "compute_units", 9 );
+        if( ctx.have_max_compute ) jsonp_ulong( gui->http, "max_compute_units", ctx.max_compute );
+        else                       jsonp_null ( gui->http, "max_compute_units" );
+      } else {
+        AGG_ARRAY( "slot_delta", 1  );
+        AGG_ARRAY( "txn_fees",  10 );
+        AGG_ARRAY( "prio_fees", 11 );
+        AGG_ARRAY( "tips",      12 );
+      }
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+#undef AGG_ARRAY
+#undef AGG_ITER
+  return 0;
 }
 
 void

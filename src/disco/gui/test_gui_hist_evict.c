@@ -564,37 +564,37 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  /* cascade mechanics: a generous (1 GiB) map so writes never hit map-full;
+  /* Cascade mechanics: a generous map so writes never hit map-full;
      eviction is driven directly via fd_gui_hist_evict_oldest.  Each test gets
      its own store so leftover epochs don't perturb the next (eviction now
      keeps the last epoch, so stores do not empty between tests). */
   test_store_t s0[ 1 ];
-  store_open( s0, 1UL<<30, 0 );
+  store_open( s0, 2UL<<30, 0 );
   test_evict_oldest_epoch( s0->gui );
   store_close( s0 );
 
   test_store_t s1[ 1 ];
-  store_open( s1, 1UL<<30, 2 );
+  store_open( s1, 2UL<<30, 2 );
   test_evict_large_batch( s1->gui );
   store_close( s1 );
 
   test_store_t sp[ 1 ];
-  store_open( sp, 1UL<<30, 6 );
+  store_open( sp, 2UL<<30, 6 );
   test_current_epoch_protected( sp->gui );
   store_close( sp );
 
   test_store_t s2[ 1 ];
-  store_open( s2, 1UL<<30, 3 );
+  store_open( s2, 2UL<<30, 3 );
   test_evict_ts_oldest_fallback( s2->gui );
   store_close( s2 );
 
   test_store_t s3[ 1 ];
-  store_open( s3, 1UL<<30, 4 );
+  store_open( s3, 2UL<<30, 4 );
   test_resident_meta_mutation_survives_evict( s3->gui );
   store_close( s3 );
 
   test_store_t s4[ 1 ];
-  store_open( s4, 1UL<<30, 5 );
+  store_open( s4, 2UL<<30, 5 );
   test_epoch_region_reclaimed( s4->gui );
   store_close( s4 );
 

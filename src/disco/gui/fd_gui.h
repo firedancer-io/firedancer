@@ -168,6 +168,34 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 /* #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START (5UL) // UNUSED */
 #define FD_GUI_SLOT_SHRED_SHRED_PUBLISHED         (6UL)
 
+#define FD_GUI_AGG_GRANULARITY_CNT (11UL)
+
+#define FD_GUI_AGG_SLOT_1_CNT       (MAX_SLOTS_PER_EPOCH)
+#define FD_GUI_AGG_SLOT_4_CNT       ((MAX_SLOTS_PER_EPOCH+     3UL)/     4UL)
+#define FD_GUI_AGG_SLOT_16_CNT      ((MAX_SLOTS_PER_EPOCH+    15UL)/    16UL)
+#define FD_GUI_AGG_SLOT_64_CNT      ((MAX_SLOTS_PER_EPOCH+    63UL)/    64UL)
+#define FD_GUI_AGG_SLOT_256_CNT     ((MAX_SLOTS_PER_EPOCH+   255UL)/   256UL)
+#define FD_GUI_AGG_SLOT_1024_CNT    ((MAX_SLOTS_PER_EPOCH+  1023UL)/  1024UL)
+#define FD_GUI_AGG_SLOT_4096_CNT    ((MAX_SLOTS_PER_EPOCH+  4095UL)/  4096UL)
+#define FD_GUI_AGG_SLOT_16384_CNT   ((MAX_SLOTS_PER_EPOCH+ 16383UL)/ 16384UL)
+#define FD_GUI_AGG_SLOT_65536_CNT   ((MAX_SLOTS_PER_EPOCH+ 65535UL)/ 65536UL)
+#define FD_GUI_AGG_SLOT_262144_CNT  ((MAX_SLOTS_PER_EPOCH+262143UL)/262144UL)
+#define FD_GUI_AGG_EPOCH_1_CNT      (1UL)
+
+#define FD_GUI_AGG_SLOT_1_OFF       (0UL)
+#define FD_GUI_AGG_SLOT_4_OFF       (FD_GUI_AGG_SLOT_1_OFF      +FD_GUI_AGG_SLOT_1_CNT)
+#define FD_GUI_AGG_SLOT_16_OFF      (FD_GUI_AGG_SLOT_4_OFF      +FD_GUI_AGG_SLOT_4_CNT)
+#define FD_GUI_AGG_SLOT_64_OFF      (FD_GUI_AGG_SLOT_16_OFF     +FD_GUI_AGG_SLOT_16_CNT)
+#define FD_GUI_AGG_SLOT_256_OFF     (FD_GUI_AGG_SLOT_64_OFF     +FD_GUI_AGG_SLOT_64_CNT)
+#define FD_GUI_AGG_SLOT_1024_OFF    (FD_GUI_AGG_SLOT_256_OFF    +FD_GUI_AGG_SLOT_256_CNT)
+#define FD_GUI_AGG_SLOT_4096_OFF    (FD_GUI_AGG_SLOT_1024_OFF   +FD_GUI_AGG_SLOT_1024_CNT)
+#define FD_GUI_AGG_SLOT_16384_OFF   (FD_GUI_AGG_SLOT_4096_OFF   +FD_GUI_AGG_SLOT_4096_CNT)
+#define FD_GUI_AGG_SLOT_65536_OFF   (FD_GUI_AGG_SLOT_16384_OFF  +FD_GUI_AGG_SLOT_16384_CNT)
+#define FD_GUI_AGG_SLOT_262144_OFF  (FD_GUI_AGG_SLOT_65536_OFF  +FD_GUI_AGG_SLOT_65536_CNT)
+#define FD_GUI_AGG_EPOCH_1_OFF      (FD_GUI_AGG_SLOT_262144_OFF +FD_GUI_AGG_SLOT_262144_CNT)
+#define FD_GUI_AGG_BUCKET_CNT       (FD_GUI_AGG_EPOCH_1_OFF     +FD_GUI_AGG_EPOCH_1_CNT)
+
+
 struct fd_gui_tile_timers {
   long   sample_time_nanos; /* wallclock ns this sample was taken; identical across the per-tile records. */
   ulong  tile_idx;          /* global tile index into topo->tiles. */
@@ -396,6 +424,31 @@ struct fd_gui_epoch {
   uchar is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* 1 if we were structurally a voter when this slot was replayed */
   uchar skipped      [ MAX_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
 
+  /* All granularities share a packed bucket index space.  Each metric is
+     stored separately so queries touch only the columns they print. */
+  long    agg_start_ts     [ FD_GUI_AGG_BUCKET_CNT ];
+  long    agg_end_ts       [ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_skipped      [ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_shreds       [ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_turbine      [ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_repair       [ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_reconstructed[ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_published    [ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_compute_units[ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_max_compute  [ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_txn_fees     [ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_prio_fees    [ FD_GUI_AGG_BUCKET_CNT ];
+  ulong   agg_tips         [ FD_GUI_AGG_BUCKET_CNT ];
+
+  ulong agg_first_rooted_slot;
+  ulong agg_rooted_through;
+
+  /* Rooted canonical slots ordered by timestamp.  The split arrays avoid
+     padding each (timestamp,slot_idx) pair to 16 bytes. */
+  long  agg_ts_idx_timestamp[ MAX_SLOTS_PER_EPOCH ];
+  uint  agg_ts_idx_slot     [ MAX_SLOTS_PER_EPOCH ];
+  uint  agg_ts_idx_cnt;
+
   fd_epoch_schedule_t epoch_schedule;    /* slot<->epoch conversion (fd_slot_to_epoch) */
   ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
   ulong               stakes_cnt;        /* number of entries in stakes[] */
@@ -405,6 +458,24 @@ struct fd_gui_epoch {
 };
 
 typedef struct fd_gui_epoch fd_gui_epoch_t;
+
+typedef void (*fd_gui_agg_iter_fn_t)( fd_gui_epoch_t const * epoch,
+                                      ulong                  bucket_idx,
+                                      ulong                  bucket_start_slot,
+                                      ulong                  rooted_end_slot,
+                                      void *                 ctx );
+
+/* fd_gui_agg_iter visits aggregate buckets selected by the inclusive
+   timestamp range in increasing slot order. */
+int
+fd_gui_agg_iter( fd_gui_t *           gui,
+                 ulong                granularity_idx,
+                 ulong                slot_cnt,
+                 long                 start_ns,
+                 long                 end_ns,
+                 ulong                root,
+                 fd_gui_agg_iter_fn_t fn,
+                 void *               ctx );
 
 struct fd_gui_ephemeral_slot {
   ulong slot; /* ULONG_MAX indicates invalid/evicted */
@@ -1015,6 +1086,12 @@ fd_gui_handle_leader_fec( fd_gui_t * gui,
                           int        is_end_of_slot,
                           long       tsorig,
                           long       now );
+
+void
+fd_gui_agg_handle_shred( fd_gui_t * gui,
+                         ulong      slot,
+                         uint       source,
+                         long       timestamp );
 
 void
 fd_gui_handle_exec_txn_done( fd_gui_t * gui,
