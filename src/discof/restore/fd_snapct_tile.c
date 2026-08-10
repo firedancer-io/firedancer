@@ -2048,11 +2048,13 @@ privileged_init( fd_topo_t const *      topo,
     FD_TEST( ctx->local_out.full_snapshot_fd!=ctx->local_out.incremental_snapshot_fd );
   }
 
-  for( uint i=0U; i<snap_max; i++ ) {
-    int fd = FD_SNAP_FD( i );
-    if( fd==ctx->local_out.full_snapshot_fd || fd==ctx->local_out.incremental_snapshot_fd ) continue;
-    if( FD_UNLIKELY( close( fd ) ) )
-      FD_LOG_ERR(( "close(snapshot pool fd %d) failed (%i-%s)", fd, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( fd_sandbox_gettid()==fd_sandbox_getpid() ) ) {
+    for( uint i=0U; i<snap_max; i++ ) {
+      int fd = FD_SNAP_FD( i );
+      if( fd==ctx->local_out.full_snapshot_fd || fd==ctx->local_out.incremental_snapshot_fd ) continue;
+      if( FD_UNLIKELY( close( fd ) ) )
+        FD_LOG_ERR(( "close(snapshot pool fd %d) failed (%i-%s)", fd, errno, fd_io_strerror( errno ) ));
+    }
   }
 
   FD_TEST( fd_rng_secure( &ctx->selector_seed, 8UL ) );
