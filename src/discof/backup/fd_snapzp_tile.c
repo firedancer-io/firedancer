@@ -703,8 +703,7 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
 
     /* validate that disk data matches index */
     FD_CHECK_CRIT( FD_ACCDB_SIZE_DATA( exec_sz[ i ] )==data_len, "account query corruption detected" );
-    FD_CHECK_CRIT( !memcmp( gather[ i ]->key.pubkey, batch->pubkey[ i ].uc, sizeof(fd_pubkey_t) ), "account query corruption detected" );
-    FD_CHECK_CRIT( !memcmp( dm->pubkey,              batch->pubkey[ i ].uc, sizeof(fd_pubkey_t) ), "account query corruption detected" );
+    FD_CHECK_CRIT( !memcmp( gather[ i ]->key.pubkey, dm->pubkey, sizeof(fd_pubkey_t) ), "account query corruption detected" );
 
     ulong rec_sz   = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
     ulong data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
@@ -715,8 +714,8 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
 
     snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw + ctx->raw_buf.size );
     memset( hdr, 0, sizeof(snap_acc_hdr_t) );
-    hdr->pubkey     = batch->pubkey[ i ];
-    memcpy( hdr->owner.uc, dm->owner, sizeof(fd_pubkey_t) );
+    memcpy( hdr->pubkey.uc, dm->pubkey, sizeof(fd_pubkey_t) );
+    memcpy( hdr->owner.uc,  dm->owner,  sizeof(fd_pubkey_t) );
     hdr->lamports   = lamports[ i ];
     hdr->executable = !!FD_ACCDB_SIZE_EXEC( exec_sz[ i ] );
     hdr->data_len   = data_len;

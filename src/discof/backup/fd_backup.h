@@ -99,7 +99,6 @@ typedef struct fd_backup_disk_msg fd_backup_disk_msg_t;
    contiguous buffer (fast path). */
 
 struct fd_backup_disk_batch_msg {
-  fd_pubkey_t pubkey  [ FD_BACKUP_DISK_PARA ];
   uint        acc_idx [ FD_BACKUP_DISK_PARA ]; /* UINT_MAX is sentinel */
   uint        frag_off[ FD_BACKUP_DISK_PARA ];
 };
