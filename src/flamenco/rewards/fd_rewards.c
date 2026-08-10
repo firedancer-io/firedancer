@@ -1445,37 +1445,6 @@ adjust_delegation_for_rent( fd_delegation_t * delegation,
   }
 }
 
-/* reward_lthash_push enqueues the current image of acc for hashing into
-   the running sum, rather than hashing it right away: the adder absorbs
-   FD_LTHASH_ADDER_PARA_CNT account images per BLAKE3 pass.  It copies
-   the account fields and data out, so acc may be modified as soon as
-   push returns.
-
-   Reward distribution keeps two (adder, sum) pairs per partition, one
-   for the pre-reward image of every account it touches and one for the
-   post-reward image, and updates the bank lthash once for the whole
-   partition as bank += sum_post - sum_pre.  That is exact rather than an
-   approximation: the lthash group is commutative and associative, so
-   summing the per-account deltas and applying the total is the same as
-   applying each delta in turn.  An account appearing twice within one
-   partition also cancels correctly, because its second pre-image is its
-   first post-image. */
-
-static inline void
-reward_lthash_push( fd_lthash_adder_t * adder,
-                    fd_lthash_value_t * sum,
-                    fd_pubkey_t const * pubkey,
-                    fd_acc_t const *    acc ) {
-  fd_lthash_adder_push_solana_account( adder,
-                                       sum,
-                                       pubkey->uc,
-                                       acc->data,
-                                       acc->data_len,
-                                       acc->lamports,
-                                       (uchar)!!acc->executable,
-                                       acc->owner );
-}
-
 /* Distributes a single partitioned reward to a single stake account.
 
    stake_acc is the element that the caller acquired for stake_pubkey as
@@ -1510,9 +1479,11 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
 
   fd_stake_state_t stake_state[1] = { *stake_state_orig };
 
-  /* Enqueue the pre-reward image of the account, before any of the
+  /* Enqueue the pre-reward image for batched hashing, before any of the
      mutations below. */
-  reward_lthash_push( adder_pre, sum_pre, stake_pubkey, &acc );
+  fd_lthash_adder_push_solana_account( adder_pre, sum_pre, stake_pubkey->uc,
+                                       acc.data, acc.data_len, acc.lamports,
+                                       (uchar)!!acc.executable, acc.owner );
 
   FD_TEST( !__builtin_add_overflow( acc.lamports, reward_lamports, &acc.lamports ) );
 
@@ -1560,13 +1531,11 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
 
   FD_STORE( fd_stake_state_t, acc.data, *stake_state );
 
-  /* Enqueue the post-reward image.  The caller folds the partition's
-     net delta into the bank lthash once, after the last account. */
-  reward_lthash_push( adder_post, sum_post, stake_pubkey, &acc );
+  /* Enqueue the post-reward account for batched hashing. */
+  fd_lthash_adder_push_solana_account( adder_post, sum_post, stake_pubkey->uc,
+                                       acc.data, acc.data_len, acc.lamports,
+                                       (uchar)!!acc.executable, acc.owner );
 
-  /* The capture stays per account even though the hashing is deferred:
-     it records the account's fields, not its hash, so it does not care
-     when the lthash is accumulated. */
   fd_hashes_capture_account( stake_pubkey->uc, acc.owner, acc.lamports, acc.executable,
                              acc.data, acc.data_len, bank, capture_ctx );
 
