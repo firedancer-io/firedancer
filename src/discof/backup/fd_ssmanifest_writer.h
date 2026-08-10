@@ -14,7 +14,7 @@ struct fd_ssmanifest_writer {
   uint        vote_cnt;
   uint        vote_idx;
   ulong       total_stake;
-  uchar       top_votes_iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN)));
+  uchar       vote_stakes_iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN)));
 };
 
 typedef struct fd_ssmanifest_writer fd_ssmanifest_writer_t;

@@ -56,8 +56,8 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, sibling, &vote_a, NULL, NULL, NULL, NULL, NULL, &is_valid ) && !is_valid );
 
   ulong iter_cnt = 0UL;
-  uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
-  for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, sibling, iter_mem );
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, sibling, iter_mem );
        !fd_vote_stakes_t_1_iter_done( vote_stakes, sibling, iter );
        fd_vote_stakes_t_1_iter_next( vote_stakes, sibling, iter ) ) {
     fd_pubkey_t pubkey;

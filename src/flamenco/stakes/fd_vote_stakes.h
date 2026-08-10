@@ -205,14 +205,17 @@ fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
    for stake and leader calculations: the caller is expected to handle
    the state of each account correctly. */
 
-#define FD_VOTE_STAKES_T_1_ITER_FOOTPRINT (16UL)
-#define FD_VOTE_STAKES_T_1_ITER_ALIGN     (8UL)
-#define FD_VOTE_STAKES_T_2_ITER_FOOTPRINT (16UL)
-#define FD_VOTE_STAKES_T_2_ITER_ALIGN     (8UL)
+#define FD_VOTE_STAKES_ITER_FOOTPRINT     (16UL)
+#define FD_VOTE_STAKES_ITER_ALIGN         (8UL)
+#define FD_VOTE_STAKES_T_1_ITER_FOOTPRINT FD_VOTE_STAKES_ITER_FOOTPRINT
+#define FD_VOTE_STAKES_T_1_ITER_ALIGN     FD_VOTE_STAKES_ITER_ALIGN
+#define FD_VOTE_STAKES_T_2_ITER_FOOTPRINT FD_VOTE_STAKES_ITER_FOOTPRINT
+#define FD_VOTE_STAKES_T_2_ITER_ALIGN     FD_VOTE_STAKES_ITER_ALIGN
 
 struct vacc_map_iter;
-typedef struct vacc_map_iter fd_vote_stakes_t_1_iter_t;
-typedef struct vacc_map_iter fd_vote_stakes_t_2_iter_t;
+typedef struct vacc_map_iter fd_vote_stakes_iter_t;
+typedef fd_vote_stakes_iter_t fd_vote_stakes_t_1_iter_t;
+typedef fd_vote_stakes_iter_t fd_vote_stakes_t_2_iter_t;
 
 fd_vote_stakes_t_1_iter_t *
 fd_vote_stakes_t_1_iter_init( fd_vote_stakes_t const * vote_stakes,

@@ -552,7 +552,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   ulong              fork_id     = parent_bank->vote_stakes_fork_id;
   ulong vote_account_t_1_cnt = fd_vote_stakes_cnt_t_1( vote_stakes, fork_id );
   ulong vote_account_t_2_cnt = fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
-  uchar top_votes_iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN)));
+  uchar vote_stakes_iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN)));
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, parent_bank );
 
@@ -634,7 +634,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   ulong  co_epoch_t_1 = parent_bank->f.epoch;
   ulong  co_epoch_t_2 = fd_ulong_sat_sub( parent_bank->f.epoch, 1UL );
 
-  for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, top_votes_iter_mem );
+  for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, vote_stakes_iter_mem );
        !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
        fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
     fd_pubkey_t pubkey;
@@ -668,7 +668,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     }
   }
 
-  for( fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, top_votes_iter_mem );
+  for( fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, vote_stakes_iter_mem );
        !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter );
        fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, iter ) ) {
     fd_pubkey_t pubkey;

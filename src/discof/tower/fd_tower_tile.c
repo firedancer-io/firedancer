@@ -271,7 +271,7 @@ struct fd_tower_tile {
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
-  uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
 
   ulong             root_epoch;
   ulong             root_epoch_total_stake;
@@ -1168,22 +1168,19 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
   epoch_vtr_pool_reset( pool );
   epoch_vtr_map_reset( map );
   ulong total_stake = 0UL;
-  fd_vote_stakes_t_1_iter_t * iter = use_t_1
-    ? fd_vote_stakes_t_1_iter_init( vote_stakes, vote_stakes_fork_id, ctx->iter_mem )
-    : (fd_vote_stakes_t_1_iter_t *)fd_vote_stakes_t_2_iter_init( vote_stakes, vote_stakes_fork_id, ctx->iter_mem );
-  while( use_t_1
-           ? !fd_vote_stakes_t_1_iter_done( vote_stakes, vote_stakes_fork_id, iter )
-           : !fd_vote_stakes_t_2_iter_done( vote_stakes, vote_stakes_fork_id, (fd_vote_stakes_t_2_iter_t *)iter ) ) {
+  fd_vote_stakes_iter_t * iter = use_t_1 ? fd_vote_stakes_t_1_iter_init( vote_stakes, vote_stakes_fork_id, ctx->iter_mem )
+                                         : fd_vote_stakes_t_2_iter_init( vote_stakes, vote_stakes_fork_id, ctx->iter_mem );
+  while( use_t_1 ? !fd_vote_stakes_t_1_iter_done( vote_stakes, vote_stakes_fork_id, iter )
+                 : !fd_vote_stakes_t_2_iter_done( vote_stakes, vote_stakes_fork_id, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake;
     if( use_t_1 ) {
       fd_vote_stakes_t_1_iter_ele( vote_stakes, vote_stakes_fork_id, iter, &pubkey, NULL, &stake, NULL );
       fd_vote_stakes_t_1_iter_next( vote_stakes, vote_stakes_fork_id, iter );
     } else {
-      fd_vote_stakes_t_2_iter_ele( vote_stakes, vote_stakes_fork_id, (fd_vote_stakes_t_2_iter_t *)iter, &pubkey, NULL, &stake, NULL, NULL, NULL, NULL );
-      fd_vote_stakes_t_2_iter_next( vote_stakes, vote_stakes_fork_id, (fd_vote_stakes_t_2_iter_t *)iter );
+      fd_vote_stakes_t_2_iter_ele( vote_stakes, vote_stakes_fork_id, iter, &pubkey, NULL, &stake, NULL, NULL, NULL, NULL );
+      fd_vote_stakes_t_2_iter_next( vote_stakes, vote_stakes_fork_id, iter );
     }
-    FD_TEST( stake>0UL ); /* top_votes only holds staked voters */
     total_stake += stake;
     epoch_vtr_t * vtr = epoch_vtr_pool_ele_acquire( pool );
     vtr->vote_acc = pubkey;
