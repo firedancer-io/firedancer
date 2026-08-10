@@ -22,11 +22,9 @@ $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
 
 $(call add-hdrs,fd_slot_params.h)
-ifdef FD_HAS_INT128
 $(call add-objs,fd_slot_params,fd_flamenco)
 $(call make-unit-test,test_slot_params,test_slot_params,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_slot_params)
-endif
 
 ifdef FD_HAS_ATOMIC
 $(call add-hdrs,fd_txncache_shmem.h fd_txncache.h)
