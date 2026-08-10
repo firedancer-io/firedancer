@@ -5,28 +5,16 @@ fd_backup_cache_t *
 fd_backup_cache_init( fd_backup_cache_t *        backup,
                       uchar const * const        cache    [ FD_ACCDB_CACHE_CLASS_CNT ],
                       ulong const                cache_max[ FD_ACCDB_CACHE_CLASS_CNT ],
-                      uint const *               acc_map,
-                      fd_accdb_accmeta_t const * acc_pool,
-                      ulong                      max_accounts,
-                      ulong                      acc_map_seed,
-                      ulong                      chain_mask,
-                      ulong *                    epoch_slot,
-                      ulong const *              epoch ) {
-  FD_TEST( epoch_slot );
-  FD_TEST( epoch      );
+                      fd_backup_accidx_t const * idx ) {
+  FD_TEST( idx->epoch_slot );
+  FD_TEST( idx->epoch      );
   *backup = (fd_backup_cache_t) {
-    .acc_map            = acc_map,
-    .acc_pool           = acc_pool,
-    .max_accounts       = max_accounts,
-    .acc_map_seed       = acc_map_seed,
-    .chain_mask         = (uint)chain_mask,
-    .epoch_slot         = epoch_slot,
-    .epoch              = epoch,
-    .cache_class        = 0UL,
-    .cache_idx          = 0UL,
-    .root_generation    = 0
+    .idx         = *idx,
+    .cache_class = 0UL,
+    .cache_idx   = 0UL
   };
-  FD_VOLATILE( *epoch_slot ) = ULONG_MAX; /* idle until first section */
+  backup->idx.root_generation = 0U;
+  FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX; /* idle until first section */
   for( ulong i=0UL; i<FD_ACCDB_CACHE_CLASS_CNT; i++ ) {
     backup->cache    [ i ] = cache    [ i ];
     backup->cache_max[ i ] = cache_max[ i ];
@@ -55,18 +43,17 @@ fd_backup_cache_join( fd_backup_cache_t * backup,
     cache[ c ] = (uchar const *)accdb + accdb->cache_region_off[ c ];
   }
 
-  backup = fd_backup_cache_init(
-      backup,
-      cache,
-      accdb->cache_class_max,
-      _acc_map,
-      _acc_pool_ele,  max_accounts,
-      accdb->seed,
-      chain_cnt-1UL,
-      epoch_fseq,
-      &accdb->epoch
-  );
-  return backup;
+  fd_backup_accidx_t idx = {
+    .acc_map      = _acc_map,
+    .acc_pool     = _acc_pool_ele,
+    .max_accounts = max_accounts,
+    .seed         = accdb->seed,
+    .chain_mask   = (uint)( chain_cnt-1UL ),
+    .epoch_slot   = epoch_fseq,
+    .epoch        = &accdb->epoch
+  };
+
+  return fd_backup_cache_init( backup, cache, accdb->cache_class_max, &idx );
 }
 
 static inline fd_accdb_cache_line_t *
@@ -91,20 +78,17 @@ cache_line( fd_backup_cache_t * backup,
 static void
 filter_batch( fd_backup_cache_t * backup,
               fd_backup_cache_msg_t * frag ) {
-  fd_accdb_accmeta_t const * acc_pool = backup->acc_pool;
-  uint const                 root_gen = backup->root_generation;
-  uint const                 min_gen  = 0;
-  _Bool const                inc_tomb = 0;
+  fd_backup_accidx_t const * idx      = &backup->idx;
+  fd_accdb_accmeta_t const * acc_pool = idx->acc_pool;
 
-  /* filter out non-rooted accounts, accounts at or below the
-     incremental base generation, and (for full snapshots) tombstones */
+  /* filter out non-rooted accounts and tombstones */
   static fd_accdb_accmeta_t const dead_meta = { .key = { .generation = UINT_MAX } };
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
     uint acc_idx = frag->acc_idx[ i ];
     fd_accdb_accmeta_t const * m = acc_idx!=UINT_MAX ? &acc_pool[ acc_idx ] : &dead_meta;
-    uint  gen  = FD_VOLATILE_CONST( m->key.generation );
-    _Bool keep = ( gen>=min_gen ) & ( gen<=root_gen )
-               & ( inc_tomb | ( FD_VOLATILE_CONST( m->lamports )!=0UL ) );
+    int keep = fd_backup_accidx_rooted( idx,
+                                        FD_VOLATILE_CONST( m->key.generation ),
+                                        FD_VOLATILE_CONST( m->lamports       ) );
     fd_uint_store_if( !keep, &frag->acc_idx[ i ], UINT_MAX );
   }
 
@@ -114,7 +98,7 @@ filter_batch( fd_backup_cache_t * backup,
 
   uint head[ FD_BACKUP_CACHE_PARA ];
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-    head[ i ] = frag->acc_idx[ i ]!=UINT_MAX ? backup->acc_map[ backup->chain_idx[ i ] ] : UINT_MAX;
+    head[ i ] = frag->acc_idx[ i ]!=UINT_MAX ? idx->acc_map[ backup->chain_idx[ i ] ] : UINT_MAX;
   }
 
   /* sentinel to assist with branchless code */
@@ -134,7 +118,7 @@ filter_batch( fd_backup_cache_t * backup,
     fd_accdb_accmeta_t const * gather[ FD_BACKUP_CACHE_PARA ];
     for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
       uint acc_idx = head[ i ];
-      FD_DCHECK_CRIT( acc_idx < backup->max_accounts || acc_idx==UINT_MAX, "acc_idx out of bounds" );
+      FD_DCHECK_CRIT( fd_backup_accidx_valid( idx, acc_idx ) || acc_idx==UINT_MAX, "acc_idx out of bounds" );
       gather[ i ] = acc_idx!=UINT_MAX ? &acc_pool[ acc_idx ] : &dead;
     }
 
@@ -171,16 +155,15 @@ filter_batch( fd_backup_cache_t * backup,
 fd_backup_cache_msg_t *
 fd_backup_cache_scan( fd_backup_cache_t * backup,
                       fd_backup_cache_msg_t * frag ) {
-  uint chain_mask = backup->chain_mask;
+  fd_backup_accidx_t * accidx = &backup->idx;
 
-  ulong seed = backup->acc_map_seed;
-  ulong cls  = backup->cache_class;
+  ulong cls = backup->cache_class;
   if( FD_UNLIKELY( cls >= FD_ACCDB_CACHE_CLASS_CNT ) ) {
     return NULL;
   }
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( *backup->epoch_slot ) = FD_VOLATILE_CONST( *backup->epoch );
+  FD_VOLATILE( *accidx->epoch_slot ) = FD_VOLATILE_CONST( *accidx->epoch );
   FD_HW_MFENCE();
 
   /* Scan through cache lines (sequentially)
@@ -196,7 +179,7 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
       fd_accdb_cache_line_t const * line = cache_line( backup, cls, idx );
       frag->acc_idx[ i ] = line->acc_idx;
       fd_memcpy( frag->pubkey[ i ].uc, line->key.pubkey, sizeof(fd_pubkey_t) );
-      backup->chain_idx[ i ] = fd_accdb_hash( line->key.pubkey, seed ) & chain_mask;
+      backup->chain_idx[ i ] = fd_backup_accidx_chain( accidx, line->key.pubkey );
     }
   } else {
     /* slow path */
@@ -209,7 +192,7 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
       fd_accdb_cache_line_t const * line = cache_line( backup, cls, idx );
       frag->acc_idx[ i ] = line->acc_idx;
       fd_memcpy( frag->pubkey[ i ].uc, line->key.pubkey, sizeof(fd_pubkey_t) );
-      backup->chain_idx[ i ] = fd_accdb_hash( line->key.pubkey, seed ) & chain_mask;
+      backup->chain_idx[ i ] = fd_backup_accidx_chain( accidx, line->key.pubkey );
     }
     if( FD_UNLIKELY( idx >= backup->cache_max[ cls ] ) ) {
       backup->cache_class++;
@@ -221,8 +204,7 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
   /* Filter out account indices that cannot index acc_pool */
 
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-    uint acc_idx = frag->acc_idx[ i ];
-    if( (ulong)acc_idx>=backup->max_accounts ) {
+    if( !fd_backup_accidx_valid( accidx, frag->acc_idx[ i ] ) ) {
       frag->acc_idx[ i ] = UINT_MAX;
       memset( frag->pubkey[ i ].uc, 0, sizeof(fd_pubkey_t) );
       backup->chain_idx[ i ] = UINT_MAX;
@@ -234,7 +216,7 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
   filter_batch( backup, frag );
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( *backup->epoch_slot ) = ULONG_MAX;
+  FD_VOLATILE( *accidx->epoch_slot ) = ULONG_MAX;
   return frag;
 }
 
@@ -247,9 +229,11 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
                       ulong               out_max ) {
   FD_TEST( pubkey );
 
-  FD_DCHECK_CRIT( FD_VOLATILE_CONST( *ctx->epoch_slot )!=ULONG_MAX, "caller must publish epoch" );
+  fd_backup_accidx_t const * accidx = &ctx->idx;
 
-  if( FD_UNLIKELY( (ulong)acc_idx>=ctx->max_accounts ) ) {
+  FD_DCHECK_CRIT( FD_VOLATILE_CONST( *accidx->epoch_slot )!=ULONG_MAX, "caller must publish epoch" );
+
+  if( FD_UNLIKELY( !fd_backup_accidx_valid( accidx, acc_idx ) ) ) {
     return FD_BACKUP_CACHE_ERR_MISS;
   }
 
@@ -258,7 +242,7 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   }
 
   /* This is a partial copy of read_one_nocopy */
-  fd_accdb_accmeta_t const * accmeta = &ctx->acc_pool[ acc_idx ];
+  fd_accdb_accmeta_t const * accmeta = &accidx->acc_pool[ acc_idx ];
   if( FD_UNLIKELY( memcmp( accmeta->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) {
     return FD_BACKUP_CACHE_ERR_MISS;
   }
@@ -267,12 +251,12 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   ///   Walk the hash chain at acc_map[hash(pubkey)] using the same
   ///   visibility test as fd_accdb_acquire_inner.  See that function
   ///   for the detailed safety argument under concurrent prepend.
-  ulong hash = fd_accdb_hash( pubkey->uc, ctx->acc_map_seed ) & ctx->chain_mask;
-  uint acc_idx2 = FD_VOLATILE_CONST( ctx->acc_map[ hash ] );
+  ulong chain_idx = fd_backup_accidx_chain( accidx, pubkey->uc );
+  uint acc_idx2 = FD_VOLATILE_CONST( accidx->acc_map[ chain_idx ] );
   _Bool found = 0;
   while( acc_idx2!=UINT_MAX ) {
-    FD_DCHECK_CRIT( acc_idx2 < ctx->max_accounts, "acc_idx out of bounds" );
-    fd_accdb_accmeta_t const * candidate = &ctx->acc_pool[ acc_idx2 ];
+    FD_DCHECK_CRIT( fd_backup_accidx_valid( accidx, acc_idx2 ), "acc_idx out of bounds" );
+    fd_accdb_accmeta_t const * candidate = &accidx->acc_pool[ acc_idx2 ];
     found |= acc_idx==acc_idx2;
     acc_idx2 = FD_VOLATILE_CONST( candidate->map.next );
   }

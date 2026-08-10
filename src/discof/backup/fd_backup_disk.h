@@ -5,8 +5,13 @@
    Publishes discovered accounts (by disk offset) onto mcache/dcache. */
 
 #include "fd_backup.h"
+#include "fd_backup_accidx.h"
 #include "fd_backup_visited.h"
-#include "../../flamenco/accdb/fd_accdb_private.h"
+
+/* FD_SNAPMK_PF_LEAD is how far ahead of the record cursor the parser
+   prefetches disk bytes. */
+
+#define FD_SNAPMK_PF_LEAD 4096UL
 
 /* fd_snapmk_accparse_t does streaming zero-copy parsing of accdb
    partitions.  Ingests a stream of disk data (arbitrarily fragmented)
@@ -14,48 +19,36 @@
 
 struct fd_snapmk_accparse {
 
+  /* current input frag */
   uchar const * data;
   ulong         data_sz;
   ulong         src_gaddr;
-  ulong         src_off;
+  ulong         src_off;         /* accdb file offset of data */
   ulong         frag_base_gaddr; /* src_gaddr at start of current frag */
-  uchar const * pf_cursor;       /* sequential-prefetch high-water mark within current frag */
+  uchar const * pf_cursor;       /* prefetch high-water mark within current frag */
   int           input_active;
 
-  uint meta_sz;
-  int  acc_active;
-  uint acc_off;
-  uint acc_sz;
-  uint acc_snap_sz;
-  uint acc_idx;
-  uint acc_keep;
+  /* record being parsed */
+  uint  meta_sz;      /* header bytes buffered so far, if torn */
+  int   acc_active;
+  uint  acc_off;      /* account data bytes consumed so far */
+  uint  acc_sz;       /* account data byte count */
+  uint  acc_snap_sz;  /* account byte count in snapshot format */
+  uint  acc_idx;      /* index entry, UINT_MAX if not in the snapshot */
+  uint  acc_keep;
+  ulong acc_file_off; /* accdb file offset of the record header */
 
-  ulong acc_file_off;
-
+  /* output frag staged by fd_snapmk_accparse_publish, drained on its
+     next call (the rest of the frag is derived from the fields above,
+     which hold still until the record completes) */
   ulong pub_gaddr;
   uint  pub_sz;
-  uint  pub_acc_idx;
-  uint  pub_snap_sz;
-  uint  pub_size;
-  fd_pubkey_t pub_pubkey;
-  fd_pubkey_t pub_owner;
   int   pub_pending;
   int   pub_som;
   int   pub_eom;
 
-  /* accdb in-memory index */
-  uint const *               acc_map;      /* map chains */
-  fd_accdb_accmeta_t const * acc_pool;     /* map ele pool */
-  ulong                      max_accounts; /* map ele pool max */
-  ulong                      acc_map_seed; /* map hash function */
-  uint                       chain_mask;   /* map chain count - 1 */
-
-  ulong *       epoch_slot;
-  ulong const * epoch;
-
-  visited_set_t *            visited_set;
-
-  uint root_generation;
+  fd_backup_accidx_t idx;
+  visited_set_t *    visited_set;
 
   /* defrag buffer for torn disk partition data */
   union __attribute__((packed)) {
@@ -63,12 +56,14 @@ struct fd_snapmk_accparse {
     fd_accdb_disk_meta_t meta;
   };
 
+  /* Whole records parsed out of the current frag, awaiting index
+     lookup.  Staged one batch ahead of the batch being resolved so the
+     chain head prefetches issued here land during that walk. */
   uint        ps_cnt;
-  ulong       ps_base_gaddr;
-  ulong       ps_hash    [ FD_BACKUP_DISK_PARA ];
-  uint        ps_frag_off[ FD_BACKUP_DISK_PARA ];
-  ulong       ps_file_off[ FD_BACKUP_DISK_PARA ];
-  fd_pubkey_t ps_pubkey  [ FD_BACKUP_DISK_PARA ];
+  ulong       ps_chain_idx[ FD_BACKUP_DISK_PARA ];
+  uint        ps_frag_off [ FD_BACKUP_DISK_PARA ];
+  ulong       ps_file_off [ FD_BACKUP_DISK_PARA ];
+  fd_pubkey_t ps_pubkey   [ FD_BACKUP_DISK_PARA ];
 };
 
 typedef struct fd_snapmk_accparse fd_snapmk_accparse_t;
@@ -77,94 +72,130 @@ FD_PROTOTYPES_BEGIN
 
 /* Implementation */
 
-/* fd_snapmk_accparse_keep returns 1 if an account found in a disk
-   partition should be copied into the snapshot being produced, 0
-   otherwise. */
+/* fd_snapmk_accparse_lookup resolves cnt parsed disk records against
+   the accdb index.  chain_idx[ i ] is the acc_map chain that record i's
+   address hashes to, file_off[ i ] its accdb file offset.  Sets
+   acc_idx[ i ] to the index entry to copy into the snapshot, or
+   UINT_MAX if the record should be skipped.
 
-static inline int
-fd_snapmk_accparse_keep_inner( fd_snapmk_accparse_t * parse ) {
-  uint const root_generation    = parse->root_generation;
-  uint const min_generation     = 0;
-  int const  include_tombstones = 0;
+   A record is claimed by the index entry pointing at its exact file
+   offset.  accdb file offsets are unique.  The record is skipped if
+   no entry points at it (a superseded version still on disk), if the
+   entry is unrooted or a tombstone, or if the account was already
+   emitted from cache or from another partition.
 
-  ulong hash      = fd_accdb_hash( parse->meta.pubkey, parse->acc_map_seed );
-  ulong chain_idx = hash & parse->chain_mask;
-  uint acc_idx = FD_VOLATILE_CONST( parse->acc_map[ chain_idx ] );
+   All cnt chains are walked in lockstep, one hop per pass, so that the
+   dependent load each hop needs is in flight for every record at once.
+   Lanes that hit, or that run off the end of their chain, drop out by
+   branchless compaction of lane[]/cur[]. */
 
-  while( acc_idx!=UINT_MAX ) {
-    if( FD_UNLIKELY( (ulong)acc_idx>=parse->max_accounts ) ) {
-      return 0;
-    }
+static inline void
+fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
+                           ulong const *          chain_idx,
+                           ulong const *          file_off,
+                           uint *                 acc_idx,
+                           ulong                  cnt ) {
+  fd_backup_accidx_t *       idx      = &parse->idx;
+  fd_accdb_accmeta_t const * acc_pool = idx->acc_pool;
 
-    fd_accdb_accmeta_t const * acc = &parse->acc_pool[ acc_idx ];
-    uint  next_idx    = FD_VOLATILE_CONST( acc->map.next );
-    uint  generation  = FD_VOLATILE_CONST( acc->key.generation );
-    ulong offset_fork = FD_VOLATILE_CONST( acc->offset_fork );
-    ulong lamports    = FD_VOLATILE_CONST( acc->lamports );
+  uint lane[ FD_BACKUP_DISK_PARA ]; /* record a lane is resolving */
+  uint cur [ FD_BACKUP_DISK_PARA ]; /* chain node it sits on */
 
-    if( FD_UNLIKELY( memcmp( acc->key.pubkey, parse->meta.pubkey, sizeof(parse->meta.pubkey) ) ) ) {
-      goto next;
-    }
-    if( FD_UNLIKELY( ( generation<min_generation  ) |
-                     ( generation>root_generation ) ) ) {
-      goto next;
-    }
-    if( FD_UNLIKELY( !include_tombstones && !lamports ) ) {
-      goto next;
-    }
-    ulong cur_off = offset_fork & FD_ACCDB_OFF_MASK;
-    if( FD_UNLIKELY( cur_off!=parse->acc_file_off ) ) {
-      goto next;
-    }
-    if( FD_UNLIKELY( fd_backup_visited_test( parse->visited_set, (ulong)acc_idx ) ) ) {
-      return 0;
-    }
-    fd_backup_visited_insert( parse->visited_set, (ulong)acc_idx );
-    parse->acc_idx = acc_idx;
-    return 1;
+  for( ulong i=0UL; i<cnt; i++ ) acc_idx[ i ] = UINT_MAX;
 
-next:
-    acc_idx = next_idx;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *idx->epoch_slot ) = FD_VOLATILE_CONST( *idx->epoch );
+  FD_HW_MFENCE();
+
+  /* Chain heads were prefetched when this batch was prestaged, a full
+     batch resolve ago. */
+  ulong live = 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uint head = FD_VOLATILE_CONST( idx->acc_map[ chain_idx[ i ] ] );
+    lane[ live ] = (uint)i;
+    cur [ live ] = head;
+    live += (ulong)fd_backup_accidx_valid( idx, head );
   }
 
-  return 0;
+  while( live ) {
+    ulong next_live = 0UL;
+    for( ulong i=0UL; i<live; i++ ) {
+      uint n   = lane[ i ];
+      uint ele = cur [ i ];
+
+      fd_accdb_accmeta_t const * m = &acc_pool[ ele ];
+      uint  next = FD_VOLATILE_CONST( m->map.next       );
+      uint  gen  = FD_VOLATILE_CONST( m->key.generation );
+      ulong off  = FD_VOLATILE_CONST( m->offset_fork    );
+      ulong lam  = FD_VOLATILE_CONST( m->lamports       );
+
+      int hit = fd_backup_accidx_rooted( idx, gen, lam )
+              & ( ( off & FD_ACCDB_OFF_MASK )==file_off[ n ] );
+      fd_uint_store_if( hit, &acc_idx[ n ], ele );
+
+      /* Resolving hit and next in the same pass keeps the next node
+         prefetch to the lanes that will actually use it. */
+      int cont = (!hit) & fd_backup_accidx_valid( idx, next );
+      __builtin_prefetch( &acc_pool[ next & (uint)(-cont) ], 0, 0 );
+      lane[ next_live ] = n;
+      cur [ next_live ] = next;
+      next_live += (ulong)cont;
+    }
+    live = next_live;
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX;
+
+  /* Claim each account for this snapshot, dropping the records that
+     lost the claim to an earlier sighting. */
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uint ele = acc_idx[ i ];
+    if( FD_UNLIKELY( ele==UINT_MAX ) ) continue;
+    if( FD_UNLIKELY( fd_backup_visited_test_and_set( parse->visited_set, (ulong)ele ) ) ) {
+      acc_idx[ i ] = UINT_MAX;
+    }
+  }
 }
+
+/* fd_snapmk_accparse_keep returns 1 if the record whose header is in
+   parse->meta should be copied into the snapshot being produced, 0
+   otherwise, and sets parse->acc_idx to its index entry.  This is the
+   fallback for records that straddle an input frag; whole records go
+   through fd_snapmk_accparse_publish_batch below. */
 
 static inline int
 fd_snapmk_accparse_keep( fd_snapmk_accparse_t * parse ) {
-  ulong *       epoch_slot = parse->epoch_slot;
-  ulong const * epoch      = parse->epoch;
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
-  FD_HW_MFENCE();
-
-  int keep = fd_snapmk_accparse_keep_inner( parse );
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
-  return keep;
+  ulong chain_idx = fd_backup_accidx_chain( &parse->idx, parse->meta.pubkey );
+  fd_snapmk_accparse_lookup( parse, &chain_idx, &parse->acc_file_off, &parse->acc_idx, 1UL );
+  return parse->acc_idx!=UINT_MAX;
 }
 
-static void
+/* fd_snapmk_accparse_prestage consumes up to FD_BACKUP_DISK_PARA whole
+   records from the current frag into parse->ps_*, and prefetches the
+   index lines their lookup will need.  Does nothing unless the prestage
+   is empty and the parser sits on a clean record boundary. */
+
+static inline void
 fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
   if( FD_UNLIKELY( parse->ps_cnt ) ) return;
   if( FD_UNLIKELY( parse->pub_pending || parse->acc_active || parse->meta_sz ) ) return;
 
   ulong const meta_sz = sizeof(fd_accdb_disk_meta_t);
-  ulong * hash     = parse->ps_hash;
-  ulong seed       = parse->acc_map_seed;
-  uint  chain_mask = parse->chain_mask;
-  uint const *               acc_map  = parse->acc_map;
-  fd_accdb_accmeta_t const * acc_pool = parse->acc_pool;
-  ulong n = 0UL;
+
+  fd_backup_accidx_t const * idx      = &parse->idx;
+  uint const *               acc_map  = idx->acc_map;
+  fd_accdb_accmeta_t const * acc_pool = idx->acc_pool;
+
+  ulong * chain_idx = parse->ps_chain_idx;
+  ulong   n         = 0UL;
 
   while( n<FD_BACKUP_DISK_PARA ) {
     if( parse->data_sz < meta_sz ) break; /* partial meta straddles frag end */
 
-    /* Prefetch a fixed FD_SNAPMK_PF_LEAD-byte window ahead of the record
-       cursor.  pf_cursor is a per-frag high-water mark, so each line is
-       prefetched only once. */
-    #define FD_SNAPMK_PF_LEAD 4096UL
+    /* Prefetch a fixed window ahead of the record cursor.  pf_cursor is
+       a per-frag high-water mark, so each line is prefetched once no
+       matter how the records fall across the window. */
     uchar const * pf_lim = parse->data + fd_ulong_min( parse->data_sz, FD_SNAPMK_PF_LEAD );
     uchar const * pf     = fd_ptr_if( parse->pf_cursor>parse->data, parse->pf_cursor, parse->data );
     for( ; pf<pf_lim; pf+=64UL ) __builtin_prefetch( pf, 0, 2 );
@@ -176,8 +207,8 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
     if( parse->data_sz < rec ) break;     /* account data straddles frag end */
 
     fd_memcpy( parse->ps_pubkey[ n ].uc, dm->pubkey, sizeof(fd_pubkey_t) );
-    hash[ n ] = fd_accdb_hash( parse->ps_pubkey[ n ].uc, seed ) & chain_mask;
-    __builtin_prefetch( &acc_map[ hash[ n ] ], 0, 0 );
+    chain_idx[ n ] = fd_backup_accidx_chain( idx, parse->ps_pubkey[ n ].uc );
+    __builtin_prefetch( &acc_map[ chain_idx[ n ] ], 0, 0 );
     parse->ps_frag_off[ n ] = (uint)( parse->src_gaddr - parse->frag_base_gaddr );
     parse->ps_file_off[ n ] = parse->src_off;
     n++;
@@ -190,121 +221,42 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
 
   /* Head pass: acc_map lines were prefetched during the record walk
      above; prefetch the acc_pool[head] lines here. */
-  ulong max_accounts = parse->max_accounts;
   for( ulong i=0UL; i<n; i++ ) {
-    uint head = FD_VOLATILE_CONST( acc_map[ hash[ i ] ] );
-    uint live = ( head!=UINT_MAX ) & ( (ulong)head<max_accounts );
-    __builtin_prefetch( &acc_pool[ head & ( 0U-live ) ], 0, 0 );
+    uint head = FD_VOLATILE_CONST( acc_map[ chain_idx[ i ] ] );
+    int  live = fd_backup_accidx_valid( idx, head );
+    __builtin_prefetch( &acc_pool[ head & (uint)(-live) ], 0, 0 );
   }
 
-  parse->ps_cnt        = (uint)n;
-  parse->ps_base_gaddr = parse->frag_base_gaddr;
+  parse->ps_cnt = (uint)n;
 }
 
-/* FIXME deslop */
-
-static void
-fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
-                               ulong const *          file_off,
-                               ulong const *          hash,
-                               uint *                 acc_idx,
-                               ulong                  cnt ) {
-  uint const *               acc_map      = parse->acc_map;
-  fd_accdb_accmeta_t const * acc_pool     = parse->acc_pool;
-  ulong                      max_accounts = parse->max_accounts;
-  uint                       root_gen     = parse->root_generation;
-  uint                       min_gen      = 0U;
-  uint                       inc_tomb     = 0;
-
-  uint matched[ FD_BACKUP_DISK_PARA ];
-  for( ulong n=0UL; n<FD_BACKUP_DISK_PARA; n++ ) matched[ n ] = UINT_MAX;
-
-  ulong *       epoch_slot = parse->epoch_slot;
-  ulong const * epoch      = parse->epoch;
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
-  FD_HW_MFENCE();
-
-  /* lane[i]/cur[i]: compacted live-lane list, lane index and the chain
-     node it sits on.  head[] was loaded (and prefetched) when the
-     batch was prestaged, a full batch resolve ago. */
-  uint  lane[ FD_BACKUP_DISK_PARA ];
-  uint  cur [ FD_BACKUP_DISK_PARA ];
-
-  ulong active_cnt = 0UL;
-  for( ulong n=0UL; n<cnt; n++ ) {
-    uint h    = FD_VOLATILE_CONST( acc_map[ hash[ n ] ] );
-    uint live = ( h!=UINT_MAX ) & ( (ulong)h<max_accounts );
-    lane[ active_cnt ] = (uint)n;
-    cur [ active_cnt ] = h;
-    active_cnt += live;
-  }
-
-  while( active_cnt ) {
-    /* One chain hop per live lane; hit/next are resolved in the same
-       pass, so the next-node prefetch only fires for lanes that
-       continue.  Lanes that hit or exhaust their chain drop out via
-       branchless compaction (next_cnt<=i). */
-    ulong next_cnt = 0UL;
-    for( ulong i=0UL; i<active_cnt; i++ ) {
-      uint n    = lane[ i ];
-      uint idx  = cur [ i ];
-      fd_accdb_accmeta_t const * m = &acc_pool[ idx ];
-      uint  next = FD_VOLATILE_CONST( m->map.next       );
-      uint  gen  = FD_VOLATILE_CONST( m->key.generation );
-      ulong off  = FD_VOLATILE_CONST( m->offset_fork    );
-      ulong lam  = FD_VOLATILE_CONST( m->lamports       );
-      uint hit  = ( gen>=min_gen )
-                & ( gen<=root_gen )
-                & ( inc_tomb | ( lam!=0UL ) )
-                & ( ( off & FD_ACCDB_OFF_MASK )==file_off[ n ] );
-      uint hm   = 0U-hit;
-      matched[ n ] = ( idx & hm ) | ( matched[ n ] & ~hm );
-      uint cont = ( hit^1U ) & ( next!=UINT_MAX ) & ( (ulong)next<max_accounts );
-      __builtin_prefetch( &acc_pool[ next & ( 0U-cont ) ], 0, 0 );
-      lane[ next_cnt ] = n;
-      cur [ next_cnt ] = next;
-      next_cnt += cont;
-    }
-    active_cnt = next_cnt;
-  }
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
-
-  for( ulong n=0UL; n<FD_BACKUP_DISK_PARA; n++ ) {
-    uint  idx  = matched[ n ];
-    uint  have = idx!=UINT_MAX;
-    ulong safe = (ulong)( idx & ( 0U-have ) );
-    uint  keep = have & (uint)!fd_backup_visited_test( parse->visited_set, safe );
-    fd_backup_visited_insert_if( parse->visited_set, (int)keep, safe );
-    acc_idx[ n ] = idx | ( keep-1U );
-  }
-}
+/* fd_snapmk_accparse_publish_batch fills batch with the next run of
+   whole records from the current frag and returns how many.  Returns 0
+   once the frag holds no more whole records, leaving any straddling
+   remainder to fd_snapmk_accparse_publish.  Frag offsets in the batch
+   are relative to parse->frag_base_gaddr. */
 
 static inline ulong
 fd_snapmk_accparse_publish_batch( fd_snapmk_accparse_t *       parse,
-                                  fd_backup_disk_batch_msg_t * batch,
-                                  ulong *                      base_gaddr ) {
-  fd_snapmk_accparse_prestage( parse ); /* no-op unless prestage empty */
+                                  fd_backup_disk_batch_msg_t * batch ) {
+  fd_snapmk_accparse_prestage( parse );
 
   ulong n = (ulong)parse->ps_cnt;
   if( !n ) return 0UL;
 
   /* Move batch N out of the prestage buffer, then stage N+1 before
-     resolving N so N+1's prefetches overlap N's chain walk below. */
-  ulong hash    [ FD_BACKUP_DISK_PARA ];
-  ulong file_off[ FD_BACKUP_DISK_PARA ];
-  memcpy( hash,            parse->ps_hash,     n*sizeof(ulong)       );
-  memcpy( file_off,        parse->ps_file_off, n*sizeof(ulong)       );
-  memcpy( batch->frag_off, parse->ps_frag_off, n*sizeof(uint)        );
-  memcpy( batch->pubkey,   parse->ps_pubkey,   n*sizeof(fd_pubkey_t) );
-  *base_gaddr   = parse->ps_base_gaddr;
+     resolving N so N+1's prefetches overlap N's chain walk. */
+  ulong chain_idx[ FD_BACKUP_DISK_PARA ];
+  ulong file_off [ FD_BACKUP_DISK_PARA ];
+  memcpy( chain_idx,       parse->ps_chain_idx, n*sizeof(ulong)       );
+  memcpy( file_off,        parse->ps_file_off,  n*sizeof(ulong)       );
+  memcpy( batch->frag_off, parse->ps_frag_off,  n*sizeof(uint)        );
+  memcpy( batch->pubkey,   parse->ps_pubkey,    n*sizeof(fd_pubkey_t) );
   parse->ps_cnt = 0U;
 
   fd_snapmk_accparse_prestage( parse );
 
-  fd_snapmk_accparse_keep_batch( parse, file_off, hash, batch->acc_idx, n );
+  fd_snapmk_accparse_lookup( parse, chain_idx, file_off, batch->acc_idx, n );
   for( ulong i=n; i<FD_BACKUP_DISK_PARA; i++ ) batch->acc_idx[ i ] = UINT_MAX;
 
   return n;

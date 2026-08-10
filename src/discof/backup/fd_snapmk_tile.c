@@ -1586,16 +1586,9 @@ snap_start( fd_snapmk_t *                  ctx,
 
   fd_backup_cache_reset( ctx->acc_cache, root_generation );
   *ctx->accparse = (fd_snapmk_accparse_t) {
-    .acc_keep           = 1U,
-    .acc_map            = ctx->acc_cache->acc_map,
-    .acc_pool           = ctx->acc_cache->acc_pool,
-    .visited_set        = ctx->visited_set,
-    .max_accounts       = ctx->acc_cache->max_accounts,
-    .acc_map_seed       = ctx->acc_cache->acc_map_seed,
-    .chain_mask         = ctx->acc_cache->chain_mask,
-    .epoch_slot         = ctx->acc_cache->epoch_slot,
-    .epoch              = ctx->acc_cache->epoch,
-    .root_generation    = (uint)root_generation
+    .idx         = ctx->acc_cache->idx, /* reset above, incl root_generation */
+    .acc_keep    = 1U,
+    .visited_set = ctx->visited_set
   };
 
   ctx->delta.chain_idx = 0UL;
@@ -1640,7 +1633,7 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
   for(;;) {
     if( FD_UNLIKELY( parse->pub_pending ) ) {
       meta->sig    = parse->pub_gaddr;
-      meta->chunk  = parse->pub_acc_idx;
+      meta->chunk  = parse->acc_idx;
       meta->sz     = 0;
       meta->ctl    = (ushort)fd_frag_meta_ctl( FD_BACKUP_ORIG_ACC_DISK, parse->pub_som, parse->pub_eom, 0 );
       meta->tsorig = 0U;
@@ -1690,11 +1683,6 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
         if( FD_LIKELY( parse->acc_keep ) ) {
           parse->pub_gaddr   = 0UL;
           parse->pub_sz      = 0U;
-          parse->pub_acc_idx = parse->acc_idx;
-          parse->pub_snap_sz = parse->acc_snap_sz;
-          parse->pub_size    = parse->meta.size;
-          memcpy( &parse->pub_pubkey, parse->meta.pubkey, sizeof(fd_pubkey_t) );
-          memcpy( &parse->pub_owner,  parse->meta.owner,  sizeof(fd_pubkey_t) );
           parse->pub_som     = 1;
           parse->pub_eom     = 1;
           parse->pub_pending = 1;
@@ -1730,11 +1718,6 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
     uint old_acc_off = parse->acc_off;
     parse->pub_gaddr   = parse->src_gaddr;
     parse->pub_sz      = (uint)take;
-    parse->pub_acc_idx = parse->acc_idx;
-    parse->pub_snap_sz = parse->acc_snap_sz;
-    parse->pub_size    = parse->meta.size;
-    memcpy( &parse->pub_pubkey, parse->meta.pubkey, sizeof(fd_pubkey_t) );
-    memcpy( &parse->pub_owner,  parse->meta.owner,  sizeof(fd_pubkey_t) );
     parse->pub_som     = !old_acc_off;
     parse->pub_eom     = ( old_acc_off + take )==parse->acc_sz;
     parse->pub_pending = 1;
@@ -1789,7 +1772,7 @@ snaprd_frag( fd_snapmk_t *       ctx,
     parse->src_gaddr       = fd_wksp_gaddr_fast( ctx->rd_in_mem, data );
     parse->src_off         = sig;
     parse->frag_base_gaddr = fd_wksp_gaddr_fast( ctx->rd_in_mem, data );
-    parse->pf_cursor       = data; /* WTF is pf_cursor */
+    parse->pf_cursor       = data;
     parse->input_active    = 1;
   }
 
@@ -1816,11 +1799,10 @@ snaprd_frag( fd_snapmk_t *       ctx,
        Staging consumes the accounts into ctx->disk_batch; (A) flushes
        it on the next iteration once credit is available. */
     if( FD_LIKELY( ctx->disk_out_idx < 0 ) ) {
-      ulong base_gaddr;
-      ulong n = fd_snapmk_accparse_publish_batch( parse, ctx->disk_batch, &base_gaddr );
+      ulong n = fd_snapmk_accparse_publish_batch( parse, ctx->disk_batch );
       if( n ) {
         ctx->disk_batch_pending    = 1;
-        ctx->disk_batch_base_gaddr = base_gaddr;
+        ctx->disk_batch_base_gaddr = parse->frag_base_gaddr;
         continue;
       }
     }
@@ -1864,11 +1846,11 @@ snaprd_frag( fd_snapmk_t *       ctx,
     if( FD_UNLIKELY( som ) ) {
       ctx->disk_out_idx = (int)out_idx;
       fd_backup_disk_msg_t * frag = zp_alloc( ctx, out_idx, sizeof(fd_backup_disk_msg_t), &out_chunk );
-      frag->pubkey  = parse->pub_pubkey;
-      frag->owner   = parse->pub_owner;
-      frag->size    = parse->pub_size;
-      frag->acc_idx = parse->pub_acc_idx;
-      frag->snap_sz = parse->pub_snap_sz;
+      memcpy( frag->pubkey.uc, parse->meta.pubkey, sizeof(fd_pubkey_t) );
+      memcpy( frag->owner.uc,  parse->meta.owner,  sizeof(fd_pubkey_t) );
+      frag->size    = parse->meta.size;
+      frag->acc_idx = parse->acc_idx;
+      frag->snap_sz = parse->acc_snap_sz;
       frag->data_sz = (uint)meta->tspub;
       out_sz = sizeof(fd_backup_disk_msg_t);
     }

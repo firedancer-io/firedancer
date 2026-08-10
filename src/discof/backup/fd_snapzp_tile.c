@@ -396,22 +396,20 @@ zip_flush( fd_snapzp_t * ctx ) {
 static void
 accmeta_await_evict( fd_snapzp_t * ctx,
                      uint          acc_idx ) {
-  FD_CHECK_CRIT( acc_idx < ctx->acc_cache->max_accounts, "invalid account index" );
+  fd_backup_accidx_t * idx = &ctx->acc_cache->idx;
+  FD_CHECK_CRIT( fd_backup_accidx_valid( idx, acc_idx ), "invalid account index" );
 
-  ulong *       epoch_slot = ctx->acc_cache->epoch_slot;
-  ulong const * epoch      = ctx->acc_cache->epoch;
-
-  fd_accdb_accmeta_t const * acc = &ctx->acc_cache->acc_pool[ acc_idx ];
+  fd_accdb_accmeta_t const * acc = &idx->acc_pool[ acc_idx ];
   for(;;) {
     FD_COMPILER_MFENCE();
-    FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
+    FD_VOLATILE( *idx->epoch_slot ) = FD_VOLATILE_CONST( *idx->epoch );
     FD_HW_MFENCE();
 
     ulong off_packed = FD_VOLATILE_CONST( acc->offset_fork );
     int   done       = ( off_packed & FD_ACCDB_OFF_MASK )!=FD_ACCDB_OFF_INVAL;
 
     FD_COMPILER_MFENCE();
-    FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
+    FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX;
 
     if( FD_LIKELY( done ) ) break;
     FD_SPIN_PAUSE(); /* FIXME yield to OS instead? */
@@ -431,9 +429,8 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
                fd_backup_cache_msg_t const * batch ) {
   FD_CHECK_CRIT( ctx->snap_fd>=0, "invalid snapshot file descriptor" );
 
-  ulong *       epoch_slot = ctx->acc_cache->epoch_slot;
-  ulong const * epoch      = ctx->acc_cache->epoch;
-  int           in_epoch   = 0;
+  fd_backup_accidx_t * idx      = &ctx->acc_cache->idx;
+  int                  in_epoch = 0;
 
   ZSTD_inBuffer * buf = &ctx->raw_buf;
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
@@ -443,7 +440,7 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
 
     if( FD_UNLIKELY( !in_epoch ) ) {
       FD_COMPILER_MFENCE();
-      FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
+      FD_VOLATILE( *idx->epoch_slot ) = FD_VOLATILE_CONST( *idx->epoch );
       /* a lock prefix is an expensive CPU pipeline hazard, therefore
          we hold onto our epoch for multiple accounts */
       FD_HW_MFENCE();
@@ -453,10 +450,10 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
     int err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, ctx->raw, &buf->size, RAW_BUF_SZ );
     if( FD_UNLIKELY( err==FD_BACKUP_CACHE_ERR_SPACE ) ) {
       FD_COMPILER_MFENCE();
-      FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
+      FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX;
       zip_flush( ctx );
       FD_COMPILER_MFENCE();
-      FD_VOLATILE( *epoch_slot ) = FD_VOLATILE_CONST( *epoch );
+      FD_VOLATILE( *idx->epoch_slot ) = FD_VOLATILE_CONST( *idx->epoch );
       FD_HW_MFENCE();
       err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, ctx->raw, &buf->size, RAW_BUF_SZ );
       FD_CHECK_ERR( err!=FD_BACKUP_CACHE_ERR_SPACE, "Zstandard buffer too small" );
@@ -464,7 +461,7 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
 
     if( FD_UNLIKELY( err==FD_BACKUP_CACHE_ERR_MISS ) ) {
       FD_COMPILER_MFENCE();
-      FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
+      FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX;
       in_epoch = 0;
       accmeta_await_evict( ctx, acc_idx );
       continue;
@@ -475,7 +472,7 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
 
   if( FD_LIKELY( in_epoch ) ) {
     FD_COMPILER_MFENCE();
-    FD_VOLATILE( *epoch_slot ) = ULONG_MAX;
+    FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX;
   }
 }
 
@@ -528,10 +525,10 @@ accmeta_disk( fd_snapzp_t *       ctx,
               fd_pubkey_t const * pubkey,
               uint                size,
               uint                acc_idx ) {
-  fd_backup_cache_t * acc_cache = ctx->acc_cache;
-  if( FD_UNLIKELY( acc_idx==UINT_MAX || (ulong)acc_idx>=acc_cache->max_accounts ) ) return NULL;
+  fd_backup_accidx_t const * idx = &ctx->acc_cache->idx;
+  if( FD_UNLIKELY( !fd_backup_accidx_valid( idx, acc_idx ) ) ) return NULL;
 
-  fd_accdb_accmeta_t const * acc = &acc_cache->acc_pool[ acc_idx ];
+  fd_accdb_accmeta_t const * acc = &idx->acc_pool[ acc_idx ];
   uint es = FD_VOLATILE_CONST( acc->executable_size );
   if( FD_UNLIKELY( FD_ACCDB_SIZE_DATA( es )!=FD_ACCDB_SIZE_DATA( size ) ) ) return NULL;
   if( FD_UNLIKELY( memcmp( acc->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) return NULL;
@@ -666,15 +663,15 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
   FD_CHECK_CRIT( ctx->snap_fd>=0, "invalid snapshot file descriptor" );
   FD_CHECK_CRIT( !ctx->disk.active, "received account batch while already processing a disk account" );
 
-  fd_accdb_accmeta_t const * acc_pool = ctx->acc_cache->acc_pool;
-  ulong                      max_acc  = ctx->acc_cache->max_accounts;
+  fd_backup_accidx_t const * idx      = &ctx->acc_cache->idx;
+  fd_accdb_accmeta_t const * acc_pool = idx->acc_pool;
 
   /* MLP gather of account index entries */
   static fd_accdb_accmeta_t const dead = {0};
   fd_accdb_accmeta_t const * gather[ FD_BACKUP_DISK_PARA ];
   for( ulong i=0UL; i<FD_BACKUP_DISK_PARA; i++ ) {
     uint ai = batch->acc_idx[ i ];
-    gather[ i ] = ( ai!=UINT_MAX && (ulong)ai<max_acc ) ? &acc_pool[ ai ] : &dead;
+    gather[ i ] = fd_backup_accidx_valid( idx, ai ) ? &acc_pool[ ai ] : &dead;
   }
   ulong lamports[ FD_BACKUP_DISK_PARA ];
   uint  exec_sz [ FD_BACKUP_DISK_PARA ];
@@ -696,7 +693,7 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
   for( ulong i=0UL; i<FD_BACKUP_DISK_PARA; i++ ) {
     uint acc_idx = batch->acc_idx[ i ];
     if( acc_idx==UINT_MAX ) continue;
-    FD_CHECK_CRIT( (ulong)acc_idx<max_acc, "account index bounds check fail" );
+    FD_CHECK_CRIT( fd_backup_accidx_valid( idx, acc_idx ), "account index bounds check fail" );
 
     fd_accdb_disk_meta_t const * dm = (fd_accdb_disk_meta_t const *)( base + batch->frag_off[ i ] );
     FD_CHECK_CRIT( (ulong)(dm+1) <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );

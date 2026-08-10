@@ -7,8 +7,8 @@
    mcache/dcache. */
 
 #include "fd_backup.h"
+#include "fd_backup_accidx.h"
 #include "../../flamenco/accdb/fd_accdb_cache.h"
-#include "../../flamenco/accdb/fd_accdb_private.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
 #define SNAPZP_TILE_MAX 64
@@ -36,17 +36,7 @@ struct fd_backup_cache {
   uchar const * cache    [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong         cache_max[ FD_ACCDB_CACHE_CLASS_CNT ];
 
-  /* accdb in-memory index */
-  uint const *               acc_map;      /* map chains */
-  fd_accdb_accmeta_t const * acc_pool;     /* map ele pool */
-  ulong                      max_accounts; /* map ele pool max */
-  ulong                      acc_map_seed; /* map hash function */
-  uint                       chain_mask;   /* map chain count - 1 */
-
-  ulong *       epoch_slot;
-  ulong const * epoch;
-
-  uint root_generation;
+  fd_backup_accidx_t idx;
 
   ulong cache_class;
   ulong cache_idx;
@@ -73,20 +63,13 @@ typedef struct fd_backup_acc fd_backup_acc_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_backup_cache_init creates a new cache scanner object over the
-   given shared memory cache size classes, and in-memory account index
-   acc_map/acc_pool. */
+   given shared memory cache size classes and accdb account index. */
 
 fd_backup_cache_t *
-fd_backup_cache_init( fd_backup_cache_t *           backup,
-                      uchar const * const           cache    [ FD_ACCDB_CACHE_CLASS_CNT ],
-                      ulong const                   cache_max[ FD_ACCDB_CACHE_CLASS_CNT ],
-                      uint const *                  acc_map,
-                      fd_accdb_accmeta_t const *    acc_pool,
-                      ulong                         max_accounts,
-                      ulong                         acc_map_seed,
-                      ulong                         chain_mask,
-                      ulong *                       epoch_slot,
-                      ulong const *                 epoch );
+fd_backup_cache_init( fd_backup_cache_t *        backup,
+                      uchar const * const        cache    [ FD_ACCDB_CACHE_CLASS_CNT ],
+                      ulong const                cache_max[ FD_ACCDB_CACHE_CLASS_CNT ],
+                      fd_backup_accidx_t const * idx );
 
 /* fd_backup_cache_join is a convenience API for joining an accdb_shmem.
    epoch_fseq is the tile-owned external epoch slot that accdb scans
@@ -109,9 +92,9 @@ fd_backup_cache_scan( fd_backup_cache_t *     backup,
 static inline void
 fd_backup_cache_reset( fd_backup_cache_t * backup,
                        ulong               root_generation ) {
-  backup->root_generation    = (uint)root_generation;
-  backup->cache_class        = 0;
-  backup->cache_idx          = 0;
+  backup->idx.root_generation = (uint)root_generation;
+  backup->cache_class         = 0;
+  backup->cache_idx           = 0;
 }
 
 /* fd_backup_cache_read copy-reads a possibly cached account into out.
