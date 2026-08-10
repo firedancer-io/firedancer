@@ -480,8 +480,10 @@ struct fd_tower {
   void *             blk_map;   /* map chain of blk_t elements (NULL if blk_max==0) */
   fd_tower_vtr_t *   vtrs;      /* deque of voter entries (NULL if vtr_max==0) */
 
-  void * lck_pool; /* lockout interval pool */
-  void * lck_map;  /* lockout interval map chain */
+  void * lck_pool;        /* lockout interval pool */
+  void * lck_map;         /* lockout interval map chain */
+  void * lck_pubkey_pool; /* refcounted vote-account pubkey pool for lockouts */
+  void * lck_pubkey_map;  /* map of vote-account pubkeys for lockouts */
 
   fd_tower_stakes_vtr_map_t * stk_vtr_map;
   fd_tower_stakes_vtr_t *     stk_vtr_pool;
