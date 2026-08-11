@@ -1078,28 +1078,6 @@ telemetry = true
 # fanning in from these various network senders to transmit on the
 # queues we have available.
 [net]
-    # Firedancer can automatically configure most networking
-    # options. The auto_level determines how the network stack
-    # is optimized. Options set to an explicit value are never
-    # modified regardless of auto_level's value.
-    #
-    #  "standard" (default)
-    #   Enables networking features which auto configuration
-    #   determines are safe and supported on this system.
-    #
-    #  "minimal"
-    #   Resolves all "auto" options to their most conservative
-    #   values.  This will reduce networking performance and is
-    #   a worst case backup.
-    #
-    #   If you suspect an error is caused by Firedancer's auto
-    #   configuration, try setting this to "minimal" to see if
-    #   the issue resolves. If you need "minimal" to make
-    #   your validator work, please report your issue with "standard"
-    #   as a bug at https://github.com/firedancer-io/firedancer/issues
-    #   with the prefix "auto config: ", alongside your log file.
-    auto_level = "standard"
-
     # The provider determines which Linux networking stack is used by
     # Firedancer.  Possible values for the option are:
     #
@@ -1263,8 +1241,7 @@ telemetry = true
         #
         # "auto" (default)
         #   Attempts to run in "dedicated" mode but automatically falls
-        #   back to "simple" mode if necessary. Not affected by auto_level
-        #   and is separate from the auto configure system.
+        #   back to "simple" mode if necessary.
         rss_queue_mode = "auto"
 
         # Some specialized networking setups, including DoubleZero,

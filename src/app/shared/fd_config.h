@@ -210,8 +210,6 @@ struct fd_configf {
 typedef struct fd_configf fd_configf_t;
 
 struct fd_config_net {
-  char auto_level[ 12 ]; /* "standard" or "minimal" */
-
   char provider[ 8 ]; /* "xdp" or "socket" */
 
   char interface[ IF_NAMESIZE ];
