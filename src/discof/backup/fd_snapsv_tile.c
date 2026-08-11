@@ -103,6 +103,12 @@ snap_key_hash( snap_key_t const * key,
 
 #define REQ_HEADER_MAX (64UL)  /* max number of request headers */
 
+/* RES_HDR_MAX bounds the number of bytes that any of the
+   build_{err,snap,redirect}_hdr functions write into the response
+   buffer, including the NUL terminator. */
+
+#define RES_HDR_MAX (256UL)
+
 /* conn state */
 
 #define CONN_STATE_FREE          (0U) /* conn slot is unused */
@@ -560,6 +566,7 @@ unprivileged_init( fd_topo_t const *      topo,
   /* io bufs */
 
   FD_CHECK_ERR( tile->snapsv.send_buffer_size_kib, "send_buffer_size_kib is zero" );
+  FD_CHECK_ERR( (tile->snapsv.send_buffer_size_kib<<10)>=RES_HDR_MAX, "send_buffer_size_kib is too small" );
   ulong iobuf_cnt = tile->snapsv.conn_max * 2;
   ctx->iobuf_sz       = (uint)( tile->snapsv.send_buffer_size_kib<<10 );
   ctx->iobuf0         = iobuf0;
@@ -1196,6 +1203,33 @@ prep_write_hdr( fd_snapsv_t * ctx,
   sqe->user_data = udata.user_data;
 }
 
+static ulong
+build_err_hdr( char  out[ static RES_HDR_MAX ], /* not a cstr */
+               uint  http_err,
+               ulong object_sz,  /* 'Content-Range' hint */
+               int   sick ) {    /* set 'Connection: close'? */
+  char * p = fd_cstr_init( out );
+  p = fd_cstr_append_cstr( p, "HTTP/1.1 ");
+  switch( http_err ) {
+  case 400: p = fd_cstr_append_cstr( p, "400 Bad Request"           ); break;
+  case 404: p = fd_cstr_append_cstr( p, "404 Not Found"             ); break;
+  case 416: p = fd_cstr_append_cstr( p, "416 Range Not Satisfiable" ); break;
+  default:  p = fd_cstr_append_cstr( p, "500 Internal Server Error" ); break;
+  }
+  p = fd_cstr_append_cstr( p, "\r\n" );
+  if( http_err==416 && object_sz!=ULONG_MAX ) {
+    p = fd_cstr_append_cstr( p, "Content-Range: bytes */" );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, object_sz, fd_ulong_base10_dig_cnt( object_sz ) );
+    p = fd_cstr_append_cstr( p, "\r\n" );
+  }
+  p = fd_cstr_append_cstr( p, "Content-Length: 0\r\n" );
+  if( sick ) {
+    p = fd_cstr_append_cstr( p, "Connection: close\r\n" );
+  }
+  p = fd_cstr_append_cstr( p, "\r\n" );
+  return (ulong)( p - out );
+}
+
 /* serve_http_err dispatches a RES_WRITE_HDR job for a generic HTTP
    error page. */
 
@@ -1206,29 +1240,55 @@ serve_http_err( fd_snapsv_t * ctx,
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_WRITE_ERR, "state confusion" );
   iobuf_alloc( ctx, &conn->iobuf_idx );
   uchar * iobuf = conn_iobuf( ctx, conn );
-  char * p = fd_cstr_init( (char *)iobuf );
-  p = fd_cstr_append_cstr( p, "HTTP/1.1 ");
-  switch( conn->res.status ) {
-  case 400: p = fd_cstr_append_cstr( p, "400 Bad Request"           ); break;
-  case 404: p = fd_cstr_append_cstr( p, "404 Not Found"             ); break;
-  case 416: p = fd_cstr_append_cstr( p, "416 Range Not Satisfiable" ); break;
-  default:  p = fd_cstr_append_cstr( p, "500 Internal Server Error" ); break;
-  }
-  p = fd_cstr_append_cstr( p, "\r\n" );
   snap_entry_t const * snap = conn->snap.slot ? conn_snap_entry( conn ) : NULL;
-  if( conn->res.status==416 && snap ) {
-    p = fd_cstr_append_cstr( p, "Content-Range: bytes */" );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, snap->sz, fd_ulong_base10_dig_cnt( snap->sz ) );
+  conn->res.sent = 0;
+  conn->res.len  = (uint)build_err_hdr(
+      (char *)iobuf,
+      conn->res.status,
+      snap ? snap->sz : ULONG_MAX,
+      conn->sick );
+  prep_write_hdr( ctx, conn_idx );
+}
+
+static ulong
+build_snap_res_hdr( char  out[ static RES_HDR_MAX ],
+                    int   range,
+                    int   is_zstd,
+                    ulong range0,
+                    ulong range1,
+                    ulong object_sz,
+                    int   sick ) {    /* set 'Connection: close'? */
+  char * p = fd_cstr_init( out );
+  if( range ) {
+    p = fd_cstr_append_cstr( p, "HTTP/1.1 206 Partial Content\r\n" );
+  } else {
+    p = fd_cstr_append_cstr( p, "HTTP/1.1 200 OK\r\n" );
+  }
+  if( is_zstd ) {
+    p = fd_cstr_append_cstr( p, "Content-Type: application/zstd\r\n" );
+  } else {
+    p = fd_cstr_append_cstr( p, "Content-Type: application/x-tar\r\n" );
+  }
+  p = fd_cstr_append_cstr( p, "Accept-Ranges: bytes\r\n" );
+  if( range ) {
+    p = fd_cstr_append_cstr( p, "Content-Range: bytes " );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, range0, fd_ulong_base10_dig_cnt( range0 ) );
+    p = fd_cstr_append_char( p, '-' );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, range1-1UL, fd_ulong_base10_dig_cnt( range1-1UL ) );
+    p = fd_cstr_append_char( p, '/' );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, object_sz, fd_ulong_base10_dig_cnt( object_sz ) );
     p = fd_cstr_append_cstr( p, "\r\n" );
   }
-  p = fd_cstr_append_cstr( p, "Content-Length: 0\r\n" );
-  if( conn->sick ) {
+  p = fd_cstr_append_cstr( p, "Content-Length: " );
+  ulong content_len = range1 - range0;
+  p = fd_cstr_append_ulong_as_text( p, 0, 0, content_len, fd_ulong_base10_dig_cnt( content_len ) );
+  p = fd_cstr_append_cstr( p, "\r\n" );
+  if( sick ) {
     p = fd_cstr_append_cstr( p, "Connection: close\r\n" );
   }
   p = fd_cstr_append_cstr( p, "\r\n" );
-  conn->res.sent = 0;
-  conn->res.len  = (uint)( p - (char *)iobuf );
-  prep_write_hdr( ctx, conn_idx );
+  fd_cstr_fini( p );
+  return (ulong)( p - out );
 }
 
 /* serve_snap_res_hdr dispatches a RES_WRITE_HDR job for a snapshot GET
@@ -1258,37 +1318,14 @@ serve_snap_res_hdr( fd_snapsv_t *       ctx,
   FD_CHECK_ERR( conn->iobuf_idx==UINT_MAX, "conn has stale iobuf" );
   iobuf_alloc( ctx, &conn->iobuf_idx );
   uchar * iobuf = conn_iobuf( ctx, conn );
-  char * p = fd_cstr_init( (char *)iobuf );
-  if( conn->snap.range ) {
-    p = fd_cstr_append_cstr( p, "HTTP/1.1 206 Partial Content\r\n" );
-  } else {
-    p = fd_cstr_append_cstr( p, "HTTP/1.1 200 OK\r\n" );
-  }
-  if( snap->is_zstd ) {
-    p = fd_cstr_append_cstr( p, "Content-Type: application/zstd\r\n" );
-  } else {
-    p = fd_cstr_append_cstr( p, "Content-Type: application/x-tar\r\n" );
-  }
-  p = fd_cstr_append_cstr( p, "Accept-Ranges: bytes\r\n" );
-  if( conn->snap.range ) {
-    p = fd_cstr_append_cstr( p, "Content-Range: bytes " );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, conn->snap.req_off0, fd_ulong_base10_dig_cnt( conn->snap.req_off0 ) );
-    p = fd_cstr_append_char( p, '-' );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, conn->snap.req_off1-1UL, fd_ulong_base10_dig_cnt( conn->snap.req_off1-1UL ) );
-    p = fd_cstr_append_char( p, '/' );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, snap->sz, fd_ulong_base10_dig_cnt( snap->sz ) );
-    p = fd_cstr_append_cstr( p, "\r\n" );
-  }
-  p = fd_cstr_append_cstr( p, "Content-Length: " );
-  ulong content_len = conn->snap.req_off1 - conn->snap.req_off0;
-  p = fd_cstr_append_ulong_as_text( p, 0, 0, content_len, fd_ulong_base10_dig_cnt( content_len ) );
-  p = fd_cstr_append_cstr( p, "\r\n" );
-  if( conn->sick ) {
-    p = fd_cstr_append_cstr( p, "Connection: close\r\n" );
-  }
-  p = fd_cstr_append_cstr( p, "\r\n" );
   conn->res.sent   = 0;
-  conn->res.len    = (uint)( p - (char *)iobuf );
+  conn->res.len    = (uint)build_snap_res_hdr(
+      (char *)iobuf,
+      conn->snap.range,
+      snap->is_zstd,
+      conn->snap.req_off0, conn->snap.req_off1,
+      snap->sz,
+      conn->sick );
   conn->res.hdr_ts = now;
   prep_write_hdr( ctx, conn_idx );
 }
@@ -1319,6 +1356,38 @@ newest_snap( fd_snapsv_t * ctx,
   return entry;
 }
 
+static ulong
+build_redirect_hdr( char        out[ static RES_HDR_MAX ], /* not a cstr */
+                    int         incremental,
+                    ulong       slot,
+                    ulong       base_slot,
+                    uchar const hash[ static 32 ],
+                    int         is_zstd,
+                    int         sick ) {
+  char * p = fd_cstr_init( out );
+  p = fd_cstr_append_cstr( p, "HTTP/1.1 302 Found\r\n" );
+  p = fd_cstr_append_cstr( p, "Location: /" );
+  if( incremental ) {
+    p = fd_cstr_append_cstr( p, "incremental-snapshot-" );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, base_slot, fd_ulong_base10_dig_cnt( base_slot ) );
+    p = fd_cstr_append_char( p, '-' );
+  } else {
+    p = fd_cstr_append_cstr( p, "snapshot-" );
+  }
+  p = fd_cstr_append_ulong_as_text( p, 0, 0, slot, fd_ulong_base10_dig_cnt( slot ) );
+  p = fd_cstr_append_char( p, '-' );
+  char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( hash, NULL, hash_b58 );
+  p = fd_cstr_append_cstr( p, hash_b58 );
+  p = fd_cstr_append_cstr( p, is_zstd ? ".tar.zst\r\n" : ".tar\r\n" );
+  p = fd_cstr_append_cstr( p, "Content-Length: 0\r\n" );
+  if( sick ) {
+    p = fd_cstr_append_cstr( p, "Connection: close\r\n" );
+  }
+  p = fd_cstr_append_cstr( p, "\r\n" );
+  return (ulong)( p - out );
+}
+
 /* serve_redirect dispatches a RES_WRITE_HDR job for a /snapshot.tar.bz2
    redirect. */
 
@@ -1340,29 +1409,14 @@ serve_redirect( fd_snapsv_t * ctx,
   FD_CHECK_ERR( conn->iobuf_idx==UINT_MAX, "conn has stale iobuf" );
   iobuf_alloc( ctx, &conn->iobuf_idx );
   uchar * iobuf = conn_iobuf( ctx, conn );
-  char * p = fd_cstr_init( (char *)iobuf );
-  p = fd_cstr_append_cstr( p, "HTTP/1.1 302 Found\r\n" );
-  p = fd_cstr_append_cstr( p, "Location: /" );
-  if( conn->req.incremental ) {
-    p = fd_cstr_append_cstr( p, "incremental-snapshot-" );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, snap->key.base_slot, fd_ulong_base10_dig_cnt( snap->key.base_slot ) );
-    p = fd_cstr_append_char( p, '-' );
-  } else {
-    p = fd_cstr_append_cstr( p, "snapshot-" );
-  }
-  p = fd_cstr_append_ulong_as_text( p, 0, 0, snap->key.slot, fd_ulong_base10_dig_cnt( snap->key.slot ) );
-  p = fd_cstr_append_char( p, '-' );
-  char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( snap->hash, NULL, hash_b58 );
-  p = fd_cstr_append_cstr( p, hash_b58 );
-  p = fd_cstr_append_cstr( p, snap->is_zstd ? ".tar.zst\r\n" : ".tar\r\n" );
-  p = fd_cstr_append_cstr( p, "Content-Length: 0\r\n" );
-  if( conn->sick ) {
-    p = fd_cstr_append_cstr( p, "Connection: close\r\n" );
-  }
-  p = fd_cstr_append_cstr( p, "\r\n" );
   conn->res.sent = 0;
-  conn->res.len  = (uint)( p - (char *)iobuf );
+  conn->res.len  = (uint)build_redirect_hdr(
+      (char *)iobuf,
+      conn->req.incremental,
+      snap->key.slot, snap->key.base_slot,
+      snap->hash,
+      snap->is_zstd,
+      conn->sick );
   conn->state = CONN_STATE_RES_WRITE_HDR; /* shared completion path */
   prep_write_hdr( ctx, conn_idx );
 }
