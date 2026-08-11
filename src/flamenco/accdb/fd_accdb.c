@@ -3141,12 +3141,13 @@ release_inner( fd_accdb_t * accdb,
            only when no such reader is outstanding; on failure we
            must NOT free the line — leave acc_idx/key.generation
            intact so CLOCK can reclaim it once the reader unpins.
-           At that point CLOCK's call to evict_clear_acc_cache_ref
-           is a no-op (acc.cache_idx no longer matches expected_cidx)
-           and the line is safely repurposed. */
+           That reclaim's evict_clear_acc_cache_ref is a no-op, but
+           its dirty-writeback gate keys on persisted/acc_idx and
+           would republish the pre-overwrite bytes over the committed
+           version, so set persisted before unpinning. */
+        original_cache_line->persisted = 1;
         FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
         if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) ) {
-          original_cache_line->persisted = 1;
           original_cache_line->acc_idx   = UINT_MAX;
           original_cache_line->key.generation = UINT_MAX;
           original_cache_line->refcnt    = 0;
@@ -3189,11 +3190,12 @@ release_inner( fd_accdb_t * accdb,
              acc.cache_idx pointing at a line that has been recycled to
              another acc.  evict_clear_acc_cache_ref uses the CLAIM
              protocol to serialize with cold_load_acc.  See the
-             size_class==7 path above for the refcnt CAS rationale. */
+             size_class==7 path above for the refcnt CAS and
+             pre-unpin persisted rationale. */
           evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, accs[ i ]._original_cache_idx );
+          original_cache_line->persisted = 1;
           FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
           if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) ) {
-            original_cache_line->persisted = 1;
             original_cache_line->acc_idx   = UINT_MAX;
             original_cache_line->key.generation = UINT_MAX;
             original_cache_line->refcnt    = 0;
