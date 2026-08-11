@@ -135,3 +135,84 @@ fd_zstd_dstream_read( fd_zstd_dstream_t *     dstream,
   *out_p = (void *      )((ulong)out_start + out_buf.pos);
   return rc==0UL ? -1 /* frame complete */ : 0 /* still working */;
 }
+
+ulong
+fd_zstd_find_frame_boundaries( ulong const *     buffer,
+                               ulong             sz,
+                               fd_zstd_frame_t * arr,
+                               ulong             arr_sz ) {
+  if( FD_UNLIKELY( arr_sz<1UL || sz<9UL ) ) return 0UL;
+
+  ulong curr                     = 0UL;
+  ulong curr_fr                  = 0UL;
+  ulong content_checksum_enabled = 0UL;
+
+  while( curr<sz ) {
+    if( FD_UNLIKELY( curr>=sz || sz-curr<9UL ) ) return 0UL;
+    ulong fr_start = curr;
+
+    /* fr_header_sz also includes magic; skipping +4 for magic will result in reading garbage. */
+    ulong magic = ZSTD_isFrame( (char const *)buffer + curr, sz - curr );
+    if( FD_UNLIKELY( !magic ) ) return 0UL;
+
+    ulong skip         = ZSTD_isSkippableFrame( (char const *)buffer + curr, sz - curr );
+    ulong fr_header_sz = ZSTD_frameHeaderSize( (char const *)buffer + curr, sz - curr );
+
+    if( skip ) {
+      if( FD_UNLIKELY( arr_sz<=curr_fr ) ) return 0UL;
+      if( FD_UNLIKELY( curr>=sz || sz-curr<8UL ) ) return 0UL;
+
+      curr += 4UL;
+      ulong skip_fr_sz = fd_uint_load_4( (char const *)buffer + curr );
+      curr += 4UL; /* skip frame size field */
+
+      if( FD_UNLIKELY( curr>=sz || sz-curr<skip_fr_sz ) ) return 0UL;
+      curr += skip_fr_sz;
+
+      arr[curr_fr].skip   = 1;
+      arr[curr_fr].offset = fr_start;
+      arr[curr_fr].sz     = curr - fr_start;
+      ++curr_fr;
+      continue;
+    }
+
+    ulong fr_header          = fd_uint_load_1( (char const *)buffer + curr + 4UL );
+    content_checksum_enabled = fd_extract_bit( fr_header, 2 );
+    if( FD_UNLIKELY( ZSTD_isError( fr_header_sz ) ) ) return 0UL;
+
+    curr += fr_header_sz;
+
+    while( 1 ) {
+      if( FD_UNLIKELY( curr>=sz || sz-curr<5UL ) ) return 0UL;
+      uint b_header   = fd_uint_load_3( (char const *)buffer + curr );
+      uint last       = fd_extract_bit( b_header, 0 );
+      uint block_type = fd_extract( b_header, 1, 2 );
+      uint block_size = fd_extract( b_header, 3, 23 );
+      uint payload_sz;
+
+      switch( block_type ) {
+      case 0U: payload_sz = block_size; break; /* raw */
+      case 1U: payload_sz = 1U;         break; /* RLE */
+      case 2U: payload_sz = block_size; break; /* compressed */
+      default: return 0UL;                      /* block type 3 reserved, treated as error */
+      }
+
+      if( FD_UNLIKELY( curr>=sz || sz-curr<payload_sz+3UL ) ) return 0UL;
+      curr += payload_sz + 3UL; /* block header */
+
+      if( last ) {
+        if( content_checksum_enabled ) {
+          if( FD_UNLIKELY( curr>=sz || sz-curr<4UL ) ) return 0UL;
+          curr += 4UL;
+        }
+        if( FD_UNLIKELY( arr_sz<=curr_fr ) ) return 0UL;
+        arr[curr_fr].offset = fr_start;
+        arr[curr_fr].sz     = curr - fr_start;
+        ++curr_fr;
+        break;
+      }
+    }
+  }
+
+  return curr_fr;
+}
