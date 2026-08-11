@@ -28,6 +28,7 @@
 #include <string.h>
 
 #if FD_HAS_ZSTD
+#define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 #endif
 
@@ -54,6 +55,7 @@
 #define FD_RPC_TAR_BZ_SZ (FD_RPC_TAR_SZ + ((FD_RPC_TAR_SZ + 100UL - 1UL) / 100UL) + 600UL)
 
 #define FD_RPC_BASE58_ENCODED_128_LEN (175UL) /* ceil(128*log58(256)) */
+#define FD_RPC_ZSTD_LEVEL 1
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -278,6 +280,7 @@ struct fd_rpc_tile {
   fd_histf_t request_duration[ 1 ];
 
 # if FD_HAS_ZSTD
+  ZSTD_CCtx * zstd_cctx;
   uchar compress_buf[ ZSTD_COMPRESSBOUND( FD_RUNTIME_ACC_SZ_MAX ) ];
 # endif
 
@@ -444,6 +447,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots )  );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong) );
+# if FD_HAS_ZSTD
+  l = FD_LAYOUT_APPEND( l, 16UL,                     ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL )      );
+# endif
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -1280,7 +1286,7 @@ fd_rpc_encode_account_data( fd_rpc_tile_t *             ctx,
 
 # if FD_HAS_ZSTD
   if( is_zstd ) {
-    ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), out, snip_sz, 0 );
+    ulong zstd_res = ZSTD_compressCCtx( ctx->zstd_cctx, ctx->compress_buf, sizeof(ctx->compress_buf), out, snip_sz, FD_RPC_ZSTD_LEVEL );
     if( ZSTD_isError( zstd_res ) ) {
       fd_http_server_unstage( ctx->http );
       *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard compression failed (%s)\"},\"id\":%s}\n", ZSTD_getErrorName( zstd_res ), id_cstr );
@@ -2418,6 +2424,10 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb_join  = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots )         );
   void * _ws_sub_vote = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong)        );
   void * _ws_sub_slot = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong)        );
+# if FD_HAS_ZSTD
+  ulong  zstd_wksp_sz = ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL );
+  void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
+# endif
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
@@ -2434,6 +2444,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _bz2_alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
+
+# if FD_HAS_ZSTD
+  ctx->zstd_cctx = ZSTD_initStaticCCtx( _zstd_wksp, zstd_wksp_sz );
+  FD_CHECK_ERR( ctx->zstd_cctx, "ZSTD_initStaticCCtx failed" );
+# endif
 
   ctx->next_poll_deadline = fd_tickcount();
 
