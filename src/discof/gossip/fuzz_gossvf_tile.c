@@ -506,14 +506,14 @@ build_pull_request( uchar *       payload,
                     ulong         value_sz,
                     ulong         num_bits,
                     uint          mask_bits ) {
-  ulong * keys;
-  ulong * bits;
-  ulong * bits_set;
+  uchar * keys;
+  uchar * bits;
+  uchar * bits_set;
   long sz = fd_gossip_pull_request_init( payload, payload_sz, 1UL, num_bits, 0UL, mask_bits, value_bytes, value_sz, &keys, &bits, &bits_set );
   if( FD_UNLIKELY( sz<0L ) ) return 0UL;
-  keys[0]   = 0x12345678UL;
-  if( FD_LIKELY( bits ) ) bits[0] = 1UL;
-  *bits_set = !!num_bits;
+  FD_STORE( ulong, keys, 0x12345678UL );
+  if( FD_LIKELY( bits ) ) FD_STORE( ulong, bits, 1UL );
+  FD_STORE( ulong, bits_set, (ulong)!!num_bits );
   return (ulong)sz;
 }
 

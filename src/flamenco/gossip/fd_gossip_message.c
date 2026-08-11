@@ -918,16 +918,16 @@ fd_gossip_pull_request_init( uchar *       payload,
                              uint          mask_bits,
                              uchar const * contact_info_crds,
                              ulong         contact_info_crds_sz,
-                             ulong **      out_bloom_keys,
-                             ulong **      out_bloom_bits,
-                             ulong **      out_bits_set ) {
+                             uchar **      out_bloom_keys,
+                             uchar **      out_bloom_bits,
+                             uchar **      out_bits_set ) {
   uchar ** out = &payload;
   ulong original_size = payload_sz;
   ulong * out_sz = &payload_sz;
 
   WRITE_U32( FD_GOSSIP_MESSAGE_PULL_REQUEST, out, out_sz );
   WRITE_U64( num_keys, out, out_sz );
-  *out_bloom_keys = fd_type_pun( payload+(payload_sz-*out_sz) );
+  *out_bloom_keys = payload+(payload_sz-*out_sz);
   WRITE_SKIP_BYTES( num_keys*8UL, out, out_sz );
 
   if( FD_LIKELY( !!num_bits ) ) {
@@ -935,14 +935,14 @@ fd_gossip_pull_request_init( uchar *       payload,
     ulong bloom_vec_len = (num_bits+63UL)/64UL;
     WRITE_U8( 1, out, out_sz ); /* has_bits */
     WRITE_U64( bloom_vec_len, out, out_sz );
-    *out_bloom_bits = fd_type_pun( payload+(payload_sz-*out_sz) );
+    *out_bloom_bits = payload+(payload_sz-*out_sz);
     WRITE_SKIP_BYTES( bloom_vec_len*8UL, out, out_sz );
   } else {
     WRITE_U8( 0, out, out_sz ); /* has_bits */
     *out_bloom_bits = NULL;
   }
   WRITE_U64( num_bits, out, out_sz );
-  *out_bits_set = fd_type_pun( payload+(payload_sz-*out_sz) );
+  *out_bits_set = payload+(payload_sz-*out_sz);
   WRITE_SKIP_BYTES( 8UL, out, out_sz );
   WRITE_U64( mask, out, out_sz );
   WRITE_U32( mask_bits, out, out_sz );

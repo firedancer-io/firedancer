@@ -440,9 +440,9 @@ fd_gossip_pull_request_init( uchar *       payload,
                              uint          mask_bits,
                              uchar const * contact_info_crds,
                              ulong         contact_info_crds_sz,
-                             ulong **      out_bloom_keys,
-                             ulong **      out_bloom_bits,
-                             ulong **      out_bits_set );
+                             uchar **      out_bloom_keys,
+                             uchar **      out_bloom_bits,
+                             uchar **      out_bits_set );
 
 /* fd_gossip_version_cstr converts gossip version fields to a null
    terminated c-string.  Returns 1 on success and 0 on failure (e.g.
