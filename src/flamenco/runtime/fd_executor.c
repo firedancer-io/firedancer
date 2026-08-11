@@ -660,14 +660,23 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
       programdata_sz = programdata_ref->data_len;
     }
   } else {
+    /* Membership in the skipped list is the liveness answer: producers
+       only record a PD that is live on the current fork.  Track that
+       with an explicit flag rather than inferring it from a nonzero
+       length, since a live PD may legitimately have zero-length data
+       (e.g. closed in an earlier slot, then credited back to
+       rent-exemption), which Agave still charges the 64-byte base
+       for. */
+    int found = 0;
     programdata_sz = 0UL;
     for( ushort i=0; i<txn_out->accounts.executable_skipped_cnt; i++ ) {
       if( !memcmp( txn_out->accounts.executable_skipped_key[ i ].uc, &loader_state->inner.program.programdata_address, 32UL ) ) {
         programdata_sz = txn_out->accounts.executable_skipped_len[ i ];
+        found          = 1;
         break;
       }
     }
-    if( FD_UNLIKELY( !programdata_sz ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+    if( FD_UNLIKELY( !found ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   /* Try to accumulate the programdata's data size
@@ -1433,7 +1442,11 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
       int   skip_pd  = 0;
       ulong skip_len = 0UL;
       ulong skip_lamports = 0UL;
-      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len, &skip_lamports ) ) {
+      /* Record only a PD that is live on the current fork.  A dead one
+         (created and closed within this slot) must contribute nothing,
+         matching Agave, whose load_account returns None for a
+         zero-lamport account. */
+      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len, &skip_lamports ) && skip_lamports ) {
         ushort s = txn_out->accounts.executable_skipped_cnt++;
         txn_out->accounts.executable_skipped_key[ s ] = *programdata_key;
         txn_out->accounts.executable_skipped_len[ s ] = skip_len;

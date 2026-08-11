@@ -2000,7 +2000,11 @@ fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
          path takes the length from the latest accdb view committed on
          this fork.  The equivalent here is the live pool copy, which an
          earlier bundle transaction may have created, resized or
-         drained. */
+         drained.  Only a LIVE PD is recorded.  Membership in the
+         skipped list is the liveness answer, so a dead PD is left out
+         entirely rather than recorded with a zero length: a live PD may
+         itself have zero-length data, and Agave still charges the
+         64-byte base for that. */
       ulong skip_len;
       if( FD_LIKELY( programdata ) ) {
         /* A dead PD must contribute nothing to loaded accounts data
@@ -2013,7 +2017,8 @@ fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
            it would have short circuited above.  So an in-bundle Close
            leaves PD here at zero lamports with length at
            SIZE_OF_UNINITIALIZED. */
-        skip_len = programdata->lamports ? programdata->data_len : 0UL;
+        if( FD_UNLIKELY( !programdata->lamports ) ) continue;
+        skip_len = programdata->data_len;
       } else {
         /* At this point, this PD
            - has no pool copy, so no bundle transaction declares PD, and
@@ -2021,11 +2026,13 @@ fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
 
            So PD was created this slot by something outside the bundle,
            and only the latest accdb view has the length we need for
-           accounting. */
+           accounting.  It may also have been created and closed within
+           this slot, in which case it is dead and contributes nothing. */
         int   probe_pd  = 0;
         ulong probe_len = 0UL;
         ulong probe_lamports = 0UL;
         if( FD_UNLIKELY( !fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &probe_pd, &probe_len, &probe_lamports ) ) ) continue;
+        if( FD_UNLIKELY( !probe_lamports ) ) continue;
         skip_len = probe_len;
       }
       ushort s = txn_out->accounts.executable_skipped_cnt++;
