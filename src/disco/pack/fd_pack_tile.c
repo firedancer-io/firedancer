@@ -205,6 +205,9 @@ typedef struct {
 
   fd_rng_t * rng;
 
+  uint  rng_seed;
+  ulong rng_idx;
+
   /* The end wallclock time of the leader slot we are currently packing
      for, if we are currently packing for a slot.*/
   long slot_end_ns;
@@ -1287,16 +1290,23 @@ after_frag( fd_pack_ctx_t *     ctx,
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->rng_seed, sizeof(uint) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->rng_idx, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+
   if( FD_LIKELY( !tile->pack.bundle.enabled ) ) return;
   if( FD_UNLIKELY( !tile->pack.bundle.vote_account_path[0] ) ) {
     FD_LOG_WARNING(( "Disabling bundle crank because no vote account was specified" ));
     return;
   }
-
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
 
   if( FD_UNLIKELY( !strcmp( tile->pack.bundle.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -1331,7 +1341,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
-  fd_rng_t *      rng = fd_rng_join( fd_rng_new( FD_SCRATCH_ALLOC_APPEND( l, fd_rng_align(), fd_rng_footprint() ), 0U, 0UL ) );
+  fd_rng_t *      rng = fd_rng_join( fd_rng_new( FD_SCRATCH_ALLOC_APPEND( l, fd_rng_align(), fd_rng_footprint() ), ctx->rng_seed, ctx->rng_idx ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
   fd_pack_limits_t limits_lower[1] = {{
