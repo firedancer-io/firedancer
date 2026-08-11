@@ -493,6 +493,7 @@ struct fd_topo_tile {
       ulong max_live_slots;
       ulong full_snapshot_interval_slots;
       ulong incremental_snapshot_interval_slots;
+      ulong create_snapshot_slot; /* one-off snapshot */
 
       /* not specified in TOML */
 
@@ -605,6 +606,7 @@ struct fd_topo_tile {
       char  ledger_path[ PATH_MAX ];
       ulong end_slot;
       ulong root_distance;
+      ulong create_snapshot_slot;
     } backtest;
 
     struct {
