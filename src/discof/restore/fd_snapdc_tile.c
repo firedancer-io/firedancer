@@ -23,6 +23,10 @@ struct fd_snapdc_tile {
   uint dirty   : 1;  /* in the middle of a frame? */
   int state;
 
+  ulong tile_idx;
+  ulong tile_count;
+  ulong frame_idx;
+
   ZSTD_DCtx * zstd;
 
   struct {
@@ -96,18 +100,19 @@ transition_malformed( fd_snapdc_tile_t *  ctx,
 static inline void
 handle_control_frag( fd_snapdc_tile_t *  ctx,
                      fd_stem_context_t * stem,
-                     ulong               sig,
+                     ulong               msg_type,
                      ulong               chunk,
                      ulong               sz ) {
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) return;
+  FD_TEST( msg_type!=FD_SNAPSHOT_MSG_DATA );
+  if( FD_UNLIKELY( msg_type==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) return;
 
   /* All control messages except META reset the decompression stream */
-  if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_META ) ) {
+  if( FD_UNLIKELY( msg_type!=FD_SNAPSHOT_MSG_META ) ) {
     ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
     if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
   }
 
-  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && msg_type!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
@@ -115,29 +120,30 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     return;
   };
 
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) {
+  if( FD_UNLIKELY( msg_type==FD_SNAPSHOT_MSG_META ) ) {
     /* Forward META to snapin so it can update the advertised
        slot/hash for redirect-based downloads. */
     FD_TEST( sz<=ctx->out.mtu );
     void * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
     fd_memcpy( dst, fd_chunk_to_laddr_const( ctx->in.mem, chunk ), sz );
-    fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, msg_type, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
     return;
   }
 
   int forward_msg = 1;
 
-  switch( sig ) {
+  switch( msg_type ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
-      ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->full = msg_type==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->is_zstd = !!msg->zstd;
-      ctx->dirty = 0;
+      ctx->dirty       = 0;
+      ctx->frame_idx   = 0UL;
       ctx->in.frag_pos = 0UL;
       if( ctx->full ) {
         ctx->metrics.full.compressed_bytes_read      = 0UL;
@@ -148,7 +154,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
       fd_memcpy( msg_out, msg, sz );
-      fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, 0UL, msg_type, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
       ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
       forward_msg = 0; // we forward the control message in the `fd_ssctrl_init_t` message
       break;
@@ -194,7 +200,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
 
     default: {
       FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
-                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_msg_ctrl_str( msg_type ), msg_type,
                    fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
     }
@@ -202,20 +208,44 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
 
   /* Forward the control message down the pipeline */
   if( FD_LIKELY( forward_msg ) ) {
-    fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, msg_type, 0UL, 0UL, 0UL, 0UL, 0UL );
   }
+}
+
+static inline int
+before_frag( fd_snapdc_tile_t * ctx,
+             ulong              in_idx FD_PARAM_UNUSED,
+             ulong              seq    FD_PARAM_UNUSED,
+             ulong              sig ) {
+  ulong msg_type = fd_ssctrl_sig_type( sig );
+  if( FD_UNLIKELY( msg_type!=FD_SNAPSHOT_MSG_DATA ) ) return 0;
+
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    /* Ignore all data frags after observing an error in the stream until
+       we receive fail & init control messages to restart processing. */
+    return 1;
+  }
+
+  /* If the snapshot is not compressed, just have tile 0 forward the
+     frag to snapin/snapwr. */
+  if( FD_UNLIKELY( !ctx->is_zstd ) ) {
+    return ctx->tile_idx!=0UL;
+  }
+
+  /* snapdc tiles process zstd frames in a round-robin fashion. Process
+     the current frag if the frag's corresponding frame is assigned to
+     this tile. */
+  return fd_ssctrl_sig_frame_idx( sig )%ctx->tile_count!=ctx->tile_idx;
 }
 
 static inline int
 handle_data_frag( fd_snapdc_tile_t *  ctx,
                   fd_stem_context_t * stem,
+                  ulong               sig,
                   ulong               chunk,
-                  ulong               sz ) {
-  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
-    /* Ignore all data frags after observing an error in the stream until
-       we receive fail & init control messages to restart processing. */
-    return 0;
-  }
+                  ulong               sz,
+                  ulong               ctl ) {
+  FD_TEST( fd_ssctrl_sig_type( sig )==FD_SNAPSHOT_MSG_DATA );
   if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
     FD_LOG_ERR(( "received unexpected data frag in state %s (%lu)",
                  fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
@@ -248,6 +278,22 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     return 0;
   }
 
+  ulong frame_idx = fd_ssctrl_sig_frame_idx( sig );
+  int   frag_eom  = fd_frag_meta_ctl_eom( ctl ); // snapld sets EOM on the last frag of a frame
+
+  /* Are we ready to start processing a new frame? */
+  if( FD_UNLIKELY( !ctx->dirty ) ) {
+    ctx->dirty     = 1;
+    ctx->frame_idx = frame_idx;
+    ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
+    if( FD_UNLIKELY( ZSTD_isError( error ) ) ) {
+      FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
+    }
+  } else if( FD_UNLIKELY( frame_idx!=ctx->frame_idx ) ) {
+    transition_malformed( ctx, stem );
+    return 0;
+  }
+
   ulong in_consumed = 0UL, out_produced = 0UL;
   ulong frame_res = ZSTD_decompressStream_simpleArgs(
       ctx->zstd,
@@ -266,11 +312,6 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     return 0;
   }
 
-  if( FD_LIKELY( out_produced ) ) {
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, out_produced, 0UL, 0UL, 0UL );
-    ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, out_produced, ctx->out.chunk0, ctx->out.wmark );
-  }
-
   ctx->in.frag_pos += in_consumed;
   FD_TEST( ctx->in.frag_pos<=sz );
 
@@ -282,14 +323,42 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     ctx->metrics.incremental.decompressed_bytes_written += out_produced;
   }
 
-  ctx->dirty = frame_res!=0UL;
+  /* Reject a frame that ends outside its EOM boundary, or an incomplete
+     frame that makes no progress. */
+  if( FD_UNLIKELY( (!frame_res && (!frag_eom || ctx->in.frag_pos<sz)) ||
+                   ( frame_res && !in_consumed && !out_produced) ) ) {
+    ctx->in.frag_pos = 0UL;
+    transition_malformed( ctx, stem );
+    return 0;
+  }
 
-  /* frame_res==0 means the frame ended exactly at the output boundary;
-     re-polling then reports "new frame expected" and would mark the
-     stream dirty at a clean EOF. */
-  int maybe_more_output = (out_produced==ctx->out.mtu && frame_res!=0UL) || ctx->in.frag_pos<sz;
-  if( FD_LIKELY( !maybe_more_output ) ) ctx->in.frag_pos = 0UL;
-  return maybe_more_output;
+  /* Publish either the decompressed data or EOM downstream so snapin
+     and snapwr can move onto the next frame. */
+  if( FD_LIKELY( out_produced || !frame_res ) ) {
+    ulong out_ctl = fd_frag_meta_ctl( 0UL, 0, !frame_res, 0 );
+    fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, out_produced, out_ctl, 0UL, 0UL );
+    if( FD_LIKELY( out_produced ) ) {
+      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, out_produced, ctx->out.chunk0, ctx->out.wmark );
+    }
+  }
+
+  /* The current frame is complete, prepare for the next frame */
+  if( FD_UNLIKELY( !frame_res ) ) {
+    ctx->dirty       = 0;
+    ctx->in.frag_pos = 0UL;
+    return 0;
+  }
+
+  /* Bytes remain in the current frag, continue processing */
+  if( FD_UNLIKELY( ctx->in.frag_pos<sz ) ) return 1;
+
+  /* Zstd may have buffered output, process it on the next iteration */
+  if( FD_UNLIKELY( frag_eom ) ) return 1;
+
+  /* At this point the current frag is complete and we're ready to
+     process the next frag for the current frame */
+  ctx->in.frag_pos = 0UL;
+  return 0;
 }
 
 static inline int
@@ -299,14 +368,18 @@ returnable_frag( fd_snapdc_tile_t *  ctx,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               ctl,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, stem, chunk, sz );
-  else                                                handle_control_frag( ctx, stem, sig, chunk, sz );
+  ulong msg_type = fd_ssctrl_sig_type( sig );
+  if( FD_LIKELY( msg_type==FD_SNAPSHOT_MSG_DATA ) ) {
+    return handle_data_frag( ctx, stem, sig, chunk, sz, ctl );
+  } else {
+    handle_control_frag( ctx, stem, msg_type, chunk, sz );
+  }
 
   return 0;
 }
@@ -345,13 +418,18 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_snapdc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t) );
   void * _zstd           = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
 
-  ctx->state = FD_SNAPSHOT_STATE_IDLE;
+  ctx->state      = FD_SNAPSHOT_STATE_IDLE;
+  ctx->tile_idx   = tile->kind_id;
+  ctx->tile_count = fd_topo_tile_name_cnt( topo, NAME );
+  FD_TEST( ctx->tile_count && ctx->tile_count<=FD_SNAPDC_TILE_MAX );
+  FD_TEST( ctx->tile_idx<ctx->tile_count );
 
   ctx->zstd = ZSTD_initStaticDStream( _zstd, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
   FD_TEST( ctx->zstd );
   FD_TEST( ctx->zstd==_zstd );
 
-  ctx->dirty = 0;
+  ctx->dirty       = 0;
+  ctx->frame_idx   = 0UL;
   ctx->in.frag_pos = 0UL;
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
@@ -381,8 +459,7 @@ unprivileged_init( fd_topo_t const *      topo,
                  (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-/* handle_data_frag can publish one data frag plus an error frag */
-#define STEM_BURST 2UL
+#define STEM_BURST 1UL
 
 #define STEM_LAZY  (128L*3000L)
 
@@ -391,6 +468,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_BEFORE_FRAG     before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
