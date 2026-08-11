@@ -519,6 +519,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->shred.depth                         = config->topo.links[ tile->out_link_id[ 0 ] ].depth;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
+    /* Frankendancer publishes completed FEC sets zero-copy. */
+    tile->shred.fec_set_retention_depth       = tile->shred.depth;
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
     tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;

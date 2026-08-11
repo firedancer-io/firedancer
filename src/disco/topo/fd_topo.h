@@ -355,6 +355,8 @@ struct fd_topo_tile {
     struct {
       ulong             depth;
       ulong             fec_resolver_depth;
+      /* Completed FEC sets retained for zero-copy output. */
+      ulong             fec_set_retention_depth;
       char              identity_key_path[ PATH_MAX ];
       ushort            shred_listen_port;
       int               larger_shred_limits_per_block;
