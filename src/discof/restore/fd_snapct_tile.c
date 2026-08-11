@@ -796,15 +796,35 @@ transition_after_done( fd_snapct_tile_t *  ctx,
   }
 
   int has_local_incr = ctx->local_in.incremental_snapshot_slot!=ULONG_MAX;
-  if( ctx->is_file && ( !ctx->download_enabled || (wfs_need_incr && has_local_incr ) ) ) {
-    /* Local file path, go directly to reading incremental file. */
-    FD_LOG_NOTICE(( "reading incremental snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.incremental_snapshot_path, fd_log_style_normal() ));
-    FD_LOG_INFO(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
-    ctx->is_full = 0;
-    ctx->is_file = 1; /* already 1 from the full file load, but be explicit */
-    ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
-    init_load( ctx, stem, 0, 1 );
-    return;
+  if( ctx->is_file && has_local_incr ) {
+    /* Decide whether the local incremental is usable.  Use it when:
+       - download is disabled (no alternative),
+       - WFS requires it (WFS override), or
+       - it is fresh enough relative to the cluster incremental slot. */
+    int use_local_incr;
+    if( !ctx->download_enabled || wfs_need_incr ) {
+      use_local_incr = 1;
+    } else {
+      ulong cluster_incr_slot = fd_sspeer_selector_cluster_slot( ctx->selector ).incremental;
+      ulong local_incr_slot   = ctx->local_in.incremental_snapshot_slot;
+      use_local_incr = ( cluster_incr_slot==ULONG_MAX ) ||
+                       ( local_incr_slot>=fd_ulong_sat_sub( cluster_incr_slot, ctx->config.sources.max_local_incremental_age ) );
+    }
+    if( use_local_incr ) {
+      FD_LOG_NOTICE(( "reading incremental snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.incremental_snapshot_path, fd_log_style_normal() ));
+      FD_LOG_INFO(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
+      ctx->is_full = 0;
+      ctx->is_file = 1; /* already 1 from the full file load, but be explicit */
+      ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
+      init_load( ctx, stem, 0, 1 );
+      return;
+    }
+  }
+
+  if( ctx->is_file && !has_local_incr && !ctx->download_enabled ) {
+    FD_LOG_ERR(( "incremental snapshot needed but no incremental snapshot is available locally "
+                 "and no download sources are configured. Either place an incremental snapshot in "
+                 "the snapshot directory or enable download sources." ));
   }
 
   if( !ctx->is_file ) {
