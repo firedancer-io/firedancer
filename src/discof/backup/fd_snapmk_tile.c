@@ -1911,6 +1911,9 @@ metrics_write( fd_snapmk_t * ctx ) {
   FD_MCNT_SET  ( SNAPMK, BYTES_WRITTEN,               ctx->metrics.bytes_written    );
   FD_MCNT_SET  ( SNAPMK, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks );
   FD_MCNT_SET  ( SNAPMK, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks   );
+
+  FD_MGAUGE_SET( SNAPMK, INCREMENTAL_ACCOUNT_COUNT,    __atomic_load_n( &ctx->accdb_shmem->delta.head, __ATOMIC_RELAXED ) );
+  FD_MGAUGE_SET( SNAPMK, INCREMENTAL_ACCOUNT_CAPACITY, ctx->accdb_shmem->delta.ele_max );
 }
 
 #define STEM_BURST SNAPMK_STEM_BURST
