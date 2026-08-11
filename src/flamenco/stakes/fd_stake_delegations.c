@@ -163,7 +163,7 @@ fd_stake_delegations_footprint( ulong max_stake_accounts,
 
   ulong map_chain_cnt    = root_map_chain_cnt_est( expected_stake_accounts );
   ulong pubkey_max       = max_fallback_stake_accounts;
-  ulong pubkey_chain_cnt = pubkey_map_chain_cnt_est( pubkey_max );
+  ulong pubkey_chain_cnt = pubkey_map_chain_cnt_est( expected_stake_accounts );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
@@ -207,7 +207,7 @@ fd_stake_delegations_new( void * mem,
 
   ulong map_chain_cnt    = root_map_chain_cnt_est( expected_stake_accounts );
   ulong pubkey_max       = max_fallback_stake_accounts;
-  ulong pubkey_chain_cnt = pubkey_map_chain_cnt_est( pubkey_max );
+  ulong pubkey_chain_cnt = pubkey_map_chain_cnt_est( expected_stake_accounts );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_stake_delegations_t * stake_delegations = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
