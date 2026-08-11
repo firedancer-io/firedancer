@@ -82,6 +82,53 @@ test_empty_contains( void ) {
 }
 
 void
+test_pull_request_serialize_alignment( void ) {
+  uchar payload[256UL] __attribute__((aligned(8))) = {0};
+  uchar contact_info[1UL] = {0};
+  uchar * wire_keys;
+  uchar * wire_bits;
+  uchar * wire_bits_set;
+
+  long payload_sz = fd_gossip_pull_request_init( payload,
+                                                  sizeof(payload),
+                                                  1UL,
+                                                  64UL,
+                                                  0UL,
+                                                  0U,
+                                                  contact_info,
+                                                  sizeof(contact_info),
+                                                  &wire_keys,
+                                                  &wire_bits,
+                                                  &wire_bits_set );
+  FD_TEST( payload_sz>0L );
+  FD_TEST( !fd_ulong_is_aligned( (ulong)wire_keys,     alignof(ulong) ) );
+  FD_TEST( !fd_ulong_is_aligned( (ulong)wire_bits,     alignof(ulong) ) );
+  FD_TEST( !fd_ulong_is_aligned( (ulong)wire_bits_set, alignof(ulong) ) );
+
+  ulong keys[1UL];
+  ulong bits[1UL] = {0};
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 0UL ) );
+  FD_TEST( rng );
+
+  fd_bloom_t bloom[1];
+  FD_TEST( !fd_bloom_init_inplace( keys, bits, 1UL, 64UL, 0UL, rng, 0.1, bloom ) );
+  fd_bloom_insert( bloom, (uchar const *)"x", 1UL );
+  ulong bits_set = (ulong)fd_ulong_popcnt( bits[0] );
+  FD_TEST( bits_set );
+
+  fd_memcpy( wire_keys, keys, sizeof(keys) );
+  fd_memcpy( wire_bits, bits, sizeof(bits) );
+  FD_STORE( ulong, wire_bits_set, bits_set );
+
+  FD_TEST( FD_LOAD( ulong, wire_keys     )==keys[0]  );
+  FD_TEST( FD_LOAD( ulong, wire_bits     )==bits[0]  );
+  FD_TEST( FD_LOAD( ulong, wire_bits_set )==bits_set );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+void
 test_bitvec_deserialize_case( uchar has_bits,
                               ulong bits_cap,
                               ulong encoded_bits_len,
@@ -217,6 +264,7 @@ main( int     argc,
   test_filters();
   test_add_contains();
   test_empty_contains();
+  test_pull_request_serialize_alignment();
   test_bitvec_deserialize();
   test_epoch_slots_bitvec_deserialize();
   test_keys_oob();
