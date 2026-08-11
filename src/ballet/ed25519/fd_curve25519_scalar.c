@@ -102,10 +102,10 @@ fd_curve25519_scalar_reduce( uchar       out[ 32 ],
 
   /* Pack the results into out */
 
-  *(ulong *) out     = (((ulong)s0 )   ) | (((ulong)s1 )<<21) | (((ulong)s2 )<<42) | (((ulong)s3 )<<63);
-  *(ulong *)(out+ 8) = (((ulong)s3 )>>1) | (((ulong)s4 )<<20) | (((ulong)s5 )<<41) | (((ulong)s6 )<<62);
-  *(ulong *)(out+16) = (((ulong)s6 )>>2) | (((ulong)s7 )<<19) | (((ulong)s8 )<<40) | (((ulong)s9 )<<61);
-  *(ulong *)(out+24) = (((ulong)s9 )>>3) | (((ulong)s10)<<18) | (((ulong)s11)<<39);
+  FD_STORE( ulong, out,    (((ulong)s0 )   ) | (((ulong)s1 )<<21) | (((ulong)s2 )<<42) | (((ulong)s3 )<<63) );
+  FD_STORE( ulong, out+ 8, (((ulong)s3 )>>1) | (((ulong)s4 )<<20) | (((ulong)s5 )<<41) | (((ulong)s6 )<<62) );
+  FD_STORE( ulong, out+16, (((ulong)s6 )>>2) | (((ulong)s7 )<<19) | (((ulong)s8 )<<40) | (((ulong)s9 )<<61) );
+  FD_STORE( ulong, out+24, (((ulong)s9 )>>3) | (((ulong)s10)<<18) | (((ulong)s11)<<39) );
   return out;
 }
 
@@ -267,10 +267,10 @@ fd_curve25519_scalar_muladd( uchar       s[ 32 ],
 
   /* Pack the results into s */
 
-  *(ulong *) s     = (((ulong)s0 )   ) | (((ulong)s1 )<<21) | (((ulong)s2 )<<42) | (((ulong)s3 )<<63);
-  *(ulong *)(s+ 8) = (((ulong)s3 )>>1) | (((ulong)s4 )<<20) | (((ulong)s5 )<<41) | (((ulong)s6 )<<62);
-  *(ulong *)(s+16) = (((ulong)s6 )>>2) | (((ulong)s7 )<<19) | (((ulong)s8 )<<40) | (((ulong)s9 )<<61);
-  *(ulong *)(s+24) = (((ulong)s9 )>>3) | (((ulong)s10)<<18) | (((ulong)s11)<<39);
+  FD_STORE( ulong, s,    (((ulong)s0 )   ) | (((ulong)s1 )<<21) | (((ulong)s2 )<<42) | (((ulong)s3 )<<63) );
+  FD_STORE( ulong, s+ 8, (((ulong)s3 )>>1) | (((ulong)s4 )<<20) | (((ulong)s5 )<<41) | (((ulong)s6 )<<62) );
+  FD_STORE( ulong, s+16, (((ulong)s6 )>>2) | (((ulong)s7 )<<19) | (((ulong)s8 )<<40) | (((ulong)s9 )<<61) );
+  FD_STORE( ulong, s+24, (((ulong)s9 )>>3) | (((ulong)s10)<<18) | (((ulong)s11)<<39) );
   return s;
 }
 
