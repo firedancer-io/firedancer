@@ -198,7 +198,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   net.interface                                    );
   CFG_POP      ( cstr,   net.bind_address                                 );
-  CFG_POP      ( cstr,   net.auto_level                                   );
   CFG_POP      ( cstr,   net.provider                                     );
   CFG_POP      ( uint,   net.ingress_buffer_size                          );
   CFG_POP      ( cstr,   net.xdp.xdp_mode                                 );

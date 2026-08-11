@@ -348,8 +348,7 @@ fd_auto_net( fd_config_t          * config,
          default and goes onto the next checks */
       if( !feat->is_feat_auto( config ) ) continue;
 
-      if( !is_chosen_provider ||
-          !strcmp( config->net.auto_level, "minimal" ) ) continue;
+      if( !is_chosen_provider ) continue;
 
       /* Feature's driver/Linux version requirements */
       if( !fd_auto_check_driver( info, feat->supported_drivers ) ) continue;
@@ -371,8 +370,7 @@ fd_config_auto( fd_config_t * config ) {
   fd_auto_net( config, &info );
 
   fd_cstr_printf( config->auto_config_log, sizeof(config->auto_config_log), NULL,
-      "network auto configure level=%s, provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d (driver=%s kernel=%lu.%lu virtual_if=%d bonded_if=%d slaves=%u, net_tile_cnt=%u)",
-      config->net.auto_level,
+      "network auto configure system info: provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d (driver=%s kernel=%lu.%lu virtual_if=%d bonded_if=%d slaves=%u, net_tile_cnt=%u)",
       config->net.provider,
       config->net.xdp.xdp_mode,
       config->net.xdp.poll_mode,

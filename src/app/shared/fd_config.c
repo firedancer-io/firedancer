@@ -554,11 +554,6 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
   CFG_HAS_NON_ZERO( net.ingress_buffer_size );
-  if( 0!=strcmp( config->net.auto_level, "standard" ) &&
-      0!=strcmp( config->net.auto_level, "minimal"  ) ) {
-    FD_LOG_ERR(( "invalid `net.auto_level`: \"%s\"; must be \"standard\" or \"minimal\"",
-                 config->net.auto_level ));
-  }
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
         0!=strcmp( config->net.xdp.xdp_mode, "drv"     ) &&
