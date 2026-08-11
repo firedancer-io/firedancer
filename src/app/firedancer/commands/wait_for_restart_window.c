@@ -192,12 +192,32 @@ wait_for_safe_window( config_t * config,
     skip_snapshot = 1;
   }
 
+  /* If the snapmk tile exists but the validator has never started or
+     finished a full snapshot, it is not generating snapshots.  Auto-skip
+     the snapshot check (matching Agave's "Validator is not generating
+     snapshots" message). */
+
+  if( FD_UNLIKELY( !skip_snapshot && snapmk_tile ) ) {
+    ulong full_created = fd_metrics_tile( snapmk_tile->metrics )[ FD_METRICS_COUNTER_SNAPMK_SNAPSHOTS_CREATED_FULL_OFF ];
+    ulong full_started = fd_metrics_tile( snapmk_tile->metrics )[ FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_SLOT_STARTED_FULL_OFF ];
+    if( FD_UNLIKELY( full_created==0UL && full_started==0UL ) ) {
+      FD_LOG_NOTICE(( "Validator is not generating snapshots. Skipping new snapshot check..." ));
+      skip_snapshot = 1;
+    }
+  }
+
   /* Snapshot baseline tracking.  When we enter an idle window we record
      the current finished snapshot slots.  A "fresh" snapshot means a new
-     full snapshot completed after we entered the idle window. */
+     full snapshot completed after we entered the idle window.
+
+     seen_incremental_snapshot tracks whether the validator has ever
+     produced an incremental snapshot.  If so, we require that the
+     incremental catches up to the latest full before declaring the
+     snapshot check passed. */
 
   int   in_idle_window            = 0;
   ulong idle_window_full_baseline = 0UL;
+  int   seen_incremental_snapshot = 0;
 
   /* Poll every 5 seconds. */
 
@@ -206,6 +226,17 @@ wait_for_safe_window( config_t * config,
   int  first_frame = 1;
 
   while( FD_LIKELY( g_running ) ) {
+
+    /* 0. Fail-fast: if the maximum idle window for the remaining epoch
+       is known and smaller than min_idle_slots, there is no possible
+       restart window and we can exit immediately (matching Agave). */
+
+    ulong max_idle_window = fd_metrics_tile( replay_tile->metrics )[ FD_METRICS_GAUGE_REPLAY_MAX_IDLE_WINDOW_SLOTS_OFF ];
+    if( FD_UNLIKELY( max_idle_window>0UL && max_idle_window<min_idle_slots ) ) {
+      FD_LOG_ERR(( "Validator has no idle window of at least %lu slots. "
+                   "Largest idle window is %lu slots",
+                   min_idle_slots, max_idle_window ));
+    }
 
     /* 1. Health check: replay tile status must be 1 (running). */
 
@@ -303,26 +334,30 @@ wait_for_safe_window( config_t * config,
       fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL, "waiting for idle window" );
     } else {
       ulong full_finished = fd_metrics_tile( snapmk_tile->metrics )[ FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_SLOT_FINISHED_FULL_OFF ];
+      ulong incr_finished = fd_metrics_tile( snapmk_tile->metrics )[ FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_SLOT_FINISHED_INCREMENTAL_OFF ];
+
+      /* Track whether we have ever observed a completed incremental
+         snapshot.  Once seen, we always require the incremental to
+         catch up to the full before declaring the snapshot check
+         passed. */
+
+      if( FD_UNLIKELY( incr_finished!=0UL ) ) seen_incremental_snapshot = 1;
 
       if( FD_UNLIKELY( full_finished<=idle_window_full_baseline ) ) {
         snapshot_result = CHECK_FAIL;
         fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL,
                               "waiting for new full snapshot (last=%lu, baseline=%lu)",
                               full_finished, idle_window_full_baseline );
-      } else {
-        /* Verify incremental snapshot is at least as recent as the full
-           (i.e. based on the current full).  If incremental is 0 that
-           just means none has been produced yet, which is fine. */
+      } else if( FD_UNLIKELY( seen_incremental_snapshot && incr_finished<full_finished ) ) {
+        /* A new full snapshot was produced but the incremental hasn't
+           caught up yet.  Wait for it. */
 
-        ulong incr_finished = fd_metrics_tile( snapmk_tile->metrics )[ FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_SLOT_FINISHED_INCREMENTAL_OFF ];
-        if( FD_UNLIKELY( incr_finished!=0UL && incr_finished<full_finished ) ) {
-          snapshot_result = CHECK_FAIL;
-          fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL,
-                                "incremental stale (incr=%lu, full=%lu)", incr_finished, full_finished );
-        } else {
-          snapshot_result = CHECK_PASS;
-          fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL, "ok (slot=%lu)", full_finished );
-        }
+        snapshot_result = CHECK_FAIL;
+        fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL,
+                              "waiting for incremental snapshot (incr=%lu, full=%lu)", incr_finished, full_finished );
+      } else {
+        snapshot_result = CHECK_PASS;
+        fd_cstr_printf_check( snapshot_desc, sizeof(snapshot_desc), NULL, "ok (slot=%lu)", full_finished );
       }
     }
 
@@ -393,20 +428,30 @@ exit_cmd_fn( args_t *   args,
                  "Omit --delinquent-check to skip delinquent stake checking (the default)." ));
   }
 
-  ulong min_idle_time = args->wait_for_restart_window.min_idle_time;
-  int   skip_snapshot  = args->wait_for_restart_window.skip_snapshot_check;
-  int   skip_health    = args->wait_for_restart_window.skip_health_check;
+  int force            = args->wait_for_restart_window.force;
+  int no_wait_for_exit = args->wait_for_restart_window.no_wait_for_exit;
 
-  ulong const slots_per_min = 150UL;
-  ulong min_idle_slots = min_idle_time * slots_per_min;
+  if( FD_UNLIKELY( !force ) ) {
+    ulong min_idle_time = args->wait_for_restart_window.min_idle_time;
+    int   skip_snapshot  = args->wait_for_restart_window.skip_snapshot_check;
+    int   skip_health    = args->wait_for_restart_window.skip_health_check;
 
-  FD_LOG_NOTICE(( "waiting for a safe exit window  "
-                  "(min-idle-time=%lu min, min-idle-slots=%lu, skip-snapshot=%s, skip-health=%s)",
-                  min_idle_time, min_idle_slots,
-                  skip_snapshot ? "yes" : "no",
-                  skip_health  ? "yes" : "no" ));
+    ulong const slots_per_min = 150UL;
+    ulong min_idle_slots = min_idle_time * slots_per_min;
 
-  wait_for_safe_window( config, min_idle_slots, skip_snapshot, skip_health );
+    FD_LOG_NOTICE(( "waiting for a safe exit window  "
+                    "(min-idle-time=%lu min, min-idle-slots=%lu, skip-snapshot=%s, skip-health=%s)",
+                    min_idle_time, min_idle_slots,
+                    skip_snapshot ? "yes" : "no",
+                    skip_health  ? "yes" : "no" ));
+
+    wait_for_safe_window( config, min_idle_slots, skip_snapshot, skip_health );
+  } else {
+    FD_LOG_NOTICE(( "--force specified, skipping restart window check" ));
+
+    /* Still need to adopt the config for bootinfo access below. */
+    fd_bootinfo_adopt( config );
+  }
 
   /* Discover the validator PID via bootinfo and send SIGTERM. */
 
@@ -425,6 +470,21 @@ exit_cmd_fn( args_t *   args,
     FD_LOG_ERR(( "kill(%lu, SIGTERM) failed (%i-%s)", info.pid, errno, fd_io_strerror( errno ) ));
 
   FD_LOG_NOTICE(( "sent SIGTERM to validator pid %lu", info.pid ));
+
+  /* Wait for the validator to terminate unless --no-wait-for-exit. */
+
+  if( FD_UNLIKELY( !no_wait_for_exit ) ) {
+    long const poll_ns = 500L * 1000L * 1000L; /* 500 ms */
+
+    while( FD_LIKELY( fd_bootinfo_live( &info ) ) ) {
+      fd_log_wait_until( fd_log_wallclock() + poll_ns );
+
+      /* Re-read bootinfo in case pid_start_time changed (pid reuse). */
+      if( FD_UNLIKELY( -1==fd_bootinfo_path_read( path, &info ) ) ) break;
+    }
+
+    FD_LOG_NOTICE(( "validator (pid %lu) has terminated", info.pid ));
+  }
 }
 
 static void
@@ -432,6 +492,9 @@ exit_cmd_args( int *    pargc,
                char *** pargv,
                args_t * args ) {
   wait_for_restart_window_cmd_args( pargc, pargv, args );
+  args->wait_for_restart_window.force            = fd_env_strip_cmdline_contains( pargc, pargv, "--force" )
+                                                 | fd_env_strip_cmdline_contains( pargc, pargv, "-f" );
+  args->wait_for_restart_window.no_wait_for_exit = fd_env_strip_cmdline_contains( pargc, pargv, "--no-wait-for-exit" );
 }
 
 static void
@@ -444,6 +507,14 @@ wait_for_restart_window_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--skip-health-check",       NULL,       "Skip the replay tile health check" );
   fd_action_help_arg( help, "--delinquent-check",        NULL,       "Enable delinquent stake checking (not yet implemented;\n"
                                                                      "errors if used)" );
+}
+
+static void
+exit_args_help( fd_action_help_t * help ) {
+  wait_for_restart_window_args_help( help );
+  fd_action_help_arg( help, "--force / -f",       NULL, "Skip the restart window check and send SIGTERM immediately" );
+  fd_action_help_arg( help, "--no-wait-for-exit",  NULL, "Send SIGTERM and return immediately without waiting for\n"
+                                                          "the validator to terminate" );
 }
 
 action_t fd_action_wait_for_restart_window = {
@@ -484,9 +555,11 @@ action_t fd_action_exit = {
                     "Attaches to a running validator and polls every 5 seconds until\n"
                     "all restart safety checks pass (health, leader gap, snapshot\n"
                     "freshness).  Once safe, sends SIGTERM to the validator supervisor\n"
-                    "and exits 0.\n"
+                    "and polls until the process terminates (exit 0).\n"
                     "\n"
-                    "Accepts the same options as wait-for-restart-window.",
+                    "Use --force to skip the restart window check and send SIGTERM\n"
+                    "immediately.  Use --no-wait-for-exit to return without waiting\n"
+                    "for the validator to terminate.",
   .usage          = "exit [OPTIONS]",
-  .args_help      = wait_for_restart_window_args_help,
+  .args_help      = exit_args_help,
 };

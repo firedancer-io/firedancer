@@ -139,6 +139,40 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return l;
 }
 
+/* compute_max_idle_window iterates leader slots from reset_slot
+   forward through the current epoch to find the maximum contiguous
+   gap between consecutive leader slots (using the same distance
+   convention as idle_gap: next_leader - prev_position).  Returns 0
+   if the leader schedule is unavailable. */
+
+static ulong
+compute_max_idle_window( fd_multi_epoch_leaders_t const * mleaders,
+                         ulong                            reset_slot,
+                         fd_pubkey_t const *              identity ) {
+  fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( mleaders, reset_slot );
+  if( FD_UNLIKELY( !lsched ) ) return 0UL;
+
+  ulong epoch_end = lsched->slot0 + lsched->slot_cnt;
+  ulong max_gap   = 0UL;
+  ulong prev      = reset_slot;
+  ulong start     = reset_slot + 1UL;
+
+  for(;;) {
+    ulong next = fd_multi_epoch_leaders_get_next_slot( mleaders, start, identity );
+    if( next==ULONG_MAX || next>=epoch_end ) {
+      ulong gap = epoch_end - prev;
+      max_gap = fd_ulong_max( max_gap, gap );
+      break;
+    }
+    ulong gap = next - prev;
+    max_gap = fd_ulong_max( max_gap, gap );
+    prev  = next;
+    start = next + 1UL;
+  }
+
+  return max_gap;
+}
+
 static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
@@ -193,6 +227,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTITION_MAX_BYTES,   wm->free_max_sz    );
   FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PARTITION_MEDIAN_BYTES, wm->part_median_sz );
   FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PARTITION_MEAN_BYTES,   wm->part_mean_sz   );
+
+  FD_MGAUGE_SET( REPLAY, MAX_IDLE_WINDOW_SLOTS, ctx->max_idle_window_slots );
 
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -610,6 +646,7 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
      reset slot returned by tower. */
   ulong min_leader_slot = fd_ulong_max( ctx->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  ctx->max_idle_window_slots = compute_max_idle_window( ctx->mleaders, ctx->reset_slot, ctx->identity_pubkey );
   ctx->next_leader_tickcount = LONG_MAX;
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX && ctx->is_booted ) ) {
     /* If we are booted, we have a reset_bank, so use it to set
@@ -1133,6 +1170,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->reset_block_id        = ctx->initial_block_id;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+  ctx->max_idle_window_slots = compute_max_idle_window( ctx->mleaders, ctx->reset_slot, ctx->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
     double slot_duration_ticks = (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
     ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
@@ -1263,6 +1301,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->reset_block_id        = manifest_block_id;
     ctx->reset_timestamp_nanos = fd_log_wallclock();
     ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+    ctx->max_idle_window_slots = compute_max_idle_window( ctx->mleaders, ctx->reset_slot, ctx->identity_pubkey );
 
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, snapshot_slot );
     FD_TEST( bank->idx==0UL );
@@ -2295,6 +2334,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 
   ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  ctx->max_idle_window_slots = compute_max_idle_window( ctx->mleaders, ctx->reset_slot, ctx->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
     double slot_duration_ticks = (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
     ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();

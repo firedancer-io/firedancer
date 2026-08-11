@@ -1322,6 +1322,8 @@ EXAMPLES
     <counter name="RootDurationSeconds" enum="RootPhase" converter="seconds" summary="Time spent rooting accounts, in seconds" />
 
     <gauge name="RuntimeStatus" summary="0=initializing, 1=loaded" />
+
+    <gauge name="MaxIdleWindowSlots" summary="Maximum contiguous non-leader slots remaining in the current epoch for this validator, or 0 if unknown" />
 </tile>
 
 <enum name="RepairSentRequestType">

@@ -215,6 +215,8 @@ union fdctl_args {
     int   skip_snapshot_check;
     int   skip_health_check;
     int   skip_delinquent_check;
+    int   force;
+    int   no_wait_for_exit;
   } wait_for_restart_window;
 };
 

@@ -328,6 +328,7 @@ struct fd_replay_tile {
   double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
+  ulong       max_idle_window_slots;
 
   /* Caught up to the cluster: replay has completed a slot within a few
      slots of the highest FEC set slot seen from repair (which tracks
