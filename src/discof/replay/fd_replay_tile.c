@@ -1110,6 +1110,12 @@ static void
 boot_genesis( fd_replay_tile_t *        ctx,
               fd_stem_context_t *       stem,
               fd_genesis_meta_t const * meta ) {
+  if( FD_UNLIKELY( ctx->wfs_enabled ) ) {
+    FD_LOG_ERR(( "wait_for_supermajority_at_slot is set but the validator is booting from genesis. "
+                 "Remove the [consensus.wait_for_supermajority_at_slot] and "
+                 "[consensus.wait_for_supermajority_with_bank_hash] configuration and restart." ));
+  }
+
   /* If we are bootstrapping, we can't wait to wait for our identity
      vote to be rooted as this creates a circular dependency. */
   ctx->identity_vote_rooted = 1;
@@ -1250,21 +1256,37 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ulong snapshot_slot = bank->f.slot;
 
     fd_hash_t bank_hash = bank->f.bank_hash;
-    if( FD_UNLIKELY( ctx->wfs_enabled && memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
-      FD_BASE58_ENCODE_32_BYTES( bank_hash.uc,                 actual_bank_hash_cstr );
-      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] expected_bank_hash=%s does not match snapshot slot"
-                   "=%lu bank_hash=%s. If you are loading a snapshot from the network, check that the slot matches the "
-                   "cluster restart slot. ", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
-    }
     if( FD_UNLIKELY( ctx->wfs_enabled ) ) {
       if( FD_LIKELY( snapshot_slot==ctx->wait_for_supermajority_at_slot ) ) {
+        /* Snapshot slot matches WFS slot, activate the gate. */
+        if( FD_UNLIKELY( memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
+          FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
+          FD_BASE58_ENCODE_32_BYTES( bank_hash.uc,               actual_bank_hash_cstr );
+          FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] expected_bank_hash=%s does not match snapshot slot"
+                       "=%lu bank_hash=%s. If you are loading a snapshot from the network, check that the slot matches the "
+                       "cluster restart slot.", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
+        }
         if( FD_UNLIKELY( ctx->wait_for_vote_to_start_leader ) ) {
           FD_LOG_NOTICE(( "auto-overriding wait_for_vote_to_start_leader to false "
                           "(WFS active at slot %lu)", snapshot_slot ));
           ctx->wait_for_vote_to_start_leader = 0;
         }
-        FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
+        if( FD_LIKELY( !ctx->wfs_complete ) ) {
+          FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
+        }
+      } else if( FD_UNLIKELY( snapshot_slot<ctx->wait_for_supermajority_at_slot ) ) {
+        /* Snapshot is behind the WFS slot and we cannot replay up to
+           it.  Crash so the operator can provide the correct snapshot. */
+        FD_LOG_ERR(( "snapshot slot %lu is behind wait_for_supermajority_at_slot %lu "
+                     "and no incremental snapshot bridged the gap. "
+                     "Provide a snapshot at the WFS slot or disable WFS.",
+                     snapshot_slot, ctx->wait_for_supermajority_at_slot ));
+      } else {
+        /* Snapshot is ahead of WFS slot — network already moved on. */
+        FD_LOG_WARNING(( "snapshot slot %lu is ahead of wait_for_supermajority_at_slot %lu, "
+                         "skipping wait for supermajority and bank hash verification",
+                         snapshot_slot, ctx->wait_for_supermajority_at_slot ));
+        ctx->wfs_complete = 1;
       }
     }
 
@@ -2884,6 +2906,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_GOSSIP_OUT: {
       FD_TEST( sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE );
+      if( FD_LIKELY( ctx->wfs_complete ) ) break;
       ctx->wfs_complete = 1;
       maybe_verify_shred_version( ctx );
 
