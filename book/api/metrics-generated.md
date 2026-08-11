@@ -1878,6 +1878,8 @@
 | <span class="metrics-name">snapmk_&#8203;bytes_&#8203;written</span> | counter | Number of compressed bytes written |
 | <span class="metrics-name">snapmk_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
 | <span class="metrics-name">snapmk_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing data |
+| <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;count</span> | gauge | Number of accounts that changed since the last full snapshot, i.e. the number of accounts that the next incremental snapshot will contain |
+| <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;capacity</span> | gauge | Maximum number of changed accounts that can be tracked.  Once the count reaches this limit, incremental snapshots can no longer be created until the next full snapshot |
 
 </div>
 

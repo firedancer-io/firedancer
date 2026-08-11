@@ -2026,6 +2026,8 @@ EXAMPLES
     <counter name="BytesWritten" summary="Number of compressed bytes written" />
     <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
     <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing data" />
+    <gauge name="IncrementalAccountCount" summary="Number of accounts that changed since the last full snapshot, i.e. the number of accounts that the next incremental snapshot will contain" />
+    <gauge name="IncrementalAccountCapacity" summary="Maximum number of changed accounts that can be tracked.  Once the count reaches this limit, incremental snapshots can no longer be created until the next full snapshot" />
 </tile>
 
 <tile name="snapzp">
