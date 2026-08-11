@@ -1196,6 +1196,7 @@ fd_ext_poh_begin_leader( void const * bank,
     FD_TEST( !ctx->last_hashcnt );
     ctx->slot = ctx->reset_slot;
     ctx->hashcnt = 0UL;
+    fd_memcpy( ctx->hash, ctx->reset_hash, 32UL );
   }
 
   if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
