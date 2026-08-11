@@ -91,11 +91,17 @@ fd_ssarchive_parse_filename( char const * _name,
    empty, *incremental_is_zstd is set to 0, and incremental_hash is
    zeroed.
 
+   When required_effective_slot is nonzero, only snapshots whose
+   effective slot match (incr_slot if a pair, else full_slot) are
+   considered.  When required_effective_slot is 0, no filtering is
+   applied.
+
    Returns -1 on failure, and 0 on success. */
 
 int
 fd_ssarchive_latest_pair( char const * directory,
                           int          incremental_snapshot,
+                          ulong        required_effective_slot,
                           ulong *      full_slot,
                           ulong *      incremental_slot,
                           char         full_path[ static PATH_MAX ],

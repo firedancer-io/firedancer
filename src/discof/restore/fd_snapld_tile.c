@@ -125,13 +125,27 @@ privileged_init( fd_topo_t const *      topo,
   ctx->local_incr_fd = -1;
   /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
      of whether snapct may do the same, because this information is
-     needed here during privileged_init. */
-  if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
-                                               tile->snapld.incremental_snapshots,
-                                               &full_slot,         &incr_slot,
-                                               full_path,          incr_path,
-                                               &full_is_zstd,      &incr_is_zstd,
-                                               full_snapshot_hash, incr_snapshot_hash ) ) ) {
+     needed here during privileged_init.  Mirror snapct's two-scan
+     approach: first try with WFS filter, then fallback without it,
+     so that snapld opens the same file snapct will choose. */
+  int local_incremental = tile->snapld.incremental_snapshots || tile->snapld.wait_for_supermajority_at_slot;
+  int found = !fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
+                                         local_incremental,
+                                         tile->snapld.wait_for_supermajority_at_slot,
+                                         &full_slot,         &incr_slot,
+                                         full_path,          incr_path,
+                                         &full_is_zstd,      &incr_is_zstd,
+                                         full_snapshot_hash, incr_snapshot_hash );
+  if( !found ) {
+    found = !fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
+                                       0, 0,
+                                       &full_slot,         &incr_slot,
+                                       full_path,          incr_path,
+                                       &full_is_zstd,      &incr_is_zstd,
+                                       full_snapshot_hash, incr_snapshot_hash );
+    if( found ) incr_slot = ULONG_MAX;
+  }
+  if( FD_LIKELY( found ) ) {
     FD_TEST( full_slot!=ULONG_MAX );
 
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
