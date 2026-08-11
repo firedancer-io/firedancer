@@ -171,6 +171,61 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 /* #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START (5UL) // UNUSED */
 #define FD_GUI_SLOT_SHRED_SHRED_PUBLISHED         (6UL)
 
+/* Timeline aggregates are stored in one record per UNIX day.  Every
+   supported granularity divides a day exactly, so all levels can share a
+   single packed bucket index space. */
+#define FD_GUI_TIMELINE_GRANULARITY_CNT (6UL)
+#define FD_GUI_TIMELINE_DAY_NS          (86400000000000L)
+#define FD_GUI_TIMELINE_MAX_BUCKETS     (150UL)
+
+#define FD_GUI_TIMELINE_1S_CNT  (86400UL)
+#define FD_GUI_TIMELINE_30S_CNT (2880UL)
+#define FD_GUI_TIMELINE_1M_CNT  (1440UL)
+#define FD_GUI_TIMELINE_30M_CNT (48UL)
+#define FD_GUI_TIMELINE_1H_CNT  (24UL)
+#define FD_GUI_TIMELINE_1D_CNT  (1UL)
+
+#define FD_GUI_TIMELINE_1S_OFF  (0UL)
+#define FD_GUI_TIMELINE_30S_OFF (FD_GUI_TIMELINE_1S_OFF +FD_GUI_TIMELINE_1S_CNT )
+#define FD_GUI_TIMELINE_1M_OFF  (FD_GUI_TIMELINE_30S_OFF+FD_GUI_TIMELINE_30S_CNT)
+#define FD_GUI_TIMELINE_30M_OFF (FD_GUI_TIMELINE_1M_OFF +FD_GUI_TIMELINE_1M_CNT )
+#define FD_GUI_TIMELINE_1H_OFF  (FD_GUI_TIMELINE_30M_OFF+FD_GUI_TIMELINE_30M_CNT)
+#define FD_GUI_TIMELINE_1D_OFF  (FD_GUI_TIMELINE_1H_OFF +FD_GUI_TIMELINE_1H_CNT )
+#define FD_GUI_TIMELINE_BUCKET_CNT (FD_GUI_TIMELINE_1D_OFF+FD_GUI_TIMELINE_1D_CNT)
+
+extern ulong const fd_gui_timeline_granularity_ns [ FD_GUI_TIMELINE_GRANULARITY_CNT ];
+extern ulong const fd_gui_timeline_granularity_off[ FD_GUI_TIMELINE_GRANULARITY_CNT ];
+
+struct fd_gui_timeline_day {
+  ulong day; /* days since the UNIX epoch */
+  ulong shreds         [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong turbine        [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong repair         [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong reconstructed  [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong published      [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong compute_units  [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong max_compute    [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong txn_fees       [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong prio_fees      [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong tips           [ FD_GUI_TIMELINE_BUCKET_CNT ];
+};
+typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
+
+#define FD_GUI_TIMELINE_SHRED_BUF_CNT (4096UL)
+struct fd_gui_timeline_shred_accum {
+  ulong slot; /* ULONG_MAX when unused */
+  uint  shreds;
+  uint  turbine;
+  uint  repair;
+  uint  reconstructed;
+  uint  published;
+  uchar completed; /* counters drained; late events update the slot KV */
+  uchar shreds_known;
+  uchar sources_known;
+  uchar published_known;
+};
+typedef struct fd_gui_timeline_shred_accum fd_gui_timeline_shred_accum_t;
+
 struct fd_gui_tile_timers {
   long   sample_time_nanos; /* wallclock ns this sample was taken; identical across the per-tile records. */
   ulong  tile_idx;          /* global tile index into topo->tiles. */
@@ -312,6 +367,11 @@ struct __attribute__((packed)) fd_gui_slot {
   ulong     parent_bank_seq;  /* parent block's fork discriminator (ULONG_MAX if unknown) */
   long      completed_time;   /* slot completion wallclock ns (LONG_MAX if unknown) */
   uint      shred_cnt;        /* slot->shred_cnt at completion */
+  uint      block_shred_cnt;  /* data and coding shreds, UINT_MAX if unknown */
+  uint      turbine_shred_cnt;      /* UINT_MAX if unknown */
+  uint      repair_shred_cnt;       /* UINT_MAX if unknown */
+  uint      reconstructed_shred_cnt;/* UINT_MAX if unknown */
+  uint      published_shred_cnt;    /* UINT_MAX if unknown */
   fd_hash_t block_hash;       /* block hash of the slot */
   uchar     mine:1;           /* 1 if this was our leader slot */
   uchar     is_voter:1;       /* 1 if we were structurally a voter when this slot was replayed */
@@ -910,6 +970,9 @@ struct fd_gui {
        been pushed to clients. */
     long broadcast_watermark_ns;
   } shreds;
+
+  ulong timeline_day_max; /* largest day key ever created, ULONG_MAX when none */
+  fd_gui_timeline_shred_accum_t timeline_shreds[ FD_GUI_TIMELINE_SHRED_BUF_CNT ];
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -1036,6 +1099,25 @@ fd_gui_handle_leader_fec( fd_gui_t * gui,
                           int        is_end_of_slot,
                           long       tsorig,
                           long       now );
+
+void
+fd_gui_timeline_handle_shred( fd_gui_t * gui,
+                              ulong      slot,
+                              uint       source );
+
+void
+fd_gui_timeline_handle_fec( fd_gui_t * gui,
+                            ulong      slot,
+                            int        published );
+
+void
+fd_gui_timeline_complete_slot( fd_gui_t *      gui,
+                               ulong           slot,
+                               fd_gui_slot_t * dst );
+
+void
+fd_gui_timeline_root_slot( fd_gui_t *            gui,
+                           fd_gui_slot_t const * slot );
 
 void
 fd_gui_handle_exec_txn_done( fd_gui_t * gui,
@@ -1399,6 +1481,11 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
   meta->priority_fee      = ULONG_MAX;
   meta->tips              = ULONG_MAX;
   meta->shred_cnt         = UINT_MAX;
+  meta->block_shred_cnt   = UINT_MAX;
+  meta->turbine_shred_cnt       = UINT_MAX;
+  meta->repair_shred_cnt        = UINT_MAX;
+  meta->reconstructed_shred_cnt = UINT_MAX;
+  meta->published_shred_cnt     = UINT_MAX;
   memset( meta->block_hash.uc, 0, sizeof(fd_hash_t) );
 
   if( FD_UNLIKELY( mine && epoch ) ) epoch->my_total_slots++;

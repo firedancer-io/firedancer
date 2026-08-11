@@ -13,8 +13,19 @@
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
+#include "../shred/fd_shred_tile.h"
 
 #include <stdio.h>
+
+ulong const fd_gui_timeline_granularity_ns[ FD_GUI_TIMELINE_GRANULARITY_CNT ] = {
+  1000000000UL, 30000000000UL, 60000000000UL,
+  1800000000000UL, 3600000000000UL, 86400000000000UL
+};
+
+ulong const fd_gui_timeline_granularity_off[ FD_GUI_TIMELINE_GRANULARITY_CNT ] = {
+  FD_GUI_TIMELINE_1S_OFF, FD_GUI_TIMELINE_30S_OFF, FD_GUI_TIMELINE_1M_OFF,
+  FD_GUI_TIMELINE_30M_OFF, FD_GUI_TIMELINE_1H_OFF, FD_GUI_TIMELINE_1D_OFF
+};
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -393,6 +404,8 @@ fd_gui_new( void *                   shmem,
 
   gui->shreds.leader_shred_cnt        = 0UL;
   gui->shreds.broadcast_watermark_ns  = now;
+  gui->timeline_day_max               = ULONG_MAX;
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_SHRED_BUF_CNT; i++ ) gui->timeline_shreds[ i ].slot = ULONG_MAX;
   gui->summary.catch_up_repair_sz     = 0UL;
   gui->summary.catch_up_turbine_sz    = 0UL;
 
@@ -2047,6 +2060,60 @@ fd_gui_request_timeline_shreds( fd_gui_t *    gui,
   return 0;
 }
 
+static int
+fd_gui_timeline_parse_ns_string( cJSON const * param,
+                                 long *        out ) {
+  if( FD_UNLIKELY( !cJSON_IsString( param ) || !param->valuestring || !param->valuestring[ 0 ] ) ) return -1;
+  for( char const * p=param->valuestring; *p; p++ )
+    if( FD_UNLIKELY( *p<'0' || *p>'9' ) ) return -1;
+  ulong value = fd_cstr_to_ulong( param->valuestring );
+  if( FD_UNLIKELY( value>(ulong)LONG_MAX ) ) return -1;
+  *out = (long)value;
+  return 0;
+}
+
+static int
+fd_gui_timeline_parse_granularity( char const * name,
+                                   ulong *      idx ) {
+  static char const * const names[ FD_GUI_TIMELINE_GRANULARITY_CNT ] = { "1s", "30s", "1m", "30m", "1h", "1d" };
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_GRANULARITY_CNT; i++ ) {
+    if( !strcmp( name, names[ i ] ) ) { *idx=i; return 0; }
+  }
+  return -1;
+}
+
+static int
+fd_gui_request_timeline_agg( fd_gui_t *    gui,
+                             ulong         ws_conn_id,
+                             char const *  key,
+                             ulong         request_id,
+                             cJSON const * params ) {
+  cJSON const * start_param = cJSON_GetObjectItemCaseSensitive( params, "start_ns"    );
+  cJSON const * end_param   = cJSON_GetObjectItemCaseSensitive( params, "end_ns"      );
+  cJSON const * gran_param  = cJSON_GetObjectItemCaseSensitive( params, "granularity" );
+  long start_ns, end_ns;
+  if( FD_UNLIKELY( fd_gui_timeline_parse_ns_string( start_param, &start_ns ) ||
+                   fd_gui_timeline_parse_ns_string( end_param,   &end_ns   ) ||
+                   !cJSON_IsString( gran_param ) || !gran_param->valuestring ) )
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  if( FD_UNLIKELY( end_ns<start_ns ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  ulong granularity_idx;
+  if( FD_UNLIKELY( fd_gui_timeline_parse_granularity( gran_param->valuestring, &granularity_idx ) ) )
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  ulong granularity_ns = fd_gui_timeline_granularity_ns[ granularity_idx ];
+  ulong first_bucket   = (ulong)start_ns/granularity_ns;
+  ulong last_bucket    = (ulong)end_ns  /granularity_ns;
+  ulong bucket_cnt     = last_bucket-first_bucket+1UL;
+  if( FD_UNLIKELY( bucket_cnt>FD_GUI_TIMELINE_MAX_BUCKETS ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  fd_gui_printf_timeline_query_agg( gui, key, gran_param->valuestring, granularity_idx,
+                                    (long)(first_bucket*granularity_ns), bucket_cnt,
+                                    gui->summary.slot_rooted, request_id );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
 int
 fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         ws_conn_id,
@@ -2127,6 +2194,18 @@ fd_gui_ws_message( fd_gui_t *    gui,
     }
 
     int result = fd_gui_request_timeline_shreds( gui, ws_conn_id, topic->valuestring, id, params );
+    cJSON_Delete( json );
+    return result;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "timeline" ) &&
+                        ( !strcmp( key->valuestring, "query_agg_shreds" ) ||
+                          !strcmp( key->valuestring, "query_agg_compute" ) ||
+                          !strcmp( key->valuestring, "query_agg_revenue" ) ) ) ) {
+    cJSON const * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+    int result = fd_gui_request_timeline_agg( gui, ws_conn_id, key->valuestring, id, params );
     cJSON_Delete( json );
     return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
@@ -2216,6 +2295,11 @@ fd_gui_slot_get_canon_safe( fd_gui_t * gui, ulong _slot ) {
       .priority_fee     = ULONG_MAX,
       .tips             = ULONG_MAX,
       .shred_cnt        = UINT_MAX,
+      .block_shred_cnt  = UINT_MAX,
+      .turbine_shred_cnt       = UINT_MAX,
+      .repair_shred_cnt        = UINT_MAX,
+      .reconstructed_shred_cnt = UINT_MAX,
+      .published_shred_cnt     = UINT_MAX,
       .vote_latency_exact = FD_GUI_VOTE_LATENCY_NOT_VOTED,
       .is_voter         = 0,
       .vote_success     = UINT_MAX,
@@ -2348,6 +2432,151 @@ fd_gui_handle_shred( fd_gui_t * gui,
   fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, now, tsorig, &(fd_gui_slot_history_shred_event_t){ .slot = (uint)slot, .timestamp = tsorig, .shred_idx = (ushort)shred_idx, .event = fd_uchar_if( is_turbine, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR ) } );
 }
 
+static fd_gui_timeline_shred_accum_t *
+fd_gui_timeline_shred_accum( fd_gui_t * gui,
+                             ulong      slot ) {
+  FD_STATIC_ASSERT( !(FD_GUI_TIMELINE_SHRED_BUF_CNT & (FD_GUI_TIMELINE_SHRED_BUF_CNT-1UL)), timeline_shred_buf_pow2 );
+  fd_gui_timeline_shred_accum_t * accum = &gui->timeline_shreds[ slot & (FD_GUI_TIMELINE_SHRED_BUF_CNT-1UL) ];
+  if( FD_UNLIKELY( accum->slot!=slot ) ) {
+    /* Do not let late repair traffic for an old slot displace a newer
+       in-flight slot that aliases the same direct-mapped entry. */
+    if( FD_UNLIKELY( accum->slot!=ULONG_MAX && slot<accum->slot ) ) return NULL;
+    *accum = (fd_gui_timeline_shred_accum_t){ .slot=slot };
+  }
+  return accum;
+}
+
+#define FD_GUI_TIMELINE_METRIC_SHREDS        (0)
+#define FD_GUI_TIMELINE_METRIC_TURBINE       (1)
+#define FD_GUI_TIMELINE_METRIC_REPAIR        (2)
+#define FD_GUI_TIMELINE_METRIC_RECONSTRUCTED (3)
+#define FD_GUI_TIMELINE_METRIC_PUBLISHED     (4)
+
+static void
+fd_gui_timeline_root_delta( fd_gui_t *      gui,
+                            fd_gui_slot_t * slot,
+                            int             metric,
+                            ulong           value );
+
+static inline uint
+fd_gui_timeline_uint_add( uint value,
+                          uint delta ) {
+  uint max_value = UINT_MAX-1U; /* UINT_MAX is the unknown sentinel */
+  return delta>max_value-value ? max_value : value+delta;
+}
+
+static fd_gui_slot_t *
+fd_gui_timeline_completed_slot( fd_gui_t * gui,
+                                ulong      slot ) {
+  fd_gui_hist_kv_slot_iter_t it[ 1 ];
+  for( fd_gui_hist_kv_iter_begin( gui, it, FD_GUI_HIST_SLOT, slot ); it->rec; fd_gui_hist_kv_iter_next( it ) ) {
+    fd_gui_slot_t * candidate = (fd_gui_slot_t *)it->rec;
+    if( FD_LIKELY( candidate->completed_time!=LONG_MAX ) ) return candidate;
+  }
+  return NULL;
+}
+
+static void
+fd_gui_timeline_slot_sources_known( fd_gui_t *      gui,
+                                    fd_gui_slot_t * slot ) {
+#define SOURCE_KNOWN(field,metric) do {                          \
+    if( slot->field==UINT_MAX ) {                                \
+      slot->field = 0U;                                          \
+      if( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED )                \
+        fd_gui_timeline_root_delta( gui, slot, (metric), 0UL );   \
+    }                                                            \
+  } while(0)
+  SOURCE_KNOWN( turbine_shred_cnt,       FD_GUI_TIMELINE_METRIC_TURBINE       );
+  SOURCE_KNOWN( repair_shred_cnt,        FD_GUI_TIMELINE_METRIC_REPAIR        );
+  SOURCE_KNOWN( reconstructed_shred_cnt, FD_GUI_TIMELINE_METRIC_RECONSTRUCTED );
+#undef SOURCE_KNOWN
+}
+
+void
+fd_gui_timeline_handle_shred( fd_gui_t * gui,
+                              ulong      slot,
+                              uint       source ) {
+  fd_gui_timeline_shred_accum_t * accum = fd_gui_timeline_shred_accum( gui, slot );
+  if( FD_UNLIKELY( !accum ) ) return;
+  if( FD_UNLIKELY( accum->completed ) ) {
+    fd_gui_slot_t * completed = fd_gui_timeline_completed_slot( gui, slot );
+    if( FD_UNLIKELY( !completed ) ) return;
+    fd_gui_timeline_slot_sources_known( gui, completed );
+    int metric;
+    if( source==SHRED_SIG_SRC_TURBINE ) {
+      metric = FD_GUI_TIMELINE_METRIC_TURBINE;
+      completed->turbine_shred_cnt = fd_gui_timeline_uint_add( completed->turbine_shred_cnt, 1U );
+    } else if( source==SHRED_SIG_SRC_REPAIR ) {
+      metric = FD_GUI_TIMELINE_METRIC_REPAIR;
+      completed->repair_shred_cnt = fd_gui_timeline_uint_add( completed->repair_shred_cnt, 1U );
+    } else {
+      metric = FD_GUI_TIMELINE_METRIC_RECONSTRUCTED;
+      completed->reconstructed_shred_cnt = fd_gui_timeline_uint_add( completed->reconstructed_shred_cnt, 1U );
+    }
+    if( completed->level>=FD_GUI_SLOT_LEVEL_ROOTED ) fd_gui_timeline_root_delta( gui, completed, metric, 1UL );
+    return;
+  }
+
+  accum->sources_known = 1;
+  if(      source==SHRED_SIG_SRC_TURBINE       ) accum->turbine       = fd_gui_timeline_uint_add( accum->turbine,       1U );
+  else if( source==SHRED_SIG_SRC_REPAIR        ) accum->repair        = fd_gui_timeline_uint_add( accum->repair,        1U );
+  else if( source==SHRED_SIG_SRC_RECONSTRUCTED ) accum->reconstructed = fd_gui_timeline_uint_add( accum->reconstructed, 1U );
+}
+
+void
+fd_gui_timeline_handle_fec( fd_gui_t * gui,
+                            ulong      slot,
+                            int        published ) {
+  uint fec_shred_cnt = 2U*(uint)FD_FEC_SHRED_CNT; /* data plus coding */
+  fd_gui_timeline_shred_accum_t * accum = fd_gui_timeline_shred_accum( gui, slot );
+  if( FD_UNLIKELY( !accum ) ) return;
+  if( FD_UNLIKELY( accum->completed ) ) {
+    fd_gui_slot_t * completed = fd_gui_timeline_completed_slot( gui, slot );
+    if( FD_UNLIKELY( !completed ) ) return;
+    if( completed->block_shred_cnt==UINT_MAX ) completed->block_shred_cnt = 0U;
+    completed->block_shred_cnt = fd_gui_timeline_uint_add( completed->block_shred_cnt, fec_shred_cnt );
+    if( completed->level>=FD_GUI_SLOT_LEVEL_ROOTED )
+      fd_gui_timeline_root_delta( gui, completed, FD_GUI_TIMELINE_METRIC_SHREDS, fec_shred_cnt );
+
+    fd_gui_timeline_slot_sources_known( gui, completed );
+    if( published ) {
+      if( completed->published_shred_cnt==UINT_MAX ) completed->published_shred_cnt = 0U;
+      completed->published_shred_cnt = fd_gui_timeline_uint_add( completed->published_shred_cnt, fec_shred_cnt );
+      if( completed->level>=FD_GUI_SLOT_LEVEL_ROOTED )
+        fd_gui_timeline_root_delta( gui, completed, FD_GUI_TIMELINE_METRIC_PUBLISHED, fec_shred_cnt );
+    }
+    return;
+  }
+
+  accum->shreds_known  = 1;
+  accum->sources_known   = 1;
+  accum->shreds = fd_gui_timeline_uint_add( accum->shreds, fec_shred_cnt );
+  if( published ) {
+    accum->published_known = 1;
+    accum->published = fd_gui_timeline_uint_add( accum->published, fec_shred_cnt );
+  }
+}
+
+void
+fd_gui_timeline_complete_slot( fd_gui_t *      gui,
+                               ulong           slot,
+                               fd_gui_slot_t * dst ) {
+  fd_gui_timeline_shred_accum_t * accum = &gui->timeline_shreds[ slot & (FD_GUI_TIMELINE_SHRED_BUF_CNT-1UL) ];
+  if( FD_UNLIKELY( accum->slot!=slot ) ) {
+    if( FD_UNLIKELY( accum->slot!=ULONG_MAX && slot<accum->slot ) ) return;
+    *accum = (fd_gui_timeline_shred_accum_t){ .slot=slot, .completed=1 };
+    return;
+  }
+  if( dst && accum->shreds_known ) dst->block_shred_cnt = accum->shreds;
+  if( dst && accum->sources_known ) {
+    dst->turbine_shred_cnt       = accum->turbine;
+    dst->repair_shred_cnt        = accum->repair;
+    dst->reconstructed_shred_cnt = accum->reconstructed;
+  }
+  if( dst && accum->published_known ) dst->published_shred_cnt = accum->published;
+  *accum = (fd_gui_timeline_shred_accum_t){ .slot=slot, .completed=1 };
+}
+
 void
 fd_gui_handle_leader_fec( fd_gui_t * gui,
                           ulong      slot,
@@ -2438,6 +2667,136 @@ fd_gui_record_vote_latency( fd_gui_t * gui,
   }
 }
 
+static fd_gui_timeline_day_t *
+fd_gui_timeline_day_get_or_create( fd_gui_t * gui,
+                                   ulong      day_idx ) {
+  fd_gui_hist_timeline_day_key_t key = { .day=day_idx };
+  fd_gui_timeline_day_t * day = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &key );
+  if( FD_LIKELY( day ) ) {
+    gui->timeline_day_max = gui->timeline_day_max==ULONG_MAX ? day_idx : fd_ulong_max( gui->timeline_day_max, day_idx );
+    return day;
+  }
+
+  /* The KV ring reclaims a physical prefix, so keep first insertion of each
+     day monotonic.  Root advancement pre-creates all newly encountered days
+     oldest-first; an older miss here is outside the retained horizon. */
+  if( FD_UNLIKELY( gui->timeline_day_max!=ULONG_MAX && day_idx<gui->timeline_day_max ) ) return NULL;
+  fd_gui_timeline_day_t const * oldest = fd_gui_store_kv_get_any( (fd_gui_store_t *)gui->db,
+                                                                  (ulong)FD_GUI_HIST_TIMELINE_DAY,
+                                                                  NULL );
+  if( FD_UNLIKELY( oldest && day_idx<oldest->day ) ) return NULL;
+
+  day = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_TIMELINE_DAY, &key );
+  if( FD_UNLIKELY( !day ) ) return NULL;
+  memset( day, 0xFF, sizeof(*day) );
+  day->day = day_idx;
+  gui->timeline_day_max = day_idx;
+  return day;
+}
+
+static inline void
+fd_gui_timeline_ulong_add( ulong * value,
+                           ulong   delta ) {
+  ulong max_value = ULONG_MAX-1UL; /* ULONG_MAX is the unknown sentinel */
+  *value = delta>max_value-*value ? max_value : *value+delta;
+}
+
+static void
+fd_gui_timeline_root_delta( fd_gui_t *      gui,
+                            fd_gui_slot_t * slot,
+                            int             metric,
+                            ulong           value ) {
+  if( FD_UNLIKELY( slot->completed_time==LONG_MAX || slot->completed_time<0L ) ) return;
+  ulong ts_ns   = (ulong)slot->completed_time;
+  ulong day_idx = ts_ns/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  ulong day_ns  = ts_ns%(ulong)FD_GUI_TIMELINE_DAY_NS;
+  fd_gui_hist_timeline_day_key_t key = { .day=day_idx };
+  fd_gui_timeline_day_t * day = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &key );
+  if( FD_UNLIKELY( !day ) ) return;
+
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_GRANULARITY_CNT; g++ ) {
+    ulong idx = fd_gui_timeline_granularity_off[ g ] + day_ns/fd_gui_timeline_granularity_ns[ g ];
+    ulong * dst;
+    switch( metric ) {
+      case FD_GUI_TIMELINE_METRIC_SHREDS:        dst = &day->shreds       [ idx ]; break;
+      case FD_GUI_TIMELINE_METRIC_TURBINE:       dst = &day->turbine      [ idx ]; break;
+      case FD_GUI_TIMELINE_METRIC_REPAIR:        dst = &day->repair       [ idx ]; break;
+      case FD_GUI_TIMELINE_METRIC_RECONSTRUCTED: dst = &day->reconstructed[ idx ]; break;
+      case FD_GUI_TIMELINE_METRIC_PUBLISHED:     dst = &day->published    [ idx ]; break;
+      default: return;
+    }
+    if( *dst==ULONG_MAX ) *dst = value;
+    else                  fd_gui_timeline_ulong_add( dst, value );
+  }
+}
+
+void
+fd_gui_timeline_root_slot( fd_gui_t *            gui,
+                           fd_gui_slot_t const * slot ) {
+  if( FD_UNLIKELY( !slot || slot->skip==FD_GUI_SKIP_STATUS_SKIPPED || slot->completed_time==LONG_MAX || slot->completed_time<0L ) ) return;
+
+  ulong ts_ns   = (ulong)slot->completed_time;
+  ulong day_idx = ts_ns/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  ulong day_ns  = ts_ns%(ulong)FD_GUI_TIMELINE_DAY_NS;
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_get_or_create( gui, day_idx );
+  if( FD_UNLIKELY( !day ) ) return;
+
+#define TIMELINE_ADD(field,value,unknown) do {                         \
+    ulong _v = (ulong)(value);                                         \
+    if( _v!=(ulong)(unknown) ) {                                       \
+      if( day->field[ idx ]==ULONG_MAX ) day->field[ idx ] = _v;       \
+      else fd_gui_timeline_ulong_add( &day->field[ idx ], _v );        \
+    }                                                                 \
+  } while(0)
+
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_GRANULARITY_CNT; g++ ) {
+    ulong idx = fd_gui_timeline_granularity_off[ g ] + day_ns/fd_gui_timeline_granularity_ns[ g ];
+    TIMELINE_ADD( shreds,        slot->block_shred_cnt,              UINT_MAX  );
+    TIMELINE_ADD( turbine,       slot->turbine_shred_cnt,            UINT_MAX  );
+    TIMELINE_ADD( repair,        slot->repair_shred_cnt,             UINT_MAX  );
+    TIMELINE_ADD( reconstructed, slot->reconstructed_shred_cnt,      UINT_MAX  );
+    uint published = slot->mine ? slot->published_shred_cnt : 0U;
+    TIMELINE_ADD( published,     published,                          UINT_MAX  );
+    TIMELINE_ADD( compute_units, slot->compute_units,                UINT_MAX  );
+    if( slot->max_compute_units!=UINT_MAX )
+      day->max_compute[ idx ] = day->max_compute[ idx ]==ULONG_MAX
+                              ? (ulong)slot->max_compute_units
+                              : fd_ulong_max( day->max_compute[ idx ], (ulong)slot->max_compute_units );
+    TIMELINE_ADD( txn_fees,      slot->transaction_fee,              ULONG_MAX );
+    TIMELINE_ADD( prio_fees,     slot->priority_fee,                 ULONG_MAX );
+    TIMELINE_ADD( tips,          slot->tips,                         ULONG_MAX );
+  }
+#undef TIMELINE_ADD
+}
+
+static void
+fd_gui_timeline_prepare_root_days( fd_gui_t * gui,
+                                   ulong      slot,
+                                   ulong      bank_seq ) {
+  ulong min_day = ULONG_MAX;
+  ulong max_day = 0UL;
+
+  for( ulong cslot=slot, cbank_seq=bank_seq; ; ) {
+    fd_gui_slot_t const * c = fd_gui_slot_get( gui, cslot, cbank_seq );
+    if( FD_UNLIKELY( !c || c->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
+    if( c->completed_time!=LONG_MAX && c->completed_time>=0L ) {
+      ulong day = (ulong)c->completed_time/(ulong)FD_GUI_TIMELINE_DAY_NS;
+      min_day = fd_ulong_min( min_day, day );
+      max_day = fd_ulong_max( max_day, day );
+    }
+    ulong pslot = c->parent_slot;
+    ulong pseq  = c->parent_bank_seq;
+    if( FD_UNLIKELY( pslot==ULONG_MAX || pslot>=cslot ) ) break;
+    cslot=pslot;
+    cbank_seq=pseq;
+  }
+
+  if( FD_UNLIKELY( min_day==ULONG_MAX ) ) return;
+  ulong first_day = min_day;
+  if( max_day-min_day>=FD_GUI_HIST_MAX_DAYS ) first_day = max_day-(FD_GUI_HIST_MAX_DAYS-1UL);
+  for( ulong day=first_day; day<=max_day; day++ ) fd_gui_timeline_day_get_or_create( gui, day );
+}
+
 void
 fd_gui_handle_root_advanced( fd_gui_t * gui,
                              ulong      _slot,
@@ -2451,6 +2810,8 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
 
   ulong prev_rooted = gui->summary.slot_rooted;
 
+  fd_gui_timeline_prepare_root_days( gui, _slot, bank_seq );
+
   gui->summary.slot_rooted = _slot;
   fd_gui_printf_root_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
@@ -2460,6 +2821,8 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
     if( FD_UNLIKELY( !c || c->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
 
     c->level = FD_GUI_SLOT_LEVEL_ROOTED;
+
+    fd_gui_timeline_root_slot( gui, c );
 
     fd_gui_printf_slot( gui, cslot, c );
     fd_http_server_ws_broadcast( gui->http );
@@ -2913,6 +3276,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
                                                     slot_completed->parent_slot,
                                                     slot_completed->bank_seq,
                                                     slot_completed->parent_bank_seq );
+  fd_gui_timeline_complete_slot( gui, slot_completed->slot, slot );
   if( FD_UNLIKELY( !slot ) ) return; /* record could not be created / was evicted */
 
   slot->completed_time    = slot_completed->completion_time_nanos;

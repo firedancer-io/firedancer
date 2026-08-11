@@ -107,6 +107,16 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
                                      ulong        id );
 
 void
+fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
+                                  char const *  key,
+                                  char const *  granularity,
+                                  ulong         granularity_idx,
+                                  long          reference_ts_ns,
+                                  ulong         bucket_cnt,
+                                  ulong         root_slot,
+                                  ulong         id );
+
+void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );
 
 void

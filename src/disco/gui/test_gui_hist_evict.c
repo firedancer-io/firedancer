@@ -14,8 +14,11 @@
 
 #include "../../util/fd_util.h"
 #include "fd_gui.h"
+#include "fd_gui_printf.h"
 #include "fd_gui_store.h"
 #include "fd_gui_hist.h"
+#include "../shred/fd_shred_tile.h"
+#include "../../waltz/http/fd_http_server_private.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +45,14 @@ slot_complete_ns( ulong slot ) {
 }
 static long
 sec_ns( ulong sec ) { return (long)( sec*1000000000UL ); }
+
+/* Put epoch A immediately before a UTC-day boundary and epochs B/C after it.
+   This lets the cascade test verify that timeline-day eviction retains the
+   day shared by the first surviving epoch while reclaiming older days. */
+static long
+epoch_slot_complete_ns( ulong slot ) {
+  return sec_ns( 86390UL+(slot-A_START_SLOT) );
+}
 
 static void
 rm_tmpdir( char const * path ) {
@@ -167,6 +178,261 @@ count_ts( fd_gui_t * gui, int dbi, ulong slot ) {
   return cnt;
 }
 
+static int
+timeline_day_present( fd_gui_t * gui, ulong day ) {
+  fd_gui_hist_timeline_day_key_t key = { .day=day };
+  return fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &key )!=NULL;
+}
+
+static fd_http_server_t *
+test_http_new( void ** mem ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 4096UL,
+    .max_ws_recv_frame_len = 4096UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1UL<<20,
+    .compress_websocket    = 0,
+  };
+  ulong footprint = fd_http_server_footprint( params );
+  *mem = aligned_alloc( fd_http_server_align(), fd_ulong_align_up( footprint, fd_http_server_align() ) );
+  FD_TEST( *mem );
+  fd_http_server_callbacks_t callbacks = {0};
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( *mem, params, callbacks, NULL ) );
+  FD_TEST( http );
+  return http;
+}
+
+static void
+test_http_expect( fd_http_server_t * http,
+                  char const *       expected ) {
+  ulong len = strlen( expected );
+  FD_TEST( http->stage_len==len );
+  FD_TEST( !memcmp( http->oring+(http->stage_off%http->oring_sz), expected, len ) );
+  fd_http_server_unstage( http );
+}
+
+static void
+test_timeline_queries( fd_gui_t * gui ) {
+  void * http_mem = NULL;
+  fd_http_server_t * http = test_http_new( &http_mem );
+  gui->http = http;
+  gui->summary.slot_rooted = 7000UL;
+
+  /* One slot on each side of midnight exercises the renderer's daily-record
+     cache and verifies that dense arrays preserve the common bucket index. */
+  fd_gui_slot_t slots[ 2 ];
+  memset( slots, 0xFF, sizeof(slots) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    slots[ i ].slot                          = 6000UL+i;
+    slots[ i ].bank_seq                      = 1UL;
+    slots[ i ].completed_time                = (long)((i+1UL)*FD_GUI_TIMELINE_DAY_NS)+(i ? 500000000L : FD_GUI_TIMELINE_DAY_NS-500000000L);
+    slots[ i ].skip                          = FD_GUI_SKIP_STATUS_NOT_SKIPPED;
+    slots[ i ].mine                          = 0;
+    slots[ i ].shred_cnt                     = (uint)(i+1UL);
+    slots[ i ].block_shred_cnt               = (uint)(i+1UL);
+    slots[ i ].turbine_shred_cnt             = (uint)(10UL+i);
+    slots[ i ].repair_shred_cnt              = (uint)(20UL+i);
+    slots[ i ].reconstructed_shred_cnt       = (uint)(30UL+i);
+    slots[ i ].published_shred_cnt           = UINT_MAX;
+    slots[ i ].compute_units                 = (uint)(40UL+i);
+    slots[ i ].max_compute_units             = (uint)(50UL+i);
+    slots[ i ].transaction_fee               = 60UL+i;
+    slots[ i ].priority_fee                  = 70UL+i;
+    slots[ i ].tips                          = 80UL+i;
+    fd_gui_timeline_root_slot( gui, &slots[ i ] );
+  }
+
+  fd_gui_printf_timeline_query_agg( gui, "query_agg_shreds", "1s", 0UL,
+                                    2L*FD_GUI_TIMELINE_DAY_NS-1000000000L,
+                                    2UL, gui->summary.slot_rooted, 33UL );
+  test_http_expect( http,
+    "{\"topic\":\"timeline\",\"key\":\"query_agg_shreds\",\"id\":33,\"value\":{\"granularity\":\"1s\",\"reference_ts_ns\":\"172799000000000\",\"root_slot\":7000,\"shreds\":[1,2],\"turbine\":[10,11],\"repair\":[20,21],\"reconstructed\":[30,31],\"published\":[0,0]}}" );
+
+  fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", "1s", 0UL,
+                                    2L*FD_GUI_TIMELINE_DAY_NS-1000000000L,
+                                    2UL, ULONG_MAX, 34UL );
+  test_http_expect( http,
+    "{\"topic\":\"timeline\",\"key\":\"query_agg_compute\",\"id\":34,\"value\":{\"granularity\":\"1s\",\"reference_ts_ns\":\"172799000000000\",\"root_slot\": null,\"compute_units\":[null,null],\"max_compute_units\": null}}" );
+
+  /* Full websocket dispatch covers strict decimal parsing and the inclusive
+     150-bucket limit.  The synthetic websocket is closed, so successful
+     sends simply discard their staged response. */
+#define WS_REQ(json,expect) do {                                                   \
+    char const * _json = (json);                                                   \
+    FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)_json, strlen( _json ) )==(expect) ); \
+  } while(0)
+  WS_REQ( "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":1,\"params\":{\"start_ns\":\"0\",\"end_ns\":\"149000000000\",\"granularity\":\"1s\"}}", 0 );
+  WS_REQ( "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":1,\"params\":{\"start_ns\":\"0\",\"end_ns\":\"150000000000\",\"granularity\":\"1s\"}}", FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+  WS_REQ( "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":1,\"params\":{\"start_ns\":0,\"end_ns\":\"1\",\"granularity\":\"1s\"}}", FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+  WS_REQ( "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":1,\"params\":{\"start_ns\":\"2\",\"end_ns\":\"1\",\"granularity\":\"1s\"}}", FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+  WS_REQ( "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":1,\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\",\"granularity\":\"5s\"}}", FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+  WS_REQ( "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":1,\"params\":{\"start_ns\":\"9223372036854775808\",\"end_ns\":\"9223372036854775808\",\"granularity\":\"1s\"}}", FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+#undef WS_REQ
+
+  gui->http = NULL;
+  free( fd_http_server_delete( fd_http_server_leave( http ) ) );
+  FD_LOG_NOTICE(( "test_timeline_queries: ok" ));
+}
+
+static void
+test_timeline_day_order( fd_gui_t * gui ) {
+  void * http_mem = NULL;
+  fd_http_server_t * http = test_http_new( &http_mem );
+  gui->http = http;
+  gui->summary.slot_rooted = 1UL;
+
+  fd_gui_hist_slot_key_t keys[ 2 ] = {
+    { .slot=100UL, .bank_seq=1UL },
+    { .slot=101UL, .bank_seq=1UL },
+  };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_gui_slot_t * slot = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_SLOT, &keys[ i ] );
+    FD_TEST( slot );
+    memset( slot, 0xFF, sizeof(*slot) );
+    slot->slot            = keys[ i ].slot;
+    slot->bank_seq        = keys[ i ].bank_seq;
+    slot->parent_slot     = i ? keys[ 0 ].slot : 1UL;
+    slot->parent_bank_seq = 1UL;
+    slot->completed_time  = (long)((9UL+i)*FD_GUI_TIMELINE_DAY_NS+1000000000UL);
+    slot->skip            = FD_GUI_SKIP_STATUS_NOT_SKIPPED;
+    slot->level           = FD_GUI_SLOT_LEVEL_COMPLETED;
+    slot->mine            = 0;
+    slot->block_shred_cnt = 1U;
+  }
+
+  /* Root traversal itself is newest-to-oldest.  The preparation pass must
+     nevertheless insert its date records oldest-first so prefix eviction can
+     reclaim day 9 without discarding day 10. */
+  fd_gui_handle_root_advanced( gui, keys[ 1 ].slot, keys[ 1 ].bank_seq, 0L );
+  FD_TEST( timeline_day_present( gui, 9UL  ) );
+  FD_TEST( timeline_day_present( gui, 10UL ) );
+
+  fd_gui_hist_timeline_day_key_t hi = { .day=10UL };
+  ulong budget = ULONG_MAX;
+  int drained = 0;
+  FD_TEST( fd_gui_store_kv_evict( gui->db, FD_GUI_HIST_TIMELINE_DAY, &hi, &budget, &drained )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( drained );
+  FD_TEST( !timeline_day_present( gui, 9UL  ) );
+  FD_TEST(  timeline_day_present( gui, 10UL ) );
+
+  gui->http = NULL;
+  free( fd_http_server_delete( fd_http_server_leave( http ) ) );
+  FD_LOG_NOTICE(( "test_timeline_day_order: ok" ));
+}
+
+static void
+test_timeline_aggregates( fd_gui_t * gui ) {
+  fd_gui_slot_t completed[ 1 ];
+  memset( completed, 0xFF, sizeof(completed) );
+
+  ulong slot = 5000UL;
+  fd_gui_timeline_handle_shred( gui, slot, SHRED_SIG_SRC_TURBINE );
+  fd_gui_timeline_handle_shred( gui, slot, SHRED_SIG_SRC_TURBINE );
+  fd_gui_timeline_handle_shred( gui, slot, SHRED_SIG_SRC_REPAIR );
+  fd_gui_timeline_handle_shred( gui, slot, SHRED_SIG_SRC_RECONSTRUCTED );
+  fd_gui_timeline_handle_fec( gui, slot, 0 );
+  fd_gui_timeline_complete_slot( gui, slot, completed );
+  FD_TEST( completed->block_shred_cnt==2U*FD_FEC_SHRED_CNT );
+  FD_TEST( completed->turbine_shred_cnt==2U );
+  FD_TEST( completed->repair_shred_cnt==1U );
+  FD_TEST( completed->reconstructed_shred_cnt==1U );
+  FD_TEST( completed->published_shred_cnt==UINT_MAX );
+
+  /* A newer alias replaces an older entry; subsequent old repair traffic
+     cannot evict the newer live slot. */
+  ulong newer = slot+FD_GUI_TIMELINE_SHRED_BUF_CNT;
+  fd_gui_timeline_handle_shred( gui, newer, SHRED_SIG_SRC_TURBINE );
+  fd_gui_timeline_handle_shred( gui, slot,  SHRED_SIG_SRC_REPAIR );
+  memset( completed, 0xFF, sizeof(completed) );
+  fd_gui_timeline_complete_slot( gui, newer, completed );
+  FD_TEST( completed->turbine_shred_cnt==1U );
+  FD_TEST( completed->repair_shred_cnt==0U );
+
+  /* A completion still drains the transient entry if slot persistence ran
+     out of space and could not supply a destination record. */
+  fd_gui_timeline_handle_shred( gui, newer+1UL, SHRED_SIG_SRC_REPAIR );
+  fd_gui_timeline_complete_slot( gui, newer+1UL, NULL );
+  memset( completed, 0xFF, sizeof(completed) );
+  fd_gui_timeline_complete_slot( gui, newer+1UL, completed );
+  FD_TEST( completed->repair_shred_cnt==UINT_MAX );
+
+  memset( completed, 0xFF, sizeof(completed) );
+  completed->slot                          = newer;
+  completed->bank_seq                      = 1UL;
+  completed->completed_time                = 1500000000L;
+  completed->skip                          = FD_GUI_SKIP_STATUS_NOT_SKIPPED;
+  completed->mine                          = 0;
+  completed->shred_cnt                     = 100U;
+  completed->block_shred_cnt               = 100U;
+  completed->turbine_shred_cnt             = 70U;
+  completed->repair_shred_cnt              = 20U;
+  completed->reconstructed_shred_cnt       = 10U;
+  completed->published_shred_cnt           = UINT_MAX;
+  completed->compute_units                 = 1234U;
+  completed->max_compute_units             = 48000000U;
+  completed->transaction_fee               = 11UL;
+  completed->priority_fee                  = 12UL;
+  completed->tips                          = 13UL;
+  fd_gui_timeline_root_slot( gui, completed );
+
+  fd_gui_hist_timeline_day_key_t key = { .day=0UL };
+  fd_gui_timeline_day_t const * day = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &key );
+  FD_TEST( day );
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_GRANULARITY_CNT; g++ ) {
+    ulong idx = fd_gui_timeline_granularity_off[ g ]+1500000000UL/fd_gui_timeline_granularity_ns[ g ];
+    FD_TEST( day->shreds       [ idx ]==100UL );
+    FD_TEST( day->turbine      [ idx ]==70UL  );
+    FD_TEST( day->repair       [ idx ]==20UL  );
+    FD_TEST( day->reconstructed[ idx ]==10UL  );
+    FD_TEST( day->published    [ idx ]==0UL   );
+    FD_TEST( day->compute_units[ idx ]==1234UL );
+    FD_TEST( day->max_compute  [ idx ]==48000000UL );
+    FD_TEST( day->txn_fees     [ idx ]==11UL );
+    FD_TEST( day->prio_fees    [ idx ]==12UL );
+    FD_TEST( day->tips         [ idx ]==13UL );
+  }
+
+  /* Shred/FEC messages can arrive after replay completion because they use a
+     different GUI input link.  They update the completed slot directly, and
+     once rooted also apply deltas to the existing daily rollup. */
+  fd_gui_hist_slot_key_t late_key = { .slot=500UL, .bank_seq=7UL };
+  fd_gui_slot_t * late = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_SLOT, &late_key );
+  FD_TEST( late );
+  memset( late, 0xFF, sizeof(*late) );
+  late->slot           = late_key.slot;
+  late->bank_seq       = late_key.bank_seq;
+  late->completed_time = 3500000000L;
+  late->skip           = FD_GUI_SKIP_STATUS_NOT_SKIPPED;
+  late->mine           = 1;
+  late->level          = FD_GUI_SLOT_LEVEL_COMPLETED;
+
+  fd_gui_timeline_complete_slot( gui, late->slot, late );
+  fd_gui_timeline_handle_shred( gui, late->slot, SHRED_SIG_SRC_TURBINE );
+  fd_gui_timeline_handle_fec  ( gui, late->slot, 1 );
+  FD_TEST( late->block_shred_cnt==2U*FD_FEC_SHRED_CNT );
+  FD_TEST( late->published_shred_cnt==2U*FD_FEC_SHRED_CNT );
+  FD_TEST( late->turbine_shred_cnt==1U );
+  FD_TEST( late->repair_shred_cnt==0U );
+  FD_TEST( late->reconstructed_shred_cnt==0U );
+
+  late->level = FD_GUI_SLOT_LEVEL_ROOTED;
+  fd_gui_timeline_root_slot( gui, late );
+  fd_gui_timeline_handle_shred( gui, late->slot, SHRED_SIG_SRC_REPAIR );
+  fd_gui_timeline_handle_fec  ( gui, late->slot, 0 );
+
+  ulong late_idx = FD_GUI_TIMELINE_1S_OFF+3UL;
+  FD_TEST( day->shreds       [ late_idx ]==4UL*FD_FEC_SHRED_CNT );
+  FD_TEST( day->turbine      [ late_idx ]==1UL );
+  FD_TEST( day->repair       [ late_idx ]==1UL );
+  FD_TEST( day->reconstructed[ late_idx ]==0UL );
+  FD_TEST( day->published    [ late_idx ]==2UL*FD_FEC_SHRED_CNT );
+
+  FD_TEST( FD_GUI_TIMELINE_BUCKET_CNT==90793UL );
+  FD_LOG_NOTICE(( "test_timeline_aggregates: ok" ));
+}
+
 /* ---- the test --------------------------------------------------------- */
 
 static void
@@ -177,22 +443,35 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
   put_epoch( gui, EPOCH_C, C_START_SLOT, SLOT_CNT );
 
   for( ulong s=A_START_SLOT; s<=C_END_SLOT; s++ ) {
-    put_slot( gui, s, slot_complete_ns( s ) );
-    put_leader_slot( gui, s, slot_complete_ns( s ) );
+    put_slot( gui, s, epoch_slot_complete_ns( s ) );
+    put_leader_slot( gui, s, epoch_slot_complete_ns( s ) );
   }
 
   /* time-series: one scheduler-counts sample per second across all epochs'
-     windows [10,39] */
-  for( ulong sec=10UL; sec<=39UL; sec++ ) append_sched_counts( gui, sec_ns( sec ) );
+     windows [86390,86419], straddling midnight at the A/B boundary. */
+  for( ulong sec=86390UL; sec<=86419UL; sec++ ) append_sched_counts( gui, sec_ns( sec ) );
 
   /* shred events: one per slot at the slot's own completion second */
-  for( ulong s=A_START_SLOT; s<=C_END_SLOT; s++ ) append_shred( gui, slot_complete_ns( s ), s );
+  for( ulong s=A_START_SLOT; s<=C_END_SLOT; s++ ) append_shred( gui, epoch_slot_complete_ns( s ), s );
 
   /* boundary case: a shred for epoch B's first slot (1010) that landed in
-     window 19 -- the same second as epoch A's last slot (1009).  Eviction of
-     epoch A bounds the window at 19, but the slot watermark (1010 > 1009)
-     must keep this row. */
-  append_shred( gui, sec_ns( 19UL ), B_START_SLOT );
+     window 86399 -- the same second as epoch A's last slot (1009).  Eviction
+     of epoch A bounds the window there, but the slot watermark
+     (1010 > 1009) must keep this row. */
+  append_shred( gui, sec_ns( 86399UL ), B_START_SLOT );
+
+  /* Day zero is owned exclusively by epoch A.  Day one contains data
+     populated by test_timeline_queries and must survive with epoch B. */
+  fd_gui_slot_t timeline_slot;
+  memset( &timeline_slot, 0xFF, sizeof(timeline_slot) );
+  timeline_slot.completed_time = sec_ns( 86399UL );
+  timeline_slot.skip           = FD_GUI_SKIP_STATUS_NOT_SKIPPED;
+  timeline_slot.mine           = 0;
+  timeline_slot.shred_cnt      = 1U;
+  timeline_slot.block_shred_cnt= 1U;
+  fd_gui_timeline_root_slot( gui, &timeline_slot );
+  FD_TEST( timeline_day_present( gui, 0UL ) );
+  FD_TEST( timeline_day_present( gui, 1UL ) );
 
   /* flush time-series so the writes are visible to range reads */
   /* (range_begin flushes internally, but count_ts below relies on that) */
@@ -217,6 +496,8 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
   FD_TEST( !epoch_present( gui, EPOCH_A ) );
   FD_TEST(  epoch_present( gui, EPOCH_B ) );
   FD_TEST(  epoch_present( gui, EPOCH_C ) );
+  FD_TEST( !timeline_day_present( gui, 0UL ) );
+  FD_TEST(  timeline_day_present( gui, 1UL ) );
 
   for( ulong s=A_START_SLOT; s<=A_END_SLOT; s++ ) {
     FD_TEST( !slot_meta_present( gui, FD_GUI_HIST_SLOT, s ) );
@@ -227,8 +508,7 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
     FD_TEST( slot_meta_present( gui, FD_GUI_HIST_LEADER_SLOT, s ) );
   }
 
-  /* time-series: epoch A windows [10,19] gone, epochs B+C windows [20,39]
-     kept.  scheduler_counts had 10 in epoch A, 20 across B+C. */
+  /* time-series: epoch A's ten windows are gone and epochs B+C stay. */
   FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==20UL );
 
   /* shred events: TS eviction is an approximate watermark advance (a
@@ -614,6 +894,8 @@ main( int     argc,
      keeps the last epoch, so stores do not empty between tests). */
   test_store_t s0[ 1 ];
   store_open( s0, 1UL<<30, 0 );
+  test_timeline_aggregates( s0->gui );
+  test_timeline_queries( s0->gui );
   test_evict_oldest_epoch( s0->gui );
   store_close( s0 );
 
@@ -621,6 +903,11 @@ main( int     argc,
   store_open( s1, 1UL<<30, 2 );
   test_evict_large_batch( s1->gui );
   store_close( s1 );
+
+  test_store_t so[ 1 ];
+  store_open( so, 1UL<<30, 7 );
+  test_timeline_day_order( so->gui );
+  store_close( so );
 
   test_store_t sp[ 1 ];
   store_open( sp, 1UL<<30, 6 );

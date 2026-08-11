@@ -2978,6 +2978,82 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
 }
 
 void
+fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
+                                  char const *  key,
+                                  char const *  granularity,
+                                  ulong         granularity_idx,
+                                  long          reference_ts_ns,
+                                  ulong         bucket_cnt,
+                                  ulong         root_slot,
+                                  ulong         id ) {
+  fd_gui_timeline_day_t const * rec[ FD_GUI_TIMELINE_MAX_BUCKETS ];
+  uint                          idx[ FD_GUI_TIMELINE_MAX_BUCKETS ];
+  fd_gui_timeline_day_t const * cached_rec = NULL;
+  ulong cached_day = ULONG_MAX;
+  ulong gran_ns = fd_gui_timeline_granularity_ns[ granularity_idx ];
+
+  for( ulong i=0UL; i<bucket_cnt; i++ ) {
+    ulong ts      = (ulong)reference_ts_ns+i*gran_ns;
+    ulong day     = ts/(ulong)FD_GUI_TIMELINE_DAY_NS;
+    ulong day_ns  = ts%(ulong)FD_GUI_TIMELINE_DAY_NS;
+    idx[ i ] = (uint)(fd_gui_timeline_granularity_off[ granularity_idx ]+day_ns/gran_ns);
+    if( FD_UNLIKELY( root_slot==ULONG_MAX ) ) { rec[ i ]=NULL; continue; }
+    if( day!=cached_day ) {
+      fd_gui_hist_timeline_day_key_t day_key = { .day=day };
+      cached_rec = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &day_key );
+      cached_day = day;
+    }
+    rec[ i ] = cached_rec;
+  }
+
+#define TIMELINE_ARRAY(name,field,as_string) do {                           \
+    jsonp_open_array( gui->http, (name) );                                  \
+    for( ulong _i=0UL; _i<bucket_cnt; _i++ ) {                              \
+      if( !rec[ _i ] || rec[ _i ]->field[ idx[ _i ] ]==ULONG_MAX )          \
+        jsonp_null( gui->http, NULL );                                       \
+      else if( as_string )                                                   \
+        jsonp_ulong_as_str( gui->http, NULL, rec[ _i ]->field[ idx[ _i ] ] );\
+      else                                                                   \
+        jsonp_ulong( gui->http, NULL, rec[ _i ]->field[ idx[ _i ] ] );       \
+    }                                                                        \
+    jsonp_close_array( gui->http );                                          \
+  } while(0)
+
+  fd_gui_printf_open_query_response_envelope( gui->http, "timeline", key, id );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_string     ( gui->http, "granularity", granularity );
+      jsonp_long_as_str( gui->http, "reference_ts_ns", reference_ts_ns );
+      if( root_slot==ULONG_MAX ) jsonp_null ( gui->http, "root_slot" );
+      else                       jsonp_ulong( gui->http, "root_slot", root_slot );
+
+      if( !strcmp( key, "query_agg_shreds" ) ) {
+        TIMELINE_ARRAY( "shreds",        shreds,        0 );
+        TIMELINE_ARRAY( "turbine",       turbine,       0 );
+        TIMELINE_ARRAY( "repair",        repair,        0 );
+        TIMELINE_ARRAY( "reconstructed", reconstructed, 0 );
+        TIMELINE_ARRAY( "published",     published,     0 );
+      } else if( !strcmp( key, "query_agg_compute" ) ) {
+        TIMELINE_ARRAY( "compute_units", compute_units, 0 );
+        ulong max_compute = 0UL;
+        int have_max_compute = 0;
+        for( ulong i=0UL; i<bucket_cnt; i++ ) {
+          if( !rec[ i ] || rec[ i ]->max_compute[ idx[ i ] ]==ULONG_MAX ) continue;
+          have_max_compute = 1;
+          max_compute = fd_ulong_max( max_compute, rec[ i ]->max_compute[ idx[ i ] ] );
+        }
+        if( have_max_compute ) jsonp_ulong( gui->http, "max_compute_units", max_compute );
+        else                   jsonp_null ( gui->http, "max_compute_units" );
+      } else {
+        TIMELINE_ARRAY( "txn_fees",  txn_fees,  1 );
+        TIMELINE_ARRAY( "prio_fees", prio_fees, 1 );
+        TIMELINE_ARRAY( "tips",      tips,      1 );
+      }
+    jsonp_close_object( gui->http );
+  fd_gui_printf_close_query_response_envelope( gui->http );
+#undef TIMELINE_ARRAY
+}
+
+void
 fd_gui_peers_printf_wfs_add( fd_gui_peers_ctx_t * peers,
                              ulong const *        idxs,
                              ulong                cnt ) {

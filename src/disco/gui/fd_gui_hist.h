@@ -46,6 +46,7 @@ typedef struct fd_gui fd_gui_t;
    epochs at both ends of the horizon. */
 
 #define FD_GUI_HIST_MAX_EPOCHS ((FD_GUI_STORE_TS_IDX_DEPTH*(ulong)FD_GUI_HIST_RES_1S_NS)/(MAX_SLOTS_PER_EPOCH*((FD_SLOT_PARAMS_200MS).ns_per_slot))+2UL)
+#define FD_GUI_HIST_MAX_DAYS   (FD_GUI_STORE_TS_IDX_DEPTH/(24UL*60UL*60UL)+2UL)
 
 #define FD_GUI_HIST_SCHEDULER_COUNTS (0)  /* (ts, type)            */
 #define FD_GUI_HIST_TILE_TIMERS      (1)  /* (ts, type)            */
@@ -58,7 +59,8 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_EPOCH            (8)  /* (epoch)               */
 #define FD_GUI_HIST_TILE_STATS       (9)  /* (ts, type)            */
 #define FD_GUI_HIST_TXN_WATERFALL    (10) /* (ts, type)            */
-#define FD_GUI_HIST_CNT              (11)
+#define FD_GUI_HIST_TIMELINE_DAY     (11) /* (unix day)            */
+#define FD_GUI_HIST_CNT              (12)
 
 struct fd_gui_hist_metrics {
   /* Writes that hit MAP_FULL and were dropped. */
@@ -71,10 +73,12 @@ typedef struct fd_gui_hist_metrics fd_gui_hist_metrics_t;
 struct fd_gui_hist_slot_key        { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_leader_slot_key { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_epoch_key       { ulong epoch; };
+struct fd_gui_hist_timeline_day_key { ulong day; };
 
 typedef struct fd_gui_hist_slot_key        fd_gui_hist_slot_key_t;
 typedef struct fd_gui_hist_leader_slot_key fd_gui_hist_leader_slot_key_t;
 typedef struct fd_gui_hist_epoch_key       fd_gui_hist_epoch_key_t;
+typedef struct fd_gui_hist_timeline_day_key fd_gui_hist_timeline_day_key_t;
 
 struct fd_gui_hist_private;
 typedef struct fd_gui_hist_private fd_gui_hist_t;
