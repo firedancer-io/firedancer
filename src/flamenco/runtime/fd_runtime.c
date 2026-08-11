@@ -652,6 +652,10 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
                                 parent_blockhash,
                                 parent_epoch );
 
+  /* Update stake history balance and capitalization only after epoch
+     reward partitions have been calculated. */
+  fd_stake_history_ensure_rent_exempt( bank, accdb, capture_ctx );
+
   fd_bank_stake_delegations_end_frontier_query( banks, bank );
 
   /* The Agave client handles updating their stakes cache with a call to

@@ -20,6 +20,17 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
                                 fd_capture_ctx_t *               capture_ctx,
                                 fd_stake_history_entry_t const * entry );
 
+/* fd_stake_history_ensure_rent_exempt raises the stake history account
+   balance to the rent exempt minimum.  This is kept out of
+   fd_sysvar_stake_history_update so that the balance, and the
+   capitalization it changes, only move after the epoch rewards have
+   been calculated. */
+
+void
+fd_stake_history_ensure_rent_exempt( fd_bank_t *        bank,
+                                     fd_accdb_t *       accdb,
+                                     fd_capture_ctx_t * capture_ctx );
+
 int
 fd_sysvar_stake_history_validate( uchar const * data,
                                   ulong         sz );

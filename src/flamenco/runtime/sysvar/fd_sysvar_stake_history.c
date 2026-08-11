@@ -2,7 +2,6 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../fd_accdb_svm.h"
-#include "fd_sysvar_rent.h"
 
 void
 fd_sysvar_stake_history_init( fd_bank_t *        bank,
@@ -26,7 +25,7 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
   if( FD_UNLIKELY( !rw.lamports ) ) {
     /* Initialize account if it did not exist */
     fd_memcpy( rw.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
-    rw.lamports = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+    rw.lamports = FD_SYSVAR_RENT_UNADJUSTED_INITIAL_BALANCE;
     rw.data_len = FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ;
     fd_memset( rw.data, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
     /* Now a valid StakeHistory sysvar with zero entries */
@@ -73,11 +72,6 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
     if( !found ) idx = lo;
   }
 
-  /* Ensure account is rent exempt
-     https://github.com/anza-xyz/agave/blob/v4.0.0-rc.1/runtime/src/bank.rs#L5849-L5854 */
-  ulong rent_min = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-  if( FD_UNLIKELY( rent_min>rw.lamports ) ) rw.lamports = rent_min;
-
   /* Insert new element */
   ulong new_len = fd_ulong_if( found, len, fd_ulong_min( len+1UL, FD_SYSVAR_STAKE_HISTORY_CAP ) );
   ulong used_sz = 8UL + new_len * sizeof(fd_stake_history_entry_t);
@@ -100,6 +94,20 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
   fd_memset( rw.data+used_sz, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ-used_sz );
 
   FD_STORE( ulong, rw.data, new_len );
+
+  /* Balance is updated later by fd_stake_history_ensure_rent_exempt. */
+  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &rw, update );
+}
+
+void
+fd_stake_history_ensure_rent_exempt( fd_bank_t *        bank,
+                                     fd_accdb_t *       accdb,
+                                     fd_capture_ctx_t * capture_ctx ) {
+  fd_accdb_svm_update_t update[1];
+  fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_stake_history_id, 0 );
+  if( FD_UNLIKELY( !rw.lamports ) ) return; /* already released */
+
+  fd_sysvar_adjust_balance_for_rent( bank, &rw );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &rw, update );
 }
 
