@@ -273,6 +273,11 @@ upgrade_sim( test_env_t * env ) {
   FD_TEST( !fd_bpf_state_encode( &pd_state, acc.data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   memcpy( acc.data+PROGRAMDATA_METADATA_SIZE, test_elf, test_elf_sz );
   acc.data_len = env->pd_dlen;
+  /* A real Deploy/Upgrade leaves D rent-exempt.  Set it explicitly: the
+     deploy variant zeroes D on the parent first, so without this the
+     child copy would inherit lamports==0 and be a dead account carrying
+     full data, which Agave counts as nonexistent. */
+  acc.lamports = fd_rent_exempt_minimum_balance( &env->bank->f.rent, env->pd_dlen );
   acc.commit   = 1;
   acc.pd_write = 1;
   fd_accdb_unwrite_one( accdb, &acc );
@@ -859,8 +864,10 @@ test_bundle_deploy_size_counted2( fd_svm_mini_t * mini ) {
 
 /* Case 12 (in-bundle revive -> unlisted P): a transfer resurrects a
    parent-dead D, so D is in the pool but not live on the parent.  Both
-   paths must take the skipped arm and charge nothing, since the revived
-   D is still zero length. */
+   paths must take the skipped arm and charge D's 64-byte base: the
+   revived D is LIVE, and Agave charges
+   TRANSACTION_ACCOUNT_BASE_SIZE + data().len() for any lamports!=0
+   account, which for a zero-length D is the base and nothing more. */
 
 static void
 revive_mid( test_env_t * env, int bundle ) {
@@ -904,8 +911,13 @@ test_bundle_revive_pd_size_counted( fd_svm_mini_t * mini ) {
   setup_revive( env, mini, xfer, invoke );
   run_pair( env, xfer, invoke, 0, revive_mid, s );
 
+  /* A revived D is LIVE with zero-length data.  Agave's load_account
+     returns Some for any lamports!=0 account and charges
+     TRANSACTION_ACCOUNT_BASE_SIZE + data().len(), so D contributes its
+     64-byte base and nothing more.  Membership in the skipped list, not
+     a nonzero recorded length, is what makes that base get charged. */
   pd_fields_assert_same( "in-bundle revive -> unlisted P", b, s,
-                      2UL*FD_TRANSACTION_ACCOUNT_BASE_SIZE + SIZE_OF_PROGRAM );
+                      3UL*FD_TRANSACTION_ACCOUNT_BASE_SIZE + SIZE_OF_PROGRAM );
   FD_LOG_NOTICE(( "bundle revive-pd size counted... ok" ));
 }
 
@@ -964,6 +976,342 @@ test_bundle_close_pd_size_counted( fd_svm_mini_t * mini ) {
 }
 
 
+/* Case 14 (dead full-length D, undeclared by the bundle): D is absent
+   from the bundle pool, so the bundle binding takes its probe arm rather
+   than the pool-copy arm that the close case above exercises.  The
+   probed current-fork record is dead but still carries a full-length
+   body, so the probe arm's own liveness filter is the only thing that
+   keeps 64+len off the bill.  Both paths must charge nothing for D. */
+
+static void
+dead_probe_mid( test_env_t * env, int bundle ) {
+  if( bundle ) {
+    /* Nothing in the bundle declares D, so there is no pool copy and the
+       binding must fall through to the probe. */
+    FD_TEST( !find_pool_acc( &env->txn_out[0], &env->programdata ) );
+  }
+  int   pd = 0; ulong len = ULONG_MAX; ulong lamports = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len, &lamports ) );
+  FD_TEST( !lamports );          /* dead ... */
+  FD_TEST( len==env->pd_dlen );  /* ... but full length */
+}
+
+static void
+setup_dead_probe( test_env_t * env, fd_svm_mini_t * mini, fd_txn_p_t * xfer, fd_txn_p_t * invoke ) {
+  setup_env( env, mini );
+  fd_accdb_t * accdb = env->runtime->accdb;
+
+  /* D dead on the parent, so the invoke takes the skipped path. */
+  {
+    fd_acc_t acc = fd_accdb_write_one( accdb, env->parent_fork, env->programdata.uc );
+    acc.lamports = 0UL;
+    acc.data_len = 0UL;
+    acc.commit   = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
+  }
+  FD_TEST( !fd_accdb_exists( accdb, env->parent_fork, env->programdata.uc ) );
+
+  /* On the child, a full-length D record left at zero lamports. */
+  {
+    fd_acc_t acc = fd_accdb_write_one( accdb, env->fork_id, env->programdata.uc );
+    fd_bpf_state_t pd_state = {
+      .discriminant = FD_BPF_STATE_PROGRAM_DATA,
+      .inner.program_data = {
+        .slot                          = TEST_PARENT_SLOT-1UL,
+        .upgrade_authority_address     = env->authority,
+        .has_upgrade_authority_address = 1,
+      },
+    };
+    ulong out_sz = 0UL;
+    FD_TEST( !fd_bpf_state_encode( &pd_state, acc.data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+    memcpy( acc.data+PROGRAMDATA_METADATA_SIZE, test_elf, test_elf_sz );
+    acc.data_len = env->pd_dlen;
+    acc.lamports = 0UL;
+    acc.commit   = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
+  }
+
+  /* The mutating txn deliberately avoids D, so D stays out of the pool. */
+  build_transfer_txn( env, xfer, &env->authority, 1UL );
+  build_invoke_txn  ( env, invoke );
+}
+
+static void
+test_bundle_dead_probe_pd_not_counted( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  pd_fields_t b[1], s[1];
+  fd_txn_p_t xfer[1], invoke[1];
+
+  setup_dead_probe( env, mini, xfer, invoke );
+  run_pair( env, xfer, invoke, 1, dead_probe_mid, b );
+
+  setup_dead_probe( env, mini, xfer, invoke );
+  run_pair( env, xfer, invoke, 0, dead_probe_mid, s );
+
+  pd_fields_assert_same( "undeclared dead full-length D -> unlisted P", b, s,
+                      2UL*FD_TRANSACTION_ACCOUNT_BASE_SIZE + SIZE_OF_PROGRAM );
+  FD_LOG_NOTICE(( "bundle dead-probe D contributes nothing... ok" ));
+}
+
+/* A D that is DEAD on the current fork contributes nothing, even when
+   it still carries a full-length record.  Agave's load_account returns
+   None for any lamports==0 account, so it charges neither the base nor
+   the length.  This pins the liveness filter on the skipped-list
+   producer: without it the dead D is recorded and, because membership
+   alone now authorizes the charge, would add 64+len. */
+
+static void
+test_dead_pd_with_data_not_counted( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_env( env, mini );
+  fd_accdb_t * accdb = env->runtime->accdb;
+
+  /* D absent on the parent, so the invoke takes the skipped-list path. */
+  {
+    fd_acc_t acc = fd_accdb_write_one( accdb, env->parent_fork, env->programdata.uc );
+    acc.lamports = 0UL;
+    acc.data_len = 0UL;
+    acc.commit   = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
+  }
+  FD_TEST( !fd_accdb_exists( accdb, env->parent_fork, env->programdata.uc ) );
+
+  /* On the child, a full-length D record at zero lamports. */
+  {
+    fd_acc_t acc = fd_accdb_write_one( accdb, env->fork_id, env->programdata.uc );
+    fd_bpf_state_t pd_state = {
+      .discriminant = FD_BPF_STATE_PROGRAM_DATA,
+      .inner.program_data = {
+        .slot                          = TEST_CHILD_SLOT,
+        .upgrade_authority_address     = env->authority,
+        .has_upgrade_authority_address = 1,
+      },
+    };
+    ulong out_sz = 0UL;
+    FD_TEST( !fd_bpf_state_encode( &pd_state, acc.data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+    memcpy( acc.data+PROGRAMDATA_METADATA_SIZE, test_elf, test_elf_sz );
+    acc.data_len = env->pd_dlen;
+    acc.lamports = 0UL;
+    acc.commit   = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
+  }
+  int   pd = 0; ulong len = ULONG_MAX; ulong lamports = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, env->fork_id, env->programdata.uc, &pd, &len, &lamports ) );
+  FD_TEST( !lamports );          /* dead ... */
+  FD_TEST( len==env->pd_dlen );  /* ... but still full length */
+
+  fd_txn_p_t txn[1];
+  build_invoke_txn( env, txn );
+  fd_txn_out_t * o = exec_single( env, txn );
+  assert_invoke_not_deployed( o );
+  FD_TEST( o->details.loaded_accounts_data_size ==
+           2UL*FD_TRANSACTION_ACCOUNT_BASE_SIZE + SIZE_OF_PROGRAM );
+  FD_LOG_NOTICE(( "dead D carrying data contributes nothing... ok" ));
+}
+
+/* Core-BPF upgrade migration: the new D is committed with
+   program_data.slot == the current slot, so Agave stores the cache
+   entry at effective_slot = slot+1 and tombstones the program for the
+   rest of the slot.  The migration writes D outside the transaction
+   path, so it must stamp pd_write itself -- otherwise an invoke that
+   does not declare D reads the pre-upgrade copy off the parent fork,
+   the gate (which has no slot comparison on that branch) passes, and
+   the OLD program executes. */
+
+static void
+test_migration_upgrade_gates_invoke( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_env( env, mini );
+  fd_accdb_t * accdb = env->runtime->accdb;
+
+  /* The migration derives D as the canonical PDA of P, so this program
+     needs its Program state to point at that same PDA. */
+  fd_pubkey_t   prog   = { .ul = { 0x6d1917UL } };
+  uchar const * seed   = prog.uc;
+  ulong         seedsz = 32UL;
+  fd_pubkey_t   pda;
+  uchar         bump;
+  uint          custom_err;
+  FD_TEST( !fd_pubkey_find_program_address( &fd_solana_bpf_loader_upgradeable_program_id,
+                                            1UL, &seed, &seedsz, &pda, &bump, &custom_err ) );
+
+  uchar program_data[ SIZE_OF_PROGRAM ];
+  fd_bpf_state_t program_state = {
+    .discriminant                      = FD_BPF_STATE_PROGRAM,
+    .inner.program.programdata_address = pda,
+  };
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &program_state, program_data, sizeof(program_data), &out_sz ) );
+  put_account( accdb, env->parent_fork, &prog,
+               fd_rent_exempt_minimum_balance( &env->bank->f.rent, sizeof(program_data) ),
+               program_data, sizeof(program_data),
+               &fd_solana_bpf_loader_upgradeable_program_id, 1 );
+
+  /* Pre-upgrade D, deployed in an earlier slot so a plain invoke would
+     otherwise be allowed to run it. */
+  ulong   pd_len  = PROGRAMDATA_METADATA_SIZE + test_elf_sz;
+  uchar * pd_data = malloc( pd_len );
+  FD_TEST( pd_data );
+  fd_bpf_state_t pd_state = {
+    .discriminant = FD_BPF_STATE_PROGRAM_DATA,
+    .inner.program_data = {
+      .slot                          = TEST_PARENT_SLOT-1UL,
+      .upgrade_authority_address     = env->authority,
+      .has_upgrade_authority_address = 1,
+    },
+  };
+  out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &pd_state, pd_data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+  memcpy( pd_data+PROGRAMDATA_METADATA_SIZE, test_elf, test_elf_sz );
+  put_account( accdb, env->parent_fork, &pda,
+               fd_rent_exempt_minimum_balance( &env->bank->f.rent, pd_len ),
+               pd_data, pd_len, &fd_solana_bpf_loader_upgradeable_program_id, 0 );
+
+  /* Source buffer holding the replacement ELF, authority-matched. */
+  fd_pubkey_t buffer  = { .ul = { 0xb0ffe4UL } };
+  ulong   buf_len  = BUFFER_METADATA_SIZE + test_elf_sz;
+  uchar * buf_data = malloc( buf_len );
+  FD_TEST( buf_data );
+  fd_bpf_state_t buf_state = {
+    .discriminant = FD_BPF_STATE_BUFFER,
+    .inner.buffer = { .has_authority_address = 1, .authority_address = env->authority },
+  };
+  out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &buf_state, buf_data, BUFFER_METADATA_SIZE, &out_sz ) );
+  memcpy( buf_data+BUFFER_METADATA_SIZE, test_elf, test_elf_sz );
+  put_account( accdb, env->parent_fork, &buffer,
+               fd_rent_exempt_minimum_balance( &env->bank->f.rent, buf_len ),
+               buf_data, buf_len, &fd_solana_bpf_loader_upgradeable_program_id, 0 );
+
+  free( pd_data );
+  free( buf_data );
+
+  /* Run the migration against the executing (child) fork, exactly as
+     fd_compute_and_apply_new_feature_activations does at block start. */
+  fd_upgrade_core_bpf_program( env->bank, accdb, env->mini->runtime_stack, &prog, &buffer, NULL );
+
+  int   pd = 0; ulong len = ULONG_MAX; ulong lamports = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, env->fork_id, pda.uc, &pd, &len, &lamports ) );
+  FD_TEST( lamports );  /* migration funded the new D ... */
+  FD_TEST( pd );        /* ... and stamped pd_write, so the gate can fire */
+
+  /* An invoke that does not declare D must be rejected for the rest of
+     the slot, matching Agave's DelayVisibility tombstone. */
+  fd_hash_t const * rbh = fd_blockhashes_peek_last_hash( &env->bank->f.block_hash_queue );
+  FD_TEST( rbh );
+  fd_txn_builder_t b[1];
+  FD_TEST( fd_txn_builder_new( b, 4UL ) );
+  FD_TEST( fd_txn_builder_fee_payer_set( b, &env->payer ) );
+  fd_txn_builder_blockhash_set( b, rbh );
+  FD_TEST( fd_txn_builder_instr_open( b, &prog, NULL, 0UL ) );
+  fd_txn_builder_instr_close( b );
+  fd_txn_p_t txn[1];
+  fd_memset( txn, 0, sizeof(fd_txn_p_t) );
+  FD_TEST( fd_txn_build_p( b, txn ) );
+  txn->pack_cu.non_execution_cus                 = 1000U;
+  txn->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
+  fd_txn_builder_delete( b );
+
+  assert_invoke_not_deployed( exec_single( env, txn ) );
+  FD_LOG_NOTICE(( "core-BPF upgrade migration gates same-slot invoke... ok" ));
+}
+
+/* Builtin -> core-BPF migration, SIMD-0444 prefunded-PDA variant.
+   target_builtin_new_checked permits D to already exist only when it is
+   SYSTEM-owned, so the parent copy here is a funded, zero-length system
+   account rather than a stale ProgramData.  The migration must still
+   stamp pd_write on the D it writes.
+
+   Note what this can and cannot pin.  A system-owned account at an
+   off-curve PDA cannot have data allocated (Allocate needs the
+   account's own signature, and only the owning program can sign for a
+   PDA), so the parent copy is always zero length and the loader's
+   data_len < PROGRAMDATA_METADATA_SIZE backstop rejects the invoke with
+   or without the marker.  The invoke assertion below therefore documents
+   the end-to-end outcome but does NOT pin the marker; the probe
+   assertion does. */
+
+static void
+test_builtin_migration_prefunded_pd( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_env( env, mini );
+  fd_accdb_t * accdb = env->runtime->accdb;
+  /* SIMD-0444 is still pending, so enable_cleaned_up() leaves it off. */
+  env->bank->f.features.relax_programdata_account_check_migration = 0UL;
+  FD_TEST( FD_FEATURE_ACTIVE_BANK( env->bank, relax_programdata_account_check_migration ) );
+
+  /* A builtin program account, native-loader owned, plus its canonical
+     PDA prefunded as a bare system account. */
+  fd_pubkey_t   prog   = { .ul = { 0xb1719aUL } };
+  uchar const * seed   = prog.uc;
+  ulong         seedsz = 32UL;
+  fd_pubkey_t   pda;
+  uchar         bump;
+  uint          custom_err;
+  FD_TEST( !fd_pubkey_find_program_address( &fd_solana_bpf_loader_upgradeable_program_id,
+                                            1UL, &seed, &seedsz, &pda, &bump, &custom_err ) );
+
+  char const * builtin_name = "test builtin";
+  put_account( accdb, env->parent_fork, &prog, 1UL,
+               (uchar const *)builtin_name, strlen( builtin_name ),
+               &fd_solana_native_loader_id, 1 );
+  put_account( accdb, env->parent_fork, &pda,
+               fd_rent_exempt_minimum_balance( &env->bank->f.rent, 0UL ),
+               NULL, 0UL, &fd_solana_system_program_id, 0 );
+
+  /* Source buffer holding the replacement ELF, no authority. */
+  fd_pubkey_t buffer   = { .ul = { 0xb0ffe5UL } };
+  ulong       buf_len  = BUFFER_METADATA_SIZE + test_elf_sz;
+  uchar *     buf_data = malloc( buf_len );
+  FD_TEST( buf_data );
+  fd_bpf_state_t buf_state = {
+    .discriminant = FD_BPF_STATE_BUFFER,
+    .inner.buffer = { .has_authority_address = 0 },
+  };
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &buf_state, buf_data, BUFFER_METADATA_SIZE, &out_sz ) );
+  memcpy( buf_data+BUFFER_METADATA_SIZE, test_elf, test_elf_sz );
+  put_account( accdb, env->parent_fork, &buffer,
+               fd_rent_exempt_minimum_balance( &env->bank->f.rent, buf_len ),
+               buf_data, buf_len, &fd_solana_bpf_loader_upgradeable_program_id, 0 );
+  free( buf_data );
+
+  fd_core_bpf_migration_config_t config = {
+    .source_buffer_address     = &buffer,
+    .upgrade_authority_address = NULL,
+    .enable_feature_offset     = ULONG_MAX,
+    .migration_target          = FD_CORE_BPF_MIGRATION_TARGET_BUILTIN,
+    .builtin_program_id        = &prog,
+    .verified_build_hash       = NULL,
+  };
+  fd_migrate_builtin_to_core_bpf( env->bank, accdb, env->mini->runtime_stack, &config, NULL );
+
+  /* The marker is what this case exists to pin. */
+  int   pd = 0; ulong len = ULONG_MAX; ulong lamports = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, env->fork_id, pda.uc, &pd, &len, &lamports ) );
+  FD_TEST( lamports );
+  FD_TEST( pd );
+
+  /* End-to-end outcome (backstop-driven, see the note above). */
+  fd_hash_t const * rbh = fd_blockhashes_peek_last_hash( &env->bank->f.block_hash_queue );
+  FD_TEST( rbh );
+  fd_txn_builder_t b[1];
+  FD_TEST( fd_txn_builder_new( b, 4UL ) );
+  FD_TEST( fd_txn_builder_fee_payer_set( b, &env->payer ) );
+  fd_txn_builder_blockhash_set( b, rbh );
+  FD_TEST( fd_txn_builder_instr_open( b, &prog, NULL, 0UL ) );
+  fd_txn_builder_instr_close( b );
+  fd_txn_p_t txn[1];
+  fd_memset( txn, 0, sizeof(fd_txn_p_t) );
+  FD_TEST( fd_txn_build_p( b, txn ) );
+  txn->pack_cu.non_execution_cus                 = 1000U;
+  txn->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
+  fd_txn_builder_delete( b );
+
+  assert_invoke_not_deployed( exec_single( env, txn ) );
+  FD_LOG_NOTICE(( "builtin migration prefunded-PDA stamps pd_write... ok" ));
+}
+
 /* Bundle control: no same-slot mutation -> bundle invoke succeeds off
    the parent-fork binding. */
 static void
@@ -1012,6 +1360,10 @@ main( int     argc,
   test_bundle_deploy_size_counted2  ( mini );
   test_bundle_revive_pd_size_counted( mini );
   test_bundle_close_pd_size_counted ( mini );
+  test_bundle_dead_probe_pd_not_counted( mini );
+  test_dead_pd_with_data_not_counted( mini );
+  test_migration_upgrade_gates_invoke( mini );
+  test_builtin_migration_prefunded_pd( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );
