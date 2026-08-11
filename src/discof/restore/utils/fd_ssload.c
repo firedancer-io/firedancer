@@ -1,6 +1,7 @@
 #include "fd_ssload.h"
 
 #include "../../../disco/genesis/fd_genesis_cluster.h"
+#include "../../../flamenco/runtime/fd_hashes.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_ssmsg.h"
@@ -310,11 +311,98 @@ fd_ssload_recover_validate( fd_snapshot_manifest_t const * manifest,
   return fd_ssload_manifest_validate( manifest, banks->max_vote_accounts, banks->max_stake_accounts );
 }
 
+/* register_restart_slot adds a hard fork for the restart slot
+   (as configured in [runtime.restart]). */
+
+static int
+register_restart_slot( fd_bank_t * bank,
+                       ulong       restart_slot,
+                       ulong       restart_attempt ) {
+  if( FD_LIKELY( !restart_slot ) ) return 0;
+
+  ulong            cnt        = bank->f.hard_fork_cnt;
+  fd_hard_fork_t * hard_forks = bank->f.hard_forks;
+
+  /* The hard fork list is sorted ascending by slot, so only the last
+     entry can conflict with the scheduled hard fork. */
+
+  fd_hard_fork_t * last = cnt ? &hard_forks[ cnt-1UL ] : NULL;
+
+  if( FD_UNLIKELY( last && last->slot>restart_slot ) ) {
+    FD_LOG_WARNING(( "[runtime.restart.restart_slot] is %lu but the snapshot already contains a hard fork at the "
+                     "later slot %lu", restart_slot, last->slot ));
+    return -1;
+  }
+
+  if( FD_UNLIKELY( last && last->slot==restart_slot ) ) {
+    if( FD_UNLIKELY( restart_attempt<=last->cnt ) ) {
+      FD_LOG_WARNING(( "[runtime.restart.restart_attempt] is %lu but the snapshot already contains attempt %lu of "
+                       "the hard fork at slot %lu", restart_attempt, last->cnt, restart_slot ));
+      return -1;
+    }
+
+    if( FD_UNLIKELY( restart_slot<=bank->f.slot ) ) {
+      FD_LOG_WARNING(( "[runtime.restart.restart_attempt] is %lu but attempt %lu of the hard fork at slot %lu is "
+                       "already part of the bank hash of snapshot slot %lu, so the attempt cannot be changed",
+                       restart_attempt, last->cnt, restart_slot, bank->f.slot ));
+      return -1;
+    }
+
+    last->cnt = restart_attempt;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( cnt>=FD_HARD_FORKS_MAX ) ) {
+    FD_LOG_WARNING(( "Cannot register the hard fork configured at [runtime.restart.restart_slot] because the hard "
+                     "fork list is full (%lu entries)", cnt ));
+    return -1;
+  }
+
+  if( FD_UNLIKELY( restart_slot<=bank->f.slot ) ) {
+    if( FD_UNLIKELY( restart_slot<=bank->f.parent_slot ) ) {
+      FD_LOG_WARNING(( "[runtime.restart].restart_slot is %lu but the snapshot at slot %lu is already past it "
+                       "(parent slot %lu). not applying hard forks",
+                       restart_slot, bank->f.slot, bank->f.parent_slot ));
+      return -1;
+    }
+
+    /* Combining two hard forks in one bank hash requires the sum of
+       their attempts, but the snapshot bank hash already folded in the
+       entry the snapshot came with. */
+    if( FD_UNLIKELY( last && last->slot>bank->f.parent_slot ) ) {
+      FD_LOG_WARNING(( "[runtime.restart.restart_slot] is %lu but the bank hash of snapshot slot %lu already "
+                       "contains the hard fork at slot %lu", restart_slot, bank->f.slot, last->slot ));
+      return -1;
+    }
+  }
+
+  hard_forks[ cnt ].slot = restart_slot;
+  hard_forks[ cnt ].cnt  = restart_attempt;
+  bank->f.hard_fork_cnt  = cnt+1UL;
+
+  if( FD_UNLIKELY( restart_slot<=bank->f.slot ) ) {
+    fd_hashes_apply_hard_forks( &bank->f.bank_hash,
+                                bank->f.slot,
+                                bank->f.parent_slot,
+                                &hard_forks[ cnt ],
+                                1UL );
+    FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_b58 );
+    FD_LOG_NOTICE(( "applied hard fork at restart slot %lu (attempt %lu) to snapshot slot %lu, bank hash is now %s",
+                    restart_slot, restart_attempt, bank->f.slot, bank_hash_b58 ));
+  } else {
+    FD_LOG_NOTICE(( "scheduled hard fork at restart slot %lu (attempt %lu)", restart_slot, restart_attempt ));
+  }
+
+  return 0;
+}
+
 int
 fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
                          fd_banks_t *             banks,
                          fd_bank_t *              bank,
-                         ulong                    blockhash_seed ) {
+                         ulong                    blockhash_seed,
+                         ulong                    restart_slot,
+                         ulong                    restart_attempt ) {
 
   /* Slot */
 
@@ -440,6 +528,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
       }
     }
   }
+
+  if( FD_UNLIKELY( register_restart_slot( bank, restart_slot, restart_attempt ) ) ) return -1;
 
   /* snapin populates the root stake delegation cache directly from the
      account stream.  The manifest's primary stake delegations are
@@ -582,12 +672,14 @@ int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
-                   ulong                    blockhash_seed ) {
+                   ulong                    blockhash_seed,
+                   ulong                    restart_slot,
+                   ulong                    restart_attempt ) {
 
   if( FD_UNLIKELY( fd_ssload_recover_validate( manifest, banks ) ) ) {
     FD_LOG_WARNING(( "snapshot manifest validation failed" ));
     return -1;
   }
 
-  return fd_ssload_recover_apply( manifest, banks, bank, blockhash_seed );
+  return fd_ssload_recover_apply( manifest, banks, bank, blockhash_seed, restart_slot, restart_attempt );
 }

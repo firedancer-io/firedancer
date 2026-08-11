@@ -40,6 +40,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
@@ -1085,6 +1086,11 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   ctx->caught_up = 1;
 
+  if( FD_UNLIKELY( ctx->restart_slot ) ) {
+    FD_LOG_ERR(( "[runtime.restart] is only supported when booting from a snapshot, but this validator is "
+                 "bootstrapping a new cluster from genesis" ));
+  }
+
   uchar const * genesis_blob = (uchar const *)( meta+1 );
   FD_TEST( meta->bootstrap && meta->has_lthash );
   FD_TEST( fd_genesis_parse( ctx->genesis, genesis_blob, meta->blob_sz ) );
@@ -1217,6 +1223,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     }
 
     ulong snapshot_slot = bank->f.slot;
+    if( FD_UNLIKELY( ctx->restart_slot==snapshot_slot && ctx->restart_slot ) ) {
+      fd_sysvar_last_restart_slot_update( bank, ctx->accdb, ctx->capture_ctx );
+    }
 
     fd_hash_t bank_hash = bank->f.bank_hash;
     if( FD_UNLIKELY( ctx->wfs_enabled && memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
@@ -1319,19 +1328,18 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                                           ctx->banks,
                                           fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ ),
-                                          ctx->blockhash_seed ) ) ) {
+                                          ctx->blockhash_seed,
+                                          ctx->restart_slot,
+                                          ctx->restart_attempt ) ) ) {
         FD_LOG_ERR(( "Snapshot manifest recovery failed, aborting." ));
       }
 
+      fd_bank_t * boot_bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
       ctx->has_cluster_type = 1;
-      ctx->cluster_type     = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ )->f.cluster_type;
+      ctx->cluster_type     = boot_bank->f.cluster_type;
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      /* hard_fork_cnt already validated by fd_ssload_recover. */
-      ctx->hard_fork_cnt = manifest->hard_fork_cnt;
-      for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
-        ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
-      }
+      ctx->hard_forks_known = 1;
       ctx->has_expected_genesis_timestamp = 1;
       ctx->expected_genesis_timestamp     = manifest->creation_time_seconds;
       ctx->has_manifest_block_id          = manifest->has_block_id;
@@ -2440,10 +2448,13 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
      snapshot's hard fork list until wait-for-supermajority completes. */
   if( FD_UNLIKELY( ctx->wfs_enabled && !ctx->wfs_complete && ctx->expected_shred_version ) ) return;
 
-  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
+  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_forks_known && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
     ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
 
-    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+    fd_bank_t const * boot_bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
+    FD_CHECK_ERR( boot_bank, "boot bank is not yet available (this is a bug)" );
+
+    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, boot_bank->f.hard_forks, boot_bank->f.hard_fork_cnt );
 
     if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
@@ -3005,9 +3016,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->has_cluster_type = 0;
   ctx->has_genesis_timestamp          = 0;
   ctx->has_expected_genesis_timestamp = 0;
+  ctx->hard_forks_known               = 0;
   ctx->cluster_type = FD_CLUSTER_UNKNOWN;
-  ctx->hard_fork_cnt = ULONG_MAX;
   ctx->has_manifest_block_id = 0;
+
+  ctx->restart_slot    = tile->replay.restart_slot;
+  ctx->restart_attempt = tile->replay.restart_attempt;
 
   if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     if( FD_UNLIKELY( !fd_bundle_crank_gen_init( ctx->bundle.gen,

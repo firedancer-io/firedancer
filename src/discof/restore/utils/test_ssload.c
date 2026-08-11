@@ -1,6 +1,7 @@
 #include "fd_ssload.h"
 #include "../../../util/fd_util.h"
 #include "../../../flamenco/runtime/fd_bank.h"
+#include "../../../flamenco/runtime/fd_hashes.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../flamenco/stakes/fd_stake_delegations.h"
@@ -555,7 +556,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   /* First apply: simulate initial full snapshot load. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 0UL, 0UL )==0 );
   FD_TEST( bank->accdb_fork_id.val==37U );
   FD_TEST( bank->parent_accdb_fork_id.val==37U );
   FD_TEST( bank->txncache_fork_id.val==38U );
@@ -600,7 +601,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   /* A second manifest apply must also leave snapin's cache untouched. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 0UL, 0UL )==0 );
   FD_TEST( bank->accdb_fork_id.val==39U );
   FD_TEST( bank->parent_accdb_fork_id.val==39U );
   FD_TEST( bank->txncache_fork_id.val==40U );
@@ -617,6 +618,126 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_x, NULL, &stake_out, NULL ) );
   FD_TEST(  fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_y, NULL, &stake_out, NULL ) );
   FD_TEST( stake_out==7000UL );
+
+  fd_wksp_free_laddr( banks_mem );
+
+  FD_LOG_NOTICE(( "... pass" ));
+}
+
+/* Sets up a manifest describing a snapshot at slot 100, carrying the
+   hard fork list passed in. */
+
+static void
+setup_restart_manifest( fd_snapshot_manifest_t * manifest,
+                        fd_hard_fork_t const *   hard_forks,
+                        ulong                    hard_fork_cnt ) {
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->slot        = 100UL;
+  manifest->parent_slot =  99UL;
+  fd_memset( manifest->bank_hash, 0x5A, 32UL );
+  manifest->hard_fork_cnt = hard_fork_cnt;
+  for( ulong i=0UL; i<hard_fork_cnt; i++ ) manifest->hard_forks[ i ] = hard_forks[ i ];
+}
+
+static void
+test_recover_restart_slot( fd_wksp_t * wksp, fd_snapshot_manifest_t * manifest ) {
+  FD_LOG_NOTICE(( "testing recover registers the scheduled restart slot" ));
+
+  ulong max_banks          = 16UL;
+  ulong max_forks          =  4UL;
+  ulong max_stake          = 64UL;
+  ulong max_fallback_stake = 1024UL;
+  ulong max_vote           = 64UL;
+  ulong seed               = 42UL;
+
+  ulong banks_footprint = fd_banks_footprint( max_banks, max_forks,
+                                              max_stake, max_fallback_stake, max_vote );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, 2UL );
+  FD_TEST( banks_mem );
+
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
+                                                    max_stake, max_fallback_stake, max_vote,
+                                                    0 /* larger_max_cost_per_block */, seed ) );
+  FD_TEST( banks );
+
+  fd_bank_t * bank = fd_banks_init_bank( banks );
+  FD_TEST( bank );
+
+  fd_hard_fork_t const one[ 1 ] = {{ .slot = 10UL, .cnt = 1UL }};
+
+  /* A restart slot of zero leaves the manifest's list untouched. */
+
+  setup_restart_manifest( manifest, one, 1UL );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 0UL, 0UL )==0 );
+  FD_TEST( bank->f.hard_fork_cnt     ==1UL  );
+  FD_TEST( bank->f.hard_forks[0].slot==10UL );
+  FD_TEST( bank->f.hard_forks[0].cnt ==1UL  );
+
+  fd_hash_t snapshot_hash = bank->f.bank_hash;
+
+  /* A restart slot the validator still has to replay is appended, and
+     leaves the snapshot bank hash alone. */
+
+  setup_restart_manifest( manifest, one, 1UL );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 200UL, 1UL )==0 );
+  FD_TEST( bank->f.hard_fork_cnt     ==2UL   );
+  FD_TEST( bank->f.hard_forks[0].slot== 10UL );
+  FD_TEST( bank->f.hard_forks[1].slot==200UL );
+  FD_TEST( bank->f.hard_forks[1].cnt ==  1UL );
+  FD_TEST( !memcmp( &bank->f.bank_hash, &snapshot_hash, sizeof(fd_hash_t) ) );
+
+  /* A later attempt at an unreplayed restart slot supersedes the
+     previous one rather than adding an entry. */
+
+  fd_hard_fork_t const future[ 2 ] = {{ .slot = 10UL, .cnt = 1UL }, { .slot = 200UL, .cnt = 1UL }};
+  setup_restart_manifest( manifest, future, 2UL );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 200UL, 2UL )==0 );
+  FD_TEST( bank->f.hard_fork_cnt     ==2UL   );
+  FD_TEST( bank->f.hard_forks[1].slot==200UL );
+  FD_TEST( bank->f.hard_forks[1].cnt ==  2UL );
+  FD_TEST( !memcmp( &bank->f.bank_hash, &snapshot_hash, sizeof(fd_hash_t) ) );
+
+  /* A restart slot the snapshot is already at is folded into the
+     recovered bank hash, since that slot is never replayed. */
+
+  setup_restart_manifest( manifest, one, 1UL );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 100UL, 1UL )==0 );
+  FD_TEST( bank->f.hard_fork_cnt     ==2UL   );
+  FD_TEST( bank->f.hard_forks[1].slot==100UL );
+  FD_TEST( bank->f.hard_forks[1].cnt ==  1UL );
+
+  fd_hash_t expected = snapshot_hash;
+  fd_hashes_apply_hard_forks( &expected, 100UL, 99UL, &bank->f.hard_forks[1], 1UL );
+  FD_TEST( !memcmp( &bank->f.bank_hash, &expected, sizeof(fd_hash_t) ) );
+
+  /* A hard fork the snapshot already carries at a later slot is a
+     configuration error. */
+
+  fd_hard_fork_t const later[ 1 ] = {{ .slot = 300UL, .cnt = 1UL }};
+  setup_restart_manifest( manifest, later, 1UL );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 200UL, 1UL )==-1 );
+
+  /* So is an attempt the snapshot is already at or past. */
+
+  fd_hard_fork_t const same[ 1 ] = {{ .slot = 200UL, .cnt = 2UL }};
+  setup_restart_manifest( manifest, same, 1UL );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 200UL, 2UL )==-1 );
+  setup_restart_manifest( manifest, same, 1UL );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 200UL, 1UL )==-1 );
+
+  /* A restart slot the snapshot's parent is already past cannot be
+     applied to any bank hash. */
+
+  setup_restart_manifest( manifest, one, 1UL );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 99UL, 1UL )==-1 );
+
+  /* Neither can a restart slot on a snapshot whose bank hash already
+     folded in a different hard fork. */
+
+  fd_hard_fork_t const applied[ 1 ] = {{ .slot = 100UL, .cnt = 1UL }};
+  setup_restart_manifest( manifest, applied, 1UL );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 100UL, 2UL )==-1 );
 
   fd_wksp_free_laddr( banks_mem );
 
@@ -647,6 +768,7 @@ main( int     argc,
   test_vote_accounts( manifest );
   test_epoch_credits_downcasting( manifest );
   test_recover_preserves_snapin_stake_delegations( wksp, manifest );
+  test_recover_restart_slot( wksp, manifest );
 
   fd_wksp_free_laddr( manifest );
 
