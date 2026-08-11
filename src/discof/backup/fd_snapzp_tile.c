@@ -16,7 +16,7 @@
 #include <zstd.h>
 #include "fd_backup.h"
 #include "fd_backup_cache.h"
-#include "fd_backup_visited.h"
+#include "fd_backup_shmem.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
@@ -38,7 +38,8 @@
 
 struct fd_snapzp {
   fd_backup_cache_t  acc_cache[1];
-  visited_set_t *    visited_set;
+
+  fd_backup_overrun_t * overrun;
   fd_accdb_t *       accdb;
   fd_accdb_fork_id_t fork_id;
 
@@ -56,12 +57,12 @@ struct fd_snapzp {
   ulong snapshot_slot;
 
   /* input link */
-  void * snapmk_zp_mem;
-  ulong  snapmk_zp_chunk0;
-  ulong  snapmk_zp_wmark;
-  void * snaprd_mem;
-  ulong  snaprd_data0;
-  ulong  snaprd_data1;
+  void *  snapmk_zp_mem;
+  ulong   snapmk_zp_chunk0;
+  ulong   snapmk_zp_wmark;
+  void *  snaprd_mem;
+  ulong   snaprd_data0;
+  ulong   snaprd_data1;
 
   /* snapshot files (all O_DIRECT write-only seekable) */
   int   snap_fd;      /* current snap being written */
@@ -83,6 +84,7 @@ struct fd_snapzp {
 
   struct {
     ulong accounts_compressed;
+    ulong cache_read_torn;
     ulong bytes_compressed;
     ulong bytes_written;
     ulong io_blocked_ticks;
@@ -201,8 +203,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
   FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq ) );
-  ctx->visited_set = visited_set_join( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
-  FD_TEST( ctx->visited_set );
+  ctx->overrun = fd_backup_overrun( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
+  FD_TEST( ctx->overrun );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapzp.zp_fseq_id ) ); FD_TEST( zp_fseq );
   ctx->file_off = fd_fseq_app_laddr( zp_fseq );
@@ -415,8 +417,11 @@ accmeta_await_evict( fd_snapzp_t * ctx,
     FD_SPIN_PAUSE(); /* FIXME yield to OS instead? */
   }
 
+  /* tell snapmk that we were overrun */
+  fd_backup_overrun_push( ctx->overrun, acc_idx );
+  ctx->metrics.cache_read_torn++;
+
   FD_COMPILER_MFENCE();
-  fd_backup_visited_remove( ctx->visited_set, (ulong)acc_idx );
 }
 
 /* msg_acc_cache instructs snapzp to gather, compress, and write out a
@@ -805,6 +810,7 @@ metrics_write( fd_snapzp_t * ctx ) {
   FD_MCNT_SET( SNAPZP, BYTES_WRITTEN,               ctx->metrics.bytes_written       );
   FD_MCNT_SET( SNAPZP, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks    );
   FD_MCNT_SET( SNAPZP, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks      );
+  FD_MCNT_SET( SNAPZP, CACHE_READ_TORN,             ctx->metrics.cache_read_torn     );
 }
 
 #define STEM_BURST 1UL

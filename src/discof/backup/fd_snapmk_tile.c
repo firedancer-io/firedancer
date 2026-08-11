@@ -58,7 +58,7 @@
 #include "fd_snap_pool.h"
 #include "fd_backup_cache.h"
 #include "fd_backup_disk.h"
-#include "fd_backup_visited.h"
+#include "fd_backup_shmem.h"
 #include "fd_ssmanifest_writer.h"
 #include "fd_txncache_writer.h"
 #include "../fd_startup.h"
@@ -206,6 +206,8 @@ struct fd_snapmk {
   } zp_out[ FD_TOPO_MAX_TILE_OUT_LINKS ];
   fd_backup_cache_msg_t scan_batch[1];
   ushort                in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
+
+  fd_backup_overrun_t * overrun;
   fd_snapmk_accparse_t  accparse[1];
 
   /* disk batch staging (FD_BACKUP_ORIG_ACC_DISK_BATCH).  A batch is
@@ -358,8 +360,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->incremental = 0;
   ctx->base_slot   = ULONG_MAX;
-  ctx->visited_set = visited_set_join( fd_topo_obj_laddr( topo, tile->snapmk.visited_set_obj_id ) );
+  void * _backup   = fd_topo_obj_laddr( topo, tile->snapmk.visited_set_obj_id );
+  ctx->visited_set = fd_backup_set    ( _backup );
+  ctx->overrun     = fd_backup_overrun( _backup );
   FD_TEST( ctx->visited_set );
+  FD_TEST( ctx->overrun     );
 
   ulong banks_obj_id = tile->snapmk.banks_obj_id;
   FD_TEST( banks_obj_id!=ULONG_MAX );
@@ -915,6 +920,25 @@ zp_sync_cr_avail( fd_snapmk_t *             ctx,
   }
 }
 
+/* clean_overruns recovers from torn cache reads by downstream snapzp tiles.
+   Marks the affected accounts as 'not visited' so they are retried later. */
+
+static void
+clean_overruns( fd_snapmk_t * ctx ) {
+  fd_backup_overrun_t * q = ctx->overrun;
+  for(;;) {
+    uint pos = q->tail;
+    fd_backup_overrun_slot_t * slot = &q->slot[ pos & (FD_BACKUP_OVERRUN_DEPTH-1U) ];
+    if( FD_LIKELY( __atomic_load_n( &slot->seq, __ATOMIC_ACQUIRE )!=pos ) ) break;
+
+    uint acc_idx = slot->acc_idx;
+    __atomic_store_n( &slot->seq, pos+FD_BACKUP_OVERRUN_DEPTH-1U, __ATOMIC_RELEASE );
+    q->tail = pos+1U;
+
+    fd_backup_visited_remove( ctx->visited_set, (ulong)acc_idx );
+  }
+}
+
 /* check_credit runs every run loop iteration.  It specifies custom flow
    control behavior. */
 
@@ -924,6 +948,10 @@ check_credit( fd_snapmk_t *       ctx,
               int *               charge_busy,
               int *               is_backpressured ) {
   (void)stem; (void)charge_busy; (void)is_backpressured;
+
+  if( FD_LIKELY( ctx->state!=SNAPMK_STATE_ACCDB_DISK ) ) {
+    clean_overruns( ctx );
+  }
 
   if( FD_LIKELY( ctx->state!=SNAPMK_STATE_IDLE &&
                  ctx->state!=SNAPMK_STATE_SLEEP ) ) {
@@ -1266,6 +1294,7 @@ after_credit( fd_snapmk_t *       ctx,
   }
   case SNAPMK_STATE_ACCDB_CACHE_FINISH:
     *charge_busy = 1;
+    clean_overruns( ctx );
     /* done snapshotting accdb cache;
        now instruct snaprd tile to start reading accdb disk data */
     ctx->state = SNAPMK_STATE_ACCDB_DISK;

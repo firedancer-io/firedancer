@@ -1894,6 +1894,7 @@
 | <span class="metrics-name">snapzp_&#8203;bytes_&#8203;written</span> | counter | Number of compressed bytes written |
 | <span class="metrics-name">snapzp_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
 | <span class="metrics-name">snapzp_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing accounts |
+| <span class="metrics-name">snapzp_&#8203;cache_&#8203;read_&#8203;torn</span> | counter | Number of cached account reads torn by eviction, handed back to snapmk to un-claim |
 
 </div>
 

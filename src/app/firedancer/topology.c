@@ -422,9 +422,9 @@ fd_topo_initialize( config_t * config ) {
     zp_fseq = fd_topob_obj( topo, "fseq", "snapmk" );
     FD_TEST( fd_pod_insert_ulong( topo->props, "snapzp.fseq", zp_fseq->id ) );
 
-    fd_topo_obj_t * backup_vis = fd_topob_obj( topo, "backup_vis", "snapmk" );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, config->firedancer.accounts.max_accounts, "obj.%lu.max_accounts", backup_vis->id ) );
-    FD_TEST( fd_pod_insert_ulong( topo->props, "backup.vis", backup_vis->id ) );
+    fd_topo_obj_t * backup = fd_topob_obj( topo, "backup", "snapmk" );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, config->firedancer.accounts.max_accounts, "obj.%lu.max_accounts", backup->id ) );
+    FD_TEST( fd_pod_insert_ulong( topo->props, "backup", backup->id ) );
   }
 
   /**/                 fd_topob_link( topo, "genesi_out",    "genesi_out",    1UL,                                      FD_GENESIS_TILE_MTU,           1UL );
@@ -1104,20 +1104,20 @@ fd_topo_initialize( config_t * config ) {
   if( FD_LIKELY( snapshots_enabled ) ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
-  fd_topo_obj_t * backup_vis_obj = NULL;
+  fd_topo_obj_t * backup_obj = NULL;
   if( snapmk_enabled ) {
-    ulong backup_vis_obj_id = fd_pod_query_ulong( topo->props, "backup.vis", ULONG_MAX );
-    FD_TEST( backup_vis_obj_id!=ULONG_MAX );
-    backup_vis_obj = &topo->objs[ backup_vis_obj_id ];
+    ulong backup_obj_id = fd_pod_query_ulong( topo->props, "backup", ULONG_MAX );
+    FD_TEST( backup_obj_id!=ULONG_MAX );
+    backup_obj = &topo->objs[ backup_obj_id ];
 
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], zp_fseq,         FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], backup_vis_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], backup_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaprd", 0UL ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
   }
   FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ], zp_fseq,         FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ], backup_vis_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ], backup_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( snapmk_enabled ) {
     ulong snaprd_out_link_id = fd_topo_find_link( topo, "snaprd_out", 0UL );
     FD_TEST( snaprd_out_link_id!=ULONG_MAX );
@@ -1704,7 +1704,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->snapmk.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",              ULONG_MAX ); FD_TEST( tile->snapmk.accdb_obj_id!=ULONG_MAX );
     tile->snapmk.accdb_epoch_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.snapmk", ULONG_MAX ); FD_TEST( tile->snapmk.accdb_epoch_obj_id!=ULONG_MAX );
-    tile->snapmk.visited_set_obj_id = fd_pod_query_ulong( config->topo.props, "backup.vis",         ULONG_MAX ); FD_TEST( tile->snapmk.visited_set_obj_id!=ULONG_MAX );
+    tile->snapmk.visited_set_obj_id = fd_pod_query_ulong( config->topo.props, "backup",         ULONG_MAX ); FD_TEST( tile->snapmk.visited_set_obj_id!=ULONG_MAX );
     tile->snapmk.banks_obj_id       = fd_pod_query_ulong( config->topo.props, "banks",              ULONG_MAX ); FD_TEST( tile->snapmk.banks_obj_id!=ULONG_MAX );
     tile->snapmk.zp_fseq_id         = fd_pod_query_ulong( config->topo.props, "snapzp.fseq",        ULONG_MAX ); FD_TEST( tile->snapmk.zp_fseq_id!=ULONG_MAX );
     tile->snapmk.txncache_obj_id    = fd_pod_query_ulong( config->topo.props, "txncache",           ULONG_MAX ); FD_TEST( tile->snapmk.txncache_obj_id!=ULONG_MAX );
@@ -1718,7 +1718,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->snapzp.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",              ULONG_MAX ); FD_TEST( tile->snapzp.accdb_obj_id!=ULONG_MAX );
     tile->snapzp.accdb_epoch_obj_id = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "accdb_epoch.snapzp.%lu", tile->kind_id ); FD_TEST( tile->snapzp.accdb_epoch_obj_id!=ULONG_MAX );
-    tile->snapzp.visited_set_obj_id = fd_pod_query_ulong( config->topo.props, "backup.vis",         ULONG_MAX ); FD_TEST( tile->snapzp.visited_set_obj_id!=ULONG_MAX );
+    tile->snapzp.visited_set_obj_id = fd_pod_query_ulong( config->topo.props, "backup",         ULONG_MAX ); FD_TEST( tile->snapzp.visited_set_obj_id!=ULONG_MAX );
     tile->snapzp.zp_fseq_id         = fd_pod_query_ulong( config->topo.props, "snapzp.fseq",        ULONG_MAX ); FD_TEST( tile->snapzp.zp_fseq_id!=ULONG_MAX );
     tile->snapzp.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->snapzp.snap_fd_cnt        = config->firedancer.snapshots.max_full_snapshots_to_keep+

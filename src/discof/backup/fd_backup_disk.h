@@ -6,7 +6,7 @@
 
 #include "fd_backup.h"
 #include "fd_backup_accidx.h"
-#include "fd_backup_visited.h"
+#include "fd_backup_shmem.h"
 
 /* FD_SNAPMK_PF_LEAD is how far ahead of the record cursor the parser
    prefetches disk bytes. */
