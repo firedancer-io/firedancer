@@ -1218,7 +1218,7 @@ after_credit( ctx_t *             ctx,
     fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &shred_idx );
 
     fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
-    if( FD_UNLIKELY( blk && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
+    if( FD_UNLIKELY( blk && shred_idx <= blk->complete_idx && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
 
       if( FD_UNLIKELY( !peer || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
