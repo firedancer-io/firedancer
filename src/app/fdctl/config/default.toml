@@ -902,28 +902,6 @@ dynamic_port_range = "8900-9000"
 # fanning in from these various network senders to transmit on the
 # queues we have available.
 [net]
-    # Firedancer can automatically configure most networking
-    # options. The auto_level determines how the network stack
-    # is optimized. Options set to an explicit value are never
-    # modified regardless of auto_level's value.
-    #
-    #  "standard" (default)
-    #   Enables networking features which auto configuration
-    #   determines are safe and supported on this system.
-    #
-    #  "minimal"
-    #   Resolves all "auto" options to their most conservative
-    #   values.  This will reduce networking performance and is
-    #   a worst case backup.
-    #
-    #   If you suspect an error is caused by Firedancer's auto
-    #   configuration, try setting this to "minimal" to see if
-    #   the issue resolves. If you need "minimal" to make
-    #   your validator work, please report your issue with "standard"
-    #   as a bug at https://github.com/firedancer-io/firedancer/issues
-    #   with the prefix "auto config: ", alongside your log file.
-    auto_level = "standard"
-
     # The provider determines which Linux networking stack is used by
     # Firedancer.  Possible values for the option are:
     #
@@ -975,10 +953,10 @@ dynamic_port_range = "8900-9000"
         # This option selects the XDP provider.  Possible values for
         # this option are:
         #
-        # "auto" (default)
+        # "auto"
         #   Firedancer auto selects based on what your system is safely capable of.
         #
-        # "skb"
+        # "skb" (default)
         #   XDP provided by the kernel's generic network code.  This is
         #   the slowest mode, but it is well tested and compatible with
         #   all Linux network devices and drivers.
@@ -992,7 +970,7 @@ dynamic_port_range = "8900-9000"
         # With "drv" mode chosen on kernel/hardware which does not support driver
         # mode, then `fdctl run` will fail to start up with "operation not
         # supported".
-        xdp_mode = "auto"
+        xdp_mode = "skb"
 
         # This option helps reduce CPU usage when receiving packets.
         # If enabled, the net tile instructs the network device to copy
@@ -1014,16 +992,16 @@ dynamic_port_range = "8900-9000"
         # xdp_zero_copy to "true", and instead leave as either "auto" or "false".
         #
         # Its possible values are:
-        #  "true", "false" or "auto" (default)
-        xdp_zero_copy = "auto"
+        #  "true", "false" (default) or "auto"
+        xdp_zero_copy = "false"
 
         # The poll_mode option determines how Firedancer polls NAPI (Linux's
         # high perf networking mechanisms).  Its possible values are:
         #
-        #  "auto" (default)
+        #  "auto"
         #   Firedancer auto selects based on what your system is safely capable of.
         #
-        #  "softirq"
+        #  "softirq" (default)
         #   Relies significantly more on Linux to manage NAPI through wakeups,
         #   softirqs, and under higher network load, a separate ksoftirqd
         #   thread which Linux schedules onto a separate core.
@@ -1046,7 +1024,7 @@ dynamic_port_range = "8900-9000"
         #
         #  Prefbusy mode increases tail latency for other applications on
         #  the system sharing the same network interface.
-        poll_mode = "auto"
+        poll_mode = "softirq"
 
         # XDP uses metadata queues shared across the kernel and
         # userspace to relay events about incoming and outgoing packets.
@@ -1087,8 +1065,7 @@ dynamic_port_range = "8900-9000"
         #
         # "auto"
         #   Attempts to run in "dedicated" mode but automatically falls
-        #   back to "simple" mode if necessary.  Not affected by auto_level
-        #   and is separate from the auto configure system.
+        #   back to "simple" mode if necessary.
         rss_queue_mode = "simple"
 
         # Some specialized networking setups, including DoubleZero,
@@ -1124,8 +1101,8 @@ dynamic_port_range = "8900-9000"
         # just fine.
         #
         # Its possible values are:
-        #  "true", "false" or "auto" (default)
-        native_bond = "auto"
+        #  "true", "false" (default) or "auto"
+        native_bond = "false"
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
