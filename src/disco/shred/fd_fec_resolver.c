@@ -930,6 +930,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   reject = reject || ((base_data_shred->idx!=ctx->fec_set_idx) | (base_parity_shred->idx!=ctx->fec_set_idx) |
                       (base_data_shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE));
 
+  ulong const max_data_sz = reedsol_protected_sz + FD_SHRED_SIGNATURE_SZ;
+  int padding = 0; /* Have we seen a shred with padding yet? */
   for( ulong i=1UL; (!reject) & (i<FD_FEC_SHRED_CNT); i++ ) {
     /* Technically, we only need to re-parse the ones we recovered with
        Reedsol, but parsing is pretty cheap and the rest of the
@@ -947,7 +949,11 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     reject |= fd_shred_is_chained( fd_shred_type( parsed->variant ) ) &&
                 !fd_memeq( (uchar *)parsed         +fd_shred_chain_off( parsed->variant          ),
                            (uchar *)base_data_shred+fd_shred_chain_off( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+    reject |= padding & (parsed->data.size != FD_SHRED_DATA_HEADER_SZ);
+    padding |= parsed->data.size != max_data_sz;
   }
+  /* If any shred had padding, the last shred must have DATA_COMPLETE */
+  reject |= padding & !(set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
 
   for( ulong i=0UL; (!reject) & (i<FD_FEC_SHRED_CNT); i++ ) {
     fd_shred_t const * parsed = fd_shred_parse( set->parity_shreds[ i ].b, FD_SHRED_MAX_SZ, max_shred_idx );
