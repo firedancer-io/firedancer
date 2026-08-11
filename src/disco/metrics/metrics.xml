@@ -2036,6 +2036,7 @@ EXAMPLES
     <counter name="BytesWritten" summary="Number of compressed bytes written" />
     <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
     <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing accounts" />
+    <counter name="CacheReadTorn" summary="Number of cached account reads torn by eviction, handed back to snapmk to un-claim" />
 </tile>
 
 <tile name="snaprd">
