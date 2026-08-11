@@ -2277,7 +2277,7 @@ fd_guih_plugin_message( fd_guih_t *   gui,
       break;
     }
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
-      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==7*sizeof(ulong), "new fields breaks things" );
+      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==6*sizeof(ulong), "new fields breaks things" );
       fd_guih_handle_leader_schedule( gui, (fd_stake_weight_msg_t *)msg, now );
       break;
     }

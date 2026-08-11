@@ -119,7 +119,6 @@ test_shred_dest_conformance( void ) {
   stake_msg->epoch = 123UL;
   stake_msg->start_slot = 0UL;
   stake_msg->slot_cnt = 432000UL;
-  stake_msg->excluded_id_stake = 0UL;
 
   /* Count staked nodes and build stake weights */
   fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( stake_msg + 1 );

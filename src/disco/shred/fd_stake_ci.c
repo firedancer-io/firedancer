@@ -61,7 +61,7 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
   info->scratch->slot_cnt          = msg->slot_cnt;
   info->scratch->staked_vote_cnt   = msg->staked_vote_cnt;
   info->scratch->staked_id_cnt     = msg->staked_id_cnt;
-  info->scratch->excluded_id_stake = msg->excluded_id_stake;
+  info->scratch->excluded_id_stake = 0UL;
 
   fd_memcpy( info->vote_stake_weight, fd_stake_weight_msg_stake_weights( msg ), msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
   fd_memcpy( info->stake_weight,      fd_stake_weight_msg_id_weights( msg ),    msg->staked_id_cnt*sizeof(fd_stake_weight_t) );
