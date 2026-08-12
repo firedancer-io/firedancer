@@ -128,7 +128,7 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
   ulong  txn_per_slot_max;
   ulong  active_slots_max;
   ulong  bucket_cnt;      /* Hash buckets per blockcache.  Decoupled from txn_per_slot_max (load
-                             factor 2) to halve the heads arrays, which are ~10% of the footprint. */
+                             factor 8) to reduce the heads arrays' memory footprint. */
   ushort txnpages_per_blockhash_max;
   ushort max_txnpages;
 
@@ -158,7 +158,7 @@ fd_txncache_max_txnpages( ulong max_active_slots,
 
 FD_FN_CONST static inline ulong
 fd_txncache_bucket_cnt( ulong max_txn_per_slot ) {
-  return fd_ulong_max( 1UL, (max_txn_per_slot+1UL)/2UL );
+  return fd_ulong_max( 1UL, (max_txn_per_slot+7UL)/8UL );
 }
 
 FD_PROTOTYPES_END
