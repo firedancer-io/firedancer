@@ -123,8 +123,9 @@ int main( int argc, char ** argv ) {
   FD_TEST( new_stake_delegations_mem );
 
   FD_TEST( !fd_stake_delegations_join( NULL ) );
-  void * junk_mem = fd_wksp_alloc_laddr( wksp, 1UL, 1UL, 999UL );
+  void * junk_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t), 999UL );
   FD_TEST( junk_mem );
+  memset( junk_mem, 0, sizeof(fd_stake_delegations_t) );
   FD_TEST( !fd_stake_delegations_join( junk_mem ) );
 
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( new_stake_delegations_mem );

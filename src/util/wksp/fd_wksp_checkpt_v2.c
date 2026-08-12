@@ -458,6 +458,12 @@ fd_wksp_private_checkpt_v2( fd_tpool_t * tpool,
       ulong gaddr_lo = pinfo[ part_idx ].gaddr_lo;
       ulong gaddr_hi = pinfo[ part_idx ].gaddr_hi;
 
+#     if FD_HAS_DEEPASAN
+      /* We read the whole partition, so unpoison the holes sub-allocators
+         leave poisoned (permanently discarding that finer poisoning). */
+      fd_asan_unpoison( fd_wksp_laddr_fast( wksp, gaddr_lo ), gaddr_hi - gaddr_lo );
+#     endif
+
       CHECKPT_DATA( fd_wksp_laddr_fast( wksp, gaddr_lo ), gaddr_hi - gaddr_lo );
 
       part_idx = fd_wksp_private_pinfo_idx( pinfo[ part_idx ].stack_cidx );

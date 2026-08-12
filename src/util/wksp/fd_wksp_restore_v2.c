@@ -354,6 +354,14 @@ fd_wksp_private_restore_v2_cgroup( fd_wksp_t *                      wksp,
     /* Restore the allocation into the wksp data region */
 
     dirty = 1;
+#   if FD_HAS_DEEPASAN
+    /* Unpoison granule aligned as checkpt partitions can share a shadow
+       byte with a neighbor another thread is restoring concurrently.
+       The caller syncs the exact state once the threads have joined. */
+    ulong asan_lo = fd_ulong_align_dn( (ulong)fd_wksp_laddr_fast( wksp, gaddr_lo ), FD_ASAN_ALIGN );
+    ulong asan_hi = fd_ulong_align_up( (ulong)fd_wksp_laddr_fast( wksp, gaddr_hi ), FD_ASAN_ALIGN );
+    fd_asan_unpoison( (void *)asan_lo, asan_hi - asan_lo );
+#   endif
     RESTORE_DATA( fd_wksp_laddr_fast( wksp, gaddr_lo ), gaddr_hi - gaddr_lo );
   }
 
@@ -703,6 +711,10 @@ fd_wksp_private_restore_v2_mmio( fd_tpool_t *   tpool,
 
   if( FD_UNLIKELY( fd_wksp_rebuild( wksp, new_seed ) ) ) goto fail; /* logs details */
 
+# if FD_HAS_DEEPASAN
+  fd_wksp_private_asan_sync( wksp ); /* old allocations are gone now */
+# endif
+
   FD_LOG_INFO(( "Unlocking wksp" ));
 
   fd_wksp_private_unlock( wksp );
@@ -867,6 +879,11 @@ fd_wksp_private_restore_v2_stream( fd_wksp_t *    wksp,
         ulong gaddr_hi = pinfo[ part_idx ].gaddr_hi;
 
         dirty = 1;
+#       if FD_HAS_DEEPASAN
+        /* The destination can be poisoned free space, so unpoison it
+           before restoring into it. */
+        fd_asan_unpoison( fd_wksp_laddr_fast( wksp, gaddr_lo ), gaddr_hi - gaddr_lo );
+#       endif
         RESTORE_DATA( fd_wksp_laddr_fast( wksp, gaddr_lo ), gaddr_hi - gaddr_lo );
       }
 
@@ -915,6 +932,10 @@ restore_footer:
   for( ulong part_idx=ftr_alloc_cnt; part_idx<part_max; part_idx++ ) pinfo[ part_idx ].tag = 0UL;
 
   if( FD_UNLIKELY( fd_wksp_rebuild( wksp, new_seed ) ) ) goto fail; /* logs details */
+
+# if FD_HAS_DEEPASAN
+  fd_wksp_private_asan_sync( wksp ); /* old allocations are gone now */
+# endif
 
   FD_LOG_INFO(( "Unlocking wksp" ));
 

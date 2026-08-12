@@ -120,6 +120,7 @@
    time to try to bound the amount of pre-allocation for small requests. */
 
 #include "../wksp/fd_wksp.h"
+#include "../sanitize/fd_asan.h"
 
 /* FD_ALLOC_{ALIGN,FOOTPRINT} give the required alignment and footprint
    needed for a wksp allocation to be suitable as a fd_alloc.  ALIGN is
@@ -422,7 +423,13 @@ fd_alloc_malloc( fd_alloc_t * join,
                  ulong        align,
                  ulong        sz ) {
   ulong max[1];
-  return fd_alloc_malloc_at_least( join, align, sz, max );
+  void * laddr = fd_alloc_malloc_at_least( join, align, sz, max );
+
+#if FD_HAS_DEEPASAN
+  if( FD_LIKELY( laddr ) ) fd_asan_poison( (uchar *)laddr + sz, (*max) - sz );
+#endif
+
+  return laddr;
 }
 
 /* FIXME: consider a fd_alloc_avail API that returns the max bytes avail

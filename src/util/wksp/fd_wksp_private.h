@@ -230,6 +230,34 @@ fd_wksp_private_pinfo_const( fd_wksp_t const * wksp ) {
   return (fd_wksp_private_pinfo_t const *)(((ulong)wksp) + fd_wksp_private_pinfo_off());
 }
 
+#if FD_HAS_DEEPASAN
+
+/* fd_wksp_private_asan_poison_data poisons everything after wksp's
+   pinfo array, i.e. marks every partition free.  The wksp header and
+   pinfo array are left unpoisoned.  Assumes wksp is a local join. */
+
+static inline void
+fd_wksp_private_asan_poison_data( fd_wksp_t * wksp ) {
+  ulong footprint = fd_wksp_footprint( wksp->part_max, wksp->data_max ); /* includes the trailing guard region */
+  fd_asan_poison( fd_wksp_laddr_fast( wksp, wksp->gaddr_lo ), footprint - wksp->gaddr_lo );
+}
+
+/* fd_wksp_private_asan_sync makes wksp's poison state match its current
+   partitioning, i.e. all free space poisoned and allocated partitions
+   not.  Assumes wksp is a local join with a rebuilt partitioning. */
+
+static inline void
+fd_wksp_private_asan_sync( fd_wksp_t * wksp ) {
+  fd_wksp_private_asan_poison_data( wksp );
+  fd_wksp_private_pinfo_t * pinfo = fd_wksp_private_pinfo( wksp );
+  for( ulong i=0UL; i<wksp->part_max; i++ ) {
+    if( !pinfo[ i ].tag ) continue; /* idle or free */
+    fd_asan_unpoison( fd_wksp_laddr_fast( wksp, pinfo[ i ].gaddr_lo ), pinfo[ i ].gaddr_hi - pinfo[ i ].gaddr_lo );
+  }
+}
+
+#endif
+
 /* fd_wksp_private_pinfo_{cidx,idx} compresses / uncompresses a pinfo index */
 
 static inline uint  fd_wksp_private_pinfo_cidx( ulong idx  ) { return (uint) idx;  }
