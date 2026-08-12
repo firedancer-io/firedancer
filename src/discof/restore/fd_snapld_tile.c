@@ -3,6 +3,7 @@
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_sshttp.h"
 #include "utils/fd_sspeer_selector.h"
+#include "utils/fd_zstd_frame.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -42,6 +43,14 @@ typedef struct fd_snapld_tile {
   int   is_redirect;
   ulong gossip_slot;
   ulong file_sz;
+
+  int             load_zstd;
+  int             frame_open;                        /* Are we currently processing a Zstd frame? */
+  fd_zstd_frame_t zstd_frame[1];
+  ulong           current_frame_idx;
+  ulong           stage_off;
+  ulong           stage_sz;
+  uchar           stage_buf[ FD_SNAPSHOT_DATA_MTU ]; /* Zstd stream bytes staged to be scanned */
 
   ulong  bytes_in_batch;
   double download_speed_mibs;
@@ -189,6 +198,19 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
 }
 
 static void
+reset_zstd_stream( fd_snapld_tile_t * ctx ) {
+#if FD_HAS_ZSTD
+  FD_TEST( fd_zstd_frame_new( ctx->zstd_frame ) );
+#else
+  fd_memset( ctx->zstd_frame, 0, sizeof(ctx->zstd_frame) );
+#endif
+  ctx->frame_open        = 0;
+  ctx->current_frame_idx = 0UL;
+  ctx->stage_off         = 0UL;
+  ctx->stage_sz          = 0UL;
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -200,7 +222,9 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
   ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
 
-  ctx->state            = FD_SNAPSHOT_STATE_IDLE;
+  ctx->state     = FD_SNAPSHOT_STATE_IDLE;
+  ctx->load_zstd = 0;
+  reset_zstd_stream( ctx );
 
   ctx->download_speed_mibs = 0.0;
   ctx->bytes_in_batch      = 0UL;
@@ -286,6 +310,98 @@ check_download_progress( fd_snapld_tile_t *  ctx,
   return 0;
 }
 
+/* publish_zstd_impl scans and publishes a non-empty prefix of data that
+   does not cross a zstd frame boundary.  from_stage means data to be
+   published comes from stage_buf, otherwise data is already in the
+   output dcache.  If a chunk of data crosses a frame boundary, any
+   spillover bytes remain in the staging buffer to be published later. */
+static void
+publish_zstd_impl( fd_snapld_tile_t *  ctx,
+                   fd_stem_context_t * stem,
+                   uchar const *       data,
+                   ulong               data_sz,
+                   int                 from_stage ) {
+  FD_TEST( data_sz );
+
+#if !FD_HAS_ZSTD
+  (void)ctx; (void)stem; (void)data; (void)from_stage;
+  FD_LOG_ERR(( "publish_zstd_impl called without Zstandard support" ));
+#else
+  ulong consumed = 0UL;
+  int scan_result = fd_zstd_frame_advance( ctx->zstd_frame, data, data_sz, &consumed );
+  if( FD_UNLIKELY( scan_result==FD_ZSTD_FRAME_ERR ) ) {
+    FD_LOG_WARNING(( "malformed Zstandard framing in %s snapshot", ctx->load_full ? "full" : "incremental" ));
+    transition_malformed( ctx, stem );
+    if( !ctx->load_file ) fd_sshttp_cancel( ctx->sshttp );
+    return;
+  }
+
+  FD_TEST( consumed && consumed<=data_sz && consumed<=ctx->out_dc.mtu );
+
+  if( FD_UNLIKELY( from_stage ) ) {
+    /* Copy staged data into the output dcache. */
+    uchar * out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
+    fd_memcpy( out, ctx->stage_buf+ctx->stage_off, consumed );
+    ctx->stage_off += consumed;
+    ctx->stage_sz  -= consumed;
+
+    if( FD_LIKELY( !ctx->stage_sz ) ) {
+      ctx->stage_off = 0UL;
+    }
+  } else {
+    /* Data already in output dcache.  If there are any bytes that
+       belong to a new frame, move them to the staging buffer to be
+       published later. */
+    FD_TEST( !ctx->stage_sz );
+    ctx->stage_off = 0UL;
+    ctx->stage_sz  = data_sz-consumed;
+    fd_memcpy( ctx->stage_buf, data+consumed, ctx->stage_sz );
+  }
+
+  int   eom = scan_result==FD_ZSTD_FRAME_END;
+  ulong sig = fd_ssctrl_sig_pack( FD_SNAPSHOT_MSG_DATA, ctx->current_frame_idx );
+  ulong ctl = fd_frag_meta_ctl( 0UL, 0, eom, 0 );
+  fd_stem_publish( stem, 0UL, sig, ctx->out_dc.chunk, consumed, ctl, 0UL, 0UL );
+  ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, consumed, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+
+  /* Finished processing the current frame, prepare for the next frame */
+  ctx->frame_open = !eom;
+  if( FD_UNLIKELY( eom ) ) {
+    ctx->current_frame_idx++;
+    FD_TEST( fd_zstd_frame_new( ctx->zstd_frame ) );
+  }
+#endif
+}
+
+static void
+publish_zstd_direct( fd_snapld_tile_t *  ctx,
+                     fd_stem_context_t * stem,
+                     uchar const *       data,
+                     ulong               data_sz ) {
+  publish_zstd_impl( ctx, stem, data, data_sz, 0 );
+}
+
+static void
+publish_zstd_staged( fd_snapld_tile_t *  ctx,
+                     fd_stem_context_t * stem ) {
+  FD_TEST( ctx->stage_sz );
+  publish_zstd_impl( ctx, stem, ctx->stage_buf+ctx->stage_off, ctx->stage_sz, 1 );
+}
+
+static void
+finish_source( fd_snapld_tile_t *  ctx,
+               fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->load_zstd && ctx->frame_open ) ) {
+    FD_LOG_WARNING(( "incomplete Zstandard frame at end of %s snapshot", ctx->load_full ? "full" : "incremental" ));
+    transition_malformed( ctx, stem );
+    if( !ctx->load_file ) fd_sshttp_cancel( ctx->sshttp );
+    return;
+  }
+
+  ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
 static void
 after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -293,6 +409,14 @@ after_credit( fd_snapld_tile_t *  ctx,
               int *               charge_busy ) {
   if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
     fd_log_sleep( (long)1e6 );
+    return;
+  }
+
+  /* If there are any bytes remaining in the staging buffer, eagerly
+     publish them */
+  if( FD_UNLIKELY( ctx->load_zstd && ctx->stage_sz ) ) {
+    *charge_busy = 1;
+    publish_zstd_staged( ctx, stem );
     return;
   }
 
@@ -315,17 +439,20 @@ after_credit( fd_snapld_tile_t *  ctx,
     if( FD_UNLIKELY( result<=0L ) ) {
       if( result==0L ) {
         FD_LOG_INFO(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
-        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
+        finish_source( ctx, stem );
       } else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
         FD_LOG_WARNING(( "read() failed on %s snapshot file (%i-%s)", ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
         transition_malformed( ctx, stem );
         return; /* verbose return */
       }
     } else {
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, (ulong)result, 0UL, 0UL, 0UL );
-      ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, (ulong)result, ctx->out_dc.chunk0, ctx->out_dc.wmark );
       *charge_busy = 1;
+      if( ctx->load_zstd ) {
+        publish_zstd_direct( ctx, stem, out, (ulong)result );
+      } else {
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, (ulong)result, 0UL, 0UL, 0UL );
+        ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, (ulong)result, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+      }
       return; /* verbose return */
     }
   } else {
@@ -352,7 +479,8 @@ after_credit( fd_snapld_tile_t *  ctx,
           FD_TEST( sizeof(fd_ssctrl_meta_t)<=ctx->out_dc.mtu );
           fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)out;
           ulong next_chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
-          memmove( fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk ), out, data_len );
+          uchar * next_out = fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk );
+          memmove( next_out, out, data_len );
           meta->total_sz = fd_sshttp_content_len( ctx->sshttp );
           if( FD_UNLIKELY( meta->total_sz==ULONG_MAX ) ) {
             FD_LOG_WARNING(( "HTTP response for %s snapshot is missing Content-Length header", ctx->load_full ? "full" : "incremental" ));
@@ -408,10 +536,16 @@ after_credit( fd_snapld_tile_t *  ctx,
           ctx->sent_meta = 1;
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;
+          out = next_out;
         }
         if( FD_LIKELY( data_len!=0UL ) ) {
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, data_len, 0UL, 0UL, 0UL );
-          ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, data_len, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+          if( ctx->load_zstd ) {
+            publish_zstd_direct( ctx, stem, out, data_len );
+          } else {
+            fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, data_len, 0UL, 0UL, 0UL );
+            ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, data_len, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+          }
+
           ctx->bytes_in_batch += data_len;
 
           /* measure download speed every 100 MiB */
@@ -448,8 +582,7 @@ after_credit( fd_snapld_tile_t *  ctx,
           break;
         }
         FD_LOG_INFO(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
-        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
+        finish_source( ctx, stem );
         break;
       case FD_SSHTTP_ADVANCE_ERROR:
         FD_LOG_WARNING(( "HTTP advance error during %s snapshot download, entering error state",
@@ -489,16 +622,26 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       FD_TEST( sz==sizeof(fd_ssctrl_init_t) && sz<=ctx->out_dc.mtu );
       fd_ssctrl_init_t const * msg_in = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
+      ctx->state       = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->load_full   = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->load_file   = msg_in->file;
+      ctx->load_zstd   = msg_in->zstd;
       ctx->sent_meta   = 0;
       ctx->gossip_slot = msg_in->slot;
       ctx->is_redirect = msg_in->is_redirect;
       ctx->file_sz     = msg_in->file_sz;
+      reset_zstd_stream( ctx );
 
+#if !FD_HAS_ZSTD
+      if( FD_UNLIKELY( ctx->load_zstd ) ) {
+        FD_LOG_WARNING(( "cannot load compressed snapshot without Zstandard support" ));
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
+#endif
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;
       long now = fd_log_wallclock();
