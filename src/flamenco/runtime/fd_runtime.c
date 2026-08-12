@@ -499,7 +499,7 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
   /* Activate new features
       https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391 */
   fd_features_activate( bank, accdb, capture_ctx );
-  fd_features_restore( bank, accdb );
+  fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, bank->f.slot, &bank->f.epoch_schedule );
 
   /* SIMD-0194: deprecate_rent_exemption_threshold
       https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
@@ -794,7 +794,7 @@ fd_features_prepopulate_upcoming( fd_bank_t *  bank,
   ulong next_epoch = fd_slot_to_epoch( epoch_schedule, slot+1UL, NULL );
   if( FD_LIKELY( curr_epoch==next_epoch ) ) return;
 
-  fd_features_restore( bank, accdb );
+  fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, slot, epoch_schedule );
 }
 
 void
@@ -1480,13 +1480,11 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
     capitalization = fd_ulong_sat_add( capitalization, account->lamports );
 
-    uchar const * acc_data = account->data;
-
     if( !memcmp( account->owner.uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
          stake delegations cache.  Like Agave, membership is decided by
          the variant alone: a delegation of zero is still a delegation. */
-      fd_stake_state_t const * stake_state = fd_stake_state_view( acc_data, account->data_len );
+      fd_stake_state_t const * stake_state = fd_stake_state_view( account->data, account->data_len );
       if( FD_UNLIKELY( !stake_state ) ) { FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 ); FD_LOG_ERR(( "invalid stake account %s", stake_b58 )); }
       if( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) continue;
 
@@ -1504,7 +1502,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
     }
   }
 
-  fd_features_restore( bank, accdb );
+  fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, bank->f.slot, &bank->f.epoch_schedule );
 
   /* fd_refresh_vote_accounts is responsible for updating the vote
      states with the total amount of active delegated stake.  It does

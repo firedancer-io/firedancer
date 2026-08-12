@@ -16,6 +16,7 @@
 
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/stakes/fd_stake_types.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
@@ -126,6 +127,8 @@ struct fd_snapin_tile {
   ulong advertised_slot;
   ulong bank_slot;
   ulong epoch;
+
+  fd_epoch_schedule_t epoch_schedule;
 
   ulong full_genesis_creation_time_seconds;
   uchar advertised_hash[ FD_HASH_FOOTPRINT ];
@@ -769,7 +772,8 @@ process_manifest( fd_snapin_tile_t *  ctx,
     .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
     .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
   };
-  ctx->epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ctx->epoch          = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ctx->epoch_schedule = epoch_schedule;
 
   if( FD_UNLIKELY( verify_bank_hash( ctx, manifest ) ) ) {
     /* https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/bank.rs#L4682 */
@@ -1427,6 +1431,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       fd_accdb_snapshot_load_end( ctx->accdb );
+
+      fd_features_restore( &ctx->bank->f.features, ctx->accdb, ctx->accdb_root_fork_id, ctx->bank_slot, &ctx->epoch_schedule );
 
       /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
