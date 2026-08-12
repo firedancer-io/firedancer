@@ -320,16 +320,12 @@ fd_accdb_acc_xchg_offset( fd_accdb_accmeta_t * acc,
 struct fd_accdb_cache_line {
   fd_accdb_cache_key_t key;
 
-  uint acc_idx;
-  uint cache_idx;
-
-  uint  refcnt;
-  uchar persisted;
-  uchar referenced;
-
-  uint next;
-
-  uchar owner[ 32UL ];
+  uint   acc_idx;
+  ushort refcnt;
+  uchar  persisted;
+  uchar  referenced;
+  uint   next;
+  uchar  owner[ 32UL ];
 };
 
 typedef struct fd_accdb_cache_line fd_accdb_cache_line_t;
@@ -366,16 +362,19 @@ packed_partition_file_offset( accdb_offset_t const * offset,
 
 /* Maximum number of concurrent joiners (tiles) that can publish an
    epoch in the accdb.  Each joiner claims a slot in the shared epoch
-   array during fd_accdb_new.  Must be less than or equal to 256 so
+   array during fd_accdb_new.  Must be less than or equal to 64 so
    refcnt in cache lines can safely track the number of threads
-   referencing each cache line without overflow.  With a uint refcnt
-   field, 256 joiners is well within range. */
-#define FD_ACCDB_MAX_JOINERS (256UL)
+   referencing each cache line without overflow.  With a ushort refcnt
+   field, 64 joiners is well within range. */
+#define FD_ACCDB_MAX_JOINERS (64UL)
 
 /* EVICT_SENTINEL: stored in refcnt to indicate a cache line is being
    claimed by an eviction scan.  Any thread seeing this value must treat
    the line as unavailable. */
-#define FD_ACCDB_EVICT_SENTINEL UINT_MAX
+#define FD_ACCDB_EVICT_SENTINEL USHORT_MAX
+
+FD_STATIC_ASSERT( FD_ACCDB_MAX_JOINERS*2UL*FD_ACCDB_MAX_ACQUIRE_CNT==40960UL, cache_refcnt_bound );
+FD_STATIC_ASSERT( FD_ACCDB_MAX_JOINERS*2UL*FD_ACCDB_MAX_ACQUIRE_CNT<FD_ACCDB_EVICT_SENTINEL, cache_refcnt_width );
 
 struct fd_accdb_shmem_private {
   int partition_lock  __attribute__((aligned(64)));

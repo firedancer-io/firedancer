@@ -939,13 +939,14 @@ cache_try_pin( fd_accdb_cache_line_t * line,
                uchar const             pubkey[ 32 ],
                uint                    generation ) {
   for(;;) {
-    uint old_rc = FD_VOLATILE_CONST( line->refcnt );
+    ushort old_rc = FD_VOLATILE_CONST( line->refcnt );
     if( FD_UNLIKELY( old_rc==FD_ACCDB_EVICT_SENTINEL ) ) return NULL;
-    /* No saturation guard needed: refcnt is a uint and at most
-       FD_ACCDB_MAX_JOINERS (256) threads can pin concurrently,
+    /* No saturation guard needed: refcnt is a ushort and at most
+       FD_ACCDB_MAX_JOINERS (64) threads can pin concurrently,
        so old_rc+1 can never reach FD_ACCDB_EVICT_SENTINEL
-       (UINT_MAX) or wrap. */
-    if( FD_LIKELY( FD_ATOMIC_CAS( &line->refcnt, old_rc, old_rc+1U )==old_rc ) ) {
+       (USHORT_MAX) or wrap. */
+    ushort new_rc = (ushort)(old_rc+1U);
+    if( FD_LIKELY( FD_ATOMIC_CAS( &line->refcnt, old_rc, new_rc )==old_rc ) ) {
       /* Pinned.  ABA check: verify the key hasn't changed under us. */
       fd_racesan_hook( "accdb_try_pin:post_cas" );
       FD_COMPILER_MFENCE();
