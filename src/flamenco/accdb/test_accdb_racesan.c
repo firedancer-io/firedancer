@@ -2509,6 +2509,298 @@ test_stray_pin_vs_release_cleanup( void ) {
   test_teardown( accdb, fd );
 }
 
+/* ------------------------------------------------------------------ */
+/* Overwrite-discard cases: release abandons the original line under a */
+/* stray pin / races the free against concurrent evictors              */
+/* ------------------------------------------------------------------ */
+
+/* When an overwrite commit discards the original cache line (class-7
+   destination, or a size-class change), release tries to claim the line
+   for freeing; if a concurrent reader still holds a transient
+   cache_try_pin pin, the claim fails and the line is abandoned for
+   CLOCK to reclaim later.
+
+   Regression (external report, 2026-08-11): the line was abandoned
+   DIRTY (persisted==0) with acc_idx/key.generation intact, so the
+   eventual CLOCK/pre-eviction reclaim fired the dirty-writeback gate:
+   it xchg'd the account's offset to INVAL (freeing the NEW committed
+   version's disk record), synthesized a record from the PRE-overwrite
+   line bytes sized by the NEW executable_size, and republished it into
+   offset_fork — silently resurrecting the old account state on disk.
+   The fix marks the line persisted while release still holds its pin.
+
+   Schedule (both size-class variants), reusing the stray-pin
+   construction from test_stray_pin_vs_freepop so no API contract is
+   violated (the reader targets a DIFFERENT account whose line got
+   recycled to P):
+     1. X committed on root in line L; reader R (second handle)
+        read-acquires X and suspends at accdb_acquire:pre_try_pin
+        having captured L from X's cache_idx.
+     2. L is evicted (X flushed to disk) and recycled: P's commit pops
+        L off the free list, so P now lives in L, dirty.
+     3. R resumes to accdb_try_pin:post_cas: its CAS pinned L — a
+        stray pin on P's line.
+     4. Main overwrites P on the same fork: release's discard claim
+        fails under R's stray pin; L is abandoned to CLOCK.
+     5. R resumes: ABA recheck fails (L now carries P's key), unpins,
+        cold-loads X from disk, exits.
+     6. Oracle 1: reclaiming L must NOT fire the writeback gate
+        (debug_clock_evict_line returns UINT_MAX).  Pre-fix it returns
+        P's acc_idx — the stale republish.
+     7. Flush P's committed line too, then cold-load P from disk: must
+        read back the NEW version. */
+static void
+test_overwrite_discard_stray_pin_cls7( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar key_X  [ 32 ] = { 'X', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* X: class-7 bait account in line L. */
+  seq_write_data( accdb, root0, key_X, 500UL, owner_P, BIG_DATA, 0x77 );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_X, &cls, &idx ) );
+  FD_TEST( cls==7UL );
+
+  /* R captures X's cache_idx, suspends before pinning. */
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Evict L (X flushed to disk, L to the class-7 free list), then
+     commit P: its class-7 destination pops L, so P lives in L, dirty.
+     The overwrite below takes the new_size_class==7 discard branch. */
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 7UL, idx )!=UINT_MAX );
+  seq_write_data( accdb, root0, key_P, 100UL, owner_P, BIG_DATA, 0xA1 );
+  {
+    ulong cls_p, idx_p;
+    FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls_p, &idx_p ) );
+    FD_TEST( cls_p==7UL && idx_p==idx );
+  }
+
+  /* R pins L (stray pin on P's line), suspends before the ABA
+     recheck. */
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Overwrite P: release's discard claim fails under R's stray pin;
+     L is abandoned to CLOCK. */
+  seq_write_data( accdb, root0, key_P, 777UL, owner_P, BIG_DATA, 0xB2 );
+
+  /* R: ABA recheck fails, unpin, cold-load X from disk, complete. */
+  for(;;) {
+    int rc = fd_racesan_async_step( ar );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* Oracle 1: the abandoned L reclaims CLEAN.  Pre-fix this returns
+     P's acc_idx after freeing the new version's disk record and
+     republishing the 0xA1 bytes. */
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 7UL, idx )==UINT_MAX );
+
+  /* L is gone; only the committed line remains resident. */
+  ulong cls2, idx2;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls2, &idx2 ) );
+  FD_TEST( cls2==7UL && idx2!=idx );
+
+  /* Flush the committed line (a legitimate dirty writeback), then
+     cold-load P: must be the NEW version. */
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls2, idx2 )!=UINT_MAX );
+  {
+    uchar const * pks[1] = { key_P };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==777UL );
+    FD_TEST( a[0].data_len==BIG_DATA );
+    FD_TEST( a[0].data[ 0 ]==0xB2 && a[0].data[ BIG_DATA/2UL ]==0xB2 && a[0].data[ BIG_DATA-1UL ]==0xB2 );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
+/* Same schedule through the OTHER discard site: P starts in class 0 and
+   is overwritten into class 2, exercising the size-class-change branch
+   of release_inner. */
+static void
+test_overwrite_discard_stray_pin_xclass( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar key_X  [ 32 ] = { 'X', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* X: class-0 bait account in line L. */
+  seq_write_data( accdb, root0, key_X, 500UL, owner_P, 64UL, 0x77 );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_X, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+
+  /* R captures X's cache_idx, suspends before pinning. */
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Evict L, then commit P (100 bytes -> class 0): its class-0
+     destination pops L, so P lives in L, dirty. */
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 0UL, idx )!=UINT_MAX );
+  seq_write_data( accdb, root0, key_P, 100UL, owner_P, 100UL, 0xA1 );
+  {
+    ulong cls_p, idx_p;
+    FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls_p, &idx_p ) );
+    FD_TEST( cls_p==0UL && idx_p==idx );
+  }
+
+  /* R pins L (stray pin on P's line), suspends before the ABA
+     recheck. */
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Overwrite P into 600 bytes -> class 2: the cross-class discard
+     claim fails under R's stray pin; L abandoned to CLOCK. */
+  seq_write_data( accdb, root0, key_P, 777UL, owner_P, 600UL, 0xB2 );
+
+  /* R: ABA recheck fails, unpin, cold-load X from disk, complete. */
+  for(;;) {
+    int rc = fd_racesan_async_step( ar );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* Oracle 1: the abandoned class-0 L reclaims CLEAN. */
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 0UL, idx )==UINT_MAX );
+
+  ulong cls2, idx2;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls2, &idx2 ) );
+  FD_TEST( cls2==2UL );
+
+  /* Flush the committed line, then cold-load P: must be the NEW
+     version. */
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls2, idx2 )!=UINT_MAX );
+  {
+    uchar const * pks[1] = { key_P };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==777UL );
+    FD_TEST( a[0].data_len==600UL );
+    FD_TEST( a[0].data[ 0 ]==0xB2 && a[0].data[ 599 ]==0xB2 );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
+/* test_overwrite_discard_vs_evictor proves the discard claim leaves no
+   window for a concurrent evictor to steal the line.  Release converts
+   its own pin into the claim (CAS refcnt 1->EVICT_SENTINEL); refcnt
+   never passes through 0 with acc_idx/key.generation valid.  With the
+   earlier unpin-then-claim (SUB to 0, then CAS 0->SENTINEL),
+   background_preevict could claim the line in the gap and free-push it,
+   and release's claim then succeeded on the FREE-LISTED line and pushed
+   it a second time — a duplicate Treiber-stack entry handing one line
+   to two accounts.
+
+   Schedule:
+     1. P committed on root (class-7 line L0, dirty).
+     2. Writer W (second handle) overwrites P (BIG_DATA, class-7 discard
+        branch) and suspends at accdb_release:pre_discard_claim —
+        persisted already set, own pin still held.
+     3. Both evictors attack L0: the targeted foreground claim and a
+        full forced pre-eviction sweep.  Each must fail/skip on
+        refcnt>=1 and leave L0 alone.
+     4. W resumes: its claim wins and frees L0 exactly once.
+     5. Oracle: P reads back the NEW version, and cycling several fresh
+        class-7 accounts through the free list (write, flush, cold read)
+        surfaces any duplicate free-list entry as aliased data. */
+static void
+test_overwrite_discard_vs_evictor( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_w = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  seq_write_data( accdb, root0, key_P, 100UL, owner_P, BIG_DATA, 0xA1 );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) );
+  FD_TEST( cls==7UL );
+
+  /* W: overwrite P, park mid-release between the persisted store and
+     the claim, holding its pin on L0. */
+  fd_racesan_async_t * w = fiber_overwrite_full( &g_fiber[0], accdb_w, root0, key_P );
+  FD_TEST( fd_racesan_async_step_until( w, "accdb_release:pre_discard_claim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Foreground evictor: claim CAS 0->SENTINEL must fail on W's pin. */
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 7UL, idx )==UINT_MAX );
+
+  /* Background pre-eviction sweep: must skip L0 (refcnt!=0). */
+  fd_accdb_debug_force_preevict( accdb );
+
+  /* W: claim wins, L0 freed exactly once. */
+  for(;;) {
+    int rc = fd_racesan_async_step( w );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* P is the NEW version (fiber_overwrite_full commits LAMP_B/TAG_B/
+     0xBB). */
+  {
+    uchar const * pks[1] = { key_P };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==LAMP_B );
+    FD_TEST( a[0].owner[ 0 ]==TAG_B );
+    FD_TEST( a[0].data_len==BIG_DATA );
+    FD_TEST( a[0].data[ 0 ]==0xBB && a[0].data[ BIG_DATA-1UL ]==0xBB );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  /* Free-list integrity: a duplicate push would hand one line to two of
+     these accounts; after the flush the aliased account cold-loads with
+     the other's fill (or an unflushed INVAL offset). */
+  for( ulong i=0UL; i<4UL; i++ ) {
+    uchar key_i[ 32 ] = { 'F', (uchar)i, 0 };
+    seq_write_data( accdb, root0, key_i, 1000UL+i, owner_P, BIG_DATA, (uchar)(0xC0+i) );
+  }
+  fd_accdb_debug_force_preevict( accdb );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    uchar key_i[ 32 ] = { 'F', (uchar)i, 0 };
+    uchar const * pks[1] = { key_i };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==1000UL+i );
+    FD_TEST( a[0].data_len==BIG_DATA );
+    FD_TEST( a[0].data[ 0 ]==(uchar)(0xC0+i) && a[0].data[ BIG_DATA-1UL ]==(uchar)(0xC0+i) );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  free( accdb_w );
+  test_teardown( accdb, fd );
+}
+
 /* test_probe_vs_pd_commit the pd_write probe walk raced
    against a same-fork overwrite commit that sets pd_write=1.  The probe
    is designed to be called concurrently with writers on its fork; it
@@ -2763,6 +3055,9 @@ main( int     argc,
     TEST( test_step14_orphan_no_hang ),
     TEST( test_stray_pin_vs_freepop ),
     TEST( test_stray_pin_vs_release_cleanup ),
+    TEST( test_overwrite_discard_stray_pin_cls7 ),
+    TEST( test_overwrite_discard_stray_pin_xclass ),
+    TEST( test_overwrite_discard_vs_evictor ),
     TEST( test_probe_vs_pd_commit ),
     TEST( test_pd_same_fork_read_vs_write ),
     TEST( test_pd_parent_read_vs_child_write ),
