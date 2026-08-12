@@ -36,16 +36,20 @@
    the blockstore and on the network, which is why one tile handles
    both.
 
-   The legacy zero-copy output segments the memory for the two types of
+   Frankendancer's output path publishes full FEC sets into the
+   shred_store dcache.  It segments the memory for the two types of
    shreds into two halves of a dcache because they follow somewhat
-   different flow control patterns. For flow control, the normal
-   guarantee we want to provide is that the dcache entry is not
-   overwritten unless the mcache entry has also been overwritten.  The
-   normal way to do this when using both cyclically and with a 1-to-1
-   mapping is to make the dcache at least `burst` entries bigger than the
-   mcache.
+   different flow control patterns.  Firedancer instead copies completed
+   FEC data into fd_store before publishing and does not use this dcache
+   layout.
 
-   In this tile, we use one output mcache (of depth d) with one output
+   For Frankendancer flow control, the normal guarantee we want to
+   provide is that the dcache entry is not overwritten unless the mcache
+   entry has also been overwritten.  The normal way to do this when
+   using both cyclically and with a 1-to-1 mapping is to make the dcache
+   at least `burst` entries bigger than the mcache.
+
+   Frankendancer uses one output mcache (of depth d) with one output
    dcache (which is logically partitioned into two) for the two sources
    of data.  The worst case for flow control is when we're only sending
    with one of the dcache partitions at a time though, so we can

@@ -1017,7 +1017,6 @@ fd_topo_initialize( config_t * config ) {
   /* Auto layout must run after all fd_topob_tile() calls so every tile gets a blocklist-aware CPU assignment. */
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
 
-  /* Firedancer copies completed FEC sets before publishing. */
   ulong fec_sets_sz = (config->tiles.shred.max_pending_shred_sets + 6UL)*sizeof(fd_fec_set_t);
   fd_topo_obj_t * fec_sets_obj = setup_topo_fec_sets( topo, "fec_sets", shred_tile_cnt*fec_sets_sz );
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
@@ -1577,7 +1576,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     fd_cstr_ncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
 
-    /* Firedancer copies completed FEC sets before publishing. */
     tile->shred.fec_set_retention_depth       = 0UL;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
