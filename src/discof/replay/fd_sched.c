@@ -45,6 +45,7 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for res
 
 FD_STATIC_ASSERT( FD_SCHED_MIN_DEPTH>=FD_SCHED_MAX_TXN_PER_FEC, limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
+FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
 
 #define FD_SCHED_MAGIC (0xace8a79c181f89b6UL) /* echo -n "fd_sched_v0" | sha512sum | head -c 16 */
 
@@ -109,7 +110,7 @@ struct fd_sched_block {
   ulong               txn_pool_max_popcnt;   /* Peak transaction pool occupancy during the time this block was replaying. */
   ulong               mblk_pool_max_popcnt;  /* Peak mblk pool occupancy. */
   ulong               block_pool_max_popcnt; /* Peak block pool occupancy. */
-  ulong               txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
+  uint                txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* rdisp pool index, indexed by parse order */
 
   /* PoH verify. */
   fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
@@ -200,6 +201,7 @@ struct fd_sched_block {
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==596672UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -2436,7 +2438,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
-  FD_TEST( txn_idx!=0UL );
+  FD_TEST( txn_idx && txn_idx<sched->depth );
   sched->metrics->txn_parsed_cnt++;
   sched->metrics->alut_serializing_cnt += (uint)serializing;
   sched->txn_pool_free_cnt--;
@@ -2460,7 +2462,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_info_pool[ txn_idx ].tick_exec_disp = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_exec_done = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].index_in_slot  = block->txn_parsed_cnt;
-  block->txn_idx[ block->txn_parsed_cnt ] = txn_idx;
+  block->txn_idx[ block->txn_parsed_cnt ] = (uint)txn_idx;
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
 #if FD_SCHED_SKIP_SIGVERIFY
