@@ -18,6 +18,7 @@ struct fd_admin_tile_ctx {
 
   ulong replay_out_idx;        /* admin_replay stem out index */
   ulong snap_create_slot_idx;  /* adminctl slot of snapshot-create command */
+  ulong drain_slot_idx;        /* adminctl slot of drain command */
 };
 
 typedef struct fd_admin_tile_ctx fd_admin_tile_ctx_t;
@@ -52,6 +53,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
   ctx->replay_out_idx       = ULONG_MAX;
   ctx->snap_create_slot_idx = ULONG_MAX;
+  ctx->drain_slot_idx       = ULONG_MAX;
   ctx->topo = topo;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
@@ -885,6 +887,31 @@ snapshot_create_response( fd_admin_tile_ctx_t * ctx,
   ctx->snap_create_slot_idx = ULONG_MAX;
 }
 
+static void
+drain_request( fd_admin_tile_ctx_t * ctx,
+               fd_stem_context_t *   stem,
+               ulong                 slot_idx ) {
+
+  fd_adminctl_t * adminctl = ctx->adminctl;
+
+  if( FD_UNLIKELY( ctx->replay_out_idx==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "admin requested drain, but admin tile has no replay command link" ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->drain_slot_idx!=ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "admin requested drain, but another drain command is pending replay response" ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_DRAIN_RESULT_ALREADY_DRAINING );
+    return;
+  }
+
+  ulong ctl   = fd_frag_meta_ctl( FD_ADMINCTL_CMD_DRAIN, 0, 0, 0 );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->replay_out_idx, 0UL, 0UL, 0UL, ctl, 0UL, tspub );
+  ctx->drain_slot_idx = slot_idx;
+}
+
 /* Removing all authorized voters from the validator is the inverse of
    add-authorized-voter, and must be done in the opposite order.  When
    adding, the sign tile is updated before the tower tile so that the
@@ -1128,6 +1155,11 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       *charge_busy = 1;
       *opt_poll_in = 0;
       break;
+    case FD_ADMINCTL_CMD_DRAIN:
+      drain_request( ctx, stem, slot_idx );
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+      break;
     default:
       FD_LOG_WARNING(( "unexpected adminctl cmd %lu", cmd_id ));
       fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
@@ -1142,11 +1174,23 @@ during_frag( fd_admin_tile_ctx_t * ctx,
              ulong                 chunk FD_PARAM_UNUSED,
              ulong                 sz FD_PARAM_UNUSED,
              ulong                 ctl ) {
-  if( FD_UNLIKELY( ctx->snap_create_slot_idx==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "unexpected replay snapshot-create response with no pending adminctl command" ));
-    return;
+  ulong orig = fd_frag_meta_ctl_orig( ctl );
+  if( FD_LIKELY( orig==FD_ADMINCTL_CMD_SNAP_CREATE ) ) {
+    if( FD_UNLIKELY( ctx->snap_create_slot_idx==ULONG_MAX ) ) {
+      FD_LOG_ERR(( "unexpected replay snapshot-create response with no pending adminctl command" ));
+      return;
+    }
+    snapshot_create_response( ctx, sig, ctl );
+  } else if( orig==FD_ADMINCTL_CMD_DRAIN ) {
+    if( FD_UNLIKELY( ctx->drain_slot_idx==ULONG_MAX ) ) {
+      FD_LOG_ERR(( "unexpected replay drain response with no pending adminctl command" ));
+      return;
+    }
+    fd_adminctl_complete( ctx->adminctl, ctx->drain_slot_idx, sig );
+    ctx->drain_slot_idx = ULONG_MAX;
+  } else {
+    FD_LOG_ERR(( "unexpected replay admin response orig %lu", orig ));
   }
-  snapshot_create_response( ctx, sig, ctl );
 }
 
 static ulong

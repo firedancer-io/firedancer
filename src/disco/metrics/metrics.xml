@@ -1324,6 +1324,8 @@ EXAMPLES
     <gauge name="RuntimeStatus" summary="0=initializing, 1=loaded" />
 
     <gauge name="MaxIdleWindowSlots" summary="Maximum contiguous non-leader slots remaining in the current epoch for this validator, or 0 if unknown" />
+
+    <gauge name="DrainStatus" summary="0=not draining, 1=draining (in progress), 2=drained (quiescent)" />
 </tile>
 
 <enum name="RepairSentRequestType">

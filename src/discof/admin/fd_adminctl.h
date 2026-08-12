@@ -37,6 +37,7 @@
 #define FD_ADMINCTL_CMD_GET_IDENTITY           (3UL)
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
+#define FD_ADMINCTL_CMD_DRAIN                  (6UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
@@ -61,6 +62,8 @@ typedef struct fd_adminctl_add_auth_voter_v1 fd_adminctl_add_auth_voter_t;
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_KEYPAIR_MISMATCH            (0x1001UL)
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS             (0x1002UL)
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER        (0x1003UL)
+
+#define FD_DRAIN_RESULT_ALREADY_DRAINING                           (0x3001UL)
 
 #define FD_SNAPSHOT_CREATE_RESULT_BUSY                             (0x2001UL)
 #define FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED                      (0x2002UL)

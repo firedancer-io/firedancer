@@ -231,6 +231,16 @@ metrics_write( fd_replay_tile_t * ctx ) {
 
   FD_MGAUGE_SET( REPLAY, MAX_IDLE_WINDOW_SLOTS, ctx->max_idle_window_slots );
 
+  ulong drain_status = 0UL;
+  if( FD_UNLIKELY( ctx->draining ) ) {
+    int sched_drained = fd_sched_is_drained( ctx->sched );
+    int root_caught_up = (ctx->published_root_slot >= ctx->drain_target_root);
+    int not_leader = !ctx->is_leader;
+    int no_snapshot = !ctx->snapmk.active;
+    drain_status = (sched_drained && root_caught_up && not_leader && no_snapshot) ? 2UL : 1UL;
+  }
+  FD_MGAUGE_SET( REPLAY, DRAIN_STATUS, drain_status );
+
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
 
@@ -2160,10 +2170,12 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( try_become_leader( ctx, stem ) ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
+  if( FD_LIKELY( !ctx->draining ) ) {
+    if( FD_UNLIKELY( try_become_leader( ctx, stem ) ) ) {
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+      return;
+    }
   }
 
   if( FD_UNLIKELY( try_fini_leader( ctx, stem ) ) ) {
@@ -2184,10 +2196,12 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_LIKELY( try_process_fec( ctx, stem ) ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
+  if( FD_LIKELY( !ctx->draining ) ) {
+    if( FD_LIKELY( try_process_fec( ctx, stem ) ) ) {
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+      return;
+    }
   }
 
   ctx->execrp_idle_cnt++;
@@ -2771,6 +2785,17 @@ msg_admin( fd_replay_tile_t *  ctx,
   switch( orig ) {
   case FD_ADMINCTL_CMD_SNAP_CREATE:
     admin_snap_create( ctx, stem, sig );
+    break;
+  case FD_ADMINCTL_CMD_DRAIN:
+    if( FD_UNLIKELY( ctx->draining ) ) {
+      admin_respond( ctx, stem, FD_ADMINCTL_CMD_DRAIN, FD_DRAIN_RESULT_ALREADY_DRAINING );
+    } else {
+      ctx->draining          = 1;
+      ctx->drain_target_root = ctx->consensus_root_slot;
+      FD_LOG_NOTICE(( "drain requested, target root=%lu (published_root=%lu)",
+                      ctx->drain_target_root, ctx->published_root_slot ));
+      admin_respond( ctx, stem, FD_ADMINCTL_CMD_DRAIN, FD_ADMINCTL_RESULT_SUCCESS );
+    }
     break;
   default:
     FD_LOG_CRIT(( "unknown admin cmd (orig=%lu, sig=%lu)", orig, sig ));

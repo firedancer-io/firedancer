@@ -1,6 +1,7 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_bootinfo.h"
 #include "../../shared/fd_action.h"
+#include "adminctl_client.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/metrics/generated/fd_metrics_replay.h"
 #include "../../../disco/metrics/generated/fd_metrics_diag.h"
@@ -284,7 +285,7 @@ wait_for_safe_window( config_t * config,
 
     if( FD_UNLIKELY( all_pass ) ) {
       FD_LOG_NOTICE(( "safe to exit (reset_slot=%lu, next_leader=%lu)", reset_slot, next_leader_slot ));
-      fd_topo_leave_workspaces( &config->topo );
+      /* Metric workspace stays joined — caller leaves after drain. */
       return;
     }
 
@@ -331,8 +332,52 @@ exit_cmd_fn( args_t *   args,
 
   if( FD_UNLIKELY( query_only ) ) {
     FD_LOG_NOTICE(( "--query-only specified, not sending SIGTERM" ));
+    fd_topo_leave_workspaces( &config->topo );
     return;
   }
+
+  /* Drain phase: tell the replay tile to stop accepting new work and
+     drain in-flight state.  Skip if --force was given. */
+
+  if( FD_LIKELY( !force ) ) {
+    fd_adminctl_t * adminctl = adminctl_client_attach( config, NULL );
+
+    void * payload;
+    ulong  payload_max;
+    ulong  slot = fd_adminctl_reserve( adminctl, &payload, &payload_max );
+    if( FD_UNLIKELY( slot==ULONG_MAX ) ) FD_LOG_ERR(( "adminctl reserve failed" ));
+    fd_adminctl_publish( adminctl, slot, FD_ADMINCTL_CMD_DRAIN, 0UL );
+    ulong result = fd_adminctl_wait( adminctl, slot );
+    if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) )
+      FD_LOG_WARNING(( "drain command returned %lu, proceeding with SIGTERM", result ));
+
+    /* Poll drain metric until drained or timeout. */
+
+    ulong replay_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
+    if( FD_UNLIKELY( replay_idx==ULONG_MAX ) ) FD_LOG_ERR(( "no replay tile found in topology" ));
+    fd_topo_tile_t * replay_tile = &config->topo.tiles[ replay_idx ];
+
+    long drain_start      = fd_log_wallclock();
+    long drain_timeout_ns = 30L * 1000L * 1000L * 1000L;
+
+    FD_LOG_NOTICE(( "draining replay tile..." ));
+
+    for(;;) {
+      ulong drain_status = fd_metrics_tile( replay_tile->metrics )[ FD_METRICS_GAUGE_REPLAY_DRAIN_STATUS_OFF ];
+      if( FD_LIKELY( drain_status==2UL ) ) {
+        FD_LOG_NOTICE(( "replay tile drained successfully" ));
+        break;
+      }
+      long now = fd_log_wallclock();
+      if( FD_UNLIKELY( now - drain_start > drain_timeout_ns ) ) {
+        FD_LOG_WARNING(( "drain timed out after 30s, proceeding with SIGTERM" ));
+        break;
+      }
+      fd_log_wait_until( now + 500L*1000L*1000L );
+    }
+  }
+
+  if( FD_LIKELY( !force ) ) fd_topo_leave_workspaces( &config->topo );
 
   /* Discover the validator PID via bootinfo and send SIGTERM. */
 

@@ -330,6 +330,9 @@ struct fd_replay_tile {
   ulong       reset_slot;
   ulong       max_idle_window_slots;
 
+  int         draining;
+  ulong       drain_target_root;   /* consensus_root_slot at the time drain started */
+
   /* Caught up to the cluster: replay has completed a slot within a few
      slots of the highest FEC set slot seen from repair (which tracks
      the turbine tip). */
