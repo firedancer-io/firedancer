@@ -352,7 +352,8 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   /* Bytes remain in the current frag, continue processing */
   if( FD_UNLIKELY( ctx->in.frag_pos<sz ) ) return 1;
 
-  /* Zstd may have buffered output, process it on the next iteration */
+  /* Zstd may have buffered output to consume still, process it on the
+     next iteration */
   if( FD_UNLIKELY( frag_eom ) ) return 1;
 
   /* At this point the current frag is complete and we're ready to
