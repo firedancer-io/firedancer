@@ -66,8 +66,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_txn_p_t * txn            = fd_spad_alloc_check( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
   fd_txn_t *   txn_descriptor = TXN( txn );
   if( test_ctx->data ) {
-    memcpy( txn->payload, test_ctx->data->bytes, test_ctx->data->size );
-    txn->payload_sz = test_ctx->data->size;
+    ulong payload_sz = fd_ulong_min( test_ctx->data->size, sizeof(txn->payload) );
+    memcpy( txn->payload, test_ctx->data->bytes, payload_sz );
+    txn->payload_sz = payload_sz;
   } else {
     txn->payload_sz = 0;
   }
