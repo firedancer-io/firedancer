@@ -50,23 +50,33 @@
    31*max_vote_accounts entries PER bank / executed slot. We can also
    string all the intervals of the same bank together as a linkedlist. */
 
+struct lockout_interval_key {
+  uint fork_slot;
+  uint interval_end;
+};
+typedef struct lockout_interval_key lockout_interval_key_t;
+
 struct lockout_interval {
-  uint  pubkey_idx; /* pool idx of vote account pubkey; UINT_MAX for sentinels */
-  ulong key;        /* vote_slot (32 bits) | expiration_slot (32 bits) ie. vote_slot + (1 << confirmation count) */
-  uint  next;       /* reserved for fd_map_chain and fd_pool */
-  uint  start;      /* For normal entries: start of interval (vote slot).
-                       For sentinel entries (key has expiration_slot==0):
-                       the interval_end value this sentinel indexes.
-                       Multiple sentinels can exist per slot (one per
-                       unique interval_end), all sharing key (slot, 0)
-                       via MAP_MULTI. */
+  lockout_interval_key_t key;
+  uint                   pubkey_idx; /* pool idx of vote account pubkey; UINT_MAX for sentinels */
+  uint                   next;       /* reserved for fd_map_chain and fd_pool */
+  uint                   start;      /* For normal entries: start of interval (vote slot).
+                                        For sentinel entries (key has interval_end==0):
+                                        the interval_end value this sentinel indexes.
+                                        Multiple sentinels can exist per slot (one per
+                                        unique interval_end), all sharing key (slot, 0)
+                                        via MAP_MULTI. */
 };
 typedef struct lockout_interval lockout_interval_t;
 
-FD_STATIC_ASSERT( sizeof(lockout_interval_t)==24UL, lockout_interval );
+FD_STATIC_ASSERT( sizeof(lockout_interval_key_t)==8UL,  lockout_interval_key );
+FD_STATIC_ASSERT( sizeof(lockout_interval_t    )==20UL, lockout_interval     );
 
 #define MAP_NAME    lockout_interval_map
 #define MAP_ELE_T   lockout_interval_t
+#define MAP_KEY_T   lockout_interval_key_t
+#define MAP_KEY_EQ(k0,k1) (((k0)->fork_slot==(k1)->fork_slot) & ((k0)->interval_end==(k1)->interval_end))
+#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( ((((ulong)(key)->fork_slot)<<32) | (ulong)(key)->interval_end) ^ (seed) ))
 #define MAP_MULTI   1
 #define MAP_KEY     key
 #define MAP_NEXT    next
@@ -112,9 +122,13 @@ FD_STATIC_ASSERT( sizeof(lockout_pubkey_ref_t)==40UL, lockout_pubkey_ref );
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-FD_FN_PURE static inline ulong
-lockout_interval_key( ulong fork_slot, ulong end_interval ) {
-  return (fork_slot << 32) | end_interval;
+FD_FN_CONST static inline lockout_interval_key_t
+lockout_interval_key( ulong fork_slot,
+                      ulong interval_end ) {
+  return (lockout_interval_key_t) {
+    .fork_slot    = (uint)fork_slot,
+    .interval_end = (uint)interval_end,
+  };
 }
 
 #define THRESHOLD_DEPTH (8)
@@ -572,12 +586,12 @@ switch_check( fd_tower_t * tower,
          created at the time that we processed the bank for this
          candidate slot. */
 
-      ulong sentinel_key = lockout_interval_key( candidate_slot, 0U );
+      lockout_interval_key_t sentinel_key = lockout_interval_key( candidate_slot, 0U );
       for( lockout_interval_t const * sentinel = lockout_interval_map_ele_query_const( lck_map, &sentinel_key, NULL, lck_pool );
                                       sentinel;
                                       sentinel = lockout_interval_map_ele_next_const( sentinel, NULL, lck_pool ) ) {
-        uint  interval_end = sentinel->start;
-        ulong key          = lockout_interval_key( candidate_slot, interval_end );
+        uint                   interval_end = sentinel->start;
+        lockout_interval_key_t key          = lockout_interval_key( candidate_slot, interval_end );
 
         /* Intervals are keyed by the end of the interval. If the end of
            the interval is < the last vote slot, then these vote
@@ -1592,13 +1606,13 @@ fd_tower_lockos_insert( fd_tower_t *      tower,
                                   !fd_tower_vote_iter_done( votes, iter );
                             iter = fd_tower_vote_iter_next( votes, iter ) ) {
     fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( votes, iter );
-    uint interval_start = (uint)vote->slot;
-    uint interval_end   = (uint)(vote->slot + (1UL << vote->conf));
-    ulong key           = lockout_interval_key( slot, interval_end );
+    uint                   interval_start = (uint)vote->slot;
+    uint                   interval_end   = (uint)(vote->slot + (1UL << vote->conf));
+    lockout_interval_key_t key            = lockout_interval_key( slot, interval_end );
 
     if( !lockout_interval_map_ele_query( lck_map, &key, NULL, lck_pool ) ) {
       /* Insert sentinel for pruning.  key = fork_slot | 0, start = interval_end. */
-      ulong sentinel_key = lockout_interval_key( slot, 0U );
+      lockout_interval_key_t sentinel_key = lockout_interval_key( slot, 0U );
       FD_TEST( lockout_interval_pool_free( lck_pool ) );
       lockout_interval_t * sentinel = lockout_interval_pool_ele_acquire( lck_pool );
       sentinel->key        = sentinel_key;
@@ -1623,7 +1637,7 @@ fd_tower_lockos_remove( fd_tower_t * tower,
   lockout_interval_map_t * lck_map  = tower->lck_map;
   lockout_interval_t *     lck_pool = tower->lck_pool;
 
-  ulong sentinel_key = lockout_interval_key( slot, 0U );
+  lockout_interval_key_t sentinel_key = lockout_interval_key( slot, 0U );
   for( lockout_interval_t * sentinel = lockout_interval_map_ele_remove( lck_map, &sentinel_key, NULL, lck_pool );
                             sentinel;
                             sentinel = lockout_interval_map_ele_remove( lck_map, &sentinel_key, NULL, lck_pool ) ) {
@@ -1631,7 +1645,7 @@ fd_tower_lockos_remove( fd_tower_t * tower,
     FD_CHECK_CRIT( sentinel->pubkey_idx==UINT_MAX, "lockout sentinel unexpectedly owns a pubkey reference" );
     lockout_interval_pool_ele_release( lck_pool, sentinel );
 
-    ulong key = lockout_interval_key( slot, interval_end );
+    lockout_interval_key_t key = lockout_interval_key( slot, interval_end );
     for( lockout_interval_t * itrvl = lockout_interval_map_ele_remove( lck_map, &key, NULL, lck_pool );
                                       itrvl;
                                       itrvl = lockout_interval_map_ele_remove( lck_map, &key, NULL, lck_pool ) ) {
