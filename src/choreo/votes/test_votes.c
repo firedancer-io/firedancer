@@ -3,6 +3,13 @@
 #define SCRATCH_MAX (1UL<<22)
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
+FD_STATIC_ASSERT( sizeof(fd_votes_blk_t)==72UL, votes_blk_compact );
+
+static void
+test_votes_bounds( void ) {
+  FD_TEST( !fd_votes_footprint( 1UL<<16, 1UL<<16 ) );
+}
+
 /* Register voters manually (bypassing update_voters). */
 
 static void
@@ -307,6 +314,7 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
+  test_votes_bounds();
   test_votes_simple();
   test_votes_spam_block_ids_per_slot();
   test_votes_spam_many_slots();
