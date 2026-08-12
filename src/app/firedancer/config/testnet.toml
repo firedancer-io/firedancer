@@ -3,6 +3,8 @@
         "entrypoint.testnet.solana.com:8001",
         "entrypoint2.testnet.solana.com:8001",
     ]
+[tiles.repair]
+    slot_max = 8192
 [consensus]
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
 [accounts]

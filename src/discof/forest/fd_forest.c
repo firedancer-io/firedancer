@@ -1261,7 +1261,6 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
       if( FD_UNLIKELY( ele->parent_slot != parent_slot ) ) ele = verified_parent_update( forest, ele, parent_slot );
       ele->merkle_roots[fec_idx].mr = *mr;
       ele->merkle_roots[fec_idx].cmr = *cmr;
-
     }
   } else { /* No verification / knowledge of canonical merkle root */
     if( FD_UNLIKELY( !merkle_recvd( ele, fec_idx ) ) ) {
@@ -1306,7 +1305,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   fd_forest_blk_idxs_insert( ele->idxs, shred_idx );
   while( ele->buffered_idx + 1 < FD_SHRED_BLK_MAX && fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) {
     ele->buffered_idx++;
-    ele->est_buffered_tick_recv = ref_tick;
+    ele->est_buffered_tick_recv = fd_int_max(ref_tick, ele->est_buffered_tick_recv);
     /* If the buffered_idx increases, this means the
        est_buffered_tick_recv is at least ref_tick */
   }

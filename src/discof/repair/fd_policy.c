@@ -2,7 +2,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 
 #define NONCE_NULL        (UINT_MAX)
-#define DEFER_REPAIR_MS   (200UL)
+#define DEFER_REPAIR_MS   (100UL)
 #define TARGET_TICK_PER_SLOT (64.0)
 #define MS_PER_TICK          (400.0 / TARGET_TICK_PER_SLOT)
 
@@ -257,6 +257,9 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
     if( FD_UNLIKELY( ele->slot < highest_known_slot && !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_HIGHEST_SHRED, ele->slot, UINT_MAX ), now ) ) ) {
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ele->slot, 0U, now );
       out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, 0 );
+    } else if( FD_LIKELY( ele->slot == highest_known_slot ) ) {
+      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, ele->buffered_idx + 1, now );
+      out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, ele->buffered_idx + 1 );
     }
   } else {
     /* Regular repair requests are not deduped.  Any potential regular
