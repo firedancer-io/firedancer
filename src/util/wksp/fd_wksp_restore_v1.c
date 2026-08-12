@@ -241,16 +241,9 @@ fd_wksp_private_restore_v1( fd_tpool_t * tpool,
     wksp_dirty = 1;
 
     #if FD_HAS_DEEPASAN
-    /* Poison the restored allocations. Potentially under poison to respect
-       manual poisoning alignment requirements. Don't poison if the allocation
-       is smaller than FD_ASAN_ALIGN. */
-    ulong laddr_lo = (ulong)fd_wksp_laddr_fast( wksp, gaddr_lo );
-    ulong laddr_hi = laddr_lo + sz;
-    ulong aligned_laddr_lo = fd_ulong_align_up( laddr_lo, FD_ASAN_ALIGN );
-    ulong aligned_laddr_hi = fd_ulong_align_dn( laddr_hi, FD_ASAN_ALIGN );
-    if( aligned_laddr_lo < aligned_laddr_hi ) {
-      fd_asan_poison( (void*)aligned_laddr_lo, aligned_laddr_hi - aligned_laddr_lo );
-    }
+    /* The destination can be poisoned free space, so unpoison it before
+       restoring into it (the rebuild below syncs the final state). */
+    fd_asan_unpoison( fd_wksp_laddr_fast( wksp, gaddr_lo ), sz );
     #endif
 
     err = fd_io_buffered_istream_read( restore, fd_wksp_laddr_fast( wksp, gaddr_lo ), sz );
@@ -277,6 +270,10 @@ fd_wksp_private_restore_v1( fd_tpool_t * tpool,
     goto unlock;
   }
 
+  #if FD_HAS_DEEPASAN
+  fd_wksp_private_asan_sync( wksp ); /* old allocations are gone now */
+  #endif
+
   wksp_dirty = 0;
 
   FD_LOG_INFO(( "Restore successful" ));
@@ -291,6 +288,9 @@ unlock: /* note: wksp locked at this point */
     FD_LOG_WARNING(( "wksp \"%s\" dirty; attempting to reset it and continue", wksp->name ));
     for( ulong i=0UL; i<wksp_part_max; i++ ) wksp_pinfo[ i ].tag = 0UL;
     fd_wksp_rebuild( wksp, new_seed ); /* logs details */
+    #if FD_HAS_DEEPASAN
+    fd_wksp_private_asan_sync( wksp ); /* everything is free now */
+    #endif
     err = FD_WKSP_ERR_CORRUPT;
   }
 

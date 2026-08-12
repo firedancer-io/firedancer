@@ -262,10 +262,14 @@ fd_spad_prepare_sanitizer_impl( fd_spad_t * spad,
   align = fd_ulong_if( align>0UL, fd_ulong_max( align, FD_MSAN_ALIGN ), FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
 #endif
 
+  /* poison the free region first to cancel any in-progress prepare,
+     including the alignment padding this prepare will consume */
+  fd_asan_poison( fd_spad_private_mem( spad ) + spad->mem_used, spad->mem_max - spad->mem_used );
+
   void * buf = fd_spad_prepare_impl( spad, align, max );
 
-  /* unpoison memory starting at buf, which is guaranteed to be 8 byte aligned */
-  fd_asan_unpoison( buf,  spad->mem_max - spad->mem_used );
+  /* unpoison only the max bytes this prepare promises */
+  fd_asan_unpoison( buf, max );
   return buf;
 }
 

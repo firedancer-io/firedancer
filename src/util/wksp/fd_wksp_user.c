@@ -237,13 +237,9 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   if( FD_UNLIKELY( !tag                       ) ) { FD_LOG_WARNING(( "bad tag"     )); goto fail; }
 
 # if FD_HAS_DEEPASAN
-  /* ASan requires 8 byte alignment for poisoning because memory is mapped in
-     8 byte intervals to ASan shadow bytes. Update alignment, sz, and footprint
-     to meet manual poisoning requirements. */
+  /* ASan poisons in 8 byte shadow granules, so bump alignment (and thus
+     footprint) to meet manual poisoning requirements. */
   align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
-  if( sz && sz < ULONG_MAX ) {
-    sz = fd_ulong_align_up( sz, FD_ASAN_ALIGN );
-  }
   footprint = sz + align - 1UL;
 # endif
 
@@ -537,12 +533,7 @@ fd_wksp_reset( fd_wksp_t * wksp,
   if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return; }
 
 # if FD_HAS_DEEPASAN
-  /* Poison entire workspace except wksp header and the pinfo array. */
-  ulong footprint = fd_wksp_footprint( wksp->part_max, wksp->data_max );
-  void * wksp_data = (void*)((ulong)wksp + fd_wksp_private_pinfo_off());
-  fd_asan_poison( wksp_data, footprint - fd_wksp_private_pinfo_off() );
-  fd_wksp_private_pinfo_t * pinfo_arr = fd_wksp_private_pinfo( wksp );
-  fd_asan_unpoison( pinfo_arr, FD_WKSP_PRIVATE_PINFO_FOOTPRINT * wksp->part_max );
+  fd_wksp_private_asan_poison_data( wksp );
 # endif
 
   ulong                     part_max = wksp->part_max;

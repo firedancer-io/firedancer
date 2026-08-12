@@ -72,12 +72,29 @@ test_spad_deepasan( fd_spad_t * spad ) {
     uchar* prepare_then_cancel = (uchar *)fd_spad_prepare( spad, 1, 50 );
     /* test that accessing the byte right before prepare_then_cancel is poisoned */
     FD_TEST( fd_asan_test( (void*)( prepare_then_cancel - 1 ) ) == 1 );
-    /* test that rest of the spad region is unpoisoned */
-    FD_TEST( fd_asan_query( prepare_then_cancel, fd_spad_alloc_max( spad, 1 ) ) == NULL );
+    /* test that the prepared region is unpoisoned */
+    FD_TEST( fd_asan_query( prepare_then_cancel, 50 ) == NULL );
+    /* test the spad past the prepared region stays poisoned, probing the
+       first granule wholly past the request */
+    FD_TEST( fd_asan_test( prepare_then_cancel + fd_ulong_align_up( 50UL, FD_ASAN_ALIGN ) ) == 1 );
 
     /* test that fd_spad_cancel resets the memory region to poisoned */
     fd_spad_cancel( spad );
     FD_TEST( fd_asan_query( fd_spad_frame_hi( spad ), fd_spad_alloc_max( spad, 1 ) ) == fd_spad_frame_hi( spad ) );
+  }
+
+  /* test that a re-prepare re-poisons what the previous prepare exposed,
+     including the alignment padding the new prepare consumes */
+  {
+    fd_spad_push( spad );
+    FD_TEST( fd_spad_alloc( spad, 32, 8UL ) ); /* mem_used is now 8 but not 32 byte aligned */
+    uchar * wide   = (uchar *)fd_spad_prepare( spad,  1, 50 );
+    uchar * narrow = (uchar *)fd_spad_prepare( spad, 32, 10 );
+    FD_TEST( narrow > wide );
+    FD_TEST( fd_asan_test( wide ) == 1 );
+    FD_TEST( fd_asan_query( narrow, 10 ) == NULL );
+    FD_TEST( fd_asan_test( narrow + fd_ulong_align_up( 10UL, FD_ASAN_ALIGN ) ) == 1 );
+    fd_spad_pop( spad );
   }
 
   /* test the prepare then publish API */

@@ -193,6 +193,11 @@ fd_wksp_private_checkpt_v1( fd_tpool_t * tpool,
       fd_wksp_private_checkpt_v1_publish( checkpt, prep );
 
       /* Checkpt partition data */
+#     if FD_HAS_DEEPASAN
+      /* We read the whole partition, so unpoison the holes sub-allocators
+         leave poisoned (permanently discarding that finer poisoning). */
+      fd_asan_unpoison( laddr_lo, sz );
+#     endif
 
       err = fd_wksp_private_checkpt_v1_write( checkpt, laddr_lo, sz ); if( FD_UNLIKELY( err ) ) goto io_err;
     }

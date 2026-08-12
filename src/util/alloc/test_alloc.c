@@ -417,6 +417,25 @@ main( int     argc,
     FD_TEST( fd_alloc_join_cgroup_hint( alloc2 )==(cgroup_hint & FD_ALLOC_JOIN_CGROUP_HINT_MAX) );
   }
 
+# if FD_HAS_DEEPASAN
+  FD_LOG_NOTICE(( "Testing malloc tail poisoning" ));
+
+  do {
+    ulong    sz = 100UL; /* deliberately not a multiple of FD_ASAN_ALIGN */
+    ulong    max;
+    uchar *  mem = (uchar *)fd_alloc_malloc_at_least( alloc, 8UL, sz, &max );
+    FD_TEST( mem && (max>sz)                );
+    FD_TEST( !fd_asan_query( mem, max )     ); /* at_least exposes all max bytes */
+    fd_alloc_free( alloc, mem );
+
+    mem = (uchar *)fd_alloc_malloc( alloc, 8UL, sz );
+    FD_TEST( mem                            );
+    FD_TEST( !fd_asan_query( mem, sz )      ); /* requested bytes are accessible */
+    FD_TEST( fd_asan_test( mem + sz )==1    ); /* first unused byte is poisoned */
+    fd_alloc_free( alloc, mem );
+  } while(0);
+# endif
+
   FD_LOG_NOTICE(( "Testing is_empty" ));
 
   do {

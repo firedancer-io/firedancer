@@ -205,11 +205,7 @@ fd_wksp_new( void *       shmem,
   }
 
   #if FD_HAS_DEEPASAN
-  /* Poison entire workspace except wksp header and the pinfo array. */
-  void * wksp_data = (void*)((ulong)wksp + fd_wksp_private_pinfo_off());
-  fd_asan_poison( wksp_data, footprint - fd_wksp_private_pinfo_off() );
-  fd_wksp_private_pinfo_t * pinfo = fd_wksp_private_pinfo( wksp );
-  fd_asan_unpoison( pinfo, FD_WKSP_PRIVATE_PINFO_FOOTPRINT * part_max );
+  fd_wksp_private_asan_poison_data( wksp );
   #endif
 
   fd_wksp_private_unlock( wksp );

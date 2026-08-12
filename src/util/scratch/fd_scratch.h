@@ -414,10 +414,9 @@ fd_scratch_prepare( ulong align ) {
 # endif
 
 # if FD_HAS_DEEPASAN
-  /* At this point the user is able to clobber any bytes in the region. smem is
-     always going to be at least 8 byte aligned. */
-  ulong aligned_sz = fd_ulong_align_up( fd_scratch_private_stop - smem, FD_ASAN_ALIGN );
-  fd_asan_unpoison( (void*)smem, aligned_sz );
+  /* The user can clobber any byte in [smem,stop) and unpoisoning is
+     exact at the end of a region, so unpoison exactly that. */
+  fd_asan_unpoison( (void*)smem, fd_scratch_private_stop - smem );
 # endif
 
   fd_scratch_private_free = smem;
