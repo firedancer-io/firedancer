@@ -15,7 +15,7 @@ typedef struct fork fork_t;
 #define POOL_IDX_T int
 #include "../../util/tmpl/fd_pool.c"
 
-struct partition_ele {
+struct __attribute__((packed, aligned(4UL))) partition_ele {
   fd_pubkey_t pubkey;
   ulong       lamports;
   ulong       credits_observed;
