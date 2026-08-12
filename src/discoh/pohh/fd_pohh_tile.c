@@ -1271,22 +1271,46 @@ fd_ext_admin_rpc_set_identity( uchar const * identity_keypair,
                                int           require_tower,
                                int           require_vote_history );
 
+
+/* keyswitch_near_leader returns 1 if identity has any leader slots
+   within FD_EPOCH_SLOTS_PER_ROTATION slots of cur_slot. */
+static inline int
+keyswitch_near_leader( fd_multi_epoch_leaders_t const * mleaders,
+                       ulong                            cur_slot,
+                       fd_pubkey_t const *              identity ) {
+  ulong lo       = fd_ulong_if( cur_slot>=FD_EPOCH_SLOTS_PER_ROTATION, cur_slot-FD_EPOCH_SLOTS_PER_ROTATION, 0UL );
+  ulong hi       = fd_ulong_sat_add( cur_slot, FD_EPOCH_SLOTS_PER_ROTATION );
+  ulong slot_cnt = hi-lo+1UL;
+  for( ulong i=0UL; i<slot_cnt; i++ ) {
+    fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( mleaders, lo+i );
+    if( FD_UNLIKELY( leader && !memcmp( leader->key, identity->key, 32UL ) ) ) return 1;
+  }
+  return 0;
+}
+
 static inline int FD_FN_SENSITIVE
-maybe_change_identity( fd_pohh_tile_t * ctx,
-                       int            definitely_not_leader ) {
+maybe_change_identity( fd_pohh_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->halted_switching_key && fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     ctx->halted_switching_key = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     return 1;
   }
 
-  /* Cannot change identity while in the middle of a leader slot, else
-     poh state machine would become corrupt. */
+  /* Wait until we are definitely not a leader, not about to become one,
+     and not just finished being one.  Identity switches rewind
+     slot/hashcnt which has subtle interactions with the rest of the poh
+     state machine.
 
-  int is_leader = !definitely_not_leader && ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
-  if( FD_UNLIKELY( is_leader ) ) return 0;
-
+     This also mitigates an accidental equivocation scenario by giving
+     operators who don't follow correct switching protocol a slightly
+     wider window to safely switch. */
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    fd_pubkey_t const * pending_identity = fd_type_pun_const( ctx->keyswitch->bytes+32UL );
+    fd_epoch_leaders_t const * cur_lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, ctx->slot );
+    if( FD_UNLIKELY( cur_lsched && ( ctx->slot <  cur_lsched->slot0 + FD_EPOCH_SLOTS_PER_ROTATION || ctx->slot >= cur_lsched->slot0 + fd_ulong_sat_sub( cur_lsched->slot_cnt, FD_EPOCH_SLOTS_PER_ROTATION ) ) ) ) return 0;
+    if( FD_UNLIKELY( keyswitch_near_leader( ctx->mleaders, ctx->slot, &ctx->identity_key ) ||
+                     keyswitch_near_leader( ctx->mleaders, ctx->slot, pending_identity ) ) ) return 0;
+
     ulong param = fd_keyswitch_param_query( ctx->keyswitch );
     int failed = fd_ext_admin_rpc_set_identity( ctx->keyswitch->bytes, (int)(param & 1UL), (int)((param>>1) & 1UL) );
     fd_memzero_explicit( ctx->keyswitch->bytes, 32UL );
@@ -1337,7 +1361,7 @@ no_longer_leader( fd_pohh_tile_t * ctx ) {
       should be dropped. */
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), ctx->slot );
   ctx->current_leader_bank = NULL;
-  int identity_changed = maybe_change_identity( ctx, 1 );
+  int identity_changed = maybe_change_identity( ctx );
   ctx->next_leader_slot = next_leader_slot( ctx );
   if( FD_UNLIKELY( identity_changed ) ) {
     FD_LOG_INFO(( "fd_poh_identity_changed(next_leader_slot=%lu)", ctx->next_leader_slot ));
@@ -1910,7 +1934,7 @@ after_credit( fd_pohh_tile_t *    ctx,
 
 static inline void
 during_housekeeping( fd_pohh_tile_t * ctx ) {
-  if( FD_UNLIKELY( maybe_change_identity( ctx, 0 ) ) ) {
+  if( FD_UNLIKELY( maybe_change_identity( ctx ) ) ) {
     ctx->next_leader_slot = next_leader_slot( ctx );
     FD_LOG_INFO(( "fd_poh_identity_changed(next_leader_slot=%lu)", ctx->next_leader_slot ));
 
