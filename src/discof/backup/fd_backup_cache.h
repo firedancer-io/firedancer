@@ -113,6 +113,36 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
                       ulong *             out_sz,
                       ulong               out_max );
 
+/* Metrics APIs */
+
+/* fd_backup_cache_scanned_bytes returns the number of bytes scanned so
+   far. */
+
+FD_FN_PURE static inline ulong
+fd_backup_cache_scanned_bytes( fd_backup_cache_t const * backup ) {
+  ulong cur = fd_ulong_min( backup->cache_class, FD_ACCDB_CACHE_CLASS_CNT );
+  ulong scanned = 0UL;
+  for( ulong cls=0UL; cls<cur; cls++ ) {
+    scanned += backup->cache_max[ cls ]*fd_accdb_cache_slot_sz[ cls ];
+  }
+  if( FD_LIKELY( cur<FD_ACCDB_CACHE_CLASS_CNT ) ) {
+    scanned += backup->cache_idx*fd_accdb_cache_slot_sz[ cur ];
+  }
+  return scanned;
+}
+
+/* fd_backup_cache_total_bytes returns the total number of bytes that the
+   accdb cache spans. */
+
+FD_FN_PURE static inline ulong
+fd_backup_cache_total_bytes( fd_backup_cache_t const * backup ) {
+  ulong total = 0UL;
+  for( ulong cls=0UL; cls<FD_ACCDB_CACHE_CLASS_CNT; cls++ ) {
+    total += backup->cache_max[ cls ]*fd_accdb_cache_slot_sz[ cls ];
+  }
+  return total;
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_backup_fd_backup_cache_h */

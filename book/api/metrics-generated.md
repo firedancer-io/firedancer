@@ -1868,6 +1868,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">snapmk_&#8203;state</span> | gauge | 0=idle, 3=manifest, 4=cached accounts, 10=incremental accounts, 13=status cache, 17=sleeping, 18=startup wait (others transient) |
 | <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | counter | Number of snapshots created (includes in-progress) (Full snapshot) |
 | <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | counter | Number of snapshots created (includes in-progress) (Incremental snapshot) |
 | <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;started</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot (Full snapshot) |
@@ -1876,6 +1877,10 @@
 | <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;slot_&#8203;finished</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | gauge | Slot of the most recently finished snapshot creation. Zero if no snapshot has finished since boot (Incremental snapshot) |
 | <span class="metrics-name">snapmk_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
 | <span class="metrics-name">snapmk_&#8203;bytes_&#8203;written</span> | counter | Number of compressed bytes written |
+| <span class="metrics-name">snapmk_&#8203;cache_&#8203;progress_&#8203;bytes</span> | gauge | Bytes of the accounts database cache region scanned so far for the snapshot being created. Resets when a snapshot starts and holds at the total once the cached accounts phase finishes. Stays zero for an incremental snapshot, which does not scan the cache |
+| <span class="metrics-name">snapmk_&#8203;cache_&#8203;total_&#8203;bytes</span> | gauge | Size of the accounts database cache region, i.e. the bytes that a cached accounts phase has to scan |
+| <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;progress</span> | gauge | Accounts changed since the base snapshot that have been written so far for the incremental snapshot being created. Resets when a snapshot starts, and stays zero for a full snapshot, which has no changed account walk |
+| <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;total</span> | gauge | Accounts changed since the base snapshot, sampled when the incremental snapshot started. Zero for a full snapshot. Replay may record further changes while the job runs, so the progress gauge can exceed this |
 | <span class="metrics-name">snapmk_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
 | <span class="metrics-name">snapmk_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing data |
 | <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;count</span> | gauge | Number of accounts that changed since the last full snapshot, i.e. the number of accounts that the next incremental snapshot will contain |

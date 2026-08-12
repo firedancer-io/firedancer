@@ -87,28 +87,6 @@
 #define SNAPMK_STEM_BURST 3UL
 #define SNAPMK_STEM_LAZY  8700UL
 
-/* snapmk lifecycle states */
-#define SNAPMK_STATE_IDLE                0 /* clean, waiting for job */
-#define SNAPMK_STATE_START               1
-#define SNAPMK_STATE_TAR_HEADERS         2
-#define SNAPMK_STATE_MANIFEST            3 /* writing manifest */
-#define SNAPMK_STATE_ACCDB_CACHE         4 /* writing cached accounts */
-#define SNAPMK_STATE_ACCDB_CACHE_FLUSH   5 /* flushing cached accounts */
-#define SNAPMK_STATE_ACCDB_CACHE_FINISH  6 /* wait for flush to complete */
-#define SNAPMK_STATE_ACCDB_DISK          7 /* writing on-disk accounts */
-#define SNAPMK_STATE_ACCDB_DISK_FLUSH    8 /* flushing on-disk accounts */
-#define SNAPMK_STATE_ACCDB_DISK_FINISH   9 /* wait for flush to complete */
-#define SNAPMK_STATE_ACCDB_DELTA        10 /* writing incremental accounts */
-#define SNAPMK_STATE_ACCDB_DELTA_FLUSH  11 /* flushing incremental accounts */
-#define SNAPMK_STATE_ACCDB_DELTA_FINISH 12 /* waiting for flush to complete */
-#define SNAPMK_STATE_STATUS_CACHE       13 /* writing status cache */
-#define SNAPMK_STATE_EOF_MARKER         14 /* writing tar EOF marker */
-#define SNAPMK_STATE_DONE               15 /* done, notify replay tile */
-#define SNAPMK_STATE_FAIL               16 /* error state, doing cleanup */
-#define SNAPMK_STATE_SLEEP              17 /* sleep until FUTEX_WAKE */
-#define SNAPMK_STATE_STARTUP            18 /* waiting for system startup */
-#define SNAPMK_STATE_STARTUP_BURST      19 /* publish pre-existing snaps */
-
 /* power saving (sleeping) */
 #define IDLE_THRES (16384UL)   /* no of idle busy loop iters before sleeping */
 #define IDLE_SLEEP ((long)1e6) /* sleep duration (nanoseconds) */
@@ -188,6 +166,8 @@ struct fd_snapmk {
     ulong                    chain_cnt;
     ulong                    chain_idx;
     uint                     ele_idx;
+    ulong                    ele_cnt;
+    ulong                    ele_total;
   } delta;
 
   /* replay in link */
@@ -399,6 +379,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->delta.chain_cnt = accdb_shmem_ro->delta.chain_cnt;
   ctx->delta.chain_idx = 0UL;
   ctx->delta.ele_idx   = UINT_MAX;
+  ctx->delta.ele_cnt   = 0UL;
+  ctx->delta.ele_total = 0UL;
 
   for( ulong i=0UL; i < tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -1144,6 +1126,7 @@ snapmk_accdb_delta( fd_snapmk_t *       ctx,
     batch.cnt++;
   }
   if( FD_UNLIKELY( !batch.cnt ) ) return 0;
+  ctx->delta.ele_cnt += batch.cnt;
 
   ulong chunk;
   void * payload = zp_alloc( ctx, out_idx, sizeof(fd_backup_delta_msg_t), &chunk );
@@ -1622,6 +1605,8 @@ snap_start( fd_snapmk_t *                  ctx,
 
   ctx->delta.chain_idx = 0UL;
   ctx->delta.ele_idx   = UINT_MAX;
+  ctx->delta.ele_cnt   = 0UL;
+  ctx->delta.ele_total = incremental ? __atomic_load_n( &ctx->accdb_shmem->delta.head, __ATOMIC_RELAXED ) : 0UL;
 
   visited_set_null( ctx->visited_set );
 
@@ -1929,6 +1914,7 @@ returnable_frag( fd_snapmk_t *       ctx,
 
 static void
 metrics_write( fd_snapmk_t * ctx ) {
+  FD_MGAUGE_SET( SNAPMK, STATE,                                   ctx->state                                           );
   FD_MCNT_SET  ( SNAPMK, SNAPSHOTS_CREATED_FULL,                  ctx->metrics.snapshots_created_full                  );
   FD_MCNT_SET  ( SNAPMK, SNAPSHOTS_CREATED_INCREMENTAL,           ctx->metrics.snapshots_created_incremental           );
   FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_SLOT_STARTED_FULL,         ctx->metrics.last_snapshot_slot_started_full         );
@@ -1938,6 +1924,12 @@ metrics_write( fd_snapmk_t * ctx ) {
 
   FD_MCNT_SET  ( SNAPMK, BYTES_COMPRESSED,            ctx->metrics.bytes_compressed );
   FD_MCNT_SET  ( SNAPMK, BYTES_WRITTEN,               ctx->metrics.bytes_written    );
+
+  FD_MGAUGE_SET( SNAPMK, CACHE_PROGRESS_BYTES,         fd_backup_cache_scanned_bytes( ctx->acc_cache ) );
+  FD_MGAUGE_SET( SNAPMK, CACHE_TOTAL_BYTES,            fd_backup_cache_total_bytes  ( ctx->acc_cache ) );
+  FD_MGAUGE_SET( SNAPMK, INCREMENTAL_ACCOUNT_PROGRESS, ctx->delta.ele_cnt   );
+  FD_MGAUGE_SET( SNAPMK, INCREMENTAL_ACCOUNT_TOTAL,    ctx->delta.ele_total );
+
   FD_MCNT_SET  ( SNAPMK, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks );
   FD_MCNT_SET  ( SNAPMK, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks   );
 

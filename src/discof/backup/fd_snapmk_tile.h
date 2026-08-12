@@ -7,6 +7,29 @@
 #include "fd_backup.h"
 #include "../../tango/fd_tango_base.h"
 
+/* SNAPMK_STATE_* give the lifecycle states of the snapshot pipeline. */
+
+#define SNAPMK_STATE_IDLE                 0 /* clean, waiting for job */
+#define SNAPMK_STATE_START                1
+#define SNAPMK_STATE_TAR_HEADERS          2
+#define SNAPMK_STATE_MANIFEST             3 /* writing manifest */
+#define SNAPMK_STATE_ACCDB_CACHE          4 /* writing cached accounts */
+#define SNAPMK_STATE_ACCDB_CACHE_FLUSH    5 /* flushing cached accounts */
+#define SNAPMK_STATE_ACCDB_CACHE_FINISH   6 /* wait for flush to complete */
+#define SNAPMK_STATE_ACCDB_DISK           7 /* writing on-disk accounts */
+#define SNAPMK_STATE_ACCDB_DISK_FLUSH     8 /* flushing on-disk accounts */
+#define SNAPMK_STATE_ACCDB_DISK_FINISH    9 /* wait for flush to complete */
+#define SNAPMK_STATE_ACCDB_DELTA         10 /* writing incremental accounts */
+#define SNAPMK_STATE_ACCDB_DELTA_FLUSH   11 /* flushing incremental accounts */
+#define SNAPMK_STATE_ACCDB_DELTA_FINISH  12 /* waiting for flush to complete */
+#define SNAPMK_STATE_STATUS_CACHE        13 /* writing status cache */
+#define SNAPMK_STATE_EOF_MARKER          14 /* writing tar EOF marker */
+#define SNAPMK_STATE_DONE                15 /* done, notify replay tile */
+#define SNAPMK_STATE_FAIL                16 /* error state, doing cleanup */
+#define SNAPMK_STATE_SLEEP               17 /* sleep until FUTEX_WAKE */
+#define SNAPMK_STATE_STARTUP             18 /* waiting for system startup */
+#define SNAPMK_STATE_STARTUP_BURST       19 /* publish pre-existing snaps */
+
 /* snapmk_out ABI
 
    snapmk_out is a reliable tango link with dcache alloc policy.

@@ -2019,11 +2019,16 @@ EXAMPLES
 </enum>
 
 <tile name="snapmk">
+    <gauge name="State" summary="0=idle, 3=manifest, 4=cached accounts, 10=incremental accounts, 13=status cache, 17=sleeping, 18=startup wait (others transient)" />
     <counter name="SnapshotsCreated" enum="SnapType" summary="Number of snapshots created (includes in-progress)" />
     <gauge name="LastSnapshotSlotStarted" enum="SnapType" summary="Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot" />
     <gauge name="LastSnapshotSlotFinished" enum="SnapType" summary="Slot of the most recently finished snapshot creation. Zero if no snapshot has finished since boot" />
     <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
     <counter name="BytesWritten" summary="Number of compressed bytes written" />
+    <gauge name="CacheProgressBytes" summary="Bytes of the accounts database cache region scanned so far for the snapshot being created. Resets when a snapshot starts and holds at the total once the cached accounts phase finishes. Stays zero for an incremental snapshot, which does not scan the cache" />
+    <gauge name="CacheTotalBytes" summary="Size of the accounts database cache region, i.e. the bytes that a cached accounts phase has to scan" />
+    <gauge name="IncrementalAccountProgress" summary="Accounts changed since the base snapshot that have been written so far for the incremental snapshot being created. Resets when a snapshot starts, and stays zero for a full snapshot, which has no changed account walk" />
+    <gauge name="IncrementalAccountTotal" summary="Accounts changed since the base snapshot, sampled when the incremental snapshot started. Zero for a full snapshot. Replay may record further changes while the job runs, so the progress gauge can exceed this" />
     <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
     <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing data" />
     <gauge name="IncrementalAccountCount" summary="Number of accounts that changed since the last full snapshot, i.e. the number of accounts that the next incremental snapshot will contain" />
