@@ -99,6 +99,8 @@ typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
 #define FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS    ( 150L)
 #define FD_GUI_PEERS_GOSSIP_STATS_UPDATE_INTERVAL_MILLIS   ( 300L)
 
+FD_STATIC_ASSERT( FD_CONTACT_INFO_TABLE_SIZE < UINT_MAX, gui_peer_idx_fits_uint );
+
 #define FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT (64UL)
 
 /* Some table columns are rates of change, which require keeping a
@@ -165,12 +167,12 @@ struct fd_gui_peers_node {
   } sock_map;
 
   struct {
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong prio;
-    ulong next;
-    ulong prev;
+    uint parent;
+    uint left;
+    uint right;
+    uint prio;
+    uint next;
+    uint prev;
   } treaps_live_table[ FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT ];
   struct {
     ulong next;
@@ -179,12 +181,12 @@ struct fd_gui_peers_node {
   ulong sort_keys_live_table;
 
   struct {
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong prio;
-    ulong next;
-    ulong prev;
+    uint parent;
+    uint left;
+    uint right;
+    uint prio;
+    uint next;
+    uint prev;
   } treaps_bandwidth_tracking[ 2UL ];
     struct {
     ulong next;
@@ -297,6 +299,7 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_SORT_KEYS sort_keys_live_table
 #define LIVE_TABLE_DLIST dlist_live_table
 #define LIVE_TABLE_COLUMN_CNT (9UL)
+#define LIVE_TABLE_IDX_T uint
 #define LIVE_TABLE_MAX_SORT_KEY_CNT FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
@@ -318,6 +321,7 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_SORT_KEYS sort_keys_bandwidth_tracking
 #define LIVE_TABLE_DLIST dlist_bandwidth_tracking
 #define LIVE_TABLE_COLUMN_CNT (2UL)
+#define LIVE_TABLE_IDX_T uint
 #define LIVE_TABLE_MAX_SORT_KEY_CNT (2UL)
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \

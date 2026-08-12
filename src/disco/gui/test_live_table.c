@@ -38,6 +38,45 @@ static int live_table_col_counter_lt( void const * a, void const * b ) { return 
 #define LIVE_TABLE_ROW_T test_live_table_row_t
 #include "fd_gui_live_table_tmpl.c"
 
+#define TEST_LIVE_TABLE32_MAX_SORT_KEY_CNT (2UL)
+struct test_live_table32_row {
+  struct {
+    uint parent;
+    uint left;
+    uint right;
+    uint prio;
+    uint next;
+    uint prev;
+  } treaps[ TEST_LIVE_TABLE32_MAX_SORT_KEY_CNT ];
+  ulong sort_keys;
+  struct {
+    ulong prev;
+    ulong next;
+  } dlist;
+
+  uint value;
+};
+typedef struct test_live_table32_row test_live_table32_row_t;
+
+static int
+live_table32_col_value_lt( void const * a,
+                           void const * b ) {
+  return *(uint *)a < *(uint *)b;
+}
+
+#define LIVE_TABLE_NAME test_live_table32
+#define LIVE_TABLE_COLUMN_CNT (1UL)
+#define LIVE_TABLE_IDX_T uint
+#define LIVE_TABLE_SORT_KEYS sort_keys
+#define LIVE_TABLE_DLIST dlist
+#define LIVE_TABLE_MAX_SORT_KEY_CNT TEST_LIVE_TABLE32_MAX_SORT_KEY_CNT
+#define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( LIVE_TABLE_COL_ENTRY("Value", value, live_table32_col_value_lt) )
+#define LIVE_TABLE_ROW_T test_live_table32_row_t
+#include "fd_gui_live_table_tmpl.c"
+#ifdef LIVE_TABLE_IDX_T
+#undef LIVE_TABLE_IDX_T
+#endif
+
 static inline int
 test_live_table_key( test_live_table_t * table, test_live_table_sort_key_t const * key,  test_live_table_row_t * pool, ulong const * expected, ulong const expected_sz ) {
   for( test_live_table_fwd_iter_t iter = test_live_table_fwd_iter_init( table, key, pool ), i = 0; !test_live_table_fwd_iter_done( iter ); iter = test_live_table_fwd_iter_next( iter, pool ), i++ ) {
@@ -56,6 +95,31 @@ test_live_table_key( test_live_table_t * table, test_live_table_sort_key_t const
 int
 main( int argc, char ** argv ) {
   (void)argc; (void)argv;
+
+  FD_TEST( test_live_table32_idx_null()==(ulong)UINT_MAX );
+
+  uchar scratch32[ 256 ] __attribute__((aligned(256UL)));
+  FD_TEST( sizeof(scratch32)==test_live_table32_footprint( 3UL ) );
+  test_live_table32_t * table32 = test_live_table32_join( test_live_table32_new( scratch32, 3UL ) );
+  test_live_table32_row_t pool32[] = {
+    { .value = 2U },
+    { .value = 0U },
+    { .value = 1U },
+  };
+  test_live_table32_sort_key_t key32 = { .col = { 0UL }, .dir = { 1 } };
+  test_live_table32_seed( pool32, 3UL, 42UL );
+  for( ulong i=0UL; i<3UL; i++ ) test_live_table32_idx_insert( table32, i, pool32 );
+  ulong expected32[] = { 1UL, 2UL, 0UL };
+  ulong i = 0UL;
+  for( test_live_table32_fwd_iter_t iter = test_live_table32_fwd_iter_init( table32, &key32, pool32 );
+       !test_live_table32_fwd_iter_done( iter );
+       iter = test_live_table32_fwd_iter_next( iter, pool32 ) ) {
+    FD_TEST( i<3UL );
+    FD_TEST( test_live_table32_fwd_iter_idx( iter )==expected32[ i++ ] );
+  }
+  FD_TEST( i==3UL );
+  FD_TEST( !test_live_table32_verify( table32, pool32 ) );
+  FD_TEST( test_live_table32_delete( test_live_table32_leave( table32 ) ) );
 
   if( sizeof(scratch)!=test_live_table_footprint( TEST_LIVE_TABLE_ROW_CNT ) ) {
     FD_LOG_ERR(("scratch_sz=%lu != test_live_table_footprint( %lu )=%lu", sizeof(scratch), TEST_LIVE_TABLE_ROW_CNT, test_live_table_footprint( TEST_LIVE_TABLE_ROW_CNT ) ));
