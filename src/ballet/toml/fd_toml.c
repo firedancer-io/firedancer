@@ -1014,7 +1014,7 @@ fd_toml_parse_dec_int_( fd_toml_parser_t * parser,
   int first_digit = (uchar)parser->c.data[0];
   if( first_digit == '0' ) {
     dec->res = 0UL;
-    dec->neg = 0;
+    dec->neg = !!neg;
     fd_toml_advance_inline( parser, 1UL );
     return 1;
   }
@@ -1259,6 +1259,7 @@ fd_toml_parse_float_normal( fd_toml_parser_t * parser ) {
   res *= exp;
 
 parsed:
+  if( stem.neg ) res = -res;
   if( FD_UNLIKELY( !fd_pod_insert_float( parser->pod, parser->key, res ) ) ) {
     parser->error = FD_TOML_ERR_POD;
     return 0;
