@@ -2,7 +2,6 @@
 #include "fd_shredder.h"
 #include "fd_fec_resolver.h"
 #include "fd_fec_set.h"
-#include "fd_shred_tile.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/hex/fd_hex.h"
@@ -756,19 +755,6 @@ test_slot_old( void ) {
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT-1UL; i++ ) { ADD_SHRED( resolver, set->parity_shreds[ i ], OKAY ); }
 }
 
-static void
-test_fec_set_layout( void ) {
-  fd_shred_fec_set_layout_t copied = fd_shred_fec_set_layout( 32768UL, 0UL );
-  FD_TEST( copied.shredder_cnt            ==     4UL );
-  FD_TEST( copied.resolver_complete_depth ==     1UL );
-  FD_TEST( copied.total_cnt               == 32774UL );
-
-  fd_shred_fec_set_layout_t zero_copy = fd_shred_fec_set_layout( 32768UL, 65536UL );
-  FD_TEST( zero_copy.shredder_cnt            ==  65540UL );
-  FD_TEST( zero_copy.resolver_complete_depth ==  65537UL );
-  FD_TEST( zero_copy.total_cnt               == 163846UL );
-}
-
 int
 main( int     argc,
       char ** argv ) {
@@ -786,7 +772,6 @@ main( int     argc,
   test_merkle_root();
   test_chained_merkle_shreds();
   test_slot_old();
-  test_fec_set_layout();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

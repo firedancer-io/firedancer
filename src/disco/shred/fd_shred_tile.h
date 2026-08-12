@@ -10,26 +10,6 @@ typedef struct fd_fec_resolver fd_fec_resolver_t;
 typedef struct fd_keyswitch_private fd_keyswitch_t;
 typedef struct fd_keyguard_client fd_keyguard_client_t;
 
-/* fd_shred_fec_set_layout describes how the shred tile partitions its
-   fd_fec_set_t backing store.
-
-   retained_set_depth is the number of completed FEC sets that must
-   remain live for downstream zero-copy consumers.  It is zero when all
-   outputs are copied before the shred tile returns (Firedancer), and is
-   the output mcache depth for the legacy zero-copy path
-   (Frankendancer). */
-
-struct fd_shred_fec_set_layout {
-  ulong shredder_cnt;
-  ulong resolver_complete_depth;
-  ulong total_cnt;
-};
-typedef struct fd_shred_fec_set_layout fd_shred_fec_set_layout_t;
-
-FD_FN_CONST fd_shred_fec_set_layout_t
-fd_shred_fec_set_layout( ulong fec_resolver_depth,
-                         ulong retained_set_depth );
-
 /* Shred tile context structure */
 typedef struct {
   fd_shredder_t      * shredder;

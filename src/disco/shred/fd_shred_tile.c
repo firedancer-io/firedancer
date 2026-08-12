@@ -114,17 +114,6 @@
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL,      poh_shred_mtu   );
 FD_STATIC_ASSERT( sizeof(fd_fec_set_t)==FD_SHRED_STORE_MTU, shred_store_mtu );
 
-FD_FN_CONST fd_shred_fec_set_layout_t
-fd_shred_fec_set_layout( ulong fec_resolver_depth,
-                         ulong retained_set_depth ) {
-  fd_shred_fec_set_layout_t layout = {
-    .shredder_cnt            = retained_set_depth + FD_SHRED_BATCH_FEC_SETS_MAX,
-    .resolver_complete_depth = retained_set_depth + 1UL,
-  };
-  layout.total_cnt = layout.shredder_cnt + fec_resolver_depth + 1UL + layout.resolver_complete_depth;
-  return layout;
-}
-
 #define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 2
 
 /* Number of entries in the block_ids table. Each entry is 32 byte.
@@ -352,9 +341,8 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
 
-  fd_shred_fec_set_layout_t fec_set_layout = fd_shred_fec_set_layout( tile->shred.fec_resolver_depth,
-                                                                      tile->shred.fec_set_retention_depth );
-  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, fec_set_layout.resolver_complete_depth,
+  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL,
+                                                            tile->shred.fec_set_retention_depth + 1UL,
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
@@ -1371,10 +1359,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !tile->out_cnt ) )
     FD_LOG_ERR(( "shred tile has no primary output link" ));
 
-  ulong shred_store_mcache_depth = tile->shred.depth;
-  if( topo->links[ tile->out_link_id[ 0 ] ].depth != shred_store_mcache_depth )
-    FD_LOG_ERR(( "shred tile out depths are not equal %lu %lu",
-                 topo->links[ tile->out_link_id[ 0 ] ].depth, shred_store_mcache_depth ));
+  ulong shred_store_mcache_depth = topo->links[ tile->out_link_id[ 0 ] ].depth;
   if( FD_UNLIKELY( !strcmp( topo->links[ tile->out_link_id[ 0 ] ].name, "shred_store" ) &&
                    tile->shred.fec_set_retention_depth<shred_store_mcache_depth ) )
     FD_LOG_ERR(( "zero-copy FEC set retention depth %lu is smaller than output depth %lu",
@@ -1391,16 +1376,16 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->batch_cnt       = 0UL;
   ctx->slot            = ULONG_MAX;
 
-  fd_shred_fec_set_layout_t fec_set_layout = fd_shred_fec_set_layout( tile->shred.fec_resolver_depth,
-                                                                      tile->shred.fec_set_retention_depth );
+  ulong shredder_fec_set_cnt    = tile->shred.fec_set_retention_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
+  ulong resolver_complete_depth = tile->shred.fec_set_retention_depth + 1UL;
 
   /* If the default partial_depth is ever changed, correspondingly
      change the size of the fd_fec_intra_pool in fd_fec_repair. */
-  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, fec_set_layout.resolver_complete_depth,
+  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, resolver_complete_depth,
                                                             128UL * tile->shred.fec_resolver_depth );
   /* See long comment at the top of this file for the computation of
      fec_set_cnt. */
-  ulong fec_set_cnt            = fec_set_layout.total_cnt;
+  ulong fec_set_cnt            = shredder_fec_set_cnt + tile->shred.fec_resolver_depth + 1UL + resolver_complete_depth;
   ulong fec_sets_required_sz   = fec_set_cnt*sizeof(fd_fec_set_t);
 
   void * fec_sets_shmem = NULL;
@@ -1486,12 +1471,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->larger_shred_limits_per_block = tile->shred.larger_shred_limits_per_block;
   ulong shred_limit                  = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
   ctx->shred_limit                   = shred_limit;
-  fd_fec_set_t * resolver_sets       = fec_sets + fec_set_layout.shredder_cnt;
+  fd_fec_set_t * resolver_sets       = fec_sets + shredder_fec_set_cnt;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
                                                                         fd_shred_signer, ctx->keyguard_client,
                                                                         tile->shred.fec_resolver_depth, 1UL,
-                                                                        fec_set_layout.resolver_complete_depth,
+                                                                        resolver_complete_depth,
                                                                         128UL * tile->shred.fec_resolver_depth, resolver_sets,
                                                                         ctx->resolver_seed ) ) );
 
@@ -1593,7 +1578,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->poh_in_expect_seq = 0UL;
 
   ctx->shredder_fec_set_idx = 0UL;
-  ctx->shredder_max_fec_set_idx = fec_set_layout.shredder_cnt;
+  ctx->shredder_max_fec_set_idx = shredder_fec_set_cnt;
 
   ctx->chained_merkle_root = NULL;
   memset( ctx->out_merkle_roots, 0, sizeof(ctx->out_merkle_roots) );
