@@ -14,6 +14,15 @@ FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN==128UL, unit_test );
 
 #define NULL_FORK ((fd_txncache_fork_id_t){ .val = USHORT_MAX })
 
+static void
+test_bucket_cnt( void ) {
+  FD_TEST( fd_txncache_bucket_cnt( 0UL )==1UL );
+  FD_TEST( fd_txncache_bucket_cnt( 1UL )==1UL );
+  FD_TEST( fd_txncache_bucket_cnt( 8UL )==1UL );
+  FD_TEST( fd_txncache_bucket_cnt( 9UL )==2UL );
+  FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==24510UL );
+}
+
 void
 test0( uchar * scratch0,
        uchar * scratch1 ) {
@@ -491,6 +500,8 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_bucket_cnt();
 
   ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, FD_MAX_TXN_PER_SLOT, 0 );
   ulong max_footprint_local = fd_txncache_footprint( FD_MAX_TXN_PER_SLOT );
