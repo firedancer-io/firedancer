@@ -261,7 +261,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       shred,
       shred_msg->size,
       FD_SHRED_BLK_MAX,
-      0,
+      FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
       dummy_leader_pubkey.uc,
       &out_fec_set,
       &out_shred,
@@ -442,4 +442,3 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   *output = effects;
   return actual_end - (ulong)output_buf;
 }
-

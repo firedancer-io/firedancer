@@ -1517,7 +1517,8 @@ dynamic_port_range = "8900-9000"
         # WebSocket updates and HTTP response headers.  If this buffer
         # runs out, the connections with the slowest recipients are
         # dropped.  Larger values make the GUI server more tolerant to
-        # slow clients but also increase memory usage.
+        # slow clients but also increase memory usage.  Must be at least
+        # 128 MiB.
         send_buffer_size_mb = 5120
 
 # These options can be useful for development, but should not be used

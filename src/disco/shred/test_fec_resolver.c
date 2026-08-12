@@ -82,19 +82,23 @@ sets_eq( fd_fec_set_t const * a,
   return 1;
 }
 
-#define ADD_SHRED( resolver, shred, expected ) do {                                                                                    \
-  fd_shred_t const * __parsed = fd_shred_parse( (shred).b, 2048UL, FD_SHRED_BLK_MAX );                                                 \
-  fd_fec_resolver_spilled_t spilled = { 0 };                                                                                           \
-  int retval = fd_fec_resolver_add_shred( resolver, __parsed, 2048UL, MAX, 0, pubkey, out_fec, out_shred, out_merkle_root, &spilled ); \
-  FD_TEST( !spilled.slot );                                                                                                            \
-  FD_TEST( !spilled.fec_set_idx );                                                                                                     \
-  FD_TEST( retval==FD_FEC_RESOLVER_SHRED_ ## expected );                                                                               \
+#define ADD_SHRED_SRC( resolver, shred, source, expected ) do {                                                                                  \
+  fd_shred_t const * __parsed = fd_shred_parse( (shred).b, 2048UL, FD_SHRED_BLK_MAX );                                                           \
+  fd_fec_resolver_spilled_t spilled = { 0 };                                                                                                     \
+  int retval = fd_fec_resolver_add_shred( resolver, __parsed, 2048UL, MAX, source, pubkey, out_fec, out_shred, out_merkle_root, &spilled );      \
+  FD_TEST( !spilled.slot );                                                                                                                      \
+  FD_TEST( !spilled.fec_set_idx );                                                                                                               \
+  FD_TEST( retval==FD_FEC_RESOLVER_SHRED_ ## expected );                                                                                         \
 } while( 0 )
+
+#define ADD_SHRED( resolver, shred, expected ) \
+  ADD_SHRED_SRC( resolver, shred, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, expected )
 
 #define ADD_SHRED_SPILLS( resolver, shred, expected, expected_tslot, expected_tset, expected_tmax ) do {                               \
   fd_shred_t const * __parsed = fd_shred_parse( (shred).b, 2048UL, FD_SHRED_BLK_MAX );                                                 \
   fd_fec_resolver_spilled_t spilled = { 0 };                                                                                           \
-  int retval = fd_fec_resolver_add_shred( resolver, __parsed, 2048UL, MAX, 0, pubkey, out_fec, out_shred, out_merkle_root, &spilled ); \
+  int retval = fd_fec_resolver_add_shred( resolver, __parsed, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,                          \
+                                          pubkey, out_fec, out_shred, out_merkle_root, &spilled );                                     \
   FD_TEST( spilled.slot==expected_tslot );                                                                                             \
   FD_TEST( spilled.fec_set_idx==expected_tset );                                                                                       \
   FD_TEST( retval==FD_FEC_RESOLVER_SHRED_ ## expected );                                                                               \
@@ -142,17 +146,34 @@ test_one_batch( void ) {
     ADD_SHRED( r1, set->data_shreds[ FD_FEC_SHRED_CNT-1UL ], COMPLETES );
     FD_TEST( *out_fec==out_sets+(i%4UL) );
     FD_TEST( sets_eq( set, *out_fec ) );
+    FD_TEST( (*out_fec)->turbine_shred_cnt==FD_FEC_SHRED_CNT );
+    FD_TEST( (*out_fec)->repair_shred_cnt==0U );
 
-    for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) ADD_SHRED( r2, set->parity_shreds[ j ], OKAY    );
-    for( ulong j=0UL; j<10UL;                 j++ ) ADD_SHRED( r2, set->parity_shreds[ 0 ], DUPLICATE );
-    ADD_SHRED( r2, set->data_shreds[ 0 ], COMPLETES );
+    /* Rejections and duplicates do not affect accounting.  BAD_REPAIR uses
+       turbine validation but remains repair-attributed when accepted. */
+    for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) {
+      if( j==1UL ) ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR+1U, REJECTED );
+      uint source = j<10UL ? FD_FEC_RESOLVER_SHRED_SRC_TURBINE
+                  : j<20UL ? FD_FEC_RESOLVER_SHRED_SRC_REPAIR
+                           : FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR;
+      ADD_SHRED_SRC( r2, set->parity_shreds[ j ], source, OKAY );
+    }
+    for( ulong j=0UL; j<10UL; j++ ) {
+      uint source = j & 1UL ? FD_FEC_RESOLVER_SHRED_SRC_REPAIR : FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR;
+      ADD_SHRED_SRC( r2, set->parity_shreds[ 0 ], source, DUPLICATE );
+    }
+    ADD_SHRED_SRC( r2, set->data_shreds[ 0 ], FD_FEC_RESOLVER_SHRED_SRC_REPAIR, COMPLETES );
     FD_TEST( *out_fec==out_sets+4UL+(i%4UL) );
     FD_TEST( sets_eq( set, *out_fec ) );
+    FD_TEST( (*out_fec)->turbine_shred_cnt==10U );
+    FD_TEST( (*out_fec)->repair_shred_cnt==22U );
 
     for( ulong j=1UL; j<FD_FEC_SHRED_CNT;     j++ ) ADD_SHRED( r3, set->parity_shreds[ j ], OKAY    );
     ADD_SHRED( r3, set->parity_shreds[ 0 ], COMPLETES );
     FD_TEST( *out_fec==out_sets+8UL+(i%4UL) );
     FD_TEST( sets_eq( set, *out_fec ) );
+    FD_TEST( (*out_fec)->turbine_shred_cnt==FD_FEC_SHRED_CNT );
+    FD_TEST( (*out_fec)->repair_shred_cnt==0U );
   }
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
@@ -328,7 +349,8 @@ test_new_formats( void ) {
     fd_shred_t const * parsed = fd_shred_parse( shred, shred_sz, FD_SHRED_BLK_MAX );
 
     fd_fec_resolver_spilled_t spilled = { 0 };
-    int retval = fd_fec_resolver_add_shred( resolver, parsed, shred_sz, MAX, 0, leader, out_fec, out_shred, out_merkle_root, &spilled );
+    int retval = fd_fec_resolver_add_shred( resolver, parsed, shred_sz, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
+                                            leader, out_fec, out_shred, out_merkle_root, &spilled );
     FD_TEST( !spilled.slot );
     FD_TEST( !spilled.fec_set_idx );
     int fec_set_bit = 1<<(parsed->fec_set_idx/32UL);
@@ -393,7 +415,8 @@ test_shred_version( void ) {
   fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
   fd_shred_t const * shred = fd_shred_parse( set->data_shreds[ 0 ].b, 2048UL, FD_SHRED_BLK_MAX );
   FD_TEST( shred );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, 0, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
+                                                                      pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
 
   fd_fec_resolver_delete( fd_fec_resolver_leave( r ) );
 }
@@ -458,22 +481,26 @@ test_shred_reject( void ) {
 #define SIGN_ACCEPT( shred )                                                                                                             \
   fake_resign( shred, signer_ctx );                                                                                                      \
   FD_TEST( fd_shred_parse( (uchar const *)shred, 2048UL, FD_SHRED_BLK_MAX ) );                                                                             \
-  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, 1, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,                \
+                                                                  pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
 
 #define SIGN_REJECT( shred )                                                                                                                 \
   fake_resign( shred, signer_ctx );                                                                                                          \
   FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL, FD_SHRED_BLK_MAX ) ||                                                                           \
-           FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, 1, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
+           FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,             \
+                                                                      pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
 
   fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
   fd_shred_t * shred = set->data_shreds->s;
   /* Test basic setup is working. */
-  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, 0, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
+                                                                  pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
 
   shred = set->data_shreds[ 1 ].s;
   (*(uchar *)fd_shred_data_payload( shred ))++;
   /* Data modified but signature not updated */
-  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, 0, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
+                                                                      pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
 
   /* fake_resign fixed up the signature. */
   SIGN_ACCEPT( shred );
@@ -564,7 +591,8 @@ test_merkle_root( void ) {
 
   shred = set->data_shreds[ 0 ].s;
   fd_bmtree_node_t actual = { 0 };
-  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, 0, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
+                                                                  pubkey, out_fec, out_shred, &actual, NULL ) );
   uchar bmtree_mem[ fd_bmtree_commit_footprint( 10UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   fd_bmtree_node_t expected = { 0 }; FD_TEST( fd_shred_merkle_root( shred, bmtree_mem, &expected ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
@@ -575,7 +603,8 @@ test_merkle_root( void ) {
   (*(uchar *)fd_shred_data_payload( shred ))++;
   memset( &actual, 0, sizeof(fd_bmtree_node_t) ); /* zero out for next test */
   memset( &expected, 0, sizeof(fd_bmtree_node_t) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, 0, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
+                                                                      pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 
   /* Test merkle root is not written on REJECTED. */
@@ -584,7 +613,8 @@ test_merkle_root( void ) {
   (*(uchar *)fd_shred_data_payload( shred ))++;
   memset( &actual, 0, sizeof(fd_bmtree_node_t) );
   memset( &expected, 0, sizeof(fd_bmtree_node_t) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, 0, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
+                                                                      pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 
   /* Test merkle root is not written if NULL. */
@@ -592,7 +622,8 @@ test_merkle_root( void ) {
   shred = set->parity_shreds[ 0 ].s;
   memset( &actual, 0, sizeof(fd_bmtree_node_t) );
   memset( &expected, 0, sizeof(fd_bmtree_node_t) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, 0, pubkey, out_fec, out_shred, NULL, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
+                                                                  pubkey, out_fec, out_shred, NULL, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 }
 
@@ -668,7 +699,8 @@ test_chained_merkle_shreds( void ) {
         ulong shred_sz = fd_ulong_if( use_data, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
 
         fd_fec_resolver_spilled_t spilled = { 0 };
-        int retval = fd_fec_resolver_add_shred( resolver, shred, shred_sz, MAX, 0, pubkey, out_fec, out_shred, out_merkle_root, &spilled );
+        int retval = fd_fec_resolver_add_shred( resolver, shred, shred_sz, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE,
+                                                pubkey, out_fec, out_shred, out_merkle_root, &spilled );
         FD_TEST( retval==((j<FD_FEC_SHRED_CNT-1) ? FD_FEC_RESOLVER_SHRED_OKAY : FD_FEC_RESOLVER_SHRED_COMPLETES) );
 
         FD_TEST( !spilled.slot );

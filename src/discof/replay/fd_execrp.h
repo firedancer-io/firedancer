@@ -85,6 +85,25 @@ struct fd_execrp_txn_exec_done_msg {
   int is_fees_only;
   int txn_err;
 
+  /* Runtime result before commit can reject the transaction on a
+     block-level cost limit.  These are intentionally separate from the
+     final result above, which is consumed by replay, tower, pack, and
+     dedup. */
+  int runtime_is_committable;
+  int runtime_is_fees_only;
+  int runtime_is_simple_vote;
+
+  long tick_load_start;
+  long tick_check_start;
+  long tick_exec_start;
+  long tick_commit_start;
+  long tick_commit_end;
+
+  uint  compute_units_consumed;
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
+
   /* used by monitoring tools */
   ulong  slot;
   ulong  bank_seq;

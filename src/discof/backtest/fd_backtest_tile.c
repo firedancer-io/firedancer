@@ -260,6 +260,9 @@ after_credit( fd_backt_tile_t *   ctx,
   complete_msg->fec.last_shred_hdr.fec_set_idx = (uint)ctx->out_fec_set_idx;
   memcpy( &complete_msg->fec.merkle_root, &mr, sizeof(fd_hash_t) );
   memcpy( &complete_msg->fec.chained_merkle_root, &cmr, sizeof(fd_hash_t) );
+  complete_msg->fec.turbine_shred_cnt       = 0U;
+  complete_msg->fec.repair_shred_cnt        = 0U;
+  complete_msg->fec.reconstructed_shred_cnt = 0U;
 
   memset( &complete_msg->metrics, 0, sizeof(fd_fec_complete_metrics_t) );
 

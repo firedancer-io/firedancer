@@ -476,12 +476,15 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const          * shred,
                            ulong                       shred_sz,
                            ulong                       max_shred_idx,
-                           int                         is_repair,
+                           uint                        source,
                            uchar const               * leader_pubkey,
                            fd_fec_set_t const      * * out_fec_set,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
                            fd_fec_resolver_spilled_t * out_spilled      ) {
+  if( FD_UNLIKELY( source>FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  int is_repair = source==FD_FEC_RESOLVER_SHRED_SRC_REPAIR;
+
   /* Unpack variables */
   ulong partial_depth = resolver->partial_depth;
 
@@ -727,8 +730,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     }
 
     /* Reset the FEC set */
-    ctx->set->data_shred_rcvd   = 0U;
-    ctx->set->parity_shred_rcvd = 0U;
+    ctx->set->data_shred_rcvd    = 0U;
+    ctx->set->parity_shred_rcvd  = 0U;
+    ctx->set->turbine_shred_cnt  = 0U;
+    ctx->set->repair_shred_cnt   = 0U;
 
     ctx_map_ele_insert  ( ctx_map,   ctx, ctx_pool );
     ctx_treap_ele_insert( ctx_treap, ctx, ctx_pool );
@@ -780,6 +785,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   ctx->set->data_shred_rcvd   |= (uint)(!!is_data_shred)<<in_type_idx;
   ctx->set->parity_shred_rcvd |= (uint)( !is_data_shred)<<in_type_idx;
+  if( source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE ) ctx->set->turbine_shred_cnt++;
+  else                                             ctx->set->repair_shred_cnt++;
   ctx->total_rx_shred_cnt++;
 
   *out_shred = (fd_shred_t const *)dst;

@@ -20,6 +20,13 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_fec_set {
   uint data_shred_rcvd;
   uint parity_shred_rcvd;
 
+  /* Number of new shreds accepted into this FEC set from each network
+     source.  Invalid and duplicate shreds do not contribute.  A repair
+     packet with an invalid nonce still contributes to repair when its
+     shred is otherwise accepted. */
+  uint turbine_shred_cnt;
+  uint repair_shred_cnt;
+
   union {
     fd_shred_t s[ 1 ];
     uchar      b[ FD_SHRED_MIN_SZ ]; /* data shreds never exceed min_sz */

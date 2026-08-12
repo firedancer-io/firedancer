@@ -1989,6 +1989,10 @@ EXAMPLES
     <int value="8"  name="epoch"            label="epoch" />
     <int value="9"  name="tile_stats"       label="tile_stats" />
     <int value="10" name="txn_waterfall"    label="txn_waterfall" />
+    <int value="11" name="timeline_day"      label="timeline_day" />
+    <int value="12" name="replay_txn"        label="replay_txn" />
+    <int value="13" name="fec_events"        label="fec_events" />
+    <int value="14" name="replay_txn_batch"  label="replay_txn_batch" />
 </enum>
 
 <tile name="event">
