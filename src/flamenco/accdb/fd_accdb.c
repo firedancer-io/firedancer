@@ -3076,26 +3076,32 @@ release_inner( fd_accdb_t * accdb,
            protocol to serialize with cold_load_acc. */
         evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, accs[ i ]._original_cache_idx );
 
-        /* Drop our pin, then try to claim the line exclusively for
-           freeing.  A concurrent reader that pinned the line via
+        /* Convert our own pin directly into the eviction claim
+           (CAS refcnt 1 -> EVICT_SENTINEL) so refcnt never passes
+           through 0 while acc_idx/key.generation are still valid:
+           in such a window background_preevict could claim and free
+           the line, and a claim of our own would then succeed on
+           the free-listed line and push it a second time.  The CAS
+           fails if a concurrent reader that pinned the line via
            cache_try_pin BEFORE evict_clear_acc_cache_ref completed
-           may still hold a reference here (its ABA check on
+           still holds a reference (its ABA check on
            line->key.generation is not synchronized with our writes
-           to that field).  CAS(refcnt, 0, EVICT_SENTINEL) succeeds
-           only when no such reader is outstanding; on failure we
-           must NOT free the line — leave acc_idx/key.generation
-           intact so CLOCK can reclaim it once the reader unpins.
-           That reclaim's evict_clear_acc_cache_ref is a no-op, but
-           its dirty-writeback gate keys on persisted/acc_idx and
-           would republish the pre-overwrite bytes over the committed
-           version, so set persisted before unpinning. */
+           to that field); then just drop our pin and leave
+           acc_idx/key.generation intact so CLOCK reclaims the line
+           once the reader unpins.  That reclaim's
+           evict_clear_acc_cache_ref is a no-op, but its dirty-
+           writeback gate keys on persisted/acc_idx and would
+           republish the pre-overwrite bytes over the committed
+           version, so set persisted while still pinned. */
         original_cache_line->persisted = 1;
-        FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
-        if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) ) {
+        fd_racesan_hook( "accdb_release:pre_discard_claim" );
+        if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
           original_cache_line->acc_idx   = UINT_MAX;
           original_cache_line->key.generation = UINT_MAX;
           original_cache_line->refcnt    = 0;
           cache_free_push( accdb, original_size_class, original_cache_line );
+        } else {
+          FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
         }
       }
       committed_line = destination_cache_lines[ 7UL ];
@@ -3134,16 +3140,18 @@ release_inner( fd_accdb_t * accdb,
              acc.cache_idx pointing at a line that has been recycled to
              another acc.  evict_clear_acc_cache_ref uses the CLAIM
              protocol to serialize with cold_load_acc.  See the
-             size_class==7 path above for the refcnt CAS and
-             pre-unpin persisted rationale. */
+             size_class==7 path above for the refcnt claim and
+             persisted rationale. */
           evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, accs[ i ]._original_cache_idx );
           original_cache_line->persisted = 1;
-          FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
-          if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) ) {
+          fd_racesan_hook( "accdb_release:pre_discard_claim" );
+          if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
             original_cache_line->acc_idx   = UINT_MAX;
             original_cache_line->key.generation = UINT_MAX;
             original_cache_line->refcnt    = 0;
             cache_free_push( accdb, original_size_class, original_cache_line );
+          } else {
+            FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
           }
         }
 
