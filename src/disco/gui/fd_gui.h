@@ -3,6 +3,7 @@
 
 #include "fd_gui_peers.h"
 #include "fd_gui_hist.h"
+#include "fd_gui_ema.h"
 
 #include "../topo/fd_topo.h"
 
@@ -21,6 +22,8 @@
 #include "../../waltz/http/fd_http_server.h"
 #include "../../flamenco/accdb/fd_accdb_cache.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
+
+
 
 /* ---- Network Bandwidth Monitoring ----------------------------------- */
 
@@ -572,6 +575,8 @@ typedef struct fd_gui_boot_progress fd_gui_boot_progress_t;
    are derived in fd_gui_printf via fd_gui_accdb_weighted_rate. */
 #define FD_GUI_MAX_PARTITIONS 8192UL
 
+#define FD_GUI_ACCDB_EMA_HALF_LIFE_NS (600L*1000L*1000L*1000L) /* 10 minutes */
+
 /* Per-tile accdb stats.  At init we walk the topology and assign a
    slot to each tile that uses the account database (execle, execrp,
    replay, tower, rpc, resolv, snapwr).  Each slot keeps cumulative
@@ -635,6 +640,14 @@ struct fd_gui_accdb_stats {
   ulong partition_prev_bytes_read  [ FD_GUI_MAX_PARTITIONS ];
   ulong partition_prev_write_ops   [ FD_GUI_MAX_PARTITIONS ];
   ulong partition_prev_bytes_written[FD_GUI_MAX_PARTITIONS ];
+
+  /* Per-tier (i.e. hot, warm, cold) EMAs (10 min half-life) used to project when the next
+     compaction will trigger. */
+  long         tier_sample_nanos;
+  fd_gui_ema_t tier_fill_bps_ema[ FD_ACCDB_COMPACTION_LAYER_CNT ];
+  fd_gui_ema_t tier_free_bps_ema[ FD_ACCDB_COMPACTION_LAYER_CNT ];
+  double next_compaction_remaining_secs;
+  ulong  next_compaction_partition_idx;
 
   ulong  accdb_tile_cnt;
   ushort accdb_tile_topo_idx [ FD_GUI_MAX_ACCDB_TILES ]; /* index into topo->tiles */
@@ -781,10 +794,9 @@ struct fd_gui_summary {
 
   /* EMA-smoothed network throughput (bytes/sec) with a 1-second
      half-life. */
-  double                   ingress_ema[ FD_GUI_NET_PROTO_CNT ];
-  double                   egress_ema[ FD_GUI_NET_PROTO_CNT ];
+  fd_gui_ema_t             ingress_ema[ FD_GUI_NET_PROTO_CNT ];
+  fd_gui_ema_t             egress_ema[ FD_GUI_NET_PROTO_CNT ];
   long                     net_rate_prev_ts;
-  int                      net_rate_ema_ready;
   fd_gui_rate_entry_t *    ingress_maxq;
   fd_gui_rate_entry_t *    egress_maxq;
 

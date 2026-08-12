@@ -1,5 +1,5 @@
 ifdef FD_HAS_HOSTED
-$(call add-hdrs,fd_gui.h fd_gui_printf.h fd_gui_peers.h fd_gui_config_parse.h fd_gui_metrics.h fd_gui_store.h fd_gui_hist.h)
+$(call add-hdrs,fd_gui.h fd_gui_printf.h fd_gui_peers.h fd_gui_config_parse.h fd_gui_metrics.h fd_gui_store.h fd_gui_hist.h fd_gui_ema.h)
 $(call add-objs,fd_gui fd_gui_printf fd_gui_peers fd_gui_config_parse fd_gui_tile fd_gui_store fd_gui_hist generated/http_import_dist,fd_disco)
 $(OBJDIR)/obj/disco/gui/fd_gui_tile.o: book/public/fire.svg
 $(call make-unit-test,test_live_table,test_live_table,fd_disco fd_choreo fd_flamenco fd_util)
