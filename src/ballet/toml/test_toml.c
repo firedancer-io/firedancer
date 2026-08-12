@@ -41,7 +41,7 @@ test_float_frac( void ) {
     float got = fd_pod_query_float( pod, "x", NAN );
     float exp = cases[i].expected;
     float tol = fabsf( exp ) * 1e-5f + 1e-6f;
-    if( FD_UNLIKELY( fabsf( got - exp ) > tol ) ) {
+    if( FD_UNLIKELY( !isfinite( got ) || fabsf( got - exp ) > tol ) ) {
       FD_LOG_ERR(( "toml %s: got %.9g expected %.9g", cases[i].toml, (double)got, (double)exp ));
     }
 
