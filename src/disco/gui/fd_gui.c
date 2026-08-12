@@ -33,6 +33,24 @@ fd_gui_footprint( ulong tile_cnt ) {
   return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
 
+static inline int
+fd_gui_shreds_window_is_empty( fd_gui_t * gui,
+                               long       after_ns,
+                               long       before_ns ) {
+  if( FD_UNLIKELY( !gui->db ) ) return 1;
+
+  fd_gui_hist_iter_t it;
+  if( FD_UNLIKELY( fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_SHRED_EVENTS, after_ns, before_ns, NULL, NULL ) ) ) return 1;
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_slot_history_shred_event_t const * e = (fd_gui_slot_history_shred_event_t const *)it.rec;
+    if( FD_UNLIKELY( e->timestamp<after_ns || e->timestamp>before_ns ) ) continue;
+    fd_gui_hist_range_end( &it );
+    return 0;
+  }
+  fd_gui_hist_range_end( &it );
+  return 1;
+}
+
 static inline void
 fd_gui_build_tile_order( fd_gui_t * gui ) {
   ulong tile_cnt   = gui->topo->tile_cnt;
@@ -481,8 +499,11 @@ fd_gui_ws_open( fd_gui_t * gui,
   }
 
   /* rebroadcast 10s of historical shred data */
-  fd_gui_printf_shred_rebroadcast( gui, now-(long)(10*1e9), now );
-  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  long const shred_history_start = now-10L*1000L*1000L*1000L;
+  if( FD_LIKELY( !fd_gui_shreds_window_is_empty( gui, shred_history_start, now ) ) ) {
+    fd_gui_printf_shred_rebroadcast( gui, shred_history_start, now );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
 }
 
 
@@ -1773,8 +1794,10 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
   }
 
   if( FD_LIKELY( now>gui->next_sample_50millis ) ) {
-    fd_gui_printf_shred_updates( gui, gui->shreds.broadcast_watermark_ns, now );
-    fd_http_server_ws_broadcast( gui->http );
+    if( FD_LIKELY( !fd_gui_shreds_window_is_empty( gui, gui->shreds.broadcast_watermark_ns, now ) ) ) {
+      fd_gui_printf_shred_updates( gui, gui->shreds.broadcast_watermark_ns, now );
+      fd_http_server_ws_broadcast( gui->http );
+    }
     gui->shreds.broadcast_watermark_ns = now;
 
     /* We get the repair slot from the sampled metric after catching up
