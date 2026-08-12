@@ -737,20 +737,30 @@ genesis hash).
 :::
 
 #### `summary.identity_balance`
-| frequency      | type     | example      |
-|----------------|----------|--------------|
-| *Once* + *60s* | `string` | `"21125572"` |
+| frequency       | type     | example      |
+|-----------------|----------|--------------|
+| *Once* + *Live* | `string` | `"21125572"` |
 
 Account balance of this validator's identity account in lamports. The
 balance is on the highest slot of the currently active fork of the validator.
 
 #### `summary.vote_balance`
-| frequency      | type     | example      |
-|----------------|----------|--------------|
-| *Once* + *60s* | `string` | `"21125572"` |
+| frequency       | type     | example      |
+|-----------------|----------|--------------|
+| *Once* + *Live* | `string` | `"21125572"` |
 
 Account balance of this validator's vote account in lamports. The balance
 is on the highest slot of the currently active fork of the validator.
+
+#### `summary.vote_commission`
+| frequency       | type           | example |
+|-----------------|----------------|---------|
+| *Once* + *Live* | `number\|null` | `500`   |
+
+Commission configured on this validator's vote account in basis points.
+The value is read from the highest slot of the currently active fork of
+this validator. For example, `500` represents a 5% commission. The value
+is `null` when the vote account is not found.
 
 #### `summary.root_slot`
 | frequency       | type     | example     |
@@ -857,13 +867,13 @@ start incorporating skips for the new identity key.
 |-----------|--------------|---------|
 | *Once*    | `number[][]` | `[[5492.2,4578.841,914.24,0],[6134.44419,5149.23,985,0]]` |
 
-A list of the last 150 TPS samples taken by the validator. Currently the
+A list of the last 300 TPS samples taken by the validator. Currently the
 spacing between samples is poorly defined, but it's roughly one sample
-per slot. Each element in the outer array represents a sample, and the
-outer array will have up to 150 samples. Each sample will have 4
-elements, which are `total_tps`, `vote_tps`, `nonvote_success_tps`, and
-`nonvote_failed_tps` as defined below. Samples are listed from oldest
-first.
+per slot. Each sample is a moving average from the prior 10 seconds.
+Each element in the outer array represents a sample, and the outer array
+will have up to 300 samples. Each sample will have 4 elements, which are
+`total_tps`, `vote_tps`, `nonvote_success_tps`, and `nonvote_failed_tps`
+as defined below. Samples are listed from oldest first.
 
 #### `summary.estimated_tps`
 | frequency       | type     | example     |
@@ -872,9 +882,9 @@ first.
 
 The estimated number of transactions per second the network is running
 at. This includes total, vote, non-vote successful, and non-vote failed
-transactions. This is a moving average from the prior 150 slots, or
-around one minute. For a more precise view of transactions per second,
-the client can calculate it from the stream of new slot data.
+transactions. This is a moving average from the prior 10 seconds. For a
+more precise view of transactions per second, the client can calculate
+it from the stream of new slot data.
 
 The sum of the non-vote successful and the non-vote failed transactions
 represent the number of non-vote transactions. The sum of the estimated

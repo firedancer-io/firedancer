@@ -736,9 +736,10 @@ struct fd_gui_summary {
 
   int schedule_strategy;
 
-  ulong identity_account_balance;
-  ulong vote_account_balance;
-  ulong estimated_slot_duration_nanos;
+  ulong  identity_account_balance;
+  ulong  vote_account_balance;
+  ushort vote_commission;
+  ulong  estimated_slot_duration_nanos;
 
   ulong sock_tile_cnt;
   ulong net_tile_cnt;

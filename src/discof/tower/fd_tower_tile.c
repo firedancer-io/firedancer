@@ -348,7 +348,7 @@ typedef struct fd_tower_tile fd_tower_tile_t;
 #define QUERY_VOTERS query_voters
 #endif
 
-ulong QUERY_TOWERS( fd_tower_tile_t *, fd_replay_slot_completed_t *, fd_ghost_blk_t *, int *, ulong * );
+ulong QUERY_TOWERS( fd_tower_tile_t *, fd_replay_slot_completed_t *, fd_ghost_blk_t *, int *, ulong *, ushort * );
 void  QUERY_VOTERS( fd_tower_tile_t *, fd_replay_slot_completed_t *, ulong );
 
 /* vote_account_config extracts configuration of this validator's vote
@@ -697,6 +697,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
                    fd_tower_out_t *             out,
                    int                          found,
                    ulong                        our_vote_acct_bal,
+                   ushort                       our_vote_acct_com,
                    ulong                        tsorig FD_PARAM_UNUSED,
                    fd_stem_context_t *          stem FD_PARAM_UNUSED ) {
 
@@ -715,6 +716,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   msg->replay_bank_idx       = slot_completed->bank_idx;
   msg->replay_bank_seq       = slot_completed->bank_seq;
   msg->vote_acct_bal         = our_vote_acct_bal;
+  msg->vote_acct_com         = our_vote_acct_com;
 
   ulong       authority_idx = ULONG_MAX;
   fd_pubkey_t authority[1];
@@ -856,7 +858,8 @@ query_towers( fd_tower_tile_t *            ctx,
               fd_replay_slot_completed_t * slot_completed,
               fd_ghost_blk_t *             ghost_blk,
               int *                        found_our_vote_acct,
-              ulong *                      our_vote_acct_bal ) {
+              ulong *                      our_vote_acct_bal,
+              ushort *                     our_vote_acct_com ) {
 
   ulong total_stake    = 0UL;
   ulong prev_voter_idx = ULONG_MAX;
@@ -911,12 +914,17 @@ query_towers( fd_tower_tile_t *            ctx,
      (deep stale tower with no voter support) */
 
   *our_vote_acct_bal   = ULONG_MAX;
+  *our_vote_acct_com   = USHORT_MAX;
   *found_our_vote_acct = 0;
   fd_acc_t reconcile_ro = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
   if( FD_LIKELY( reconcile_ro.lamports ) ) {
     *found_our_vote_acct = 1;
     ctx->our_vote_acct_sz = fd_ulong_min( reconcile_ro.data_len, FD_VOTE_STATE_DATA_MAX );
     *our_vote_acct_bal = reconcile_ro.lamports;
+    FD_TEST( !fd_vote_account_commission_bps( reconcile_ro.data,
+                                               reconcile_ro.data_len,
+                                               FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ),
+                                               our_vote_acct_com ) );
     fd_memcpy( ctx->our_vote_acct, reconcile_ro.data, ctx->our_vote_acct_sz );
     int skip_reconcile = !ctx->init && ctx->wfs;
     if( FD_LIKELY( !skip_reconcile ) ) {
@@ -1413,9 +1421,10 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   /* Count the vote accounts and reconcile our own vote account. */
 
-  ulong our_vote_acct_bal = ULONG_MAX;
-  int   found             = 0;
-  ghost_blk->total_stake  = QUERY_TOWERS( ctx, slot_completed, ghost_blk, &found, &our_vote_acct_bal );
+  ulong  our_vote_acct_bal = ULONG_MAX;
+  ushort our_vote_acct_com = USHORT_MAX;
+  int    found             = 0;
+  ghost_blk->total_stake = QUERY_TOWERS( ctx, slot_completed, ghost_blk, &found, &our_vote_acct_bal, &our_vote_acct_com );
 
   /* Capture the values needed for the processed event now: advancing the
      root below (fd_ghost_publish) can prune ghost_blk if this block was
@@ -1518,7 +1527,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   /* Publish a slot_done frag to tower_out. */
 
-  publish_slot_done( ctx, slot_completed, &out, found, our_vote_acct_bal, tsorig, stem );
+  publish_slot_done( ctx, slot_completed, &out, found, our_vote_acct_bal, our_vote_acct_com, tsorig, stem );
   report_slot_confirmed( slot_completed->bank_seq, slot_completed->slot, &slot_completed->block_id, processed_stake, processed_total_stake, processed_valid, FD_EVENT_SLOT_CONFIRMED_LEVEL_PROCESSED, 0 /* not forward */ );
 
   /* Write out metrics. */

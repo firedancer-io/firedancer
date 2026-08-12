@@ -126,19 +126,20 @@ test_publish_slot_done_identity_mismatch( void ) {
 
   /* Matching identity produces votes */
   ctx->our_vote_acct_sz = mock_vote_account( ctx->identity_key, ctx->identity_key, ctx->our_vote_acct );
-  publish_slot_done( ctx, &sc, &out, 1, 100UL, 0UL, NULL );
+  publish_slot_done( ctx, &sc, &out, 1, 100UL, 10000U, 0UL, NULL );
   publish_t * pub = publishes_peek_head( ctx->publishes );
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
   FD_TEST( pub->msg.slot_done.has_vote_txn==1 );
   FD_TEST( pub->msg.slot_done.is_voting==1 );
   FD_TEST( pub->msg.slot_done.authority_idx==ULONG_MAX );
+  FD_TEST( pub->msg.slot_done.vote_acct_com==10000U );
   publishes_pop_head_nocopy( ctx->publishes );
 
   /* Matching identity but no votable slot: voter with no vote txn */
   fd_tower_out_t out_no_vote = out;
   out_no_vote.vote_slot = ULONG_MAX;
-  publish_slot_done( ctx, &sc, &out_no_vote, 1, 100UL, 0UL, NULL );
+  publish_slot_done( ctx, &sc, &out_no_vote, 1, 100UL, 10000U, 0UL, NULL );
   pub = publishes_peek_head( ctx->publishes );
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
@@ -149,7 +150,7 @@ test_publish_slot_done_identity_mismatch( void ) {
   /* Other identity prevents vote publishing */
   fd_pubkey_t other_identity = { .ul = { 0x99UL } };
   ctx->our_vote_acct_sz = mock_vote_account( &other_identity, ctx->identity_key, ctx->our_vote_acct );
-  publish_slot_done( ctx, &sc, &out, 1, 100UL, 0UL, NULL );
+  publish_slot_done( ctx, &sc, &out, 1, 100UL, 10000U, 0UL, NULL );
   pub = publishes_peek_head( ctx->publishes );
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
@@ -391,7 +392,8 @@ mock_query_towers( fd_tower_tile_t *            ctx,
                    fd_replay_slot_completed_t * slot_completed,
                    fd_ghost_blk_t *             ghost_blk,
                    int *                        found_our_vote_acct,
-                   ulong *                      our_vote_acct_bal ) {
+                   ulong *                      our_vote_acct_bal,
+                   ushort *                     our_vote_acct_com ) {
 
   /* Open the fixture file for this slot. */
 
@@ -436,6 +438,7 @@ mock_query_towers( fd_tower_tile_t *            ctx,
 
   *found_our_vote_acct = 0;
   *our_vote_acct_bal   = ULONG_MAX;
+  *our_vote_acct_com   = USHORT_MAX;
 
   return total_stake;
 }

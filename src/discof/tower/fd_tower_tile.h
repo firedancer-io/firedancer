@@ -160,10 +160,12 @@ struct fd_tower_slot_done {
   ulong vote_txn_sz;
   uchar vote_txn[ FD_TPU_MTU ];
 
-  /* The latest balance in lamports of our vote account, or ULONG_MAX if
+  /* The latest balance in lamports and commission in basis points of our
+     vote account.  These are ULONG_MAX and USHORT_MAX respectively if
      our account is not found. */
 
-  ulong vote_acct_bal;
+  ulong  vote_acct_bal;
+  ushort vote_acct_com;
 };
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;
 
