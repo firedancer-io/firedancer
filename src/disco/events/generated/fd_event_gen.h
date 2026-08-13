@@ -34,25 +34,25 @@ typedef struct fd_event_signed_vote fd_event_signed_vote_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SIGNED_VOTE_BUF_MAX (2765UL)
 
-/* The commitment level reached, from weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a separate terminal outcome rather than a strengthening level. */
-#define FD_EVENT_SLOT_CONFIRMED_LEVEL_IGNORED    (1) /* Replay finished a block that consensus had already pruned, so it never reached any commitment level. */
-#define FD_EVENT_SLOT_CONFIRMED_LEVEL_PROCESSED  (2) /* Replayed locally on the majority fork, with no cluster stake required. Equivalent to Solana's 'processed' commitment. */
-#define FD_EVENT_SLOT_CONFIRMED_LEVEL_PROPAGATED (3) /* More than a third of stake has observed the block, confirming it has propagated. */
-#define FD_EVENT_SLOT_CONFIRMED_LEVEL_DUPLICATE  (4) /* At least 52% of stake voted for this exact block, guaranteeing the cluster converges on it even when a slot equivocates. */
-#define FD_EVENT_SLOT_CONFIRMED_LEVEL_OPTIMISTIC (5) /* More than two thirds of stake voted for the block. Equivalent to Solana's 'confirmed' commitment. */
-#define FD_EVENT_SLOT_CONFIRMED_LEVEL_SUPER      (6) /* More than four fifths of stake voted for the block. Used when waiting for a supermajority at boot. */
-#define FD_EVENT_SLOT_CONFIRMED_LEVEL_ROOTED     (7) /* The block or a descendant reached maximum lockout and can never be rolled back. The strongest level, equivalent to Solana's 'finalized' commitment. */
+/* Commitment level reached, weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a terminal outcome, not a level. A block never named directly by any vote emits no propagated/duplicate/optimistic/super rows even when confirmed transitively through a descendant, and the transitive walk stops at it, so voted ancestors above it can miss those rows too; all still emit processed and rooted rows. */
+#define FD_EVENT_SLOT_CONFIRMED_LEVEL_IGNORED    (1) /* Replay finished a block consensus had already pruned, so no processed row is emitted. Forward vote-level rows for the block may precede this. */
+#define FD_EVENT_SLOT_CONFIRMED_LEVEL_PROCESSED  (2) /* Replayed locally, on any fork; no cluster stake required. Solana's 'processed' commitment. */
+#define FD_EVENT_SLOT_CONFIRMED_LEVEL_PROPAGATED (3) /* More than a third of stake observed the block or a descendant. */
+#define FD_EVENT_SLOT_CONFIRMED_LEVEL_DUPLICATE  (4) /* More than 52% of stake voted for this exact block or a descendant; the cluster converges on it even if the slot equivocates. */
+#define FD_EVENT_SLOT_CONFIRMED_LEVEL_OPTIMISTIC (5) /* More than two thirds of stake voted for the block or a descendant. Solana's 'confirmed' commitment. */
+#define FD_EVENT_SLOT_CONFIRMED_LEVEL_SUPER      (6) /* More than four fifths of stake voted for the block or a descendant. Used when waiting for a supermajority at boot. */
+#define FD_EVENT_SLOT_CONFIRMED_LEVEL_ROOTED     (7) /* The block or a descendant reached maximum lockout and cannot be rolled back. The strongest level; Solana's 'finalized' commitment. */
 
-/* A slot reached a commitment level. Emitted once per slot per level reached. Join to block_completed on bank_seq, or on slot and block_id. */
+/* A block reached a commitment level. One row per block per level: a level crossed while the block is not tracked by local consensus (not yet replayed, or already discarded) reports once with forward true and bank_seq 0 and is not re-reported. Join to block_completed on bank_seq, or on slot and block_id (the only keys on forward rows). */
 struct fd_event_slot_confirmed {
-  ulong bank_seq;         /* Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable, which happens for forward confirmations where the block has not been replayed. */
-  ulong slot;             /* The slot being confirmed. */
-  uchar block_id[ 32UL ]; /* Unique identifier of the block being confirmed; the join key to block_completed. */
-  ulong stake;            /* Stake in lamports supporting this confirmation. Divide by total_stake for the ratio that crossed the level's threshold. 0 means unavailable. */
-  ulong total_stake;      /* Total cluster stake in lamports at confirmation time; the denominator for the confirmation ratio. 0 means unavailable. */
-  int   valid;            /* Whether this block is eligible for fork choice. An equivocating block becomes eligible again only once duplicate confirmed. */
-  int   level;            /* The commitment level reached, from weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a separate terminal outcome rather than a strengthening level. */
-  int   forward;          /* True when the block was confirmed by votes seen over gossip before it was replayed locally. Always false for processed and rooted, which require a local replay. */
+  ulong bank_seq;         /* Bank sequence number, counting from 1 within a run; the join key to block_completed. Not meaningful across restarts: scope by the stream's instance id from the connection's authentication metadata (the boot id identifies the host kernel boot and survives validator restarts). 0 on forward rows. The boot bank (bank_seq 1) emits confirmations but no block_completed row. Forward confirmations for blocks never completely received join to no row on any key. */
+  ulong slot;             /* Slot number of the block. */
+  uchar block_id[ 32UL ]; /* Block identifier; with slot, the alternate join key to block_completed. */
+  ulong stake;            /* Stake in lamports voted for this exact block when the row was emitted. Only the row that triggered a propagated/duplicate/optimistic/super confirmation crossed the level's threshold; ancestors confirmed transitively report their own smaller tally. processed rows carry 0: no replay votes exist yet at the block's own completion. rooted rows carry replay-observed vote stake for the block plus descendants, no threshold. 0 if unavailable. */
+  ulong total_stake;      /* Total cluster stake in lamports for the epoch the tally was made in (captured at replay completion for processed and rooted rows). 0 if unavailable. */
+  int   valid;            /* Whether the block is eligible for fork choice. An equivocating block becomes eligible again once duplicate confirmed. Always true on forward and ignored rows; validity is not assessed for blocks consensus is not tracking. */
+  int   level;            /* Commitment level reached, weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a terminal outcome, not a level. A block never named directly by any vote emits no propagated/duplicate/optimistic/super rows even when confirmed transitively through a descendant, and the transitive walk stops at it, so voted ancestors above it can miss those rows too; all still emit processed and rooted rows. */
+  int   forward;          /* Whether the level was crossed by cluster votes (gossip, TPU, or replayed blocks) while the block was not tracked by local consensus: not yet replayed, or already discarded (pruned losing fork, or completed after the root passed it). Always false for processed, ignored, and rooted rows, which local replay or rooting triggers. */
 };
 typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
 
