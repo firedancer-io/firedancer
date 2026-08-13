@@ -1170,23 +1170,16 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ulong base_max_data = ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK;
     if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
-      /* Compute base_max_data to ensure that we don't overflow
-         slot_max_data_shreds. See FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX in
-         fd_shred_batch.h. Some of the terms are
-         based on the worst-case number of FEC sets in a block, which
-         scales with the slot time reductions:
-         - pad_ohead = per-batch padding (OHEAD_PAD in fd_shred_batch.h)
-         - hdr_ohead = per-batch header (OHEAD_HDR in fd_shred_batch.h)
-         - reg_ohead = only used for the last batch
-                       (OHEAD_REG in fd_shred_batch.h) */
-      ulong fec_set_cnt     = ctx->_became_leader->limits.slot_max_data_shreds/32UL;
-      ulong pad_ohead       = ( fec_set_cnt/2UL )*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
-      ulong hdr_ohead       = fec_set_cnt*8UL;
-      ulong reg_ohead       = 8192UL;
-      FD_TEST( fec_set_cnt >= 2UL ); /* guard against underflow */
-      ulong fec_data        = ( fec_set_cnt - 2UL )*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
-      FD_TEST( fec_data    >= pad_ohead+hdr_ohead+reg_ohead );
-      base_max_data         = fec_data - pad_ohead - hdr_ohead - reg_ohead;
+      /* Cap pack's entry bytes at the worst case: how many entry
+         bytes fit in max_shred_idx given our shredding.  We fill a
+         batch until the next microblock would not fit in two FEC
+         sets, then pad out that batch.  Empty ticks are subtracted
+         below. */
+      ulong shreds            = ctx->_became_leader->limits.slot_max_data_shreds;
+      ulong max_microblock_sz = sizeof(fd_entry_batch_header_t) + EFFECTIVE_TXN_PER_MICROBLOCK*FD_TPU_MTU;
+      ulong shred_safe        = fd_shred_batch_pack_data_max( shreds, max_microblock_sz );
+      FD_TEST( shred_safe );
+      base_max_data = shred_safe;
     }
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = base_max_data
