@@ -87,47 +87,37 @@ test_interrupts_real( void ) {
     return;
   }
 
-  ulong cpu_cnt = fd_proc_interrupts_colwise( fd, per_cpu[0] );
+  ulong cpu_cnt = fd_proc_interrupts_read( fd, per_cpu[0], per_cpu[1], per_cpu[2] );
   FD_TEST( 0==close( fd ) );
   FD_TEST( cpu_cnt>0UL );
   FD_LOG_NOTICE(( "Found %lu CPUs in /proc/interrupts", cpu_cnt ));
 }
 
 static void
-test_interrupts_example( void ) {
+test_interrupts_example( uint opt_mask ) {
   int memfd = memfd_create( "fake_proc_interrupts", 0 );
   FD_TEST( memfd>=0 );
 
-  ulong write_sz;
-  FD_TEST( 0==fd_io_write( memfd, example_interrupts, example_interrupts_sz, example_interrupts_sz, &write_sz ) );
-  FD_TEST( write_sz==example_interrupts_sz );
-  FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
-
-  ulong cpu_cnt = fd_proc_interrupts_colwise( memfd, per_cpu[0] );
-  FD_TEST( 0==close( memfd ) );
-
-  FD_TEST( cpu_cnt==64 );
-  for( ulong cpu=0; cpu<cpu_cnt; cpu++ ) {
-    FD_TEST( per_cpu[0][ cpu ]==example_interrupts_counters[ cpu ] );
+  for( ulong i=0UL; i<3UL; i++ ) {
+    for( ulong cpu=0UL; cpu<FD_TILE_MAX; cpu++ ) per_cpu[ i ][ cpu ] = ULONG_MAX;
   }
-}
-
-static void
-test_tlb_example( void ) {
-  int memfd = memfd_create( "fake_proc_interrupts", 0 );
-  FD_TEST( memfd>=0 );
 
   ulong write_sz;
   FD_TEST( 0==fd_io_write( memfd, example_interrupts, example_interrupts_sz, example_interrupts_sz, &write_sz ) );
   FD_TEST( write_sz==example_interrupts_sz );
   FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
 
-  ulong cpu_cnt = fd_proc_interrupts_tlb( memfd, per_cpu[0] );
+  ulong cpu_cnt = fd_proc_interrupts_read( memfd,
+                                          fd_ptr_if( opt_mask & 1U, &per_cpu[ 0 ][ 0 ], NULL ),
+                                          fd_ptr_if( opt_mask & 2U, &per_cpu[ 1 ][ 0 ], NULL ),
+                                          fd_ptr_if( opt_mask & 4U, &per_cpu[ 2 ][ 0 ], NULL ) );
   FD_TEST( 0==close( memfd ) );
 
   FD_TEST( cpu_cnt==64 );
-  for( ulong cpu=0; cpu<cpu_cnt; cpu++ ) {
-    FD_TEST( per_cpu[0][ cpu ]==example_interrupts_tlb[ cpu ] );
+  for( ulong cpu=0UL; cpu<cpu_cnt; cpu++ ) {
+    FD_TEST( per_cpu[ 0 ][ cpu ]==( (opt_mask & 1U) ? example_interrupts_counters[ cpu ] : ULONG_MAX ) );
+    FD_TEST( per_cpu[ 1 ][ cpu ]==( (opt_mask & 2U) ? example_interrupts_tlb     [ cpu ] : ULONG_MAX ) );
+    FD_TEST( per_cpu[ 2 ][ cpu ]==( (opt_mask & 4U) ? example_interrupts_loc     [ cpu ] : ULONG_MAX ) );
   }
 }
 
@@ -169,24 +159,6 @@ test_stat_real( void ) {
   FD_LOG_NOTICE(( "Found %lu CPUs in /proc/stat", cpu_cnt ));
 }
 
-static void
-test_loc_example( void ) {
-  int memfd = memfd_create( "fake_proc_interrupts", 0 );
-  FD_TEST( memfd>=0 );
-
-  ulong write_sz;
-  FD_TEST( 0==fd_io_write( memfd, example_interrupts, example_interrupts_sz, example_interrupts_sz, &write_sz ) );
-  FD_TEST( write_sz==example_interrupts_sz );
-  FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
-
-  ulong cpu_cnt = fd_proc_interrupts_loc( memfd, per_cpu[0] );
-  FD_TEST( 0==close( memfd ) );
-
-  FD_TEST( cpu_cnt==64 );
-  for( ulong cpu=0; cpu<cpu_cnt; cpu++ ) {
-    FD_TEST( per_cpu[0][ cpu ]==example_interrupts_loc[ cpu ] );
-  }
-}
 
 static void
 test_softirqs_real( void ) {
@@ -236,12 +208,10 @@ main( int     argc,
 
   havoc( rng );
   test_interrupts_real();
-  havoc( rng );
-  test_interrupts_example();
-  havoc( rng );
-  test_tlb_example();
-  havoc( rng );
-  test_loc_example();
+  for( uint opt_mask=0U; opt_mask<8U; opt_mask++ ) {
+    havoc( rng );
+    test_interrupts_example( opt_mask );
+  }
   havoc( rng );
   test_stat_example();
   havoc( rng );

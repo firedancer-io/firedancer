@@ -37,11 +37,11 @@ LLVMFuzzerTestOneInput( uchar const * data,
   FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
 
   static ulong per_cpu[ 3 ][ FD_TILE_MAX ];
-  (void)fd_proc_interrupts_colwise( memfd, per_cpu[0] );
-  FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
-  (void)fd_proc_interrupts_tlb( memfd, per_cpu[0] );
-  FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
-  (void)fd_proc_interrupts_loc( memfd, per_cpu[0] );
+  uint opt_mask = size ? (uint)(data[ 0 ] & 7U) : 0U;
+  (void)fd_proc_interrupts_read( memfd,
+                                fd_ptr_if( opt_mask & 1U, &per_cpu[ 0 ][ 0 ], NULL ),
+                                fd_ptr_if( opt_mask & 2U, &per_cpu[ 1 ][ 0 ], NULL ),
+                                fd_ptr_if( opt_mask & 4U, &per_cpu[ 2 ][ 0 ], NULL ) );
   FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
   (void)fd_proc_stat_irq_ticks( memfd, per_cpu[0] );
   FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
