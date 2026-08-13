@@ -703,6 +703,7 @@ fd_reasm_init( fd_reasm_t *      reasm,
   fec->out.next        = null;
   fec->out.prev        = null;
   fec->in_out          = 0;
+  fec->xid_next        = null;
   fec->subtreel.next   = null;
   fec->subtreel.prev   = null;
 
