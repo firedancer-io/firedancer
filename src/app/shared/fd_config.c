@@ -484,6 +484,10 @@ fd_config_validatef( fd_configf_t const * config ) {
     }
   }
 
+  if( FD_UNLIKELY( config->snapshots.server.enabled && !config->layout.enable_snapshot_production ) ) {
+    FD_LOG_ERR(( "[snapshots.server].enabled=true requires [layout].enable_snapshot_production=true" ));
+  }
+
   CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
   if( FD_UNLIKELY( config->snapshots.server.idle_timeout_millis<100UL ||
                    config->snapshots.server.idle_timeout_millis>=60000UL ) ) {
