@@ -562,6 +562,8 @@ returnable_frag( fd_gui_ctx_t *      ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT && !ctx->gui->epoch.has_epoch_schedule ) ) return 1; /* epoch info not received yet: defer polling */
+
   if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_TOWER_OUT ) ) return 0; /* process in {before|during|after}_frag */
 
   if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
