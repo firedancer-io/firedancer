@@ -31,17 +31,17 @@ struct fd_crds_purged {
   uchar hash[ 32UL ];
 
   struct {
-    ulong next;
+    uint next;
   } pool;
 
   struct {
     ulong hash_prefix;
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong next;
-    ulong prev;
-    ulong prio;
+    uint  parent;
+    uint  left;
+    uint  right;
+    uint  next;
+    uint  prev;
+    uint  prio;
   } treap;
 
   /* We keep a linked list of purged values sorted by insertion time.
@@ -53,8 +53,8 @@ struct fd_crds_purged {
      "no_contact_info" entries that expire after 2 days. */
   struct {
     long  wallclock_nanos;
-    ulong next;
-    ulong prev;
+    uint  next;
+    uint  prev;
   } expire;
 
   /* For no_contact_info entries, we also track the origin pubkey and
@@ -62,15 +62,18 @@ struct fd_crds_purged {
      the contact info for that pubkey. */
   fd_pubkey_t origin;
   struct {
-    ulong next;
-    ulong prev;
+    uint next;
+    uint prev;
   } nci_map;
 };
 
 typedef struct fd_crds_purged fd_crds_purged_t;
 
+FD_STATIC_ASSERT( sizeof(fd_crds_purged_t)==128UL, purged_entry_footprint );
+
 #define POOL_NAME purged_pool
 #define POOL_T    fd_crds_purged_t
+#define POOL_IDX_T uint
 #define POOL_NEXT pool.next
 #include "../../util/tmpl/fd_pool.c"
 
@@ -78,7 +81,7 @@ typedef struct fd_crds_purged fd_crds_purged_t;
 #define TREAP_T         fd_crds_purged_t
 #define TREAP_QUERY_T   ulong
 #define TREAP_CMP(q,e)  ((q>e->treap.hash_prefix)-(q<e->treap.hash_prefix))
-#define TREAP_IDX_T     ulong
+#define TREAP_IDX_T     uint
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_NEXT      treap.next
 #define TREAP_PREV      treap.prev
@@ -91,18 +94,21 @@ typedef struct fd_crds_purged fd_crds_purged_t;
 
 #define DLIST_NAME  failed_inserts_dlist
 #define DLIST_ELE_T fd_crds_purged_t
+#define DLIST_IDX_T uint
 #define DLIST_PREV  expire.prev
 #define DLIST_NEXT  expire.next
 #include "../../util/tmpl/fd_dlist.c"
 
 #define DLIST_NAME  replaced_dlist
 #define DLIST_ELE_T fd_crds_purged_t
+#define DLIST_IDX_T uint
 #define DLIST_PREV  expire.prev
 #define DLIST_NEXT  expire.next
 #include "../../util/tmpl/fd_dlist.c"
 
 #define DLIST_NAME  no_contact_info_dlist
 #define DLIST_ELE_T fd_crds_purged_t
+#define DLIST_IDX_T uint
 #define DLIST_PREV  expire.prev
 #define DLIST_NEXT  expire.next
 #include "../../util/tmpl/fd_dlist.c"
@@ -111,6 +117,7 @@ typedef struct fd_crds_purged fd_crds_purged_t;
 #define MAP_KEY                origin
 #define MAP_ELE_T              fd_crds_purged_t
 #define MAP_KEY_T              fd_pubkey_t
+#define MAP_IDX_T              uint
 #define MAP_PREV               nci_map.prev
 #define MAP_NEXT               nci_map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
