@@ -9,6 +9,10 @@
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
+/* Worst case bound for a genesis TAR and bzip2's output size in MiB can
+   fit in a uint (in bytes). */
+#define FD_GENESIS_MAX_MESSAGE_SIZE_MIB (4055UL)
+
 struct fd_genesis_meta {
   ulong bootstrap  : 1;
   ulong has_lthash : 1;

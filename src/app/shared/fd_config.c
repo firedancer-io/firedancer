@@ -7,6 +7,7 @@
 #include "../platform/fd_sys_util.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
+#include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
 
 #include <unistd.h>
@@ -14,10 +15,6 @@
 #include <stdlib.h> /* strtoul */
 #include <sys/utsname.h>
 #include <sys/mman.h>
-
-/* Largest integral MiB value for which the genesis TAR size and
-   bzip2's documented worst-case output size fit in uint. */
-#define FD_CONFIG_GENESIS_MAX_MESSAGE_SIZE_MIB (4055UL)
 
 /* TODO: Rewrite this ... */
 
@@ -510,8 +507,8 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( accounts.cache_size_gib );
 
   CFG_HAS_NON_ZERO( development.genesis.max_message_size_mib );
-  if( FD_UNLIKELY( config->development.genesis.max_message_size_mib>FD_CONFIG_GENESIS_MAX_MESSAGE_SIZE_MIB ) ) {
-    FD_LOG_ERR(( "`development.genesis.max_message_size_mib` must be at most %lu", FD_CONFIG_GENESIS_MAX_MESSAGE_SIZE_MIB ));
+  if( FD_UNLIKELY( config->development.genesis.max_message_size_mib>FD_GENESIS_MAX_MESSAGE_SIZE_MIB ) ) {
+    FD_LOG_ERR(( "`development.genesis.max_message_size_mib` must be at most %lu", FD_GENESIS_MAX_MESSAGE_SIZE_MIB ));
   }
 
   CFG_HAS_NON_ZERO( runtime.program_cache.mean_cache_entry_size );
