@@ -828,7 +828,6 @@ conn_close( fd_snapsv_t *       ctx,
             long                now ) {
   FD_CHECK_CRIT( conn_idx < ctx->conn_max, "invalid conn_idx" );
   snapsv_conn_t * conn   = &ctx->conn0[ conn_idx ];
-  uint            fd_idx = ctx->conn0_fd_idx + conn_idx;
 
   if( conn->req.get_snap ) {
     /* the transfer is ending before the whole range was sent, so this is
@@ -841,12 +840,15 @@ conn_close( fd_snapsv_t *       ctx,
     conn->req.get_snap = 0;
   }
 
+#ifndef FD_TILE_TEST
   /* io_uring OP_CLOSE on a fixed file does not use IOSQE_FIXED_FILE,
      therefore would break the io_uring sandbox (restrictions). */
+  uint fd_idx = ctx->conn0_fd_idx + conn_idx;
   int unreg = -1;
   if( FD_UNLIKELY( fd_io_uring_register_files_update( ctx->ring->ioring_fd, fd_idx, &unreg, 1U )<0 ) ) {
     FD_LOG_ERR(( "io_uring_register(IORING_REGISTER_FILES_UPDATE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+#endif
 
   /* conn no longer considered active */
   FD_CHECK_CRIT( ctx->conn_cnt, "conn count underflow" );
@@ -2010,6 +2012,7 @@ snap_open( fd_snapsv_t * ctx,
 FD_FN_UNUSED static int
 snap_lock( snap_entry_t * entry ) {
   if( entry->locked ) return 1; /* already locked */
+#ifndef FD_TILE_TEST
   struct flock lock = {
     .l_type   = F_RDLCK,
     .l_whence = SEEK_SET
@@ -2018,6 +2021,7 @@ snap_lock( snap_entry_t * entry ) {
     if( errno==EAGAIN || errno==EACCES ) return 0; /* write locked */
     FD_LOG_ERR(( "fcntl(F_RDLCK, %lu, %lu) failed (%i-%s)", entry->key.slot, entry->key.base_slot, errno, fd_io_strerror( errno ) ));
   }
+#endif
   entry->locked = 1;
   return 1;
 }
@@ -2032,6 +2036,7 @@ snap_close( fd_snapsv_t * ctx,
   if( FD_UNLIKELY( !entry ) ) return; /* ignore */
 
   if( entry->locked ) {
+#ifndef FD_TILE_TEST
     struct flock lock = {
       .l_type   = F_UNLCK,
       .l_whence = SEEK_SET
@@ -2039,6 +2044,7 @@ snap_close( fd_snapsv_t * ctx,
     if( FD_UNLIKELY( fcntl( entry->fd, F_SETLK, &lock ) ) ) {
       FD_LOG_ERR(( "fcntl(F_UNLCK, %lu, %lu) failed (%i-%s)", slot, base_slot, errno, fd_io_strerror( errno ) ));
     }
+#endif
     entry->locked = 0;
   }
   entry->fd = -1;
