@@ -459,19 +459,19 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( !http_fp ) ) FD_LOG_ERR(( "Invalid [tiles.rpc] config parameters" ));
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                         );
-  l = FD_LAYOUT_APPEND( l, fd_http_server_align(),   http_fp                                         );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                            );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                            );
-  l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)    );
-  l = FD_LAYOUT_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint()  );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots )  );
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong) );
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong) );
-  l = FD_LAYOUT_APPEND( l, alignof(uchar),           fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size )    );
-  l = FD_LAYOUT_APPEND( l, alignof(uchar),           fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_rpc_tile_t),            sizeof(fd_rpc_tile_t)                                              );
+  l = FD_LAYOUT_APPEND( l, fd_http_server_align(),            http_fp                                                            );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                  fd_alloc_footprint()                                               );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                  fd_alloc_footprint()                                               );
+  l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),              tile->rpc.max_live_slots*sizeof(bank_info_t)                       );
+  l = FD_LAYOUT_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint()                              );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->rpc.max_live_slots )                     );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
+  l = FD_LAYOUT_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size )    );
+  l = FD_LAYOUT_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size ) );
 # if FD_HAS_ZSTD
-  l = FD_LAYOUT_APPEND( l, 16UL,                     ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL )      );
+  l = FD_LAYOUT_APPEND( l, 16UL, ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL ) );
 # endif
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -2472,17 +2472,17 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_http_server_params_t http_params = derive_http_params( tile );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                                );
-                        FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( http_params )                );
-  void * _alloc       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
-  void * _bz2_alloc   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
-  void * _banks       = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)           );
-  void * _nodes_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
-  void * _accdb_join  = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots )         );
-  void * _ws_sub_vote = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong)        );
-  void * _ws_sub_slot = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong)        );
-  void * _genesis_tar = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),           fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size )    );
-  void * _genesis_tar_bz = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),        fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size ) );
+  fd_rpc_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpc_tile_t),            sizeof(fd_rpc_tile_t)                                              );
+                           FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),            fd_http_server_footprint( http_params )                            );
+  void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                  fd_alloc_footprint()                                               );
+  void * _bz2_alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                  fd_alloc_footprint()                                               );
+  void * _banks          = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),              tile->rpc.max_live_slots*sizeof(bank_info_t)                       );
+  void * _nodes_dlist    = FD_SCRATCH_ALLOC_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint()                              );
+  void * _accdb_join     = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->rpc.max_live_slots )                     );
+  void * _ws_sub_vote    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
+  void * _ws_sub_slot    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
+  void * _genesis_tar    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size )    );
+  void * _genesis_tar_bz = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size ) );
 # if FD_HAS_ZSTD
   ulong  zstd_wksp_sz = ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL );
   void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
