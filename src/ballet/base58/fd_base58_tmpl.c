@@ -73,6 +73,11 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
 
   fd_memset( intermediate, 0, INTERMEDIATE_SZ_W_PADDING * sizeof(ulong) );
 
+#if FD_HAS_AVX
+
+  SUFFIX(fd_base58_encode_matmul)( binary, intermediate );
+
+#else
 # if N==32
 
   /* The worst case is if binary[7] is (2^32)-1. In that case
@@ -110,6 +115,7 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
 # else
 # error "Add support for this N"
 # endif
+#endif
 
   /* Now we make sure each term is less than 58^5. Again, we have to be
      a bit careful of overflow.
@@ -124,10 +130,20 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
      this point is 2^63.87, and in the worst case, we add (2^64-1)/58^5,
      which is still about 2^63.87. */
 
+#if FD_HAS_AVX
+  ulong carry = intermediate[ INTERMEDIATE_SZ-1UL ];
   for( ulong i=INTERMEDIATE_SZ-1UL; i>0UL; i-- ) {
-    intermediate[ i-1UL ] += (intermediate[ i ]/R1div);
-    intermediate[ i     ] %= R1div;
+    ulong q = carry/R1div;
+    intermediate[ i ] = carry-q*R1div;
+    carry = intermediate[ i-1UL ]+q;
   }
+  intermediate[ 0 ] = carry;
+#else
+  for( ulong i=INTERMEDIATE_SZ-1UL; i>0UL; i-- ) {
+    intermediate[ i-1UL ] += intermediate[ i ]/R1div;
+    intermediate[ i      ] %= R1div;
+  }
+#endif
 
 #if !FD_HAS_AVX
   /* Convert intermediate form to base 58.  This form of conversion
@@ -313,27 +329,32 @@ SUFFIX(fd_base58_decode)( char const * encoded,
   }
 
   if( FD_UNLIKELY( char_cnt == ENCODED_SZ() ) ) return NULL; /* too long */
+  if( FD_UNLIKELY( !char_cnt ) )                return NULL;
 
-  /* X = sum_i raw_base58[i] * 58^(RAW58_SZ-1-i) */
-
-  uchar raw_base58[ RAW58_SZ ];
-
-  /* Prepend enough 0s to make it exactly RAW58_SZ characters */
-
-  ulong prepend_0 = RAW58_SZ-char_cnt;
-  for( ulong j=0UL; j<RAW58_SZ; j++ )
-    raw_base58[ j ] = (j<prepend_0) ? (uchar)0 : base58_inverse[ encoded[ j-prepend_0 ] - BASE58_INVERSE_TABLE_OFFSET ];
-
-  /* Convert to the intermediate format (base 58^5):
-       X = sum_i intermediate[i] * 58^(5*(INTERMEDIATE_SZ-1-i)) */
+  /* Convert directly from the string to base 58^5 groups.  The tail
+     groups are five characters each; only the head group is shorter. */
 
   ulong intermediate[ INTERMEDIATE_SZ ];
-  for( ulong i=0UL; i<INTERMEDIATE_SZ; i++ )
-    intermediate[ i ] = (ulong)raw_base58[ 5UL*i+0UL ] * 11316496UL +
-                        (ulong)raw_base58[ 5UL*i+1UL ] * 195112UL   +
-                        (ulong)raw_base58[ 5UL*i+2UL ] * 3364UL     +
-                        (ulong)raw_base58[ 5UL*i+3UL ] * 58UL       +
-                        (ulong)raw_base58[ 5UL*i+4UL ] * 1UL;
+  fd_memset( intermediate, 0, sizeof(intermediate) );
+
+  ulong group_cnt = (char_cnt+4UL)/5UL;
+  ulong gi        = INTERMEDIATE_SZ-group_cnt;
+  ulong pos       = 0UL;
+  ulong head      = char_cnt-5UL*(group_cnt-1UL);
+  ulong group     = 0UL;
+  for( ulong i=0UL; i<head; i++ )
+    group = group*58UL + (ulong)base58_inverse[ (uchar)encoded[ pos++ ]-BASE58_INVERSE_TABLE_OFFSET ];
+  intermediate[ gi++ ] = group;
+
+  for( ; gi<INTERMEDIATE_SZ; gi++ ) {
+    uchar const * c = (uchar const *)encoded+pos;
+    intermediate[ gi ] = (ulong)base58_inverse[ c[ 0 ]-BASE58_INVERSE_TABLE_OFFSET ] * 11316496UL +
+                         (ulong)base58_inverse[ c[ 1 ]-BASE58_INVERSE_TABLE_OFFSET ] *   195112UL +
+                         (ulong)base58_inverse[ c[ 2 ]-BASE58_INVERSE_TABLE_OFFSET ] *     3364UL +
+                         (ulong)base58_inverse[ c[ 3 ]-BASE58_INVERSE_TABLE_OFFSET ] *       58UL +
+                         (ulong)base58_inverse[ c[ 4 ]-BASE58_INVERSE_TABLE_OFFSET ];
+    pos += 5UL;
+  }
 
 
   /* Using the table, convert to overcomplete base 2^32 (terms can be
@@ -347,12 +368,16 @@ SUFFIX(fd_base58_decode)( char const * encoded,
      2^63.998.  Hanging in there, just by a thread! */
 
   ulong binary[ BINARY_SZ ];
+#if FD_HAS_AVX
+  SUFFIX(fd_base58_decode_matmul)( intermediate, binary );
+#else
   for( ulong j=0UL; j<BINARY_SZ; j++ ) {
     ulong acc=0UL;
     for( ulong i=0UL; i<INTERMEDIATE_SZ; i++ )
       acc += (ulong)intermediate[ i ] * (ulong)SUFFIX(dec_table)[ i ][ j ];
     binary[ j ] = acc;
   }
+#endif
 
   /* Make sure each term is less than 2^32.
 
@@ -362,10 +387,12 @@ SUFFIX(fd_base58_decode)( char const * encoded,
      For N==64, even if we add 2^32 to binary[13], it is still 2^63.998,
      so this won't overflow. */
 
+  ulong carry = binary[ BINARY_SZ-1UL ];
   for( ulong i=BINARY_SZ-1UL; i>0UL; i-- ) {
-    binary[ i-1UL ] += (binary[i] >> 32);
-    binary[ i     ] &= 0xFFFFFFFFUL;
+    binary[ i ] = carry & 0xFFFFFFFFUL;
+    carry = binary[ i-1UL ] + (carry>>32);
   }
+  binary[ 0 ] = carry;
 
   /* If the largest term is 2^32 or bigger, it means N is larger than
      what can fit in BYTE_CNT bytes.  This can be triggered, by passing
@@ -375,9 +402,9 @@ SUFFIX(fd_base58_decode)( char const * encoded,
 
   /* Convert each term to big endian for the final output */
 
-  uint * out_as_uint = (uint*)out;
-  for( ulong i=0UL; i<BINARY_SZ; i++ ) {
-    FD_STORE( uint, &out_as_uint[ i ], fd_uint_bswap( (uint)binary[ i ] ) );
+  for( ulong i=0UL; i<BINARY_SZ; i+=2UL ) {
+    ulong pair = (binary[ i ]<<32) | binary[ i+1UL ];
+    FD_STORE( ulong, out+4UL*i, fd_ulong_bswap( pair ) );
   }
   /* Make sure the encoded version has the same number of leading '1's
      as the decoded version has leading 0s. The check doesn't read past

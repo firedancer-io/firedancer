@@ -72,6 +72,56 @@ static uint const dec_table_32[INTERMEDIATE_SZ][BINARY_SZ] = {
   {         0U,          0U,          0U,          0U,          0U,          0U,          0U,          1U}
 };
 
+#if FD_HAS_AVX
+/* The conversion tables use compact uint entries.  Widen four entries
+   at a time for VPMULUDQ's four independent u32 x u32 -> u64 lanes. */
+static inline __m256i
+fd_base58_u32x4_to_u64x4( uint const * p ) {
+  return _mm256_cvtepu32_epi64( _mm_loadu_si128( (__m128i const *)p ) );
+}
+
+static inline void
+fd_base58_encode_matmul_32( uint const  binary[ 8 ],
+                            ulong       intermediate[ 12 ] ) {
+  __m256i acc0 = _mm256_setzero_si256();
+  __m256i acc1 = _mm256_setzero_si256();
+
+  for( ulong i=0UL; i<4UL; i++ ) {
+    __m256i b = _mm256_set1_epi64x( (long long)binary[ i ] );
+    acc0 = _mm256_add_epi64( acc0, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_32[ i ]      ) ) );
+    acc1 = _mm256_add_epi64( acc1, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_32[ i ]+4UL ) ) );
+  }
+  for( ulong i=4UL; i<8UL; i++ ) {
+    __m256i b = _mm256_set1_epi64x( (long long)binary[ i ] );
+    acc1 = _mm256_add_epi64( acc1, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_32[ i ]+4UL ) ) );
+  }
+
+  intermediate[ 0 ] = 0UL;
+  _mm256_storeu_si256( (__m256i *)(intermediate+1UL), acc0 );
+  _mm256_storeu_si256( (__m256i *)(intermediate+5UL), acc1 );
+}
+
+static inline void
+fd_base58_decode_matmul_32( ulong const intermediate[ 9 ],
+                            ulong       binary[ 8 ] ) {
+  __m256i acc0 = _mm256_setzero_si256();
+  __m256i acc1 = _mm256_setzero_si256();
+
+  for( ulong i=0UL; i<4UL; i++ ) {
+    __m256i v = _mm256_set1_epi64x( (long long)intermediate[ i ] );
+    acc0 = _mm256_add_epi64( acc0, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_32[ i ]      ) ) );
+    acc1 = _mm256_add_epi64( acc1, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_32[ i ]+4UL ) ) );
+  }
+  for( ulong i=4UL; i<9UL; i++ ) {
+    __m256i v = _mm256_set1_epi64x( (long long)intermediate[ i ] );
+    acc1 = _mm256_add_epi64( acc1, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_32[ i ]+4UL ) ) );
+  }
+
+  _mm256_storeu_si256( (__m256i *)(binary    ), acc0 );
+  _mm256_storeu_si256( (__m256i *)(binary+4UL), acc1 );
+}
+#endif
+
 #include "fd_base58_tmpl.c"
 
 #define N                64
@@ -120,6 +170,95 @@ static uint const dec_table_64[INTERMEDIATE_SZ][BINARY_SZ] = {
   {         0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,  656356768U},
   {         0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          1U}
 };
+
+#if FD_HAS_AVX
+static inline void
+fd_base58_encode_matmul_64( uint const binary[ 16 ],
+                            ulong      intermediate[ 20 ] ) {
+  __m256i acc0 = _mm256_setzero_si256();
+  __m256i acc1 = _mm256_setzero_si256();
+  __m256i acc2 = _mm256_setzero_si256();
+  __m256i acc3 = _mm256_setzero_si256();
+  __m256i acc4 = _mm256_setzero_si256();
+
+  for( ulong i=0UL; i<4UL; i++ ) {
+    __m256i b = _mm256_set1_epi64x( (long long)binary[ i ] );
+    acc0 = _mm256_add_epi64( acc0, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_64[ i ]       ) ) );
+    acc1 = _mm256_add_epi64( acc1, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_64[ i ]+ 4UL ) ) );
+    acc2 = _mm256_add_epi64( acc2, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_64[ i ]+ 8UL ) ) );
+    acc3 = _mm256_add_epi64( acc3, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_64[ i ]+12UL ) ) );
+    __m256i t = _mm256_set_epi64x( 0L, 0L, 0L, (long long)enc_table_64[ i ][ 16 ] );
+    acc4 = _mm256_add_epi64( acc4, _mm256_mul_epu32( b, t ) );
+  }
+  for( ulong i=4UL; i<8UL; i++ ) {
+    __m256i b = _mm256_set1_epi64x( (long long)binary[ i ] );
+    acc1 = _mm256_add_epi64( acc1, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_64[ i ]+ 4UL ) ) );
+    acc2 = _mm256_add_epi64( acc2, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_64[ i ]+ 8UL ) ) );
+    acc3 = _mm256_add_epi64( acc3, _mm256_mul_epu32( b, fd_base58_u32x4_to_u64x4( enc_table_64[ i ]+12UL ) ) );
+    __m256i t = _mm256_set_epi64x( 0L, 0L, 0L, (long long)enc_table_64[ i ][ 16 ] );
+    acc4 = _mm256_add_epi64( acc4, _mm256_mul_epu32( b, t ) );
+  }
+
+  intermediate[ 0 ] = 0UL;
+  _mm256_storeu_si256( (__m256i *)(intermediate+ 1UL), acc0 );
+  _mm256_storeu_si256( (__m256i *)(intermediate+ 5UL), acc1 );
+  _mm256_storeu_si256( (__m256i *)(intermediate+ 9UL), acc2 );
+  _mm256_storeu_si256( (__m256i *)(intermediate+13UL), acc3 );
+  intermediate[ 17 ] = (ulong)_mm256_extract_epi64( acc4, 0 );
+
+  intermediate[ 15 ] += intermediate[ 16 ]/656356768UL;
+  intermediate[ 16 ] %= 656356768UL;
+
+  /* Rows 8-15 are enc_table_32 shifted nine columns. */
+  ulong W_ATTR tail[ 12 ] = {0};
+  fd_base58_encode_matmul_32( binary+8UL, tail );
+  __m256i x0 = _mm256_add_epi64( _mm256_loadu_si256( (__m256i const *)(intermediate+10UL) ),
+                                 _mm256_loadu_si256( (__m256i const *)(tail+1UL) ) );
+  __m256i x1 = _mm256_add_epi64( _mm256_loadu_si256( (__m256i const *)(intermediate+14UL) ),
+                                 _mm256_loadu_si256( (__m256i const *)(tail+5UL) ) );
+  _mm256_storeu_si256( (__m256i *)(intermediate+10UL), x0 );
+  _mm256_storeu_si256( (__m256i *)(intermediate+14UL), x1 );
+}
+
+static inline void
+fd_base58_decode_matmul_64( ulong const intermediate[ 18 ],
+                            ulong       binary[ 16 ] ) {
+  __m256i acc0 = _mm256_setzero_si256();
+  __m256i acc1 = _mm256_setzero_si256();
+  __m256i acc2 = _mm256_setzero_si256();
+  __m256i acc3 = _mm256_setzero_si256();
+
+  /* The table is triangular in four-column blocks.  Skip blocks that
+     contain only zeroes, leaving 44 vector multiplies instead of 72. */
+  for( ulong i=0UL; i<4UL; i++ ) {
+    __m256i v = _mm256_set1_epi64x( (long long)intermediate[ i ] );
+    acc0 = _mm256_add_epi64( acc0, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]       ) ) );
+    acc1 = _mm256_add_epi64( acc1, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]+ 4UL ) ) );
+    acc2 = _mm256_add_epi64( acc2, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]+ 8UL ) ) );
+    acc3 = _mm256_add_epi64( acc3, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]+12UL ) ) );
+  }
+  for( ulong i=4UL; i<9UL; i++ ) {
+    __m256i v = _mm256_set1_epi64x( (long long)intermediate[ i ] );
+    acc1 = _mm256_add_epi64( acc1, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]+ 4UL ) ) );
+    acc2 = _mm256_add_epi64( acc2, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]+ 8UL ) ) );
+    acc3 = _mm256_add_epi64( acc3, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]+12UL ) ) );
+  }
+  for( ulong i=9UL; i<13UL; i++ ) {
+    __m256i v = _mm256_set1_epi64x( (long long)intermediate[ i ] );
+    acc2 = _mm256_add_epi64( acc2, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]+ 8UL ) ) );
+    acc3 = _mm256_add_epi64( acc3, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]+12UL ) ) );
+  }
+  for( ulong i=13UL; i<18UL; i++ ) {
+    __m256i v = _mm256_set1_epi64x( (long long)intermediate[ i ] );
+    acc3 = _mm256_add_epi64( acc3, _mm256_mul_epu32( v, fd_base58_u32x4_to_u64x4( dec_table_64[ i ]+12UL ) ) );
+  }
+
+  _mm256_storeu_si256( (__m256i *)(binary      ), acc0 );
+  _mm256_storeu_si256( (__m256i *)(binary+ 4UL), acc1 );
+  _mm256_storeu_si256( (__m256i *)(binary+ 8UL), acc2 );
+  _mm256_storeu_si256( (__m256i *)(binary+12UL), acc3 );
+}
+#endif
 
 #include "fd_base58_tmpl.c"
 
