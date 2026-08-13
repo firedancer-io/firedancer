@@ -607,12 +607,18 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
       report_slot_confirmed( 0UL, votes_blk->key.slot, &votes_blk->key.block_id, votes_blk->stake, total_stake, 1 /* valid */, event_level_from_tower( levels[ i ] ), 1 /* forward */ );
 
       /* If we have a tower_blk for the slot when the ghost_blk is
-         missing, this implies we replayed an equivocating block_id that
-         is not the confirmed_block_id.  This is only relevant for the
-         duplicate confirmed level.  */
+         missing, we usually replayed an equivocating block_id that is
+         not the confirmed_block_id.  The exception: ghost also prunes
+         blocks we replayed whose fork lost, so an identical block_id
+         means the cluster duplicate-confirmed a block our root already
+         passed. Consensus divergence; halt deliberately.  Only
+         relevant for the duplicate confirmed level. */
 
       if( FD_UNLIKELY( levels[i]==FD_TOWER_SLOT_CONFIRMED_DUPLICATE && tower_blk ) ) {
-        FD_TEST( 0!=memcmp( &tower_blk->replayed_block_id, &votes_blk->key.block_id, sizeof(fd_hash_t) ) );
+        if( FD_UNLIKELY( 0==memcmp( &tower_blk->replayed_block_id, &votes_blk->key.block_id, sizeof(fd_hash_t) ) ) ) {
+          FD_BASE58_ENCODE_32_BYTES( votes_blk->key.block_id.uc, dup_blk_id );
+          FD_LOG_CRIT(( "cluster duplicate-confirmed block %s (slot %lu), which we replayed but pruned: our root conflicts with the cluster", dup_blk_id, votes_blk->key.slot ));
+        }
         tower_blk->confirmed          = 1;
         tower_blk->confirmed_block_id = votes_blk->key.block_id;
         FD_BASE58_ENCODE_32_BYTES( tower_blk->replayed_block_id.uc, eqvoc_blk_id );
@@ -654,13 +660,12 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
 
       if( FD_LIKELY( fd_uchar_extract_bit( votes_anc->flags, i ) ) ) break;
 
-      /* Mark the ancestor as confirmed at this level.  If this is the
-         duplicate confirmation level, also mark the ghost and tower
-         blocks as confirmed. */
+      /* Mark the ancestor as confirmed at this level, before reporting,
+         so a duplicate-level row reflects the eligibility it restores.
+         If this is the duplicate confirmation level, also mark the ghost
+         and tower blocks as confirmed. */
 
       votes_anc->flags = fd_uchar_set_bit( votes_anc->flags, i );
-      publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 0, .slot = ghost_anc->slot, .block_id = ghost_anc->id } } } );
-      report_slot_confirmed( ghost_anc->bank_seq, ghost_anc->slot, &ghost_anc->id, votes_anc->stake, total_stake, ghost_anc->valid, event_level_from_tower( levels[ i ] ), 0 /* not forward */ );
       if( FD_UNLIKELY( levels[i]==FD_TOWER_SLOT_CONFIRMED_PROPAGATED ) ) {
         tower_anc->propagated = 1;
       }
@@ -684,6 +689,11 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
         }
       }
 
+      publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 0, .slot = ghost_anc->slot, .block_id = ghost_anc->id } } } );
+      if( FD_LIKELY( !fd_uchar_extract_bit( votes_anc->flags, i+4 ) ) ) {
+        /* Skip telemetry report if already forward reported. */
+        report_slot_confirmed( ghost_anc->bank_seq, ghost_anc->slot, &ghost_anc->id, votes_anc->stake, total_stake, ghost_anc->valid, event_level_from_tower( levels[ i ] ), 0 /* not forward */ );
+      }
       /* Walk up to next ancestor. */
 
       ghost_anc = fd_ghost_parent( ctx->ghost, ghost_anc );
@@ -1247,9 +1257,12 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
                        ulong                        tsorig,
                        fd_stem_context_t *          stem ) {
 
-  /* If the slot has already been replayed, we can just ignore it, but
-     still need to release the bank ref. */
-  if( FD_UNLIKELY( fd_ghost_query( ctx->ghost, &slot_completed->block_id ) ) ) {
+  /* If the slot has already been replayed, we can just ignore it (but
+     refresh bank_seq so confirmations reference the surviving row, and
+     release the bank ref). */
+  fd_ghost_blk_t * replayed = fd_ghost_query( ctx->ghost, &slot_completed->block_id );
+  if( FD_UNLIKELY( replayed ) ) {
+    replayed->bank_seq = slot_completed->bank_seq;
     publish_slot_ignored( ctx, slot_completed, tsorig, stem );
     return;
   }

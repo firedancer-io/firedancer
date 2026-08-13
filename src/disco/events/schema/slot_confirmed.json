@@ -1,41 +1,27 @@
 {
     "name": "slot_confirmed",
     "id": 4,
-    "description": "A slot reached a commitment level. Emitted once per slot per level reached. Join to block_completed on bank_seq, or on slot and block_id.",
+    "description": "A block reached a commitment level. One row per block per level: a level crossed while the block is not tracked by local consensus (not yet replayed, or already discarded) reports once with forward true and bank_seq 0 and is not re-reported. Join to block_completed on bank_seq, or on slot and block_id (the only keys on forward rows).",
     "fields": {
-        "bank_seq":    { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable, which happens for forward confirmations where the block has not been replayed." },
-        "slot":        { "type": "UInt64", "compression": "Delta, ZSTD", "description": "The slot being confirmed." },
-        "block_id":    { "type": "Hash",                                "description": "Unique identifier of the block being confirmed; the join key to block_completed." },
-        "stake":       { "type": "UInt64",                              "description": "Stake in lamports supporting this confirmation. Divide by total_stake for the ratio that crossed the level's threshold. 0 means unavailable." },
-        "total_stake": { "type": "UInt64",                              "description": "Total cluster stake in lamports at confirmation time; the denominator for the confirmation ratio. 0 means unavailable." },
-        "valid":       { "type": "Bool",                                "description": "Whether this block is eligible for fork choice. An equivocating block becomes eligible again only once duplicate confirmed." },
-        "level": {
+        "bank_seq":    { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Bank sequence number, counting from 1 within a run; the join key to block_completed. Not meaningful across restarts: scope by the stream's instance id from the connection's authentication metadata (the boot id identifies the host kernel boot and survives validator restarts). 0 on forward rows. The boot bank (bank_seq 1) emits confirmations but no block_completed row. Forward confirmations for blocks never completely received join to no row on any key." },
+        "slot":        { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Slot number of the block." },
+        "block_id":    { "type": "Hash",                                 "description": "Block identifier; with slot, the alternate join key to block_completed." },
+        "stake":       { "type": "UInt64",                               "description": "Stake in lamports voted for this exact block when the row was emitted. Only the row that triggered a propagated/duplicate/optimistic/super confirmation crossed the level's threshold; ancestors confirmed transitively report their own smaller tally. processed rows carry 0: no replay votes exist yet at the block's own completion. rooted rows carry replay-observed vote stake for the block plus descendants, no threshold. 0 if unavailable." },
+        "total_stake": { "type": "UInt64",                               "description": "Total cluster stake in lamports for the epoch the tally was made in (captured at replay completion for processed and rooted rows). 0 if unavailable." },
+        "valid":       { "type": "Bool",                                 "description": "Whether the block is eligible for fork choice. An equivocating block becomes eligible again once duplicate confirmed. Always true on forward and ignored rows; validity is not assessed for blocks consensus is not tracking." },
+        "level":       {
             "type": "LowCardinality(String)",
-            "description": "The commitment level reached, from weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a separate terminal outcome rather than a strengthening level.",
+            "description": "Commitment level reached, weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a terminal outcome, not a level. A block never named directly by any vote emits no propagated/duplicate/optimistic/super rows even when confirmed transitively through a descendant, and the transitive walk stops at it, so voted ancestors above it can miss those rows too; all still emit processed and rooted rows.",
             "variants": {
-                "ignored": {
-                    "description": "Replay finished a block that consensus had already pruned, so it never reached any commitment level."
-                },
-                "processed": {
-                    "description": "Replayed locally on the majority fork, with no cluster stake required. Equivalent to Solana's 'processed' commitment."
-                },
-                "propagated": {
-                    "description": "More than a third of stake has observed the block, confirming it has propagated."
-                },
-                "duplicate": {
-                    "description": "At least 52% of stake voted for this exact block, guaranteeing the cluster converges on it even when a slot equivocates."
-                },
-                "optimistic": {
-                    "description": "More than two thirds of stake voted for the block. Equivalent to Solana's 'confirmed' commitment."
-                },
-                "super": {
-                    "description": "More than four fifths of stake voted for the block. Used when waiting for a supermajority at boot."
-                },
-                "rooted": {
-                    "description": "The block or a descendant reached maximum lockout and can never be rolled back. The strongest level, equivalent to Solana's 'finalized' commitment."
-                }
+                "ignored":    { "description": "Replay finished a block consensus had already pruned, so no processed row is emitted. Forward vote-level rows for the block may precede this." },
+                "processed":  { "description": "Replayed locally, on any fork; no cluster stake required. Solana's 'processed' commitment." },
+                "propagated": { "description": "More than a third of stake observed the block or a descendant." },
+                "duplicate":  { "description": "More than 52% of stake voted for this exact block or a descendant; the cluster converges on it even if the slot equivocates." },
+                "optimistic": { "description": "More than two thirds of stake voted for the block or a descendant. Solana's 'confirmed' commitment." },
+                "super":      { "description": "More than four fifths of stake voted for the block or a descendant. Used when waiting for a supermajority at boot." },
+                "rooted":     { "description": "The block or a descendant reached maximum lockout and cannot be rolled back. The strongest level; Solana's 'finalized' commitment." }
             }
         },
-        "forward":     { "type": "Bool",                                "description": "True when the block was confirmed by votes seen over gossip before it was replayed locally. Always false for processed and rooted, which require a local replay." }
+        "forward":     { "type": "Bool",                                 "description": "Whether the level was crossed by cluster votes (gossip, TPU, or replayed blocks) while the block was not tracked by local consensus: not yet replayed, or already discarded (pruned losing fork, or completed after the root passed it). Always false for processed, ignored, and rooted rows, which local replay or rooting triggers." }
     }
 }

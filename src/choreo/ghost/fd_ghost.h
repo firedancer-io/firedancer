@@ -106,7 +106,7 @@ struct __attribute__((aligned(128UL))) fd_ghost_blk {
   ulong     total_stake; /* total stake for this blk */
   int       valid;       /* whether this block is valid for fork choice. an equivocating block is valid iff duplicate confirmed */
   ulong     vtr_dlist_gaddr; /* wksp gaddr of the dlist of vtrs whose prev_block_id is this blk's id */
-  ulong     bank_seq;    /* app-wide bank sequence number of this block (fd_bank.bank_seq), or ULONG_MAX until associated with a replayed bank */
+  ulong     bank_seq;    /* app-wide bank sequence number of the replayed bank for this block (fd_bank.bank_seq, >=1; refreshed if an evicted block is re-replayed) */
 };
 typedef struct fd_ghost_blk fd_ghost_blk_t;
 
