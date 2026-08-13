@@ -5,6 +5,7 @@
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
+#include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../third_party/bzip2/bzlib.h"
 #include "../../ballet/sha256/fd_sha256.h"
@@ -82,8 +83,9 @@ struct fd_genesi_tile {
   fd_alloc_t * bz2_alloc;
 
   fd_genesis_t genesis[1];
-  uchar        genesis_blob[ FD_GENESIS_MAX_MESSAGE_SIZE ];
+  uchar *      genesis_blob;
   ulong        genesis_blob_sz;
+  ulong        max_message_size;
 };
 
 typedef struct fd_genesi_tile fd_genesi_tile_t;
@@ -105,6 +107,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) ) {
     l = FD_LAYOUT_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->genesi.max_live_slots ) );
   }
+  l = FD_LAYOUT_APPEND( l, alignof(uchar),              tile->genesi.max_message_size + 4UL*512UL );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -203,15 +206,15 @@ after_credit( fd_genesi_tile_t *  ctx,
   if( FD_LIKELY( ctx->local_genesis ) ) {
     FD_TEST( -1!=ctx->in_fd );
 
-    if( FD_UNLIKELY( ctx->genesis_blob_sz>FD_GENESIS_MAX_MESSAGE_SIZE ) ) {
+    if( FD_UNLIKELY( ctx->genesis_blob_sz>ctx->max_message_size ) ) {
       FD_LOG_ERR(( "Genesis file `%s` exceeds maximum size (blob_sz=%lu max=%lu)",
-                   ctx->genesis_path, ctx->genesis_blob_sz, (ulong)FD_GENESIS_MAX_MESSAGE_SIZE ));
+                   ctx->genesis_path, ctx->genesis_blob_sz, ctx->max_message_size ));
     }
     ulong msg_sz = sizeof(fd_genesis_meta_t) + ctx->genesis_blob_sz;
-    if( FD_UNLIKELY( msg_sz>FD_GENESIS_TILE_MTU ) ) {
-      FD_LOG_ERR(( "The genesis file `%s` is too large for this Firedancer build (msg_sz=%lu exceeds FD_GENESIS_TILE_MTU=%lu).\n"
-                   "Cannot start Firedancer. Please use a different genesis config or increase FD_GENESIS_TILE_MTU.",
-                   ctx->genesis_path, msg_sz, (ulong)FD_GENESIS_TILE_MTU ));
+    if( FD_UNLIKELY( msg_sz>fd_genesi_tile_mtu( ctx->max_message_size ) ) ) {
+      FD_LOG_ERR(( "The genesis file `%s` is too large for this Firedancer configuration (msg_sz=%lu max=%lu).\n"
+                   "Cannot start Firedancer. Please use a different genesis config or increase `runtime.genesis.max_message_size_mib`.",
+                   ctx->genesis_path, msg_sz, fd_genesi_tile_mtu( ctx->max_message_size ) ));
     }
 
     fd_genesis_meta_t * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk0 );
@@ -251,14 +254,19 @@ after_credit( fd_genesi_tile_t *  ctx,
     int bzerr = BZ2_bzDecompressInit( &bzstrm, 0, 0 );
     if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompressInit() failed (%d)", bzerr ));
 
-    ulong decompressed_sz = FD_GENESIS_MAX_MESSAGE_SIZE;
+    ulong decompressed_sz = ctx->max_message_size + 4UL*512UL;
 
     bzstrm.next_in   = (char *)buffer;
     bzstrm.avail_in  = (uint)buffer_sz;
     bzstrm.next_out  = (char *)decompressed;
     bzstrm.avail_out = (uint)decompressed_sz;
     bzerr = BZ2_bzDecompress( &bzstrm );
-    if( FD_UNLIKELY( BZ_STREAM_END!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompress() failed (%d)", bzerr ));
+    /* genesis.bin is the first archive entry.  Stop after filling the
+       bounded prefix buffer instead of retaining the trailing RocksDB
+       entries included by Agave. */
+    if( FD_UNLIKELY( BZ_STREAM_END!=bzerr && !(BZ_OK==bzerr && !bzstrm.avail_out) ) ) {
+      FD_LOG_ERR(( "BZ2_bzDecompress() failed or input was truncated (%d)", bzerr ));
+    }
 
     actual_decompressed_sz = decompressed_sz - (ulong)bzstrm.avail_out;
 
@@ -275,9 +283,9 @@ after_credit( fd_genesi_tile_t *  ctx,
       FD_LOG_ERR(( "Genesis blob from peer at `http://" FD_IP4_ADDR_FMT ":%hu` has invalid tar header size",
                    FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ) ));
     }
-    if( FD_UNLIKELY( blob_sz>FD_GENESIS_MAX_MESSAGE_SIZE ) ) {
+    if( FD_UNLIKELY( blob_sz>ctx->max_message_size ) ) {
       FD_LOG_ERR(( "Genesis blob from peer at `http://" FD_IP4_ADDR_FMT ":%hu` exceeds maximum size (blob_sz=%lu max=%lu)",
-                   FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), blob_sz, (ulong)FD_GENESIS_MAX_MESSAGE_SIZE ));
+                   FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), blob_sz, ctx->max_message_size ));
     }
     FD_TEST( actual_decompressed_sz>=fd_ulong_sat_add( 512UL, blob_sz ) );
 
@@ -308,10 +316,10 @@ after_credit( fd_genesi_tile_t *  ctx,
     }
 
     ulong msg_sz = sizeof(fd_genesis_meta_t) + blob_sz;
-    if( FD_UNLIKELY( msg_sz>FD_GENESIS_TILE_MTU ) ) {
-      FD_LOG_ERR(( "The genesis blob downloaded from peer at `http://" FD_IP4_ADDR_FMT ":%hu` is too large for this Firedancer build (msg_sz=%lu exceeds FD_GENESIS_TILE_MTU=%lu).\n"
-                   "Cannot start Firedancer. Please use a different genesis config or increase FD_GENESIS_TILE_MTU.",
-                   FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), msg_sz, (ulong)FD_GENESIS_TILE_MTU ));
+    if( FD_UNLIKELY( msg_sz>fd_genesi_tile_mtu( ctx->max_message_size ) ) ) {
+      FD_LOG_ERR(( "The genesis blob downloaded from peer at `http://" FD_IP4_ADDR_FMT ":%hu` is too large for this Firedancer configuration (msg_sz=%lu max=%lu).\n"
+                   "Cannot start Firedancer. Please use a different genesis config or increase `runtime.genesis.max_message_size_mib`.",
+                   FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), msg_sz, fd_genesi_tile_mtu( ctx->max_message_size ) ));
     }
 
     fd_genesis_meta_t * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk0 );
@@ -356,12 +364,17 @@ process_local_genesis( fd_genesi_tile_t * ctx,
                        char const *       genesis_path ) {
   ctx->genesis_blob_sz = 0UL;
   for(;;) {
-    if( FD_UNLIKELY( ctx->genesis_blob_sz>=FD_GENESIS_MAX_MESSAGE_SIZE ) ) {
-      FD_LOG_ERR(( "The genesis file at `%s` is too large for this Firedancer build.\n"
-                   "Cannot start Firedancer. Please use a different genesis config or increase FD_GENESIS_MAX_MESSAGE_SIZE.",
-                   genesis_path ));
+    if( FD_UNLIKELY( ctx->genesis_blob_sz==ctx->max_message_size ) ) {
+      uchar extra;
+      long result = read( ctx->in_fd, &extra, 1UL );
+      if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( result ) ) {
+        FD_LOG_ERR(( "The genesis file at `%s` exceeds `runtime.genesis.max_message_size_mib` (%lu MiB).",
+                     genesis_path, ctx->max_message_size>>20 ));
+      }
+      break;
     }
-    long result = read( ctx->in_fd, ctx->genesis_blob+ctx->genesis_blob_sz, FD_GENESIS_MAX_MESSAGE_SIZE-ctx->genesis_blob_sz );
+    long result = read( ctx->in_fd, ctx->genesis_blob+ctx->genesis_blob_sz, ctx->max_message_size-ctx->genesis_blob_sz );
     if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( !result ) ) break;
     ctx->genesis_blob_sz += (ulong)result;
@@ -490,9 +503,12 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb          = !tile->genesi.entrypoints_cnt ?
                            FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->genesi.max_live_slots ) ) :
                            NULL;
+  void * _genesis_blob   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),              tile->genesi.max_message_size + 4UL*512UL           );
 
   fd_lthash_zero( ctx->lthash );
 
+  ctx->genesis_blob = _genesis_blob;
+  ctx->max_message_size = tile->genesi.max_message_size;
   ctx->shutdown = 0;
   ctx->bootstrap = !tile->genesi.entrypoints_cnt;
   ctx->expected_shred_version = tile->genesi.expected_shred_version;
@@ -522,7 +538,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( tile->out_cnt==1UL );
   fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ 0 ] ];
   FD_TEST( out_link->depth==1UL );  /* buffer holds a single message (dcache not a ring buffer) */
-  FD_TEST( out_link->mtu>=FD_GENESIS_TILE_MTU );
+  FD_TEST( out_link->mtu>=fd_genesi_tile_mtu( tile->genesi.max_message_size ) );
   ctx->out.mem    = fd_wksp_containing( out_link->dcache );
   ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.mem, out_link->dcache );
 

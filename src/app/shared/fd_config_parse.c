@@ -101,6 +101,8 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
 
+  CFG_POP      ( ulong,  runtime.genesis.max_message_size_mib                );
+
   CFG_POP      ( ulong,  runtime.program_cache.heap_size_mib                 );
   CFG_POP      ( ulong,  runtime.program_cache.mean_cache_entry_size         );
 

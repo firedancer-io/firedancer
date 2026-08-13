@@ -13,6 +13,9 @@ static char const cfg_str_3[] =
   "[net.xdp]\n  xdp_zero_copy = \"auto\"\n  native_bond = \"auto\"";
 static char const cfg_str_4[] =
   "[net.xdp]\n  xdp_zero_copy = \"something wrong\"";
+static char const cfg_str_5[] =
+  "[runtime.genesis]\n"
+  "  max_message_size_mib = 33";
 
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
@@ -76,6 +79,15 @@ main( int     argc,
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_4, sizeof(cfg_str_4)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( !fd_config_extract_pod( pod, config ) );
+
+  /* Parse runtime genesis limits */
+
+  memset( config, 0, sizeof(config_t) );
+  config->is_firedancer = 1;
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_5, sizeof(cfg_str_5)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( fd_config_extract_pod( pod, config ) == config );
+  FD_TEST( config->firedancer.runtime.genesis.max_message_size_mib == 33UL );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
