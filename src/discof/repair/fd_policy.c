@@ -2,7 +2,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 
 #define NONCE_NULL        (UINT_MAX)
-#define DEFER_REPAIR_MS   (100UL)
+#define DEFER_REPAIR_MS   (150UL)
 #define TARGET_TICK_PER_SLOT (64.0)
 #define MS_PER_TICK          (400.0 / TARGET_TICK_PER_SLOT)
 
@@ -107,13 +107,28 @@ static ulong ts_ms( long wallclock ) {
 static int
 passes_throttle_threshold( fd_policy_t * policy, fd_forest_blk_t * ele ) {
   if( FD_UNLIKELY( ele->slot < policy->turbine_slot0 ) ) return 1;
-  /* Essentially is checking if current duration of block ( from the
-     first shred received until now ) is greater than the highest tick
-     received + 200ms. */
-  double current_duration = (double)(fd_tickcount() - ele->first_shred_ts) / fd_tempo_tick_per_ns(NULL);
-  double tick_plus_buffer = (ele->est_buffered_tick_recv * MS_PER_TICK + DEFER_REPAIR_MS) * 1e6; // change to 400e6 for a slot duration policy
 
-  if( current_duration >= tick_plus_buffer ){
+  /* A missing shred is eligible for repair once DEFER_REPAIR_MS has
+     elapsed since its FEC set was first observed.  recv_ts holds that
+     observation time as a ms offset from first_shred_ts, so compare it
+     against the ms elapsed since first_shred_ts.  Note first_shred_ts
+     is an fd_tickcount value: only tickcount differences are
+     meaningful, so the elapsed duration is computed in tick space and
+     converted, rather than comparing against a wallclock. */
+
+  if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) return 1; /* nothing observed yet, nothing to defer against */
+
+  /* buffered_idx+1 can reach FD_SHRED_BLK_MAX when a (malicious) leader
+     sends every data shred idx without ever setting slot_complete, which
+     would index one past recv_ts, so clamp to the last FEC set. */
+  uint fec_idx = fd_uint_min( (ele->buffered_idx + 1U) / 32U, FD_FEC_BLK_MAX - 1U );
+
+  /* if nothing has been received for this FEC set, infer using the previous FEC set's observation time.
+     must've received at least one shred from the previous FEC set to be buffered up till here. */
+  ushort first_ms = fd_ushort_max(ele->recv_ts[fec_idx].first, (fec_idx > 0U) ? ele->recv_ts[fec_idx-1U].first : 0 );
+
+  double elapsed_ms = (double)(fd_tickcount() - ele->first_shred_ts) / fd_tempo_tick_per_ns( NULL ) * 1e-6;
+  if( elapsed_ms >= (double)first_ms + (double)DEFER_REPAIR_MS ) {
     FD_MCNT_INC( REPAIR, EAGER_THRESHOLD_EXCEEDED, 1 );
     return 1;
   }
@@ -225,7 +240,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
   }
 
   fd_forest_blk_t * ele = fd_forest_pool_ele( pool, iter->ele_idx );
-  if( FD_UNLIKELY( !passes_throttle_threshold( policy, ele ) ) ) {
+  if( FD_UNLIKELY( ele->slot==highest_known_slot && !passes_throttle_threshold( policy, ele ) ) ) {
     /* When we are at the head of the turbine, we should give turbine the
        chance to complete the shreds.  Agave waits 200ms from the
        estimated "correct time" of the highest shred received to repair.

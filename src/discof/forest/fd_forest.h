@@ -164,6 +164,14 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   } merkle_roots[ FD_FEC_BLK_MAX ]; /* received merkle roots. mr is initialized to null hash, written to when a shred is
                                        received. invalidated to invalid_mr on multiple versions of the merkle root are detected. */
 
+  struct {
+    ushort first;
+  } recv_ts[ FD_FEC_BLK_MAX ]; /* ms offset from first_shred_ts at which each FEC set was first observed,
+                                  directly (a shred of the set arrived) or inferred (a later FEC set was
+                                  observed, backfilling the skipped ones).  0 means not yet observed.
+                                  invariant: stamped entries form a contiguous prefix of the array.
+                                  bookkeeping for defer repair. */
+
   fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
                                on confirmation, and don't know the index of the last fec set until we repair the slot.
                                hash_null if unknown.  Otherwise populated by the child slot's CMR on confirmation,
@@ -176,9 +184,9 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   uchar chain_confirmed; /* 1 if all the FECs the slot have been confirmed via fec_chain_verify, 0 otherwise.  Note confirmed_bid
                             can be populated before this is set to 1. */
 
-  int est_buffered_tick_recv; /* tick of shred at buffered_idx.  Note since we don't track all the
-                                 ticks received, this will be a lower bound estimate on the highest tick we have seen.
-                                 But this is only used for limiting eager repair, so an exact value is not necessary. */
+  //int est_buffered_tick_recv; /* tick of shred at buffered_idx.  Note since we don't track all the
+                                 //ticks received, this will be a lower bound estimate on the highest tick we have seen.
+                                 //But this is only used for limiting eager repair, so an exact value is not necessary. */
 
   /* Metrics */
 
