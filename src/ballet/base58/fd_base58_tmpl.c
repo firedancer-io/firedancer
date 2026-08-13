@@ -318,14 +318,14 @@ SUFFIX(fd_base58_decode)( char const * encoded,
 
   /* Validate string and count characters before the nul terminator */
 
+  uchar digits[ ENCODED_SZ() ];
   ulong char_cnt = 0UL;
   for( ; char_cnt<ENCODED_SZ(); char_cnt++ ) {
     char c = encoded[ char_cnt ];
     if( !c ) break;
-    /* If c<'1', this will underflow and idx will be huge */
-    ulong idx = (ulong)(uchar)c - (ulong)BASE58_INVERSE_TABLE_OFFSET;
-    idx = fd_ulong_min( idx, BASE58_INVERSE_TABLE_SENTINEL );
-    if( FD_UNLIKELY( base58_inverse[ idx ] == BASE58_INVALID_CHAR ) ) return NULL;
+    uchar digit = base58_inverse_full[ (uchar)c ];
+    if( FD_UNLIKELY( digit == BASE58_INVALID_CHAR ) ) return NULL;
+    digits[ char_cnt ] = digit;
   }
 
   if( FD_UNLIKELY( char_cnt == ENCODED_SZ() ) ) return NULL; /* too long */
@@ -335,24 +335,41 @@ SUFFIX(fd_base58_decode)( char const * encoded,
      groups are five characters each; only the head group is shorter. */
 
   ulong intermediate[ INTERMEDIATE_SZ ];
-  fd_memset( intermediate, 0, sizeof(intermediate) );
+  ulong gi;
+  ulong pos;
 
-  ulong group_cnt = (char_cnt+4UL)/5UL;
-  ulong gi        = INTERMEDIATE_SZ-group_cnt;
-  ulong pos       = 0UL;
-  ulong head      = char_cnt-5UL*(group_cnt-1UL);
-  ulong group     = 0UL;
-  for( ulong i=0UL; i<head; i++ )
-    group = group*58UL + (ulong)base58_inverse[ (uchar)encoded[ pos++ ]-BASE58_INVERSE_TABLE_OFFSET ];
-  intermediate[ gi++ ] = group;
+#if N==64
+  if( FD_LIKELY( char_cnt==ENCODED_SZ()-1UL ) ) {
+    /* Random full-width values overwhelmingly use the maximum encoded
+       length.  Specializing its head group avoids the dynamic division,
+       zero fill, and generic head loop on the throughput-critical path. */
+    gi  = 0UL;
+    intermediate[ gi++ ] = (ulong)digits[ 0 ] * 3364UL +
+                           (ulong)digits[ 1 ] *   58UL +
+                           (ulong)digits[ 2 ];
+    pos = 3UL;
+  } else {
+#endif
+    fd_memset( intermediate, 0, sizeof(intermediate) );
+    ulong group_cnt = (char_cnt+4UL)/5UL;
+    gi              = INTERMEDIATE_SZ-group_cnt;
+    pos             = 0UL;
+    ulong head      = char_cnt-5UL*(group_cnt-1UL);
+    ulong group     = 0UL;
+    for( ulong i=0UL; i<head; i++ )
+      group = group*58UL + (ulong)digits[ pos++ ];
+    intermediate[ gi++ ] = group;
+#if N==64
+  }
+#endif
 
   for( ; gi<INTERMEDIATE_SZ; gi++ ) {
-    uchar const * c = (uchar const *)encoded+pos;
-    intermediate[ gi ] = (ulong)base58_inverse[ c[ 0 ]-BASE58_INVERSE_TABLE_OFFSET ] * 11316496UL +
-                         (ulong)base58_inverse[ c[ 1 ]-BASE58_INVERSE_TABLE_OFFSET ] *   195112UL +
-                         (ulong)base58_inverse[ c[ 2 ]-BASE58_INVERSE_TABLE_OFFSET ] *     3364UL +
-                         (ulong)base58_inverse[ c[ 3 ]-BASE58_INVERSE_TABLE_OFFSET ] *       58UL +
-                         (ulong)base58_inverse[ c[ 4 ]-BASE58_INVERSE_TABLE_OFFSET ];
+    uchar const * d = digits+pos;
+    intermediate[ gi ] = (ulong)d[ 0 ] * 11316496UL +
+                         (ulong)d[ 1 ] *   195112UL +
+                         (ulong)d[ 2 ] *     3364UL +
+                         (ulong)d[ 3 ] *       58UL +
+                         (ulong)d[ 4 ];
     pos += 5UL;
   }
 
