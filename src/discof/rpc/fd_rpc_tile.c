@@ -2149,10 +2149,11 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     FD_MCNT_INC( RPC, REQUEST_SERVED_GENESIS, 1UL );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
 
-    fd_http_server_response_t response = (fd_http_server_response_t){ .status = 200 };
-    fd_http_server_memcpy( ctx->http, ctx->genesis_tar_bz, ctx->genesis_tar_bz_sz );
-    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-    return response;
+    return (fd_http_server_response_t) {
+      .status          = 200,
+      .static_body     = ctx->genesis_tar_bz,
+      .static_body_len = ctx->genesis_tar_bz_sz,
+    };
   }
 
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET &&

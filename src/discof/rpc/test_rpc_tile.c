@@ -211,6 +211,25 @@ test_snapshot_redirect( fd_rpc_tile_t * ctx ) {
   ctx->snapshot_server_enabled = 0;
 }
 
+static void
+test_genesis_static_body( fd_rpc_tile_t * ctx ) {
+  uchar const body[] = { 1U, 2U, 3U };
+  fd_memcpy( ctx->genesis_tar_bz, body, sizeof(body) );
+  ctx->genesis_tar_bz_sz = sizeof(body);
+
+  fd_http_server_request_t request = {
+    .connection_id = 0UL,
+    .method        = FD_HTTP_SERVER_METHOD_GET,
+    .path          = "/genesis.tar.bz2",
+  };
+  fd_http_server_response_t response = rpc_http_request1( ctx, &request );
+  FD_TEST( response.status==200UL );
+  FD_TEST( response.static_body==ctx->genesis_tar_bz );
+  FD_TEST( response.static_body_len==ctx->genesis_tar_bz_sz );
+
+  ctx->genesis_tar_bz_sz = ULONG_MAX;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -319,6 +338,7 @@ main( int     argc,
   FD_TEST( ctx->http->oring_sz );
   unprivileged_init( topo, tile );
 
+  test_genesis_static_body( ctx );
   test_snapshot_redirect( ctx );
   test_websocket_disabled( ctx );
 
