@@ -1,6 +1,9 @@
 #include "fd_config_private.h"
 #include "../../ballet/toml/fd_toml.h"
 
+#include <sys/wait.h>
+#include <unistd.h>
+
 static char const cfg_str_1[] =
   "[gossip]\n"
   "  entrypoints = [\"208.91.106.45:8080\"]";
@@ -19,6 +22,22 @@ static char const cfg_str_5[] =
 
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
+
+static int
+genesis_max_message_size_is_valid( config_t * config,
+                                   ulong      max_message_size_mib ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    config->firedancer.development.genesis.max_message_size_mib = max_message_size_mib;
+    fd_config_validate( config );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
 
 int
 main( int     argc,
@@ -53,6 +72,28 @@ main( int     argc,
   FD_TEST( fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   fd_config_validate( config );  /* exits process with code 1 on failure */
+
+  /* bzip2's avail_in and avail_out fields are uint. */
+
+  config->is_firedancer = 1;
+  memset( &config->firedancer, 0, sizeof(config->firedancer) );
+  config->firedancer.layout.sign_tile_count          = 2U;
+  config->firedancer.layout.resolv_tile_count        = 1U;
+  config->firedancer.layout.execle_tile_count        = 1U;
+  config->firedancer.layout.snapzp_tile_count        = 1U;
+  config->firedancer.layout.snapsv_tile_count        = 1U;
+  config->firedancer.layout.snapsv_io_worker_count   = 1U;
+  config->firedancer.snapshots.wait_for_peers_timeout_seconds = 1UL;
+  config->firedancer.snapshots.server.idle_timeout_millis      = 100UL;
+  config->firedancer.snapshots.server.send_timeout_millis      = 100UL;
+  config->firedancer.accounts.max_accounts                     = 1UL;
+  config->firedancer.accounts.cache_size_gib                   = 1UL;
+  config->firedancer.runtime.program_cache.mean_cache_entry_size = 4096UL;
+  config->firedancer.runtime.program_cache.heap_size_mib         = 32UL;
+  config->tiles.repair.slot_max                                   = 1UL;
+
+  FD_TEST(  genesis_max_message_size_is_valid( config, 4055UL ) );
+  FD_TEST( !genesis_max_message_size_is_valid( config, 4056UL ) );
 
   /* Ensure we can selectively override a field */
 

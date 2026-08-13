@@ -1929,6 +1929,7 @@ telemetry = true
 
         # The maximum size of the genesis file that is either loaded
         # from the validator's host or downloaded from the network.
+        # Must be in [1, 4055].
         max_message_size_mib = 10
 
         # When creating a new chain from genesis during development,
