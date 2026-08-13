@@ -1928,7 +1928,7 @@ telemetry = true
         validate_genesis_hash = true
 
         # The maximum size of the genesis file that is either loaded
-        # from the validator's host or downloaded from the network.
+        # from the disk or downloaded from the network.
         # Must be in [1, 4055].
         max_file_size_mib = 10
 
