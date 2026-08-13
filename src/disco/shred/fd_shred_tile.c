@@ -734,7 +734,9 @@ during_frag( fd_shred_ctx_t * ctx,
          would exceed the pending_batch_wmark.  If true, then the
          batch is closed now, shredded, and a new batch is started
          with the incoming microblock.  If false, no shredding takes
-         place, and the microblock is added to the current batch. */
+         place, and the microblock is added to the current batch.
+         Pack limits entry bytes so this batching cannot exceed
+         max_shred_idx. */
       int forced_end_batch         = entry_meta->block_complete | new_slot;
       int batch_would_exceed_wmark = ( ctx->pending_batch.pos + entry_sz ) > pending_batch_wmark;
       int include_in_current_batch = forced_end_batch | ( !batch_would_exceed_wmark );
