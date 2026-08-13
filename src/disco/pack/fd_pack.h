@@ -83,6 +83,11 @@ struct fd_pack_limits {
      would be to kill the block.  To address this, pack limits the size
      of the data it puts into the block to a limit that we can prove
      will never cause the shred tile to produce too many shreds.
+     At runtime this is how many entry bytes fit in max_shred_idx
+     after FEC padding (we close a shred batch when the next
+     microblock would not fit in two FEC sets).  Empty ticks are
+     subtracted.  Large microblocks pad more, so the cap
+     tightens.
 
      This limit includes transaction and microblock headers for
      non-empty microblocks that pack produces. */

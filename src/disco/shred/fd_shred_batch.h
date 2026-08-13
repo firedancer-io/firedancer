@@ -101,35 +101,59 @@ FD_STATIC_ASSERT( ( FD_SHRED_BATCH_RAW_BUF_SZ ) >= ( FD_SHRED_BATCH_WMARK_NORMAL
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_RAW_BUF_SZ ) >= ( FD_SHRED_BATCH_WMARK_CHAINED  + FD_POH_SHRED_MTU ), FD_SHRED_BATCH_RAW_BUF_SZ );
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_RAW_BUF_SZ ) >= ( FD_SHRED_BATCH_WMARK_RESIGNED + FD_POH_SHRED_MTU + FD_SHRED_BATCH_RESIGNED_WMARK_REGRESSION ), FD_SHRED_BATCH_RAW_BUF_SZ );
 
-/* Each block is limited to 32k parity shreds.  Since each FEC set
-   is now guaranteed to contain 32 data shreds and 32 parity shreds,
-   the maximum number of FEC sets is FEC_SETS_MAX = 1024 (32k/32).
-   We consider the payload capacity of chained FEC sets as the raw
-   capacity (which is smaller than normal FEC sets), that means
-   FEC_SETS_MAX * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ, and then
-   we subtract from there the worst-case overheads from: padding,
-   watermark regression and batch header.
-   - OHEAD_PAD (padding overhead): except for the first and last batch
-   in a block, each batch typically has FD_SHRED_BATCH_FEC_SETS_WMARK
-   FEC sets, but can contain as little as one FEC set.  However, the
-   worst case occurs when each batch has two FEC sets, of which the
-   second one contains a single byte of data and the rest is padding.
-   In that case, OHEAD_PAD is approximately 1/2 of the maximum raw
-   capacity, i.e.
-   (FEC_SETS_MAX / 2) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ.
-   - OHEAD_REG (watermark regression overhead): this is basically
-   FD_SHRED_BATCH_FEC_SETS_MAX * 2048 bytes (the difference in
-   payload size between chained and (chained+)resigned FEC sets).
-   For FD_SHRED_BATCH_FEC_SETS_MAX = 4, the overhead is 8192 bytes.
-   - OHEAD_HDR (batch header overhead): this is 8 bytes per batch,
-   and is maximum when every batch contains 1 FEC set, therefore
-   FEC_SETS_MAX * 8 = 8192 bytes.
-   The calculations below assume FD_SHRED_BATCH_FEC_SETS_MAX = 4. */
+/* FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX is a conservative compile-time
+   bound on entry bytes in a 32k-shred block (1024 chained FEC sets).
+   It subtracts worst-case padding of about half the payload, plus
+   last-batch resigned-size regression and 8-byte batch headers.
+   Pack does not use this as its per-slot cap; that is
+   fd_shred_batch_pack_data_max at become-leader.  This macro is the
+   pre-leader default (FD_PACK_MAX_DATA_PER_BLOCK) and sizes skipped-
+   tick buffers. */
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_FEC_SETS_MAX ) == ( 4UL ), FD_SHRED_BATCH_FEC_SETS_MAX );
-/* Define and validate total overhead. */
 #define FD_SHRED_BATCH_BLOCK_DATA_OHEAD  (  512UL * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ + 8192UL + 8192UL )
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_BLOCK_DATA_OHEAD ) < ( 1024UL * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ ), FD_SHRED_BATCH_BLOCK_DATA_OHEAD );
-/* Define FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX. */
 #define FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX ( (1024UL-2UL) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - FD_SHRED_BATCH_BLOCK_DATA_OHEAD )
+
+/* fd_shred_batch_pack_data_max: how many entry bytes (microblock
+   headers + txn payloads, excluding empty ticks) pack can emit in a
+   slot without producing more than slot_max_data_shreds.
+
+   max_microblock_sz is the largest pack-produced entry: the 48-byte
+   entry header plus (max txns per microblock)*FD_TPU_MTU.
+
+   We shred by filling a batch until the next microblock would not
+   fit in two chained FEC sets (WMARK_CHAINED = 2*C-8 payload bytes),
+   then padding out that batch:
+     - The first microblock of a slot is flushed immediately, using
+       ceil( (8+max_microblock_sz)/C ) FEC sets.
+     - Each later closed batch holds at least
+       WMARK_CHAINED-max_microblock_sz entry bytes and uses 2 FEC sets.
+     - The last batch is the leftover (at most wmark) plus the
+       completing microblock, padded to resigned FEC sets:
+       ceil( (wmark + 8 + max_microblock_sz) / R ).  Production
+       finishes on an empty tick; low-power can finish on a
+       max-size microblock.
+
+   Empty ticks are not included; the caller should subtract
+   48*(ticks_per_slot+skipped_ticks).  Returns 0 if the shred budget
+   cannot cover the reserved FEC sets. */
+FD_FN_CONST static inline ulong
+fd_shred_batch_pack_data_max( ulong slot_max_data_shreds,
+                              ulong max_microblock_sz ) {
+  ulong const C     = FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
+  ulong const R     = FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ;
+  ulong const wmark = FD_SHRED_BATCH_WMARK_CHAINED; /* 2*C - 8 */
+
+  if( FD_UNLIKELY( max_microblock_sz>=wmark ) ) return 0UL;
+
+  ulong fec_set_cnt          = slot_max_data_shreds / 32UL;
+  ulong first_batch_fec_cnt  = ( 8UL + max_microblock_sz + C - 1UL ) / C;
+  ulong last_batch_fec_cnt   = ( wmark + 8UL + max_microblock_sz + R - 1UL ) / R;
+  if( FD_UNLIKELY( fec_set_cnt<first_batch_fec_cnt+last_batch_fec_cnt ) ) return 0UL;
+
+  ulong middle_batch_fec_cnt = ( fec_set_cnt - first_batch_fec_cnt - last_batch_fec_cnt ) & ~1UL; /* even, 2 FEC per batch */
+  ulong min_batch            = wmark - max_microblock_sz;
+  return ( middle_batch_fec_cnt / 2UL ) * min_batch;
+}
 
 #endif /* HEADER_fd_src_disco_shred_fd_shred_batch_h */
