@@ -81,14 +81,14 @@ typedef fd_votes_blk_t blk_t;
 
 struct vtr {
   fd_pubkey_t vote_acc; /* vtr_map key */
-  ulong       next;     /* pool next */
+  uint        next;     /* pool next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   ulong bit;
 };
@@ -97,6 +97,7 @@ typedef struct vtr vtr_t;
 #define POOL_NAME vtr_pool
 #define POOL_LAZY 1
 #define POOL_T    vtr_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           vtr_map
@@ -105,6 +106,7 @@ typedef struct vtr vtr_t;
 #define MAP_KEY                            vote_acc
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,sizeof(fd_pubkey_t)))
 #define MAP_KEY_HASH(key,seed)             ((ulong)((key)->ul[1]^(seed)))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -114,18 +116,19 @@ typedef struct vtr vtr_t;
 #define DLIST_ELE_T vtr_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct slot {
   ulong slot; /* map key, vote slot */
-  ulong next; /* pool next */
+  uint next; /* pool next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   blk_dlist_t * blks;
   ulong         blk_cnt; /* number of distinct block ids for this slot */
@@ -136,6 +139,7 @@ typedef struct slot slot_t;
 #define POOL_NAME slot_pool
 #define POOL_LAZY 1
 #define POOL_T    slot_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           slot_map
@@ -144,6 +148,7 @@ typedef struct slot slot_t;
 #define MAP_KEY                            slot
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (*(k0)==*(k1))
 #define MAP_KEY_HASH(key,seed)             ((*key)^(seed))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -153,6 +158,7 @@ typedef struct slot slot_t;
 #define DLIST_ELE_T slot_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct __attribute__((aligned(128UL))) fd_votes {

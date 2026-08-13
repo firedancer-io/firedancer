@@ -10,12 +10,16 @@
 
 #define POOL_NAME blk_pool
 #define POOL_T    fd_tower_blk_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           blk_map
 #define MAP_ELE_T                          fd_tower_blk_t
 #define MAP_KEY_T                          ulong
 #define MAP_KEY                            slot
+#define MAP_PREV                           prev
+#define MAP_NEXT                           next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (*(k0)==*(k1))
 #define MAP_KEY_HASH(key,seed)             ((*(key))^(seed))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -140,9 +144,25 @@ fd_tower_align( void ) {
   return 128UL;
 }
 
+static int
+fd_tower_max_valid( ulong blk_max,
+                    ulong vtr_max ) {
+  if( FD_UNLIKELY( blk_max>UINT_MAX || vtr_max>UINT_MAX/2UL ) ) return 0;
+  if( FD_UNLIKELY( blk_max && vtr_max>UINT_MAX/blk_max ) ) return 0;
+
+  ulong pair_max = blk_max * vtr_max;
+  if( pair_max ) {
+    ulong lck_interval_max = fd_ulong_pow2_up( FD_TOWER_LOCKOS_MAX * pair_max );
+    if( FD_UNLIKELY( !lck_interval_max || lck_interval_max>UINT_MAX/2UL ) ) return 0;
+  }
+  return 1;
+}
+
 ulong
 fd_tower_footprint( ulong blk_max,
                     ulong vtr_max ) {
+  if( FD_UNLIKELY( !fd_tower_max_valid( blk_max, vtr_max ) ) ) return 0UL;
+
   ulong lck_interval_max  = fd_ulong_pow2_up( FD_TOWER_LOCKOS_MAX*blk_max*vtr_max );
   ulong lck_pool_max      = fd_ulong_pow2_up( 2UL * lck_interval_max );
   ulong lck_map_chain_est = lockout_interval_map_chain_cnt_est( lck_interval_max );
