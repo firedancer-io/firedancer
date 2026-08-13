@@ -71,7 +71,8 @@
    and so they don't have globally acceptable type names (e.g.
    fd_rdisp_edge_t). */
 
-#define MAX_ACCT_PER_TXN 128UL
+#define MAX_ACCT_PER_TXN FD_TXN_ACCT_ADDR_MAX
+FD_STATIC_ASSERT( MAX_ACCT_PER_TXN<=128UL, max_acct_per_txn );
 
 /* edge_t: Fields typed edge_t represent an edge in one of the parallel
    account-conflict DAGs.  Each transaction stores a list of all its
@@ -87,8 +88,8 @@
    transactions.  Then the lowest 8 bits store the account index within
    that transaction of the edge that is part of the same
    account-specific DAG as this edge.  Because the max depth is 2^23-1,
-   and each transaction can reference 128 accounts, the max accounts
-   that can be referenced fits in 30 bits.
+   and each transaction can reference FD_TXN_ACCT_ADDR_MAX accounts,
+   the max accounts that can be referenced fits in 30 bits.
    The proper type would be something like
    typedef union {
      struct {
@@ -146,9 +147,9 @@ struct fd_rdisp_txn {
      0xFFFF0000 (16 bits) for linear block number,
      0x0000C000 (2 bits) for concurrency lane,
      0x00003F80 (7 bits) for r_cnt
-     0x0000007F (7 bits) for w_cnt_1.  Unfortunately, transactions can
-     have up to 128 writable accounts, but they have at least 1, so by
-     storing w_cnt_1 = w_cnt - 1, we can still store it in 7 bits. */
+     0x0000007F (7 bits) for w_cnt_1.  Transactions have at least one
+     writable account and at most MAX_ACCT_PER_TXN total accounts, so
+     storing w_cnt_1 = w_cnt - 1 fits in 7 bits. */
   union {
     uint edge_cnt_etc;
     /* edge_cnt_etc is only used when the transaction is STAGED and
@@ -940,12 +941,11 @@ add_edges( fd_rdisp_t           * disp,
            uint                   lane,
            int                    writable,
            int                    update_score ) {
-  /* When we first start, the low 14 bits are 0x3FFF, so that gives us
-     w_cnt==0, r_cnt==0, as desired.  Then otherwise, the low 7 bits are
-     w_cnt_1, so adding 1 gives w_cnt.  If we've actually added 128
-     writable accounts, then r_cnt will be incorrect, but then we
-     actually can't add any more readonly accounts, so the function call
-     will be a no-op. */
+  /* When we first start, the low 14 bits are 0x3FFF, so adding the first
+     non-empty writable batch wraps them to w_cnt-1 with r_cnt==0.
+     Thereafter, the low 7 bits store w_cnt_1 and the next 7 bits store
+     r_cnt.  Both counts fit without overflow because their sum is at
+     most MAX_ACCT_PER_TXN. */
 
   ulong w_cnt =  (ele->edge_cnt_etc + 1U)     & 0x7FU;
   ulong r_cnt = ((ele->edge_cnt_etc + 1U)>>7) & 0x7FU;
