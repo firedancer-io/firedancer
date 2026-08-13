@@ -8,6 +8,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  FD_TEST( fd_gossip_purged_footprint( 2097152UL )==270532992UL );
+
   ulong footprint = fd_gossip_purged_footprint( 8UL );
   void * mem = aligned_alloc( fd_gossip_purged_align(), footprint );
   FD_TEST( mem );
