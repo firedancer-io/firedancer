@@ -1,6 +1,12 @@
 /* The snapsv tile is a HTTP file server that serves local snapshots to
    remote peers.
 
+   snapsv is entirely single-threaded and uses tango queues to communicate
+   with other parts of the system (e.g. snapmk, the snapshot producer, and
+   event feeds for the GUI server and telemetry client).  snapsv scales by
+   launching multiple independent tile instances using SO_REUSEPORT /
+   receive-side scaling.
+
    This tile uses io_uring for network and file I/O.
 
    snapsv is fully cooperatively scheduled using io_uring waits.
@@ -11,7 +17,10 @@
    every other op is triggered by a completion. */
 
 #define _GNU_SOURCE
+#include "fd_snapsv_tile.h"
 #include "fd_snapmk_tile.h"
+#include "../../disco/fd_clock_tile.h"
+#include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../util/net/fd_ip6.h"
@@ -19,6 +28,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <linux/futex.h>
 #include "../../util/io_uring/fd_io_uring.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
@@ -96,13 +106,15 @@ snap_key_hash( snap_key_t const * key,
 /* conn state */
 
 #define CONN_STATE_FREE          (0U) /* conn slot is unused */
-#define CONN_STATE_REQ_PEEK      (1U) /* peeking request bytes */
-#define CONN_STATE_REQ_SKIP      (2U) /* consume in-flight, head still incomplete */
-#define CONN_STATE_REQ_DONE      (3U) /* consume in-flight, head complete */
-#define CONN_STATE_RES_WRITE_ERR (4U) /* writing response header */
-#define CONN_STATE_RES_WRITE_HDR (5U) /* writing response header */
-#define CONN_STATE_RES_REDIRECT  (6U) /* writing snap redirect */
-#define CONN_STATE_RES_SHOVEL    (7U) /* pipelinined snap data RX & TX */
+#define CONN_STATE_ALLOCATED     (1U)
+#define CONN_STATE_ACCEPT        (2U) /* waiting for HTTP conn to be accepted */
+#define CONN_STATE_REQ_PEEK      (3U) /* peeking request bytes */
+#define CONN_STATE_REQ_SKIP      (4U) /* consume in-flight, head still incomplete */
+#define CONN_STATE_REQ_DONE      (5U) /* consume in-flight, head complete */
+#define CONN_STATE_RES_WRITE_ERR (6U) /* writing response header */
+#define CONN_STATE_RES_WRITE_HDR (7U) /* writing response header */
+#define CONN_STATE_RES_REDIRECT  (8U) /* writing snap redirect */
+#define CONN_STATE_RES_SHOVEL    (9U) /* pipelinined snap data RX & TX */
 
 struct snapsv_conn {
   uint state;     /* CONN_STATE_{...} */
@@ -111,32 +123,42 @@ struct snapsv_conn {
   uint rdbuf_len; /* completed bytes in rdbuf */
 
   uint sick:1;          /* force close after current request? */
-  uint head:1;          /* HEAD request? */
-  uint range:1;         /* range request? */
-  uint incremental:1;   /* incremental snap requested? */
   uint disk_inflight:1; /* file read pending completion */
   uint net_inflight:1;  /* tcp send pending completion */
   uint closing:1;       /* close once shovel operations drain? */
-  uint http_err;        /* http status code */
 
   struct {
-    uint len;
+    ulong req_seq;  /* seq no of this HTTP request */
+    uint  len;
+    uint  head:1;        /* HEAD request? */
+    uint  get_snap:1;    /* GET request for a snapshot? (streaming) */
+    uint  incremental:1; /* incremental snap requested? */
   } req;
 
   struct {
-    uint sent;
-    uint len;
+    uint  sent;
+    uint  len;
+    uint  status;     /* http status code */
+    long  hdr_ts;     /* unix nanos timestamp when we started sending resp headers */
+    uchar close_kind; /* FD_SNAPSV_CLOSE_* */
   } res;
 
   struct {
     snap_key_t key;
     snap_entry_t * slot;
-    ulong range0; /* next file offset to read */
-    ulong range1; /* exclusive response body end */
+    ulong file_sz; /* snapshot file size */
+    ulong req_off0; /* file offset of request */
+    ulong req_off1; /* [req_off,req_off1) give the requested file range */
+    ulong req_cur;  /* next file offset to read */
+    ulong req_sent; /* payload bytes handed to the socket */
+    uint  range:1;  /* range request? */
   } snap;
 
-  long                 request_start_nanos;
   fd_kernel_timespec_t idle_timeout;
+
+  /* active_ts: last time this conn did work worth keeping it alive for:
+     accept or snapshot payload delivery.  In unix nanoseconds. */
+  long active_ts;
 
   fd_ip6_addr_t peer_ip;
   ushort        peer_port;
@@ -145,6 +167,10 @@ struct snapsv_conn {
 typedef struct snapsv_conn snapsv_conn_t;
 
 struct fd_snapsv {
+
+  uint kind_id;
+
+  fd_clock_tile_t clock[1];
 
   /* io_uring */
   fd_io_uring_t ring[1];
@@ -199,6 +225,17 @@ struct fd_snapsv {
     uint                   depth;
     uint                   futex_armed:1;
   } in[ IN_LINK_MAX ];
+
+  /* streaming access logs */
+  ulong req_seq;
+  struct {
+    long        out_idx; /* -1 if the link is absent */
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       chunk;
+    long        next_heartbeat; /* nanos */
+  } out;
 
 };
 
@@ -348,7 +385,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_snapsv_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapsv_t),      sizeof(fd_snapsv_t) );
   void *        ring_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( sq_depth, cq_depth ) );
-  void *        map_mem  = FD_SCRATCH_ALLOC_APPEND( l, snap_map_align(),          snap_map_footprint( snapsv_map_ele_max( tile ) ) );
+  /*               */(void)FD_SCRATCH_ALLOC_APPEND( l, snap_map_align(),          snap_map_footprint( snapsv_map_ele_max( tile ) ) );
   int *         fd_table = FD_SCRATCH_ALLOC_APPEND( l, alignof(int),              fd_max*sizeof(int) );
   /*               */(void)FD_SCRATCH_ALLOC_APPEND( l, alignof(snapsv_conn_t),    tile->snapsv.conn_max*sizeof(snapsv_conn_t) );
   /*               */(void)FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),             tile->snapsv.conn_max*sizeof(uint) );
@@ -357,6 +394,10 @@ privileged_init( fd_topo_t const *      topo,
 
   memset( ctx, 0, sizeof(fd_snapsv_t) );
   memset( fd_table, 0xff, fd_max*sizeof(int) );
+
+  FD_CHECK_ERR( tile->snapsv.conn_max, "snapsv conn_max is zero" );
+  FD_CHECK_ERR( tile->snapsv.snap_max, "snapsv snap_max is zero" );
+  ctx->snap_max = tile->snapsv.snap_max;
 
   /* TCP listen socket */
 
@@ -425,17 +466,7 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "io_uring_enable_rings failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  /* snapshot map setup */
-
-  ulong map_ele_max = snapsv_map_ele_max( tile );
-  snap_entry_t * slots = snap_map_new( map_mem, map_ele_max, 0 );
-  FD_TEST( slots );
-  for( ulong i=0UL; i<map_ele_max; i++ ) {
-    slots[ i ].key = (snap_key_t){ ULONG_MAX,ULONG_MAX };
-  }
-  ulong map_seed; FD_TEST( fd_rng_secure( &map_seed, sizeof(map_seed) ) );
-  FD_TEST( snap_map_join( ctx->snap_map, slots, map_ele_max, map_ele_max, map_seed ) );
-  ctx->snap_max = tile->snapsv.snap_max;
+  FD_TEST( fd_rng_secure( &ctx->snap_map->seed, sizeof(ulong) ) );
 }
 
 static void
@@ -447,14 +478,32 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong sq_depth = snapsv_sq_depth( tile );
   ulong cq_depth = snapsv_cq_depth( tile );
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
-  fd_snapsv_t * ctx          = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapsv_t),      sizeof(fd_snapsv_t) );
+  fd_snapsv_t *   ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapsv_t),      sizeof(fd_snapsv_t) );
   /*                   */(void)FD_SCRATCH_ALLOC_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( sq_depth, cq_depth ) );
-  /*                   */(void)FD_SCRATCH_ALLOC_APPEND( l, snap_map_align(),          snap_map_footprint( snapsv_map_ele_max( tile ) ) );
+  void *          map_mem    = FD_SCRATCH_ALLOC_APPEND( l, snap_map_align(),          snap_map_footprint( snapsv_map_ele_max( tile ) ) );
   /*                   */(void)FD_SCRATCH_ALLOC_APPEND( l, alignof(int),              snapsv_fd_max( tile )*sizeof(int) );
   snapsv_conn_t * conn0      = FD_SCRATCH_ALLOC_APPEND( l, alignof(snapsv_conn_t),    tile->snapsv.conn_max*sizeof(snapsv_conn_t) );
   uint *          conn_free  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),             tile->snapsv.conn_max*sizeof(uint) );
   uint *          iobuf_free = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),             tile->snapsv.conn_max * 2 * sizeof(uint) );
   uchar *         iobuf0     = FD_SCRATCH_ALLOC_APPEND( l, FD_SHMEM_NORMAL_PAGE_SZ,   tile->snapsv.conn_max * (tile->snapsv.send_buffer_size_kib<<11) );
+
+  ctx->kind_id = (uint)tile->kind_id;
+
+  fd_clock_tile_init( ctx->clock );
+
+  /* snapshot map setup */
+
+  ulong map_ele_max = snapsv_map_ele_max( tile );
+  snap_entry_t * slots = snap_map_new( map_mem, map_ele_max, 0 );
+  FD_TEST( slots );
+  for( ulong i=0UL; i<map_ele_max; i++ ) {
+    slots[ i ].key = (snap_key_t){ ULONG_MAX,ULONG_MAX };
+  }
+  ulong map_seed = ctx->snap_map->seed;
+  FD_TEST( snap_map_join( ctx->snap_map, slots, map_ele_max, map_ele_max, map_seed ) );
+  ctx->snap_max = tile->snapsv.snap_max;
+
+  /* link setup */
 
   FD_CHECK_ERR( tile->in_cnt<=IN_LINK_MAX, "too many input links" );
   FD_CHECK_ERR( tile->in_cnt==1, "snapsv is hardcoded to only support one input link" );
@@ -477,6 +526,23 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].futex_armed = 0;
   }
 
+  FD_CHECK_ERR( tile->out_cnt<=1UL, "too many output links" );
+  memset( &ctx->out, 0, sizeof(ctx->out) );
+  ctx->out.out_idx = -1L;
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
+    FD_CHECK_ERR( !strcmp( link->name, "snapsv_out" ), "unexpected output link" );
+    FD_CHECK_ERR( link->mtu>=sizeof(fd_snapsv_msg_t), "snapsv_out link mtu too small" );
+    ctx->out.out_idx = (long)i;
+    ctx->out.mem     = fd_wksp_containing( link->dcache );
+    ctx->out.chunk0  = fd_dcache_compact_chunk0( ctx->out.mem, link->dcache );
+    ctx->out.wmark   = fd_dcache_compact_wmark ( ctx->out.mem, link->dcache, link->mtu );
+    ctx->out.chunk   = ctx->out.chunk0;
+  }
+  ctx->out.next_heartbeat = 0L;
+
+  /* conn table */
+
   ctx->conn0         = conn0;
   ctx->conn_free     = conn_free;
   ctx->conn_free_cnt = (uint)tile->snapsv.conn_max;
@@ -491,6 +557,8 @@ unprivileged_init( fd_topo_t const *      topo,
     conn_free[ i ] = (uint)tile->snapsv.conn_max-1U-(uint)i;
   }
 
+  /* io bufs */
+
   FD_CHECK_ERR( tile->snapsv.send_buffer_size_kib, "send_buffer_size_kib is zero" );
   ulong iobuf_cnt = tile->snapsv.conn_max * 2;
   ctx->iobuf_sz       = (uint)( tile->snapsv.send_buffer_size_kib<<10 );
@@ -501,7 +569,127 @@ unprivileged_init( fd_topo_t const *      topo,
     iobuf_free[ i ] = (uint)iobuf_cnt-1U-(uint)i;
   }
 
+  /* kick off main async op */
+
   prep_accept( ctx );
+}
+
+/* iobuf_alloc lends an iobuf to a conn. */
+
+static void
+iobuf_alloc( fd_snapsv_t * ctx,
+             uint *        slot ) {
+  if( FD_LIKELY( *slot!=UINT_MAX ) ) return;
+  /* Every conn holds at most one buffer and the pool has two per conn,
+     so a conn that needs one always finds one. */
+  FD_CHECK_CRIT( ctx->iobuf_free_cnt, "iobuf pool exhausted" );
+  *slot = ctx->iobuf_free[ --ctx->iobuf_free_cnt ];
+}
+
+/* iobuf_free frees a conn iobuf (if any). */
+
+static void
+iobuf_free( fd_snapsv_t * ctx,
+            uint *        slot ) {
+  if( FD_UNLIKELY( *slot==UINT_MAX ) ) return;
+  FD_CHECK_CRIT( ctx->iobuf_free_cnt < 2U*(uint)ctx->conn_max, "iobuf double free detected" );
+  ctx->iobuf_free[ ctx->iobuf_free_cnt++ ] = *slot;
+  *slot = UINT_MAX;
+}
+
+/* conn_alloc pops a new conn from the free stack / object pool.  Returns
+   the index of the allocated conn. */
+
+static uint
+conn_alloc( fd_snapsv_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->conn_free_cnt ) ) return UINT_MAX;
+  uint            conn_idx = ctx->conn_free[ --ctx->conn_free_cnt ];
+  snapsv_conn_t * conn     = &ctx->conn0[ conn_idx ];
+  conn->state = CONN_STATE_ALLOCATED;
+  FD_CHECK_CRIT( conn->iobuf_idx==UINT_MAX, "memory corruption detected" );
+  FD_CHECK_CRIT( conn->rdbuf_idx==UINT_MAX, "memory corruption detected" );
+  return conn_idx;
+}
+
+/* conn_free releases all conn resources and returns the conn to the free
+   pool. */
+
+static void
+conn_free( fd_snapsv_t * ctx,
+           uint          conn_idx ) {
+  snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
+  FD_CHECK_CRIT( conn->state!=CONN_STATE_FREE,       "double free detected" );
+  FD_CHECK_CRIT( ctx->conn_free_cnt < ctx->conn_max, "double free detected" );
+  iobuf_free( ctx, &conn->iobuf_idx );
+  iobuf_free( ctx, &conn->rdbuf_idx );
+  *conn = (snapsv_conn_t){ .state = CONN_STATE_FREE, .iobuf_idx = UINT_MAX, .rdbuf_idx = UINT_MAX };
+  ctx->conn_free[ ctx->conn_free_cnt++ ] = conn_idx;
+}
+
+/* event_prepare prepares a snapsv_out frag (HTTP access log), which the
+   caller can fill in with more detail.  Returns a pointer to an
+   unpublished frag in shm dcache.  There can only be one in-preparation
+   frag at a time.
+
+   Currently, snapsv_out frags are only generated for "GET /snapshot-*"
+   requests.  This may change in the future. */
+
+static fd_snapsv_msg_snap_t *
+event_prepare( fd_snapsv_t const * ctx,
+               uint                conn_idx ) {
+  snapsv_conn_t const * conn = &ctx->conn0[ conn_idx ];
+  fd_snapsv_msg_t * msg = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
+  msg->snap = (fd_snapsv_msg_snap_t) {
+    .key = (fd_snapsv_conn_key_t) {
+      .kind_id  = ctx->kind_id,
+      .req_seq  = conn->req.req_seq,
+      .slot_idx = conn_idx
+    },
+    .slot       = conn->snap.key.slot,
+    .base_slot  = conn->snap.key.base_slot,
+    .snap_sz    = conn->snap.file_sz,
+    .req_off    = conn->snap.req_off0,
+    .req_sz     = conn->snap.req_off1 - conn->snap.req_off0,
+    .req_cur    = conn->snap.req_sent,
+    .req_ip     = conn->peer_ip,
+    .req_port   = conn->peer_port,
+    .resp_ts    = conn->res.hdr_ts,
+    .close_kind = conn->res.close_kind
+  };
+  return &msg->snap;
+}
+
+/* event_publish publishes the in-preparation snapsv_out frag (earlier
+   alloc). */
+
+static void
+event_publish( fd_snapsv_t *       ctx,
+               fd_stem_context_t * stem,
+               long                now, /* unix nanos */
+               int                 som,
+               int                 eom ) {
+  ulong sig   = FD_SNAPSV_MSG_SNAP;
+  ulong chunk = ctx->out.chunk;
+  ulong sz    = sizeof(fd_snapsv_msg_snap_t);
+  ulong ctl   = fd_frag_meta_ctl( 0UL, som, eom, 0 );
+  ulong tspub = fd_frag_meta_ts_comp( now );
+  ctx->out.chunk = fd_dcache_compact_next( chunk, sz, ctx->out.chunk0, ctx->out.wmark );
+  fd_stem_publish( stem, (ulong)ctx->out.out_idx, sig, chunk, sz, ctl, 0UL, tspub );
+}
+
+/* event_snap emits an access log event for a snapshot request.  Silently
+   does nothing if the tile was configured without a snapsv_out link. */
+
+static void
+event_snap( fd_snapsv_t *       ctx,
+            fd_stem_context_t * stem,
+            uint                conn_idx,
+            long                now, /* unix nanos */
+            int                 som,
+            int                 eom ) {
+  if( FD_UNLIKELY( ctx->out.out_idx < 0L ) ) return;
+  event_prepare( ctx, conn_idx );
+  event_publish( ctx, stem, now, som, eom );
 }
 
 /* prep_accept enqueues an io_uring conn accept SQE. */
@@ -510,11 +698,12 @@ static void
 prep_accept( fd_snapsv_t * ctx ) {
   FD_CHECK_ERR( !ctx->accept_inflight, "accept already inflight" );
   FD_CHECK_ERR( ctx->conn_cnt < ctx->conn_max, "conn table full" );
-  FD_CHECK_ERR( ctx->conn_free_cnt, "conn free list empty" );
 
-  uint            conn_idx = ctx->conn_free[ --ctx->conn_free_cnt ];
-  snapsv_conn_t * conn     = &ctx->conn0[ conn_idx ];
-  *conn = (snapsv_conn_t){ .state = CONN_STATE_FREE, .iobuf_idx = UINT_MAX, .rdbuf_idx = UINT_MAX };
+  uint conn_idx = conn_alloc( ctx );
+  FD_CHECK_CRIT( conn_idx!=UINT_MAX, "conn free list empty" );
+  snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
+  conn->state = CONN_STATE_ACCEPT;
+
   uint fd_idx = ctx->conn0_fd_idx + conn_idx;
   ctx->accept_addr_len = sizeof(ctx->accept_addr);
 
@@ -544,28 +733,6 @@ conn_iobuf( fd_snapsv_t const *   ctx,
   return ctx->iobuf0 + (ulong)conn->iobuf_idx*ctx->iobuf_sz;
 }
 
-/* iobuf_acquire lends an iobuf to a conn. */
-
-static void
-iobuf_acquire( fd_snapsv_t * ctx,
-               uint *        slot ) {
-  if( FD_LIKELY( *slot!=UINT_MAX ) ) return;
-  /* Every conn holds at most one buffer and the pool has two per conn,
-     so a conn that needs one always finds one. */
-  FD_CHECK_CRIT( ctx->iobuf_free_cnt, "iobuf pool exhausted" );
-  *slot = ctx->iobuf_free[ --ctx->iobuf_free_cnt ];
-}
-
-/* iobuf_release frees a conn iobuf (if any). */
-
-static void
-iobuf_release( fd_snapsv_t * ctx,
-               uint *        slot ) {
-  if( FD_UNLIKELY( *slot==UINT_MAX ) ) return;
-  ctx->iobuf_free[ ctx->iobuf_free_cnt++ ] = *slot;
-  *slot = UINT_MAX;
-}
-
 /* prep_peek enqueues a receive op to copy any newly arrived bytes into
    iobuf.  Does not advance the socket's file pointer. */
 
@@ -574,17 +741,17 @@ prep_peek( fd_snapsv_t * ctx,
            uint          conn_idx ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( !conn->request_start_nanos ) ) {
-    conn->request_start_nanos = now;
+  if( FD_UNLIKELY( !conn->active_ts ) ) {
+    conn->active_ts = now;
   }
-  long idle_rem = fd_long_max( 1L, ctx->idle_timeout_nanos - (now - conn->request_start_nanos) );
+  long idle_rem = fd_long_max( 1L, ctx->idle_timeout_nanos - (now - conn->active_ts) );
   conn->idle_timeout = (fd_kernel_timespec_t) {
     .tv_sec  = idle_rem / (long)1e9,
     .tv_nsec = idle_rem % (long)1e9
   };
   uint            len  = ctx->iobuf_sz - conn->req.len;
   FD_CHECK_CRIT( len, "request head buffer is full" );
-  iobuf_acquire( ctx, &conn->iobuf_idx );
+  iobuf_alloc( ctx, &conn->iobuf_idx );
 
   fd_io_uring_t * ring = ctx->ring;
   fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ring->sq );
@@ -614,6 +781,20 @@ prep_peek( fd_snapsv_t * ctx,
   sqe->user_data = udata.user_data;
 }
 
+/* conn_req_next discards request state at the end of a request.  Prepares
+   for receipt of the next request (HTTP/1.1 keep-alive). */
+
+static void
+conn_req_next( fd_snapsv_t * ctx,
+               uint          conn_idx ) {
+  snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
+  memset( &conn->req,  0, sizeof(conn->req ) );
+  memset( &conn->res,  0, sizeof(conn->res ) );
+  memset( &conn->snap, 0, sizeof(conn->snap) );
+  conn->state = CONN_STATE_REQ_PEEK;
+  prep_peek( ctx, conn_idx );
+}
+
 /* prep_consume consumes previously received (via peek) iobuf bytes. */
 
 static void
@@ -641,27 +822,40 @@ prep_consume( fd_snapsv_t * ctx,
    enqueues one. */
 
 static void
-conn_close( fd_snapsv_t * ctx,
-            uint          conn_idx ) {
+conn_close( fd_snapsv_t *       ctx,
+            fd_stem_context_t * stem,
+            uint                conn_idx,
+            long                now ) {
   FD_CHECK_CRIT( conn_idx < ctx->conn_max, "invalid conn_idx" );
   snapsv_conn_t * conn   = &ctx->conn0[ conn_idx ];
   uint            fd_idx = ctx->conn0_fd_idx + conn_idx;
 
-  /* io_uring OP_CLOSE on a fixed file does not use FD_IOSQE_FIXED_FILE,
+  if( conn->req.get_snap ) {
+    /* the transfer is ending before the whole range was sent, so this is
+       not a clean completion unless a more specific reason was recorded */
+    if( conn->res.close_kind==FD_SNAPSV_CLOSE_DONE &&
+        conn->snap.req_cur < conn->snap.req_off1 ) {
+      conn->res.close_kind = FD_SNAPSV_CLOSE_NET;
+    }
+    event_snap( ctx, stem, conn_idx, now, 0, /* eom */ 1 );
+    conn->req.get_snap = 0;
+  }
+
+  /* io_uring OP_CLOSE on a fixed file does not use IOSQE_FIXED_FILE,
      therefore would break the io_uring sandbox (restrictions). */
   int unreg = -1;
   if( FD_UNLIKELY( fd_io_uring_register_files_update( ctx->ring->ioring_fd, fd_idx, &unreg, 1U )<0 ) ) {
     FD_LOG_ERR(( "io_uring_register(IORING_REGISTER_FILES_UPDATE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  iobuf_release( ctx, &conn->iobuf_idx );
-  iobuf_release( ctx, &conn->rdbuf_idx );
-  *conn = (snapsv_conn_t){ .state = CONN_STATE_FREE, .iobuf_idx = UINT_MAX, .rdbuf_idx = UINT_MAX };
-
+  /* conn no longer considered active */
   FD_CHECK_CRIT( ctx->conn_cnt, "conn count underflow" );
   ctx->conn_cnt--;
-  ctx->conn_free[ ctx->conn_free_cnt++ ] = conn_idx;
 
+  /* return dead conn object */
+  conn_free( ctx, conn_idx );
+
+  /* allocate a new conn object, and schedule an accept() for it */
   if( FD_UNLIKELY( !ctx->accept_inflight ) ) {
     prep_accept( ctx );
   }
@@ -691,6 +885,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapsv_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_CHECK_ERR( ctx->snap_max, "snapsv snap_max is zero" );
   populate_sock_filter_policy_fd_snapsv_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
@@ -714,12 +909,13 @@ rlimit_file_cnt( fd_topo_t const *      topo,
 static void
 handle_accept( fd_snapsv_t * ctx,
                uint          conn_idx,
-               int           res ) {
+               int           res,
+               long          now ) {
   ctx->accept_inflight = 0;
 
   if( FD_UNLIKELY( res<0 ) ) {
     FD_LOG_WARNING(( "accept() failed (%i-%s)", -res, fd_io_strerror( -res ) ));
-    ctx->conn_free[ ctx->conn_free_cnt++ ] = conn_idx;
+    conn_free( ctx, conn_idx );
     prep_accept( ctx );
     return;
   }
@@ -749,6 +945,8 @@ handle_accept( fd_snapsv_t * ctx,
     conn->peer_port = 0U;
   }
 
+  conn->active_ts = now;
+
   prep_peek( ctx, conn_idx );
   if( FD_LIKELY( ctx->conn_cnt<ctx->conn_max ) ) {
     prep_accept( ctx );
@@ -764,8 +962,9 @@ conn_snap_entry( snapsv_conn_t * conn ) {
   snap_entry_t * slot = conn->snap.slot;
   FD_CHECK_ERR( slot, "snapshot slot is NULL" );
   if( FD_UNLIKELY( ( slot->key.base_slot != conn->snap.key.base_slot ) |
-                   ( slot->key.slot      != conn->snap.key.slot      ) ) ) {
-    /* snapshot was deleted */
+                   ( slot->key.slot      != conn->snap.key.slot      ) |
+                   ( slot->sz            != conn->snap.file_sz       ) ) ) {
+    /* snapshot was deleted, or the slot now holds a different snapshot */
     return NULL;
   }
   return slot;
@@ -779,14 +978,16 @@ snap_lock( snap_entry_t * entry );
    disk read and network write I/O. */
 
 static void
-shovel( fd_snapsv_t * ctx,
-        uint          conn_idx ) {
+shovel( fd_snapsv_t *       ctx,
+        fd_stem_context_t * stem,
+        uint                conn_idx,
+        long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_SHOVEL, "conn state confusion" );
 
   if( FD_UNLIKELY( conn->closing ) ) {
     if( !conn->disk_inflight && !conn->net_inflight ) {
-      conn_close( ctx, conn_idx );
+      conn_close( ctx, stem, conn_idx, now );
     }
     return;
   }
@@ -794,7 +995,7 @@ shovel( fd_snapsv_t * ctx,
   if( conn->iobuf_idx!=UINT_MAX &&
       conn->res.sent==conn->res.len &&
       !conn->net_inflight ) {
-    iobuf_release( ctx, &conn->iobuf_idx );
+    iobuf_free( ctx, &conn->iobuf_idx );
     conn->res.sent = 0U;
     conn->res.len  = 0U;
   }
@@ -840,16 +1041,19 @@ shovel( fd_snapsv_t * ctx,
   }
 
   /* generate disk read SQE */
-  if( conn->rdbuf_idx==UINT_MAX && !conn->disk_inflight && conn->snap.range0<conn->snap.range1 ) {
+  if( conn->rdbuf_idx==UINT_MAX &&
+      !conn->disk_inflight      &&
+      conn->snap.req_cur < conn->snap.req_off1 ) {
     snap_entry_t const * snap = conn_snap_entry( conn );
     if( FD_UNLIKELY( !snap ) ) {
-      conn->closing = 1U;
-      shovel( ctx, conn_idx );
+      conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
+      conn->closing        = 1U;
+      shovel( ctx, stem, conn_idx, now );
       return;
     }
 
-    iobuf_acquire( ctx, &conn->rdbuf_idx );
-    ulong read_sz = fd_ulong_min( ctx->iobuf_sz, conn->snap.range1-conn->snap.range0 );
+    iobuf_alloc( ctx, &conn->rdbuf_idx );
+    ulong read_sz = fd_ulong_min( ctx->iobuf_sz, conn->snap.req_off1-conn->snap.req_cur );
     ulong pool_idx = (ulong)( snap->fd - FD_SNAP_RO_FD( 0 ) );
     FD_CHECK_CRIT( pool_idx<ctx->snap_max, "snapshot has invalid file descriptor" );
 
@@ -859,7 +1063,7 @@ shovel( fd_snapsv_t * ctx,
       .opcode    = FD_IORING_OP_READ_FIXED,
       .flags     = FD_IOSQE_FIXED_FILE,
       .fd        = (int)( FIXED_FD_CNT + pool_idx ),
-      .off       = conn->snap.range0,
+      .off       = conn->snap.req_cur,
       .addr      = (ulong)( ctx->iobuf0 + (ulong)conn->rdbuf_idx*ctx->iobuf_sz ),
       .len       = (uint)read_sz,
       .buf_index = 0U
@@ -870,52 +1074,67 @@ shovel( fd_snapsv_t * ctx,
   }
 
   /* everything done */
-  if( FD_UNLIKELY( conn->snap.range0>=conn->snap.range1 &&
+  if( FD_UNLIKELY( conn->snap.req_cur>=conn->snap.req_off1 &&
                    conn->iobuf_idx==UINT_MAX &&
                    conn->rdbuf_idx==UINT_MAX &&
                    !conn->disk_inflight &&
                    !conn->net_inflight ) ) {
+    conn->res.close_kind = FD_SNAPSV_CLOSE_DONE;
+    event_snap( ctx, stem, conn_idx, now, 0, 1 ); /* eom */
+    conn->req.get_snap = 0;
     if( FD_UNLIKELY( conn->sick ) ) {
-      conn_close( ctx, conn_idx );
+      conn_close( ctx, stem, conn_idx, now );
       return;
     }
-    conn->state = CONN_STATE_REQ_PEEK;
-    prep_peek( ctx, conn_idx );
+    conn_req_next( ctx, conn_idx );
   }
 }
 
 /* shovel_comp_disk reacts to a snapshot streaming disk read completion. */
 
 static void
-shovel_comp_disk( fd_snapsv_t * ctx,
-                  uint          conn_idx,
-                  int           res ) {
+shovel_comp_disk( fd_snapsv_t *       ctx,
+                  fd_stem_context_t * stem,
+                  uint                conn_idx,
+                  int                 res,
+                  long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_CRIT( conn->state==CONN_STATE_RES_SHOVEL && conn->disk_inflight,
                  "unexpected shovel disk completion" );
   conn->disk_inflight = 0U;
 
-  ulong rem = conn->snap.range1 - conn->snap.range0;
-  if( FD_UNLIKELY( res<=0 || (ulong)res>fd_ulong_min( ctx->iobuf_sz, rem ) ) ) {
-    if( res<0 ) FD_LOG_WARNING(( "snapshot read failed (%i-%s)", -res, fd_io_strerror( -res ) ));
-    else        FD_LOG_WARNING(( "snapshot file ended early" ));
-    conn->closing = 1U;
-    shovel( ctx, conn_idx );
+  ulong rem     = conn->snap.req_off1 - conn->snap.req_cur;
+  ulong read_sz = fd_ulong_min( ctx->iobuf_sz, rem );
+  if( FD_UNLIKELY( res<=0 || (ulong)res>read_sz ) ) {
+    if( res<0 ) {
+      FD_LOG_WARNING(( "snapshot read failed (%i-%s)", -res, fd_io_strerror( -res ) ));
+    } else if( !res ) {
+      if( FD_UNLIKELY( conn_snap_entry( conn ) ) ) {
+        FD_LOG_WARNING(( "snapshot file ended early" ));
+      }
+    } else {
+      FD_LOG_WARNING(( "snapshot read returned too many bytes (%i>%lu)", res, read_sz ));
+    }
+    conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
+    conn->closing        = 1U;
+    shovel( ctx, stem, conn_idx, now );
     return;
   }
 
-  conn->snap.range0 += (ulong)res;
-  conn->rdbuf_len    = (uint)res;
-  shovel( ctx, conn_idx );
+  conn->snap.req_cur += (ulong)res;
+  conn->rdbuf_len     = (uint)res;
+  shovel( ctx, stem, conn_idx, now );
 }
 
 /* shovel_comp_net reacts to a snapshot streaming network write
    completion. */
 
 static void
-shovel_comp_net( fd_snapsv_t * ctx,
-                 uint          conn_idx,
-                 int           res ) {
+shovel_comp_net( fd_snapsv_t *       ctx,
+                 fd_stem_context_t * stem,
+                 uint                conn_idx,
+                 int                 res,
+                 long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_CRIT( conn->state==CONN_STATE_RES_SHOVEL, "unexpected shovel net completion" );
   FD_CHECK_CRIT( conn->net_inflight, "unexpected SEND completion" );
@@ -927,14 +1146,17 @@ shovel_comp_net( fd_snapsv_t * ctx,
       FD_LOG_INFO(( "snapshot download peer %s:%u: snapshot data send error (%i-%s)",
                     addr_cstr, conn->peer_port, -res, fd_io_strerror( -res ) ));
     }
-    conn->closing = 1U;
-    shovel( ctx, conn_idx );
+    conn->res.close_kind = FD_SNAPSV_CLOSE_NET;
+    conn->closing        = 1U;
+    shovel( ctx, stem, conn_idx, now );
     return;
   }
 
-  conn->res.sent += (uint)res;
+  conn->res.sent      += (uint)res;
+  conn->snap.req_sent += (ulong)res;
+  conn->active_ts      = now;
   FD_MCNT_INC( SNAPSV, BYTES_WRITTEN, (ulong)res );
-  shovel( ctx, conn_idx );
+  shovel( ctx, stem, conn_idx, now );
 }
 
 /* prep_write_hdr enqueues a header write op. */
@@ -980,20 +1202,21 @@ serve_http_err( fd_snapsv_t * ctx,
                 uint          conn_idx ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_WRITE_ERR, "state confusion" );
-  iobuf_acquire( ctx, &conn->iobuf_idx );
+  iobuf_alloc( ctx, &conn->iobuf_idx );
   uchar * iobuf = conn_iobuf( ctx, conn );
   char * p = fd_cstr_init( (char *)iobuf );
   p = fd_cstr_append_cstr( p, "HTTP/1.1 ");
-  switch( conn->http_err ) {
+  switch( conn->res.status ) {
   case 400: p = fd_cstr_append_cstr( p, "400 Bad Request"           ); break;
   case 404: p = fd_cstr_append_cstr( p, "404 Not Found"             ); break;
   case 416: p = fd_cstr_append_cstr( p, "416 Range Not Satisfiable" ); break;
   default:  p = fd_cstr_append_cstr( p, "500 Internal Server Error" ); break;
   }
   p = fd_cstr_append_cstr( p, "\r\n" );
-  if( conn->http_err==416 && conn->snap.slot ) {
+  snap_entry_t const * snap = conn->snap.slot ? conn_snap_entry( conn ) : NULL;
+  if( conn->res.status==416 && snap ) {
     p = fd_cstr_append_cstr( p, "Content-Range: bytes */" );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, conn->snap.slot->sz, fd_ulong_base10_dig_cnt( conn->snap.slot->sz ) );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, snap->sz, fd_ulong_base10_dig_cnt( snap->sz ) );
     p = fd_cstr_append_cstr( p, "\r\n" );
   }
   p = fd_cstr_append_cstr( p, "Content-Length: 0\r\n" );
@@ -1010,8 +1233,10 @@ serve_http_err( fd_snapsv_t * ctx,
    or HEAD request. */
 
 static void
-serve_snap_res_hdr( fd_snapsv_t * ctx,
-                    uint          conn_idx ) {
+serve_snap_res_hdr( fd_snapsv_t *       ctx,
+                    fd_stem_context_t * stem,
+                    uint                conn_idx,
+                    long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_WRITE_HDR, "state confusion" );
 
@@ -1020,19 +1245,19 @@ serve_snap_res_hdr( fd_snapsv_t * ctx,
     /* rare edge case: snap was deleted by the snapmk tile just after
        the user requested it.  Don't bother returning an error, just
        abort the conn. */
-    conn_close( ctx, conn_idx );
+    conn_close( ctx, stem, conn_idx, now );
     return;
   }
   if( FD_UNLIKELY( !snap_lock( snap ) ) ) {
-    conn_close( ctx, conn_idx );
+    conn_close( ctx, stem, conn_idx, now );
     return;
   }
   /* return response header */
   FD_CHECK_ERR( conn->iobuf_idx==UINT_MAX, "conn has stale iobuf" );
-  iobuf_acquire( ctx, &conn->iobuf_idx );
+  iobuf_alloc( ctx, &conn->iobuf_idx );
   uchar * iobuf = conn_iobuf( ctx, conn );
   char * p = fd_cstr_init( (char *)iobuf );
-  if( conn->range ) {
+  if( conn->snap.range ) {
     p = fd_cstr_append_cstr( p, "HTTP/1.1 206 Partial Content\r\n" );
   } else {
     p = fd_cstr_append_cstr( p, "HTTP/1.1 200 OK\r\n" );
@@ -1043,22 +1268,26 @@ serve_snap_res_hdr( fd_snapsv_t * ctx,
     p = fd_cstr_append_cstr( p, "Content-Type: application/x-tar\r\n" );
   }
   p = fd_cstr_append_cstr( p, "Accept-Ranges: bytes\r\n" );
-  if( conn->range ) {
+  if( conn->snap.range ) {
     p = fd_cstr_append_cstr( p, "Content-Range: bytes " );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, conn->snap.range0, fd_ulong_base10_dig_cnt( conn->snap.range0 ) );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, conn->snap.req_off0, fd_ulong_base10_dig_cnt( conn->snap.req_off0 ) );
     p = fd_cstr_append_char( p, '-' );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, conn->snap.range1-1UL, fd_ulong_base10_dig_cnt( conn->snap.range1-1UL ) );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, conn->snap.req_off1-1UL, fd_ulong_base10_dig_cnt( conn->snap.req_off1-1UL ) );
     p = fd_cstr_append_char( p, '/' );
     p = fd_cstr_append_ulong_as_text( p, 0, 0, snap->sz, fd_ulong_base10_dig_cnt( snap->sz ) );
     p = fd_cstr_append_cstr( p, "\r\n" );
   }
   p = fd_cstr_append_cstr( p, "Content-Length: " );
-  ulong content_len = conn->snap.range1 - conn->snap.range0;
+  ulong content_len = conn->snap.req_off1 - conn->snap.req_off0;
   p = fd_cstr_append_ulong_as_text( p, 0, 0, content_len, fd_ulong_base10_dig_cnt( content_len ) );
   p = fd_cstr_append_cstr( p, "\r\n" );
+  if( conn->sick ) {
+    p = fd_cstr_append_cstr( p, "Connection: close\r\n" );
+  }
   p = fd_cstr_append_cstr( p, "\r\n" );
-  conn->res.sent = 0;
-  conn->res.len  = (uint)( p - (char *)iobuf );
+  conn->res.sent   = 0;
+  conn->res.len    = (uint)( p - (char *)iobuf );
+  conn->res.hdr_ts = now;
   prep_write_hdr( ctx, conn_idx );
 }
 
@@ -1097,22 +1326,22 @@ serve_redirect( fd_snapsv_t * ctx,
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_REDIRECT, "state confusion" );
 
-  snap_entry_t * snap = newest_snap( ctx, conn->incremental );
+  snap_entry_t * snap = newest_snap( ctx, conn->req.incremental );
   if( FD_UNLIKELY( !snap ) ) {
-    conn->state    = CONN_STATE_RES_WRITE_ERR;
-    conn->http_err = 404U;
+    conn->state      = CONN_STATE_RES_WRITE_ERR;
+    conn->res.status = 404U;
     serve_http_err( ctx, conn_idx );
     return;
   }
 
   /* return response */
   FD_CHECK_ERR( conn->iobuf_idx==UINT_MAX, "conn has stale iobuf" );
-  iobuf_acquire( ctx, &conn->iobuf_idx );
+  iobuf_alloc( ctx, &conn->iobuf_idx );
   uchar * iobuf = conn_iobuf( ctx, conn );
   char * p = fd_cstr_init( (char *)iobuf );
   p = fd_cstr_append_cstr( p, "HTTP/1.1 302 Found\r\n" );
   p = fd_cstr_append_cstr( p, "Location: /" );
-  if( conn->incremental ) {
+  if( conn->req.incremental ) {
     p = fd_cstr_append_cstr( p, "incremental-snapshot-" );
     p = fd_cstr_append_ulong_as_text( p, 0, 0, snap->key.base_slot, fd_ulong_base10_dig_cnt( snap->key.base_slot ) );
     p = fd_cstr_append_char( p, '-' );
@@ -1143,9 +1372,11 @@ prep_peek( fd_snapsv_t * ctx,
 /* handle_write_hdr_comp handles the completion of a header write op. */
 
 static void
-handle_write_hdr_comp( fd_snapsv_t * ctx,
-                       uint          conn_idx,
-                       int           res ) {
+handle_write_hdr_comp( fd_snapsv_t *       ctx,
+                       fd_stem_context_t * stem,
+                       uint                conn_idx,
+                       int                 res,
+                       long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   if( FD_UNLIKELY( res<0 ) ) {
     if( res<0 ) {
@@ -1153,7 +1384,7 @@ handle_write_hdr_comp( fd_snapsv_t * ctx,
       FD_LOG_INFO(( "snapshot download peer %s:%u: response header send error (%i-%s)",
                     addr_cstr, conn->peer_port, -res, fd_io_strerror( -res ) ));
     }
-    conn_close( ctx, conn_idx );
+    conn_close( ctx, stem, conn_idx, now );
     return;
   }
   conn->res.sent += (uint)res;
@@ -1162,26 +1393,26 @@ handle_write_hdr_comp( fd_snapsv_t * ctx,
     return;
   }
   /* wrote response body */
-  iobuf_release( ctx, &conn->iobuf_idx );
+  iobuf_free( ctx, &conn->iobuf_idx );
   if( FD_UNLIKELY( conn->sick ) ) {
-    conn_close( ctx, conn_idx );
+    conn_close( ctx, stem, conn_idx, now );
     return;
   }
   switch( conn->state ) {
   case CONN_STATE_RES_WRITE_ERR:
     /* returned an error, handle the next request */
-    conn->state = CONN_STATE_REQ_PEEK;
-    prep_peek( ctx, conn_idx );
+    conn_req_next( ctx, conn_idx );
     return;
   case CONN_STATE_RES_WRITE_HDR:
-    if( conn->head ) {
-      conn->state = CONN_STATE_REQ_PEEK;
-      prep_peek( ctx, conn_idx );
+    if( conn->req.head || !conn->snap.slot ) {
+      conn_req_next( ctx, conn_idx );
       return;
     }
     /* now serve the snapshot body */
+    conn->req.get_snap = 1; /* streaming begin */
+    event_snap( ctx, stem, conn_idx, now, 1, 0 ); /* som */
     conn->state = CONN_STATE_RES_SHOVEL;
-    shovel( ctx, conn_idx );
+    shovel( ctx, stem, conn_idx, now );
     return;
   default:
     FD_LOG_CRIT(( "conn %u: state confusion", conn_idx ));
@@ -1270,13 +1501,36 @@ parse_range_header( char const * value,
   return 0;
 }
 
+/* hdr_has_token returns 1 if the given comma separated header value
+   contains tok (case insensitive). */
+
+static int
+hdr_has_token( char const * value,
+               ulong        value_len,
+               char const * tok,
+               ulong        tok_len ) {
+  char const * p   = value;
+  char const * end = value + value_len;
+  while( p<end ) {
+    while( p<end && ( *p==' ' || *p=='\t' || *p==',' ) ) p++;
+    char const * t0 = p;
+    while( p<end && *p!=',' ) p++;
+    char const * t1 = p;
+    while( t1>t0 && ( t1[-1]==' ' || t1[-1]=='\t' ) ) t1--;
+    if( (ulong)( t1-t0 )==tok_len && !strncasecmp( t0, tok, tok_len ) ) return 1;
+  }
+  return 0;
+}
+
 /* handle_peek handles newly received TCP data.  peek_len bytes of
    unconsumed request head sit at conn->req_len in the iobuf. */
 
 static void
-handle_peek( fd_snapsv_t * ctx,
-             uint          conn_idx,
-             int           res ) {
+handle_peek( fd_snapsv_t *       ctx,
+             fd_stem_context_t * stem,
+             uint                conn_idx,
+             int                 res,
+             long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   if( FD_UNLIKELY( res<=0 ) ) {
     if( FD_UNLIKELY( res<0 ) ) {
@@ -1284,7 +1538,7 @@ handle_peek( fd_snapsv_t * ctx,
       FD_LOG_INFO(( "snapshot download peer %s:%u: receive error (%i-%s)",
                     addr_cstr, conn->peer_port, -res, fd_io_strerror( -res ) ));
     }
-    conn_close( ctx, conn_idx );
+    conn_close( ctx, stem, conn_idx, now );
     return;
   }
   uint peek_len = (uint)res;
@@ -1309,7 +1563,7 @@ handle_peek( fd_snapsv_t * ctx,
   if( FD_UNLIKELY( parsed==-2 ) ) { /* request head incomplete */
     if( FD_UNLIKELY( conn->req.len+peek_len >= ctx->iobuf_sz ) ) {
       FD_LOG_DEBUG(( "conn %u: request head exceeds %u bytes", conn_idx, ctx->iobuf_sz ));
-      conn_close( ctx, conn_idx );
+      conn_close( ctx, stem, conn_idx, now );
       return;
     }
     /* avoid copying the same data again */
@@ -1320,15 +1574,17 @@ handle_peek( fd_snapsv_t * ctx,
 
   if( FD_UNLIKELY( parsed<0 ) ) { /* malformed request head */
     FD_LOG_DEBUG(( "conn %u: malformed request", conn_idx ));
-    conn_close( ctx, conn_idx );
+    conn_close( ctx, stem, conn_idx, now );
     return;
   }
 
   /* valid request at this point */
+
   FD_CHECK_ERR( (uint)parsed > conn->req.len, "request head shrank" );
   prep_consume( ctx, conn_idx, (uint)parsed - conn->req.len, UDATA_OP_CONSUME_TAIL );
-  conn->state   = CONN_STATE_REQ_DONE;
-  conn->req.len = (uint)parsed - conn->req.len;
+  conn->state       = CONN_STATE_REQ_DONE;
+  conn->req.len     = (uint)parsed - conn->req.len;
+  conn->req.req_seq = ctx->req_seq++;
 
   /* must not do any work until CONSUME_TAIL completes,
      so remember what to do for when that happens */
@@ -1336,13 +1592,65 @@ handle_peek( fd_snapsv_t * ctx,
   uchar      query_hash[ 32 ];
   int        query_is_zstd;
   if( method_len==4UL && !memcmp( method, "HEAD", method_len ) ) {
-    conn->head = 1;
+    conn->req.head = 1;
   } else if( method_len==3UL && !memcmp( method, "GET", method_len ) ) {
-    conn->head = 0;
+    conn->req.head = 0;
   } else {
-    conn->state    = CONN_STATE_RES_WRITE_ERR;
-    conn->http_err = 500;
-    conn->sick     = 1;
+    conn->state      = CONN_STATE_RES_WRITE_ERR;
+    conn->res.status = 500;
+    conn->sick       = 1;
+    return;
+  }
+
+  /* parse request headers */
+
+#define HDR_RANGE (1U<<0)
+#define HDR_CLEN  (1U<<1)
+#define HDR_CONN  (1U<<2)
+
+  char const * range     = NULL;
+  ulong        range_len = 0UL;
+  int          keepalive = minor_version>=1; /* HTTP/1.0 defaults to close */
+  int          bad_req   = 0;  /* reject request with a 400? */
+  uint         seen      = 0U; /* set of HDR_* seen, to detect duplicates */
+  for( ulong i=0UL; i<header_cnt; i++ ) {
+    char const * name      = headers[ i ].name;
+    ulong        name_len  = headers[ i ].name_len;
+    char const * value     = headers[ i ].value;
+    ulong        value_len = headers[ i ].value_len;
+    if( FD_UNLIKELY( !name_len ) ) { /* obs-fold continuation line */
+      bad_req = 1;
+      continue;
+    }
+    if( name_len==5UL && !strncasecmp( name, "range", 5UL ) ) {
+      bad_req  |= !!( seen & HDR_RANGE );
+      seen     |= HDR_RANGE;
+      range     = value;
+      range_len = value_len;
+    } else if( name_len==14UL && !strncasecmp( name, "content-length", 14UL ) ) {
+      bad_req |= !!( seen & HDR_CLEN );
+      seen    |= HDR_CLEN;
+      bad_req |= !( value_len==1UL && value[ 0 ]=='0' ); /* request bodies are not supported */
+    } else if( name_len==17UL && !strncasecmp( name, "transfer-encoding", 17UL ) ) {
+      bad_req = 1; /* chunked bodies are not supported */
+    } else if( name_len==10UL && !strncasecmp( name, "connection", 10UL ) ) {
+      bad_req |= !!( seen & HDR_CONN );
+      seen    |= HDR_CONN;
+      if(      hdr_has_token( value, value_len, "close",      5UL  ) ) keepalive = 0;
+      else if( hdr_has_token( value, value_len, "keep-alive", 10UL ) ) keepalive = 1;
+    }
+  }
+
+#undef HDR_RANGE
+#undef HDR_CLEN
+#undef HDR_CONN
+
+  if( FD_UNLIKELY( !keepalive ) ) conn->sick = 1;
+
+  if( FD_UNLIKELY( bad_req ) ) {
+    conn->state      = CONN_STATE_RES_WRITE_ERR;
+    conn->res.status = 400;
+    conn->sick       = 1;
     return;
   }
 
@@ -1359,15 +1667,15 @@ handle_peek( fd_snapsv_t * ctx,
   if( path_len==16 ) {
     if( !memcmp( path, "snapshot.tar.zst", 16UL ) ||
         !memcmp( path, "snapshot.tar.bz2", 16UL ) ) {
-      conn->state       = CONN_STATE_RES_REDIRECT;
-      conn->incremental = 0;
+      conn->state           = CONN_STATE_RES_REDIRECT;
+      conn->req.incremental = 0;
       return;
     }
   } else if( path_len==28 ) {
     if( !memcmp( path, "incremental-snapshot.tar.bz2", 28UL ) ||
         !memcmp( path, "incremental-snapshot.tar.zst", 28UL ) ) {
-      conn->state       = CONN_STATE_RES_REDIRECT;
-      conn->incremental = 1;
+      conn->state           = CONN_STATE_RES_REDIRECT;
+      conn->req.incremental = 1;
       return;
     }
   }
@@ -1378,39 +1686,32 @@ handle_peek( fd_snapsv_t * ctx,
     if( FD_UNLIKELY( !entry ) ) goto not_found;
     if( FD_UNLIKELY( 0!=memcmp( entry->hash, query_hash, 32UL ) ) ) goto not_found;
     if( FD_UNLIKELY( entry->is_zstd!=query_is_zstd ) ) goto not_found;
-    conn->state       = CONN_STATE_RES_WRITE_HDR;
-    conn->snap.key    = query;
-    conn->snap.slot   = entry;
-    conn->range       = 0U;
-    conn->snap.range0 = 0UL;
-    conn->snap.range1 = entry->sz;
-    conn->incremental = entry->key.base_slot!=ULONG_MAX;
+    conn->state           = CONN_STATE_RES_WRITE_HDR;
+    conn->snap.key        = query;
+    conn->snap.slot       = entry;
+    conn->snap.file_sz    = entry->sz;
+    conn->snap.range      = 0U;
+    conn->snap.req_off0   = 0UL;
+    conn->snap.req_off1   = entry->sz;
+    conn->snap.req_cur    = 0UL;
+    conn->req.incremental = entry->key.base_slot!=ULONG_MAX;
 
-    char const * range     = NULL;
-    ulong        range_len = 0UL;
-    for( ulong i=0UL; i<header_cnt; i++ ) {
-      if( headers[ i ].name_len==5UL && !strncasecmp( headers[ i ].name, "range", 5UL ) ) {
-        if( !conn->head ) { /* range header only valid for GET request */
-          range     = headers[ i ].value;
-          range_len = headers[ i ].value_len;
-        }
-      }
-    }
-    if( range ) {
-      int range_err = parse_range_header( range, range_len, entry->sz, &conn->snap.range0, &conn->snap.range1 );
+    if( range && !conn->req.head ) {
+      int range_err = parse_range_header( range, range_len, entry->sz, &conn->snap.req_off0, &conn->snap.req_off1 );
       if( FD_UNLIKELY( range_err ) ) {
-        conn->state    = CONN_STATE_RES_WRITE_ERR;
-        conn->http_err = (uint)( range_err==-2 ? 416 : 400 );
+        conn->state      = CONN_STATE_RES_WRITE_ERR;
+        conn->res.status = (uint)( range_err==-2 ? 416 : 400 );
       } else {
-        conn->range = 1U;
+        conn->snap.req_cur = conn->snap.req_off0;
+        conn->snap.range   = 1U;
       }
     }
     return;
   }
 
 not_found:
-  conn->state    = CONN_STATE_RES_WRITE_ERR;
-  conn->http_err = 404;
+  conn->state      = CONN_STATE_RES_WRITE_ERR;
+  conn->res.status = 404;
 
   /* next step happens at handle_consume_tail_comp */
 }
@@ -1418,14 +1719,16 @@ not_found:
 /* handle_consume_frag_comp handles the completion of a CONSUME_FRAG op. */
 
 static void
-handle_consume_frag_comp( fd_snapsv_t * ctx,
-                          uint          conn_idx,
-                          int           res ) {
+handle_consume_frag_comp( fd_snapsv_t *       ctx,
+                          fd_stem_context_t * stem,
+                          uint                conn_idx,
+                          int                 res,
+                          long                now ) {
   if( FD_UNLIKELY( res<=0 ) ) {
     if( FD_UNLIKELY( res<0 ) ) {
       FD_LOG_DEBUG(( "conn %u: recv() failed (%i-%s)", conn_idx, -res, fd_io_strerror( -res ) ));
     }
-    conn_close( ctx, conn_idx );
+    conn_close( ctx, stem, conn_idx, now );
     return;
   }
   uint consume_len = (uint)res;
@@ -1438,23 +1741,24 @@ handle_consume_frag_comp( fd_snapsv_t * ctx,
 /* handle_consume_tail_comp handles the completion of a CONSUME_TAIL op. */
 
 static void
-handle_consume_tail_comp( fd_snapsv_t * ctx,
-                          uint          conn_idx,
-                          int           res ) {
+handle_consume_tail_comp( fd_snapsv_t *       ctx,
+                          fd_stem_context_t * stem,
+                          uint                conn_idx,
+                          int                 res,
+                          long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   if( FD_UNLIKELY( res!=(int)conn->req.len ) ) {
-    conn_close( ctx, conn_idx );
+    conn_close( ctx, stem, conn_idx, now );
     return;
   }
   conn->req.len = 0;
-  conn->request_start_nanos = 0L;
-  iobuf_release( ctx, &conn->iobuf_idx );
+  iobuf_free( ctx, &conn->iobuf_idx );
   switch( ctx->conn0[ conn_idx ].state ) {
   case CONN_STATE_RES_WRITE_ERR:
     serve_http_err( ctx, conn_idx );
     break;
   case CONN_STATE_RES_WRITE_HDR:
-    serve_snap_res_hdr( ctx, conn_idx );
+    serve_snap_res_hdr( ctx, stem, conn_idx, now );
     break;
   case CONN_STATE_RES_REDIRECT:
     serve_redirect( ctx, conn_idx );
@@ -1462,6 +1766,7 @@ handle_consume_tail_comp( fd_snapsv_t * ctx,
   default:
     FD_LOG_CRIT(( "conn %u: state confusion", conn_idx ));
   }
+  FD_MCNT_INC( SNAPSV, HTTP_REQUEST_SERVED, 1UL );
 }
 
 /* futex_prep asks the kernel to send a CQE for when a new
@@ -1511,33 +1816,36 @@ futex_comp( fd_snapsv_t * ctx,
 /* handle_cqe handles a single io_uring completion. */
 
 static void
-handle_cqe( fd_snapsv_t *               ctx,
-            fd_io_uring_cqe_t const * cqe ) {
+handle_cqe( fd_snapsv_t *             ctx,
+            fd_stem_context_t *       stem,
+            fd_io_uring_cqe_t const * cqe,
+            long                      now ) {
   snapsv_udata_t udata = { .user_data = cqe->user_data };
+  uint conn_idx = udata.conn_idx;
   switch( udata.op ) {
   case UDATA_OP_ACCEPT:
-    handle_accept( ctx, udata.conn_idx, cqe->res );
+    handle_accept( ctx, conn_idx, cqe->res, now );
     break;
   case UDATA_OP_PEEK:
-    handle_peek( ctx, udata.conn_idx, cqe->res );
+    handle_peek( ctx, stem, conn_idx, cqe->res, now );
     break;
   case UDATA_OP_CONSUME_FRAG:
-    handle_consume_frag_comp( ctx, udata.conn_idx, cqe->res );
+    handle_consume_frag_comp( ctx, stem, conn_idx, cqe->res, now );
     break;
   case UDATA_OP_CONSUME_TAIL:
-    handle_consume_tail_comp( ctx, udata.conn_idx, cqe->res );
+    handle_consume_tail_comp( ctx, stem, conn_idx, cqe->res, now );
     break;
   case UDATA_OP_WRITE_HDR:
-    handle_write_hdr_comp( ctx, udata.conn_idx, cqe->res );
+    handle_write_hdr_comp( ctx, stem, conn_idx, cqe->res, now );
     break;
   case UDATA_OP_SHOVEL_DISK:
-    shovel_comp_disk( ctx, udata.conn_idx, cqe->res );
+    shovel_comp_disk( ctx, stem, conn_idx, cqe->res, now );
     break;
   case UDATA_OP_SHOVEL_NET:
-    shovel_comp_net( ctx, udata.conn_idx, cqe->res );
+    shovel_comp_net( ctx, stem, conn_idx, cqe->res, now );
     break;
   case UDATA_OP_FUTEX:
-    futex_comp( ctx, udata.conn_idx, cqe->res );
+    futex_comp( ctx, conn_idx, cqe->res );
     break;
   case UDATA_OP_TIMEOUT:
     break;
@@ -1551,41 +1859,96 @@ handle_cqe( fd_snapsv_t *               ctx,
 static inline void
 stem_in_update( fd_stem_tile_in_t * in );
 
-/* after_credit performs one io_uring event-loop iteration. */
+/* after_credit performs one io_uring event loop iteration. */
+
+static int
+after_credit_pre( fd_snapsv_t *       ctx,
+                  fd_stem_context_t * stem,
+                  int *               charge_busy,
+                  long                now ) {
+  fd_io_uring_t * ring = ctx->ring;
+
+  /* Reap background completions */
+  uint ready = fd_io_uring_cq_ready( ring->cq );
+  for( uint i=0U; i<ready; i++ ) {
+    handle_cqe( ctx, stem, fd_io_uring_cq_head( ring->cq ), now );
+    fd_io_uring_cq_advance( ring->cq, 1U );
+    *charge_busy = 1;
+  }
+
+  /* Periodically send a burst update over all GUI tiles.
+     (This is a deep burst, so the link depth should be about 2x larger
+     than the conn table size.) */
+  if( FD_UNLIKELY( now >= ctx->out.next_heartbeat ) ) {
+    ulong conn_max = ctx->conn_max;
+    for( uint i=0U; i<conn_max; i++ ) {
+      snapsv_conn_t * conn = &ctx->conn0[ i ];
+      if( conn->req.get_snap ) {
+        event_snap( ctx, stem, i, now, 0, 0 );
+      }
+    }
+    ctx->out.next_heartbeat += FD_SNAPSV_SYNC_PERIOD;
+    if( FD_UNLIKELY( ctx->out.next_heartbeat < now ) ) {
+      /* more than one period missed, skip ahead timer */
+      ctx->out.next_heartbeat = now + FD_SNAPSV_SYNC_PERIOD;
+    }
+  }
+
+  /* Prepare for sleep */
+  int waiting = !!futex_prep( ctx, 0UL );
+  stem_in_update( &stem->in[ 0 ] );
+  return waiting;
+}
+
+static void
+after_credit_post( fd_snapsv_t *       ctx,
+                   fd_stem_context_t * stem,
+                   int *               charge_busy,
+                   long                now ) {
+  fd_io_uring_t * ring = ctx->ring;
+
+  if( FD_UNLIKELY( fd_io_uring_sq_dropped( ring->sq ) ) ) {
+    FD_LOG_ERR(( "io_uring submission queue dropped entries" ));
+  }
+  if( FD_UNLIKELY( fd_io_uring_cq_overflow( ring->cq ) ) ) {
+    FD_LOG_ERR(( "io_uring completion queue overflowed" ));
+  }
+
+  /* Reap deferred/immediate completions */
+  uint ready = fd_io_uring_cq_ready( ring->cq );
+  for( uint i=0U; i<ready; i++ ) {
+    handle_cqe( ctx, stem, fd_io_uring_cq_head( ring->cq ), now );
+    fd_io_uring_cq_advance( ring->cq, 1U );
+    *charge_busy = 1;
+  }
+}
 
 static void
 after_credit( fd_snapsv_t *       ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  (void)stem; (void)opt_poll_in;
-  fd_io_uring_t * ring = ctx->ring;
+  (void)opt_poll_in;
 
-  /* Reap background completions */
-  uint ready = fd_io_uring_cq_ready( ring->cq );
-  for( uint i=0U; i<ready; i++ ) {
-    handle_cqe( ctx, fd_io_uring_cq_head( ring->cq ) );
-    fd_io_uring_cq_advance( ring->cq, 1U );
-    *charge_busy = 1;
-  }
-
-  /* Prepare for sleep */
-  int waiting = !!futex_prep( ctx, 0UL );
-  stem_in_update( &stem->in[ 0 ] );
+  long now = fd_clock_tile_now( ctx->clock );
+  int waiting = after_credit_pre( ctx, stem, charge_busy, now );
 
   /* Dispatch io_uring work, poll completions, and do a bounded sleep */
+  fd_io_uring_t * ring = ctx->ring;
   uint tail = ring->sq->sqe_tail;
   atomic_store_explicit( ring->sq->ktail, tail, memory_order_release );
   uint head = atomic_load_explicit( ring->sq->khead, memory_order_relaxed );
   ring->sq->sqe_head = head;
   uint to_submit = tail - head;
-  fd_kernel_timespec_t timeout = { .tv_nsec = (long)50e6L }; /* 50ms */
+  FD_STATIC_ASSERT( FD_SNAPSV_WAKE_PERIOD<(long)1e9, bounds );
+  fd_kernel_timespec_t timeout = { .tv_nsec = FD_SNAPSV_WAKE_PERIOD };
   fd_io_uring_getevents_arg_t enter_arg = { .ts = (ulong)&timeout };
   int submitted = fd_io_uring_enter(
       ring->ioring_fd, to_submit, !!waiting,
       FD_IORING_ENTER_GETEVENTS | FD_IORING_ENTER_EXT_ARG,
       &enter_arg, sizeof(enter_arg)
   );
+  now = fd_clock_tile_now( ctx->clock );
   if( FD_UNLIKELY( submitted<0 ) ) {
     if( FD_LIKELY( errno==ETIME ) ) {
       submitted = 0; /* timeout, do housekeeping */
@@ -1596,20 +1959,9 @@ after_credit( fd_snapsv_t *       ctx,
       FD_LOG_ERR(( "io_uring_enter failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
-  if( FD_UNLIKELY( fd_io_uring_sq_dropped( ring->sq ) ) ) {
-    FD_LOG_ERR(( "io_uring submission queue dropped entries" ));
-  }
-  if( FD_UNLIKELY( fd_io_uring_cq_overflow( ring->cq ) ) ) {
-    FD_LOG_ERR(( "io_uring completion queue overflowed" ));
-  }
 
-  /* Reap deferred/immediate completions */
-  ready = fd_io_uring_cq_ready( ring->cq );
-  for( uint i=0U; i<ready; i++ ) {
-    handle_cqe( ctx, fd_io_uring_cq_head( ring->cq ) );
-    fd_io_uring_cq_advance( ring->cq, 1U );
-    *charge_busy = 1;
-  }
+  after_credit_post( ctx, stem, charge_busy, now );
+  if( waiting ) *charge_busy = 0; /* do not count sleep time as busy */
 }
 
 /* snap_open opens the given snapshot by pool index.  Silently ignores
@@ -1760,6 +2112,13 @@ returnable_frag( fd_snapsv_t *       ctx,
 }
 
 static void
+during_housekeeping( fd_snapsv_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
+  }
+}
+
+static void
 metrics_write( fd_snapsv_t * ctx ) {
   FD_MGAUGE_SET( SNAPSV, SNAPSHOTS_AVAILABLE_FULL,        ctx->snap_cnt_full );
   FD_MGAUGE_SET( SNAPSV, SNAPSHOTS_AVAILABLE_INCREMENTAL, ctx->snap_cnt_incr );
@@ -1767,11 +2126,12 @@ metrics_write( fd_snapsv_t * ctx ) {
 }
 
 #define STEM_BURST 1UL
-#define STEM_CALLBACK_CONTEXT_TYPE    fd_snapsv_t
-#define STEM_CALLBACK_CONTEXT_ALIGN   alignof(fd_snapsv_t)
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_CONTEXT_TYPE        fd_snapsv_t
+#define STEM_CALLBACK_CONTEXT_ALIGN       alignof(fd_snapsv_t)
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #include "../../disco/stem/fd_stem.c"
 
 #ifndef FD_TILE_TEST

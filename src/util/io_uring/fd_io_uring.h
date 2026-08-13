@@ -36,7 +36,7 @@ struct fd_io_uring_sq {
 typedef struct fd_io_uring_sq fd_io_uring_sq_t;
 
 struct fd_io_uring_cq {
-  ulong depth;
+  uint depth;
 
   atomic_uint * khead;
   atomic_uint * ktail;

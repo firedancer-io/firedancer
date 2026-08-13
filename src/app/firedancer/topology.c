@@ -10,6 +10,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../discof/backup/fd_snapmk_tile.h"
+#include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../discof/repair/fd_repair_tile.h"
 #include "../../disco/net/fd_net_tile.h"
@@ -394,6 +395,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snaprd"        );
     fd_topob_wksp( topo, "snaprd_out"    );
     if( snapsv_tile_cnt ) fd_topob_wksp( topo, "snapsv" );
+    fd_topob_wksp( topo, "snapsv_out" );
   }
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -432,6 +434,7 @@ fd_topo_initialize( config_t * config ) {
   if( snapmk_enabled ) fd_topob_link( topo, "replay_snapmk", "replay_snapmk", 16UL,                                     sizeof(fd_replay_snap_start_t),1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "snapmk_out",    "snapmk_out",    128UL,                                    sizeof(fd_snapmk_msg_t),       1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "snaprd_out",    "snaprd_out",    1024UL,                                   FD_BACKUP_RD_MTU,              1UL );
+  FOR(snapsv_tile_cnt) fd_topob_link( topo, "snapsv_out",    "snapsv_out",    16384UL,                                  sizeof(fd_snapsv_msg_t),       1UL )->permit_no_consumers = 1;
   fd_topo_obj_t * zp_fseq = NULL;
   if( snapmk_enabled ) {
     zp_fseq = fd_topob_obj( topo, "fseq", "snapmk" );
@@ -703,6 +706,7 @@ fd_topo_initialize( config_t * config ) {
     /*               */fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "snapmk_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
   FOR(snapsv_tile_cnt) fd_topob_tile_in (   topo, "snapsv",  i,            "metric_in", "snapmk_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(snapsv_tile_cnt) fd_topob_tile_out(   topo, "snapsv",  i,                         "snapsv_out",    i                                                  );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "admin_replay",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_admin",  0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "admin",   0UL,                       "admin_replay",  0UL                                                );
