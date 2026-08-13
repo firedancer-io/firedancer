@@ -25,6 +25,7 @@ struct fd_grpc_h2_stream {
 
   long header_deadline_nanos;  /* deadline to first resp header bit */
   long rx_end_deadline_nanos;  /* deadline to end of stream signal */
+  long tx_wnd_debt;            /* send-window deficit from an initial-window shrink below consumed credit; repaid from WINDOW_UPDATEs before new credit counts */
   uint has_header_deadline : 1;
   uint has_rx_end_deadline : 1;
 };
@@ -111,6 +112,7 @@ struct fd_grpc_client_private {
   /* TLS connection */
   uint  ssl_hs_done : 1;
   uint  h2_hs_done : 1;
+  uint  window_update_pending : 1; /* SETTINGS window delta arrived mid-rx; continue tx after fd_h2_rx returns */
 
   /* Inflight request
      Non-NULL until a gRPC request is fully written out. */
@@ -189,6 +191,15 @@ fd_grpc_h2_cb_data(
     ulong            data_sz,
     ulong            flags
 );
+
+void
+fd_grpc_h2_stream_window_update( fd_h2_conn_t *   conn,
+                                 fd_h2_stream_t * stream,
+                                 uint             increment );
+
+void
+fd_grpc_h2_initial_window_update( fd_h2_conn_t * conn,
+                                  long           delta );
 
 FD_PROTOTYPES_END
 

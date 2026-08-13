@@ -379,6 +379,17 @@ fd_grpc_client_is_connected( fd_grpc_client_t * client );
 int
 fd_grpc_client_request_is_blocked( fd_grpc_client_t * client );
 
+/* fd_grpc_client_stream_send_is_blocked returns 1 if a message cannot
+   currently be sent on an already open stream (conn dead, handshake
+   incomplete, tx buffer non-empty, or a send already in flight), 0
+   otherwise.  Unlike fd_grpc_client_request_is_blocked it does not
+   require headroom to open a new stream, so a server advertising a low
+   SETTINGS_MAX_CONCURRENT_STREAMS cannot stall sends on the open
+   stream. */
+
+int
+fd_grpc_client_stream_send_is_blocked( fd_grpc_client_t * client );
+
 int
 fd_grpc_client_request_stream_busy( fd_grpc_client_t * client );
 

@@ -755,8 +755,13 @@ tx( fd_event_client_t * client,
     int *               charge_busy ) {
   FD_TEST( client->state==FD_EVENT_CLIENT_STATE_CONNECTED );
 
-  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) return;
   if( FD_UNLIKELY( client->event_stream && client->grpc_client->request_stream != NULL && client->grpc_client->request_stream!=client->event_stream ) ) return;
+
+  if( FD_UNLIKELY( client->event_stream ) ) {
+    if( FD_UNLIKELY( fd_grpc_client_stream_send_is_blocked( client->grpc_client ) ) ) return;
+  } else {
+    if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) return;
+  }
 
   if( FD_UNLIKELY( !client->event_stream ) ) {
     client->event_stream = fd_grpc_client_request_start1(
