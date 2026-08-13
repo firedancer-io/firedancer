@@ -67,21 +67,28 @@ fd_h2_noop_stream_window_update( fd_h2_conn_t *   conn,
 }
 
 void
+fd_h2_noop_initial_window_update( fd_h2_conn_t * conn,
+                                  long           delta ) {
+  (void)conn; (void)delta;
+}
+
+void
 fd_h2_noop_ping_ack( fd_h2_conn_t * conn ) {
   (void)conn;
 }
 
 fd_h2_callbacks_t const fd_h2_callbacks_noop = {
-  .stream_create        = fd_h2_noop_stream_create,
-  .stream_query         = fd_h2_noop_stream_query,
-  .conn_established     = fd_h2_noop_conn_established,
-  .conn_final           = fd_h2_noop_conn_final,
-  .headers              = fd_h2_noop_headers,
-  .data                 = fd_h2_noop_data,
-  .rst_stream           = fd_h2_noop_rst_stream,
-  .window_update        = fd_h2_noop_window_update,
-  .stream_window_update = fd_h2_noop_stream_window_update,
-  .ping_ack             = fd_h2_noop_ping_ack,
+  .stream_create         = fd_h2_noop_stream_create,
+  .stream_query          = fd_h2_noop_stream_query,
+  .conn_established      = fd_h2_noop_conn_established,
+  .conn_final            = fd_h2_noop_conn_final,
+  .headers               = fd_h2_noop_headers,
+  .data                  = fd_h2_noop_data,
+  .rst_stream            = fd_h2_noop_rst_stream,
+  .window_update         = fd_h2_noop_window_update,
+  .stream_window_update  = fd_h2_noop_stream_window_update,
+  .initial_window_update = fd_h2_noop_initial_window_update,
+  .ping_ack              = fd_h2_noop_ping_ack,
 };
 
 fd_h2_callbacks_t *

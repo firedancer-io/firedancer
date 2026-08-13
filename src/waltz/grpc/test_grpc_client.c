@@ -155,6 +155,48 @@ FD_UNIT_TEST( rx_stream_quota ) {
   FD_TEST( fd_uint_bswap( window_update.increment )==client->conn->self_settings.initial_window_size / 2 + 2 );
 }
 
+FD_UNIT_TEST( initial_window_update ) {
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+
+  FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
+  fd_grpc_h2_stream_t * s1 = fd_grpc_client_stream_acquire( client, 0UL );
+  fd_grpc_h2_stream_t * s2 = fd_grpc_client_stream_acquire( client, 0UL );
+
+  /* Positive delta grows every active stream and defers tx resumption
+     to after fd_h2_rx */
+  s1->s.tx_wnd = 100U;
+  s2->s.tx_wnd = 200U;
+  fd_grpc_h2_initial_window_update( client->conn, 50L );
+  FD_TEST( s1->s.tx_wnd==150U && s1->tx_wnd_debt==0L );
+  FD_TEST( s2->s.tx_wnd==250U && s2->tx_wnd_debt==0L );
+  FD_TEST( client->window_update_pending==1U );
+  client->window_update_pending = 0;
+
+  /* Shrink below consumed credit: window 10, delta -20 -> effective -10.
+     A WINDOW_UPDATE of 10 must yield effective 0, not 10. */
+  s1->s.tx_wnd = 10U;
+  s2->s.tx_wnd = 300U;
+  fd_grpc_h2_initial_window_update( client->conn, -20L );
+  FD_TEST( s1->s.tx_wnd==0U   && s1->tx_wnd_debt==10L );
+  FD_TEST( s2->s.tx_wnd==280U && s2->tx_wnd_debt==0L  );
+  FD_TEST( client->window_update_pending==0U ); /* no resumption on shrink */
+
+  s1->s.tx_wnd += 10U; /* as fd_h2 does on WINDOW_UPDATE, before the callback */
+  fd_grpc_h2_stream_window_update( client->conn, &s1->s, 10U );
+  FD_TEST( s1->s.tx_wnd==0U && s1->tx_wnd_debt==0L );
+
+  s1->s.tx_wnd += 25U;
+  fd_grpc_h2_stream_window_update( client->conn, &s1->s, 25U );
+  FD_TEST( s1->s.tx_wnd==25U && s1->tx_wnd_debt==0L );
+
+  /* A raise past 2^31-1 on any stream is a connection error */
+  s2->s.tx_wnd = 0x7fffffffU;
+  fd_grpc_h2_initial_window_update( client->conn, 1L );
+  FD_TEST( client->conn->flags & FD_H2_CONN_FLAGS_SEND_GOAWAY );
+  FD_TEST( client->conn->conn_error==FD_H2_ERR_FLOW_CONTROL );
+}
+
 FD_UNIT_TEST( stream_release ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );

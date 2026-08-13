@@ -351,14 +351,19 @@ fd_h2_rx_settings( fd_h2_conn_t *            conn,
         return 0;
       }
       break;
-    case FD_H2_SETTINGS_INITIAL_WINDOW_SIZE:
+    case FD_H2_SETTINGS_INITIAL_WINDOW_SIZE: {
       if( FD_UNLIKELY( value>0x7fffffff ) ) {
         fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
         return 0;
       }
+      long delta = (long)value - (long)conn->peer_settings.initial_window_size;
       conn->peer_settings.initial_window_size = value;
-      /* FIXME update window accordingly */
+      if( FD_UNLIKELY( delta && cb->initial_window_update ) ) {
+        cb->initial_window_update( conn, delta );
+        if( FD_UNLIKELY( conn->flags & FD_H2_CONN_FLAGS_SEND_GOAWAY ) ) return 0;
+      }
       break;
+    }
     case FD_H2_SETTINGS_MAX_FRAME_SIZE:
       if( FD_UNLIKELY( value<0x4000 || value>0xffffff ) ) {
         /* Values outside this range MUST be treated as a connection error
@@ -707,9 +712,10 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
   }
 
   /* Ensure TX buffer has enough free space for control frame responses
-     (e.g. RST_STREAM) that frame handlers might generate.  If there is
-     not enough space, defer processing until the TX buffer drains. */
-  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<sizeof(fd_h2_rst_stream_t) ) ) return;
+     that frame handlers might generate.  The largest is the PONG reply
+     (17 bytes); RST_STREAM is 13.  If there is not enough space, defer
+     processing until the TX buffer drains. */
+  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<sizeof(fd_h2_ping_t) ) ) return;
 
   *rbuf_rx = rx_peek;
   uchar * frame = fd_h2_rbuf_pop( rbuf_rx, scratch, payload_sz );

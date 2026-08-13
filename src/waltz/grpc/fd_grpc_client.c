@@ -11,6 +11,9 @@
 #include "../h2/fd_h2_rbuf_ossl.h"
 #endif
 
+static int
+fd_grpc_client_request_continue( fd_grpc_client_t * client );
+
 ulong
 fd_grpc_client_align( void ) {
   return fd_ulong_max( alignof(fd_grpc_client_t), fd_grpc_h2_stream_pool_align() );
@@ -40,6 +43,7 @@ fd_grpc_h2_stream_reset( fd_grpc_h2_stream_t * stream ) {
   stream->msg_sz              = 0UL;
   stream->has_header_deadline = 0;
   stream->has_rx_end_deadline = 0;
+  stream->tx_wnd_debt         = 0L;
 }
 
 fd_grpc_client_t *
@@ -220,6 +224,7 @@ fd_grpc_client_reset( fd_grpc_client_t * client ) {
   client->conn->ctx      = client;
   client->h2_hs_done     = 0;
   client->ssl_hs_done    = 0;
+  client->window_update_pending = 0;
   client->request_stream = NULL;
   *client->request_tx_op = (fd_h2_tx_op_t){0};
 
@@ -349,6 +354,10 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
   }
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
+  if( FD_UNLIKELY( client->window_update_pending ) ) {
+    client->window_update_pending = 0;
+    fd_grpc_client_request_continue( client );
+  }
   fd_grpc_client_service_streams( client, fd_log_wallclock() );
   ulong write_sz = fd_h2_rbuf_ssl_write( client->frame_tx, ssl );
   client->metrics->stream_chunks_rx_bytes += read_sz;
@@ -381,11 +390,14 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
 
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
+  if( FD_UNLIKELY( client->window_update_pending ) ) {
+    client->window_update_pending = 0;
+    fd_grpc_client_request_continue( client );
+  }
   fd_grpc_client_service_streams( client, fd_log_wallclock() );
 
   int tx_err = fd_h2_rbuf_sendmsg( client->frame_tx, sock_fd, MSG_NOSIGNAL|MSG_DONTWAIT );
-  if( FD_LIKELY( tx_err && tx_err==EAGAIN ) ) return 1;
-  if( FD_UNLIKELY( tx_err ) ) {
+  if( FD_UNLIKELY( tx_err && tx_err!=EAGAIN ) ) {
     FD_LOG_WARNING(( "fd_h2_rbuf_sendmsg failed (%i-%s)", tx_err, fd_io_strerror( tx_err ) ));
     errno = tx_err;
     return -1;
@@ -404,7 +416,7 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
     *charge_busy = 1;
   }
 
-  return 0;
+  return tx_err==EAGAIN ? 1 : 0;
 }
 
 #endif /* FD_H2_HAS_SOCKETS */
@@ -428,7 +440,7 @@ fd_grpc_client_request_continue1( fd_grpc_client_t * client ) {
 
 static int
 fd_grpc_client_request_continue( fd_grpc_client_t * client ) {
-  if( FD_UNLIKELY( client->conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) return 0;
+  if( FD_UNLIKELY( client->conn->flags & (FD_H2_CONN_FLAGS_DEAD|FD_H2_CONN_FLAGS_SEND_GOAWAY) ) ) return 0;
   if( FD_UNLIKELY( !client->request_stream ) ) return 0;
   if( FD_UNLIKELY( !client->request_tx_op->chunk_sz ) ) return 0;
   return fd_grpc_client_request_continue1( client );
@@ -450,6 +462,16 @@ fd_grpc_client_request_is_blocked( fd_grpc_client_t * client ) {
   if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx )         ) ) return 1;
   if( FD_UNLIKELY( client->request_tx_op->chunk_sz > 0UL            ) ) return 1;
   if( FD_UNLIKELY( !fd_grpc_client_stream_acquire_is_safe( client ) ) ) return 1;
+  return 0;
+}
+
+int
+fd_grpc_client_stream_send_is_blocked( fd_grpc_client_t * client ) {
+  if( FD_UNLIKELY( !client                                     ) ) return 1;
+  if( FD_UNLIKELY( client->conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) return 1;
+  if( FD_UNLIKELY( !client->h2_hs_done                         ) ) return 1;
+  if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx )    ) ) return 1;
+  if( FD_UNLIKELY( client->request_tx_op->chunk_sz > 0UL       ) ) return 1;
   return 0;
 }
 
@@ -921,15 +943,49 @@ void
 fd_grpc_h2_window_update( fd_h2_conn_t * conn,
                           uint           increment ) {
   (void)increment;
-  fd_grpc_client_request_continue( conn->ctx );
+  /* Defer tx resumption to after fd_h2_rx: filling frame_tx mid-rx can
+     starve control-frame responses (SETTINGS ACK, PONG). */
+  ((fd_grpc_client_t *)conn->ctx)->window_update_pending = 1;
 }
 
 void
 fd_grpc_h2_stream_window_update( fd_h2_conn_t *   conn,
                                  fd_h2_stream_t * stream,
                                  uint             increment ) {
-  (void)stream; (void)increment;
-  fd_grpc_client_request_continue( conn->ctx );
+  (void)increment;
+  /* Repay initial-window-shrink debt before the new credit counts. */
+  fd_grpc_h2_stream_t * st = fd_grpc_h2_stream_upcast( stream );
+  long repay = fd_long_min( st->tx_wnd_debt, (long)stream->tx_wnd );
+  if( FD_UNLIKELY( repay>0L ) ) {
+    stream->tx_wnd  -= (uint)repay;
+    st->tx_wnd_debt -= repay;
+  }
+  ((fd_grpc_client_t *)conn->ctx)->window_update_pending = 1;
+}
+
+void
+fd_grpc_h2_initial_window_update( fd_h2_conn_t * conn,
+                                  long           delta ) {
+  fd_grpc_client_t * client = conn->ctx;
+  for( uint i=0U; i<client->stream_cnt; i++ ) {
+    fd_grpc_h2_stream_t * stream = client->streams[ i ];
+    fd_h2_stream_t *      s      = &stream->s;
+    /* The effective window can go negative on a shrink below consumed
+       credit (RFC 9113 section 6.9.2).  tx_wnd is unsigned, so carry
+       the deficit in tx_wnd_debt; WINDOW_UPDATEs repay it before
+       granting new credit. */
+    long wnd = (long)s->tx_wnd - stream->tx_wnd_debt + delta;
+    if( FD_UNLIKELY( wnd > 0x7fffffffL ) ) {
+      fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
+      return;
+    }
+    s->tx_wnd           = (uint)fd_long_max( wnd, 0L );
+    stream->tx_wnd_debt =       fd_long_max( -wnd, 0L );
+  }
+  /* Do not continue the tx op here: this runs inside fd_h2_rx SETTINGS
+     processing, and filling frame_tx now can starve the SETTINGS ACK
+     push (conn death via FD_H2_ERR_INTERNAL).  Defer to after rx. */
+  if( FD_UNLIKELY( delta>0L ) ) client->window_update_pending = 1;
 }
 
 void
@@ -958,14 +1014,15 @@ fd_grpc_client_h2_conn( fd_grpc_client_t * client ) {
    avoid NULL pointers. */
 
 fd_h2_callbacks_t const fd_grpc_client_h2_callbacks = {
-  .stream_create        = fd_h2_noop_stream_create,
-  .stream_query         = fd_grpc_h2_stream_query,
-  .conn_established     = fd_grpc_h2_conn_established,
-  .conn_final           = fd_grpc_h2_conn_final,
-  .headers              = fd_grpc_h2_cb_headers,
-  .data                 = fd_grpc_h2_cb_data,
-  .rst_stream           = fd_grpc_h2_rst_stream,
-  .window_update        = fd_grpc_h2_window_update,
-  .stream_window_update = fd_grpc_h2_stream_window_update,
-  .ping_ack             = fd_grpc_h2_ping_ack,
+  .stream_create         = fd_h2_noop_stream_create,
+  .stream_query          = fd_grpc_h2_stream_query,
+  .conn_established      = fd_grpc_h2_conn_established,
+  .conn_final            = fd_grpc_h2_conn_final,
+  .headers               = fd_grpc_h2_cb_headers,
+  .data                  = fd_grpc_h2_cb_data,
+  .rst_stream            = fd_grpc_h2_rst_stream,
+  .window_update         = fd_grpc_h2_window_update,
+  .stream_window_update  = fd_grpc_h2_stream_window_update,
+  .initial_window_update = fd_grpc_h2_initial_window_update,
+  .ping_ack              = fd_grpc_h2_ping_ack,
 };

@@ -86,6 +86,14 @@ struct fd_h2_callbacks {
                             fd_h2_stream_t * stream,
                             uint             increment );
 
+  /* initial_window_update signals that the peer changed
+     SETTINGS_INITIAL_WINDOW_SIZE by delta; the callee owns the streams
+     and must apply it to each open stream's tx_wnd (may be NULL). */
+
+  void
+  (* initial_window_update)( fd_h2_conn_t * conn,
+                             long           delta );
+
   /* ping_ack delivers an acknowledgement of a PING that was previously
      sent by fd_h2_tx_ping. */
 
@@ -149,6 +157,10 @@ void
 fd_h2_noop_stream_window_update( fd_h2_conn_t *   conn,
                                  fd_h2_stream_t * stream,
                                  uint             increment );
+
+void
+fd_h2_noop_initial_window_update( fd_h2_conn_t * conn,
+                                  long           delta );
 
 void
 fd_h2_noop_ping_ack( fd_h2_conn_t * conn );
