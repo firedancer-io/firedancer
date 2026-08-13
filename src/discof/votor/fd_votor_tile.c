@@ -1344,6 +1344,21 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_pool_event_t event = ag_pool_votor_event_channel( ctx->pool )[ i++ ];
     ag_votor_handle_pool_event( ctx->votor, &event );
     handle_votor_out( ctx );
+
+    /* Forward ParentReady to replay: a slot became producible (parent
+       notarized/notar-fallback + skip-certified gap).  Replay owns the
+       leader schedule and decides whether we produce; here we just relay
+       the (slot, parent) so it has the go-signal and the fork to build
+       on.  Handling in ag_votor above only gates our own voting. */
+    if( FD_UNLIKELY( event.kind==AG_POOL_EVENT_PARENT_READY ) ) {
+      publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
+      pub->sig  = FD_VOTOR_SIG_PARENT_READY;
+      pub->bcast = 0;
+      pub->msg.parent_ready.slot            = event.inner.parent_ready.slot;
+      pub->msg.parent_ready.parent_slot     = event.inner.parent_ready.parent.slot;
+      pub->msg.parent_ready.parent_block_id = event.inner.parent_ready.parent.hash;
+    }
+
     did_work = 1;
   }
 

@@ -1198,7 +1198,8 @@ EXAMPLES
     <gauge name="RootDistance" summary="Distance in slots between our current root and the current reset slot" />
     <gauge name="LeaderSlot" summary="Slot at which we are currently leader, or 0 if none" />
     <gauge name="NextLeaderSlot" summary="Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot" />
-    <gauge name="ResetSlot" summary="Slot at which we last reset the replay stage, or 0 if unknown" />
+    <gauge name="ResetSlot" summary="Slot at which we last reset the replay stage, or 0 if unknown. Under Alpenglow this is the leader build-on parent (set on ParentReady), not the replayed tip" />
+    <gauge name="ReplaySlot" summary="Replayed tip: the most recently replayed (or leader-produced) slot, or 0 if nothing replayed yet. Not monotonically increasing" />
     <gauge name="BankLiveMax" summary="Maximum number of banks we can have alive" />
     <gauge name="BankLive" summary="Banks we currently have alive" />
 

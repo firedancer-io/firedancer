@@ -1000,7 +1000,8 @@
 | <span class="metrics-name">replay_&#8203;root_&#8203;distance</span> | gauge | Distance in slots between our current root and the current reset slot |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;slot</span> | gauge | Slot at which we are currently leader, or 0 if none |
 | <span class="metrics-name">replay_&#8203;next_&#8203;leader_&#8203;slot</span> | gauge | Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot |
-| <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | Slot at which we last reset the replay stage, or 0 if unknown |
+| <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | Slot at which we last reset the replay stage, or 0 if unknown. Under Alpenglow this is the leader build-on parent (set on ParentReady), not the replayed tip |
+| <span class="metrics-name">replay_&#8203;replay_&#8203;slot</span> | gauge | Replayed tip: the most recently replayed (or leader-produced) slot, or 0 if nothing replayed yet. Not monotonically increasing |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;live_&#8203;max</span> | gauge | Maximum number of banks we can have alive |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;live</span> | gauge | Banks we currently have alive |
 | <span class="metrics-name">replay_&#8203;reassembly_&#8203;free</span> | gauge | Free FEC sets in the reassembly queue |

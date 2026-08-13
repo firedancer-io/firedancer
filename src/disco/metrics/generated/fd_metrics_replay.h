@@ -22,6 +22,7 @@ enum {
   FD_METRICS_GAUGE_REPLAY_LEADER_SLOT_OFF,
   FD_METRICS_GAUGE_REPLAY_NEXT_LEADER_SLOT_OFF,
   FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF,
+  FD_METRICS_GAUGE_REPLAY_REPLAY_SLOT_OFF,
   FD_METRICS_GAUGE_REPLAY_BANK_LIVE_MAX_OFF,
   FD_METRICS_GAUGE_REPLAY_BANK_LIVE_OFF,
   FD_METRICS_GAUGE_REPLAY_REASSEMBLY_FREE_OFF,
@@ -233,8 +234,13 @@ enum {
 
 #define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_NAME "replay_reset_slot"
 #define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_DESC "Slot at which we last reset the replay stage, or 0 if unknown"
+#define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_DESC "Slot at which we last reset the replay stage, or 0 if unknown. Under Alpenglow this is the leader build-on parent (set on ParentReady), not the replayed tip"
 #define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_REPLAY_REPLAY_SLOT_NAME "replay_replay_slot"
+#define FD_METRICS_GAUGE_REPLAY_REPLAY_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_REPLAY_REPLAY_SLOT_DESC "Replayed tip: the most recently replayed (or leader-produced) slot, or 0 if nothing replayed yet. Not monotonically increasing"
+#define FD_METRICS_GAUGE_REPLAY_REPLAY_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_REPLAY_BANK_LIVE_MAX_NAME "replay_bank_live_max"
 #define FD_METRICS_GAUGE_REPLAY_BANK_LIVE_MAX_TYPE (FD_METRICS_TYPE_GAUGE)
@@ -649,7 +655,7 @@ enum {
 #define FD_METRICS_GAUGE_REPLAY_RUNTIME_STATUS_DESC "0=initializing, 1=loaded"
 #define FD_METRICS_GAUGE_REPLAY_RUNTIME_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_REPLAY_TOTAL (144UL)
+#define FD_METRICS_REPLAY_TOTAL (145UL)
 extern const fd_metrics_meta_t FD_METRICS_REPLAY[FD_METRICS_REPLAY_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_replay_h */

@@ -1348,6 +1348,21 @@ after_frag( ctx_t *             ctx,
 
       if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX && sig_src == SHRED_SIG_SRC_TURBINE ) ) {
         ctx->turbine_slot0 = shred->slot;
+
+        ulong slot_delta;
+        int cf = __builtin_usubl_overflow( ctx->turbine_slot0, ctx->chainer->root, &slot_delta );
+        if( FD_UNLIKELY( cf || slot_delta > fd_slotv_pool_max( fd_chainer_slotv_pool( ctx->chainer ) ) ) ) {
+          /* TODO: It's most optimal to define the catchup target as the
+             first notarize cert we receive (in Alpenglow). But we
+             currently dont have any info in the repair tile to know if
+             we are unstaked or not. And if we are unstaked, we will not
+             be getting any certs from votor :( So for now we will just
+             use the first turbine shred we receive. */
+
+          FD_LOG_ERR(( "Catchup slot distance exceeds the repair buffer: target %lu - snapshot slot %lu > %lu. "
+                       "Restart with a more recent snapshot or increase config repair.slot_max", ctx->turbine_slot0, ctx->chainer->root, fd_slotv_pool_max( fd_chainer_slotv_pool( ctx->chainer ) ) ));
+          return;
+        }
         fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
         fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
 
@@ -1883,9 +1898,9 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   if( FD_UNLIKELY( tile->repair.is_alpenglow ) ) {
-    ctx->chainer      = fd_chainer_join        ( fd_chainer_new    ( ctx->chainer,    tile->repair.slot_max, ctx->repair_seed                                        ) );
+    ctx->chainer      = fd_chainer_join        ( fd_chainer_new    ( ctx->chainer,   tile->repair.slot_max, ctx->repair_seed                                        ) );
   }
-  ctx->forest       = fd_forest_join        ( fd_forest_new      ( ctx->forest,    tile->repair.slot_max, ctx->repair_seed                                        ) );
+  ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,    tile->repair.slot_max, ctx->repair_seed                                        ) );
   ctx->protocol     = fd_repair_join        ( fd_repair_new        ( ctx->protocol,  &ctx->identity_public_key                                                      ) );
   ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,    FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->dedup        = fd_reqlim_join        ( fd_reqlim_new        ( ctx->dedup,     FD_REQLIM_CACHE_MAX, ctx->repair_seed                      ) );

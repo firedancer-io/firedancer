@@ -52,14 +52,24 @@
    - FD_VOTOR_SIG_ROOTED    : the bank root advanced -- the highest slot that is
                               BOTH finalized AND replayed (its bank is frozen).
                               This is the "root your bank here" command for
-                              replay; it lags FINALIZED during catchup. */
+                              replay; it lags FINALIZED during catchup.
+   - FD_VOTOR_SIG_PARENT_READY : a slot became producible -- its parent is
+                              notarized / notarized-fallback and the skip gap up
+                              to it is skip-certified (the pool's ParentReady
+                              event).  Fired cluster-wide, not filtered to our
+                              own leader slots; replay owns the leader schedule
+                              and decides whether it is the one to produce, using
+                              this as the go-signal (replaces the wall-clock
+                              next_leader_tickcount trigger) plus the fork to
+                              build on. */
 
-#define FD_VOTOR_SIG_VOTE      (0UL)
-#define FD_VOTOR_SIG_CERT      (1UL)
-#define FD_VOTOR_SIG_SLOT      (2UL)
-#define FD_VOTOR_SIG_NOTARFB   (3UL)
-#define FD_VOTOR_SIG_FINALIZED (4UL)
-#define FD_VOTOR_SIG_ROOTED    (5UL)
+#define FD_VOTOR_SIG_VOTE         (0UL)
+#define FD_VOTOR_SIG_CERT         (1UL)
+#define FD_VOTOR_SIG_SLOT         (2UL)
+#define FD_VOTOR_SIG_NOTARFB      (3UL)
+#define FD_VOTOR_SIG_FINALIZED    (4UL)
+#define FD_VOTOR_SIG_ROOTED       (5UL)
+#define FD_VOTOR_SIG_PARENT_READY (6UL)
 
 /* FD_VOTOR_SIG_RX is OR'd into the sig of a VOTE or CERT frag that the
    tile RECEIVED, and is clear on one it originated.  The kind says WHAT
@@ -100,6 +110,18 @@ typedef struct ag_votor_notar_slot ag_votor_notar_fallback_t;
 typedef struct ag_votor_notar_slot ag_votor_finalized_t;
 typedef struct ag_votor_notar_slot ag_votor_rooted_t;
 
+/* ag_votor_parent_ready_t is published once per pool ParentReady event
+   (FD_VOTOR_SIG_PARENT_READY): slot is the now-producible slot, and
+   (parent_slot, parent_block_id) is the certified parent to build the
+   block on. */
+
+struct ag_votor_parent_ready {
+  ulong     slot;
+  ulong     parent_slot;
+  fd_hash_t parent_block_id;
+};
+typedef struct ag_votor_parent_ready ag_votor_parent_ready_t;
+
 /* ag_votor_finalized_t and ag_votor_rooted_t carry a (slot, block_id)
    -- used for both FD_VOTOR_SIG_FINALIZED (consensus finalized the
    slot) and FD_VOTOR_SIG_ROOTED (the bank root advanced to the slot).
@@ -111,6 +133,7 @@ union ag_votor_msg {
   ag_votor_notar_fallback_t notar_fallback; /* FD_VOTOR_SIG_NOTARFB */
   ag_votor_finalized_t      finalized; /* FD_VOTOR_SIG_FINALIZED */
   ag_votor_rooted_t         rooted;    /* FD_VOTOR_SIG_ROOTED    */
+  ag_votor_parent_ready_t   parent_ready; /* FD_VOTOR_SIG_PARENT_READY */
 };
 typedef union ag_votor_msg ag_votor_msg_t;
 

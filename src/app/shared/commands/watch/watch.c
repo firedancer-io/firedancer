@@ -975,7 +975,10 @@ write_replay( config_t const * config,
   ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
   if( replay_tile_idx==ULONG_MAX ) return 0U;
 
-  ulong reset_slot       = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, RESET_SLOT       ) ];
+  /* replay_slot is the replayed tip (where replay has progressed to).
+     Under Alpenglow RESET_SLOT is the leader build-on parent, not the
+     replayed tip, so the display sources the tip from REPLAY_SLOT. */
+  ulong replay_slot      = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, REPLAY_SLOT      ) ];
   ulong next_leader_slot = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, NEXT_LEADER_SLOT ) ];
   ulong leader_slot      = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LEADER_SLOT      ) ];
   char * next_leader_slot_str = fd_alloca_check( 1UL, 64UL );
@@ -984,10 +987,10 @@ write_replay( config_t const * config,
   if( repair_tile_idx!=ULONG_MAX ) {
     turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_CURRENT ) ];
   } else {
-    turbine_slot = reset_slot;
+    turbine_slot = replay_slot;
   }
 
-  ulong slot_in_seconds = (ulong)((double)(next_leader_slot-reset_slot)*0.4);
+  ulong slot_in_seconds = (ulong)((double)(next_leader_slot-replay_slot)*0.4);
   if( FD_UNLIKELY( leader_slot ) ) FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "now" ) );
   else if( FD_LIKELY( next_leader_slot>0UL ) ) FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "%lum %lus", slot_in_seconds/60UL, slot_in_seconds%60UL ) );
   else FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "never" ) );
@@ -1018,8 +1021,8 @@ write_replay( config_t const * config,
          " " BOLD "LEADER IN" UNBOLD " %s"
          " " BOLD "ROOT DIST" UNBOLD " %lu"
          " " BOLD "BANKS"     UNBOLD " %2lu" CLEARLN "\n",
-    reset_slot,
-    (long)reset_slot-(long)turbine_slot,
+    replay_slot,
+    (long)replay_slot-(long)turbine_slot,
     mcups_str,
     tps_str,
     sps_str,

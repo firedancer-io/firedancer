@@ -369,6 +369,35 @@ struct fd_replay_tile {
   ulong       next_leader_slot;
   long        next_leader_tickcount;
   ulong       highwater_leader_slot;
+
+  /* Alpenglow leader gating.  Under Alpenglow, leader production is
+     unblocked by a ParentReady event from votor (parent notarized /
+     notarized-fallback + skip-certified gap), not by the wall-clock
+     next_leader_tickcount.  ag_parent_ready_slot is the producible slot
+     named by the most recent ParentReady that matched our next leader
+     slot; when it equals next_leader_slot the gate is open and
+     reset_{slot,bank,block_id} hold the certified parent to build on.
+     ULONG_MAX means no matching ParentReady yet. */
+  ulong       ag_parent_ready_slot;
+
+  /* replayed_slot is the "replayed tip": the most recently replayed
+     (or leader-produced) slot, updated once per completed slot in
+     publish_slot_completed.  Under Alpenglow reset_slot no longer tracks
+     replay progress (it is the leader build-on parent), so the RESET_SLOT
+     metric -- what a monitor watches to see where replay is -- is sourced
+     from this instead.  ULONG_MAX until the first slot completes; not
+     monotonic (can move to a sibling fork). */
+  ulong       replayed_slot;
+
+  /* next_leader_slot_scheduled is the next slot at/after the replayed tip
+     that WE are scheduled to lead (ULONG_MAX if none in the loaded
+     epochs), recomputed per completed slot in publish_slot_completed.
+     This is a display/metric value only -- the NEXT_LEADER_SLOT gauge and
+     the watch "LEADER IN" countdown source it.  It is distinct from
+     next_leader_slot, which under Alpenglow is the production/gate state
+     (set by ParentReady, ULONG_MAX between our windows) and would be a
+     poor countdown. */
+  ulong       next_leader_slot_scheduled;
   ulong       reset_slot;
   fd_bank_t * reset_bank;
   fd_hash_t   reset_block_id;

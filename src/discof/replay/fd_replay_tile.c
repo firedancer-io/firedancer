@@ -7,6 +7,7 @@
 #include "../genesis/fd_genesi_tile.h"
 #include "../poh/fd_poh.h"
 #include "../../alpenglow/consensus/ag_cert.h"
+#include "../../alpenglow/types/ag_slot.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../votor/fd_votor_tile.h"
@@ -167,10 +168,18 @@ metrics_write( fd_replay_tile_t * ctx ) {
     FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, leader_slot );
     FD_MGAUGE_SET( REPLAY, LEADER_SLOT, leader_slot );
   } else {
-    FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, ctx->next_leader_slot==ULONG_MAX ? 0UL : ctx->next_leader_slot );
+    /* Not currently leading: report the next slot we are SCHEDULED to
+       lead (maintained per-slot from the replayed tip), not
+       next_leader_slot -- under Alpenglow the latter is ULONG_MAX between
+       our windows and would show "never". */
+    FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, ctx->next_leader_slot_scheduled==ULONG_MAX ? 0UL : ctx->next_leader_slot_scheduled );
     FD_MGAUGE_SET( REPLAY, LEADER_SLOT, 0UL );
   }
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
+  /* REPLAY_SLOT is the replayed tip (where replay has progressed to).
+     Distinct from RESET_SLOT, which under Alpenglow is the leader
+     build-on parent set only on ParentReady. */
+  FD_MGAUGE_SET( REPLAY, REPLAY_SLOT, ctx->replayed_slot==ULONG_MAX ? 0UL : ctx->replayed_slot );
 
   FD_MGAUGE_SET( REPLAY, BANK_LIVE, fd_banks_pool_used_cnt( ctx->banks ) );
 
@@ -380,6 +389,21 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
                         ulong               priority_fees_pre_settle ) {
 
   ulong slot = bank->f.slot;
+
+  /* Track the replayed tip for the REPLAY_SLOT metric (see replayed_slot
+     in fd_replay_tile_private.h).  This is the single chokepoint every
+     completed slot -- follower, leader, and boot/snapshot -- passes
+     through. */
+  ctx->replayed_slot = slot;
+
+  /* Maintain the "next scheduled leader slot" for the NEXT_LEADER_SLOT
+     metric / watch countdown, from the replayed tip.  Only rescan once we
+     reach the previously computed slot (or have none yet), so a staked
+     leader pays the get_next_slot scan roughly once per window rather than
+     every slot. */
+  if( FD_UNLIKELY( ctx->next_leader_slot_scheduled==ULONG_MAX || slot>=ctx->next_leader_slot_scheduled ) ) {
+    ctx->next_leader_slot_scheduled = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, slot+1UL, ctx->identity_pubkey );
+  }
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->idx ];
 
@@ -750,6 +774,11 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   fd_vote_tracker_reset( ctx->vote_tracker );
 }
 
+/* Forward declarations: try_fini_leader self-chains the next slot of an
+   Alpenglow leader window, which needs both of these (defined below). */
+static inline int try_become_leader( fd_replay_tile_t * ctx, fd_stem_context_t * stem );
+static void       publish_poh_reset( fd_replay_tile_t * ctx, fd_stem_context_t * stem, fd_bank_t * bank, fd_block_id_ele_t * block_id_ele );
+
 static int
 try_fini_leader( fd_replay_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
@@ -767,6 +796,13 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ctx->leader_bank->last_transaction_finished_nanos = fd_log_wallclock();
 
   ulong curr_slot = ctx->leader_bank->f.slot;
+
+  /* Captured for the Alpenglow self-chain re-arm below, before the leader
+     bank pointer is cleared.  completed_block_id is the double-merkle id
+     the next slot in the window chains onto. */
+  fd_bank_t *         completed_bank     = ctx->leader_bank;
+  fd_block_id_ele_t * completed_bank_ele = &ctx->block_id_arr[ ctx->leader_bank->idx ];
+  fd_hash_t           completed_block_id = ctx->leader_bank->block_id;
 
   fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx, curr_slot );
 
@@ -797,6 +833,30 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ctx->is_leader   = 0;
 
   maybe_switch_identity( ctx );
+
+  /* Alpenglow: self-chain to the next slot of our leader window without a
+     consensus round-trip.  The ParentReady gate opened the whole window
+     (ag_parent_ready_slot = its first slot); produce each remaining slot
+     on top of the one we just finished.  Once curr_slot+1 falls in the
+     next window, close the gate implicitly (next_leader_slot=ULONG_MAX)
+     and wait for that window's ParentReady.  maybe_switch_identity may
+     have recomputed next_leader_slot on a key switch; if so the gate
+     (window mismatch) keeps us from producing on the stale identity. */
+  if( FD_UNLIKELY( ctx->is_alpenglow && ctx->ag_parent_ready_slot!=ULONG_MAX ) ) {
+    ulong next = curr_slot + 1UL;
+    if( FD_LIKELY( ag_slot_first_slot_in_window( next )==ctx->ag_parent_ready_slot ) ) {
+      ctx->next_leader_slot      = next;
+      ctx->next_leader_tickcount = fd_tickcount();
+      ctx->reset_slot            = curr_slot;
+      ctx->reset_block_id        = completed_block_id;
+      ctx->reset_bank            = completed_bank;
+      ctx->reset_timestamp_nanos = fd_log_wallclock();
+      publish_poh_reset( ctx, stem, completed_bank, completed_bank_ele );
+      try_become_leader( ctx, stem );
+    } else {
+      ctx->next_leader_slot = ULONG_MAX; /* window complete; await next ParentReady */
+    }
+  }
 
   return 1;
 }
@@ -900,54 +960,67 @@ try_become_leader( fd_replay_tile_t *  ctx,
   if( !ctx->supports_leader ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
-  long now = fd_tickcount();
-  if( FD_LIKELY( now<ctx->next_leader_tickcount ) ) return 0;
 
-  /* If a prior leader is still in the process of publishing their slot,
-     delay ours to let them finish ... unless they are so delayed that
-     we risk getting skipped by the leader following us.  1.2 seconds
-     is a reasonable default here, although any value between 0 and 1.6
-     seconds could be considered reasonable.  This is arbitrary and
-     chosen due to intuition. */
-  if( FD_UNLIKELY( now<ctx->next_leader_tickcount+(long)(3.0*ctx->slot_duration_ticks) ) ) {
-    FD_TEST( ctx->reset_bank );
+  /* Under Alpenglow, leader production is gated on a ParentReady event
+     for our leader window (process_votor_parent_ready opens the gate and
+     sets reset_{slot,bank,block_id} to the certified parent; try_fini_leader
+     self-chains the remaining slots of the window), not on the wall-clock
+     next_leader_tickcount / prior-leader-publishing heuristics below.  The
+     gate is window-level: it stays open for every slot of the window whose
+     first slot is ag_parent_ready_slot.  Once open we produce immediately. */
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    if( FD_LIKELY( ctx->ag_parent_ready_slot==ULONG_MAX ||
+                   ag_slot_first_slot_in_window( ctx->next_leader_slot )!=ctx->ag_parent_ready_slot ) ) return 0;
+  } else {
+    long now = fd_tickcount();
+    if( FD_LIKELY( now<ctx->next_leader_tickcount ) ) return 0;
 
-    /* TODO: Make the max_active_descendant calculation more efficient
-       by caching it in the bank structure and updating it as banks are
-       created and completed. */
-    ulong max_active_descendant = 0UL;
-    ulong child_idx = ctx->reset_bank->child_idx;
-    while( child_idx!=ULONG_MAX ) {
-      fd_bank_t * child_bank = fd_banks_bank_query( ctx->banks, child_idx );
-      max_active_descendant = fd_ulong_max( max_active_descendant, child_bank->f.slot );
-      child_idx = child_bank->sibling_idx;
+    /* If a prior leader is still in the process of publishing their slot,
+       delay ours to let them finish ... unless they are so delayed that
+       we risk getting skipped by the leader following us.  1.2 seconds
+       is a reasonable default here, although any value between 0 and 1.6
+       seconds could be considered reasonable.  This is arbitrary and
+       chosen due to intuition. */
+    if( FD_UNLIKELY( now<ctx->next_leader_tickcount+(long)(3.0*ctx->slot_duration_ticks) ) ) {
+      FD_TEST( ctx->reset_bank );
+
+      /* TODO: Make the max_active_descendant calculation more efficient
+         by caching it in the bank structure and updating it as banks are
+         created and completed. */
+      ulong max_active_descendant = 0UL;
+      ulong child_idx = ctx->reset_bank->child_idx;
+      while( child_idx!=ULONG_MAX ) {
+        fd_bank_t * child_bank = fd_banks_bank_query( ctx->banks, child_idx );
+        max_active_descendant = fd_ulong_max( max_active_descendant, child_bank->f.slot );
+        child_idx = child_bank->sibling_idx;
+      }
+
+      /* If the max_active_descendant is >= next_leader_slot, we waited
+         too long and a leader after us started publishing to try and skip
+         us.  Just start our leader slot immediately, we might win ... */
+      if( FD_LIKELY( max_active_descendant>=ctx->reset_slot && max_active_descendant<ctx->next_leader_slot ) ) {
+        /* If one of the leaders between the reset slot and our leader
+           slot is in the process of publishing (they have a descendant
+           bank that is in progress of being replayed), then keep waiting.
+           We probably wouldn't get a leader slot out before they
+           finished.
+
+           Unless... we are past the deadline to start our slot by more
+           than 1.2 seconds, in which case we should probably start it to
+           avoid getting skipped by the leader behind us. */
+        return 0;
+      }
     }
 
-    /* If the max_active_descendant is >= next_leader_slot, we waited
-       too long and a leader after us started publishing to try and skip
-       us.  Just start our leader slot immediately, we might win ... */
-    if( FD_LIKELY( max_active_descendant>=ctx->reset_slot && max_active_descendant<ctx->next_leader_slot ) ) {
-      /* If one of the leaders between the reset slot and our leader
-         slot is in the process of publishing (they have a descendant
-         bank that is in progress of being replayed), then keep waiting.
-         We probably wouldn't get a leader slot out before they
-         finished.
+    /* If we haven't started replaying the prior block, but we have
+       finished replaying the second to last slot of the prior
+       leader (and that leader is not us), we should give the prior leader
+       a little more time. */
+    if( FD_UNLIKELY( ctx->next_leader_slot==ctx->reset_slot+2UL && now<ctx->next_leader_tickcount+(long)(1.0*ctx->slot_duration_ticks) ) ) {
 
-         Unless... we are past the deadline to start our slot by more
-         than 1.2 seconds, in which case we should probably start it to
-         avoid getting skipped by the leader behind us. */
-      return 0;
+      fd_pubkey_t const * reset_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, ctx->reset_slot );
+      if( FD_UNLIKELY( reset_leader && !fd_memeq( reset_leader, ctx->identity_pubkey, 32UL ) ) ) return 0;
     }
-  }
-
-  /* If we haven't started replaying the prior block, but we have
-     finished replaying the second to last slot of the prior
-     leader (and that leader is not us), we should give the prior leader
-     a little more time. */
-  if( FD_UNLIKELY( ctx->next_leader_slot==ctx->reset_slot+2UL && now<ctx->next_leader_tickcount+(long)(1.0*ctx->slot_duration_ticks) ) ) {
-
-    fd_pubkey_t const * reset_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, ctx->reset_slot );
-    if( FD_UNLIKELY( reset_leader && !fd_memeq( reset_leader, ctx->identity_pubkey, 32UL ) ) ) return 0;
   }
 
   long now_nanos = fd_log_wallclock();
@@ -1155,6 +1228,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->published_root_bank_idx = 0UL;
 
   ctx->reset_slot            = 0UL;
+  ctx->replayed_slot         = 0UL;
   ctx->reset_bank            = bank;
   ctx->reset_block_id        = ctx->initial_block_id;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
@@ -1287,6 +1361,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->published_root_bank_idx = 0UL;
 
     ctx->reset_slot            = snapshot_slot;
+    ctx->replayed_slot         = snapshot_slot;
     ctx->reset_bank            = bank;
     ctx->reset_block_id        = manifest_block_id;
     ctx->reset_timestamp_nanos = fd_log_wallclock();
@@ -2347,6 +2422,111 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   FD_MGAUGE_SET( REPLAY, ROOT_DISTANCE, distance );
 }
 
+/* publish_poh_reset emits a REPLAY_SIG_RESET (fd_poh_reset_t) telling poh
+   which fork to reset onto.  reset_{slot,timestamp_nanos} and
+   next_leader_slot must already be set on ctx; bank / block_id_ele are the
+   resolved reset fork (block_id_ele->latest_mr is the completed block id). */
+
+static void
+publish_poh_reset( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem,
+                   fd_bank_t *         bank,
+                   fd_block_id_ele_t * block_id_ele ) {
+  if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return;
+
+  fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+
+  reset->bank_idx = bank->idx;
+  reset->timestamp = ctx->reset_timestamp_nanos;
+  reset->completed_slot = ctx->reset_slot;
+  reset->hashcnt_per_tick = bank->f.hashes_per_tick;
+  reset->ticks_per_slot = bank->f.ticks_per_slot;
+  reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
+
+  fd_memcpy( reset->completed_block_id, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
+
+  fd_blockhashes_t const * block_hash_queue = &bank->f.block_hash_queue;
+  fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( block_hash_queue );
+  FD_TEST( last_hash );
+  fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );
+
+  ulong ticks_per_slot = bank->f.ticks_per_slot;
+  if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
+    /* Low power producer, maximum of one microblock per tick in the slot */
+    reset->max_microblocks_in_slot = ticks_per_slot;
+  } else {
+    /* See the long comment in after_credit for this limit */
+    reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
+  }
+  reset->next_leader_slot = ctx->next_leader_slot;
+  reset->wfs_paused       = !ctx->wfs_complete;
+
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
+/* process_votor_parent_ready is the sole Alpenglow leader trigger.  Votor
+   emits a ParentReady for every slot that becomes producible cluster-wide
+   (parent notarized / notarized-fallback + skip-certified gap); it fires
+   for the first slot of each leader window.  Replay owns the leader
+   schedule and acts only on the ParentReady for a window WE lead.  When it
+   matches, we (a) point the reset fork at the certified parent to build
+   on, (b) reset the leader pipeline onto it, (c) open the window-level
+   gate (ag_parent_ready_slot = the window's first slot; the gate stays
+   open for all AG_SLOTS_PER_WINDOW slots, which try_fini_leader
+   self-chains through), and (d) try to become leader.  This -- not the
+   wall-clock next_leader_tickcount -- is what unblocks leader production
+   under Alpenglow, replacing the old per-replayed-slot slot_done path.
+
+   Note: unlike the tower path, root advancement is delivered separately
+   via FD_VOTOR_SIG_ROOTED -> process_votor_rooted, and Alpenglow never
+   takes a tower refcnt on the replay bank, so neither is handled here. */
+
+static void
+process_votor_parent_ready( fd_replay_tile_t *              ctx,
+                            fd_stem_context_t *             stem,
+                            ag_votor_parent_ready_t const * msg ) {
+  ulong window = ag_slot_first_slot_in_window( msg->slot );
+
+  /* Only our own leader window is actionable; ParentReady fires cluster-
+     wide.  We consult the leader schedule directly (no maintained
+     next_leader_slot). */
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, msg->slot );
+  if( FD_LIKELY( !leader || !fd_memeq( leader, ctx->identity_pubkey, 32UL ) ) ) return;
+
+  /* Already produced (or producing) this window or a later one. */
+  if( FD_UNLIKELY( ctx->highwater_leader_slot!=ULONG_MAX && msg->slot<=ctx->highwater_leader_slot ) ) return;
+  if( FD_UNLIKELY( ctx->ag_parent_ready_slot==window ) ) return; /* already armed */
+
+  /* Build on the certified parent named by the ParentReady event. */
+  ctx->next_leader_slot      = msg->slot;
+  ctx->next_leader_tickcount = fd_tickcount(); /* Alpenglow gate is ParentReady, not this timer */
+  ctx->reset_slot            = msg->parent_slot;
+  ctx->reset_block_id        = msg->parent_block_id;
+  ctx->reset_timestamp_nanos = fd_log_wallclock();
+
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &msg->parent_block_id );
+  if( FD_UNLIKELY( !block_id_ele ) ) {
+    FD_BASE58_ENCODE_32_BYTES( msg->parent_block_id.key, parent_block_id_b58 );
+    FD_LOG_CRIT(( "invariant violation: block id ele doesn't exist for parent-ready parent block id: %s, slot: %lu", parent_block_id_b58, msg->parent_slot ));
+  }
+  ulong reset_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, reset_bank_idx );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", reset_bank_idx ));
+  }
+  ctx->reset_bank = bank;
+
+  publish_poh_reset( ctx, stem, bank, block_id_ele );
+
+  /* Open the window-level gate and try to produce immediately. */
+  ctx->ag_parent_ready_slot = window;
+
+  FD_LOG_INFO(( "votor_parent_ready(slot=%lu, parent_slot=%lu) -> becoming leader for window [%lu, %lu]", msg->slot, msg->parent_slot, window, window+AG_SLOTS_PER_WINDOW-1UL ));
+  try_become_leader( ctx, stem );
+}
+
 static void
 process_votor_rooted( fd_replay_tile_t * ctx, fd_stem_context_t * stem, ag_votor_rooted_t const * rooted ) {
 
@@ -2596,11 +2776,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
       if( sig==FD_VOTOR_SIG_ROOTED ) {
         ag_votor_rooted_t const * rooted = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         process_votor_rooted( ctx, stem, rooted );
-      } else if( sig==FD_VOTOR_SIG_SLOT ) {
-        /* TODO what is the reset slot fr.... */
-        ag_votor_slot_done_t const * slot_done = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        ctx->reset_slot = slot_done->reset_slot;
-        ctx->reset_block_id = slot_done->reset_block_id;
+      } else if( sig==FD_VOTOR_SIG_PARENT_READY ) {
+        ag_votor_parent_ready_t const * parent_ready = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        process_votor_parent_ready( ctx, stem, parent_ready );
       }
       break;
     }
@@ -2875,6 +3053,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
+  ctx->ag_parent_ready_slot  = ULONG_MAX;
+  ctx->replayed_slot         = ULONG_MAX;
+  ctx->next_leader_slot_scheduled = ULONG_MAX;
   ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 350ms ... */
   ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
   ctx->leader_bank = NULL;

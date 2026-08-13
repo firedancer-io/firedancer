@@ -730,14 +730,13 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
   int shared_complete = shared && !shared->sentinel;
   fd_fec_t * fec = fec_join( chainer, slot, fec_set_idx, version, mr, !shared_complete /* sentinel */ );
 
-  if( FD_LIKELY( shared_complete ) ) {
-    fd_chainer_fec_insert( chainer, slot, fec_set_idx, shared->slot_complete, mr );
-  }
-
   if( FD_UNLIKELY ( ( shared_complete && shared->slot_complete ) ||
                     ( slotv->complete_idx - FD_FEC_SHRED_CNT + 1 == fec_set_idx ) ) )
     fec->slot_complete = 1;
 
+  if( FD_LIKELY( shared_complete ) ) {
+    fd_chainer_fec_insert( chainer, slot, fec_set_idx, shared->slot_complete, mr );
+  }
   fd_chainer_repair_add( chainer, slotv ); /* new sentinel -> re-add for shred fill */
   chainer_advance( chainer, slotv );
 }

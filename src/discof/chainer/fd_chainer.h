@@ -13,7 +13,7 @@
    notar-fallback / parent-discovery versions are assigned from 1 up.
    Version numbers are therefore NOT densely packed: a slot we only know
    about from a notar-fallback cert has a v1 and no v0 until turbine (or
-   block-id repair) delivers something for it. 
+   block-id repair) delivers something for it.
 
    Under alpenglow, we can simplify equivocation handling. As turbine
    shreds arrive, each (slot, fec_set_idx) only accepts shreds of the
@@ -48,6 +48,9 @@
    already have most of the data for the slot, we can avoid
    re-requesting the shreds.  This case should be rare enough that the
    redundancy is worth the simplicity.
+
+   Why again did we flatten the FEC map??? instead of doing 7 copies?
+   dbl check...
 
    *Parent Discovery*
 

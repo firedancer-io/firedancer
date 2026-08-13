@@ -26,4 +26,23 @@
 #define REPAIR_SIG_FEC_LEADER  (1UL)  /* Leader FEC set complete */
 #define REPAIR_SIG_FEC_INVALID (2UL)  /* FEC set detected as invalid based on duplicate confirmations */
 
+
+struct fd_repair_replay_fec {
+   ulong     slot;
+   uint      fec_set_idx;
+   fd_hash_t mr;
+
+   /* conditional fields */
+
+   ulong     parent_slot;     /* only present if fec_set_idx is 0 or has
+                                 parentUpdate. TBD, could also just have
+                                 replay do parent reparsing */
+   fd_hash_t parent_block_id;
+
+   int       slot_complete;
+   int       is_leader;
+   fd_hash_t block_id;         /* only populated if slot_complete is 1 */
+};
+typedef struct fd_repair_replay_fec fd_repair_replay_fec_t;
+
 #endif /* HEADER_fd_src_discof_repair_fd_repair_tile_h */
