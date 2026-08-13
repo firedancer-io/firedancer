@@ -954,9 +954,9 @@ fd_topo_initialize( config_t * config ) {
        carries QUIC TX frames back to the net tile. */
     /**/                 fd_topob_tile( topo, "votor",   "votor",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
     FOR(net_tile_cnt)    fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "net_alpenglow", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "ipecho_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_out(   topo, "votor",   0UL,                       "votor_out",     0UL                                                ); /* OUT_IDX     */
     /**/                 fd_topob_tile_out(   topo, "votor",   0UL,                       "votor_net",     0UL                                                ); /* OUT_IDX_NET */

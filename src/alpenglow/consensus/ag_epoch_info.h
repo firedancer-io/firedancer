@@ -13,30 +13,34 @@ struct ag_validator_info {
 };
 typedef struct ag_validator_info ag_validator_info_t;
 
-struct ag_epoch_info {
-  ulong validator_cnt;
-  ulong total_stake;
+/* ag_epoch_info is the epoch's validator set, identical across all
+   validators: a flat array of ag_validator_info_t indexed by rank
+   (validators[i].id==i), plus the stake total derived from it.  The array
+   is sized for the protocol cap, so the footprint is the same for every
+   epoch and only the leading validator_cnt entries are live. */
 
+struct ag_epoch_info {
+  ulong               validator_cnt;
+  ulong               total_stake;
+  ag_validator_info_t validators[ AG_VAT_MAX ]; /* indexed by rank; validator_cnt live */
 };
 typedef struct ag_epoch_info ag_epoch_info_t;
 
-struct ag_validator_epoch_info {
-  ulong                   own_id;
-  ag_epoch_info_t const * epoch;
-};
-typedef struct ag_validator_epoch_info ag_validator_epoch_info_t;
-
 FD_PROTOTYPES_BEGIN
 
-FD_FN_CONST ulong ag_epoch_info_align( void );
+/* ag_epoch_info_init fills self in place from a rank-ordered validator
+   array (validators[i].id==i must hold) and derives total_stake from it.
 
-FD_FN_CONST ulong ag_epoch_info_footprint( ulong validator_cnt );
+   There is no align / footprint / new / join lifecycle: ag_epoch_info_t
+   is a plain value of fixed size, so a caller declares one, embeds one,
+   or carves sizeof(ag_epoch_info_t) out of its own scratch, and hands
+   the pointer here.  Nothing about it is shared across processes, so
+   there is nothing for a join to translate. */
 
-void * ag_epoch_info_new( void *                      mem,
-                          ag_validator_info_t const * validators,
-                          ulong                       validator_cnt );
-
-ag_epoch_info_t * ag_epoch_info_join( void * mem );
+void
+ag_epoch_info_init( ag_epoch_info_t *           self,
+                    ag_validator_info_t const * validators,
+                    ulong                       validator_cnt );
 
 /* ag_epoch_info_rank: canonical Alpenglow validator ranking from staked
    voters: drop zero-stake / missing / undecodable compressed BLS voting
@@ -54,58 +58,37 @@ ag_epoch_info_rank( ag_validator_info_t *          out,
                     uchar const *                  bls_pubkeys );
 
 
-FD_FN_PURE static inline ag_validator_info_t const *
+FD_FN_CONST static inline ag_validator_info_t const *
 ag_epoch_info_validators( ag_epoch_info_t const * self ) {
-  return (ag_validator_info_t const *)(self+1);
+  return self->validators;
 }
 
 FD_FN_PURE static inline ag_validator_info_t const *
-ag_epoch_info_validator( ag_epoch_info_t const * ei,
+ag_epoch_info_validator( ag_epoch_info_t const * self,
                          ulong                   id ) {
-  FD_TEST( id<ei->validator_cnt );
-  return ag_epoch_info_validators( ei ) + id;
-}
-
-FD_FN_PURE static inline ag_aggsig_pk_t const *
-ag_epoch_info_voting_pubkeys( ag_epoch_info_t const * ei ) {
-  return (ag_aggsig_pk_t const *)( ag_epoch_info_validators( ei ) + ei->validator_cnt );
+  FD_TEST( id<self->validator_cnt );
+  return ag_epoch_info_validators( self ) + id;
 }
 
 FD_FN_PURE static inline ag_validator_info_t const *
-ag_epoch_info_leader( ag_epoch_info_t const * ei,
+ag_epoch_info_leader( ag_epoch_info_t const * self,
                       ulong                   slot ) {
   ulong window    = slot / AG_SLOTS_PER_WINDOW;
-  ulong leader_id = window % ei->validator_cnt;
-  return ag_epoch_info_validator( ei, leader_id );
+  ulong leader_id = window % self->validator_cnt;
+  return ag_epoch_info_validator( self, leader_id );
 }
 
 FD_FN_PURE static inline ulong
-ag_epoch_info_total_stake( ag_epoch_info_t const * ei ) { return ei->total_stake; }
+ag_epoch_info_total_stake( ag_epoch_info_t const * self ) { return self->total_stake; }
 
-/* The quorum predicates: is stake at least
-   AG_ALPENGLOW_*_QUORUM_NUMER / AG_ALPENGLOW_QUORUM_DENOM of the epoch's
-   total stake -- 20% / 40% / 60% / 80%. */
+/* The quorum predicates: is stake at least AG_*_QUORUM_THRESHOLD_NUMER /
+   AG_QUORUM_THRESHOLD_DENOM of the epoch's total stake -- 20% / 40% /
+   60% / 80%. */
 
-FD_FN_PURE static inline int
-ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * ei,
-                                 ulong                   stake ) {
-  return ag_alpenglow_fraction_is_met( stake, ei->total_stake, AG_ALPENGLOW_WEAKEST_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
-}
-FD_FN_PURE static inline int
-ag_epoch_info_is_weak_quorum( ag_epoch_info_t const * ei,
-                              ulong                   stake ) {
-  return ag_alpenglow_fraction_is_met( stake, ei->total_stake, AG_ALPENGLOW_WEAK_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
-}
-FD_FN_PURE static inline int
-ag_epoch_info_is_quorum( ag_epoch_info_t const * ei,
-                         ulong                   stake ) {
-  return ag_alpenglow_fraction_is_met( stake, ei->total_stake, AG_ALPENGLOW_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
-}
-FD_FN_PURE static inline int
-ag_epoch_info_is_strong_quorum( ag_epoch_info_t const * ei,
-                                ulong                   stake ) {
-  return ag_alpenglow_fraction_is_met( stake, ei->total_stake, AG_ALPENGLOW_STRONG_QUORUM_NUMER, AG_ALPENGLOW_QUORUM_DENOM );
-}
+FD_FN_PURE int ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * self, ulong stake );
+FD_FN_PURE int ag_epoch_info_is_weak_quorum   ( ag_epoch_info_t const * self, ulong stake );
+FD_FN_PURE int ag_epoch_info_is_quorum        ( ag_epoch_info_t const * self, ulong stake );
+FD_FN_PURE int ag_epoch_info_is_strong_quorum ( ag_epoch_info_t const * self, ulong stake );
 
 FD_PROTOTYPES_END
 

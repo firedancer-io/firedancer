@@ -104,9 +104,8 @@ fd_block_id_ele_tree( fd_block_id_ele_t * ele ) {
 #define FD_REPLAY_VTR_EPOCH_WINDOW (4UL)
 
 struct fd_replay_epoch_vtrs {
-  ulong             epoch; /* ULONG_MAX marks an empty entry */
-  ag_epoch_info_t * info;  /* ranked epoch info, joined in mem */
-  void *            mem;   /* ag_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) backing bytes */
+  ulong             epoch; /* ULONG_MAX marks an empty entry                        */
+  ag_epoch_info_t * info;  /* this entry's slice of tile scratch, occupied or not   */
 };
 typedef struct fd_replay_epoch_vtrs fd_replay_epoch_vtrs_t;
 

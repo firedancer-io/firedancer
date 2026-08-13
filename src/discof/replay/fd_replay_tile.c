@@ -137,7 +137,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
   for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
-    l = FD_LAYOUT_APPEND( l, ag_epoch_info_align(),      ag_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
+    l = FD_LAYOUT_APPEND( l, alignof(ag_epoch_info_t),   sizeof(ag_epoch_info_t) );
   }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -232,7 +232,7 @@ update_cert_epoch_vtrs( fd_replay_tile_t *          ctx,
      ring slot.  Refresh (==) and normal advance (older occupant) proceed. */
   if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) return;
   s->epoch = msg->epoch;
-  s->info  = ag_epoch_info_join( ag_epoch_info_new( s->mem, ctx->epoch_vtrs_scratch, cnt ) );
+  ag_epoch_info_init( s->info, ctx->epoch_vtrs_scratch, cnt );
 }
 
 static void
@@ -2730,8 +2730,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
   for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
     ctx->epoch_vtrs[ i ].epoch = ULONG_MAX;
-    ctx->epoch_vtrs[ i ].info  = NULL;
-    ctx->epoch_vtrs[ i ].mem   = FD_SCRATCH_ALLOC_APPEND( l, ag_epoch_info_align(), ag_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
+    ctx->epoch_vtrs[ i ].info  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
   }
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {

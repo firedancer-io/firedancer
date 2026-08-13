@@ -4,7 +4,7 @@
 #include "../ag_alpenglow_base.h"
 #include "ag_vote.h"
 #include "ag_cert.h"
-#include "ag_pool_event.h"
+#include "ag_pool.h"
 
 #define AG_CONSENSUS_MESSAGE_VOTE (0U)
 #define AG_CONSENSUS_MESSAGE_CERT (1U)
@@ -35,9 +35,27 @@ typedef struct ag_consensus_message ag_consensus_message_t;
 #define AG_VOTOR_TIMEOUT_TIMEOUT        (0U)
 #define AG_VOTOR_TIMEOUT_CRASHED_LEADER (1U)
 
+/* A timeout the votor wants armed.  The votor sets the deadlines; the
+   caller owns the clock and the timer queue, arming each one delay_ns
+   after it was emitted and feeding it back to
+   ag_votor_handle_timeout_event when it comes due.  delay_ns is set on
+   the way out (ag_votor_out) and ignored on the way back in.
+
+   Arming a whole window from its first slot yields:
+
+     CRASHED_LEADER  DELTA_TIMEOUT + DELTA_FIRST_SLICE
+     TIMEOUT(s)      DELTA_TIMEOUT + (s - first_slot_in_window + 1)*DELTA_BLOCK
+
+   so the crashed-leader timer fires one first-slice after the base
+   timeout, and each successive slot of the window gets one further block
+   interval.  Equivalently: a DELTA_TIMEOUT + DELTA_FIRST_SLICE wait,
+   then DELTA_BLOCK - DELTA_FIRST_SLICE to the window's first slot and
+   DELTA_BLOCK between each slot after it. */
+
 struct ag_votor_timeout {
   uint  kind;
   ulong slot;
+  long  delay_ns;
 };
 typedef struct ag_votor_timeout ag_votor_timeout_t;
 
@@ -150,6 +168,19 @@ ag_votor_new( void *                 shmem,
 void
 ag_votor_set_shred_version( ag_votor_t * self,
                             ushort       shred_version );
+
+/* ag_votor_set_validator_index updates the rank the votor stamps on the
+   votes it emits.  Our rank is per-epoch, but the votor is deliberately
+   NOT rebuilt across an epoch boundary -- doing so would discard the
+   per-slot `voted` history that stops us following a Skip with a
+   Notarize on the same slot -- so the caller re-points the rank here
+   instead.  Callers that already restamp each emitted vote against its
+   own slot's epoch (as the votor tile does) only need this to keep the
+   pre-restamp value from going stale. */
+
+void
+ag_votor_set_validator_index( ag_votor_t * self,
+                              ushort       validator_index );
 
 ag_votor_t *
 ag_votor_join( void * shvotor );

@@ -1,10 +1,12 @@
 #include "ag_parent_ready_tracker.h"
 
-#define POOL_NAME state_pool
+#include "parent_ready_tracker/ag_parent_ready_state.h"
+
+#define POOL_NAME ag_parent_ready_state_pool
 #define POOL_T    ag_parent_ready_state_t
 #include "../../../util/tmpl/fd_pool.c"
 
-#define MAP_NAME               state_map
+#define MAP_NAME               ag_parent_ready_state_map
 #define MAP_ELE_T              ag_parent_ready_state_t
 #define MAP_KEY                slot
 #define MAP_KEY_T              ulong
@@ -13,12 +15,35 @@
 #define MAP_NEXT               next
 #include "../../../util/tmpl/fd_map_chain.c"
 
-typedef ag_parent_ready_state_t state_pool_t;
+/* The reference's states: HashMap<Slot, ParentReadyState> is two objects
+   here, the fd_pool the states live in and the fd_map_chain that keys them
+   by slot.  Wrapping the pair gives the tracker the reference's field list
+   -- states and root -- rather than spreading one logical map over two. */
+
+struct states {
+  ag_parent_ready_state_t *     pool;
+  ag_parent_ready_state_map_t * map;
+};
+typedef struct states states_t;
+
+/* One window's worth of candidate parents: mark_skipped walks back at most
+   AG_SLOTS_PER_WINDOW slots, each holding at most AG_PARENT_READY_STATE_CAP
+   notar-fallback blocks and as many ready ids.  Window-scoped, so unlike the
+   answer buffer this really is a constant. */
+
+#define PARENT_READY_PER_WINDOW (AG_SLOTS_PER_WINDOW*2UL*AG_PARENT_READY_STATE_CAP)
 
 struct __attribute__((aligned(128UL))) ag_parent_ready_tracker {
-  ulong          root;
-  state_pool_t * state_pool;
-  state_map_t *  state_map;
+  states_t states;
+  ulong    root;
+
+  /* The answer buffer the two mark_* calls hand back, sized
+     AG_PARENT_READY_PER_SLOT*slot_max at new.  Each call overwrites it. */
+
+  struct {
+    ag_parent_ready_t * parent_readys;
+    ulong               parent_ready_max;
+  } scratch;
 };
 
 ulong
@@ -29,15 +54,17 @@ ag_parent_ready_tracker_align( void ) {
 ulong
 ag_parent_ready_tracker_footprint( ulong slot_max ) {
   slot_max = fd_ulong_pow2_up( slot_max );
-  ulong chain_cnt = state_map_chain_cnt_est( slot_max );
+  ulong chain_cnt = ag_parent_ready_state_map_chain_cnt_est( slot_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(ag_parent_ready_tracker_t), sizeof(ag_parent_ready_tracker_t) ),
-      state_pool_align(),                 state_pool_footprint( slot_max )  ),
-      state_map_align(),                  state_map_footprint ( chain_cnt ) ),
+      alignof(ag_parent_ready_tracker_t), sizeof(ag_parent_ready_tracker_t)                            ),
+      ag_parent_ready_state_pool_align(), ag_parent_ready_state_pool_footprint( slot_max )             ),
+      ag_parent_ready_state_map_align(),  ag_parent_ready_state_map_footprint ( chain_cnt )            ),
+      alignof(ag_parent_ready_t),         sizeof(ag_parent_ready_t)*AG_PARENT_READY_PER_SLOT*slot_max  ),
     ag_parent_ready_tracker_align() );
 }
 
@@ -66,17 +93,21 @@ ag_parent_ready_tracker_new( void * shmem,
 
   fd_memset( shmem, 0, footprint );
 
-  ulong chain_cnt = state_map_chain_cnt_est( slot_max );
+  ulong chain_cnt = ag_parent_ready_state_map_chain_cnt_est( slot_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  ag_parent_ready_tracker_t * tracker    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_parent_ready_tracker_t), sizeof(ag_parent_ready_tracker_t) );
-  void *                      state_pool = FD_SCRATCH_ALLOC_APPEND( l, state_pool_align(),                 state_pool_footprint( slot_max )  );
-  void *                      state_map  = FD_SCRATCH_ALLOC_APPEND( l, state_map_align(),                  state_map_footprint ( chain_cnt ) );
+  ag_parent_ready_tracker_t * tracker    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_parent_ready_tracker_t), sizeof(ag_parent_ready_tracker_t)                 );
+  void *                      state_pool = FD_SCRATCH_ALLOC_APPEND( l, ag_parent_ready_state_pool_align(), ag_parent_ready_state_pool_footprint( slot_max )  );
+  void *                      state_map  = FD_SCRATCH_ALLOC_APPEND( l, ag_parent_ready_state_map_align(),  ag_parent_ready_state_map_footprint ( chain_cnt )           );
+  void *                      scratch    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_parent_ready_t),         sizeof(ag_parent_ready_t)*AG_PARENT_READY_PER_SLOT*slot_max );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, ag_parent_ready_tracker_align() ) == (ulong)shmem + footprint );
 
-  tracker->root       = 0UL;
-  tracker->state_pool = state_pool_join( state_pool_new( state_pool, slot_max        ) );
-  tracker->state_map  = state_map_join ( state_map_new ( state_map,  chain_cnt, seed ) );
+  tracker->root        = 0UL;
+  tracker->states.pool = ag_parent_ready_state_pool_join( ag_parent_ready_state_pool_new( state_pool, slot_max        ) );
+  tracker->states.map  = ag_parent_ready_state_map_join ( ag_parent_ready_state_map_new ( state_map,  chain_cnt, seed ) );
+
+  tracker->scratch.parent_readys    = (ag_parent_ready_t *)scratch;
+  tracker->scratch.parent_ready_max = AG_PARENT_READY_PER_SLOT*slot_max;
 
   return shmem;
 }
@@ -122,100 +153,76 @@ ag_parent_ready_tracker_delete( void * shtracker ) {
   return shtracker;
 }
 
-static inline ag_parent_ready_state_t *
-state_query( ag_parent_ready_tracker_t * self,
-             ulong                       slot ) {
-  return state_map_ele_query( self->state_map, &slot, NULL, self->state_pool );
-}
-
-ag_parent_ready_state_t *
-ag_parent_ready_tracker_slot_state( ag_parent_ready_tracker_t * self,
-                                    ulong                       slot ) {
-
-  ag_parent_ready_state_t * state = state_query( self, slot );
-  if( FD_LIKELY( state ) ) return state;
-
-  state_pool_t * pool = self->state_pool;
-  if( FD_UNLIKELY( !state_pool_free( pool ) ) ) {
-    FD_LOG_ERR(( "parent_ready_tracker: state pool exhausted (slot_max exceeded) at slot %lu", slot ));
-  }
-
-  state = state_pool_ele_acquire( pool );
-  ag_parent_ready_state_init( state, slot );
-  state_map_ele_insert( self->state_map, state, pool );
-  return state;
-}
-
-ag_parent_ready_tracker_t *
-ag_parent_ready_tracker_default( ag_parent_ready_tracker_t * tracker ) {
-
-  state_pool_t * pool  = tracker->state_pool;
-  ag_parent_ready_state_t * genesis = state_pool_ele_acquire( pool );
-  ag_parent_ready_state_genesis( genesis, 0UL );
-  state_map_ele_insert( tracker->state_map, genesis, pool );
-  tracker->root = 0UL;
-  return tracker;
-}
-
-ag_parent_ready_tracker_t *
-ag_parent_ready_tracker_seed_root( ag_parent_ready_tracker_t * tracker,
-                                   ulong                       root_slot,
-                                   fd_hash_t const *           root_hash ) {
-  state_pool_t *            pool = tracker->state_pool;
-  ag_parent_ready_state_t * root = state_pool_ele_acquire( pool );
-  ag_parent_ready_state_init( root, root_slot );
-  ag_parent_ready_state_mark_notar_fallback( root, root_hash );
-  state_map_ele_insert( tracker->state_map, root, pool );
-  tracker->root = root_slot;
-  return tracker;
-}
-
 FD_FN_PURE ulong
 ag_parent_ready_tracker_root( ag_parent_ready_tracker_t const * self ) {
   return self->root;
 }
 
-void
+/* slot_state is the tracker's only creation site: every mark_* walk opens
+   the states it touches through here, so the pool and map stay in step. */
+
+static ag_parent_ready_state_t *
+slot_state( ag_parent_ready_tracker_t * self,
+            ulong                       slot ) {
+
+  ag_parent_ready_state_t * state = ag_parent_ready_state_map_ele_query( self->states.map, &slot, NULL, self->states.pool );
+  if( FD_LIKELY( state ) ) return state;
+
+  ag_parent_ready_state_t * pool = self->states.pool;
+  if( FD_UNLIKELY( !ag_parent_ready_state_pool_free( pool ) ) ) {
+    FD_LOG_ERR(( "parent_ready_tracker: state pool exhausted (slot_max exceeded) at slot %lu", slot ));
+  }
+
+  state = ag_parent_ready_state_pool_ele_acquire( pool );
+  ag_parent_ready_state_init( state, slot );
+  ag_parent_ready_state_map_ele_insert( self->states.map, state, pool );
+  return state;
+}
+
+ag_parent_ready_t const *
 ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
                                              ag_block_id_t const *       id,
-                                             ag_parent_ready_t *         out,
-                                             ulong *                     out_cnt ) {
+                                             ulong *                     cnt ) {
+  ag_parent_ready_t * out     = self->scratch.parent_readys;
+  ulong *             out_cnt = cnt;
   *out_cnt = 0UL;
 
   ulong             slot = id->slot;
   fd_hash_t const * hash = &id->hash;
 
-  if( FD_UNLIKELY( slot < self->root ) ) return;
+  if( FD_UNLIKELY( slot < self->root ) ) return out;
 
-  ag_parent_ready_state_t * state = ag_parent_ready_tracker_slot_state( self, slot );
-  if( !ag_parent_ready_state_mark_notar_fallback( state, hash ) ) return;
+  ag_parent_ready_state_t * state = slot_state( self, slot );
+  if( !ag_parent_ready_state_mark_notar_fallback( state, hash ) ) return out;
 
   for( ulong s=slot+1UL; ; s++ ) {
-    ag_parent_ready_state_t * fstate = ag_parent_ready_tracker_slot_state( self, s );
+    ag_parent_ready_state_t * fstate = slot_state( self, s );
     if( ag_slot_is_start_of_window( s ) ) {
       ag_parent_ready_state_add_to_ready( fstate, id );
-      FD_TEST( *out_cnt < AG_PARENT_READY_OUT_MAX );
+      FD_TEST( *out_cnt < self->scratch.parent_ready_max );
       out[ *out_cnt ].slot   = s;
       out[ *out_cnt ].parent = *id;
       (*out_cnt)++;
     }
     if( !ag_parent_ready_state_is_skip_certified( fstate ) ) break;
   }
+  return out;
 }
 
-void
+ag_parent_ready_t const *
 ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
                                       ulong                       marked_slot,
-                                      ag_parent_ready_t *         out,
-                                      ulong *                     out_cnt ) {
+                                      ulong *                     cnt ) {
+  ag_parent_ready_t * out     = self->scratch.parent_readys;
+  ulong *             out_cnt = cnt;
   *out_cnt = 0UL;
 
-  if( FD_UNLIKELY( marked_slot < self->root ) ) return;
+  if( FD_UNLIKELY( marked_slot < self->root ) ) return out;
 
-  ag_parent_ready_state_t * state = ag_parent_ready_tracker_slot_state( self, marked_slot );
-  if( !ag_parent_ready_state_mark_skip( state ) ) return;
+  ag_parent_ready_state_t * state = slot_state( self, marked_slot );
+  if( !ag_parent_ready_state_mark_skip( state ) ) return out;
 
-  ag_block_id_t potential_parents[ AG_PARENT_READY_OUT_MAX ];
+  ag_block_id_t potential_parents[ PARENT_READY_PER_WINDOW ];
   ulong         potential_cnt = 0UL;
 
   ulong root            = self->root;
@@ -223,13 +230,13 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
 
   for( ulong s=marked_slot; ; s-- ) {
     if( s>=first && s<=marked_slot && s>=root ) {
-      ag_parent_ready_state_t * sstate = ag_parent_ready_tracker_slot_state( self, s );
+      ag_parent_ready_state_t * sstate = slot_state( self, s );
 
       if( s!=marked_slot ) {
         ulong             nf_cnt;
         fd_hash_t const * nfs = ag_parent_ready_state_notar_fallback_blocks( sstate, &nf_cnt );
         for( ulong i=0UL; i<nf_cnt; i++ ) {
-          FD_TEST( potential_cnt < AG_PARENT_READY_OUT_MAX );
+          FD_TEST( potential_cnt < PARENT_READY_PER_WINDOW );
           potential_parents[ potential_cnt ].slot = s;
           potential_parents[ potential_cnt ].hash = nfs[i];
           potential_cnt++;
@@ -241,7 +248,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
       ulong                 rb_cnt;
       ag_block_id_t const * rbs = ag_parent_ready_state_ready_block_ids( sstate, &rb_cnt );
       for( ulong i=0UL; i<rb_cnt; i++ ) {
-        FD_TEST( potential_cnt < AG_PARENT_READY_OUT_MAX );
+        FD_TEST( potential_cnt < PARENT_READY_PER_WINDOW );
         potential_parents[ potential_cnt ] = rbs[i];
         potential_cnt++;
       }
@@ -250,11 +257,11 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
   }
 
   for( ulong s=marked_slot+1UL; ; s++ ) {
-    ag_parent_ready_state_t * fstate = ag_parent_ready_tracker_slot_state( self, s );
+    ag_parent_ready_state_t * fstate = slot_state( self, s );
     if( ag_slot_is_start_of_window( s ) ) {
       for( ulong i=0UL; i<potential_cnt; i++ ) {
         ag_parent_ready_state_add_to_ready( fstate, &potential_parents[i] );
-        FD_TEST( *out_cnt < AG_PARENT_READY_OUT_MAX );
+        FD_TEST( *out_cnt < self->scratch.parent_ready_max );
         out[ *out_cnt ].slot   = s;
         out[ *out_cnt ].parent = potential_parents[i];
         (*out_cnt)++;
@@ -262,55 +269,57 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
     }
     if( !ag_parent_ready_state_is_skip_certified( fstate ) ) break;
   }
+  return out;
 }
 
-int
-ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t * self,
-                                             int                         has_finalized,
-                                             ag_block_id_t const *       finalized,
-                                             ag_block_id_t const *       implicitly_finalized,
-                                             ulong                       if_cnt,
-                                             ulong const *               implicitly_skipped,
-                                             ulong                       is_cnt,
-                                             ag_parent_ready_t *         out ) {
+/* keep_highest folds the parents one mark_* call made ready into best: the
+   highest slot wins, and among equal slots the last one does.  best still
+   carrying slot ULONG_MAX means nothing has been folded into it yet, which
+   is also how the caller reads "no parent became ready". */
 
-  ag_parent_ready_t scratch[ AG_PARENT_READY_OUT_MAX ];
-  ulong             scratch_cnt;
+static void
+keep_highest( ag_parent_ready_t *       best,
+              ag_parent_ready_t const * ready,
+              ulong                     ready_cnt ) {
+  for( ulong i=0UL; i<ready_cnt; i++ ) {
+    if( best->slot==ULONG_MAX || ready[i].slot>=best->slot ) *best = ready[i];
+  }
+}
 
-  int   have_max = 0;
-  ag_parent_ready_t best; best.slot = 0UL; best.parent.slot = 0UL;
-  fd_memset( &best.parent.hash, 0, sizeof(fd_hash_t) );
+ag_parent_ready_t
+ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t *     self,
+                                             ag_finalization_event_t const * event ) {
 
-  if( has_finalized ) {
-    ag_parent_ready_tracker_mark_notar_fallback( self, finalized, scratch, &scratch_cnt );
-    for( ulong i=0UL; i<scratch_cnt; i++ ) {
-      if( !have_max || scratch[i].slot >= best.slot ) { best = scratch[i]; have_max = 1; } /* >=: last max wins */
-    }
+  ag_parent_ready_t best;
+  fd_memset( &best, 0, sizeof(ag_parent_ready_t) );
+  best.slot = ULONG_MAX;
+
+  ag_parent_ready_t const * ready;
+  ulong                     ready_cnt;
+
+  if( event->finalized.slot!=ULONG_MAX ) {
+    ready = ag_parent_ready_tracker_mark_notar_fallback( self, &event->finalized, &ready_cnt );
+    keep_highest( &best, ready, ready_cnt );
   }
 
-  for( ulong j=0UL; j<if_cnt; j++ ) {
-    ag_parent_ready_tracker_mark_notar_fallback( self, &implicitly_finalized[j], scratch, &scratch_cnt );
-    for( ulong i=0UL; i<scratch_cnt; i++ ) {
-      if( !have_max || scratch[i].slot >= best.slot ) { best = scratch[i]; have_max = 1; } /* >=: last max wins */
-    }
+  for( ulong j=0UL; j<event->implicitly_finalized_cnt; j++ ) {
+    ready = ag_parent_ready_tracker_mark_notar_fallback( self, &event->implicitly_finalized[j], &ready_cnt );
+    keep_highest( &best, ready, ready_cnt );
   }
 
-  for( ulong j=0UL; j<is_cnt; j++ ) {
-    ag_parent_ready_tracker_mark_skipped( self, implicitly_skipped[j], scratch, &scratch_cnt );
-    for( ulong i=0UL; i<scratch_cnt; i++ ) {
-      if( !have_max || scratch[i].slot >= best.slot ) { best = scratch[i]; have_max = 1; } /* >=: last max wins */
-    }
+  for( ulong j=0UL; j<event->implicitly_skipped_cnt; j++ ) {
+    ready = ag_parent_ready_tracker_mark_skipped( self, event->implicitly_skipped[j], &ready_cnt );
+    keep_highest( &best, ready, ready_cnt );
   }
 
-  if( have_max ) *out = best;
-  return have_max;
+  return best;
 }
 
 ag_block_id_t const *
 ag_parent_ready_tracker_parents_ready( ag_parent_ready_tracker_t * self,
                                        ulong                       slot,
                                        ulong *                     cnt ) {
-  ag_parent_ready_state_t * state = state_query( self, slot );
+  ag_parent_ready_state_t * state = ag_parent_ready_state_map_ele_query( self->states.map, &slot, NULL, self->states.pool );
   if( FD_UNLIKELY( !state ) ) { *cnt = 0UL; return NULL; }
   return ag_parent_ready_state_ready_block_ids( state, cnt );
 }
@@ -319,8 +328,7 @@ int
 ag_parent_ready_tracker_wait_for_parent_ready( ag_parent_ready_tracker_t * self,
                                                ulong                       slot,
                                                ag_block_id_t *             out_id ) {
-
-  ag_parent_ready_state_t * state = ag_parent_ready_tracker_slot_state( self, slot );
+  ag_parent_ready_state_t * state = slot_state( self, slot );
   return ag_parent_ready_state_wait_for_parent_ready( state, out_id );
 }
 
@@ -328,22 +336,12 @@ void
 ag_parent_ready_tracker_prune( ag_parent_ready_tracker_t * self,
                                ulong                       new_root ) {
 
-  self->root = new_root;
-
-  state_map_t  * map  = self->state_map;
-  state_pool_t * pool = self->state_pool;
-
-  for(;;) {
-    ulong drop_slot = ULONG_MAX;
-    for( state_map_iter_t iter = state_map_iter_init( map, pool );
-         !state_map_iter_done( iter, map, pool );
-         iter = state_map_iter_next( iter, map, pool ) ) {
-      ag_parent_ready_state_t const * ele = state_map_iter_ele_const( iter, map, pool );
-      if( ele->slot < new_root ) { drop_slot = ele->slot; break; }
-    }
-    if( drop_slot==ULONG_MAX ) break;
-    ag_parent_ready_state_t * ele = state_map_ele_remove( map, &drop_slot, NULL, pool );
-    FD_TEST( ele );
-    state_pool_ele_release( pool, ele );
+  ag_parent_ready_state_map_t *             map  = self->states.map;
+  ag_parent_ready_state_t * pool = self->states.pool;
+  for( ulong slot=self->root; slot<new_root; slot++ ) {
+    ag_parent_ready_state_t * ele = ag_parent_ready_state_map_ele_remove( map, &slot, NULL, pool );
+    if( FD_LIKELY( ele ) ) ag_parent_ready_state_pool_ele_release( pool, ele );
   }
+
+  self->root = new_root;
 }

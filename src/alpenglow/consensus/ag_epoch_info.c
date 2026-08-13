@@ -1,53 +1,54 @@
 #include "ag_epoch_info.h"
 
-ulong
-ag_epoch_info_align( void ) {
-  return alignof(ag_epoch_info_t);
-}
+#include "../../ballet/bls/fd_bls12_381.h"
 
-ulong
-ag_epoch_info_footprint( ulong validator_cnt ) {
-
-  return sizeof(ag_epoch_info_t)
-       + validator_cnt*sizeof(ag_validator_info_t)
-       + validator_cnt*sizeof(ag_aggsig_pk_t);
-}
-
-void *
-ag_epoch_info_new( void *                      mem,
-                   ag_validator_info_t const * validators,
-                   ulong                       validator_cnt ) {
-  if( FD_UNLIKELY( !mem ) ) { FD_LOG_WARNING(( "NULL mem" )); return NULL; }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, ag_epoch_info_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" )); return NULL;
-  }
-  FD_TEST( validator_cnt>0UL );
-
-  ag_epoch_info_t *     ei  = (ag_epoch_info_t *)mem;
-  ag_validator_info_t * v   = (ag_validator_info_t *)(ei+1);
-  ag_aggsig_pk_t *      vpk = (ag_aggsig_pk_t *)(v+validator_cnt);
+void
+ag_epoch_info_init( ag_epoch_info_t *           self,
+                    ag_validator_info_t const * validators,
+                    ulong                       validator_cnt ) {
+  FD_TEST( self );
+  FD_TEST( validator_cnt>0UL && validator_cnt<=AG_VAT_MAX );
 
   ulong total = 0UL;
   for( ulong i=0UL; i<validator_cnt; i++ ) {
     FD_TEST( validators[i].id==i );
-    v[i]   = validators[i];
-    vpk[i] = validators[i].voting_pubkey;
-    total += validators[i].stake;
+    self->validators[i] = validators[i];
+    total              += validators[i].stake;
   }
-  ei->validator_cnt = validator_cnt;
-  ei->total_stake   = total;
-  return mem;
+  self->validator_cnt = validator_cnt;
+  self->total_stake   = total;
 }
 
-ag_epoch_info_t *
-ag_epoch_info_join( void * mem ) {
-  if( FD_UNLIKELY( !mem ) ) { FD_LOG_WARNING(( "NULL mem" )); return NULL; }
-  return (ag_epoch_info_t *)mem;
+/* The quorum comparison is cross multiplied in uint128 so it neither
+   rounds nor overflows. */
+
+FD_FN_CONST static int
+fraction_is_met( ulong stake,
+                 ulong total,
+                 ulong numer,
+                 ulong denom ) {
+  return (uint128)stake*(uint128)denom >= (uint128)total*(uint128)numer;
 }
 
-#if FD_HAS_BLST
-#include "../../ballet/bls/fd_bls12_381.h"
-#endif
+FD_FN_PURE int
+ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * self, ulong stake ) {
+  return fraction_is_met( stake, self->total_stake, AG_WEAKEST_QUORUM_THRESHOLD_NUMER, AG_QUORUM_THRESHOLD_DENOM );
+}
+
+FD_FN_PURE int
+ag_epoch_info_is_weak_quorum( ag_epoch_info_t const * self, ulong stake ) {
+  return fraction_is_met( stake, self->total_stake, AG_WEAK_QUORUM_THRESHOLD_NUMER, AG_QUORUM_THRESHOLD_DENOM );
+}
+
+FD_FN_PURE int
+ag_epoch_info_is_quorum( ag_epoch_info_t const * self, ulong stake ) {
+  return fraction_is_met( stake, self->total_stake, AG_QUORUM_THRESHOLD_NUMER, AG_QUORUM_THRESHOLD_DENOM );
+}
+
+FD_FN_PURE int
+ag_epoch_info_is_strong_quorum( ag_epoch_info_t const * self, ulong stake ) {
+  return fraction_is_met( stake, self->total_stake, AG_STRONG_QUORUM_THRESHOLD_NUMER, AG_QUORUM_THRESHOLD_DENOM );
+}
 
 /* Rank-ordering key: stake descending, tie-broken by the compressed BLS
    pubkey ascending.  bls points into the caller's pubkey array, which is
@@ -75,10 +76,8 @@ ag_epoch_info_rank( ag_validator_info_t *          out,
   for( ulong i=0UL; i<in_cnt; i++ ) {
     if( FD_UNLIKELY( stakes[i].stake==0UL ) ) continue;
     uchar const * bls = bls_pubkeys + i*AG_AGGSIG_PUBKEY_COMPRESSED_SZ;
-#if FD_HAS_BLST
     ag_aggsig_pk_t probe;
     if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( probe.v, bls, 1 ) ) ) continue; /* no / invalid BLS key */
-#endif
     rank[m].stake = stakes[i].stake;
     rank[m].bls   = bls;
     rank[m].src   = i;
@@ -94,16 +93,11 @@ ag_epoch_info_rank( ag_validator_info_t *          out,
     vi->id     = r;
     vi->stake  = stakes[src].stake;
     vi->pubkey = stakes[src].id_key;
-#if FD_HAS_BLST
     if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( vi->voting_pubkey.v,
                                                          bls_pubkeys + src*AG_AGGSIG_PUBKEY_COMPRESSED_SZ,
                                                          1 /* big endian */ ) ) ) {
       FD_LOG_CRIT(( "BLS voting pubkey for source %lu failed to decompress after the filter", src ));
     }
-#else
-    fd_memcpy( vi->voting_pubkey.v, bls_pubkeys + src*AG_AGGSIG_PUBKEY_COMPRESSED_SZ,
-               AG_AGGSIG_PUBKEY_COMPRESSED_SZ ); /* stub builds do not verify signatures */
-#endif
   }
   return cnt;
 }

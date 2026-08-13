@@ -13,11 +13,11 @@ make_epoch( ulong   n,
     ag_aggsig_sk_t sk; fd_memset( sk.v, (int)(i+1UL), AG_AGGSIG_SECKEY_SZ );
     ag_aggsig_sk_to_pk( &v[i].voting_pubkey, &sk );
   }
-  void * mem = aligned_alloc( ag_epoch_info_align(), ag_epoch_info_footprint( n ) );
-  FD_TEST( mem );
-  ag_epoch_info_t * ei = ag_epoch_info_join( ag_epoch_info_new( mem, v, n ) );
+  ag_epoch_info_t * ei = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
+  FD_TEST( ei );
+  ag_epoch_info_init( ei, v, n );
   free( v );
-  *out_mem = mem;
+  *out_mem = ei;
   return ei;
 }
 

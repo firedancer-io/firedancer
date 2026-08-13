@@ -27,17 +27,17 @@ test_signers( void ) {
   FD_TEST( !ag_aggsig_is_signer( agg, 3UL ) );
 
   ulong seen = 0UL, cnt = 0UL;
-  for( ulong i=signer_set_const_iter_init( agg->bitmask );
-       !signer_set_const_iter_done( i );
-       i=signer_set_const_iter_next( agg->bitmask, i ) ) {
+  for( ulong i=voter_set_const_iter_init( agg->bitmask );
+       !voter_set_const_iter_done( i );
+       i=voter_set_const_iter_next( agg->bitmask, i ) ) {
     seen |= (1UL<<i); cnt++;
   }
   FD_TEST( cnt==2UL );
   FD_TEST( seen==((1UL<<0)|(1UL<<2)) );
 
   ag_aggsig_pk_t pks[3] = { pk[0], pk[1], pk[2] };
-  FD_TEST(  ag_aggsig_verify_bytes( agg, msg, msg_sz, pks, 3UL ) );
-  FD_TEST( !ag_aggsig_verify_bytes( agg, msg, msg_sz, pks, 2UL ) );
+  FD_TEST(  ag_aggsig_verify_bytes( agg, msg, msg_sz, pks->v, sizeof(ag_aggsig_pk_t), 3UL ) );
+  FD_TEST( !ag_aggsig_verify_bytes( agg, msg, msg_sz, pks->v, sizeof(ag_aggsig_pk_t), 2UL ) );
 }
 
 FD_FN_UNUSED static void
@@ -115,28 +115,28 @@ test_roundtrip( void ) {
   ag_aggsig_t     agg[1];
   ag_aggsig_new( agg, sigs, idx, 3UL, N );
 
-  FD_TEST( ag_aggsig_verify_bytes( agg, msg, msg_sz, pks, N ) );
+  FD_TEST( ag_aggsig_verify_bytes( agg, msg, msg_sz, pks->v, sizeof(ag_aggsig_pk_t), N ) );
 
-  FD_TEST( !ag_aggsig_verify_bytes( agg, (uchar const *)"different message", 17UL, pks, N ) );
+  FD_TEST( !ag_aggsig_verify_bytes( agg, (uchar const *)"different message", 17UL, pks->v, sizeof(ag_aggsig_pk_t), N ) );
 
   ag_aggsig_t tampered = *agg;
   tampered.sig[0] = (uchar)( tampered.sig[0] ^ 0xFFu );
-  FD_TEST( !ag_aggsig_verify_bytes( &tampered, msg, msg_sz, pks, N ) );
+  FD_TEST( !ag_aggsig_verify_bytes( &tampered, msg, msg_sz, pks->v, sizeof(ag_aggsig_pk_t), N ) );
 
   ag_aggsig_pk_t pks_wrong[5] = { pk[1], pk[1], pk[2], pk[3], pk[4] };
-  FD_TEST( !ag_aggsig_verify_bytes( agg, msg, msg_sz, pks_wrong, N ) );
+  FD_TEST( !ag_aggsig_verify_bytes( agg, msg, msg_sz, pks_wrong->v, sizeof(ag_aggsig_pk_t), N ) );
 
   ag_aggsig_t mismatch = *agg;
-  signer_set_remove( mismatch.bitmask, 4UL );
+  voter_set_remove( mismatch.bitmask, 4UL );
   FD_TEST( ag_aggsig_signer_cnt( &mismatch )==2UL );
-  FD_TEST( !ag_aggsig_verify_bytes( &mismatch, msg, msg_sz, pks, N ) );
+  FD_TEST( !ag_aggsig_verify_bytes( &mismatch, msg, msg_sz, pks->v, sizeof(ag_aggsig_pk_t), N ) );
 
-  FD_TEST( !ag_aggsig_verify_bytes( agg, msg, msg_sz, pks, N-1UL ) );
+  FD_TEST( !ag_aggsig_verify_bytes( agg, msg, msg_sz, pks->v, sizeof(ag_aggsig_pk_t), N-1UL ) );
 
   ag_aggsig_t     agg_all[1];
   ulong           idx_all[5] = { 0UL, 1UL, 2UL, 3UL, 4UL };
   ag_aggsig_new( agg_all, sig, idx_all, N, N );
-  FD_TEST( ag_aggsig_verify_bytes( agg_all, msg, msg_sz, pks, N ) );
+  FD_TEST( ag_aggsig_verify_bytes( agg_all, msg, msg_sz, pks->v, sizeof(ag_aggsig_pk_t), N ) );
 
   FD_LOG_NOTICE(( "blst aggsig round trip pass" ));
 }

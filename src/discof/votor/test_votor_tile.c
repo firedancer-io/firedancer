@@ -20,6 +20,10 @@ static ag_aggsig_sk_t test_sk   [ TEST_NV ]; /* keyed by msg source index */
 static ag_aggsig_sk_t sk_of_rank[ TEST_NV ]; /* keyed by production rank  */
 static ushort         own_rank;
 
+/* replay frags used to be copied into ctx->msg_buf; ctx->msg now points
+   into the dcache, so the harness supplies its own staging buffer. */
+static uchar          stage_buf[ 4096 ] __attribute__((aligned(64UL)));
+
 /* install_epoch builds a real fd_epoch_info_msg_t for epoch 0 (TEST_NV
    unit-stake voters; source 0 carries our identity and voting key) and
    feeds it through the production update_epoch_vtrs.  The pool / votor are
@@ -66,8 +70,8 @@ install_epoch( fd_votor_tile_t * ctx ) {
      in ctx->validators, and validators[r].pubkey is the id_key of the
      source validator that ranked r. */
   vtr_epoch_set_t const * s = epoch_set( ctx, 0UL );
-  FD_TEST( s && s->validator_cnt==TEST_NV && s->have_own_id );
-  own_rank = s->own_id;
+  FD_TEST( s && s->validator_cnt==TEST_NV && s->have_rank );
+  own_rank = s->rank;
   for( ulong r=0UL; r<TEST_NV; r++ ) {
     ulong m   = (ulong)ctx->validators[ r ].pubkey.uc[ 0 ];
     ulong src = m==(ulong)ctx->identity_key->uc[ 0 ] ? 0UL : m-1UL;
@@ -119,7 +123,8 @@ mk_hash( uchar b ) {
   return h;
 }
 
-/* drive_replay_frag stages a replay frag in msg_buf (what during_frag does
+/* drive_replay_frag stages a replay frag and points ctx->msg at it (what
+   during_frag does
    in production) and runs after_frag over it, exactly as stem would.  No
    stem context is needed: the publish paths only enqueue onto
    ctx->publishes, and only after_credit touches ctx->stem. */
@@ -139,7 +144,8 @@ complete_slot( fd_votor_tile_t * ctx,
                fd_hash_t         block_id,
                ulong             parent_slot,
                fd_hash_t         parent_block_id ) {
-  fd_replay_slot_completed_t * sc = fd_type_pun( ctx->msg_buf );
+  fd_replay_slot_completed_t * sc = fd_type_pun( stage_buf );
+  ctx->msg = stage_buf;
   memset( sc, 0, sizeof(*sc) );
   sc->slot            = slot;
   sc->parent_slot     = parent_slot;
@@ -149,19 +155,14 @@ complete_slot( fd_votor_tile_t * ctx,
   drive_replay_frag( ctx, REPLAY_SIG_SLOT_COMPLETED, sizeof(*sc) );
 }
 
-/* drain the pool's votor event channel through the votor, exactly like
-   after_credit (the own-vote loopback in handle_votor_out appends to the
-   channel while we iterate). */
+/* drain the pool's output queues through the votor, exactly like
+   after_credit (the own-vote loopback in handle_votor_out pushes onto the
+   event queue while we pop, and CertCreated updates ctx->certified, which
+   is what maybe_publish_finalized reads the finalized block id from). */
 
 static void
 drain_pool_events( fd_votor_tile_t * ctx ) {
-  ulong i = 0UL;
-  while( i<ag_pool_votor_event_cnt( ctx->pool ) ) {
-    ag_pool_event_t event = ag_pool_votor_event_channel( ctx->pool )[ i++ ];
-    ag_votor_handle_pool_event( ctx->votor, &event );
-    handle_votor_out( ctx );
-  }
-  ag_pool_drain_channels( ctx->pool );
+  drain_pool_channels( ctx );
   maybe_publish_finalized( ctx );
 }
 
@@ -170,10 +171,10 @@ drain_pool_events( fd_votor_tile_t * ctx ) {
 static ulong
 count_pubs( fd_votor_tile_t * ctx, ulong sig ) {
   ulong n = 0UL;
-  for( publishes_iter_t it = publishes_iter_init( ctx->publishes );
-       !publishes_iter_done( ctx->publishes, it );
-       it = publishes_iter_next( ctx->publishes, it ) ) {
-    publish_t const * p = publishes_iter_ele_const( ctx->publishes, it );
+  for( publishes_iter_t iter = publishes_iter_init( ctx->publishes );
+       !publishes_iter_done( ctx->publishes, iter );
+       iter = publishes_iter_next( ctx->publishes, iter ) ) {
+    publish_t const * p = publishes_iter_ele_const( ctx->publishes, iter );
     if( p->sig==sig ) n++;
   }
   return n;
@@ -200,10 +201,10 @@ test_vote_emitted( fd_wksp_t * wksp ) {
 
   /* the slot_done frag should echo back the bank_idx and reset onto slot 1. */
   int found_done = 0;
-  for( publishes_iter_t it = publishes_iter_init( ctx->publishes );
-       !publishes_iter_done( ctx->publishes, it );
-       it = publishes_iter_next( ctx->publishes, it ) ) {
-    publish_t const * p = publishes_iter_ele_const( ctx->publishes, it );
+  for( publishes_iter_t iter = publishes_iter_init( ctx->publishes );
+       !publishes_iter_done( ctx->publishes, iter );
+       iter = publishes_iter_next( ctx->publishes, iter ) ) {
+    publish_t const * p = publishes_iter_ele_const( ctx->publishes, iter );
     if( p->sig==FD_VOTOR_SIG_SLOT ) {
       FD_TEST( p->msg.slot_done.replay_slot==1UL );
       FD_TEST( p->msg.slot_done.replay_bank_idx==1UL );
@@ -215,10 +216,10 @@ test_vote_emitted( fd_wksp_t * wksp ) {
 
   /* the notar vote should be for slot 1. */
   int found_vote = 0;
-  for( publishes_iter_t it = publishes_iter_init( ctx->publishes );
-       !publishes_iter_done( ctx->publishes, it );
-       it = publishes_iter_next( ctx->publishes, it ) ) {
-    publish_t const * p = publishes_iter_ele_const( ctx->publishes, it );
+  for( publishes_iter_t iter = publishes_iter_init( ctx->publishes );
+       !publishes_iter_done( ctx->publishes, iter );
+       iter = publishes_iter_next( ctx->publishes, iter ) ) {
+    publish_t const * p = publishes_iter_ele_const( ctx->publishes, iter );
     if( p->sig==FD_VOTOR_SIG_VOTE && p->msg.vote.kind==AG_VOTE_TYPE_NOTAR ) {
       FD_TEST( ag_vote_slot( &p->msg.vote )==1UL );
       found_vote = 1;
@@ -263,7 +264,7 @@ test_finalization( fd_wksp_t * wksp ) {
     ag_vote_t vote;
     ag_vote_new_final( &vote, slot, &sk_of_rank[ r ], (ushort)r, ctx->shred_version );
     int err = ag_pool_add_vote( ctx->pool, &vote );
-    FD_TEST( err==AG_POOL_SUCCESS || err==AG_ADD_VOTE_ERR_SLOT_OUT_OF_BOUNDS ); /* fast-final may already have rooted past it */
+    FD_TEST( err==AG_POOL_SUCCESS || err==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS ); /* fast-final may already have rooted past it */
     drain_pool_events( ctx );
   }
 
@@ -292,7 +293,8 @@ test_dead_slot( fd_wksp_t * wksp ) {
   fd_hash_t h1      = mk_hash( 0xC3 );
   complete_slot( ctx, 1UL, h1, 0UL, genesis );
 
-  fd_replay_slot_dead_t * dead = fd_type_pun( ctx->msg_buf );
+  fd_replay_slot_dead_t * dead = fd_type_pun( stage_buf );
+  ctx->msg = stage_buf;
   memset( dead, 0, sizeof(*dead) );
   dead->slot     = 2UL;
   dead->block_id = mk_hash( 0xC4 );

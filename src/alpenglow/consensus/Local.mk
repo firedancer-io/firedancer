@@ -1,3 +1,4 @@
+ifdef FD_HAS_BLST
 $(call add-hdrs,ag_vote.h ag_epoch_info.h ag_cert.h ag_votor.h ag_pool.h)
 $(call add-objs,ag_vote ag_epoch_info ag_cert ag_votor ag_pool,ag_alpenglow)
 ifdef FD_HAS_HOSTED
@@ -11,4 +12,5 @@ $(call run-unit-test,test_epoch_info)
 $(call run-unit-test,test_cert)
 $(call run-unit-test,test_votor)
 $(call run-unit-test,test_alpenglow_pool)
+endif
 endif

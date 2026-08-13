@@ -17,9 +17,7 @@ test_basic( void ) {
   FD_TEST( ag_vote_signer( &v )==0UL );
   FD_TEST( ag_vote_block_hash( &v ) && !memcmp( ag_vote_block_hash(&v)->uc, h.uc, 32 ) );
   FD_TEST( ag_vote_check_sig( &v, &pk, TEST_SHRED_VERSION ) );
-#if FD_HAS_BLST
   FD_TEST( !ag_vote_check_sig( &v, &pk, (ushort)(TEST_SHRED_VERSION+1) ) ); /* payload binds shred_version */
-#endif
 
   ag_vote_new_notar_fallback( &v, 1UL, &h, &sk, 2UL, TEST_SHRED_VERSION );
   FD_TEST( v.kind==AG_VOTE_TYPE_NOTAR_FALLBACK );
@@ -100,11 +98,9 @@ check_wire( ag_vote_t const * v, ag_aggsig_pk_t const * pk ) {
   ag_aggsig_sig_t sig; fd_memcpy( sig.v, wire_sig, AG_AGGSIG_SIG_SZ );
   FD_TEST( ag_aggsig_individual_verify_bytes( &sig, pk, payload, payload_sz ) );
 
-#if FD_HAS_BLST
   /* negative: tamper the payload slot -> the signature must reject. */
   payload[ 1 ] ^= 0xFFu;
   FD_TEST( !ag_aggsig_individual_verify_bytes( &sig, pk, payload, payload_sz ) );
-#endif
 
   /* round trip through the consensus-message deserializer */
   ag_consensus_message_t msg[1];

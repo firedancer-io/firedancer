@@ -3,7 +3,7 @@
 
 #include "../ag_alpenglow_base.h"
 
-#define SET_NAME signer_set
+#define SET_NAME voter_set
 #define SET_MAX  2048
 #include "../../util/tmpl/fd_set.c"
 
@@ -26,7 +26,7 @@ typedef struct ag_aggsig_sig ag_aggsig_sig_t;
 struct ag_aggsig {
   uchar        sig[ AG_AGGSIG_SIG_SZ ];
   ulong        nbits;
-  signer_set_t bitmask[ signer_set_word_cnt ];
+  voter_set_t bitmask[ voter_set_word_cnt ];
 };
 typedef struct ag_aggsig ag_aggsig_t;
 
@@ -110,33 +110,42 @@ void
 ag_aggsig_merge_sig( ag_aggsig_t * dst,
                      ag_aggsig_t * src );
 
-int
-ag_aggsig_verify_bytes( ag_aggsig_t const *    self,
-                        uchar const *          msg,
-                        ulong                  msg_sz,
-                        ag_aggsig_pk_t const * pks,
-                        ulong                  pk_cnt );
+/* The verifiers locate signer i's uncompressed pubkey at
+   pk0 + i*pk_stride, for i in [0,pk_cnt).  The stride lets a caller
+   point straight at the voting_pubkey field of an array of larger
+   records -- the epoch's validator set, say -- instead of keeping a
+   repacked ag_aggsig_pk_t array alongside it.  Pass
+   sizeof(ag_aggsig_pk_t) when the pubkeys are contiguous. */
 
 int
-ag_aggsig_verify_mixed_bytes( ag_aggsig_t const *    agg_base,
-                              uchar const *          msg_base,
-                              ulong                  msg_base_sz,
-                              ag_aggsig_t const *    agg_fb,
-                              uchar const *          msg_fb,
-                              ulong                  msg_fb_sz,
-                              ag_aggsig_pk_t const * pks,
-                              ulong                  pk_cnt );
+ag_aggsig_verify_bytes( ag_aggsig_t const * self,
+                        uchar const *       msg,
+                        ulong               msg_sz,
+                        uchar const *       pk0,
+                        ulong               pk_stride,
+                        ulong               pk_cnt );
+
+int
+ag_aggsig_verify_mixed_bytes( ag_aggsig_t const * agg_base,
+                              uchar const *       msg_base,
+                              ulong               msg_base_sz,
+                              ag_aggsig_t const * agg_fb,
+                              uchar const *       msg_fb,
+                              ulong               msg_fb_sz,
+                              uchar const *       pk0,
+                              ulong               pk_stride,
+                              ulong               pk_cnt );
 
 FD_FN_PURE static inline int
 ag_aggsig_is_signer( ag_aggsig_t const * self,
                      ulong               validator_idx ) {
   if( FD_UNLIKELY( validator_idx>=self->nbits ) ) return 0;
-  return signer_set_test( self->bitmask, validator_idx );
+  return voter_set_test( self->bitmask, validator_idx );
 }
 
 FD_FN_PURE static inline ulong
 ag_aggsig_signer_cnt( ag_aggsig_t const * self ) {
-  return signer_set_cnt( self->bitmask );
+  return voter_set_cnt( self->bitmask );
 }
 
 ulong

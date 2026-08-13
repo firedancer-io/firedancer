@@ -1,8 +1,6 @@
 #include "ag_cert.h"
 
-#if FD_HAS_BLST
 #include "../../ballet/bls/fd_bls12_381.h"
-#endif
 
 static void
 agg_notar( ag_aggsig_t *           a,
@@ -319,20 +317,24 @@ int
 ag_cert_check_sig( ag_cert_t const *       self,
                    ushort                  shred_version,
                    ag_epoch_info_t const * epoch_info ) {
-  ag_aggsig_pk_t const * pks           = ag_epoch_info_voting_pubkeys( epoch_info );
-  ulong                  validator_cnt = epoch_info->validator_cnt;
+  /* The aggregate verifiers read signer i's pubkey out of the epoch's
+     validator array in place, hence the record stride. */
+  ag_validator_info_t const * v             = ag_epoch_info_validators( epoch_info );
+  uchar const *               pk0           = v->voting_pubkey.v;
+  ulong                       pk_stride     = sizeof(ag_validator_info_t);
+  ulong                       validator_cnt = epoch_info->validator_cnt;
   uchar buf[ AG_VOTE_PAYLOAD_MAX ];
   ulong sz;
   switch( self->kind ) {
   case AG_CERT_TYPE_NOTAR:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.notar.slot, &self->inner.notar.block_hash, shred_version );
-    return ag_aggsig_verify_bytes( &self->inner.notar.agg_sig, buf, sz, pks, validator_cnt );
+    return ag_aggsig_verify_bytes( &self->inner.notar.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_TYPE_FAST_FINAL:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.fast_final.slot, &self->inner.fast_final.block_hash, shred_version );
-    return ag_aggsig_verify_bytes( &self->inner.fast_final.agg_sig, buf, sz, pks, validator_cnt );
+    return ag_aggsig_verify_bytes( &self->inner.fast_final.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_TYPE_FINAL:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_FINAL, self->inner.final.slot, NULL, shred_version );
-    return ag_aggsig_verify_bytes( &self->inner.final.agg_sig, buf, sz, pks, validator_cnt );
+    return ag_aggsig_verify_bytes( &self->inner.final.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_TYPE_NOTAR_FALLBACK: {
 
     ag_notar_fallback_cert_t const * n = &self->inner.notar_fallback;
@@ -341,7 +343,7 @@ ag_cert_check_sig( ag_cert_t const *       self,
     sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_NOTAR_FALLBACK, n->slot, &n->block_hash, shred_version );
     return ag_aggsig_verify_mixed_bytes( &n->agg_sig_notar,          buf,    sz,
                                          &n->agg_sig_notar_fallback, buf_fb, sz_fb,
-                                         pks, validator_cnt );
+                                         pk0, pk_stride, validator_cnt );
   }
   default: {
     ag_skip_cert_t const * s = &self->inner.skip;
@@ -350,7 +352,7 @@ ag_cert_check_sig( ag_cert_t const *       self,
     sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_SKIP_FALLBACK, s->slot, NULL, shred_version );
     return ag_aggsig_verify_mixed_bytes( &s->agg_sig_skip,          buf,    sz,
                                          &s->agg_sig_skip_fallback, buf_fb, sz_fb,
-                                         pks, validator_cnt );
+                                         pk0, pk_stride, validator_cnt );
   }
   }
 }
@@ -420,7 +422,7 @@ de_base2_bitmap( ag_aggsig_t * agg,
   ag_aggsig_init( agg, (ulong)nbits ); /* sets nbits, zeroes bitmask and sig */
 
   for( ulong i=0UL; i<(ulong)nbits; i++ ) {
-    if( (b[ i>>3 ] >> (i&7U)) & 1U ) signer_set_insert( agg->bitmask, i );
+    if( (b[ i>>3 ] >> (i&7U)) & 1U ) voter_set_insert( agg->bitmask, i );
   }
   return AG_CERT_DE_SUCCESS;
 }
@@ -448,8 +450,8 @@ de_base3_bitmap( ag_aggsig_t * base,
     ulong end   = fd_ulong_min( start+5UL, (ulong)nbits );
     for( ulong i=start; i<end; i++ ) {
       uint digit = block % 3U; block /= 3U;
-      if(      digit==1U ) signer_set_insert( base->bitmask, i );
-      else if( digit==2U ) signer_set_insert( fb->bitmask,   i );
+      if(      digit==1U ) voter_set_insert( base->bitmask, i );
+      else if( digit==2U ) voter_set_insert( fb->bitmask,   i );
     }
   }
   return AG_CERT_DE_SUCCESS;
@@ -627,7 +629,6 @@ ag_block_final_cert_de( ag_cert_t     out[ 2 ],
 int
 ag_block_final_cert_decompress( ag_cert_t * certs,
                                 ulong       cert_cnt ) {
-#if FD_HAS_BLST
   for( ulong i=0UL; i<cert_cnt; i++ ) {
     ag_aggsig_t * agg;
     switch( certs[ i ].kind ) {
@@ -640,9 +641,6 @@ ag_block_final_cert_decompress( ag_cert_t * certs,
     fd_memcpy( csig, agg->sig, AG_AGGSIG_SIG_COMPRESSED_SZ );
     if( FD_UNLIKELY( fd_bls12_381_g2_decompress_syscall( agg->sig, csig, 1 /* big endian */ ) ) ) return AG_CERT_DE_ERR_MALFORMED;
   }
-#else
-  (void)certs; (void)cert_cnt;
-#endif
   return AG_CERT_DE_SUCCESS;
 }
 
@@ -658,7 +656,7 @@ ser_base2_bitmap( uchar *             out,
   FD_STORE( ushort, out+o, (ushort)nbits ); o += 2UL;
   fd_memset( out+o, 0, payload );
   for( ulong i=0UL; i<nbits; i++ ) {
-    if( signer_set_test( agg->bitmask, i ) ) out[ o + (i>>3) ] |= (uchar)( 1U << (i&7U) );
+    if( voter_set_test( agg->bitmask, i ) ) out[ o + (i>>3) ] |= (uchar)( 1U << (i&7U) );
   }
   return o + payload;
 }
@@ -681,8 +679,8 @@ ser_base3_bitmap( uchar *             out,
     uint  block = 0U;
     uint  place = 1U;
     for( ulong i=start; i<end; i++ ) {
-      uint digit = signer_set_test( base->bitmask, i ) ? 1U
-                 : signer_set_test( fb->bitmask,   i ) ? 2U : 0U;
+      uint digit = voter_set_test( base->bitmask, i ) ? 1U
+                 : voter_set_test( fb->bitmask,   i ) ? 2U : 0U;
       block += digit*place;
       place *= 3U;
     }

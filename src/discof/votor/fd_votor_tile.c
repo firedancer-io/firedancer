@@ -64,15 +64,23 @@
    In all cases the votor / pool emit a stream of actions (votes/certs to
    broadcast, timeouts to schedule) plus, for the pool, repair requests and
    PoolEvents.  As in the Rust reference (Votor::voting_loop), events flow
-   through three receivers: pool_receiver (the pool's embedded
-   votor_event_channel, which after_credit iterates in place and drains),
+   through three receivers: pool_receiver (the pool's embedded event
+   queue, which after_credit pops until empty),
    blockstore_receiver (blockstore events are dispatched inline by the replay
    frag handlers) and timeout_receiver (the timeouts_heap, popped by
    after_credit as timeouts come due).  The votor's own votes re-enter the
    pool from handle_votor_out and the PoolEvents that produces stay on the
    pool's channel for a later after_credit iteration.  Emitted votes/certs
    are queued as FD_VOTOR_SIG_* frags onto the `publishes` deque, drained one
-   frag per after_credit call (exactly like Tower). */
+   frag per after_credit call (exactly like Tower).
+
+   The pool's two queues are what we read consensus state from, and that
+   event stream is the ONLY such source.  What the pool decided about a slot
+   is not queried back out of it -- CertCreated tells us which block a slot
+   certified (ctx->certified), ParentReady tells us a window can be built
+   on.  One description of the pool's decisions, not two.  TODO: the
+   accessors that drained those queues are gone; see
+   drain_pool_channels. */
 
 #define LOGGING 0
 
@@ -80,7 +88,7 @@
 #define IN_KIND_GOSSIP (1)
 #define IN_KIND_EPOCH  (2)
 #define IN_KIND_IPECHO (3)
-#define IN_KIND_VOTOR  (4)
+#define IN_KIND_NET    (4)
 #define IN_KIND_SIGN   (5)
 
 #define OUT_IDX     0 /* votor_out: consensus output (votes/certs/slot_done/finalized/rooted) */
@@ -88,11 +96,6 @@
 
 /* One net_alpenglow input link per net tile. */
 #define FD_VOTOR_NET_IN_MAX (32UL)
-
-/* Largest payload over the consensus in-links (replay_out / gossip_out /
-   replay_epoch); see topology.c link mtus. */
-#define FD_VOTOR_IN_MTU_MAX_2( a, b ) ((a)>(b)?(a):(b))
-#define FD_VOTOR_IN_MTU_MAX (FD_VOTOR_IN_MTU_MAX_2( FD_VOTOR_IN_MTU_MAX_2( sizeof(fd_replay_message_t), sizeof(fd_gossip_update_message_t) ), FD_EPOCH_OUT_MTU ))
 
 /* Stream reassembly slot: one in-flight ConsensusMessage.  Messages are
    capped at agave's PACKET_DATA_SIZE (1232); the receiver-side QUIC
@@ -136,6 +139,29 @@ typedef struct publish publish_t;
 #define DEQUE_NAME publishes
 #define DEQUE_T    publish_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
+
+/* certified_t is our record of which block a slot certified, rebuilt from
+   the pool's CertCreated events as we drain them rather than queried back
+   out of the pool's slot states.  Only Notar and FastFinal name a block
+   (a slow Final cert carries no hash), and those are exactly the two the
+   reset target and the ROOTED / FINALIZED block ids are drawn from.
+
+   Direct-mapped by slot over slot_max, the same window the pool retains,
+   so there is nothing to prune: a slot that falls out of the window is
+   overwritten by the successor that lands on its line, and `slot`
+   distinguishes a live line from the stale one it displaced.  We only
+   ever look up the frontier -- the finalized slot, the rootable slot and
+   the slot replay just completed -- so a displaced line is a line whose
+   answer no longer matters. */
+
+struct certified {
+  ulong     slot;
+  fd_hash_t notar;
+  fd_hash_t fast_final;
+  int       has_notar;
+  int       has_fast_final;
+};
+typedef struct certified certified_t;
 
 /* peer_t is one entry in the peer connection table: an Alpenglow
    participant we have learned a routable alpenglow QUIC socket for from a
@@ -189,13 +215,13 @@ typedef struct in_ctx in_ctx_t;
    consensus only ever reads two. */
 
 /* vtr_epoch_set_t is one set of epoch stakes. epoch==ULONG_MAX marks an
-   empty entry in the epoch map */
+   empty entry in the epoch map; info always points at this entry's slice
+   of tile scratch, occupied or not. */
 struct vtr_epoch_set {
   ulong             epoch;
   ulong             validator_cnt;
-  ushort            own_id;       /* our ValidatorIndex (rank) in THIS epoch */
-  int               have_own_id;  /* 0 if we are unstaked this epoch         */
-  void *            mem;
+  ushort            rank;       /* our ValidatorIndex in THIS epoch  */
+  int               have_rank;  /* 0 if we are unstaked this epoch   */
   ag_epoch_info_t * info;
 };
 typedef struct vtr_epoch_set vtr_epoch_set_t;
@@ -214,7 +240,7 @@ struct fd_votor_tile {
      not zeroed, so there is no safe "unset" value to test for. */
   ag_aggsig_sign_fn sign_fn;
   void *            sign_ctx;
-  ushort         own_id;        /* our ValidatorIndex in the active epoch */
+  ushort         epoch_rank;    /* our ValidatorIndex in the active epoch */
 
   /* owned joins */
 
@@ -228,12 +254,24 @@ struct fd_votor_tile {
   /* per-epoch validator sets: exactly the two epochs consensus can reference */
   vtr_epoch_set_t     curr;            /* the active epoch E */
   vtr_epoch_set_t     next;            /* epoch E+1          */
+
+  /* What the pool has already been told.  ag_pool_set_epoch rotates one
+     epoch per call, so sync_pool_epochs cannot simply redeclare the
+     window on every mutation -- it has to know which steps it has taken.
+     ULONG_MAX in either means the pool has not been given that half of
+     the window yet. */
+
+  ulong               pool_curr_epoch;
+  ulong               pool_next_epoch;
+
   ulong               active_epoch;    /* epoch the pool / votor are built for */
   ag_epoch_info_t *   epoch_info;      /* == the active epoch set's info */
   fd_epoch_schedule_t epoch_schedule;  /* from EPOCH msgs; slot -> epoch        */
   int                 have_schedule;
 
   publish_t * publishes; /* deque of msgs queued for publishing */
+
+  certified_t * certified; /* [slot_max]; slot -> its certified block, from CertCreated events */
 
   /* Peer connection table: Alpenglow participants we have learned a routable
      alpenglow QUIC socket for (from gossip ContactInfo updates), keyed by
@@ -282,8 +320,6 @@ struct fd_votor_tile {
      the originally allocated scratch regions. */
 
   ulong slot_max;
-  ulong validator_max;
-  ulong blockid_max;
 
   ulong     root_slot;      /* last ROOTED slot published (finalized AND replayed) */
   fd_hash_t root_block_id;  /* block id of root_slot (pool's seeded root)          */
@@ -302,27 +338,6 @@ struct fd_votor_tile {
   int    halt_signing;
   ushort shred_version;
   int    init; /* 1 after the first slot completion / votor_new */
-
-  /* consensus-message ingress drop counters (logged on powers of two) */
-
-  ulong rx_drop_frag;          /* stream frame not (offset==0 && fin)   */
-  ulong rx_drop_malformed;     /* ag_consensus_message_de malformed     */
-  ulong rx_drop_unsupported;   /* unknown wire version / Genesis kinds  */
-  ulong rx_drop_shred_version; /* trailing shred_version mismatch       */
-  ulong rx_drop_cert;          /* ag_pool_add_cert rejected             */
-
-  /* broadcast (All2All) egress counters */
-
-  ulong tx_msg;               /* (peer, message) pairs handed to QUIC   */
-  ulong tx_drop_no_conn;      /* peer known but no live conn            */
-  ulong tx_drop_no_stream;    /* out of stream quota on the conn        */
-  ulong tx_drop_send;         /* fd_quic_stream_send rejected           */
-
-  /* ingest tallies, summarized by a NOTICE every ~10s */
-
-  ulong rx_msg;                /* complete stream payloads delivered    */
-  ulong rx_cert_ok;
-  long  rx_summary_deadline;
 
   /* in/out link setup */
 
@@ -350,14 +365,14 @@ struct fd_votor_tile {
   uchar              net_buf[ FD_NET_MTU ];
   fd_net_rx_bounds_t net_in_bounds[ FD_VOTOR_NET_IN_MAX ];
 
-  /* during_frag staging: every in-link is consumed UNRELIABLE (topology.c),
-     so payloads must be copied out of the dcache in during_frag (stem's
-     overrun re-check guards the copy) and processed from the copy in
-     after_frag.  msg_buf holds the consensus-link frag (replay_out /
-     gossip_out / replay_epoch); skip_frag marks a frag whose during_frag
-     bounds checks failed (a torn read surfaces as an overrun instead). */
-  int   skip_frag;
-  uchar msg_buf[ FD_VOTOR_IN_MTU_MAX ] __attribute__((aligned(64UL)));
+  /* during_frag staging.  replay_out / gossip_out / replay_epoch are
+     consumed RELIABLE (topology.c), so the producer cannot recycle the
+     dcache entry underneath us: during_frag just records where the frag
+     lives and after_frag reads it in place, no copy.  net_alpenglow is
+     UNRELIABLE and still copies into net_buf.  skip_frag marks a frag
+     whose during_frag bounds checks failed. */
+  int          skip_frag;
+  void const * msg;
 
   /* Stream reassembly: one ConsensusMessage per uni stream, but quinn
      routinely splits a message's data and FIN across frames at packet
@@ -378,8 +393,25 @@ struct fd_votor_tile {
   ulong       net_out_chunk0;
   ulong       net_out_wmark;
   ulong       net_out_chunk;
+
+  /* QUIC scratch regions carved by init_choreo; fd_quic_new runs over
+     them in unprivileged_init, once the topology links are known.  NULL
+     when the tile has no QUIC config. */
+  void * quic_server_mem;
+  void * quic_client_mem;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
+
+/* epoch_set returns the retained entry for `epoch`, or NULL if that
+   epoch is outside the two-epoch window. */
+
+FD_FN_PURE static vtr_epoch_set_t const *
+epoch_set( fd_votor_tile_t const * ctx,
+           ulong                   epoch ) {
+  if( ctx->curr.epoch==epoch ) return &ctx->curr;
+  if( ctx->next.epoch==epoch ) return &ctx->next;
+  return NULL;
+}
 
 /* keyguard_sign is the ag_aggsig_sign_fn the votor core calls to sign a
    vote's VotePayloadToSign.  It round-trips through the keyguard to the
@@ -396,37 +428,51 @@ keyguard_sign( void *            _ctx,
                               payload, payload_sz, FD_KEYGUARD_SIGN_TYPE_BLS12_381 );
 }
 
-/* schedule_timeout arms one VotorTimeout at the absolute deadline
-   Votor::set_timeouts sleeps to:
+/* validated_vote / validated_cert are ValidatedVote::try_new and
+   ValidatedCert::try_new: every check the pool assumes has already
+   happened by the time it is handed a message, which is why
+   ag_pool_add_vote / ag_pool_add_cert take no signature, signer or
+   threshold error.  Each returns the epoch the message validated
+   against, or NULL if it must be dropped.
 
-     CrashedLeader  DELTA_TIMEOUT + DELTA_FIRST_SLICE
-     Timeout(s)     DELTA_TIMEOUT + (s - first_slot_in_window + 1)*DELTA_BLOCK
+   The epoch lookup leads because the rest is scored against it: the
+   validator set of the message's OWN slot, so a vote or cert either side
+   of an epoch boundary resolves to the right rank map and total stake. */
 
-   The reference chains sleeps -- DELTA_TIMEOUT + DELTA_FIRST_SLICE, then
-   DELTA_BLOCK - DELTA_FIRST_SLICE for the window's first slot and
-   DELTA_BLOCK for each one after -- which telescopes to the deadlines
-   above. */
+/* The set a message's slot resolves to, resolved the way the pool resolves
+   it out of the window sync_pool_epochs pushed: next's from its start slot
+   up, else curr's, and curr's for everything while the pool has no next.
+   NULL until the first epoch is installed. */
 
-static void
-schedule_timeout( fd_votor_tile_t * ctx,
-                  uint              kind,
-                  ulong             slot ) {
-  long  now   = fd_log_wallclock();
-  ulong first = ag_slot_first_slot_in_window( slot );
+static ag_epoch_info_t const *
+epoch_info_for_slot( fd_votor_tile_t const * ctx,
+                     ulong                   slot ) {
+  if( FD_UNLIKELY( ctx->pool_curr_epoch==ULONG_MAX ) ) return NULL;
+  if( FD_UNLIKELY( ctx->pool_next_epoch==ULONG_MAX ) ) return ctx->curr.info;
+  ulong next_slot = fd_epoch_slot0( &ctx->epoch_schedule, ctx->pool_next_epoch );
+  return slot>=next_slot ? ctx->next.info : ctx->curr.info;
+}
 
-  if( FD_UNLIKELY( !fd_timeout_pool_free( ctx->timeouts_pool ) ) ) {
-    FD_LOG_WARNING(( "votor timeout pool full; dropping %s timeout for slot %lu",
-                     kind==AG_VOTOR_TIMEOUT_CRASHED_LEADER ? "crashed-leader" : "block", slot ));
-    return;
-  }
+static ag_epoch_info_t const *
+validated_vote( fd_votor_tile_t const * ctx,
+                ag_vote_t const *       vote ) {
+  ag_epoch_info_t const * epoch = epoch_info_for_slot( ctx, ag_vote_slot( vote ) );
+  if( FD_UNLIKELY( !epoch                                         ) ) return NULL;
+  if( FD_UNLIKELY( ag_vote_signer( vote )>=epoch->validator_cnt   ) ) return NULL;
 
-  fd_timeout_t * timeout = fd_timeout_pool_ele_acquire( ctx->timeouts_pool );
-  timeout->slot = slot;
-  timeout->kind = kind;
-  timeout->ts   = kind==AG_VOTOR_TIMEOUT_CRASHED_LEADER
-                ? now + AG_ALPENGLOW_DELTA_TIMEOUT_NS + AG_ALPENGLOW_DELTA_FIRST_SLICE_NS
-                : now + AG_ALPENGLOW_DELTA_TIMEOUT_NS + (long)( slot - first + 1UL )*AG_ALPENGLOW_DELTA_BLOCK_NS;
-  fd_timeout_heap_ele_insert( ctx->timeouts_heap, timeout, ctx->timeouts_pool );
+  ag_aggsig_pk_t const * pk = &ag_epoch_info_validator( epoch, ag_vote_signer( vote ) )->voting_pubkey;
+  if( FD_UNLIKELY( !ag_vote_check_sig( vote, pk, ctx->shred_version ) ) ) return NULL;
+  return epoch;
+}
+
+static ag_epoch_info_t const *
+validated_cert( fd_votor_tile_t const * ctx,
+                ag_cert_t const *       cert ) {
+  ag_epoch_info_t const * epoch = epoch_info_for_slot( ctx, ag_cert_slot( cert ) );
+  if( FD_UNLIKELY( !epoch                                                ) ) return NULL;
+  if( FD_UNLIKELY( !ag_cert_check_threshold( cert, epoch )               ) ) return NULL;
+  if( FD_UNLIKELY( !ag_cert_check_sig( cert, ctx->shred_version, epoch ) ) ) return NULL;
+  return epoch;
 }
 
 /* own-vote loopback: Alpenglow::handle_all2all_message */
@@ -435,9 +481,25 @@ static void
 handle_votor_out( fd_votor_tile_t * ctx ) {
   ag_votor_out_t const * out = ag_votor_out( ctx->votor );
 
-  for( ulong i=0UL; i<out->timeout_cnt; i++ ) {
-    ag_votor_timeout_t const * t = &out->timeouts[ i ];
-    schedule_timeout( ctx, t->kind, t->slot );
+  /* Arm the timeouts the votor asked for.  It sets the deadlines (relative
+     to now); we own the clock and the timer queue.  One clock read for the
+     batch, so a whole window's timers share a base. */
+
+  if( FD_UNLIKELY( out->timeout_cnt ) ) {
+    long now = fd_log_wallclock();
+    for( ulong i=0UL; i<out->timeout_cnt; i++ ) {
+      ag_votor_timeout_t const * t = &out->timeouts[ i ];
+      if( FD_UNLIKELY( !fd_timeout_pool_free( ctx->timeouts_pool ) ) ) {
+        FD_LOG_WARNING(( "votor timeout pool full; dropping %s timeout for slot %lu",
+                         t->kind==AG_VOTOR_TIMEOUT_CRASHED_LEADER ? "crashed-leader" : "block", t->slot ));
+        continue;
+      }
+      fd_timeout_t * timeout = fd_timeout_pool_ele_acquire( ctx->timeouts_pool );
+      timeout->slot = t->slot;
+      timeout->kind = t->kind;
+      timeout->ts   = now + t->delay_ns;
+      fd_timeout_heap_ele_insert( ctx->timeouts_heap, timeout, ctx->timeouts_pool );
+    }
   }
 
   for( ulong i=0UL; i<out->msg_cnt; i++ ) {
@@ -447,12 +509,18 @@ handle_votor_out( fd_votor_tile_t * ctx ) {
          differs per epoch) before both broadcast and pool ingest. */
       ag_vote_t vote  = m->inner.vote;
       ulong     epoch = fd_slot_to_epoch( &ctx->epoch_schedule, ag_vote_slot( &vote ), NULL );
-      vtr_epoch_set_t const * s = ctx->curr.epoch==epoch ? &ctx->curr
-                                : ctx->next.epoch==epoch ? &ctx->next
-                                : NULL;
+      vtr_epoch_set_t const * s = epoch_set( ctx, epoch );
       if( FD_UNLIKELY( !s ) ) FD_LOG_CRIT(( "own vote for epoch %lu but no validator epoch info", epoch ));
-      ag_vote_set_signer( &vote, s->own_id );
+      ag_vote_set_signer( &vote, s->rank );
       publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_VOTOR_SIG_VOTE, .bcast = 1, .msg.vote = vote } );
+
+      /* Our own vote goes through the same gate as a peer's -- the
+         reference loops own votes back through handle_all2all_message and
+         so validates them too.  Failing it means our epoch bookkeeping
+         and the pool's have diverged, which is fatal, not droppable. */
+      if( FD_UNLIKELY( !validated_vote( ctx, &vote ) ) )
+        FD_LOG_CRIT(( "own vote for slot %lu failed validation", ag_vote_slot( &vote ) ));
+
       ag_pool_add_vote( ctx->pool, &vote ); /* count our own vote; the pool events
                                                it emits are consumed by a later
                                                after_credit iteration */
@@ -462,19 +530,57 @@ handle_votor_out( fd_votor_tile_t * ctx ) {
   }
 }
 
-/* count_drop bumps an ingress drop counter and logs on powers of two. */
+/* note_cert folds one CertCreated event into ctx->certified.  Skip and
+   Final certs name no block and so record nothing.
 
-static inline void
-count_drop( ulong *      cnt,
-            char const * what ) {
-  (*cnt)++;
-  if( FD_UNLIKELY( fd_ulong_is_pow2( *cnt ) ) ) FD_LOG_WARNING(( "votor rx drop: %s (cnt %lu)", what, *cnt ));
+   Unused while the pool drain in drain_pool_channels is a TODO: nothing
+   delivers CertCreated events, so this has no caller.  Kept because the
+   replacement drain has to call it. */
+
+FD_FN_UNUSED static void
+note_cert( fd_votor_tile_t * ctx,
+           ag_cert_t const * cert ) {
+  if( cert->kind!=AG_CERT_TYPE_NOTAR && cert->kind!=AG_CERT_TYPE_FAST_FINAL ) return;
+
+  ulong         slot = ag_cert_slot( cert );
+  certified_t * c    = &ctx->certified[ slot & (ctx->slot_max-1UL) ];
+  if( FD_UNLIKELY( c->slot!=slot ) ) { /* displacing a slot that left the window */
+    c->slot           = slot;
+    c->has_notar      = 0;
+    c->has_fast_final = 0;
+  }
+  if( cert->kind==AG_CERT_TYPE_NOTAR ) { c->notar      = cert->inner.notar.block_hash;      c->has_notar      = 1; }
+  else                                 { c->fast_final = cert->inner.fast_final.block_hash; c->has_fast_final = 1; }
+}
+
+/* certified_notar returns the block hash slot's Notar cert names, or NULL
+   if we have seen no Notar cert for it. */
+
+FD_FN_PURE static fd_hash_t const *
+certified_notar( fd_votor_tile_t const * ctx,
+                 ulong                   slot ) {
+  certified_t const * c = &ctx->certified[ slot & (ctx->slot_max-1UL) ];
+  return ( c->slot==slot && c->has_notar ) ? &c->notar : NULL;
+}
+
+/* certified_block is certified_notar widened to the fast-final cert,
+   which names a block as well.  Notar wins when both are present: they
+   name the same block (a fast-final cert is built from the same notar
+   votes), and this is the order the pool answered it in. */
+
+FD_FN_PURE static fd_hash_t const *
+certified_block( fd_votor_tile_t const * ctx,
+                 ulong                   slot ) {
+  fd_hash_t const * notar = certified_notar( ctx, slot );
+  if( FD_LIKELY( notar ) ) return notar;
+  certified_t const * c = &ctx->certified[ slot & (ctx->slot_max-1UL) ];
+  return ( c->slot==slot && c->has_fast_final ) ? &c->fast_final : NULL;
 }
 
 /* publish_slot_done queues the FD_VOTOR_SIG_SLOT frag for the just
-   completed replay slot.  The reset target is the best certified tip: we
-   prefer the notarized block of the highest slot with a notar cert at/below
-   the completed slot, falling back to the completed block itself. */
+   completed replay slot.  The reset target is the notarized version of
+   that slot when consensus has named one -- replay may have executed an
+   equivocating version -- falling back to the block replay completed. */
 
 static void
 publish_slot_done( fd_votor_tile_t *     ctx,
@@ -488,15 +594,11 @@ publish_slot_done( fd_votor_tile_t *     ctx,
   msg->replay_slot     = block->slot;
   msg->replay_bank_idx = bank_idx;
 
-  /* Determine the reset target.  Query parents_ready for the next slot: if a
-     valid parent is ready, reset onto it.  Otherwise reset onto the block we
-     just completed. */
-
   msg->reset_slot     = block->slot;
   msg->reset_block_id = block->hash;
 
-  fd_hash_t notarized[1];
-  if( FD_LIKELY( ag_pool_get_notarized_block( ctx->pool, block->slot, notarized ) ) ) {
+  fd_hash_t const * notarized = certified_notar( ctx, block->slot );
+  if( FD_LIKELY( notarized ) ) {
     msg->reset_slot     = block->slot;
     msg->reset_block_id = *notarized;
   }
@@ -514,18 +616,26 @@ static void
 maybe_publish_finalized( fd_votor_tile_t * ctx ) {
   ulong fin = ag_pool_finalized_slot( ctx->pool );
 
-  /* FINALIZED: consensus finalization advanced (cert-driven). */
+  /* FINALIZED: consensus finalization advanced (cert-driven).  Held until
+     we have the finalized block id, exactly like ROOTED below.  Two ways
+     it can be missing: the CertCreated event that carries it is still on
+     the pool's queue (finalization is observable from the pool one drain
+     before we have folded the cert in), or the pool was seeded at a
+     snapshot slot, which has no cert behind it at all.  In both cases
+     holding is right -- the first resolves on the next drain, and the
+     second is not a finalization we observed. */
+
   if( FD_UNLIKELY( fin>ctx->finalized_slot ) ) {
-    fd_hash_t block_id[1];
-    memset( block_id, 0, sizeof(fd_hash_t) );
-    ag_pool_get_finalized_block( ctx->pool, fin, block_id );
-    publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
-    pub->sig                    = FD_VOTOR_SIG_FINALIZED;
-    pub->bcast = 0;
-    pub->msg.finalized.slot     = fin;
-    pub->msg.finalized.block_id = *block_id;
-    ctx->finalized_slot         = fin;
-    ctx->standstill_armed       = 1; /* a real final cert now backs the finalized slot */
+    fd_hash_t const * block_id = certified_block( ctx, fin );
+    if( FD_LIKELY( block_id ) ) {
+      publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
+      pub->sig                    = FD_VOTOR_SIG_FINALIZED;
+      pub->bcast                  = 0;
+      pub->msg.finalized.slot     = fin;
+      pub->msg.finalized.block_id = *block_id;
+      ctx->finalized_slot         = fin;
+      ctx->standstill_armed       = 1; /* a real final cert now backs the finalized slot */
+    }
   }
 
   /* ROOTED: the bank root can advance to the highest finalized+replayed slot. */
@@ -535,75 +645,143 @@ maybe_publish_finalized( fd_votor_tile_t * ctx ) {
        the replay frontier block is not necessarily the finalized one
        (e.g. a leader block replay executed at a slot consensus then
        skipped -- rooting it abandons the real fork in the scheduler).
-       If the cert is not (yet) in the pool, hold the root and retry on
-       the next advance. */
-    fd_hash_t block_id[1];
-    if( FD_LIKELY( ag_pool_get_finalized_block( ctx->pool, rootable, block_id ) ) ) {
+       If we have seen no cert for it, hold the root and retry on the next
+       advance. */
+    fd_hash_t const * block_id = certified_block( ctx, rootable );
+    if( FD_LIKELY( block_id ) ) {
       publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
       pub->sig                 = FD_VOTOR_SIG_ROOTED;
-    pub->bcast = 0;
+      pub->bcast               = 0;
       pub->msg.rooted.slot     = rootable;
       pub->msg.rooted.block_id = *block_id;
       ctx->root_slot           = rootable;
       ctx->root_block_id       = *block_id; /* keep the root block id for the next pool rebuild */
-      /* shed pool state below the certified root; without this an
-         undecided pre-root slot pins the finality watermark and the
-         per-slot pools exhaust (see ag_finality_tracker_prune_to) */
-      ag_pool_prune_to_root( ctx->pool, rootable, block_id );
       FD_LOG_INFO(( "votor rooted slot %lu", rootable ));
     }
   }
 }
 
-/* set_active_epoch switches the pool / votor to `epoch`'s validator set,
-   rebuilding them (which drops in-flight per-slot state -- acceptable across an
-   epoch boundary, where the root advances at most one epoch).  Returns 0 if
-   `epoch` is not in the window (caller keeps the current active epoch). */
+/* sync_pool_epochs brings the pool's window up to the retained one --
+   curr and next, with the start slot of each -- so it can resolve stakes
+   and BLS ranks from the epoch of each vote's / cert's OWN slot, Agave's
+   Bank::epoch_stakes_from_slot.  The start slots come from our epoch
+   schedule, so variable-length warmup epochs need no special casing.
+
+   Must be called after EVERY mutation of curr / next, and in particular
+   after update_epoch_vtrs has re-ranked into a retired entry's memory:
+   the pool holds these ag_epoch_info_t pointers, so a retired epoch has
+   to leave the window before anything reads the pool again.
+
+   ag_pool_set_epoch takes one epoch and rotates, so this is a diff
+   against ctx->pool_*, not a redeclaration: calling it twice over an
+   unchanged window must not rotate the pool twice.  A set re-ranked in
+   place needs no call at all -- the pool holds it by pointer. */
+
+static void
+sync_pool_epochs( fd_votor_tile_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->have_schedule ) ) return;
+
+  vtr_epoch_set_t const * curr = &ctx->curr;
+  vtr_epoch_set_t const * next = &ctx->next;
+  int curr_live = curr->epoch!=ULONG_MAX;
+  int next_live = next->epoch!=ULONG_MAX;
+
+  /* next is only ever filled once curr is, and the epoch advance rotates
+     next INTO curr, so a live next always sits on a live curr.  That is
+     what lets curr's start slot be the bottom of the pool's window. */
+  FD_TEST( curr_live || !next_live );
+  if( FD_UNLIKELY( !curr_live ) ) return; /* nothing to install; the pool's window starts empty */
+
+  FD_TEST( !next_live || next->epoch==curr->epoch+1UL );
+  ulong curr_slot = fd_epoch_slot0( &ctx->epoch_schedule, curr->epoch      );
+  ulong next_slot = fd_epoch_slot0( &ctx->epoch_schedule, curr->epoch+1UL  );
+
+  /* rank is 0 (observe-only) when !have_rank */
+
+  if( FD_UNLIKELY( ctx->pool_curr_epoch==ULONG_MAX ) ) {
+    /* Empty window: the first epoch handed over is its bottom. */
+    ag_pool_set_epoch( ctx->pool, curr->info, curr->rank, curr_slot );
+    ctx->pool_curr_epoch = curr->epoch;
+    ctx->pool_next_epoch = ULONG_MAX;
+  }
+
+  /* An epoch reaches the pool only together with its set, so there is
+     nothing to hand over until E+1 has one.  Until then curr answers for
+     E+1's slots too -- the window has no upper bound. */
+  if( !next_live                          ) return;
+  if( ctx->pool_next_epoch==next->epoch   ) return; /* already there; a re-rank needs no call */
+
+  /* Either the pool has never been given a next (this fills it), or the
+     window advanced and the pool's next rotates into its curr.  Anything
+     else means a mutation went unsynced. */
+  FD_TEST( ctx->pool_next_epoch==ULONG_MAX || ctx->pool_next_epoch==curr->epoch );
+
+  ag_pool_set_epoch( ctx->pool, next->info, next->rank, next_slot );
+  ctx->pool_curr_epoch = curr->epoch;
+  ctx->pool_next_epoch = next->epoch;
+}
+
+/* rebuild_pool_at_root re-formats the pool rooted at ctx->root_slot.
+
+   Runs EXACTLY ONCE, on the first slot completion after boot: the pool
+   formatted in unprivileged_init is rooted at genesis because the
+   snapshot slot is not known until replay reports it.  It is emphatically
+   NOT run on epoch changes -- see set_active_epoch. */
+
+static void
+rebuild_pool_at_root( fd_votor_tile_t * ctx ) {
+  ctx->pool = ag_pool_join( ag_pool_new( ag_pool_leave( ctx->pool ),
+                                         ctx->slot_max, ctx->seed ) );
+  FD_TEST( ctx->pool );
+  ag_pool_set_root( ctx->pool, ctx->root_slot, &ctx->root_block_id );
+
+  /* The window went with the old pool; the next sync installs it afresh. */
+  ctx->pool_curr_epoch = ULONG_MAX;
+  ctx->pool_next_epoch = ULONG_MAX;
+  sync_pool_epochs( ctx );
+
+  /* ctx->certified mirrors the pool's certs, so it is discarded with them.
+     A cleared line reads as "no cert seen", which is what a fresh pool
+     reports for every slot. */
+  memset( ctx->certified, 0, sizeof(certified_t)*ctx->slot_max );
+
+  /* A pool rooted at a snapshot slot holds no cert behind its finalized
+     slot, so standstill recovery has nothing to re-broadcast yet. */
+  ctx->standstill_armed          = 0;
+  ctx->standstill_finalized_slot = ag_pool_finalized_slot( ctx->pool );
+  ctx->standstill_last_progress  = fd_log_wallclock();
+}
+
+/* set_active_epoch re-points the tile's active-epoch bookkeeping at
+   `epoch`.  Returns 0 if `epoch` is not in the retained window (caller
+   keeps the current one).
+
+   This no longer rebuilds anything.  The pool scores each vote and cert
+   against the epoch of that message's own slot, so it needs no notion of
+   a single current epoch; and rebuilding the votor would discard its
+   per-slot `voted` history, which is exactly what stops us from
+   following a Skip with a Notarize on the same slot after an epoch
+   boundary.  What remains is the aliases used for logging, metrics and
+   the own-vote rank restamp in handle_votor_out. */
 
 static int
 set_active_epoch( fd_votor_tile_t * ctx,
                   ulong             epoch ) {
-  vtr_epoch_set_t * s = ctx->curr.epoch==epoch ? &ctx->curr
-                      : ctx->next.epoch==epoch ? &ctx->next : NULL;
+  vtr_epoch_set_t const * s = epoch_set( ctx, epoch );
   if( FD_UNLIKELY( !s ) ) return 0;
 
   ctx->active_epoch = epoch;
   ctx->epoch        = epoch;
   ctx->epoch_info   = s->info;
-  ctx->own_id       = s->own_id; /* 0 (observe-only) when !have_own_id */
+  ctx->epoch_rank   = s->rank; /* 0 (observe-only) when !have_rank */
 
-  ag_validator_info_t const * vset = ag_epoch_info_validators( s->info );
-  ctx->pool = ag_pool_join( ag_pool_new( ag_pool_leave( ctx->pool ),
-                                         ctx->slot_max, ctx->validator_max, ctx->blockid_max,
-                                         ctx->own_id, vset, s->validator_cnt, ctx->shred_version, ctx->seed,
-                                         ctx->root_slot, &ctx->root_block_id ) );
-  FD_TEST( ctx->pool );
+  /* Keep the votor's default rank current.  Every emitted vote is
+     restamped against its own slot's epoch before it leaves
+     handle_votor_out, so this only matters as the pre-restamp value. */
+  ag_votor_set_validator_index( ctx->votor, s->rank );
 
-  ctx->votor = ag_votor_join( ag_votor_new( ag_votor_leave( ctx->votor ),
-                                            ctx->slot_max, (ushort)ctx->own_id, ctx->sign_fn, ctx->sign_ctx, ctx->shred_version, ctx->seed ) );
-  FD_TEST( ctx->votor );
-
-  /* The timeouts still queued belong to the votor we just discarded.  A
-     fresh votor starts with highest_final_cert_slot 0 and no retired
-     slots, so letting them fire would run try_skip_window over slots the
-     old votor had already decided -- i.e. emit skip votes for slots that
-     are notarized or final.  Drop them; the new votor re-arms its own
-     timeouts from the ParentReady events the rebuilt pool replays. */
-  while( fd_timeout_heap_ele_cnt( ctx->timeouts_heap ) ) {
-    fd_timeout_t * t = fd_timeout_heap_ele_peek_min( ctx->timeouts_heap, ctx->timeouts_pool );
-    fd_timeout_heap_ele_remove_min( ctx->timeouts_heap, ctx->timeouts_pool );
-    fd_timeout_pool_ele_release( ctx->timeouts_pool, t );
-  }
-
-  /* The rebuilt pool is seeded at the root with no cert behind it, so
-     standstill recovery has nothing to re-broadcast until the first
-     finalization under the new epoch lands. */
-  ctx->standstill_armed          = 0;
-  ctx->standstill_finalized_slot = ag_pool_finalized_slot( ctx->pool );
-  ctx->standstill_last_progress  = fd_log_wallclock();
-
-  FD_LOG_NOTICE(( "votor active epoch -> %lu (%lu validators, own_id %u, staked=%d)",
-                  epoch, s->validator_cnt, (uint)s->own_id, s->have_own_id ));
+  FD_LOG_NOTICE(( "votor active epoch -> %lu (%lu validators, rank %u, staked=%d)",
+                  epoch, s->validator_cnt, (uint)s->rank, s->have_rank ));
   return 1;
 }
 
@@ -630,20 +808,17 @@ seed_consensus_root( fd_votor_tile_t *     ctx,
   }
 }
 
-/* advance_epoch switches the active consensus epoch to the replayed
-   tip's epoch if it changed and we have that epoch's validator set.  This
-   rebuilds the pool / votor, so it must run before the caller registers
-   the tip's block.  At snapshot boot replay publishes both epoch E and E+1
-   before any slot completes, so the set is present.
+/* advance_epoch moves the active-epoch bookkeeping up to the replayed
+   tip's epoch, and on the very first slot completion re-roots the pool at
+   the snapshot block.  At snapshot boot replay publishes both epoch E and
+   E+1 before any slot completes, so the validator set is present.
 
-   The active epoch only ever moves FORWARD.  The switch drops every vote /
-   cert / parent-ready in flight, so a replay tip that dips back below the
-   epoch boundary (fork replay, or a slot completing out of order) must not
-   drag the active epoch back and discard the newer epoch's state -- an
-   oscillating tip would otherwise reset consensus once per slot.  Staying
-   on the newer epoch is safe: every slot of E-1 is at or below the
-   consensus root, so pool admission rejects it before any rank lookup (see
-   the two-epoch window note above). */
+   The active epoch only ever moves FORWARD.  It no longer gates which
+   votes and certs the pool will accept -- the pool resolves those per
+   slot -- but letting a tip that dips back below the boundary (fork
+   replay, or a slot completing out of order) drag it backwards would
+   oscillate our own-vote rank and the logging once per slot.  Staying on
+   the newer epoch costs nothing: both epochs are live in the pool. */
 
 static void
 advance_epoch( fd_votor_tile_t *     ctx,
@@ -651,8 +826,13 @@ advance_epoch( fd_votor_tile_t *     ctx,
                ag_block_id_t const * parent ) {
   if( FD_UNLIKELY( !ctx->have_schedule ) ) return;
 
-  /* The root must be seeded before the switch below builds the pool. */
-  if( FD_UNLIKELY( ctx->active_epoch==ULONG_MAX ) ) seed_consensus_root( ctx, block, parent );
+  /* First slot completion after boot: adopt the snapshot block as the
+     consensus root and re-root the pool onto it.  Must happen before the
+     caller registers the tip's block. */
+  if( FD_UNLIKELY( ctx->active_epoch==ULONG_MAX ) ) {
+    seed_consensus_root( ctx, block, parent );
+    rebuild_pool_at_root( ctx );
+  }
 
   ulong tip_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, block->slot, NULL );
   if( FD_LIKELY( ctx->active_epoch!=ULONG_MAX && tip_epoch<=ctx->active_epoch ) ) return;
@@ -786,15 +966,11 @@ broadcast( fd_votor_tile_t * ctx,
        !peer_map_iter_done( iter, ctx->peer_map, ctx->peer_pool );
        iter = peer_map_iter_next( iter, ctx->peer_map, ctx->peer_pool ) ) {
     peer_t * peer = peer_map_iter_ele( iter, ctx->peer_map, ctx->peer_pool );
-    if( FD_UNLIKELY( !peer->conn ) ) { ctx->tx_drop_no_conn++; continue; }
+    if( FD_UNLIKELY( !peer->conn ) ) continue;
 
     fd_quic_stream_t * stream = fd_quic_conn_new_stream( peer->conn );
-    if( FD_UNLIKELY( !stream ) ) { ctx->tx_drop_no_stream++; continue; } /* out of stream quota */
-    if( FD_UNLIKELY( fd_quic_stream_send( stream, payload, payload_sz, 1 /* fin */ ) ) ) {
-      ctx->tx_drop_send++;
-      continue;
-    }
-    ctx->tx_msg++;
+    if( FD_UNLIKELY( !stream ) ) continue; /* out of stream quota */
+    fd_quic_stream_send( stream, payload, payload_sz, 1 /* fin */ );
   }
 }
 
@@ -812,7 +988,7 @@ static void
 standstill_poll( fd_votor_tile_t * ctx ) {
   long now = fd_log_wallclock();
   if( FD_LIKELY( now<ctx->standstill_poll_deadline ) ) return;
-  ctx->standstill_poll_deadline = now + AG_ALPENGLOW_DELTA_BLOCK_NS;
+  ctx->standstill_poll_deadline = now + AG_DELTA_BLOCK_NS;
 
   ulong fin = ag_pool_finalized_slot( ctx->pool );
   if( FD_LIKELY( fin>ctx->standstill_finalized_slot ) ) {
@@ -820,7 +996,7 @@ standstill_poll( fd_votor_tile_t * ctx ) {
     ctx->standstill_last_progress  = now;
     return;
   }
-  if( FD_LIKELY( now-ctx->standstill_last_progress <= AG_ALPENGLOW_DELTA_STANDSTILL_NS ) ) return;
+  if( FD_LIKELY( now-ctx->standstill_last_progress <= AG_DELTA_STANDSTILL_NS ) ) return;
   ctx->standstill_last_progress = now;
 
   if( FD_UNLIKELY( !ctx->standstill_armed ) ) return; /* no final cert behind the seeded root yet */
@@ -870,13 +1046,13 @@ update_epoch_vtrs( fd_votor_tile_t *              ctx,
   }
 
   /* Locate our own rank. */
-  ushort own_id      = 0;
-  int    have_own_id = 0;
+  ushort rank      = 0;
+  int    have_rank = 0;
   for( ulong r=0UL; r<cnt; r++ ) {
     ag_validator_info_t const * vi = &ctx->validators[ r ];
     if( FD_LIKELY( memcmp( vi->pubkey.uc, ctx->identity_key->uc, sizeof(fd_pubkey_t) ) ) ) continue;
-    own_id      = (ushort)r;
-    have_own_id = 1;
+    rank      = (ushort)r;
+    have_rank = 1;
     /* Sanity check: the BLS pubkey the sign tile will sign under must
        equal the on-chain registered BLS pubkey for our vote account
        (just decompressed into vi->voting_pubkey).  A mismatch means our
@@ -924,20 +1100,24 @@ update_epoch_vtrs( fd_votor_tile_t *              ctx,
     FD_LOG_WARNING(( "ignoring EPOCH msg %lu (retained %lu / %lu)", msg->epoch, ctx->curr.epoch, ctx->next.epoch ));
     return;
   }
-  ag_epoch_info_join( ag_epoch_info_new( s->mem, ctx->validators, cnt ) );
+  ag_epoch_info_init( s->info, ctx->validators, cnt );
   s->epoch         = msg->epoch;
-  s->info          = ag_epoch_info_join( s->mem );
   s->validator_cnt = cnt;
-  s->own_id        = own_id;
-  s->have_own_id   = have_own_id;
-  FD_TEST( s->info );
+  s->rank          = rank;
+  s->have_rank     = have_rank;
 
   /* If we refreshed the currently-active epoch, re-point the verification alias
      at the new set (without rebuilding the pool / dropping state mid-epoch). */
   if( FD_UNLIKELY( msg->epoch==ctx->active_epoch ) ) ctx->epoch_info = s->info;
 
-  FD_LOG_NOTICE(( "epoch %lu validator set: %lu validators (own_id %u, staked=%d)",
-                  msg->epoch, cnt, (uint)own_id, have_own_id ));
+  /* Republish the window to the pool.  On the E+2 branch above this is
+     what actually retires E: until it runs the pool still maps epoch E
+     onto the region we just overwrote with E+2's validator set.  Nothing
+     reads the pool in between. */
+  sync_pool_epochs( ctx );
+
+  FD_LOG_NOTICE(( "epoch %lu validator set: %lu validators (rank %u, staked=%d)",
+                  msg->epoch, cnt, (uint)rank, have_rank ));
 }
 
 /* The QUIC limits are needed twice -- once to size scratch, once to format
@@ -985,19 +1165,18 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong slot_max      = fd_ulong_pow2_up( tile->tower.max_live_slots );
-  ulong validator_max = fd_ulong_pow2_up( VTR_MAX );
-  ulong blockid_max   = slot_max;
   ulong pub_max       = slot_max * 8UL;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t),  sizeof(fd_votor_tile_t)                                  );
   l = FD_LAYOUT_APPEND( l, ag_votor_align(),          ag_votor_footprint( slot_max )                           );
-  l = FD_LAYOUT_APPEND( l, ag_pool_align(),           ag_pool_footprint( slot_max, validator_max, blockid_max ) );
+  l = FD_LAYOUT_APPEND( l, ag_pool_align(),           ag_pool_footprint( slot_max ) );
   l = FD_LAYOUT_APPEND( l, fd_timeout_heap_align(),   fd_timeout_heap_footprint( slot_max )                     );
   l = FD_LAYOUT_APPEND( l, fd_timeout_pool_align(),   fd_timeout_pool_footprint( slot_max )                     );
-  l = FD_LAYOUT_APPEND( l, ag_epoch_info_align(),     ag_epoch_info_footprint( VTR_MAX )                       ); /* curr */
-  l = FD_LAYOUT_APPEND( l, ag_epoch_info_align(),     ag_epoch_info_footprint( VTR_MAX )                       ); /* next */
+  l = FD_LAYOUT_APPEND( l, alignof(ag_epoch_info_t),  sizeof(ag_epoch_info_t)                                  ); /* curr */
+  l = FD_LAYOUT_APPEND( l, alignof(ag_epoch_info_t),  sizeof(ag_epoch_info_t)                                  ); /* next */
   l = FD_LAYOUT_APPEND( l, publishes_align(),         publishes_footprint( pub_max )                           );
+  l = FD_LAYOUT_APPEND( l, alignof(certified_t),      sizeof(certified_t)*slot_max                             );
   l = FD_LAYOUT_APPEND( l, alignof(ag_cert_t),        sizeof(ag_cert_t)*AG_POOL_STANDSTILL_CERT_MAX            );
   l = FD_LAYOUT_APPEND( l, alignof(ag_vote_t),        sizeof(ag_vote_t)*AG_POOL_STANDSTILL_VOTE_MAX            );
   l = FD_LAYOUT_APPEND( l, peer_pool_align(),   peer_pool_footprint( VTR_MAX )                                       );
@@ -1058,19 +1237,11 @@ static void
 handle_consensus_payload( fd_votor_tile_t * ctx,
                           uchar const *     data,
                           ulong             data_sz ) {
-  ctx->rx_msg++;
   if( FD_UNLIKELY( !ctx->init || !ctx->have_schedule ) ) return; /* consensus not ready (pre first slot completion / epoch set) */
 
   ag_consensus_message_t msg[1];
   int err = ag_consensus_message_de( msg, data, data_sz, ctx->shred_version );
-  if( FD_UNLIKELY( err!=AG_CONSENSUS_MESSAGE_DE_SUCCESS ) ) {
-    switch( err ) {
-    case AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION: count_drop( &ctx->rx_drop_shred_version, "shred_version mismatch"    ); break;
-    case AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED:   count_drop( &ctx->rx_drop_unsupported,   "unsupported version/kind"  ); break;
-    default:                                        count_drop( &ctx->rx_drop_malformed,     "malformed consensus message" ); break;
-    }
-    return;
-  }
+  if( FD_UNLIKELY( err!=AG_CONSENSUS_MESSAGE_DE_SUCCESS ) ) return; /* shred_version mismatch / unsupported / malformed */
 
   if( FD_UNLIKELY( msg->kind==AG_CONSENSUS_MESSAGE_CERT ) ) {
     ag_cert_t const * cert = &msg->inner.cert;
@@ -1081,25 +1252,15 @@ handle_consensus_payload( fd_votor_tile_t * ctx,
     if( FD_UNLIKELY( ctx->publish_rx ) )
       publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_VOTOR_SIG_CERT|FD_VOTOR_SIG_RX, .msg.cert = *cert } );
 
-    /* ag_pool_add_cert checks the threshold and the aggregate signature
-       against the validator set the pool was built for, so a cert from
-       another epoch cannot be verified here at all.  Drop it; the epoch
-       switch off the replayed tip (advance_epoch) is what brings the pool
-       forward. */
+    /* A cert from outside the active epoch cannot be verified against any
+       set we hold; the epoch switch off the replayed tip (advance_epoch)
+       is what brings the pool forward. */
 
     ulong cert_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, ag_cert_slot( cert ), NULL );
-    if( FD_UNLIKELY( cert_epoch!=ctx->active_epoch ) ) {
-      count_drop( &ctx->rx_drop_cert, "cert outside the active epoch" );
-      return;
-    }
+    if( FD_UNLIKELY( cert_epoch!=ctx->active_epoch  ) ) return;
+    if( FD_UNLIKELY( !validated_cert( ctx, cert )   ) ) return;
 
-    int cert_err = ag_pool_add_cert( ctx->pool, cert );
-    if( FD_LIKELY( cert_err==AG_POOL_SUCCESS ) ) {
-      ctx->rx_cert_ok++;
-      maybe_publish_finalized( ctx );
-    } else {
-      count_drop( &ctx->rx_drop_cert, ag_pool_strerror( cert_err ) );
-    }
+    if( FD_LIKELY( ag_pool_add_cert( ctx->pool, cert )==AG_POOL_SUCCESS ) ) maybe_publish_finalized( ctx );
     return;
   }
 
@@ -1109,13 +1270,19 @@ handle_consensus_payload( fd_votor_tile_t * ctx,
   if( FD_UNLIKELY( ctx->publish_rx ) )
     publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_VOTOR_SIG_VOTE|FD_VOTOR_SIG_RX, .msg.vote = *vote } );
 
+  if( FD_UNLIKELY( !validated_vote( ctx, vote ) ) ) {
+    FD_LOG_DEBUG(( "ignoring vote for slot %lu: unknown epoch, unknown signer or bad signature",
+                   ag_vote_slot( vote ) ));
+    return;
+  }
+
   int add_err = ag_pool_add_vote( ctx->pool, vote );
   switch( add_err ) {
   case AG_POOL_SUCCESS:
     /* finalized/rooted publication happens at the end of after_frag /
        after_credit, not here */
     break;
-  case AG_ADD_VOTE_ERR_SLASHABLE:
+  case AG_POOL_ERR_SLASHABLE:
     FD_LOG_WARNING(( "slashable offence detected: validator %u slot %lu",
                      ag_vote_signer( vote ), ag_vote_slot( vote ) ));
     break;
@@ -1149,8 +1316,7 @@ quic_server_stream_rx( fd_quic_conn_t * conn,
   msg_reasm_t * slot     = &ctx->msg_reasm[ fd_ulong_hash( conn_uid ^ fd_ulong_hash( stream_id ) ) & (FD_VOTOR_MSG_REASM_CNT-1UL) ];
 
   if( FD_UNLIKELY( !slot->busy || slot->conn_uid!=conn_uid || slot->stream_id!=stream_id ) ) {
-    if( FD_UNLIKELY( offset>0UL ) ) { count_drop( &ctx->rx_drop_frag, "stream frag gap (no slot)" ); return FD_QUIC_SUCCESS; }
-    if( FD_UNLIKELY( slot->busy ) ) count_drop( &ctx->rx_drop_frag, "reasm slot evicted" );
+    if( FD_UNLIKELY( offset>0UL ) ) return FD_QUIC_SUCCESS; /* stream frag gap, no slot */
     slot->busy      = 1;
     slot->conn_uid  = conn_uid;
     slot->stream_id = stream_id;
@@ -1163,9 +1329,8 @@ quic_server_stream_rx( fd_quic_conn_t * conn,
   if( FD_LIKELY( skip<data_sz ) ) {
     data    += skip;
     data_sz -= skip;
-    if( FD_UNLIKELY( (ulong)slot->sz+data_sz>FD_VOTOR_MSG_MTU ) ) {
+    if( FD_UNLIKELY( (ulong)slot->sz+data_sz>FD_VOTOR_MSG_MTU ) ) { /* oversized stream */
       slot->busy = 0;
-      count_drop( &ctx->rx_drop_frag, "oversized stream" );
       return FD_QUIC_SUCCESS;
     }
     fd_memcpy( slot->buf+slot->sz, data, data_sz );
@@ -1289,6 +1454,36 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
   }
 }
 
+/* TODO: drain the pool's two output FIFOs.  ag_pool_next_event /
+   ag_pool_next_repair are gone and nothing has replaced them yet, so this
+   is a no-op and both queues fill without a reader.  Until it is rebuilt
+   the tile learns nothing from the pool: no PoolEvent reaches the votor,
+   ctx->certified stays empty (so certified_notar / certified_block answer
+   NULL for every slot), and no NOTARFB frag is ever published.
+
+   What the replacement has to preserve:
+
+     - Every event goes to the votor, and CertCreated additionally lands in
+       ctx->certified via note_cert -- the only way we learn what a slot
+       certified.
+
+     - Pop as you go rather than index.  The own-vote loopback in
+       handle_votor_out pushes onto the event queue while we drain, and
+       popping picks those up in the same pass.
+
+     - Events before repairs.  An event can push a repair and nothing
+       pushes the other way, so one pass in that order leaves both empty.
+
+     - Repairs (Pool::repair_sender) are block versions that gathered
+       (fallback) notar votes or certs but that we may not have locally,
+       published as NOTARFB frags for the repair tile to fetch. */
+
+static int
+drain_pool_channels( fd_votor_tile_t * ctx ) {
+  (void)ctx;
+  return 0;
+}
+
 static inline void
 before_credit( fd_votor_tile_t *   ctx,
                fd_stem_context_t * stem,
@@ -1308,64 +1503,14 @@ after_credit( fd_votor_tile_t *   ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
 
-  /* Drain the pool's votor_event_channel (Votor::pool_receiver) in place --
-     the own-vote loopback in handle_votor_out appends to it while we
-     iterate -- then the due timeouts (timeout_receiver). */
-
-  int did_work = 0;
+  /* Standstill recovery first -- it pushes a Standstill event onto the
+     pool's queue, which the drain below then dispatches in this same pass
+     -- then the pool's two output queues, then the due timeouts
+     (timeout_receiver). */
 
   standstill_poll( ctx );
 
-  if( FD_UNLIKELY( ctx->now>=ctx->rx_summary_deadline ) ) {
-    if( FD_LIKELY( ctx->rx_msg ) ) {
-      /* eventual (post-race) vote coverage of a settled slot: how much
-         notar stake we accumulated for finalized-8's notarized block */
-      ulong cover_pct  = 0UL;
-      ulong fin        = ag_pool_finalized_slot( ctx->pool );
-      ulong sample     = fin>8UL ? fin-8UL : 0UL;
-      ulong cover      = ag_pool_notar_voted_stake( ctx->pool, sample );
-      ulong cover_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, sample, NULL );
-      ag_epoch_info_t const * cover_ei = ctx->curr.epoch==cover_epoch ? ctx->curr.info
-                                       : ctx->next.epoch==cover_epoch ? ctx->next.info
-                                       : NULL;
-      if( FD_LIKELY( cover_ei && cover_ei->total_stake ) ) cover_pct = cover*100UL/cover_ei->total_stake;
-      FD_LOG_NOTICE(( "votor rx (10s): msgs=%lu certs ok=%lu cover[%lu]=%lu%% | tx: msgs=%lu drop(no_conn=%lu no_stream=%lu send=%lu)",
-                      ctx->rx_msg, ctx->rx_cert_ok,
-                      sample, cover_pct,
-                      ctx->tx_msg, ctx->tx_drop_no_conn, ctx->tx_drop_no_stream, ctx->tx_drop_send ));
-      ctx->rx_msg = 0UL; ctx->rx_cert_ok = 0UL;
-      ctx->tx_msg = 0UL; ctx->tx_drop_no_conn = 0UL; ctx->tx_drop_no_stream = 0UL; ctx->tx_drop_send = 0UL;
-    }
-    ctx->rx_summary_deadline = ctx->now + (long)10e9;
-  }
-
-  ulong i = 0UL;
-  while( i<ag_pool_votor_event_cnt( ctx->pool ) ) {
-    ag_pool_event_t event = ag_pool_votor_event_channel( ctx->pool )[ i++ ];
-    ag_votor_handle_pool_event( ctx->votor, &event );
-    handle_votor_out( ctx );
-    did_work = 1;
-  }
-
-  /* Drain the pool's repair channel (Pool::repair_sender): block
-     versions that gathered (fallback) notar votes or certs but that we
-     may not have locally.  Published as NOTARFB frags so the repair
-     tile can fetch the missing version.  Must run before
-     ag_pool_drain_channels, which resets the channel; the event loop
-     above may append entries while it runs, hence the in-place
-     iteration. */
-
-  ulong r = 0UL;
-  while( r<ag_pool_repair_cnt( ctx->pool ) ) {
-    ag_block_id_t block_id = ag_pool_repair_channel( ctx->pool )[ r++ ];
-    publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
-    pub->sig                         = FD_VOTOR_SIG_NOTARFB;
-    pub->bcast = 0;
-    pub->msg.notar_fallback.slot     = block_id.slot;
-    pub->msg.notar_fallback.block_id = block_id.hash;
-    did_work = 1;
-  }
-  ag_pool_drain_channels( ctx->pool );
+  int did_work = drain_pool_channels( ctx );
 
   while( fd_timeout_heap_ele_cnt( ctx->timeouts_heap ) ) {
     fd_timeout_t * timeout = fd_timeout_heap_ele_peek_min( ctx->timeouts_heap, ctx->timeouts_pool );
@@ -1422,7 +1567,7 @@ before_frag( fd_votor_tile_t * ctx,
      to the alpenglow proto, and skip them entirely until the consensus core
      is initialized (first replayed slot) -- there is no pool to ingest into
      yet.  Consensus links are always processed. */
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     if( FD_UNLIKELY( !ctx->init ) ) return 1;
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_ALPENGLOW;
   }
@@ -1442,16 +1587,10 @@ during_frag( fd_votor_tile_t * ctx,
              ulong             chunk,
              ulong             sz,
              ulong             ctl ) {
-  /* Every in-link is consumed UNRELIABLE: copy frag payloads out of the
-     dcache while they are still valid.  Stem re-checks the producer seq
-     after this callback and abandons the frag (after_frag is not called) if
-     it was overrun during the copy, so after_frag can trust the copies.
-     Bounds failures here may just be torn metadata from an in-progress
-     overrun: flag the frag instead of erroring; after_frag (which only runs
-     when the frag was NOT overrun) treats a still-set flag as corruption. */
+
   ctx->skip_frag = 0;
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_VOTOR: {
+  case IN_KIND_NET: {
     if( FD_UNLIKELY( sz>FD_NET_MTU ) ) { ctx->skip_frag = 1; return; }
     void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
     fd_memcpy( ctx->net_buf, src, sz );
@@ -1464,7 +1603,7 @@ during_frag( fd_votor_tile_t * ctx,
       ctx->skip_frag = 1;
       return;
     }
-    fd_memcpy( ctx->msg_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+    ctx->msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     return;
   }
   default: return; /* IN_KIND_IPECHO: sig only */
@@ -1490,11 +1629,7 @@ after_frag( fd_votor_tile_t *   ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
 
-  /* Network frames (net_alpenglow) were copied into ctx->net_buf in
-     during_frag.  Dispatch by UDP destination port so a packet is only
-     processed by the owning QUIC instance; fd_quic mutates packets in
-     place while decrypting. */
-  case IN_KIND_VOTOR: {
+  case IN_KIND_NET: {
     if( FD_LIKELY( ctx->quic_server && ctx->quic_client && sz>=sizeof(fd_eth_hdr_t) ) ) {
       uchar * l3    = ctx->net_buf + sizeof(fd_eth_hdr_t);
       ulong   l3_sz = sz - sizeof(fd_eth_hdr_t);
@@ -1514,7 +1649,7 @@ after_frag( fd_votor_tile_t *   ctx,
        in before_frag (returns -1 to leave this frag on the mcache). */
 
     case REPLAY_SIG_SLOT_COMPLETED: {
-      fd_replay_slot_completed_t const * sc = fd_type_pun_const( ctx->msg_buf );
+      fd_replay_slot_completed_t const * sc = fd_type_pun_const( ctx->msg );
       ag_block_id_t block  = { .slot = sc->slot,        .hash = sc->block_id        };
       ag_block_id_t parent = { .slot = sc->parent_slot, .hash = sc->parent_block_id };
 
@@ -1571,7 +1706,7 @@ after_frag( fd_votor_tile_t *   ctx,
        already retired them. */
 
     case REPLAY_SIG_SLOT_DEAD: {
-      fd_replay_slot_dead_t const * sd = fd_type_pun_const( ctx->msg_buf );
+      fd_replay_slot_dead_t const * sd = fd_type_pun_const( ctx->msg );
       if( FD_UNLIKELY( sd->slot < ctx->root_slot ) ) break;
 
       ag_votor_blockstore_event_t ib = { .kind = AG_VOTOR_BLOCKSTORE_EVENT_INVALID_BLOCK };
@@ -1590,36 +1725,30 @@ after_frag( fd_votor_tile_t *   ctx,
          trail the prune watermark.  Anything else from a replay-verified
          cert is an invariant violation. */
       if( FD_UNLIKELY( !ctx->have_schedule ) ) break;
-      fd_replay_final_cert_t const * final_cert = fd_type_pun_const( ctx->msg_buf );
+      fd_replay_final_cert_t const * final_cert = fd_type_pun_const( ctx->msg );
       for( ulong i=0UL; i<final_cert->cert_cnt; i++ ) {
         ag_cert_t const * cert = fd_type_pun_const( &final_cert->certs[ i ] );
 
         if( FD_UNLIKELY( ctx->publish_rx ) )
           publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_VOTOR_SIG_CERT|FD_VOTOR_SIG_RX, .msg.cert = *cert } );
 
-        /* ag_pool_add_cert verifies against the validator set the pool was
-           built for, so a cert from another epoch cannot be verified here
-           at all; drop it as out of bounds. */
+        /* A cert whose epoch is not the active one, or that does not
+           validate against the set of its own slot, cannot be scored
+           here; drop it as out of bounds rather than handing the pool
+           something it assumes is already validated. */
 
-        int   err        = AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS;
+        int   err        = AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
         ulong cert_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, ag_cert_slot( cert ), NULL );
-        if( FD_UNLIKELY( cert_epoch!=ctx->active_epoch ) ) {
-          count_drop( &ctx->rx_drop_cert, "cert outside the active epoch" );
-        } else {
+        if( FD_LIKELY( cert_epoch==ctx->active_epoch && validated_cert( ctx, cert ) ) ) {
           err = ag_pool_add_cert( ctx->pool, cert );
-          if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) {
-            ctx->rx_cert_ok++;
-            maybe_publish_finalized( ctx );
-          } else {
-            count_drop( &ctx->rx_drop_cert, ag_pool_strerror( err ) );
-          }
+          if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) maybe_publish_finalized( ctx );
         }
 
-        if( FD_UNLIKELY( err!=AG_POOL_SUCCESS                    &&
-                         err!=AG_ADD_CERT_ERR_DUPLICATE          &&
-                         err!=AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS ) ) {
-          FD_LOG_CRIT(( "ag_pool_add_cert failed for cert %lu: %d. first unpruned slot: %lu, slot: %lu, finalized slot: %lu",
-                        i, err, ag_pool_first_unpruned_slot( ctx->pool ), ag_cert_slot( cert ), ag_pool_finalized_slot( ctx->pool ) ));
+        if( FD_UNLIKELY( err!=AG_POOL_SUCCESS                &&
+                         err!=AG_POOL_ERR_DUPLICATE          &&
+                         err!=AG_POOL_ERR_SLOT_OUT_OF_BOUNDS ) ) {
+          FD_LOG_CRIT(( "ag_pool_add_cert failed for cert %lu: %d. slot: %lu, finalized slot: %lu",
+                        i, err, ag_cert_slot( cert ), ag_pool_finalized_slot( ctx->pool ) ));
         }
       }
       break;
@@ -1629,13 +1758,13 @@ after_frag( fd_votor_tile_t *   ctx,
     }
     break;
   case IN_KIND_GOSSIP: {
-    fd_gossip_update_message_t const * msg = fd_type_pun_const( ctx->msg_buf );
+    fd_gossip_update_message_t const * msg = fd_type_pun_const( ctx->msg );
     if(      sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO        ) handle_contact_info_update( ctx, msg );
     else if( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ) handle_contact_info_remove( ctx, msg );
     break;
   }
   case IN_KIND_EPOCH: {
-    fd_epoch_info_msg_t const *    msg    = fd_type_pun_const( ctx->msg_buf );
+    fd_epoch_info_msg_t const *    msg    = fd_type_pun_const( ctx->msg );
     FD_TEST( msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
     FD_TEST( msg->staked_id_cnt<=MAX_SHRED_DESTS );
     fd_vote_stake_weight_t const * stakes = fd_epoch_info_msg_stake_weights( msg );
@@ -1721,14 +1850,20 @@ privileged_init( fd_topo_t const *      topo,
   fd_log_wallclock();
 }
 
-static void
-unprivileged_init( fd_topo_t const *      topo,
-                   fd_topo_tile_t const * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+/* init_choreo formats the consensus half of the tile: everything that
+   depends only on the tile config and its scratch region -- the votor,
+   pool, timeout heap, publish deque, epoch set regions and peer table.
+   unprivileged_init calls this first and then wires up the parts that
+   need the topology (links, workspaces, keyswitch, QUIC).
 
+   Split out so the unit test can stand a tile up without a topology.
+   ctx->seed / sign_fn / sign_ctx must already be set on scratch; see the
+   note on those fields. */
+
+static fd_votor_tile_t *
+init_choreo( void *                 scratch,
+             fd_topo_tile_t const * tile ) {
   ulong slot_max      = fd_ulong_pow2_up( tile->tower.max_live_slots );
-  ulong validator_max = fd_ulong_pow2_up( VTR_MAX );
-  ulong blockid_max   = slot_max;
   ulong pub_max       = slot_max * 8UL;
   int   quic_on       = tile->quic.max_concurrent_connections!=0UL;
 
@@ -1742,12 +1877,13 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_votor_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                                   );
   void * votor           = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),         ag_votor_footprint( slot_max )                            );
-  void * pool            = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),          ag_pool_footprint( slot_max, validator_max, blockid_max ) );
+  void * pool            = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),          ag_pool_footprint( slot_max ) );
   void * timeouts_heap   = FD_SCRATCH_ALLOC_APPEND( l, fd_timeout_heap_align(),  fd_timeout_heap_footprint( slot_max )                     );
   void * timeouts_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_timeout_pool_align(),  fd_timeout_pool_footprint( slot_max )                     );
-  void * epoch_curr_mem  = FD_SCRATCH_ALLOC_APPEND( l, ag_epoch_info_align(),    ag_epoch_info_footprint( VTR_MAX )                        );
-  void * epoch_next_mem  = FD_SCRATCH_ALLOC_APPEND( l, ag_epoch_info_align(),    ag_epoch_info_footprint( VTR_MAX )                        );
+  void * epoch_curr_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t)                                   );
+  void * epoch_next_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t)                                   );
   void * publishes       = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                            );
+  void * certified       = FD_SCRATCH_ALLOC_APPEND( l, alignof(certified_t),     sizeof(certified_t)*slot_max                              );
   void * ss_certs        = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_cert_t),       sizeof(ag_cert_t)*AG_POOL_STANDSTILL_CERT_MAX             );
   void * ss_votes        = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_vote_t),       sizeof(ag_vote_t)*AG_POOL_STANDSTILL_VOTE_MAX             );
   void * peer_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),        peer_pool_footprint( VTR_MAX )                            );
@@ -1790,37 +1926,39 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memset( &ctx->highest_replayed_block_id, 0, sizeof(fd_hash_t) );
 
   ctx->slot_max      = slot_max;
-  ctx->validator_max = validator_max;
-  ctx->blockid_max   = blockid_max;
 
-  ctx->rx_msg = 0UL; ctx->rx_cert_ok = 0UL;
-  ctx->tx_msg = 0UL; ctx->tx_drop_no_conn = 0UL; ctx->tx_drop_no_stream = 0UL; ctx->tx_drop_send = 0UL;
-  ctx->rx_drop_frag = 0UL; ctx->rx_drop_malformed = 0UL; ctx->rx_drop_unsupported = 0UL;
-  ctx->rx_drop_shred_version = 0UL; ctx->rx_drop_cert = 0UL;
-  ctx->rx_summary_deadline = 0L;
+  /* certified is direct-mapped by slot & (slot_max-1), so slot_max has to
+     be the power of two scratch_footprint sized it as. */
+  FD_TEST( fd_ulong_is_pow2( slot_max ) );
+  ctx->certified = certified;
+  memset( ctx->certified, 0, sizeof(certified_t)*slot_max );
+
   fd_memset( ctx->msg_reasm, 0, sizeof(ctx->msg_reasm) );
 
-  ctx->curr.epoch = ULONG_MAX; ctx->curr.info = NULL; ctx->curr.mem = epoch_curr_mem;
-  ctx->next.epoch = ULONG_MAX; ctx->next.info = NULL; ctx->next.mem = epoch_next_mem;
+  ctx->curr.epoch = ULONG_MAX; ctx->curr.info = epoch_curr_mem;
+  ctx->next.epoch = ULONG_MAX; ctx->next.info = epoch_next_mem;
+  ctx->pool_curr_epoch = ULONG_MAX;
+  ctx->pool_next_epoch = ULONG_MAX;
   ctx->active_epoch  = ULONG_MAX;
   ctx->epoch_info    = NULL;
   ctx->have_schedule = 0;
 
-  /* Bootstrap single-validator set (just us at index 0).  This lets the pool
-     and votor format before we have received the real epoch set; they are
-     rebuilt against the real set on the first EPOCH msg (update_epoch_vtrs). */
+  /* Bootstrap single-validator set (just us at index 0).  ctx->validators
+     is the staging buffer update_epoch_vtrs re-ranks into; the pool starts
+     with an EMPTY epoch window and admits nothing until the first EPOCH
+     msg installs a real set (update_epoch_vtrs -> sync_pool_epochs). */
 
-  ctx->own_id        = 0UL;
+  ctx->epoch_rank    = (ushort)0;
   ctx->validator_cnt = 1UL;
   memset( &ctx->validators[ 0 ], 0, sizeof(ag_validator_info_t) );
   ctx->validators[ 0 ].id            = 0UL;
   ctx->validators[ 0 ].stake         = 1UL;
   ctx->validators[ 0 ].voting_pubkey = *ctx->voting_pubkey;
 
-  ctx->pool = ag_pool_join( ag_pool_new( pool, slot_max, validator_max, blockid_max,
-                                         ctx->own_id, ctx->validators, 1UL, ctx->shred_version, ctx->seed,
-                                         0UL, NULL /* genesis baseline; rebuilt rooted at the snapshot on the first slot */ ) );
-  ctx->votor = ag_votor_join( ag_votor_new( votor, slot_max, (ushort)ctx->own_id, ctx->sign_fn, ctx->sign_ctx, ctx->shred_version, ctx->seed ) );
+  ctx->pool = ag_pool_join( ag_pool_new( pool, slot_max, ctx->seed ) );
+  /* genesis baseline; re-rooted at the snapshot on the first slot */
+  ag_pool_set_root( ctx->pool, 0UL, NULL );
+  ctx->votor = ag_votor_join( ag_votor_new( votor, slot_max, ctx->epoch_rank, ctx->sign_fn, ctx->sign_ctx, ctx->shred_version, ctx->seed ) );
 
   ctx->timeouts_heap = fd_timeout_heap_join( fd_timeout_heap_new( timeouts_heap, slot_max ) );
   ctx->timeouts_pool = fd_timeout_pool_join( fd_timeout_pool_new( timeouts_pool, slot_max ) );
@@ -1844,6 +1982,31 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->peer_pool );
   FD_TEST( ctx->peer_map  );
 
+  /* Handed to unprivileged_init rather than re-walked there: the layout
+     above is the only place the QUIC regions are computed. */
+  ctx->quic_server_mem = quic_server_mem;
+  ctx->quic_client_mem = quic_client_mem;
+
+  return ctx;
+}
+
+static void
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  fd_votor_tile_t * ctx = init_choreo( scratch, tile );
+
+  int quic_on = tile->quic.max_concurrent_connections!=0UL;
+  fd_quic_limits_t server_limits = {0};
+  fd_quic_limits_t client_limits = {0};
+  if( quic_on ) {
+    server_limits = quic_server_limits( tile );
+    client_limits = quic_client_limits();
+  }
+  void * quic_server_mem = ctx->quic_server_mem;
+  void * quic_client_mem = ctx->quic_client_mem;
+
   ctx->wksp               = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->identity_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
 
@@ -1860,14 +2023,14 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
-    else if( FD_LIKELY( !strcmp( link->name, "net_alpenglow" ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
+    else if( FD_LIKELY( !strcmp( link->name, "net_alpenglow" ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
     else if( FD_LIKELY( !strcmp( link->name, "sign_votor"    ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_SIGN;
       sign_in_idx = i;
     }
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
-    if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_VOTOR ) ) {
+    if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_NET ) ) {
       FD_TEST( i<FD_VOTOR_NET_IN_MAX );
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     }
@@ -1878,9 +2041,6 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->in[ i ].mtu    = link->mtu;
       ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
       ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-      /* during_frag copies these links into msg_buf */
-      if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_REPLAY || ctx->in_kind[ i ]==IN_KIND_GOSSIP || ctx->in_kind[ i ]==IN_KIND_EPOCH ) )
-        FD_TEST( link->mtu<=FD_VOTOR_IN_MTU_MAX );
     }
   }
 

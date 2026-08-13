@@ -44,11 +44,9 @@ typedef struct ag_votor_parent_ready ag_votor_parent_ready_t;
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 
-typedef ag_votor_slot_state_t slot_pool_t;
-
 struct __attribute__((aligned(128UL))) ag_votor {
-  slot_pool_t *  slot_pool;
-  slot_map_t *   slot_map;
+  ag_votor_slot_state_t * slot_pool;
+  slot_map_t *            slot_map;
 
   ag_votor_parent_ready_t * parent_ready_pool;
   parent_ready_map_t *      parent_ready_map;
@@ -99,8 +97,8 @@ ag_votor_footprint( ulong slot_max ) {
 static ag_votor_slot_state_t *
 slot_state_mut( ag_votor_t * self,
                 ulong        slot ) {
-  slot_pool_t * pool = self->slot_pool;
-  slot_map_t  * map  = self->slot_map;
+  ag_votor_slot_state_t * pool = self->slot_pool;
+  slot_map_t *            map  = self->slot_map;
   ag_votor_slot_state_t * s = slot_map_ele_query( map, &slot, NULL, pool );
   if( FD_LIKELY( s ) ) return s;
 
@@ -166,8 +164,11 @@ out_push_timeout( ag_votor_t * self,
   ag_votor_out_t * out = &self->out;
   FD_TEST( out->timeout_cnt < AG_VOTOR_OUT_TIMEOUT_MAX );
   ag_votor_timeout_t * t = &out->timeouts[ out->timeout_cnt++ ];
-  t->kind = kind;
-  t->slot = slot;
+  t->kind     = kind;
+  t->slot     = slot;
+  t->delay_ns = kind==AG_VOTOR_TIMEOUT_CRASHED_LEADER
+              ? AG_DELTA_TIMEOUT_NS + AG_DELTA_FIRST_SLICE_NS
+              : AG_DELTA_TIMEOUT_NS + (long)( slot - ag_slot_first_slot_in_window( slot ) + 1UL )*AG_DELTA_BLOCK_NS;
 }
 
 static void
@@ -286,8 +287,8 @@ try_skip_window( ag_votor_t * self,
 
 static void
 check_pending_blocks( ag_votor_t * self ) {
-  slot_pool_t * pool = self->slot_pool;
-  slot_map_t  * map  = self->slot_map;
+  ag_votor_slot_state_t * pool = self->slot_pool;
+  slot_map_t *            map  = self->slot_map;
 
   for( slot_map_iter_t iter = slot_map_iter_init( map, pool );
        !slot_map_iter_done( iter, map, pool );
@@ -302,9 +303,9 @@ check_pending_blocks( ag_votor_t * self ) {
 
 static void
 prune( ag_votor_t * self ) {
-  slot_pool_t * pool   = self->slot_pool;
-  slot_map_t  * map    = self->slot_map;
-  ulong         cutoff = first_unpruned_slot( self );
+  ag_votor_slot_state_t * pool   = self->slot_pool;
+  slot_map_t *            map    = self->slot_map;
+  ulong                   cutoff = first_unpruned_slot( self );
 
   int again = 1;
   while( again ) {
@@ -539,23 +540,23 @@ ag_votor_new( void *                 shmem,
 
   fd_memset( shmem, 0, footprint );
 
-  slot_max           = fd_ulong_pow2_up( slot_max );
-  ulong chain_cnt    = slot_map_chain_cnt_est( slot_max );
-  ulong pr_max       = parent_ready_max( slot_max );
-  ulong pr_chain_cnt = parent_ready_map_chain_cnt_est( pr_max );
+  slot_max                     = fd_ulong_pow2_up( slot_max );
+  ulong slot_chain_cnt         = slot_map_chain_cnt_est( slot_max );
+  ulong parent_ready_max_cnt   = parent_ready_max( slot_max );
+  ulong parent_ready_chain_cnt = parent_ready_map_chain_cnt_est( parent_ready_max_cnt );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  ag_votor_t * votor     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_votor_t),       sizeof(ag_votor_t)                          );
-  void *       slot_pool = FD_SCRATCH_ALLOC_APPEND( l, slot_pool_align(),         slot_pool_footprint( slot_max )             );
-  void *       slot_map  = FD_SCRATCH_ALLOC_APPEND( l, slot_map_align(),          slot_map_footprint ( chain_cnt )            );
-  void *       pr_pool   = FD_SCRATCH_ALLOC_APPEND( l, parent_ready_pool_align(), parent_ready_pool_footprint( pr_max )       );
-  void *       pr_map    = FD_SCRATCH_ALLOC_APPEND( l, parent_ready_map_align(),  parent_ready_map_footprint ( pr_chain_cnt ) );
+  ag_votor_t * votor             = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_votor_t),       sizeof(ag_votor_t)                                    );
+  void *       slot_pool         = FD_SCRATCH_ALLOC_APPEND( l, slot_pool_align(),         slot_pool_footprint( slot_max )                       );
+  void *       slot_map          = FD_SCRATCH_ALLOC_APPEND( l, slot_map_align(),          slot_map_footprint ( slot_chain_cnt )                 );
+  void *       parent_ready_pool = FD_SCRATCH_ALLOC_APPEND( l, parent_ready_pool_align(), parent_ready_pool_footprint( parent_ready_max_cnt )   );
+  void *       parent_ready_map  = FD_SCRATCH_ALLOC_APPEND( l, parent_ready_map_align(),  parent_ready_map_footprint ( parent_ready_chain_cnt ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, ag_votor_align() ) == (ulong)shmem + footprint );
 
-  votor->slot_pool               = slot_pool_join( slot_pool_new( slot_pool, slot_max        ) );
-  votor->slot_map                = slot_map_join ( slot_map_new ( slot_map,  chain_cnt, seed ) );
-  votor->parent_ready_pool       = parent_ready_pool_join( parent_ready_pool_new( pr_pool, pr_max             ) );
-  votor->parent_ready_map        = parent_ready_map_join ( parent_ready_map_new ( pr_map,  pr_chain_cnt, seed ) );
+  votor->slot_pool               = slot_pool_join( slot_pool_new( slot_pool, slot_max             ) );
+  votor->slot_map                = slot_map_join ( slot_map_new ( slot_map,  slot_chain_cnt, seed ) );
+  votor->parent_ready_pool       = parent_ready_pool_join( parent_ready_pool_new( parent_ready_pool, parent_ready_max_cnt         ) );
+  votor->parent_ready_map        = parent_ready_map_join ( parent_ready_map_new ( parent_ready_map,  parent_ready_chain_cnt, seed ) );
   votor->validator_index         = validator_index;
   votor->shred_version           = shred_version;
   FD_TEST( sign ); /* a votor with no signer cannot vote */
@@ -633,6 +634,12 @@ ag_votor_set_shred_version( ag_votor_t * self,
 ulong
 ag_votor_validator_index( ag_votor_t const * votor ) {
   return votor->validator_index;
+}
+
+void
+ag_votor_set_validator_index( ag_votor_t * self,
+                              ushort       validator_index ) {
+  self->validator_index = validator_index;
 }
 
 ulong

@@ -4,44 +4,38 @@
 #include "../flamenco/fd_flamenco_base.h"
 #include "types/ag_slot.h"
 
-/* ag_alpenglow_base.h holds what every alpenglow module needs: the delta
-   timeouts, the quorum thresholds and the fraction predicate over them,
-   and ag_block_id_t.  Anything belonging to one module lives in that
-   module's header -- notably the quorum predicates, which are epoch info
-   methods (ag_epoch_info_is_*_quorum), not free functions.
+#define AG_VAT_MAX (2000UL) /* Validator Admission Ticket cap on number of voters */
 
-   types/ag_slot.h is included here rather than by each user. */
+#define AG_BLOCK_HASH_EQVOC_MAX    (7UL) /* Corollary 50 */
+#define AG_NOTAR_FALLBACK_VOTE_MAX (3UL) /* Definition 12 */
+#define AG_NOTAR_FALLBACK_CERT_MAX (4UL) /* Lemma 48 */
 
-/* VAT caps the number of validators */
-#define AG_ALPENGLOW_VALIDATOR_MAX (2000UL)
+/* Block ids a window of slot_max slots can hold at once: Corollary 50
+   bounds the block hashes stored per slot, so anything keyed by block id
+   over a pruned window follows from slot_max and takes no cap of its
+   own. */
 
-#define AG_ALPENGLOW_DELTA_NS             (250000000L)
-#define AG_ALPENGLOW_DELTA_BLOCK_NS       (400000000L)
-#define AG_ALPENGLOW_DELTA_FIRST_SLICE_NS (10000000L)
-#define AG_ALPENGLOW_DELTA_TIMEOUT_NS     (3L*AG_ALPENGLOW_DELTA_NS)
-#define AG_ALPENGLOW_DELTA_STANDSTILL_NS  (10000000000L)
+#define AG_BLOCKID_MAX( slot_max ) ((slot_max)*AG_BLOCK_HASH_EQVOC_MAX)
 
-#define AG_ALPENGLOW_WEAKEST_QUORUM_NUMER (1UL)
-#define AG_ALPENGLOW_WEAK_QUORUM_NUMER    (2UL)
-#define AG_ALPENGLOW_QUORUM_NUMER         (3UL)
-#define AG_ALPENGLOW_STRONG_QUORUM_NUMER  (4UL)
-#define AG_ALPENGLOW_QUORUM_DENOM         (5UL)
+#define AG_DELTA_NS             (250000000L)       /* 250 ms 0.5-RTT, partial-synchrony */
+#define AG_DELTA_BLOCK_NS       (200000000L)       /* 200 ms slots */
+#define AG_DELTA_FIRST_SLICE_NS (10000000L)        /* TODO */
+#define AG_DELTA_TIMEOUT_NS     (3L * AG_DELTA_NS) /* skip timeout  */
+#define AG_DELTA_STANDSTILL_NS  (10000000000L)     /* 10s since last finalize */
+
+#define AG_WEAKEST_QUORUM_THRESHOLD_NUMER (1UL) /* 20%, safe-to-notar + 40% skip */
+#define AG_WEAK_QUORUM_THRESHOLD_NUMER    (2UL) /* 40%, safe-to-notar / safe-to-skip */
+#define AG_QUORUM_THRESHOLD_NUMER         (3UL) /* 60%, notarize, finalize and skip */
+#define AG_STRONG_QUORUM_THRESHOLD_NUMER  (4UL) /* 80%, fast-finalize */
+#define AG_QUORUM_THRESHOLD_DENOM         (5UL)
 
 struct ag_block_id {
-  ulong     slot; /* slot associated with the block */
+  ulong     slot; /* slot for which the block was produced */
   fd_hash_t hash; /* double merkle root */
 };
 typedef struct ag_block_id ag_block_id_t;
 
 FD_PROTOTYPES_BEGIN
-
-FD_FN_CONST static inline int
-ag_alpenglow_fraction_is_met( ulong stake,
-                              ulong total,
-                              ulong numer,
-                              ulong denom ) {
-  return (uint128)stake*(uint128)denom >= (uint128)total*(uint128)numer;
-}
 
 FD_FN_PURE static inline int
 ag_block_id_eq( ag_block_id_t const * a,

@@ -312,11 +312,11 @@ struct viz_row {
   ulong     blk_cnt;
 
   /* who voted what -- for exact stake, not for display */
-  signer_set_t notar  [ VIZ_VARIANT_MAX ][ signer_set_word_cnt ];
-  signer_set_t nfb    [ signer_set_word_cnt ];
-  signer_set_t skip   [ signer_set_word_cnt ];
-  signer_set_t skip_fb[ signer_set_word_cnt ];
-  signer_set_t final  [ signer_set_word_cnt ];
+  voter_set_t notar  [ VIZ_VARIANT_MAX ][ voter_set_word_cnt ];
+  voter_set_t nfb    [ voter_set_word_cnt ];
+  voter_set_t skip   [ voter_set_word_cnt ];
+  voter_set_t skip_fb[ voter_set_word_cnt ];
+  voter_set_t final  [ voter_set_word_cnt ];
 
   ulong cert_mask;   /* 1<<AG_CERT_TYPE_*, any provenance        */
   ulong cert_built;  /* subset our own pool aggregated from votes */
@@ -330,8 +330,8 @@ struct viz {
   ag_epoch_info_t * ei;          /* ranked validator set, for rank -> stake */
   ulong             nv;
   ulong             total_stake;
-  ushort            own_id;
-  int               have_own_id;
+  ushort            rank;
+  int               have_rank;
 
   struct viz_row  row[ VIZ_ROW_MAX ];
   struct viz_feed feed[ VIZ_FEED_MAX ];
@@ -366,9 +366,9 @@ viz_stake_of( struct viz * v,
 
 static ulong
 set_stake( struct viz *         v,
-           signer_set_t const * s ) {
+           voter_set_t const * s ) {
   ulong t = 0UL;
-  for( ulong i=0UL; i<v->nv; i++ ) if( signer_set_test( s, i ) ) t += viz_stake_of( v, i );
+  for( ulong i=0UL; i<v->nv; i++ ) if( voter_set_test( s, i ) ) t += viz_stake_of( v, i );
   return t;
 }
 
@@ -441,7 +441,7 @@ viz_ingest_vote( struct viz *      v,
                  ag_vote_t const * vote ) {
   ulong slot = ag_vote_slot  ( vote );
   ulong rank = ag_vote_signer( vote );
-  int   ours = v->have_own_id && rank==(ulong)v->own_id;
+  int   ours = v->have_rank && rank==(ulong)v->rank;
 
   if( ours ) { v->tx_vote++; if( vote->kind<5U ) v->tx_kind[ vote->kind ]++; }
   else       { v->rx_vote++; if( vote->kind<5U ) v->rx_kind[ vote->kind ]++; }
@@ -456,13 +456,13 @@ viz_ingest_vote( struct viz *      v,
   switch( vote->kind ) {
   case AG_VOTE_TYPE_NOTAR: {
     ulong var = viz_variant( r, ag_vote_block_hash( vote ) );
-    if( var<VIZ_VARIANT_MAX ) signer_set_insert( r->notar[ var ], rank );
+    if( var<VIZ_VARIANT_MAX ) voter_set_insert( r->notar[ var ], rank );
     break;
   }
-  case AG_VOTE_TYPE_NOTAR_FALLBACK: signer_set_insert( r->nfb,     rank ); break;
-  case AG_VOTE_TYPE_SKIP:           signer_set_insert( r->skip,    rank ); break;
-  case AG_VOTE_TYPE_SKIP_FALLBACK:  signer_set_insert( r->skip_fb, rank ); break;
-  default:                          signer_set_insert( r->final,   rank ); break;
+  case AG_VOTE_TYPE_NOTAR_FALLBACK: voter_set_insert( r->nfb,     rank ); break;
+  case AG_VOTE_TYPE_SKIP:           voter_set_insert( r->skip,    rank ); break;
+  case AG_VOTE_TYPE_SKIP_FALLBACK:  voter_set_insert( r->skip_fb, rank ); break;
+  default:                          voter_set_insert( r->final,   rank ); break;
   }
 }
 
@@ -523,7 +523,7 @@ viz_render( struct viz * v ) {
   ulong c0 = cv_text( 0UL, 1UL, A_TITLE, "alpenglow votor -- live" );
   c0 = cv_text( 0UL, c0+2UL, A_DIM, "%lu validators  %lu SOL  rank ",
                 v->nv, v->total_stake/1000000000UL );
-  if( v->have_own_id ) c0 = cv_text( 0UL, c0, A_OWN,  "v%u", (uint)v->own_id );
+  if( v->have_rank ) c0 = cv_text( 0UL, c0, A_OWN,  "v%u", (uint)v->rank );
   else                 c0 = cv_text( 0UL, c0, A_WARN, "unstaked" );
   if( v->paused )            cv_text( 0UL, c0+2UL, A_WARN, "[PAUSED]" );
 
@@ -624,28 +624,29 @@ static void
 viz_epoch( struct viz *                v,
            fd_epoch_info_msg_t const * msg,
            config_t *                  config ) {
-  static ag_validator_info_t ranked[ AG_ALPENGLOW_VALIDATOR_MAX ];
-  static uchar               ei_mem[ 1UL<<20 ];
+  static ag_validator_info_t ranked[ AG_VAT_MAX ];
+  static ag_epoch_info_t     ei[1];
 
   fd_vote_stake_weight_t const * sw  = fd_epoch_info_msg_stake_weights( msg );
   uchar const *                  bls = fd_epoch_info_msg_bls_pubkeys  ( msg );
 
-  ulong nv = ag_epoch_info_rank( ranked, AG_ALPENGLOW_VALIDATOR_MAX, sw, msg->staked_vote_cnt, bls );
+  ulong nv = ag_epoch_info_rank( ranked, AG_VAT_MAX, sw, msg->staked_vote_cnt, bls );
   if( FD_UNLIKELY( !nv ) ) return;
-  if( FD_UNLIKELY( ag_epoch_info_footprint( nv )>sizeof(ei_mem) ) ) return;
+
+  ag_epoch_info_init( ei, ranked, nv );
 
   v->nv          = nv;
-  v->ei          = ag_epoch_info_join( ag_epoch_info_new( ei_mem, ranked, nv ) );
+  v->ei          = ei;
   v->total_stake = ag_epoch_info_total_stake( v->ei );
   v->epoch       = msg->epoch;
 
   /* our rank, so the ladder can mark the slots we voted in */
-  v->have_own_id = 0;
+  v->have_rank = 0;
   uchar const * id_kp = fd_keyload_load( config->paths.identity_key, /* pubkey only: */ 1 );
   for( ulong r=0UL; r<nv; r++ ) {
     if( memcmp( ranked[r].pubkey.uc, id_kp, 32UL ) ) continue;
-    v->own_id      = (ushort)r;
-    v->have_own_id = 1;
+    v->rank      = (ushort)r;
+    v->have_rank = 1;
     break;
   }
   viz_feed_push( v, A_HDR, "epoch %lu validator set: %lu voters", msg->epoch, nv );

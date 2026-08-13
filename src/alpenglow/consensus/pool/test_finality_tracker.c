@@ -28,29 +28,29 @@ block_id_eq( ag_block_id_t const * a,
 
 static void
 assert_event_default( ag_finalization_event_t const * ev ) {
-  FD_TEST( !ev->has_finalized );
-  FD_TEST( ev->if_cnt==0UL );
-  FD_TEST( ev->is_cnt==0UL );
+  FD_TEST( ev->finalized.slot==ULONG_MAX );
+  FD_TEST( ev->implicitly_finalized_cnt==0UL );
+  FD_TEST( ev->implicitly_skipped_cnt==0UL );
 }
 
 static void
 assert_finalized( ag_finalization_event_t const * ev,
                   ag_block_id_t const *           expected ) {
-  FD_TEST( ev->has_finalized );
+  FD_TEST( ev->finalized.slot!=ULONG_MAX );
   FD_TEST( block_id_eq( &ev->finalized, expected ) );
 }
 
 static ag_finality_tracker_t *
 setup_tracker( fd_wksp_t * wksp ) {
   ulong slot_max    = 256UL;
-  ulong blockid_max = 256UL;
   void * mem = fd_wksp_alloc_laddr( wksp,
                                     ag_finality_tracker_align(),
-                                    ag_finality_tracker_footprint( slot_max, blockid_max ),
+                                    ag_finality_tracker_footprint( slot_max ),
                                     42UL );
   FD_TEST( mem );
-  ag_finality_tracker_t * t = ag_finality_tracker_join( ag_finality_tracker_new( mem, slot_max, blockid_max, 42UL, 0UL, NULL ) );
+  ag_finality_tracker_t * t = ag_finality_tracker_join( ag_finality_tracker_new( mem, slot_max, 42UL ) );
   FD_TEST( t );
+  ag_finality_tracker_set_root( t, 0UL, NULL );
   return t;
 }
 
@@ -69,14 +69,14 @@ test_basic( fd_wksp_t * wksp ) {
   assert_event_default( &event );
   event = ag_finality_tracker_mark_finalized( t, b1.slot );
   assert_finalized( &event, &b1 );
-  FD_TEST( event.if_cnt==0UL );
-  FD_TEST( event.is_cnt==0UL );
+  FD_TEST( event.implicitly_finalized_cnt==0UL );
+  FD_TEST( event.implicitly_skipped_cnt==0UL );
 
   ag_block_id_t b2 = random_block_id( 2UL );
   event = ag_finality_tracker_mark_fast_finalized( t, &b2 );
   assert_finalized( &event, &b2 );
-  FD_TEST( event.if_cnt==0UL );
-  FD_TEST( event.is_cnt==0UL );
+  FD_TEST( event.implicitly_finalized_cnt==0UL );
+  FD_TEST( event.implicitly_skipped_cnt==0UL );
 
   ag_block_id_t b3 = random_block_id( 3UL );
   ag_block_id_t b4 = random_block_id( 4UL );
@@ -84,8 +84,8 @@ test_basic( fd_wksp_t * wksp ) {
   assert_event_default( &event );
   event = ag_finality_tracker_mark_fast_finalized( t, &b4 );
   assert_finalized( &event, &b4 );
-  FD_TEST( event.if_cnt==1UL && block_id_eq( &event.implicitly_finalized[0], &b3 ) );
-  FD_TEST( event.is_cnt==0UL );
+  FD_TEST( event.implicitly_finalized_cnt==1UL && block_id_eq( &event.implicitly_finalized[0], &b3 ) );
+  FD_TEST( event.implicitly_skipped_cnt==0UL );
 
   ag_block_id_t b7 = random_block_id( 7UL );
   ag_block_id_t b5 = random_block_id( 5UL );
@@ -93,8 +93,8 @@ test_basic( fd_wksp_t * wksp ) {
   assert_event_default( &event );
   event = ag_finality_tracker_mark_fast_finalized( t, &b7 );
   assert_finalized( &event, &b7 );
-  FD_TEST( event.if_cnt==1UL && block_id_eq( &event.implicitly_finalized[0], &b5 ) );
-  FD_TEST( event.is_cnt==1UL && event.implicitly_skipped[0]==6UL );
+  FD_TEST( event.implicitly_finalized_cnt==1UL && block_id_eq( &event.implicitly_finalized[0], &b5 ) );
+  FD_TEST( event.implicitly_skipped_cnt==1UL && event.implicitly_skipped[0]==6UL );
 
   teardown_tracker( t );
 }
@@ -109,7 +109,7 @@ test_no_duplicates( fd_wksp_t * wksp ) {
   assert_event_default( &event );
   event = ag_finality_tracker_mark_notarized( t, &b1 );
   assert_finalized( &event, &b1 );
-  FD_TEST( event.if_cnt==0UL && event.is_cnt==0UL );
+  FD_TEST( event.implicitly_finalized_cnt==0UL && event.implicitly_skipped_cnt==0UL );
   event = ag_finality_tracker_mark_fast_finalized( t, &b1 );
   assert_event_default( &event );
 
@@ -119,7 +119,7 @@ test_no_duplicates( fd_wksp_t * wksp ) {
   assert_event_default( &event );
   event = ag_finality_tracker_mark_fast_finalized( t, &b2 );
   assert_finalized( &event, &b2 );
-  FD_TEST( event.if_cnt==0UL && event.is_cnt==0UL );
+  FD_TEST( event.implicitly_finalized_cnt==0UL && event.implicitly_skipped_cnt==0UL );
 
   ag_block_id_t b4 = random_block_id( 4UL );
   ag_block_id_t b3 = random_block_id( 3UL );
@@ -127,8 +127,8 @@ test_no_duplicates( fd_wksp_t * wksp ) {
   assert_event_default( &event );
   event = ag_finality_tracker_mark_fast_finalized( t, &b4 );
   assert_finalized( &event, &b4 );
-  FD_TEST( event.if_cnt==1UL && block_id_eq( &event.implicitly_finalized[0], &b3 ) );
-  FD_TEST( event.is_cnt==0UL );
+  FD_TEST( event.implicitly_finalized_cnt==1UL && block_id_eq( &event.implicitly_finalized[0], &b3 ) );
+  FD_TEST( event.implicitly_skipped_cnt==0UL );
 
   event = ag_finality_tracker_add_parent( t, &b4, &b3 );
   assert_event_default( &event );

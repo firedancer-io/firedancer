@@ -25,10 +25,11 @@ create_signers( ulong n ) {
 static ag_epoch_info_t *
 make_epoch( ulong   n,
             void ** out_mem ) {
-  void * mem = aligned_alloc( ag_epoch_info_align(), ag_epoch_info_footprint( n ) );
-  FD_TEST( mem );
-  *out_mem = mem;
-  return ag_epoch_info_join( ag_epoch_info_new( mem, g_info, n ) );
+  ag_epoch_info_t * ei = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
+  FD_TEST( ei );
+  *out_mem = ei;
+  ag_epoch_info_init( ei, g_info, n );
+  return ei;
 }
 
 static void

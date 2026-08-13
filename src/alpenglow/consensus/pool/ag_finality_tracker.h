@@ -3,21 +3,48 @@
 
 #include "../../ag_alpenglow_base.h"
 
-#define AG_FIN_STATUS_NOTARIZED            (0)
-#define AG_FIN_STATUS_FINAL_PENDING_NOTAR  (1)
-#define AG_FIN_STATUS_FINALIZED            (2)
-#define AG_FIN_STATUS_IMPLICITLY_FINALIZED (3)
-#define AG_FIN_STATUS_IMPLICITLY_SKIPPED   (4)
+/* FinalizationStatus in the reference (finality_tracker.rs), as the same
+   tagged union ag_pool_event_t uses: one struct per variant, three carrying
+   the notarized block's hash and two carrying nothing. */
 
-#define AG_FINALITY_EVENT_CAP (512UL)
+#define AG_FINALIZATION_STATUS_NOTARIZED            (0)
+#define AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR  (1)
+#define AG_FINALIZATION_STATUS_FINALIZED            (2)
+#define AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED (3)
+#define AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED   (4)
+
+/* The two that carry nothing hold a placeholder byte only because ISO C has
+   no empty struct (-Wpedantic is on).  It is never read, and never grows the
+   union past the hash the others carry. */
+
+struct ag_finalization_notarized            { fd_hash_t hash; };
+struct ag_finalization_final_pending_notar  { uchar     nothing; };
+struct ag_finalization_finalized            { fd_hash_t hash; };
+struct ag_finalization_implicitly_finalized { fd_hash_t hash; };
+struct ag_finalization_implicitly_skipped   { uchar     nothing; };
+
+typedef struct ag_finalization_notarized            ag_finalization_notarized_t;
+typedef struct ag_finalization_final_pending_notar  ag_finalization_final_pending_notar_t;
+typedef struct ag_finalization_finalized            ag_finalization_finalized_t;
+typedef struct ag_finalization_implicitly_finalized ag_finalization_implicitly_finalized_t;
+typedef struct ag_finalization_implicitly_skipped   ag_finalization_implicitly_skipped_t;
+
+struct ag_finalization_status {
+  int kind; /* AG_FINALIZATION_STATUS_* */
+  union {
+    ag_finalization_notarized_t            notarized;
+    ag_finalization_final_pending_notar_t  final_pending_notar;
+    ag_finalization_finalized_t            finalized;
+    ag_finalization_implicitly_finalized_t implicitly_finalized;
+    ag_finalization_implicitly_skipped_t   implicitly_skipped;
+  } inner;
+};
+typedef struct ag_finalization_status ag_finalization_status_t;
 
 struct ag_finalization_event {
-  int           has_finalized;
-  ag_block_id_t finalized;
-  ulong         if_cnt;
-  ag_block_id_t implicitly_finalized[ AG_FINALITY_EVENT_CAP ];
-  ulong         is_cnt;
-  ulong         implicitly_skipped[ AG_FINALITY_EVENT_CAP ];
+  ag_block_id_t   finalized;
+  ag_block_id_t * implicitly_finalized; ulong implicitly_finalized_cnt;
+  ulong *         implicitly_skipped;   ulong implicitly_skipped_cnt;
 };
 typedef struct ag_finalization_event ag_finalization_event_t;
 
@@ -26,20 +53,31 @@ typedef struct ag_finality_tracker ag_finality_tracker_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* An empty verdict: nothing directly finalized -- finalized.slot is
+   ULONG_MAX, the Option::None the rest of consensus spells the same way --
+   and both lists empty.  A mark_* points the lists at its own scratch as
+   it fills them; an empty event never has them dereferenced, since both
+   counts are zero. */
+
+FD_FN_CONST static inline ag_finalization_event_t
+ag_finalization_event_default( void ) {
+  ag_finalization_event_t event;
+  event.finalized.slot       = ULONG_MAX; /* hash is not read */
+  event.implicitly_finalized = NULL; event.implicitly_finalized_cnt = 0UL;
+  event.implicitly_skipped   = NULL; event.implicitly_skipped_cnt   = 0UL;
+  return event;
+}
+
 FD_FN_CONST ulong
 ag_finality_tracker_align( void );
 
 FD_FN_CONST ulong
-ag_finality_tracker_footprint( ulong slot_max,
-                               ulong blockid_max );
+ag_finality_tracker_footprint( ulong slot_max );
 
 void *
-ag_finality_tracker_new( void *            shmem,
-                         ulong             slot_max,
-                         ulong             blockid_max,
-                         ulong             seed,
-                         ulong             root_slot,
-                         fd_hash_t const * root_hash );
+ag_finality_tracker_new( void * shmem,
+                         ulong  slot_max,
+                         ulong  seed );
 
 ag_finality_tracker_t *
 ag_finality_tracker_join( void * shtracker );
@@ -49,6 +87,11 @@ ag_finality_tracker_leave( ag_finality_tracker_t const * tracker );
 
 void *
 ag_finality_tracker_delete( void * shtracker );
+
+void
+ag_finality_tracker_set_root( ag_finality_tracker_t * self,
+                              ulong                   root_slot,
+                              fd_hash_t const *       root_hash );
 
 ag_finalization_event_t
 ag_finality_tracker_add_parent( ag_finality_tracker_t * self,
@@ -66,18 +109,6 @@ ag_finality_tracker_mark_notarized( ag_finality_tracker_t * self,
 ag_finalization_event_t
 ag_finality_tracker_mark_finalized( ag_finality_tracker_t * self,
                                     ulong                   slot );
-
-/* ag_finality_tracker_prune_to force-advances the prune watermark to
-   root_slot, the certified-final consensus root published by the votor.
-   The bounded pools must shed undecided older slots -- one status-less
-   slot otherwise pins the prune walk and the per-slot pools exhaust
-   ~slot_max slots later.  Nothing below the root can affect consensus
-   again. */
-
-void
-ag_finality_tracker_prune_to( ag_finality_tracker_t * self,
-                              ulong                   root_slot,
-                              fd_hash_t const *       root_hash );
 
 FD_FN_PURE ulong
 ag_finality_tracker_highest_finalized_slot( ag_finality_tracker_t const * self );
