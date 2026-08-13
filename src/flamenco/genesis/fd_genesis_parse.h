@@ -3,9 +3,6 @@
 
 #include "../fd_flamenco_base.h"
 
-/* Hardcoded max serialized genesis blob size */
-#define FD_GENESIS_MAX_MESSAGE_SIZE (1UL<<28) /* 256 MiB */
-
 /* Hardcoded genesis array limits */
 #define FD_GENESIS_ACCOUNT_MAX_COUNT (65536UL)
 #define FD_GENESIS_BUILTIN_MAX_COUNT (16UL)

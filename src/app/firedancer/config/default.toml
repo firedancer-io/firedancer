@@ -1927,6 +1927,11 @@ telemetry = true
         # genesis hash.
         validate_genesis_hash = true
 
+        # The maximum size of the genesis file that is either loaded
+        # from the disk or downloaded from the network.
+        # Must be in [1, 4055].
+        max_file_size_mib = 10
+
         # When creating a new chain from genesis during development,
         # this option can be used to specify the number of hashes in
         # each tick of the proof history component.

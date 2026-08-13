@@ -227,6 +227,8 @@ fd_topo_initialize( config_t * config ) {
   ulong execrp_tile_cnt = config->firedancer.layout.execrp_tile_count;
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
 
+  ulong genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib << 20;
+
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
   int snapmk_enabled    = !!snapzp_tile_cnt;
   int rpc_enabled       = config->tiles.rpc.enabled;
@@ -427,7 +429,7 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insert_ulong( topo->props, "backup", backup->id ) );
   }
 
-  /**/                 fd_topob_link( topo, "genesi_out",    "genesi_out",    1UL,                                      FD_GENESIS_TILE_MTU,           1UL );
+  /**/                 fd_topob_link( topo, "genesi_out",    "genesi_out",    1UL,                                      fd_genesi_tile_mtu( genesis_max_message_size ), 1UL );
   /**/                 fd_topob_link( topo, "ipecho_out",    "ipecho_out",    2UL,                                      0UL,                           1UL );
   FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossip", "gossvf_gossip", config->net.ingress_buffer_size,          FD_GOSSIP_GOSSVF_MTU,          1UL );
   /**/                 fd_topob_link( topo, "gossip_gossvf", "gossip_gossvf", 65536UL*4UL,                              sizeof(fd_gossip_ping_update_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
@@ -1257,8 +1259,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->genesi.target_gid      = config->gid;
     tile->genesi.target_uid      = config->uid;
 
-    tile->genesi.max_live_slots  = config->firedancer.runtime.max_live_slots;
-    tile->genesi.accdb_obj_id    = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
+    tile->genesi.max_live_slots   = config->firedancer.runtime.max_live_slots;
+    tile->genesi.accdb_obj_id     = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
+    tile->genesi.max_message_size = config->firedancer.development.genesis.max_file_size_mib << 20;
     FD_TEST( tile->genesi.accdb_obj_id!=ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "admin" ) ) ) {
@@ -1641,7 +1644,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rpc.max_http_request_length   = config->tiles.rpc.max_http_request_length;
     tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;
 
-    tile->rpc.max_live_slots  = config->firedancer.runtime.max_live_slots;
+    tile->rpc.max_live_slots           = config->firedancer.runtime.max_live_slots;
+    tile->rpc.genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib << 20;
 
     tile->rpc.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     FD_TEST( tile->rpc.accdb_obj_id!=ULONG_MAX );

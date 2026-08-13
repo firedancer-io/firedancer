@@ -413,6 +413,7 @@ struct fd_topo_tile {
       ulong max_http_request_length;
 
       ulong max_live_slots;
+      ulong genesis_max_message_size;
 
       ulong accdb_obj_id;
       ulong accdb_epoch_fseq_obj_id;
@@ -685,6 +686,7 @@ struct fd_topo_tile {
 
       ulong max_live_slots;
       ulong accdb_obj_id;
+      ulong max_message_size;
     } genesi;
 
     struct {
