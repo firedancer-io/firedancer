@@ -107,7 +107,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) ) {
     l = FD_LAYOUT_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->genesi.max_live_slots ) );
   }
-  l = FD_LAYOUT_APPEND( l, alignof(uchar),              tile->genesi.max_message_size + 4UL*512UL );
+  l = FD_LAYOUT_APPEND( l, alignof(uchar),              tile->genesi.max_message_size + 4UL*FD_TAR_BLOCK_SZ );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -254,7 +254,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     int bzerr = BZ2_bzDecompressInit( &bzstrm, 0, 0 );
     if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompressInit() failed (%d)", bzerr ));
 
-    ulong decompressed_sz = ctx->max_message_size + 4UL*512UL;
+    ulong decompressed_sz = ctx->max_message_size + 4UL*FD_TAR_BLOCK_SZ;
 
     bzstrm.next_in   = (char *)buffer;
     bzstrm.avail_in  = (uint)buffer_sz;
@@ -273,11 +273,11 @@ after_credit( fd_genesi_tile_t *  ctx,
     bzerr = BZ2_bzDecompressEnd( &bzstrm );
     if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompressEnd() failed (%d)", bzerr ));
 
-    FD_TEST( actual_decompressed_sz>=512UL );
+    FD_TEST( actual_decompressed_sz>=FD_TAR_BLOCK_SZ );
 
     fd_tar_meta_t const * meta = (fd_tar_meta_t const *)decompressed;
     FD_TEST( !strcmp( meta->name, "genesis.bin" ) );
-    uchar const * blob    = decompressed+512UL;
+    uchar const * blob    = decompressed+FD_TAR_BLOCK_SZ;
     ulong         blob_sz = fd_tar_meta_get_size( meta );
     if( FD_UNLIKELY( blob_sz==ULONG_MAX ) ) {
       FD_LOG_ERR(( "Genesis blob from peer at `http://" FD_IP4_ADDR_FMT ":%hu` has invalid tar header size",
@@ -287,7 +287,7 @@ after_credit( fd_genesi_tile_t *  ctx,
       FD_LOG_ERR(( "Genesis blob from peer at `http://" FD_IP4_ADDR_FMT ":%hu` exceeds maximum size (blob_sz=%lu max=%lu)",
                    FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), blob_sz, ctx->max_message_size ));
     }
-    FD_TEST( actual_decompressed_sz>=fd_ulong_sat_add( 512UL, blob_sz ) );
+    FD_TEST( actual_decompressed_sz>=fd_ulong_sat_add( FD_TAR_BLOCK_SZ, blob_sz ) );
 
     fd_hash_t hash[1];
     fd_sha256_hash( blob, blob_sz, hash->uc );
@@ -503,7 +503,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb          = !tile->genesi.entrypoints_cnt ?
                            FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->genesi.max_live_slots ) ) :
                            NULL;
-  void * _genesis_blob   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),              tile->genesi.max_message_size + 4UL*512UL           );
+  void * _genesis_blob   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),              tile->genesi.max_message_size + 4UL*FD_TAR_BLOCK_SZ );
 
   fd_lthash_zero( ctx->lthash );
 

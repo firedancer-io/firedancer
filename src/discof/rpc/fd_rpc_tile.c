@@ -54,7 +54,7 @@
 */
 FD_FN_CONST static inline ulong
 fd_rpc_genesis_tar_max_sz( ulong max_message_size ) {
-  return max_message_size + 4UL*512UL;
+  return max_message_size + 4UL*FD_TAR_BLOCK_SZ;
 }
 
 FD_FN_CONST static inline ulong
@@ -394,8 +394,8 @@ fd_rpc_file_as_tarball( fd_rpc_tile_t * ctx,
                         ulong           scratch_sz,
                         uchar *         out,
                         ulong           out_sz ) {
-  ulong padding_sz = 2*512UL;
-  if( FD_LIKELY( data_sz % 512UL ) ) padding_sz += 512UL - (data_sz % 512UL);
+  ulong padding_sz = 2UL*FD_TAR_BLOCK_SZ;
+  if( FD_LIKELY( data_sz % FD_TAR_BLOCK_SZ ) ) padding_sz += FD_TAR_BLOCK_SZ - (data_sz % FD_TAR_BLOCK_SZ);
 
   if( FD_UNLIKELY( data_sz>ctx->genesis_max_message_size ) ) {
     FD_LOG_ERR(( "Genesis data exceeds maximum size (data_sz=%lu max=%lu)", data_sz, ctx->genesis_max_message_size ));
