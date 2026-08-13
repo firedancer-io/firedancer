@@ -121,10 +121,6 @@ struct fd_configf {
     ulong max_fork_width;
 
     struct {
-      ulong max_message_size_mib;
-    } genesis;
-
-    struct {
       ulong heap_size_mib;
       ulong mean_cache_entry_size;
     } program_cache;
@@ -181,7 +177,8 @@ struct fd_configf {
     int hard_fork_fatal;
     int fixed_fec_sets;
     struct {
-      int validate_genesis_hash;
+      int   validate_genesis_hash;
+      ulong max_message_size_mib;
     } genesis;
 
     struct {

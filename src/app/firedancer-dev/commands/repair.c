@@ -354,7 +354,7 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,                                      sizeof(fd_snapshot_manifest_t),1UL );
 
-  /**/                 fd_topob_link( topo, "genesi_out",   "genesi_out",   1UL,                                      fd_genesi_tile_mtu( config->firedancer.runtime.genesis.max_message_size_mib<<20 ), 1UL );
+  /**/                 fd_topob_link( topo, "genesi_out",   "genesi_out",   1UL,                                      fd_genesi_tile_mtu( config->firedancer.development.genesis.max_message_size_mib<<20 ), 1UL );
   /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,                                   sizeof(fd_tower_msg_t),         1UL );
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );

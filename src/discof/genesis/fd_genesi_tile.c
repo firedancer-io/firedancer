@@ -213,7 +213,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     ulong msg_sz = sizeof(fd_genesis_meta_t) + ctx->genesis_blob_sz;
     if( FD_UNLIKELY( msg_sz>fd_genesi_tile_mtu( ctx->max_message_size ) ) ) {
       FD_LOG_ERR(( "The genesis file `%s` is too large for this Firedancer configuration (msg_sz=%lu max=%lu).\n"
-                   "Cannot start Firedancer. Please use a different genesis config or increase `runtime.genesis.max_message_size_mib`.",
+                   "Cannot start Firedancer. Please use a different genesis config or increase `development.genesis.max_message_size_mib`.",
                    ctx->genesis_path, msg_sz, fd_genesi_tile_mtu( ctx->max_message_size ) ));
     }
 
@@ -318,7 +318,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     ulong msg_sz = sizeof(fd_genesis_meta_t) + blob_sz;
     if( FD_UNLIKELY( msg_sz>fd_genesi_tile_mtu( ctx->max_message_size ) ) ) {
       FD_LOG_ERR(( "The genesis blob downloaded from peer at `http://" FD_IP4_ADDR_FMT ":%hu` is too large for this Firedancer configuration (msg_sz=%lu max=%lu).\n"
-                   "Cannot start Firedancer. Please use a different genesis config or increase `runtime.genesis.max_message_size_mib`.",
+                   "Cannot start Firedancer. Please use a different genesis config or increase `development.genesis.max_message_size_mib`.",
                    FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), msg_sz, fd_genesi_tile_mtu( ctx->max_message_size ) ));
     }
 
@@ -369,7 +369,7 @@ process_local_genesis( fd_genesi_tile_t * ctx,
       long result = read( ctx->in_fd, &extra, 1UL );
       if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( result ) ) {
-        FD_LOG_ERR(( "The genesis file at `%s` exceeds `runtime.genesis.max_message_size_mib` (%lu MiB).",
+        FD_LOG_ERR(( "The genesis file at `%s` exceeds `development.genesis.max_message_size_mib` (%lu MiB).",
                      genesis_path, ctx->max_message_size>>20 ));
       }
       break;

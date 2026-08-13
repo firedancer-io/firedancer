@@ -176,7 +176,7 @@ firedancer_dev_test_run( int     argc,
       static config_t config[1];
       fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
 
-      FD_TEST( config->firedancer.runtime.genesis.max_message_size_mib==10UL );
+      FD_TEST( config->firedancer.development.genesis.max_message_size_mib==10UL );
 
       config->firedancer.accounts.max_accounts  = 30000000UL;
       config->firedancer.runtime.max_live_slots = 512UL;
@@ -186,7 +186,7 @@ firedancer_dev_test_run( int     argc,
 
       fd_topo_initialize( config );
 
-      ulong genesis_max_message_size = config->firedancer.runtime.genesis.max_message_size_mib<<20;
+      ulong genesis_max_message_size = config->firedancer.development.genesis.max_message_size_mib<<20;
       ulong genesi_idx = fd_topo_find_tile( &config->topo, "genesi", 0UL );
       FD_TEST( genesi_idx!=ULONG_MAX );
       FD_TEST( config->topo.tiles[ genesi_idx ].genesi.max_message_size==genesis_max_message_size );

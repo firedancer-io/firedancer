@@ -8,7 +8,6 @@
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
-#include "../../flamenco/genesis/fd_genesis_parse.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -506,10 +505,7 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( accounts.max_accounts   );
   CFG_HAS_NON_ZERO( accounts.cache_size_gib );
 
-  CFG_HAS_NON_ZERO( runtime.genesis.max_message_size_mib );
-  if( FD_UNLIKELY( config->runtime.genesis.max_message_size_mib>(FD_GENESIS_MAX_MESSAGE_SIZE>>20) ) ) {
-    FD_LOG_ERR(( "`runtime.genesis.max_message_size_mib` must be at most %lu", FD_GENESIS_MAX_MESSAGE_SIZE>>20 ));
-  }
+  CFG_HAS_NON_ZERO( development.genesis.max_message_size_mib );
 
   CFG_HAS_NON_ZERO( runtime.program_cache.mean_cache_entry_size );
   CFG_HAS_NON_ZERO( runtime.program_cache.heap_size_mib );

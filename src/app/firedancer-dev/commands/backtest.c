@@ -242,7 +242,7 @@ backtest_topo( config_t * config ) {
   } else {
     fd_topob_wksp( topo, "genesi_out" );
     fd_topob_link( topo, "genesi_out", "genesi_out", 1UL,
-                   fd_genesi_tile_mtu( config->firedancer.runtime.genesis.max_message_size_mib<<20 ), 1UL );
+                   fd_genesi_tile_mtu( config->firedancer.development.genesis.max_message_size_mib<<20 ), 1UL );
     fd_topob_tile_out( topo, "genesi", 0UL, "genesi_out", 0UL );
     fd_topob_tile_in ( topo, "replay", 0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }

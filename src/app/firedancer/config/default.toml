@@ -725,14 +725,6 @@ telemetry = true
     # or test environments to decrease memory usage or test edge cases.
     max_fork_width = 32
 
-    # Limits applied while loading the serialized genesis configuration.
-    # Larger values increase the memory reserved by the genesis and RPC
-    # tiles, as well as the genesi_out link.
-    [runtime.genesis]
-        # Maximum size in MiB of the uncompressed genesis.bin file, for
-        # both local files and downloaded archives.  Must be in [1, 256].
-        max_message_size_mib = 10
-
     # The program cache pre-loads frequently executed programs for
     # faster transaction execution.
     [runtime.program_cache]
@@ -1934,6 +1926,10 @@ telemetry = true
         # a local cluster in, for example, mainnet mode with a different
         # genesis hash.
         validate_genesis_hash = true
+
+        # The maximum size of the genesis file that is either loaded
+        # from the validator's host or downloaded from the network.
+        max_message_size_mib = 10
 
         # When creating a new chain from genesis during development,
         # this option can be used to specify the number of hashes in
