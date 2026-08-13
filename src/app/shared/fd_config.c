@@ -506,9 +506,9 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( accounts.max_accounts   );
   CFG_HAS_NON_ZERO( accounts.cache_size_gib );
 
-  CFG_HAS_NON_ZERO( development.genesis.max_message_size_mib );
-  if( FD_UNLIKELY( config->development.genesis.max_message_size_mib>FD_GENESIS_MAX_MESSAGE_SIZE_MIB ) ) {
-    FD_LOG_ERR(( "`development.genesis.max_message_size_mib` must be at most %lu", FD_GENESIS_MAX_MESSAGE_SIZE_MIB ));
+  CFG_HAS_NON_ZERO( development.genesis.max_file_size_mib );
+  if( FD_UNLIKELY( config->development.genesis.max_file_size_mib>FD_GENESIS_MAX_FILE_SIZE_MIB ) ) {
+    FD_LOG_ERR(( "`development.genesis.max_file_size_mib` must be at most %lu", FD_GENESIS_MAX_FILE_SIZE_MIB ));
   }
 
   CFG_HAS_NON_ZERO( runtime.program_cache.mean_cache_entry_size );

@@ -135,7 +135,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
 
   CFG_POP      ( bool,   development.genesis.validate_genesis_hash           );
-  CFG_POP      ( ulong,  development.genesis.max_message_size_mib            );
+  CFG_POP      ( ulong,  development.genesis.max_file_size_mib               );
 
   CFG_POP      ( cstr,   development.ledger_input.format                     );
   CFG_POP      ( cstr,   development.ledger_input.path                       );

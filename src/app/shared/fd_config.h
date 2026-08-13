@@ -178,7 +178,7 @@ struct fd_configf {
     int fixed_fec_sets;
     struct {
       int   validate_genesis_hash;
-      ulong max_message_size_mib;
+      ulong max_file_size_mib;
     } genesis;
 
     struct {

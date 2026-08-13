@@ -18,18 +18,18 @@ static char const cfg_str_4[] =
   "[net.xdp]\n  xdp_zero_copy = \"something wrong\"";
 static char const cfg_str_5[] =
   "[development.genesis]\n"
-  "  max_message_size_mib = 33";
+  "  max_file_size_mib = 33";
 
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
 
 static int
-genesis_max_message_size_is_valid( config_t * config,
-                                   ulong      max_message_size_mib ) {
+genesis_max_file_size_is_valid( config_t * config,
+                                ulong      max_file_size_mib ) {
   int pid = fork();
   FD_TEST( pid>=0 );
   if( FD_UNLIKELY( !pid ) ) {
-    config->firedancer.development.genesis.max_message_size_mib = max_message_size_mib;
+    config->firedancer.development.genesis.max_file_size_mib = max_file_size_mib;
     fd_config_validate( config );
     _exit( 0 );
   }
@@ -92,8 +92,8 @@ main( int     argc,
   config->firedancer.runtime.program_cache.heap_size_mib         = 32UL;
   config->tiles.repair.slot_max                                   = 1UL;
 
-  FD_TEST(  genesis_max_message_size_is_valid( config, 4055UL ) );
-  FD_TEST( !genesis_max_message_size_is_valid( config, 4056UL ) );
+  FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
+  FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
 
   /* Ensure we can selectively override a field */
 
@@ -128,7 +128,7 @@ main( int     argc,
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_5, sizeof(cfg_str_5)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
-  FD_TEST( config->firedancer.development.genesis.max_message_size_mib == 33UL );
+  FD_TEST( config->firedancer.development.genesis.max_file_size_mib == 33UL );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
