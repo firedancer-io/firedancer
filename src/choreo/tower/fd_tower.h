@@ -431,8 +431,8 @@ FD_STATIC_ASSERT( sizeof (fd_tower_vote_private_t)==512UL, FD_TOWER_VOTE_FOOTPRI
 
 struct fd_tower_blk {
   ulong     slot;               /* pool next / map key */
-  ulong     next;               /* pool next / map next */
-  ulong     prev;               /* map prev */
+  uint      next;               /* pool next / map next */
+  uint      prev;               /* map prev */
   ulong     parent_slot;        /* parent slot */
   ulong     epoch;              /* epoch of this slot */
   fd_hash_t bank_hash;          /* our bank hash for this slot */
