@@ -30,7 +30,13 @@ typedef struct fd_snapwr_out fd_snapwr_out_t;
 
 struct fd_snapwr_tile {
   int full;
+  int init_completed;     /* did INIT complete for this attempt? */
   int state;
+
+  ulong lane_cnt;
+  ulong expected_frame;
+  ulong pending_control; /* control message expected from snapdc tiles */
+  uchar control_seen[ FD_SNAPDC_TILE_MAX ];
 
   ulong partition_sz;
 
@@ -51,7 +57,7 @@ struct fd_snapwr_tile {
     ulong       wmark;
     ulong       mtu;
     ulong       pos;
-  } in;
+  } in[ FD_SNAPDC_TILE_MAX ];
 
   fd_snapwr_out_t ct_out;
 
@@ -101,11 +107,18 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static inline void
+clear_control_barrier( fd_snapwr_tile_t * ctx ) {
+  ctx->pending_control = ULONG_MAX;
+  fd_memset( ctx->control_seen, 0, sizeof(ctx->control_seen) );
+}
+
 static void
 transition_malformed( fd_snapwr_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
+  clear_control_barrier( ctx );
   fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
@@ -180,6 +193,7 @@ process_account_data( fd_snapwr_tile_t *            ctx,
 
 static int
 handle_data_frag( fd_snapwr_tile_t *  ctx,
+                  ulong               in_idx,
                   ulong               chunk,
                   ulong               sz,
                   fd_stem_context_t * stem ) {
@@ -199,15 +213,15 @@ handle_data_frag( fd_snapwr_tile_t *  ctx,
                  fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
-  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
+  FD_TEST( chunk>=ctx->in[ in_idx ].chunk0 && chunk<=ctx->in[ in_idx ].wmark && sz<=ctx->in[ in_idx ].mtu );
 
   for(;;) {
-    if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
+    if( FD_UNLIKELY( sz-ctx->in[ in_idx ].pos==0UL ) ) break;
 
-    uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
+    uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk ) + ctx->in[ in_idx ].pos;
 
     fd_ssparse_advance_result_t result[1];
-    int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
+    int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in[ in_idx ].pos, result );
     switch( res ) {
       case FD_SSPARSE_ADVANCE_ERROR:
         FD_LOG_WARNING(( "error while parsing snapshot stream" ));
@@ -247,13 +261,13 @@ handle_data_frag( fd_snapwr_tile_t *  ctx,
         break;
     }
 
-    ctx->in.pos += result->bytes_consumed;
+    ctx->in[ in_idx ].pos += result->bytes_consumed;
     if( FD_LIKELY( ctx->full ) ) ctx->metrics.full_bytes_read        += result->bytes_consumed;
     else                         ctx->metrics.incremental_bytes_read += result->bytes_consumed;
   }
 
-  int reprocess_frag = ctx->in.pos<sz;
-  if( FD_LIKELY( !reprocess_frag ) ) ctx->in.pos = 0UL;
+  int reprocess_frag = ctx->in[ in_idx ].pos<sz;
+  if( FD_LIKELY( !reprocess_frag ) ) ctx->in[ in_idx ].pos = 0UL;
   return reprocess_frag;
 }
 
@@ -279,7 +293,10 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->in.pos = 0UL;
+      ctx->expected_frame = 0UL;
+      for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
+        ctx->in[ i ].pos = 0UL;
+      }
       fd_ssparse_init( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 
@@ -292,6 +309,7 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
         ctx->metrics.incremental_bytes_read = 0UL;
         ctx->metrics.accounts_written       = ctx->metrics.full_accounts_written;
       }
+      ctx->init_completed = 1;
       break;
     }
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
@@ -315,12 +333,14 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
       ctx->recovery.accounts_off = ctx->accounts_off;
       ctx->recovery.flush_off    = ctx->flush_off;
       ctx->metrics.full_accounts_written = ctx->metrics.accounts_written;
+      ctx->init_completed = 0;
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      ctx->init_completed = 0;
       break;
     }
 
@@ -333,8 +353,11 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->write_buf_used = 0UL;
-      ctx->accounts_off = ctx->full ? 0UL : ctx->recovery.accounts_off;
-      ctx->flush_off    = ctx->full ? 0UL : ctx->recovery.flush_off;
+      if( FD_LIKELY( ctx->init_completed ) ) {
+        ctx->accounts_off = ctx->full ? 0UL : ctx->recovery.accounts_off;
+        ctx->flush_off    = ctx->full ? 0UL : ctx->recovery.flush_off;
+      }
+      ctx->init_completed = 0;
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     }
@@ -359,20 +382,121 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
 }
 
 static inline int
+all_controls_seen( fd_snapwr_tile_t const * ctx ) {
+  int all_seen = 1;
+  for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
+    all_seen &= !!ctx->control_seen[ i ];
+  }
+  return all_seen;
+}
+
+static inline int
+before_frag( fd_snapwr_tile_t * ctx,
+             ulong              in_idx,
+             ulong              seq    FD_PARAM_UNUSED,
+             ulong              sig ) {
+  /* If we're currently in ERROR state we should only process FAIL
+     control frags */
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    return sig!=FD_SNAPSHOT_MSG_CTRL_FAIL;
+  }
+
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_ERROR ) ) {
+    return 0;
+  }
+
+  /* Once this lane sends the pending control, hold its later frags until
+     all snapdc lanes send the same control. */
+  if( FD_UNLIKELY( ctx->pending_control!=ULONG_MAX && ctx->control_seen[ in_idx ] ) ) {
+    FD_TEST( sig!=ctx->pending_control );
+    return -1;
+  }
+
+  /* Only accept DATA frags from the expected lane */
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA && in_idx!=ctx->expected_frame%ctx->lane_cnt ) ) {
+    return -1;
+  }
+
+  return 0;
+}
+
+static inline int
+handle_lane_data_frag( fd_snapwr_tile_t *  ctx,
+                       fd_stem_context_t * stem,
+                       ulong               in_idx,
+                       ulong               chunk,
+                       ulong               sz,
+                       ulong               ctl ) {
+  /* EOM marks the end of a frame */
+  int eom = !!fd_frag_meta_ctl_eom( ctl );
+
+  /* Tar EOF can precede a zero-byte EOM that closes the frame. */
+  int trailing_eom = ctx->state==FD_SNAPSHOT_STATE_FINISHING && eom && !sz;
+  if( FD_UNLIKELY( !trailing_eom && handle_data_frag( ctx, in_idx, chunk, sz, stem ) ) ) {
+    return 1;
+  }
+
+  if( FD_UNLIKELY( eom ) ) {
+    ctx->expected_frame++;
+  }
+
+  return 0;
+}
+
+static inline void
+handle_control_barrier( fd_snapwr_tile_t *  ctx,
+                        fd_stem_context_t * stem,
+                        ulong               in_idx,
+                        ulong               sig ) {
+  /* Error control frags must be immediately handled. */
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_ERROR ) ) {
+    clear_control_barrier( ctx );
+    handle_control_frag( ctx, stem, sig );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->pending_control==ULONG_MAX ) ) {
+    ctx->pending_control = sig;
+  } else if( FD_UNLIKELY( ctx->control_seen[ in_idx ] ) ) {
+    FD_LOG_WARNING(( "received duplicate %s control from snapdc lane %lu",
+                     fd_ssctrl_msg_ctrl_str( sig ), in_idx ));
+    transition_malformed( ctx, stem );
+    return;
+  } else if( FD_UNLIKELY( sig!=ctx->pending_control ) ) {
+    FD_LOG_WARNING(( "received conflicting %s control from snapdc lane %lu while waiting for %s",
+                     fd_ssctrl_msg_ctrl_str( sig ), in_idx,
+                     fd_ssctrl_msg_ctrl_str( ctx->pending_control ) ));
+    transition_malformed( ctx, stem );
+    return;
+  }
+
+  /* Only process the control frag when all upstream tiles have sent
+     the same control message. */
+  ctx->control_seen[ in_idx ] = 1U;
+  if( FD_LIKELY( !all_controls_seen( ctx ) ) ) {
+    return;
+  }
+
+  /* All controls received, process the control frag. */
+  clear_control_barrier( ctx );
+  handle_control_frag( ctx, stem, sig );
+}
+
+static inline int
 returnable_frag( fd_snapwr_tile_t *  ctx,
-                 ulong               in_idx FD_PARAM_UNUSED,
+                 ulong               in_idx,
                  ulong               seq    FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               ctl,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig );
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_lane_data_frag( ctx, stem, in_idx, chunk, sz, ctl );
+  else                                           handle_control_barrier( ctx, stem, in_idx, sig );
 
   return 0;
 }
@@ -439,8 +563,12 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint()  );
   void * _write_buf       = FD_SCRATCH_ALLOC_APPEND( l, 1UL,                          FD_SNAPWR_WRITE_BUF_SZ            );
 
-  ctx->full = 1;
-  ctx->state = FD_SNAPSHOT_STATE_IDLE;
+  ctx->full            = 1;
+  ctx->init_completed  = 0;
+  ctx->state           = FD_SNAPSHOT_STATE_IDLE;
+  ctx->lane_cnt        = tile->in_cnt;
+  ctx->expected_frame  = 0UL;
+  clear_control_barrier( ctx );
 
   ctx->partition_sz = tile->snapwr.partition_sz;
   if( FD_UNLIKELY( !ctx->partition_sz ) ) FD_LOG_ERR(( "tile `" NAME "` partition_sz is 0" ));
@@ -457,7 +585,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
+  if( FD_UNLIKELY( !tile->in_cnt || tile->in_cnt>FD_SNAPDC_TILE_MAX ) ) {
+    FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1..%lu", tile->in_cnt, FD_SNAPDC_TILE_MAX ));
+  }
+
   ctx->ct_out = out1( topo, tile, "snapwr_ct" );
   if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapwr_ct`" ));
 
@@ -465,14 +596,17 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_ssparse_batch_enable( ctx->ssparse, 0 );
   fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 
-  fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
-  FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
-  fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
-  ctx->in.wksp   = in_wksp->wksp;
-  ctx->in.chunk0 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
-  ctx->in.wmark  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
-  ctx->in.mtu    = in_link->mtu;
-  ctx->in.pos    = 0UL;
+  for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
+    fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
+    FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
+    FD_TEST( in_link->kind_id==i );
+    fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
+    ctx->in[ i ].wksp   = in_wksp->wksp;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].wksp, in_link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark( ctx->in[ i ].wksp, in_link->dcache, in_link->mtu );
+    ctx->in[ i ].mtu    = in_link->mtu;
+    ctx->in[ i ].pos    = 0UL;
+  }
 }
 
 #define STEM_BURST 1UL
@@ -484,6 +618,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_BEFORE_FRAG     before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
