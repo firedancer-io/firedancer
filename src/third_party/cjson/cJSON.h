@@ -98,6 +98,7 @@ then using the CJSON_API_VISIBILITY flag to "export" the same symbols the way CJ
 
 #define cJSON_IsReference 256
 #define cJSON_StringIsConst 512
+#define cJSON_NumberIsInteger 1024
 
 /* The cJSON structure: */
 typedef struct cJSON
@@ -194,6 +195,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_IsTrue(const cJSON * const item);
 CJSON_PUBLIC(cJSON_bool) cJSON_IsBool(const cJSON * const item);
 CJSON_PUBLIC(cJSON_bool) cJSON_IsNull(const cJSON * const item);
 CJSON_PUBLIC(cJSON_bool) cJSON_IsNumber(const cJSON * const item);
+CJSON_PUBLIC(cJSON_bool) cJSON_IsInteger(const cJSON * const item);
 CJSON_PUBLIC(cJSON_bool) cJSON_IsString(const cJSON * const item);
 CJSON_PUBLIC(cJSON_bool) cJSON_IsArray(const cJSON * const item);
 CJSON_PUBLIC(cJSON_bool) cJSON_IsObject(const cJSON * const item);

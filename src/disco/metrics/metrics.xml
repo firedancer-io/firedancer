@@ -1672,11 +1672,14 @@ EXAMPLES
     <int value="7" name="getIdentity" label="getIdentity" />
     <int value="8" name="getInflationGovernor" label="getInflationGovernor" />
     <int value="9" name="getLatestBlockhash" label="getLatestBlockhash" />
-    <int value="10" name="getMinimumBalanceForRentExemption" label="getMinimumBalanceForRentExemption" />
-    <int value="11" name="getMultipleAccounts" label="getMultipleAccounts" />
-    <int value="12" name="getSlot" label="getSlot" />
-    <int value="13" name="getTransactionCount" label="getTransactionCount" />
-    <int value="14" name="getVersion" label="getVersion" />
+    <int value="10" name="getLeaderSchedule" label="getLeaderSchedule" />
+    <int value="11" name="getMinimumBalanceForRentExemption" label="getMinimumBalanceForRentExemption" />
+    <int value="12" name="getMultipleAccounts" label="getMultipleAccounts" />
+    <int value="13" name="getSlot" label="getSlot" />
+    <int value="14" name="getSlotLeader" label="getSlotLeader" />
+    <int value="15" name="getSlotLeaders" label="getSlotLeaders" />
+    <int value="16" name="getTransactionCount" label="getTransactionCount" />
+    <int value="17" name="getVersion" label="getVersion" />
 </enum>
 
 <enum name="RpcEventType">

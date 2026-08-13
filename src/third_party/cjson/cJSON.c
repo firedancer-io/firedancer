@@ -49,6 +49,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <errno.h>
 #include <ctype.h>
 #include <float.h>
 
@@ -320,6 +321,7 @@ static cJSON_bool parse_number(cJSON * const item, parse_buffer * const input_bu
     size_t i = 0;
     size_t number_string_length = 0;
     cJSON_bool has_decimal_point = false;
+    cJSON_bool is_integer = true;
 
     if ((input_buffer == NULL) || (input_buffer->content == NULL))
     {
@@ -345,14 +347,19 @@ static cJSON_bool parse_number(cJSON * const item, parse_buffer * const input_bu
             case '9':
             case '+':
             case '-':
+                number_string_length++;
+                break;
+
             case 'e':
             case 'E':
                 number_string_length++;
+                is_integer = false;
                 break;
 
             case '.':
                 number_string_length++;
                 has_decimal_point = true;
+                is_integer = false;
                 break;
 
             default:
@@ -406,9 +413,17 @@ loop_end:
         item->valueint = (int)number;
     }
 
-    item->valueulong = strtoul((const char*)number_c_string, NULL, 10);
+    char *integer_end = NULL;
+    errno = 0;
+    item->valueulong = strtoul((const char*)number_c_string, &integer_end, 10);
+    if (is_integer && (number_c_string[0] == '-'))
+    {
+        errno = 0;
+        (void)strtol((const char*)number_c_string, &integer_end, 10);
+    }
+    is_integer = is_integer && (errno != ERANGE) && (*integer_end == '\0');
 
-    item->type = cJSON_Number;
+    item->type = cJSON_Number | (is_integer ? cJSON_NumberIsInteger : 0);
 
     input_buffer->offset += (size_t)(after_end - number_c_string);
     /* free the temporary buffer */
@@ -3022,6 +3037,11 @@ CJSON_PUBLIC(cJSON_bool) cJSON_IsNumber(const cJSON * const item)
     }
 
     return (item->type & 0xFF) == cJSON_Number;
+}
+
+CJSON_PUBLIC(cJSON_bool) cJSON_IsInteger(const cJSON * const item)
+{
+    return cJSON_IsNumber(item) && ((item->type & cJSON_NumberIsInteger) != 0);
 }
 
 CJSON_PUBLIC(cJSON_bool) cJSON_IsString(const cJSON * const item)
