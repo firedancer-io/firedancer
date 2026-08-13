@@ -320,9 +320,8 @@ process_owned_frame( fd_snapdc_tile_t *  ctx,
   }
 
   if( FD_LIKELY( out_produced || frame_complete ) ) {
-    ulong out_sig = fd_ssctrl_sig_pack( FD_SNAPSHOT_MSG_DATA, ctx->frame_idx );
     ulong out_ctl = fd_frag_meta_ctl( 0UL, 0, frame_complete, 0 );
-    fd_stem_publish( stem, 0UL, out_sig, ctx->out.chunk, out_produced, out_ctl, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, out_produced, out_ctl, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, out_produced, ctx->out.chunk0, ctx->out.wmark );
   }
 
