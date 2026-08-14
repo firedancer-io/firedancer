@@ -20,6 +20,7 @@
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../disco/bundle/fd_bundle_tile.h"
+#include "../../tango/dcache/fd_dcache.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
@@ -62,7 +63,13 @@ wire_event_links( fd_topo_t * topo ) {
     char link_name[ sizeof(((fd_topo_link_t *)0)->name) ];
     FD_TEST( fd_cstr_printf_check( link_name, sizeof(link_name), NULL, "%s_event", tile->name ) );
 
-    fd_topo_link_t * link = fd_topob_link( topo, link_name, "event_in", 128UL, max_sz, 1UL );
+    /* The dcache must cover depth*MTU (a smaller region risks undetected
+       torn reads), so big-MTU links trade depth away to fit the budget. */
+    ulong const event_link_dcache_max = 64UL<<20; /* 64 MiB data region per event link */
+    ulong depth = 128UL;
+    while( depth>1UL && fd_dcache_req_data_sz( max_sz, depth, 1UL, 1 )>event_link_dcache_max ) depth >>= 1;
+
+    fd_topo_link_t * link = fd_topob_link( topo, link_name, "event_in", depth, max_sz, 1UL );
     link->permit_no_producers = 1; /* written outside fd_stem; topo sees no producer */
 
     tile->event_link_id = link->id;
