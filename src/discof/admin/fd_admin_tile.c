@@ -70,10 +70,13 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ulong tower_idx = fd_topo_find_tile( topo, "tower", 0UL );
-  FD_TEST( tower_idx!=ULONG_MAX );
-  FD_TEST( topo->tiles[ tower_idx ].av_keyswitch_obj_id!=ULONG_MAX );
-  ctx->tower_av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, topo->tiles[ tower_idx ].av_keyswitch_obj_id ) );
-  FD_TEST( ctx->tower_av_keyswitch );
+  if( FD_LIKELY( tower_idx!=ULONG_MAX ) ) {
+    FD_TEST( topo->tiles[ tower_idx ].av_keyswitch_obj_id!=ULONG_MAX );
+    ctx->tower_av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, topo->tiles[ tower_idx ].av_keyswitch_obj_id ) );
+    FD_TEST( ctx->tower_av_keyswitch );
+  } else {
+    ctx->tower_av_keyswitch = NULL;
+  }
 
   ulong txsend_idx = fd_topo_find_tile( topo, "txsend", 0UL );
   FD_TEST( txsend_idx!=ULONG_MAX );
@@ -808,6 +811,12 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
     return;
   }
 
+  if( FD_UNLIKELY( !ctx->tower_av_keyswitch ) ) {
+    FD_LOG_WARNING(( "add-authorized-voter is not supported under Alpenglow." ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+    return;
+  }
+
   fd_adminctl_add_auth_voter_t * req = fd_type_pun( data );
 
   uchar public_key[ 32UL ];
@@ -1080,6 +1089,12 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
   if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_remove_all_auth_voters_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl remove-all-authorized-voters payload_sz %lu", data_sz ));
     fd_adminctl_complete( adminctl, slot_idx, FD_REMOVE_ALL_AUTH_VOTERS_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    return;
+  }
+
+  if( FD_UNLIKELY( !ctx->tower_av_keyswitch ) ) {
+    FD_LOG_WARNING(( "remove-all-authorized-voters is not supported under Alpenglow." ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
     return;
   }
 

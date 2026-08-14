@@ -176,6 +176,7 @@ struct fd_configf {
   struct {
     int hard_fork_fatal;
     int fixed_fec_sets;
+    int alpenglow;
     struct {
       int   validate_genesis_hash;
       ulong max_file_size_mib;
