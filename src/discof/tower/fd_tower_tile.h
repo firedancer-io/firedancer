@@ -159,6 +159,7 @@ struct fd_tower_slot_done {
   ulong authority_idx;
   ulong vote_txn_sz;
   uchar vote_txn[ FD_TPU_MTU ];
+  long  vote_created_nanos;
 
   /* The latest balance in lamports and commission in basis points of our
      vote account.  These are ULONG_MAX and USHORT_MAX respectively if

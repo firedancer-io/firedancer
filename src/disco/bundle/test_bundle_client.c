@@ -9,7 +9,8 @@ FD_IMPORT_BINARY( test_bundle_response, "src/disco/bundle/test_bundle_response.b
 static long g_clock = 1L;
 
 __attribute__((weak)) long
-fd_bundle_now( void ) {
+fd_bundle_now( fd_bundle_tile_t const * ctx ) {
+  (void)ctx;
   return g_clock;
 }
 
@@ -1031,7 +1032,7 @@ publish_after_credit( fd_bundle_tile_t * state ) {
     fd_memcpy( fd_txn_m_payload( txnm ), txn->payload, txn->payload_sz );
 
     ulong sz    = fd_txn_m_realized_footprint( txnm, 0, 0 );
-    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now( state ) );
     fd_stem_publish( stem, state->verify_out.idx, txn->sig, state->verify_out.chunk, sz, 0UL, 0UL, tspub );
     state->verify_out.chunk = fd_dcache_compact_next( state->verify_out.chunk, sz, state->verify_out.chunk0, state->verify_out.wmark );
 

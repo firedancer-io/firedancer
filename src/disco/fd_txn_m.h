@@ -31,6 +31,10 @@ struct fd_txn_m {
 
   /* 7 bytes of padding here */
 
+  /* Wallclock nanoseconds at which this transaction entered the
+     validator. */
+  long     first_seen_nanos;
+
   struct {
     /* If the transaction is part of a bundle, the bundle_id will be
        non-zero, and if this transaction is the first one in the

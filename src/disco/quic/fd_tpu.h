@@ -139,7 +139,6 @@ struct __attribute__((aligned(16))) fd_tpu_reasm_slot {
   uint lru_prev;
   uint lru_next;
   uint chain_next;
-  uint tsorig_comp;
 };
 
 typedef struct fd_tpu_reasm_slot fd_tpu_reasm_slot_t;
@@ -248,16 +247,16 @@ fd_tpu_reasm_slot_t *
 fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
                       ulong            conn_uid,
                       ulong            stream_id,
-                      long             tspub );
+                      long             first_seen_nanos );
 
 static inline fd_tpu_reasm_slot_t *
 fd_tpu_reasm_acquire( fd_tpu_reasm_t * reasm,
                       ulong            conn_uid,
                       ulong            stream_id,
-                      long             tspub ) {
+                      long             first_seen_nanos ) {
   fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_query( reasm, conn_uid, stream_id );
   if( !slot ) {
-    slot = fd_tpu_reasm_prepare( reasm, conn_uid, stream_id, tspub );
+    slot = fd_tpu_reasm_prepare( reasm, conn_uid, stream_id, first_seen_nanos );
   }
   return slot;
 }

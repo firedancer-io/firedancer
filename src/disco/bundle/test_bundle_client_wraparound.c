@@ -3,7 +3,8 @@
 static long g_clock = 1L;
 
 __attribute__((weak)) long
-fd_bundle_now( void ) {
+fd_bundle_now( fd_bundle_tile_t const * ctx ) {
+  (void)ctx;
   return g_clock;
 }
 

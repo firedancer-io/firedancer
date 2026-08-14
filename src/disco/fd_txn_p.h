@@ -17,8 +17,12 @@ struct __attribute__((aligned(64))) fd_txn_p {
    } execle_cu; /* Populated by execle. */
    ulong blockhash_slot; /* Slot provided by resolv tile when txn arrives at the pack tile. Used when txn is in extra storage in pack. */
   };
-  /* The time that the transaction arrived to the pack tile in ticks. Set by pack and intended to be read from a transaction on a pack->execle link. */
+  /* Wallclock nanoseconds at which the transaction arrived to the pack tile. Set by pack and intended to be read from a transaction on a pack->execle link. */
   long scheduler_arrival_time_nanos;
+
+  /* Wallclock nanoseconds at which the validator first saw the
+     transaction. */
+  long first_seen_nanos;
 
   union {
     struct {

@@ -9,7 +9,8 @@
    For now, this fuzzer does not support timeouts. */
 
 long
-fd_bundle_now( void ) {
+fd_bundle_now( fd_bundle_tile_t const * ctx ) {
+  (void)ctx;
   return 2UL;
 }
 

@@ -155,7 +155,7 @@ fd_tpu_reasm_slot_t *
 fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
                       ulong            conn_uid,
                       ulong            stream_id,
-                      long             tsorig ) {
+                      long             first_seen_nanos ) {
   fd_tpu_reasm_slot_t * slot = slotq_pop_tail( reasm );
   smap_remove( reasm, slot );
   slot_begin( slot );
@@ -163,7 +163,7 @@ fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
   slot->k.conn_uid  = conn_uid;
   slot->k.stream_id = stream_id & FD_TPU_REASM_SID_MASK;
   smap_insert( reasm, slot );
-  slot->tsorig_comp = (uint)fd_frag_meta_ts_comp( tsorig );
+  reasm->dcache[ slot_get_idx( reasm, slot ) ].hdr.first_seen_nanos = first_seen_nanos;
   return slot;
 }
 
@@ -240,21 +240,22 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   /* Publish to mcache */
   ulong sz  = slot->k.sz;
   ulong ctl         = fd_frag_meta_ctl( reasm->orig, 1, 1, 0 );
-  ulong tsorig_comp = slot->tsorig_comp;
   ulong tspub_comp  = fd_frag_meta_ts_comp( tspub );
 
   fd_txn_m_t * txnm = &buf->hdr;
+  long first_seen_nanos = txnm->first_seen_nanos;
   *txnm = (fd_txn_m_t){0};
   txnm->payload_sz = (ushort)sz;
+  txnm->first_seen_nanos = first_seen_nanos;
   txnm->source_ipv4 = source_ipv4;
   txnm->source_tpu  = source_tpu;
 
 # if FD_HAS_AVX
-  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, 0UL, tspub_comp );
 # elif FD_HAS_SSE
-  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, 0UL, tspub_comp );
 # else
-  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, 0UL, tspub_comp );
 # endif
 
   /* Mark new slot as published */
@@ -325,7 +326,8 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
   slot->k.sz = sz & FD_TPU_REASM_SZ_MASK;
   fd_txn_m_t * txnm = &buf->hdr;
   *txnm = (fd_txn_m_t){0};
-  txnm->payload_sz = (ushort)slot->k.sz,
+  txnm->payload_sz = (ushort)slot->k.sz;
+  txnm->first_seen_nanos = tspub; /* single packet: arrival==publish */
   txnm->source_ipv4 = source_ipv4;
   txnm->source_tpu  = source_tpu;
   fd_memcpy( buf->payload, data, sz );
@@ -337,14 +339,13 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
      the old slot */
   *pub_slot = slot_idx;
   ulong ctl         = fd_frag_meta_ctl( reasm->orig, 1, 1, 0 );
-  uint  tsorig_comp = slot->tsorig_comp;
   uint  tspub_comp  = (uint)fd_frag_meta_ts_comp( tspub );
 # if FD_HAS_AVX
-  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, 0UL, tspub_comp );
 # elif FD_HAS_SSE
-  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, 0UL, tspub_comp );
 # else
-  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, 0UL, tspub_comp );
 # endif
 
   /* Free old slot */

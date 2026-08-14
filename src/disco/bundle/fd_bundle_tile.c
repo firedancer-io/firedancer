@@ -187,7 +187,7 @@ fd_bundle_tile_publish_block_engine_update(
             FD_IP4_ADDR_FMT,
             FD_IP4_ADDR_FMT_ARGS( ctx->server_ip4_addr ) );
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now( ctx ) );
   fd_stem_publish(
       stem,
       ctx->plugin_out.idx,
@@ -268,6 +268,8 @@ after_credit( fd_bundle_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+
   if( !pending_txn_empty( ctx->pending_txns ) ) {
     fd_bundle_pending_txn_t * head = pending_txn_peek_head( ctx->pending_txns );
     ulong drain_seq = head->bundle_seq;
@@ -284,6 +286,7 @@ after_credit( fd_bundle_tile_t *  ctx,
         .txn_t_sz       = 0U,
         .source_ipv4    = txn->source_ipv4,
         .source_tpu     = FD_TXN_M_TPU_SOURCE_BUNDLE,
+        .first_seen_nanos = txn->first_seen_nanos,
         .block_engine   = {
           .bundle_id      = txn->bundle_seq,
           .bundle_txn_cnt = txn->bundle_txn_cnt,
@@ -294,7 +297,7 @@ after_credit( fd_bundle_tile_t *  ctx,
       fd_memcpy( fd_txn_m_payload( txnm ), txn->payload, txn->payload_sz );
 
       ulong sz    = fd_txn_m_realized_footprint( txnm, 0, 0 );
-      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
+      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now( ctx ) );
       fd_stem_publish( stem, ctx->verify_out.idx, txn->sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
       ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
 
@@ -499,6 +502,8 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( tile->kind_id!=0 ) ) {
     FD_LOG_ERR(( "There can only be one bundle tile" ));
   }
+
+  fd_clock_tile_init( ctx->clock );
 
   ulong sign_in_idx = fd_topo_find_tile_in_link( topo, tile, "sign_bundle", tile->kind_id );
   if( FD_UNLIKELY( sign_in_idx==ULONG_MAX ) ) FD_LOG_ERR(( "Missing sign_bundle link" ));

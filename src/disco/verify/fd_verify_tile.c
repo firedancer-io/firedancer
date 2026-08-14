@@ -84,6 +84,7 @@ during_frag( fd_verify_ctx_t * ctx,
 
     dst->payload_sz = (ushort)msg->vote->value->transaction_len;
     dst->block_engine.bundle_id = 0UL;
+    dst->first_seen_nanos = msg->vote->first_seen_nanos;
     dst->source_ipv4 = msg->vote->socket->is_ipv6 ? 0U : msg->vote->socket->ip4;
     dst->source_tpu = FD_TXN_M_TPU_SOURCE_GOSSIP;
     fd_memcpy( fd_txn_m_payload( dst ), msg->vote->value->transaction, msg->vote->value->transaction_len );

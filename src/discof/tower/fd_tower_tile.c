@@ -756,8 +756,9 @@ publish_slot_done( fd_tower_tile_t *            ctx,
     FD_TEST( !fd_tower_vote_empty( ctx->tower->votes ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
     fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
-    msg->vote_txn_sz   = txn->payload_sz;
-    msg->authority_idx = authority_idx;
+    msg->vote_txn_sz        = txn->payload_sz;
+    msg->authority_idx      = authority_idx;
+    msg->vote_created_nanos = fd_log_wallclock();
   } else {
     msg->has_vote_txn = 0;
   }

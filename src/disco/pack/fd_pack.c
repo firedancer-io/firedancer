@@ -2131,6 +2131,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     out_txnp->pack_cu.non_execution_cus                 = cur->txn->pack_cu.non_execution_cus;
     out_txnp->pack_alloc                                = cur->txn->pack_alloc;
     out_txnp->scheduler_arrival_time_nanos              = cur->txn->scheduler_arrival_time_nanos;
+    out_txnp->first_seen_nanos                          = cur->txn->first_seen_nanos;
     out_txnp->source_tpu                                = cur->txn->source_tpu;
     out_txnp->source_ipv4                               = cur->txn->source_ipv4;
     out_txnp->flags                                     = cur->txn->flags;
@@ -2596,6 +2597,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     out_txnp->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
     out_txnp->pack_alloc                      = cur->txn->pack_alloc;
     out_txnp->scheduler_arrival_time_nanos    = cur->txn->scheduler_arrival_time_nanos;
+    out_txnp->first_seen_nanos                = cur->txn->first_seen_nanos;
     out_txnp->source_tpu                      = cur->txn->source_tpu;
     out_txnp->source_ipv4                     = cur->txn->source_ipv4;
     out_txnp->flags                           = cur->txn->flags;
