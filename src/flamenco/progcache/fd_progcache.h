@@ -15,7 +15,7 @@
 /* fd_progcache_shmem_t is the top-level shared memory data structure
    of the progcache. */
 
-#define FD_PROGCACHE_SHMEM_MAGIC (0xf17eda2ce7fc2c03UL)
+#define FD_PROGCACHE_SHMEM_MAGIC (0xf17eda2ce7fc2c04UL)
 
 #define FD_PROGCACHE_SPAD_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 * (20UL<<20))
 
