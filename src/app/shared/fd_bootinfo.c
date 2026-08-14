@@ -403,7 +403,21 @@ fd_bootinfo_notice( fd_bootinfo_instance_t const * instance ) {
 
 void
 fd_bootinfo_adopt( config_t * config ) {
-  if( FD_LIKELY( config->has_user_config ) ) return; /* fd_bootinfo_check_layout verifies before joining */
+  if( FD_LIKELY( config->has_user_config ) ) {
+    /* config->boot_timestamp_nanos is this command's start time, not
+       the validator's.  Adopt the running validator's, else zero it so
+       consumers report no uptime rather than a wrong one. */
+    char path[ PATH_MAX ];
+    bootinfo_path( config->hugetlbfs.mount_path, config->name, path );
+
+    fd_bootinfo_t info;
+    config->boot_timestamp_nanos = 0L;
+    if( FD_LIKELY( -1!=fd_bootinfo_path_read( path, &info ) && fd_bootinfo_live( &info ) ) ) {
+      config->boot_timestamp_nanos = info.boot_wallclock_nanos;
+    }
+
+    return; /* fd_bootinfo_check_layout verifies before joining */
+  }
 
   fd_bootinfo_instance_t instances[ FD_BOOTINFO_INSTANCE_MAX ];
   ulong cnt = fd_bootinfo_discover( instances, FD_BOOTINFO_INSTANCE_MAX );
