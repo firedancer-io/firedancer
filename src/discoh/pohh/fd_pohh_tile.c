@@ -595,6 +595,23 @@ struct fd_pohh_tile {
 
 typedef struct fd_pohh_tile fd_pohh_tile_t;
 
+/* If the PoH parameters change, the ctx->slot is re-wound so that we
+   can hash with the new, correct parameters. In this state:
+   - We consider ourselves to be the leader, and have already published
+     the events corresponding to our leader slot.
+   - Our ctx->slot is behind the ctx->next_leader_slot, because we have
+     re-wound it. We need to hash continually to build the hash chain
+     from ctx->slot to ctx->next_leader_slot with the new parameters.
+   - We should not consume any microblocks from pack until we have
+     re-built the hash chain. */
+
+static inline int
+waiting_for_slot_after_rewind( fd_pohh_tile_t const * ctx ) {
+  return ctx->next_leader_slot!=ULONG_MAX &&
+         ctx->current_leader_bank &&
+         ctx->slot<ctx->next_leader_slot;
+}
+
 /* The PoH recorder is implemented in Firedancer but for now needs to
    work with Agave, so we have a locking scheme for them to
    co-operate.
@@ -1364,12 +1381,20 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
 
   ulong slot_before_reset = ctx->slot;
-  int leader_before_reset = ctx->slot>=ctx->next_leader_slot;
+
+  /* If we were waiting to catch up to our leader slot, we should
+     consider the slot before reset to be the next leader slot.
+     Otherwise the state machine transitions below governing the
+     leader slot changing will be incorrect. */
+  if( FD_UNLIKELY( waiting_for_slot_after_rewind( ctx ) ) ) {
+    slot_before_reset = ctx->next_leader_slot;
+  }
+  int leader_before_reset = slot_before_reset>=ctx->next_leader_slot;
   if( FD_UNLIKELY( leader_before_reset && ctx->current_leader_bank ) ) {
     /* If we were in the middle of a leader slot that we notified pack
        pack to start packing for we can never publish into that slot
        again, mark all in-flight microblocks to be dropped. */
-    ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), 1UL+ctx->slot );
+    ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), 1UL+slot_before_reset );
   }
 
   ctx->leader_bank_start_ns = fd_log_wallclock(); /* safe to call from Rust */
@@ -1662,6 +1687,11 @@ after_credit( fd_pohh_tile_t *    ctx,
      pack tile for this slot. */
   ulong max_remaining_microblocks = ctx->max_microblocks_per_slot - ctx->microblocks_lower_bound;
 
+  /* If we are leader and waiting for the hashing to catch up to the
+     leader slot after a parameter change, we need to allow PoH to tick
+     freely so that it can cross slot boundaries. */
+  if( FD_UNLIKELY( waiting_for_slot_after_rewind( ctx ) ) ) max_remaining_microblocks = 0UL;
+
   /* With hashcnt_per_tick hashes per tick, we actually get
      hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
      span that we need to reserve, we also need to reserve the hashcnt
@@ -1856,6 +1886,7 @@ after_credit( fd_pohh_tile_t *    ctx,
     ctx->hashcnt = target_hashcnt;
   }
 
+  int waiting_for_slot = waiting_for_slot_after_rewind( ctx );
   if( FD_UNLIKELY( ctx->hashcnt==ctx->hashcnt_per_slot ) ) {
     ctx->slot++;
     ctx->hashcnt = 0UL;
@@ -1869,6 +1900,14 @@ after_credit( fd_pohh_tile_t *    ctx,
 
     ulong initial_tick_idx = (ctx->last_slot*ctx->ticks_per_slot+ctx->last_hashcnt/ctx->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
     if( FD_UNLIKELY( tick_idx==initial_tick_idx ) ) FD_LOG_ERR(( "Too many skipped ticks from slot %lu to slot %lu, chain must halt", ctx->last_slot, ctx->slot ));
+  }
+
+  /* If we were waiting for the hashing to catch up after a parameter
+     change, we shouldn't publish any events as we have already done so
+     the first time we reached our leader slot (before the rewind). */
+  if( FD_UNLIKELY( waiting_for_slot ) ) {
+    *opt_poll_in = 0;
+    return;
   }
 
   if( FD_UNLIKELY( is_leader && !(ctx->hashcnt%ctx->hashcnt_per_tick) ) ) {
@@ -1949,6 +1988,10 @@ before_frag( fd_pohh_tile_t * ctx,
   /* Firedancer publishes dynamic microblock bound updates over the
      pack_poh link.  Frankendancer does not use them. */
   if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1; /* discard */
+
+  /* If we are leader but are waiting for the hashing to catch up to
+     our leader slot, do not consume any microblocks from pack.  */
+  if( FD_UNLIKELY( waiting_for_slot_after_rewind( ctx ) ) ) return -1;
 
   uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
   FD_TEST( ((int)(pack_idx-ctx->expect_pack_idx))>=0L );
