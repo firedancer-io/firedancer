@@ -28,8 +28,8 @@
 
 
 __attribute__((weak)) long
-fd_bundle_now( void ) {
-  return fd_log_wallclock();
+fd_bundle_now( fd_bundle_tile_t const * ctx ) {
+  return fd_clock_tile_now( ctx->clock );
 }
 
 void
@@ -59,7 +59,7 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   }
 # endif
 
-  fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+  fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
 
   fd_bundle_auther_reset( &ctx->auther );
   fd_grpc_client_reset( ctx->grpc_client );
@@ -183,7 +183,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 # endif /* FD_HAS_OPENSSL */
 
   fd_grpc_client_reset( ctx->grpc_client );
-  fd_keepalive_init( ctx->keepalive, ctx->rng, ctx->keepalive_interval, ctx->keepalive_interval, fd_bundle_now() );
+  fd_keepalive_init( ctx->keepalive, ctx->rng, ctx->keepalive_interval, ctx->keepalive_interval, fd_bundle_now( ctx ) );
 }
 
 static int
@@ -276,7 +276,7 @@ fd_bundle_client_send_ping( fd_bundle_tile_t * ctx ) {
   fd_h2_rbuf_t * rbuf_tx = fd_grpc_client_rbuf_tx( ctx->grpc_client );
 
   if( FD_LIKELY( fd_h2_tx_ping( conn, rbuf_tx ) ) ) {
-    long now = fd_bundle_now();
+    long now = fd_bundle_now( ctx );
     fd_keepalive_tx( ctx->keepalive, ctx->rng, now );
     FD_LOG_DEBUG(( "Keepalive TX (deadline=+%gs)", (double)( ctx->keepalive->ts_deadline-now )/1e9 ));
   }
@@ -366,7 +366,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   if( FD_UNLIKELY( !ctx->grpc_client ) ) {
     long sleep_start;
   reconnect:
-    sleep_start = fd_bundle_now();
+    sleep_start = fd_bundle_now( ctx );
     if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, sleep_start ) ) ) {
       long wait_dur = ctx->backoff_until - sleep_start;
       fd_log_sleep( fd_long_min( wait_dur, 1e6 ) );
@@ -378,7 +378,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   }
 
   /* Did a HTTP/2 PING time out */
-  long check_ts = ctx->cached_ts = fd_bundle_now();
+  long check_ts = ctx->cached_ts = fd_bundle_now( ctx );
   if( FD_UNLIKELY( fd_keepalive_is_timeout( ctx->keepalive, check_ts ) ) ) {
     FD_LOG_WARNING(( "Bundle gRPC timed out (HTTP/2 PING went unanswered for %.2f seconds)",
                      (double)( check_ts - ctx->keepalive->ts_last_tx )/1e9 ));
@@ -398,7 +398,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
 
   /* Are we ready to issue a new request? */
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( ctx->grpc_client ) ) ) return;
-  long io_ts = fd_bundle_now();
+  long io_ts = fd_bundle_now( ctx );
   if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, io_ts ) ) ) return;
 
   *charge_busy |= fd_bundle_client_step_reconnect( ctx, io_ts );
@@ -486,11 +486,12 @@ fd_bundle_tile_publish_bundle_txn(
 
   fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
   fd_memcpy( entry->payload, txn, txn_sz );
-  entry->payload_sz     = (ushort)txn_sz;
-  entry->source_ipv4    = source_ipv4;
-  entry->sig            = 1UL;
-  entry->bundle_seq     = ctx->bundle_seq;
-  entry->bundle_txn_cnt = bundle_txn_cnt;
+  entry->payload_sz       = (ushort)txn_sz;
+  entry->source_ipv4      = source_ipv4;
+  entry->first_seen_nanos = fd_bundle_now( ctx );
+  entry->sig              = 1UL;
+  entry->bundle_seq       = ctx->bundle_seq;
+  entry->bundle_txn_cnt   = bundle_txn_cnt;
   entry->commission     = (uchar)ctx->builder_commission;
   fd_memcpy( entry->commission_pubkey, ctx->builder_pubkey, 32UL );
   ctx->metrics.txn_received_cnt++;
@@ -512,11 +513,12 @@ fd_bundle_tile_publish_txn(
 
   fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
   fd_memcpy( entry->payload, txn, txn_sz );
-  entry->payload_sz     = (ushort)txn_sz;
-  entry->source_ipv4    = source_ipv4;
-  entry->sig            = 0UL;
-  entry->bundle_seq     = 0UL;
-  entry->bundle_txn_cnt = 1UL;
+  entry->payload_sz       = (ushort)txn_sz;
+  entry->source_ipv4      = source_ipv4;
+  entry->first_seen_nanos = fd_bundle_now( ctx );
+  entry->sig              = 0UL;
+  entry->bundle_seq       = 0UL;
+  entry->bundle_txn_cnt   = 1UL;
   entry->commission     = 0U;
   fd_memset( entry->commission_pubkey, 0, 32UL );
   ctx->metrics.txn_received_cnt++;
@@ -765,7 +767,7 @@ fd_bundle_client_handle_builder_fee_info(
 
   long validity_duration_ns = (long)( 60e9 * 5. ); /* 5 minutes */
   ctx->builder_info_avail = 1;
-  ctx->builder_info_valid_until = fd_bundle_now() + validity_duration_ns;
+  ctx->builder_info_valid_until = fd_bundle_now( ctx ) + validity_duration_ns;
 }
 
 static void
@@ -808,13 +810,13 @@ fd_bundle_client_grpc_rx_msg(
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
     if( FD_UNLIKELY( !fd_bundle_auther_handle_challenge_resp( &ctx->auther, protobuf, protobuf_sz ) ) ) {
       ctx->metrics.decode_fail_cnt++;
-      fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+      fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     }
     break;
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
     if( FD_UNLIKELY( !fd_bundle_auther_handle_tokens_resp( &ctx->auther, protobuf, protobuf_sz ) ) ) {
       ctx->metrics.decode_fail_cnt++;
-      fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+      fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     }
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
@@ -834,7 +836,7 @@ fd_bundle_client_grpc_rx_msg(
 static void
 fd_bundle_client_request_failed( fd_bundle_tile_t * ctx,
                                  ulong              request_ctx ) {
-  fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+  fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
@@ -877,7 +879,7 @@ fd_bundle_client_grpc_rx_end(
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
     ctx->packet_subscription_live = 0;
     ctx->packet_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+    fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     ctx->defer_reset = 1;
     FD_LOG_INFO(( "SubscribePackets stream failed (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
@@ -885,7 +887,7 @@ fd_bundle_client_grpc_rx_end(
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
     ctx->bundle_subscription_live = 0;
     ctx->bundle_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+    fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     ctx->defer_reset = 1;
     FD_LOG_INFO(( "SubscribeBundles stream failed (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
@@ -925,7 +927,7 @@ fd_bundle_client_grpc_rx_timeout(
 static void
 fd_bundle_client_grpc_ping_ack( void * app_ctx ) {
   fd_bundle_tile_t * ctx = app_ctx;
-  long rtt_sample = fd_keepalive_rx( ctx->keepalive, fd_bundle_now() );
+  long rtt_sample = fd_keepalive_rx( ctx->keepalive, fd_bundle_now( ctx ) );
   if( FD_LIKELY( rtt_sample ) ) {
     fd_rtt_sample( ctx->rtt, (float)rtt_sample, 0 );
     FD_LOG_DEBUG(( "Keepalive ACK" ));
@@ -979,7 +981,7 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
     return FD_BUNDLE_STATE_CONNECTING; /* not fully connected */
   }
 
-  if( FD_UNLIKELY( fd_keepalive_is_timeout( ctx->keepalive, fd_bundle_now() ) ) ) {
+  if( FD_UNLIKELY( fd_keepalive_is_timeout( ctx->keepalive, fd_bundle_now( ctx ) ) ) ) {
     return FD_BUNDLE_STATE_DISCONNECTED; /* possible timeout */
   }
 

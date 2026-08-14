@@ -420,6 +420,7 @@ struct fd_gossip_update_message {
     } contact_info_remove[ 1 ];
 
     struct {
+      long first_seen_nanos;
       fd_gossip_socket_t socket[ 1 ];
       fd_gossip_vote_t value[ 1 ];
     } vote[ 1 ];

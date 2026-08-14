@@ -91,7 +91,7 @@ test_bundle_env_create( test_bundle_env_t * env,
   FD_TEST( fd_rng_new( state->rng, 0U, 0UL ) );
   long ka_interval = (long)1e9;
   long ka_timeout  = (long)1e9;
-  long now = fd_bundle_now();
+  long now = fd_bundle_now( state );
   FD_TEST( fd_keepalive_init( state->keepalive, state->rng, ka_interval, ka_timeout, now ) );
   FD_TEST( state->keepalive->ts_next_tx >= now + (state->keepalive->interval>>1) );
 
@@ -101,7 +101,7 @@ test_bundle_env_create( test_bundle_env_t * env,
 FD_FN_UNUSED static void
 test_bundle_env_mock_conn_empty( test_bundle_env_t * env ) {
   fd_bundle_tile_t * ctx = env->state;
-  long const ts_start = fd_bundle_now();
+  long const ts_start = fd_bundle_now( ctx );
   fd_rng_new( ctx->rng, 42U, 42UL );
   ctx->tcp_sock_connected    = 1;
   ctx->auther.state          = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
@@ -121,14 +121,14 @@ FD_FN_UNUSED static void
 test_bundle_env_mock_h2_hs( fd_bundle_tile_t * ctx ) {
   ctx->grpc_client->h2_hs_done  = 1;
   FD_TEST( !fd_grpc_client_request_is_blocked( ctx->grpc_client ) );
-  long const ts_start = fd_bundle_now();
+  long const ts_start = fd_bundle_now( ctx );
   FD_TEST( !fd_bundle_tile_should_stall( ctx, ts_start ) );
 }
 
 FD_FN_UNUSED static void
 test_bundle_env_mock_builder_info( fd_bundle_tile_t * ctx ) {
   ctx->builder_info_avail = 1;
-  ctx->builder_info_valid_until = fd_bundle_now() + (long)( 60e9 * 5. );
+  ctx->builder_info_valid_until = fd_bundle_now( ctx ) + (long)( 60e9 * 5. );
   /* FIXME actually fill it in ... */
 }
 

@@ -3,6 +3,7 @@
 
 #include "fd_bundle_auth.h"
 #include "fd_keepalive.h"
+#include "../fd_clock_tile.h"
 #include "../stem/fd_stem.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
@@ -24,6 +25,7 @@ struct fd_bundle_pending_txn {
   uchar  payload[ FD_TXN_MTU ];
   ushort payload_sz;
   uint   source_ipv4;
+  long   first_seen_nanos;
   ulong  sig;
   ulong  bundle_seq;
   ulong  bundle_txn_cnt;
@@ -181,6 +183,8 @@ struct fd_bundle_tile {
   ulong reset_slot;       /* from replay_out reset messages, or ULONG_MAX */
   int   sleep_mode;       /* 1 means sleeping, 0 means connecting/connected */
   long  sleep_check_ns;   /* next wallclock time to re-evaluate sleeping */
+
+  fd_clock_tile_t clock[1]; /* fast wallclock-ns source for fd_bundle_now */
   int   halt_signing;     /* 1 means signing is halted, 0 means signing is not halted */
 
   /* Staged values from during_frag, committed in after_frag */
@@ -205,12 +209,12 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_bundle_now is an externally linked function wrapping
-   fd_log_wallclock.  This is backed by a weak symbol, allowing tests to
-   override the clock source. */
+/* fd_bundle_now returns wallclock nanoseconds from the tile's
+   fd_clock.  Backed by a weak symbol, allowing tests to override the
+   clock source. */
 
 long
-fd_bundle_now( void );
+fd_bundle_now( fd_bundle_tile_t const * ctx );
 
 /* fd_bundle_client_grpc_callbacks provides callbacks for grpc_client. */
 

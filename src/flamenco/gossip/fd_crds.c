@@ -768,6 +768,7 @@ publish_update_msg( fd_crds_t *               crds,
         msg->vote->socket->port = 0;
       }
 
+      msg->vote->first_seen_nanos = now;
       msg->vote->value->index = entry->key.vote_index;
       msg->vote->value->transaction_len = entry_view->vote->transaction_len;
       fd_memcpy( msg->vote->value->transaction, entry_view->vote->transaction, entry_view->vote->transaction_len );

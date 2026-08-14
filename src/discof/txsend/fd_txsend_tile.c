@@ -575,8 +575,7 @@ report_signed_vote( uchar const *    payload,
 static void
 handle_vote_msg( fd_txsend_tile_t *           ctx,
                  fd_stem_context_t *          stem,
-                 fd_tower_slot_done_t const * slot_done,
-                 ulong                        tsorig_comp ) {
+                 fd_tower_slot_done_t const * slot_done ) {
   if( FD_UNLIKELY( slot_done->vote_slot==ULONG_MAX ) ) return;
   if( FD_UNLIKELY( !slot_done->has_vote_txn ) ) return;
 
@@ -588,6 +587,7 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
   txnm->source_ipv4            = ctx->src_ip_addr;
   txnm->source_tpu             = FD_TXN_M_TPU_SOURCE_TXSEND;
   txnm->block_engine.bundle_id = 0UL;
+  txnm->first_seen_nanos       = slot_done->vote_created_nanos;
   fd_memcpy( fd_txn_m_payload( txnm ), slot_done->vote_txn, slot_done->vote_txn_sz );
 
   txnm->txn_t_sz = (ushort)fd_txn_parse( slot_done->vote_txn, slot_done->vote_txn_sz, fd_txn_m_txn_t( txnm ), NULL );
@@ -618,7 +618,7 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
 
   ulong msg_sz     = fd_txn_m_realized_footprint( txnm, 0, 0 );
   ulong tspub_comp = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->txsend_out->idx, 1UL, ctx->txsend_out->chunk, msg_sz, 0UL, tsorig_comp, tspub_comp );
+  fd_stem_publish( stem, ctx->txsend_out->idx, 1UL, ctx->txsend_out->chunk, msg_sz, 0UL, 0UL, tspub_comp );
   ctx->txsend_out->chunk = fd_dcache_compact_next( ctx->txsend_out->chunk, msg_sz, ctx->txsend_out->chunk0, ctx->txsend_out->wmark );
 }
 
@@ -681,7 +681,7 @@ after_frag( fd_txsend_tile_t *  ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)seq; (void)sig; (void)tspub;
+  (void)seq; (void)sig; (void)tsorig; (void)tspub;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     uchar * ip_packet = ctx->quic_buf+sizeof(fd_eth_hdr_t);
@@ -691,7 +691,7 @@ after_frag( fd_txsend_tile_t *  ctx,
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ) handle_contact_info_update( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk ) );
     else                                                      handle_contact_info_remove( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk ) );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) ) {
-    handle_vote_msg( ctx, stem, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk ), tsorig );
+    handle_vote_msg( ctx, stem, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk ) );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk ) );
     fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
