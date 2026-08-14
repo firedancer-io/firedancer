@@ -160,6 +160,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate -m
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate_snapshot -m 2000000 -e 840
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_fee_payer_constraint -m 2000000 -e 400
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot-hard-fork -m 2000000 -e 162
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l simd0268_depth -m 10000 -e 340
 
 # Alpenglow
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs --alpenglow --shred-version 40081 -m 2000000 -e 126
