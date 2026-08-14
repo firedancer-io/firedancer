@@ -1669,42 +1669,6 @@ can_process_fec( fd_replay_tile_t * ctx,
   return 1;
 }
 
-/* finish_double_merkle finalizes the block's double merkle tree once
-   the slot-complete FEC has been ingested.  It appends the Agave
-   parent-info leaf SHA-256( parent_slot_le8 | parent_block_id |
-   fec_set_count_le4 ) as the final leaf, then finalizes the tree to
-   derive the block's double merkle root (the Alpenglow block id).  The
-   lifetime of the resulting block id is the same lifetime as the bmtree
-   commit. */
-static uchar *
-finish_double_merkle( fd_replay_tile_t * ctx,
-                      fd_reasm_fec_t *   reasm_fec ) {
-  fd_block_id_ele_t *  block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-  fd_bmtree_commit_t * tree         = fd_block_id_ele_tree( block_id_ele );
-
-  fd_bank_t * bank            = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
-  fd_bank_t * parent_bank     = fd_banks_bank_query( ctx->banks, bank->parent_idx );
-  ulong       parent_slot     = reasm_fec->slot - reasm_fec->parent_off;
-  //weird but the parent bank could be in a weirdge state because maybe its just been cloned from its parent,
-  // or it hasnt been cloned yet. since its in the f field, is unreliable until time of execution
-  // the double merkle computation happens as we are accumulating fecs, not at execution time. saurrrrr
-  // yeah maybe we should move it to right after execution is done. BUT right now im just computing it
-  // from the reasm fecs.
-  fd_hash_t   parent_block_id = parent_bank->block_id;
-  uint        fec_set_count   = (uint)fd_bmtree_commit_leaf_cnt( tree );
-
-  fd_bmtree_node_t parent_info[1];
-  fd_sha256_t sha[1];
-  fd_sha256_init( sha );
-  fd_sha256_append( sha, &parent_slot,       sizeof(ulong)     ); /* little-endian on x86 */
-  fd_sha256_append( sha, parent_block_id.uc, sizeof(fd_hash_t) );
-  fd_sha256_append( sha, &fec_set_count,     sizeof(uint)      ); /* little-endian on x86 */
-  fd_sha256_fini( sha, parent_info->hash );
-  fd_bmtree_commit_append( tree, parent_info, 1UL );
-
-  return fd_bmtree_commit_fini( tree );
-}
-
 /* Returns 0 on successful FEC ingestion, 1 if the block got marked
    dead.  insert_fec_set assumes that all FECs that are inserted are
    directly connected to a parent FEC.  Every block that is replayed
@@ -1761,20 +1725,10 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr )==block_id_ele ) ) {
       FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr ) );
     }
-    /* Mirror the eviction in the alpenglow double-merkle index.  Only
-       completed blocks (block_id_seen) were ever inserted there. */
-    if( FD_UNLIKELY( ctx->is_alpenglow && block_id_ele->block_id_seen ) ) {
-      if( FD_LIKELY( fd_dmr_map_ele_query( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr )==block_id_ele ) ) {
-        FD_TEST( fd_dmr_map_ele_remove( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
-      }
-    }
     block_id_ele->block_id_seen  = 0;
     block_id_ele->slot           = reasm_fec->slot;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
-
-    /* The double merkle tree uses the same hashing as shred tree */
-    fd_bmtree_commit_init( block_id_ele->tree_mem, 20UL, FD_BMTREE_LONG_PREFIX_SZ, 0UL );
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
@@ -1787,15 +1741,6 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->latest_mr      = reasm_fec->key;
   }
 
-  /* alpenglow: accumulate this FEC set's merkle root as the next leaf
-     of the block's double merkle tree. */
-  {
-    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-    fd_bmtree_node_t leaf[1];
-    memcpy( leaf->hash, reasm_fec->key.uc, sizeof(fd_hash_t) );
-    fd_bmtree_commit_append( fd_block_id_ele_tree( block_id_ele ), leaf, 1UL );
-  }
-
   /* If the FEC set is a slot complete, this means we have finally seen
      the block id (block's last mr). */
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
@@ -1804,20 +1749,6 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->latest_mr      = reasm_fec->key;
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
-
-    /* The block is complete: finalize its double merkle tree to derive
-       the block id. */
-    fd_bank_t * bank  = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
-    uchar * double_mr = finish_double_merkle( ctx, reasm_fec );
-    memcpy( bank->block_id.uc, double_mr, sizeof(fd_hash_t) );
-
-    /* alpenglow: index the completed block by its double merkle root so
-       consensus lookups (which speak double merkle) resolve.  Must run
-       after finish_double_merkle since that is when block_id exists. */
-    if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
-      block_id_ele->block_id = bank->block_id;
-      FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
-    }
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */
@@ -2145,6 +2076,151 @@ try_process_fec( fd_replay_tile_t *  ctx,
   return 0;
 }
 
+/* hacked together a version of try_process_fec that reads off the dcache directly.
+   Will likely cause some backpressure issues if left as is?? Also double check
+   prioritization here. Does not handle dead blocks or evicted banks */
+
+static int
+try_process_alpen_fec( fd_replay_tile_t * ctx, fd_stem_context_t * stem, fd_repair_replay_fec_t * fec ) {
+  if( FD_LIKELY( (ctx->execrp_idle_cnt>=2UL*ctx->in_cnt || ctx->is_leader) &&
+                  /* can_process_fec */
+                  ( fd_sched_can_ingest_cnt( ctx->sched ) && !fd_banks_is_full( ctx->banks ) ) ) ) {
+
+    ulong parent_bank_idx = ULONG_MAX;
+    if( FD_UNLIKELY( fec->fec_set_idx == 0 ) ) {
+      fd_block_id_ele_t * parent = fd_dmr_map_ele_query( ctx->dmr_map, &fec->parent_block_id, NULL, ctx->block_id_arr );
+      parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
+    } else {
+      fd_hash_t parent_key = { .ul = { fec->slot, fec->fec_set_idx } };
+      fd_block_id_ele_t * parent = fd_dmr_map_ele_query( ctx->dmr_map, &parent_key, NULL, ctx->block_id_arr );
+      FD_TEST( parent );
+      parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
+    }
+
+    fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
+    FD_TEST( parent_bank );
+
+    if( FD_UNLIKELY( parent_bank->state == FD_BANK_STATE_DEAD ) ) {
+      // we dead, what do?
+      FD_LOG_CRIT(( "parent bank is dead, what do?" ));
+    }
+
+    // insert_fec_set
+    ulong wait = (ulong)fd_log_wallclock();
+    ulong work = wait;
+    FD_STORE_SLOCK_BEGIN( ctx->store ) {
+    ctx->metrics.store_query_acquire++;
+    work = (ulong)fd_log_wallclock();
+    fd_histf_sample( ctx->metrics.store_query_wait, work - wait );
+
+    fd_store_fec_t * store_fec = fd_store_query( ctx->store, &fec->mr );
+    ctx->metrics.store_query_cnt++;
+    if( FD_UNLIKELY( !store_fec && !fec->is_leader ) ) {
+      ctx->metrics.store_query_missing_cnt++;
+      ctx->metrics.store_query_missing_mr = fec->mr.ul[0];
+      FD_BASE58_ENCODE_32_BYTES( fec->mr.key, key_b58 );
+      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
+      return 1;
+    }
+
+    long now = fd_log_wallclock();
+    fd_block_id_ele_t * block_id_ele;
+    fd_bank_t * bank;
+    if( FD_UNLIKELY( fec->fec_set_idx==0U ) ) {
+      bank = fec->is_leader ? ctx->leader_bank : fd_banks_new_bank( ctx->banks, parent_bank_idx, now, 0 );
+
+      block_id_ele = &ctx->block_id_arr[ bank->idx ];
+      /* Mirror the eviction in the double-merkle index.  The previous
+         occupant of this reused bank slot may be indexed under either its
+         real block_id (completed) or a synthetic {slot, fec_set_idx}
+         (still in flight) */
+      if( FD_LIKELY( fd_dmr_map_ele_query( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr )==block_id_ele ) ) {
+        FD_TEST( fd_dmr_map_ele_remove( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
+      }
+
+      block_id_ele->block_id_seen  = 0;
+      block_id_ele->slot           = fec->slot;
+      block_id_ele->latest_fec_idx = 0U;
+      block_id_ele->latest_mr      = fec->mr;
+    } else { /* FEC for the middle or end of a block */
+      /* Assign bank idx + seqno to the FEC.  Update block id pool ele. */
+      block_id_ele = &ctx->block_id_arr[ parent_bank_idx ];
+      block_id_ele->latest_fec_idx = fec->fec_set_idx;
+      block_id_ele->latest_mr      = fec->mr;
+      bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
+    }
+
+    /* While mid-slot, the dmr map is keyed by a synthetic
+       {slot, next_fec_set_idx} so the block's next FEC set resolves via
+       that same key; on completion it is re-keyed to the real
+       double-merkle block_id so consensus lookups resolve.  A middle/last
+       FEC is already in the map under {slot, fec_set_idx} and must be
+       removed before re-keying; FEC 0 provisioned a fresh ele so there is
+       nothing to remove. */
+
+    if( FD_LIKELY( fec->fec_set_idx!=0U ) ) {
+      FD_TEST( fd_dmr_map_ele_remove( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
+    }
+
+    if( FD_UNLIKELY( fec->slot_complete ) ) {
+      block_id_ele->block_id_seen = 1;
+
+      /* The block is complete: finalize its double merkle tree to derive
+         the block id. */
+      memcpy( bank->block_id.uc, fec->block_id.uc, sizeof(fd_hash_t) );
+      block_id_ele->block_id = bank->block_id;
+    } else {
+      block_id_ele->block_id = (fd_hash_t){ .ul = { fec->slot, (ulong)fec->fec_set_idx + (ulong)FD_FEC_SHRED_CNT } };
+    }
+
+    FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+
+    /* For leader FECs, don't insert the FEC into the scheduler. */
+    if( FD_UNLIKELY( fec->is_leader ) ) return 0;
+
+    /* Forks form a partial ordering over FEC sets. The Repair tile
+    delivers FEC sets in-order per fork, but FEC set ordering across
+    forks is arbitrary */
+    fd_sched_fec_t sched_fec[ 1 ];
+
+    # if DEBUG_LOGGING
+      FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
+      FD_BASE58_ENCODE_32_BYTES( reasm_fec->cmr.key, cmr_b58 );
+      FD_LOG_INFO(( "replay processing FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", reasm_fec->slot, reasm_fec->fec_set_idx, key_b58, cmr_b58 ));
+    # endif
+
+    sched_fec->shred_cnt          = FD_FEC_SHRED_CNT;
+    sched_fec->is_last_in_batch   = !!fec->data_complete;
+    sched_fec->is_last_in_block   = !!fec->slot_complete;
+    sched_fec->bank_idx           = bank->idx;
+    sched_fec->parent_bank_idx    = bank->parent_idx;
+    sched_fec->slot               = fec->slot;
+    sched_fec->parent_slot        = fec->parent_slot;
+    sched_fec->is_first_in_block  = fec->fec_set_idx==0U;
+    sched_fec->fec                = store_fec;
+    sched_fec->data               = fd_store_fec_data( ctx->store, store_fec );
+    sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->consensus_root_bank_idx )->accdb_fork_id;
+    sched_fec->alut_ctx->accdb   = ctx->accdb;
+    sched_fec->alut_ctx->els     = ctx->published_root_slot;
+    if( sched_fec->is_first_in_block ) {
+      bank->refcnt++;
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
+    }
+
+    if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
+      mark_bank_dead( ctx, stem, sched_fec->bank_idx );
+      return 1;
+    }
+    } FD_STORE_SLOCK_END;
+
+    ctx->metrics.store_query_release++;
+    fd_histf_sample( ctx->metrics.store_query_work, (ulong)fd_log_wallclock() - work );
+    ctx->execrp_idle_cnt = 0UL;
+    return 1;
+  }
+  return 0;
+}
+
 static void
 after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -2215,7 +2291,9 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_LIKELY( try_process_fec( ctx, stem ) ) ) {
+  /* In alpenglow regime we process FEC sets directly from the dcache,
+     as rotor publishes them to replay in replayable order. */
+  if( FD_LIKELY( !ctx->is_alpenglow && try_process_fec( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2789,6 +2867,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
          removed from store.  See topology.c for more details. */
       if( FD_UNLIKELY( sig==REPAIR_SIG_FEC || sig==REPAIR_SIG_FEC_LEADER || sig==REPAIR_SIG_FEC_INVALID ) ) {
         process_fec_complete( ctx, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      } else if( FD_UNLIKELY( sig==REPAIR_SIG_FEC_REPLAY ) ) {
+        return !try_process_alpen_fec( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }

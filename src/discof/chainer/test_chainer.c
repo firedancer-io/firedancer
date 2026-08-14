@@ -77,9 +77,54 @@ feed_fec( fd_chainer_t *    chainer,
     FD_TEST( !fd_chainer_verify( chainer ) );
   }
   fd_hash_t mr_ = *mr;
-  int rc = fd_chainer_fec_insert( chainer, slot, fec_set_idx, slot_complete, &mr_ );
+  int rc = fd_chainer_fec_insert( chainer, slot, fec_set_idx, slot_complete, slot_complete, &mr_ );
   FD_TEST( !fd_chainer_verify( chainer ) );
   return rc;
+}
+
+/* One delivered FEC, identified the way replay sees it: (slot,
+   fec_set_idx) position and the FEC set's merkle root. */
+
+typedef struct { ulong slot; uint fec_set_idx; fd_hash_t mr; } out_rec_t;
+
+/* drain_out pops the chainer's entire out_queue into recs in delivery
+   (FIFO) order, decoding each fd_fec_pool index back to its position and
+   root, and returns the count.  Empties the queue. */
+
+static ulong
+drain_out( fd_chainer_t * chainer, out_rec_t * recs, ulong recs_max ) {
+  ulong    * out_queue = fd_chainer_out_queue( chainer );
+  fd_fec_t * fec_pool  = fd_chainer_fec_pool ( chainer );
+  ulong cnt = 0UL;
+  while( !out_queue_empty( out_queue ) ) {
+    ulong      idx = out_queue_pop_head( out_queue );
+    fd_fec_t * fec = fd_fec_pool_ele( fec_pool, idx );
+    FD_TEST( cnt<recs_max );
+    recs[ cnt ].slot        = fec->key >> 17;                 /* FD_CHAINER_FEC_KEY layout */
+    recs[ cnt ].fec_set_idx = (uint)( fec->key & 0x1FFFFUL );
+    recs[ cnt ].mr          = fec->merkle_root;
+    cnt++;
+  }
+  return cnt;
+}
+
+/* expect_out drains the out_queue and asserts it matches exp[0..exp_cnt)
+   exactly, in order. */
+
+static void
+expect_out( fd_chainer_t * chainer, out_rec_t const * exp, ulong exp_cnt ) {
+  out_rec_t recs[ 64 ];
+  ulong cnt = drain_out( chainer, recs, 64UL );
+  if( FD_UNLIKELY( cnt!=exp_cnt ) ) {
+    FD_LOG_WARNING(( "out_queue cnt=%lu exp=%lu", cnt, exp_cnt ));
+    for( ulong i=0UL; i<cnt; i++ ) FD_LOG_WARNING(( "  got[%lu] slot=%lu fec=%u mr=%02x", i, recs[i].slot, recs[i].fec_set_idx, recs[i].mr.uc[0] ));
+  }
+  FD_TEST( cnt==exp_cnt );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    FD_TEST( recs[ i ].slot       ==exp[ i ].slot        );
+    FD_TEST( recs[ i ].fec_set_idx==exp[ i ].fec_set_idx );
+    FD_TEST( fd_hash_eq( &recs[ i ].mr, &exp[ i ].mr )   );
+  }
 }
 
 /* (a) A single-version turbine block: shreds and FEC completions arrive
@@ -136,7 +181,7 @@ test_basic( fd_wksp_t * wksp ) {
   /* FEC completion for set 0 */
 
   fd_hash_t mr = r0;
-  FD_TEST( !fd_chainer_fec_insert( chainer, 11UL, 0U, 0, &mr ) );
+  FD_TEST( !fd_chainer_fec_insert( chainer, 11UL, 0U, 0, 0, &mr ) );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   fd_fec_t * f0 = fd_chainer_fec_query( chainer, 11UL, 0U, 0UL );
@@ -490,7 +535,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
     FD_TEST( !fd_chainer_verify( chainer ) );
   }
   fd_hash_t mr = r1;
-  int rc = fd_chainer_fec_insert( chainer, 51UL, 32U, 1, &mr );
+  int rc = fd_chainer_fec_insert( chainer, 51UL, 32U, 1, 1, &mr );
 
   /* The honest block's shreds are still accepted.  The old guard dropped
      any shred whose root no version held as soon as a second version
@@ -792,6 +837,139 @@ test_verify_detects( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: fd_chainer_verify detects broken invariants" ));
 }
 
+/* Output order under equivocation: when a second version of a slot
+   diverges in the MIDDLE, delivering that version must re-emit the whole
+   block from FEC set 0 -- the shared prefix included -- so replay always
+   receives a contiguous block starting at set 0, not just the diverging
+   tail.  Here version 0 (turbine) completes first; the notar-fallback
+   version 1 shares sets 0,32 and diverges at 64,96,128. */
+
+static void
+test_output_order_redeliver( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup( wksp );
+
+  fd_hash_t bid0 = mkhash( 100UL );
+  fd_chainer_init( chainer, 50UL, &bid0 );
+
+  fd_hash_t A  = mkhash( 1UL ); /* set 0   (shared)             */
+  fd_hash_t B  = mkhash( 2UL ); /* set 32  (shared)             */
+  fd_hash_t C0 = mkhash( 3UL ); /* set 64  version 0            */
+  fd_hash_t D0 = mkhash( 4UL ); /* set 96  version 0            */
+  fd_hash_t E0 = mkhash( 5UL ); /* set 128 version 0            */
+  fd_hash_t C1 = mkhash( 6UL ); /* set 64  version 1 (diverges) */
+  fd_hash_t D1 = mkhash( 7UL ); /* set 96  version 1            */
+  fd_hash_t E1 = mkhash( 8UL ); /* set 128 version 1            */
+
+  /* version 0 (turbine): full 5-set block, completes first */
+  FD_TEST( !feed_fec( chainer, 51UL, 0U,   0, &A,  50UL,            &bid0 ) );
+  FD_TEST( !feed_fec( chainer, 51UL, 32U,  0, &B,  AG_UNKNOWN_SLOT, NULL  ) );
+  FD_TEST( !feed_fec( chainer, 51UL, 64U,  0, &C0, AG_UNKNOWN_SLOT, NULL  ) );
+  FD_TEST( !feed_fec( chainer, 51UL, 96U,  0, &D0, AG_UNKNOWN_SLOT, NULL  ) );
+  FD_TEST( !feed_fec( chainer, 51UL, 128U, 1, &E0, AG_UNKNOWN_SLOT, NULL  ) );
+
+  /* version 0 delivered the whole block, in order, from set 0 */
+  out_rec_t exp0[] = {
+    { 51UL, 0U, A }, { 51UL, 32U, B }, { 51UL, 64U, C0 }, { 51UL, 96U, D0 }, { 51UL, 128U, E0 },
+  };
+  expect_out( chainer, exp0, 5UL );
+
+  /* a notar-fallback cert names a different block for slot 51 */
+  fd_hash_t bidX = mkhash( 200UL );
+  fd_chainer_notar_fallback( chainer, 51UL, bidX );
+  FD_TEST( fd_chainer_verified_parent_fec_count( chainer, 51UL, &bidX, 5U, 50UL, &bid0 ) );
+
+  /* shared prefix: sets 0,32 match version 0 and deliver without repair */
+  fd_hash_t mr;
+  mr = A; fd_chainer_verified_hash_insert( chainer, 51UL, &bidX, 0U,  &mr );
+  mr = B; fd_chainer_verified_hash_insert( chainer, 51UL, &bidX, 32U, &mr );
+
+  /* diverging tail: sets 64,96,128 are new roots -> sentinels, then repaired */
+  mr = C1; fd_chainer_verified_hash_insert( chainer, 51UL, &bidX, 64U,  &mr );
+  mr = D1; fd_chainer_verified_hash_insert( chainer, 51UL, &bidX, 96U,  &mr );
+  mr = E1; fd_chainer_verified_hash_insert( chainer, 51UL, &bidX, 128U, &mr );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  FD_TEST( !feed_fec( chainer, 51UL, 64U,  0, &C1, AG_UNKNOWN_SLOT, NULL ) );
+  FD_TEST( !feed_fec( chainer, 51UL, 96U,  0, &D1, AG_UNKNOWN_SLOT, NULL ) );
+  FD_TEST( !feed_fec( chainer, 51UL, 128U, 1, &E1, AG_UNKNOWN_SLOT, NULL ) );
+
+  /* THE INVARIANT: version 1 re-delivered the ENTIRE block from set 0 --
+     shared prefix (A,B) re-emitted ahead of the diverging tail
+     (C1,D1,E1) -- even though the equivocation point is at set 64. */
+  out_rec_t exp1[] = {
+    { 51UL, 0U, A }, { 51UL, 32U, B }, { 51UL, 64U, C1 }, { 51UL, 96U, D1 }, { 51UL, 128U, E1 },
+  };
+  expect_out( chainer, exp1, 5UL );
+
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: output order re-delivers full block from set 0 (equivocation mid-slot)" ));
+}
+
+/* Same invariant, but version 1's diverging FEC sets ARRIVE OUT OF ORDER
+   (set 96 is repaired before set 64).  Filling 96 while 64 is still a
+   hole must not deliver anything; once 64 lands, the whole block is
+   re-delivered from set 0, in order.  Version 0 is fully complete first
+   so it owns its own roots at every position (no first-seen-wins
+   interaction with version 1's roots). */
+
+static void
+test_output_order_out_of_order( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup( wksp );
+
+  fd_hash_t bid0 = mkhash( 100UL );
+  fd_chainer_init( chainer, 60UL, &bid0 );
+
+  fd_hash_t A  = mkhash( 1UL ); /* set 0  (shared)             */
+  fd_hash_t B  = mkhash( 2UL ); /* set 32 (shared)             */
+  fd_hash_t C0 = mkhash( 3UL ); /* set 64 version 0            */
+  fd_hash_t D0 = mkhash( 4UL ); /* set 96 version 0            */
+  fd_hash_t C1 = mkhash( 6UL ); /* set 64 version 1 (diverges) */
+  fd_hash_t D1 = mkhash( 7UL ); /* set 96 version 1            */
+
+  /* version 0 (turbine): full 4-set block, completes first and owns its
+     own root at every position */
+  FD_TEST( !feed_fec( chainer, 61UL, 0U,  0, &A,  60UL,            &bid0 ) );
+  FD_TEST( !feed_fec( chainer, 61UL, 32U, 0, &B,  AG_UNKNOWN_SLOT, NULL  ) );
+  FD_TEST( !feed_fec( chainer, 61UL, 64U, 0, &C0, AG_UNKNOWN_SLOT, NULL  ) );
+  FD_TEST( !feed_fec( chainer, 61UL, 96U, 1, &D0, AG_UNKNOWN_SLOT, NULL  ) );
+  out_rec_t exp0[] = { { 61UL, 0U, A }, { 61UL, 32U, B }, { 61UL, 64U, C0 }, { 61UL, 96U, D0 } };
+  expect_out( chainer, exp0, 4UL );
+
+  /* notar-fallback version 1 shares 0,32 and diverges at 64,96 */
+  fd_hash_t bidX = mkhash( 200UL );
+  fd_chainer_notar_fallback( chainer, 61UL, bidX );
+  FD_TEST( fd_chainer_verified_parent_fec_count( chainer, 61UL, &bidX, 4U, 60UL, &bid0 ) );
+
+  fd_hash_t mr;
+  mr = A;  fd_chainer_verified_hash_insert( chainer, 61UL, &bidX, 0U,  &mr );
+  mr = B;  fd_chainer_verified_hash_insert( chainer, 61UL, &bidX, 32U, &mr );
+  mr = C1; fd_chainer_verified_hash_insert( chainer, 61UL, &bidX, 64U, &mr );
+  mr = D1; fd_chainer_verified_hash_insert( chainer, 61UL, &bidX, 96U, &mr );
+
+  /* the shared prefix (0,32) delivered when its roots were recorded */
+  fd_slotv_t * v1 = slotv_at( chainer, 61UL, 1UL );
+  FD_TEST( v1->delivered_idx==63U );
+
+  /* OUT OF ORDER: repair fills set 96 before set 64.  Set 64 is still a
+     hole, so nothing new may be delivered. */
+  FD_TEST( !feed_fec( chainer, 61UL, 96U, 1, &D1, AG_UNKNOWN_SLOT, NULL ) );
+  FD_TEST( v1->delivered_idx==63U ); /* 96 buffered but held: 64 missing */
+
+  /* set 64 lands: 64 then 96 deliver, in order */
+  FD_TEST( !feed_fec( chainer, 61UL, 64U, 0, &C1, AG_UNKNOWN_SLOT, NULL ) );
+
+  /* THE INVARIANT: version 1 re-delivered the whole block from set 0, in
+     order -- shared prefix (A,B) ahead of the diverging tail (C1,D1) --
+     even though set 96 arrived before set 64. */
+  out_rec_t exp1[] = { { 61UL, 0U, A }, { 61UL, 32U, B }, { 61UL, 64U, C1 }, { 61UL, 96U, D1 } };
+  expect_out( chainer, exp1, 4UL );
+
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: output order out-of-order FEC arrival re-delivers from set 0" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -807,6 +985,8 @@ main( int argc, char ** argv ) {
   test_notar_fallback_in_flight          ( wksp );
   test_sentinel_before_turbine           ( wksp );
   test_turbine_shred_after_notar_fallback( wksp );
+  test_output_order_redeliver            ( wksp );
+  test_output_order_out_of_order         ( wksp );
   test_publish                           ( wksp );
   test_publish_large_block               ( wksp );
   test_versions_full                     ( wksp );

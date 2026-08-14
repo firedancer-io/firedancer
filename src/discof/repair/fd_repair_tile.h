@@ -26,6 +26,9 @@
 #define REPAIR_SIG_FEC_LEADER  (1UL)  /* Leader FEC set complete */
 #define REPAIR_SIG_FEC_INVALID (2UL)  /* FEC set detected as invalid based on duplicate confirmations */
 
+/* alpenglow type - replayable fec */
+#define REPAIR_SIG_FEC_REPLAY  (3UL)  /* FEC set received from replay tile */
+
 
 struct fd_repair_replay_fec {
    ulong     slot;
@@ -40,6 +43,7 @@ struct fd_repair_replay_fec {
    fd_hash_t parent_block_id;
 
    int       slot_complete;
+   int       data_complete;
    int       is_leader;
    fd_hash_t block_id;         /* only populated if slot_complete is 1 */
 };

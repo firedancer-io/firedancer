@@ -35,6 +35,7 @@ fd_chainer_new( void * shmem, ulong ele_max, ulong seed ) {
   void * repair_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_repair_align(), fd_slotv_repair_footprint( ele_max )        );
   void * orphan_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_orphan_align(), fd_slotv_orphan_footprint( ele_max )        );
   void * bfs          = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( ele_max )        );
+  void * out_queue    = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),       out_queue_footprint      ( fec_max )        );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_chainer_align() ) == (ulong)shmem + footprint );
 
   chainer->root               = ULONG_MAX;
@@ -47,6 +48,7 @@ fd_chainer_new( void * shmem, ulong ele_max, ulong seed ) {
   chainer->repair_treap_gaddr = fd_wksp_gaddr_fast( wksp, fd_slotv_repair_join( fd_slotv_repair_new( repair_treap, ele_max              ) ) );
   chainer->orphan_treap_gaddr = fd_wksp_gaddr_fast( wksp, fd_slotv_orphan_join( fd_slotv_orphan_new( orphan_treap, ele_max              ) ) );
   chainer->bfs_gaddr          = fd_wksp_gaddr_fast( wksp, bfs_join            ( bfs_new            ( bfs,          ele_max              ) ) );
+  chainer->out_queue_gaddr    = fd_wksp_gaddr_fast( wksp, out_queue_join      ( out_queue_new      ( out_queue,    fec_max              ) ) );
 
   fd_slotv_repair_seed( fd_chainer_slotv_pool( chainer ), ele_max, seed        );
   fd_slotv_orphan_seed( fd_chainer_slotv_pool( chainer ), ele_max, seed ^ 0x9eUL );
@@ -211,6 +213,7 @@ fec_join( fd_chainer_t    * chainer,
     fec->key           = FD_CHAINER_FEC_KEY( slot, fec_set_idx );
     fec->merkle_root   = *mr;
     fec->slot_complete = 0;
+    fec->data_complete = 0;
     fec->sentinel      = (uchar)sentinel;
     fd_slotv_set_null( fec->versions );
     fd_fec_map_ele_insert( fec_map, fec, fec_pool );
@@ -539,14 +542,15 @@ fd_chainer_shred_insert( fd_chainer_t    * chainer,
   }
 }
 
-/* send to replay */
+/* chainer_deliver queues a delivered FEC for publish to replay.  The
+   repair tile drains the out_queue in after_credit. */
 static void
 chainer_deliver( fd_chainer_t    * chainer,
-                 ulong             slot,
-                 ulong             version,
-                 uint              fec_set_idx,
-                 fd_hash_t const * block_id ) {
-  (void)chainer; (void)slot; (void)version; (void)fec_set_idx; (void)block_id;
+                 fd_slotv_t      * slotv FD_PARAM_UNUSED,
+                 fd_fec_t        * fec ) {
+  ulong * out_queue = fd_chainer_out_queue( chainer );
+  if( FD_UNLIKELY( out_queue_full( out_queue ) ) ) FD_LOG_CRIT(( "chainer out_queue full" ));
+  out_queue_push_tail( out_queue, fd_fec_pool_idx( fd_chainer_fec_pool( chainer ), fec ) );
 }
 
 /* chainer_advance delivers as many contiguous completed FEC sets as
@@ -578,7 +582,7 @@ chainer_advance( fd_chainer_t * chainer, fd_slotv_t * seed ) {
       fd_fec_t * fec = fd_chainer_fec_query( chainer, slot, next, version );
       if( FD_LIKELY( !fec || fec->sentinel ) ) break; /* next FEC not completed yet */
 
-      chainer_deliver( chainer, slot, version, next, &slotv->block_id );
+      chainer_deliver( chainer, slotv, fec );
       slotv->delivered_idx = next + (FD_FEC_SHRED_CNT - 1);
 
       if( FD_UNLIKELY( fec->slot_complete ) ) {
@@ -624,6 +628,7 @@ fd_chainer_fec_insert( fd_chainer_t * chainer,
                        ulong          slot,
                        uint           fec_set_idx_,
                        int            slot_complete,
+                       int            data_complete,
                        fd_hash_t    * mr ) {
   uint fec_set_idx = (uint)fec_set_idx_;
 
@@ -646,6 +651,7 @@ fd_chainer_fec_insert( fd_chainer_t * chainer,
 
   fec->sentinel = 0;
   if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
+  if( FD_UNLIKELY( data_complete ) ) fec->data_complete = 1;
 
   for( ulong i = fd_slotv_set_const_iter_init( fec->versions );
                 !fd_slotv_set_const_iter_done( i );
@@ -735,7 +741,7 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
     fec->slot_complete = 1;
 
   if( FD_LIKELY( shared_complete ) ) {
-    fd_chainer_fec_insert( chainer, slot, fec_set_idx, shared->slot_complete, mr );
+    fd_chainer_fec_insert( chainer, slot, fec_set_idx, shared->slot_complete, shared->data_complete, mr );
   }
   fd_chainer_repair_add( chainer, slotv ); /* new sentinel -> re-add for shred fill */
   chainer_advance( chainer, slotv );

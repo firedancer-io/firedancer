@@ -1172,7 +1172,8 @@ after_alpen_fec( ctx_t      * ctx,
                  fd_shred_t * shred,
                  fd_hash_t  * mr ) {
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-  return fd_chainer_fec_insert( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, mr );
+  int data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
+  return fd_chainer_fec_insert( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, mr );
 }
 
 static inline void
@@ -1701,12 +1702,55 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
    be queued up in inflights table so they can be re-requested after a
    timeout window. */
 
+/* publish_fec_replay pops one delivered FEC off the chainer's out_queue
+   and publishes it to replay on repair_out with REPAIR_SIG_FEC_REPLAY.
+   Returns 1 if a FEC was consumed. */
+static int
+publish_fec_replay( ctx_t * ctx, fd_stem_context_t * stem ) {
+  ulong * out_queue = fd_chainer_out_queue( ctx->chainer );
+  if( FD_LIKELY( out_queue_empty( out_queue ) ) ) return 0;
+
+  fd_fec_t * fec = fd_fec_pool_ele( fd_chainer_fec_pool( ctx->chainer ), out_queue_pop_head( out_queue ) );
+
+  ulong slot        = FD_CHAINER_FEC_SLOT( fec->key );
+  uint  fec_set_idx = FD_CHAINER_FEC_IDX ( fec->key );
+
+  /* The slotv carries the parent info and (once complete) the block_id.
+     A FEC may be shared by several versions; use the lowest one that
+     includes it. */
+  ulong        version = fd_slotv_set_const_iter_init( fec->versions );
+  ulong        key     = FD_CHAINER_SLOTV_KEY( slot, version );
+  fd_slotv_t * slotv   = fd_slotv_map_ele_query( fd_chainer_slotv_map( ctx->chainer ), &key, NULL, fd_chainer_slotv_pool( ctx->chainer ) );
+  if( FD_UNLIKELY( !slotv ) ) return 1; /* pruned by publish while queued */
+
+  fd_repair_replay_fec_t * msg = fd_chunk_to_laddr( ctx->repair_out_ctx->mem, ctx->repair_out_ctx->chunk );
+  msg->slot            = slot;
+  msg->fec_set_idx     = fec_set_idx;
+  msg->mr              = fec->merkle_root;
+  msg->parent_slot     = slotv->parent_slot;
+  msg->parent_block_id = slotv->parent_block_id;
+  msg->slot_complete   = fec->slot_complete;
+  msg->data_complete   = fec->data_complete;
+  msg->is_leader       = 0;
+  msg->block_id        = slotv->block_id;
+
+  fd_stem_publish( stem, ctx->repair_out_ctx->idx, REPAIR_SIG_FEC_REPLAY, ctx->repair_out_ctx->chunk, sizeof(fd_repair_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->repair_out_ctx->chunk = fd_dcache_compact_next( ctx->repair_out_ctx->chunk, sizeof(fd_repair_replay_fec_t), ctx->repair_out_ctx->chunk0, ctx->repair_out_ctx->wmark );
+  return 1;
+}
+
 static inline void
 after_credit( ctx_t *             ctx,
-              fd_stem_context_t * stem FD_PARAM_UNUSED,
+              fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   long now = fd_log_wallclock();
+
+  /* Publish any FECs the chainer has delivered for replay. */
+  if( ctx->is_alpenglow && publish_fec_replay( ctx, stem ) ) {
+    *charge_busy = 1;
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->halt_signing ) ) {
     *charge_busy = 1;

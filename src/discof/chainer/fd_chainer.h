@@ -78,6 +78,8 @@
 /* slot:47 | fec_set_idx:15 */
 #define FD_CHAINER_FEC_KEY( slot, fec_set_idx ) \
   ( ((ulong)(slot))<<17 | ((ulong)(fec_set_idx)) )
+#define FD_CHAINER_FEC_SLOT( key ) ( (ulong)(key) >> 17 )
+#define FD_CHAINER_FEC_IDX( key )  ( (uint)( (key) & 0x1FFFFUL ) )
 
 #define SET_NAME fd_slotv_set
 #define SET_MAX  FD_CHAINER_SLOT_VER_MAX
@@ -97,6 +99,7 @@ struct fd_fec {
   fd_slotv_set_t versions[fd_slotv_set_word_cnt]; /* set of the slot versions that have
                                                      this root at this position. */
   uchar     slot_complete;
+  uchar     data_complete;
   uchar     sentinel;      /* 1 if this is a sentinel FEC, i.e. we know
                               this FEC is canonically part of a
                               notar-fallback slot, but we haven't
@@ -225,6 +228,13 @@ typedef struct fd_slotv fd_slotv_t;
 #define DEQUE_T                ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
+/* out_queue holds fd_fec_pool indices of FECs that have been delivered
+   (contiguous from root and connected) and are awaiting publish to
+   replay by the repair tile.  Sized to the max number of FECs. */
+#define DEQUE_NAME             out_queue
+#define DEQUE_T                ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
 struct fd_chainer {
   ulong root;             /* root slot, ULONG_MAX if unset */
   ulong highest_repaired; /* max slot ever marked fully_delivered (contiguous-from-root repaired tip) */
@@ -239,6 +249,7 @@ struct fd_chainer {
   ulong orphan_treap_gaddr; /* wksp gaddr of fd_slotv_orphan (ancestry worklist) */
 
   ulong bfs_gaddr;          /* bfs queue for delivery */
+  ulong out_queue_gaddr;    /* delivered FEC pool idxs awaiting publish to replay */
 
   ulong magic; /* ==FD_CHAINER_MAGIC */
 };
@@ -265,6 +276,7 @@ fd_chainer_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_chainer_t),   sizeof(fd_chainer_t)                        ),
       fd_fec_pool_align(),     fd_fec_pool_footprint    ( fec_max )        ),
@@ -274,6 +286,7 @@ fd_chainer_footprint( ulong ele_max ) {
       fd_slotv_repair_align(), fd_slotv_repair_footprint( ele_max )        ),
       fd_slotv_orphan_align(), fd_slotv_orphan_footprint( ele_max )        ),
       bfs_align(),             bfs_footprint            ( ele_max )        ),
+      out_queue_align(),       out_queue_footprint      ( fec_max )        ),
     fd_chainer_align() );
 }
 
@@ -332,6 +345,11 @@ fd_chainer_bfs( fd_chainer_t * chainer ) {
   return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->bfs_gaddr );
 }
 
+FD_FN_PURE static inline ulong *
+fd_chainer_out_queue( fd_chainer_t * chainer ) {
+  return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->out_queue_gaddr );
+}
+
 int
 fd_chainer_verify( fd_chainer_t const * chainer );
 
@@ -358,6 +376,7 @@ fd_chainer_fec_insert( fd_chainer_t * chainer,
                        ulong          slot,
                        uint           fec_set_idx,
                        int            slot_complete,
+                       int            data_complete,
                        fd_hash_t    * mr );
 
 
