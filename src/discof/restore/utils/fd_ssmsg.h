@@ -127,14 +127,9 @@ typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes
 
 struct fd_snapshot_manifest_epoch_stakes {
    /* The epoch for which these vote accounts and stakes are valid for */
-  ulong                              epoch;
+  ulong epoch;
   /* The total amount of active stake at the end of the given epoch.*/
-  ulong                              total_stake;
-
-  /* The vote accounts and their stakes for a given epoch.
-     FIXME: Snapshot manifest has to support a much larger bound. */
-  ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ];
+  ulong total_stake;
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -434,9 +429,9 @@ struct fd_snapshot_manifest {
   ulong                               vote_accounts_len;
   fd_snapshot_manifest_vote_account_t vote_accounts[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
 
-  /* FIXME: Make this unbounded or support a much larger bound. */
+  /* The number of stake-delegation records.  snapin rebuilds this cache
+     from the account stream, so the manifest records are not stored. */
   ulong stake_delegations_len;
-  fd_snapshot_manifest_stake_delegation_t stake_delegations[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of a previous epoch.  They are primarily

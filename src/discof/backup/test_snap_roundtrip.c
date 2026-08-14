@@ -213,8 +213,24 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( parser );
   fd_ssmanifest_parser_init( parser, manifest );
 
-  int result = fd_ssmanifest_parser_consume( parser, buf, total_written );
-  FD_TEST( result==FD_SSMANIFEST_PARSER_ADVANCE_DONE || result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN );
+  fd_snapshot_manifest_vote_stakes_t parsed_vote_stakes[ FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ][ VALIDATOR_CNT ];
+  ulong                               parsed_vote_stakes_len[ FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ] = {0};
+  uchar const *                       mbuf = buf;
+  ulong                               mrem = total_written;
+  for(;;) {
+    fd_ssmanifest_parser_advance_result_t parser_result[1];
+    int result = fd_ssmanifest_parser_consume( parser, mbuf, mrem, parser_result );
+    FD_TEST( result!=FD_SSMANIFEST_PARSER_ADVANCE_ERROR );
+    if( result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN || result==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) break;
+
+    FD_TEST( result==FD_SSMANIFEST_PARSER_ADVANCE_VOTE_STAKES );
+    ulong epoch_idx = parser_result->vote_stakes.epoch_idx;
+    FD_TEST( epoch_idx<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN );
+    FD_TEST( parsed_vote_stakes_len[ epoch_idx ]<VALIDATOR_CNT );
+    parsed_vote_stakes[ epoch_idx ][ parsed_vote_stakes_len[ epoch_idx ]++ ] = *parser_result->vote_stakes.vs;
+    mbuf += parser_result->consumed;
+    mrem -= parser_result->consumed;
+  }
   FD_TEST( fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
 
   FD_TEST( manifest->slot==bank->f.slot );
@@ -233,20 +249,20 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
      epoch) with the epoch-1 tag; t_3 entries (key epoch-1) are encoded
      with zero collectors. */
   {
-    fd_snapshot_manifest_epoch_stakes_t const * t1 = NULL;
-    fd_snapshot_manifest_epoch_stakes_t const * t2 = NULL;
-    fd_snapshot_manifest_epoch_stakes_t const * t3 = NULL;
+    ulong t1_idx = ULONG_MAX;
+    ulong t2_idx = ULONG_MAX;
+    ulong t3_idx = ULONG_MAX;
     for( ulong i=0UL; i<3UL; i++ ) {
-      if( manifest->epoch_stakes[i].epoch==bank->f.epoch+1UL ) t1 = &manifest->epoch_stakes[i];
-      if( manifest->epoch_stakes[i].epoch==bank->f.epoch     ) t2 = &manifest->epoch_stakes[i];
-      if( manifest->epoch_stakes[i].epoch==bank->f.epoch-1UL ) t3 = &manifest->epoch_stakes[i];
+      if( manifest->epoch_stakes[i].epoch==bank->f.epoch+1UL ) t1_idx = i;
+      if( manifest->epoch_stakes[i].epoch==bank->f.epoch     ) t2_idx = i;
+      if( manifest->epoch_stakes[i].epoch==bank->f.epoch-1UL ) t3_idx = i;
     }
-    FD_TEST( t1 && t2 && t3 );
+    FD_TEST( t1_idx!=ULONG_MAX && t2_idx!=ULONG_MAX && t3_idx!=ULONG_MAX );
 
     static uchar const zero32[ 32UL ] = {0};
     int seen_t1_vote0 = 0; int seen_t1_vote1 = 0;
-    for( ulong i=0UL; i<t1->vote_stakes_len; i++ ) {
-      fd_snapshot_manifest_vote_stakes_t const * vs = &t1->vote_stakes[i];
+    for( ulong i=0UL; i<parsed_vote_stakes_len[ t1_idx ]; i++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * vs = &parsed_vote_stakes[ t1_idx ][ i ];
       check_epoch_credits( bank, vs );
       if( !memcmp( vs->vote, &vote0, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, &infl0, 32UL ) );
@@ -264,8 +280,8 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
 
     /* Only the t_1 entries carry credit histories. */
     int seen_t2_vote1 = 0; int seen_t2_vote0 = 0;
-    for( ulong i=0UL; i<t2->vote_stakes_len; i++ ) {
-      fd_snapshot_manifest_vote_stakes_t const * vs = &t2->vote_stakes[i];
+    for( ulong i=0UL; i<parsed_vote_stakes_len[ t2_idx ]; i++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * vs = &parsed_vote_stakes[ t2_idx ][ i ];
       FD_TEST( !vs->epoch_credits_history_len );
       if( !memcmp( vs->vote, &vote1, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote, 32UL ) );
@@ -279,8 +295,8 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
     }
     FD_TEST( seen_t2_vote1 && seen_t2_vote0 );
 
-    for( ulong i=0UL; i<t3->vote_stakes_len; i++ ) {
-      fd_snapshot_manifest_vote_stakes_t const * vs = &t3->vote_stakes[i];
+    for( ulong i=0UL; i<parsed_vote_stakes_len[ t3_idx ]; i++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * vs = &parsed_vote_stakes[ t3_idx ][ i ];
       FD_TEST( !memcmp( vs->commission_inflation, zero32, 32UL ) );
       FD_TEST( !memcmp( vs->commission_block,     zero32, 32UL ) );
       FD_TEST( !vs->epoch_credits_history_len );
@@ -303,12 +319,12 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
                     i,
                     manifest->epoch_stakes[i].epoch,
                     manifest->epoch_stakes[i].total_stake,
-                    manifest->epoch_stakes[i].vote_stakes_len ));
+                    parsed_vote_stakes_len[i] ));
     ulong expected_vote_cnt = VALIDATOR_CNT;
-    FD_TEST( manifest->epoch_stakes[i].vote_stakes_len==expected_vote_cnt );
+    FD_TEST( parsed_vote_stakes_len[i]==expected_vote_cnt );
     if( manifest->epoch_stakes[i].epoch!=bank->f.epoch-1UL ) {
-      for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
-        FD_TEST( manifest->epoch_stakes[i].vote_stakes[j].commission==1234U );
+      for( ulong j=0UL; j<parsed_vote_stakes_len[i]; j++ ) {
+        FD_TEST( parsed_vote_stakes[i][j].commission==1234U );
       }
     }
   }
