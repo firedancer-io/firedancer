@@ -25,6 +25,7 @@
 
 #include "../../../waltz/ip/fd_iproute.h"
 #include "../../../util/net/fd_eth.h"
+#include "../../../util/net/fd_gre.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
 #include "../../../util/pod/fd_pod_format.h"
@@ -42,6 +43,7 @@
 
 /* Max number of flow rules */
 #define FD_MLX5_FLOW_CAP (64UL)
+#define FD_MLX5_GRE_MAX  (4UL)
 #define FD_MLX5_STATS_INTERVAL_NS (1e9)
 
 /* FD_MLX5_SQ_* are options in a SQ WQE to request certain NIC behaviour.
@@ -174,6 +176,7 @@ struct fd_mlx5_tile {
   uchar  dst_protos [ FD_MLX5_FLOW_CAP ];
   uchar  dst_out_idx[ FD_MLX5_FLOW_CAP ];
   uchar  repair_out_idx;
+  uint   gre_tunnel_ip[ FD_MLX5_GRE_MAX ];
 
   uchar rx_out_cnt; /* number of out links */
 
@@ -187,10 +190,15 @@ struct fd_mlx5_tile {
     ulong rx_out_of_buffer_cnt;
     ulong rx_malformed_cnt;
     ulong rx_route_fail_cnt;
+    ulong rx_gre_cnt;
+    ulong rx_gre_invalid_cnt;
+    ulong rx_gre_ignored_cnt;
     ulong tx_pkt_cnt;
     ulong tx_bytes_total;
     ulong tx_no_buffer_cnt;
     ulong tx_invalid_cnt;
+    ulong tx_gre_cnt;
+    ulong tx_gre_route_fail_cnt;
   } metrics;
 };
 typedef struct fd_mlx5_tile fd_mlx5_tile_t;
@@ -600,15 +608,60 @@ fd_mlx5_tile_rx_pkt( fd_mlx5_tile_t *    ctx,
     return chunk;
   }
 
-  fd_eth_hdr_t const * eth_hdr = fd_chunk_to_laddr_const( ctx->umem_base, chunk );
+  uchar * frame = fd_chunk_to_laddr( ctx->umem_base, chunk );
+  fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)frame;
   if( FD_UNLIKELY( fd_ushort_bswap( eth_hdr->net_type )!=FD_ETH_HDR_TYPE_IP ) ) {
     ctx->metrics.rx_malformed_cnt++;
     return chunk;
   }
 
-  fd_ip4_hdr_t const * ip4_hdr = (fd_ip4_hdr_t const *)(eth_hdr+1);
-  ulong const ip4_hdr_sz = FD_IP4_GET_LEN( *ip4_hdr );
-  ulong const ip4_total_sz = fd_ushort_bswap( ip4_hdr->net_tot_len );
+  fd_ip4_hdr_t * ip4_hdr = (fd_ip4_hdr_t *)(eth_hdr+1);
+  ulong ip4_hdr_sz = FD_IP4_GET_LEN( *ip4_hdr );
+  ulong ip4_total_sz = fd_ushort_bswap( ip4_hdr->net_tot_len );
+  if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 || ip4_hdr_sz<sizeof(fd_ip4_hdr_t) ) ) {
+    ctx->metrics.rx_malformed_cnt++;
+    return chunk;
+  }
+  if( FD_UNLIKELY( ip4_total_sz<ip4_hdr_sz ||
+                   sizeof(fd_eth_hdr_t)+ip4_total_sz>byte_len ) ) {
+    ctx->metrics.rx_malformed_cnt++;
+    return chunk;
+  }
+
+  ulong ctl = 0UL;
+  int is_gre = ip4_hdr->protocol==FD_IP4_HDR_PROTOCOL_GRE;
+  if( FD_UNLIKELY( is_gre ) ) {
+    if( FD_UNLIKELY( !ctx->gre_tunnel_ip[0] ) ) {
+      ctx->metrics.rx_gre_ignored_cnt++;
+      return chunk;
+    }
+
+    int tunnel_found = 0;
+    for( ulong i=0UL; i<FD_MLX5_GRE_MAX; i++ ) tunnel_found |= ip4_hdr->saddr==ctx->gre_tunnel_ip[ i ];
+    ulong const overhead = ip4_hdr_sz+sizeof(fd_gre_hdr_t);
+    if( FD_UNLIKELY( !tunnel_found || !ip4_hdr->saddr ||
+                     overhead+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)>ip4_total_sz ) ) {
+      ctx->metrics.rx_gre_invalid_cnt++;
+      return chunk;
+    }
+
+    fd_gre_hdr_t const * gre_hdr = (fd_gre_hdr_t const *)((uchar *)ip4_hdr+ip4_hdr_sz);
+    if( FD_UNLIKELY( gre_hdr->flags_version!=FD_GRE_HDR_FLG_VER_BASIC ||
+                     gre_hdr->protocol!=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) {
+      ctx->metrics.rx_gre_invalid_cnt++;
+      return chunk;
+    }
+
+    frame += overhead;
+    fd_memcpy( frame, eth_hdr, sizeof(fd_eth_hdr_t) );
+    byte_len -= overhead;
+    ctl       = overhead;
+    eth_hdr   = (fd_eth_hdr_t *)frame;
+    ip4_hdr   = (fd_ip4_hdr_t *)(eth_hdr+1);
+    ip4_hdr_sz = FD_IP4_GET_LEN( *ip4_hdr );
+    ip4_total_sz = fd_ushort_bswap( ip4_hdr->net_tot_len );
+  }
+
   if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 ||
                    ip4_hdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ||
                    ip4_hdr_sz<sizeof(fd_ip4_hdr_t) || ip4_total_sz<ip4_hdr_sz ||
@@ -652,9 +705,9 @@ fd_mlx5_tile_rx_pkt( fd_mlx5_tile_t *    ctx,
 
   ushort const src_port = fd_ushort_bswap( udp_hdr->net_sport );
   ulong const sig    = fd_disco_netmux_sig( ip4_hdr->saddr, src_port, ip4_hdr->saddr, dst_proto, dgram_off );
-  ulong const ctl    = 0UL;
   ulong const tsorig = 0UL;
   fd_stem_publish( stem, out_idx, sig, chunk, byte_len, ctl, tsorig, tspub );
+  ctx->metrics.rx_gre_cnt += (ulong)is_gre;
   ctx->metrics.rx_pkt_cnt++;
   ctx->metrics.rx_bytes_total += byte_len;
 
@@ -749,7 +802,23 @@ before_frag( fd_mlx5_tile_t * ctx,
 
   uint dst_ip = fd_disco_netmux_sig_ip( sig );
   if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, dst_ip, &ctx->tx_route ) ) ) return 1;
-  if( FD_UNLIKELY( ctx->tx_route.use_gre ) ) return 1;
+  if( FD_UNLIKELY( ctx->tx_route.use_gre ) ) {
+    uint const inner_src_ip    = ctx->tx_route.src_ip;
+    uint const outer_src_ip    = ctx->tx_route.gre_outer_src_ip;
+    uint const outer_dst_ip    = ctx->tx_route.gre_outer_dst_ip;
+    fd_net_tx_route_t outer_route;
+    if( FD_UNLIKELY( !inner_src_ip || !outer_dst_ip ||
+                     !fd_net_tx_route( &ctx->router, outer_dst_ip, &outer_route ) ||
+                     outer_route.use_gre || outer_route.use_loopback ) ) {
+      ctx->metrics.tx_gre_route_fail_cnt++;
+      return 1;
+    }
+    ctx->tx_route = outer_route;
+    ctx->tx_route.src_ip           = inner_src_ip;
+    ctx->tx_route.gre_outer_src_ip = fd_uint_if( !outer_src_ip, outer_route.src_ip, outer_src_ip );
+    ctx->tx_route.gre_outer_dst_ip = outer_dst_ip;
+    ctx->tx_route.use_gre          = 1U;
+  }
 
   /* Skip if TX is blocked */
 
@@ -805,8 +874,13 @@ during_frag( fd_mlx5_tile_t * ctx,
 
   /* Speculatively copy frame into buffer */
   ulong        dst_chunk = fd_mlx5_tile_tx_chunk( ctx, ctx->qp.sq_prod );
-  void *       dst       = fd_chunk_to_laddr( ctx->umem_base, dst_chunk );
-  fd_memcpy( dst, src, frame_sz );
+  uchar *      dst       = fd_chunk_to_laddr( ctx->umem_base, dst_chunk );
+  if( FD_UNLIKELY( ctx->tx_route.use_gre ) ) {
+    ulong const inner_ip_off = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t);
+    fd_memcpy( dst+inner_ip_off, src+sizeof(fd_eth_hdr_t), frame_sz-sizeof(fd_eth_hdr_t) );
+  } else {
+    fd_memcpy( dst, src, frame_sz );
+  }
 }
 
 /* after_frag applies a route update or completes and submits the staged packet */
@@ -844,8 +918,46 @@ after_frag( fd_mlx5_tile_t *    ctx,
   if( FD_UNLIKELY( !ctx->tx_frame_valid ) ) return;
 
   ulong  chunk = fd_mlx5_tile_tx_chunk( ctx, ctx->qp.sq_prod );
-  void * frame = fd_chunk_to_laddr( ctx->umem_base, chunk );
-  int const fill_result = fd_net_tx_fill_addrs( &ctx->router, &ctx->tx_route, frame, frame_sz );
+  uchar * frame = fd_chunk_to_laddr( ctx->umem_base, chunk );
+  ulong tx_frame_sz = frame_sz;
+  int fill_result;
+  if( FD_UNLIKELY( ctx->tx_route.use_gre ) ) {
+    ulong const inner_ip_off = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t);
+    fd_ip4_hdr_t * inner_ip4 = (fd_ip4_hdr_t *)(frame+inner_ip_off);
+    fill_result = fd_net_tx_fill_ip4( &ctx->router, &ctx->tx_route, inner_ip4,
+                                      frame_sz-sizeof(fd_eth_hdr_t) );
+    if( FD_LIKELY( fill_result==FD_NET_TX_FILL_OK ) ) {
+      fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)frame;
+      fd_memcpy( eth_hdr->dst, ctx->tx_route.mac_addrs, 12UL );
+      eth_hdr->net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+
+      ushort const outer_ip_sz = (ushort)(sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t)+
+                                           frame_sz-sizeof(fd_eth_hdr_t));
+      fd_ip4_hdr_t outer_ip4 = {
+        .verihl       = FD_IP4_VERIHL( 4,5 ),
+        .net_tot_len  = fd_ushort_bswap( outer_ip_sz ),
+        .net_frag_off = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF ),
+        .ttl          = 64U,
+        .protocol     = FD_IP4_HDR_PROTOCOL_GRE,
+        .saddr        = ctx->tx_route.gre_outer_src_ip,
+        .daddr        = ctx->tx_route.gre_outer_dst_ip
+      };
+      if( FD_UNLIKELY( !outer_ip4.saddr || !outer_ip4.daddr ) ) {
+        ctx->metrics.tx_gre_route_fail_cnt++;
+        return;
+      }
+      outer_ip4.check = fd_ip4_hdr_check_fast( &outer_ip4 );
+      FD_STORE( fd_ip4_hdr_t, frame+sizeof(fd_eth_hdr_t), outer_ip4 );
+      fd_gre_hdr_t const gre_hdr = {
+        .flags_version = FD_GRE_HDR_FLG_VER_BASIC,
+        .protocol      = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP )
+      };
+      FD_STORE( fd_gre_hdr_t, frame+sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t), gre_hdr );
+      tx_frame_sz += sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t);
+    }
+  } else {
+    fill_result = fd_net_tx_fill_addrs( &ctx->router, &ctx->tx_route, frame, frame_sz );
+  }
   if( FD_UNLIKELY( fill_result!=FD_NET_TX_FILL_OK ) ) {
     ctx->metrics.tx_invalid_cnt += (ulong)(fill_result==FD_NET_TX_FILL_INVALID);
     return;
@@ -862,8 +974,9 @@ after_frag( fd_mlx5_tile_t *    ctx,
     return;
   }
 
-  if( FD_UNLIKELY( fd_mlx5_hw_post_send( ctx, (uint)frame_sz ) ) )
+  if( FD_UNLIKELY( fd_mlx5_hw_post_send( ctx, (uint)tx_frame_sz ) ) )
     FD_LOG_ERR(( "direct mlx5 TX submit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ctx->metrics.tx_gre_cnt += (ulong)ctx->tx_route.use_gre;
 }
 
 static inline void
@@ -879,6 +992,9 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
   FD_MCNT_SET(   MLX5, RX_OUT_OF_BUFFER,   ctx->metrics.rx_out_of_buffer_cnt );
   FD_MCNT_SET(   MLX5, PKT_RX_MALFORMED,   ctx->metrics.rx_malformed_cnt     );
   FD_MCNT_SET(   MLX5, PKT_RX_ROUTE_FAIL,  ctx->metrics.rx_route_fail_cnt    );
+  FD_MCNT_SET(   MLX5, GRE_PKT_RX,         ctx->metrics.rx_gre_cnt           );
+  FD_MCNT_SET(   MLX5, GRE_PKT_RX_INVALID, ctx->metrics.rx_gre_invalid_cnt   );
+  FD_MCNT_SET(   MLX5, GRE_PKT_RX_IGNORED, ctx->metrics.rx_gre_ignored_cnt   );
   FD_MGAUGE_SET( MLX5, RX_BUFFER_BUSY,     rx_buffer_busy_cnt                );
   FD_MGAUGE_SET( MLX5, RX_BUFFER_IDLE,     rx_buffer_idle_cnt                );
 
@@ -888,8 +1004,21 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( MLX5, PKT_TX_ROUTE_FAIL, ctx->router.metrics.tx_route_fail_cnt );
   FD_MCNT_SET(   MLX5, PKT_TX_INVALID,        ctx->metrics.tx_invalid_cnt           );
   FD_MCNT_SET(   MLX5, PKT_TX_NO_NEIGHBOR,    ctx->router.metrics.tx_neigh_fail_cnt );
+  FD_MCNT_SET(   MLX5, GRE_PKT_TX_SUBMITTED,  ctx->metrics.tx_gre_cnt               );
+  FD_MCNT_SET(   MLX5, GRE_PKT_TX_NO_ROUTE,   ctx->metrics.tx_gre_route_fail_cnt    );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_BUSY,        tx_buffer_busy_cnt                    );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_IDLE,        tx_buffer_idle_cnt                    );
+}
+
+static void
+fd_mlx5_tile_gre_tunnels_refresh( fd_mlx5_tile_t * ctx ) {
+  fd_memset( ctx->gre_tunnel_ip, 0, sizeof(ctx->gre_tunnel_ip) );
+  ulong tunnel_cnt = 0UL;
+  for( ushort i=0U; i<ctx->router.netdev_tbl.hdr->dev_cnt && tunnel_cnt<FD_MLX5_GRE_MAX; i++ ) {
+    fd_netdev_t const * netdev = ctx->router.netdev_tbl.dev_tbl+i;
+    if( netdev->dev_type==ARPHRD_IPGRE && netdev->gre_dst_ip )
+      ctx->gre_tunnel_ip[ tunnel_cnt++ ] = netdev->gre_dst_ip;
+  }
 }
 
 static inline void
@@ -936,6 +1065,7 @@ during_housekeeping( fd_mlx5_tile_t * ctx ) {
   /* Refresh the netdev snapshot when its shared state is stable */
   if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->router.netdev_shared.hdr->seqlock ) ) ) {
     fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
+    fd_mlx5_tile_gre_tunnels_refresh( ctx );
   }
 }
 
@@ -1212,11 +1342,15 @@ privileged_init( fd_topo_t const *      topo,
                                               tile->mlx5.net.bind_address,
                                               ctx->dst_ports[ flow_idx ] ) ) )
       FD_LOG_ERR(( "fd_mlx5_flow_create_udp failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( fd_mlx5_flow_create_gre_udp( &ctx->uverbs, &ctx->qp,
+                                                  tile->mlx5.net.bind_address,
+                                                  ctx->dst_ports[ flow_idx ] ) ) )
+      FD_LOG_ERR(( "fd_mlx5_flow_create_gre_udp failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     FD_LOG_DEBUG(( "Created flow rule for ip4.dst_ip=" FD_IP4_ADDR_FMT " udp.dst_port:%hu",
                    FD_IP4_ADDR_FMT_ARGS( tile->mlx5.net.bind_address ),
                    ctx->dst_ports[ flow_idx ] ));
   }
-  FD_LOG_INFO(( "Installed %u direct mlx5 flow rules", ctx->dst_port_cnt ));
+  FD_LOG_INFO(( "Installed %u direct mlx5 flow rules", 2U*ctx->dst_port_cnt ));
 }
 
 FD_FN_UNUSED static void
@@ -1292,6 +1426,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_netdev_tbl_new( netdev_tbl_local, NETDEV_MAX, BOND_MASTER_MAX ) );
   FD_TEST( fd_netdev_tbl_join( &ctx->router.netdev_tbl, netdev_tbl_local ) );
   fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
+  fd_mlx5_tile_gre_tunnels_refresh( ctx );
   ctx->router.bind_address = tile->mlx5.net.bind_address;
 
   ulong neigh4_obj_id = tile->mlx5.neigh4_obj_id;

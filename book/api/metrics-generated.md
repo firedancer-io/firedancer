@@ -1875,6 +1875,9 @@
 | <span class="metrics-name">mlx5_&#8203;rx_&#8203;out_&#8203;of_&#8203;buffer</span> | counter | Number of packets dropped by the NIC because this QP's receive queue had no posted buffer. |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;malformed</span> | counter | Number of packets dropped because the Ethernet, IPv4, or UDP header was malformed. |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;route_&#8203;fail</span> | counter | Number of packets dropped because the destination UDP port could not be routed to an output link. |
+| <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;rx</span> | counter | Number of GRE packets successfully decapsulated and published. |
+| <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;rx_&#8203;invalid</span> | counter | Number of GRE packets dropped because the tunnel peer or headers were invalid. |
+| <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;rx_&#8203;ignored</span> | counter | Number of GRE packets ignored because no GRE tunnel is configured. |
 | <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;busy</span> | gauge | Number of RX buffers not currently posted to the NIC. |
 | <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;idle</span> | gauge | Number of RX buffers currently posted to the NIC. |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Number of packets completed by the NIC for transmission. |
@@ -1887,6 +1890,8 @@
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">unsupported_&#8203;interface</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Interface type not supported) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;invalid</span> | counter | Number of transmit jobs dropped because the IPv4 version or header length was invalid. |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;neighbor</span> | counter | Number of transmit jobs dropped because the next-hop neighbor was unresolved. |
+| <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | Number of GRE transmit jobs submitted to the NIC. |
+| <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;route</span> | counter | Number of GRE transmit jobs dropped because the inner or outer route was incomplete. |
 | <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;busy</span> | gauge | Number of TX buffers pending or submitted to the NIC. |
 | <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;idle</span> | gauge | Number of TX buffers available for a new transmit job. |
 

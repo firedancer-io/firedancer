@@ -1,6 +1,7 @@
 #include "fd_mlx5_private.h"
 #include "../../../util/log/fd_log.h"
 #include "../../../util/net/fd_eth.h"
+#include "../../../util/net/fd_ip4.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -233,6 +234,27 @@ struct fd_mlx5_create_udp_flow_req {
 };
 typedef struct fd_mlx5_create_udp_flow_req fd_mlx5_create_udp_flow_req_t;
 
+struct fd_mlx5_create_gre_flow_req {
+  fd_mlx5_uverbs_ex_hdr_t         hdr;
+  uint                            comp_mask;
+  uint                            qp_handle;
+  uint                            type;
+  ushort                          size;
+  ushort                          priority;
+  uchar                           num_of_specs;
+  uchar                           reserved[2];
+  uchar                           port;
+  uint                            flags;
+  struct ib_uverbs_flow_spec_eth  eth;
+  struct ib_uverbs_flow_spec_ipv4 outer_ipv4;
+  struct ib_uverbs_flow_spec_gre  gre;
+  struct ib_uverbs_flow_spec_ipv4 inner_ipv4;
+  struct ib_uverbs_flow_spec_tcp_udp inner_udp;
+  uint                            mlx5_ncounters_data;
+  uint                            mlx5_reserved;
+};
+typedef struct fd_mlx5_create_gre_flow_req fd_mlx5_create_gre_flow_req_t;
+
 FD_STATIC_ASSERT( sizeof(fd_mlx5_get_context_req_t     )== 48UL, mlx5_get_context_req_sz      );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_get_context_resp_t    )== 80UL, mlx5_get_context_resp_sz     );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_query_device_req_t    )== 16UL, mlx5_query_device_req_sz     );
@@ -253,6 +275,7 @@ FD_STATIC_ASSERT( sizeof(fd_mlx5_create_qp_req_t       )==120UL, mlx5_create_qp_
 FD_STATIC_ASSERT( sizeof(fd_mlx5_create_qp_resp_t      )== 72UL, mlx5_create_qp_resp_sz        );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_modify_qp_req_t       )==120UL, mlx5_modify_qp_req_sz         );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_create_udp_flow_req_t )==144UL, mlx5_create_udp_flow_req_sz   );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_create_gre_flow_req_t )==200UL, mlx5_create_gre_flow_req_sz   );
 
 /* fd_mlx5_uverbs_word_cnt and the helpers below encode uverbs command buffers. */
 static int
@@ -319,6 +342,10 @@ fd_mlx5_uverbs_ex_hdr_init( fd_mlx5_uverbs_ex_hdr_t * hdr,
 #define FD_MLX5_FLOW_SPEC_ETH (0x20U)
 #define FD_MLX5_FLOW_SPEC_IPV4 (0x30U)
 #define FD_MLX5_FLOW_SPEC_UDP  (0x41U)
+/* FD_MLX5_FLOW_SPEC_GRE and FD_MLX5_FLOW_SPEC_INNER are Linux
+   IB_FLOW_SPEC_GRE and IB_FLOW_SPEC_INNER. */
+#define FD_MLX5_FLOW_SPEC_GRE  (0x51U)
+#define FD_MLX5_FLOW_SPEC_INNER (0x100U)
 
 /* fd_mlx5_path and the helpers below discover and inspect the selected RDMA
    device. */
@@ -1085,6 +1112,59 @@ fd_mlx5_flow_create_udp( fd_uverbs_ctx_t *     uverbs,
     errno = EINVAL;
     return -1;
   }
+  if( FD_UNLIKELY( fd_mlx5_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return -1;
+  return 0;
+}
+
+int
+fd_mlx5_flow_create_gre_udp( fd_uverbs_ctx_t *     uverbs,
+                             fd_mlx5_qp_t const * qp,
+                             uint                  inner_dst_ip,
+                             ushort                inner_dst_port ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !qp || !inner_dst_port ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  fd_mlx5_create_gre_flow_req_t     req [1];
+  struct ib_uverbs_create_flow_resp resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
+  ulong const core_req_sz = offsetof( fd_mlx5_create_gre_flow_req_t, mlx5_ncounters_data );
+  if( FD_UNLIKELY( fd_mlx5_uverbs_ex_hdr_init( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_FLOW,
+                                               core_req_sz, sizeof(*req), resp,
+                                               sizeof(*resp), sizeof(*resp) ) ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  req->qp_handle    = qp->handle;
+  req->size         = sizeof(req->eth)+sizeof(req->outer_ipv4)+sizeof(req->gre)+
+                      sizeof(req->inner_ipv4)+sizeof(req->inner_udp);
+  req->num_of_specs = 5U;
+  req->port         = (uchar)uverbs->port_num;
+  req->eth.type     = FD_MLX5_FLOW_SPEC_ETH;
+  req->eth.size     = sizeof(req->eth);
+  req->eth.val.ether_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+  req->eth.mask.ether_type = USHORT_MAX;
+  req->outer_ipv4.type    = FD_MLX5_FLOW_SPEC_IPV4;
+  req->outer_ipv4.size    = sizeof(req->outer_ipv4);
+  req->outer_ipv4.val.proto    = FD_IP4_HDR_PROTOCOL_GRE;
+  req->outer_ipv4.mask.proto   = UCHAR_MAX;
+  req->gre.type           = FD_MLX5_FLOW_SPEC_GRE;
+  req->gre.size           = sizeof(req->gre);
+  req->gre.val.protocol   = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+  req->gre.mask.protocol  = USHORT_MAX;
+  req->inner_ipv4.type    = FD_MLX5_FLOW_SPEC_INNER | FD_MLX5_FLOW_SPEC_IPV4;
+  req->inner_ipv4.size    = sizeof(req->inner_ipv4);
+  req->inner_ipv4.val.dst_ip  = inner_dst_ip;
+  req->inner_ipv4.mask.dst_ip = inner_dst_ip ? UINT_MAX : 0U;
+  req->inner_ipv4.val.proto  = FD_IP4_HDR_PROTOCOL_UDP;
+  req->inner_ipv4.mask.proto = UCHAR_MAX;
+  req->inner_udp.type     = FD_MLX5_FLOW_SPEC_INNER | FD_MLX5_FLOW_SPEC_UDP;
+  req->inner_udp.size     = sizeof(req->inner_udp);
+  req->inner_udp.val.dst_port  = fd_ushort_bswap( inner_dst_port );
+  req->inner_udp.mask.dst_port = USHORT_MAX;
   if( FD_UNLIKELY( fd_mlx5_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return -1;
   return 0;
 }

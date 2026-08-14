@@ -466,6 +466,9 @@ EXAMPLES
     <counter name="RxOutOfBuffer" summary="Number of packets dropped by the NIC because this QP's receive queue had no posted buffer." />
     <counter name="PktRxMalformed" summary="Number of packets dropped because the Ethernet, IPv4, or UDP header was malformed." />
     <counter name="PktRxRouteFail" summary="Number of packets dropped because the destination UDP port could not be routed to an output link." />
+    <counter name="GrePktRx" summary="Number of GRE packets successfully decapsulated and published." />
+    <counter name="GrePktRxInvalid" summary="Number of GRE packets dropped because the tunnel peer or headers were invalid." />
+    <counter name="GrePktRxIgnored" summary="Number of GRE packets ignored because no GRE tunnel is configured." />
     <gauge name="RxBufferBusy" summary="Number of RX buffers not currently posted to the NIC." />
     <gauge name="RxBufferIdle" summary="Number of RX buffers currently posted to the NIC." />
     <counter name="PktTxCompleted" summary="Number of packets completed by the NIC for transmission." />
@@ -474,6 +477,8 @@ EXAMPLES
     <counter name="PktTxRouteFail" enum="RouteFail" summary="Number of transmit jobs dropped because route or source address selection failed." />
     <counter name="PktTxInvalid" summary="Number of transmit jobs dropped because the IPv4 version or header length was invalid." />
     <counter name="PktTxNoNeighbor" summary="Number of transmit jobs dropped because the next-hop neighbor was unresolved." />
+    <counter name="GrePktTxSubmitted" summary="Number of GRE transmit jobs submitted to the NIC." />
+    <counter name="GrePktTxNoRoute" summary="Number of GRE transmit jobs dropped because the inner or outer route was incomplete." />
     <gauge name="TxBufferBusy" summary="Number of TX buffers pending or submitted to the NIC." />
     <gauge name="TxBufferIdle" summary="Number of TX buffers available for a new transmit job." />
 </tile>
