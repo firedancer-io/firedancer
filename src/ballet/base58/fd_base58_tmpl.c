@@ -316,20 +316,17 @@ uchar *
 SUFFIX(fd_base58_decode)( char const * encoded,
                           uchar      * out      ) {
 
-  /* Validate string and count characters before the nul terminator */
+  /* Find the cstr length first, then fold validation into group parsing. */
 
-  uchar digits[ ENCODED_SZ() ];
+#if FD_HAS_HOSTED
+  ulong char_cnt = strnlen( encoded, ENCODED_SZ() );
+#else
   ulong char_cnt = 0UL;
-  for( ; char_cnt<ENCODED_SZ(); char_cnt++ ) {
-    char c = encoded[ char_cnt ];
-    if( !c ) break;
-    uchar digit = base58_inverse_full[ (uchar)c ];
-    if( FD_UNLIKELY( digit == BASE58_INVALID_CHAR ) ) return NULL;
-    digits[ char_cnt ] = digit;
-  }
-
-  if( FD_UNLIKELY( char_cnt == ENCODED_SZ() ) ) return NULL; /* too long */
-  if( FD_UNLIKELY( !char_cnt ) )                return NULL;
+  for( ; char_cnt<ENCODED_SZ(); char_cnt++ ) if( !encoded[ char_cnt ] ) break;
+#endif
+  if( FD_UNLIKELY( char_cnt==ENCODED_SZ() ) ) return NULL;
+  if( FD_UNLIKELY( !char_cnt ) )              return NULL;
+  uchar bad = 0U;
 
   /* Convert directly from the string to base 58^5 groups.  The tail
      groups are five characters each; only the head group is shorter. */
@@ -338,15 +335,33 @@ SUFFIX(fd_base58_decode)( char const * encoded,
   ulong gi;
   ulong pos;
 
-#if N==64
+#if N==32
+  if( FD_LIKELY( char_cnt==ENCODED_SZ()-1UL ) ) {
+    gi  = 0UL;
+    uchar d0 = base58_inverse_full[ (uchar)encoded[ 0 ] ];
+    uchar d1 = base58_inverse_full[ (uchar)encoded[ 1 ] ];
+    uchar d2 = base58_inverse_full[ (uchar)encoded[ 2 ] ];
+    uchar d3 = base58_inverse_full[ (uchar)encoded[ 3 ] ];
+    bad |= d0 | d1 | d2 | d3;
+    intermediate[ gi++ ] = (ulong)d0 * 195112UL +
+                           (ulong)d1 *   3364UL +
+                           (ulong)d2 *     58UL +
+                           (ulong)d3;
+    pos = 4UL;
+  } else {
+#elif N==64
   if( FD_LIKELY( char_cnt==ENCODED_SZ()-1UL ) ) {
     /* Random full-width values overwhelmingly use the maximum encoded
        length.  Specializing its head group avoids the dynamic division,
        zero fill, and generic head loop on the throughput-critical path. */
     gi  = 0UL;
-    intermediate[ gi++ ] = (ulong)digits[ 0 ] * 3364UL +
-                           (ulong)digits[ 1 ] *   58UL +
-                           (ulong)digits[ 2 ];
+    uchar d0 = base58_inverse_full[ (uchar)encoded[ 0 ] ];
+    uchar d1 = base58_inverse_full[ (uchar)encoded[ 1 ] ];
+    uchar d2 = base58_inverse_full[ (uchar)encoded[ 2 ] ];
+    bad |= d0 | d1 | d2;
+    intermediate[ gi++ ] = (ulong)d0 * 3364UL +
+                           (ulong)d1 *   58UL +
+                           (ulong)d2;
     pos = 3UL;
   } else {
 #endif
@@ -356,22 +371,33 @@ SUFFIX(fd_base58_decode)( char const * encoded,
     pos             = 0UL;
     ulong head      = char_cnt-5UL*(group_cnt-1UL);
     ulong group     = 0UL;
-    for( ulong i=0UL; i<head; i++ )
-      group = group*58UL + (ulong)digits[ pos++ ];
+    for( ulong i=0UL; i<head; i++ ) {
+      uchar digit = base58_inverse_full[ (uchar)encoded[ pos++ ] ];
+      bad |= digit;
+      group = group*58UL + (ulong)digit;
+    }
     intermediate[ gi++ ] = group;
-#if N==64
+#if N==32 || N==64
   }
 #endif
 
   for( ; gi<INTERMEDIATE_SZ; gi++ ) {
-    uchar const * d = digits+pos;
-    intermediate[ gi ] = (ulong)d[ 0 ] * 11316496UL +
-                         (ulong)d[ 1 ] *   195112UL +
-                         (ulong)d[ 2 ] *     3364UL +
-                         (ulong)d[ 3 ] *       58UL +
-                         (ulong)d[ 4 ];
+    uchar const * c = (uchar const *)encoded+pos;
+    uchar d0 = base58_inverse_full[ c[ 0 ] ];
+    uchar d1 = base58_inverse_full[ c[ 1 ] ];
+    uchar d2 = base58_inverse_full[ c[ 2 ] ];
+    uchar d3 = base58_inverse_full[ c[ 3 ] ];
+    uchar d4 = base58_inverse_full[ c[ 4 ] ];
+    bad |= d0 | d1 | d2 | d3 | d4;
+    intermediate[ gi ] = (ulong)d0 * 11316496UL +
+                         (ulong)d1 *   195112UL +
+                         (ulong)d2 *     3364UL +
+                         (ulong)d3 *       58UL +
+                         (ulong)d4;
     pos += 5UL;
   }
+
+  if( FD_UNLIKELY( bad>=64U ) ) return NULL;
 
 
   /* Using the table, convert to overcomplete base 2^32 (terms can be
