@@ -2615,6 +2615,39 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_snapshot_transfers( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui->http, "snapshot_server", "transfers" );
+    jsonp_open_array( gui->http, "value" );
+      for( ulong i=0UL; i<gui->snapsv.pending_cnt; i++ ) {
+        fd_gui_snapsv_pending_t const * pending = &gui->snapsv.pending[ i ];
+        fd_snapsv_msg_snap_t const * msg = &pending->msg;
+        char client_ip[ FD_IP6_ADDR_CSTR_MAX ];
+        fd_ip6_addr_cstr( client_ip, &msg->req_ip );
+        jsonp_open_object( gui->http, NULL );
+          jsonp_ulong       ( gui->http, "tile_idx",    msg->key.kind_id );
+          jsonp_ulong       ( gui->http, "conn_idx",    msg->key.slot_idx );
+          jsonp_ulong_as_str( gui->http, "request_seq", msg->key.req_seq );
+          jsonp_string      ( gui->http, "client_ip",   client_ip );
+          jsonp_ulong       ( gui->http, "client_port", msg->req_port );
+          jsonp_ulong       ( gui->http, "slot",        msg->slot );
+          jsonp_bool        ( gui->http, "incremental", msg->base_slot!=ULONG_MAX );
+          if( FD_LIKELY( msg->base_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "base_slot", msg->base_slot );
+          else                                         jsonp_null ( gui->http, "base_slot" );
+          jsonp_ulong_as_str( gui->http, "snapshot_size", msg->snap_sz );
+          jsonp_ulong_as_str( gui->http, "range_start", msg->req_off );
+          jsonp_ulong_as_str( gui->http, "range_size",  msg->req_sz );
+          jsonp_ulong_as_str( gui->http, "bytes_sent",  msg->req_cur );
+          jsonp_long_as_str ( gui->http, "start_time_nanos", msg->resp_ts );
+          jsonp_long_as_str ( gui->http, "sample_time_nanos", pending->sample_time_nanos );
+          jsonp_long_as_str ( gui->http, "expire_time_nanos", fd_long_sat_add( pending->sample_time_nanos, FD_SNAPSV_SYNC_EXPIRY ) );
+          jsonp_bool        ( gui->http, "closed",      pending->closed );
+        jsonp_close_object( gui->http );
+      }
+    jsonp_close_array( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
+void
 fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
                                      ulong                 ws_conn_id ) {
   jsonp_open_envelope( peers->http, "gossip", "view_update" );

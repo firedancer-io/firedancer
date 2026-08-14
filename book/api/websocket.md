@@ -1495,6 +1495,76 @@ are subsystem-specific and described below.
 | `repair_outpacing` | Turbine slot is advancing, but repair byte throughput has exceeded turbine byte throughput over the last 12-second window, indicating degraded turbine connectivity |
 | `running`          | Turbine is receiving shreds and its throughput exceeds repair |
 
+### snapshot_server
+
+#### `snapshot_server.transfers`
+| frequency | type                       | example |
+|-----------|----------------------------|---------|
+| *Live*    | `SnapshotServerTransfer[]` |  below  |
+
+Provides updates about active transfers from the snapshot server on this
+validator to remote peers.  Updates are rate limited to 50ms.
+
+A transfer operation is identified by the key (`tile_idx`:`conn_idx`).
+The upload array contains a batch of updates for various download ops but
+this is not the complete list of snapshots.
+
+There may be multiple events for the same key in the array.  The last one
+wins.
+
+Keys get removed if `closed` is set or when they expire (see `expire_time_nanos`).
+
+::: details Example
+
+```json
+{
+    "topic": "snapshot_server",
+    "key": "transfers",
+    "value": [
+        {
+            "tile_idx": 0,
+            "conn_idx": 12,
+            "request_seq": "3",
+            "client_ip": "145.40.125.99",
+            "client_port": 51422,
+            "slot": 290627318,
+            "incremental": true,
+            "base_slot": 290620000,
+            "snapshot_size": "42949672960",
+            "range_start": "0",
+            "range_size": "42949672960",
+            "bytes_sent": "8455716864",
+            "start_time_nanos": "1719910299914232000",
+            "sample_time_nanos": "1719910371392211000",
+            "expire_time_nanos": "1719910372392211000",
+            "closed": false
+        }
+    ]
+}
+```
+
+:::
+
+**`SnapshotServerTransfer`**
+| Field                       | Type           | Description |
+|-----------------------------|----------------|-------------|
+| tile_idx                    | `number`       | Index of the snapsv server tile (typically 0) |
+| conn_idx                    | `number`       | Connection slot in the peer's conn table |
+| request_seq                 | `string`       | Tile-unique sequence number of the current HTTP request |
+| client_ip                   | `string`       | The client's IP address |
+| client_port                 | `number`       | The client's TCP source port |
+| slot                        | `number`       | The slot of the snapshot being downloaded |
+| incremental                 | `bool`         | `true` if the snapshot is incremental, `false` if it is full |
+| base_slot                   | `number\|null` | Base slot of the incremental snapshot |
+| snapshot_size               | `string`       | Total size of the snapshot file in bytes |
+| range_start                 | `string`       | Offset of first byte of the client's requested file range (typically 0) |
+| range_size                  | `string`       | Number of bytes in the client's requested file range (typically `snapshot_size`) |
+| bytes_sent                  | `string`       | Number of snapshot bytes sent so far (`<= range_size`) |
+| start_time_nanos            | `string`       | UNIX timestamp in nanoseconds of when the transfer began |
+| sample_time_nanos           | `string`       | UNIX timestamp in nanoseconds of this update |
+| expire_time_nanos           | `string`       | UNIX timestamp in nanoseconds by when the transfer operation is assumed aborted in the absence of updates |
+| closed                      | `bool`         | `true` implies final event for a transfer; HTTP request is done/aborted |
+
 ### accounts
 Live view of the accounts database backend. The accounts database is a
 log-structured store on disk, partitioned into fixed-size regions which

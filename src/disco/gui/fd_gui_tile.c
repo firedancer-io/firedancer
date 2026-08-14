@@ -52,6 +52,7 @@
 #define IN_KIND_EXECRP_REPLAY (16UL) /* firedancer only */
 #define IN_KIND_BUNDLE        (17UL)
 #define IN_KIND_SNAPIN_MANIF  (18UL) /* firedancer only */
+#define IN_KIND_SNAPSV_OUT    (19UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -123,6 +124,11 @@ typedef struct {
 
     uchar net_gossvf[ FD_NET_MTU ];
     uchar gossip_net[ FD_NET_MTU ];
+
+    struct {
+      fd_snapsv_msg_t snapsv_out;
+      int             snapsv_eom;
+    };
   } parsed;
 
   fd_http_server_t * gui_server;
@@ -341,6 +347,12 @@ during_frag( fd_gui_ctx_t * ctx,
       fd_memcpy( ctx->parsed.gossip_net, src, sz );
       break;
     }
+    case IN_KIND_SNAPSV_OUT: {
+      FD_TEST( sz<=sizeof(ctx->parsed.snapsv_out) );
+      fd_memcpy( &ctx->parsed.snapsv_out, src, sz );
+      ctx->parsed.snapsv_eom = fd_frag_meta_ctl_eom( ctl );
+      break;
+    }
   }
 
   ctx->chunk = chunk;
@@ -455,6 +467,11 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_SNAPCT: {
       fd_gui_handle_snapshot_update( ctx->gui, (fd_snapct_update_t *)src );
+      break;
+    }
+    case IN_KIND_SNAPSV_OUT: {
+      long sample_time_nanos = fd_frag_meta_ts_decomp( tspub, fd_clock_tile_now( ctx->clock ) );
+      fd_gui_handle_snapsv_update( ctx->gui, sig, &ctx->parsed.snapsv_out, sz, ctx->parsed.snapsv_eom, sample_time_nanos );
       break;
     }
     case IN_KIND_REPAIR_NET: {
@@ -837,6 +854,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN;
     else if( FD_LIKELY( !strcmp( link->name, "snapin_manif"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN_MANIF;
+    else if( FD_LIKELY( !strcmp( link->name, "snapsv_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPSV_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "execrp_replay" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));

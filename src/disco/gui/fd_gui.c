@@ -396,6 +396,8 @@ fd_gui_new( void *                   shmem,
   gui->summary.catch_up_repair_sz     = 0UL;
   gui->summary.catch_up_turbine_sz    = 0UL;
 
+  fd_memset( &gui->snapsv, 0, sizeof(gui->snapsv) );
+
   return gui;
 }
 
@@ -1818,6 +1820,12 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
       }
     }
 
+    if( FD_UNLIKELY( gui->snapsv.pending_cnt ) ) {
+      fd_gui_printf_snapshot_transfers( gui );
+      fd_http_server_ws_broadcast( gui->http );
+      gui->snapsv.pending_cnt = 0UL;
+    }
+
     gui->next_sample_50millis += 50L*1000L*1000L;
     return 1;
   }
@@ -2638,6 +2646,21 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
   }
   fd_cstr_printf_check( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path, sizeof(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path), NULL, "%s", msg->read_path );
+}
+
+void
+fd_gui_handle_snapsv_update( fd_gui_t *              gui,
+                             ulong                   sig,
+                             fd_snapsv_msg_t const * msg,
+                             ulong                   sz,
+                             int                     eom,
+                             long                    now ) {
+  if( FD_UNLIKELY( sig!=FD_SNAPSV_MSG_SNAP || sz!=sizeof(fd_snapsv_msg_snap_t) ) ) return;
+  if( FD_UNLIKELY( gui->snapsv.pending_cnt>=FD_GUI_SNAPSV_PENDING_MAX ) ) return;
+  fd_gui_snapsv_pending_t * pending = &gui->snapsv.pending[ gui->snapsv.pending_cnt++ ];
+  pending->msg               = msg->snap;
+  pending->sample_time_nanos = now;
+  pending->closed            = eom;
 }
 
 void

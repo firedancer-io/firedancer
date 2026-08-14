@@ -11,6 +11,7 @@
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/bundle/fd_bundle_tile.h"
+#include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
@@ -562,6 +563,17 @@ struct fd_gui_boot_progress {
 
 typedef struct fd_gui_boot_progress fd_gui_boot_progress_t;
 
+#define FD_GUI_SNAPSV_PENDING_MAX (16384UL)
+#define FD_GUI_SNAPSV_PUBLISH_INTERVAL_NANOS ( 50L*1000L*1000L)
+
+struct fd_gui_snapsv_pending {
+  fd_snapsv_msg_snap_t msg;
+  long sample_time_nanos;
+  int  closed;
+};
+
+typedef struct fd_gui_snapsv_pending fd_gui_snapsv_pending_t;
+
 /* Triangular-weighted moving window over per-snap deltas.  Snap
    cadence is ~100ms, window is FD_GUI_ACCDB_WIN_SAMPLES samples
    (~5s).  The output rate for any metric is:
@@ -911,6 +923,11 @@ struct fd_gui {
        been pushed to clients. */
     long broadcast_watermark_ns;
   } shreds;
+
+  struct {
+    ulong                   pending_cnt;
+    fd_gui_snapsv_pending_t pending[ FD_GUI_SNAPSV_PENDING_MAX ];
+  } snapsv;
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -1056,6 +1073,14 @@ fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long 
 void
 fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
                                fd_snapct_update_t const * msg );
+
+void
+fd_gui_handle_snapsv_update( fd_gui_t *              gui,
+                             ulong                   sig,
+                             fd_snapsv_msg_t const * msg,
+                             ulong                   sz,
+                             int                     eom,
+                             long                    now );
 
 void
 fd_gui_stage_snapshot_manifest( fd_gui_t *                       gui,
