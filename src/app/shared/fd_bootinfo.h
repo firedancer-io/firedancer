@@ -118,8 +118,11 @@ fd_bootinfo_notice( fd_bootinfo_instance_t const * instance );
    topology from the file is used and only the layout is verified.
    Otherwise the running validator is discovered and config is replaced
    with the validator's own published resolved config, so all topology
-   offsets are exactly the ones in use.  Logs an error and exits if no
-   or multiple validators are running, or on a version mismatch. */
+   offsets are exactly the ones in use.  In either case
+   config->boot_timestamp_nanos is replaced with the running
+   validator's boot time, or zero if it cannot be determined.  Logs an
+   error and exits if no or multiple validators are running, or on a
+   version mismatch. */
 
 void
 fd_bootinfo_adopt( config_t * config );
