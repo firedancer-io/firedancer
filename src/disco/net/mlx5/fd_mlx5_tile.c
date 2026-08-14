@@ -153,9 +153,10 @@ struct fd_mlx5_tile {
   uchar * umem_frame0; /* first UMEM frame */
 
   /* UMEM chunk region within workspace */
-  uint umem_chunk0; /* lowest allowed chunk number */
-  uint umem_wmark;  /* highest allowed chunk number */
-  uint tx_chunk0;   /* first TX buffer chunk */
+  uint   umem_chunk0;      /* lowest allowed chunk number */
+  uint   umem_wmark;       /* highest allowed chunk number */
+  uint   tx_chunk0;        /* first TX buffer chunk */
+  uint * sq_wqe_buf_chunk; /* lets loopback RX exchange a TX buffer with an output buffer */
 
   /* TX input links*/
   fd_mlx5_tile_input_ctx_t input_ctx[ FD_TOPO_MAX_TILE_IN_LINKS ];
@@ -317,7 +318,7 @@ fd_mlx5_hw_init_queues( fd_mlx5_tile_t * ctx,
 static inline uint
 fd_mlx5_tile_tx_chunk( fd_mlx5_tile_t const * ctx,
                        uint                  sq_idx ) {
-  return ctx->tx_chunk0 + (sq_idx & (ctx->qp.tx_depth-1U))*(uint)(FD_NET_MTU>>FD_CHUNK_LG_SZ);
+  return ctx->sq_wqe_buf_chunk[ sq_idx & (ctx->qp.tx_depth-1U) ];
 }
 
 static inline void
@@ -615,6 +616,10 @@ fd_mlx5_tile_rx_pkt( fd_mlx5_tile_t *    ctx,
     ctx->metrics.rx_malformed_cnt++;
     return chunk;
   }
+  if( FD_UNLIKELY( ctx->router.bind_address && ip4_hdr->daddr!=ctx->router.bind_address ) ) {
+    ctx->metrics.rx_route_fail_cnt++;
+    return chunk;
+  }
 
   ulong const udp_off   = sizeof(fd_eth_hdr_t)+ip4_hdr_sz;
   ulong const dgram_off = udp_off+sizeof(fd_udp_hdr_t);
@@ -814,7 +819,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)seq; (void)sig; (void)tsorig; (void)tspub; (void)stem;
+  (void)seq; (void)sig; (void)tsorig; (void)tspub;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_IPROUTE ) ) {
     fd_iproute_msg_t const * msg = &ctx->iproute_msg;
@@ -843,6 +848,17 @@ after_frag( fd_mlx5_tile_t *    ctx,
   int const fill_result = fd_net_tx_fill_addrs( &ctx->router, &ctx->tx_route, frame, frame_sz );
   if( FD_UNLIKELY( fill_result!=FD_NET_TX_FILL_OK ) ) {
     ctx->metrics.tx_invalid_cnt += (ulong)(fill_result==FD_NET_TX_FILL_INVALID);
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->tx_route.use_loopback ) ) {
+    ulong const rx_pkt_cnt = ctx->metrics.rx_pkt_cnt;
+    ulong const freed_chunk = fd_mlx5_tile_rx_pkt( ctx, stem, chunk, frame_sz,
+                                                   (ulong)fd_frag_meta_ts_comp( fd_tickcount() ) );
+    if( ctx->metrics.rx_pkt_cnt!=rx_pkt_cnt )
+      ctx->sq_wqe_buf_chunk[ ctx->qp.sq_prod & (ctx->qp.tx_depth-1U) ] = (uint)freed_chunk;
+    ctx->metrics.tx_pkt_cnt++;
+    ctx->metrics.tx_bytes_total += frame_sz;
     return;
   }
 
@@ -960,6 +976,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( !queue_footprint ) ) return 0UL;
   layout = FD_LAYOUT_APPEND( layout, alignof(fd_mlx5_tile_t), sizeof(fd_mlx5_tile_t) );
   layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, queue_footprint );
+  layout = FD_LAYOUT_APPEND( layout, alignof(uint), tile->mlx5.tx_queue_size*sizeof(uint) );
   layout = FD_LAYOUT_APPEND( layout, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
   layout = FD_LAYOUT_APPEND( layout, fd_fib4_align(), fd_fib4_footprint( tile->mlx5.route_max, tile->mlx5.route_peer_max ) );
   layout = FD_LAYOUT_APPEND( layout, fd_fib4_align(), fd_fib4_footprint( tile->mlx5.route_max, tile->mlx5.route_peer_max ) );
@@ -1122,6 +1139,7 @@ privileged_init( fd_topo_t const *      topo,
   ulong const queue_memory_sz = fd_mlx5_queue_footprint( tile->mlx5.rx_queue_size,
                                                          tile->mlx5.tx_queue_size );
   void * const queue_memory = FD_SCRATCH_ALLOC_APPEND( scratch, FD_MLX5_PAGE_SZ, queue_memory_sz );
+  ctx->sq_wqe_buf_chunk = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint), tile->mlx5.tx_queue_size*sizeof(uint) );
   ctx->batch_size = tile->mlx5.batch_size;
   if( FD_UNLIKELY( !fd_mlx5_hw_init_queues( ctx, queue_memory,
                                             tile->mlx5.rx_queue_size,
@@ -1209,6 +1227,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong queue_footprint = fd_mlx5_queue_footprint( tile->mlx5.rx_queue_size,
                                                    tile->mlx5.tx_queue_size );
   (void)FD_SCRATCH_ALLOC_APPEND( scratch, FD_MLX5_PAGE_SZ, queue_footprint );
+  ctx->sq_wqe_buf_chunk = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint), tile->mlx5.tx_queue_size*sizeof(uint) );
   ctx->batch_size = tile->mlx5.batch_size;
   ctx->stats_interval_ticks = (long)( FD_MLX5_STATS_INTERVAL_NS*fd_tempo_tick_per_ns( NULL ) );
   ctx->next_stats_refresh_ticks = fd_tickcount()+ctx->stats_interval_ticks;
@@ -1244,7 +1263,10 @@ unprivileged_init( fd_topo_t const *      topo,
   }
   /* Assign one TX buffer to each SQ WQE */
   ctx->tx_chunk0 = (uint)next_chunk;
-  next_chunk += (ulong)tile->mlx5.tx_queue_size*frame_chunks;
+  for( ulong i=0UL; i<tile->mlx5.tx_queue_size; i++ ) {
+    ctx->sq_wqe_buf_chunk[ i ] = (uint)next_chunk;
+    next_chunk += frame_chunks;
+  }
   /* Init TX */
   if( FD_UNLIKELY( tile->in_cnt>FD_TOPO_MAX_TILE_IN_LINKS ) ) {
     FD_LOG_ERR(( "mlx5 tile in link count %lu exceeds max of %lu", tile->in_cnt, FD_TOPO_MAX_TILE_IN_LINKS ));

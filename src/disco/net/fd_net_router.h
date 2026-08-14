@@ -49,6 +49,7 @@ struct fd_net_tx_route {
   uchar mac_addrs[12];
   uint  src_ip;
   uint  if_idx;
+  uint  use_loopback;
   uint  use_gre;
   uint  gre_outer_src_ip;
   uint  gre_outer_dst_ip;
@@ -104,9 +105,10 @@ fd_net_tx_route( fd_net_router_t * ctx,
   out->if_idx = if_idx;
 
   if( netdev->dev_type==ARPHRD_LOOPBACK ) {
-    /* FIXME loopback support */
-    ctx->metrics.tx_route_fail_cnt[ FD_NET_ROUTE_FAIL_UNSUPPORTED_INTERFACE ]++;
-    return 0;
+    memset( out->mac_addrs, 0, sizeof(out->mac_addrs) );
+    out->src_ip       = fd_uint_if( !ip4_src, FD_IP4_ADDR( 127,0,0,1 ), ip4_src );
+    out->use_loopback = 1U;
+    return 1;
   } else if( netdev->dev_type==ARPHRD_IPGRE ) {
     /* skip MAC addrs lookup for GRE inner dst ip */
     out->gre_outer_src_ip = netdev->gre_src_ip;
