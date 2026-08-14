@@ -29,9 +29,9 @@ test_compact_txncache_staging_preserves_groups( void ) {
   FD_TEST( txncache );
   fd_txncache_reset( txncache );
 
-  uchar old_blockhash[ 32UL ] = { 1U };
-  uchar live_blockhash[ 32UL ] = { 2U };
-  uchar root_blockhash[ 32UL ] = { 3U };
+  fd_hash_t old_blockhash  = { .ul = { 1UL } };
+  fd_hash_t live_blockhash = { .ul = { 2UL } };
+  fd_hash_t root_blockhash = { .ul = { 3UL } };
   uchar txnhashes[ 3UL ][ 32UL ];
   for( ulong i=0UL; i<3UL; i++ )
     for( ulong j=0UL; j<32UL; j++ )
@@ -45,8 +45,8 @@ test_compact_txncache_staging_preserves_groups( void ) {
     { .txnhash_offset = 3UL, .txncache_entry_idx = 0UL, .txncache_entry_cnt = 1UL },
     { .txnhash_offset = 3UL, .txncache_entry_idx = 1UL, .txncache_entry_cnt = 2UL },
   };
-  fd_memcpy( groups[ 0 ].blockhash, old_blockhash,  sizeof(old_blockhash)  );
-  fd_memcpy( groups[ 1 ].blockhash, live_blockhash, sizeof(live_blockhash) );
+  fd_memcpy( groups[ 0 ].blockhash, old_blockhash.uc,  sizeof(old_blockhash.uc)  );
+  fd_memcpy( groups[ 1 ].blockhash, live_blockhash.uc, sizeof(live_blockhash.uc) );
 
   fd_snapin_tile_t ctx = {
     .seed                  = 1UL,
@@ -61,13 +61,13 @@ test_compact_txncache_staging_preserves_groups( void ) {
     { .hash_index = 7UL },
     { .hash_index = 8UL },
   };
-  fd_memcpy( manifest_blockhashes[ 0 ].hash, live_blockhash, sizeof(live_blockhash) );
-  fd_memcpy( manifest_blockhashes[ 1 ].hash, root_blockhash, sizeof(root_blockhash) );
+  fd_memcpy( manifest_blockhashes[ 0 ].hash, live_blockhash.uc, sizeof(live_blockhash.uc) );
+  fd_memcpy( manifest_blockhashes[ 1 ].hash, root_blockhash.uc, sizeof(root_blockhash.uc) );
   FD_TEST( !populate_txncache( &ctx, manifest_blockhashes, 2UL ) );
 
-  FD_TEST( !fd_txncache_query( txncache, ctx.txncache_root_fork_id, live_blockhash, txnhashes[ 0 ] ) );
-  FD_TEST(  fd_txncache_query( txncache, ctx.txncache_root_fork_id, live_blockhash, txnhashes[ 1 ] ) );
-  FD_TEST(  fd_txncache_query( txncache, ctx.txncache_root_fork_id, live_blockhash, txnhashes[ 2 ] ) );
+  FD_TEST( !fd_txncache_query( txncache, ctx.txncache_root_fork_id, live_blockhash.uc, txnhashes[ 0 ] ) );
+  FD_TEST(  fd_txncache_query( txncache, ctx.txncache_root_fork_id, live_blockhash.uc, txnhashes[ 1 ] ) );
+  FD_TEST(  fd_txncache_query( txncache, ctx.txncache_root_fork_id, live_blockhash.uc, txnhashes[ 2 ] ) );
 
   free( ljoin_mem );
   free( shmem_mem );
