@@ -122,6 +122,8 @@ test_hardware( char const * rdma_name,
   FD_TEST( tx_cq_entries[ 0U ].op_own==(uchar)(FD_MLX5_CQE_OP_INVALID<<4) );
 
   FD_TEST( !fd_mlx5_flow_create_udp( &tile->uverbs, &tile->qp, 0U, 65535U ) );
+  FD_TEST( !fd_mlx5_flow_create_gre_udp( &tile->uverbs, &tile->qp,
+                                         FD_IP4_ADDR( 192,0,2,1 ), 65535U ) );
 
   ulong out_of_buffer;
   FD_TEST( !fd_mlx5_netlink_rdma_qp_counter_read( &tile->netlink_rdma, &out_of_buffer ) );
@@ -696,6 +698,9 @@ main( int     argc,
   uint const neigh1_ip4_addr = FD_IP4_ADDR( 192,168,1,11 ); /* missing a neighbor table entry */
   uint const neigh2_ip4_addr = FD_IP4_ADDR( 192,168,1,12 ); /* can send packets via this guy */
   uint const gw_ip4_addr     = FD_IP4_ADDR( 192,168,1,1 );  /* gateway */
+  uint const gre_inner_src_ip = FD_IP4_ADDR( 10,0,0,1 );
+  uint const gre_outer_src_ip = FD_IP4_ADDR( 203,0,113,88 );
+  uint const gre_outer_dst_ip = FD_IP4_ADDR( 198,51,100,9 );
 
   /* Neighbor table */
   add_neighbor( neigh4_hmap, neigh2_ip4_addr, 0x01,0x23,0x45,0x67,0x89,0xab );
@@ -731,7 +736,7 @@ main( int     argc,
   FD_TEST( fd_fib4_insert( tile->router.fib_main, FD_IP4_ADDR( 0,0,0,0 ), 0, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_ETH0, .rtype=FD_FIB4_RTYPE_BLACKHOLE };
   FD_TEST( fd_fib4_insert( tile->router.fib_main, banned_ip4_addr, 32, 0U, &hop ) );
-  hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_ETH1, .rtype=FD_FIB4_RTYPE_UNICAST };
+  hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_ETH1, .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_src=gre_inner_src_ip };
   FD_TEST( fd_fib4_insert( tile->router.fib_main, path2_ip4_addr, 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .rtype=FD_FIB4_RTYPE_THROW };
   FD_TEST( fd_fib4_insert( tile->router.fib_main, no_route_ip4_addr, 32, 0U, &hop ) );
@@ -876,6 +881,100 @@ main( int     argc,
   FD_TEST( fd_disco_netmux_sig_proto( rx_link->mcache[ fd_mcache_line_idx( rx_seq, link_depth ) ].sig )==DST_PROTO_GOSSIP );
   rx_seq++;
 
+  /* GRE RX keeps the receive buffer and moves only the Ethernet header. */
+  struct {
+    fd_eth_hdr_t eth;
+    fd_ip4_hdr_t outer_ip4;
+    fd_gre_hdr_t gre;
+    fd_ip4_hdr_t inner_ip4;
+    fd_udp_hdr_t udp;
+  } const rx_gre_pkt_templ = {
+    .eth = { .net_type=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) },
+    .outer_ip4 = {
+      .verihl=FD_IP4_VERIHL( 4,5 ), .net_tot_len=fd_ushort_bswap( 52U ),
+      .protocol=FD_IP4_HDR_PROTOCOL_GRE, .saddr=gre_outer_dst_ip, .daddr=gre_outer_src_ip
+    },
+    .gre = {
+      .flags_version=FD_GRE_HDR_FLG_VER_BASIC,
+      .protocol=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP )
+    },
+    .inner_ip4 = {
+      .verihl=FD_IP4_VERIHL( 4,5 ), .net_tot_len=fd_ushort_bswap( 28U ),
+      .protocol=FD_IP4_HDR_PROTOCOL_UDP, .saddr=FD_IP4_ADDR( 198,51,100,2 ),
+      .daddr=gre_inner_src_ip
+    },
+    .udp = {
+      .net_len=fd_ushort_bswap( 8U ), .net_sport=fd_ushort_bswap( 4322U ),
+      .net_dport=fd_ushort_bswap( SHRED_PORT )
+    }
+  };
+  tile->gre_tunnel_ip[0] = gre_outer_dst_ip;
+  tile->router.bind_address = gre_inner_src_ip;
+  FD_TEST( rx_gre_pkt_templ.outer_ip4.daddr!=tile->router.bind_address );
+  rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_gre_pkt_templ) );
+  rx_packet = fd_chunk_to_laddr( tile->umem_base, rx_chunk );
+  fd_memcpy( rx_packet, &rx_gre_pkt_templ, sizeof(rx_gre_pkt_templ) );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  verify_balances( tile, stem, mock, frame_track );
+  fd_frag_meta_t const * gre_mline = rx_link->mcache+fd_mcache_line_idx( rx_seq, link_depth );
+  FD_TEST( fd_seq_eq( gre_mline->seq, rx_seq ) );
+  FD_TEST( gre_mline->chunk==rx_chunk );
+  FD_TEST( gre_mline->ctl==sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t) );
+  FD_TEST( gre_mline->sz==sizeof(rx_pkt_templ) );
+  ulong const expected_gre_sig = fd_disco_netmux_sig( rx_gre_pkt_templ.inner_ip4.saddr, 4322U,
+                                                       rx_gre_pkt_templ.inner_ip4.saddr, DST_PROTO_SHRED,
+                                                       sizeof(rx_pkt_templ) );
+  FD_TEST( gre_mline->sig==expected_gre_sig );
+  uchar const * gre_frame = (uchar const *)fd_chunk_to_laddr_const( tile->umem_base, gre_mline->chunk )+gre_mline->ctl;
+  FD_TEST( !memcmp( gre_frame, &rx_gre_pkt_templ.eth, sizeof(fd_eth_hdr_t) ) );
+  FD_TEST( !memcmp( gre_frame+sizeof(fd_eth_hdr_t), &rx_gre_pkt_templ.inner_ip4,
+                    sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) );
+  FD_TEST( tile->metrics.rx_gre_cnt==1UL );
+  rx_seq++;
+
+  /* GRE RX bind address rejects a different inner IPv4 destination. */
+  ulong const rx_gre_route_fail_before = tile->metrics.rx_route_fail_cnt;
+  rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_gre_pkt_templ) );
+  rx_packet = fd_chunk_to_laddr( tile->umem_base, rx_chunk );
+  fd_memcpy( rx_packet, &rx_gre_pkt_templ, sizeof(rx_gre_pkt_templ) );
+  FD_STORE( uint, rx_packet+offsetof( __typeof__(rx_gre_pkt_templ), inner_ip4.daddr ), site_ip4_addr );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  verify_balances( tile, stem, mock, frame_track );
+  FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
+  FD_TEST( tile->metrics.rx_route_fail_cnt==rx_gre_route_fail_before+1UL );
+  tile->router.bind_address = 0U;
+
+  /* GRE RX rejects an unknown tunnel peer. */
+  ulong const rx_gre_invalid_before = tile->metrics.rx_gre_invalid_cnt;
+  rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_gre_pkt_templ) );
+  rx_packet = fd_chunk_to_laddr( tile->umem_base, rx_chunk );
+  fd_memcpy( rx_packet, &rx_gre_pkt_templ, sizeof(rx_gre_pkt_templ) );
+  ((fd_ip4_hdr_t *)(rx_packet+sizeof(fd_eth_hdr_t)))->saddr = FD_IP4_ADDR( 198,51,100,10 );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  verify_balances( tile, stem, mock, frame_track );
+  FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
+  FD_TEST( tile->metrics.rx_gre_invalid_cnt==rx_gre_invalid_before+1UL );
+
+  /* GRE RX rejects a non-IPv4 GRE payload. */
+  rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_gre_pkt_templ) );
+  rx_packet = fd_chunk_to_laddr( tile->umem_base, rx_chunk );
+  fd_memcpy( rx_packet, &rx_gre_pkt_templ, sizeof(rx_gre_pkt_templ) );
+  ((fd_gre_hdr_t *)(rx_packet+sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)))->protocol =
+      fd_ushort_bswap( FD_ETH_HDR_TYPE_ARP );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  verify_balances( tile, stem, mock, frame_track );
+  FD_TEST( tile->metrics.rx_gre_invalid_cnt==rx_gre_invalid_before+2UL );
+
+  /* GRE RX ignores GRE when no tunnel is configured. */
+  tile->gre_tunnel_ip[0] = 0U;
+  ulong const rx_gre_ignored_before = tile->metrics.rx_gre_ignored_cnt;
+  rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_gre_pkt_templ) );
+  rx_packet = fd_chunk_to_laddr( tile->umem_base, rx_chunk );
+  fd_memcpy( rx_packet, &rx_gre_pkt_templ, sizeof(rx_gre_pkt_templ) );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  verify_balances( tile, stem, mock, frame_track );
+  FD_TEST( tile->metrics.rx_gre_ignored_cnt==rx_gre_ignored_before+1UL );
+
   /* RX packet with unknown dst port */
   ulong const rx_route_fail_before = tile->metrics.rx_route_fail_cnt;
   rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_pkt_templ) );
@@ -1007,12 +1106,15 @@ main( int     argc,
   FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, path2_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
 
-  /* TX packet targeting unsupported GRE */
+  /* A GRE route without a remote tunnel endpoint is rejected. */
   fd_netdev_t * eth1 = fd_netdev_tbl_query( &tile->router.netdev_tbl, IF_IDX_ETH1 );
   FD_TEST( eth1 );
-  eth1->dev_type = ARPHRD_IPGRE;
+  eth1->dev_type  = ARPHRD_IPGRE;
+  eth1->gre_src_ip = gre_outer_src_ip;
+  ulong const tx_gre_route_fail_before = tile->metrics.tx_gre_route_fail_cnt;
   FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, path2_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
+  FD_TEST( tile->metrics.tx_gre_route_fail_cnt==tx_gre_route_fail_before+1UL );
   eth1->dev_type = ARPHRD_ETHER;
 
   /* TX packet targeting unknown neighbor */
@@ -1155,20 +1257,6 @@ main( int     argc,
   FD_TEST( tile->metrics.tx_bytes_total==tx_bytes_before+sizeof(tx_pkt_templ) );
   verify_balances( tile, stem, mock, frame_track );
 
-  /* A failed TX submission is fatal. */
-  FD_TEST( before_frag( tile, 0UL, tx_seq, tx_sig )==0 );
-  uint const sq_prod = tile->qp.sq_prod;
-  uint const full_sq_limit = tile->qp.sq_cons+tile->qp.tx_depth;
-  uint const full_sq_chunk = fd_mlx5_tile_tx_chunk( tile, full_sq_limit );
-  void * full_sq_frame = fd_chunk_to_laddr( tile->umem_base, full_sq_chunk );
-  fd_memcpy( full_sq_frame, &tx_pkt_templ, sizeof(tx_pkt_templ) );
-  FD_TEST( fd_net_tx_fill_addrs( &tile->router, &tile->tx_route, full_sq_frame,
-                                 sizeof(tx_pkt_templ) )==FD_NET_TX_FILL_OK );
-  FD_EXPECT_LOG_ERR(( tile->qp.sq_prod=full_sq_limit,
-                      after_frag( tile, 0UL, tx_seq, tx_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem ) ));
-  tile->qp.sq_prod = sq_prod;
-  verify_balances( tile, stem, mock, frame_track );
-
   /* Every packet is submitted immediately and requests its own CQE. */
   ulong expected_tx_bytes = 0UL;
   for( ulong i=0UL; i<(ulong)batch_size+1UL; i++ ) {
@@ -1191,6 +1279,55 @@ main( int     argc,
   FD_TEST( !test_tx_cq_cnt( mock, tile ) );
   FD_TEST( tile->metrics.tx_pkt_cnt==tx_pkt_before+2UL+batch_size );
   FD_TEST( tile->metrics.tx_bytes_total==tx_bytes_before+sizeof(tx_pkt_templ)+expected_tx_bytes );
+  verify_balances( tile, stem, mock, frame_track );
+
+  /* GRE TX preserves the inner packet and prepends the outer IPv4 and GRE headers. */
+  eth1->dev_type   = ARPHRD_IPGRE;
+  eth1->gre_src_ip = gre_outer_src_ip;
+  eth1->gre_dst_ip = gre_outer_dst_ip;
+  ulong const gre_tx_sig = fd_disco_netmux_sig( 0U, 0U, path2_ip4_addr, DST_PROTO_OUTGOING, 0UL );
+  FD_TEST( before_frag( tile, 0UL, tx_seq, gre_tx_sig )==0 );
+  fd_memcpy( tx_packet, &tx_pkt_templ, sizeof(tx_pkt_templ) );
+  ((fd_ip4_hdr_t *)(tx_packet+sizeof(fd_eth_hdr_t)))->daddr = path2_ip4_addr;
+  ulong const tx_gre_before = tile->metrics.tx_gre_cnt;
+  during_frag( tile, 0UL, tx_seq, gre_tx_sig, tx_chunk, sizeof(tx_pkt_templ), 0UL );
+  after_frag( tile, 0UL, tx_seq, gre_tx_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem );
+  FD_TEST( tile->metrics.tx_gre_cnt==tx_gre_before+1UL );
+  FD_TEST( test_tx_wq_cnt( mock, tile )==1U );
+
+  uint const gre_wqe_counter = tile->qp.sq_prod-1U;
+  uint const gre_tx_chunk = fd_mlx5_tile_tx_chunk( tile, gre_wqe_counter );
+  uchar const * gre_tx_frame = fd_chunk_to_laddr_const( tile->umem_base, gre_tx_chunk );
+  fd_eth_hdr_t const * gre_tx_eth = (fd_eth_hdr_t const *)gre_tx_frame;
+  fd_ip4_hdr_t const * gre_tx_outer = (fd_ip4_hdr_t const *)(gre_tx_eth+1);
+  fd_gre_hdr_t const * gre_tx_hdr = (fd_gre_hdr_t const *)(gre_tx_outer+1);
+  fd_ip4_hdr_t const * gre_tx_inner = (fd_ip4_hdr_t const *)(gre_tx_hdr+1);
+  FD_TEST( !memcmp( gre_tx_eth->dst, "\xff\x23\x45\x67\x89\xab", 6UL ) );
+  FD_TEST( gre_tx_outer->protocol==FD_IP4_HDR_PROTOCOL_GRE );
+  FD_TEST( gre_tx_outer->saddr==gre_outer_src_ip && gre_tx_outer->daddr==gre_outer_dst_ip );
+  FD_TEST( gre_tx_hdr->flags_version==FD_GRE_HDR_FLG_VER_BASIC );
+  FD_TEST( gre_tx_hdr->protocol==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
+  FD_TEST( gre_tx_inner->saddr==gre_inner_src_ip && gre_tx_inner->daddr==path2_ip4_addr );
+  tx_comp_one( mock, tile, FD_MLX5_CQE_OP_TX_OK );
+  charge_busy = 0;
+  before_credit( tile, stem, &charge_busy );
+  FD_TEST( charge_busy );
+  verify_balances( tile, stem, mock, frame_track );
+
+  eth1->dev_type = ARPHRD_ETHER;
+  FD_TEST( before_frag( tile, 0UL, tx_seq, tx_sig )==0 );
+
+  /* A failed TX submission is fatal. */
+  uint const sq_prod = tile->qp.sq_prod;
+  uint const full_sq_limit = tile->qp.sq_cons+tile->qp.tx_depth;
+  uint const full_sq_chunk = fd_mlx5_tile_tx_chunk( tile, full_sq_limit );
+  void * full_sq_frame = fd_chunk_to_laddr( tile->umem_base, full_sq_chunk );
+  fd_memcpy( full_sq_frame, &tx_pkt_templ, sizeof(tx_pkt_templ) );
+  FD_TEST( fd_net_tx_fill_addrs( &tile->router, &tile->tx_route, full_sq_frame,
+                                 sizeof(tx_pkt_templ) )==FD_NET_TX_FILL_OK );
+  FD_EXPECT_LOG_ERR(( tile->qp.sq_prod=full_sq_limit,
+                      after_frag( tile, 0UL, tx_seq, tx_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem ) ));
+  tile->qp.sq_prod = sq_prod;
   verify_balances( tile, stem, mock, frame_track );
 
   /* Loopback applies the RX bind address without submitting a WQE. */
