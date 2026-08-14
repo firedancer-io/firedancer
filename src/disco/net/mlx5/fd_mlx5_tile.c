@@ -44,7 +44,8 @@
 /* Max number of flow rules */
 #define FD_MLX5_FLOW_CAP (64UL)
 #define FD_MLX5_GRE_MAX  (4UL)
-#define FD_MLX5_STATS_INTERVAL_NS (1e9)
+#define FD_MLX5_STATS_INTERVAL_NS (1e9) /* 1s */
+#define FD_MLX5_TX_FLUSH_TIMEOUT_NS (20000L) /* 20us */
 
 /* FD_MLX5_SQ_* are options in a SQ WQE to request certain NIC behaviour.
    SEND requests packet transmission.  CQ_UPDATE requests a CQE. */
@@ -149,6 +150,10 @@ struct fd_mlx5_tile {
   /* RQ batching */
   uint rq_pending_chunk[ FD_MLX5_BATCH_SIZE ];
   uint rq_pending_cnt;
+
+  /* SQ batching */
+  long sq_flush_timeout_ticks;
+  long sq_flush_deadline_ticks;
 
   /* UMEM frame region within dcache */
   uchar * umem_base;   /* workspace base */
@@ -370,7 +375,6 @@ fd_mlx5_hw_init_tx_wqe( fd_mlx5_tx_wqe_t * wqe,
 
   wqe_ctrl_seg->opmod_idx_opcode = fd_uint_bswap( ((sq_idx & 0xffffU)<<8) | FD_MLX5_SQ_SEND_PKT );
   wqe_ctrl_seg->qpn_ds           = fd_uint_bswap( (qpn<<8) | wqe_seg_cnt );
-  wqe_ctrl_seg->flags            = FD_MLX5_SQ_REQUEST_CQE;
 
   wqe_eth_seg->inline_hdr_sz = fd_ushort_bswap( (ushort)inline_hdr_sz );
   if( inline_hdr_sz ) fd_memcpy( wqe_eth_seg->inline_hdr, frame, inline_hdr_sz );
@@ -396,7 +400,8 @@ fd_mlx5_hw_init_rx_wqe( fd_mlx5_rx_wqe_t * wqe,
 static inline void
 fd_mlx5_hw_ring_sq( fd_mlx5_qp_t *     qp,
                     fd_mlx5_tx_wqe_t * wqe ) {
-  qp->sq_prod++;
+  fd_mlx5_hw_wqe_ctrl_seg_t * wqe_ctrl_seg = (fd_mlx5_hw_wqe_ctrl_seg_t *)wqe;
+  wqe_ctrl_seg->flags = FD_MLX5_SQ_REQUEST_CQE;
   fd_mlx5_hw_dma_to_device();
   FD_VOLATILE( qp->control->sq_prod ) = fd_uint_bswap( qp->sq_prod & 0xffffU );
   fd_mlx5_hw_dma_to_device();
@@ -405,6 +410,8 @@ fd_mlx5_hw_ring_sq( fd_mlx5_qp_t *     qp,
      WQE from write-back SQ memory. */
   volatile ulong * doorbell_reg = (volatile ulong *)qp->sq_doorbell;
   doorbell_reg[0] = FD_LOAD( ulong, wqe->bytes );
+  FD_COMPILER_MFENCE();
+  qp->sq_posted = qp->sq_prod;
 }
 
 static inline int
@@ -427,7 +434,7 @@ fd_mlx5_hw_post_send( fd_mlx5_tile_t * ctx,
     return -1;
   }
   qp->sq_wqe_frame_sz[ sq_idx & (qp->tx_depth-1U) ] = frame_sz;
-  fd_mlx5_hw_ring_sq( qp, wqe );
+  qp->sq_prod++;
   return 0;
 }
 
@@ -540,19 +547,30 @@ fd_mlx5_hw_poll_tx_cq( fd_mlx5_qp_t * qp,
 
   uint const sq_cons_idx = qp->sq_cons;
   uint const wqe_counter = (uint)fd_ushort_bswap( tx_cqe->wqe_counter );
-  uint const outstanding = qp->sq_prod-sq_cons_idx;
-  if( FD_UNLIKELY( !outstanding || outstanding>qp->tx_depth ||
-                   (ushort)wqe_counter!=(ushort)sq_cons_idx ) ) {
+  uint const outstanding = qp->sq_posted-sq_cons_idx;
+  uint const comp_cnt     = (uint)(ushort)(wqe_counter-sq_cons_idx)+1U;
+  if( FD_UNLIKELY( !outstanding || outstanding>qp->tx_depth || comp_cnt>outstanding ) ) {
     errno = EPROTO;
     return -1;
   }
 
-  *comp_bytes     = qp->sq_wqe_frame_sz[ sq_cons_idx & (qp->tx_depth-1U) ];
-  qp->sq_cons     = sq_cons_idx+1U;
+  *comp_bytes = 0UL;
+  for( uint i=0U; i<comp_cnt; i++ )
+    *comp_bytes += qp->sq_wqe_frame_sz[ (sq_cons_idx+i) & (qp->tx_depth-1U) ];
+  qp->sq_cons     = sq_cons_idx+comp_cnt;
   tx_cq->cons_idx = cq_cons_idx+1U;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( tx_cq->control->consumer_idx ) = fd_uint_bswap( (cq_cons_idx+1U) & 0xffffffU );
-  return 1;
+  return (int)comp_cnt;
+}
+
+static inline void
+fd_mlx5_tile_sq_flush( fd_mlx5_tile_t * ctx ) {
+  fd_mlx5_qp_t * qp = &ctx->qp;
+  if( FD_UNLIKELY( qp->sq_posted==qp->sq_prod ) ) return;
+  uint const last_sq_idx = qp->sq_prod-1U;
+  fd_mlx5_tx_wqe_t * last_wqe = qp->sq+(last_sq_idx & (qp->tx_depth-1U));
+  fd_mlx5_hw_ring_sq( qp, last_wqe );
 }
 
 static inline void
@@ -770,7 +788,13 @@ before_credit( fd_mlx5_tile_t *    ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
-  if( ctx->qp.sq_cons!=ctx->qp.sq_prod )
+  fd_mlx5_qp_t * qp = &ctx->qp;
+  uint const sq_pending_cnt = qp->sq_prod-qp->sq_posted;
+  if( FD_UNLIKELY( sq_pending_cnt && fd_tickcount()>=ctx->sq_flush_deadline_ticks ) ) {
+    fd_mlx5_tile_sq_flush( ctx );
+    *charge_busy = 1;
+  }
+  if( qp->sq_cons!=qp->sq_posted )
     *charge_busy |= fd_mlx5_tile_poll_tx( ctx );
 }
 
@@ -977,6 +1001,13 @@ after_frag( fd_mlx5_tile_t *    ctx,
   if( FD_UNLIKELY( fd_mlx5_hw_post_send( ctx, (uint)tx_frame_sz ) ) )
     FD_LOG_ERR(( "direct mlx5 TX submit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   ctx->metrics.tx_gre_cnt += (ulong)ctx->tx_route.use_gre;
+
+  fd_mlx5_qp_t * qp = &ctx->qp;
+  uint const sq_pending_cnt = qp->sq_prod-qp->sq_posted;
+  if( sq_pending_cnt>=ctx->batch_size || qp->sq_prod-qp->sq_cons>=qp->tx_depth )
+    fd_mlx5_tile_sq_flush( ctx );
+  else if( sq_pending_cnt==1U )
+    ctx->sq_flush_deadline_ticks = fd_tickcount()+ctx->sq_flush_timeout_ticks;
 }
 
 static inline void
@@ -1363,6 +1394,7 @@ unprivileged_init( fd_topo_t const *      topo,
   (void)FD_SCRATCH_ALLOC_APPEND( scratch, FD_MLX5_PAGE_SZ, queue_footprint );
   ctx->sq_wqe_buf_chunk = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint), tile->mlx5.tx_queue_size*sizeof(uint) );
   ctx->batch_size = tile->mlx5.batch_size;
+  ctx->sq_flush_timeout_ticks = (long)( FD_MLX5_TX_FLUSH_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
   ctx->stats_interval_ticks = (long)( FD_MLX5_STATS_INTERVAL_NS*fd_tempo_tick_per_ns( NULL ) );
   ctx->next_stats_refresh_ticks = fd_tickcount()+ctx->stats_interval_ticks;
   void * netdev_tbl_local = FD_SCRATCH_ALLOC_APPEND( scratch, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );

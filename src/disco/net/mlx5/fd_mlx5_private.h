@@ -90,6 +90,7 @@ struct fd_mlx5_qp {
   uint                   tx_depth;
 
   uint                   sq_prod;
+  uint                   sq_posted;
   uint                   sq_cons;
   uint                   rq_prod;
   uint                   rq_cons;
