@@ -334,6 +334,9 @@ $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@
 $(OBJDIR)/obj/%.check : src/%.c
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
 
+$(OBJDIR)/obj/%.check : src/%.S
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
+
 $(OBJDIR)/lib/%.a :
 	@echo -e "AR\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \

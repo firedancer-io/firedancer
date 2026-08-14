@@ -2,6 +2,7 @@
 #include "../firedancer/topology.h"
 #include "../firedancer/config.h"
 #include "../shared_dev/boot/fd_dev_boot.h"
+#include "../shared/gdb/fd_gdb_scripts.h"
 
 int
 main( int     argc,

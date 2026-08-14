@@ -21,6 +21,8 @@ $UNIT_TEST/test_alloc_ctl   > $LOG_PATH/alloc_ctl   2>&1
 $UNIT_TEST/test_pod_ctl     > $LOG_PATH/pod_ctl     2>&1
 $UNIT_TEST/test_tango_ctl   > $LOG_PATH/tango_ctl   2>&1
 $UNIT_TEST/test_wksp_helper > $LOG_PATH/wksp_helper 2>&1 # allocates a gigantic page
+$UNIT_TEST/test_gdb_base58.sh > $LOG_PATH/gdb_base58 2>&1
+gdb_base58_status=$?
 
 # Multi-tile tests
 $UNIT_TEST/test_cnc   --tile-cpus 0,2   2> $LOG_PATH/cnc
@@ -60,3 +62,5 @@ done
 # Consensus objects must not contain floating-point FMA instructions
 # (bit-for-bit Agave compatibility; see the script for details).
 contrib/test/check_fp_fma.sh || exit 1
+
+[[ $gdb_base58_status -eq 0 ]] || { echo "test_gdb_base58.sh FAIL"; exit 1; }
