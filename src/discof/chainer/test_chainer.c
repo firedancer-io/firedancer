@@ -658,6 +658,76 @@ test_publish_large_block( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: publish past a >1024 shred block" ));
 }
 
+/* (f, continued) Rooting a non-v0 canonical version: the new root's
+   version 0 is non-canonical and gets pruned along with the slot's FEC
+   list, so the root survives without a version 0.  A subsequent publish
+   over that v0-less root must still work -- the root is the one slot
+   exempt from the "every slot has a version 0" invariant. */
+
+static void
+test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup( wksp );
+  fd_slotv_t * slotv_pool = fd_chainer_slotv_pool( chainer );
+  fd_fec_t   * fec_pool   = fd_chainer_fec_pool  ( chainer );
+
+  ulong slotv_free0 = fd_slotv_pool_free( slotv_pool );
+  ulong fec_free0   = fd_fec_pool_free  ( fec_pool   );
+
+  fd_hash_t bid0 = mkhash( 100UL );
+  fd_chainer_init( chainer, 60UL, &bid0 );
+
+  /* slot 61 version 0: complete turbine block chained to the root */
+
+  fd_hash_t r0 = mkhash( 1UL );
+  fd_hash_t r1 = mkhash( 2UL );
+  FD_TEST( !feed_fec( chainer, 61UL, 0U,  0, &r0, 60UL,            &bid0 ) );
+  FD_TEST( !feed_fec( chainer, 61UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL  ) );
+
+  /* a notar-fallback cert names a different block for slot 61 */
+
+  fd_hash_t bidX = mkhash( 200UL );
+  fd_chainer_notar_fallback( chainer, 61UL, bidX );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  fd_slotv_t * v1 = slotv_at( chainer, 61UL, 1UL );
+  FD_TEST( v1 );
+
+  /* root the notar-fallback version: v0 is non-canonical and gets
+     pruned, taking the slot's whole FEC list with it */
+
+  ulong * out_queue = fd_chainer_out_queue( chainer );
+  while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
+  fd_chainer_publish( chainer, 61UL, &bidX );
+  FD_TEST( !fd_chainer_verify( chainer ) ); /* a root without a version 0 is legal */
+
+  FD_TEST( chainer->root==61UL );
+  FD_TEST( !slotv_at( chainer, 61UL, 0UL ) );
+  FD_TEST( slotv_at( chainer, 61UL, 1UL )==v1 );
+  FD_TEST( v1->connected );
+
+  FD_TEST( !fd_chainer_fec_query( chainer, 61UL, 0U,  0UL ) );
+  FD_TEST( !fd_chainer_fec_query( chainer, 61UL, 32U, 0UL ) );
+  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-1UL ); /* only v1 of 61 */
+  FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0        ); /* all FECs released */
+
+  /* slot 62 chains to the v0-less root, then publishes over it */
+
+  fd_hash_t r2 = mkhash( 3UL );
+  FD_TEST( !feed_fec( chainer, 62UL, 0U, 1, &r2, 61UL, &bidX ) );
+  FD_TEST( slotv_at( chainer, 62UL, 0UL )->connected );
+
+  while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
+  fd_chainer_publish( chainer, 62UL, NULL );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  FD_TEST( chainer->root==62UL );
+  FD_TEST( !slotv_at( chainer, 61UL, 1UL ) );
+  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-1UL ); /* only 62's v0 */
+  FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0  -1UL ); /* only 62's FEC */
+
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: publish roots a non-v0 canonical version" ));
+}
+
 /* (g) All FD_CHAINER_SLOT_VER_MAX versions of a slot: one turbine block
    plus three notar-fallbacks, the protocol maximum. */
 
@@ -975,6 +1045,7 @@ main( int argc, char ** argv ) {
   test_output_order_out_of_order         ( wksp );
   test_publish                           ( wksp );
   test_publish_large_block               ( wksp );
+  test_publish_noncanonical_v0           ( wksp );
   test_versions_full                     ( wksp );
   test_equivocation_drop                 ( wksp );
   test_verify_detects                    ( wksp );

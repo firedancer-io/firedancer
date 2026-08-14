@@ -86,6 +86,7 @@
 struct fd_fec {
   ulong     key;       /* (slot, fec_set_idx) position, MAP_MULTI key */
   ulong     next;      /* reserved by pool and map_chain */
+  ulong     prev;      /* reserved by map_chain (doubly-linked chains) */
   ulong     slot_next; /* next FEC of the same slot, in no particular
                           order (fd_fec_pool idx, idx_null terminates).
                           The list is per-slot rather than per-version: a
@@ -114,6 +115,7 @@ typedef struct fd_fec fd_fec_t;
 #define MAP_ELE_T fd_fec_t
 #define MAP_KEY   key
 #define MAP_MULTI 1 /* up to FD_CHAINER_SLOT_VER_MAX distinct roots may share a (slot, fec_set_idx) */
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1 /* publish must remove a specific element, not an arbitrary key match */
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define SET_NAME fd_shred_idxs

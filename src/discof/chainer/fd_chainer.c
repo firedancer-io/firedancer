@@ -258,14 +258,25 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
   if( FD_UNLIKELY( fd_slotv_repair_verify( rtreap, slotv_pool )==-1 ) ) FAIL( "repair treap corrupted" );
   if( FD_UNLIKELY( fd_slotv_orphan_verify( otreap, slotv_pool )==-1 ) ) FAIL( "orphan treap corrupted" );
 
-  /* The root, if set, must have a version 0 and it must be connected --
-     it is by definition the start of every ancestry chain. */
+  /* The root, if set, must have at least one connected version -- it is
+     by definition the start of every ancestry chain.  Uniquely among
+     slots, the root need not have a version 0: publish prunes the
+     non-canonical versions of the new root, and version 0 may have been
+     one of them.  Its FEC list is released along with it, which is fine
+     because a rooted slot's FEC data is never needed again. */
 
   if( FD_LIKELY( chainer->root!=ULONG_MAX ) ) {
-    ulong root_key = FD_CHAINER_SLOTV_KEY( chainer->root, 0UL );
-    fd_slotv_t const * root_slotv = fd_slotv_map_ele_query_const( slotv_map, &root_key, NULL, slotv_pool );
-    if( FD_UNLIKELY( !root_slotv             ) ) FAIL( "root has no version 0 slotv" );
-    if( FD_UNLIKELY( !root_slotv->connected  ) ) FAIL( "root slotv is not connected" );
+    int root_present   = 0;
+    int root_connected = 0;
+    for( ulong v=0UL; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
+      ulong root_key = FD_CHAINER_SLOTV_KEY( chainer->root, v );
+      fd_slotv_t const * root_slotv = fd_slotv_map_ele_query_const( slotv_map, &root_key, NULL, slotv_pool );
+      if( FD_LIKELY( !root_slotv ) ) continue;
+      root_present    = 1;
+      root_connected |= !!root_slotv->connected;
+    }
+    if( FD_UNLIKELY( !root_present   ) ) FAIL( "root has no slotv" );
+    if( FD_UNLIKELY( !root_connected ) ) FAIL( "no root slotv is connected" );
   }
 
   ulong in_treap_cnt  = 0UL;
@@ -464,6 +475,7 @@ fd_chainer_shred_insert( fd_chainer_t    * chainer,
                          ulong             parent_slot,
                          fd_hash_t const * parent_block_id ) {
   FD_TEST( shred_idx < FD_SHRED_BLK_MAX ); // guaranteed by fec_resolver
+  FD_TEST( slot > chainer->root );
   uint fec_set_idx = shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
 
   /* Collect the slot versions this shred belongs to. If this shred
@@ -602,6 +614,7 @@ fd_chainer_fec_insert( fd_chainer_t * chainer,
                        int            slot_complete,
                        int            data_complete,
                        fd_hash_t    * mr ) {
+  FD_TEST( slot > chainer->root );
   uint fec_set_idx = (uint)fec_set_idx_;
 
   for( uint i = 0; i < FD_FEC_SHRED_CNT; i++ ) {
@@ -765,9 +778,15 @@ fd_chainer_publish( fd_chainer_t *    chainer,
   FD_TEST( slotv_query( chainer, new_root, 0 ) );
 
   for( ulong slot=root; slot<new_root; slot++ ) {
+    /* At publish time every slot in the chainer has a version 0
+       anchoring its FEC list.  The lone exception is the old root: the
+       previous publish may have pruned its version 0 as a non-canonical
+       version of the then-new root. */
+    int have_v0 = !!slotv_query( chainer, slot, 0UL );
     for( ulong v=0UL; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
       fd_slotv_t * slotv = slotv_query( chainer, slot, v );
-      if( FD_UNLIKELY( !slotv ) ) continue; /* technically at publish time, versions should be dense */
+      if( FD_UNLIKELY( !slotv ) ) continue;
+      if( FD_UNLIKELY( !have_v0 && slot!=root ) ) FD_LOG_CRIT(( "chainer publish %lu: slot %lu has version %lu but no version 0", new_root, slot, v ));
       fd_chainer_orphan_remove( chainer, slotv );
       fd_chainer_repair_remove( chainer, slotv );
 
@@ -778,10 +797,9 @@ fd_chainer_publish( fd_chainer_t *    chainer,
         for( ulong idx=slotv->fec_head; idx!=fec_null; ) {
           fd_fec_t * fec  = fd_fec_pool_ele( fec_pool, idx );
           ulong      next = fec->slot_next;
-          ulong      key  = fec->key;
 
-          fd_fec_t * removed = fd_fec_map_ele_remove( fec_map, &key, NULL, fec_pool );
-          if( FD_LIKELY( removed ) ) fd_fec_pool_ele_release( fec_pool, removed );
+          fd_fec_map_ele_remove_fast( fec_map, fec, fec_pool );
+          fd_fec_pool_ele_release( fec_pool, fec );
           idx = next;
         }
         slotv->fec_head = fec_null;
@@ -814,18 +832,17 @@ fd_chainer_publish( fd_chainer_t *    chainer,
       fd_chainer_orphan_remove( chainer, root_slotv );
       fd_chainer_repair_remove( chainer, root_slotv );
       /* Release every FEC of this slot by walking its list, held by
-         version 0's slotv.  TODO: if the root slotv is not v0, then
-         we delete all the FEC entries for this slot.  Don't think this
-         is an issue but should update chainer verify. */
+         version 0's slotv.  If version 0 is itself non-canonical, this
+         releases all of the slot's FECs. This is fine because a rooted
+         slot's FEC data is never needed again. */
       if( FD_LIKELY( v==0UL ) ) {
         ulong fec_null = fd_fec_pool_idx_null( fec_pool );
         for( ulong idx=root_slotv->fec_head; idx!=fec_null; ) {
           fd_fec_t * fec  = fd_fec_pool_ele( fec_pool, idx );
           ulong      next = fec->slot_next;
-          ulong      key  = fec->key;
 
-          fd_fec_t * removed = fd_fec_map_ele_remove( fec_map, &key, NULL, fec_pool );
-          if( FD_LIKELY( removed ) ) fd_fec_pool_ele_release( fec_pool, removed );
+          fd_fec_map_ele_remove_fast( fec_map, fec, fec_pool );
+          fd_fec_pool_ele_release( fec_pool, fec );
           idx = next;
         }
         root_slotv->fec_head = fec_null;
