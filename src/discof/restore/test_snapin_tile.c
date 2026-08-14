@@ -5,8 +5,6 @@
 
 #include <stdlib.h>
 
-static ulong mock_batch_accepted_mask = ULONG_MAX;
-
 static void
 test_txncache_staging_is_compact( void ) {
   fd_snapin_tile_t ctx;
@@ -209,8 +207,7 @@ mock_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                  ulong *             accounts_replaced,
                                  ulong *             accounts_loaded,
                                  ulong *             out_replaced_lamports,
-                                 ulong *             out_ignored_lamports,
-                                 ulong *             out_accepted_mask ) {
+                                 ulong *             out_ignored_lamports ) {
   (void)accdb;
   (void)fork_id;
   (void)pubkeys;
@@ -218,14 +215,11 @@ mock_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   (void)lamports;
   (void)data_lens;
   (void)executables;
-  ulong accepted_mask     = mock_batch_accepted_mask==ULONG_MAX ? (1UL<<cnt)-1UL : mock_batch_accepted_mask;
-  ulong accepted_cnt      = (ulong)fd_ulong_popcnt( accepted_mask );
-  *accounts_ignored       = cnt-accepted_cnt;
+  *accounts_ignored       = 0UL;
   *accounts_replaced      = 0UL;
-  *accounts_loaded        = accepted_cnt;
+  *accounts_loaded        = cnt;
   *out_replaced_lamports  = 0UL;
   *out_ignored_lamports   = 0UL;
-  *out_accepted_mask      = accepted_mask;
   return 0;
 }
 
@@ -364,42 +358,6 @@ test_streaming_stake_delegation( void ) {
   free( banks_mem );
 }
 
-static void
-test_ignored_batch_not_snooped( void ) {
-  void * banks_mem;
-  fd_banks_t * banks = new_banks( &banks_mem );
-  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-
-  fd_pubkey_t stake_account = { .ul = { 21UL, 22UL, 23UL, 24UL } };
-  fd_pubkey_t vote_account  = { .ul = { 25UL, 26UL, 27UL, 28UL } };
-  fd_stake_state_t state[1];
-  make_stake_state( state, &vote_account );
-
-  uchar entry[ 136UL + sizeof(fd_stake_state_t) ] __attribute__((aligned(8)));
-  fd_memset( entry, 0, sizeof(entry) );
-  FD_STORE( ulong, entry+8UL,  sizeof(fd_stake_state_t) );
-  fd_memcpy( entry+16UL,  &stake_account,              sizeof(fd_pubkey_t)      );
-  FD_STORE( ulong, entry+48UL, 5000UL );
-  fd_memcpy( entry+64UL,  &fd_solana_stake_program_id, sizeof(fd_pubkey_t)      );
-  fd_memcpy( entry+136UL, state,                       sizeof(fd_stake_state_t) );
-
-  fd_snapin_tile_t ctx = { .full = 1, .banks = banks };
-  fd_ssparse_advance_result_t result = {
-    .account_batch = {
-      .batch     = { entry },
-      .batch_cnt = 1UL,
-      .slot      = 10UL,
-    },
-  };
-
-  mock_batch_accepted_mask = 0UL;
-  FD_TEST( !process_account_batch( &ctx, &result ) );
-  mock_batch_accepted_mask = ULONG_MAX;
-  FD_TEST( !fd_stake_delegation_root_query( stake_delegations, &stake_account ) );
-
-  free( banks_mem );
-}
-
 int
 main( int     argc,
       char ** argv ) {
@@ -410,7 +368,6 @@ main( int     argc,
   test_parser_events_build_compact_groups();
   test_batch_stake_delegation();
   test_streaming_stake_delegation();
-  test_ignored_batch_not_snooped();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

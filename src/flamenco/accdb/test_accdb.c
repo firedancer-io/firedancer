@@ -1324,14 +1324,13 @@ test_deferred_write_stats( void ) {
   ulong lamports   [ 2 ] = { 1UL,   2UL  };
   ulong data_lens  [ 2 ] = { 100UL, 200UL };
   int   executables[ 2 ] = { 0, 0 };
-  ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports, accepted_mask;
+  ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports;
 
   FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 2UL, pubkeys, slots,
                                            lamports, data_lens, executables,
                                            &ignored, &replaced, &loaded,
-                                           &replaced_lamports, &ignored_lamports, &accepted_mask ) );
+                                           &replaced_lamports, &ignored_lamports ) );
   FD_TEST( !ignored && !replaced && loaded==2UL );
-  FD_TEST( accepted_mask==3UL );
 
   ulong meta_sz = sizeof(fd_accdb_disk_meta_t);
 
@@ -1347,9 +1346,8 @@ test_deferred_write_stats( void ) {
   FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 2UL, pubkeys, slots,
                                            lamports, data_lens, executables,
                                            &ignored, &replaced, &loaded,
-                                           &replaced_lamports, &ignored_lamports, &accepted_mask ) );
+                                           &replaced_lamports, &ignored_lamports ) );
   FD_TEST( ignored==1UL && replaced==1UL && !loaded );
-  FD_TEST( accepted_mask==1UL );
 
   /* Only live entries count as used, and the replaced one stops
      counting.  The ignored entry never counted. */
@@ -1401,13 +1399,12 @@ test_deferred_write_stats_rollover( void ) {
     executables[ i ] = 0;
   }
 
-  ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports, accepted_mask;
+  ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports;
   FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 4UL, pubkeys, slots,
                                            lamports, data_lens, executables,
                                            &ignored, &replaced, &loaded,
-                                           &replaced_lamports, &ignored_lamports, &accepted_mask ) );
+                                           &replaced_lamports, &ignored_lamports ) );
   FD_TEST( !ignored && !replaced && loaded==4UL );
-  FD_TEST( accepted_mask==15UL );
 
   fd_accdb_snapshot_load_end( accdb );
 
@@ -1641,15 +1638,14 @@ test_incremental_retry_reuses_acc_pool( void ) {
   ulong lamports   [ 2 ] = { 10UL, 20UL };
   ulong data_lens  [ 2 ] = { 0UL,  0UL };
   int   executables[ 2 ] = { 0,    0 };
-  ulong ignored, replaced, loaded, ignored_lamports, accepted_mask;
+  ulong ignored, replaced, loaded, ignored_lamports;
 
   FD_TEST( !fd_accdb_snapshot_write_batch( accdb, success, 2UL, pubkeys, slots,
                                            lamports, data_lens, executables,
                                            &ignored, &replaced, &loaded,
-                                           &replaced_lamports, &ignored_lamports, &accepted_mask ) );
+                                           &replaced_lamports, &ignored_lamports ) );
   FD_TEST( !ignored && replaced==1UL && loaded==1UL );
   FD_TEST( replaced_lamports==1UL && !ignored_lamports );
-  FD_TEST( accepted_mask==3UL );
   FD_TEST( acc_pool_private_vidx_idx( FD_VOLATILE_CONST( pool->ver_top ) )==acc_pool_idx_null() );
   FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_before );
 

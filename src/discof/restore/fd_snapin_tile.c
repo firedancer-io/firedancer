@@ -104,7 +104,6 @@ struct fd_snapin_tile {
 
   fd_banks_t * banks;
   fd_bank_t *  bank;
-  int          account_accepted;
 
   struct {
     int   ready;
@@ -887,19 +886,6 @@ process_account_batch( fd_snapin_tile_t *            ctx,
     lamports[ i ]    = fd_ulong_load_8_fast( e+48UL );
     data_lens[ i ]   = fd_ulong_load_8_fast( e+8UL );
     executables[ i ] = e[ 96UL ];
-  }
-
-  ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports, accepted_mask;
-  fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
-  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
-                                                     executables, &accounts_ignored, &accounts_replaced, &accounts_loaded,
-                                                     &replaced_lamports, &ignored_lamports, &accepted_mask ) ) ) {
-    return -1;
-  }
-
-  for( ulong i=0UL; i<cnt; i++ ) {
-    if( FD_UNLIKELY( !(accepted_mask & (1UL<<i)) ) ) continue;
-    uchar const * e = entries[ i ];
 
     /* Snoop SlotHistory sysvar.  Account body in the batch path is
        contiguous starting at e+136. */
@@ -922,6 +908,14 @@ process_account_batch( fd_snapin_tile_t *            ctx,
       snoop_stake_delegation( ctx, (fd_pubkey_t const *)pubkeys[ i ], lamports[ i ],
                               data_lens[ i ], e+136UL, data_lens[ i ] );
     }
+  }
+
+  ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
+  fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
+  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
+                                                     executables, &accounts_ignored, &accounts_replaced, &accounts_loaded,
+                                                     &replaced_lamports, &ignored_lamports ) ) ) {
+    return -1;
   }
 
   ctx->metrics.accounts_ignored  += accounts_ignored;
@@ -968,13 +962,11 @@ process_account_header( fd_snapin_tile_t * ctx,
     }
     ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, result->account_header.lamports );
   }
-  ctx->account_accepted = account!=-1;
 
   /* Snoop SlotHistory sysvar.  Streaming path: arm the capture window
      here; process_account_data appends bytes while armed. */
   ctx->slot_history.capturing = 0;
-  if( FD_UNLIKELY( ctx->account_accepted &&
-      !memcmp( result->account_header.pubkey, fd_sysvar_slot_history_id.uc, 32UL ) &&
+  if( FD_UNLIKELY( !memcmp( result->account_header.pubkey, fd_sysvar_slot_history_id.uc, 32UL ) &&
       ( !ctx->slot_history.captured || result->account_header.slot>=ctx->slot_history.slot ) &&
       result->account_header.data_len<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) {
     ctx->slot_history.slot       = result->account_header.slot;
@@ -986,8 +978,7 @@ process_account_header( fd_snapin_tile_t * ctx,
     ctx->slot_history.capturing  = 1;
   }
   ctx->feature_reasm.capturing = 0;
-  if( FD_UNLIKELY( ctx->account_accepted &&
-                   !memcmp( result->account_header.owner, fd_solana_feature_program_id.uc, 32UL ) &&
+  if( FD_UNLIKELY( !memcmp( result->account_header.owner, fd_solana_feature_program_id.uc, 32UL ) &&
                    result->account_header.lamports ) ) {
     memcpy( ctx->feature_reasm.pubkey.uc, result->account_header.pubkey, 32UL );
     memcpy( ctx->feature_reasm.owner,     result->account_header.owner,  32UL );
@@ -1274,7 +1265,6 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
 
         if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX
-                      && ctx->account_accepted
                       && !memcmp( result->account_header.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) )
                       && result->account_header.data_len
                       && result->account_header.data_len<=FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ ) ) {

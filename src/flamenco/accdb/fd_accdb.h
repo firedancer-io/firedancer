@@ -544,12 +544,10 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
    each account whose acc was overwritten).  *out_ignored_lamports is
    set to the sum of the lamports of all accounts ignored by this batch
    (i.e. the lamports of each input account whose write was dropped
-   because an acc with a higher slot already exists).
-   *out_accepted_mask has bit i set exactly when input account i was
-   inserted or replaced.  Returns 0 on success, -1 if the batch
-   contained two entries with the same pubkey (a corrupt-snapshot signal
-   — the caller should flag the snapshot malformed).  Outputs are not
-   meaningful when -1 is returned.
+   because an acc with a higher slot already exists).  Returns 0 on
+   success, -1 if the batch contained two entries with the same pubkey
+   (a corrupt-snapshot signal — the caller should flag the snapshot
+   malformed).  Output counters are not meaningful when -1 is returned.
 
    Each slots[i] must be <= UINT_MAX (see fd_accdb_snapshot_write_one
    for the rationale).  Passing a larger slot crashes the process.
@@ -571,8 +569,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_replaced,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
-                               ulong *             out_ignored_lamports,
-                               ulong *             out_accepted_mask );
+                               ulong *             out_ignored_lamports );
 
 /* fd_accdb_background performs one unit of background work.
 

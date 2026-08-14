@@ -4021,8 +4021,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_replaced,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
-                               ulong *             out_ignored_lamports,
-                               ulong *             out_accepted_mask ) {
+                               ulong *             out_ignored_lamports ) {
   int incremental = fork_id.val!=USHORT_MAX;
 
   fd_accdb_fork_t * fork     = NULL;
@@ -4129,7 +4128,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
   ulong used_bytes_added   = 0UL;
   ulong used_bytes_removed = 0UL;
-  ulong accepted_mask      = 0UL;
 
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( skip[ i ] ) ) {
@@ -4144,7 +4142,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       ignored++;
       continue;
     }
-    accepted_mask |= 1UL<<i;
 
     fd_accdb_accmeta_t * accmeta;
 
@@ -4210,7 +4207,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   *accounts_loaded       = loaded;
   *out_replaced_lamports = replaced_lamports;
   *out_ignored_lamports  = ignored_lamports;
-  *out_accepted_mask     = accepted_mask;
 
   return 0;
 }
