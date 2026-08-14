@@ -5,6 +5,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
 
 #include "generated/fd_snapwr_tile_seccomp.h"
 
@@ -154,7 +155,7 @@ process_account_header( fd_snapwr_tile_t *            ctx,
                         fd_ssparse_advance_result_t * result ) {
   /* Ensure header+data does not cross a partition boundary.  If it
      would, pad with zeros so the account starts at the next one. */
-  ulong account_sz    = 68UL + (ulong)result->account_header.data_len;
+  ulong account_sz    = sizeof(fd_accdb_disk_meta_t) + (ulong)result->account_header.data_len;
   ulong cur_boundary  = ctx->accounts_off / ctx->partition_sz;
   ulong end_boundary  = (ctx->accounts_off + account_sz - 1UL) / ctx->partition_sz;
   if( FD_UNLIKELY( cur_boundary!=end_boundary ) ) {
@@ -162,11 +163,12 @@ process_account_header( fd_snapwr_tile_t *            ctx,
     buffer_skip( ctx, next - ctx->accounts_off );
   }
 
-  uchar data[ 68UL ];
-  fd_memcpy( data, result->account_header.pubkey, 32UL );
-  fd_memcpy( data+32UL, &result->account_header.data_len, 4UL );
-  fd_memcpy( data+36UL, result->account_header.owner, 32UL );
-  buffer_write( ctx, data, 68UL );
+  fd_accdb_disk_meta_t meta;
+  fd_memcpy( meta.pubkey, result->account_header.pubkey, 32UL );
+  meta.size       = (uint)result->account_header.data_len;
+  meta.generation = 0U;
+  fd_memcpy( meta.owner, result->account_header.owner, 32UL );
+  buffer_write( ctx, meta.b, sizeof(fd_accdb_disk_meta_t) );
   ctx->metrics.accounts_written++;
 }
 

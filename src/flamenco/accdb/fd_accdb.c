@@ -2463,7 +2463,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
         FD_TEST( write_meta_cnt<(int)(sizeof(write_metas)/sizeof(write_metas[0])) );
         fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
-        write_metas[ write_meta_cnt ].size = FD_ACCDB_SIZE_DATA( evicted->executable_size );
+        write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size );
+        write_metas[ write_meta_cnt ].generation = evicted->key.generation;
         fd_memcpy( write_metas[ write_meta_cnt ].owner, destination_cache_lines[ i ][ j ]->owner, 32UL );
         write_ops[ write_ops_cnt++ ] = (struct iovec){ .iov_base = &write_metas[ write_meta_cnt ], .iov_len = sizeof(fd_accdb_disk_meta_t) };
         write_meta_cnt++;
@@ -2477,7 +2478,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
         FD_TEST( write_meta_cnt<(int)(sizeof(write_metas)/sizeof(write_metas[0])) );
         fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
-        write_metas[ write_meta_cnt ].size = FD_ACCDB_SIZE_DATA( evicted->executable_size );
+        write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size );
+        write_metas[ write_meta_cnt ].generation = evicted->key.generation;
         fd_memcpy( write_metas[ write_meta_cnt ].owner, original_cache_line[ i ]->owner, 32UL );
         write_ops[ write_ops_cnt++ ] = (struct iovec){ .iov_base = &write_metas[ write_meta_cnt ], .iov_len = sizeof(fd_accdb_disk_meta_t) };
         write_meta_cnt++;
@@ -2491,7 +2493,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
       FD_TEST( write_meta_cnt<(int)(sizeof(write_metas)/sizeof(write_metas[0])) );
       fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
-      write_metas[ write_meta_cnt ].size = FD_ACCDB_SIZE_DATA( evicted->executable_size );
+      write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size );
+      write_metas[ write_meta_cnt ].generation = evicted->key.generation;
       fd_memcpy( write_metas[ write_meta_cnt ].owner, original_cache_line[ i ]->owner, 32UL );
       write_ops[ write_ops_cnt++ ] = (struct iovec){ .iov_base = &write_metas[ write_meta_cnt ], .iov_len = sizeof(fd_accdb_disk_meta_t) };
       write_meta_cnt++;
@@ -3854,7 +3857,8 @@ background_preevict( fd_accdb_t * accdb,
 
         fd_accdb_disk_meta_t meta;
         fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
-        meta.size = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+        meta.size       = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+        meta.generation = accmeta->key.generation;
         fd_memcpy( meta.owner, line->owner, 32UL );
 
         struct iovec iovs[ 2UL ] = {
@@ -4446,7 +4450,8 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
 
     fd_accdb_disk_meta_t meta;
     fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
-    meta.size = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+    meta.size       = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+    meta.generation = accmeta->key.generation;
     fd_memcpy( meta.owner, line->owner, 32UL );
 
     struct iovec iovs[ 2UL ] = {

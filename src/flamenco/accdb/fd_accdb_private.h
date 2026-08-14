@@ -27,13 +27,6 @@ spin_lock_release( int * lock ) {
   *lock = 0;
 # endif
 }
-struct __attribute__((packed)) fd_accdb_disk_meta {
-  uchar pubkey[ 32UL ];
-  uint  size;
-  uchar owner[ 32UL ];
-};
-
-typedef struct fd_accdb_disk_meta fd_accdb_disk_meta_t;
 
 struct fd_accdb_txn {
   union {

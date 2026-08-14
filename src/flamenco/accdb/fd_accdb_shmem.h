@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h
 
 #include "fd_accdb_cache.h"
+#include <stddef.h> /* offsetof */
 
 #define FD_ACCDB_SHMEM_ALIGN (128UL)
 
@@ -60,6 +61,23 @@ struct fd_accdb_metrics {
 };
 
 typedef struct fd_accdb_metrics fd_accdb_metrics_t;
+
+/* fd_accdb_disk_meta_t is the on-disk account revision header. */
+
+union fd_accdb_disk_meta {
+  struct __attribute__((packed)) {
+    uchar pubkey[ 32UL ];
+    uint  size;
+    uint  generation;
+    uchar owner[ 32UL ];
+  };
+  uchar b[72];
+};
+
+typedef union fd_accdb_disk_meta fd_accdb_disk_meta_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)==72UL, layout );
+FD_STATIC_ASSERT( offsetof(fd_accdb_disk_meta_t,owner)+32UL==sizeof(fd_accdb_disk_meta_t), layout );
 
 FD_PROTOTYPES_BEGIN
 
