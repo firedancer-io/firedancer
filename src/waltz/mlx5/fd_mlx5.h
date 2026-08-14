@@ -15,20 +15,32 @@
    separately.  Linux creates and tracks these resources, while the packet
    path uses the mapped queues and doorbells directly.
 
-   mlx5 queue fields are big-endian.  This implementation reserves 64
-   bytes for each TX WQE and 16 bytes for each RX WQE. */
+   mlx5 queue fields are big-endian.  The SQ is a ring of 64-byte WQEBBs
+   (work queue entry basic blocks), while each RQ WQE occupies 16 bytes. */
 
-#define FD_MLX5_TX_WQE_SZ     (64UL)
+#define FD_MLX5_SQ_WQEBB_SZ   (64UL)
 #define FD_MLX5_RQ_WQE_SZ     (16UL)
 #define FD_MLX5_CQE_SZ        (64UL)
 #define FD_MLX5_PAGE_SZ       (4096UL)
 
+#define FD_MLX5_SQ_DS_SZ             (16UL)
+#define FD_MLX5_SQ_WQEBB_DS          (4U)
+/* One below the mlx5 16-WQEBB limit keeps the 6-bit DS count representable. */
+#define FD_MLX5_SQ_MPWQE_MAX_WQEBBS (15U)
+
 #define FD_MLX5_RDMA_NAME_MAX (64UL)
 
-struct __attribute__((aligned(FD_MLX5_TX_WQE_SZ))) fd_mlx5_tx_wqe {
-  uchar bytes[ FD_MLX5_TX_WQE_SZ ];
+struct __attribute__((aligned(FD_MLX5_SQ_WQEBB_SZ))) fd_mlx5_sq_wqebb {
+  uchar bytes[ FD_MLX5_SQ_WQEBB_SZ ];
 };
-typedef struct fd_mlx5_tx_wqe fd_mlx5_tx_wqe_t;
+typedef struct fd_mlx5_sq_wqebb fd_mlx5_sq_wqebb_t;
+
+struct fd_mlx5_sq_wqe_info {
+  uchar wqebb_cnt;
+  uchar pkt_cnt;
+  ushort reserved;
+};
+typedef struct fd_mlx5_sq_wqe_info fd_mlx5_sq_wqe_info_t;
 
 struct __attribute__((aligned(FD_MLX5_RQ_WQE_SZ))) fd_mlx5_rx_wqe {
   uchar bytes[ FD_MLX5_RQ_WQE_SZ ];
@@ -40,9 +52,10 @@ struct __attribute__((aligned(FD_MLX5_CQE_SZ))) fd_mlx5_cqe {
 };
 typedef struct fd_mlx5_cqe fd_mlx5_cqe_t;
 
-FD_STATIC_ASSERT( sizeof(fd_mlx5_tx_wqe_t)==FD_MLX5_TX_WQE_SZ, mlx5_tx_wqe_sz );
-FD_STATIC_ASSERT( sizeof(fd_mlx5_rx_wqe_t)==FD_MLX5_RQ_WQE_SZ, mlx5_rx_wqe_sz );
-FD_STATIC_ASSERT( sizeof(fd_mlx5_cqe_t   )==FD_MLX5_CQE_SZ,    mlx5_cqe_sz    );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_sq_wqebb_t  )==FD_MLX5_SQ_WQEBB_SZ, mlx5_sq_wqebb_sz   );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_sq_wqe_info_t)==4UL,                  mlx5_sq_wqe_info_sz );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_rx_wqe_t    )==FD_MLX5_RQ_WQE_SZ,   mlx5_rx_wqe_sz     );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_cqe_t       )==FD_MLX5_CQE_SZ,      mlx5_cqe_sz         );
 
 /* fd_mlx5_context_t owns a uverbs command descriptor and the async
    event descriptor returned with it. */
@@ -96,26 +109,34 @@ struct fd_mlx5_cq {
 typedef struct fd_mlx5_cq fd_mlx5_cq_t;
 
 struct fd_mlx5_qp {
-  fd_mlx5_context_t *    ctx;
-  fd_mlx5_cq_t *         rx_cq;
-  fd_mlx5_cq_t *         tx_cq;
-  fd_mlx5_uar_t *        uar;
-  fd_mlx5_rx_wqe_t *     rq;
-  fd_mlx5_tx_wqe_t *     sq;
-  uint *                 rq_chunk;
-  uint *                 sq_pkt_sz;
-  fd_mlx5_qp_control_t * control;
-  uint                   rx_depth;
-  uint                   tx_depth;
-  uint                   handle;
-  uint                   qpn;
-  uint                   lkey;
-  uchar                  tx_inline_sz;
-  uint                   sq_prod;
-  uint                   sq_posted;
-  uint                   sq_cons;
-  uint                   rq_prod;
-  uint                   rq_cons;
+  fd_mlx5_context_t *     ctx;
+  fd_mlx5_cq_t *          rx_cq;
+  fd_mlx5_cq_t *          tx_cq;
+  fd_mlx5_uar_t *         uar;
+  fd_mlx5_rx_wqe_t *      rq;
+  fd_mlx5_sq_wqebb_t *    sq;
+  uint *                  rq_chunk;
+  uint *                  sq_pkt_sz;
+  fd_mlx5_sq_wqe_info_t * sq_wqe_info;
+  fd_mlx5_qp_control_t *  control;
+  uint                    rx_depth;
+  uint                    tx_depth;
+  uint                    handle;
+  uint                    qpn;
+  uint                    lkey;
+  uchar                   tx_mpwqe_pkt_cap;
+  uint                    tx_prod;
+  uint                    tx_posted;
+  uint                    tx_cons;
+  uint                    sq_prod;
+  uint                    sq_posted;
+  uint                    sq_cons;
+  uint                    sq_last_wqe;
+  uint                    sq_wqe_start;
+  uchar                   sq_wqe_pkt_cnt;
+  uchar                   sq_wqe_pkt_cap;
+  uint                    rq_prod;
+  uint                    rq_cons;
 };
 typedef struct fd_mlx5_qp fd_mlx5_qp_t;
 

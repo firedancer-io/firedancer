@@ -22,7 +22,6 @@
 #include <rdma/rdma_netlink.h>
 #include <rdma/rdma_user_ioctl_cmds.h>
 
-#define FD_MLX5_ETH_INLINE_SZ       (18UL)
 /* Linux MLX5_BF_OFFSET. */
 #define FD_MLX5_UAR_DB_OFFSET       (0x800UL)
 #define FD_MLX5_UVERBS_NAME_MAX     (32UL)
@@ -52,11 +51,11 @@ typedef struct fd_mlx5_pd fd_mlx5_pd_t;
 
 struct fd_mlx5_caps {
   ulong max_mr_size;
-  /* Linux mlx5 ABI max_send_wqebb, equal to TX WQE capacity here. */
+  /* Linux mlx5 ABI max_send_wqebb, equal to SQ WQEBB capacity here. */
   uint  max_send_wqe;
   uint  max_recv_wr;
   uint  max_cqe;
-  uchar eth_min_inline_sz;
+  uchar tx_mpwqe_pkt_cap;
 };
 typedef struct fd_mlx5_caps fd_mlx5_caps_t;
 
@@ -87,10 +86,16 @@ struct fd_mlx5_get_context_resp {
 typedef struct fd_mlx5_get_context_resp fd_mlx5_get_context_resp_t;
 
 struct fd_mlx5_query_device_req {
-  struct ib_uverbs_cmd_hdr hdr;
-  ulong                    response;
+  fd_mlx5_uverbs_ex_hdr_t          hdr;
+  struct ib_uverbs_ex_query_device core;
 };
 typedef struct fd_mlx5_query_device_req fd_mlx5_query_device_req_t;
+
+struct fd_mlx5_query_device_resp {
+  struct ib_uverbs_ex_query_device_resp core;
+  struct mlx5_ib_query_device_resp      mlx5;
+};
+typedef struct fd_mlx5_query_device_resp fd_mlx5_query_device_resp_t;
 
 struct fd_mlx5_query_port_req {
   struct ib_uverbs_cmd_hdr hdr;
@@ -234,7 +239,8 @@ typedef struct fd_mlx5_create_udp_flow_req fd_mlx5_create_udp_flow_req_t;
 
 FD_STATIC_ASSERT( sizeof(fd_mlx5_get_context_req_t     )== 48UL, mlx5_get_context_req_sz      );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_get_context_resp_t    )== 80UL, mlx5_get_context_resp_sz     );
-FD_STATIC_ASSERT( sizeof(fd_mlx5_query_device_req_t    )== 16UL, mlx5_query_device_req_sz     );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_query_device_req_t    )== 32UL, mlx5_query_device_req_sz     );
+FD_STATIC_ASSERT( !(sizeof(fd_mlx5_query_device_resp_t) & 7UL), mlx5_query_device_resp_align );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_query_port_req_t      )== 24UL, mlx5_query_port_req_sz       );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_alloc_pd_req_t        )== 16UL, mlx5_alloc_pd_req_sz         );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_alloc_pd_resp_t       )==  8UL, mlx5_alloc_pd_resp_sz        );
@@ -559,50 +565,53 @@ fd_mlx5_uverbs_get_context( fd_mlx5_context_t * ctx,
   if( FD_UNLIKELY( fd_flags<0 || fcntl( ctx->async_fd, F_SETFD, fd_flags | FD_CLOEXEC ) ) ) return -1;
 
   ulong const uar_resp_sz = offsetof( struct mlx5_ib_alloc_ucontext_resp, dump_fill_mkey );
+  uint const max_sq_wqebbs = fd_uint_min( (uint)(resp->mlx5.max_sq_desc_sz/FD_MLX5_SQ_WQEBB_SZ),
+                                         FD_MLX5_SQ_MPWQE_MAX_WQEBBS );
+  uint const max_sq_ds = max_sq_wqebbs*FD_MLX5_SQ_WQEBB_DS;
   if( FD_UNLIKELY( resp->mlx5.response_length<uar_resp_sz ||
                    resp->mlx5.num_ports<ctx->port_num ||
                    resp->mlx5.cqe_version>1U ||
-                   resp->mlx5.max_sq_desc_sz<FD_MLX5_TX_WQE_SZ ||
+                   max_sq_ds<=2U ||
                    resp->mlx5.max_rq_desc_sz<FD_MLX5_RQ_WQE_SZ ||
                    !resp->mlx5.max_send_wqebb || !resp->mlx5.max_recv_wr ||
+                   !(resp->mlx5.cmds_supp_uhw & MLX5_USER_CMDS_SUPP_UHW_QUERY_DEVICE) ||
                    resp->mlx5.log_uar_size!=12U || resp->mlx5.num_uars_per_page!=1U ||
                    resp->mlx5.tot_bfregs ) ) {
     errno = EPROTONOSUPPORT;
     return -1;
   }
 
-  caps->max_send_wqe   = resp->mlx5.max_send_wqebb;
-  caps->max_recv_wr    = resp->mlx5.max_recv_wr;
-  switch( resp->mlx5.eth_min_inline ) {
-  case MLX5_USER_INLINE_MODE_NONE: caps->eth_min_inline_sz = 0U;                     break;
-  case MLX5_USER_INLINE_MODE_L2:   caps->eth_min_inline_sz = FD_MLX5_ETH_INLINE_SZ; break;
-  default:
-    errno = EPROTONOSUPPORT;
-    return -1;
-  }
+  caps->max_send_wqe     = resp->mlx5.max_send_wqebb;
+  caps->max_recv_wr      = resp->mlx5.max_recv_wr;
+  caps->tx_mpwqe_pkt_cap = (uchar)(max_sq_ds-2U);
   return 0;
 }
 
 static int
 fd_mlx5_uverbs_query_device( fd_mlx5_context_t * ctx,
                              fd_mlx5_caps_t *    caps ) {
-  fd_mlx5_query_device_req_t         req [1];
-  struct ib_uverbs_query_device_resp resp[1];
+  fd_mlx5_query_device_req_t  req [1];
+  fd_mlx5_query_device_resp_t resp[1];
   fd_memset( req,  0, sizeof(req ) );
   fd_memset( resp, 0, sizeof(resp) );
 
-  req->response = (ulong)resp;
-  if( FD_UNLIKELY( fd_mlx5_uverbs_cmd_hdr_init( &req->hdr, IB_USER_VERBS_CMD_QUERY_DEVICE,
-                                                sizeof(req), sizeof(resp) ) ) ) {
+  if( FD_UNLIKELY( fd_mlx5_uverbs_ex_hdr_init( &req->hdr, IB_USER_VERBS_EX_CMD_QUERY_DEVICE,
+                                               sizeof(req), sizeof(req), resp,
+                                               sizeof(resp->core), sizeof(resp) ) ) ) {
     errno = EINVAL;
     return -1;
   }
   if( FD_UNLIKELY( fd_mlx5_uverbs_write_cmd( ctx->cmd_fd, req, sizeof(req) ) ) ) return -1;
 
-  caps->max_mr_size = resp->max_mr_size;
-  caps->max_cqe     = resp->max_cqe;
-  if( FD_UNLIKELY( !caps->max_mr_size || !resp->max_qp_wr || !resp->max_sge || !caps->max_cqe ||
-                   resp->phys_port_cnt<ctx->port_num ) ) {
+  ulong const mpw_cap_resp_sz = offsetof( struct mlx5_ib_query_device_resp,
+                                          mlx5_ib_support_multi_pkt_send_wqes ) + sizeof(uint);
+  caps->max_mr_size = resp->core.base.max_mr_size;
+  caps->max_cqe     = resp->core.base.max_cqe;
+  if( FD_UNLIKELY( !caps->max_mr_size || !resp->core.base.max_qp_wr ||
+                   !resp->core.base.max_sge || !caps->max_cqe ||
+                   resp->core.base.phys_port_cnt<ctx->port_num ||
+                   resp->mlx5.response_length<mpw_cap_resp_sz ||
+                   !(resp->mlx5.mlx5_ib_support_multi_pkt_send_wqes & MLX5_IB_SUPPORT_EMPW) ) ) {
     errno = EPROTONOSUPPORT;
     return -1;
   }
@@ -968,11 +977,12 @@ struct fd_mlx5_qp_config {
   fd_mlx5_cq_t *         tx_cq;
   fd_mlx5_uar_t *        uar;
   fd_mlx5_rx_wqe_t *     rq;
-  fd_mlx5_tx_wqe_t *     sq;
+  fd_mlx5_sq_wqebb_t *   sq;
   uint *                 rq_chunk;
   uint *                 sq_pkt_sz;
+  fd_mlx5_sq_wqe_info_t * sq_wqe_info;
   fd_mlx5_qp_control_t * control;
-  uchar                  tx_inline_sz;
+  uchar                  tx_mpwqe_pkt_cap;
 };
 typedef struct fd_mlx5_qp_config fd_mlx5_qp_config_t;
 
@@ -985,7 +995,8 @@ fd_mlx5_hw_init_qp( fd_mlx5_qp_t *              qp,
   if( FD_UNLIKELY( !ctx || !config || !config->rx_cq || !config->tx_cq || !config->uar ||
                    !config->rq || !fd_ulong_is_aligned( (ulong)config->rq, FD_MLX5_PAGE_SZ ) ||
                    !config->sq || !fd_ulong_is_aligned( (ulong)config->sq, FD_MLX5_PAGE_SZ ) ||
-                   !config->rq_chunk || !config->sq_pkt_sz ||
+                   !config->rq_chunk || !config->sq_pkt_sz || !config->sq_wqe_info ||
+                   !config->tx_mpwqe_pkt_cap ||
                    !config->control || !fd_ulong_is_aligned( (ulong)config->control, alignof(fd_mlx5_qp_control_t) ) ) ) {
     errno = EINVAL;
     return NULL;
@@ -999,10 +1010,11 @@ fd_mlx5_hw_init_qp( fd_mlx5_qp_t *              qp,
   qp->sq           = config->sq;
   qp->rq_chunk     = config->rq_chunk;
   qp->sq_pkt_sz    = config->sq_pkt_sz;
+  qp->sq_wqe_info  = config->sq_wqe_info;
   qp->control      = config->control;
   qp->rx_depth     = config->rx_cq->depth;
   qp->tx_depth     = config->tx_cq->depth;
-  qp->tx_inline_sz = config->tx_inline_sz;
+  qp->tx_mpwqe_pkt_cap = config->tx_mpwqe_pkt_cap;
   return qp;
 }
 
@@ -1148,6 +1160,7 @@ struct fd_mlx5_queue_layout {
   ulong sq_off;
   ulong rq_chunk_off;
   ulong sq_pkt_sz_off;
+  ulong sq_wqe_info_off;
 
   ulong rx_cq_control_off;
   ulong tx_cq_control_off;
@@ -1181,9 +1194,11 @@ fd_mlx5_queue_layout_init( fd_mlx5_queue_layout_t * layout,
   if( FD_UNLIKELY( fd_mlx5_layout_region( &off, rx_depth, FD_MLX5_CQE_SZ,    &layout->rx_cq_off ) ||
                    fd_mlx5_layout_region( &off, tx_depth, FD_MLX5_CQE_SZ,    &layout->tx_cq_off ) ||
                    fd_mlx5_layout_region( &off, rx_depth, FD_MLX5_RQ_WQE_SZ, &layout->rq_off    ) ||
-                   fd_mlx5_layout_region( &off, tx_depth, FD_MLX5_TX_WQE_SZ, &layout->sq_off    ) ||
+                   fd_mlx5_layout_region( &off, tx_depth, FD_MLX5_SQ_WQEBB_SZ, &layout->sq_off  ) ||
                    fd_mlx5_layout_region( &off, rx_depth, sizeof(uint),        &layout->rq_chunk_off ) ||
                    fd_mlx5_layout_region( &off, tx_depth, sizeof(uint),        &layout->sq_pkt_sz_off ) ||
+                   fd_mlx5_layout_region( &off, tx_depth, sizeof(fd_mlx5_sq_wqe_info_t),
+                                          &layout->sq_wqe_info_off ) ||
                    off>ULONG_MAX-FD_MLX5_PAGE_SZ ) ) {
     fd_memset( layout, 0, sizeof(*layout) );
     errno = EOVERFLOW;
@@ -1256,11 +1271,12 @@ fd_mlx5_init( fd_mlx5_t * mlx5,
     .tx_cq        = &mlx5->tx_cq,
     .uar          = &mlx5->uar,
     .rq           = (fd_mlx5_rx_wqe_t *)((uchar *)queue_memory+layout->rq_off),
-    .sq           = (fd_mlx5_tx_wqe_t *)((uchar *)queue_memory+layout->sq_off),
+    .sq           = (fd_mlx5_sq_wqebb_t *)((uchar *)queue_memory+layout->sq_off),
     .rq_chunk     = (uint *)((uchar *)queue_memory+layout->rq_chunk_off),
     .sq_pkt_sz    = (uint *)((uchar *)queue_memory+layout->sq_pkt_sz_off),
+    .sq_wqe_info  = (fd_mlx5_sq_wqe_info_t *)((uchar *)queue_memory+layout->sq_wqe_info_off),
     .control      = (fd_mlx5_qp_control_t *)((uchar *)queue_memory+layout->qp_control_off),
-    .tx_inline_sz = caps->eth_min_inline_sz
+    .tx_mpwqe_pkt_cap = caps->tx_mpwqe_pkt_cap
   };
   if( FD_UNLIKELY( !fd_mlx5_uverbs_uar_map( &mlx5->uar, &mlx5->context, &uar_page_id ) ) ) return NULL;
 
