@@ -9,4 +9,20 @@
 #include "tower/fd_tower_serdes.h"
 #include "tower/fd_tower_stakes.h"
 
+#if FD_HAS_BLST
+#include "votor/ag_votor_base.h"
+
+#include "votor/ag_aggsig.h"
+#include "votor/ag_aggsig_serde.h"
+#include "votor/ag_cert.h"
+#include "votor/ag_cert_serde.h"
+#include "votor/ag_epoch_info.h"
+#include "votor/ag_finality_tracker.h"
+#include "votor/ag_parent_ready_tracker.h"
+#include "votor/ag_pool.h"
+#include "votor/ag_slot_state.h"
+#include "votor/ag_vote.h"
+#include "votor/ag_vote_serde.h"
+#endif
+
 #endif /* HEADER_fd_src_choreo_fd_choreo_h */
