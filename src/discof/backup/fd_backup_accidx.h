@@ -2,7 +2,7 @@
 #define HEADER_fd_src_discof_backup_fd_backup_accidx_h
 
 /* fd_backup_accidx.h provides a read-only view of the accdb in-memory
-   account index for snapshot production. 
+   account index for snapshot production.
 
    The index is a chained hash map keyed by account address.  acc_map is
    an array of (chain_mask+1) chain heads, each an index into acc_pool
