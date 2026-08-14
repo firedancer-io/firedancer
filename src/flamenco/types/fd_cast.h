@@ -66,7 +66,57 @@ fd_rust_cast_double_to_ulong( double f ) {
   }
 }
 
+/* The remaining integer widths, same Rust `as` semantics: nan becomes 0
+   and out of range values saturate at the bound crossed.  A plain C cast
+   is undefined behaviour for those inputs.
+
+   The bounds are compared as doubles.  2^63, 2^32 and 2^31 are exactly
+   representable, so `>=` against them rejects precisely what does not
+   fit. */
+
+FD_FN_CONST static inline long
+fd_rust_cast_double_to_long( double f ) {
+  if( FD_UNLIKELY( f!=f                     ) ) return 0L;        /* nan */
+  if( FD_UNLIKELY( f>= 9223372036854775808. ) ) return LONG_MAX;  /*  2^63 */
+  if( FD_UNLIKELY( f<=-9223372036854775808. ) ) return LONG_MIN;  /* -2^63 */
+  return (long)f;
+}
+
+FD_FN_CONST static inline uint
+fd_rust_cast_double_to_uint( double f ) {
+  if( FD_UNLIKELY( f!=f            ) ) return 0U;        /* nan */
+  if( FD_UNLIKELY( f>=4294967296.  ) ) return UINT_MAX;  /* 2^32 */
+  if( FD_UNLIKELY( !(f>0.)         ) ) return 0U;        /* <=0, and nan already gone */
+  return (uint)f;
+}
+
+FD_FN_CONST static inline int
+fd_rust_cast_double_to_int( double f ) {
+  if( FD_UNLIKELY( f!=f            ) ) return 0;        /* nan */
+  if( FD_UNLIKELY( f>= 2147483648. ) ) return INT_MAX;  /*  2^31 */
+  if( FD_UNLIKELY( f<=-2147483648. ) ) return INT_MIN;  /* -2^31 */
+  return (int)f;
+}
+
 #endif /* FD_HAS_DOUBLE */
+
+/* Single precision sources, same semantics. */
+
+FD_FN_CONST static inline ulong
+fd_rust_cast_float_to_ulong( float f ) {
+  if( FD_UNLIKELY( f!=f                      ) ) return 0UL;       /* nan */
+  if( FD_UNLIKELY( f>=18446744073709551616.f ) ) return ULONG_MAX; /* 2^64 */
+  if( FD_UNLIKELY( !(f>0.f)                  ) ) return 0UL;       /* <=0 */
+  return (ulong)f;
+}
+
+FD_FN_CONST static inline uint
+fd_rust_cast_float_to_uint( float f ) {
+  if( FD_UNLIKELY( f!=f              ) ) return 0U;       /* nan */
+  if( FD_UNLIKELY( f>=4294967296.f   ) ) return UINT_MAX; /* 2^32 */
+  if( FD_UNLIKELY( !(f>0.f)          ) ) return 0U;       /* <=0 */
+  return (uint)f;
+}
 
 FD_PROTOTYPES_END
 

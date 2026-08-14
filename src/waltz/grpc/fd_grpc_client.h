@@ -5,7 +5,7 @@
    streaming gRPC requests over HTTP/2+TLS. */
 
 #include "fd_grpc_codec.h"
-#include "../../ballet/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
+#include "../../third_party/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
 #if FD_HAS_OPENSSL
 #include <openssl/types.h> /* SSL */
 #endif
@@ -231,7 +231,7 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
    (recvmsg(2) and sendmsg(2)).  Uses MSG_NOSIGNAL|MSG_DONTWAIT flags.
 
    Returns -1 if an error was encountered, and errno will be set.
-   Otherwise, returns 0. */
+   Returns 1 if send would block with EAGAIN.  Otherwise, returns 0. */
 
 int
 fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,

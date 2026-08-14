@@ -115,19 +115,21 @@ typedef struct fd_votes_blk_key fd_votes_blk_key_t;
 
 struct fd_votes_blk {
   fd_votes_blk_key_t key;  /* blk_map key: (slot, block_id) */
-  ulong              next; /* pool next */
+  ulong              stake;
+  uint               next; /* pool next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
-  ulong stake;
   uchar flags; /* first 4 bits: confirmation levels, last 4 bits: forward confirmation levels */
 };
 typedef struct fd_votes_blk fd_votes_blk_t;
+
+FD_STATIC_ASSERT( sizeof(fd_votes_blk_t)==72UL, fd_votes_blk );
 
 struct fd_votes;
 typedef struct fd_votes fd_votes_t;

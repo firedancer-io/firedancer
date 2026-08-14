@@ -1,0 +1,28 @@
+[Unit]
+Description=Firedancer offline-replay backtest harness
+Documentation=file:/home/svc_firedancer/repos/firedancer/contrib/offline-replay/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=svc_firedancer
+Group=svc_firedancer
+WorkingDirectory=/home/svc_firedancer
+ExecStart=/usr/local/bin/offline_replay.sh
+Environment=PATH=/home/svc_firedancer/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/home/svc_firedancer
+
+# The harness logs to /data/offline-replay/logs, not the journal.
+# It exits deliberately on failures after posting a Slack alert - do not
+# auto-restart. After investigating: systemctl restart offline-replay
+LimitNOFILE=1048576
+LimitMEMLOCK=infinity
+Restart=no
+TimeoutStopSec=300
+
+# firedancer-dev (launched via sudo) survives a stop; kill it explicitly.
+ExecStopPost=-+/usr/bin/pkill -9 -f firedancer-dev
+
+[Install]
+WantedBy=multi-user.target

@@ -191,24 +191,39 @@ test_fib4_hmap_duplicates( fd_fib4_t * fib ) {
     .ip4_gw  = FD_IP4_ADDR( 192,168,1,2 )
   };
 
-  /* Insert first hop */
-  FD_TEST( fd_fib4_insert( fib, ip, 32, 0, &hop1 ) );
+  /* Overlapping routes coexist and the lowest priority wins,
+     independent of insertion order. */
+  FD_TEST( fd_fib4_insert( fib, ip, 32, 100, &hop1 ) );
+  FD_TEST( fd_fib4_insert( fib, ip, 32, 200, &hop2 ) );
+  FD_TEST( fd_fib4_insert( fib, ip, 32,  50, &hop2 ) );
+  FD_TEST( fd_fib4_cnt( fib )==4UL );
 
-  /* Verify first hop */
-  fd_fib4_hop_t lookup_hop;
+  fd_fib4_hop_t lookup_hop = fd_fib4_lookup( fib, ip, 0 );
+  FD_TEST( lookup_hop.ip4_src == hop2.ip4_src );
+  FD_TEST( lookup_hop.if_idx  == hop2.if_idx  );
+  FD_TEST( lookup_hop.ip4_gw  == hop2.ip4_gw  );
+
+  /* Removing an exact route exposes the next best route. */
+  FD_TEST( fd_fib4_remove( fib, ip, 32, 50 ) );
   lookup_hop = fd_fib4_lookup( fib, ip, 0 );
   FD_TEST( lookup_hop.ip4_src == hop1.ip4_src );
   FD_TEST( lookup_hop.if_idx  == hop1.if_idx  );
   FD_TEST( lookup_hop.ip4_gw  == hop1.ip4_gw  );
 
-  /* Insert duplicate - should update existing entry */
-  FD_TEST( fd_fib4_insert( fib, ip, 32, 0, &hop2 ) );
-
-  /* Verify second hop overwrote first */
+  /* An identical address/priority pair replaces the existing route. */
+  FD_TEST( fd_fib4_insert( fib, ip, 32, 200, &hop1 ) );
+  FD_TEST( fd_fib4_cnt( fib )==3UL );
+  FD_TEST( fd_fib4_remove( fib, ip, 32, 100 ) );
   lookup_hop = fd_fib4_lookup( fib, ip, 0 );
-  FD_TEST( lookup_hop.ip4_src == hop2.ip4_src );
-  FD_TEST( lookup_hop.if_idx  == hop2.if_idx  );
-  FD_TEST( lookup_hop.ip4_gw  == hop2.ip4_gw  );
+  FD_TEST( lookup_hop.ip4_src == hop1.ip4_src );
+  FD_TEST( lookup_hop.if_idx  == hop1.if_idx  );
+  FD_TEST( lookup_hop.ip4_gw  == hop1.ip4_gw  );
+  FD_TEST( fd_fib4_remove( fib, ip, 32, 200 ) );
+  lookup_hop = fd_fib4_lookup( fib, ip, 0 );
+  FD_TEST( lookup_hop.rtype == FD_FIB4_RTYPE_THROW );
+  FD_TEST( fd_fib4_cnt( fib )==1UL );
+  FD_TEST( !fd_fib4_remove( fib, ip, 32, 100 ) );
+  FD_TEST( !fd_fib4_remove( fib, FD_IP4_ADDR( 192,168,1,101 ), 32, 200 ) );
 }
 
 void
@@ -542,6 +557,17 @@ main( int     argc,
   /* Test the fib4 hmap */
   test_fib4_hmap( fib_main );
   test_fib4_hmap( fib_main );   // test again
+
+  /* Incremental updates used by net-tile route replication. */
+  fd_fib4_clear( fib_main );
+  fd_fib4_hop_t delta_hop = { .rtype=FD_FIB4_RTYPE_UNICAST, .if_idx=9U };
+  FD_TEST( fd_fib4_insert( fib_main, FD_IP4_ADDR( 10,20,0,0 ), 16, 42U, &delta_hop ) );
+  FD_TEST( fd_fib4_insert( fib_main, FD_IP4_ADDR( 10,20,30,40 ), 32, 0U, &delta_hop ) );
+  FD_TEST( fd_fib4_remove( fib_main, FD_IP4_ADDR( 10,20,0,0 ), 16, 42U ) );
+  FD_TEST( !fd_fib4_remove( fib_main, FD_IP4_ADDR( 10,20,0,0 ), 16, 42U ) );
+  FD_TEST( fd_fib4_lookup( fib_main, FD_IP4_ADDR( 10,20,1,1 ), 0UL ).rtype==FD_FIB4_RTYPE_THROW );
+  FD_TEST( fd_fib4_remove( fib_main, FD_IP4_ADDR( 10,20,30,40 ), 32, 0U ) );
+  FD_TEST( fd_fib4_lookup( fib_main, FD_IP4_ADDR( 10,20,30,40 ), 0UL ).rtype==FD_FIB4_RTYPE_THROW );
 
   fd_fib4_delete( fd_fib4_leave( fib_local ) );
   fd_fib4_delete( fd_fib4_leave( fib_main  ) );

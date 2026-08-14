@@ -55,7 +55,9 @@
 typedef fd_votes_blk_t blk_t;
 
 #define POOL_NAME blk_pool
+#define POOL_LAZY 1
 #define POOL_T    blk_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           blk_map
@@ -64,6 +66,7 @@ typedef fd_votes_blk_t blk_t;
 #define MAP_KEY                            key
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  ((k0)->slot==(k1)->slot && !memcmp((k0)->block_id.key,(k1)->block_id.key,32UL))
 #define MAP_KEY_HASH(key,seed)             ((ulong)((key)->block_id.ul[1]^(key)->slot^(seed)))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -73,25 +76,28 @@ typedef fd_votes_blk_t blk_t;
 #define DLIST_ELE_T blk_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct vtr {
   fd_pubkey_t vote_acc; /* vtr_map key */
-  ulong       next;     /* pool next */
+  uint        next;     /* pool next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   ulong bit;
 };
 typedef struct vtr vtr_t;
 
 #define POOL_NAME vtr_pool
+#define POOL_LAZY 1
 #define POOL_T    vtr_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           vtr_map
@@ -100,6 +106,7 @@ typedef struct vtr vtr_t;
 #define MAP_KEY                            vote_acc
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,sizeof(fd_pubkey_t)))
 #define MAP_KEY_HASH(key,seed)             ((ulong)((key)->ul[1]^(seed)))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -109,18 +116,19 @@ typedef struct vtr vtr_t;
 #define DLIST_ELE_T vtr_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct slot {
   ulong slot; /* map key, vote slot */
-  ulong next; /* pool next */
+  uint next; /* pool next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   blk_dlist_t * blks;
   ulong         blk_cnt; /* number of distinct block ids for this slot */
@@ -129,7 +137,9 @@ struct slot {
 typedef struct slot slot_t;
 
 #define POOL_NAME slot_pool
+#define POOL_LAZY 1
 #define POOL_T    slot_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           slot_map
@@ -138,6 +148,7 @@ typedef struct slot slot_t;
 #define MAP_KEY                            slot
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (*(k0)==*(k1))
 #define MAP_KEY_HASH(key,seed)             ((*key)^(seed))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -147,6 +158,7 @@ typedef struct slot slot_t;
 #define DLIST_ELE_T slot_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct __attribute__((aligned(128UL))) fd_votes {
@@ -165,6 +177,17 @@ struct __attribute__((aligned(128UL))) fd_votes {
   slot_vtrs_t *  vtr_set;
 };
 
+FD_FN_CONST static inline ulong
+fd_votes_blk_max( ulong slot_max,
+                  ulong vtr_max ) {
+  if( FD_UNLIKELY( !slot_max || !vtr_max ) ) return 0UL;
+  slot_max = fd_ulong_pow2_up( slot_max );
+  vtr_max  = fd_ulong_pow2_up( vtr_max  );
+  if( FD_UNLIKELY( !slot_max || !vtr_max || slot_max>UINT_MAX/vtr_max ) ) return 0UL;
+  ulong blk_max = fd_ulong_pow2_up( slot_max*vtr_max );
+  return fd_ulong_if( blk_max<=UINT_MAX, blk_max, 0UL );
+}
+
 ulong
 fd_votes_align( void ) {
   return 128UL;
@@ -174,9 +197,10 @@ ulong
 fd_votes_footprint( ulong slot_max,
                     ulong vtr_max ) {
 
+  ulong blk_max = fd_votes_blk_max( slot_max, vtr_max );
+  if( FD_UNLIKELY( !blk_max ) ) return 0UL;
   slot_max      = fd_ulong_pow2_up( slot_max );
   vtr_max       = fd_ulong_pow2_up( vtr_max );
-  ulong blk_max = fd_ulong_pow2_up( slot_max * vtr_max );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, 128UL,              sizeof(fd_votes_t)                                          );
@@ -218,11 +242,9 @@ fd_votes_new( void * shmem,
     return NULL;
   }
 
-  fd_memset( shmem, 0, footprint );
-
   slot_max      = fd_ulong_pow2_up( slot_max );
   vtr_max       = fd_ulong_pow2_up( vtr_max );
-  ulong blk_max = fd_ulong_pow2_up( slot_max * vtr_max );
+  ulong blk_max = fd_votes_blk_max( slot_max, vtr_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_votes_t * votes      = FD_SCRATCH_ALLOC_APPEND( l, 128UL,              sizeof(fd_votes_t)                                          );

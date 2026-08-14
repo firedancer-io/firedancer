@@ -609,7 +609,7 @@ fd_vinyl_recover( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
   ulong ele_max  = meta->ele_max;
   ulong lock_cnt = meta->lock_cnt;
 
-  /* Using all avaialble threads, flush the lines and meta cache.  We do
+  /* Using all available threads, flush the lines and meta cache.  We do
      the meta flush locked so we don't confuse any concurrent meta
      readers.  This will claim any existing locks (e.g.  the previous
      meta writer died while holding a lock and the user didn't clean it
@@ -649,8 +649,8 @@ t1 = t0 + 1UL; /* Turn off parallel recovery while it is untested */
      some elements are not placed well.  This requires no scratch (and
      thus is more robust against arbitrary erase / move patterns in the
      recovery region).  While it isn't any less algo inefficient
-     (because we paralllel scan all the elements already to clear them),
-     it is pracitcally less efficient for applications access patterns
+     (because we parallel scan all the elements already to clear them),
+     it is practically less efficient for applications access patterns
      that don't generate many tombstones and/or have pair_cnt<<pair_max.
 
      Option 2 (fastest but trickiest): we append the keys that might
@@ -662,7 +662,7 @@ t1 = t0 + 1UL; /* Turn off parallel recovery while it is untested */
      bstream (faster but more scratch efficient) or the bstream seq of
      the dead / move that generated the tstone (slower but more scratch
      efficient).  We further can use the aux information in the
-     partition to tighly bound the worst case number of tstones required
+     partition to tightly bound the worst case number of tstones required
      up front.  But this is tricky because the srcatch array needs to
      have the partition processing tasks append to it in parallel.  So
      we either have to use atomic increments in the inner loop (yuck) or

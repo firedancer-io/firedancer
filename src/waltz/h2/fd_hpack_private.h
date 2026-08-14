@@ -4,7 +4,11 @@
 #include "fd_hpack.h"
 
 #if FD_HAS_X86
+#if defined(__GNUC__) && !defined(__clang__)
+#include <x86gprintrin.h>
+#else
 #include <immintrin.h>
+#endif
 #endif
 
 /* Simple HPACK static table.

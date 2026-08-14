@@ -3,30 +3,12 @@
     "id": 4,
     "description": "A slot reached a commitment level. Emitted once per slot per level reached. Join to block_completed on bank_seq, or on slot and block_id.",
     "fields": {
-        "bank_seq": {
-            "type": "UInt64",
-            "description": "Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable, which happens for forward confirmations where the block has not been replayed."
-        },
-        "slot": {
-            "type": "UInt64",
-            "description": "The slot being confirmed."
-        },
-        "block_id": {
-            "type": "Hash",
-            "description": "Unique identifier of the block being confirmed; the join key to block_completed."
-        },
-        "stake": {
-            "type": "UInt64",
-            "description": "Stake in lamports supporting this confirmation. Divide by total_stake for the ratio that crossed the level's threshold. 0 means unavailable."
-        },
-        "total_stake": {
-            "type": "UInt64",
-            "description": "Total cluster stake in lamports at confirmation time; the denominator for the confirmation ratio. 0 means unavailable."
-        },
-        "valid": {
-            "type": "Bool",
-            "description": "Whether this block is eligible for fork choice. An equivocating block becomes eligible again only once duplicate confirmed."
-        },
+        "bank_seq":    { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable, which happens for forward confirmations where the block has not been replayed." },
+        "slot":        { "type": "UInt64", "compression": "Delta, ZSTD", "description": "The slot being confirmed." },
+        "block_id":    { "type": "Hash",                                "description": "Unique identifier of the block being confirmed; the join key to block_completed." },
+        "stake":       { "type": "UInt64",                              "description": "Stake in lamports supporting this confirmation. Divide by total_stake for the ratio that crossed the level's threshold. 0 means unavailable." },
+        "total_stake": { "type": "UInt64",                              "description": "Total cluster stake in lamports at confirmation time; the denominator for the confirmation ratio. 0 means unavailable." },
+        "valid":       { "type": "Bool",                                "description": "Whether this block is eligible for fork choice. An equivocating block becomes eligible again only once duplicate confirmed." },
         "level": {
             "type": "LowCardinality(String)",
             "description": "The commitment level reached, from weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a separate terminal outcome rather than a strengthening level.",
@@ -54,9 +36,6 @@
                 }
             }
         },
-        "forward": {
-            "type": "Bool",
-            "description": "True when the block was confirmed by votes seen over gossip before it was replayed locally. Always false for processed and rooted, which require a local replay."
-        }
+        "forward":     { "type": "Bool",                                "description": "True when the block was confirmed by votes seen over gossip before it was replayed locally. Always false for processed and rooted, which require a local replay." }
     }
 }

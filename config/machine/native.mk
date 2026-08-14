@@ -18,14 +18,19 @@ ifeq ($(FD_IS_GNU),1)
     endif
 endif
 
+# Ban broken compilers
 ifdef FD_USING_GCC
-  CXX?=$(dir $(shell which $(CC)))g++
-  LD?=$(CXX)
+ifeq ($(FD_COMPILER_VERSION),15.2.0)
+$(error Your compiler GCC 15.2.0 is broken (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=123002). Please upgrade GCC or recompile with make CC=clang)
+endif
+endif
+
+ifdef FD_USING_GCC
+  LD?=$(CC)
   include config/base.mk
 include config/extra/with-gcc.mk
 else ifdef FD_USING_CLANG
-  CXX?=$(dir $(shell which $(CC)))clang++
-  LD?=$(CXX)
+  LD?=$(CC)
   include config/base.mk
 include config/extra/with-clang.mk
 endif

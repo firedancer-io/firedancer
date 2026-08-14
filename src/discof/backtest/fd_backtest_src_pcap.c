@@ -21,10 +21,6 @@
 
 extern fd_backt_src_vt_t const fd_backt_src_pcap_vt;
 
-#define FD_BACKT_SRC_FMT_PCAP    0x02u
-#define FD_BACKT_SRC_FMT_PCAPNG  0x03u
-#define FD_BACKT_SRC_FLAG_ZSTD   0x08u
-
 struct pcap_msg {
   uint type;
   union {

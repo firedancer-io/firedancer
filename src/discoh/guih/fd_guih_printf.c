@@ -733,8 +733,9 @@ fd_guih_printf_epoch( fd_guih_t * gui,
       else                                                                    jsonp_null( gui->http, "start_time_nanos" );
       if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].end_time!=LONG_MAX ) ) jsonp_ulong_as_str( gui->http, "end_time_nanos", (ulong)gui->epoch.epochs[ epoch_idx ].end_time );
       else                                                                  jsonp_null( gui->http, "end_time_nanos" );
-      jsonp_ulong( gui->http, "start_slot",              gui->epoch.epochs[ epoch_idx ].start_slot );
-      jsonp_ulong( gui->http, "end_slot",                gui->epoch.epochs[ epoch_idx ].end_slot );
+      jsonp_ulong( gui->http, "start_slot",                 gui->epoch.epochs[ epoch_idx ].start_slot );
+      jsonp_ulong( gui->http, "end_slot",                   gui->epoch.epochs[ epoch_idx ].end_slot );
+      jsonp_ulong( gui->http, "target_slot_duration_nanos", gui->epoch.epochs[ epoch_idx ].target_slot_duration_nanos );
       jsonp_ulong_as_str( gui->http, "excluded_stake_lamports", 0UL );
       jsonp_open_array( gui->http, "staked_pubkeys" );
         fd_epoch_leaders_t * lsched = gui->epoch.epochs[epoch_idx].lsched;
@@ -1055,6 +1056,16 @@ fd_guih_printf_tile_metrics( fd_guih_t *                   gui,
       jsonp_ulong( gui->http, NULL, cur[ i ].interrupts );
     }
   jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "tlb_shootdowns" );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      jsonp_ulong( gui->http, NULL, cur[ i ].tlb_shootdowns );
+    }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "timer_ticks" );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      jsonp_ulong( gui->http, NULL, cur[ i ].timer_ticks );
+    }
+  jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "priority" );
     for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
       int priority = fd_topob_tile_priority_type( gui->topo->tiles[ i ].name );
@@ -1260,7 +1271,11 @@ fd_guih_printf_peer( fd_guih_t *    gui,
         char version[ 64UL ];
         FD_TEST( fd_gossip_version_cstr( gui->gossip.peers[ gossip_idx ].version.major, gui->gossip.peers[ gossip_idx ].version.minor, gui->gossip.peers[ gossip_idx ].version.patch, version, sizeof( version ) ) );
         jsonp_string( gui->http, "version", version );
-        jsonp_null( gui->http, "client_id" ); /* TODO: Frankendancer support */
+        if( FD_LIKELY( gui->gossip.peers[ gossip_idx ].has_version ) ) {
+          jsonp_ulong( gui->http, "client_id", gui->gossip.peers[ gossip_idx ].version.client_id );
+        } else {
+          jsonp_null( gui->http, "client_id" );
+        }
         jsonp_ulong( gui->http, "feature_set", gui->gossip.peers[ gossip_idx ].version.feature_set );
         jsonp_ulong( gui->http, "wallclock", gui->gossip.peers[ gossip_idx ].wallclock );
         jsonp_ulong( gui->http, "shred_version", gui->gossip.peers[ gossip_idx ].shred_version );

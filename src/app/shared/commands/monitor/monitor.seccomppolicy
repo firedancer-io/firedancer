@@ -65,6 +65,14 @@ exit_group
 read: (or (eq (arg 0) drain_output_fd)
           (eq (arg 0) 0))
 
+# monitor: poll stdin for pane switching input
+#
+# The monitor calls select() (pselect6 under the hood) with a zero
+# timeout on stdin to poll for keyboard input.
+#
+# arg 0 is nfds, which is always 1 as only stdin is polled.
+pselect6: (eq (arg 0) 1)
+
 # monitor: set and get terminal attributes
 # The monitor uses tcgetattr and tcsetattr to run a curses-like UI.
 ioctl: (and (eq (arg 0) 0)

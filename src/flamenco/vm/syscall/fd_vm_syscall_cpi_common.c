@@ -59,7 +59,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
                                           fd_pubkey_t const *               program_id,
                                           uchar const *                     cpi_instr_data,
                                           fd_instr_info_t *                 out_instr,
-                                          fd_pubkey_t                       out_instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ] ) {
+                                          fd_pubkey_t                       out_instr_acct_keys[ FD_TXN_INSTR_ACCT_MAX ] ) {
 
   out_instr->program_id   = UCHAR_MAX;
   out_instr->stack_height = (uchar)( vm->instr_ctx->runtime->instr.stack_sz+1 );
@@ -120,7 +120,7 @@ to the account before the CPI instruction is executed.
 The callee's view of the account is the borrowed accounts cache, so to update the
 callee account we look up the account in the borrowed accounts cache and update it.
 
-Paramaters:
+Parameters:
 - vm: pointer to the virtual machine handle
 - account_info: account info object
 - callee_acc_pubkey: pubkey of the account. this is used to look up the account in the borrowed accounts cache
@@ -190,11 +190,10 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
     /* Direct mapping is not enabled, so we need to copy the account data
        from the VM's serialized buffer back to the borrowed account.
 
-       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1255-L1264 */
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/program-runtime/src/cpi.rs#L1155-L1162 */
     int err;
-    if( fd_borrowed_account_can_data_be_resized( callee_acc, caller_account->serialized_data_len, &err ) &&
-        fd_borrowed_account_can_data_be_changed( callee_acc, &err ) ) {
-      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1258 */
+    if( fd_borrowed_account_can_data_be_resized( callee_acc, caller_account->serialized_data_len, &err ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/program-runtime/src/cpi.rs#L1157 */
       err = fd_borrowed_account_set_data_from_slice( callee_acc, caller_account->serialized_data, caller_account->serialized_data_len );
       if( FD_UNLIKELY( err ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, err );
@@ -284,7 +283,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
        Instead, we should borrow the account before entering this function. */
     fd_borrowed_account_drop( &callee_acct );
 
-    /* Find the indicies of the account in the caller and callee instructions */
+    /* Find the indices of the account in the caller and callee instructions */
     uint found = 0;
     for( ushort j=0; j<account_infos_length && !found; j++ ) {
       fd_pubkey_t const * acct_addr = account_info_keys[ j ];
@@ -511,7 +510,7 @@ reflected in the rest of the caller's execution.
 
 Those changes will be in the instructions borrowed accounts cache.
 
-Paramaters:
+Parameters:
 - vm: handle to the vm
 - caller_acc_info: caller account info object, which should be updated
 - borrowed_callee_acc: already-borrowed callee account
@@ -644,7 +643,7 @@ The only differences should be in the order of the error checks, which does not 
 - Dispatch the instruction to the FD runtime (actually making the CPI call)
 - Update the caller accounts with any changes made by the callee during CPI execution
 
-Paramaters:
+Parameters:
 - vm: pointer to the virtual machine handle
 - instruction_va: vm address of the instruction to execute, which will be in the language-specific ABI format.
 - acct_infos_va: vm address of the account infos, which will be in the language-specific ABI format.
@@ -796,7 +795,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs.
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L895 */
-  fd_pubkey_t cpi_instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  fd_pubkey_t cpi_instr_acct_keys[ FD_TXN_INSTR_ACCT_MAX ];
   fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->runtime->instr.trace[ vm->instr_ctx->runtime->instr.trace_length++ ];
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute, cpi_instr_acct_keys );
@@ -806,7 +805,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Prepare the instruction for execution in the runtime. This is required by the runtime
      before we can pass an instruction to the executor. */
-  fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  fd_instruction_account_t instruction_accounts[ FD_TXN_INSTR_ACCT_MAX ];
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction( instruction_to_execute, vm->instr_ctx, program_id, cpi_instr_acct_keys, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   /* Errors are propagated in the function itself. */
@@ -854,7 +853,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* translate_accounts_common ***************************************************************
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1049-L1193 */
-  fd_vm_cpi_translated_account_t translated_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  fd_vm_cpi_translated_account_t translated_accounts[ FD_TXN_INSTR_ACCT_MAX ];
   ulong translated_accounts_len = 0UL;
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     vm,

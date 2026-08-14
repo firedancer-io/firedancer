@@ -18,6 +18,7 @@
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
 #define FD_SCHED_MAX_EXEC_TILE_CNT         (64UL)
 #define FD_SCHED_MAX_PRINT_BUF_SZ          (2UL<<20)
+#define FD_SCHED_POISON_MAX_ACCT_PER_SLOT  (64UL)
 
 #define FD_SCHED_MAX_MBLK_PER_SLOT             (MAX_SKIPPED_TICKS)
 #define FD_SCHED_MAX_POH_HASHES_PER_TASK       (4096UL) /* This seems to be the sweet spot. */
@@ -44,6 +45,7 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for res
 
 FD_STATIC_ASSERT( FD_SCHED_MIN_DEPTH>=FD_SCHED_MAX_TXN_PER_FEC, limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
+FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
 
 #define FD_SCHED_MAGIC (0xace8a79c181f89b6UL) /* echo -n "fd_sched_v0" | sha512sum | head -c 16 */
 
@@ -108,7 +110,7 @@ struct fd_sched_block {
   ulong               txn_pool_max_popcnt;   /* Peak transaction pool occupancy during the time this block was replaying. */
   ulong               mblk_pool_max_popcnt;  /* Peak mblk pool occupancy. */
   ulong               block_pool_max_popcnt; /* Peak block pool occupancy. */
-  ulong               txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
+  uint                txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* rdisp pool index, indexed by parse order */
 
   /* PoH verify. */
   fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
@@ -122,20 +124,15 @@ struct fd_sched_block {
   mblk_slist_t mblks_mixin_in_progress[ 1 ];
   uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   fd_bmtree_commit_t * bmtree;
-  ulong tick_hashcnt_wmk;      /* All ticks in a valid block must accumulate the same number of
-                                  hashes since the previous tick, or since block start, and this hash
-                                  count must match hashes_per_tick for the block. */
-  ulong batch_end_hashcnt_wmk; /* A non-deterministic constraint on the accumulated tick hash count.
-                                  In a valid block, every run of flattened batches must end strictly
-                                  less than hashes_per_tick.  We don't enforce this as it's inherently
-                                  non-deterministic.  We accept blocks that don't end strictly less,
-                                  and simply log when it happens.  Exceeding hashes_per_tick is
-                                  obviously still bad. */
+  ulong tick_hashcnt_wmk;  /* All ticks in a valid block must accumulate the same number of
+                              hashes since the previous tick, or since block start, and this hash
+                              count must match hashes_per_tick for the block. */
   ulong curr_tick_hashcnt; /* Starts at 0, accumulates hashcnt, resets to 0 on the next tick. */
   ulong tick_height;       /* Block is built off of a parent block with this many ticks. */
   ulong max_tick_height;   /* Block should end with precisely this many ticks. */
   ulong hashes_per_tick;   /* Fixed per block, feature gated, known after bank clone. */
   int inconsistent_hashes_per_tick;
+  int zero_hash_tick;
 
   /* Parser state. */
   uchar               txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
@@ -144,11 +141,39 @@ struct fd_sched_block {
   uint                fec_buf_sz;   /* Size of the fec_buf in bytes. */
   uint                fec_buf_soff; /* Starting offset into fec_buf for unparsed transactions. */
   uint                fec_buf_boff; /* Byte offset into raw block data of the first byte currently in fec_buf */
+  uint                poison_cnt;   /* [0, FD_SCHED_POISON_MAX_ACCT_PER_SLOT) */
+  fd_acct_addr_t      poison[ FD_SCHED_POISON_MAX_ACCT_PER_SLOT ]; /* Poison set to handle loader v3 implied programdata accounts.
+
+                                                                      A transaction that lists a loader v3 program account P is charged
+                                                                      for, and gated on, P's implicit programdata account PD, which the
+                                                                      transaction does not have to declare.  The dispatcher therefore
+                                                                      establishes no dependency for said transaction against a
+                                                                      transaction that writes PD without also touching P, for example a
+                                                                      simple lamports transfer into PD, or a Close on an Unintialized PD.
+                                                                      Every loader v3 instruction that changes a live PD's size or
+                                                                      liveness (from alive to dead) does write lock P (except for the
+                                                                      aforementioned Close on Unintialized PD).  Simple transfers cannot
+                                                                      debit PD since it's a PDA.
+
+                                                                      So, when a loader v3 instruction that could modify PD is inserted,
+                                                                      its writable accounts are added to a poison set, and any later
+                                                                      transaction that writes a set member is inserted serializing.  That
+                                                                      sequences the unordered writer of PD against any implied use of PD
+                                                                      for the rest of the block.  This allows the runtime to treat the
+                                                                      current fork's view of PD as stable.
+
+                                                                      Note that this does not cover the case where the poisoning
+                                                                      transaction (with the PD-modifying loader v3 instruction) and the
+                                                                      PD-only transactions do not land in the same block.  Non-determinism
+                                                                      between the PD-only transaction and an implied PD transaction in
+                                                                      that case is a protocol bug. */
+  uint                poison_serialize:1; /* Serialize everything in the rest of the block.  Set when the poison
+                                             set overflows or we couldn't maintain the poison property for any
+                                             other reason. */
   uint                fec_eob:1;    /* FEC end-of-batch: set if the last FEC set in the batch is being
                                        ingested. */
   uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be parsing out a
                                        batch header. */
-  uint                last_batch_empty:1; /* Another non-deterministic constraint that we detect but allow. */
 
   /* Block state. */
   uint                fec_eos:1;                          /* FEC end-of-stream: set if the last FEC set in the block has been
@@ -176,6 +201,7 @@ struct fd_sched_block {
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==596672UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -199,6 +225,9 @@ struct fd_sched_metrics {
   uint  fork_observed_cnt;
   uint  alut_success_cnt;
   uint  alut_serializing_cnt;
+  uint  poison_serializing_cnt;
+  uint  txn_poison_serializing_cnt;
+  uint  txn_poisoned_cnt;
   uint  txn_abandoned_parsed_cnt;
   uint  txn_abandoned_exec_done_cnt;
   uint  txn_abandoned_done_cnt;
@@ -518,28 +547,12 @@ FD_FN_UNUSED static void
 print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
   fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
                    block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
-  if( FD_UNLIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL && block->batch_end_hashcnt_wmk>=block->hashes_per_tick ) ) {
-    /* >1 to ignore low power hashing or hashing disabled */
-    fd_sched_printf( sched, "batch_end_hashcnt violation: yes, batch_end_hashcnt_wmk %lu >= hashes_per_tick %lu (potentially InvalidTickHashCount in Agave)\n", block->batch_end_hashcnt_wmk, block->hashes_per_tick );
-  }
-  if( FD_UNLIKELY( block->fec_eos && block->last_mblk_is_tick && block->max_tick_height!=ULONG_MAX && block->mblk_tick_cnt+block->tick_height==block->max_tick_height && block->last_batch_empty ) ) {
-    /* The block was fully received and has exactly the expected number
-       of ticks and ends in a tick, so its last microblock is the final
-       tick.  Yet its final microblock batch declared zero microblocks.
-       So the batch containing the final tick is not itself the final
-       batch: one or more empty batches trail the final tick.  Agave
-       would non-deterministically reject this as InvalidLastTick
-       depending on shred arrival timing.  This logs the shenanigan for
-       every fully received block that exhibits the pattern, whether or
-       not it ended up on the canonical fork. */
-    fd_sched_printf( sched, "last_batch_empty violation: yes, final tick not in last batch (potentially InvalidLastTick in Agave)\n" );
-  }
 }
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, batch_end_hashcnt_wmk %lu, curr_tick_hashcnt %lu, hashes_per_tick %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->batch_end_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, curr_tick_hashcnt %lu, hashes_per_tick %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -551,9 +564,8 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
-                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
-
+    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_serializing_cnt %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
+                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_serializing_cnt, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
 }
 
 FD_FN_UNUSED static void
@@ -1288,7 +1300,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
       /* Tick verification can't be done at parse time (except for
          TRAILING_ENTRY), because we may not know the expected number of
          hashes yet.  It can't be driven by transaction dispatch or
-         completion, because the block may be empty.  Similary, it can't
+         completion, because the block may be empty.  Similarly, it can't
          be driven by PoH hashing, because a bad block may simply not
          have any microblocks. */
       handle_bad_block( sched, block );
@@ -1896,21 +1908,22 @@ add_block( fd_sched_t * sched,
   mblk_slist_remove_all( block->mblks_mixin_in_progress, sched->mblk_pool );
   block->last_mblk_is_tick            = 0;
   block->tick_hashcnt_wmk             = 0UL;
-  block->batch_end_hashcnt_wmk        = 0UL;
   block->curr_tick_hashcnt            = 0UL;
   block->tick_height                  = ULONG_MAX;
   block->max_tick_height              = ULONG_MAX;
   block->hashes_per_tick              = ULONG_MAX;
   block->inconsistent_hashes_per_tick = 0;
+  block->zero_hash_tick               = 0;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
   block->fec_buf_sz       = 0U;
   block->fec_buf_boff     = 0U;
   block->fec_buf_soff     = 0U;
+  block->poison_cnt       = 0U;
+  block->poison_serialize = 0;
   block->fec_eob          = 0;
   block->fec_sob          = 1;
-  block->last_batch_empty = 0;
 
   block->fec_eos              = 0;
   block->rooted               = 0;
@@ -1958,7 +1971,7 @@ add_block( fd_sched_t * sched,
 }
 
 /* Agave invokes verify_ticks() anywhere between once per slot and once
-   per entry batch, before tranactions are parsed or dispatched for
+   per entry batch, before transactions are parsed or dispatched for
    execution.  We can't do quite the same thing due to out-of-order
    scheduling and the fact that we allow parsing to run well ahead of
    block boundaries.  Out-of-order scheduling is good, so is overlapping
@@ -1978,6 +1991,10 @@ verify_ticks_eager( fd_sched_block_t * block ) {
 
   if( FD_UNLIKELY( block->mblk_tick_cnt+block->tick_height>block->max_tick_height ) ) {
     FD_LOG_INFO(( "bad block: TOO_MANY_TICKS, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
+    return -1;
+  }
+  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->zero_hash_tick ) ) {
+    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, has at least one zero hash tick", block->slot, block->parent_slot ));
     return -1;
   }
   if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->mblk_tick_cnt && (block->hashes_per_tick!=block->tick_hashcnt_wmk||block->inconsistent_hashes_per_tick) ) ) {
@@ -2099,10 +2116,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
          doing PoH verify is as follows:
 
          For a tick microblock, do the same number of hashes as
-         specified by the microblock.  Zero hashes are allowed, but not
-         in all cases.  More on that below.  A zero hash count simply
-         means that the tick would have the same ending hash value as
-         the previous microblock.
+         specified by the microblock.  Zero hashes are not allowed.
 
          For a transaction microblock, if the number of hashes specified
          by the microblock is <= 1, then do zero pure hashes, and simply
@@ -2111,45 +2125,14 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
          the purposes of tick_verify, the number of hashes specified by
          the microblock is taken verbatim.
 
-         In another unfortunate turn, zero hashes in microblock headers
-         are not universally valid.  An additional constraint is that
-         Agave expects non-tick microblocks to leave the cumulative tick
-         hash count at least one away from hashes_per_tick at the end of
-         a batch:
+         An additional constraint is that Agave expects non-tick
+         microblocks to leave the cumulative tick hash count at least
+         one away from hashes_per_tick at the end of a batch:
          https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/entry.rs#L672
 
-         This means that there's no local and clean formulation of the
-         valid hash count range of a given microblock.  The valid hash
-         count depends on the microblocks that have been observed and
-         where the batch boundary is.  Any formulation of a
-         per-microblock valid hash count will probably just end up being
-         isomorphic to a check based on the accumulated tick hash count.
-
-         And because apparently that wasn't enough, this "at least one
-         away" check is applied non-deterministically in Agave.
-         Contiguous runs of microblock batches are extracted out of the
-         blockstore in Agave and then flattened.  The check is then
-         applied on this flattened array of microblocks.  So depending
-         on the timing of shred ingestion into the blockstore, a batch
-         boundary that violates this check may or may not be able to
-         sneak in.  Since we don't revert deadness decisions, we will be
-         lenient and accept blocks that violate this check.
-
-         In yet another unfortunate turn - because why not - there's
-         also non-determinism in this check on the tick height:
-         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/ledger/src/blockstore_processor.rs#L1117
-
-         The intention of this check presumably is that the last tick
-         ends the block.  More precisely, there should be no more
-         microblock batches after the one containing the final tick.
-         The way this check should have been implemented is that the
-         batch containing the final tick must also end with the
-         SLOT_COMPLETE flag.  The way this check has been implemented in
-         Agave is once again non-deterministic.  The slot_full flag is a
-         function of whether the blockstore has received all the shreds.
-         So a block may or may not be able to sneak in an empty batch
-         after the final tick.  We will be lenient and accept such
-         blocks.
+         Observe that this is not a net new constraint.  Since ticks are
+         not allowed to have zero hashes, and ticks have to end at
+         exactly hashes_per_tick, this check is redundant.
 
 
          Some additional references to Agave:
@@ -2158,6 +2141,9 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
          count, and the mixin will happen anyways:
          https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/entry.rs#L326
          https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/entry.rs#L542
+
+         Ticks cannot have a zero hash count:
+         https://github.com/anza-xyz/agave/blob/v4.1.1/entry/src/entry.rs#L684
 
          On the producer side, Agave reserves at least one hash for the
          tick, so an Agave produced tick would satisfy the verifier:
@@ -2172,6 +2158,13 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
           if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
             /* >1 to ignore low power hashing or hashing disabled */
             FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, tick idx %u, tick_hashcnt_wmk %lu, curr hashcnt %lu, hashes_per_tick %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick ));
+            return FD_SCHED_BAD_BLOCK;
+          }
+        }
+        if( FD_UNLIKELY( !hdr->hash_cnt ) ) {
+          block->zero_hash_tick = 1;
+          if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
+            FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, tick idx %u has zero hashes", block->slot, block->parent_slot, block->mblk_tick_cnt ));
             return FD_SCHED_BAD_BLOCK;
           }
         }
@@ -2213,27 +2206,6 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       continue;
     }
     if( block->txns_rem==0UL && block->mblks_rem==0UL && block->fec_sob ) {
-      /* https://github.com/anza-xyz/agave/blob/v4.0.2/ledger/src/shredder.rs#L244
-
-         Agave's shred ingestion pipeline special cases when the shred
-         payloads for a batch are completely empty.  In that case, the
-         validator will pass along a shred's worth of all zeros.  The
-         upshot is that a batch consisting of zero bytes, which normally
-         would fail to deserialize into a batch and lead to a bad block,
-         will get a free pass and be treated as a well formed empty
-         batch.  Only when the batch has zero bytes, not one byte, or
-         seven bytes, or five bytes; those fail to deserialize and end
-         up as bad blocks, as they should.  Exactly zero, that's the
-         magical number to hand out free passes on.
-
-         FIXME: remove this logic after Agave bans empty batches. */
-      if( FD_UNLIKELY( block->fec_eob && block->fec_buf_sz==0U ) ) {
-        block->mblks_rem        = 0UL;
-        block->fec_sob          = 0;
-        block->last_batch_empty = 1;
-        continue;
-      }
-
       CHECK_LEFT( sizeof(ulong) );
       FD_TEST( block->fec_buf_soff==0U );
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
@@ -2245,7 +2217,10 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       }
 
       block->fec_sob = 0;
-      block->last_batch_empty = !block->mblks_rem;
+      if( FD_UNLIKELY( !block->mblks_rem ) ) {
+        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks), empty batch detected", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));
+        return FD_SCHED_BAD_BLOCK;
+      }
       continue;
     }
     if( block->txns_rem==0UL && block->mblks_rem==0UL ) {
@@ -2265,25 +2240,121 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
     block->fec_buf_sz    = 0U;
   }
   if( block->fec_eob ) {
-    /* Record tick hash count at batch boundaries. */
-    block->batch_end_hashcnt_wmk = fd_ulong_max( block->batch_end_hashcnt_wmk, block->curr_tick_hashcnt );
     block->fec_sob = 1;
     block->fec_eob = 0;
   }
   return FD_SCHED_OK;
 }
 
+static inline fd_acct_addr_t const *
+get_acct( fd_txn_t const * txn, fd_acct_addr_t const * imms, fd_acct_addr_t const * alts, ushort idx ) {
+  if( FD_LIKELY( idx<txn->acct_addr_cnt ) ) return imms+idx;
+  if( FD_UNLIKELY( !alts )                ) return NULL;
+  return alts+(idx-txn->acct_addr_cnt);
+}
+
+/* Returns 1 if the transaction write locks any account in the block's
+   poison set. */
+static int
+block_poison_hit( fd_sched_block_t const * block, fd_txn_t const * txn, fd_acct_addr_t const * imms, fd_acct_addr_t const * alts ) {
+  if( FD_LIKELY( !block->poison_cnt ) ) return 0;
+
+  for( fd_txn_acct_iter_t iter = fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE ); iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t const * acct = get_acct( txn, imms, alts, (ushort)fd_txn_acct_iter_idx( iter ) );
+    /* Shouldn't really happen, since ALT-serializing transactions don't
+       enter this function, so all account pubkeys are available. */
+    if( FD_UNLIKELY( !acct ) ) return 1;
+    for( uint j=0U; j<block->poison_cnt; j++ ) {
+      if( FD_UNLIKELY( !memcmp( block->poison[ j ].b, acct->b, 32UL ) ) ) return 1;
+    }
+  }
+
+  return 0;
+}
+
+/* Returns 0 on success, 1 if the poison set overflowed. */
+static int
+block_poison_insert( fd_sched_t * sched, fd_sched_block_t * block, fd_acct_addr_t const * acct ) {
+  for( uint j=0U; j<block->poison_cnt; j++ ) {
+    if( FD_UNLIKELY( !memcmp( block->poison[ j ].b, acct->b, 32UL ) ) ) return 0; /* Dedup. */
+  }
+
+  if( FD_UNLIKELY( block->poison_cnt>=FD_SCHED_POISON_MAX_ACCT_PER_SLOT ) ) {
+    block->poison_serialize = 1;
+    sched->metrics->poison_serializing_cnt++;
+    return 1;
+  }
+
+  block->poison[ block->poison_cnt++ ] = *acct;
+  return 0;
+}
+
+/* Adds relevant accounts to the poison set.  This function is
+   conservative and stateless.  Account data is not necessarily
+   available at insertion time, so we cannot tell which writable account
+   is the programdata PDA.  So the rule is simply: if loader v3 appears
+   anywhere in the transaction account list, poison every writable
+   account of the transaction.
+
+   That is sound because instruction level writability can never exceed
+   transaction level writability thanks to CPI rejecting writability
+   escalations.  So any account a loader v3 instruction could modify, at
+   the top-level or in a CPI, must be transaction level writable.
+   Additionally, the loader being in the account keys is necessary for
+   any invocation of it. */
+static void
+block_poison_add( fd_sched_t *           sched,
+                  fd_sched_block_t *     block,
+                  fd_txn_t const *       txn,
+                  fd_acct_addr_t const * imms,
+                  fd_acct_addr_t const * alts,
+                  ulong                  alt_cnt ) {
+  /* If we can't expand an ALT, we'd have to conservatively assume
+     there's loader v3 listed in it.  And if there also happens to be a
+     writable account in an unresolvable ALT, we can't add it and we no
+     longer maintain poison list integrity, so we conservatively
+     serialize the rest of the block. */
+  int alt_unresolvable = alt_cnt && !alts;
+  int loader_present = 0;
+  for( ushort i=0; i<txn->acct_addr_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( imms[ i ].b, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) {
+      loader_present = 1;
+      break;
+    }
+  }
+  if( !loader_present && !alt_unresolvable ) {
+    for( ulong i=0UL; i<alt_cnt; i++ ) {
+      if( FD_UNLIKELY( !memcmp( alts[ i ].b, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) {
+        loader_present = 1;
+        break;
+      }
+    }
+  }
+  if( FD_LIKELY( !loader_present && !alt_unresolvable ) ) return;
+
+  for( fd_txn_acct_iter_t iter = fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE ); iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t const * acct = get_acct( txn, imms, alts, (ushort)fd_txn_acct_iter_idx( iter ) );
+    if( FD_UNLIKELY( !acct ) ) {
+      block->poison_serialize = 1;
+      sched->metrics->poison_serializing_cnt++;
+      break;
+    }
+    if( FD_UNLIKELY( block_poison_insert( sched, block, acct ) ) ) break;
+  }
+}
+
 FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
 
-  uchar * payload = block->fec_buf+block->fec_buf_soff;
-  ulong pay_sz = 0UL;
-  ulong txn_sz = fd_txn_parse_core( payload,
-                                    fd_ulong_min( FD_TXN_MTU, block->fec_buf_sz-block->fec_buf_soff ),
-                                    txn,
-                                    NULL,
-                                    &pay_sz );
+  uchar * payload   = block->fec_buf+block->fec_buf_soff;
+  ulong   remaining = block->fec_buf_sz-block->fec_buf_soff;
+  ulong   pay_sz    = 0UL;
+  ulong   txn_sz    = fd_txn_parse_core( payload,
+                                         remaining,
+                                         txn,
+                                         NULL,
+                                         &pay_sz );
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */
@@ -2336,6 +2407,12 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     }
   }
 
+  /* Capture alt_cnt before it's clamped below.  Poisoning needs to
+     distinguish between "no ALT keys" from "ALT keys failed to
+     resolve". */
+  ulong                  poison_alt_cnt = alt_cnt;
+  fd_acct_addr_t const * poison_alts    = (alt_cnt && !serializing) ? sched->aluts : NULL;
+
   /* Transactions should not have duplicate accounts.
      https://github.com/anza-xyz/agave/blob/v3.1.11/ledger/src/blockstore_processor.rs#L778-L790 */
   fd_acct_addr_t const * imms = fd_txn_get_acct_addrs( txn, payload );
@@ -2346,9 +2423,22 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     return FD_SCHED_BAD_BLOCK;
   }
 
+  /* At this point, we've decided whether the transaction is
+     ALT-serializing or not.  If it didn't get serialized by ALT
+     expansion failure, check if it should be serialized by poisoning.
+     Add to the poison set after checking, so a poisoning transaction
+     doesn't get serialized against its own entries.  Adding to the
+     poison set is unconditional. */
+  if( FD_UNLIKELY( !serializing && ( block->poison_serialize||block_poison_hit( block, txn, imms, poison_alts ) ) ) ) {
+    serializing = 1;
+    sched->metrics->txn_poisoned_cnt           += block->poison_serialize ? 0U : 1U;
+    sched->metrics->txn_poison_serializing_cnt += block->poison_serialize ? 1U : 0U;
+  }
+  block_poison_add( sched, block, txn, imms, poison_alts, poison_alt_cnt );
+
   ulong bank_idx = (ulong)(block-sched->block_pool);
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
-  FD_TEST( txn_idx!=0UL );
+  FD_TEST( txn_idx && txn_idx<sched->depth );
   sched->metrics->txn_parsed_cnt++;
   sched->metrics->alut_serializing_cnt += (uint)serializing;
   sched->txn_pool_free_cnt--;
@@ -2371,7 +2461,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_info_pool[ txn_idx ].tick_sigverify_done = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_exec_disp = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_exec_done = LONG_MAX;
-  block->txn_idx[ block->txn_parsed_cnt ] = txn_idx;
+  sched->txn_info_pool[ txn_idx ].index_in_slot  = block->txn_parsed_cnt;
+  block->txn_idx[ block->txn_parsed_cnt ] = (uint)txn_idx;
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
 #if FD_SCHED_SKIP_SIGVERIFY
@@ -2804,7 +2895,7 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 
       //FIXME when demote supports non-empty blocks, we should demote
       //the block from the lane unconditionally and immediately,
-      //regardles of whether it's safe to abandon or not.  So a block
+      //regardless of whether it's safe to abandon or not.  So a block
       //would go immediately from staged to unstaged and eventually to
       //abandoned.
       if( FD_LIKELY( block->staged ) ) {

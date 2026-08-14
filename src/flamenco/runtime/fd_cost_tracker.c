@@ -1,4 +1,5 @@
 #include "fd_cost_tracker.h"
+#include "fd_slot_params.h"
 #include "fd_system_ids.h"
 #include "fd_bank.h"
 #include "fd_runtime.h"
@@ -116,29 +117,24 @@ fd_cost_tracker_join( void * shct ) {
 }
 
 void
-fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
-                      fd_features_t const * features,
-                      ulong                 slot ) {
+fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
+                      fd_features_t const *    features,
+                      fd_slot_params_t const * slot_params,
+                      ulong                    slot ) {
+  /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4809-L4816 */
+  cost_tracker->block_cost_limit   = slot_params->max_block_units;
+  cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
+  cost_tracker->account_cost_limit = slot_params->max_writable_account_units;
+  cost_tracker->data_size_limit    = slot_params->max_block_accounts_data_size_delta;
+
+  /* Only the block and account cost limits scale with the block limit
+     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L94-L119 */
   if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_100m ) ) {
-    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0286;
-    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
-    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
-  } else if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_60m ) ) {
-    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0256;
-    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
-    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
-  } else {
-    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0207;
-    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
-    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
+    cost_tracker->block_cost_limit   = fd_ulong_sat_mul( cost_tracker->block_cost_limit,   100UL ) / 60UL;
+    cost_tracker->account_cost_limit = fd_ulong_sat_mul( cost_tracker->account_cost_limit, 100UL ) / 60UL;
   }
 
   if( FD_UNLIKELY( cost_tracker->larger_max_cost_per_block ) ) cost_tracker->block_cost_limit = LARGER_MAX_COST_PER_BLOCK;
-
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/runtime/src/bank.rs#L4472-L4477 */
-  if( FD_FEATURE_ACTIVE( slot, features, raise_account_cu_limit ) ) {
-    cost_tracker->account_cost_limit = fd_ulong_sat_mul( cost_tracker->block_cost_limit, 40UL ) / 100UL;
-  }
 
   cost_tracker->remove_simple_vote_from_cost_model = FD_FEATURE_ACTIVE( slot, features, remove_simple_vote_from_cost_model );
 
@@ -374,7 +370,7 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
                                                          get_allocated_accounts_data_size( tx_cost ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L303-L304 */
-  if( FD_UNLIKELY( allocated_accounts_data_size>FD_MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA ) ) {
+  if( FD_UNLIKELY( allocated_accounts_data_size>cost_tracker->data_size_limit ) ) {
     return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT;
   }
 

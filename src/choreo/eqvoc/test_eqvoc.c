@@ -20,6 +20,17 @@ static fd_epoch_leaders_t leaders    = { .slot0 = 0, .slot_cnt = 100, .pub = fro
 static fd_gossip_duplicate_shred_t chunks_out[ FD_EQVOC_CHUNK_CNT ];
 
 static void
+test_compact_indices( void ) {
+  FD_TEST( sizeof(dup_t)==32UL  );
+  FD_TEST( sizeof(fec_t)==1256UL );
+  FD_TEST( sizeof(prf_t)==2544UL );
+  FD_TEST( sizeof(vtr_t)==72UL   );
+  FD_TEST( !fd_eqvoc_footprint( 1UL<<32, 1UL,     1UL,     1UL ) );
+  FD_TEST( !fd_eqvoc_footprint( 1UL,     1UL<<32, 1UL,     1UL ) );
+  FD_TEST( !fd_eqvoc_footprint( 1UL,     1UL,     1UL<<21, 1UL<<11 ) );
+}
+
+static void
 vtr_insert( fd_eqvoc_t *        eqvoc,
             fd_pubkey_t const * from ) {
   vtr_t * vtr = vtr_map_ele_query( eqvoc->vtr_map, from, NULL, eqvoc->vtr_pool );
@@ -413,6 +424,7 @@ test_update_voters( void ) {
 
 int
 main( void ) {
+  test_compact_indices();
   test_shred_insert();
   test_chunk_insert();
   test_proof_verified();

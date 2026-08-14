@@ -1,4 +1,5 @@
 $(call add-hdrs,fd_txn.h )
+$(call add-hdrs,fd_txn_v1.h)
 $(call add-objs,fd_txn_parse,fd_ballet)
 $(call make-unit-test,test_txn_parse,test_txn_parse,fd_ballet fd_util)
 $(call make-unit-test,test_txn,test_txn,fd_ballet fd_util)

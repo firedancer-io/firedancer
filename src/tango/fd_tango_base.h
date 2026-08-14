@@ -113,7 +113,12 @@
 #include "../util/fd_util.h"
 
 #if FD_HAS_SSE /* also covers FD_HAS_AVX */
-#include <x86intrin.h>
+#include <smmintrin.h>
+#endif
+
+#if FD_HAS_AVX
+/* Layout compatible with __m256i without pulling in all of immintrin.h */
+typedef long long fd_frag_meta_v256_t __attribute__((__vector_size__(32),__may_alias__));
 #endif
 
 /* FD_CHUNK_{LG_SZ,ALIGN,FOOTPRINT,SZ} describe the granularity of
@@ -195,7 +200,7 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
 # endif
 
 # if FD_HAS_AVX
-  __m256i avx; /* Possibly non-atomic but can hold the metadata in a single register */
+  fd_frag_meta_v256_t avx; /* Possibly non-atomic but can hold the metadata in a single register */
 # endif
 
 # if FD_HAS_ARM
@@ -340,7 +345,7 @@ FD_FN_CONST static inline ulong fd_frag_meta_sse1_tspub ( __m128i sse1 ) { retur
 #endif
 #if FD_HAS_AVX
 
-FD_FN_CONST static inline __m256i
+FD_FN_CONST static inline fd_frag_meta_v256_t
 fd_frag_meta_avx( ulong seq,
                   ulong sig,
                   ulong chunk,    /* Assumed 32-bit */
@@ -348,19 +353,19 @@ fd_frag_meta_avx( ulong seq,
                   ulong ctl,      /* Assumed 16-bit */
                   ulong tsorig,   /* Assumed 32-bit */
                   ulong tspub ) { /* Assumed 32-bit */
-  return _mm256_set_epi64x( (long)(tsorig | (tspub<<32)),
-                            (long)(chunk | (sz<<32) | (ctl<<48)),
-                            (long)sig,
-                            (long)seq ); /* Backward Intel ... sigh */
+  return (fd_frag_meta_v256_t){ (long)seq,
+                                (long)sig,
+                                (long)(chunk | (sz<<32) | (ctl<<48)),
+                                (long)(tsorig | (tspub<<32)) };
 }
 
-FD_FN_CONST static inline ulong fd_frag_meta_avx_seq   ( __m256i avx ) { return (ulong)        _mm256_extract_epi64( avx,  0 ); }
-FD_FN_CONST static inline ulong fd_frag_meta_avx_sig   ( __m256i avx ) { return (ulong)        _mm256_extract_epi64( avx,  1 ); }
-FD_FN_CONST static inline ulong fd_frag_meta_avx_chunk ( __m256i avx ) { return (ulong)(uint  )_mm256_extract_epi32( avx,  4 ); }
-FD_FN_CONST static inline ulong fd_frag_meta_avx_sz    ( __m256i avx ) { return (ulong)(ushort)_mm256_extract_epi16( avx, 10 ); }
-FD_FN_CONST static inline ulong fd_frag_meta_avx_ctl   ( __m256i avx ) { return (ulong)(ushort)_mm256_extract_epi16( avx, 11 ); }
-FD_FN_CONST static inline ulong fd_frag_meta_avx_tsorig( __m256i avx ) { return (ulong)(uint  )_mm256_extract_epi32( avx,  6 ); }
-FD_FN_CONST static inline ulong fd_frag_meta_avx_tspub ( __m256i avx ) { return (ulong)(uint  )_mm256_extract_epi32( avx,  7 ); }
+FD_FN_CONST static inline ulong fd_frag_meta_avx_seq   ( fd_frag_meta_v256_t avx ) { return (ulong)         avx[0];       }
+FD_FN_CONST static inline ulong fd_frag_meta_avx_sig   ( fd_frag_meta_v256_t avx ) { return (ulong)         avx[1];       }
+FD_FN_CONST static inline ulong fd_frag_meta_avx_chunk ( fd_frag_meta_v256_t avx ) { return (ulong)(uint  ) avx[2];       }
+FD_FN_CONST static inline ulong fd_frag_meta_avx_sz    ( fd_frag_meta_v256_t avx ) { return (ulong)(ushort)(avx[2]>>32);  }
+FD_FN_CONST static inline ulong fd_frag_meta_avx_ctl   ( fd_frag_meta_v256_t avx ) { return (ulong)(ushort)(avx[2]>>48);  }
+FD_FN_CONST static inline ulong fd_frag_meta_avx_tsorig( fd_frag_meta_v256_t avx ) { return (ulong)(uint  ) avx[3];       }
+FD_FN_CONST static inline ulong fd_frag_meta_avx_tspub ( fd_frag_meta_v256_t avx ) { return (ulong)(uint  )(avx[3]>>32);  }
 
 #endif
 

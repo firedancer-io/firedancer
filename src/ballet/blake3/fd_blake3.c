@@ -76,7 +76,7 @@ fd_blake3_seek_branch( fd_blake3_pos_t * restrict s,
 
 # if FD_HAS_AVX
 
-  wb_t diff = wb_sub( s->head.wb, s->tail.wb );
+  wb_t diff = wb_sub( wb_ld( s->head.uc ), wb_ld( s->tail.uc ) );
 
   uint mergeable_layers = (uint)_mm256_movemask_epi8( wb_gt( diff, wb_bcast( 1 ) ) );
   int  merge_layer = fd_uint_find_lsb_w_default( mergeable_layers, -1 );
@@ -188,9 +188,11 @@ fd_blake3_advance( fd_blake3_pos_t * restrict s ) {
 
 # if FD_HAS_AVX
 
-  wb_t mask = wb_eq( s->tail.wb, s->head.wb );
-  s->tail.wb = wb_andnot( mask, s->tail.wb );
-  s->head.wb = wb_andnot( mask, s->head.wb );
+  wb_t tail = wb_ld( s->tail.uc );
+  wb_t head = wb_ld( s->head.uc );
+  wb_t mask = wb_eq( tail, head );
+  wb_st( s->tail.uc, wb_andnot( mask, tail ) );
+  wb_st( s->head.uc, wb_andnot( mask, head ) );
 
 # else /* FD_HAS_AVX */
 

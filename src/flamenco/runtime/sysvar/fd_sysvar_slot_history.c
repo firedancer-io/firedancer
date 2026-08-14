@@ -62,6 +62,7 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
 
   ulong bits_bitvec_len = FD_LOAD( ulong, acc.data+1UL );
   if( FD_UNLIKELY( !bits_bitvec_len ) ) {
+    fd_sysvar_adjust_balance_for_rent( bank, &acc );
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
     return;
   }
@@ -98,6 +99,7 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
 
   FD_STORE( ulong, footer+8UL, cur_slot+1UL );
 
+  fd_sysvar_adjust_balance_for_rent( bank, &acc );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 }
 

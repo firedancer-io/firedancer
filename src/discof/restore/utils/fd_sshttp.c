@@ -2,11 +2,13 @@
 #include "fd_sshttp_private.h"
 #include "fd_ssarchive.h"
 
-#include "../../../waltz/http/picohttpparser.h"
+#include "../../../third_party/picohttpparser/picohttpparser.h"
 #include "../../../waltz/openssl/fd_openssl_tile.h"
 #include "../../../waltz/openssl/fd_openssl.h"
 #include "../../../util/log/fd_log.h"
 #include "../../../waltz/http/fd_http.h"
+
+FD_STATIC_ASSERT( FD_HASH_FOOTPRINT==32UL, resolved_hash_sz );
 
 #include <unistd.h>
 #include <errno.h>
@@ -50,6 +52,8 @@ fd_sshttp_new( void * shmem ) {
   sshttp->sockfd = -1;
   sshttp->content_len = 0UL;
   fd_cstr_fini( sshttp->snapshot_name );
+  sshttp->resolved_slot = 0UL;
+  fd_memset( sshttp->resolved_hash, 0, FD_HASH_FOOTPRINT );
 
 #if FD_HAS_OPENSSL
   sshttp->ssl     = NULL;
@@ -65,7 +69,7 @@ fd_sshttp_new( void * shmem ) {
       FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
     }
 
-    /* transfering ownership of ssl_ctx by assignment */
+    /* transferring ownership of ssl_ctx by assignment */
     sshttp->ssl_ctx = ssl_ctx;
 
     fd_ossl_load_certs( sshttp->ssl_ctx );
@@ -160,7 +164,12 @@ fd_sshttp_init( fd_sshttp_t * http,
 #endif
   }
 
-  if( hops!=ULONG_MAX ) http->hops = hops;
+  if( hops!=ULONG_MAX ) {
+    http->hops = hops;
+    fd_cstr_fini( http->snapshot_name );
+    http->resolved_slot = 0UL;
+    fd_memset( http->resolved_hash, 0, FD_HASH_FOOTPRINT );
+  }
   http->request_sent = 0UL;
   int fmt_ok;
   if( FD_LIKELY( is_https ) ) {
@@ -508,6 +517,10 @@ follow_redirect( fd_sshttp_t *        http,
         return FD_SSHTTP_ADVANCE_ERROR;
       }
 
+      http->resolved_slot = (incremental_entry_slot!=ULONG_MAX)
+                            ? incremental_entry_slot : full_entry_slot;
+      fd_memcpy( http->resolved_hash, decoded_hash, FD_HASH_FOOTPRINT );
+
       char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_base58_encode_32( decoded_hash, NULL, encoded_hash );
 
@@ -556,9 +569,9 @@ follow_redirect( fd_sshttp_t *        http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  FD_LOG_NOTICE(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s", http->is_https ? "https" : "http",
-                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
-                  (int)location_len, location ));
+  FD_LOG_INFO(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s", http->is_https ? "https" : "http",
+                FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
+                (int)location_len, location ));
 
   if( FD_UNLIKELY( http->is_https ) ) {
     http->next_state   = FD_SSHTTP_STATE_REDIRECT;
@@ -660,19 +673,20 @@ read_response( fd_sshttp_t * http,
 
   http->state = FD_SSHTTP_STATE_DL;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
-    ulong need_len = fd_ulong_min( http->response_len - (ulong)parsed, http->content_len );
-    if( FD_UNLIKELY( *data_len<need_len ) ) {
-      FD_LOG_WARNING(( "data buffer too small (data_len=%lu required=%lu response_len=%lu parsed=%lu)",
-                       *data_len, need_len, http->response_len, (ulong)parsed ));
-      fd_sshttp_cancel( http );
-      return FD_SSHTTP_ADVANCE_ERROR;
-    }
-    *data_len = need_len;
-    fd_memcpy( data, http->response+parsed, *data_len );
-    http->content_read += *data_len;
+    /* Body bytes past the caller's buffer are kept in response, with
+       response_len repurposed as the residual length, drained by
+       read_body before it reads the socket again. */
+    ulong leftover = fd_ulong_min( http->response_len - (ulong)parsed, http->content_len );
+    ulong copy_len = fd_ulong_min( leftover, *data_len );
+    fd_memcpy( data, http->response+parsed, copy_len );
+    memmove( http->response, http->response+(ulong)parsed+copy_len, leftover-copy_len );
+    http->response_len  = leftover-copy_len;
+    http->content_read += copy_len;
+    *data_len = copy_len;
     return FD_SSHTTP_ADVANCE_DATA;
   } else {
     FD_TEST( http->response_len==(ulong)parsed );
+    http->response_len = 0UL;
     return FD_SSHTTP_ADVANCE_AGAIN;
   }
 }
@@ -696,6 +710,17 @@ read_body( fd_sshttp_t * http,
   }
 
   FD_TEST( http->content_read<http->content_len );
+
+  if( FD_UNLIKELY( http->response_len ) ) { /* residual body bytes from read_response */
+    ulong copy_len = fd_ulong_min( http->response_len, *data_len );
+    fd_memcpy( data, http->response, copy_len );
+    memmove( http->response, http->response+copy_len, http->response_len-copy_len );
+    http->response_len  -= copy_len;
+    http->content_read  += copy_len;
+    *data_len = copy_len;
+    return FD_SSHTTP_ADVANCE_DATA;
+  }
+
   long read = http_recv( http, data, fd_ulong_min( *data_len, http->content_len-http->content_read ) );
   if( FD_UNLIKELY( read<=0 ) ) return (int)read;
 
@@ -713,6 +738,16 @@ fd_sshttp_snapshot_name( fd_sshttp_t const * http ) {
 ulong
 fd_sshttp_content_len( fd_sshttp_t const * http ) {
   return http->content_len;
+}
+
+ulong
+fd_sshttp_resolved_slot( fd_sshttp_t const * http ) {
+  return http->resolved_slot;
+}
+
+uchar const *
+fd_sshttp_resolved_hash( fd_sshttp_t const * http ) {
+  return http->resolved_hash;
 }
 
 int

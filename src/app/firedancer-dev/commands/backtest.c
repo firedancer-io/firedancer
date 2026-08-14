@@ -19,8 +19,13 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
+#include "../../../disco/gui/fd_gui_config_parse.h"
+#include "../../../ballet/base58/fd_base58.h"
+#include "../../../disco/genesis/fd_genesis_cluster.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
+#include "../../../discof/genesis/genesis_hash.h"
 #include "../../../discof/replay/fd_replay_tile.h"
+#include "../../../discof/restore/fd_snapct_tile.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../discof/tower/fd_tower_tile.h"
@@ -57,6 +62,7 @@ backtest_topo( config_t * config ) {
 
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
   int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
+  int telemetry_enabled        = config->telemetry && strcmp( config->tiles.event.url, "" );
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -73,6 +79,10 @@ backtest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "replay" );
   fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 1, 0 );
+
+  fd_topo_obj_t * node_info_obj = fd_topob_obj( topo, "node_info", "replay" );
+  fd_topob_tile_uses( topo, replay_tile, node_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, node_info_obj->id, "node_info" ) );
 
   fd_topob_wksp( topo, "accdb" )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_FULL;
   fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", cpu_idx++, 0, 0, 0 );
@@ -95,7 +105,8 @@ backtest_topo( config_t * config ) {
       1UL<<35UL,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
-      execrp_tile_cnt+3UL );
+      execrp_tile_cnt+3UL,
+      0UL );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   /**********************************************************************/
@@ -144,13 +155,43 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
+  /* Add the event + sign tiles to topo                                 */
+  /**********************************************************************/
+  if( FD_LIKELY( telemetry_enabled ) ) {
+    fd_topob_wksp( topo, "sign"       );
+    fd_topob_wksp( topo, "event"      );
+    fd_topob_wksp( topo, "event_sign" );
+    fd_topob_wksp( topo, "sign_event" );
+
+    fd_topob_tile( topo, "sign",  "sign",  "metric_in", cpu_idx++, 0, 1, 1 );
+    fd_topo_tile_t * event_tile = fd_topob_tile( topo, "event", "event", "metric_in", cpu_idx++, 0, 1, 0 );
+
+    ushort shred_version = 0;
+    uchar  genesis_hash[ 32 ] = {0};
+    if( FD_UNLIKELY( -1==read_genesis_bin( config->paths.genesis, &shred_version, genesis_hash ) ) ) {
+      FD_LOG_ERR(( "could not read genesis `%s` for the event tile (%i-%s)",
+                       config->paths.genesis, errno, fd_io_strerror( errno ) ));
+    }
+    fd_memcpy( event_tile->event.genesis_hash, genesis_hash, 32UL );
+    event_tile->event.shred_version = shred_version;
+
+    fd_topob_link( topo, "event_sign", "event_sign", 128UL, 317UL, 1UL );
+    fd_topob_link( topo, "sign_event", "sign_event", 128UL, 64UL,  1UL );
+
+    fd_topob_tile_in ( topo, "sign",  0UL, "metric_in", "event_sign", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    fd_topob_tile_out( topo, "event", 0UL,              "event_sign", 0UL                                         );
+    fd_topob_tile_in ( topo, "event", 0UL, "metric_in", "sign_event", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    fd_topob_tile_out( topo, "sign",  0UL,              "sign_event", 0UL                                         );
+  }
+
+  /**********************************************************************/
   /* Setup backtest->replay link (repair_out) in topo                 */
   /**********************************************************************/
 
   /* The repair tile is replaced by the backtest tile for the repair to
      replay link.  The frag interface is a "slice", ie. entry batch,
      which is provided by the backtest tile, which reads in the entry
-     batches from the CLI-specified source (eg. RocksDB). */
+     batches from the CLI-specified source (eg. pcap/pcapng file). */
 
   fd_topob_wksp( topo, "repair_out" );
   fd_topob_link( topo, "repair_out", "repair_out", 65536UL, sizeof(fd_fec_complete_t), 1UL );
@@ -172,8 +213,8 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapwr_ct" );
 
     fd_topob_link( topo, "snapct_ld",    "snapct_ld",    128UL,   sizeof(fd_ssctrl_init_t),       1UL );
-    fd_topob_link( topo, "snapld_dc",    "snapld_dc",    16384UL, USHORT_MAX,                     1UL );
-    fd_topob_link( topo, "snapdc_in",    "snapdc_in",    16384UL, USHORT_MAX,                     1UL );
+    fd_topob_link( topo, "snapld_dc",    "snapld_dc",    16384UL, FD_SNAPSHOT_DATA_MTU,           1UL );
+    fd_topob_link( topo, "snapdc_in",    "snapdc_in",    16384UL, FD_SNAPSHOT_DATA_MTU,           1UL );
 
     fd_topob_link( topo, "snapin_manif", "snapin_manif", 4UL,     sizeof(fd_snapshot_manifest_t), 1UL ); /* TODO: Should be depth 1 or 2 but replay backpressures */
     fd_topob_link( topo, "snapct_repr",  "snapct_repr",  128UL,   0UL,                            1UL )->permit_no_consumers = 1;
@@ -200,7 +241,8 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_out( topo, "snapwr", 0UL,               "snapwr_ct",    0UL                                       );
   } else {
     fd_topob_wksp( topo, "genesi_out" );
-    fd_topob_link( topo, "genesi_out", "genesi_out", 1UL, FD_GENESIS_TILE_MTU, 0UL );
+    fd_topob_link( topo, "genesi_out", "genesi_out", 1UL,
+                   fd_genesi_tile_mtu( config->firedancer.development.genesis.max_file_size_mib<<20 ), 1UL );
     fd_topob_tile_out( topo, "genesi", 0UL, "genesi_out", 0UL );
     fd_topob_tile_in ( topo, "replay", 0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
@@ -225,7 +267,7 @@ backtest_topo( config_t * config ) {
   /* Setup replay->stake/send/poh links in topo w/o consumers         */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_epoch"    );
-  fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL, FD_EPOCH_OUT_MTU, 1UL );
+  fd_topob_link( topo, "replay_epoch", "replay_epoch", 16UL, FD_EPOCH_OUT_MTU, 1UL );
   fd_topob_tile_out( topo, "replay", 0UL, "replay_epoch",   0UL );
   topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_epoch",   0 ) ] ].permit_no_consumers = 1;
 
@@ -266,6 +308,38 @@ backtest_topo( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "execrp_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   /**********************************************************************/
+  /* Add the gui tile to topo                                           */
+  /**********************************************************************/
+
+  /* The gui tile consumes the subset of its usual inputs that exist in
+     the backtest topology (there is no networking, gossip, shred or
+     leader pipeline here).  This is enough for the frontend to show
+     snapshot load and replay progress.  Genesis-mode backtest (no
+     snapshot loader) is not supported: the gui boot-progress sampler
+     requires the snapshot tiles. */
+  if( FD_UNLIKELY( config->tiles.gui.enabled && !disable_snap_loader ) ) {
+    fd_topob_wksp( topo, "gui" );
+    fd_topo_tile_t * gui_tile = fd_topob_tile( topo, "gui", "gui", "metric_in", cpu_idx++, 0, 1, 0 );
+
+    fd_topob_wksp( topo, "snapct_gui" );
+    fd_topob_wksp( topo, "snapin_gui" );
+    fd_topob_link( topo, "snapct_gui", "snapct_gui", 128UL, sizeof(fd_snapct_update_t),            1UL );
+    fd_topob_link( topo, "snapin_gui", "snapin_gui", 128UL, FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, 1UL );
+    fd_topob_tile_out( topo, "snapct", 0UL, "snapct_gui", 0UL );
+    fd_topob_tile_out( topo, "snapin", 0UL, "snapin_gui", 0UL );
+
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "tower_out",     0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_epoch",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "execrp_replay", i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "snapct_gui",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "snapin_gui",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "snapin_manif",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+    fd_topob_tile_uses( topo, gui_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
+
+  /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
@@ -295,7 +369,7 @@ backtest_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   fd_topob_wksp( topo, "txncache"    );
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT, config->development.bench.larger_max_cost_per_block );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( !disable_snap_loader ) ) fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
@@ -312,6 +386,17 @@ backtest_topo( config_t * config ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     fd_topo_configure_tile( tile, config );
 
+    if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
+      tile->gui.tile_cnt = topo->tile_cnt;
+
+      uchar genesis_hash[ 32 ] = {0};
+      if( FD_LIKELY( -1!=read_genesis_bin( config->paths.genesis, NULL, genesis_hash ) ) ) {
+        char genesis_hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+        fd_base58_encode_32( genesis_hash, NULL, genesis_hash_b58 );
+        strcpy( tile->gui.cluster, fd_genesis_cluster_name( fd_genesis_cluster_identify( genesis_hash_b58 ) ) );
+      }
+    }
+
     if( !strcmp( tile->name, "replay" ) ) {
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
       for( ulong i = 0; i < tile->replay.enable_features_cnt; i++ ) {
@@ -319,6 +404,8 @@ backtest_topo( config_t * config ) {
       }
     }
   }
+
+  if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
 
   // fd_topob_auto_layout( topo, 0 );
   fd_topob_finish( topo, CALLBACKS );
@@ -374,6 +461,7 @@ backtest_cmd_fn( args_t *   args,
   initialize_workspaces( config );
   initialize_stacks( config );
   initialize_accdb_fd( config );
+  initialize_snapshot_fds( config );
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
@@ -384,6 +472,7 @@ backtest_cmd_fn( args_t *   args,
     if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     watch_args.watch.drain_output_fd = pipefd[0];
+    watch_args.watch.full = 1;
     if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }

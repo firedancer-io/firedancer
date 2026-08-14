@@ -1429,12 +1429,6 @@ test_reject( void ) {
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_ADD );
 
   i++;
-  make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );
-  txn = TXN( &txnp_scratch[ i ] );
-  txn->instr[ 0 ].acct_cnt = 256;
-  FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT );
-
-  i++;
   make_transaction( i, 1000001U, 500U, 11.0, "A", "A", NULL, NULL );
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE_ACCT );
 
@@ -1609,14 +1603,14 @@ test_bundle_nonce( void ) {
   /* Cannot insert bundle with same nonce, even with higher prio */
   bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
   make_transaction1      ( bundle[0]->txnp, 0UL, 100U, 100U, 5.0, "A", "B", NULL, NULL );
-  make_nonce_transaction1( bundle[1]->txnp, 1UL, 999.0, 5, 0, 'b' );
+  make_nonce_transaction1( bundle[1]->txnp, 1UL, 12.0, 5, 0, 'b' );
   make_transaction1      ( bundle[2]->txnp, 2UL, 100U, 100U, 4.0, "C", "D", NULL, NULL );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_PRIORITY );
 
   /* Cannot insert transaction with same nonce, even with higher prio */
   fd_txn_e_t * txn = fd_pack_insert_txn_init( pack );
-  make_nonce_transaction1( txn->txnp, 1UL, 999.0, 5, 0, 'b' );
+  make_nonce_transaction1( txn->txnp, 1UL, 12.0, 5, 0, 'b' );
   result = fd_pack_insert_txn_fini( pack, txn, 1000UL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_PRIORITY );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );

@@ -71,7 +71,8 @@
    and so they don't have globally acceptable type names (e.g.
    fd_rdisp_edge_t). */
 
-#define MAX_ACCT_PER_TXN 128UL
+#define MAX_ACCT_PER_TXN FD_TXN_ACCT_ADDR_MAX
+FD_STATIC_ASSERT( MAX_ACCT_PER_TXN<=128UL, max_acct_per_txn );
 
 /* edge_t: Fields typed edge_t represent an edge in one of the parallel
    account-conflict DAGs.  Each transaction stores a list of all its
@@ -87,8 +88,8 @@
    transactions.  Then the lowest 8 bits store the account index within
    that transaction of the edge that is part of the same
    account-specific DAG as this edge.  Because the max depth is 2^23-1,
-   and each transaction can reference 128 accounts, the max accounts
-   that can be referenced fits in 30 bits.
+   and each transaction can reference FD_TXN_ACCT_ADDR_MAX accounts,
+   the max accounts that can be referenced fits in 30 bits.
    The proper type would be something like
    typedef union {
      struct {
@@ -146,9 +147,9 @@ struct fd_rdisp_txn {
      0xFFFF0000 (16 bits) for linear block number,
      0x0000C000 (2 bits) for concurrency lane,
      0x00003F80 (7 bits) for r_cnt
-     0x0000007F (7 bits) for w_cnt_1.  Unfortunately, transactions can
-     have up to 128 writable accounts, but they have at least 1, so by
-     storing w_cnt_1 = w_cnt - 1, we can still store it in 7 bits. */
+     0x0000007F (7 bits) for w_cnt_1.  Transactions have at least one
+     writable account and at most MAX_ACCT_PER_TXN total accounts, so
+     storing w_cnt_1 = w_cnt - 1 fits in 7 bits. */
   union {
     uint edge_cnt_etc;
     /* edge_cnt_etc is only used when the transaction is STAGED and
@@ -882,6 +883,7 @@ fd_rdisp_rekey_block( fd_rdisp_t *           disp,
   fd_rdisp_blockinfo_t * block = block_map_ele_query      ( disp->blockmap, &old_tag, NULL, block_pool );
   if( FD_UNLIKELY(        NULL== block ) )                                                                   return -1;
 
+  block_map_idx_remove( disp->blockmap, &old_tag, ULONG_MAX, block_pool );
   block->block = new_tag;
   block_map_ele_insert( disp->blockmap, block, block_pool );
   return 0;
@@ -891,8 +893,9 @@ fd_rdisp_rekey_block( fd_rdisp_t *           disp,
 /* "Registers" a reference to the account in info at transaction
    global_insert_cnt.  Returns the value of the EMA, which is an
    estimate of the probability that the next transaction also references
-   the account.  This value does not matter for correctness, which is
-   why floating point arithmetic is okay. */
+   the account.  This value does not matter for correctness, other than
+   that it is in [0, 1), which is why floating point arithmetic is
+   acceptable here. */
 static inline float
 update_ema( acct_info_t * info,
             ulong         global_insert_cnt ) {
@@ -938,12 +941,11 @@ add_edges( fd_rdisp_t           * disp,
            uint                   lane,
            int                    writable,
            int                    update_score ) {
-  /* When we first start, the low 14 bits are 0x3FFF, so that gives us
-     w_cnt==0, r_cnt==0, as desired.  Then otherwise, the low 7 bits are
-     w_cnt_1, so adding 1 gives w_cnt.  If we've actually added 128
-     writable accounts, then r_cnt will be incorrect, but then we
-     actually can't add any more readonly accounts, so the function call
-     will be a no-op. */
+  /* When we first start, the low 14 bits are 0x3FFF, so adding the first
+     non-empty writable batch wraps them to w_cnt-1 with r_cnt==0.
+     Thereafter, the low 7 bits store w_cnt_1 and the next 7 bits store
+     r_cnt.  Both counts fit without overflow because their sum is at
+     most MAX_ACCT_PER_TXN. */
 
   ulong w_cnt =  (ele->edge_cnt_etc + 1U)     & 0x7FU;
   ulong r_cnt = ((ele->edge_cnt_etc + 1U)>>7) & 0x7FU;
@@ -1147,7 +1149,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
 
   if( FD_UNLIKELY( !block->staged ) ) {
     rtxn->in_degree = IN_DEGREE_UNSTAGED;
-    rtxn->score     = 0.999f;
+    rtxn->score     = 1.0f;
 
     fd_rdisp_unstaged_t * unstaged = disp->unstaged + idx;
     unstaged->block = insert_block;
@@ -1174,7 +1176,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
     uint lane = block->staging_lane;
 
     rtxn->in_degree    = 0U;
-    rtxn->score        = 0.999f;
+    rtxn->score        = 1.0f;
     /* There's not a good way to initialize w_cnt_1 to -1, which is what
        it should be at this point, but this is close.  We must be sure
        to add at least one writer (which we are assured of because we
@@ -1196,6 +1198,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
       add_edges( disp, rtxn, alts   +fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_ALT ),
                                      fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_READONLY_ALT ),           lane, 0, 1 );
   }
+  if( FD_UNLIKELY( rtxn->score>FD_RDISP_MAX_SCORE ) ) rtxn->score=FD_RDISP_MAX_SCORE;
 
   if( FD_UNLIKELY( serializing | block->last_insert_was_serializing ) ) {
     block->last_serializing = block->inserted_cnt;

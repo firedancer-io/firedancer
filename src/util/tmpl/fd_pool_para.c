@@ -167,6 +167,12 @@
 
      myele_t * mypool_acquire( mypool_t * join );
 
+     // mypool_acquire_nolock does an atomic-unsafe acquire.
+     // Assumes that the current thread is the only pool user.
+     // U.B. if other threads access the pool concurrently.
+
+     myele_t * mypool_acquire_nolock( mypool_t * join );
+
      // mypool_release releases an element to a mypoool.  Assumes join
      // is a current local join, ele is a pointer in the caller's
      // address space to the element, and the element is currently not
@@ -499,6 +505,8 @@ POOL_STATIC void *     POOL_(delete)( void *     shpool );
 
 POOL_STATIC POOL_ELE_T * POOL_(acquire)( POOL_(t) * join );
 
+POOL_STATIC POOL_ELE_T * POOL_(acquire_nolock)( POOL_(t) * join );
+
 POOL_STATIC void POOL_(release)( POOL_(t) * join, POOL_ELE_T * ele );
 
 POOL_STATIC void POOL_(release_chain)( POOL_(t) * join, POOL_ELE_T * head, POOL_ELE_T * tail );
@@ -745,6 +753,78 @@ POOL_(acquire)( POOL_(t) * join ) {
   }
 
   FD_COMPILER_MFENCE();
+
+  return ele;
+}
+
+#if POOL_LAZY
+
+static inline POOL_ELE_T *
+POOL_(acquire_lazy_nolock)( POOL_(t) * join ) {
+  POOL_ELE_T * ele0    = join->ele;
+  ulong        ele_max = join->ele_max;
+  ulong *      _l      = &join->pool->ver_lazy;
+
+  POOL_ELE_T * ele = NULL;
+
+  ulong ver_lazy = *_l;
+
+  ulong ver     = POOL_(private_vidx_ver)( ver_lazy );
+  ulong ele_idx = POOL_(private_vidx_idx)( ver_lazy );
+
+  if( FD_LIKELY( !POOL_(idx_is_null)( ele_idx ) ) ) {
+    if( FD_UNLIKELY( ele_idx>=ele_max ) ) {
+      FD_LOG_CRIT(( "corruption detected (ele_idx=%lu ele_max=%lu)",
+                    ele_idx, ele_max ));
+    }
+
+    ulong ele_nxt = ele_idx+1UL;
+    if( FD_UNLIKELY( ele_nxt>=ele_max ) ) {
+      ele_nxt = POOL_(idx_null)();
+    }
+
+    *_l = POOL_(private_vidx)( ver+2UL, ele_nxt );
+    ele = ele0 + ele_idx;
+  }
+
+  return ele;
+}
+
+#endif /* POOL_LAZY */
+
+POOL_STATIC POOL_ELE_T *
+POOL_(acquire_nolock)( POOL_(t) * join ) {
+  POOL_ELE_T * ele0    = join->ele;
+  ulong        ele_max = join->ele_max;
+  ulong *      _v      = &join->pool->ver_top;
+
+  POOL_ELE_T * ele = NULL;
+
+  ulong ver_top = *_v;
+
+  ulong ver     = POOL_(private_vidx_ver)( ver_top );
+  ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
+
+  if( FD_UNLIKELY( POOL_(idx_is_null)( ele_idx ) ) ) {
+#   if POOL_LAZY
+    return POOL_(acquire_lazy_nolock)( join );
+#   endif
+  } else {
+    if( FD_UNLIKELY( ele_idx>=ele_max ) ) {
+      FD_LOG_CRIT(( "corruption detected (ele_idx=%lu ele_max=%lu)",
+                    ele_idx, ele_max ));
+    }
+
+    ulong ele_nxt = POOL_(private_idx)( ele0[ ele_idx ].POOL_NEXT );
+
+    if( FD_UNLIKELY( (ele_nxt>=ele_max) & (!POOL_(idx_is_null)( ele_nxt )) ) ) {
+      FD_LOG_CRIT(( "corruption detected (ele_nxt=%lu ele_max=%lu)",
+                    ele_nxt, ele_max ));
+    }
+
+    *_v = POOL_(private_vidx)( ver+2UL, ele_nxt );
+    ele = ele0 + ele_idx;
+  }
 
   return ele;
 }

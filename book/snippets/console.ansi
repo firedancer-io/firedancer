@@ -1,0 +1,5 @@
+$ sudo firedancer configure init console
+[32mNOTICE [0m console ... unconfigured ... console loglevel is 7; kernel warnings render console work on the printing CPU
+[32mNOTICE [0m console ... configuring
+[32mNOTICE [0m RUN: `echo "0" > /sys/class/graphics/fbcon/cursor_blink`
+[32mNOTICE [0m RUN: `echo "4" > /proc/sys/kernel/printk`

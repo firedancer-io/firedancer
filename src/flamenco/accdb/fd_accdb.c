@@ -1,15 +1,15 @@
 #define _GNU_SOURCE
 #include "fd_accdb.h"
 #include "fd_accdb_shmem.h"
-#define FD_ACCDB_NO_FORK_ID
 #include "fd_accdb_private.h"
-#undef FD_ACCDB_NO_FORK_ID
 
 #if FD_TMPL_USE_HANDHOLDING
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/base58/fd_base58.h"
 #endif
 #include "../../util/racesan/fd_racesan_target.h"
+
+#include "../../disco/events/generated/fd_event_gen.h"
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_meta_sz );
 
@@ -107,6 +107,28 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      that never gets a second write (and therefore would otherwise
      never be promoted by compaction). */
   int snapshot_loading;
+
+  /* Track account addresses changed since a full snap.
+     Used to determine which accounts should be packed into a full
+     snapshot (including tombstones for accounts no longer present in
+     accdb, but present in the full snapshot). */
+  struct {
+    uint *             chains;
+    fd_accdb_delta_t * pool;
+    struct {
+      uchar const * pubkey;
+      uint          chain;
+    } scratch[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  } delta;
+
+  /* Write counters that are not published yet.  Metrics are aggregated
+     in batches to avoid expensive atomic operations on each write.
+     64-byte aligned to fit in a single cache line. */
+  struct {
+    ulong bytes;         /* bytes reserved on partition_idx */
+    ulong num_ops;       /* reservations behind those bytes */
+    ulong partition_idx; /* set while num_ops>0 */
+  } write_stats __attribute__((aligned(64)));
 };
 
 static inline fd_accdb_cache_line_t *
@@ -121,7 +143,7 @@ cache_line( fd_accdb_t * accdb,
    allocate time (see fd_accdb_partition_write_bump) so that they reflect
    bytes committed to a partition rather than syscalls — the snapshot
    loader bypasses pwritev2 entirely, but every write still goes through
-   allocate_next_write. */
+   reserve_next_write. */
 static inline void
 fd_accdb_partition_read_bump( fd_accdb_t * accdb,
                               ulong        file_offset,
@@ -139,20 +161,32 @@ fd_accdb_partition_read_bump( fd_accdb_t * accdb,
   FD_ATOMIC_FETCH_AND_ADD( &p->read_ops,   1UL   );
 }
 
-/* Bump the per-partition write counters at allocate time.  bytes is the
-   reserved size, which equals the bytes that will land on this
-   partition.  Called from allocate_next_write and
-   allocate_next_compaction_write. */
+/* Bump the per-partition write counters.  bytes is how much landed on
+   this partition, over num_ops reservations. */
 static inline void
 fd_accdb_partition_write_bump( fd_accdb_t * accdb,
-                               ulong        file_offset,
-                               ulong        bytes ) {
+                               ulong        partition_idx,
+                               ulong        bytes,
+                               ulong        num_ops ) {
   if( FD_UNLIKELY( !bytes ) ) return;
-  ulong partition_idx = file_offset / accdb->shmem->partition_sz;
   fd_accdb_partition_t * p = partition_pool_ele( accdb->partition_pool, partition_idx );
   if( FD_UNLIKELY( !p ) ) return;
-  FD_ATOMIC_FETCH_AND_ADD( &p->bytes_written, bytes );
-  FD_ATOMIC_FETCH_AND_ADD( &p->write_ops,     1UL   );
+  FD_ATOMIC_FETCH_AND_ADD( &p->bytes_written, bytes   );
+  FD_ATOMIC_FETCH_AND_ADD( &p->write_ops,     num_ops );
+}
+
+void
+fd_accdb_flush_metrics( fd_accdb_t * accdb ) {
+  ulong bytes    = accdb->write_stats.bytes;
+  ulong num_ops  = accdb->write_stats.num_ops;
+  ulong part_idx = accdb->write_stats.partition_idx;
+
+  if( !num_ops ) return;
+
+  memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
+
+  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, bytes );
+  fd_accdb_partition_write_bump( accdb, part_idx, bytes, num_ops );
 }
 
 static inline ulong
@@ -226,13 +260,10 @@ fd_accdb_new( void *              ljoin,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
                              FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-  void * _fork_pool_shmem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),              fork_pool_footprint()                                   );
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_shmem   = FD_SCRATCH_ALLOC_APPEND( l, acc_pool_align(),               acc_pool_footprint()                                    );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),        max_accounts*sizeof(fd_accdb_accmeta_t)             );
-  void * _txn_pool_shmem   = FD_SCRATCH_ALLOC_APPEND( l, txn_pool_align(),               txn_pool_footprint()                                    );
   void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
   void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
@@ -250,10 +281,10 @@ fd_accdb_new( void *              ljoin,
   accdb->snapshot_loading = 0;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
-  FD_TEST( acc_pool_join( accdb->acc_pool_join, _acc_pool_shmem, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map = _acc_map;
-  FD_TEST( txn_pool_join( accdb->txn_pool, _txn_pool_shmem, _txn_pool_ele, txn_max ) );
+  FD_TEST( txn_pool_join( accdb->txn_pool, shmem->txn_pool, _txn_pool_ele, txn_max ) );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
   accdb->partition_pool = partition_pool_join( _partition_pool );
   FD_TEST( accdb->partition_pool );
@@ -264,7 +295,7 @@ fd_accdb_new( void *              ljoin,
   accdb->deferred_free_dlist = deferred_free_dlist_join( _deferred_free_dlist );
   FD_TEST( accdb->deferred_free_dlist );
 
-  FD_TEST( fork_pool_join( accdb->fork_shmem_pool, _fork_pool_shmem, _fork_pool_ele, max_live_slots ) );
+  FD_TEST( fork_pool_join( accdb->fork_shmem_pool, shmem->fork_pool, _fork_pool_ele, max_live_slots ) );
   accdb->fork_pool = _local_fork_pool;
   for( ulong i=0UL; i<max_live_slots; i++ ) {
     fd_accdb_fork_t * fork = &accdb->fork_pool[ i ];
@@ -283,11 +314,15 @@ fd_accdb_new( void *              ljoin,
 
   accdb->deferred_acc_buf = (uint *)( (uchar *)shmem + shmem->deferred_acc_buf_off );
 
+  accdb->delta.chains = (uint *)             ( (uchar *)shmem + shmem->delta.chain_off );
+  accdb->delta.pool   = (fd_accdb_delta_t *) ( (uchar *)shmem + shmem->delta.ele_off   );
+
   accdb->deferred_fork_head  = NULL;
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
 
-  memset( accdb->metrics, 0, sizeof(fd_accdb_metrics_t) );
+  memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
+  memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 
   return accdb;
 }
@@ -403,6 +438,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   accdb->deferred_fork_epoch = 0UL;
   accdb->snapshot_loading    = 0;
   accdb->acquire_state       = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 }
 
 void
@@ -420,6 +456,7 @@ change_partition( fd_accdb_t *           accdb,
 
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
+  fd_accdb_flush_metrics( accdb );
   spin_lock_acquire( &accdb->shmem->partition_lock );
 
   /* Force the next layer-0 write onto a fresh Hot partition so we do
@@ -451,9 +488,61 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   spin_lock_release( &accdb->shmem->partition_lock );
 }
 
+static inline uint
+delta_chain( fd_accdb_shmem_t const * accdb,
+             uchar const              pubkey[ 32 ] ) {
+  uint hash = (uint)fd_accdb_hash( pubkey, accdb->delta.seed );
+  return hash & accdb->delta.chain_mask;
+}
+
+static int
+delta_insert( fd_accdb_t * accdb,
+              uchar const  pubkey[ 32 ] ) {
+  /* FIXME consider batch inserting */
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_UNLIKELY( shmem->delta.head >= shmem->delta.ele_max ) ) return 0;
+
+  uint *             chains = accdb->delta.chains;
+  uint *             chain  = &chains[ delta_chain( shmem, pubkey ) ];
+  fd_accdb_delta_t * pool   = accdb->delta.pool;
+
+  uint head = *chain;
+  for( uint cur=head; cur!=UINT_MAX; cur=pool[ cur ].next ) {
+    if( FD_UNLIKELY( !memcmp( pool[ cur ].pubkey, pubkey, 32UL ) ) ) return 1;
+  }
+
+  ulong idx = shmem->delta.head++;
+  fd_accdb_delta_t * delta = &pool[ idx ];
+  delta->next = head;
+  memcpy( delta->pubkey, pubkey, 32UL );
+  *chain = (uint)idx;
+  return 1;
+}
+
+int
+fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
+                                 fd_accdb_fork_id_t fork_id ) {
+  if( FD_UNLIKELY( fork_id.val>=fork_pool_ele_max( accdb->fork_shmem_pool ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_snapshot_populate_delta: invalid fork id %u (capacity %lu)",
+                  (uint)fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
+  }
+
+  uint txn_idx = accdb->fork_pool[ fork_id.val ].shmem->txn_head;
+  while( txn_idx!=UINT_MAX ) {
+    fd_accdb_txn_t const * txn = txn_pool_ele( accdb->txn_pool, (ulong)txn_idx );
+    fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ txn->acc_pool_idx ];
+    if( FD_UNLIKELY( !delta_insert( accdb, acc->key.pubkey ) ) ) return -1;
+    txn_idx = txn->fork.next;
+  }
+  return 0;
+}
+
 void
 fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
                               fd_accdb_snapshot_recovery_t * out ) {
+  /* Flush metrics to update disk_current_bytes. */
+  fd_accdb_flush_metrics( accdb );
+
   out->whead_val          = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val );
   out->has_partition      = FD_VOLATILE_CONST( accdb->shmem->has_partition[ 0 ] );
   out->partition_max      = FD_VOLATILE_CONST( accdb->shmem->partition_max );
@@ -473,6 +562,9 @@ void
 fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
                                 fd_accdb_snapshot_recovery_t const * recover ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
+
+  /* Partitions are about to be released, so flush metrics first. */
+  fd_accdb_flush_metrics( accdb );
 
   /* Wait for any pending background command (purge) on T2 to finish
      before releasing partitions. */
@@ -500,7 +592,7 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
 
      Release in descending index order so that the LIFO free list
      re-acquires them in ascending order (P, P+1, P+2, ...).  This
-     keeps allocate_next_write in sync with snapwr, which advances
+     keeps reserve_next_write in sync with snapwr, which advances
      its flat file offset sequentially. */
   spin_lock_acquire( &shmem->partition_lock );
   for( ulong p=cur_partition_max; p>recover->partition_max; p-- ) {
@@ -582,13 +674,10 @@ fd_accdb_join_readonly( void *             ljoin,
      offsets — they do not write to shmem. */
   FD_SCRATCH_ALLOC_INIT( l, shmem );
                              FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-  void * _fork_pool_shmem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),              fork_pool_footprint()                                   );
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_shmem   = FD_SCRATCH_ALLOC_APPEND( l, acc_pool_align(),               acc_pool_footprint()                                    );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    max_accounts*sizeof(fd_accdb_accmeta_t)                 );
-                             FD_SCRATCH_ALLOC_APPEND( l, txn_pool_align(),               txn_pool_footprint()                                    );
                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
                              FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -603,7 +692,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->fd    = fd_ro;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
-  FD_TEST( acc_pool_join( accdb->acc_pool_join, _acc_pool_shmem, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
@@ -614,8 +703,10 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->partition_pool      = NULL;
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) accdb->compaction_dlist[ k ] = NULL;
   accdb->deferred_free_dlist = NULL;
+  accdb->delta.chains        = NULL;
+  accdb->delta.pool          = NULL;
 
-  FD_TEST( fork_pool_join( accdb->fork_shmem_pool, _fork_pool_shmem, _fork_pool_ele, max_live_slots ) );
+  FD_TEST( fork_pool_join( accdb->fork_shmem_pool, shmem->fork_pool, _fork_pool_ele, max_live_slots ) );
   accdb->fork_pool = _local_fork_pool;
   for( ulong i=0UL; i<max_live_slots; i++ ) {
     fd_accdb_fork_t * fork = &accdb->fork_pool[ i ];
@@ -643,7 +734,8 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
 
-  memset( accdb->metrics, 0, sizeof(fd_accdb_metrics_t) );
+  memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
+  memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 
   return accdb;
 }
@@ -679,11 +771,18 @@ fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id ) {
   /* fork_pool_acquire is not NULL-checked: replay gates attaches on
-     fd_banks_is_full, and wait_cmd ensures the prior advance_root has
-     fully run on T2, so live + deferred forks <= max_live_slots. */
+     fd_banks_can_start_bank, and wait_cmd ensures the prior
+     advance_root has fully run on T2, so
+     live + deferred forks <= max_live_slots. */
   wait_cmd( accdb );
 
   fd_accdb_fork_shmem_t * acquired = fork_pool_acquire( accdb->fork_shmem_pool );
+  if( FD_UNLIKELY( !acquired ) ) {
+    submit_cmd( accdb, FD_ACCDB_CMD_DRAIN_DEFERRED, USHORT_MAX );
+    wait_cmd( accdb );
+    acquired = fork_pool_acquire( accdb->fork_shmem_pool );
+    FD_CHECK_CRIT( acquired, "accdb fork pool exhausted after deferred drain" );
+  }
   ulong idx = fork_pool_idx( accdb->fork_shmem_pool, acquired );
 
   fd_accdb_fork_t * fork = &accdb->fork_pool[ idx ];
@@ -926,9 +1025,6 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
   ulong acc_pool_cap = acc_pool_ele_max( accdb->acc_pool_join );
   for( ulong i=0UL; i<n; i++ ) {
     FD_TEST( (ulong)buf[ i ]<acc_pool_cap );
-#if FD_TMPL_USE_HANDHOLDING
-    for( ulong j=0UL; j<i; j++ ) FD_TEST( buf[ j ]!=buf[ i ] );
-#endif
     fd_accdb_accmeta_t * accmeta = &acc_pool[ buf[ i ] ];
     ulong off = fd_accdb_acc_offset( accmeta );
     if( FD_UNLIKELY( off!=FD_ACCDB_OFF_INVAL ) ) {
@@ -1097,43 +1193,34 @@ acc_unlink( fd_accdb_t * accdb,
       }
     }
     else if( FD_LIKELY( old_rc!=FD_ACCDB_EVICT_SENTINEL ) ) {
-      /* Pinned by an active reader.  We cannot reclaim the line, but
-         its accmeta slot is about to be deferred-released and recycled.
-         If we just skipped, a later writeback of this still dirty line
-         would pair the recycled accmeta's pubkey with the old account's
-         owner and data, a silent corruption.  Mark the line persisted so
-         the writeback gate never fires.
+      /* The CAS lost to a non-sentinel refcnt, but that does not prove
+         `stale` is still our line.  Between capturing cidx and here we
+         released the claim, so we could have evicted `stale` and
+         recycled it to an unrelated account. */
+      fd_accdb_cache_line_t * mine = cache_try_pin( stale, accmeta->key.pubkey, accmeta->key.generation );
+      if( FD_LIKELY( mine ) ) {
+        /* Genuinely our line, still pinned by a reader.  The accmeta
+           slot is about to be deferred-released and recycled; if a
+           later writeback of this dirty line fires, it would pair the
+           recycled accmeta's pubkey with the old owner/data.  Set
+           persisted so the writeback gate never fires. */
+        FD_VOLATILE( mine->persisted ) = 1;
 
-         This is the only case that needs neutralizing: a reader's pin
-         does not keep the slot alive, so the slot can recycle under it.
+        /* Only the tombstone self-unlink may be pinned here old-version
+           and purge unlinks are never pinned, because a reader on a
+           live fork resolves to the newest version, not the one these
+           unlink. */
+        FD_TEST( accmeta->lamports==0UL );
 
-         A plain store is sufficient: the line is pinned (refcnt>0) so
-         CLOCK/preevict cannot claim it (their refcnt 0->SENTINEL CAS
-         fails), and the pinning reader only ever reads key/owner/data
-         and, post-pin, writes the unrelated `referenced` byte — never
-         `persisted`.  So no other thread writes this byte while we do.
-
-         Leave key/owner/data/acc_idx intact: the reader still reads them.
-         Once the pin drops the line is reclaimed by CLOCK (or by the
-         reader's own release).  acc_idx still points at our now-recycled
-         slot, but CLOCK's evict_clear_acc_cache_ref on it is a no-op:
-         the recycled accmeta's cache_idx no longer matches this line's
-         packed cidx (same invariant the release path relies on, see the
-         refcnt-CAS-fail comment in fd_accdb_release).  That reclaim is
-         lazy so the slot is briefly dark capacity. */
-      FD_VOLATILE( stale->persisted ) = 1;
-
-      /* The tombstone self-unlink an legitimately be pinned here,
-         old version and purge unlinks are never pinned.  A live account
-         here means that invariant regressed.  Reading is safe as the
-         unlinked accmeta is on a frozen bank and can't mutate. */
-      FD_TEST( accmeta->lamports==0UL );
-    }
-    else {
+        FD_ATOMIC_FETCH_AND_SUB( &mine->refcnt, 1U );
+      }
+      /* Else was recycled to a foreign account.  Nothing to neutralize,
+         leave the line alone. */
+    } else {
       /* A foreground evictor already claimed this line.  It holds its
          epoch acquire and writeback, so drain_deferred_frees cannot
-         recycle the slot before it finishes. Its writeback names the old
-         account correctly, no poison. */
+         recycle the slot before it finishes. Its writeback names the
+         old account correctly, no poison. */
     }
   }
 }
@@ -1281,6 +1368,8 @@ background_advance_root( fd_accdb_t *       accdb,
 
       fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
 
+      delta_insert( accdb, new_acc->key.pubkey );
+
       uint prev          = UINT_MAX;
       uint new_acc_prev  = UINT_MAX; /* prev of new_acc on the chain when we encounter it (UINT_MAX if head or never seen) */
       int  new_acc_seen  = 0;
@@ -1385,6 +1474,8 @@ background_advance_root( fd_accdb_t *       accdb,
 void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id ) {
+  FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING,
+                 "fd_accdb_advance_root called during snapshot production" );
   wait_cmd( accdb );
   submit_cmd( accdb, FD_ACCDB_CMD_ADVANCE_ROOT, fork_id.val );
 }
@@ -1455,7 +1546,10 @@ acquire_cache_line( fd_accdb_t * accdb,
      persisted==1, generation==UINT_MAX.  Cheapest path. */
   fd_accdb_cache_line_t * result = cache_free_pop( accdb, size_class );
   if( FD_LIKELY( result ) ) {
-    result->refcnt     = 1;
+    while( FD_UNLIKELY( FD_ATOMIC_CAS( &result->refcnt, 0U, 1U )!=0U ) ) {
+      fd_racesan_hook( "accdb_freepop:refcnt_wait" );
+      FD_SPIN_PAUSE();
+    }
     result->referenced = 0;
     *out_evicted_acc_idx = UINT_MAX;
     return result;
@@ -1604,22 +1698,36 @@ change_partition( fd_accdb_t *           accdb,
     for(;;) {
       ulong cur = accdb->shmem->partition_max;
       if( FD_LIKELY( new_partition_idx+1UL<=cur ) ) break;
-      if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->shmem->partition_max, cur, new_partition_idx+1UL )==cur ) ) break;
+      if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->shmem->partition_max, cur, new_partition_idx+1UL )==cur ) ) {
+        fd_event_accdb_partition_added_t ev = {
+          .partition_idx        = new_partition_idx,
+          .prior_partition_idx  = had_partition ? partition_idx_before : ULONG_MAX,
+          .layer                = layer,
+          .old_partition_max    = cur,
+          .new_partition_max    = new_partition_idx+1UL,
+          .partition_sz         = accdb->shmem->partition_sz,
+          .disk_allocated_bytes = (new_partition_idx+1UL)*accdb->shmem->partition_sz,
+        };
+        fd_event_report_accdb_partition_added( &ev );
+        break;
+      }
     }
     accdb->shmem->shmetrics->disk_allocated_bytes = accdb->shmem->partition_max*accdb->shmem->partition_sz;
   }
 }
 
+/* Reserve sz bytes in the layer-0 write head and set
+   out_partition_idx to where they landed.  Bumps no counters. */
+
 static inline ulong
-allocate_next_write( fd_accdb_t * accdb,
-                     ulong        sz ) {
+reserve_next_write( fd_accdb_t * accdb,
+                    ulong        sz,
+                    ulong *      out_partition_idx ) {
   for(;;) {
     accdb_offset_t offset = { .val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ 0 ].val, sz ) };
     if( FD_LIKELY( packed_partition_offset( &offset )+sz<=accdb->shmem->partition_sz ) ) {
-      FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, sz );
-      ulong file_offset = packed_partition_file_offset( &offset, accdb->shmem->partition_sz );
-      fd_accdb_partition_write_bump( accdb, file_offset, sz );
-      return file_offset;
+      *out_partition_idx = packed_partition_idx( &offset );
+      return packed_partition_file_offset( &offset, accdb->shmem->partition_sz );
     }
 
     if( FD_UNLIKELY( packed_partition_offset( &offset )>accdb->shmem->partition_sz ) ) {
@@ -1650,6 +1758,29 @@ allocate_next_write( fd_accdb_t * accdb,
   }
 }
 
+/* Reserve sz bytes.  Layer-0 write metrics are deferred until
+   explicitly flushed. */
+
+static inline ulong
+allocate_next_write( fd_accdb_t * accdb,
+                     ulong        sz ) {
+  ulong partition_idx;
+  ulong file_offset = reserve_next_write( accdb, sz, &partition_idx );
+
+  /* Very rarely the reservation crosses into a new partition.  Since
+     stats are aggregated per-partition, any accumulated stats are
+     flushed and reset to accommodate the new partition. */
+  if( FD_LIKELY( accdb->write_stats.num_ops ) &&
+      FD_UNLIKELY( accdb->write_stats.partition_idx!=partition_idx ) ) {
+    fd_accdb_flush_metrics( accdb );
+  }
+
+  accdb->write_stats.partition_idx  = partition_idx;
+  accdb->write_stats.bytes         += sz;
+  accdb->write_stats.num_ops++;
+  return file_offset;
+}
+
 /* Compaction write allocation.  Single-threaded: only the compaction
    tile calls these, so the compaction write heads do not need atomic
    fetch-and-add.  dest_layer is the target layer (1..N-1). */
@@ -1669,7 +1800,7 @@ allocate_next_compaction_write( fd_accdb_t * accdb,
   accdb->shmem->whead[ dest_layer ].val += sz;
   FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, sz );
   ulong file_offset = packed_partition_file_offset( &offset, accdb->shmem->partition_sz );
-  fd_accdb_partition_write_bump( accdb, file_offset, sz );
+  fd_accdb_partition_write_bump( accdb, packed_partition_idx( &offset ), sz, 1UL );
   return file_offset;
 }
 
@@ -1744,7 +1875,12 @@ background_compact( fd_accdb_t * accdb,
 
   *charge_busy = 1;
 
-  /* Mark the head partition as actively compacting. */
+  if( FD_UNLIKELY( !compact->compacting_now ) ) {
+    compact->compaction_start_wallclock    = fd_log_wallclock();
+    compact->compaction_accounts_relocated = 0UL;
+    compact->compaction_bytes_relocated    = 0UL;
+    compact->compaction_dead_records       = 0UL;
+  }
   FD_VOLATILE( compact->queued )         = 0;
   FD_VOLATILE( compact->compacting_now ) = 1;
 
@@ -1787,6 +1923,7 @@ background_compact( fd_accdb_t * accdb,
   if( FD_UNLIKELY( !accmeta ) ) {
     /* Dead record — the index entry was already removed, so this
        on-disk extent is garbage.  Nothing to relocate. */
+    compact->compaction_dead_records++;
   } else {
     ulong dest_layer  = fd_ulong_min( src_layer+1UL, FD_ACCDB_COMPACTION_LAYER_CNT-1UL );
     ulong dest_offset = allocate_next_compaction_write( accdb, record_sz, dest_layer );
@@ -1807,6 +1944,8 @@ background_compact( fd_accdb_t * accdb,
 
     accdb->shmem->shmetrics->accounts_relocated++;
     accdb->shmem->shmetrics->accounts_relocated_bytes += bytes_copied;
+    compact->compaction_accounts_relocated++;
+    compact->compaction_bytes_relocated += bytes_copied;
 
     /* Ensure the data is on disk before publishing the new offset,
        so concurrent acquire threads do not preadv2 from a location
@@ -1843,7 +1982,21 @@ background_compact( fd_accdb_t * accdb,
   compact->compaction_offset += record_sz;
 
   if( FD_UNLIKELY( compact->compaction_offset>=compact->write_offset ) ) {
-    FD_LOG_NOTICE(( "compaction of partition %lu completed", partition_pool_idx( accdb->partition_pool, compact ) ));
+    FD_LOG_INFO(( "compaction of partition %lu completed", partition_pool_idx( accdb->partition_pool, compact ) ));
+
+    fd_event_accdb_compaction_completed_t ev = {
+      .partition_idx      = partition_pool_idx( accdb->partition_pool, compact ),
+      .src_layer          = (uchar)src_layer,
+      .dest_layer         = (uchar)fd_ulong_min( src_layer+1UL, FD_ACCDB_COMPACTION_LAYER_CNT-1UL ),
+      .bytes_scanned      = compact->write_offset,
+      .bytes_freed        = compact->bytes_freed,
+      .accounts_relocated = compact->compaction_accounts_relocated,
+      .bytes_relocated    = compact->compaction_bytes_relocated,
+      .dead_records       = compact->compaction_dead_records,
+      .start_time         = (ulong)compact->compaction_start_wallclock,
+      .end_time           = (ulong)fd_log_wallclock(),
+    };
+    fd_event_report_accdb_compaction_completed( &ev );
 
     /* Ensure the new acc->offset_fork stores above are visible to other
        cores before the source partition is moved to the deferred-free
@@ -1876,7 +2029,7 @@ background_compact( fd_accdb_t * accdb,
       accdb->shmem->shmetrics->in_compaction = 0;
     } else {
       fd_accdb_partition_t * next = compaction_dlist_ele_peek_head( accdb->compaction_dlist[ src_layer ], accdb->partition_pool );
-      FD_LOG_NOTICE(( "compaction of layer %lu partition %lu started", src_layer, partition_pool_idx( accdb->partition_pool, next ) ));
+      FD_LOG_INFO(( "compaction of layer %lu partition %lu started", src_layer, partition_pool_idx( accdb->partition_pool, next ) ));
     }
 
     spin_lock_release( &accdb->shmem->partition_lock );
@@ -2276,7 +2429,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   // STEP 5.
   //   For any cache lines we have retrieved, which we might potentially
   //   be about to trash (by writing stuff in there), we need to write
-  //   them back to disk first if they are dirty.  This is the proces of
+  //   them back to disk first if they are dirty.  This is the process of
   //   "persisting" (a/k/a evicting) whatever was previously in the
   //   cache line we are about to use.
   //
@@ -2461,6 +2614,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       memset( out_accs[ i ].prior_owner, 0, 32UL );
       out_accs[ i ].prior_data = NULL;
       out_accs[ i ].commit = 0;
+      out_accs[ i ].pd_write = 0;
       out_accs[ i ]._writable = 0;
       out_accs[ i ]._original_size_class = ULONG_MAX;
       out_accs[ i ]._original_cache_idx = ULONG_MAX;
@@ -2489,6 +2643,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     out_accs[ i ].prior_data       = (uchar *)(original_cache_line[ i ] ? (original_cache_line[ i ]+1UL) : NULL);
 
     out_accs[ i ].commit = 0;
+    out_accs[ i ].pd_write = 0;
     out_accs[ i ]._writable = writable[ i ];
     if( FD_UNLIKELY( writable[ i ] && accmetas[ i ] ) ) out_accs[ i ]._overwrite = accdb->fork_pool[ fork_id.val ].shmem->generation==accmetas[ i ]->key.generation;
     else                                            out_accs[ i ]._overwrite = 0;
@@ -2635,7 +2790,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     /* We are guaranteed that if an account is in the cache, the bytes
        are available (all cache operations are atomic via refcnt CAS),
        but we are not guaranteed that if something is _not_ in the cache
-       that it has been written back to disk yet.  In paticular, if we
+       that it has been written back to disk yet.  In particular, if we
        are trying to read an account that another thread is in the
        process of evicting, we know they removed it from the cache, but
        we don't know exactly when they will have written it back fully
@@ -2930,8 +3085,11 @@ release_inner( fd_accdb_t * accdb,
            and corrupt its cache_idx/valid. */
         destination_cache_lines[ j ]->acc_idx        = UINT_MAX;
         destination_cache_lines[ j ]->key.generation = UINT_MAX;
-        destination_cache_lines[ j ]->refcnt    = 0;
         destination_cache_lines[ j ]->persisted = 1;
+        while( FD_UNLIKELY( FD_ATOMIC_CAS( &destination_cache_lines[ j ]->refcnt, 1U, 0U )!=1U ) ) {
+          fd_racesan_hook( "accdb_release:dest_refcnt_wait" );
+          FD_SPIN_PAUSE();
+        }
         cache_free_push( accdb, j, destination_cache_lines[ j ] );
       }
       continue;
@@ -2974,25 +3132,32 @@ release_inner( fd_accdb_t * accdb,
            protocol to serialize with cold_load_acc. */
         evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, accs[ i ]._original_cache_idx );
 
-        /* Drop our pin, then try to claim the line exclusively for
-           freeing.  A concurrent reader that pinned the line via
+        /* Convert our own pin directly into the eviction claim
+           (CAS refcnt 1 -> EVICT_SENTINEL) so refcnt never passes
+           through 0 while acc_idx/key.generation are still valid:
+           in such a window background_preevict could claim and free
+           the line, and a claim of our own would then succeed on
+           the free-listed line and push it a second time.  The CAS
+           fails if a concurrent reader that pinned the line via
            cache_try_pin BEFORE evict_clear_acc_cache_ref completed
-           may still hold a reference here (its ABA check on
+           still holds a reference (its ABA check on
            line->key.generation is not synchronized with our writes
-           to that field).  CAS(refcnt, 0, EVICT_SENTINEL) succeeds
-           only when no such reader is outstanding; on failure we
-           must NOT free the line — leave acc_idx/key.generation
-           intact so CLOCK can reclaim it once the reader unpins.
-           At that point CLOCK's call to evict_clear_acc_cache_ref
-           is a no-op (acc.cache_idx no longer matches expected_cidx)
-           and the line is safely repurposed. */
-        FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
-        if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) ) {
-          original_cache_line->persisted = 1;
+           to that field); then just drop our pin and leave
+           acc_idx/key.generation intact so CLOCK reclaims the line
+           once the reader unpins.  That reclaim's
+           evict_clear_acc_cache_ref is a no-op, but its dirty-
+           writeback gate keys on persisted/acc_idx and would
+           republish the pre-overwrite bytes over the committed
+           version, so set persisted while still pinned. */
+        original_cache_line->persisted = 1;
+        fd_racesan_hook( "accdb_release:pre_discard_claim" );
+        if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
           original_cache_line->acc_idx   = UINT_MAX;
           original_cache_line->key.generation = UINT_MAX;
           original_cache_line->refcnt    = 0;
           cache_free_push( accdb, original_size_class, original_cache_line );
+        } else {
+          FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
         }
       }
       committed_line = destination_cache_lines[ 7UL ];
@@ -3008,7 +3173,11 @@ release_inner( fd_accdb_t * accdb,
       fd_accdb_cache_line_t * target_cache_line;
       if( FD_LIKELY( original_size_class==new_size_class ) ) {
         if( FD_LIKELY( accs[ i ]._overwrite ) ) {
-          FD_TEST( FD_VOLATILE_CONST( original_cache_line->refcnt )==1U );
+          /* a reader holding a stale acc->cache_idx from this line's
+             previous life may hold a transient cache_try_pin pin, so
+             our own pin only bounds refcnt from below. */
+          uint ow_rc = FD_VOLATILE_CONST( original_cache_line->refcnt );
+          FD_TEST( ow_rc>0U && ow_rc!=FD_ACCDB_EVICT_SENTINEL );
           original_cache_line->key.generation = UINT_MAX;
           /* Keep refcnt>=1 through the reuse window so CLOCK cannot
              steal the line between invalidation and re-publish. The
@@ -3027,15 +3196,18 @@ release_inner( fd_accdb_t * accdb,
              acc.cache_idx pointing at a line that has been recycled to
              another acc.  evict_clear_acc_cache_ref uses the CLAIM
              protocol to serialize with cold_load_acc.  See the
-             size_class==7 path above for the refcnt CAS rationale. */
+             size_class==7 path above for the refcnt claim and
+             persisted rationale. */
           evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, accs[ i ]._original_cache_idx );
-          FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
-          if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) ) {
-            original_cache_line->persisted = 1;
+          original_cache_line->persisted = 1;
+          fd_racesan_hook( "accdb_release:pre_discard_claim" );
+          if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
             original_cache_line->acc_idx   = UINT_MAX;
             original_cache_line->key.generation = UINT_MAX;
             original_cache_line->refcnt    = 0;
             cache_free_push( accdb, original_size_class, original_cache_line );
+          } else {
+            FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
           }
         }
 
@@ -3068,11 +3240,15 @@ release_inner( fd_accdb_t * accdb,
       } else {
         /* See note above (no-commit path): clear stale acc_idx/gen
            before pushing, otherwise CLOCK can pick this line and
-           stomp the prior owner's cache_idx/valid. */
+           stomp the prior owner's cache_idx/valid.  CAS on refcnt for
+           the same stray-pin reason as the no-commit path. */
         destination_cache_lines[ j ]->acc_idx        = UINT_MAX;
         destination_cache_lines[ j ]->key.generation = UINT_MAX;
-        destination_cache_lines[ j ]->refcnt    = 0;
         destination_cache_lines[ j ]->persisted = 1;
+        while( FD_UNLIKELY( FD_ATOMIC_CAS( &destination_cache_lines[ j ]->refcnt, 1U, 0U )!=1U ) ) {
+          fd_racesan_hook( "accdb_release:dest_refcnt_wait" );
+          FD_SPIN_PAUSE();
+        }
         cache_free_push( accdb, j, destination_cache_lines[ j ] );
       }
     }
@@ -3093,9 +3269,12 @@ release_inner( fd_accdb_t * accdb,
          (a concurrent evict_clear_acc_cache_ref or acc_unlink may
          hold it) and clears VALID; a plain store would clobber CLAIM
          and break those protocols. */
+      uint pd = accs[ i ].pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U;
       for(;;) {
         uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
-        uint nxt = (cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT) | FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable );
+        uint nxt = (cur & (FD_ACCDB_SIZE_CACHE_CLAIM_BIT|FD_ACCDB_SIZE_PD_WRITE_BIT))
+                 | FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable )
+                 | pd;
         if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur, nxt )==cur ) ) break;
         FD_SPIN_PAUSE();
       }
@@ -3126,7 +3305,8 @@ release_inner( fd_accdb_t * accdb,
       ulong acc_idx = acc_pool_idx( accdb->acc_pool_join, accmeta );
       fd_memcpy( accmeta->key.pubkey, accs[ i ].pubkey, 32UL );
       accmeta->lamports        = accs[ i ].lamports;
-      accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable );
+      accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable )
+                               | (accs[ i ].pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U);
       accmeta->key.generation  = accs[ i ]._generation;
       accmeta->offset_fork     = fd_accdb_acc_pack_offset_fork( FD_ACCDB_OFF_INVAL, accs[ i ]._fork_id );
 
@@ -3491,6 +3671,57 @@ fd_accdb_exists( fd_accdb_t *       accdb,
   return result;
 }
 
+int
+fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
+                             fd_accdb_fork_id_t fork_id,
+                             uchar const *      pubkey,
+                             int *              out_pd_write,
+                             ulong *            out_data_len,
+                             ulong *            out_lamports ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
+  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+  ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
+  while( acc!=UINT_MAX ) {
+    fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
+    uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
+
+    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+      acc = next_acc;
+      continue;
+    }
+
+    break;
+  }
+
+  int   pd        = 0;
+  int   gen_match = 0;
+  ulong len       = 0UL;
+  ulong lamports  = 0UL;
+  if( FD_LIKELY( acc!=UINT_MAX ) ) {
+    fd_accdb_accmeta_t const * m = &accdb->acc_pool[ acc ];
+    uint es   = FD_VOLATILE_CONST( m->executable_size );
+    gen_match = ( m->key.generation==fork->shmem->generation );
+    pd        = gen_match && FD_ACCDB_SIZE_PD_WRITE( es );
+    len       = FD_ACCDB_SIZE_DATA( es );
+    lamports  = FD_VOLATILE_CONST( m->lamports );
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+
+  *out_pd_write = pd;
+  if( gen_match ) {
+    *out_data_len = len;
+    *out_lamports = lamports;
+  }
+  return gen_match;
+}
+
 ulong
 fd_accdb_lamports( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
@@ -3731,7 +3962,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
   int replace = !!accmeta;
 
   if( FD_UNLIKELY( !accmeta ) ) {
-    accmeta = acc_pool_acquire( accdb->acc_pool_join );
+    accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
     if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
 
     uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
@@ -3790,7 +4021,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_replaced,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
-                               ulong *             out_ignored_lamports ) {
+                               ulong *             out_ignored_lamports,
+                               ulong *             out_accepted_mask ) {
   int incremental = fork_id.val!=USHORT_MAX;
 
   fd_accdb_fork_t * fork     = NULL;
@@ -3895,6 +4127,10 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
      (new), or skip entirely (ignore).  This matches the
      insert/replace/ignore semantics of write_one. */
 
+  ulong used_bytes_added   = 0UL;
+  ulong used_bytes_removed = 0UL;
+  ulong accepted_mask      = 0UL;
+
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( skip[ i ] ) ) {
       /* Still advance the write head so snapwr and snapin stay in
@@ -3908,6 +4144,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       ignored++;
       continue;
     }
+    accepted_mask |= 1UL<<i;
 
     fd_accdb_accmeta_t * accmeta;
 
@@ -3916,11 +4153,11 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       /* The old version's disk space is now dead. */
       ulong old_sz = sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( accmeta->executable_size );
       fd_accdb_shmem_bytes_freed( accdb->shmem, fd_accdb_acc_offset( accmeta ), old_sz );
-      accdb->shmem->shmetrics->disk_used_bytes -= old_sz;
+      used_bytes_removed += old_sz;
       replaced_lamports += accmeta->lamports;
       replaced++;
     } else {
-      accmeta = acc_pool_acquire( accdb->acc_pool_join );
+      accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
       if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading" ));
 
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
@@ -3955,8 +4192,11 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     ulong entry_sz       = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
     ulong file_off       = allocate_next_write( accdb, entry_sz );
     accmeta->offset_fork = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
-    accdb->shmem->shmetrics->disk_used_bytes += entry_sz;
+    used_bytes_added    += entry_sz;
   }
+
+  accdb->shmem->shmetrics->disk_used_bytes += used_bytes_added;
+  accdb->shmem->shmetrics->disk_used_bytes -= used_bytes_removed;
 
   /* accounts_total tracks acc_pool entries: increment for every new
      allocation (both genuinely new accounts and cross-fork overrides
@@ -3970,14 +4210,33 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   *accounts_loaded       = loaded;
   *out_replaced_lamports = replaced_lamports;
   *out_ignored_lamports  = ignored_lamports;
+  *out_accepted_mask     = accepted_mask;
 
   return 0;
+}
+
+static void
+delta_reset( fd_accdb_t * accdb ) {
+  if( !accdb->shmem->delta.head ) return; /* clean */
+  uint * chains    = accdb->delta.chains;
+  ulong  chain_cnt = accdb->shmem->delta.chain_cnt;
+  for( ulong i=0UL; i<chain_cnt; i++ ) chains[ i ] = UINT_MAX;
+  accdb->shmem->delta.head = 0UL;
+}
+
+static int
+delta_is_valid( fd_accdb_shmem_t const * accdb ) {
+  return accdb->delta.head < accdb->delta.ele_max;
 }
 
 void
 fd_accdb_background( fd_accdb_t * accdb,
                      int *        charge_busy ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
+
+  ulong * snap_sync_p = &shmem->snapshot_sync;
+  ulong   snap_sync   = fd_accdb_snapshot_sync_state( snap_sync_p );
+
   uint op = FD_VOLATILE_CONST( shmem->cmd_op );
   if( FD_UNLIKELY( op!=FD_ACCDB_CMD_IDLE ) ) {
     fd_accdb_fork_id_t fork_id = { .val = FD_VOLATILE_CONST( shmem->cmd_fork_id ) };
@@ -3988,6 +4247,9 @@ fd_accdb_background( fd_accdb_t * accdb,
         break;
       case FD_ACCDB_CMD_PURGE:
         background_purge( accdb, fork_id );
+        break;
+      case FD_ACCDB_CMD_DRAIN_DEFERRED:
+        drain_deferred_frees( accdb );
         break;
       case FD_ACCDB_CMD_CLEAR_DEFERRED: {
         /* Posted by fd_accdb_reset after it clobbers shared pools.
@@ -4007,6 +4269,38 @@ fd_accdb_background( fd_accdb_t * accdb,
     FD_VOLATILE( shmem->cmd_op ) = FD_ACCDB_CMD_IDLE;
     *charge_busy = 1;
     return;
+  }
+
+  if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
+    switch( snap_sync ) {
+    case FD_ACCDB_SNAPSHOT_SYNC_RUNNING:
+      /* while producing a snapshot, don't do compaction work */
+      background_preevict( accdb, charge_busy, 0 );
+      return;
+    case FD_ACCDB_SNAPSHOT_SYNC_DONE:
+      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+      break;
+    case FD_ACCDB_SNAPSHOT_SYNC_START_FULL:
+      delta_reset( accdb );
+      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+      *charge_busy = 1;
+      return;
+    case FD_ACCDB_SNAPSHOT_SYNC_START_INCR:
+      if( delta_is_valid( accdb->shmem ) ) {
+        fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+      } else {
+        /* cannot produce incrementals because delta ran out of space,
+           therefore don't know which accounts changed */
+        fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_FAIL );
+      }
+      *charge_busy = 1;
+      return;
+    case FD_ACCDB_SNAPSHOT_SYNC_FAIL:
+      /* wait for client to acknowledge */
+      break;
+    default:
+      FD_LOG_CRIT(( "corrupt snapshot_sync state %lu", snap_sync ));
+    }
   }
 
   background_preevict( accdb, charge_busy, 0 );

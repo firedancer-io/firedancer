@@ -4,14 +4,13 @@
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../flamenco/stakes/fd_stake_delegations.h"
-#include "../../../flamenco/stakes/fd_vote_stakes.h"
-#include "../../../flamenco/stakes/fd_new_votes.h"
 #include <limits.h>
 
 /* Shorthand for the common validate call pattern using the production
    capacity limits.  fd_ssload_manifest_validate rejects calls where
-   the limits differ from FD_RUNTIME_MAX_{VOTE,STAKE}_ACCOUNTS. */
-#define VALIDATE_MANIFEST(m) fd_ssload_manifest_validate( (m), FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS )
+   the limits differ from FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS and
+   FD_RUNTIME_MAX_STAKE_ACCOUNTS. */
+#define VALIDATE_MANIFEST(m) fd_ssload_manifest_validate( (m), FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS )
 
 /* Set up the minimum valid manifest state so that all validation
    stages can be reached.  Adds 1 blockhash with hash_index=0 and
@@ -49,7 +48,7 @@ test_capacity_mismatch( fd_snapshot_manifest_t * manifest ) {
   /* Mismatched max_stake_accounts. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  FD_TEST( fd_ssload_manifest_validate( manifest, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 100UL )==-1 );
+  FD_TEST( fd_ssload_manifest_validate( manifest, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, 100UL )==-1 );
 
   FD_LOG_NOTICE(( "... pass" ));
 }
@@ -174,7 +173,7 @@ test_epoch_schedule( fd_snapshot_manifest_t * manifest ) {
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Large leader_schedule_slot_offset without addition overflow
-     but t_1_idx exceeds FD_EPOCH_STAKES_LEN. */
+     but t_1_idx exceeds FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_schedule_params.slots_per_epoch             = 64UL;
@@ -310,13 +309,13 @@ test_stake_delegations( fd_snapshot_manifest_t * manifest ) {
   /* Exactly at max. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->stake_delegations_len = FD_STAKE_DELEGATIONS_MAX;
+  manifest->stake_delegations_len = FD_RUNTIME_MAX_STAKE_ACCOUNTS;
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
   /* Exceeds max. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->stake_delegations_len = FD_STAKE_DELEGATIONS_MAX + 1UL;
+  manifest->stake_delegations_len = FD_RUNTIME_MAX_STAKE_ACCOUNTS + 1UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Exceeds runtime max_stake_accounts. */
@@ -332,137 +331,129 @@ static void
 test_vote_accounts( fd_snapshot_manifest_t * manifest ) {
   FD_LOG_NOTICE(( "testing vote accounts" ));
 
-  /* vote_accounts_len exceeds max. */
+  /* The vote accounts map covers every staked voter, so it is bounded
+     by the snapshot limit rather than the VAT limit. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = FD_VOTE_ACCOUNTS_MAX + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  manifest->vote_accounts_len = FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS + 1UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
-  /* vote_accounts_len exceeds runtime max. */
+  /* vote_accounts_len at the snapshot bound is valid. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = FD_RUNTIME_MAX_VOTE_ACCOUNTS + 1UL;
+  manifest->vote_accounts_len = FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+
+  /* vote_accounts_len exceeds the snapshot bound. */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->vote_accounts_len = FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS + 1UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   FD_LOG_NOTICE(( "... pass" ));
+}
+
+static void
+setup_vote_stakes_record( fd_snapshot_manifest_vote_stakes_t * rec ) {
+  fd_memset( rec, 0, sizeof(*rec) );
+  rec->vote[ 0 ]     = 1U;
+  rec->identity[ 0 ] = 2U;
+  rec->stake         = 1UL;
+  fd_memcpy( rec->commission_inflation, rec->vote,     32UL );
+  fd_memcpy( rec->commission_block,     rec->identity, 32UL );
 }
 
 static void
 test_epoch_credits_downcasting( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "testing epoch credits downcasting" ));
 
-  /* The epoch_credits downcast bounds are now enforced by
-     fd_ssload_apply_vote_stakes (not VALIDATE_MANIFEST, since the
-     manifest no longer carries epoch_credits arrays).  Set up a tiny
-     banks+bank and drive the T-1 epoch_credits path directly with local
-     vote-stakes records carrying the same numeric cases. */
-
-  ulong max_banks = 16UL;
-  ulong max_forks =  4UL;
-  ulong max_stake = 64UL;
-  ulong max_vote  = 64UL;
-  ulong seed      = 42UL;
+  ulong max_banks          = 16UL;
+  ulong max_forks          = 4UL;
+  ulong max_stake          = 64UL;
+  ulong max_fallback_stake = 1024UL;
+  ulong max_vote           = 64UL;
+  ulong seed               = 42UL;
 
   ulong banks_footprint = fd_banks_footprint( max_banks, max_forks,
-                                              max_stake, max_vote );
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),
-                                          banks_footprint, 2UL );
+                                              max_stake, max_fallback_stake, max_vote );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, 2UL );
   FD_TEST( banks_mem );
 
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
-                                                    max_stake, max_vote,
+                                                    max_stake, max_fallback_stake, max_vote,
                                                     0 /* larger_max_cost_per_block */, seed ) );
   FD_TEST( banks );
-
   fd_bank_t * bank = fd_banks_init_bank( banks );
   FD_TEST( bank );
 
-  /* Drive a single T-1 vote-stakes record through the epoch_credits
-     downcast path.  epoch_idx=t_1_idx=1 exercises the T-1 branch. */
-# define APPLY_VS(rec) ( fd_ssload_records_reset( banks, bank ),                  \
-                         fd_ssload_apply_vote_stakes( bank, 0UL /* epoch */,      \
-                                                      1UL /* epoch_idx */,        \
-                                                      1UL /* t_1_idx */,          \
-                                                      0UL /* t_2_idx */,          \
+# define APPLY_VS(rec) ( fd_ssload_records_reset( bank, 0UL ),                       \
+                         fd_ssload_apply_vote_stakes( banks, bank, 0UL /* epoch */,   \
+                                                      1UL /* epoch_idx */,             \
+                                                      1UL /* t_1_idx */,               \
+                                                      0UL /* t_2_idx */,               \
                                                       0   /* has_t_2 */, &(rec) ) )
 
   fd_snapshot_manifest_vote_stakes_t rec;
 
-  /* Valid epoch credits. */
-  fd_memset( &rec, 0, sizeof(rec) );
-  rec.epoch_credits_history_len = 2UL;
-  rec.epoch_credits[0].epoch        = 1UL;
-  rec.epoch_credits[0].credits      = 100UL;
-  rec.epoch_credits[0].prev_credits = 0UL;
-  rec.epoch_credits[1].epoch        = 2UL;
-  rec.epoch_credits[1].credits      = 200UL;
-  rec.epoch_credits[1].prev_credits = 100UL;
+  /* A valid history may have gaps between epochs. */
+  setup_vote_stakes_record( &rec );
+  rec.epoch_credits_history_len       = 2UL;
+  rec.epoch_credits[0].epoch          = 1UL;
+  rec.epoch_credits[0].credits        = 100UL;
+  rec.epoch_credits[1].epoch          = 3UL;
+  rec.epoch_credits[1].credits        = 200UL;
+  rec.epoch_credits[1].prev_credits   = 100UL;
   FD_TEST( APPLY_VS( rec )==0 );
 
-  /* Epoch at USHORT_MAX boundary. */
-  fd_memset( &rec, 0, sizeof(rec) );
-  rec.epoch_credits_history_len = 1UL;
-  rec.epoch_credits[0].epoch        = (ulong)USHORT_MAX;
-  rec.epoch_credits[0].credits      = 100UL;
-  rec.epoch_credits[0].prev_credits = 0UL;
+  setup_vote_stakes_record( &rec );
+  rec.epoch_credits_history_len       = 1UL;
+  rec.epoch_credits[0].epoch          = (ulong)USHORT_MAX;
+  rec.epoch_credits[0].credits        = (ulong)UINT_MAX;
   FD_TEST( APPLY_VS( rec )==0 );
 
-  /* Credits delta at UINT_MAX boundary. */
-  fd_memset( &rec, 0, sizeof(rec) );
-  rec.epoch_credits_history_len = 1UL;
-  rec.epoch_credits[0].epoch        = 1UL;
-  rec.epoch_credits[0].credits      = (ulong)UINT_MAX;
-  rec.epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( APPLY_VS( rec )==0 );
-
-  /* Epoch exceeds USHORT_MAX. */
-  fd_memset( &rec, 0, sizeof(rec) );
-  rec.epoch_credits_history_len = 1UL;
-  rec.epoch_credits[0].epoch        = (ulong)USHORT_MAX + 1UL;
-  rec.epoch_credits[0].credits      = 100UL;
-  rec.epoch_credits[0].prev_credits = 0UL;
+  setup_vote_stakes_record( &rec );
+  rec.epoch_credits_history_len       = 1UL;
+  rec.epoch_credits[0].epoch          = (ulong)USHORT_MAX + 1UL;
+  rec.epoch_credits[0].credits        = 100UL;
   FD_TEST( APPLY_VS( rec )==-1 );
 
-  /* Credits delta exceeds UINT_MAX. */
-  fd_memset( &rec, 0, sizeof(rec) );
-  rec.epoch_credits_history_len = 1UL;
-  rec.epoch_credits[0].epoch        = 1UL;
-  rec.epoch_credits[0].credits      = (ulong)UINT_MAX + 1UL;
-  rec.epoch_credits[0].prev_credits = 0UL;
+  setup_vote_stakes_record( &rec );
+  rec.epoch_credits_history_len       = 1UL;
+  rec.epoch_credits[0].epoch          = 1UL;
+  rec.epoch_credits[0].credits        = (ulong)UINT_MAX + 1UL;
   FD_TEST( APPLY_VS( rec )==-1 );
 
-  /* Prev credits delta exceeds UINT_MAX. */
-  fd_memset( &rec, 0, sizeof(rec) );
-  rec.epoch_credits_history_len = 2UL;
-  rec.epoch_credits[0].epoch        = 1UL;
-  rec.epoch_credits[0].credits      = 100UL;
-  rec.epoch_credits[0].prev_credits = 0UL;
-  rec.epoch_credits[1].epoch        = 2UL;
-  rec.epoch_credits[1].credits      = 200UL;
-  rec.epoch_credits[1].prev_credits = (ulong)UINT_MAX + 1UL;
+  /* Histories must be continuous in credits and increasing in epoch. */
+  setup_vote_stakes_record( &rec );
+  rec.epoch_credits_history_len       = 2UL;
+  rec.epoch_credits[0].epoch          = 1UL;
+  rec.epoch_credits[0].credits        = 100UL;
+  rec.epoch_credits[1].epoch          = 2UL;
+  rec.epoch_credits[1].credits        = 200UL;
+  rec.epoch_credits[1].prev_credits   = 101UL;
   FD_TEST( APPLY_VS( rec )==-1 );
 
-  /* Credits below base. */
-  fd_memset( &rec, 0, sizeof(rec) );
-  rec.epoch_credits_history_len = 2UL;
-  rec.epoch_credits[0].epoch        = 1UL;
-  rec.epoch_credits[0].credits      = 600UL;
-  rec.epoch_credits[0].prev_credits = 500UL;
-  rec.epoch_credits[1].epoch        = 2UL;
-  rec.epoch_credits[1].credits      = 400UL;
-  rec.epoch_credits[1].prev_credits = 500UL;
+  rec.epoch_credits[1].epoch          = 1UL;
+  rec.epoch_credits[1].prev_credits   = 100UL;
+  FD_TEST( APPLY_VS( rec )==-1 );
+
+  rec.epoch_credits[1].epoch          = 2UL;
+  rec.epoch_credits[1].credits        = 99UL;
+  FD_TEST( APPLY_VS( rec )==-1 );
+
+  setup_vote_stakes_record( &rec );
+  rec.epoch_credits_history_len = FD_EPOCH_CREDITS_MAX + 1UL;
   FD_TEST( APPLY_VS( rec )==-1 );
 
 # undef APPLY_VS
 
   fd_wksp_free_laddr( banks_mem );
-
   FD_LOG_NOTICE(( "... pass" ));
 }
 
 static void
-test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * manifest ) {
-  FD_LOG_NOTICE(( "testing recover back-to-back reset" ));
+test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_manifest_t * manifest ) {
+  FD_LOG_NOTICE(( "testing recover preserves snapin stake delegations" ));
 
   /* Set up a tiny-capacity fd_banks_t.  Call fd_ssload_recover_apply
      directly (bypassing fd_ssload_recover_validate) because the
@@ -471,169 +462,133 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
 
   ulong max_banks = 16UL;
   ulong max_forks =  4UL;
-  ulong max_stake = 64UL;
-  ulong max_vote  = 64UL;
-  ulong seed      = 42UL;
+  ulong max_stake          = 64UL;
+  ulong max_fallback_stake = 1024UL;
+  ulong max_vote           = 64UL;
+  ulong seed               = 42UL;
 
   ulong banks_footprint = fd_banks_footprint( max_banks, max_forks,
-                                              max_stake, max_vote );
+                                              max_stake, max_fallback_stake, max_vote );
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),
                                           banks_footprint, 2UL );
   FD_TEST( banks_mem );
 
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
-                                                    max_stake, max_vote,
+                                                    max_stake, max_fallback_stake, max_vote,
                                                     0 /* larger_max_cost_per_block */, seed ) );
   FD_TEST( banks );
 
   fd_bank_t * bank = fd_banks_init_bank( banks );
   FD_TEST( bank );
 
-  /* Manifest A: one stake delegation (pubkey_A), one vote stake
-    (pubkey_X).  With slot=0, epoch=0, leader_schedule_epoch=1,
+  /* snapin has already populated the root cache directly from account
+     data by the time ssload applies either manifest. */
+  uchar pubkey_s[32]; fd_memset( pubkey_s, 0x99, 32 );
+  uchar vote_s[32];   fd_memset( vote_s,   0x91, 32 );
+  fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( banks );
+  fd_stake_delegations_root_update( sd,
+                                    (fd_pubkey_t *)pubkey_s,
+                                    (fd_pubkey_t *)vote_s,
+                                    9000UL,
+                                    0UL,
+                                    ULONG_MAX,
+                                    123UL,
+                                    456UL,
+                                    197U,
+                                    FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+
+  /* Manifest A with vote stake pubkey_X.  With slot=0, epoch=0,
+     leader_schedule_epoch=1,
      epoch_stakes_base=0, t_1_idx=1. */
 
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
+  manifest->accdb_fork_id    = 37U;
+  manifest->txncache_fork_id = 38U;
 
-  uchar pubkey_a[32]; fd_memset( pubkey_a, 0xAA, 32 );
-  uchar vote_a[32];   fd_memset( vote_a,   0xA1, 32 );
   manifest->stake_delegations_len       = 1UL;
   manifest->epoch_stakes[1].total_stake = 5000UL;
   manifest->vote_accounts_len           = 1UL;
 
-  fd_snapshot_manifest_stake_delegation_t deleg_a;
-  fd_memset( &deleg_a, 0, sizeof(deleg_a) );
-  fd_memcpy( deleg_a.stake_pubkey, pubkey_a, 32 );
-  fd_memcpy( deleg_a.vote_pubkey,  vote_a,   32 );
-  deleg_a.stake_delegation   = 1000UL;
-  deleg_a.activation_epoch   = 0UL;
-  deleg_a.deactivation_epoch = ULONG_MAX;
-
   uchar pubkey_x[32]; fd_memset( pubkey_x, 0xBB, 32 );
   uchar ident_x[32];  fd_memset( ident_x,  0xB1, 32 );
   fd_snapshot_manifest_vote_stakes_t vs_x;
-  fd_memset( &vs_x, 0, sizeof(vs_x) );
+  setup_vote_stakes_record( &vs_x );
   fd_memcpy( vs_x.vote,     pubkey_x, 32 );
   fd_memcpy( vs_x.identity, ident_x,  32 );
+  fd_memcpy( vs_x.commission_inflation, pubkey_x, 32 );
+  fd_memcpy( vs_x.commission_block,     ident_x,  32 );
   vs_x.stake      = 5000UL;
   vs_x.commission = 10;
 
-  /* Also add a new_votes entry (vote account with stake==0). */
-  uchar nv_pubkey_a[32]; fd_memset( nv_pubkey_a, 0xE1, 32 );
-  fd_snapshot_manifest_vote_account_full_t va_a;
-  fd_memset( &va_a, 0, sizeof(va_a) );
-  fd_memcpy( va_a.vote_account_pubkey, nv_pubkey_a, 32 );
-  va_a.stake = 0UL;
-
-  /* First apply: simulate initial full snapshot load.  Apply scalars,
-     reset records, then drive each record through the apply helpers. */
+  /* First apply: simulate initial full snapshot load. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
   FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
-  fd_ssload_records_reset( banks, bank );
-  fd_ssload_apply_delegation( banks, &deleg_a );
-  fd_ssload_apply_vote_account( bank, &va_a );
-  FD_TEST( fd_ssload_apply_vote_stakes( bank, 0UL /* epoch */, 1UL /* epoch_idx */,
+  FD_TEST( bank->accdb_fork_id.val==37U );
+  FD_TEST( bank->parent_accdb_fork_id.val==37U );
+  FD_TEST( bank->txncache_fork_id.val==38U );
+  fd_ssload_records_reset( bank, 0UL );
+  FD_TEST( fd_ssload_apply_vote_stakes( banks, bank, 0UL /* epoch */, 1UL /* epoch_idx */,
                                         1UL /* t_1_idx */, 0UL /* t_2_idx */,
                                         0 /* has_t_2 */, &vs_x )==0 );
+  fd_ssload_records_fini( bank );
 
-  /* Verify entries from first apply are present. */
-  fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( banks );
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )!=NULL );
-  FD_TEST( fd_stake_delegations_cnt( sd )==1UL );
+  /* ssload leaves the cache populated by snapin untouched. */
+  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_s )!=NULL );
+  FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
 
-  fd_vote_stakes_t * vs = fd_bank_vote_stakes( bank );
-  ushort root_idx = fd_vote_stakes_get_root_idx( vs );
-  FD_TEST( fd_vote_stakes_ele_cnt( vs, root_idx )==1 );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, bank->vote_stakes_fork_id )==1UL );
+  ulong stake_out;
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_x, NULL, &stake_out, NULL ) );
+  FD_TEST( stake_out==5000UL );
 
-  fd_new_votes_t * nv = fd_bank_new_votes( bank );
-  FD_TEST( fd_new_votes_cnt( nv )==1UL );
-
-  /* Manifest B: different stake delegation (pubkey_B),
-     different vote stake (pubkey_Y), different new_votes entry. */
+  /* Manifest B with a different vote stake (pubkey_Y). */
 
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
+  manifest->accdb_fork_id    = 39U;
+  manifest->txncache_fork_id = 40U;
 
-  uchar pubkey_b[32]; fd_memset( pubkey_b, 0xCC, 32 );
-  uchar vote_b[32];   fd_memset( vote_b,   0xC1, 32 );
   manifest->stake_delegations_len       = 1UL;
   manifest->epoch_stakes[1].total_stake = 7000UL;
   manifest->vote_accounts_len           = 1UL;
 
-  fd_snapshot_manifest_stake_delegation_t deleg_b;
-  fd_memset( &deleg_b, 0, sizeof(deleg_b) );
-  fd_memcpy( deleg_b.stake_pubkey, pubkey_b, 32 );
-  fd_memcpy( deleg_b.vote_pubkey,  vote_b,   32 );
-  deleg_b.stake_delegation   = 2000UL;
-  deleg_b.activation_epoch   = 0UL;
-  deleg_b.deactivation_epoch = ULONG_MAX;
-
   uchar pubkey_y[32]; fd_memset( pubkey_y, 0xDD, 32 );
   uchar ident_y[32];  fd_memset( ident_y,  0xD1, 32 );
   fd_snapshot_manifest_vote_stakes_t vs_y;
-  fd_memset( &vs_y, 0, sizeof(vs_y) );
+  setup_vote_stakes_record( &vs_y );
   fd_memcpy( vs_y.vote,     pubkey_y, 32 );
   fd_memcpy( vs_y.identity, ident_y,  32 );
+  fd_memcpy( vs_y.commission_inflation, pubkey_y, 32 );
+  fd_memcpy( vs_y.commission_block,     ident_y,  32 );
   vs_y.stake      = 7000UL;
   vs_y.commission = 5;
-
-  uchar nv_pubkey_b[32]; fd_memset( nv_pubkey_b, 0xE2, 32 );
-  fd_snapshot_manifest_vote_account_full_t va_b;
-  fd_memset( &va_b, 0, sizeof(va_b) );
-  fd_memcpy( va_b.vote_account_pubkey, nv_pubkey_b, 32 );
-  va_b.stake = 0UL;
 
   /* Second apply: simulate back-to-back retry after a failed first
      attempt.  records_reset must clear Manifest A's stale entries so
      only Manifest B's remain. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
   FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
-  fd_ssload_records_reset( banks, bank );
-  fd_ssload_apply_delegation( banks, &deleg_b );
-  fd_ssload_apply_vote_account( bank, &va_b );
-  FD_TEST( fd_ssload_apply_vote_stakes( bank, 0UL /* epoch */, 1UL /* epoch_idx */,
+  FD_TEST( bank->accdb_fork_id.val==39U );
+  FD_TEST( bank->parent_accdb_fork_id.val==39U );
+  FD_TEST( bank->txncache_fork_id.val==40U );
+  fd_ssload_records_reset( bank, 0UL );
+  FD_TEST( fd_ssload_apply_vote_stakes( banks, bank, 0UL /* epoch */, 1UL /* epoch_idx */,
                                         1UL /* t_1_idx */, 0UL /* t_2_idx */,
                                         0 /* has_t_2 */, &vs_y )==0 );
+  fd_ssload_records_fini( bank );
 
-  /* Stake delegations: pubkey_A must have been removed, pubkey_B must
-     be present, exactly 1 entry (not 2). */
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )==NULL );
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_b )!=NULL );
-  FD_TEST( fd_stake_delegations_cnt( sd )==1UL );
+  /* The stake delegation cache remains untouched. */
+  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_s )!=NULL );
+  FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
 
-  /* Vote stakes: pubkey_X must have been removed, pubkey_Y must be
+  /* Top votes: pubkey_X must have been removed, pubkey_Y must be
      present, exactly 1 entry (not 2). */
-  root_idx = fd_vote_stakes_get_root_idx( vs );
-  FD_TEST( fd_vote_stakes_ele_cnt( vs, root_idx )==1 );
-
-  ulong stake_out;
-  FD_TEST( fd_vote_stakes_query_t_1( vs, root_idx, (fd_pubkey_t *)pubkey_x, &stake_out, NULL, NULL )==0 );
-  FD_TEST( fd_vote_stakes_query_t_1( vs, root_idx, (fd_pubkey_t *)pubkey_y, &stake_out, NULL, NULL )==1 );
+  FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, bank->vote_stakes_fork_id )==1UL );
+  FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_x, NULL, &stake_out, NULL ) );
+  FD_TEST(  fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_y, NULL, &stake_out, NULL ) );
   FD_TEST( stake_out==7000UL );
-
-  /* New votes: old entry must have been removed, new entry must be
-     present, exactly 1 entry (not 2). */
-  FD_TEST( fd_new_votes_cnt( nv )==1UL );
-  fd_pubkey_t nv_pk_a; fd_memcpy( nv_pk_a.uc, nv_pubkey_a, 32UL );
-  fd_pubkey_t nv_pk_b; fd_memcpy( nv_pk_b.uc, nv_pubkey_b, 32UL );
-  uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
-  fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, iter_mem );
-  ulong nv_cnt = 0UL;
-  int saw_a = 0;
-  int saw_b = 0;
-  for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
-    int is_tombstone = 0;
-    fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
-    if( FD_UNLIKELY( is_tombstone ) ) continue;
-    nv_cnt++;
-    saw_a |= fd_pubkey_eq( pk, &nv_pk_a );
-    saw_b |= fd_pubkey_eq( pk, &nv_pk_b );
-  }
-  fd_new_votes_iter_fini( it );
-  FD_TEST( nv_cnt==1UL );
-  FD_TEST( !saw_a );
-  FD_TEST(  saw_b );
 
   fd_wksp_free_laddr( banks_mem );
 
@@ -663,7 +618,7 @@ main( int     argc,
   test_stake_delegations( manifest );
   test_vote_accounts( manifest );
   test_epoch_credits_downcasting( wksp );
-  test_recover_back_to_back_reset( wksp, manifest );
+  test_recover_preserves_snapin_stake_delegations( wksp, manifest );
 
   fd_wksp_free_laddr( manifest );
 

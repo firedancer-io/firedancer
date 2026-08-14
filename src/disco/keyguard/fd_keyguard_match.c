@@ -11,6 +11,7 @@
 
    - Legacy transaction messages
    - Version 0 transaction messages
+   - Version 1 transaction messages
    - Legacy shred signed payloads
    - Merkle shred roots
    - TLS CertificateVerify challenges
@@ -114,6 +115,7 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
 
      - 0aaaaaaa bbbbbbbb cccccccc           (Legacy txns)
      - 10000000 aaaaaaaa bbbbbbbb cccccccc  (v0     txns)
+     - 10000001 aaaaaaaa bbbbbbbb cccccccc  (v1     txns)
 
      Where 'a' are the bits that make up the 'required signature count'
        ... 'b'         ....                  'readonly signed count'
@@ -124,8 +126,50 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
   cursor++;
   uint          sig_cnt;  /* sig count (ignoring compact_u16 encoding) */
   if( header_b0 & 0x80UL ) {
-    /* Versioned message, only v0 recognized so far */
-    if( (header_b0&0x7F)!=FD_TXN_V0 ) return 0;
+    /* Versioned message, v0 and v1 recognized so far */
+    uint version = header_b0 & 0x7F;
+    if( version!=FD_TXN_V0 && version!=FD_TXN_V1 ) return 0;
+
+    /* Check transaction V1 separately because the layout is
+       different. We do the same checks for V1 and V0/legacy, just in
+       a different code branch. */
+    if( version==FD_TXN_V1 ) {
+      sig_cnt = *cursor;
+      cursor++;
+
+      /* There must be at least one signature. */
+      if( sig_cnt==0U ) return 0;
+
+      /* Check if the signatures exceed the V1 limit */
+      if( sig_cnt>FD_TXN_SIG_MAX ) return 0;
+
+      /* Skip other fields */
+      //uint ro_signed_cnt      = *cursor;
+      cursor++;
+      //uint ro_unsigned_cnt    = *cursor;
+      cursor++;
+      //uint config_mask        = fd_uint_load_4( cursor );
+      cursor += 4UL;
+      //uchar const * blockhash = cursor;
+      cursor += FD_TXN_BLOCKHASH_SZ;
+
+      if( cursor + 2 > end ) return 0;
+      ulong instr_cnt = *cursor;
+      cursor++;
+      ulong addr_cnt  = *cursor;
+      cursor++;
+
+      /* Check if the instructions exceed the V1 limit */
+      if( instr_cnt>FD_TXN_INSTR_MAX ) return 0;
+
+      /* Check if the addresses exceed the V1 limit */
+      if( addr_cnt>FD_TXN_ACCT_ADDR_MAX ) return 0;
+
+      if( sig_cnt>addr_cnt ) return 0;
+
+      return 1;
+    }
+
     sig_cnt = *cursor;
     cursor++;
   } else {
@@ -139,7 +183,7 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
   /* Check if signatures exceed txn size limit */
   ulong sig_sz;
   if( __builtin_umull_overflow( sig_cnt, 64UL, &sig_sz ) ) return 0;
-  if( sig_sz > (FD_TXN_MTU-txn_msg_min_sz) ) return 0;
+  if( sig_sz > (FD_TXN_MTU_V0-txn_msg_min_sz) ) return 0;
 
   /* Skip other fields */
   //uint ro_signed_cnt   = *cursor;
@@ -306,7 +350,7 @@ fd_keyguard_payload_matches_event( uchar const * data,
     "                                "  /* 32 spaces */
     "Firedancer event challenge-response";
 
-  if( sz!=132UL ) return 0;
+  if( sz!=sizeof(sign_prefix)+217UL ) return 0;
   if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
   if( 0!=memcmp( data, sign_prefix, sizeof(sign_prefix) ) ) return 0;
   return 1;

@@ -54,27 +54,30 @@ This section only lists vendored code that requires interaction with
 third-party repositories (e.g. pulling bug fixes). Other vendored code
 is omitted (see the [NOTICE] file above for a complete list).
 
+Vendored libraries live under `src/third_party/` (see the README
+there for the vendoring conventions).
+
 ### nanopb
 
-https://github.com/nanopb/nanopb
+https://github.com/nanopb/nanopb (`src/third_party/nanopb`)
 
 Protobuf encoding library. Written in C.
 
 ### picohttpparser
 
-https://github.com/h2o/picohttpparser
+https://github.com/h2o/picohttpparser (`src/third_party/picohttpparser`)
 
 HTTP/1.1 parser. Written in C.
 
 ### cJSON
 
-https://github.com/DaveGamble/cJSON
+https://github.com/DaveGamble/cJSON (`src/third_party/cjson`)
 
 JSON encoding library. Written in C.
 
 ### Fiat-Crypto
 
-https://github.com/mit-plv/fiat-crypto
+https://github.com/mit-plv/fiat-crypto (`src/third_party/fiat-crypto`)
 
 Cryptographic subroutines. Written in C.
 
@@ -87,7 +90,33 @@ Written in C.
 
 ### bzip2
 
-https://gitlab.com/bzip2/bzip2
+https://gitlab.com/bzip2/bzip2 (`src/third_party/bzip2`)
+
+Data compression library. Written in C.
+
+### s2n-bignum
+
+https://github.com/awslabs/s2n-bignum (`src/third_party/s2n-bignum`)
+
+Collection of cryptographic integer arithmetic routines by AWS Labs.
+Written in assembly language.  Pinned by commit SHA.
+
+### blst
+
+https://github.com/supranational/blst (`src/third_party/blst`)
+
+Cryptographic routines for the BLS12-381 curve by Supranational.
+Written in assembly language and C.
+
+### Zstandard
+
+https://github.com/facebook/zstd (`src/third_party/zstd`)
+
+Data compression library by Meta. Written in C.
+
+### LZ4
+
+https://github.com/lz4/lz4 (`src/third_party/lz4`)
 
 Data compression library. Written in C.
 
@@ -102,31 +131,11 @@ pinned.
 All production external dependencies are statically linked into the
 Firedancer executable.
 
-### Zstandard
-
-https://github.com/facebook/zstd
-
-Data compression library by Meta. Written in C.
-
-### s2n-bignum
-
-https://github.com/awslabs/s2n-bignum
-
-Collection of cryptographic integer arithmetic routines by AWS Labs.
-Written in assembly language.
-
 ### OpenSSL
 
 https://github.com/openssl/openssl
 
 Widely used TLS library. Written in C.
-
-### blst
-
-https://github.com/supranational/blst
-
-Cryptographic routines for the BLS12-381 curve by Supranational.
-Written in assembly language and C.
 
 ---
 

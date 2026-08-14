@@ -207,7 +207,7 @@ struct __attribute__((aligned(FD_VINYL_BSTREAM_BLOCK_SZ))) fd_vinyl_data_obj {
      device alignment to match.  So we need to put all the object
      allocator data its own block.  This can leave a lot of extra space.
      We put this space up front in the block to that it can act as a
-     guard region for whatever preceeds it (applications could even use
+     guard region for whatever precedes it (applications could even use
      this guard region to stash extra info but this is not recommended
      because of false sharing conflicts in might induce between
      different threads using adjacent in memory objects).  Likewise,
@@ -227,7 +227,7 @@ struct __attribute__((aligned(FD_VINYL_BSTREAM_BLOCK_SZ))) fd_vinyl_data_obj {
 
   ulong   unused[1];   /* unused space */
   schar * rd_err;      /* rd: client req_err       (or dummy location if no client req_err) */
-  short   rd_active;   /* rd: is a read in progess on this obj */
+  short   rd_active;   /* rd: is a read in progress on this obj */
   ushort  _unused;     /* unused space */
   ushort  szc;         /* data: allocation size class */
   ushort  child_szc;   /* data: (superblock) contains allocations of this sizeclass */
@@ -466,7 +466,7 @@ fd_vinyl_data_reset( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
 /* fd_vinyl_data_verify returns FD_VINYL_SUCCESS (0) if the given data
    appears to be a valid vinyl data and FD_VINYL_ERR_CORRUPT (negative)
    otherwise (logs details).  This only verifies the vinyl data's state
-   and superblock heirarchy are intact.  It does not test any of the
+   and superblock hierarchy are intact.  It does not test any of the
    allocations for correctness (but could given access to the bstream,
    line and/or meta). */
 

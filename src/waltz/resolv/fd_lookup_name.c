@@ -242,6 +242,87 @@ name_from_dns_search( struct address buf[ static MAXADDRS ],
   return name_from_dns( buf, canon, name, family, &conf );
 }
 
+int
+fd_dns_ip4_local( char const * name,
+                  uint *       addrs,
+                  ulong        addr_max ) {
+  ulong l = strnlen( name, 255 );
+  if( FD_UNLIKELY( l-1UL>=254UL ) ) return FD_EAI_NONAME;
+
+  struct address buf[ MAXADDRS ];
+  char           canon[ 256 ];
+  int cnt = name_from_numeric( buf, name, AF_INET );
+  if( !cnt ) cnt = name_from_hosts( buf, canon, name, AF_INET );
+  if( cnt<=0 ) return cnt;
+
+  ulong out = 0UL;
+  for( int j=0; j<cnt && out<addr_max; j++ ) {
+    if( FD_UNLIKELY( buf[ j ].family!=AF_INET ) ) continue;
+    addrs[ out++ ] = FD_LOAD( uint, buf[ j ].addr );
+  }
+  return out ? (int)out : FD_EAI_NODATA;
+}
+
+int
+fd_dns_ip4_query( char const * name,
+                  uchar        query[ static FD_DNS_QUERY_MTU ] ) {
+  int qlen = fd_res_mkquery( 0, name, 1, RR_A, query, FD_DNS_QUERY_MTU );
+  if( FD_UNLIKELY( qlen==-1 ) ) return FD_EAI_NONAME;
+  query[ 3 ] = 0; /* don't need AD flag */
+  return qlen;
+}
+
+int
+fd_dns_ip4_answer( uchar const * answer,
+                   ulong         answer_sz,
+                   uint *        addrs,
+                   ulong         addr_max ) {
+  if( FD_UNLIKELY( answer_sz<12UL ) )      return FD_EAI_AGAIN;  /* short of a full header */
+  if( FD_UNLIKELY( (answer[ 3 ]&15)==2 ) ) return FD_EAI_AGAIN;  /* SERVFAIL */
+  if( FD_UNLIKELY( (answer[ 3 ]&15)==3 ) ) return FD_EAI_NONAME; /* NXDOMAIN */
+  if( FD_UNLIKELY( (answer[ 3 ]&15)!=0 ) ) return FD_EAI_FAIL;
+
+  struct address buf[ MAXADDRS ];
+  char           canon[ 256 ] = {0};
+  struct dpc_ctx ctx = { .addrs = buf, .canon = canon, .rrtype = RR_A };
+  int parse_err = fd_dns_parse( answer, (int)fd_ulong_min( answer_sz, ABUF_SIZE ), dns_parse_callback, &ctx );
+  /* A malformed/truncated packet with no usable leading records is
+     retryable, not proof of no data.  Records parsed before the
+     malformation are still good (truncated replies). */
+  if( FD_UNLIKELY( parse_err<0 && !ctx.cnt ) ) return FD_EAI_AGAIN;
+  if( FD_UNLIKELY( !ctx.cnt ) ) return FD_EAI_NODATA;
+
+  ulong out = 0UL;
+  for( int j=0; j<ctx.cnt && out<addr_max; j++ ) {
+    if( FD_UNLIKELY( buf[ j ].family!=AF_INET ) ) continue;
+    addrs[ out++ ] = FD_LOAD( uint, buf[ j ].addr );
+  }
+  return out ? (int)out : FD_EAI_NODATA;
+}
+
+int
+fd_dns_nameservers( uint * addrs,
+                    ulong  addr_max,
+                    uint * opt_timeout,
+                    uint * opt_attempts ) {
+  fd_resolvconf_t conf;
+  if( FD_UNLIKELY( fd_get_resolv_conf( &conf )<0 ) ) return FD_EAI_SYSTEM;
+  if( FD_LIKELY( opt_timeout  ) ) *opt_timeout  = conf.timeout;
+  if( FD_LIKELY( opt_attempts ) ) *opt_attempts = conf.attempts;
+
+  ulong out = 0UL;
+  for( uint i=0U; i<conf.nns && out<addr_max; i++ ) {
+    if( FD_UNLIKELY( conf.ns[ i ].family!=AF_INET ) ) continue; /* v6 nameservers unsupported */
+    addrs[ out++ ] = FD_LOAD( uint, conf.ns[ i ].addr );
+  }
+  /* v6-only resolv.conf: same 127.0.0.1 fallback as no nameservers */
+  if( FD_UNLIKELY( !out && addr_max ) ) {
+    if( FD_UNLIKELY( conf.nns ) ) FD_LOG_WARNING(( "IPv6 nameservers in /etc/resolv.conf are unsupported; trying 127.0.0.1" ));
+    addrs[ out++ ] = fd_uint_bswap( INADDR_LOOPBACK );
+  }
+  return (int)out;
+}
+
 static const struct policy {
   uchar addr[16];
   uchar len, mask;

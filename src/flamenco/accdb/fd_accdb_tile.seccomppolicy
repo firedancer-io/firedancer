@@ -49,3 +49,6 @@ fallocate: (and (eq (arg 0) accounts_fd)
 copy_file_range: (and (eq (arg 0) accounts_fd)
                       (eq (arg 2) accounts_fd)
                       (eq (arg 5) 0))
+
+# startup: sleep until snapshot loaded
+clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)

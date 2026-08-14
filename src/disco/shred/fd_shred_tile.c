@@ -1,5 +1,9 @@
 #include "../tiles.h"
 
+#if FD_HAS_X86
+#include <x86intrin.h>
+#endif
+
 #include "generated/fd_shred_tile_seccomp.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "fd_shredder.h"
@@ -20,6 +24,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/runtime/fd_slot_params.h"
 #include "../../discof/tower/fd_tower_slot_rooted.h"
 
 /* The shred tile handles shreds from two data sources: shreds generated
@@ -255,6 +260,30 @@ typedef struct {
 
   fd_epoch_schedule_t            epoch_schedule[1];
   fd_shred_features_activation_t features_activation[1];
+
+  /* max_shred_idx is the exclusive upper bound for shred
+     indices. We need to reject any shred with an
+     index >= current_max_shred_idx, but we also want to reject anything
+     that is part of an FEC set whose highest shred index would reach
+     the bound.
+
+     Because this bound can change with feature gates, for example the
+     reduce_slot_time feature gates, we store the bound for the
+     previous, current, and next regimes, along with the slots at which
+     the current and next bounds take effect. This lets us apply, to
+     each shred, the limit effective at that shreds slot.
+
+     For a given shred slot, the max_shred_idx for that shred is:
+      next_max_shred_idx_start_slot    <= slot                                    -> next_max_shred_idx
+      current_max_shred_idx_start_slot <= slot < next_max_shred_idx_start_slot    -> current_max_shred_idx
+                                          slot < current_max_shred_idx_start_slot -> prev_max_shred_idx
+  */
+  ulong                          prev_max_shred_idx;
+  ulong                          current_max_shred_idx;
+  ulong                          next_max_shred_idx;
+  ulong                          current_max_shred_idx_start_slot;
+  ulong                          next_max_shred_idx_start_slot;
+  int                            larger_shred_limits_per_block;
   /* too large to be left in the stack */
   fd_shred_dest_idx_t scratchpad_dests[ FD_SHRED_DEST_MAX_FANOUT*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
@@ -397,7 +426,7 @@ before_frag( fd_shred_ctx_t * ctx,
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
     ctx->poh_in_expect_seq = seq+1UL;
     return (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK) &
-           (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_FEAT_ACT_SLOT) &
+           (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_SHRED_EPOCH_MSG) &
            (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_LEADER_BANK);
   }
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
@@ -490,12 +519,35 @@ during_frag( fd_shred_ctx_t * ctx,
     uchar const *               dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_epoch_info_msg_t const * epoch_msg    = fd_type_pun_const( dcache_entry );
 
-    FD_TEST( epoch_msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
-    FD_TEST( epoch_msg->staked_id_cnt<=MAX_SHRED_DESTS );
+    FD_TEST( epoch_msg->staked_vote_cnt<=MAX_STAKE_WEIGHTS );
+    FD_TEST( epoch_msg->staked_id_cnt<=MAX_STAKE_WEIGHTS );
 
     fd_stake_ci_epoch_msg_init( ctx->stake_ci, epoch_msg );
 
-    *ctx->epoch_schedule                                = epoch_msg->epoch_schedule;
+    *ctx->epoch_schedule = epoch_msg->epoch_schedule;
+
+    if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
+      fd_slot_params_t slot_params = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
+                                                            &epoch_msg->features,
+                                                            &epoch_msg->epoch_schedule,
+                                                            epoch_msg->start_slot );
+
+      ctx->current_max_shred_idx            = slot_params.max_shred_idx;
+      ctx->current_max_shred_idx_start_slot = fd_slot_params_effective_slot( &slot_params,
+                                                                             &epoch_msg->features,
+                                                                             &epoch_msg->epoch_schedule );
+      ctx->next_max_shred_idx_start_slot    = fd_slot_params_next_effective_slot( &slot_params,
+                                                                                  &epoch_msg->features,
+                                                                                  &epoch_msg->epoch_schedule );
+      ctx->prev_max_shred_idx               = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
+                                                                     &epoch_msg->features,
+                                                                     &epoch_msg->epoch_schedule,
+                                                                     fd_ulong_sat_sub( ctx->current_max_shred_idx_start_slot, 1UL ) ).max_shred_idx;
+      ctx->next_max_shred_idx               = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
+                                                                     &epoch_msg->features,
+                                                                     &epoch_msg->epoch_schedule,
+                                                                     ctx->next_max_shred_idx_start_slot ).max_shred_idx;
+    }
     ctx->features_activation->enforce_fixed_fec_set     = fd_shred_get_feature_activation_slot0(
       epoch_msg->features.enforce_fixed_fec_set, ctx );
     ctx->features_activation->discard_unexpected_data_complete_shreds = fd_shred_get_feature_activation_slot0(
@@ -536,21 +588,31 @@ during_frag( fd_shred_ctx_t * ctx,
       return;
     }
 
-    if( FD_UNLIKELY( (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_FEAT_ACT_SLOT) ) ) {
-      /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots that
-          the shred tile needs to be aware of.  Since this requires the
-          bank, we are forced (so far) to receive them from the poh tile
-          (as a POH_PKT_TYPE_FEAT_ACT_SLOT). */
+    if( FD_UNLIKELY( (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_SHRED_EPOCH_MSG) ) ) {
+      /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots
+          that the shred tile needs to be aware of, as well as
+          shred limits that can change at epoch boundaries. Since these
+          require the bank, we are forced (so far) to receive them from
+          the poh tile (as a POH_PKT_TYPE_SHRED_EPOCH_MSG). */
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=(sizeof(fd_shred_features_activation_t)) ) )
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=(sizeof(fd_shred_epoch_msg_t)) ) )
         FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
               ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-      fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
-      memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
+      fd_shred_epoch_msg_t const * msg = (fd_shred_epoch_msg_t const *)dcache_entry;
 
+      *ctx->features_activation = msg->features_activation;
       fd_fec_resolver_set_discard_unexpected_data_complete_shreds( ctx->resolver,
         ctx->features_activation->discard_unexpected_data_complete_shreds );
+
+      if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
+        fd_shred_slot_limits_t const * lim    = &msg->slot_limits;
+        ctx->prev_max_shred_idx               = lim->prev_max_shred_idx;
+        ctx->current_max_shred_idx            = lim->current_max_shred_idx;
+        ctx->next_max_shred_idx               = lim->next_max_shred_idx;
+        ctx->current_max_shred_idx_start_slot = lim->current_start_slot;
+        ctx->next_max_shred_idx_start_slot    = lim->next_start_slot;
+      }
     }
     else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
       /* This is a frag from the PoH tile.  We'll copy it to our pending
@@ -772,6 +834,10 @@ during_frag( fd_shred_ctx_t * ctx,
     uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
+    /* Use the looser ctx->shred_limit as the max_shred_idx for this
+       parse, as we do not have the slot for the shred yet. The
+       tighter shred-specific max_shred_idx will be applied in the
+       parse in after_frag. */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz, ctx->shred_limit );
     if( FD_UNLIKELY( !shred ) ) {
       ctx->skip_frag = 1;
@@ -944,7 +1010,14 @@ after_frag( fd_shred_ctx_t *    ctx,
     uchar * shred_buffer    = ctx->shred_buffer;
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
-    fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz, ctx->shred_limit );
+    /* Accessing the slot like this is safe because we have already
+       parsed the shred in during_frag */
+    ulong shred_slot    = ((fd_shred_t const *)shred_buffer)->slot;
+    ulong max_shred_idx = ctx->current_max_shred_idx;
+    if( FD_UNLIKELY( shred_slot< ctx->current_max_shred_idx_start_slot ) ) max_shred_idx = ctx->prev_max_shred_idx;
+    if( FD_UNLIKELY( shred_slot>=ctx->next_max_shred_idx_start_slot    ) ) max_shred_idx = ctx->next_max_shred_idx;
+
+    fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz, max_shred_idx );
 
     if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ 1 ]++; return; }
 
@@ -971,7 +1044,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     }
 
     long add_shred_timing  = -fd_tickcount();
-    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, from_repair, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec );
+    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, max_shred_idx, from_repair, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec );
     add_shred_timing      +=  fd_tickcount();
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
@@ -1118,7 +1191,6 @@ after_frag( fd_shred_ctx_t *    ctx,
       for( int i=0; i<32; i++ ) {
         if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
           fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
-          FD_LOG_DEBUG(( "was missing: index=%u, slot=%lu, shred_idx=%u", missing->idx%32, missing->slot, missing->idx ));
 
           ulong sig = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | SHRED_SIG_SRC_RECONSTRUCTED;
 
@@ -1383,16 +1455,16 @@ unprivileged_init( fd_topo_t const *      topo,
                                                             sign_in->dcache,
                                                             sign_out->mtu ) ) );
 
-  ulong shred_limit = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
-  ctx->shred_limit  = shred_limit;
-  fd_fec_set_t * resolver_sets = fec_sets + shred_store_mcache_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
+  ctx->larger_shred_limits_per_block = tile->shred.larger_shred_limits_per_block;
+  ulong shred_limit                  = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
+  ctx->shred_limit                   = shred_limit;
+  fd_fec_set_t * resolver_sets       = fec_sets + shred_store_mcache_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
                                                                         fd_shred_signer, ctx->keyguard_client,
                                                                         tile->shred.fec_resolver_depth, 1UL,
                                                                         shred_store_mcache_depth+1UL,
                                                                         128UL * tile->shred.fec_resolver_depth, resolver_sets,
-                                                                        shred_limit,
                                                                         ctx->resolver_seed ) ) );
 
   if( FD_LIKELY( !!expected_shred_version ) ) {
@@ -1535,6 +1607,11 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ ) {
     ctx->features_activation->slots[i] = FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED;
   }
+  ctx->prev_max_shred_idx               = ctx->shred_limit;
+  ctx->current_max_shred_idx            = ctx->shred_limit;
+  ctx->next_max_shred_idx               = ctx->shred_limit;
+  ctx->current_max_shred_idx_start_slot = 0UL;
+  ctx->next_max_shred_idx_start_slot    = ULONG_MAX;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

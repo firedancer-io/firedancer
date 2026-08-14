@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_h
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_h
 
+#include "fd_accdb_base.h"
 #include "fd_accdb_shmem.h"
-#include "../../util/bits/fd_bits.h"
 
 /* The accdb is a fork aware database that can be queried to get the
    current state of any accounts as-of a given fork, and update them. */
@@ -16,12 +16,6 @@
 
 #define FD_ACCDB_FD_RW (123461)
 #define FD_ACCDB_FD_RO (123460)
-
-struct fd_accdb_private;
-typedef struct fd_accdb_private fd_accdb_t;
-
-struct fd_accdb_fork_id { ushort val; };
-typedef struct fd_accdb_fork_id fd_accdb_fork_id_t;
 
 struct fd_accdb_entry {
   uchar   pubkey[ 32UL ];
@@ -39,6 +33,7 @@ struct fd_accdb_entry {
   uchar * prior_data;
 
   int     commit;
+  int     pd_write;
 
   int     _writable;
   int     _overwrite;
@@ -58,56 +53,6 @@ struct fd_accdb_entry {
 typedef struct fd_accdb_entry fd_acc_t;
 
 FD_PROTOTYPES_BEGIN
-
-#if FD_HAS_INT128
-
-static inline ulong
-fd_xxh3_mul128_fold64( ulong lhs, ulong rhs ) {
-  uint128 product = (uint128)lhs * (uint128)rhs;
-  return (ulong)product ^ (ulong)( product>>64 );
-}
-
-static inline ulong
-fd_xxh3_mix16b( ulong i0, ulong i1,
-                ulong s0, ulong s1,
-                ulong seed ) {
-  return fd_xxh3_mul128_fold64( i0 ^ (s0 + seed), i1 ^ (s1 - seed) );
-}
-
-FD_FN_PURE static inline ulong
-fd_accdb_hash( uchar const key[ 32 ],
-               ulong       seed ) {
-  ulong k0 = FD_LOAD( ulong, key+ 0 );
-  ulong k1 = FD_LOAD( ulong, key+ 8 );
-  ulong k2 = FD_LOAD( ulong, key+16 );
-  ulong k3 = FD_LOAD( ulong, key+24 );
-  ulong acc = 32 * 0x9E3779B185EBCA87ULL;
-  acc += fd_xxh3_mix16b( k0, k1, 0xbe4ba423396cfeb8UL, 0x1cad21f72c81017cUL, seed );
-  acc += fd_xxh3_mix16b( k2, k3, 0xdb979083e96dd4deUL, 0x1f67b3b7a4a44072UL, seed );
-  acc = acc ^ (acc >> 37);
-  acc *= 0x165667919E3779F9ULL;
-  acc = acc ^ (acc >> 32);
-  return acc;
-}
-
-#else
-
-/* If the target does not support xxHash3, fallback to the 'old' key
-   hash function.
-
-   FIXME This version is vulnerable to HashDoS */
-
-FD_FN_PURE static inline ulong
-fd_accdb_hash( uchar const key[ 32 ],
-               ulong       seed ) {
-  /* tons of ILP */
-  return (fd_ulong_hash( seed ^ (1UL<<0) ^ FD_LOAD( ulong, key+ 0 ) )   ^
-          fd_ulong_hash( seed ^ (1UL<<1) ^ FD_LOAD( ulong, key+ 8 ) ) ) ^
-         (fd_ulong_hash( seed ^ (1UL<<2) ^ FD_LOAD( ulong, key+16 ) ) ^
-          fd_ulong_hash( seed ^ (1UL<<3) ^ FD_LOAD( ulong, key+24 ) ) );
-}
-
-#endif /* FD_HAS_INT128 */
 
 FD_FN_CONST ulong
 fd_accdb_align( void );
@@ -177,14 +122,26 @@ fd_accdb_join_readonly( void *             ljoin,
    accounts never get a second write and therefore never get promoted
    by normal compaction-driven tiering.
 
-   Only the snapin tile is expected to use this.  The flag is
-   per-joiner and is not visible across processes. */
+   The snapshot loader has exclusive write access to acc_pool. */
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
 
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
+
+/* fd_accdb_snapshot_recover_delta appends into the accdb delta set the
+   accounts modified at fork_id.
+
+   This is intended to be used after booting off an incremental snapshot
+   and allows the validator to create additional incremental snaps.
+
+   Not thread safe: assumes no one but the calling thread is accessing
+   accdb deltas.  Returns 0 on success, -1 if the delta map is too small. */
+
+int
+fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
+                                 fd_accdb_fork_id_t fork_id );
 
 /* fd_accdb_snapshot_recovery_t captures layer-0 write head metadata.
    Used by fd_accdb_snapshot_{save,revert}_whead to save and restore
@@ -238,7 +195,12 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
 
    For non-root forks, parent_fork_id must refer to a fork that has
    already been attached.  The ancestry must form a tree and it is
-   undefined behavior to create cycles. */
+   undefined behavior to create cycles.
+
+   If the fork pool is full but contains deferred forks, this call
+   blocks until reader epochs drain and a deferred slot can be reused.
+   The caller should never call this function unless there are either
+   free fork ids or deferred ones. */
 
 fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
@@ -301,6 +263,18 @@ fd_accdb_purge( fd_accdb_t *       accdb,
    to release the bank after the acquire call returns, and this will not
    cause the acquired accounts to be evicted from the cache.
 
+   The refcnt does not have to be on the bank of fork_idx itself: a
+   refcnt on a live child bank of fork_idx also suffices.  This is the
+   executor's pattern, it holds a refcnt on the executing child bank
+   and read-only acquires implicit programdata on that bank's (frozen)
+   parent fork.  It works because a fork with a live (refcnt>0) child
+   bank can be neither advanced-past nor purged, so fork_idx cannot be
+   recycled out from under the acquire.  advance_root(fork_idx) itself
+   (rooting the queried fork) IS permitted concurrently with a read-only
+   acquire on fork_idx (see the THREADING MODEL section); what remains
+   forbidden is advancing PAST fork_idx or purging it while any acquire
+   on it is outstanding.
+
    pubkeys_cnt is the number of accounts to acquire, and pubkeys is an
    array of pointers to the 32-byte pubkeys of the accounts to acquire.
    writable is an array of flags indicating whether each corresponding
@@ -334,6 +308,14 @@ fd_accdb_purge( fd_accdb_t *       accdb,
        not activate a child block until the parent block is fully done.
        Concurrent acquires across unrelated sibling forks have no
        ordering requirement.
+     - A read-only acquire on a frozen ancestor fork may begin after
+       descendant-fork acquires (read or write) have already begun.  The
+       executor relies on this: while a child bank executes (writably
+       acquiring its own-fork accounts), it also read-only acquires the
+       program's implicit programdata on the frozen parent fork.  This
+       is safe because the parent is frozen, no writer ever commits to
+       it so the read-only acquire cannot overlap any same-fork write,
+       and read-only acquires never mutate acc pool or fork state.
 
    Violating this contract is undefined behavior and will likely crash
    with an assertion failure inside the cache refcount logic.  In
@@ -436,6 +418,34 @@ fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
                  uchar const *      pubkey );
 
+/* fd_accdb_probe_pd_this_fork checks whether the newest version of
+   pubkey visible on fork_id was committed on fork_id itself.  If so,
+   returns 1 and sets *out_pd_write to that version's pd_write flag,
+   *out_data_len to its data length, and *out_lamports to its lamport
+   balance.  Otherwise returns 0, sets *out_pd_write to 0, and leaves
+   *out_data_len and *out_lamports untouched.
+
+   Reads only metadata, not account data.  out_pd_write deliberately
+   ignores lamports: a programdata closed this slot is a lamports==0
+   tombstone that must still report pd_write=1 so the loader's
+   DelayVisibility gate fires.  out_lamports is reported separately so
+   that callers doing account deadness checks have the current fork's
+   deadness.
+
+   Note that out_lamports and out_data_len are not read atomically.
+   Caller is responsible for ensuring ordering if racing is not
+   acceptable.
+
+   Full join only. */
+
+int
+fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
+                             fd_accdb_fork_id_t fork_id,
+                             uchar const *      pubkey,
+                             int *              out_pd_write,
+                             ulong *            out_data_len,
+                             ulong *            out_lamports );
+
 /* fd_accdb_read_one_nocache reads one account at fork_id into
    caller-provided output buffers.  Suitable for processes that mmap the
    accdb data region read-only: it never mutates any cache line, index
@@ -527,16 +537,19 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
 
 /* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
    using software prefetching to overlap hash chain memory latency with
-   useful work.  Each pubkey[i] points to a 32-byte public key.
+   useful work.  This function is not thread safe and must not be called
+   concurrently.  Each pubkey[i] points to a 32-byte public key.
    *out_replaced_lamports is set to the sum of the lamports of all
    accounts replaced by this batch (i.e. the previous lamports value of
    each account whose acc was overwritten).  *out_ignored_lamports is
    set to the sum of the lamports of all accounts ignored by this batch
    (i.e. the lamports of each input account whose write was dropped
-   because an acc with a higher slot already exists).  Returns 0 on
-   success, -1 if the batch contained two entries with the same pubkey
-   (a corrupt-snapshot signal — the caller should flag the snapshot
-   malformed).  Output counters are not meaningful when -1 is returned.
+   because an acc with a higher slot already exists).
+   *out_accepted_mask has bit i set exactly when input account i was
+   inserted or replaced.  Returns 0 on success, -1 if the batch
+   contained two entries with the same pubkey (a corrupt-snapshot signal
+   — the caller should flag the snapshot malformed).  Outputs are not
+   meaningful when -1 is returned.
 
    Each slots[i] must be <= UINT_MAX (see fd_accdb_snapshot_write_one
    for the rationale).  Passing a larger slot crashes the process.
@@ -558,7 +571,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_replaced,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
-                               ulong *             out_ignored_lamports );
+                               ulong *             out_ignored_lamports,
+                               ulong *             out_accepted_mask );
 
 /* fd_accdb_background performs one unit of background work.
 
@@ -577,8 +591,10 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
      T3 (executor tiles, 1..N): call acquire and release.
 
    acquire and release may be called concurrently from T1 and any number
-   of T3 threads.  They must never be called concurrently with
-   advance_root or purge on the same fork.
+   of T3 threads.
+
+   Read-only acquire/release on a fork F may run concurrently with
+   advance_root(F) (rooting F itself).
 
    fd_accdb_background must be called from exactly one thread (T2). It
    must not be called concurrently with itself.
@@ -608,6 +624,17 @@ fd_accdb_shmetrics( fd_accdb_t * accdb );
 
 fd_accdb_metrics_t const *
 fd_accdb_metrics( fd_accdb_t * accdb );
+
+/* fd_accdb_flush_metrics publishes this joiner's pending layer-0 write
+   metrics.  Normal layer-0 writes defer these metrics by default.
+
+   NOTE: A flush delayed past partition reuse can credit old counters
+   to the new partition.  The impact on metrics accuracy is expected
+   to be rare and small because partitions are rarely reused and
+   metrics flush often. */
+
+void
+fd_accdb_flush_metrics( fd_accdb_t * accdb );
 
 /* fd_accdb_cache_class_occupancy snapshots the current per-size-class
    cache occupancy and capacity into the caller-provided arrays, each

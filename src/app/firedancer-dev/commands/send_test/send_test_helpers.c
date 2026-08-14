@@ -144,7 +144,6 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
   msg->epoch = ctx->epoch;
   msg->start_slot = ctx->epoch*MAX_SLOTS_PER_EPOCH;
   msg->slot_cnt = MAX_SLOTS_PER_EPOCH;
-  msg->excluded_id_stake = 0;
 
   fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( msg );
   ulong stake_count = 0;
@@ -220,6 +219,9 @@ encode_vote( send_test_ctx_t * ctx, fd_tower_slot_done_t * slot_done ) {
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
   fd_memcpy( slot_done->vote_txn, txn->payload, txn->payload_sz );
   slot_done->vote_txn_sz = txn->payload_sz;
+  slot_done->is_voting   = 1;
+  slot_done->has_vote_txn = 1;
+  slot_done->authority_idx = ULONG_MAX;
 
   uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   FD_TEST( fd_txn_parse( slot_done->vote_txn, slot_done->vote_txn_sz, txn_mem, NULL ) );

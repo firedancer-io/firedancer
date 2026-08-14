@@ -181,6 +181,7 @@ struct fd_bundle_tile {
   ulong reset_slot;       /* from replay_out reset messages, or ULONG_MAX */
   int   sleep_mode;       /* 1 means sleeping, 0 means connecting/connected */
   long  sleep_check_ns;   /* next wallclock time to re-evaluate sleeping */
+  int   halt_signing;     /* 1 means signing is halted, 0 means signing is not halted */
 
   /* Staged values from during_frag, committed in after_frag */
   ulong next_leader_slot_staged;

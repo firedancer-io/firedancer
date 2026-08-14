@@ -964,10 +964,10 @@ static int
 fd_toml_parse_zero_prefixable_int( fd_toml_parser_t * parser,
                                    fd_toml_dec_t *    dec ) {
 
-  uint  len;
+  uint  len    = 0U;
   ulong digits = 0UL;
   int allow_underscore = 0;
-  for( len=0;; len++ ) {
+  for(;;) {
     if( FD_UNLIKELY( allow_underscore && parser->c.data[0] == '_' ) ) {
       allow_underscore = 0;
       fd_toml_advance_inline( parser, 1UL );
@@ -981,6 +981,7 @@ fd_toml_parse_zero_prefixable_int( fd_toml_parser_t * parser,
         parser->error = FD_TOML_ERR_RANGE;
         return 0;
       }
+      len++;
       fd_toml_advance_inline( parser, 1UL );
       if( !fd_toml_avail( parser ) ) break;
       if( !fd_isdigit( parser->c.data[0] ) && parser->c.data[0] != '_' ) break;
@@ -1013,7 +1014,7 @@ fd_toml_parse_dec_int_( fd_toml_parser_t * parser,
   int first_digit = (uchar)parser->c.data[0];
   if( first_digit == '0' ) {
     dec->res = 0UL;
-    dec->neg = 0;
+    dec->neg = !!neg;
     fd_toml_advance_inline( parser, 1UL );
     return 1;
   }
@@ -1258,6 +1259,7 @@ fd_toml_parse_float_normal( fd_toml_parser_t * parser ) {
   res *= exp;
 
 parsed:
+  if( stem.neg ) res = -res;
   if( FD_UNLIKELY( !fd_pod_insert_float( parser->pod, parser->key, res ) ) ) {
     parser->error = FD_TOML_ERR_POD;
     return 0;

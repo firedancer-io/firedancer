@@ -72,10 +72,10 @@ fd_curve25519_scalar_validate( uchar const s[ 32 ] ) {
     ulong s1 = fd_ulong_load_8_fast( s +  8 );
     ulong s2 = fd_ulong_load_8_fast( s + 16 );
     ulong s3 = fd_ulong_load_8_fast( s + 24 );
-    ulong l0 = *(ulong *)(&fd_curve25519_scalar_minus_one[  0 ]);
-    ulong l1 = *(ulong *)(&fd_curve25519_scalar_minus_one[  8 ]);
-    ulong l2 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 16 ]);
-    ulong l3 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 24 ]);
+    ulong l0 = FD_LOAD( ulong, &fd_curve25519_scalar_minus_one[  0 ] );
+    ulong l1 = FD_LOAD( ulong, &fd_curve25519_scalar_minus_one[  8 ] );
+    ulong l2 = FD_LOAD( ulong, &fd_curve25519_scalar_minus_one[ 16 ] );
+    ulong l3 = FD_LOAD( ulong, &fd_curve25519_scalar_minus_one[ 24 ] );
     ulong r; int b;
     fd_ulong_sub_borrow( &r, &b, s0, l0, 1 );
     fd_ulong_sub_borrow( &r, &b, s1, l1, b );
@@ -145,7 +145,7 @@ static inline uchar *
 fd_curve25519_scalar_from_u64( uchar *     s,
                                ulong const x ) {
   fd_memset( s, 0, 32 );
-  *((ulong *)s) = x;
+  FD_STORE( ulong, s, x );
   return s;
 }
 

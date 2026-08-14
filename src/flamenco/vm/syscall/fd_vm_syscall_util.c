@@ -440,8 +440,44 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
   fd_vm_haddr_query_t * queries[] = { &cmp_result_ref_mut_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  int out = 0;
-  for( ulong i=0UL; i<sz; i++ ) {
+  /* Aliased slices are equal. */
+
+  if( FD_UNLIKELY( m0==m1 ) ) {
+    FD_STORE( uint, cmp_result_ref_mut_query.haddr, 0U );
+    return FD_VM_SUCCESS;
+  }
+
+  /* Find the difference searching by blocks, then words, then bytes, this way
+     the search is vectorized.
+     BLK is 256 because at -O3 gcc unrolls smaller blocks into scalar code instead.
+
+     Alternative considered:
+
+     for( ; i+64UL<=sz; i+=64UL )
+       if( FD_UNLIKELY( wwv_ne( wwv_ldu( m0+i ), wwv_ldu( m1+i ) ) ) ) break;
+
+     it's more readable but requires more combinations (AVX512, AVX2, ARM in future...),
+     this is a single version that should apply to all. */
+
+#define BLK (256UL)
+
+  int   out = 0;
+  ulong i   = 0UL;
+  for( ; i+BLK<=sz; i+=BLK ) {
+    ulong d = 0UL;
+    for( ulong k=0UL; k<BLK; k+=8UL ) {
+      d |= fd_ulong_load_8( m0+i+k ) ^ fd_ulong_load_8( m1+i+k );
+    }
+    if( FD_UNLIKELY( d ) ) {
+      break;
+    }
+  }
+  for( ; i+8UL<=sz; i+=8UL ) {
+    if( FD_UNLIKELY( fd_ulong_load_8( m0+i )!=fd_ulong_load_8( m1+i ) ) ) {
+      break;
+    }
+  }
+  for( ; i<sz; i++ ) {
     int i0 = (int)m0[i];
     int i1 = (int)m1[i];
     if( i0!=i1 ) {
@@ -450,7 +486,9 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
     }
   }
 
-  fd_memcpy( cmp_result_ref_mut_query.haddr, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
+#undef BLK
+
+  FD_STORE( uint, cmp_result_ref_mut_query.haddr, (uint)out );
 
   return FD_VM_SUCCESS;
 }

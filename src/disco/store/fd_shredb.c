@@ -1,7 +1,7 @@
+#define _GNU_SOURCE
 #include "fd_shredb.h"
 
 #include <errno.h>
-#include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -36,6 +36,9 @@ fd_shredb_footprint( ulong max_size_gib ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_shredb_t),        sizeof(fd_shredb_t)                           );
   l = FD_LAYOUT_APPEND( l, fd_shredb_shred_map_align(), fd_shredb_shred_map_footprint( lg_shred_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_shredb_slot_map_align(),  fd_shredb_slot_map_footprint ( lg_slot_cnt  ) );
+  ulong bitset_words = (max_shreds + 63UL) / 64UL;
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),              max_shreds   * sizeof(ulong)                  ); /* evict_keys     */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),              bitset_words * sizeof(ulong)                  ); /* evict_occupied */
   return FD_LAYOUT_FINI( l, fd_shredb_align() );
 }
 
@@ -75,10 +78,16 @@ fd_shredb_new( void       * shmem,
   /**/                   FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_t),        sizeof(fd_shredb_t)                           );
   void * shred_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_shred_map_align(), fd_shredb_shred_map_footprint( lg_shred_cnt ) );
   void * slot_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_slot_map_align(),  fd_shredb_slot_map_footprint ( lg_slot_cnt  ) );
+  ulong bitset_words = (max_shreds + 63UL) / 64UL;
+  void * evict_k_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),              max_shreds   * sizeof(ulong)                  );
+  void * evict_o_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),              bitset_words * sizeof(ulong)                  );
 
   fd_shredb_t * store = (fd_shredb_t *)shmem;
-  store->shred_map    = fd_shredb_shred_map_new( shred_map_mem, lg_shred_cnt, seed );
-  store->slot_map     = fd_shredb_slot_map_new ( slot_map_mem,  lg_slot_cnt,  seed );
+  store->shred_map      = fd_shredb_shred_map_new( shred_map_mem, lg_shred_cnt, seed );
+  store->slot_map       = fd_shredb_slot_map_new ( slot_map_mem,  lg_slot_cnt,  seed );
+  store->evict_keys     = (ulong *)evict_k_mem;
+  store->evict_occupied = (ulong *)evict_o_mem;
+  fd_memset( store->evict_occupied, 0, bitset_words * sizeof(ulong) );
 
   int fd = open( file_path, O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600 );
   if( FD_UNLIKELY( fd<0 ) ) {
@@ -87,16 +96,9 @@ fd_shredb_new( void       * shmem,
   }
 
   ulong initial_shreds = 128UL;
-  if( FD_UNLIKELY( ftruncate( fd, (off_t)(initial_shreds * sizeof(fd_shredb_entry_t)) ) ) ) {
-    FD_LOG_WARNING(( "ftruncate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    close( fd );
-    return NULL;
-  }
-
-  ulong mapped_sz = max_shreds * sizeof(fd_shredb_entry_t);
-  void * mapped = mmap( NULL, mapped_sz, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
-  if( FD_UNLIKELY( mapped==MAP_FAILED ) ) {
-    FD_LOG_WARNING(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ulong initial_sz     = initial_shreds * sizeof(fd_shredb_entry_t);
+  if( FD_UNLIKELY( fallocate( fd, 0, 0, (off_t)initial_sz ) ) ) {
+    FD_LOG_WARNING(( "fallocate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     close( fd );
     return NULL;
   }
@@ -104,8 +106,6 @@ fd_shredb_new( void       * shmem,
   store->max_shreds  = max_shreds;
   store->write_head  = 0UL;
   store->cnt         = 0UL;
-  store->mapped_sz   = mapped_sz;
-  store->mapped      = mapped;
   store->fd          = fd;
   store->file_shreds = initial_shreds;
 
@@ -127,8 +127,8 @@ fd_shredb_join( void * shstore ) {
   }
 
   fd_shredb_t * store = (fd_shredb_t *)shstore;
-  store->shred_map = fd_shredb_shred_map_join( store->shred_map );
-  store->slot_map  = fd_shredb_slot_map_join ( store->slot_map  );
+  store->shred_map     = fd_shredb_shred_map_join( store->shred_map );
+  store->slot_map      = fd_shredb_slot_map_join ( store->slot_map  );
 
   return (fd_shredb_t *)shstore;
 }
@@ -156,11 +156,6 @@ fd_shredb_delete( void * shstore ) {
   }
 
   fd_shredb_t * store = (fd_shredb_t *)shstore;
-  if( FD_UNLIKELY( !store->mapped ) ) {
-    FD_LOG_WARNING(( "NULL mapped" ));
-    return NULL;
-  }
-  munmap( store->mapped, store->mapped_sz );
   close( store->fd );
 
   return shstore;
@@ -194,19 +189,12 @@ fd_shredb_slot_evict( fd_shredb_t * store,
   }
 }
 
-static inline fd_shredb_entry_t *
-fd_shredb_ring( fd_shredb_t * store ) {
-  return (fd_shredb_entry_t *)store->mapped;
-}
-
 void
 fd_shredb_insert( fd_shredb_t      * store,
-                  fd_shred_t const * shred,
-                  ulong              shred_sz ) {
+                  fd_shred_t const * shred ) {
+  ulong shred_sz  = fd_shred_sz( shred );
   ulong slot      = shred->slot;
   uint  shred_idx = shred->idx;
-
-  FD_LOG_DEBUG(( "inserting shred into store (slot=%lu, shred_idx=%u)", slot, shred_idx ));
 
   ulong key = fd_shredb_key_pack( slot, shred_idx );
   if( fd_shredb_shred_map_query( store->shred_map, key, NULL ) ) return;
@@ -215,32 +203,39 @@ fd_shredb_insert( fd_shredb_t      * store,
      file capacity.  Double the file size each time (superlinear growth)
      until we hit max_shreds, after which the ring simply evicts. */
   if( FD_UNLIKELY( store->write_head>=store->file_shreds ) ) {
+    ulong old_file_sz     = store->file_shreds * sizeof(fd_shredb_entry_t);
     ulong new_file_shreds = fd_ulong_min( store->file_shreds * 2UL, store->max_shreds );
-    if( FD_UNLIKELY( ftruncate( store->fd, (off_t)(new_file_shreds * sizeof(fd_shredb_entry_t)) ) ) ) {
-      FD_LOG_ERR(( "ftruncate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    ulong new_file_sz     = new_file_shreds * sizeof(fd_shredb_entry_t);
+    if( FD_UNLIKELY( fallocate( store->fd, 0, (off_t)old_file_sz, (off_t)(new_file_sz - old_file_sz) ) ) ) {
+      FD_LOG_ERR(( "fallocate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     store->file_shreds = new_file_shreds;
   }
 
-  fd_shredb_entry_t * ring  = fd_shredb_ring( store );
-  fd_shredb_entry_t * entry = &ring[ store->write_head ];
+  ulong wh_word = store->write_head / 64UL;
+  ulong wh_bit  = store->write_head % 64UL;
+  if( FD_LIKELY( store->evict_occupied[ wh_word ] & (1UL << wh_bit) ) ) {
+    ulong old_key  = store->evict_keys[ store->write_head ];
+    ulong old_slot = fd_shredb_key_slot( old_key );
+    uint  old_idx  = fd_shredb_key_shred_idx( old_key );
 
-  /* If this ring entry is occupied, evict the old entry. */
-  if( FD_LIKELY( entry->occupied ) ) {
-    ulong old_slot = fd_shredb_key_slot( entry->key );
-    uint  old_idx  = fd_shredb_key_shred_idx( entry->key );
-
-    fd_shredb_shred_entry_t * old = fd_shredb_shred_map_query( store->shred_map, entry->key, NULL );
+    fd_shredb_shred_entry_t * old = fd_shredb_shred_map_query( store->shred_map, old_key, NULL );
     if( FD_LIKELY( old ) ) fd_shredb_shred_map_remove( store->shred_map, old );
 
     fd_shredb_slot_evict( store, old_slot, old_idx );
     store->cnt--;
   }
 
-  entry->key      = key;
-  entry->occupied = 1;
-  entry->shred_sz = (ushort)shred_sz;
-  fd_memcpy( entry->shred, shred, shred_sz );
+  fd_shredb_entry_t wr_entry[1];
+  wr_entry->shred_sz = (ushort)shred_sz;
+  fd_memcpy( wr_entry->shred, shred, shred_sz );
+
+  off_t off = (off_t)(store->write_head * sizeof(fd_shredb_entry_t));
+  long res = pwrite( store->fd, wr_entry, sizeof(fd_shredb_entry_t), off );
+  if( FD_UNLIKELY( res!=(long)sizeof(fd_shredb_entry_t) ) ) FD_LOG_ERR(( "error writing to shredb: (%d-%s)", errno, fd_io_strerror( errno ) ));
+
+  store->evict_keys    [ store->write_head ] = key;
+  store->evict_occupied[ wh_word ] |= (1UL << wh_bit);
 
   fd_shredb_shred_entry_t * map_entry = fd_shredb_shred_map_insert( store->shred_map, key );
   FD_TEST( map_entry );
@@ -273,11 +268,13 @@ fd_shredb_query( fd_shredb_t * store,
   fd_shredb_shred_entry_t const * map_entry = fd_shredb_shred_map_query( store->shred_map, key, NULL );
   if( FD_UNLIKELY( !map_entry ) ) return -1; /* No such shred. */
 
-  fd_shredb_entry_t * ring  = fd_shredb_ring( store );
-  fd_shredb_entry_t * entry = &ring[ map_entry->ring_idx ];
+  fd_shredb_entry_t rd_entry[1];
+  off_t off = (off_t)(map_entry->ring_idx * sizeof(fd_shredb_entry_t));
+  long res = pread( store->fd, rd_entry, sizeof(fd_shredb_entry_t), off );
+  if( FD_UNLIKELY( res!=(long)sizeof(fd_shredb_entry_t) ) ) FD_LOG_ERR(( "error reading from shredb: (%d-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_memcpy( out, entry->shred, entry->shred_sz );
-  return entry->shred_sz;
+  fd_memcpy( out, rd_entry->shred, rd_entry->shred_sz );
+  return rd_entry->shred_sz;
 }
 
 int fd_shredb_query_highest( fd_shredb_t * store,
@@ -294,9 +291,11 @@ int fd_shredb_query_highest( fd_shredb_t * store,
   fd_shredb_shred_entry_t const * map_entry = fd_shredb_shred_map_query( store->shred_map, key, NULL );
   FD_TEST( map_entry );
 
-  fd_shredb_entry_t * ring  = fd_shredb_ring( store );
-  fd_shredb_entry_t * entry = &ring[ map_entry->ring_idx ];
+  fd_shredb_entry_t rd_entry[1];
+  off_t off = (off_t)(map_entry->ring_idx * sizeof(fd_shredb_entry_t));
+  long res = pread( store->fd, rd_entry, sizeof(fd_shredb_entry_t), off );
+  if( FD_UNLIKELY( res!=(long)sizeof(fd_shredb_entry_t) ) ) FD_LOG_ERR(( "error reading from shredb: (%d-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_memcpy( out, entry->shred, entry->shred_sz );
-  return entry->shred_sz;
+  fd_memcpy( out, rd_entry->shred, rd_entry->shred_sz );
+  return rd_entry->shred_sz;
 }

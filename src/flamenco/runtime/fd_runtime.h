@@ -13,7 +13,7 @@
 #include "../accdb/fd_accdb.h"
 
 /* The general structure for executing transactions in Firedancer can
-   be thought as a state maching where transaction execution is a
+   be thought of as a state machine where transaction execution is a
    deterministic state transition over various data structures.
 
    The starting and ending state before a transaction is executed is
@@ -162,6 +162,10 @@ struct fd_runtime {
 
     struct {
       fd_vote_state_versioned_t vote_state;
+    } update_commission_collector;
+
+    struct {
+      fd_vote_state_versioned_t vote_state;
     } withdraw;
 
     struct {
@@ -192,7 +196,7 @@ struct fd_runtime {
        data, etc) */
     ulong vm_commit_cum_ticks;
 
-    /* Ticks spent in top-levl VM interpreter (includes CPI setup/commit
+    /* Ticks spent in top-level VM interpreter (includes CPI setup/commit
        ticks) */
     ulong vm_exec_cum_ticks;
 
@@ -213,6 +217,12 @@ typedef struct fd_runtime fd_runtime_t;
 struct fd_txn_in {
   fd_txn_p_t const * txn;
 
+  /* FEC-set merkle root at dispatch time. */
+  uchar fec_merkle_root[ 32 ];
+
+  /* 0-indexed position of this txn within its block. */
+  ulong index_in_slot;
+
   struct {
     int            is_bundle;
     fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
@@ -230,7 +240,7 @@ struct fd_txn_out {
        when txn_err == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR (-9). */
     int  exec_err;
     int  exec_err_kind;
-    int  exec_err_idx;
+    uint exec_err_idx;
     uint custom_err;
   } err;
 
@@ -257,6 +267,7 @@ struct fd_txn_out {
     ulong                       signature_count;           /* Number of signatures in the transaction */
     fd_signature_t              signature;                 /* First transaction signature */
     int                         is_simple_vote;            /* Whether the transaction is a simple vote */
+    ulong                       commit_index_in_slot;      /* 0-indexed commit-completion order within this slot */
   } details;
 
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
@@ -282,10 +293,21 @@ struct fd_txn_out {
     uchar       account_acquired[ MAX_TX_ACCOUNT_LOCKS ];
     ulong       starting_lamports[ MAX_TX_ACCOUNT_LOCKS ];
     ulong       starting_data_len[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_pubkey_t starting_owner[ MAX_TX_ACCOUNT_LOCKS ];
 
     ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
     fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */
-    uchar      executable_acquired[ MAX_TX_ACCOUNT_LOCKS ];
+    int        executable_from_parent[ MAX_TX_ACCOUNT_LOCKS ]; /* 1 => read-only copy from the parent fork (loader gates on pd_write); 0 => current-fork copy (loader keeps the slot check) */
+    int        executable_pd_write[ MAX_TX_ACCOUNT_LOCKS ];    /* probe result: deploy-status-changing write committed on the current fork this slot */
+    ulong      executable_cur_len[ MAX_TX_ACCOUNT_LOCKS ];     /* current-fork committed data length, ULONG_MAX if none; for loaded-account-size accounting */
+    ulong      executable_cur_lamports[ MAX_TX_ACCOUNT_LOCKS ];/* current-fork committed lamports; only meaningful when executable_cur_len!=ULONG_MAX. */
+
+    /* Programdata deployed this slot has no executable[] entry, but
+       Agave still counts its size toward loaded-accounts-data-size
+       before the invoke fails; recorded here at setup. */
+    ushort      executable_skipped_cnt;
+    fd_pubkey_t executable_skipped_key[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong       executable_skipped_len[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* Flags to demarcate if an account is queued up to update the vote
        or stakes caches in the commit stage of a transaction. */
@@ -339,7 +361,7 @@ fd_runtime_block_execute_finalize( fd_bank_t *        bank,
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of
    the transaction execution are set in the fd_txn_out_t.  The caller
-   is responisble for correctly setting up the fd_txn_in_t and the
+   is responsible for correctly setting up the fd_txn_in_t and the
    fd_runtime_t handles.
 
    TODO: fd_runtime_t and fd_bank_t should be const here. */
@@ -355,9 +377,11 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
    database. */
 
 void
-fd_runtime_commit_txn( fd_runtime_t * runtime,
-                       fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out );
+fd_runtime_commit_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs );
 
 /* fd_runtime_cancel_txn cancels the result of a transaction execution
    and frees any resources that may have been acquired.  A transaction
@@ -368,8 +392,11 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       canceled as they will not be included in the block. */
 
 void
-fd_runtime_cancel_txn( fd_runtime_t * runtime,
-                       fd_txn_out_t * txn_out );
+fd_runtime_cancel_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs );
 
 /* fd_runtime_prepare_bundle_accounts is called before executing a
    bundle.  It is responsible for acquiring the union of all accounts
@@ -383,6 +410,37 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
                                     fd_txn_in_t const * txn_ins,
                                     fd_txn_out_t *      txn_outs,
                                     ulong               txn_cnt );
+
+/* Sets up txn_out's implicit loader v3 programdata list for conformant
+   loader semantics and loaded account data size accounting.  An
+   implicit loader v3 PD may either be bound against the shared bundle
+   account pool acquired by fd_runtime_prepare_bundle_accounts(), or be
+   probed against the current accdb fork, depending on its liveness and
+   declaration.
+
+   This must be called for every bundle transaction, at that
+   transaction's setup, and not once up front for the whole bundle.
+   Whether a pool account parses as UpgradeableLoaderState::Program, and
+   hence which programdata account the transaction implicitly loads, can
+   change during the bundle, because an earlier bundle transaction can
+   deploy a program.  Deriving the list up front would cause a bundle
+   transaction following an in-bundle deploy to charge nothing for the
+   implied programdata, where a replay of the same transactions would
+   charge 64+programdata length.  This must be called after
+   fd_executor_setup_accounts_for_txn_bundle() because it must observe
+   the zero-lamport reset, which causes an account to be zero length,
+   non-executable, and system-owned.
+
+   This only ever binds to accounts the once-per-bundle prepare()
+   already acquired, so it acquires nothing and cannot deadlock.
+   Returns FD_RUNTIME_EXECUTE_SUCCESS on success, or a txn error if the
+   binding could not be maintained, in which case the caller must not
+   commit the bundle. */
+
+int
+fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
+                                     fd_bank_t *    bank,
+                                     fd_txn_out_t * txn_out );
 
 /* fd_runtime_fini_bundle must be called unconditionally after
    attempting to execute a bundle regardless of success or failure.

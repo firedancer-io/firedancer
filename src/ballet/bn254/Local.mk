@@ -1,5 +1,5 @@
 $(call add-hdrs,fd_bn254.h fd_bn254_scalar.h fd_poseidon.h)
-$(call add-objs,fd_bn254 fd_poseidon,fd_ballet)
+$(call add-objs,fd_bn254 fd_bn254_field fd_bn254_field_ext fd_bn254_fp12 fd_bn254_g1 fd_bn254_g2 fd_bn254_g2_check fd_bn254_pairing fd_bn254_final_exp fd_poseidon,fd_ballet)
 $(call make-unit-test,test_bn254,test_bn254,fd_ballet fd_util)
 $(call make-unit-test,test_poseidon,test_poseidon,fd_ballet fd_util)
 $(call run-unit-test,test_bn254)

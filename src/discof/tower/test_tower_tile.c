@@ -104,41 +104,58 @@ test_publish_slot_done_identity_mismatch( void ) {
   FD_TEST( ctx->publishes );
 
   ctx->tower->root = 0UL;
+  fd_tower_blk_t * parent_blk = fd_tower_blocks_insert( ctx->tower, 0UL, ULONG_MAX );
+  FD_TEST( parent_blk );
+  parent_blk->block_hash = (fd_hash_t){ .ul = { 0x66UL } };
   fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot = 1UL, .conf = 1UL } );
 
   fd_replay_slot_completed_t sc;
   memset( &sc, 0, sizeof(sc) );
-  sc.slot     = 1UL;
-  sc.epoch    = 0UL;
-  sc.bank_idx = 123UL;
+  sc.slot        = 1UL;
+  sc.parent_slot = 0UL;
+  sc.epoch       = 0UL;
+  sc.bank_idx    = 123UL;
 
   fd_tower_out_t out;
   memset( &out, 0, sizeof(out) );
   out.vote_slot       = 1UL;
   out.vote_block_id   = (fd_hash_t){ .ul = { 0x33UL } };
   out.vote_bank_hash  = (fd_hash_t){ .ul = { 0x44UL } };
-  out.vote_block_hash = (fd_hash_t){ .ul = { 0x55UL } };
   out.reset_slot      = ULONG_MAX;
   out.root_slot       = ULONG_MAX;
 
   /* Matching identity produces votes */
   ctx->our_vote_acct_sz = mock_vote_account( ctx->identity_key, ctx->identity_key, ctx->our_vote_acct );
-  publish_slot_done( ctx, &sc, &out, 1, 100UL, 0UL, NULL );
+  publish_slot_done( ctx, &sc, &out, 1, 100UL, 10000U, 0UL, NULL );
   publish_t * pub = publishes_peek_head( ctx->publishes );
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
   FD_TEST( pub->msg.slot_done.has_vote_txn==1 );
+  FD_TEST( pub->msg.slot_done.is_voting==1 );
   FD_TEST( pub->msg.slot_done.authority_idx==ULONG_MAX );
+  FD_TEST( pub->msg.slot_done.vote_acct_com==10000U );
+  publishes_pop_head_nocopy( ctx->publishes );
+
+  /* Matching identity but no votable slot: voter with no vote txn */
+  fd_tower_out_t out_no_vote = out;
+  out_no_vote.vote_slot = ULONG_MAX;
+  publish_slot_done( ctx, &sc, &out_no_vote, 1, 100UL, 10000U, 0UL, NULL );
+  pub = publishes_peek_head( ctx->publishes );
+  FD_TEST( pub );
+  FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
+  FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
+  FD_TEST( pub->msg.slot_done.is_voting==1 );
   publishes_pop_head_nocopy( ctx->publishes );
 
   /* Other identity prevents vote publishing */
   fd_pubkey_t other_identity = { .ul = { 0x99UL } };
   ctx->our_vote_acct_sz = mock_vote_account( &other_identity, ctx->identity_key, ctx->our_vote_acct );
-  publish_slot_done( ctx, &sc, &out, 1, 100UL, 0UL, NULL );
+  publish_slot_done( ctx, &sc, &out, 1, 100UL, 10000U, 0UL, NULL );
   pub = publishes_peek_head( ctx->publishes );
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
   FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
+  FD_TEST( pub->msg.slot_done.is_voting==0 );
 
   fd_wksp_delete( fd_wksp_leave( wksp ) );
 
@@ -315,6 +332,46 @@ test_count_vote_txn( void ) {
   FD_LOG_NOTICE(( "pass: test_count_vote_txn_tower_checks" ));
 }
 
+static void
+test_parent_vote_txn_recent_blockhash( void ) {
+  static fd_tower_tile_t ctx[1];
+  static uchar tower_mem[ 1UL<<20 ] __attribute__((aligned(128)));
+  memset( ctx, 0, sizeof(ctx) );
+  ctx->tower = fd_tower_join( fd_tower_new( tower_mem, 32UL, 1UL, 0UL ) );
+  FD_TEST( ctx->tower );
+
+  fd_tower_blk_t * parent_blk = fd_tower_blocks_insert( ctx->tower, 103UL, 102UL );
+  FD_TEST( parent_blk );
+  parent_blk->block_hash = (fd_hash_t){ .ul = { 1103UL } };
+
+  fd_tower_blk_t * root_blk = fd_tower_blocks_insert( ctx->tower, 104UL, 103UL );
+  FD_TEST( root_blk );
+  root_blk->block_hash = (fd_hash_t){ .ul = { 1104UL } };
+  ctx->tower->root = 104UL;
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot = 120UL, .conf = 1UL } );
+
+  fd_replay_slot_completed_t slot_completed = {0};
+  slot_completed.parent_slot = 103UL;
+  fd_hash_t bank_hash          = { .ul = { 0xAAUL } };
+  fd_hash_t block_id           = { .ul = { 0xBBUL } };
+  fd_pubkey_t validator_identity = { .ul = { 0x11UL } };
+  fd_pubkey_t vote_acc           = { .ul = { 0x22UL } };
+  fd_txn_p_t txnp[1];
+
+  fd_tower_blk_t *  recent_blockhash_blk = fd_tower_blocks_query( ctx->tower, slot_completed.parent_slot );
+  FD_TEST( recent_blockhash_blk );
+  fd_hash_t const * recent_blockhash = fd_type_pun_const( recent_blockhash_blk->block_hash.uc );
+  fd_tower_to_vote_txn( ctx->tower, &bank_hash, &block_id, recent_blockhash, &validator_identity, &validator_identity, &vote_acc, txnp );
+
+  uchar txn_mem[ FD_TXN_MAX_SZ ];
+  ulong parse_result = fd_txn_parse_core( txnp->payload, txnp->payload_sz, txn_mem, NULL, NULL );
+  FD_TEST( parse_result>0UL );
+  fd_txn_t const * txn = (fd_txn_t const *)txn_mem;
+  FD_TEST( 0==memcmp( fd_txn_get_recent_blockhash( txn, txnp->payload ), &parent_blk->block_hash, sizeof(fd_hash_t) ) );
+
+  FD_LOG_NOTICE(( "pass: test_parent_vote_txn_recent_blockhash" ));
+}
+
 /* ---- test_fixture_replay ---- */
 
 #define MOCK_SLOT_MAX (64UL)
@@ -335,7 +392,8 @@ mock_query_towers( fd_tower_tile_t *            ctx,
                    fd_replay_slot_completed_t * slot_completed,
                    fd_ghost_blk_t *             ghost_blk,
                    int *                        found_our_vote_acct,
-                   ulong *                      our_vote_acct_bal ) {
+                   ulong *                      our_vote_acct_bal,
+                   ushort *                     our_vote_acct_com ) {
 
   /* Open the fixture file for this slot. */
 
@@ -373,11 +431,14 @@ mock_query_towers( fd_tower_tile_t *            ctx,
     total_stake += stake;
     prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_acc, stake, prev_voter_idx );
   }
+  ctx->vtr_cnt = FIXTURE_VTR_CNT;
+  fd_votes_update_voters( ctx->votes, ctx->vote_accs, ctx->vtr_cnt );
 
   /* No reconciliation in mock — just report not found. */
 
   *found_our_vote_acct = 0;
   *our_vote_acct_bal   = ULONG_MAX;
+  *our_vote_acct_com   = USHORT_MAX;
 
   return total_stake;
 }
@@ -414,10 +475,10 @@ mock_topo_with_accdb( fd_wksp_t *      wksp,
   fd_topo_wksp_t * topo_wksp = fd_topob_wksp( topo, "wksp" );
   topo_wksp->wksp = wksp;
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
   void * shmem_mem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), shmem_fp, 1UL );
   FD_TEST( shmem_mem );
-  FD_TEST( fd_accdb_shmem_new( shmem_mem, max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt ) );
+  FD_TEST( fd_accdb_shmem_new( shmem_mem, max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
 
   fd_topo_obj_t * shmem_obj = fd_topob_obj( topo, "accdb_shmem", "wksp" );
   shmem_obj->wksp_id = topo_wksp->id;
@@ -470,7 +531,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
   ulong num_slots  = 32UL;
 
   fd_vote_stake_weight_t fixture_stakes[1] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
-  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, start_slot - 1, num_slots + MOCK_SLOT_MAX + 100, 1UL, fixture_stakes, 0UL ) );
+  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, start_slot - 1, num_slots + MOCK_SLOT_MAX + 100, 1UL, fixture_stakes ) );
   ctx->mleaders->init_done[0] = 1;
 
   for( ulong slot = start_slot; slot < start_slot + num_slots; slot++ ) {
@@ -581,7 +642,7 @@ eqvoc_setup( fd_wksp_t * wksp ) {
 
   fd_vote_stake_weight_t eqvoc_stakes[1] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
   ulong eqvoc_slot_cnt = EQVOC_BOOT_CNT + MOCK_SLOT_MAX + 100;
-  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, EQVOC_START_SLOT - 1, eqvoc_slot_cnt, 1UL, eqvoc_stakes, 0UL ) );
+  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, EQVOC_START_SLOT - 1, eqvoc_slot_cnt, 1UL, eqvoc_stakes ) );
   ctx->mleaders->init_done[0] = 1;
 
   for( ulong slot = EQVOC_START_SLOT; slot < EQVOC_START_SLOT + EQVOC_BOOT_CNT; slot++ ) {
@@ -827,6 +888,7 @@ main( int     argc,
 
   test_publish_slot_done_identity_mismatch();
   test_count_vote_txn();
+  test_parent_vote_txn_recent_blockhash();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );

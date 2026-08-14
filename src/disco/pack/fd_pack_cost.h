@@ -6,13 +6,14 @@
 #include "fd_compute_budget_program.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../ballet/txn/fd_txn.h"
+#include "../../ballet/txn/fd_txn_v1.h"
 
 /* The functions in this header implement the transaction cost model
    that is soon to be part of consensus.
    The cost model consists of several components:
      * per-signature cost: The costs associated with transaction
        signatures + signatures from precompiles (ED25519 + SECP256*)
-     * per-write-lock cost: cost assiciated with aquiring write locks
+     * per-write-lock cost: cost associated with acquiring write locks
        for writable accounts listed in the transaction.
      * instruction data length cost: The fixed cost for each instruction
        data byte in the transaction payload.
@@ -20,7 +21,7 @@
        instructions. "What are builtins" is defined here:
        https://github.com/anza-xyz/agave/blob/1baa4033e0d2d4175373f07b73ddda2f3cc0a8d6/builtins-default-costs/src/lib.rs#L120-L200
        After SIMD 170, all builtins have a fixed cost of 3000 cus.
-     * BPF execution cost: The costs assosiated with any instruction
+     * BPF execution cost: The costs associated with any instruction
        that is not a builtin.  This value comes from the VM after
        transaction execution.
      * loaded accounts data cost: Costs associated with all the account
@@ -108,28 +109,22 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
    fd_txn_t size.  There are various things a transaction can include
    that consume CUs, and they also consume some bytes of payload.  It
    then becomes an integer linear programming problem.  First, the best
-   use of bytes is to include a compute budget program instruction that
-   requests 1.4M CUs.  That also requires the invocation of another
-   non-builtin program, consuming 3 bytes of payload.  In total to do
-   this, we need 2 pubkey and 11 bytes of instruction payload.  This is
-   >18,000 CUs per byte, which is obviously the best move.
+   use of bytes is to request 1.4M CUs, which for a V1 transaction is
+   done using the config value, consuming 4 bytes of payload.  This is
+   350,000 CUs per byte, which is obviously the best move.
 
-   From there, we can also invoke built-in programs with no accounts and
-   no instruction data, which also consumes 3 bytes of payload.  The
-   most expensive built-in is the BPF upgradeable loader.  We're limited
-   to 64 instructions, so we can only consume it at most 62 times.  This
-   is about 675 CUs per byte.  This is more efficient than precompiles,
-   which consume <609 CUs per byte in the worst case.
+   Precompile signatures are not counted against CU limit, so the best
+   use of bytes is precompiles, which consume <609 CUs per byte in the
+   worst case: each secp256k1 signature consumes 6690 CUs and 11 bytes.
+   Firedancer limits the number of precompile signatures to 16.
 
-   We've maxed out the instruction limit, so we can only continue to
+   With the 16 precompile signatures used, we can only continue to
    increase the cost by adding writable accounts or writable signer
    accounts.  Writable signers consume 96 bytes use 1020 CUs.  Writable
    non-signers consume 32 bytes and use 300 CUs.  That's 10.6 CUs/byte
    and 9.4 CUs/byte, respectively, so in general, writable signers are
-   more efficient and we want to add as many as we can.  We also need at
-   least one writable signer to be the fee payer, and, although it's
-   unusual, there's actually no reason the non-builtin program can't be
-   a writable signer too.
+   more efficient and we want to add as many as we can, up to the
+   limits of 12 signatures and 64 accounts.
 
    Finally, with any bytes that remain, we can add them to one of the
    instruction datas for 0.25 CUs/byte.
@@ -138,28 +133,27 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
    accounts data size cost. This corresponds (currently) to 16384 CUs.
 
    This gives a transaction that looks like
-     Field                   bytes consumed               CUs used
-     sig cnt                      1                             0
-     fee payer sig               64                           720
-     8 other signatures         512                         5,670
-     fixed header (no ALTs)       3                             0
-     acct addr cnt                1                             0
-     fee payer pubkey            32                           300
-     8 writable pubkeys         256                         2,400
-     2 writable non-signers      64                           600
-     CBP, BPF upg loader         64                             0
-     Recent blockhash            32                             0
-     Instruction count            1                             0
-     Compute budget program ix    8                           151.25
-     62 dummy BPF upg ixs       186                       146,940
-     1 dummy non-builtin ix       8                     1,400,001.25
-     loaded accts data cost       0                         16384
+     Field                       bytes consumed          CUs used
+     version byte                     1                        0
+     sig cnt                          1                        0
+     ro signed + ro unsigned          2                        0
+     config mask                      4                        0
+     Recent blockhash                32                        0
+     instr cnt + acct addr cnt        2                        0
+     12 signatures                  768                    8,640
+     64 writable pubkeys          2,048                   19,200
+     cu limit config value            4                1,400,000
+     loaded data config value         4                   16,384
+     secp256k1 precompile header      4                        0
+     16 secp256k1 sigs              177                  107,040
+     remaining bytes              1,049                        0
+     instr data cost                  0                      306
    + ---------------------------------------------------------------
-                              1,232                     1,573,166
+                                  4,096                1,551,570
 
    One of the main take-aways from this is that the cost of a
    transaction easily fits in a uint. */
-#define FD_PACK_MAX_TXN_COST (1573166UL)
+#define FD_PACK_MAX_TXN_COST (1551570UL)
 FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 
 /* Every transaction has at least a fee payer, a writable signer. */
@@ -193,7 +187,7 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
    anticipated value while the lower bound should be the current active
    limit. For Frankendancer, the actual value used for consensus will be
    retrieved from Agave at runtime. */
-#define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (48000000UL)
+#define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (30000000UL)
 #define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
 
@@ -385,7 +379,9 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     fd_pack_builtin_prog_cost_t const * in_tbl = fd_pack_builtin_query( prog_id, null_row );
     non_builtin_cnt += !in_tbl->cost_per_instr; /* null row has 0 cost */
 
-    if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
+    /* If the transaction is not a V1 transaction, parse the compute budget instruction.
+       Compute budget instructions are silently ignored for V1 transactions. */
+    if( FD_UNLIKELY( txn->transaction_version!=FD_TXN_V1 && in_tbl==compute_budget_row ) ) {
       if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, data_sz, cbp ) ) )
         return 0UL;
     } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) ) ) {
@@ -511,6 +507,12 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #endif /* FD_PACK_COST_USE_TRUE_ALLOC_BOUND */
     }
   }
+
+  /* Firedancer's block packer limits the total amount of precompile
+     signatures in a transaction to 16. Anything beyond this is likely
+     spam. */
+  if( FD_UNLIKELY( precompile_sig_cnt>16UL ) ) return 0UL;
+
   /* E.g. a transaction can alloc a 10MB account, close it, and repeat
      many times.  According to the spec, this would count as a 20MB
      allocation. See
@@ -525,7 +527,42 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   ulong fee[1];
   uint execution_cost[1];
   ulong loaded_account_data_cost[1];
-  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
+
+  /* V1 transactions use the config mask, and silently ignore compute
+     budget program instructions. */
+  if( txn->transaction_version==FD_TXN_V1 ) {
+    ulong v1_priority_fee, v1_cu_limit, v1_loaded, v1_heap;
+    uint v1_config_mask = fd_uint_load_4( payload+4 );
+    fd_txn_parse_v1_config( v1_config_mask, payload+txn->v1_txn_config_values_off,
+                            &v1_priority_fee, &v1_cu_limit, &v1_loaded, &v1_heap );
+    *fee            = v1_priority_fee;
+    *execution_cost = (uint)fd_ulong_min( v1_cu_limit, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );
+    v1_loaded       = fd_ulong_min( v1_loaded, FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ );
+
+    /* V1 transactions which request a loaded accounts data size limit
+       of 0, or do not explicitly set this limit, are not thrown out.
+
+       As of define_ltds_fee_only_semantics, which is activated on
+       all networks, the loaded accounts data size for fee-only
+       transactions that fail due to exceeding the requested loaded
+       accounts data size limit is the requested loaded accounts data
+       size limit.
+       This means that advance nonce transactions that request a loaded
+       accounts data size limit of 0 are still packed and the nonce
+       still advances.
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/core/src/banking_stage/qos_service.rs#L68-L72
+
+       V1 transactions which request a loaded account data
+       size limit which is not a multiple of 32 KiB have the loaded
+       account data cost rounded up to the nearest 32 KiB. This matches
+       Agave's cost tracker behaviour.
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/cost-model/src/cost_model.rs#L188-L203 */
+    *loaded_account_data_cost = FD_COMPUTE_BUDGET_HEAP_COST *
+        ( ( v1_loaded + FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE - 1UL )
+          / FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE );
+  } else {
+    fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
+  }
 
   /* As an optimization, for simple votes we can override execution cost
     with a known tighter upper bound. */

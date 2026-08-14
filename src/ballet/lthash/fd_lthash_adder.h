@@ -129,7 +129,7 @@ fd_lthash_adder_push_solana_account(
     void const *        owner
 ) {
   fd_lthash_value_t value[1];
-  /* FIXME opportunities for memcpy hax here */
+  /* FIXME opportunities for memcpy hacks here */
 
   ulong const static_sz       =  73UL;
   ulong const batch_threshold = 512UL;

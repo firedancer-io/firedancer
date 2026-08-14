@@ -12,6 +12,7 @@ use std::ffi::{c_char, c_void, CString};
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 
 pub(crate) unsafe fn quiche_to_fdquic() {
     // Set up Firedancer components
@@ -117,15 +118,24 @@ pub(crate) unsafe fn quiche_to_fdquic() {
     // Set up quiche components
 
     let mut config = quiche::Config::new(1).unwrap();
-    config
-        .set_application_protos_wire_format(b"\x0asolana-tpu")
-        .unwrap();
+    config.verify_peer(false);
+    config.set_application_protos(&[b"solana-tpu"]).unwrap();
+    config.set_max_idle_timeout(5_000);
+    config.set_max_recv_udp_payload_size(1232);
+    config.set_max_send_udp_payload_size(1232);
+    config.set_initial_max_data(10_000_000);
+    config.set_initial_max_stream_data_uni(1_000_000);
+    config.set_initial_max_streams_uni(100);
+    config.set_disable_active_migration(true);
 
     let socket2 = UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket2
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
     let local = socket2.local_addr().unwrap();
 
     let mut conn = quiche::connect(
-        None,
+        Some("node"),
         &ConnectionId::from_ref(&[0x77]),
         local,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), listen_port),

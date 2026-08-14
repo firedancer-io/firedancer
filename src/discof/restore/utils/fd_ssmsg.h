@@ -49,37 +49,9 @@ struct fd_snapshot_manifest_vote_account {
   uchar node_account_pubkey[ 32UL ];
 
   ulong stake;
-
-  /* The commission rate (in basis points) of inflation rewards earned
-     by the validator and deposited into the validator's vote account,
-     from 0 to 10000 (representing 0% to 100%). The remaining percentage
-     of inflation rewards is distributed to all delegated stake accounts
-     by stake weight. */
-  ushort commission;
 };
 
 typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
-
-struct fd_snapshot_manifest_vote_account_full {
-  uchar  vote_account_pubkey[ 32UL ];
-  uchar  node_account_pubkey[ 32UL ];
-  ulong  stake;
-  ulong  last_slot;
-  long   last_timestamp;
-  ushort commission;
-
-  /* The epoch credits array tracks the history of how many credits the
-     provided vote account earned in each of the past epochs.  The
-     entry at epoch_credits[0] is for the current epoch,
-     epoch_credits[1] is for the previous epoch, and so on.  In cases of
-     booting a new chain from genesis, or for new vote accounts the
-     epoch credits history may be short.  The maximum number of entries
-     in the epoch credits history is 64. */
-  ulong epoch_credits_history_len;
-  epoch_credits_t epoch_credits[ FD_EPOCH_CREDITS_MAX ];
-};
-
-typedef struct fd_snapshot_manifest_vote_account_full fd_snapshot_manifest_vote_account_full_t;
 
 struct fd_snapshot_manifest_stake_delegation {
   /* The stake pubkey */
@@ -131,7 +103,7 @@ struct fd_snapshot_manifest_vote_stakes {
   /* The total amount of active stake for the vote account */
   ulong stake;
 
-  /* The latest slot and timestmap that the vote account voted on in
+  /* The latest slot and timestamp that the vote account voted on in
      the given epoch. */
   ulong slot;
   long  timestamp;
@@ -140,10 +112,11 @@ struct fd_snapshot_manifest_vote_stakes {
   ushort commission;
 
   /* The epoch credits array tracks the history of how many credits the
-     provided vote account earned in each of the past epochs.  The
-     entry at epoch_credits[0] is for the current epoch,
-     epoch_credits[1] is for the previous epoch, and so on.  In cases of
-     booting a new chain from genesis, or for new vote accounts the
+     provided vote account earned in each recorded epoch.  Entries are
+     ordered by strictly increasing epoch: epoch_credits[0] is the
+     oldest and epoch_credits[epoch_credits_history_len-1] is the
+     newest.  Epochs with no recorded credits can be absent.  When
+     booting a new chain from genesis, or for new vote accounts, the
      epoch credits history may be short.  The maximum number of entries
      in the epoch credits history is 64. */
   ulong           epoch_credits_history_len;
@@ -289,7 +262,7 @@ struct fd_snapshot_manifest {
   /* At genesis, certain parameters can be set which control the
      epoch schedule going forward.  This includes how many slots
      there are per epoch, and certain development settings like if
-     epochs start short and grow longer as the chain progreses.
+     epochs start short and grow longer as the chain progresses.
 
      Currently, these parameters can never change and are fixed from
      genesis onwards, although in future they may change with new
@@ -392,7 +365,7 @@ struct fd_snapshot_manifest {
   fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
 
   /* The proof of history component "proves" the passage of time (see
-     extended discussion in PoH tile for what that acutally means) by
+     extended discussion in PoH tile for what that actually means) by
      continually doing sha256 hashes.  A certain number of hashes are
      required to be in each slot, to prove the leader spent some amount
      of time on the slot and didn't end it too early.
@@ -449,22 +422,15 @@ struct fd_snapshot_manifest {
   /* TODO: Why is this needed? */
   ulong signature_count;
 
-  /* A list of this epoch's vote accounts and their state relating to
-     rewards distribution, which includes the vote account's commission
-     and vote credits.
-
-     The validator distributes vote and stake rewards for the previous
-     epoch in the slots immediately after the epoch boundary.  These
-     vote and stake rewards are calculated as a stake-weighted
-     percentage of the inflation rewards for the epoch and validator
-     uptime, which is measured by vote account vote credits.
-     FIXME: Make this unbounded or support a much larger bound. */
+  /* Every staked vote account and its stake, taken from the stakes
+     cache rather than a single epoch's admitted set.  This field is only
+     used for wait for supermajority cluster restarts, which measures
+     what fraction of activated stake is visible in gossip. */
   ulong                               vote_accounts_len;
-  fd_snapshot_manifest_vote_account_t vote_accounts[ FD_VOTE_ACCOUNTS_MAX ];
+  fd_snapshot_manifest_vote_account_t vote_accounts[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
 
-  /* The number of stake-delegation records.  The records themselves are
-     streamed into the bank's stake_delegations during parse (see
-     fd_snapshot_manifest_stake_delegation) and are not stored here. */
+  /* The number of stake-delegation records.  snapin rebuilds this cache
+     from the account stream, so the manifest records are not stored. */
   ulong stake_delegations_len;
 
   /* Epoch stakes represent the exact amount staked to each vote
@@ -495,7 +461,7 @@ struct fd_snapshot_manifest {
        epoch_stakes[0] = epoch E-1
        epoch_stakes[1] = epoch E
        epoch_stakes[2] = epoch E+1 */
-  fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ FD_EPOCH_STAKES_LEN ];
+  fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ];
 };
 
 typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;

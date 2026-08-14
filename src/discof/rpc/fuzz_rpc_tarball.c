@@ -62,6 +62,7 @@ LLVMFuzzerInitialize( int  *   argc,
   ctx  = aligned_alloc( alignof(fd_rpc_tile_t), sizeof(fd_rpc_tile_t) );
   FD_TEST( ctx );
   memset( ctx, 0, sizeof(fd_rpc_tile_t) );
+  ctx->genesis_max_message_size = FUZZ_RPC_GENESIS_MAX_MESSAGE_SIZE;
 
   topo = aligned_alloc( alignof(fd_topo_t), sizeof(fd_topo_t) );
   FD_TEST( topo );

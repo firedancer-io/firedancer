@@ -28,7 +28,7 @@
             wire_sz    -= _field_##IDX##_sz;                                 \
             wire_laddr += _field_##IDX##_sz;
 
-/* FD_TLS_SERDE_CHECK performs tbe bounds checks queued by prior
+/* FD_TLS_SERDE_CHECK performs the bounds checks queued by prior
    FD_TLS_SERDE_LOCATE ops. */
 
 #define FD_TLS_SERDE_CHECK \

@@ -11,6 +11,11 @@
 #define TEST_ROOT_TICK_HEIGHT 5000UL
 
 static void
+test_sched_footprint( void ) {
+  FD_TEST( fd_sched_footprint( 512UL, 4UL )==14006656UL );
+}
+
+static void
 hash_from_seed( fd_hash_t * out,
                 ulong       seed ) {
   for( ulong i=0UL; i<4UL; i++ ) out->ul[ i ] = seed ^ (0x9e3779b97f4a7c15UL * (i+1UL));
@@ -271,6 +276,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  test_sched_footprint();
   run_lane_policy_case();
   run_bad_tick_cases();
 

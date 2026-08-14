@@ -928,6 +928,95 @@ FD_UNIT_TEST( quic_ack_unsent_future_pktnum ) {
   FD_TEST( conn->highest_acked[ 2 ] == 0UL );
 }
 
+static ulong datagram_rx_cnt;
+static uchar datagram_rx_buf[ 64 ];
+static ulong datagram_rx_sz;
+
+static void
+test_datagram_rx( fd_quic_conn_t * conn FD_PARAM_UNUSED,
+                  uchar const *    data,
+                  ulong            data_sz,
+                  void *           quic_ctx FD_PARAM_UNUSED ) {
+  datagram_rx_cnt++;
+  datagram_rx_sz = data_sz;
+  FD_TEST( data_sz<=sizeof(datagram_rx_buf) );
+  fd_memcpy( datagram_rx_buf, data, data_sz );
+}
+
+FD_UNIT_TEST( quic_datagram_frames ) {
+  fd_quic_t * quic = sandbox->quic;
+  quic->config.max_datagram_frame_size = 64UL;
+  quic->cb.datagram_rx = test_datagram_rx;
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  datagram_rx_cnt = 0UL;
+  uchar with_len[] = { 0x31, 0x03, 'a', 'b', 'c', 0x01 };
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, with_len, sizeof(with_len) );
+  FD_TEST( datagram_rx_cnt==1UL );
+  FD_TEST( datagram_rx_sz==3UL );
+  FD_TEST( !memcmp( datagram_rx_buf, "abc", 3UL ) );
+
+  uchar no_len[] = { 0x30, 'x', 'y' };
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, no_len, sizeof(no_len) );
+  FD_TEST( datagram_rx_cnt==2UL );
+  FD_TEST( datagram_rx_sz==2UL );
+  FD_TEST( !memcmp( datagram_rx_buf, "xy", 2UL ) );
+
+  uchar oversized[ 65 ] = { 0x31, 0x40, 0x3e };
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, oversized, sizeof(oversized) );
+  FD_TEST( conn->reason==FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+  FD_TEST( datagram_rx_cnt==2UL );
+}
+
+FD_UNIT_TEST( quic_datagram_express_tx ) {
+  fd_quic_t * quic = sandbox->quic;
+  quic->config.max_datagram_frame_size = 64UL;
+  quic->cb.datagram_rx = test_datagram_rx;
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  /* Loop the packet back into this connection.  In a real connection,
+     peer_cids[0] is the remote endpoint's connection ID. */
+  conn->peer_cids[0] = fd_quic_conn_id_new( &conn->our_conn_id, FD_QUIC_CONN_ID_SZ );
+  conn->tx_max_datagram_sz       = 1200U;
+  conn->tx_max_datagram_frame_sz = 64UL;
+
+  uchar pkt[ 128 ];
+  uchar const msg[] = { 'd', 'g', 'r', 'a', 'm' };
+  ulong const pkt_num = conn->pkt_number[ 2 ]; /* application packet number space */
+
+  FD_TEST( !fd_quic_conn_tx_dgram( conn, pkt, 1UL, msg, sizeof(msg) ) );
+  FD_TEST( conn->pkt_number[2]==pkt_num );
+
+  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), msg, sizeof(msg) );
+  FD_TEST( pkt_sz>=FD_QUIC_SHORTEST_PKT );
+  FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
+
+  datagram_rx_cnt = 0UL;
+  fd_quic_pkt_t pkt_meta = {
+    .ip4 = {{
+      .saddr = FD_QUIC_SANDBOX_PEER_IP4,
+      .daddr = FD_QUIC_SANDBOX_SELF_IP4,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    }},
+    .rcv_time   = sandbox->wallclock,
+    .enc_level  = fd_quic_enc_level_appdata_id,
+    .datagram_sz= (uint)pkt_sz,
+  };
+  FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt, pkt_sz )==pkt_sz );
+  FD_TEST( datagram_rx_cnt==1UL );
+  FD_TEST( datagram_rx_sz==sizeof(msg) );
+  FD_TEST( !memcmp( datagram_rx_buf, msg, sizeof(msg) ) );
+
+  conn->tx_max_datagram_frame_sz = 1UL+1UL+sizeof(msg)-1UL;
+  FD_TEST( !fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), msg, sizeof(msg) ) );
+  FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {

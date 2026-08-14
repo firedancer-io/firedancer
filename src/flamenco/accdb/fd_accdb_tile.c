@@ -1,8 +1,12 @@
 #include "../../disco/tiles.h"
 
+#include "../../discof/fd_startup.h"
+
+#include <time.h>
 #include "generated/fd_accdb_tile_seccomp.h"
 
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../../tango/fseq/fd_fseq.h"
 
 #include "fd_accdb.h"
@@ -11,11 +15,14 @@
 
 /* Maximum number of read-only accdb consumer fseqs the accdb tile can
    bind external_epoch_slots[] to.  Bumped as new RO consumers are
-   added.  Today: rpc tile (optional). */
-#define FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS (8UL)
+   added.  Today: resolv tiles, rpc tile (optional), snapmk/zp tiles
+   (optional). */
+#define FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS (128UL)
 
 struct fd_accdb_tile_ctx {
   fd_accdb_t * accdb;
+
+  fd_startup_gate_t startup_gate[1];
 
   ulong seed;
 };
@@ -37,6 +44,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_accdb_tile_ctx_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( ctx->accdb );
 
   FD_MGAUGE_SET( ACCDB, ACCOUNT_COUNT,          metrics->accounts_total );
@@ -77,7 +86,12 @@ static inline void
 before_credit( fd_accdb_tile_ctx_t * ctx,
                fd_stem_context_t *   stem FD_FN_UNUSED,
                int *                 charge_busy ) {
+  /* Commands are serviced even before replay starts, so a poster can
+     never be delayed by the boot gate; the gate only idles the spin
+     while there is no work. */
   fd_accdb_background( ctx->accdb, charge_busy );
+  if( FD_LIKELY( *charge_busy ) ) fd_startup_gate_busy( ctx->startup_gate );
+  else                            fd_startup_gate_idle( ctx->startup_gate );
 }
 
 static void
@@ -121,9 +135,25 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
     external_epoch_slots[ external_epoch_cnt++ ] = fseq;
   }
+  if( FD_UNLIKELY( tile->accdb.snapmk_epoch_obj_id!=ULONG_MAX ) ) {
+    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.snapmk_epoch_obj_id ) );
+    FD_TEST( fseq );
+    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
+    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
+  }
+  for( ulong i=0UL; i<tile->accdb.snapzp_epoch_obj_cnt; i++ ) {
+    ulong obj_id = tile->accdb.snapzp_epoch_obj_ids[ i ];
+    if( FD_UNLIKELY( obj_id==ULONG_MAX ) ) continue;
+    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.snapzp_epoch_obj_ids[ i ] ) );
+    FD_TEST( fseq );
+    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
+    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
+  }
 
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots ) );
   FD_TEST( ctx->accdb );
+
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -168,6 +198,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_accdb_compaction_completed_t) > sizeof(fd_event_accdb_partition_added_t) ?
+         sizeof(fd_event_accdb_compaction_completed_t) : sizeof(fd_event_accdb_partition_added_t);
+}
+
 fd_topo_run_tile_t fd_tile_accdb = {
   .name                     = "accdb",
   .populate_allowed_seccomp = populate_allowed_seccomp,
@@ -176,5 +212,6 @@ fd_topo_run_tile_t fd_tile_accdb = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .max_event_sz             = max_event_sz,
   .run                      = stem_run,
 };

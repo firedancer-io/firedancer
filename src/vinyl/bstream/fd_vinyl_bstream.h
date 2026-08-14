@@ -148,7 +148,7 @@
 
    - zero padding: one type of control block is zero padding.  These
      can be inserted by the bstream writer in order ensure sets of
-     blocks are kept continguous in the underlying physical storage
+     blocks are kept contiguous in the underlying physical storage
      (e.g. making sure an encoded pair is never split across two
      physical volumes).
 
@@ -162,7 +162,7 @@
      at start).
 
    - hot or not: the metadata for all pairs at seq_present is always
-     available fast O(1) to concurent vinyl users.  This includes a
+     available fast O(1) to concurrent vinyl users.  This includes a
      small amount of application info (like balances, expirations, etc). */
 
 #include "../fd_vinyl_base.h"

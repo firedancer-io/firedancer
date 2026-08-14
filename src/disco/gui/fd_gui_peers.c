@@ -21,7 +21,6 @@ fd_gui_peers_align( void ) {
   a = fd_ulong_max( a, fd_gui_peers_node_pubkey_map_align()     );
   a = fd_ulong_max( a, fd_gui_peers_node_sock_map_align()       );
   a = fd_ulong_max( a, alignof(fd_gui_peers_ws_conn_t)          );
-  a = fd_ulong_max( a, alignof(fd_gui_geoip_node_t)             );
   FD_TEST( fd_ulong_pow2_up( a )==a );
   return a;
 }
@@ -41,10 +40,9 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_pubkey_map_align(),    fd_gui_peers_node_pubkey_map_footprint   ( pubkey_chain_cnt )           );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_geoip_node_t),            sizeof(fd_gui_geoip_node_t)*FD_GUI_GEOIP_DBIP_MAX_NODES                 );
 
 #if FD_HAS_ZSTD
-  l = FD_LAYOUT_APPEND( l, 16UL,                                    ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG )           );
+  l = FD_LAYOUT_APPEND( l, 16UL,                                    FD_GUI_GEOIP_BIN_MAX+fd_ulong_align_up( ZSTD_estimateDStreamSize( 1<<FD_GUI_GEOIP_ZSTD_WINDOW_LOG ), 16UL ) );
 #endif
 
   return FD_LAYOUT_FINI( l, fd_gui_peers_align() );
@@ -52,146 +50,81 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
 
 #if FD_HAS_ZSTD
 
+/* load_geoip decompresses the dbip database image into image (a
+   single streaming decompress; the image is the on-disk format, see
+   fd_gui_peers.h) and points ip_db's columnar segment arrays at it.
+   Country/city string tables are copied out to fixed arrays. */
+
 static void
-build_geoip_trie( fd_gui_peers_ctx_t *   peers,
-                   fd_gui_geoip_node_t * nodes,
-                   uchar *               db_f,
-                   ulong                 db_f_sz,
-                   fd_gui_ip_db_t *      ip_db,
-                   ulong                 max_node_cnt ) {
-  ip_db->nodes = nodes;
-  uchar db_buf[ 16384 ];
-  ulong processed_decompressed_bytes = 0UL;
-  ulong buffered_decompressed_bytes = 0UL;
-  ulong processed_compressed_bytes = 0UL;
+load_geoip( ZSTD_DCtx *      dctx,
+            uchar *          image,
+            ulong            image_max,
+            uchar const *    db_f,
+            ulong            db_f_sz,
+            fd_gui_ip_db_t * ip_db ) {
+  ulong decompressed_sz = 0UL;
+  ulong compressed_sz   = 0UL;
+  ulong err = ZSTD_decompressStream_simpleArgs( dctx, image, image_max, &decompressed_sz, db_f, db_f_sz, &compressed_sz );
+  if( FD_UNLIKELY( ZSTD_isError( err ) ) ) FD_LOG_ERR(( "ZSTD_decompressStream_simpleArgs failed (%s)", ZSTD_getErrorName( err ) ));
+  if( FD_UNLIKELY( err!=0UL ) )            FD_LOG_ERR(( "dbip database truncated (needs %lu more bytes)", err ));
+  if( FD_UNLIKELY( compressed_sz!=db_f_sz ) ) FD_LOG_ERR(( "dbip database has %lu trailing bytes", db_f_sz-compressed_sz ));
 
-  /* streaming parser state */
-  int done = 0;
-  ulong country_code_cnt = ULONG_MAX;
-  ulong country_code_idx = 0UL;
-  ulong city_name_cnt = ULONG_MAX;
-  ulong city_name_idx = 0UL;
-  ulong node_cnt = ULONG_MAX;
-  ulong node_idx = 1UL; /* including root node */
+  uchar const * p   = image;
+  uchar const * end = image+decompressed_sz;
 
-  fd_gui_geoip_node_t * root = &nodes[ 0 ];
-  root->left = NULL;
-  root->right = NULL;
-  root->has_prefix = 0;
+# define CHECK(n)   do { if( FD_UNLIKELY( (ulong)(end-p)<(ulong)(n) ) ) FD_LOG_ERR(( "dbip database corrupt (truncated)" )); } while(0)
+# define ADVANCE(n) do { CHECK(n); p += (n); } while(0)
 
-  for( ;; ) {
-    /* move leftover data to the front of the buffer */
-    if( FD_LIKELY( processed_decompressed_bytes ) ) {
-      memmove( db_buf, db_buf+processed_decompressed_bytes, buffered_decompressed_bytes-processed_decompressed_bytes );
-      buffered_decompressed_bytes -= processed_decompressed_bytes;
-      processed_decompressed_bytes = 0UL;
-    }
-
-    if( FD_LIKELY( !done && buffered_decompressed_bytes<sizeof(db_buf) ) ) {
-      ulong compressed_sz = 0UL;
-      ulong decompressed_sz = 0UL;
-      ulong err = ZSTD_decompressStream_simpleArgs( peers->zstd_dctx, db_buf + buffered_decompressed_bytes, sizeof(db_buf)-buffered_decompressed_bytes, &decompressed_sz, db_f + processed_compressed_bytes, db_f_sz-processed_compressed_bytes, &compressed_sz );
-      if( FD_UNLIKELY( ZSTD_isError( err ) ) ) FD_LOG_ERR(( "ZSTD_decompressStream_simpleArgs failed (%s)", ZSTD_getErrorName( err ) ) );
-      done = err==0UL;
-      buffered_decompressed_bytes += decompressed_sz;
-      processed_compressed_bytes += compressed_sz;
-    }
-
-    if( FD_UNLIKELY( country_code_cnt==ULONG_MAX ) ) {
-      if( FD_UNLIKELY( buffered_decompressed_bytes<sizeof(ulong) ) ) continue;
-      country_code_cnt = FD_LOAD( ulong, db_buf );
-      FD_TEST( country_code_cnt && country_code_cnt<=FD_GUI_GEOIP_MAX_COUNTRY_CNT ); /* 255 reserved for unknown */
-      processed_decompressed_bytes += sizeof(ulong);
-    } else if( FD_UNLIKELY( country_code_cnt!=ULONG_MAX && country_code_idx<country_code_cnt ) ) {
-      if( FD_UNLIKELY( buffered_decompressed_bytes<2UL ) ) continue;
-      for( ; country_code_idx<country_code_cnt; country_code_idx++ ) {
-        if( FD_UNLIKELY( buffered_decompressed_bytes<2UL ) ) break;
-        fd_memcpy( ip_db->country_code[ country_code_idx ], db_buf+processed_decompressed_bytes, 2UL );
-        ip_db->country_code[ country_code_idx ][ 2 ] = '\0';
-        processed_decompressed_bytes += 2UL;
-      }
-    } else if( FD_UNLIKELY( city_name_cnt==ULONG_MAX ) ) {
-      if( FD_UNLIKELY( buffered_decompressed_bytes<sizeof(ulong) ) ) continue;
-      city_name_cnt = FD_LOAD( ulong, db_buf );
-      FD_TEST( city_name_cnt<=FD_GUI_GEOIP_MAX_CITY_CNT );
-      processed_decompressed_bytes += sizeof(ulong);
-    } else if( FD_UNLIKELY( city_name_cnt!=ULONG_MAX && city_name_idx<city_name_cnt ) ) {
-      for( ; city_name_idx<city_name_cnt && memchr( db_buf+processed_decompressed_bytes, '\0', fd_ulong_min( FD_GUI_GEOIP_MAX_CITY_NAME_SZ, sizeof(db_buf)-processed_decompressed_bytes ) ); city_name_idx++ ) {
-        ulong city_name_len;
-        FD_TEST( fd_cstr_printf_check( ip_db->city_name[ city_name_idx ], sizeof(ip_db->city_name[ city_name_idx ]), &city_name_len, "%s", db_buf+processed_decompressed_bytes ) );
-        processed_decompressed_bytes += city_name_len+1UL;
-      }
-    } else if( FD_UNLIKELY( node_cnt==ULONG_MAX ) ) {
-      if( FD_UNLIKELY( buffered_decompressed_bytes<sizeof(ulong) ) ) continue;
-      node_cnt = FD_LOAD( ulong, db_buf );
-      FD_TEST( node_cnt && 2UL*node_cnt<=max_node_cnt );
-      processed_decompressed_bytes += sizeof(ulong);
-    } else {
-      const ulong node_sz = 10UL;
-      while( buffered_decompressed_bytes-processed_decompressed_bytes>=node_sz ) {
-        uint ip_addr = fd_uint_bswap( FD_LOAD( uint, db_buf+processed_decompressed_bytes ) );
-        uchar prefix_len = FD_LOAD( uchar, db_buf+processed_decompressed_bytes+4UL );
-        FD_TEST( prefix_len<=32UL );
-        uchar country_idx = FD_LOAD( uchar, db_buf+processed_decompressed_bytes+5UL );
-        FD_TEST( country_idx<country_code_cnt );
-        uint city_idx = FD_LOAD( uint, db_buf+processed_decompressed_bytes+6UL );
-        FD_TEST( city_idx==UINT_MAX || city_idx<city_name_cnt ); /* optional field */
-
-        fd_gui_geoip_node_t * node = root;
-        for( uchar bit_pos=0; bit_pos<prefix_len; bit_pos++ ) {
-          uchar bit = (ip_addr >> (31 - bit_pos)) & 1;
-
-          fd_gui_geoip_node_t * child;
-          if( FD_LIKELY( !bit ) ) {
-            child = node->left;
-            if( FD_LIKELY( !child ) ) {
-              FD_TEST( node_idx<max_node_cnt );
-              child = &nodes[ node_idx++ ];
-              child->left = NULL;
-              child->right = NULL;
-              child->has_prefix = 0;
-              node->left = child;
-            }
-          } else {
-            child = node->right;
-            if( FD_LIKELY( !child ) ) {
-              FD_TEST( node_idx<max_node_cnt );
-              child = &nodes[ node_idx++ ];
-              child->left = NULL;
-              child->right = NULL;
-              child->has_prefix = 0;
-              node->right = child;
-            }
-          }
-          node = child;
-        }
-
-        node->has_prefix = 1;
-        node->country_code_idx = country_idx;
-        node->city_name_idx = city_idx;
-
-        processed_decompressed_bytes += node_sz;
-      }
-
-      /* file was fully decompressed */
-      if( FD_UNLIKELY( done ) ) {
-        for( ulong i=1UL; i<country_code_cnt; i++ ) {
-          if( FD_UNLIKELY( strcmp( ip_db->country_code[ i-1UL ], ip_db->country_code[ i ] ) > 0 ) ) {
-            FD_LOG_ERR(("country codes not sorted a=%s > b=%s country_code_cnt=%lu i=%lu", ip_db->country_code[ i-1UL ], ip_db->country_code[ i ], country_code_cnt, i ) );
-          }
-        }
-
-        for( ulong i=1UL; i<city_name_cnt; i++ ) {
-          if( FD_UNLIKELY( strcmp( ip_db->city_name[ i-1UL ], ip_db->city_name[ i ] ) > 0 ) ) {
-            FD_LOG_ERR(("city names not sorted a=%s > b=%s city_name_cnt=%lu i=%lu ", ip_db->city_name[ i-1UL ], ip_db->city_name[ i ], city_name_cnt, i ) );
-          }
-        }
-
-        FD_TEST( buffered_decompressed_bytes==processed_decompressed_bytes );
-        return;
-      }
-    }
+  CHECK( sizeof(ulong) );
+  ulong country_code_cnt = FD_LOAD( ulong, p ); ADVANCE( sizeof(ulong) );
+  FD_TEST( country_code_cnt && country_code_cnt<=FD_GUI_GEOIP_MAX_COUNTRY_CNT ); /* 255 reserved for unknown */
+  for( ulong i=0UL; i<country_code_cnt; i++ ) {
+    CHECK( 2UL );
+    fd_memcpy( ip_db->country_code[ i ], p, 2UL ); ADVANCE( 2UL );
+    ip_db->country_code[ i ][ 2 ] = '\0';
+    if( FD_UNLIKELY( i && strcmp( ip_db->country_code[ i-1UL ], ip_db->country_code[ i ] )>0 ) )
+      FD_LOG_ERR(( "country codes not sorted a=%s > b=%s i=%lu", ip_db->country_code[ i-1UL ], ip_db->country_code[ i ], i ));
   }
+
+  CHECK( sizeof(ulong) );
+  ulong city_name_cnt = FD_LOAD( ulong, p ); ADVANCE( sizeof(ulong) );
+  FD_TEST( city_name_cnt<=FD_GUI_GEOIP_MAX_CITY_CNT );
+  for( ulong i=0UL; i<city_name_cnt; i++ ) {
+    uchar const * nul = memchr( p, '\0', fd_ulong_min( FD_GUI_GEOIP_MAX_CITY_NAME_SZ, (ulong)(end-p) ) );
+    if( FD_UNLIKELY( !nul ) ) FD_LOG_ERR(( "dbip database corrupt (unterminated city name)" ));
+    fd_memcpy( ip_db->city_name[ i ], p, (ulong)(nul-p)+1UL );
+    ADVANCE( (ulong)(nul-p)+1UL );
+    if( FD_UNLIKELY( i && strcmp( ip_db->city_name[ i-1UL ], ip_db->city_name[ i ] )>0 ) )
+      FD_LOG_ERR(( "city names not sorted a=%s > b=%s i=%lu", ip_db->city_name[ i-1UL ], ip_db->city_name[ i ], i ));
+  }
+
+  /* Sections below are 4-byte aligned in the file (the generator pads
+     with zeros) so the arrays can be used in place. */
+  ADVANCE( fd_ulong_align_up( (ulong)(p-image), 4UL )-(ulong)(p-image) );
+  CHECK( sizeof(ulong) );
+  ulong seg_cnt = FD_LOAD( ulong, p ); ADVANCE( sizeof(ulong) );
+  FD_TEST( seg_cnt && seg_cnt<=(1UL<<32) ); /* disjoint uint starts; also keeps seg_cnt*4 from overflowing */
+
+  uint const * seg_start = fd_type_pun_const( p ); ADVANCE( seg_cnt*sizeof(uint) );
+  uchar const * seg_country = p;                   ADVANCE( fd_ulong_align_up( seg_cnt, 4UL ) );
+  uint const * seg_city = fd_type_pun_const( p );  ADVANCE( seg_cnt*sizeof(uint) );
+  if( FD_UNLIKELY( p!=end ) ) FD_LOG_ERR(( "dbip database corrupt (%lu trailing bytes)", (ulong)(end-p) ));
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)seg_start, alignof(uint) ) ) ) FD_LOG_ERR(( "dbip database corrupt (misaligned)" ));
+
+  if( FD_UNLIKELY( seg_start[ 0 ] ) ) FD_LOG_ERR(( "dbip database corrupt (first segment not 0)" ));
+  for( ulong i=0UL; i<seg_cnt; i++ ) {
+    if( FD_UNLIKELY( i && seg_start[ i ]<=seg_start[ i-1UL ] ) ) FD_LOG_ERR(( "dbip database corrupt (segments not sorted)" ));
+    if( FD_UNLIKELY( seg_country[ i ]!=UCHAR_MAX && seg_country[ i ]>=country_code_cnt ) ) FD_LOG_ERR(( "dbip database corrupt (bad country idx)" ));
+    if( FD_UNLIKELY( seg_city[ i ]!=UINT_MAX && seg_city[ i ]>=city_name_cnt ) ) FD_LOG_ERR(( "dbip database corrupt (bad city idx)" ));
+  }
+
+# undef ADVANCE
+# undef CHECK
+
+  ip_db->seg_cnt     = seg_cnt;
+  ip_db->seg_start   = seg_start;
+  ip_db->seg_country = seg_country;
+  ip_db->seg_city    = seg_city;
 }
 
 #endif
@@ -227,11 +160,13 @@ fd_gui_peers_new( void *             shmem,
   void * _sock_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   ctx->client_viewports    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
 #if FD_HAS_ZSTD
-  void * _dbip_nodes       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_geoip_node_t),            sizeof(fd_gui_geoip_node_t)*FD_GUI_GEOIP_DBIP_MAX_NODES                 );
-
-  uchar * _zstd_ctx          = FD_SCRATCH_ALLOC_APPEND( l,  16UL,                                   ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG )           );
-  ctx->zstd_dctx = ZSTD_initStaticDStream( _zstd_ctx, ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG ) );
-  FD_TEST( ctx->zstd_dctx );
+  /* DCtx scratch is only needed during load_geoip below; it lives
+     past the image so the image gets the full FD_GUI_GEOIP_BIN_MAX
+     the generator enforces. */
+  ulong  zstd_ctx_sz = ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG );
+  ctx->dbip_image          = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                                    FD_GUI_GEOIP_BIN_MAX+fd_ulong_align_up( zstd_ctx_sz, 16UL )             );
+  ZSTD_DCtx * zstd_dctx = ZSTD_initStaticDStream( ctx->dbip_image+FD_GUI_GEOIP_BIN_MAX, zstd_ctx_sz );
+  FD_TEST( zstd_dctx );
 #endif
 
     for( ulong i = 0UL; i<max_ws_conn_cnt; i++ ) ctx->client_viewports[ i ].connected = 0;
@@ -271,7 +206,9 @@ fd_gui_peers_new( void *             shmem,
     ctx->node_sock_map   = fd_gui_peers_node_sock_map_join  ( fd_gui_peers_node_sock_map_new  ( _sock_map,   sock_chain_cnt,   42UL ) );
 
 #if FD_HAS_ZSTD
-    build_geoip_trie( ctx, _dbip_nodes,   (uchar *)dbip_f,   dbip_f_sz,   &ctx->dbip,   FD_GUI_GEOIP_DBIP_MAX_NODES   );
+    load_geoip( zstd_dctx, ctx->dbip_image, FD_GUI_GEOIP_BIN_MAX, dbip_f, dbip_f_sz, &ctx->dbip );
+#else
+    ctx->dbip.seg_cnt = 0UL;
 #endif
 
     ctx->wfs_peers_cnt = 0UL;
@@ -363,11 +300,11 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
       fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
       if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
       else                         gossip_stats->network_ingress_peer_names[ j ][ 0 ] = '\0';
-      gossip_stats->network_ingress_peer_bytes_per_sec[ j ] = cur->row.gossvf_rx_sum.rate_ema;
+      gossip_stats->network_ingress_peer_bytes_per_sec[ j ] = (long)cur->row.gossvf_rx_sum.rate_ema.value;
       fd_memcpy( &gossip_stats->network_ingress_peer_identities[ j ], cur->row.pubkey.uc, 32UL );
     }
 
-    gossip_stats->network_ingress_total_bytes_per_sec += cur->row.gossvf_rx_sum.rate_ema;
+    gossip_stats->network_ingress_total_bytes_per_sec += (long)cur->row.gossvf_rx_sum.rate_ema.value;
   }
 
   gossip_stats->network_ingress_total_bytes = fd_gui_metrics_gossip_total_ingress_bytes( peers->topo, gossvf_tile_cnt );
@@ -388,11 +325,11 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
       fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
       if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
       else                         gossip_stats->network_egress_peer_names[ j ][ 0 ] = '\0';
-      gossip_stats->network_egress_peer_bytes_per_sec[ j ] = cur->row.gossip_tx_sum.rate_ema;
+      gossip_stats->network_egress_peer_bytes_per_sec[ j ] = (long)cur->row.gossip_tx_sum.rate_ema.value;
       fd_memcpy( &gossip_stats->network_egress_peer_identities[ j ], cur->row.pubkey.uc, 32UL );
     }
 
-    gossip_stats->network_egress_total_bytes_per_sec += cur->row.gossip_tx_sum.rate_ema;
+    gossip_stats->network_egress_total_bytes_per_sec += (long)cur->row.gossip_tx_sum.rate_ema.value;
   }
 
   gossip_stats->network_egress_total_bytes = fd_gui_metrics_gossip_total_egress_bytes( peers->topo, gossip_tile_cnt );
@@ -590,58 +527,46 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
   fd_gui_peers_node_t * peer = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, peer_sock, NULL, peers->contact_info_table );
 
   /* We set MAP_MULTI=1 since there are not guarantees that duplicates
-     sockets wont exist. In cases where we see multiple sockets the
+     sockets won't exist. In cases where we see multiple sockets the
      update timestamp in fd_gui_peers_node_t is the tiebreaker */
   for( fd_gui_peers_node_t * p = peer; p!=NULL; p=(fd_gui_peers_node_t *)fd_gui_peers_node_sock_map_ele_next_const( p, NULL, peers->contact_info_table ) ) {
     if( peer->row.update_time_nanos>p->row.update_time_nanos ) peer = p;
   }
 
   if( FD_UNLIKELY( !peer ) ) return; /* NOP, peer not known yet */
+  if( FD_UNLIKELY( payload_sz<sizeof(uint) ) ) return; /* NOP, corrupt */
 
-  fd_gossip_message_t message[ 1 ];
-  int success = fd_gossip_message_deserialize( message, payload, payload_sz );
-  if( FD_UNLIKELY( !success ) ) return; /* NOP, msg unparsable */
-
-  FD_TEST( message->tag < FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT );
-  fd_ptr_if( is_rx, &peer->row.gossvf_rx[ message->tag ], &peer->row.gossip_tx[ message->tag ] )->cur += payload_sz;
+  uint tag = FD_LOAD( uint, payload );
+  if( FD_UNLIKELY( tag >= FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ) ) return; /* NOP, unknown message kind */
+  fd_ptr_if( is_rx, &peer->row.gossvf_rx[ tag ], &peer->row.gossip_tx[ tag ] )->cur += payload_sz;
   fd_ptr_if( is_rx, (fd_gui_peers_metric_rate_t *)&peer->row.gossvf_rx_sum, (fd_gui_peers_metric_rate_t *)&peer->row.gossip_tx_sum )->cur += payload_sz;
-#if LOGGING
-  if( is_rx ) FD_LOG_WARNING(("payload rx=%lu", payload_sz ));
-  else FD_LOG_WARNING(("payload tx=%lu", payload_sz ));
-#endif
 }
 
 #if FD_HAS_ZSTD
 
-static fd_gui_geoip_node_t const *
+/* geoip_lookup finds the segment covering ip_addr (network byte
+   order) by binary search over the sorted disjoint segment starts.
+   Returns the segment index, or ULONG_MAX if the database is empty. */
+
+static ulong
 geoip_lookup( fd_gui_ip_db_t const * ip_db,
-               uint                  ip_addr ) {
-  fd_gui_geoip_node_t const * ret = NULL;
+              uint                   ip_addr ) {
+  if( FD_UNLIKELY( !ip_db->seg_cnt ) ) return ULONG_MAX;
 
-  uint ip_addr_host = fd_uint_bswap( ip_addr );
+  uint ip = fd_uint_bswap( ip_addr );
 
-  fd_gui_geoip_node_t const * node = &ip_db->nodes[0];
-
-  for( uchar bit_pos=0; bit_pos<32; bit_pos++ ) {
-    if( FD_UNLIKELY( node->has_prefix ) ) {
-      ret = node;
-    }
-
-    uchar bit = (ip_addr_host >> (31 - bit_pos)) & 1;
-    fd_gui_geoip_node_t const * child = bit ? node->right : node->left;
-    if( FD_UNLIKELY( !child ) ) break;
-
-    node = child;
+  /* Greatest i with seg_start[i] <= ip; seg_start[0]==0 */
+  ulong lo = 0UL;
+  ulong hi = ip_db->seg_cnt;
+  while( hi-lo>1UL ) {
+    ulong mid = (lo+hi)>>1;
+    if( ip_db->seg_start[ mid ]<=ip ) lo = mid;
+    else                              hi = mid;
   }
-
-  if( FD_UNLIKELY( node->has_prefix ) ) {
-    ret = node;
-  }
-
-  return ret;
+  return lo;
 }
 
-#endif
+#endif /* FD_HAS_ZSTD */
 
 #define SORT_NAME wfs_peer_sort
 #define SORT_KEY_T fd_gui_wfs_peer_t
@@ -774,10 +699,10 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           /* fetch and set country code */
 #if FD_HAS_ZSTD
           uint ip4 = peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
-          fd_gui_geoip_node_t const * dbip_ip = geoip_lookup( &peers->dbip, ip4 );
+          ulong dbip_seg = geoip_lookup( &peers->dbip, ip4 );
 
-          peer->row.country_code_idx = dbip_ip ? dbip_ip->country_code_idx : UCHAR_MAX;
-          peer->row.city_name_idx = dbip_ip ? dbip_ip->city_name_idx : UINT_MAX;
+          peer->row.country_code_idx = dbip_seg!=ULONG_MAX ? peers->dbip.seg_country[ dbip_seg ] : UCHAR_MAX;
+          peer->row.city_name_idx    = dbip_seg!=ULONG_MAX ? peers->dbip.seg_city   [ dbip_seg ] : UINT_MAX;
 #else
           peer->row.country_code_idx = UCHAR_MAX;
           peer->row.city_name_idx = UINT_MAX;
@@ -803,6 +728,12 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           memset( &peer->row.gossip_tx,     0, sizeof(peer->row.gossip_tx) );
           memset( &peer->row.gossvf_rx_sum, 0, sizeof(peer->row.gossvf_rx_sum) );
           memset( &peer->row.gossip_tx_sum, 0, sizeof(peer->row.gossip_tx_sum) );
+          for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
+            fd_gui_ema_init( &peer->row.gossvf_rx[ i ].rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+            fd_gui_ema_init( &peer->row.gossip_tx[ i ].rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+          }
+          fd_gui_ema_init( &peer->row.gossvf_rx_sum.rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+          fd_gui_ema_init( &peer->row.gossip_tx_sum.rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
           peer->row.has_vote_info = 0;
           peer->row.delinquent = 0;
           peer->row.stake = ULONG_MAX;
@@ -846,10 +777,10 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           /* fetch and set country code */
 #if FD_HAS_ZSTD
           uint ip4 = peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
-          fd_gui_geoip_node_t const * dbip_ip = geoip_lookup( &peers->dbip, ip4 );
+          ulong dbip_seg = geoip_lookup( &peers->dbip, ip4 );
 
-          peer->row.country_code_idx = dbip_ip ? dbip_ip->country_code_idx : UCHAR_MAX;
-          peer->row.city_name_idx = dbip_ip ? dbip_ip->city_name_idx : UINT_MAX;
+          peer->row.country_code_idx = dbip_seg!=ULONG_MAX ? peers->dbip.seg_country[ dbip_seg ] : UCHAR_MAX;
+          peer->row.city_name_idx    = dbip_seg!=ULONG_MAX ? peers->dbip.seg_city   [ dbip_seg ] : UINT_MAX;
 #else
           peer->row.country_code_idx = UCHAR_MAX;
           peer->row.city_name_idx = UINT_MAX;
@@ -921,6 +852,13 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 }
 
 void
+fd_gui_peers_handle_identity_change( fd_gui_peers_ctx_t * peers ) {
+  peers->slot_voted = ULONG_MAX;
+  fd_gui_peers_printf_vote_slot( peers );
+  fd_http_server_ws_broadcast( peers->http );
+}
+
+void
 fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
                           fd_pubkey_t const *  vote_account,
                           ulong                vote_slot,
@@ -949,10 +887,10 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
   ulong epoch_idx = epoch_info->epoch % 2UL;
   if( FD_UNLIKELY( peers->epochs[ epoch_idx ].epoch!=ULONG_MAX && peers->epochs[ epoch_idx ].epoch>=epoch_info->epoch ) ) return;
 
-  if( FD_UNLIKELY( epoch_info->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
-    FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
-  if( FD_UNLIKELY( epoch_info->staked_id_cnt>MAX_SHRED_DESTS ) )
-    FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
+  if( FD_UNLIKELY( epoch_info->staked_vote_cnt>MAX_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "epoch stakes exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
+  if( FD_UNLIKELY( epoch_info->staked_id_cnt>MAX_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "epoch id weights exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
 
   fd_vote_stake_weight_t const * weights = fd_epoch_info_msg_stake_weights( epoch_info );
 
@@ -1140,9 +1078,9 @@ fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
   fd_vote_stake_weight_t * vote_scratch = peers->scratch.manifest_vote_weights;
   ulong vote_scratch_cnt = 0UL;
   ulong vote_accounts_sz = manifest->vote_accounts_len;
-  if( FD_UNLIKELY( vote_accounts_sz>FD_VOTE_ACCOUNTS_MAX ) ) {
-    FD_LOG_WARNING(( "vote accounts %lu exceeds maximum %lu", vote_accounts_sz, FD_VOTE_ACCOUNTS_MAX ));
-    vote_accounts_sz = FD_VOTE_ACCOUNTS_MAX;
+  if( FD_UNLIKELY( vote_accounts_sz>FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
+    FD_LOG_WARNING(( "vote accounts %lu exceeds maximum %lu", vote_accounts_sz, FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
+    vote_accounts_sz = FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS;
   }
   for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
     if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
@@ -1406,10 +1344,10 @@ fd_gui_peers_viewport_log( fd_gui_peers_ctx_t *  peers,
     FD_TEST(fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT,
                                   FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
 
-    long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-    long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-    long cur_egress_pull_response_bps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-    long cur_ingress_pull_response_bps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+    long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+    long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
+    long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+    long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
 
     p = fd_cstr_append_printf( p,
                                "| %5lu | %14ld | %14ld | %14ld | %14ld | %-50s | %-15s |\n",
@@ -1460,6 +1398,7 @@ fd_gui_peers_ws_conn_rr_advance( fd_gui_peers_ctx_t * peers, long now ) {
   }
   return 1;
 }
+
 
 int
 fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
@@ -1522,16 +1461,16 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; !change && i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->row.gossvf_rx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
-        if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema==0L ) ) continue; /* don't update zero-bandwith peers */
+        long new_rate_ema = (long)fd_gui_ema_value( &metric->rate_ema, now, (double)new_rate );
+        if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema.value==0.0 ) ) continue; /* don't update zero-bandwith peers */
         change = 1;
       }
 
       for( ulong i=0UL; !change && i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->row.gossip_tx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
-        if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema==0L ) ) continue; /* don't update zero-bandwith peers */
+        long new_rate_ema = (long)fd_gui_ema_value( &metric->rate_ema, now, (double)new_rate );
+        if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema.value==0.0 ) ) continue; /* don't update zero-bandwith peers */
         change = 1;
       }
 
@@ -1542,8 +1481,8 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->row.gossvf_rx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
-        metric->rate_ema  = fd_long_if( new_rate_ema<100L, 0L, new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
+        double new_rate_ema = fd_gui_ema_advance( &metric->rate_ema, now, (double)new_rate );
+        metric->rate_ema.value = fd_double_if( new_rate_ema<100.0, 0.0, new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
         metric->ref       = metric->cur;
         metric->update_timestamp_ns = now;
       }
@@ -1551,8 +1490,8 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->row.gossip_tx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
-        metric->rate_ema  = fd_long_if( new_rate_ema<100L, 0L, new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
+        double new_rate_ema = fd_gui_ema_advance( &metric->rate_ema, now, (double)new_rate );
+        metric->rate_ema.value = fd_double_if( new_rate_ema<100.0, 0.0, new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
         metric->ref       = metric->cur;
         metric->update_timestamp_ns = now;
       }
@@ -1560,11 +1499,11 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
 
       /* bandwidth_tracking */
       fd_gui_peers_bandwidth_tracking_ele_remove( peers->bw_tracking, peer, peers->contact_info_table );
-      peer->row.gossvf_rx_sum.rate_ema = (long)fd_gui_ema( peer->row.gossvf_rx_sum.update_timestamp_ns, now, (double)((long)peer->row.gossvf_rx_sum.cur - (long)peer->row.gossvf_rx_sum.ref) * 1e9 / window, (double)peer->row.gossvf_rx_sum.rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+      fd_gui_ema_advance( &peer->row.gossvf_rx_sum.rate_ema, now, (double)((long)peer->row.gossvf_rx_sum.cur - (long)peer->row.gossvf_rx_sum.ref) * 1e9 / window );
       peer->row.gossvf_rx_sum.ref      = peer->row.gossvf_rx_sum.cur;
       peer->row.gossvf_rx_sum.update_timestamp_ns = now;
 
-      peer->row.gossip_tx_sum.rate_ema = (long)fd_gui_ema( peer->row.gossip_tx_sum.update_timestamp_ns, now, (double)((long)peer->row.gossip_tx_sum.cur - (long)peer->row.gossip_tx_sum.ref) * 1e9 / window, (double)peer->row.gossip_tx_sum.rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+      fd_gui_ema_advance( &peer->row.gossip_tx_sum.rate_ema, now, (double)((long)peer->row.gossip_tx_sum.cur - (long)peer->row.gossip_tx_sum.ref) * 1e9 / window );
       peer->row.gossip_tx_sum.ref      = peer->row.gossip_tx_sum.cur;
       peer->row.gossip_tx_sum.update_timestamp_ns = now;
       fd_gui_peers_bandwidth_tracking_ele_insert( peers->bw_tracking, peer, peers->contact_info_table );

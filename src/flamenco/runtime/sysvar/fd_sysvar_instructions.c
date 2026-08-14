@@ -31,12 +31,17 @@ instructions_serialized_size( fd_txn_t const * txn ) {
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/svm/src/account_loader.rs#L547-L576 */
-void
+int
 fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
                                           fd_txn_out_t *      txn_out,
                                           ulong               txn_idx ) {
   fd_txn_t const * txn           = TXN( txn_in->txn );
   ulong            serialized_sz = instructions_serialized_size( txn );
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/svm/src/account_loader.rs#L660-L665 */
+  if( FD_UNLIKELY( fd_sysvar_instructions_offsets_overflow( txn ) ) ) {
+    return FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
+  }
   FD_TEST( serialized_sz<=FD_SYSVAR_INSTRUCTIONS_FOOTPRINT );
 
   fd_acc_t * acc = txn_out->accounts.account[ txn_idx ];
@@ -108,6 +113,8 @@ fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
 
   FD_STORE( ushort, serialized_instructions + offset, 0 );
   offset += sizeof(ushort);
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 /* Stores the current instruction index in the instructions sysvar account.

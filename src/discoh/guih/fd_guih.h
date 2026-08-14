@@ -78,45 +78,48 @@ typedef struct fd_guih_rate_entry fd_guih_rate_entry_t;
 #define DEQUE_MAX  4096UL
 #include "../../util/tmpl/fd_deque.c"
 
-/* frankendancer only */
-struct fd_guih_gossip_peer {
+struct FD_TYPE_PACKED fd_guih_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
   ushort      shred_version;
 
-  int has_version;
-  struct {
+  uchar has_version;
+  struct FD_TYPE_PACKED {
     ushort major;
     ushort minor;
     ushort patch;
 
-    int    has_commit;
+    uchar  has_commit;
     uint   commit;
 
     uint   feature_set;
+    ushort client_id;
   } version;
 
-  struct {
+  struct FD_TYPE_PACKED {
     uint   ipv4;
     ushort port;
   } sockets[ 12 ];
 };
 
-/* frankendancer only */
-struct fd_guih_vote_account {
-  fd_pubkey_t pubkey[ 1 ];
+typedef struct fd_guih_gossip_peer fd_guih_gossip_peer_t;
+
+struct FD_TYPE_PACKED fd_guih_vote_account {
   fd_pubkey_t vote_account[ 1 ];
+  fd_pubkey_t pubkey[ 1 ];
 
   ulong       activated_stake;
   ulong       last_vote;
   ulong       root_slot;
   ulong       epoch_credits;
   uchar       commission;
-  int         delinquent;
+  uchar       delinquent;
+  uchar       _reserved[ 14 ];
 };
 
-/* frankendancer only */
-struct fd_guih_validator_info {
+typedef struct fd_guih_vote_account fd_guih_vote_account_t;
+
+struct FD_TYPE_PACKED fd_guih_validator_info {
   fd_pubkey_t pubkey[ 1 ];
 
   char name[ 64 ];
@@ -124,6 +127,8 @@ struct fd_guih_validator_info {
   char details[ 256 ];
   char icon_uri[ 128 ];
 };
+
+typedef struct fd_guih_validator_info fd_guih_validator_info_t;
 
 /* frankendancer only */
 #define FD_GUIH_SLOT_LEADER_UNSTARTED (0UL)
@@ -260,7 +265,7 @@ struct fd_guih_validator_info {
    we won't record any additional shred updates for these slots.
 
    All shred events for a given slot will be places in a contiguous
-   chunk in the array, and the bounding indicies are stored in the
+   chunk in the array, and the bounding indices are stored in the
    fd_guih_slot_t slot history.  Within a slot chunk, shred events are
    ordered in the ordered they were recorded by the gui tile.
 
@@ -295,6 +300,8 @@ struct fd_guih_tile_timers {
   ulong  minflt;
   ulong  majflt;
   ulong  interrupts;
+  ulong  tlb_shootdowns;
+  ulong  timer_ticks;
 };
 
 typedef struct fd_guih_tile_timers fd_guih_tile_timers_t;
@@ -402,7 +409,7 @@ struct fd_guih_slot_staged_shred_event {
 
 typedef struct fd_guih_slot_staged_shred_event fd_guih_slot_staged_shred_event_t;
 
-struct __attribute__((packed)) fd_guih_slot_history_shred_event {
+struct FD_TYPE_PACKED fd_guih_slot_history_shred_event {
   long   timestamp;
   ushort shred_idx;
   uchar  event;
@@ -442,7 +449,7 @@ struct fd_guih_ephemeral_slot {
 };
 typedef struct fd_guih_ephemeral_slot fd_guih_ephemeral_slot_t;
 
-struct __attribute__((packed)) fd_guih_txn {
+struct FD_TYPE_PACKED fd_guih_txn {
   uchar signature[ FD_TXN_SIGNATURE_SZ ];
   ulong transaction_fee;
   ulong priority_fee;
@@ -802,9 +809,10 @@ struct fd_guih {
 
       ulong start_slot;
       ulong end_slot;
+      ulong target_slot_duration_nanos;
       fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
-      fd_vote_stake_weight_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+      fd_vote_stake_weight_t stakes[ MAX_STAKE_WEIGHTS ];
 
       ulong rankings_slot; /* One more than the largest slot we've processed into our rankings */
       fd_guih_slot_rankings_t rankings[ 1 ]; /* global slot rankings */

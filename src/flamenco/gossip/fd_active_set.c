@@ -269,7 +269,7 @@ fd_active_set_push( fd_active_set_t *   active_set,
     fd_active_set_peer_t * peer = &active_set->peers[ stake_bucket*12UL+((entry->nodes_idx+i) % 12UL) ];
 
     /* If the value originated from us, we should always push it, even
-       if theres a bloom filter hit, since bloom filters can have false
+       if there's a bloom filter hit, since bloom filters can have false
        positives and we don't want to accidentally not push our own
        values. */
     if( FD_UNLIKELY( fd_bloom_contains( peer->bloom, origin_pubkey, 32UL ) && !originates_from_me ) ) continue;

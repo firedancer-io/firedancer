@@ -7,7 +7,6 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/topo/fd_cpu_topo.h"
 #include "../../../util/pod/fd_pod_format.h"
-#include "../../../util/tile/fd_tile_private.h"
 
 #include "../../firedancer/topology.h"
 #include "../../shared/commands/configure/configure.h"
@@ -22,6 +21,7 @@
 #include "../../shared/commands/monitor/helper.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../discof/restore/utils/fd_ssmanifest_parser.h"
+#include "../../../discof/genesis/fd_genesi_tile.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../flamenco/stakes/fd_stake_weight.h"
 #include "../../../flamenco/leaders/fd_leaders_base.h"
@@ -65,11 +65,8 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
-void
-resolve_gossip_entrypoints( config_t * config );
-
 #define MANIFEST_LOAD_MAX_SZ (2UL * FD_SHMEM_GIGANTIC_PAGE_SZ)
-#define REPAIR_EPOCH_VOTE_STAKES_MAX (40200UL)
+#define REPAIR_EPOCH_VOTE_STAKES_MAX FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
 static int
@@ -87,7 +84,7 @@ repair_verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
 
   for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
     int found = 0;
-    for( ulong j=0UL; j<FD_EPOCH_STAKES_LEN; j++ ) {
+    for( ulong j=0UL; j<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
       if( manifest->epoch_stakes[j].epoch==i ) {
         found = 1;
         break;
@@ -113,7 +110,7 @@ repair_generate_epoch_info_msg( ulong                                      epoch
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
-  epoch_info_msg->excluded_id_stake = 0UL;
+  epoch_info_msg->ns_per_slot       = FD_SLOT_PARAMS_400MS.ns_per_slot;
 
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
 
@@ -152,7 +149,7 @@ repair_load_manifest( fd_topo_t *  topo,
 
   fd_snapshot_manifest_t * manifest = aligned_alloc( alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
   FD_TEST( manifest );
-  for( ulong i=0UL; i<FD_EPOCH_STAKES_LEN; i++ ) manifest->epoch_stakes[i].epoch = ULONG_MAX;
+  for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) manifest->epoch_stakes[i].epoch = ULONG_MAX;
 
   uchar * buf = aligned_alloc( 128UL, MANIFEST_LOAD_MAX_SZ );
   FD_TEST( buf );
@@ -162,9 +159,9 @@ repair_load_manifest( fd_topo_t *  topo,
 
   fd_snapshot_manifest_vote_stakes_t * vote_stakes =
       aligned_alloc( alignof(fd_snapshot_manifest_vote_stakes_t),
-                     sizeof(fd_snapshot_manifest_vote_stakes_t)*FD_EPOCH_STAKES_LEN*REPAIR_EPOCH_VOTE_STAKES_MAX );
+                     sizeof(fd_snapshot_manifest_vote_stakes_t)*FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN*REPAIR_EPOCH_VOTE_STAKES_MAX );
   FD_TEST( vote_stakes );
-  ulong vote_stakes_len[ FD_EPOCH_STAKES_LEN ] = {0};
+  ulong vote_stakes_len[ FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ] = {0};
 
   fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new(
       aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
@@ -179,7 +176,7 @@ repair_load_manifest( fd_topo_t *  topo,
     if( pres==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN || pres==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) break;
     if( pres==FD_SSMANIFEST_PARSER_ADVANCE_VOTE_STAKES ) {
       ulong slot = mres->vote_stakes.epoch_idx;
-      FD_TEST( slot<FD_EPOCH_STAKES_LEN );
+      FD_TEST( slot<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN );
       ulong j = vote_stakes_len[ slot ]++;
       FD_TEST( j<REPAIR_EPOCH_VOTE_STAKES_MAX );
       vote_stakes[ slot*REPAIR_EPOCH_VOTE_STAKES_MAX + j ] = *mres->vote_stakes.vs;
@@ -248,7 +245,7 @@ repair_load_manifest( fd_topo_t *  topo,
   ulong epoch_stakes_base      = epoch > 0UL ? epoch - 1UL : 0UL;
   ulong leader_schedule_epoch  = fd_slot_to_leader_schedule_epoch( schedule, manifest->slot );
   ulong cur_idx = epoch - epoch_stakes_base;
-  FD_TEST( cur_idx < FD_EPOCH_STAKES_LEN );
+  FD_TEST( cur_idx < FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN );
 
   ulong * epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
   ulong epoch_sz = repair_generate_epoch_info_msg( epoch, schedule,
@@ -262,7 +259,7 @@ repair_load_manifest( fd_topo_t *  topo,
 
   if( leader_schedule_epoch >= epoch + 1UL ) {
     ulong next_idx = epoch + 1UL - epoch_stakes_base;
-    FD_TEST( next_idx < FD_EPOCH_STAKES_LEN );
+    FD_TEST( next_idx < FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN );
 
     epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
     epoch_sz = repair_generate_epoch_info_msg( epoch + 1UL, schedule,
@@ -289,8 +286,6 @@ repair_load_manifest( fd_topo_t *  topo,
    the full topology. */
 static void
 repair_topo( config_t * config ) {
-  resolve_gossip_entrypoints( config );
-
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
@@ -317,7 +312,7 @@ repair_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 0 );
 
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
     if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
@@ -368,7 +363,7 @@ repair_topo( config_t * config ) {
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",    "net_shred",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
-  /**/                 fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL,                                    FD_EPOCH_OUT_MTU,              1UL );
+  /**/                 fd_topob_link( topo, "replay_epoch", "replay_epoch", 16UL,                                     FD_EPOCH_OUT_MTU,              1UL );
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   128UL,                                    32UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   128UL,                                    64UL,                          1UL );
@@ -381,13 +376,13 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "repair_out",   "repair_out",   128UL,                                    sizeof(fd_fec_complete_t),   1UL );
 
-  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
+  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  FD_POH_SHRED_MTU,              1UL );
 
   /**/                 fd_topob_link( topo, "txsend_out",   "txsend_out",   128UL,                                    FD_TXN_MTU,                    1UL );
 
   /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,                                      sizeof(fd_snapshot_manifest_t),1UL );
 
-  /**/                 fd_topob_link( topo, "genesi_out",   "genesi_out",   1UL,                                      FD_GENESIS_TILE_MTU,            1UL );
+  /**/                 fd_topob_link( topo, "genesi_out",   "genesi_out",   1UL,                                      fd_genesi_tile_mtu( config->firedancer.development.genesis.max_file_size_mib<<20 ), 1UL );
   /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,                                   sizeof(fd_tower_msg_t),         1UL );
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
@@ -402,7 +397,7 @@ repair_topo( config_t * config ) {
 
   ulong shred_depth = 65536UL; /* from fdctl/topology.c shred_store link. MAKE SURE TO KEEP IN SYNC. */
   ulong fec_set_cnt = 2UL*shred_depth + config->tiles.shred.max_pending_shred_sets + 6UL;
-  ulong fec_sets_sz = fec_set_cnt*sizeof(fd_fec_set_t); /* mirrors # of dcache entires in frankendancer */
+  ulong fec_sets_sz = fec_set_cnt*sizeof(fd_fec_set_t); /* mirrors # of dcache entries in frankendancer */
   fd_topo_obj_t * fec_sets_obj = setup_topo_fec_sets( topo, "fec_sets", shred_tile_cnt*fec_sets_sz );
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];

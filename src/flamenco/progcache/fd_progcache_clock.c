@@ -42,15 +42,16 @@ fd_prog_clock_evict( fd_progcache_t * cache,
         mask = 1UL<<fd_prog_visited_bit( head );
       } else {
         long res = fd_prog_delete_rec( cache->join, rec0+head );
+        fd_racesan_hook( "prog_clock_evict:post_delete" );
         if( res>=0L ) {
           rec_rem--;
           heap_rem -= res;
           cache->metrics->evict_cnt++;
           cache->metrics->evict_tot_sz += (ulong)res;
+          mask = 3UL<<fd_prog_visited_bit( head );
         }
-        mask = 3UL<<fd_prog_visited_bit( head );
       }
-      atomic_fetch_and_explicit( slot_p, ~mask, memory_order_relaxed );
+      if( mask ) atomic_fetch_and_explicit( slot_p, ~mask, memory_order_relaxed );
     }
 
     head++;

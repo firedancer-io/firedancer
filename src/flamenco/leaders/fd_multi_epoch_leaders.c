@@ -17,7 +17,7 @@ fd_multi_epoch_leaders_new( void * shmem ) {
   /* Initialize all epochs to satisfy invariants */
   fd_vote_stake_weight_t dummy_stakes[ 1 ] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
   for( ulong i=0UL; i<MULTI_EPOCH_LEADERS_EPOCH_CNT; i++ ) {
-    leaders->lsched[i] = fd_epoch_leaders_join( fd_epoch_leaders_new( leaders->_lsched[i], i, 0UL, 1UL, 1UL, dummy_stakes, 0UL ) );
+    leaders->lsched[i] = fd_epoch_leaders_join( fd_epoch_leaders_new( leaders->_lsched[i], i, 0UL, 1UL, 1UL, dummy_stakes ) );
     FD_TEST( leaders->lsched[i] );
     leaders->init_done[i] = 0;
   }
@@ -95,9 +95,9 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
 void
 fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t   * mleaders,
                                        fd_stake_weight_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_STAKE_WEIGHTS ) )
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_STAKE_WEIGHTS ));
 
   mleaders->scratch->epoch             = msg->epoch;
   mleaders->scratch->start_slot        = msg->start_slot;
@@ -110,9 +110,9 @@ fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t   * mleaders,
 void
 fd_multi_epoch_leaders_epoch_msg_init( fd_multi_epoch_leaders_t   * mleaders,
                                        fd_epoch_info_msg_t const  * msg ) {
-  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_STAKE_WEIGHTS ) )
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_STAKE_WEIGHTS ));
 
   mleaders->scratch->epoch             = msg->epoch;
   mleaders->scratch->start_slot        = msg->start_slot;
@@ -140,7 +140,7 @@ fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders ) {
   uchar *  lsched_mem        = mleaders->_lsched[epoch_idx];
   mleaders->lsched[epoch_idx] = fd_epoch_leaders_join( fd_epoch_leaders_new(
                                     lsched_mem, epoch, slot0, slot_cnt,
-                                    pub_cnt, stakes, 0UL ) );
+                                    pub_cnt, stakes ) );
   mleaders->init_done[epoch_idx] = 1;
 }
 

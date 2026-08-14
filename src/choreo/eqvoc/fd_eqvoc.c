@@ -83,19 +83,21 @@
 
 typedef struct {
   ulong slot;
-  ulong next; /* pool next */
+  uint next; /* pool next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
 } dup_t;
 
 #define POOL_NAME dup_pool
+#define POOL_LAZY 1
 #define POOL_T    dup_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           dup_map
@@ -103,6 +105,7 @@ typedef struct {
 #define MAP_KEY                            slot
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -110,18 +113,19 @@ typedef struct {
 #define DLIST_ELE_T dup_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 typedef struct {
   ulong key;  /* 32 bits = slot | 32 lsb = fec_set_idx  */
-  ulong next; /* pool next */
+  uint next; /* pool next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   union {
     fd_shred_t sample_shred;                  /* highest shred seen so far, by index */
@@ -130,13 +134,16 @@ typedef struct {
 } fec_t;
 
 #define POOL_NAME fec_pool
+#define POOL_LAZY 1
 #define POOL_T    fec_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           fec_map
 #define MAP_ELE_T                          fec_t
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -144,6 +151,7 @@ typedef struct {
 #define DLIST_ELE_T fec_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 typedef struct {
@@ -153,14 +161,14 @@ typedef struct {
 
 struct prf {
   xid_t key;
-  ulong next;
+  uint next;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   uchar idxs; /* [0, 7]. bit vec encoding which of the chunk idxs have been received (at most FD_EQVOC_CHUNK_CNT = 3). */
   ulong buf_sz;
@@ -169,7 +177,9 @@ struct prf {
 typedef struct prf prf_t;
 
 #define POOL_NAME prf_pool
+#define POOL_LAZY 1
 #define POOL_T    prf_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           prf_map
@@ -177,6 +187,7 @@ typedef struct prf prf_t;
 #define MAP_KEY_T                          xid_t
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  ((((k0)->slot)==((k1)->slot)) & !(memcmp(((k0)->from.uc),((k1)->from.uc),sizeof(fd_pubkey_t))))
 #define MAP_KEY_HASH(key,seed)             fd_ulong_hash( ((key)->slot) ^ ((key)->from.ul[0]) ^ (seed) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -186,18 +197,19 @@ typedef struct prf prf_t;
 #define DLIST_ELE_T prf_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct vtr {
   fd_pubkey_t from;
-  ulong       next; /* pool next; reused as kept flag during update_voters */
+  uint        next; /* pool next; reused as kept flag during update_voters */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   ulong         prf_dlist_cnt;
   prf_dlist_t * prf_dlist;
@@ -205,7 +217,9 @@ struct vtr {
 typedef struct vtr vtr_t;
 
 #define POOL_NAME vtr_pool
+#define POOL_LAZY 1
 #define POOL_T    vtr_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           vtr_map
@@ -214,6 +228,7 @@ typedef struct vtr vtr_t;
 #define MAP_KEY                            from
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,sizeof(fd_pubkey_t)))
 #define MAP_KEY_HASH(key,seed)             ((ulong)((key)->ul[1]^(seed)))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -223,6 +238,7 @@ typedef struct vtr vtr_t;
 #define DLIST_ELE_T vtr_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct fd_eqvoc {
@@ -267,6 +283,10 @@ fd_eqvoc_footprint( ulong dup_max,
   fec_max       = fd_ulong_pow2_up( fec_max );
   per_vtr_max   = fd_ulong_pow2_up( per_vtr_max );
   vtr_max       = fd_ulong_pow2_up( vtr_max );
+  if( FD_UNLIKELY( !dup_max     || dup_max>UINT_MAX ||
+                   !fec_max     || fec_max>UINT_MAX ||
+                   !per_vtr_max || !vtr_max         || vtr_max>UINT_MAX ||
+                   per_vtr_max>UINT_MAX/vtr_max ) ) return 0UL;
   ulong prf_max = per_vtr_max * vtr_max;
 
   ulong l = FD_LAYOUT_INIT;
@@ -795,6 +815,9 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
   off += sizeof(ulong);
 
   if( FD_UNLIKELY( prf->buf_sz - off < shred1_sz ) ) goto cleanup;
+  /* We use FD_SHRED_BLK_MAX as max_shred_idx because that is what
+     Agave does here (Shred::new_from_serialized_shred in into_shreds):
+     https://github.com/anza-xyz/agave/blob/v4.2/gossip/src/duplicate_shred.rs#L350-L351 */
   fd_shred_t const * shred1 = fd_shred_parse( prf->buf + off, shred1_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( !shred1 || fd_shred_sz( shred1 )!=shred1_sz ) ) goto cleanup; /* check the sz matches parsed shred's type */
   off += shred1_sz;

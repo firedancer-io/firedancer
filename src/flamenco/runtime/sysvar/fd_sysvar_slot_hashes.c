@@ -58,6 +58,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *        bank,
     FD_STORE( ulong, data, keep + 1UL );
   }
 
+  fd_sysvar_adjust_balance_for_rent( bank, &acc );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 }
 

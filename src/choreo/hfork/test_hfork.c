@@ -3,6 +3,17 @@
 #define SCRATCH_MAX (1UL<<18)
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
+static void
+test_compact_indices( void ) {
+  FD_TEST( sizeof(bhm_t)==104UL );
+  FD_TEST( sizeof(blk_t)==96UL  );
+  FD_TEST( sizeof(vte_t)==136UL );
+  FD_TEST( sizeof(vtr_t)==72UL  );
+  FD_TEST( bhm_dlist_footprint()==16UL );
+  FD_TEST( !fd_hfork_footprint( 1UL<<21, 1UL<<11 ) );
+  FD_TEST( !fd_hfork_footprint( 1UL,     1UL<<32 ) );
+}
+
 /* Helper to query bhm by (block_id, bank_hash). */
 static bhm_t *
 bhm_query( fd_hfork_t * hfork, fd_hash_t const * block_id, fd_hash_t const * bank_hash ) {
@@ -483,6 +494,7 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
+  test_compact_indices();
   test_count_vote();
   test_record_our_bank_hash();
   test_update_voters();

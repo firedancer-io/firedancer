@@ -68,7 +68,7 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_txsend_tile_t), sizeof(fd_txsend_tile_t) );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),           fd_quic_footprint( &quic_limits ) );
@@ -101,6 +101,15 @@ during_housekeeping( fd_txsend_tile_t * ctx ) {
 
     memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    ulong seq_must_complete = fd_keyswitch_param_query( ctx->av_keyswitch );
+    if( FD_UNLIKELY( fd_seq_lt( ctx->tower_in_expect_seq, seq_must_complete ) ) ) {
+      FD_LOG_WARNING(( "Flushing in-flight votes from tower, must reach seq %lu, currently at %lu ...", seq_must_complete, ctx->tower_in_expect_seq ));
+      return;
+    }
+    fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
 
@@ -293,6 +302,8 @@ after_credit( fd_txsend_tile_t *  ctx,
               int *               charge_busy ) {
   ctx->stem = stem;
 
+  if( FD_UNLIKELY( !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
+
   *charge_busy = fd_quic_service( ctx->quic, fd_log_wallclock() );
   *opt_poll_in = !*charge_busy; /* refetch credits to prevent above documented situation */
 
@@ -372,7 +383,7 @@ after_credit( fd_txsend_tile_t *  ctx,
   }
 }
 
-void
+static void
 send_vote_to_leader( fd_txsend_tile_t *  ctx,
                      fd_pubkey_t const * leader_pubkey,
                      uchar const       * vote_payload,
@@ -587,7 +598,7 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
 
   uchar *       signatures = payload + txn->signature_off;
   uchar const * message    = payload + txn->message_off;
-  ulong         message_sz = slot_done->vote_txn_sz - txn->message_off;
+  ulong         message_sz = fd_txn_msg_sz( txn, slot_done->vote_txn_sz );
   fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, slot_done->authority_idx, message, message_sz );
 
   FD_BASE58_ENCODE_64_BYTES( signatures, vote_sig_b58 );
@@ -617,6 +628,8 @@ before_frag( fd_txsend_tile_t * ctx,
              ulong              in_idx,
              ulong              seq,
              ulong              sig ) {
+  fd_startup_gate_busy( ctx->startup_gate );
+
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) ) ctx->tower_in_expect_seq = seq+1UL;
   if( FD_UNLIKELY( ctx->halt_net_frags && ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) return -1;
 
@@ -646,8 +659,8 @@ during_frag( fd_txsend_tile_t * ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark, ctx->in[ in_idx ].mtu ));
 
     fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    FD_TEST( msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS ); /* implicit sz verification since sz field on frag_meta too small */
-    FD_TEST( msg->staked_id_cnt<=MAX_SHRED_DESTS );
+    FD_TEST( msg->staked_vote_cnt<=MAX_STAKE_WEIGHTS ); /* implicit sz verification since sz field on frag_meta too small */
+    FD_TEST( msg->staked_id_cnt<=MAX_STAKE_WEIGHTS );
   } else {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark, ctx->in[ in_idx ].mtu ));
@@ -776,6 +789,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->src_port    = tile->txsend.txsend_src_port;
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
+
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[ 0 ]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -816,6 +831,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
+  ctx->av_keyswitch = NULL;
+  if( FD_UNLIKELY( tile->av_keyswitch_obj_id!=ULONG_MAX ) ) {
+    ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
+    FD_TEST( ctx->av_keyswitch );
+  }
+
   ctx->tower_in_expect_seq = 0UL;
   ctx->halt_net_frags = 0;
 
@@ -827,8 +848,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-
-  fd_sleep_until_replay_started( topo );
 }
 
 static ulong
@@ -870,9 +889,14 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_signed_vote_t);
+}
+
 fd_topo_run_tile_t fd_tile_txsend = {
   .name                     = "txsend",
-  .max_event_sz             = sizeof(fd_event_signed_vote_t),
+  .max_event_sz             = max_event_sz,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

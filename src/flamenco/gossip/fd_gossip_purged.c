@@ -304,8 +304,9 @@ fd_gossip_purged_mask_iter_next( fd_gossip_purged_mask_iter_t * it,
 int
 fd_gossip_purged_mask_iter_done( fd_gossip_purged_mask_iter_t * it,
                                  fd_gossip_purged_t const *     purged ) {
+  if( FD_UNLIKELY( purged_treap_idx_is_null( it->idx ) ) ) return 1;
   fd_crds_purged_t const * val = purged_treap_ele_fast_const( it->idx, purged->pool );
-  return purged_treap_idx_is_null( it->idx ) || (it->end_hash<val->treap.hash_prefix);
+  return it->end_hash<val->treap.hash_prefix;
 }
 
 uchar const *

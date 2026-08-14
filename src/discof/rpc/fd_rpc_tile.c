@@ -1,9 +1,10 @@
 #include "../replay/fd_replay_tile.h"
+#include "../tower/fd_tower_tile.h"
 #include "../genesis/fd_genesi_tile.h"
 
-#include "../../ballet/json/cJSON_alloc.h"
+#include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../ballet/base64/fd_base64.h"
-#include "../../ballet/json/cJSON.h"
+#include "../../third_party/cjson/cJSON.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -16,7 +17,6 @@
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../waltz/http/fd_http_server.h"
@@ -28,11 +28,12 @@
 #include <string.h>
 
 #if FD_HAS_ZSTD
+#define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 #endif
 
 #include "../../util/archive/fd_tar.h"
-#include "../../ballet/bzip2/bzlib.h"
+#include "../../third_party/bzip2/bzlib.h"
 
 #include "generated/fd_rpc_tile_seccomp.h"
 
@@ -44,16 +45,26 @@
 #define IN_KIND_REPLAY      (0)
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
+#define IN_KIND_TOWER       (3)
 
 /* From bzip2 docs:
       To guarantee that the compressed data will fit in its buffer,
       allocate an output buffer of size 1% larger than the uncompressed
       data, plus six hundred extra bytes.
 */
-#define FD_RPC_TAR_SZ (FD_GENESIS_MAX_MESSAGE_SIZE + 4UL*512UL)
-#define FD_RPC_TAR_BZ_SZ (FD_RPC_TAR_SZ + ((FD_RPC_TAR_SZ + 100UL - 1UL) / 100UL) + 600UL)
+FD_FN_CONST static inline ulong
+fd_rpc_genesis_tar_max_sz( ulong max_message_size ) {
+  return max_message_size + 4UL*FD_TAR_BLOCK_SZ;
+}
+
+FD_FN_CONST static inline ulong
+fd_rpc_genesis_tar_bz_max_sz( ulong max_message_size ) {
+  ulong tar_max_sz = fd_rpc_genesis_tar_max_sz( max_message_size );
+  return tar_max_sz + ((tar_max_sz + 100UL - 1UL) / 100UL) + 600UL;
+}
 
 #define FD_RPC_BASE58_ENCODED_128_LEN (175UL) /* ceil(128*log58(256)) */
+#define FD_RPC_ZSTD_LEVEL 1
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -68,6 +79,9 @@
 #define FD_RPC_HEALTH_STATUS_OK      (0)
 #define FD_RPC_HEALTH_STATUS_BEHIND  (1)
 #define FD_RPC_HEALTH_STATUS_UNKNOWN (2)
+
+/* Matches Agave's default health_check_slot_distance. */
+#define FD_RPC_HEALTH_CHECK_SLOT_DISTANCE (128UL)
 
 #define FD_RPC_METHOD_GET_ACCOUNT_INFO                       ( 0)
 #define FD_RPC_METHOD_GET_BALANCE                            ( 1)
@@ -259,13 +273,18 @@ struct fd_rpc_tile {
   int has_genesis_hash;
   fd_hash_t genesis_hash[ 1 ];
 
-  uchar genesis_tar[ FD_RPC_TAR_SZ ];
-  uchar genesis_tar_bz[ FD_RPC_TAR_BZ_SZ ];
   ulong genesis_tar_bz_sz;
+  ulong genesis_max_message_size;
+  ulong genesis_tar_max_sz;
+  ulong genesis_tar_bz_max_sz;
+  uchar * genesis_tar;
+  uchar * genesis_tar_bz;
 
   fd_alloc_t * bz2_alloc;
 
-  long next_poll_deadline;
+  long  next_poll_deadline;
+  ulong in_cnt;
+  ulong idle_cnt;
 
   fd_keyswitch_t * keyswitch;
   uchar identity_pubkey[ 32UL ];
@@ -278,6 +297,7 @@ struct fd_rpc_tile {
   fd_histf_t request_duration[ 1 ];
 
 # if FD_HAS_ZSTD
+  ZSTD_CCtx * zstd_cctx;
   uchar compress_buf[ ZSTD_COMPRESSBOUND( FD_RUNTIME_ACC_SZ_MAX ) ];
 # endif
 
@@ -285,6 +305,10 @@ struct fd_rpc_tile {
      data bytes returned by the readonly accdb path.  Sized to the
      runtime account data maximum.  Must not be in accdb shmem. */
   uchar accdb_data_buf[ FD_RUNTIME_ACC_SZ_MAX ];
+
+  /* Redirect to snapshot server */
+  int    snapshot_server_enabled;
+  char   snapshot_server_url[ 288UL ];
 };
 
 typedef struct fd_rpc_tile fd_rpc_tile_t;
@@ -370,11 +394,11 @@ fd_rpc_file_as_tarball( fd_rpc_tile_t * ctx,
                         ulong           scratch_sz,
                         uchar *         out,
                         ulong           out_sz ) {
-  ulong padding_sz = 2*512UL;
-  if( FD_LIKELY( data_sz % 512UL ) ) padding_sz += 512UL - (data_sz % 512UL);
+  ulong padding_sz = 2UL*FD_TAR_BLOCK_SZ;
+  if( FD_LIKELY( data_sz % FD_TAR_BLOCK_SZ ) ) padding_sz += FD_TAR_BLOCK_SZ - (data_sz % FD_TAR_BLOCK_SZ);
 
-  if( FD_UNLIKELY( data_sz>FD_GENESIS_MAX_MESSAGE_SIZE ) ) {
-    FD_LOG_ERR(( "Genesis data exceeds maximum size (data_sz=%lu max=%lu)", data_sz, (ulong)FD_GENESIS_MAX_MESSAGE_SIZE ));
+  if( FD_UNLIKELY( data_sz>ctx->genesis_max_message_size ) ) {
+    FD_LOG_ERR(( "Genesis data exceeds maximum size (data_sz=%lu max=%lu)", data_sz, ctx->genesis_max_message_size ));
   }
   ulong tar_sz = sizeof(fd_tar_meta_t) + data_sz + padding_sz;
   if( FD_UNLIKELY( tar_sz>scratch_sz ) ) {
@@ -435,15 +459,20 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( !http_fp ) ) FD_LOG_ERR(( "Invalid [tiles.rpc] config parameters" ));
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                         );
-  l = FD_LAYOUT_APPEND( l, fd_http_server_align(),   http_fp                                         );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                            );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                            );
-  l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)    );
-  l = FD_LAYOUT_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint()  );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots )  );
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong) );
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_rpc_tile_t),            sizeof(fd_rpc_tile_t)                                              );
+  l = FD_LAYOUT_APPEND( l, fd_http_server_align(),            http_fp                                                            );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                  fd_alloc_footprint()                                               );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                  fd_alloc_footprint()                                               );
+  l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),              tile->rpc.max_live_slots*sizeof(bank_info_t)                       );
+  l = FD_LAYOUT_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint()                              );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->rpc.max_live_slots )                     );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
+  l = FD_LAYOUT_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size )    );
+  l = FD_LAYOUT_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size ) );
+# if FD_HAS_ZSTD
+  l = FD_LAYOUT_APPEND( l, 16UL, ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL ) );
+# endif
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -476,10 +505,14 @@ before_credit( fd_rpc_tile_t *     ctx,
                int *               charge_busy ) {
   (void)stem;
 
+  ctx->idle_cnt++;
+  if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
+  ctx->idle_cnt = 0UL;
+
   long now = fd_tickcount();
   int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
   if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_deadline ) ) {
-    *charge_busy = fd_http_server_poll( ctx->http, 0 );
+    *charge_busy = fd_http_server_poll( ctx->http, 0, 1UL );
     ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL )*128L*1000L);
   }
 }
@@ -645,6 +678,8 @@ returnable_frag( fd_rpc_tile_t *     ctx,
                  ulong               tspub FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
 
+  ctx->idle_cnt = 0UL;
+
   if( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) {
     switch( sig ) {
       case REPLAY_SIG_SLOT_COMPLETED: {
@@ -684,8 +719,13 @@ returnable_frag( fd_rpc_tile_t *     ctx,
            "voted-for" would fail in Agave in cases where a cast vote
            does not land.
 
+           Due to bank eviction semantics, it is possible that the RPC
+           can return data about a slot that is not the most recently
+           replayed slot (since slots can be re-replayed).
+
            tldr: This isn't strictly conformant with Agave, but doesn't
-           need to be since Agave doesn't provide any guarantees anyways. */
+           need to be since Agave doesn't provide any guarantees
+           anyways. */
         if( FD_LIKELY( ctx->processed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->processed_idx = slot_completed->bank_idx;
         break;
@@ -695,7 +735,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->confirmed_idx = msg->bank_idx;
-        ctx->cluster_confirmed_slot = msg->slot;
         break;
       }
       case REPLAY_SIG_ROOT_ADVANCED: {
@@ -703,6 +742,22 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         if( FD_LIKELY( ctx->finalized_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->finalized_idx = msg->bank_idx;
+        break;
+      }
+      case REPLAY_SIG_DROP_BANK_REF: {
+        fd_replay_drop_bank_ref_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        if( FD_UNLIKELY( ctx->processed_idx==msg->bank_idx ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->processed_idx = ULONG_MAX;
+        }
+        if( FD_UNLIKELY( ctx->confirmed_idx==msg->bank_idx ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->confirmed_idx = ULONG_MAX;
+        }
+        if( FD_UNLIKELY( ctx->finalized_idx==msg->bank_idx ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->finalized_idx = ULONG_MAX;
+        }
         break;
       }
       default: {
@@ -738,6 +793,14 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       }
       default: break;
     }
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) {
+    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+      fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      if( FD_LIKELY( msg->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC ) ) {
+        if( FD_LIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) ctx->cluster_confirmed_slot = msg->slot;
+        else                                                      ctx->cluster_confirmed_slot = fd_ulong_max( ctx->cluster_confirmed_slot, msg->slot );
+      }
+    }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
     fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -745,14 +808,14 @@ returnable_frag( fd_rpc_tile_t *     ctx,
 
     uchar const * blob    = (uchar const *)( genesis_meta+1 );
     ulong const   blob_sz = genesis_meta->blob_sz;
-    FD_TEST( blob_sz<=FD_GENESIS_MAX_MESSAGE_SIZE );
+    FD_TEST( blob_sz<=ctx->genesis_max_message_size );
 
     ctx->genesis_tar_bz_sz = fd_rpc_file_as_tarball(
       ctx,
       "genesis.bin",
       blob, blob_sz,
-      ctx->genesis_tar, sizeof(ctx->genesis_tar),
-      ctx->genesis_tar_bz, sizeof(ctx->genesis_tar_bz) );
+      ctx->genesis_tar, ctx->genesis_tar_max_sz,
+      ctx->genesis_tar_bz, ctx->genesis_tar_bz_max_sz );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) {
       FD_LOG_ERR(( "failed to create genesis tarball (blob_sz=%lu)", blob_sz ));
     }
@@ -1258,7 +1321,7 @@ fd_rpc_encode_account_data( fd_rpc_tile_t *             ctx,
 
 # if FD_HAS_ZSTD
   if( is_zstd ) {
-    ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), out, snip_sz, 0 );
+    ulong zstd_res = ZSTD_compressCCtx( ctx->zstd_cctx, ctx->compress_buf, sizeof(ctx->compress_buf), out, snip_sz, FD_RPC_ZSTD_LEVEL );
     if( ZSTD_isError( zstd_res ) ) {
       fd_http_server_unstage( ctx->http );
       *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard compression failed (%s)\"},\"id\":%s}\n", ZSTD_getErrorName( zstd_res ), id_cstr );
@@ -1593,7 +1656,7 @@ getGenesisHash( fd_rpc_tile_t * ctx,
 
     - Finally, once the cluster confirmed slot is known, which is the
       highest optimistically confirmed slot observed from both gossip,
-      and votes procesed in blocks, it is compared to our own
+      and votes processed in blocks, it is compared to our own
       optimistically confirmed slot, which is just the highest slot down
       the cluster confirmed fork that we have finished replaying
       locally.  The difference between these two slots is compared, and
@@ -1616,8 +1679,8 @@ _getHealth( fd_rpc_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
 
   ulong slots_behind = fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot );
-  if( FD_LIKELY( slots_behind<=128UL ) ) return FD_RPC_HEALTH_STATUS_OK;
-  else                                   return FD_RPC_HEALTH_STATUS_BEHIND;
+  if( FD_LIKELY( slots_behind<=FD_RPC_HEALTH_CHECK_SLOT_DISTANCE ) ) return FD_RPC_HEALTH_STATUS_OK;
+  else                                                               return FD_RPC_HEALTH_STATUS_BEHIND;
 }
 
 static fd_http_server_response_t
@@ -2086,11 +2149,26 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     FD_MCNT_INC( RPC, REQUEST_SERVED_GENESIS, 1UL );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
 
-    fd_http_server_response_t response = (fd_http_server_response_t){ .status = 200 };
-    fd_http_server_memcpy( ctx->http, ctx->genesis_tar_bz, ctx->genesis_tar_bz_sz );
-    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-    return response;
+    return (fd_http_server_response_t) {
+      .status          = 200,
+      .static_body     = ctx->genesis_tar_bz,
+      .static_body_len = ctx->genesis_tar_bz_sz,
+    };
   }
+
+  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET &&
+                   ( !strncmp( request->path, "/snapshot",             9UL ) ||
+                     !strncmp( request->path, "/incremental-snapshot", 21UL ) ) ) ) {
+    if( FD_UNLIKELY( !ctx->snapshot_server_enabled ) ) {
+      return (fd_http_server_response_t){ .status = 403 }; /* forbidden */
+    }
+    return (fd_http_server_response_t){
+      .status       = 302,
+      .location     = { ctx->snapshot_server_url, request->path_raw },
+      .location_len = { strlen( ctx->snapshot_server_url ), request->path_len },
+    };
+  }
+
 
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET ) ) {
     return (fd_http_server_response_t){ .status = 404 };
@@ -2348,8 +2426,16 @@ privileged_init( fd_topo_t const *      topo,
     .ws_message = rpc_ws_message,
   };
   ctx->http = fd_http_server_join( fd_http_server_new( _http, http_params, callbacks, ctx ) );
-  fd_http_server_listen( ctx->http, tile->rpc.listen_addr, tile->rpc.listen_port );
-  FD_LOG_NOTICE(( "rpc server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->rpc.listen_addr ), tile->rpc.listen_port ));
+  ctx->snapshot_server_enabled = tile->rpc.snapshot_server_enabled;
+  if( FD_LIKELY( ctx->snapshot_server_enabled ) ) {
+    FD_TEST( fd_cstr_printf_check(
+        ctx->snapshot_server_url, sizeof(ctx->snapshot_server_url), NULL,
+        "http://%s:%u", tile->rpc.snapshot_server_host,
+        tile->rpc.snapshot_server_port ) );
+  }
+  fd_http_server_listen6( ctx->http, &tile->rpc.listen_addr, tile->rpc.listen_port );
+  char listen_addr_cstr[ FD_IP6_ADDR_CSTR_MAX ]; fd_ip6_addr_cstr( listen_addr_cstr, &tile->rpc.listen_addr );
+  FD_LOG_NOTICE(( "rpc server listening at %shttp://%s:%u%s", fd_log_style_bold(), listen_addr_cstr, tile->rpc.listen_port, fd_log_style_normal() ));
 }
 
 static inline fd_rpc_out_t
@@ -2387,15 +2473,21 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_http_server_params_t http_params = derive_http_params( tile );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                                );
-                        FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( http_params )                );
-  void * _alloc       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
-  void * _bz2_alloc   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
-  void * _banks       = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)           );
-  void * _nodes_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
-  void * _accdb_join  = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots )         );
-  void * _ws_sub_vote = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong)        );
-  void * _ws_sub_slot = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong)        );
+  fd_rpc_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpc_tile_t),            sizeof(fd_rpc_tile_t)                                              );
+                           FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),            fd_http_server_footprint( http_params )                            );
+  void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                  fd_alloc_footprint()                                               );
+  void * _bz2_alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                  fd_alloc_footprint()                                               );
+  void * _banks          = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),              tile->rpc.max_live_slots*sizeof(bank_info_t)                       );
+  void * _nodes_dlist    = FD_SCRATCH_ALLOC_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint()                              );
+  void * _accdb_join     = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->rpc.max_live_slots )                     );
+  void * _ws_sub_vote    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
+  void * _ws_sub_slot    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
+  void * _genesis_tar    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size )    );
+  void * _genesis_tar_bz = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size ) );
+# if FD_HAS_ZSTD
+  ulong  zstd_wksp_sz = ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL );
+  void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
+# endif
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
@@ -2413,9 +2505,21 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _bz2_alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
 
+# if FD_HAS_ZSTD
+  ctx->zstd_cctx = ZSTD_initStaticCCtx( _zstd_wksp, zstd_wksp_sz );
+  FD_CHECK_ERR( ctx->zstd_cctx, "ZSTD_initStaticCCtx failed" );
+# endif
+
   ctx->next_poll_deadline = fd_tickcount();
+  ctx->in_cnt             = tile->in_cnt;
+  ctx->idle_cnt           = 0UL;
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
+  ctx->genesis_max_message_size = tile->rpc.genesis_max_message_size;
+  ctx->genesis_tar_max_sz = fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size );
+  ctx->genesis_tar_bz_max_sz = fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size );
+  ctx->genesis_tar = _genesis_tar;
+  ctx->genesis_tar_bz = _genesis_tar_bz;
   ctx->genesis_tar_bz_sz = ULONG_MAX;
 
   ctx->processed_idx = ULONG_MAX;
@@ -2440,6 +2544,7 @@ unprivileged_init( fd_topo_t const *      topo,
     if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
@@ -2507,7 +2612,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return base + tile->rpc.max_http_connections + tile->rpc.max_websocket_connections;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (3UL)
 
 /* The default STEM_LAZY is based on cr_max, which is the minimum depth
    across all output links that have at least one reliable consumer.

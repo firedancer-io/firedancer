@@ -51,9 +51,10 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
   /* Initialize bank from input txn bank */
-  fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
+  fd_banks_clear_bank( runner->banks, runner->bank );
   runner->bank->f.slot            = slot;
   runner->bank->accdb_fork_id     = fd_accdb_attach_child( accdb, runner->root_fork_id );
+  runner->bank->parent_accdb_fork_id = runner->bank->accdb_fork_id;
   runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
 
   FD_TEST( test_ctx->has_bank );
@@ -91,8 +92,10 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
     fd_solfuzz_pb_load_account( runner->runtime, accdb, runner->bank->accdb_fork_id, &test_ctx->account_shared_data[i], i );
   }
 
-  runner->bank->f.ticks_per_slot = 64;
-  runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
+  runner->bank->f.ticks_per_slot             = 64;
+  runner->bank->f.slot_params                = FD_SLOT_PARAMS_400MS;
+  runner->bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
+  runner->bank->f.slot_params_default        = runner->bank->f.slot_params;
 
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );
@@ -129,7 +132,7 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
   /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
-     Note that although documentation interchangably refers to the signature cnt as a compact-u16
+     Note that although documentation interchangeably refers to the signature cnt as a compact-u16
      and a u8, the max signature cnt is capped at 48 (due to txn size limits), so u8 and compact-u16
      is represented the same way anyways and can be parsed identically. */
   // Note: always create a valid txn with 1+ signatures, add an empty signature if none is provided
@@ -308,7 +311,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         txn_result->modified_accounts, txn_result->modified_accounts_count );
 
     txn_out->err.is_committable = 0;
-    fd_runtime_cancel_txn( runner->runtime, txn_out );
+    fd_runtime_cancel_txn( runner->runtime, NULL, NULL, txn_out, 0 );
     fd_solfuzz_txn_ctx_destroy( runner );
 
     *output = txn_result;

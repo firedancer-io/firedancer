@@ -101,7 +101,8 @@ fd_features_enable_all( fd_features_t * );
 void
 fd_features_enable_cleaned_up( fd_features_t * );
 
-/* fd_features_enable_one_offs enables all manually passed in features. */
+/* fd_features_enable_one_offs forces all manually passed in features to
+   activate at slot.  The feature will always stay activated. */
 
 void
 fd_features_enable_one_offs( fd_features_t * features,
@@ -151,6 +152,18 @@ fd_features_get( fd_features_t const *   features,
   return features->f[ id->index ];
 }
 
+/* fd_features_get_activation_slot_from_offset returns the
+   activation slot of the feature at byte offset `offset` within
+   fd_features_t.
+
+   Returns ULONG_MAX if the feature is not scheduled for activation. */
+
+static inline ulong
+fd_features_get_activation_slot_from_offset( fd_features_t const * features,
+                                             ulong                 offset ) {
+  return features->f[ offset>>3 ];
+}
+
 /* fd_feature_id_query queries a feature ID given the first 8 bytes of
    the feature address (little-endian order).  Returns pointer to ID in
    `ids` array on success, or NULL on failure. */
@@ -162,7 +175,8 @@ fd_feature_id_query( ulong prefix );
    accounts database and populates the bank's in-memory feature set
    with their activation slots.  If we're currently at the last slot
    before an epoch boundary, any pending features (is_active==0) will
-   also be populated with slot+1 as their activation slot. */
+   also be populated with slot+1 as their activation slot.  Features
+   forced on by fd_features_enable_one_offs stay activated. */
 
 void
 fd_features_restore( fd_bank_t *  bank,

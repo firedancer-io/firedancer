@@ -1,11 +1,14 @@
 #define _GNU_SOURCE
 #include "fd_config.h"
+#include "fd_config_auto.h"
 #include "fd_config_private.h"
 
 #include "../platform/fd_net_util.h"
 #include "../platform/fd_sys_util.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
+#include "../../discof/genesis/fd_genesi_tile.h"
+#include "../../discof/restore/utils/fd_ssarchive.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -118,6 +121,13 @@ fd_config_fillf( fd_config_t * config ) {
     replace( config->paths.shredb, "{name}", config->name );
   } else {
     FD_TEST( fd_cstr_printf_check( config->paths.shredb, sizeof(config->paths.shredb), NULL, "%s/shreds.db", config->paths.base ) );
+  }
+
+  if( FD_UNLIKELY( strcmp( config->paths.guidb, "" ) ) ) {
+    replace( config->paths.guidb, "{user}", config->user );
+    replace( config->paths.guidb, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.guidb, sizeof(config->paths.guidb), NULL, "%s/gui.db", config->paths.base ) );
   }
 
   for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
@@ -262,13 +272,11 @@ fd_config_fill( fd_config_t * config,
   struct utsname utsname;
   if( FD_UNLIKELY( -1==uname( &utsname ) ) )
     FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
-  strncpy( config->hostname, utsname.nodename, sizeof(config->hostname) );
-  config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
+  fd_cstr_ncpy( config->hostname, utsname.nodename, sizeof(config->hostname) ); /* Just truncate the name if it's too long to fit */
 
-  ulong cluster = FD_CLUSTER_UNKNOWN;
-  if( FD_UNLIKELY( !config->is_firedancer ) ) {
-    cluster = fd_genesis_cluster_identify( config->frankendancer.consensus.expected_genesis_hash );
-  }
+  ulong cluster;
+  if( FD_UNLIKELY( !config->is_firedancer ) ) cluster = fd_genesis_cluster_identify( config->frankendancer.consensus.expected_genesis_hash );
+  else                                        cluster = fd_genesis_cluster_identify( config->consensus.expected_genesis_hash );
   config->is_live_cluster = cluster!=FD_CLUSTER_UNKNOWN;
   strcpy( config->cluster, fd_genesis_cluster_name( cluster ) );
 
@@ -312,7 +320,8 @@ fd_config_fill( fd_config_t * config,
 
   config->log.level_logfile1 = parse_log_level( config->log.level_logfile );
   config->log.level_stderr1  = parse_log_level( config->log.level_stderr );
-  config->log.level_flush1   = parse_log_level( config->log.level_flush );
+  if( FD_UNLIKELY( !strcmp( config->log.level_flush, "NONE" ) ) ) config->log.level_flush1 = 8;
+  else                                                            config->log.level_flush1 = parse_log_level( config->log.level_flush );
   if( FD_UNLIKELY( -1==config->log.level_logfile1 ) ) FD_LOG_ERR(( "unrecognized [log.level_logfile] `%s`", config->log.level_logfile ));
   if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_stderr ));
   if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_flush ));
@@ -324,7 +333,8 @@ fd_config_fill( fd_config_t * config,
   replace( config->paths.base, "{name}", config->name );
 
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
-    if( FD_UNLIKELY( config->is_live_cluster ) ) FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
+    /* Development binaries generate an identity key on boot. */
+    if( FD_UNLIKELY( config->is_live_cluster && !dev ) ) FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
 
     FD_TEST( fd_cstr_printf_check( config->paths.identity_key,
                                    sizeof(config->paths.identity_key),
@@ -354,6 +364,8 @@ fd_config_fill( fd_config_t * config,
   }
 
   long ts = -fd_log_wallclock();
+  config->is_dev = dev;
+
   config->tick_per_ns_mu = dev ? fd_tempo_tick_per_ns_dev( &config->tick_per_ns_sigma )
                                : fd_tempo_tick_per_ns    ( &config->tick_per_ns_sigma );
   FD_LOG_INFO(( "calibrating fd_tempo tick_per_ns took %ld ms", (fd_log_wallclock()+ts)/(1000L*1000L) ));
@@ -379,6 +391,8 @@ fd_config_fill( fd_config_t * config,
     fd_config_fillh( config );
   }
 
+  fd_config_auto( config );
+
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
     if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
@@ -388,7 +402,7 @@ fd_config_fill( fd_config_t * config,
     if( FD_UNLIKELY( config->development.bench.disable_status_cache ) )          FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
   }
 
-  /* When running a local cluster, some options are overriden by default
+  /* When running a local cluster, some options are overridden by default
      to make starting and running in development environments a little
      easier and less strict. */
   if( FD_UNLIKELY( is_local_cluster ) ) {
@@ -423,14 +437,6 @@ fd_config_fill( fd_config_t * config,
     FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
   }
 
-  if( FD_UNLIKELY( config->is_firedancer && config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
-    FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
-                 "ready for production deployment, has not been tested, and is "
-                 "missing consensus critical functionality. Joining a live Solana "
-                 "cluster may destabilize the network. Please do not attempt. You "
-                 "can start against the testnet cluster by specifying the testnet "
-                 "entrypoints from https://docs.solana.com/clusters under "
-                 "[gossip.entrypoints] in your configuration file.", fd_genesis_cluster_name( cluster ) ));
 }
 
 #define CFG_HAS_NON_EMPTY( key ) do {                  \
@@ -455,6 +461,9 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
   CFG_HAS_NON_ZERO( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO( layout.execle_tile_count );
+  CFG_HAS_NON_ZERO( layout.snapzp_tile_count );
+  CFG_HAS_NON_ZERO( layout.snapsv_tile_count );
+  CFG_HAS_NON_ZERO( layout.snapsv_io_worker_count );
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }
@@ -475,8 +484,32 @@ fd_config_validatef( fd_configf_t const * config ) {
     }
   }
 
+  CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
+  if( FD_UNLIKELY( config->snapshots.server.idle_timeout_millis<100UL ||
+                   config->snapshots.server.idle_timeout_millis>=60000UL ) ) {
+    FD_LOG_ERR(( "`snapshots.server.idle_timeout_millis` must be in [100,60000)" ));
+  }
+  if( FD_UNLIKELY( config->snapshots.server.send_timeout_millis<100UL ||
+                   config->snapshots.server.send_timeout_millis>=60000UL ) ) {
+    FD_LOG_ERR(( "`snapshots.server.send_timeout_millis` must be in [100,60000)" ));
+  }
+
+  if( FD_UNLIKELY( config->snapshots.max_full_snapshots_to_keep>FD_SSARCHIVE_MAX_ENTRIES ) ) {
+    FD_LOG_ERR(( "`snapshots.max_full_snapshots_to_keep` is %u but must be at most %lu",
+                 config->snapshots.max_full_snapshots_to_keep, FD_SSARCHIVE_MAX_ENTRIES ));
+  }
+  if( FD_UNLIKELY( config->snapshots.max_incremental_snapshots_to_keep>FD_SSARCHIVE_MAX_ENTRIES ) ) {
+    FD_LOG_ERR(( "`snapshots.max_incremental_snapshots_to_keep` is %u but must be at most %lu",
+                 config->snapshots.max_incremental_snapshots_to_keep, FD_SSARCHIVE_MAX_ENTRIES ));
+  }
+
   CFG_HAS_NON_ZERO( accounts.max_accounts   );
   CFG_HAS_NON_ZERO( accounts.cache_size_gib );
+
+  CFG_HAS_NON_ZERO( development.genesis.max_file_size_mib );
+  if( FD_UNLIKELY( config->development.genesis.max_file_size_mib>FD_GENESIS_MAX_FILE_SIZE_MIB ) ) {
+    FD_LOG_ERR(( "`development.genesis.max_file_size_mib` must be at most %lu", FD_GENESIS_MAX_FILE_SIZE_MIB ));
+  }
 
   CFG_HAS_NON_ZERO( runtime.program_cache.mean_cache_entry_size );
   CFG_HAS_NON_ZERO( runtime.program_cache.heap_size_mib );
@@ -528,7 +561,21 @@ fd_config_validate( fd_config_t const * config ) {
 
   CFG_HAS_NON_ZERO( net.ingress_buffer_size );
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
+    if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
+        0!=strcmp( config->net.xdp.xdp_mode, "drv"     ) &&
+        0!=strcmp( config->net.xdp.xdp_mode, "auto"    ) &&
+        0!=strcmp( config->net.xdp.xdp_mode, "default" ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.xdp_mode`: \"%s\"; must be \"skb\", \"drv\", \"auto\" or \"default\"",
+                   config->net.xdp.xdp_mode ));
+    }
+
+    if( 0!=strcmp( config->net.xdp.poll_mode, "prefbusy" ) &&
+        0!=strcmp( config->net.xdp.poll_mode, "softirq"  ) &&
+        0!=strcmp( config->net.xdp.poll_mode, "auto"     ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.poll_mode`: \"%s\"; must be \"prefbusy\", \"softirq\" or \"auto\"",
+                   config->net.xdp.poll_mode ));
+    }
+
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
     if( 0!=strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) &&
@@ -541,7 +588,8 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: must be \"xdp\" or \"socket\"" ));
+    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\" or \"socket\"",
+                 config->net.provider ));
   }
 
   CFG_HAS_NON_ZERO( tiles.netlink.max_routes           );

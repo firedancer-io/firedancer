@@ -3,7 +3,7 @@
 
 static void
 test_fuzz( void ) {
-  uchar buf[ 128UL+4096UL ];
+  uchar buf[ 128UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 128 ) );
 
   fd_rng_t _rng[1];
@@ -17,7 +17,7 @@ test_fuzz( void ) {
 
 static void
 test_cursor_lifecycle( void ) {
-  uchar buf[ 256UL+4096UL ];
+  uchar buf[ 256UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 256UL ) );
   ulong msg_sz;
 
@@ -48,7 +48,7 @@ test_cursor_lifecycle( void ) {
 
 static void
 test_ack_protocol( void ) {
-  uchar buf[ 512UL+4096UL ];
+  uchar buf[ 512UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 512UL ) );
   ulong msg_sz;
 
@@ -81,7 +81,7 @@ test_ack_protocol( void ) {
 
 static void
 test_pop_until_rejects_unadvanced_cursor( void ) {
-  uchar buf[ 512UL+4096UL ];
+  uchar buf[ 512UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 512UL ) );
   ulong msg_sz;
 
@@ -114,7 +114,7 @@ test_pop_until_rejects_unadvanced_cursor( void ) {
 
 static void
 test_wraparound_iteration( void ) {
-  uchar buf[ 256UL+4096UL ];
+  uchar buf[ 256UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 256UL ) );
   ulong msg_sz;
 
@@ -137,7 +137,7 @@ test_wraparound_iteration( void ) {
 
 static void
 test_interleaved_ops( void ) {
-  uchar buf[ 512UL+4096UL ];
+  uchar buf[ 512UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 512UL ) );
   ulong msg_sz;
 
@@ -170,7 +170,7 @@ test_interleaved_ops( void ) {
 
 static void
 test_stale_cursor_handling( void ) {
-  uchar buf[ 256UL+4096UL ];
+  uchar buf[ 256UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 256UL ) );
   ulong msg_sz;
 
@@ -232,7 +232,7 @@ test_overrun_recover( void ) {
 
 static void
 test_pop_recover( void ) {
-  uchar buf[ 256UL+4096UL ];
+  uchar buf[ 256UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 256UL ) );
   ulong msg_sz = 0UL;
 
@@ -257,7 +257,7 @@ test_pop_recover( void ) {
 
 static void
 test_cursor_sequence_monotonicity( void ) {
-  uchar buf[ 512UL+4096UL ];
+  uchar buf[ 512UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 512UL ) );
   ulong msg_sz;
 
@@ -285,7 +285,7 @@ test_cursor_sequence_monotonicity( void ) {
 
 static void
 test_edge_cases( void ) {
-  uchar buf[ 256UL+4096UL ];
+  uchar buf[ 256UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 256UL ) );
   ulong msg_sz;
 
@@ -318,7 +318,7 @@ test_edge_cases( void ) {
 
 static void
 test_bounds( void ) {
-  uchar buf[ 128UL+4096UL ];
+  uchar buf[ 128UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 1024UL ) );
 
   FD_TEST( fd_circq_push_back( circq, 1UL, 1024UL-25UL ) );

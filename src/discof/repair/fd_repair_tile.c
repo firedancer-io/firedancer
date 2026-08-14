@@ -119,6 +119,7 @@
 
 #include "../genesis/fd_genesi_tile.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/fd_clock_tile.h"
 #include "generated/fd_repair_tile_seccomp.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard.h"
@@ -327,6 +328,8 @@ typedef struct sign_pending sign_pending_t;
 struct ctx {
   long tsdebug; /* timestamp for debug printing */
 
+  fd_clock_tile_t clock[1];
+
   ulong repair_seed;
 
   fd_keyswitch_t * keyswitch;
@@ -420,11 +423,6 @@ typedef struct ctx ctx_t;
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
-}
-
-FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
 FD_FN_PURE static inline ulong
@@ -652,7 +650,7 @@ after_gossip( ctx_t * ctx, fd_gossip_update_message_t const * msg, ulong sig ) {
            optimize this, we proactively send a placeholder repair request
            as soon as we receive a peer's contact information for the first
            time, effectively prepaying the RTT cost. */
-        fd_repair_msg_t * init = fd_repair_shred( ctx->protocol, fd_type_pun_const( msg->origin ), (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
+        fd_repair_msg_t * init = fd_repair_shred( ctx->protocol, fd_type_pun_const( msg->origin ), (ulong)fd_clock_tile_now( ctx->clock )/1000000UL, 0, 0, 0 );
         fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *init } );
       }
       break;
@@ -747,6 +745,23 @@ blk_insert_check( ctx_t * ctx, fd_forest_blk_t * new_blk, ulong new_slot, ulong 
   }
 }
 
+static inline int shred_src( ulong sig ) {
+  uint sig_src = fd_shred_sig_src( sig );
+  switch( sig_src ) {
+    case SHRED_SIG_SRC_TURBINE:
+      return SHRED_SRC_TURBINE;
+    case SHRED_SIG_SRC_RECONSTRUCTED:
+      return SHRED_SRC_RECOVERED;
+    case SHRED_SIG_SRC_REPAIR:
+      return SHRED_SRC_REPAIR;
+    case SHRED_SIG_SRC_BAD_REPAIR:
+      return SHRED_SRC_TURBINE; /* like fec_resolver, treat bad repair shreds as turbine shreds */
+    case SHRED_SIG_SRC_LEADER:
+      return SHRED_SRC_LEADER;
+    default: FD_LOG_CRIT((  "bad shred sig src %u", sig_src ));
+  }
+}
+
 static inline void
 after_shred( ctx_t      * ctx,
              ulong        sig,
@@ -770,7 +785,7 @@ after_shred( ctx_t      * ctx,
   /* Insert the shred sig (shared by all shred members in the FEC set)
       into the map. */
   int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
-  int src     = fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE ? SHRED_SRC_TURBINE : SHRED_SRC_REPAIR /* bad or good repair */ ;
+  int src     = shred_src( sig );
 
   if( FD_LIKELY( !is_code ) ) {
     long rtt = 0;
@@ -1074,7 +1089,7 @@ after_frag( ctx_t *             ctx,
         if( FD_LIKELY( root != ULONG_MAX && shred->slot > root ) ) {
           ulong capacity = fd_signs_queue_max( ctx->pong_queue ) - fd_signs_queue_cnt( ctx->pong_queue );
           ulong seed_cnt = fd_ulong_min( shred->slot-root, capacity/2 );
-          long  now_ms   = fd_log_wallclock()/(long)1e6;
+          long  now_ms   = fd_clock_tile_now( ctx->clock )/(long)1e6;
           for( ulong i=1; i<=seed_cnt; i++ ) {
             ulong slot = root + i;
             fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
@@ -1170,7 +1185,7 @@ after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem FD_PARAM_UNUSED,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  long now = fd_log_wallclock();
+  long now = fd_clock_tile_now( ctx->clock );
 
   if( FD_UNLIKELY( ctx->halt_signing ) ) {
     *charge_busy = 1;
@@ -1269,6 +1284,8 @@ signs_queue_update_identity( ctx_t * ctx ) {
 
 static inline void
 during_housekeeping( ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+
 # if DEBUG_LOGGING
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsdebug > (long)10e9 ) ) {
@@ -1469,6 +1486,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_histf_join( fd_histf_new( ctx->metrics->response_latency, FD_MHIST_MIN( REPAIR, RESPONSE_LATENCY_NANOS ),
                                                                FD_MHIST_MAX( REPAIR, RESPONSE_LATENCY_NANOS ) ) );
 
+  fd_clock_tile_init( ctx->clock );
+
   ctx->tsdebug = fd_log_wallclock();
   ctx->pending_key_next = 0;
 }
@@ -1553,7 +1572,6 @@ metrics_write( ctx_t * ctx ) {
 
 fd_topo_run_tile_t fd_tile_repair = {
   .name                     = "repair",
-  .loose_footprint          = loose_footprint,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

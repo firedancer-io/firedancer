@@ -30,6 +30,7 @@
    progress. */
 
 #include "../../util/fd_util_base.h"
+#include "../../util/net/fd_ip6.h"
 
 #define FD_HTTP_SERVER_ALIGN       (128UL)
 
@@ -60,8 +61,7 @@
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE       (-20)
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE       (-21)
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE    (-22)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE             (-23)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_UNSUPPORTED_TRANSFER_ENCODING (-24)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_UNSUPPORTED_TRANSFER_ENCODING (-23)
 
 /* Given a FD_HTTP_SERVER_CONNECTION_CLOSE_* reason code, a reason that
    a HTTP connection a client was closed, produce a human readable
@@ -97,6 +97,8 @@ struct fd_http_server_request {
   uchar        method;        /* One of FD_HTTP_SERVER_METHOD_* indicating what the method of the request is */
   char const * path;          /* The NUL termoinated path component of the request.  Not sanitized and may contain arbitrary content.  Path is the full HTTP path of the request, for example
                                  "/img/monkeys/gorilla.jpg" */
+  char const * path_raw;      /* The non-NUL-terminated path component backed by the connection request buffer.  Valid until the response has been sent */
+  ulong        path_len;      /* The length of path_raw */
 
   void *       ctx;           /* The user provided context pointer passed when constructing the HTTP server */
 
@@ -148,6 +150,8 @@ struct fd_http_server_response {
   char const * content_type;     /* Content-Type to set in the HTTP response */
   char const * cache_control;    /* Cache-Control to set in the HTTP response */
   char const * content_encoding; /* Content-Encoding to set in the HTTP response */
+  char const * location[2];      /* Location to set in the HTTP response (concatenated) */
+  ulong        location_len[2];  /* Lengths of the two location fragments */
 
   char const * access_control_allow_origin;
   char const * access_control_allow_methods;
@@ -288,10 +292,25 @@ fd_http_server_delete( void * shhttp );
 int
 fd_http_server_fd( fd_http_server_t * http );
 
+/* fd_http_server_listen binds and listens on the given IPv4 address
+   and port.  Logs an error and exits the process on failure. */
+
 fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
                        uint               address,
                        ushort             port );
+
+/* fd_http_server_listen6 binds and listens on the given IPv6 address
+   and port.  Logs an error and exits the process on failure.
+
+   An IPv4-mapped address without a zone ID creates an AF_INET socket,
+   any other address creates a dual stack AF_INET6 socket, which also
+   accepts IPv4 clients if bound to the wildcard address (::). */
+
+fd_http_server_t *
+fd_http_server_listen6( fd_http_server_t *    http,
+                        fd_ip6_addr_t const * address,
+                        ushort                port );
 
 /* Close an active connection.  The connection ID must be an open
    open connection in [0, max_connection_cnt).  The connection will
@@ -444,12 +463,15 @@ fd_http_server_ws_broadcast( fd_http_server_t * http );
 
 /* fd_http_server_poll needs to be continuously called in a spin loop to
    drive the HTTP server forward.  Setting poll_timeout==0 makes it a
-   non-blocking socket ppoll(2).   Returns 1 if there was any work to do
-   on the HTTP server, or 0 otherwise. */
+   non-blocking socket ppoll(2).  conn_max limits the number of existing
+   HTTP or WebSocket connections serviced, or ULONG_MAX for no limit.
+   Pending listener connections may additionally be accepted.  Returns 1
+   if there was any work to do on the HTTP server, or 0 otherwise. */
 
 int
 fd_http_server_poll( fd_http_server_t * http,
-                     int                poll_timeout );
+                     int                poll_timeout,
+                     ulong              conn_max );
 
 FD_PROTOTYPES_END
 

@@ -551,6 +551,9 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                0                       );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                     (ulong)max_ack_delay_ms );
   /*                         */tp->disable_active_migration_present = 1;
+  if( config->max_datagram_frame_size && quic->cb.datagram_rx ) {
+    FD_QUIC_TRANSPORT_PARAM_SET( tp, max_datagram_frame_size, config->max_datagram_frame_size );
+  }
 
   /* Compute max inflight pkt cnt per conn */
   state->max_inflight_frame_cnt_conn = limits->inflight_frame_cnt - limits->min_inflight_frame_cnt_conn * (limits->conn_cnt-1);
@@ -933,7 +936,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
 
   FD_DTRACE_PROBE_4( quic_handle_frame, id, conn->our_conn_id, pkt_type, pkt->pkt_number );
 
-  fd_quic_frame_ctx_t frame_context[1] = {{ quic, conn, pkt }};
+  fd_quic_frame_ctx_t frame_context[1] = {{ quic, conn, pkt, 0UL }};
   if( FD_UNLIKELY( !fd_quic_frame_type_allowed( pkt_type, id ) ) ) {
     FD_DTRACE_PROBE_4( quic_err_frame_not_allowed, id, conn->our_conn_id, pkt_type, pkt->pkt_number );
     fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
@@ -1370,6 +1373,7 @@ fd_quic_tls_hs_cache_evict( fd_quic_t       * quic,
     return 0;
   }
 
+  fd_quic_cb_conn_final(quic, hs_to_free->context);
   fd_quic_conn_free( quic, hs_to_free->context );
   quic->metrics.hs_evicted_cnt++;
   return 1;
@@ -2722,6 +2726,10 @@ fd_quic_apply_peer_params( fd_quic_conn_t *                   conn,
     tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
   }
   conn->tx_max_datagram_sz = (uint)tx_max_datagram_sz;
+  conn->tx_max_datagram_frame_sz = fd_ulong_if(
+      peer_tp->max_datagram_frame_size_present,
+      peer_tp->max_datagram_frame_size,
+      0UL );
 
   /* initial max_streams */
 
@@ -2988,6 +2996,96 @@ fd_quic_service( fd_quic_t * quic,
 static inline ulong FD_FN_UNUSED
 fd_quic_conn_tx_buf_remaining( fd_quic_conn_t * conn ) {
   return (ulong)( sizeof( conn->tx_buf_conn ) - (ulong)( conn->tx_ptr - conn->tx_buf_conn ) );
+}
+
+ulong
+fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
+                       uchar *          pkt,
+                       ulong            pkt_sz,
+                       uchar const *    dgram,
+                       ulong            dgram_sz ) {
+  if( FD_UNLIKELY( !conn || !pkt || (!dgram && dgram_sz) ) ) return 0UL;
+  if( FD_UNLIKELY( conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return 0UL;
+  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_appdata_id ) ) ) return 0UL;
+  if( FD_UNLIKELY( dgram_sz>USHORT_MAX ) ) return 0UL;
+
+  /* RFC 9221 Section 3: max_datagram_frame_size covers the complete
+     DATAGRAM frame, including type and length fields. */
+  ulong const len_sz   = fd_quic_varint_min_sz( dgram_sz );
+  ulong const frame_sz = 1UL + len_sz + dgram_sz;
+  if( FD_UNLIKELY( !conn->tx_max_datagram_frame_sz ||
+                   frame_sz>conn->tx_max_datagram_frame_sz ) ) return 0UL;
+
+  uint  const pn_space = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
+  ulong const pkt_num  = conn->pkt_number[ pn_space ];
+  uint  const pn_sz    = 4U;
+  uint  const pn_sz_enc= pn_sz-1U;
+
+  fd_quic_conn_id_t const * peer_conn_id = &conn->peer_cids[0];
+  if( FD_UNLIKELY( peer_conn_id->sz>FD_QUIC_MAX_CONN_ID_SZ ) ) return 0UL;
+
+  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+  uchar * scratch = state->crypt_scratch;
+  ulong   scratch_sz = sizeof( state->crypt_scratch );
+
+  int  const key_phase_upd = (int)conn->key_update;
+  uint const key_phase_tx  = conn->key_phase ^ (uint)key_phase_upd;
+  fd_quic_one_rtt_t one_rtt = {0};
+  one_rtt.h0              = fd_quic_one_rtt_h0( 0, !!key_phase_tx, pn_sz_enc );
+  one_rtt.dst_conn_id_len = peer_conn_id->sz;
+  one_rtt.pkt_num         = pkt_num;
+  fd_memcpy( one_rtt.dst_conn_id, peer_conn_id->conn_id, peer_conn_id->sz );
+
+  ulong const hdr_sz = fd_quic_encode_one_rtt( scratch, scratch_sz, &one_rtt );
+  if( FD_UNLIKELY( hdr_sz==FD_QUIC_ENCODE_FAIL ) ) return 0UL;
+
+  ulong padding = 0UL;
+  ulong const protected_payload_sz = frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  ulong const sample_min_sz = FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START +
+                              FD_QUIC_CRYPTO_SAMPLE_SZ;
+  if( protected_payload_sz+pn_sz < sample_min_sz ) {
+    padding = sample_min_sz - pn_sz - protected_payload_sz;
+  }
+
+  ulong const plain_sz = frame_sz + padding;
+  ulong const out_sz   = hdr_sz + plain_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  if( FD_UNLIKELY(
+      out_sz>pkt_sz ||
+      out_sz>conn->tx_max_datagram_sz ||
+      hdr_sz+plain_sz>scratch_sz
+  ) ) {
+    return 0UL;
+  }
+
+  uchar * p = scratch + hdr_sz;
+  *p++ = 0x31U; /* DATAGRAM with an explicit Length field */
+  p += fd_quic_varint_encode( p, dgram_sz );
+  if( dgram_sz ) fd_memcpy( p, dgram, dgram_sz );
+  p += dgram_sz;
+  fd_memset( p, 0, padding );
+
+#if FD_QUIC_DISABLE_CRYPTO
+  fd_memcpy( pkt, scratch, hdr_sz+plain_sz );
+  fd_memset( pkt+hdr_sz+plain_sz, 0, FD_QUIC_CRYPTO_TAG_SZ );
+#else
+  ulong cipher_sz = pkt_sz;
+  fd_quic_crypto_keys_t * hp_keys  = &conn->keys[fd_quic_enc_level_appdata_id][1];
+  fd_quic_crypto_keys_t * pkt_keys = key_phase_upd ? &conn->new_keys[1] : hp_keys;
+  int enc_res = fd_quic_crypto_encrypt(
+      pkt,
+      &cipher_sz,
+      scratch,  hdr_sz,
+      scratch + hdr_sz,
+      plain_sz,
+      pkt_keys, hp_keys,
+      pkt_num
+  );
+  if( FD_UNLIKELY( enc_res!=FD_QUIC_SUCCESS ) ) return 0UL;
+  if( FD_UNLIKELY( cipher_sz!=out_sz ) ) return 0UL;
+#endif
+
+  conn->pkt_number[ pn_space ] = pkt_num + 1UL;
+  return out_sz;
 }
 
 /* attempt to transmit buffered data
@@ -5422,6 +5520,47 @@ fd_quic_handle_handshake_done_frame(
   }
 
   return 0;
+}
+
+static ulong
+fd_quic_handle_datagram( fd_quic_frame_ctx_t * context,
+                         uchar const *         data,
+                         ulong                 data_sz,
+                         ulong                 header_sz ) {
+  fd_quic_t * quic = context->quic;
+  ulong max_frame_sz = quic->config.max_datagram_frame_size;
+  if( FD_UNLIKELY( !max_frame_sz || !quic->cb.datagram_rx ) ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+  if( FD_UNLIKELY( header_sz+data_sz > max_frame_sz ) ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+  quic->cb.datagram_rx( context->conn, data, data_sz, quic->cb.quic_ctx );
+  return data_sz;
+}
+
+static ulong
+fd_quic_handle_datagram_0_frame(
+    fd_quic_frame_ctx_t *        context,
+    fd_quic_datagram_0_frame_t * frame FD_PARAM_UNUSED,
+    uchar const *                p,
+    ulong                        p_sz ) {
+  return fd_quic_handle_datagram( context, p, p_sz, context->frame_sz );
+}
+
+static ulong
+fd_quic_handle_datagram_1_frame(
+    fd_quic_frame_ctx_t *        context,
+    fd_quic_datagram_1_frame_t * frame,
+    uchar const *                p,
+    ulong                        p_sz ) {
+  if( FD_UNLIKELY( frame->length>p_sz ) ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+  return fd_quic_handle_datagram( context, p, frame->length, context->frame_sz );
 }
 
 /* initiate the shutdown of a connection

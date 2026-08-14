@@ -10,6 +10,7 @@
 #include "../../shared_dev/boot/fd_dev_boot.h"
 #include "../../shared_dev/commands/wksp.h"
 #include "../../shared_dev/commands/dev.h"
+#include "../../../discof/genesis/fd_genesi_tile.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -175,12 +176,24 @@ firedancer_dev_test_run( int     argc,
       static config_t config[1];
       fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
 
+      FD_TEST( config->firedancer.development.genesis.max_file_size_mib==10UL );
+
       config->firedancer.accounts.max_accounts  = 30000000UL;
       config->firedancer.runtime.max_live_slots = 512UL;
       config->firedancer.runtime.max_fork_width = 16UL;
       config->development.hugetlbfs.min_size = 0;
+      config->has_user_config = 1;
 
       fd_topo_initialize( config );
+
+      ulong genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib<<20;
+      ulong genesi_idx = fd_topo_find_tile( &config->topo, "genesi", 0UL );
+      FD_TEST( genesi_idx!=ULONG_MAX );
+      FD_TEST( config->topo.tiles[ genesi_idx ].genesi.max_message_size==genesis_max_message_size );
+      ulong genesi_out_idx = fd_topo_find_link( &config->topo, "genesi_out", 0UL );
+      FD_TEST( genesi_out_idx!=ULONG_MAX );
+      FD_TEST( config->topo.links[ genesi_out_idx ].mtu==fd_genesi_tile_mtu( genesis_max_message_size ) );
+
       config->log.log_fd = fd_log_private_logfile_fd();
       config->frankendancer.consensus.poh_speed_test = 0;
 

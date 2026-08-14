@@ -93,7 +93,7 @@ fd_stateless_builtins( void );
 ulong
 fd_num_stateless_builtins( void );
 
-/*  `migrated_yet` is an output value thats set based on the rules below:
+/*  `migrated_yet` is an output value that's set based on the rules below:
 
     | Return Value | *migrated_yet     | Description                                                              |
     |--------------|-------------------|--------------------------------------------------------------------------|

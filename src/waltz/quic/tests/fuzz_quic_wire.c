@@ -440,14 +440,14 @@ encrypt_packet( uchar * const data,
   uchar const * hdr    = data;
   ulong         hdr_sz = pkt_num_pnoff + pkt_number_sz;
 
+  if( ( out_sz          < hdr_sz ) |
+      ( out_sz - hdr_sz < FD_QUIC_CRYPTO_TAG_SZ ) )
+    return size;
+
   ulong pkt_number = 0UL;
   for( ulong j = 0UL; j < pkt_number_sz; ++j ) {
     pkt_number = ( pkt_number << 8UL ) + (ulong)( hdr[pkt_num_pnoff + j] );
   }
-
-  if( ( out_sz          < hdr_sz ) |
-      ( out_sz - hdr_sz < FD_QUIC_CRYPTO_TAG_SZ ) )
-    return size;
 
   uchar const * pay    = hdr + hdr_sz;
   ulong         pay_sz = out_sz - hdr_sz - FD_QUIC_CRYPTO_TAG_SZ;

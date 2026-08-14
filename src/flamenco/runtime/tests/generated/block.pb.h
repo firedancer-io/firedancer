@@ -4,7 +4,7 @@
 #ifndef PB_ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_INCLUDED
 #define PB_ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_INCLUDED
 
-#include "../../../../ballet/nanopb/pb_firedancer.h"
+#include "../../../../third_party/nanopb/pb_firedancer.h"
 #include "context.pb.h"
 #include "txn.pb.h"
 #include "metadata.pb.h"
@@ -28,7 +28,6 @@ typedef enum fd_exec_test_warmup_cooldown_rate {
 /* Struct definitions */
 typedef struct fd_exec_test_cost_tracker {
     uint64_t block_cost;
-    uint64_t vote_cost;
 } fd_exec_test_cost_tracker_t;
 
 typedef struct fd_exec_test_inflation {
@@ -45,6 +44,8 @@ typedef struct fd_exec_test_epoch_credit {
     uint64_t prev_credits;
 } fd_exec_test_epoch_credit_t;
 
+typedef PB_BYTES_ARRAY_T(32) fd_exec_test_prev_vote_account_inflation_rewards_collector_t;
+typedef PB_BYTES_ARRAY_T(32) fd_exec_test_prev_vote_account_block_revenue_collector_t;
 typedef struct fd_exec_test_prev_vote_account {
     pb_byte_t address[32];
     pb_byte_t node_pubkey[32];
@@ -55,6 +56,11 @@ epoch rewards during the distribution phase. */
     pb_size_t epoch_credits_count;
     struct fd_exec_test_epoch_credit *epoch_credits;
     fd_exec_test_vote_account_version_t version;
+    /* SIMD-0232 collector accounts.  Empty/absent means the default
+collector applies (the vote account address for inflation
+rewards, node_pubkey for block revenue). */
+    fd_exec_test_prev_vote_account_inflation_rewards_collector_t inflation_rewards_collector;
+    fd_exec_test_prev_vote_account_block_revenue_collector_t block_revenue_collector;
 } fd_exec_test_prev_vote_account_t;
 
 typedef struct fd_exec_test_block_bank {
@@ -175,19 +181,19 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0, 0}
+#define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_DEFAULT   {0, 0, 0}
-#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN, {0, {0}}, {0, {0}}}
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT     {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT {0, 0, 0, 0, 0, {0}}
 #define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT}
-#define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0, 0}
+#define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_ZERO      {0, 0, 0}
-#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN, {0, {0}}, {0, {0}}}
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO        {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO {0, 0, 0, 0, 0, {0}}
@@ -196,7 +202,6 @@ extern "C" {
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_COST_TRACKER_BLOCK_COST_TAG 1
-#define FD_EXEC_TEST_COST_TRACKER_VOTE_COST_TAG  2
 #define FD_EXEC_TEST_INFLATION_INITIAL_TAG       1
 #define FD_EXEC_TEST_INFLATION_TERMINAL_TAG      2
 #define FD_EXEC_TEST_INFLATION_TAPER_TAG         3
@@ -211,6 +216,8 @@ extern "C" {
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_COMMISSION_BPS_TAG 4
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_EPOCH_CREDITS_TAG 5
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_VERSION_TAG 6
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INFLATION_REWARDS_COLLECTOR_TAG 7
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_BLOCK_REVENUE_COLLECTOR_TAG 8
 #define FD_EXEC_TEST_BLOCK_BANK_BLOCKHASH_QUEUE_TAG 1
 #define FD_EXEC_TEST_BLOCK_BANK_RBH_LAMPORTS_PER_SIGNATURE_TAG 2
 #define FD_EXEC_TEST_BLOCK_BANK_FEE_RATE_GOVERNOR_TAG 3
@@ -247,8 +254,7 @@ extern "C" {
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_COST_TRACKER_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, UINT64,   block_cost,        1) \
-X(a, STATIC,   SINGULAR, UINT64,   vote_cost,         2)
+X(a, STATIC,   SINGULAR, UINT64,   block_cost,        1)
 #define FD_EXEC_TEST_COST_TRACKER_CALLBACK NULL
 #define FD_EXEC_TEST_COST_TRACKER_DEFAULT NULL
 
@@ -274,7 +280,9 @@ X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, node_pubkey,       2) \
 X(a, STATIC,   SINGULAR, UINT64,   stake,             3) \
 X(a, STATIC,   SINGULAR, UINT32,   commission_bps,    4) \
 X(a, POINTER,  REPEATED, MESSAGE,  epoch_credits,     5) \
-X(a, STATIC,   SINGULAR, UENUM,    version,           6)
+X(a, STATIC,   SINGULAR, UENUM,    version,           6) \
+X(a, STATIC,   SINGULAR, BYTES,    inflation_rewards_collector,   7) \
+X(a, STATIC,   SINGULAR, BYTES,    block_revenue_collector,   8)
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_CALLBACK NULL
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_DEFAULT NULL
 #define fd_exec_test_prev_vote_account_t_epoch_credits_MSGTYPE fd_exec_test_epoch_credit_t
@@ -372,8 +380,8 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 /* fd_exec_test_BlockBank_size depends on runtime parameters */
 /* fd_exec_test_BlockContext_size depends on runtime parameters */
 /* fd_exec_test_BlockFixture_size depends on runtime parameters */
-#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          146
-#define FD_EXEC_TEST_COST_TRACKER_SIZE           22
+#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          135
+#define FD_EXEC_TEST_COST_TRACKER_SIZE           11
 #define FD_EXEC_TEST_EPOCH_CREDIT_SIZE           33
 #define FD_EXEC_TEST_INFLATION_SIZE              45
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_SIZE 73

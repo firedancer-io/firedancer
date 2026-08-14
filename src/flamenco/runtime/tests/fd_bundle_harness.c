@@ -4,6 +4,7 @@
 #include "fd_dump_pb.h"
 #include "generated/bundle.pb.h"
 #include "../fd_cost_tracker.h"
+#include "../fd_slot_params.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
@@ -13,10 +14,6 @@
 
 static void
 fd_solfuzz_bundle_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  if( runner->bank->new_votes_fork_id!=USHORT_MAX ) {
-    fd_new_votes_evict_fork( fd_bank_new_votes( runner->bank ), runner->bank->new_votes_fork_id );
-    runner->bank->new_votes_fork_id = USHORT_MAX;
-  }
   fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
   fd_progcache_reset( runner->progcache->join );
@@ -44,20 +41,20 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
   /* Initialize bank from input txn bank */
-  fd_banks_clear_bank( runner->banks, runner->bank, 2048UL );
+  fd_banks_clear_bank( runner->banks, runner->bank );
 
   runner->bank->f.slot = slot;
   runner->bank->bank_seq = runner->bank->idx;
 
-  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
-  runner->bank->accdb_fork_id     = fd_accdb_attach_child( accdb, runner->root_fork_id );
+  runner->bank->progcache_fork_id    = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
+  runner->bank->accdb_fork_id        = fd_accdb_attach_child( accdb, runner->root_fork_id );
+  runner->bank->parent_accdb_fork_id = runner->bank->accdb_fork_id;
 
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
 
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( runner->banks );
   runner->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
-  runner->bank->new_votes_fork_id = fd_new_votes_new_fork( fd_bank_new_votes( runner->bank ) );
 
   fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
   runner->bank->f.rbh_lamports_per_sig = txn_bank->rbh_lamports_per_signature;
@@ -75,8 +72,10 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
     fd_solfuzz_pb_load_account( runner->runtime, accdb, runner->bank->accdb_fork_id, &test_ctx->account_shared_data[i], i );
   }
 
-  runner->bank->f.ticks_per_slot = 64;
-  runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
+  runner->bank->f.ticks_per_slot             = 64;
+  runner->bank->f.slot_params                = FD_SLOT_PARAMS_400MS;
+  runner->bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
+  runner->bank->f.slot_params_default        = runner->bank->f.slot_params;
 
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );
 
@@ -87,7 +86,7 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
 
   /* Initialize cost tracker */
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( runner->bank );
-  fd_cost_tracker_init( cost_tracker, &runner->bank->f.features, slot );
+  fd_cost_tracker_init( cost_tracker, &runner->bank->f.features, &runner->bank->f.slot_params, slot );
 
   fd_txn_p_t * txns = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt*sizeof(fd_txn_p_t) );
   fd_memset( txns, 0, txn_cnt*sizeof(fd_txn_p_t) );
@@ -109,6 +108,30 @@ fd_solfuzz_bundle_mark_uncommittable( fd_txn_out_t * txn_outs,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     txn_outs[i].err.is_committable = 0;
   }
+}
+
+/* Record the latest stake and vote account updates only. */
+
+static fd_exec_test_stake_delta_t *
+fd_solfuzz_bundle_stake_delta_upsert( fd_exec_test_bundle_effects_t * effects,
+                                      fd_pubkey_t const *             key ) {
+  for( ulong i=0UL; i<effects->stake_deltas_count; i++ ) {
+    if( fd_memeq( effects->stake_deltas[i].address, key, sizeof(fd_pubkey_t) ) ) return &effects->stake_deltas[i];
+  }
+  fd_exec_test_stake_delta_t * stake_delta = &effects->stake_deltas[effects->stake_deltas_count++];
+  fd_memcpy( stake_delta->address, key, sizeof(fd_pubkey_t) );
+  return stake_delta;
+}
+
+static fd_exec_test_vote_update_t *
+fd_solfuzz_bundle_vote_update_upsert( fd_exec_test_bundle_effects_t * effects,
+                                      fd_pubkey_t const *             key ) {
+  for( ulong i=0UL; i<effects->vote_updates_count; i++ ) {
+    if( fd_memeq( effects->vote_updates[i].address, key, sizeof(fd_pubkey_t) ) ) return &effects->vote_updates[i];
+  }
+  fd_exec_test_vote_update_t * vote_update = &effects->vote_updates[effects->vote_updates_count++];
+  fd_memcpy( vote_update->address, key, sizeof(fd_pubkey_t) );
+  return vote_update;
 }
 
 static int
@@ -154,10 +177,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
   fd_memset( effects->vote_updates, 0, update_max*sizeof(fd_exec_test_vote_update_t) );
   effects->vote_updates_count = 0UL;
 
-  effects->new_votes = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_new_vote_t),
-                                                update_max*sizeof(fd_exec_test_new_vote_t) );
-  if( FD_UNLIKELY( _l>output_end ) ) abort();
-  fd_memset( effects->new_votes, 0, update_max*sizeof(fd_exec_test_new_vote_t) );
+  effects->new_votes       = NULL;
   effects->new_votes_count = 0UL;
 
   fd_runtime_t *       runtime      = runner->runtime;
@@ -207,7 +227,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
         fd_solfuzz_bundle_mark_uncommittable( txn_outs, ran_cnt );
       } else {
         txn_outs[i].err.is_committable = 0;
-        fd_runtime_cancel_txn( runtime, &txn_outs[i] );
+        fd_runtime_cancel_txn( runtime, NULL, NULL, &txn_outs[i], 0 );
       }
       break;
     }
@@ -227,13 +247,12 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
     for( ulong j=0UL; j<txn_outs[i].accounts.cnt; j++ ) {
       if( txn_outs[i].accounts.stake_update[j] ) {
-        fd_exec_test_stake_delta_t * stake_delta = &effects->stake_deltas[effects->stake_deltas_count++];
-        fd_memcpy( stake_delta->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
-        stake_delta->delta = 0UL;
+        fd_exec_test_stake_delta_t * stake_delta = fd_solfuzz_bundle_stake_delta_upsert( effects, &txn_outs[i].accounts.keys[j] );
+        stake_delta->new_stake = 0UL;
 
         fd_stake_state_t const * stake_state = fd_stakes_get_state( txn_outs[i].accounts.account[j] );
         if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
-          stake_delta->delta = stake_state->stake.stake.delegation.stake;
+          stake_delta->new_stake = stake_state->stake.stake.delegation.stake;
         }
       }
 
@@ -242,20 +261,19 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
         if( !fd_vote_account_last_timestamp( txn_outs[i].accounts.account[j]->data,
                                              txn_outs[i].accounts.account[j]->data_len,
                                              &last_vote ) ) {
-          fd_exec_test_vote_update_t * vote_update = &effects->vote_updates[effects->vote_updates_count++];
-          fd_memcpy( vote_update->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
+          fd_exec_test_vote_update_t * vote_update = fd_solfuzz_bundle_vote_update_upsert( effects, &txn_outs[i].accounts.keys[j] );
           vote_update->last_vote_slot      = last_vote.slot;
           vote_update->last_vote_timestamp = (ulong)last_vote.timestamp;
         }
       }
     }
 
-    if( !is_bundle ) fd_runtime_commit_txn( runtime, runner->bank, &txn_outs[i] );
+    if( !is_bundle ) fd_runtime_commit_txn( runtime, runner->bank, NULL, &txn_outs[i], 0 );
   }
 
   if( is_bundle && !saw_exec_err ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
-      fd_runtime_commit_txn( runtime, runner->bank, &txn_outs[i] );
+      fd_runtime_commit_txn( runtime, runner->bank, NULL, &txn_outs[i], 0 );
     }
   }
 
@@ -273,20 +291,6 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
     effects->vote_updates       = NULL;
     effects->new_votes_count    = 0UL;
     effects->new_votes          = NULL;
-  } else {
-    ushort fork_idx = runner->bank->new_votes_fork_id;
-    uchar iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ] __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN)));
-    fd_new_votes_iter_t * iter = fd_new_votes_iter_init( fd_bank_new_votes( runner->bank ), &fork_idx, 1UL, iter_mem );
-    for( ; !fd_new_votes_iter_done( iter ); fd_new_votes_iter_next( iter ) ) {
-      FD_TEST( effects->new_votes_count<update_max );
-
-      fd_exec_test_new_vote_t * new_vote = &effects->new_votes[effects->new_votes_count++];
-      int is_tombstone;
-      fd_pubkey_t const * pubkey = fd_new_votes_iter_ele( iter, &is_tombstone );
-      new_vote->is_tombstone = !!is_tombstone;
-      fd_memcpy( new_vote->address, pubkey, sizeof(fd_pubkey_t) );
-    }
-    fd_new_votes_iter_fini( iter );
   }
 
   *effects_out = effects;

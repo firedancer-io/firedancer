@@ -1,55 +1,73 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 
-#include "../leaders/fd_leaders.h"
-#include "../../ballet/txn/fd_txn.h" /* for fd_acct_addr_t */
+#include "../../ballet/txn/fd_txn.h" /* for FD_TXN_ACCT_ADDR_MAX */
 #include "../vm/fd_vm_base.h" /* fd_vm_trace_t */
 
 FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MAX_FORK_CNT (4096UL)
 
-/* FD_RUNTIME_MAX_{STAKE,VOTE}_ACCOUNTS are the maximum number of stake
-   and vote accounts that the system supports: anything larger will
-   result in a crash. The bounds were set with the intention of making a
-   dos vector to mint stake/vote accounts financially infeasible.  A
-   reasonable value to guard against this attack is roughly 550,000 SOL.
+/* FD_INSTR_SIGNERS_MAX: The (inclusive) maximum number of distinct
+   signers a single instruction can have.
 
-   For vote accounts, the limit is set to 19,000,000 because the rent
-   exempt reserve of creating a valid vote account is ~0.03 SOL.  For
-   each vote account, it also must be staked.  Each stake account has a
-   rent exempt value of ~0.022 SOL.  This means the cost of minting 20M
-   vote accounts is:
-   19,000,000 accounts * 0.02685 SOL = 510,150 SOL.
-   19,000,000 accounts * 0.00228 SOL = 43,320 SOL.
-   Total cost: 553,470 SOL.
-   In reality, the cost is slightly higher because of transaction fees
-   and various CU costs to create the vote and stake accounts.
+   This is the runtime bound, which is larger than the transaction
+   parser bound because during CPI calls PDAs can be promoted to
+   signers. Therefore in the runtime, the effective limit is the
+   amount of distinct accounts the transaction can access. */
+#define FD_INSTR_SIGNERS_MAX FD_TXN_ACCT_ADDR_MAX
 
-   For stake accounts, the rent exempt reserve is 0.00228 SOL.  However,
-   new stake accounts must have a minimum balance of 1 SOL as of the
-   feature upgrade_bpf_stake_program_to_v5.  Stake accounts created
-   after the feature must have a balance of 1.00228 SOL.  To guard
-   against a potential attack, we need to guard against the creation of
-   550,000 SOL worth of stake accounts: 550,000 SOL / 1.00228 SOL =
-   roughly 550,000 stake accounts.  In addition to the 1.6 million stake
-   accounts which exist on mainnet today, we must support roughly 2.15
-   million stake accounts. */
+/* FD_RUNTIME_MAX_STAKE_ACCOUNTS is the maximum number of stake accounts
+   that the system supports: anything larger will result in a crash.
+   The bounds were set with the intention of making a dos vector to mint
+   stake accounts financially infeasible.  Similarly, the number of
+   stake accounts that the system supports is also the maximum number of
+   staked vote accounts that the system supports since in the worst case
+   we have one stake account per vote account.
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
+   Prior to the feature upgrade_bpf_stake_program_to_v5, which
+   introduced the minimum 1 SOL delegation amount, there were 1.6
+   million stake accounts on mainnet.  With a bound of 2.15 million
+   stake accounts, this means an attacker would need roughly 0.75
+   million SOL to attack the system which is a reasonable bound. */
+
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
 
-/* The expected stake and vote account values are based on observed
-   values on mainnet and testnet allowing for some growth.  These are
-   chosen to size various caches and maps: they are not intended to be
-   exact as they are not consensus critical values. */
+/* FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK is the number of stake
+   accounts that the system can support.  FD_RUNTIME_STAKE_ACCOUNTS is
+   the measure of active stake accounts while _FALLBACK is the measure
+   of total stake accounts that the network can support.  This is a
+   measured and chosen threshold based on what the wider network on
+   mainnet can reasonably support across clients and valdiator
+   hardware. */
 
-#define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2150000UL)
-#define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS  (16384UL)
+#define FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK (100000000UL)
 
-#define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
+/* The runtime only supports post-validator_admission_ticket banks.  The
+   accumulator can still see one distinct voter per stake account before
+   the final eligible set is reduced to the VAT limit below. */
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT (2000UL)
+#define FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS (FD_RUNTIME_MAX_STAKE_ACCOUNTS)
+
+/* Maximum number of vote accounts eligible to receive rewards or
+   meaningfully contribute to consensus after
+   validator_admission_ticket activation. */
+
+#define FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS (2000UL)
+
+/* Bound on the snapshot manifest's vote account map, which holds
+   every staked voter rather than only the VAT-admitted set.  Wait
+   for supermajority is the sole consumer. */
+
+#define FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS (40200UL)
+
+/* The maximum number of epoch stakes that are needed to be parsed out
+   from the manifest.  Agave produced snapshots include 5 epoch stakes,
+   but only 3 are required for consensus. */
+
+#define FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN (3UL)
+
+#define FD_RUNTIME_SLOTS_PER_EPOCH (432000UL)
 
 /* Maximum amount of writable accounts per transaction
    https://github.com/anza-xyz/agave/blob/v3.0.8/runtime/src/bank.rs#L2946 */
@@ -137,63 +155,6 @@ FD_PROTOTYPES_BEGIN
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L37-L38 */
 #define FD_RUNTIME_EBPF_HOST_ALIGN  (16UL)
 
-/* FD_INSTR_ACCT_MAX is the maximum number of accounts that can
-   be referenced by a single instruction.
-
-   This is different from FD_BPF_INSTR_ACCT_MAX, which is enforced by the
-   BPF serializer. It is possible to pass in more than FD_BPF_INSTR_ACCT_MAX
-   instruction accounts in a transaction (for example mainnet transaction)
-   3eDdfZE6HswPxFKrtnQPsEmTkyL1iP57gRPEXwaqNGAqF1paGXCYYMwh7z4uQDUMgFor742sikVSQZW1gFRDhPNh).
-
-   A transaction like this will be loaded and sanitized, but will fail in the
-   bpf serialization stage. It is also possible to invoke a native program with
-   more than FD_BPF_INSTR_ACCT_MAX instruction accounts that will execute successfully.
-
-   Therefore we need to derive a bound from a worst-case transaction: one that
-   has the maximum possible number of instruction accounts at the expense of
-   everything else. This is a legacy transaction with a single account address,
-   a single signature, a single instruction with empty data and as many
-   instruction accounts as possible.
-
-   Therefore, the maximum number of instruction accounts is:
-     (MTU - fixed overhead) / (size of instruction account)
-   = (MTU
-       - signature count (1 byte, value=1)
-       - signature (64 bytes)
-       - signature count in header (1 byte)
-       - readonly signed count (1 byte)
-       - readonly unsigned count (1 byte)
-       - account count (1 byte, compact-u16 value=1)
-       - 1 account address (32 bytes)
-       - recent blockhash (32 bytes)
-       - instruction count (1 byte, compact-u16 value=1)
-       - program id index (1 byte)
-       - instruction account count (2 bytes)
-       - data len (1 byte, value=0)
-   = 1232 - 1 - 64 - 1 - 1 - 1 - 1 - 32 - 32 - 1 - 1 - 2 - 1
-   = 1094
-
-   TODO: SIMD-406 (https://github.com/solana-foundation/solana-improvement-documents/pull/406)
-   limits the number of instruction accounts to 255 in transaction sanitization.
-
-   Once the corresponding feature gate has been activated, we can reduce
-   FD_INSTR_ACCT_MAX to 255. We cannot reduce this before as this would cause
-   the result of the get_processed_sibling_instruction syscall to diverge from
-   Agave. */
-#define FD_INSTR_ACCT_MAX           (1094UL)
-
-/* FD_BPF_INSTR_ACCT_MAX is the maximum number of accounts that
-   an instruction that goes through the bpf loader serializer can reference.
-
-   The BPF loader has a lower limit for the number of instruction accounts
-   than is enforced in transaction sanitization.
-
-   TODO: remove this limit once SIMD-406 is activated, as we can then use the
-   same limit everywhere.
-
-   https://github.com/anza-xyz/agave/blob/v3.1.4/transaction-context/src/lib.rs#L30-L32 */
-#define FD_BPF_INSTR_ACCT_MAX       (255UL)
-
 /* FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT is the per-unique-account
    serialization overhead EXCLUDING the account's data body: the fixed
    metadata fields, plus the realloc headroom (MAX_PERMITTED_DATA_INCREASE)
@@ -215,6 +176,39 @@ FD_PROTOTYPES_BEGIN
                                                sizeof(ulong))              /* rent_epoch        */
 #define FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT (8UL) /* 1 dup byte + 7 bytes for padding */
 
+/* FD_SYSVAR_INSTRUCTIONS_FOOTPRINT bounds the worst-case serialized
+   size of the sysvar instructions account.  See
+   fd_sysvar_instructions.c for the format.
+
+   Worst case size for V0/legacy transactions.  Each bullet is bounded by
+   its own maximum; those maxima compete for the same 1232-byte tx and
+   can't all be reached at once, so the sum is a deliberately loose
+   over-estimate:
+     - 2 bytes header (num_instructions)
+     - instruction offsets: 2 bytes * FD_TXN_INSTR_MAX (64) = 128 bytes
+     - per-instr fixed: 2 (num_accounts) + 32 (program_id) + 2 (data_len)
+       = 36 bytes * FD_TXN_INSTR_MAX (64) = 2304 bytes
+     - account refs: each takes 1 byte (an index) in the tx but serializes
+       to 33 bytes (1 flag + 32-byte pubkey); a 1232-byte tx holds at most
+       ~1094 indices across all its instructions, so 33 * 1094 = 36102 bytes
+     - instr data: bounded by the legacy MTU FD_TXN_MTU_V0 (1232 bytes)
+     - 2 bytes tail (current_instr_idx)
+   Total: 39770 bytes
+
+   Worst case size for V1 transactions:
+   Instruction start offsets are u16, so an accepted sysvar has every
+   offset <= 65535; a larger offset overflows and is rejected (matching
+   agave).  The worst case is the last instruction starting at 65535:
+
+     - 65535 bytes (offset of the last instruction)
+     - per-acct ref: 33 bytes * 255 = 8415 bytes
+     - per-instr fixed: 2 (num_accounts) + 32 (program_id) + 2 (data_len)
+       = 36 bytes
+     - instr data: bounded by FD_TXN_MTU (4096 bytes)
+     - 2 bytes tail (current_instr_idx)
+   Total: 78084 bytes, rounded up to 81920. */
+#define FD_SYSVAR_INSTRUCTIONS_FOOTPRINT (81920UL)
+
 /* FD_BPF_LOADER_INPUT_REGION_FOOTPRINT bounds the bytes a single
    instruction can serialize into one input region.
 
@@ -225,7 +219,9 @@ FD_PROTOTYPES_BEGIN
    FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT (see
    fd_executor_load_transaction_accounts ->
    fd_increase_calculated_data_size, called from
-   fd_runtime_pre_execute_check before fd_execute_txn).  An instruction
+   fd_runtime_pre_execute_check before fd_execute_txn).  Note that this
+   does not include the instructions sysvar, as this is not counted
+   towards the loaded accounts data size limit.  An instruction
    serializes a subset of the transaction's (<= account_lock_limit
    unique) accounts, each unique account's data copied at most once (dups
    cost 8 bytes).
@@ -253,40 +249,20 @@ FD_PROTOTYPES_BEGIN
                                                                    account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT                  +     \
                                                                    ((direct_mapping) ? 0UL : ((ulong)FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT +              \
                                                                                               (ulong)FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN))       +     \
-                                                                   (FD_BPF_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
+                                                                   FD_SYSVAR_INSTRUCTIONS_FOOTPRINT                                                 +     \
+                                                                   (FD_TXN_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
                                                                    sizeof(ulong)                      /* instr data len */                          +     \
                                                                    FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN  /* instr data  */                             +     \
                                                                    sizeof(fd_pubkey_t)                /* program id     */                          +     \
                                                                    (FD_BPF_ALIGN_OF_U128-1UL) +                                                           \
-                                                                   FD_BPF_INSTR_ACCT_MAX*sizeof(ulong) /* direct_account_pointers_in_program_input */),   \
+                                                                   FD_TXN_INSTR_ACCT_MAX*sizeof(ulong) /* direct_account_pointers_in_program_input */),   \
                                                                    FD_RUNTIME_EBPF_HOST_ALIGN ))
 
 
 
 #define BPF_LOADER_SERIALIZATION_FOOTPRINT (FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0))
 
-/* FD_SYSVAR_INSTRUCTIONS_FOOTPRINT bounds the worst-case serialized
-   size of the sysvar instructions account.  See
-   fd_sysvar_instructions.c for the format.  Worst case:
-     - 2 bytes header (num_instructions)
-     - FD_TXN_INSTR_MAX * 2 = 128 bytes (instruction offsets)
-     - per-instr fixed: 2 (num_accounts) + 32 (program_id) + 2 (data_len)
-       = 36 bytes * FD_TXN_INSTR_MAX (64) = 2304 bytes
-     - per-acct ref: 33 bytes * FD_INSTR_ACCT_MAX (1094) = 36102 bytes
-     - instr data total: bounded by FD_TXN_MTU (1232 bytes)
-     - 2 bytes tail (current_instr_idx)
-   Total: 39770 bytes, rounded up to 40960. */
-#define FD_SYSVAR_INSTRUCTIONS_FOOTPRINT (40960UL)
-
 #define FD_HARD_FORKS_MAX (64UL)
-
-/* Snapshot manifest array bounds.  They are used to size arrays and
-   validate parsed lengths throughout the entire architecture. */
-
-#define FD_VOTE_ACCOUNTS_MAX     (40200UL)
-#define FD_STAKE_DELEGATIONS_MAX FD_RUNTIME_MAX_STAKE_ACCOUNTS
-#define FD_EPOCH_STAKES_LEN      (3UL)
-
 
 FD_PROTOTYPES_END
 

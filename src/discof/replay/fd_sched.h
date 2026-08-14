@@ -27,7 +27,7 @@
    to a few number of lanes.
 
    This module implements a state machine for ensuring that blocks enter
-   into and exit ouf of lanes in an orderly fashion.  The public APIs of
+   into and exit out of lanes in an orderly fashion.  The public APIs of
    this module are invoked to drive state transitions on a small number
    of events, such as new transactions arriving, or transactions
    completing, or a block being aborted/abandoned.  We also implement
@@ -97,6 +97,7 @@ struct fd_sched_txn_info {
    long  tick_sigverify_done;
    long  tick_exec_disp;
    long  tick_exec_done;
+   ulong index_in_slot; /* 0-indexed position of this transaction within its block. */
 };
 typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 
@@ -276,7 +277,7 @@ fd_sched_is_drained( fd_sched_t * sched );
 
    In addition to returning transactions for execution, this function
    may also return a sigverify task.  Sigverify can be completed
-   aynschronously outside the critical path of transaction execution, as
+   asynchronously outside the critical path of transaction execution, as
    long as every transaction in a block passes sigverify before we
    commit the block.  The scheduler prioritizes actual execution of
    transactions over sigverify, and in general sigverify tasks are only
@@ -366,7 +367,7 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx );
    sched.  This function should be called in a loop to drain all
    outstanding refcnt decrements before any other sched API is called in
    a stem run loop.  Returns ULONG_MAX when there are no more
-   outstanding refrences from sched and the loop should break. */
+   outstanding references from sched and the loop should break. */
 ulong
 fd_sched_pruned_block_next( fd_sched_t * sched );
 

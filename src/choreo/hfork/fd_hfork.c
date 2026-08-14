@@ -84,14 +84,14 @@ typedef struct {
 
 struct bhm {
   bhm_key_t key;  /* bhm_map key */
-  ulong     next; /* pool next */
+  uint      next; /* pool next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   ulong slot;
   ulong stake;
@@ -99,7 +99,9 @@ struct bhm {
 typedef struct bhm bhm_t;
 
 #define POOL_NAME bhm_pool
+#define POOL_LAZY 1
 #define POOL_T    bhm_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           bhm_map
@@ -107,6 +109,7 @@ typedef struct bhm bhm_t;
 #define MAP_KEY_T                          bhm_key_t
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->block_id.key,(k1)->block_id.key,32UL) & \
                                             !memcmp((k0)->bank_hash.key,(k1)->bank_hash.key,32UL))
 #define MAP_KEY_HASH(key,seed)             ((ulong)((key)->block_id.ul[1]^(key)->bank_hash.ul[1]^(seed)))
@@ -117,15 +120,16 @@ typedef struct bhm bhm_t;
 #define DLIST_ELE_T bhm_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct blk {
   fd_hash_t block_id;      /* blk_map key */
-  ulong     prev;          /* blk_map prev */
-  ulong     next;          /* pool next / blk_map next */
+  uint      prev;          /* blk_map prev */
+  uint      next;          /* pool next / blk_map next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   fd_hash_t our_bank_hash; /* 0: not replayed, -1: dead, else: our bank hash */
   void *    bhm_dlist;     /* dlist of bank hash objects for this block id */
@@ -134,7 +138,9 @@ struct blk {
 typedef struct blk blk_t;
 
 #define POOL_NAME blk_pool
+#define POOL_LAZY 1
 #define POOL_T    blk_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           blk_map
@@ -143,6 +149,7 @@ typedef struct blk blk_t;
 #define MAP_KEY                            block_id
 #define MAP_PREV                           prev
 #define MAP_NEXT                           next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,32UL))
 #define MAP_KEY_HASH(key,seed)             ((ulong)((key)->ul[1]^(seed)))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -152,6 +159,7 @@ typedef struct blk blk_t;
 #define DLIST_ELE_T blk_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 typedef struct {
@@ -161,14 +169,14 @@ typedef struct {
 
 struct vte {
   vte_key_t key; /* vte_map key: (vote_acc, block_id) */
-  ulong     next;
+  uint      next;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } vte_map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   fd_hash_t bank_hash;
   ulong     slot;
@@ -177,7 +185,9 @@ struct vte {
 typedef struct vte vte_t;
 
 #define POOL_NAME vte_pool
+#define POOL_LAZY 1
 #define POOL_T    vte_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           vte_map
@@ -185,6 +195,7 @@ typedef struct vte vte_t;
 #define MAP_KEY_T                          vte_key_t
 #define MAP_PREV                           vte_map.prev
 #define MAP_NEXT                           vte_map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->vote_acc.key,(k1)->vote_acc.key,32UL) & \
                                             !memcmp((k0)->block_id.key,(k1)->block_id.key,32UL))
 #define MAP_KEY_HASH(key,seed)             ((ulong)((key)->vote_acc.ul[1]^(key)->block_id.ul[1]^(seed)))
@@ -195,18 +206,19 @@ typedef struct vte vte_t;
 #define DLIST_ELE_T vte_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct vtr {
   fd_pubkey_t vote_acc;
-  ulong       next; /* pool next; reused as kept flag during update_voters */
+  uint        next; /* pool next; reused as kept flag during update_voters */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   vte_dlist_t * vte_dlist;
   ulong         vte_cnt;
@@ -214,7 +226,9 @@ struct vtr {
 typedef struct vtr vtr_t;
 
 #define POOL_NAME vtr_pool
+#define POOL_LAZY 1
 #define POOL_T    vtr_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           vtr_map
@@ -223,6 +237,7 @@ typedef struct vtr vtr_t;
 #define MAP_KEY                            vote_acc
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
+#define MAP_IDX_T                          uint
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,sizeof(fd_pubkey_t)))
 #define MAP_KEY_HASH(key,seed)             ((ulong)((key)->ul[1]^(seed)))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -232,6 +247,7 @@ typedef struct vtr vtr_t;
 #define DLIST_ELE_T vtr_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct __attribute__((aligned(128UL))) fd_hfork {
@@ -295,7 +311,9 @@ fd_hfork_footprint( ulong per_vtr_max,
                     ulong vtr_max ) {
 
   vtr_max   = fd_ulong_pow2_up( vtr_max );
+  if( FD_UNLIKELY( !per_vtr_max || !vtr_max || vtr_max>UINT_MAX || per_vtr_max>UINT_MAX/vtr_max ) ) return 0UL;
   ulong max = fd_ulong_pow2_up( per_vtr_max * vtr_max );
+  if( FD_UNLIKELY( !max || max>UINT_MAX ) ) return 0UL;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_hfork_t), sizeof(fd_hfork_t)                                       );
@@ -339,8 +357,6 @@ fd_hfork_new( void * shmem,
     FD_LOG_WARNING(( "bad per_vtr_max (%lu) or vtr_max (%lu)", per_vtr_max, vtr_max ));
     return NULL;
   }
-
-  fd_memset( shmem, 0, footprint );
 
   vtr_max   = fd_ulong_pow2_up( vtr_max );
   ulong max = fd_ulong_pow2_up( per_vtr_max * vtr_max );

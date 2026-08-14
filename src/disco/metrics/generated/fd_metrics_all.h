@@ -48,8 +48,10 @@ enum {
   FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_IDLE_OFF,
   FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_USER_OFF,
   FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_SYSTEM_OFF,
+  FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_INTERRUPT_OFF,
   FD_METRICS_COUNTER_TILE_IRQ_PREEMPTED_OFF,
   FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_OFF,
+  FD_METRICS_COUNTER_TILE_TIMER_TICK_OFF,
 };
 
 #include "fd_metrics_net.h"
@@ -85,6 +87,7 @@ enum {
 #include "fd_metrics_rpc.h"
 #include "fd_metrics_diag.h"
 #include "fd_metrics_genesi.h"
+#include "fd_metrics_admin.h"
 #include "fd_metrics_ipecho.h"
 #include "fd_metrics_backt.h"
 #include "fd_metrics_execrp.h"
@@ -93,6 +96,10 @@ enum {
 #include "fd_metrics_gui.h"
 #include "fd_metrics_guih.h"
 #include "fd_metrics_event.h"
+#include "fd_metrics_snapmk.h"
+#include "fd_metrics_snapzp.h"
+#include "fd_metrics_snaprd.h"
+#include "fd_metrics_snapsv.h"
 
 /* LINK IN metric properties */
 
@@ -208,7 +215,7 @@ enum {
 #define FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_DESC "CPU time spent in each CPU regime, in nanoseconds"
 #define FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_CVT  (FD_METRICS_CONVERTER_NONE)
-#define FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_CNT  (4UL)
+#define FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_CNT  (5UL)
 
 #define FD_METRICS_COUNTER_TILE_IRQ_PREEMPTED_NAME "tile_irq_preempted"
 #define FD_METRICS_COUNTER_TILE_IRQ_PREEMPTED_TYPE (FD_METRICS_TYPE_COUNTER)
@@ -220,8 +227,13 @@ enum {
 #define FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_DESC "TLB shootdowns observed on the tile CPU (fixed tiles only)"
 #define FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_CVT  (FD_METRICS_CONVERTER_NONE)
 
+#define FD_METRICS_COUNTER_TILE_TIMER_TICK_NAME "tile_timer_tick"
+#define FD_METRICS_COUNTER_TILE_TIMER_TICK_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_TILE_TIMER_TICK_DESC "Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only)"
+#define FD_METRICS_COUNTER_TILE_TIMER_TICK_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_ALL_TOTAL (25UL)
+
+#define FD_METRICS_ALL_TOTAL (27UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL[FD_METRICS_ALL_TOTAL];
 
 #define FD_METRICS_ALL_LINK_IN_TOTAL (9UL)
@@ -229,7 +241,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOT
 
 #define FD_METRICS_TOTAL_SZ (8UL*266UL)
 
-#define FD_METRICS_TILE_KIND_CNT 41
+#define FD_METRICS_TILE_KIND_CNT 46
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

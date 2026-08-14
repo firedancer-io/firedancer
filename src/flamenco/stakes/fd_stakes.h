@@ -4,6 +4,8 @@
 #include "fd_stake_delegations.h"
 #include "fd_stake_types.h"
 #include "fd_stake_weight.h"
+#include "fd_vote_stakes.h"
+#include "../types/fd_cast.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -16,11 +18,42 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
                                    fd_stake_history_t const * stake_history,
                                    ulong *                    new_rate_activation_epoch );
 
+#if FD_HAS_DOUBLE
+/* Caller must ensure cluster_portion is nonzero. */
+
+static inline ulong
+fd_stake_calculate_change_allowance_float( ulong   current_epoch,
+                                           ulong   account_portion,
+                                           ulong   cluster_portion,
+                                           ulong   cluster_effective,
+                                           ulong * new_rate_activation_epoch ) {
+  double weight = (double)account_portion / (double)cluster_portion;
+  double warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( fd_stake_warmup_cooldown_rate( current_epoch, new_rate_activation_epoch ) );
+  double newly_changed_cluster_stake = (double)cluster_effective * warmup_cooldown_rate;
+  return fd_rust_cast_double_to_ulong( weight * newly_changed_cluster_stake );
+}
+#endif /* FD_HAS_DOUBLE */
+
+ulong
+fd_stake_calculate_activation_allowance( ulong                            current_epoch,
+                                         ulong                            account_activating_stake,
+                                         fd_stake_history_entry_t const * prev_epoch_cluster_state,
+                                         ulong *                          opt_rate_change_activation_epoch );
+
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stake_delegation.rs#L27-L41 */
+fd_stake_history_entry_t
+fd_delegation_activation_status( fd_delegation_t const *    self,
+                                 ulong                      target_epoch,
+                                 fd_stake_history_t const * stake_history,
+                                 ulong *                    new_rate_activation_epoch,
+                                 int                        use_fixed_point_stake_math );
+
 fd_stake_history_entry_t
 fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * self,
                                        ulong                         target_epoch,
                                        fd_stake_history_t const *    stake_history,
-                                       ulong *                       new_rate_activation_epoch );
+                                       ulong *                       new_rate_activation_epoch,
+                                       int                           use_fixed_point_stake_math );
 
 /* fd_stake_weights_by_node converts Stakes (unordered list of (vote
    acc, active stake) tuples) to an ordered list of (stake, vote pubkey, node
@@ -36,26 +69,17 @@ fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * self,
    Returns the number of items in weights (which is <= no of vote accs). */
 
 ulong
-fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
-                          fd_vote_stakes_t *       vote_stakes,
-                          ushort                   fork_idx,
-                          fd_vote_stake_weight_t * weights,
-                          int                      vat_enabled );
-
-
-ulong
-fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
-                               fd_vote_stakes_t *       vote_stakes,
-                               ushort                   fork_idx,
-                               fd_vote_stake_weight_t * weights,
-                               int                      vat_enabled );
+fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          int                      use_t_1,
+                          fd_vote_stake_weight_t * weights );
 
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_accdb_t *                   accdb,
                           fd_capture_ctx_t *             capture_ctx,
-                          fd_stake_delegations_t const * stake_delegations,
+                          fd_stake_delegations_t *       stake_delegations,
                           ulong *                        new_rate_activation_epoch );
 
 void

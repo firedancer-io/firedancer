@@ -431,8 +431,8 @@ FD_STATIC_ASSERT( sizeof (fd_tower_vote_private_t)==512UL, FD_TOWER_VOTE_FOOTPRI
 
 struct fd_tower_blk {
   ulong     slot;               /* pool next / map key */
-  ulong     next;               /* pool next / map next */
-  ulong     prev;               /* map prev */
+  uint      next;               /* pool next / map next */
+  uint      prev;               /* map prev */
   ulong     parent_slot;        /* parent slot */
   ulong     epoch;              /* epoch of this slot */
   fd_hash_t bank_hash;          /* our bank hash for this slot */
@@ -480,8 +480,10 @@ struct fd_tower {
   void *             blk_map;   /* map chain of blk_t elements (NULL if blk_max==0) */
   fd_tower_vtr_t *   vtrs;      /* deque of voter entries (NULL if vtr_max==0) */
 
-  void * lck_pool; /* lockout interval pool */
-  void * lck_map;  /* lockout interval map chain */
+  void * lck_pool;        /* lockout interval pool */
+  void * lck_map;         /* lockout interval map chain */
+  void * lck_pubkey_pool; /* refcounted vote-account pubkey pool for lockouts */
+  void * lck_pubkey_map;  /* map of vote-account pubkeys for lockouts */
 
   fd_tower_stakes_vtr_map_t * stk_vtr_map;
   fd_tower_stakes_vtr_t *     stk_vtr_pool;
@@ -550,11 +552,11 @@ struct fd_tower_out {
   uchar     flags;          /* one of FD_TOWER_{EMPTY,...} */
   ulong     reset_slot;     /* slot to reset PoH to */
   fd_hash_t reset_block_id; /* block ID to reset PoH to */
+  ulong     reset_bank_seq; /* app-wide bank sequence number of the reset block (fd_bank.bank_seq), or ULONG_MAX if not yet associated with a replayed bank */
   ulong     vote_slot;      /* slot to vote for (ULONG_MAX if no vote) */
-  fd_hash_t vote_block_id;   /* block ID to vote for */
-  fd_hash_t vote_bank_hash;  /* bank hash to vote for */
-  fd_hash_t vote_block_hash; /* block hash (recent blockhash) to vote for */
-  ulong     root_slot;       /* new tower root slot (ULONG_MAX if no new root) */
+  fd_hash_t vote_block_id;  /* block ID to vote for */
+  fd_hash_t vote_bank_hash; /* bank hash to vote for */
+  ulong     root_slot;      /* new tower root slot (ULONG_MAX if no new root) */
   fd_hash_t root_block_id;  /* new tower root block ID */
 };
 typedef struct fd_tower_out fd_tower_out_t;
@@ -576,8 +578,9 @@ fd_tower_count_vote( fd_tower_t *        tower,
    no vote should be cast and caller should ignore vote_block_id.  New
    roots result from votes, so the same applies for root_slot (there is
    not always a new root).  However there is always a reset block, so
-   reset_slot and reset_block_id will always be populated on return. The
-   implementation contains detailed documentation of the tower rules. */
+   reset_slot, reset_block_id and reset_bank_seq will always be populated
+   on return.  The implementation contains detailed documentation of the
+   tower rules. */
 
 uchar
 fd_tower_vote_and_reset( fd_tower_t * tower,
@@ -585,10 +588,10 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_votes_t * votes,
                          ulong *      reset_slot,
                          fd_hash_t *  reset_block_id,
+                         ulong *      reset_bank_seq,
                          ulong *      vote_slot,
                          fd_hash_t *  vote_block_id,
                          fd_hash_t *  vote_bank_hash,
-                         fd_hash_t *  vote_block_hash,
                          ulong *      root_slot,
                          fd_hash_t *  root_block_id );
 

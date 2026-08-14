@@ -46,7 +46,7 @@ fd_vote_state_v4_create_new( fd_vote_init_v2_t const *     vote_init_v2,
   fd_vote_state_v4_t * vote_state              = &versioned->v4;
   vote_state->node_pubkey                      = vote_init_v2->node_pubkey;
 
-  /* Important: BLS pubkey proof of possesion MUST be validated first */
+  /* Important: BLS pubkey proof of possession MUST be validated first */
   vote_state->has_bls_pubkey_compressed        = 1;
   memcpy( vote_state->bls_pubkey_compressed, vote_init_v2->authorized_voter_bls_pubkey, FD_BLS_PUBKEY_COMPRESSED_SZ );
 
@@ -113,7 +113,7 @@ fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
                                            ulong                 target_epoch,
                                            uchar const *         bls_pubkey,
                                            int                   authorized_withdrawer_signer,
-                                           fd_pubkey_t const *   signers[ FD_TXN_SIG_MAX ],
+                                           fd_pubkey_t const *   signers[ FD_INSTR_SIGNERS_MAX ],
                                            ulong                 signers_cnt ) {
   int           rc;
   fd_pubkey_t * epoch_authorized_voter = NULL;

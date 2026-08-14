@@ -6,6 +6,7 @@
 #include "../../disco/store/fd_store.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/node_info/fd_node_info.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
@@ -49,6 +50,7 @@ struct fd_block_id_ele {
   uint      latest_fec_idx;
   int       block_id_seen;
   ulong     slot;
+  ulong     bank_seq;
   ulong     next_;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
@@ -75,8 +77,6 @@ struct fd_replay_tile {
   fd_txncache_t * txncache;
   fd_store_t *    store;
   fd_banks_t *    banks;
-  ulong           frontier_indices[ FD_BANKS_MAX_BANKS ];
-  ulong           frontier_cnt;
 
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.
@@ -107,16 +107,17 @@ struct fd_replay_tile {
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
 
-  int          has_genesis_hash;
+  uint has_genesis_hash:1;
+  uint has_cluster_type:1;
+  uint has_genesis_timestamp:1;
+  uint has_expected_genesis_timestamp:1;
+
   char         genesis_path[ PATH_MAX ];
   fd_hash_t    genesis_hash[1];
   fd_genesis_t genesis[1];
   ulong        cluster_type;
-
-  int   has_genesis_timestamp;
-  ulong genesis_timestamp;
-  int   has_expected_genesis_timestamp;
-  ulong expected_genesis_timestamp;
+  ulong        genesis_timestamp;
+  ulong        expected_genesis_timestamp;
 
   ulong          hard_fork_cnt;
   fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
@@ -263,7 +264,9 @@ struct fd_replay_tile {
      */
   fd_hash_t consensus_root;          /* The most recent block to have reached max lockout in the tower. */
   ulong     consensus_root_slot;     /* slot number of the above. */
-  ulong     consensus_root_bank_idx; /* bank index of the above. */
+  fd_hash_t notified_root;           /* The most recent consensus root sent to sched, RPC, and resolv. */
+  ulong     notified_root_slot;      /* slot number of the above. */
+  fd_bank_t * notified_root_bank;    /* bank held by sched, RPC, and resolv for the notified root. */
   ulong     published_root_slot;     /* slot number of the published root. */
   ulong     published_root_bank_idx; /* bank index of the published root. */
 
@@ -321,17 +324,26 @@ struct fd_replay_tile {
   int         recv_poh;
   ulong       next_leader_slot;
   long        next_leader_tickcount;
+  double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
-  fd_bank_t * reset_bank;
+
+  /* Caught up to the cluster: replay has completed a slot within a few
+     slots of the highest FEC set slot seen from repair (which tracks
+     the turbine tip). */
+  int         caught_up;
+  ulong       catch_up_max_fec_slot;
+  ulong       catch_up_tip_advance_cnt;
+  long        boot_timestamp_nanos;
   fd_hash_t   reset_block_id;
   long        reset_timestamp_nanos;
-  double      slot_duration_nanos;
-  double      slot_duration_ticks;
   fd_bank_t * leader_bank;
 
   fd_pubkey_t      identity_pubkey[1];
   ulong            identity_idx;
+  int              identity_dirty;
+
+  fd_node_info_box_t * node_info; /* shared */
 
   fd_keyswitch_t * keyswitch;
   int              halt_leader;
@@ -344,6 +356,8 @@ struct fd_replay_tile {
   fd_replay_out_link_t exec_out[ 1 ];
 
   fd_replay_out_link_t replay_out[1];
+  fd_replay_out_link_t snapmk_out[1];
+  ulong admin_out_idx;
 
   fd_replay_out_link_t epoch_out[1];
 
@@ -362,6 +376,20 @@ struct fd_replay_tile {
     fd_pubkey_t           vote_account;
     fd_bundle_crank_gen_t gen[1];
   } bundle;
+
+  /* snapshot producer */
+  struct {
+    uint  supported:1;
+    uint  active:1;
+    uint  incremental:1;
+    ulong bank_idx;
+    ulong scheduled_at;
+    ulong full_interval;
+    ulong next_full_slot;
+    ulong incremental_interval;
+    ulong next_incremental_slot;
+    ulong base_slot;
+  } snapmk;
 
   struct {
     ulong      store_query_acquire;

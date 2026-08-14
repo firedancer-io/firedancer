@@ -12,6 +12,8 @@ class Tile(Enum):
     SNAPIN = 6
     SNAPWR = 7
 
+    ADMIN = 8
+
     NETLNK = 14
     NET = 15
     SOCK = 16
@@ -41,6 +43,11 @@ class Tile(Enum):
     GUI = 38
     METRIC = 39
     RPC = 40
+
+    SNAPMK = 50
+    SNAPZP = 51
+    SNAPRD = 52
+    SNAPSV = 53
 
     RESOLH = 100
     BANK = 101

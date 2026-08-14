@@ -188,13 +188,9 @@ main( int     argc,
     FD_TEST( FD_LOAD( ulong, data->payload )==j );
   }
 
-  FD_LOG_INFO(( "Test fd_tpu_reasm_reset" ));
-
-  fd_tpu_reasm_reset( reasm );
-  verify_state( reasm, mcache );
-
   FD_LOG_INFO(( "Test basic publishing" ));
 
+  reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig, dcache ) );
   do {
     fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_acquire( reasm, 0UL, 0UL, 0UL );
     FD_TEST( slot->k.state == FD_TPU_REASM_STATE_BUSY );

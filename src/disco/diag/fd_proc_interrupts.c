@@ -3,32 +3,40 @@
 #include "../../util/io/fd_io.h" /* fd_io_buffered_istream */
 #include <ctype.h> /* isdigit */
 
-static void
+/* The skip_* helpers consume a run of bytes from is.  Each returns 1 if
+   it stopped at a genuine terminator and 0 if it consumed every
+   buffered byte without reaching a terminator. */
+
+static int
 skip_spaces( fd_io_buffered_istream_t * is ) {
   char const * peek    = fd_io_buffered_istream_peek   ( is );
   ulong        peek_sz = fd_io_buffered_istream_peek_sz( is );
   ulong j;
   for( j=0UL; j<peek_sz && peek[j]==' '; j++ ) {}
   fd_io_buffered_istream_skip( is, j );
+  return j<peek_sz; /* complete iff we stopped on a non-space */
 }
 
-static void
+static int
 skip_token( fd_io_buffered_istream_t * is ) {
   char const * peek    = fd_io_buffered_istream_peek   ( is );
   ulong        peek_sz = fd_io_buffered_istream_peek_sz( is );
   ulong j;
   for( j=0UL; j<peek_sz && peek[j]!=' ' && peek[j]!='\n'; j++ ) {}
   fd_io_buffered_istream_skip( is, j );
+  return j<peek_sz; /* complete iff we stopped on a delimiter */
 }
 
-static void
+static int
 skip_line( fd_io_buffered_istream_t * is ) {
   char const * peek    = fd_io_buffered_istream_peek   ( is );
   ulong        peek_sz = fd_io_buffered_istream_peek_sz( is );
   ulong j;
   for( j=0UL; j<peek_sz && peek[j]!='\n'; j++ ) {}
-  if( j<peek_sz && peek[j]=='\n' ) j++;
+  int complete = j<peek_sz; /* found the '\n' */
+  if( complete ) j++;       /* consume the '\n' */
   fd_io_buffered_istream_skip( is, j );
+  return complete;
 }
 
 /* read_ulong consumes a decimal ulong from buffered unconsumed chars in
@@ -51,8 +59,8 @@ read_ulong( fd_io_buffered_istream_t * is ) {
 
 static int
 read_until( fd_io_buffered_istream_t * is,
-            ulong                      min_sz,
-            void (*skip)( fd_io_buffered_istream_t * is ) ) {
+           ulong                      min_sz,
+           int (*skip)( fd_io_buffered_istream_t * is ) ) {
 
   ulong buf_sz = fd_io_buffered_istream_rbuf_sz( is );
   min_sz = fd_ulong_min( min_sz, buf_sz );
@@ -60,8 +68,7 @@ read_until( fd_io_buffered_istream_t * is,
   /* Read until 'skip' leaves some bytes */
 
   for(;;) {
-    skip( is );
-    if( fd_io_buffered_istream_peek_sz( is )>0 ) break;
+    if( skip( is ) ) break; /* unit complete */
     int err = fd_io_buffered_istream_fetch( is );
     if( err==0 ) {
       continue;
@@ -156,8 +163,10 @@ read_cpu_map(  fd_io_buffered_istream_t * is,
 }
 
 ulong
-fd_proc_interrupts_colwise( int   fd,
-                            ulong per_cpu[ FD_TILE_MAX ] ) {
+fd_proc_interrupts_read( int     fd,
+                         ulong * opt_device_per_cpu,
+                         ulong * opt_tlb_per_cpu,
+                         ulong * opt_loc_per_cpu ) {
   fd_io_buffered_istream_t is[1];
   char buf[ 4096 ];
   fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
@@ -172,8 +181,12 @@ fd_proc_interrupts_colwise( int   fd,
   if( FD_UNLIKELY( !col_cnt || !cpu_cnt ) ) return 0UL;
 
   for( ulong cpu=0UL; cpu<cpu_cnt; cpu++ ) {
-    per_cpu[ cpu ] = 0UL;
+    if( FD_LIKELY( opt_device_per_cpu ) ) opt_device_per_cpu[ cpu ] = 0UL;
+    if( FD_LIKELY( opt_tlb_per_cpu    ) ) opt_tlb_per_cpu   [ cpu ] = 0UL;
+    if( FD_LIKELY( opt_loc_per_cpu    ) ) opt_loc_per_cpu   [ cpu ] = 0UL;
   }
+
+  if( FD_UNLIKELY( !opt_device_per_cpu && !opt_tlb_per_cpu && !opt_loc_per_cpu ) ) return cpu_cnt;
 
   /* Read interrupt table
      Device interrupt counters look like this:
@@ -185,12 +198,22 @@ fd_proc_interrupts_colwise( int   fd,
 
     /* Read prefix */
     err = read_until( is, 64UL, skip_spaces );
+    if( FD_UNLIKELY( err==-1 ) ) return cpu_cnt; /* end of input */
     if( FD_UNLIKELY( err!=0 ) ) goto failed;
     if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
-    if( !isdigit( ((char const *)fd_io_buffered_istream_peek( is ))[0] ) ) {
-      /* Only count numbered interrupts */
+    char const * prefix     = fd_io_buffered_istream_peek   ( is );
+    ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
+    int          row_kind   = 0;
+    if( FD_LIKELY( opt_device_per_cpu && isdigit( prefix[0] ) ) ) {
+      row_kind = 1;
+    } else if( FD_UNLIKELY( opt_tlb_per_cpu && prefix_max>=4UL && fd_memeq( prefix, "TLB:", 4UL ) ) ) {
+      row_kind = 2;
+    } else if( FD_UNLIKELY( opt_loc_per_cpu && prefix_max>=4UL && fd_memeq( prefix, "LOC:", 4UL ) ) ) {
+      row_kind = 3;
+    } else {
       goto skip_line;
     }
+
     err = read_until( is, 0UL, skip_token );
     if( FD_UNLIKELY( err!=0 ) ) goto failed;
 
@@ -201,7 +224,10 @@ fd_proc_interrupts_colwise( int   fd,
 
       ulong irq_cnt = read_ulong( is );
       irq_cnt = fd_ulong_if( irq_cnt!=ULONG_MAX, irq_cnt, 0UL );
-      per_cpu[ col_cpu[ col_idx ] ] += irq_cnt;
+      ulong cpu_idx = col_cpu[ col_idx ];
+      if(      row_kind==1 ) opt_device_per_cpu[ cpu_idx ] += irq_cnt;
+      else if( row_kind==2 ) opt_tlb_per_cpu   [ cpu_idx ]  = irq_cnt;
+      else                   opt_loc_per_cpu   [ cpu_idx ]  = irq_cnt;
     }
 
   skip_line:
@@ -212,61 +238,6 @@ fd_proc_interrupts_colwise( int   fd,
       goto failed;
     }
 
-  }
-  return cpu_cnt;
-
-failed:
-  if( err!=0 ) {
-    FD_LOG_WARNING(( "read failed (%i-%s)", err, fd_io_strerror( err ) ));
-  }
-  return 0UL;
-}
-
-ulong
-fd_proc_interrupts_tlb( int   fd,
-                        ulong per_cpu[ FD_TILE_MAX ] ) {
-  fd_io_buffered_istream_t is[1];
-  char buf[ 4096 ];
-  fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
-
-  ushort col_cpu[ FD_TILE_MAX ];
-  ulong  col_cnt;
-  ulong  cpu_cnt;
-  int err = read_cpu_map( is, &col_cnt, &cpu_cnt, col_cpu );
-  if( FD_UNLIKELY( err!=0 ) ) goto failed;
-  if( FD_UNLIKELY( !col_cnt || !cpu_cnt ) ) return 0UL;
-
-  for( ulong cpu=0UL; cpu<cpu_cnt; cpu++ ) {
-    per_cpu[ cpu ] = 0UL;
-  }
-
-  for(;;) {
-    err = read_until( is, 64UL, skip_spaces );
-    if( FD_UNLIKELY( err!=0 ) ) goto failed;
-    if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
-
-    char const * prefix     = fd_io_buffered_istream_peek   ( is );
-    ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
-    if( FD_UNLIKELY( prefix_max>=4UL && fd_memeq( prefix, "TLB:", 4UL ) ) ) {
-      err = read_until( is, 0UL, skip_token );
-      if( FD_UNLIKELY( err!=0 ) ) goto failed;
-
-      for( ulong col_idx=0UL; col_idx<col_cnt; col_idx++ ) {
-        err = read_until( is, 21UL, skip_spaces );
-        if( FD_UNLIKELY( err!=0 ) ) goto failed;
-
-        ulong irq_cnt = read_ulong( is );
-        irq_cnt = fd_ulong_if( irq_cnt!=ULONG_MAX, irq_cnt, 0UL );
-        per_cpu[ col_cpu[ col_idx ] ] = irq_cnt;
-      }
-      return cpu_cnt;
-    }
-
-    err = read_until( is, 0UL, skip_line );
-    if( FD_UNLIKELY( err!=0 ) ) {
-      if( err==-1 ) break;
-      goto failed;
-    }
   }
   return cpu_cnt;
 
@@ -304,6 +275,7 @@ fd_proc_softirqs_sum( int   fd,
 
     /* Read prefix */
     err = read_until( is, 64UL, skip_spaces );
+    if( FD_UNLIKELY( err==-1 ) ) return cpu_cnt; /* end of input */
     if( FD_UNLIKELY( err!=0 ) ) goto failed;
     if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
 
@@ -338,6 +310,80 @@ fd_proc_softirqs_sum( int   fd,
       goto failed;
     }
 
+  }
+  return cpu_cnt;
+
+failed:
+  if( err!=0 ) {
+    FD_LOG_WARNING(( "read failed (%i-%s)", err, fd_io_strerror( err ) ));
+  }
+  return 0UL;
+}
+
+ulong
+fd_proc_stat_irq_ticks( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] ) {
+  fd_io_buffered_istream_t is[1];
+  char buf[ 4096 ];
+  fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
+
+  for( ulong cpu=0UL; cpu<FD_TILE_MAX; cpu++ ) {
+    per_cpu[ cpu ] = 0UL;
+  }
+
+  /* Per-CPU rows look like this ("cpu" summary row has no digit):
+     "cpu7 134688 9390 52162 76129767 4217 3283 2069 0 0 0"
+     Fields after the cpuN token: user nice system idle iowait irq
+     softirq steal guest guest_nice. */
+
+  ulong cpu_cnt = 0UL;
+  int   err;
+  for(;;) {
+    err = read_until( is, 64UL, skip_spaces );
+    if( FD_UNLIKELY( err==-1 ) ) return cpu_cnt; /* end of input */
+    if( FD_UNLIKELY( err!=0 ) ) goto failed;
+    if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
+
+    char const * prefix     = fd_io_buffered_istream_peek   ( is );
+    ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
+
+    /* Rows are ordered: "cpu", "cpu0".."cpuN", then non-cpu rows.  Stop
+       at the first non-cpu row. */
+    if( FD_UNLIKELY( prefix_max<4UL || !fd_memeq( prefix, "cpu", 3UL ) ) ) return cpu_cnt;
+    if( FD_UNLIKELY( !isdigit( prefix[ 3 ] ) ) ) { /* "cpu" summary row */
+      err = read_until( is, 0UL, skip_line );
+      if( FD_UNLIKELY( err!=0 ) ) { if( err==-1 ) break; goto failed; }
+      continue;
+    }
+
+    fd_io_buffered_istream_skip( is, 3UL );
+    ulong cpu_idx = read_ulong( is );
+    if( FD_UNLIKELY( cpu_idx==ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "failed to parse cpu index in /proc/stat" ));
+      return 0UL;
+    }
+
+    /* Sum fields 6 (irq), 7 (softirq) and 8 (steal), 1-indexed after
+       the cpuN token. */
+    ulong ticks = 0UL;
+    for( ulong field_idx=1UL; field_idx<=8UL; field_idx++ ) {
+      err = read_until( is, 21UL, skip_spaces );
+      if( FD_UNLIKELY( err!=0 ) ) goto failed;
+
+      ulong val = read_ulong( is );
+      val = fd_ulong_if( val!=ULONG_MAX, val, 0UL );
+      if( field_idx>=6UL ) ticks += val;
+    }
+    if( FD_LIKELY( cpu_idx<FD_TILE_MAX ) ) {
+      per_cpu[ cpu_idx ] = ticks;
+      cpu_cnt = fd_ulong_max( cpu_cnt, cpu_idx+1UL );
+    }
+
+    err = read_until( is, 0UL, skip_line );
+    if( FD_UNLIKELY( err!=0 ) ) {
+      if( err==-1 ) break;
+      goto failed;
+    }
   }
   return cpu_cnt;
 

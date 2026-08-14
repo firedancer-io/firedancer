@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_h
 
 #include "../fd_bank.h"
+#include "fd_sysvar_rent.h"
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1833 */
 #define FD_SYSVAR_RENT_UNADJUSTED_INITIAL_BALANCE ( 1UL )
@@ -18,6 +19,16 @@ fd_sysvar_account_update( fd_bank_t *         bank,
                           fd_pubkey_t const * address,
                           void const *        data,
                           ulong               sz );
+
+/* fd_sysvar_adjust_balance_for_rent raises a sysvar account's balance
+   to the rent exempt minimum.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-rc.1/runtime/src/bank.rs#L6284-L6289 */
+
+static inline void
+fd_sysvar_adjust_balance_for_rent( fd_bank_t const * bank,
+                                   fd_acc_t *        acc ) {
+  acc->lamports = fd_ulong_max( acc->lamports, fd_rent_exempt_minimum_balance( &bank->f.rent, acc->data_len ) );
+}
 
 int
 fd_sysvar_instr_acct_check( fd_exec_instr_ctx_t const * ctx,

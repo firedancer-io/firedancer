@@ -400,7 +400,7 @@ test_affine_is_small_order( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar                 _s[32]; uchar *              s = _s;
   fd_ed25519_point_t    _r[1];  fd_ed25519_point_t * r = _r;
 
-  // Passsing condition
+  // Passing condition
   fd_hex_decode(s, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
   FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( ! fd_ed25519_affine_is_small_order( r ) );
@@ -858,6 +858,32 @@ test_sc_muladd( fd_rng_t * rng ) {
 }
 
 void
+test_sc_unaligned_output( fd_rng_t * rng ) {
+  uchar in[64];
+  uchar a[32];
+  uchar b[32];
+  uchar c[32];
+  uchar expected[32];
+  uchar _actual[33] __attribute__((aligned(8)));
+  uchar * actual = _actual+1;
+
+  fd_rng_b512( rng, in );
+  fd_curve25519_scalar_reduce( expected, in );
+  FD_TEST( fd_curve25519_scalar_reduce( actual, in )==actual );
+  FD_TEST( fd_memeq( actual, expected, 32UL ) );
+
+  fd_rng_b256( rng, a );
+  fd_rng_b256( rng, b );
+  fd_rng_b256( rng, c );
+  fd_curve25519_scalar_muladd( expected, a, b, c );
+  FD_TEST( fd_curve25519_scalar_muladd( actual, a, b, c )==actual );
+  FD_TEST( fd_memeq( actual, expected, 32UL ) );
+
+  FD_TEST( fd_curve25519_scalar_from_u64( actual, 1UL )==actual );
+  FD_TEST( fd_memeq( actual, fd_curve25519_scalar_one, 32UL ) );
+}
+
+void
 test_public_from_private( fd_rng_t *    rng,
                           fd_sha512_t * sha ) {
   uchar _prv[32]; uchar * prv = _prv;
@@ -1185,6 +1211,7 @@ main( int     argc,
   test_sc_validate  ( rng );
   test_sc_reduce    ( rng );
   test_sc_muladd    ( rng );
+  test_sc_unaligned_output( rng );
 
   test_public_from_private( rng, sha );
   test_sign               ( rng, sha );

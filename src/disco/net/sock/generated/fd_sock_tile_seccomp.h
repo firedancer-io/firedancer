@@ -31,11 +31,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_sock_tile_instr_cnt = 41;
+static const uint sock_filter_policy_fd_sock_tile_instr_cnt = 42;
 
-static void populate_sock_filter_policy_fd_sock_tile( ulong out_cnt, struct sock_filter out[ static 41 ], uint logfile_fd, uint tx_fd, uint rx_fd0, uint rx_fd1 ) {
-  FD_TEST( out_cnt >= 41 );
-  struct sock_filter filter[41] = {
+static void populate_sock_filter_policy_fd_sock_tile( ulong out_cnt, struct sock_filter out[ static 42 ], uint logfile_fd, uint tx_fd, uint rx_fd0, uint rx_fd1 ) {
+  FD_TEST( out_cnt >= 42 );
+  struct sock_filter filter[42] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 6 ),
@@ -50,7 +50,7 @@ static void populate_sock_filter_policy_fd_sock_tile( ulong out_cnt, struct sock
     /* check write */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 25, 0 ),
     /* check fsync */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 29, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 30, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -104,8 +104,10 @@ static void populate_sock_filter_policy_fd_sock_tile( ulong out_cnt, struct sock
 //  check_write:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 2, /* or_eq_next_lo_8 */ 0 ),
-//  or_eq_next_lo_8:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 3, /* or_8 */ 0 ),
+//  or_8:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* write_ALLOW */ 1, /* write_KILL */ 0 ),
 //  write_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),

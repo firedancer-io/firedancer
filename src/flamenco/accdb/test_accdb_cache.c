@@ -17,7 +17,7 @@ main( int     argc,
   for( ulong t=0UL; t<sizeof(test_gb)/sizeof(test_gb[0]); t++ ) {
     ulong footprint = test_gb[t] * (1UL<<30);
 
-    int ok = fd_accdb_cache_class_cnt( footprint, 640UL, class_cnt );
+    int ok = fd_accdb_cache_class_cnt( footprint, fd_accdb_cache_min_reserved( 1 ), class_cnt );
 
     FD_LOG_NOTICE(( "=== %lu GiB cache === (%s)", test_gb[t],
                      ok ? "ok" : "too small" ));
@@ -32,7 +32,7 @@ main( int     argc,
        requested above. */
 
     for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-      FD_TEST( class_cnt[c]>=640UL );
+      FD_TEST( class_cnt[c]>=fd_accdb_cache_min_reserved( 1 ) );
     }
 
     /* Verify total memory does not exceed budget. */
@@ -81,7 +81,7 @@ main( int     argc,
   /* Edge case: budget too small for the per-class minimums.  Should
      return failure and zero all class counts. */
 
-  FD_TEST( !fd_accdb_cache_class_cnt( 1UL<<20, 640UL, class_cnt ) );
+  FD_TEST( !fd_accdb_cache_class_cnt( 1UL<<20, fd_accdb_cache_min_reserved( 1 ), class_cnt ) );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     FD_TEST( class_cnt[c]==0UL );
   }
@@ -109,7 +109,7 @@ main( int     argc,
      pop_max (1.041B) exceeds that ceiling, so mirror the same clamp
      here when checking. */
 
-  FD_TEST( fd_accdb_cache_class_cnt( (all_caps_gib+1UL)*(1UL<<30), 640UL, class_cnt ) );
+  FD_TEST( fd_accdb_cache_class_cnt( (all_caps_gib+1UL)*(1UL<<30), fd_accdb_cache_min_reserved( 1 ), class_cnt ) );
   FD_LOG_NOTICE(( "=== %lu GiB cache (all-caps+1) ===", all_caps_gib+1UL ));
   ulong total_caps = 0UL;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {

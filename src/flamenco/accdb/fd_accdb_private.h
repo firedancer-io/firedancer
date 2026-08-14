@@ -1,19 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_private_h
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_private_h
 
+#include "fd_accdb_base.h"
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_cache.h"
-
-/* Maximum accounts a single acquire may request.
-   FD_ACCDB_MAX_TX_ACCOUNT_LOCKS mirrors the mainnet per-transaction
-   account-lock limit (Agave get_transaction_account_lock_limit == 64;
-   the increase_tx_account_lock_limit feature -> 128 is assumed never to
-   activate).  FD_ACCDB_MAX_TXN_PER_ACQUIRE mirrors
-   FD_PACK_MAX_TXN_PER_BUNDLE, a bundle coalesces up to that many
-   transactions into one acquire. */
-#define FD_ACCDB_MAX_TX_ACCOUNT_LOCKS (64UL)
-#define FD_ACCDB_MAX_TXN_PER_ACQUIRE  (5UL)
-#define FD_ACCDB_MAX_ACQUIRE_CNT      (FD_ACCDB_MAX_TXN_PER_ACQUIRE*FD_ACCDB_MAX_TX_ACCOUNT_LOCKS)
 
 static inline void
 spin_lock_acquire( int * lock ) {
@@ -37,12 +27,6 @@ spin_lock_release( int * lock ) {
   *lock = 0;
 # endif
 }
-
-#ifndef FD_ACCDB_NO_FORK_ID
-struct fd_accdb_fork_id { ushort val; };
-typedef struct fd_accdb_fork_id fd_accdb_fork_id_t;
-#endif
-
 struct __attribute__((packed)) fd_accdb_disk_meta {
   uchar pubkey[ 32UL ];
   uint  size;
@@ -128,6 +112,15 @@ struct fd_accdb_partition {
   uchar queued;
   uchar compacting_now;
 
+  /* Per-compaction-pass telemetry accumulators for the
+     accdb_compaction_completed event.  Reset when a partition's
+     compaction begins (compacting_now set in background_compact) and
+     accumulated as records are scanned/relocated. */
+  long  compaction_start_wallclock;    /* timestamp when this pass began */
+  ulong compaction_accounts_relocated; /* live records moved this pass */
+  ulong compaction_bytes_relocated;    /* bytes moved this pass */
+  ulong compaction_dead_records;       /* records skipped (no live index entry) this pass */
+
   /* Epoch at which this partition was enqueued for compaction.  Set by
      fd_accdb_shmem_bytes_freed when the partition crosses the
      freed-bytes threshold.  The compaction tile will not begin reading
@@ -186,7 +179,7 @@ struct fd_accdb_cache_key {
 
 typedef struct fd_accdb_cache_key fd_accdb_cache_key_t;
 
-struct fd_accdb_accmeta {
+struct __attribute__((aligned(64))) fd_accdb_accmeta {
   fd_accdb_cache_key_t key;
 
   struct {
@@ -212,22 +205,26 @@ struct fd_accdb_accmeta {
 
 typedef struct fd_accdb_accmeta fd_accdb_accmeta_t;
 
+FD_STATIC_ASSERT( alignof(fd_accdb_accmeta_t)==64, layout );
+FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
+
 #define FD_ACCDB_OFF_BITS  48UL
 #define FD_ACCDB_OFF_MASK  ((1UL<<FD_ACCDB_OFF_BITS)-1UL)       /* 0x0000_FFFF_FFFF_FFFF */
 #define FD_ACCDB_OFF_INVAL FD_ACCDB_OFF_MASK                    /* sentinel: offset bits all-ones */
 
 /* The `size` field in fd_accdb_disk_meta_t (named executable_size in
-   fd_accdb_accmeta_t) packs four things into 32 bits:
+   fd_accdb_accmeta_t) packs five things into 32 bits:
 
      bit  31     executable flag                       (FD_ACCDB_SIZE_EXEC_BIT)
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
      bit  29     cache_claim flag, in-memory only      (FD_ACCDB_SIZE_CACHE_CLAIM_BIT)
-     bits 28..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
+     bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
+     bits 27..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
 
-   The data length is therefore 29 bits, max ~512 MiB, well above
-   FD_RUNTIME_ACC_SZ_MAX of 10 MiB.
+   The data length is therefore 28 bits, max 256 MiB, still well above
+   FD_RUNTIME_ACC_SZ_MAX of 10 MiB (enforced by the static assert below).
 
-   The two upper flag bits exist only in the in-memory index, never on
+   The three upper flag bits exist only in the in-memory index, never on
    disk:
      - cache_valid (bit 30): when set, cache_idx holds a valid
        (class, idx) pair; when clear, cache_idx must not be dereferenced
@@ -235,22 +232,33 @@ typedef struct fd_accdb_accmeta fd_accdb_accmeta_t;
      - cache_claim (bit 29): a short-lived eviction/install lock taken
        via CAS while a writer mutates the cache_idx <-> cache-line
        binding, so concurrent readers and the evictor do not race.
+     - pd_write (bit 28): set on a committed version whose write changed
+       BPF upgradeable-loader deploy status this slot (Deploy/Upgrade/
+       Extend/Close).  Meaningful only while the accmeta's key.generation
+       equals a live fork's generation (i.e. the version was committed on
+       that fork this slot); across snapshot/root boundaries the bit is
+       dead by construction because the generation no longer matches any
+       live fork.  Carried explicitly by the two commit sites in
+       fd_accdb_release and nowhere else.
 
-   FD_ACCDB_SIZE_PACK sets only bit 31 and the 29-bit length (never bit
-   30 or bit 29), so the on-disk representation carries neither in-memory
-   flag.  The persisted bytes are thus unchanged and compaction's
+   The on-disk representation (written via SIZE_PACK / SIZE_DATA) carries
+   no in-memory flag: persisted bytes are unchanged, and compaction's
    copy_file_range preserves the record headers verbatim without
    rewriting them. */
 
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
 #define FD_ACCDB_SIZE_CACHE_CLAIM_BIT (1U<<29)
-#define FD_ACCDB_SIZE_MASK            ((1U<<29)-1U)
+#define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
+#define FD_ACCDB_SIZE_MASK            ((1U<<28)-1U)
 #define FD_ACCDB_SIZE_PACK(sz,exec)   ((uint)(sz) | ((exec) ? FD_ACCDB_SIZE_EXEC_BIT : 0U))
 #define FD_ACCDB_SIZE_DATA(packed)    ((packed) & FD_ACCDB_SIZE_MASK)
 #define FD_ACCDB_SIZE_EXEC(packed)    (!!((packed) & FD_ACCDB_SIZE_EXEC_BIT))
 #define FD_ACCDB_SIZE_CACHE_VALID(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_VALID_BIT))
 #define FD_ACCDB_SIZE_CACHE_CLAIM(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_CLAIM_BIT))
+#define FD_ACCDB_SIZE_PD_WRITE(p)     (!!((p) & FD_ACCDB_SIZE_PD_WRITE_BIT))
+
+FD_STATIC_ASSERT( (10UL<<20) < (1UL<<28), pd_write_bit_collides_with_len );
 
 static inline ulong
 fd_accdb_acc_offset( fd_accdb_accmeta_t const * acc ) {
@@ -355,13 +363,6 @@ packed_partition_file_offset( accdb_offset_t const * offset,
                               ulong                  partition_sz ) {
    return (packed_partition_idx( offset )*partition_sz + packed_partition_offset( offset ));
 }
-
-/* Accounts are written to a tiered partition layout.  Layer 0 is the
-   hot write head used by acquire/release (execution).  Layers 1..N-1
-   are successively colder compaction tiers: partitions at layer K are
-   compacted into layer K+1. */
-
-#define FD_ACCDB_COMPACTION_LAYER_CNT (3UL)
 
 /* Maximum number of concurrent joiners (tiles) that can publish an
    epoch in the accdb.  Each joiner claims a slot in the shared epoch
@@ -522,6 +523,10 @@ struct fd_accdb_shmem_private {
      and never decremented. */
   ulong epoch __attribute__((aligned(64)));
 
+  /* Synchronization with snapshot producer to inhibit compaction
+     Holds one of FD_ACCDB_SNAPSHOT_SYNC_* */
+  ulong snapshot_sync __attribute__((aligned(64)));
+
   /* Each joiner epoch is padded to a full cache line to prevent
      false sharing between joiners writing to adjacent slots. */
   struct __attribute__((aligned(64))) { ulong val; } joiner_epochs[ FD_ACCDB_MAX_JOINERS ];
@@ -538,6 +543,7 @@ struct fd_accdb_shmem_private {
 #define FD_ACCDB_CMD_ADVANCE_ROOT    (1U)
 #define FD_ACCDB_CMD_PURGE           (2U)
 #define FD_ACCDB_CMD_CLEAR_DEFERRED  (3U)
+#define FD_ACCDB_CMD_DRAIN_DEFERRED  (4U)
 
   uint   cmd_op       __attribute__((aligned(64))); /* FD_ACCDB_CMD_* */
   ushort cmd_fork_id;                               /* argument       */
@@ -559,6 +565,33 @@ struct fd_accdb_shmem_private {
   ulong deferred_acc_buf_cnt;
   ulong deferred_acc_buf_max;
   ulong deferred_acc_epoch;
+
+  acc_pool_shmem_t  acc_pool [1];
+  fork_pool_shmem_t fork_pool[1];
+  txn_pool_shmem_t  txn_pool [1];
+
+  /* Track accounts modified since full snapshot.
+
+       ------------++++++++.......                       - pruned blocks
+       ^           ^      ^      ^                       + active blocks
+       full snap   root   head   incremental (future)    . future blocks
+
+     The validator thus needs to track the addresses of all accounts
+     that have changed since the last full snapshot.  accdb forks cannot
+     be used for this as fork information at the full snapshot slot is
+     discarded.
+
+     accdb deltas track this missing information. */
+
+  struct {
+    ulong seed;
+    ulong chain_off;
+    uint  chain_cnt;  /* power of 2 */
+    uint  chain_mask; /* chain_cnt-1, contiguous runs of one bits */
+    ulong ele_off;
+    ulong ele_max;
+    ulong head; /* bump alloc head */
+  } delta;
 
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };

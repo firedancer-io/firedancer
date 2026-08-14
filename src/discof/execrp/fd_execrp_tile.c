@@ -13,6 +13,8 @@
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/generated/fd_event_gen.h"
+#include "../../flamenco/events/fd_event_runtime.h"
 
 #include <time.h>
 #include "generated/fd_execrp_tile_seccomp.h"
@@ -36,12 +38,14 @@ typedef struct link_ctx {
 struct fd_execrp_tile {
   ulong tile_idx;
 
+  fd_startup_gate_t startup_gate[1];
+
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
 
-  fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
-  fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
+  fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
+  fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
@@ -87,6 +91,9 @@ struct fd_execrp_tile {
 
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
   } metrics;
+
+  /* If non-zero, emit one runtime_txn event per dispatched txn */
+  int report_transaction_diffs;
 };
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
@@ -121,6 +128,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_execrp_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MCNT_SET      ( EXECRP, SIGNATURE_VERIFIED,    ctx->metrics.sigverify_cnt );
   FD_MCNT_SET      ( EXECRP, POH_HASHED,     ctx->metrics.poh_hash_cnt  );
   FD_MCNT_ENUM_COPY( EXECRP, TXN_RESULT,   ctx->metrics.txn_result    );
@@ -159,6 +168,7 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
 
+
 static void
 publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
                            fd_stem_context_t * stem ) {
@@ -169,13 +179,40 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->is_fees_only    = ctx->txn_out.err.is_fees_only;
   msg->txn_exec->txn_err         = ctx->txn_out.err.txn_err;
   msg->txn_exec->slot            = ctx->slot;
+  msg->txn_exec->bank_seq        = ctx->bank->bank_seq;
   msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
   msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
 
-  if( FD_UNLIKELY( !ctx->txn_out.details.is_simple_vote || !fd_txn_parse_simple_vote( TXN( ctx->txn_in.txn ), ctx->txn_in.txn->payload, msg->txn_exec->vote.identity, msg->txn_exec->vote.vote_acct, &msg->txn_exec->vote.slot ) ) ) {
-    msg->txn_exec->vote.slot       = ULONG_MAX;
-    *msg->txn_exec->vote.identity  = (fd_pubkey_t){ 0 };
-    *msg->txn_exec->vote.vote_acct = (fd_pubkey_t){ 0 };
+  int is_vote = 0;
+  if( FD_LIKELY( ctx->txn_out.details.is_simple_vote ) ) {
+    fd_txn_t const * txn = TXN( ctx->txn_in.txn );
+    uchar const *    payload = ctx->txn_in.txn->payload;
+    fd_compact_tower_sync_serde_t tower_sync[ 1 ];
+    if( FD_LIKELY( fd_txn_parse_simple_vote( txn, payload, tower_sync ) ) ) {
+      fd_acct_addr_t const * accs = fd_txn_get_acct_addrs( txn, payload );
+      *msg->txn_exec->vote.identity  = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 0 ] );
+      *msg->txn_exec->vote.vote_acct = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ txn->signature_cnt==1 ? 1 : 2 ] );
+
+      ulong cur       = fd_ulong_if( tower_sync->root==ULONG_MAX, 0UL, tower_sync->root );
+      ulong cnt       = 0UL;
+      int   overflow  = 0;
+      for( ulong i=0UL; i<tower_sync->lockouts_cnt; i++ ) {
+        if( FD_UNLIKELY( __builtin_uaddl_overflow( cur, tower_sync->lockouts[ i ].offset, &cur ) ) ) { overflow = 1; break; }
+        msg->txn_exec->vote.vote_slots[ cnt++ ] = cur;
+      }
+      if( FD_LIKELY( !overflow ) ) {
+        msg->txn_exec->vote.vote_slot_cnt = (uchar)cnt;
+        msg->txn_exec->vote.slot          = cnt ? msg->txn_exec->vote.vote_slots[ cnt-1UL ] : cur;
+        is_vote                           = 1;
+      }
+    }
+  }
+
+  if( FD_UNLIKELY( !is_vote ) ) {
+    msg->txn_exec->vote.slot          = ULONG_MAX;
+    msg->txn_exec->vote.vote_slot_cnt = (uchar)0;
+    *msg->txn_exec->vote.identity     = (fd_pubkey_t){ 0 };
+    *msg->txn_exec->vote.vote_acct    = (fd_pubkey_t){ 0 };
   }
 
   if( FD_UNLIKELY( !msg->txn_exec->is_committable ) ) {
@@ -189,6 +226,15 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
 }
 
+static inline void
+after_credit( fd_execrp_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  (void)stem; (void)opt_poll_in; (void)charge_busy;
+  fd_startup_gate_idle( ctx->startup_gate );
+}
+
 static inline int
 returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               in_idx,
@@ -200,6 +246,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
+  fd_startup_gate_busy( ctx->startup_gate );
+
   if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
 
   FD_MGAUGE_SET( EXECRP, PROCESSING, 1UL );
@@ -215,6 +263,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
         ctx->txn_in.txn = msg->txn;
+        memcpy( ctx->txn_in.fec_merkle_root, msg->fec_merkle_root, 32UL );
+        ctx->txn_in.index_in_slot = msg->index_in_slot;
 
         /* Set the capture txn index from the message so account updates
            during commit are recorded with the correct transaction index. */
@@ -227,9 +277,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_out );
+          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
         } else {
-          fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out );
+          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
         }
 
         long const txn_end_ticks = fd_tickcount();
@@ -315,7 +365,7 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  for( ulong i=0UL; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+  for( ulong i=0UL; i<FD_TXN_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
     FD_TEST( sha );
     ctx->sha_lj[ i ] = sha;
@@ -454,13 +504,15 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
+  ctx->report_transaction_diffs = tile->execrp.report_transaction_diffs;
+
   fd_wksp_oom_silent = 1;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  fd_sleep_until_replay_started( topo );
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 }
 
 static ulong
@@ -501,12 +553,22 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_execrp_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile ) {
+  /* execrp emits accdb_partition_added, plus runtime_txn when diffs are on. */
+  ulong sz = sizeof(fd_event_accdb_partition_added_t);
+  if( tile->execrp.report_transaction_diffs && sizeof(fd_event_runtime_txn_t)>sz ) sz = sizeof(fd_event_runtime_txn_t);
+  return sz;
+}
+
 fd_topo_run_tile_t fd_tile_execrp = {
   .name                     = "execrp",
+  .max_event_sz             = max_event_sz,
   .loose_footprint          = 0UL,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,

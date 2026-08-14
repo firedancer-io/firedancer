@@ -6,6 +6,7 @@
 #include "../keyguard/fd_keyguard.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
+#include "../../discof/admin/fd_adminctl.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../metrics/fd_metrics.h"
 
@@ -102,27 +103,38 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
   /* firedancer only */
 
   if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
-      FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
-      fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
-      fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
-      return;
-    }
-    for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
-      if( FD_UNLIKELY( !memcmp( ctx->authorized_voter_pubkeys[ i ], ctx->av_keyswitch->bytes+32UL, 32UL ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voter_pubkeys[ i ], pubkey_b58 );
-        FD_LOG_WARNING(( "keyswitch failed: authorized voter key duplicate (%s)", pubkey_b58 ));
+    ulong param = fd_keyswitch_param_query( ctx->av_keyswitch );
+    if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_ADD ) ) {
+      if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
+        FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
         fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
+        ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS;
         fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
         return;
       }
-    }
+      for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
+        if( FD_UNLIKELY( !memcmp( ctx->authorized_voter_pubkeys[ i ], ctx->av_keyswitch->bytes+32UL, 32UL ) ) ) {
+          FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voter_pubkeys[ i ], pubkey_b58 );
+          FD_LOG_WARNING(( "keyswitch failed: authorized voter key duplicate (%s)", pubkey_b58 ));
+          fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
+          ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER;
+          fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
+          return;
+        }
+      }
 
-    memcpy( ctx->authorized_voter_private_keys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes, 32UL );
-    fd_memzero_explicit( ctx->av_keyswitch->bytes, 32UL );
-    FD_COMPILER_MFENCE();
-    memcpy( ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes + 32UL, 32UL );
-    ctx->authorized_voters_cnt++;
+      memcpy( ctx->authorized_voter_private_keys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes, 32UL );
+      fd_memzero_explicit( ctx->av_keyswitch->bytes, 32UL );
+      FD_COMPILER_MFENCE();
+      memcpy( ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes + 32UL, 32UL );
+      ctx->authorized_voters_cnt++;
+    } else if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_CLEAR ) ) {
+      fd_memzero_explicit( ctx->authorized_voter_private_keys, sizeof( ctx->authorized_voter_private_keys ) );
+      fd_memzero_explicit( ctx->authorized_voter_pubkeys,      sizeof( ctx->authorized_voter_pubkeys      ) );
+      ctx->authorized_voters_cnt = 0UL;
+    } else {
+      FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
+    }
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
@@ -368,7 +380,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
     } else if ( !strcmp(in_link->name, "txsend_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_TXSEND;
       FD_TEST( !strcmp( out_link->name, "sign_txsend" ) );
-      FD_TEST( in_link->mtu==FD_TXN_MTU  );
+      FD_TEST( in_link->mtu==FD_TXN_MTU_V0  );
       FD_TEST( out_link->mtu==64UL*2UL );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
@@ -378,7 +390,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
     } else if( !strcmp(in_link->name, "event_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_EVENT;
       FD_TEST( !strcmp( out_link->name, "sign_event" ) );
-      FD_TEST( in_link->mtu==132UL );
+      FD_TEST( in_link->mtu==317UL );
       FD_TEST( out_link->mtu==64UL );
     } else if( !strcmp(in_link->name, "pack_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE_CRANK;

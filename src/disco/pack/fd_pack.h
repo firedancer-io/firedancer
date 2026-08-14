@@ -19,16 +19,6 @@
 
 #define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
 
-/* limit_instruction_accounts limits the number of accounts an
-   instruction can reference to 255. Any transactions that violate this
-   limit are invalid and cannot be included in a block.
-
-   To avoid feature-gating Pack, we always throw out transactions that
-   violate this limit.
-
-   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/runtime-transaction/src/runtime_transaction/sdk_transactions.rs#L93-L99 */
-#define FD_PACK_MAX_ACCOUNTS_PER_INSTRUCTION (255UL)
-
 /* Each block is limited to 32k parity shreds.  We don't want pack to
    produce a block with so many transactions we can't shred it, but the
    correspondence between transactions and parity shreds is somewhat
@@ -233,6 +223,8 @@ fd_pack_footprint( ulong                    pack_depth,
    pack object.  mem is a non-NULL pointer to a region of memory in the
    local address space with the required alignment and footprint.
    pack_depth, bundle_meta_sz, bank_tile_cnt, and limits are as above.
+   The limits provided in this function are the maximum possible limits
+   this pack object can handle without being completely reformatted.
    rng is a local join to a random number generator used to perturb
    estimates.  acct_blocklist is a list of accounts that cannot be read
    or written to.  acct_blocklist is accessed acct_blocklist[i] for i in
@@ -300,6 +292,9 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
    limits->max_txn_per_microblock is ignored. Limits are inclusive, as
    per usual (i.e. a block may have exactly max_microblocks_per_block
    microblocks, but not more).  pack must be a valid local join.
+
+   These limits must be no larger than the limits provided in
+   fd_pack_new.
 
    The typical place to call this is immediately after
    fd_pack_end_block; if this is called after some microblocks have been

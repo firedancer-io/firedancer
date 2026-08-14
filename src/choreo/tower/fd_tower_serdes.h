@@ -189,15 +189,13 @@ fd_vote_acc_desc_vote( fd_vote_acc_desc_t const * desc,
   return data + desc->votes_off + idx*desc->vote_stride;
 }
 
-/* fd_txn_parse_simple_vote optionally extracts the vote account pubkey,
-   identity pubkey, and largest voted-for slot from a vote transaction. */
+/* fd_txn_parse_simple_vote optionally extracts the decoded tower sync
+   from a vote transaction. */
 
 int
-fd_txn_parse_simple_vote( fd_txn_t const * txn,
-                          uchar    const * payload,
-                          fd_pubkey_t *    opt_identity,
-                          fd_pubkey_t *    opt_vote_acct,
-                          ulong *          opt_vote_slot );
+fd_txn_parse_simple_vote( fd_txn_t const *                txn,
+                          uchar    const *                payload,
+                          fd_compact_tower_sync_serde_t * opt_tower_sync );
 
 FD_PROTOTYPES_END
 

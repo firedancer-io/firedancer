@@ -106,7 +106,7 @@ struct fd_crds_entry_private {
   ulong stake;
 
   struct {
-    ulong next;
+    uint next;
   } pool;
 
   /* The CRDS needs to perform a variety of actions on the message table
@@ -116,8 +116,8 @@ struct fd_crds_entry_private {
      lookup is used to enable the core map<key, value> functionality
      described for upserts defined by value->key. */
   struct {
-    ulong next;
-    ulong prev;
+    uint next;
+    uint prev;
   } lookup;
 
   /* The table has a fixed size message capacity, and supports eviction
@@ -126,12 +126,12 @@ struct fd_crds_entry_private {
      make room.  This is accomplished with a treap sorted by stake, so
      the lowest stake message is removed. */
   struct {
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong prio;
-    ulong next;
-    ulong prev;
+    uint parent;
+    uint left;
+    uint right;
+    uint prio;
+    uint next;
+    uint prev;
   } evict;
 
   /* Values in the table expire after a pre-determined amount of time,
@@ -147,13 +147,13 @@ struct fd_crds_entry_private {
      is configured as unstaked). */
   struct {
     long  wallclock_nanos;
-    ulong prev;
-    ulong next;
+    uint  prev;
+    uint  next;
   } expire;
 
   /* In order to load balance pull request messages across peers, each
      message has a mask value that is mask_bits long.  The pull request
-     is only concerned with CRDS entires with a hash where the first
+     is only concerned with CRDS entries with a hash where the first
      mask_bits of the hash match the mask value.
 
      We need to be able to quickly iterate over all CRDS table entries
@@ -161,17 +161,20 @@ struct fd_crds_entry_private {
      the value_hash in a sorted treap. */
   struct {
     ulong hash_prefix; /* TODO: Remove .. just use hash_value */
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong next;
-    ulong prev;
-    ulong prio;
+    uint  parent;
+    uint  left;
+    uint  right;
+    uint  next;
+    uint  prev;
+    uint  prio;
   } hash;
 };
 
+FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1384UL, crds_entry_footprint );
+
 #define POOL_NAME   crds_pool
 #define POOL_T      fd_crds_entry_t
+#define POOL_IDX_T  uint
 #define POOL_NEXT   pool.next
 
 #include "../../util/tmpl/fd_pool.c"
@@ -181,7 +184,7 @@ struct fd_crds_entry_private {
 #define TREAP_QUERY_T   void *                                         /* We don't use query ... */
 #define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; })) /* which means we don't need to give a real
                                                                           implementation to cmp either */
-#define TREAP_IDX_T     ulong
+#define TREAP_IDX_T     uint
 #define TREAP_LT(e0,e1) ((e0)->stake<(e1)->stake)
 #define TREAP_PARENT    evict.parent
 #define TREAP_LEFT      evict.left
@@ -198,6 +201,7 @@ struct fd_crds_entry_private {
    stake according to their epoch stake at the time they are inserted. */
 #define DLIST_NAME      staked_expire_dlist
 #define DLIST_ELE_T     fd_crds_entry_t
+#define DLIST_IDX_T     uint
 #define DLIST_PREV      expire.prev
 #define DLIST_NEXT      expire.next
 
@@ -209,6 +213,7 @@ struct fd_crds_entry_private {
    according to their epoch stake at the time they are inserted. */
 #define DLIST_NAME      unstaked_expire_dlist
 #define DLIST_ELE_T     fd_crds_entry_t
+#define DLIST_IDX_T     uint
 #define DLIST_PREV      expire.prev
 #define DLIST_NEXT      expire.next
 
@@ -259,7 +264,7 @@ struct fd_crds_entry_private {
 #define TREAP_T         fd_crds_entry_t
 #define TREAP_QUERY_T   ulong
 #define TREAP_CMP(q,e)  ((q>e->hash.hash_prefix)-(q<e->hash.hash_prefix))
-#define TREAP_IDX_T     ulong
+#define TREAP_IDX_T     uint
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_NEXT      hash.next
 #define TREAP_PREV      hash.prev
@@ -312,7 +317,7 @@ lookup_eq( fd_crds_key_t const * key0,
 #define MAP_ELE_T         fd_crds_entry_t
 #define MAP_KEY_T         fd_crds_key_t
 #define MAP_KEY           key
-#define MAP_IDX_T         ulong
+#define MAP_IDX_T         uint
 #define MAP_NEXT          lookup.next
 #define MAP_PREV          lookup.prev
 #define MAP_KEY_HASH(k,s) (lookup_hash( k, s ))
@@ -648,6 +653,8 @@ expire( fd_crds_t *         crds,
         long                now,
         fd_stem_context_t * stem,
         int *               charge_busy ){
+  /* Gossip's slot time does not change with the reduce_slot_time
+     feature gates. */
   static const long SLOT_DURATION_NANOS            = 400L*1000L*1000L;
   static const long STAKED_EXPIRE_DURATION_NANOS   = 432000L*SLOT_DURATION_NANOS;
   static const long UNSTAKED_EXPIRE_DURATION_NANOS = 15L*1000L*1000L*1000L;

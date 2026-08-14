@@ -1,5 +1,6 @@
 #include "fd_gossip_tile.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -230,6 +231,7 @@ during_housekeeping( fd_gossvf_tile_ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     memcpy( ctx->identity_pubkey->uc, ctx->keyswitch->bytes, 32UL );
+    ctx->instance_creation_wallclock_nanos = (long)ctx->keyswitch->param;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
@@ -284,10 +286,10 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
     }
     case IN_KIND_EPOCH: {
       fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
-        FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
-      if( FD_UNLIKELY( msg->staked_id_cnt>MAX_SHRED_DESTS ) )
-        FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
+      if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_STAKE_WEIGHTS ) )
+        FD_LOG_ERR(( "epoch stakes exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
+      if( FD_UNLIKELY( msg->staked_id_cnt>MAX_STAKE_WEIGHTS ) )
+        FD_LOG_ERR(( "epoch id weights exceed MAX_STAKE_WEIGHTS=%lu", MAX_STAKE_WEIGHTS ));
 
       ulong msg_sz = fd_epoch_info_msg_sz( msg->staked_vote_cnt, msg->staked_id_cnt );
       fd_memcpy( ctx->stake.msg_buf, msg, msg_sz );
@@ -985,6 +987,16 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !strcmp( tile->gossvf.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->gossvf.identity_key_path, /* pubkey only: */ 1 ) );
+
+  ctx->entrypoints_cnt = tile->gossvf.entrypoints_cnt;
+  fd_dns_resolve_peers( tile->gossvf.entrypoints[ 0 ], sizeof(tile->gossvf.entrypoints[ 0 ]), tile->gossvf.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
+
+  ctx->gossip_addr = tile->gossvf.gossip_addr;
+  if( tile->gossvf.gossip_host[ 0 ]!='\0' ) {
+    if( FD_UNLIKELY( !fd_dns_resolve_address( tile->gossvf.gossip_host, &ctx->gossip_addr.addr ) ) ) {
+      FD_LOG_ERR(( "could not resolve [gossip.host] %s", tile->gossvf.gossip_host ));
+    }
+  }
 }
 
 static void
@@ -1025,8 +1037,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->round_robin_idx = tile->kind_id;
 
   ctx->allow_private_address = tile->gossvf.allow_private_address;
-  ctx->gossip_addr             = tile->gossvf.gossip_addr;
-  ctx->src_addr                = tile->gossvf.src_addr;
+  ctx->src_addr              = tile->gossvf.src_addr;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
@@ -1048,13 +1059,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tcache.ring    = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache.map     = fd_tcache_map_laddr   ( tcache );
 
-  ctx->entrypoints_cnt = tile->gossvf.entrypoints_cnt;
-  for( ulong i=0UL; i<tile->gossvf.entrypoints_cnt; i++ ) {
-    ctx->entrypoints[ i ].l = tile->gossvf.entrypoints[ i ].l;
 #if DEBUG_PEERS
+  for( ulong i=0UL; i<ctx->entrypoints_cnt; i++ ) {
     FD_LOG_NOTICE(( "entrypoint " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( ctx->entrypoints[ i ].addr ), fd_ushort_bswap( ctx->entrypoints[ i ].port ) ));
-#endif
   }
+#endif
 
   /* Conversion to MICROs ensures we are comparing apples to apples in
      check_duplicate_instance  */

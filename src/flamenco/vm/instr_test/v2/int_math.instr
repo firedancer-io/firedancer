@@ -444,6 +444,6 @@ $ op=d4 dst=1 src=9 off=9595 imm=20 r1=fffefdfcfbfaf9f0 : vfy # invalid ix - rem
 $ op=d4 dst=2 src=8 off=9595 imm=40 r2=fffefdfcfbfaf9f1 : vfy # invalid ix - removed SIMD-0173
 $ op=d4 dst=0 src=a off=9595 imm= 0 r0=fffefdfcfbfaf9f8 : vfy # invalid ix - removed SIMD-0173
 $ op=d4 dst=0 src=a off=9595 imm=80 r0=fffefdfcfbfaf9f8 : vfy # invalid ix - removed SIMD-0173
-$ op=dc dst=0 src=b off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid ix - removed SIMD-0173
+$ op=d4 dst=0 src=b off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid ix - removed SIMD-0173
 $ op=d4 dst=a src=a off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid ix - removed SIMD-0173
 $ op=d4 dst=0 src=b off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid ix - removed SIMD-0173

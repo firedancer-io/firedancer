@@ -68,8 +68,8 @@ during_frag( fd_plugin_ctx_t * ctx,
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     ulong staked_cnt = ((ulong *)src)[ 1 ];
     ulong id_cnt     = ((ulong *)src)[ 2 ];
-    FD_TEST( staked_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
-    FD_TEST( id_cnt<=MAX_SHRED_DESTS );
+    FD_TEST( staked_cnt<=MAX_STAKE_WEIGHTS );
+    FD_TEST( id_cnt<=MAX_STAKE_WEIGHTS );
     ctx->sz = fd_stake_weight_msg_sz( staked_cnt, id_cnt );
   }
 

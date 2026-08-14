@@ -88,7 +88,7 @@ after_frag( fd_store_ctx_t *    ctx,
   ulong est_txn_cnt = sig>>32UL;
 
   /* No error code because this cannot fail. */
-  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->data_shreds->b,   FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ, trusted );
+  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->data_shreds->b,   FD_SHRED_MIN_SZ, FD_SHRED_MIN_SZ, trusted );
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->parity_shreds->b, FD_SHRED_MAX_SZ, FD_SHRED_MAX_SZ, trusted );
 
   FD_MCNT_INC( STORE, TXN_INSERTED, est_txn_cnt );

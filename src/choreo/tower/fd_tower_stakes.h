@@ -45,8 +45,8 @@ static const fd_tower_stakes_vtr_xid_t fd_tower_stakes_vtr_xid_null = { .addr = 
 
 struct fd_tower_stakes_vtr {
   fd_tower_stakes_vtr_xid_t key;
-  ulong                     prev;
-  ulong                     next;
+  uint                      prev;
+  uint                      next;
   ulong                     stake;
 };
 typedef struct fd_tower_stakes_vtr fd_tower_stakes_vtr_t;
@@ -54,12 +54,15 @@ typedef struct fd_tower_stakes_vtr fd_tower_stakes_vtr_t;
 #define MAP_NAME                fd_tower_stakes_vtr_map
 #define MAP_ELE_T               fd_tower_stakes_vtr_t
 #define MAP_KEY_T               fd_tower_stakes_vtr_xid_t
+#define MAP_IDX_T               uint
 #define MAP_KEY_EQ(k0,k1)       (!memcmp( k0, k1, sizeof(fd_tower_stakes_vtr_xid_t) ))
 #define MAP_KEY_HASH(key, seed) fd_ulong_hash( ((key)->slot) ^ ((key)->addr.ul[0]) ^ (seed) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME fd_tower_stakes_vtr_pool
 #define POOL_T    fd_tower_stakes_vtr_t
+#define POOL_IDX_T uint
+#define POOL_LAZY 1
 #include "../../util/tmpl/fd_pool.c"
 
 /* Some really terrible witchcraft to track used vote accounts for
@@ -74,7 +77,7 @@ typedef struct fd_tower_stakes_vtr fd_tower_stakes_vtr_t;
 
 struct fd_tower_stakes_slot {
   ulong slot;
-  ulong head; /* pool idx of the head of a linked list of voters in this slot */
+  uint  head; /* pool idx of the head of a linked list of voters in this slot */
 };
 typedef struct fd_tower_stakes_slot fd_tower_stakes_slot_t;
 

@@ -179,6 +179,7 @@ fd_main_init( int *                      pargc,
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     config->log.log_fd  = -1;
+    config->has_user_config = !!opt_user_config_path;
     thread = "main";
     if( FD_UNLIKELY( log_path ) )
       strncpy( config->log.path, log_path, sizeof( config->log.path ) - 1 );
@@ -223,7 +224,7 @@ fd_main_init( int *                      pargc,
                               config->log.colorize1,
                               boot_silent ? 2 : config->log.level_logfile1,
                               boot_silent ? 2 : config->log.level_stderr1,
-                              boot_silent ? 3 : config->log.level_flush1,
+                              config->log.level_flush1,
                               5,
                               config->log.log_fd,
                               log_path );
@@ -238,6 +239,10 @@ fd_main_init( int *                      pargc,
   fd_log_level_logfile_set( config->log.level_logfile1 );
   fd_log_level_stderr_set( config->log.level_stderr1 );
   fd_log_level_flush_set( config->log.level_flush1 );
+
+  /* When auto config info/decisions are collected is before when the
+     log file is setup, so the logging of this info must be done separately. */
+  if( !boot_silent ) FD_LOG_INFO(( "%s", config->auto_config_log ));
 
   return config_fd<0;
 }

@@ -453,6 +453,8 @@ main( int     argc,
   ulong        rand_iters = fd_env_strip_cmdline_ulong ( &argc, &argv, "--random-iterations", NULL, 200UL );
   FD_LOG_NOTICE(( "Using --random-iterations %lu", rand_iters ));
 
+  FD_TEST( fd_rdisp_footprint( 65536UL, 2048UL )==474898560UL );
+
   test_mainnet( block_file, exec_tiles, 20UL, 0UL, 1 );
 
   ulong depth       = 100UL;
@@ -478,10 +480,30 @@ main( int     argc,
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 1UL ), FD_RDISP_UNSTAGED ) );
   FD_TEST( 0x1UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
 
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 8UL ), FD_RDISP_UNSTAGED ) );
+  FD_TEST(  0==fd_rdisp_rekey_block( disp, tag( 9UL ), tag( 8UL ) ) );
+  fd_rdisp_verify( disp, verify_scratch );
+  FD_TEST( -1==fd_rdisp_remove_block( disp, tag( 8UL ) ) );
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 8UL ), FD_RDISP_UNSTAGED ) );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 8UL ) ) );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 9UL ) ) );
+  fd_rdisp_verify( disp, verify_scratch );
+
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 2UL ), 2 ) );
   FD_TEST( 0x5UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 2UL ) ) );
   FD_TEST( 0x1UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 10UL ), 3 ) );
+  FD_TEST( 0x9UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST(  0==fd_rdisp_rekey_block( disp, tag( 11UL ), tag( 10UL ) ) );
+  fd_rdisp_verify( disp, verify_scratch );
+  FD_TEST( 0x9UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST( tag_eq( lane_info[ 3 ].schedule_ready_block, 11UL ) );
+  FD_TEST( -1==fd_rdisp_remove_block( disp, tag( 10UL ) ) );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 11UL ) ) );
+  FD_TEST( 0x1UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 6UL ), 2 ) );
   FD_TEST( 0x5UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 2UL ), 2 ) );
@@ -674,19 +696,19 @@ main( int     argc,
 
   ulong txn_idxs[100];
 
-  /* Test transactions with 128 accounts */
+  /* Test transactions with the maximum 64 accounts */
   FD_TEST( 0==fd_rdisp_add_block( disp, tag( 0UL ), 1UL ) );
   FD_TEST( 0==fd_rdisp_add_block( disp, tag( 1UL ), FD_RDISP_UNSTAGED ) );
   FD_TEST( 0==fd_rdisp_add_block( disp, tag( 2UL ), FD_RDISP_UNSTAGED ) );
   for( ulong block_tag=0UL; block_tag<=2UL; block_tag++ ) {
     for( ulong i=0UL; i<depth; i++ ) {
-      ushort accts[128];
+      ushort accts[64];
       ushort acct_idx = 0;
-      for( ulong j=0UL; j<127UL; j++ ) {
+      for( ulong j=0UL; j<63UL; j++ ) {
         acct_idx += (ushort)(fd_rng_ushort_roll( rng, 5 ) + 1); /* no duplicate accounts possible */
         accts[j] = (ushort)((ulong)acct_idx | (((i|j)&1UL)<<15));
       }
-      add_txn2( disp, rng, tag( block_tag ), accts, 127UL ); /* fee payer added */
+      add_txn2( disp, rng, tag( block_tag ), accts, 63UL ); /* fee payer added */
     }
     fd_rdisp_verify( disp, verify_scratch );
 
@@ -755,6 +777,9 @@ main( int     argc,
   fd_rdisp_delete( fd_rdisp_leave( disp ) );
 
   random_test( rng, rand_iters );
+
+  /* test the MAX_SCORE constant */
+  for( ulong i=0UL; i<FD_MAX_TXN_PER_SLOT; i++ ) FD_TEST( FD_RDISP_MAX_SCORE+(float)i < (float)(i+1UL) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

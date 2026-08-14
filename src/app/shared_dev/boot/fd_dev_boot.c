@@ -38,7 +38,7 @@ execve_as_root( int     argc,
   args[ argc+4 ] = NULL;
 
   /* ok to leak these dynamic strings because we are about to execve anyway */
-  char * envp[ 3 ] = {0};
+  char * envp[ 4 ] = {0};
   char * env;
   int    idx = 0;
   if( FD_LIKELY(( env = getenv( "FIREDANCER_CONFIG_TOML" ) )) ) {
@@ -49,6 +49,8 @@ execve_as_root( int     argc,
     if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "TERM=%s", env ) == -1 ) )
       FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+  if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "FD_LOG_PATH_ANNOUNCED=%s", fd_log_private_path ) == -1 ) )
+    FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   execve( "/usr/bin/sudo", args, envp );
   FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -68,6 +70,7 @@ fd_global_options_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--log-level-stderr", "<level>", "Minimum log level to print to stderr" );
   fd_action_help_arg( help, "--no-sandbox",       NULL,      "Disable the security sandbox (development only)" );
   fd_action_help_arg( help, "--no-clone",         NULL,      "Run all tiles in a single process instead of one per tile (development only)" );
+  fd_action_help_arg( help, "--max-live-slots",   "<count>", "Override the [runtime.max_live_slots] configuration (development only)" );
   fd_action_help_arg( help, "--version",          NULL,      "Show the current software version" );
   fd_action_help_arg( help, "--help/-h",          NULL,      "Print this help message" );
 }
@@ -95,6 +98,8 @@ fd_dev_main( int                        argc,
 
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
   int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
+
+  ulong max_live_slots = fd_env_strip_cmdline_ulong( &argc, &argv, "--max-live-slots", NULL, 0UL );
 
   const char * opt_user_config_path = fd_env_strip_cmdline_cstr(
     &argc,
@@ -148,13 +153,17 @@ fd_dev_main( int                        argc,
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !config.development.no_clone;
 
-  int is_allowed_live = action->is_diagnostic==1;
+  /* Frankendancer has a separate production binary (fdctl); for
+     Firedancer running the dev binary against a live cluster is a
+     supported flow. */
+  int is_allowed_live = is_firedancer || action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
     FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
 
   if( FD_LIKELY( load_topo ) ) {
+    if( FD_UNLIKELY( max_live_slots && config.is_firedancer ) ) config.firedancer.runtime.max_live_slots = max_live_slots;
     if( FD_LIKELY( action->topo ) ) action->topo( &config );
     else                            topo_init( &config );
   }

@@ -118,12 +118,17 @@ fd_progcache_cancel_one( fd_progcache_join_t * cache,
 
   /* Remove records */
 
-  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; idx = cache->rec.pool->ele[ idx ].next_idx ) {
+  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; ) {
     if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (cancel_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
-    atomic_store_explicit( &cache->rec.pool->ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
+    fd_progcache_rec_t * rec = &cache->rec.pool->ele[ idx ];
+    uint next_idx = rec->next_idx;
+    if( FD_UNLIKELY( next_idx!=UINT_MAX && (ulong)next_idx >= rec_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (cancel_one next_idx=%u rec_max=%lu)", next_idx, rec_max ));
+    atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
     fd_racesan_hook( "prog_cancel_one:post_orphan" );
-    fd_prog_delete_rec( cache, &cache->rec.pool->ele[ idx ] );
+    fd_prog_delete_rec( cache, rec );
+    idx = next_idx;
   }
 
   txn->rec_head_idx = UINT_MAX;
@@ -287,6 +292,7 @@ fd_progcache_advance_root( fd_progcache_join_t *  cache,
   /* Detach records from txns without acquiring record locks */
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
+  fd_rwlock_write( &cache->shmem->clock.lock );
 
   ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
   uint txn_idx = (uint)fd_prog_txnm_idx_query( cache->txn.map, &fork_id, UINT_MAX, cache->txn.pool );
@@ -310,6 +316,7 @@ fd_progcache_advance_root( fd_progcache_join_t *  cache,
 
   fd_progcache_txn_publish_one( cache, txn );
 
+  fd_rwlock_unwrite( &cache->shmem->clock.lock );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
 
   fd_prog_reclaim_work( cache );
@@ -323,11 +330,15 @@ fd_progcache_cancel_fork( fd_progcache_join_t *  cache,
   }
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
+  fd_rwlock_write( &cache->shmem->clock.lock );
+
   fd_progcache_txn_t * txn = fd_prog_txnm_ele_query( cache->txn.map, &fork_id, NULL, cache->txn.pool );
   if( FD_UNLIKELY( !txn ) ) {
     FD_LOG_CRIT(( "fd_progcache_cancel failed: invalid fork_id %lu", fork_id ));
   }
   fd_progcache_cancel_tree( cache, txn );
+
+  fd_rwlock_unwrite( &cache->shmem->clock.lock );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
   fd_prog_reclaim_work( cache );
 }

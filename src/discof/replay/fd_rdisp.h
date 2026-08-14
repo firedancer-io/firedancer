@@ -130,15 +130,22 @@
              Lane 1: 13.
    or any of the various combinations that consume more staging lanes.
    Note that the concept of staging lanes is a performance optimization,
-   not a safety feature.  With the first arrangment, the caller cannot
+   not a safety feature.  With the first arrangement, the caller cannot
    call get_next_ready on slot 13 in between slots 10 and 11, but
    there's no issue with calling it on slot 14 then, which would
-   obiously result in an incorrect replay.  It's ultimately the callers
+   obviously result in an incorrect replay.  It's ultimately the caller's
    responsibility to ensure correct replay. */
 
 #define FD_RDISP_MAX_DEPTH       0x7FFFFFUL /* 23 bit numbers, approx 8M */
 #define FD_RDISP_MAX_BLOCK_DEPTH 0xFFFFUL   /* 16 bits */
 #define FD_RDISP_UNSTAGED        ULONG_MAX
+
+/* FD_RDISP_MAX_SCORE is the largest score that will be assigned to a
+   transaction internally.  Lower scores are better.  It should be close
+   to 1 to maximize the scoring function's dynamic range, but small
+   enough that when added to relevant sized integers, it is distinct
+   from the next integer. */
+#define FD_RDISP_MAX_SCORE 0.996f
 
 struct fd_rdisp;
 typedef struct fd_rdisp fd_rdisp_t;
@@ -289,9 +296,9 @@ fd_rdisp_demote_block( fd_rdisp_t *          disp,
 
 
 /* fd_rdisp_rekey_block renames the block with tag old_tag so that it
-   has tag new_tag instead.  The block retains all transactions, it's
+   has tag new_tag instead.  The block retains all transactions, its
    STAGED/UNSTAGED state, etc.  On successful return, tag old_tag will
-   know longer be a known tag, and new_tag must be used in any future
+   no longer be a known tag, and new_tag must be used in any future
    calls to refer to the block previously known as old_tag.
 
    disp must be a valid local join.  new_tag must not be a known tag,

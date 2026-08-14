@@ -269,7 +269,7 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
                                  ulong                       target_epoch,
                                  uchar const *               bls_pubkey,
                                  int                         authorized_withdrawer_signer,
-                                 fd_pubkey_t const *         signers[ FD_TXN_SIG_MAX ],
+                                 fd_pubkey_t const *         signers[ FD_INSTR_SIGNERS_MAX ],
                                  ulong                       signers_cnt ) {
   switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
@@ -322,6 +322,21 @@ fd_vsv_set_block_revenue_collector( fd_vote_state_versioned_t * self,
   switch( self->kind ) {
     case fd_vote_state_versioned_enum_v4:
       self->v4.block_revenue_collector = *block_revenue_collector;
+      break;
+    case fd_vote_state_versioned_enum_v3:
+      /* No-op for v3 */
+      break;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
+  }
+}
+
+void
+fd_vsv_set_inflation_rewards_collector( fd_vote_state_versioned_t * self,
+                                        fd_pubkey_t const *         inflation_rewards_collector ) {
+  switch( self->kind ) {
+    case fd_vote_state_versioned_enum_v4:
+      self->v4.inflation_rewards_collector = *inflation_rewards_collector;
       break;
     case fd_vote_state_versioned_enum_v3:
       /* No-op for v3 */

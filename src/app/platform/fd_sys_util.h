@@ -7,7 +7,7 @@
    the provided exit code.  This function does not return.
 
    This function is a wrapper around the exit_group(2) system call, and
-   in paticular it bypasses the normal exit handlers and atexit(3) junk
+   in particular it bypasses the normal exit handlers and atexit(3) junk
    which gets installed by the C runtime. */
 
 void

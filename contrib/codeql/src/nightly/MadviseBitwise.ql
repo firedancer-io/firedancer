@@ -9,6 +9,7 @@
  */
 
 import cpp
+import filter
 
 private class MadviseCall extends FunctionCall {
   MadviseCall() { this.getTarget().hasGlobalName("madvise") }
@@ -17,5 +18,7 @@ private class MadviseCall extends FunctionCall {
 }
 
 from MadviseCall mc
-where mc.getAdviceArgument() instanceof BinaryBitwiseOperation
+where
+  mc.getAdviceArgument() instanceof BinaryBitwiseOperation and
+  included(mc.getLocation())
 select mc, "The `advice` argument of madvise doesn't accept bitwise arguments."

@@ -17,8 +17,10 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/features/fd_feature_snoop.h"
+#include "../../flamenco/stakes/fd_stake_types.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 
 #include "generated/fd_snapin_tile_seccomp.h"
 
@@ -55,9 +57,11 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* 300 here is from status_cache.rs::MAX_CACHE_ENTRIES which is the most
-   root slots Agave could possibly serve in a snapshot. */
-#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (300UL*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
+/* The most root slots Agave could possibly serve in a snapshot.  The
+   txnpage pool sizing assumes staged entries never exceed this. */
+#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
+
+FD_STATIC_ASSERT( FD_SLOT_DELTA_MAX_ENTRIES==FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX, slot_delta_max );
 
 struct blockhash_group {
   uchar blockhash[ 32UL ];
@@ -89,6 +93,7 @@ struct fd_snapin_tile {
 
   fd_banks_t * banks;
   fd_bank_t *  bank;
+  int          account_accepted;
 
   struct {
     int   ready;
@@ -108,6 +113,14 @@ struct fd_snapin_tile {
     ulong       write_pos;
     uchar       buf[ sizeof(fd_feature_t) ];
   } feature_reasm;
+  struct {
+    int         capturing;
+    fd_pubkey_t pubkey;
+    ulong       lamports;
+    ulong       data_len;
+    ulong       write_pos;
+    uchar       buf[ sizeof(fd_stake_state_t) ];
+  } stake_reasm;
 
   fd_ssparse_t             ssparse[1];
   fd_ssmanifest_parser_t * manifest_parser;
@@ -223,8 +236,8 @@ should_shutdown( fd_snapin_tile_t * ctx ) {
     char  dup_buf   [ 32 ];
     format_count( loaded_buf, sizeof(loaded_buf), ctx->metrics.accounts_loaded );
     format_count( dup_buf,    sizeof(dup_buf),    accounts_dup                 );
-    FD_LOG_NOTICE(( "loaded %s accounts (%s dups) from snapshot in %.3f seconds",
-                    loaded_buf, dup_buf, (double)elapsed_ns/1e9 ));
+    FD_LOG_NOTICE(( "loaded %s accounts %s(%s dups)%s from snapshot in %.3f seconds",
+                    loaded_buf, fd_log_style_dim(), dup_buf, fd_log_style_normal(), (double)elapsed_ns/1e9 ));
   }
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
@@ -249,6 +262,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_snapin_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
   FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
@@ -359,7 +374,7 @@ verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
   /* ensure all required epochs are present in epoch stakes */
   for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
     int found = 0;
-    for( ulong j=0UL; j<FD_EPOCH_STAKES_LEN; j++ ) {
+    for( ulong j=0UL; j<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
       if( manifest->epoch_stakes[j].epoch==i ) {
         found = 1;
         break;
@@ -482,7 +497,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
      transactions into it.
 
      Constructing the chain of blockhashes is easy.  It is just the
-     BLOCKHASH_QUEUE array in the manifest.  This array is unfortuantely
+     BLOCKHASH_QUEUE array in the manifest.  This array is unfortunately
      not sorted and appears in random order, but it has a hash_index
      field which is a gapless index, starting at some arbitrary offset,
      so we can back out the 151 blockhashes we need from this, by first
@@ -521,7 +536,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     have preserved that.  It is not true "per slot" technically, but
     it's true across all slots, and the memory is aggregated.  It will
     also always be true, even as slots are garbage collected, because
-    entries are collected by referece blockhash, not executed slot.
+    entries are collected by reference blockhash, not executed slot.
 
     ... actually we can't do this.  There's more broken things here.
     The Agave status decided to only store 20 bytes for 32 byte
@@ -726,7 +741,7 @@ process_manifest( fd_snapin_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( fd_ssload_manifest_validate( manifest, FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) ) {
+  if( FD_UNLIKELY( fd_ssload_manifest_validate( manifest, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) ) {
     FD_LOG_WARNING(( "snapshot manifest validation failed" ));
     transition_malformed( ctx, stem );
     return;
@@ -777,7 +792,7 @@ process_manifest( fd_snapin_tile_t *  ctx,
     }
   }
 
-  manifest->accdb_fork_id = ctx->accdb_root_fork_id.val;
+  manifest->accdb_fork_id    = fd_ushort_if( ctx->full, ctx->accdb_root_fork_id.val, ctx->accdb_incr_fork_id.val );
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
   if( FD_UNLIKELY( fd_ssload_recover_apply( manifest, ctx->bank, ctx->blockhash_seed ) ) ) {
@@ -790,6 +805,48 @@ process_manifest( fd_snapin_tile_t *  ctx,
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
   fd_stem_publish( stem, ctx->manifest_out.idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
+}
+
+static void
+snoop_stake_delegation( fd_snapin_tile_t *  ctx,
+                        fd_pubkey_t const * stake_account,
+                        ulong               lamports,
+                        ulong               data_len,
+                        uchar const *       data,
+                        ulong               data_sz ) {
+  fd_stake_state_t const * stake_state = fd_stake_state_view( data, data_sz );
+  if( FD_UNLIKELY( !stake_state || stake_state->stake_type!=FD_STAKE_STATE_STAKE ) ) return;
+
+  fd_delegation_t const * delegation = &stake_state->stake.stake.delegation;
+  if( FD_UNLIKELY( ( delegation->activation_epoch!=ULONG_MAX &&
+                    delegation->activation_epoch>=(ulong)USHORT_MAX ) ||
+                   ( delegation->deactivation_epoch!=ULONG_MAX &&
+                    delegation->deactivation_epoch>=(ulong)USHORT_MAX ) ) ) return;
+
+  fd_stake_delegations_root_update(
+      fd_banks_stake_delegations_root_query( ctx->banks ),
+      stake_account,
+      &delegation->voter_pubkey,
+      delegation->stake,
+      delegation->activation_epoch,
+      delegation->deactivation_epoch,
+      stake_state->stake.stake.credits_observed,
+      lamports,
+      (uint)data_len,
+      /* fd_stake_delegations_refresh recomputes this after load. */
+      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+}
+
+static void
+revert_incremental_stake_delegations( fd_snapin_tile_t * ctx ) {
+  fd_stake_delegations_refresh(
+      fd_banks_stake_delegations_root_query( ctx->banks ),
+      ctx->bank->f.epoch,
+      NULL,
+      &ctx->bank->f.warmup_cooldown_rate_epoch,
+      FD_FEATURE_ACTIVE_BANK( ctx->bank, upgrade_bpf_stake_program_to_v5_1 ),
+      ctx->accdb,
+      ctx->accdb_root_fork_id );
 }
 
 static int
@@ -812,6 +869,19 @@ process_account_batch( fd_snapin_tile_t *            ctx,
     lamports[ i ]    = fd_ulong_load_8_fast( e+48UL );
     data_lens[ i ]   = fd_ulong_load_8_fast( e+8UL );
     executables[ i ] = e[ 96UL ];
+  }
+
+  ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports, accepted_mask;
+  fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
+  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
+                                                     executables, &accounts_ignored, &accounts_replaced, &accounts_loaded,
+                                                     &replaced_lamports, &ignored_lamports, &accepted_mask ) ) ) {
+    return -1;
+  }
+
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( !(accepted_mask & (1UL<<i)) ) ) continue;
+    uchar const * e = entries[ i ];
 
     /* Snoop SlotHistory sysvar.  Account body in the batch path is
        contiguous starting at e+136. */
@@ -828,15 +898,14 @@ process_account_batch( fd_snapin_tile_t *            ctx,
     }
 
     fd_feature_snoop_account( ctx->feature_snoop, (fd_pubkey_t const *)pubkeys[ i ], lamports[ i ], e+64UL, e+136UL, data_lens[ i ] );
+
+    if( FD_UNLIKELY( lamports[ i ] &&
+                     !memcmp( e+64UL, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
+      snoop_stake_delegation( ctx, (fd_pubkey_t const *)pubkeys[ i ], lamports[ i ],
+                              data_lens[ i ], e+136UL, data_lens[ i ] );
+    }
   }
 
-  ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
-  fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
-  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
-                                                     executables, &accounts_ignored, &accounts_replaced, &accounts_loaded,
-                                                     &replaced_lamports, &ignored_lamports ) ) ) {
-    return -1;
-  }
   ctx->metrics.accounts_ignored  += accounts_ignored;
   ctx->metrics.accounts_replaced += accounts_replaced;
   ctx->metrics.accounts_loaded   += accounts_loaded;
@@ -881,13 +950,15 @@ process_account_header( fd_snapin_tile_t * ctx,
     }
     ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, result->account_header.lamports );
   }
+  ctx->account_accepted = account!=-1;
 
   /* Snoop SlotHistory sysvar.  Streaming path: arm the capture window
      here; process_account_data appends bytes while armed. */
   ctx->slot_history.capturing = 0;
-  if( FD_UNLIKELY( !memcmp( result->account_header.pubkey, fd_sysvar_slot_history_id.uc, 32UL ) ) &&
+  if( FD_UNLIKELY( ctx->account_accepted &&
+      !memcmp( result->account_header.pubkey, fd_sysvar_slot_history_id.uc, 32UL ) &&
       ( !ctx->slot_history.captured || result->account_header.slot>=ctx->slot_history.slot ) &&
-      result->account_header.data_len<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) {
+      result->account_header.data_len<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) {
     ctx->slot_history.slot       = result->account_header.slot;
     ctx->slot_history.lamports   = result->account_header.lamports;
     ctx->slot_history.data_len   = result->account_header.data_len;
@@ -897,7 +968,8 @@ process_account_header( fd_snapin_tile_t * ctx,
     ctx->slot_history.capturing  = 1;
   }
   ctx->feature_reasm.capturing = 0;
-  if( FD_UNLIKELY( !memcmp( result->account_header.owner, fd_solana_feature_program_id.uc, 32UL ) &&
+  if( FD_UNLIKELY( ctx->account_accepted &&
+                   !memcmp( result->account_header.owner, fd_solana_feature_program_id.uc, 32UL ) &&
                    result->account_header.lamports ) ) {
     memcpy( ctx->feature_reasm.pubkey.uc, result->account_header.pubkey, 32UL );
     memcpy( ctx->feature_reasm.owner,     result->account_header.owner,  32UL );
@@ -911,6 +983,18 @@ process_account_header( fd_snapin_tile_t * ctx,
                                 ctx->feature_reasm.buf, 0UL );
       ctx->feature_reasm.capturing = 0;
     }
+  }
+
+  ctx->stake_reasm.capturing = 0;
+  if( FD_UNLIKELY( account!=-1 &&
+                   result->account_header.lamports &&
+                   result->account_header.data_len>=sizeof(fd_stake_state_t) &&
+                   !memcmp( result->account_header.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
+    memcpy( ctx->stake_reasm.pubkey.uc, result->account_header.pubkey, sizeof(fd_pubkey_t) );
+    ctx->stake_reasm.lamports  = result->account_header.lamports;
+    ctx->stake_reasm.data_len  = result->account_header.data_len;
+    ctx->stake_reasm.write_pos = 0UL;
+    ctx->stake_reasm.capturing = 1;
   }
 
   return 0;
@@ -942,6 +1026,50 @@ process_account_data( fd_snapin_tile_t *            ctx,
       ctx->feature_reasm.capturing = 0;
     }
   }
+
+  if( FD_UNLIKELY( ctx->stake_reasm.capturing ) ) {
+    ulong remaining = sizeof(ctx->stake_reasm.buf) - ctx->stake_reasm.write_pos;
+    ulong copy_sz   = fd_ulong_min( result->account_data.data_sz, remaining );
+    memcpy( ctx->stake_reasm.buf + ctx->stake_reasm.write_pos, result->account_data.data, copy_sz );
+    ctx->stake_reasm.write_pos += copy_sz;
+    if( ctx->stake_reasm.write_pos==sizeof(ctx->stake_reasm.buf) ) {
+      snoop_stake_delegation( ctx, &ctx->stake_reasm.pubkey, ctx->stake_reasm.lamports,
+                              ctx->stake_reasm.data_len, ctx->stake_reasm.buf,
+                              sizeof(ctx->stake_reasm.buf) );
+      ctx->stake_reasm.capturing = 0;
+    }
+  }
+}
+
+static int
+prepare_manifest_records( fd_snapin_tile_t * ctx ) {
+  if( FD_LIKELY( ctx->records_ctx.ready ) ) return 0;
+
+  fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr_const( ctx->manifest_out.mem, ctx->manifest_out.chunk );
+  fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+  ulong epoch                 = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
+  ulong epoch_stakes_base     = epoch>0UL ? epoch-1UL : 0UL;
+  ulong t_1_idx               = leader_schedule_epoch - epoch_stakes_base;
+  if( FD_UNLIKELY( t_1_idx>=FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ) ) {
+    FD_LOG_WARNING(( "T-1 epoch stakes index %lu exceeds manifest capacity %lu",
+                     t_1_idx, (ulong)FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ));
+    return -1;
+  }
+
+  ctx->records_ctx.epoch   = epoch;
+  ctx->records_ctx.t_1_idx = t_1_idx;
+  ctx->records_ctx.has_t_2 = (t_1_idx>0UL);
+  ctx->records_ctx.t_2_idx = ctx->records_ctx.has_t_2 ? t_1_idx-1UL : 0UL;
+  fd_ssload_records_reset( ctx->bank, epoch );
+  ctx->records_ctx.ready = 1;
+  return 0;
 }
 
 static int
@@ -950,35 +1078,10 @@ apply_manifest_record( fd_snapin_tile_t *                            ctx,
                        fd_ssmanifest_parser_advance_result_t const * res ) {
   switch( rec_kind ) {
 
-  case FD_SSMANIFEST_PARSER_ADVANCE_DELEGATION:
-    fd_ssload_apply_delegation( ctx->banks, res->delegation );
-    return 0;
-
-  case FD_SSMANIFEST_PARSER_ADVANCE_VOTE_ACCOUNT:
-    fd_ssload_apply_vote_account( ctx->bank, res->vote_account );
-    return 0;
-
   case FD_SSMANIFEST_PARSER_ADVANCE_VOTE_STAKES: {
-    if( FD_UNLIKELY( !ctx->records_ctx.ready ) ) {
-      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr_const( ctx->manifest_out.mem, ctx->manifest_out.chunk );
-      fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
-        .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
-        .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
-        .warmup                      = manifest->epoch_schedule_params.warmup,
-        .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
-        .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
-      };
-      ulong epoch                 = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
-      ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
-      ulong epoch_stakes_base     = epoch>0UL ? epoch-1UL : 0UL;
-      ulong t_1_idx               = leader_schedule_epoch - epoch_stakes_base;
-      ctx->records_ctx.epoch   = epoch;
-      ctx->records_ctx.t_1_idx = t_1_idx;
-      ctx->records_ctx.has_t_2 = (t_1_idx>0UL);
-      ctx->records_ctx.t_2_idx = ctx->records_ctx.has_t_2 ? t_1_idx-1UL : 0UL;
-      ctx->records_ctx.ready   = 1;
-    }
-    return fd_ssload_apply_vote_stakes( ctx->bank,
+    if( FD_UNLIKELY( prepare_manifest_records( ctx ) ) ) return -1;
+    return fd_ssload_apply_vote_stakes( ctx->banks,
+                                        ctx->bank,
                                         ctx->records_ctx.epoch,
                                         res->vote_stakes.epoch_idx,
                                         ctx->records_ctx.t_1_idx,
@@ -1064,6 +1167,12 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
             transition_malformed( ctx, stem );
             return 0;
           }
+          if( FD_UNLIKELY( prepare_manifest_records( ctx ) ) ) {
+            FD_LOG_WARNING(( "error preparing snapshot manifest records" ));
+            transition_malformed( ctx, stem );
+            return 0;
+          }
+          fd_ssload_records_fini( ctx->bank );
           ctx->flags.manifest_done = 1;
         }
         break;
@@ -1123,6 +1232,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
 
         if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX
+                      && ctx->account_accepted
                       && !memcmp( result->account_header.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) )
                       && result->account_header.data_len
                       && result->account_header.data_len<=FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ ) ) {
@@ -1146,7 +1256,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
            FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, since this is the
            size that the Solana CLI allocates for them. Although the
            ConfigProgram itself does not enforce these invariants, the
-           vast majority of accounts (with a tiny number of excpetions
+           vast majority of accounts (with a tiny number of exceptions
            on devnet) are maintained with the Solana CLI. */
         if( FD_UNLIKELY( ctx->gui_config_acct_sz ) ) {
           uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );
@@ -1212,7 +1322,8 @@ static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig,
-                     ulong               chunk ) {
+                     ulong               chunk,
+                     ulong               sz ) {
   if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
@@ -1240,7 +1351,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
 
-      fd_ssload_records_reset( ctx->banks, ctx->bank );
       ctx->records_ctx.ready = 0;
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
@@ -1255,6 +1365,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->dup_capitalization                 = 0UL;
         ctx->recovery.capitalization            = 0UL;
 
+        fd_stake_delegations_reset( fd_banks_stake_delegations_root_query( ctx->banks ) );
         fd_accdb_reset( ctx->accdb );
         fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ctx->accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
@@ -1266,6 +1377,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
         fd_memset( ctx->feature_snoop, 0, sizeof(ctx->feature_snoop) );
         ctx->feature_reasm.capturing = 0;
+        ctx->stake_reasm.capturing   = 0;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
@@ -1279,6 +1391,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->slot_history.captured  = 0;
         ctx->slot_history.capturing = 0;
         ctx->feature_reasm.capturing = 0;
+        ctx->stake_reasm.capturing   = 0;
 
         /* Create a child fork for incremental writes.  On failure,
            fd_accdb_purge(child) reverts just the incremental changes.
@@ -1287,13 +1400,28 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
-         against the slot in the snapshot manifest.  For downloaded
-         snapshots, this is simply a best estimate.  The actual
-         advertised slot for downloaded snapshots is received in a
-         separate fd_ssctrl_meta_t message below. */
+         against the slot in the snapshot manifest.  For redirect-based
+         HTTP downloads, these are initial estimates from gossip and
+         will be updated by the META message below once the redirect
+         resolves to a concrete snapshot filename. */
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->advertised_slot = msg->slot;
       fd_memcpy( ctx->advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_META: {
+      /* For redirect-based HTTP downloads, the META message carries
+         the resolved slot and hash from the actual snapshot filename
+         the server redirected to.  Update the advertised values so
+         that process_manifest can verify the manifest against them. */
+      FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
+      fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      if( meta->resolved_slot!=ULONG_MAX ) {
+        ctx->advertised_slot = meta->resolved_slot;
+        fd_memcpy( ctx->advertised_hash, meta->resolved_hash, FD_HASH_FOOTPRINT );
+      }
+      forward_msg = 0; /* snapct already receives META directly from snapld */
       break;
     }
 
@@ -1361,6 +1489,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       if( !ctx->full ) {
+        fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->accdb_incr_fork_id );
+        /* ensure that snapin tile sees all delta changes before rooting */
+        __atomic_thread_fence( __ATOMIC_SEQ_CST );
         fd_accdb_advance_root( ctx->accdb, ctx->accdb_incr_fork_id );
         ctx->accdb_root_fork_id = ctx->accdb_incr_fork_id;
         ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
@@ -1384,10 +1515,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       if( ctx->full ) {
+        fd_stake_delegations_reset( fd_banks_stake_delegations_root_query( ctx->banks ) );
         fd_accdb_reset( ctx->accdb );
         ctx->accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
       } else {
+        revert_incremental_stake_delegations( ctx );
         fd_accdb_purge( ctx->accdb, ctx->accdb_incr_fork_id ); /* this fork and subsequent children */
         fd_accdb_snapshot_revert_whead( ctx->accdb, &ctx->recovery.accdb_metadata );
         ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
@@ -1431,7 +1564,7 @@ returnable_frag( fd_snapin_tile_t *  ctx,
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig, chunk );
+  else                                           handle_control_frag( ctx, stem, sig, chunk, sz );
 
   return 0;
 }
@@ -1599,6 +1732,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_accdb_partition_added_t);
+}
+
 fd_topo_run_tile_t fd_tile_snapin = {
   .name                     = NAME,
   .populate_allowed_fds     = populate_allowed_fds,
@@ -1607,6 +1745,7 @@ fd_topo_run_tile_t fd_tile_snapin = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .max_event_sz             = max_event_sz,
   .run                      = stem_run,
 };
 

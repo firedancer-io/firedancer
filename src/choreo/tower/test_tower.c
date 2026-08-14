@@ -5,6 +5,35 @@ FD_IMPORT_BINARY( vote_acc_v3, "src/choreo/tower/fixtures/vote_acc_v3.bin" );
 
 static uchar scratch[ 65536 ] __attribute__((aligned(128)));
 
+static void
+test_compact_indices( void ) {
+  FD_TEST( sizeof(fd_tower_blk_t)==224UL );
+  FD_TEST( sizeof(fd_tower_stakes_vtr_t)==56UL );
+  FD_TEST( sizeof(((fd_tower_stakes_slot_t *)NULL)->head)==sizeof(uint) );
+  FD_TEST( !fd_tower_footprint( 1UL<<32, 0UL        ) );
+  FD_TEST( !fd_tower_footprint( 1UL,     1UL<<32   ) );
+  FD_TEST( !fd_tower_footprint( 1UL<<20, 1UL<<20   ) );
+  FD_TEST( fd_tower_footprint( 2048UL, 2000UL )==5587586304UL );
+}
+
+static void
+test_compact_stake_indices( void ) {
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch, 2UL, 2UL, 0UL ) );
+  FD_TEST( tower );
+
+  fd_hash_t vote_acc0 = { .ul = { 1UL } };
+  fd_hash_t vote_acc1 = { .ul = { 2UL } };
+
+  ulong idx0 = fd_tower_stakes_insert( tower, 1UL, &vote_acc0, 10UL, ULONG_MAX );
+  ulong idx1 = fd_tower_stakes_insert( tower, 1UL, &vote_acc1, 20UL, idx0      );
+
+  FD_TEST( tower->stk_vtr_pool[ idx0 ].prev==UINT_MAX   );
+  FD_TEST( tower->stk_vtr_pool[ idx1 ].prev==(uint)idx0 );
+
+  fd_tower_stakes_remove( tower, 1UL );
+  FD_TEST( !fd_tower_stakes_vtr_pool_used( tower->stk_vtr_pool ) );
+}
+
 void
 mock( fd_ghost_t *        ghost,
       fd_tower_blk_t *    blk,
@@ -778,8 +807,8 @@ test_case_1c_switch_pass( fd_wksp_t * wksp ) {
 
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( tower, ghost, NULL,
-      &out.reset_slot, &out.reset_block_id,
-      &out.vote_slot,  &out.vote_block_id, &out.vote_bank_hash, &out.vote_block_hash,
+      &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
+      &out.vote_slot,  &out.vote_block_id, &out.vote_bank_hash,
       &out.root_slot,  &out.root_block_id );
 
   /* Should have SWITCH_PASS flag set (Case 1c → Case 3). */
@@ -856,8 +885,8 @@ test_case_1c_switch_fail( fd_wksp_t * wksp ) {
 
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( tower, ghost, NULL,
-      &out.reset_slot, &out.reset_block_id,
-      &out.vote_slot,  &out.vote_block_id, &out.vote_bank_hash, &out.vote_block_hash,
+      &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
+      &out.vote_slot,  &out.vote_block_id, &out.vote_bank_hash,
       &out.root_slot,  &out.root_block_id );
 
   /* Should have SWITCH_FAIL flag set (Case 1c → Case 4a). */
@@ -1203,6 +1232,8 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_compact_indices();
+  test_compact_stake_indices();
   test_vote();
   test_tower_from_vote_acc_data_v1_14_11();
   test_tower_from_vote_acc_data_current();

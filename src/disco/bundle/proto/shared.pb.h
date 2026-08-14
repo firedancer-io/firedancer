@@ -3,7 +3,7 @@
 
 #ifndef PB_SHARED_SHARED_PB_H_INCLUDED
 #define PB_SHARED_SHARED_PB_H_INCLUDED
-#include "../../../ballet/nanopb/pb_firedancer.h"
+#include "../../../third_party/nanopb/pb_firedancer.h"
 #include "timestamp.pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40

@@ -20,6 +20,13 @@ write: (or (eq (arg 0) 1)
            (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
+# monitor-gossip: stdio buffering setup for STDOUT
+#
+# The gossip monitor prints diagnostics with printf(3), and glibc
+# stdio calls fstat on the descriptor on first use to pick a
+# buffering strategy.
+fstat: (eq (arg 0) 1)
+
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
 # arg 0 is the file descriptor to fsync.

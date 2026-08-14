@@ -5,7 +5,6 @@
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../util/net/fd_ip4.h"
-#include "../../../../util/tile/fd_tile_private.h" /* fd_tile_private_cpus_parse */
 
 #include <unistd.h> /* pause */
 
@@ -26,7 +25,7 @@ udpecho_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( affinity, parsed_tile_to_cpu, 0 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
@@ -89,6 +88,7 @@ udpecho_cmd_fn( args_t *   args,
   fd_topo_tile_t * metric_tile = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
 
   net_tile->net.legacy_transaction_listen_port = args->udpecho.listen_port;
+  config->tiles.quic.regular_transaction_listen_port = args->udpecho.listen_port;
 
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
@@ -100,6 +100,7 @@ udpecho_cmd_fn( args_t *   args,
   configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_offloads, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_loopback, CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_sysfs_poll,       CONFIGURE_CMD_INIT, config );
 
   fdctl_check_configure( config );
   /* FIXME this allocates lots of memory unnecessarily */

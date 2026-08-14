@@ -148,6 +148,7 @@ typedef struct {
   ulong  leader_slot;
   void const * leader_bank;
   ulong        leader_bank_idx;
+  ulong        leader_bank_seq;
 
   fd_became_leader_t _became_leader[1];
 
@@ -177,6 +178,8 @@ typedef struct {
     ulong slot_max_cost;
     ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
+    ulong slot_max_allocated_data_per_block;
+    ulong slot_max_data_shreds;
   } limits;
 
   /* If drain_execle is non-zero, then the pack tile must wait until all
@@ -202,6 +205,9 @@ typedef struct {
   long  approx_tickcount;
 
   fd_rng_t * rng;
+
+  uint  rng_seed;
+  ulong rng_idx;
 
   /* The end wallclock time of the leader slot we are currently packing
      for, if we are currently packing for a slot.*/
@@ -519,7 +525,7 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
       limits->max_vote_cost_per_block      = ctx->limits.slot_max_vote_cost;
       limits->max_write_cost_per_acct      = ctx->limits.slot_max_write_cost_per_acct;
       limits->max_txn_per_microblock       = ULONG_MAX; /* unused */
-      limits->max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK;
+      limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
       fd_pack_set_block_limits( ctx->pack, limits );
 
       ctx->pending_reduce_mb_bound = 1; /* publish bound decrease */
@@ -846,6 +852,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
       trailer->bank_idx = ctx->leader_bank_idx;
+      trailer->bank_seq = ctx->leader_bank_seq;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
       trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
@@ -1158,14 +1165,38 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ctx->leader_bank          = ctx->_became_leader->bank;
     ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
+    ctx->leader_bank_seq      = ctx->_became_leader->bank_seq;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
+
+    ulong base_max_data = ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK;
+    if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
+      /* Compute base_max_data to ensure that we don't overflow
+         slot_max_data_shreds. See FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX in
+         fd_shred_batch.h. Some of the terms are
+         based on the worst-case number of FEC sets in a block, which
+         scales with the slot time reductions:
+         - pad_ohead = per-batch padding (OHEAD_PAD in fd_shred_batch.h)
+         - hdr_ohead = per-batch header (OHEAD_HDR in fd_shred_batch.h)
+         - reg_ohead = only used for the last batch
+                       (OHEAD_REG in fd_shred_batch.h) */
+      ulong fec_set_cnt     = ctx->_became_leader->limits.slot_max_data_shreds/32UL;
+      ulong pad_ohead       = ( fec_set_cnt/2UL )*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
+      ulong hdr_ohead       = fec_set_cnt*8UL;
+      ulong reg_ohead       = 8192UL;
+      FD_TEST( fec_set_cnt >= 2UL ); /* guard against underflow */
+      ulong fec_data        = ( fec_set_cnt - 2UL )*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
+      FD_TEST( fec_data    >= pad_ohead+hdr_ohead+reg_ohead );
+      base_max_data         = fec_data - pad_ohead - hdr_ohead - reg_ohead;
+    }
     /* Reserve some space in the block for ticks */
-    ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
+    ctx->slot_max_data        = base_max_data
                                       - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
 
-    ctx->limits.slot_max_cost                = ctx->_became_leader->limits.slot_max_cost;
-    ctx->limits.slot_max_vote_cost           = ctx->_became_leader->limits.slot_max_vote_cost;
-    ctx->limits.slot_max_write_cost_per_acct = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
+    ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
+    ctx->limits.slot_max_vote_cost                = ctx->_became_leader->limits.slot_max_vote_cost;
+    ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
+    ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
+    ctx->limits.slot_max_data_shreds              = ctx->_became_leader->limits.slot_max_data_shreds;
 
     /* ticks_per_ns is probably relatively stable over 400ms, but not
        over several hours, so we need to compute the slot duration in
@@ -1199,7 +1230,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     limits->max_vote_cost_per_block = ctx->limits.slot_max_vote_cost;
     limits->max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
     limits->max_txn_per_microblock = ULONG_MAX; /* unused */
-    limits->max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK;
+    limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
     fd_pack_set_block_limits( ctx->pack, limits );
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
 
@@ -1262,16 +1293,23 @@ after_frag( fd_pack_ctx_t *     ctx,
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->rng_seed, sizeof(uint) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->rng_idx, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+
   if( FD_LIKELY( !tile->pack.bundle.enabled ) ) return;
   if( FD_UNLIKELY( !tile->pack.bundle.vote_account_path[0] ) ) {
     FD_LOG_WARNING(( "Disabling bundle crank because no vote account was specified" ));
     return;
   }
-
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
 
   if( FD_UNLIKELY( !strcmp( tile->pack.bundle.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -1306,7 +1344,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
-  fd_rng_t *      rng = fd_rng_join( fd_rng_new( FD_SCRATCH_ALLOC_APPEND( l, fd_rng_align(), fd_rng_footprint() ), 0U, 0UL ) );
+  fd_rng_t *      rng = fd_rng_join( fd_rng_new( FD_SCRATCH_ALLOC_APPEND( l, fd_rng_align(), fd_rng_footprint() ), ctx->rng_seed, ctx->rng_idx ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
   fd_pack_limits_t limits_lower[1] = {{
@@ -1321,10 +1359,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
                                          tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count,
-                                         limits_lower,
+                                         limits_upper,
                                          fd_type_pun_const( tile->pack.acct_blocklist ), tile->pack.acct_blocklist_cnt,
                                          rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
+
+  fd_pack_set_block_limits( ctx->pack, limits_lower );
 
   if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many input links (%lu>32) to pack tile", tile->in_cnt ));
 
@@ -1413,6 +1453,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
   ctx->leader_bank_idx               = ULONG_MAX;
+  ctx->leader_bank_seq               = ULONG_MAX;
   ctx->pack_idx                      = 0UL;
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;

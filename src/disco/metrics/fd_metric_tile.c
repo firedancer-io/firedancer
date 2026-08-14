@@ -51,7 +51,7 @@ before_credit( fd_metric_ctx_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
-  *charge_busy = fd_http_server_poll( ctx->metrics_server, 1 ); /* 1ms */
+  *charge_busy = fd_http_server_poll( ctx->metrics_server, 1, ULONG_MAX ); /* 1ms */
 }
 
 static fd_http_server_response_t
@@ -127,7 +127,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  FD_LOG_NOTICE(( "prometheus metrics endpoint listening at http://" FD_IP4_ADDR_FMT ":%u/metrics", FD_IP4_ADDR_FMT_ARGS( tile->metric.prometheus_listen_addr ), tile->metric.prometheus_listen_port ));
+  FD_LOG_NOTICE(( "prometheus server listening at %shttp://" FD_IP4_ADDR_FMT ":%u/metrics%s", fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( tile->metric.prometheus_listen_addr ), tile->metric.prometheus_listen_port, fd_log_style_normal() ));
 }
 
 static ulong

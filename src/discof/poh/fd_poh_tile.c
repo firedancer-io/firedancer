@@ -42,6 +42,8 @@ struct fd_poh_tile {
   ulong in_cnt;
   ulong idle_cnt;
 
+  fd_startup_gate_t startup_gate[1];
+
   int in_kind[ 64 ];
   fd_poh_in_t in[ 64 ];
 
@@ -76,6 +78,8 @@ after_credit( fd_poh_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
+
   ctx->idle_cnt++;
   if( FD_LIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt || fd_poh_must_tick( ctx->poh ) || fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) {
     /* We would like to fully drain input links to the best of our
@@ -124,6 +128,8 @@ returnable_frag( fd_poh_tile_t *     ctx,
   (void)ctl;
   (void)tsorig;
   (void)tspub;
+
+  fd_startup_gate_busy( ctx->startup_gate );
 
   /* TODO: Pack has a workaround for Frankendancer that sequences bank
      release to manage lifetimes, but it's not needed in Firedancer so
@@ -176,6 +182,16 @@ returnable_frag( fd_poh_tile_t *     ctx,
      are going to have the wait for the full block to timeout once it
      starts. */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 1;
+  /* If prior leaders skipped, it might happen that replay tells us to
+     become leader, but we haven't published the skipped ticks yet.
+
+     Skipped ticks need to be published before any microblocks, so we
+     hold the microblocks and do not mixin them yet until we have
+     published any skipped ticks.
+
+     It's fine to block pack/execles here, because the skipped ticks
+     will be published in the immediate after_credit iterations. */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) return 1;
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
     uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
     if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
@@ -281,7 +297,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  fd_sleep_until_replay_started( topo );
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 }
 
 static ulong

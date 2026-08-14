@@ -2,7 +2,6 @@
 #include "../../accdb/fd_accdb.h"
 #include "../../runtime/fd_bank.h"
 #include "../../leaders/fd_leaders.h"
-#include "../../stakes/fd_vote_stakes.h"
 
 static const fd_pubkey_t test_pubkey  = {{ 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,
                                            17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32 }};
@@ -154,9 +153,7 @@ main( int     argc,
   bank = fd_svm_mini_bank( mini, root_idx );
   FD_TEST( bank );
 
-  fd_vote_stakes_t * vs0 = fd_bank_vote_stakes( bank );
-  ushort vs0_root_idx = fd_vote_stakes_get_root_idx( vs0 );
-  FD_TEST( fd_vote_stakes_ele_cnt( vs0, vs0_root_idx )==0U );
+  FD_TEST( fd_vote_stakes_cnt_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id )==0UL );
 
   /* mock_validator_cnt=1: single validator */
   params->mock_validator_cnt = 1UL;
@@ -170,9 +167,7 @@ main( int     argc,
   FD_TEST( leaders->slot_cnt==bank->f.epoch_schedule.slots_per_epoch );
   FD_TEST( fd_epoch_leaders_get( leaders, leaders->slot0 ) );
 
-  fd_vote_stakes_t * vs1 = fd_bank_vote_stakes( bank );
-  ushort vs1_root_idx = fd_vote_stakes_get_root_idx( vs1 );
-  FD_TEST( fd_vote_stakes_ele_cnt( vs1, vs1_root_idx )==1U );
+  FD_TEST( fd_vote_stakes_cnt_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id )==1UL );
 
   /* mock_validator_cnt=4: multiple validators */
   params->mock_validator_cnt = 4UL;
@@ -188,9 +183,11 @@ main( int     argc,
     FD_TEST( fd_epoch_leaders_get( leaders, s ) );
   }
 
-  fd_vote_stakes_t * vs4 = fd_bank_vote_stakes( bank );
-  ushort vs4_root_idx = fd_vote_stakes_get_root_idx( vs4 );
-  FD_TEST( fd_vote_stakes_ele_cnt( vs4, vs4_root_idx )==4U );
+  FD_TEST( fd_vote_stakes_cnt_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id )==4UL );
+
+  /* Mock validators must fit the vote-account/epoch-credit capacity. */
+  params->mock_validator_cnt = limits->max_vote_accounts + 1UL;
+  FD_TEST( fd_svm_mini_reset( mini, params )==ULONG_MAX );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

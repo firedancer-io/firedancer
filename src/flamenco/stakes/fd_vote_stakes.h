@@ -1,354 +1,273 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_vote_stakes_h
 #define HEADER_fd_src_flamenco_stakes_fd_vote_stakes_h
 
+#include "../../util/fd_util_base.h"
 #include "../fd_flamenco_base.h"
-
-/* fd_vote_stakes_t is a data structure that stores vote account stake
-   updates across epoch boundaries.  It offers a mapping from vote
-   account pubkeys to their t_1 and t_2 stakes.  The structure is
-   designed to work with a large amount of vote accounts (in the order
-   of 10s of millions) along with a relatively small number of forks
-   across epoch boundaries.
-
-   The structure is designed around these operations:
-   1. Inserting updated vote account stakes into a given fork.
-   2. Querying the stake for a given vote account with a given fork.
-
-   Concurrent queries are allowed but concurrent inserts are not.  This
-   is fine because the structure is only modified during boot and during
-   the epoch boundary.
-
-   Given a large number of vote accounts (e.g. 2^25 = 33,554,432), we
-   need to store the pubkey, t_1 stake, and t_2 stake for each vote
-   account.  We also need to store potentially ~32 forks across each
-   epoch boundary.  If done naively, this would require
-   2^25 * (32 + 8 + 8) * 32 = 51GB of memory not including any overhead
-   for maintaining lookups for accounts.
-
-   To avoid this, we can use some important runtime protocol properties.
-   The most notable is that across forks, we will only have a small
-   number of differences in vote account stakes: this is because
-   realistically very few vote accounts will have differences in stakes
-   that are caused by forks right before the epoch boundary.  So we can
-   set our bound on elements as the total number of vote accounts +
-   stakes across forks.  Let's say this is 2^26 if the max number of
-   vote accounts we want to support is 2^25.  Now to store our index we
-   only need:
-   2^26 * (32 + 8 + 8) = 3GB of memory (not including overhead).
-   Our index structure will look like this:
-   pool<pubkey, stake_t_1, stake_t_2>
-
-   What is described above the index of all vote accounts.  We need to
-   account for the stakes across forks.  We have to maintain a list of
-   all of the index entries used by each fork.  It is sufficient to use
-   a uint list of indices into the index.  So each fork is just:
-   pool<uint>.
-
-   4 (uint pool idx) * 2^25 (# vote accounts) * 32 (# forks) = 4GiB
-
-   For a given fork, when we insert a vote account we check if:
-   1. The vote account + stake pair is already in the index.  If it is,
-      we just increment a reference to the pair.  Add it to the list of
-      pool indices that the fork maintains.
-   2. The vote account + stake pair is not in the index.  If it is not,
-      we need to insert it into the index and assume a reference of 1.
-      Add it to the local list of pool indices that the fork maintains.
-   In order to make both of these cases performant we need a mapping
-   from pubkey + stake to the index pool element.  This is simply
-   represented as:
-   map<(pubkey+stake), index_pool_idx>.
-
-   Now for queries, we need a way to query the t_1 and t_2 stake for a
-   pubkey on a given fork.  The problem is the above map requires the
-   t_1 stake as part of the key and there are potentially multiple
-   entries for a given pubkey.  This is solved with a
-   multi_map<pubkey, index_pool_idx>.  We query for a given pubkey and
-   iterate through all of the entries: this is an acceptable trade-off
-   since there will almost always be one element for a given pubkey
-   (except around the epoch boundary).  However, for each index entry
-   we need a way to make sure that it's the one that is in our fork's
-   list of indices.  This is solved with a map for each fork that is
-   keyed by the index pool idx.
-   map<index_pool_idx, fork list entry>.
-
-   Now, we can quickly insert entries for a given fork and also do fast
-   queries for a given pubkey.
-
-   The only remaining operation is updating the root fork.  If we are
-   updating which fork is the root, we can safely assume that all other
-   forks are no longer valid:
-   1. either the fork was a competing fork that executed the epoch
-      boundary and is no longer needed
-   2. the fork corresponds to a fork for the previous epoch boundary.
-
-   For any fork that's being removed, we need to reset its fork's pool
-   and remove any references to the index pool entries.  If an index
-   entry has a reference count of 0, we can remove it from the index
-   entirely.  Under the hood, the forks in use are stored in a deque;
-   when a root is being advanced, all entries from the deque are removed
-   and each removed fork's entries are released.
-
-   The memory footprint of what is actually described above is larger
-   because each key of the index needs to be a compound of
-   the pubkey, stake_t_1, node_account_t_1, and epoch.
-
-   All public APIs internally acquire and release a read-write lock
-   so the caller does not need to manage synchronization.  Read-only
-   operations (query, ele_cnt, get_root_idx) acquire a shared read
-   lock.  Mutating operations and the iterator acquire an exclusive
-   write lock.
-
-   fd_vote_stakes is the Firedancer equivalent to the Agave client
-   epoch stakes data structure. */
-
-FD_PROTOTYPES_BEGIN
+#include "../accdb/fd_accdb_base.h"
 
 #define FD_VOTE_STAKES_ALIGN (128UL)
+
+/* fd_vote_stakes is the Firedancer equivalent of the Agave epoch stakes
+   data structure.  It is a fork aware data structure that maintains the
+   vote account state that is used for clock and VM syscall calculations
+   during execution.
+
+   The underlying data structure is a tiered set of caches:
+   - t-2/t-3: these are caches used for the vote account states at the
+     end of the t-2 epoch and the t-3 epoch assuming you are currently
+     in the t epoch.  These caches are shared across all forks.
+   - t-1: these are sized to max_fork_width and are computed at the
+     most recent epoch boundary.  These caches are ref-cnt'd and fork
+     specific.  After the epoch boundary slot is rooted, then there will
+     only be 1 active t-1 cache.
+   - state: each bank has its own view of the t-2 state of vote
+     accounts.  This is what is actually used for clock calculations
+     which is a stake weighted median of the last vote slot and
+     timestamp.
+
+   fd_vote_stakes also handles the creation of new vote stakes caches.
+   The creation of new vote stakes caches happens at the epoch boundary
+   and follows the rules defined in the validator_admission_ticket
+   feature where every vote account must be in the top 2000 by stake.
+   Under the hood, this is managed by a stake-sorted heap that is shared
+   across all forks.
+
+   NOTE:
+   This system assumes that multiple forks can cross an epoch boundary
+   but only one epoch boundary can be crossed at a time.  This means
+   that there can be multiple t-1 forks after an epoch boundary, but
+   only one will be active when the first fork crosses into an epoch
+   boundary.  Similarly, this means that there will be 2 t-2 sets active
+   during an epoch boundary crossing and 1 most of the time. */
 
 struct fd_vote_stakes;
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 
-/* fd_vote_stakes_align returns the minimum alignment required for the
-   fd_vote_stakes_t struct. */
+FD_PROTOTYPES_BEGIN
 
 ulong
 fd_vote_stakes_align( void );
 
-/* fd_vote_stakes_footprint returns the minimum footprint required for
-   the fd_vote_stakes_t object given the max number of vote accounts,
-   the max fork width (number of forks that can cross the epoch
-   boundary), and the max number of map chains.  The map chains should
-   be a power of 2 that is roughly equal to the expected number of vote
-   accounts and not the maximum. */
-
 ulong
-fd_vote_stakes_footprint( ulong max_vote_accounts,
-                          ulong expected_vote_accounts,
+fd_vote_stakes_footprint( ulong max_live_slots,
                           ulong max_fork_width );
 
-
-/* fd_vote_stakes_new creates a new fd_vote_stakes_t object given a
-   region of memory sized out according to fd_vote_stakes_footprint.
-   The underlying data storage will actually support
-   2 * max_vote_accounts entries because entries are deduped across
-   forks after all of the entries have already been inserted. */
-
 void *
-fd_vote_stakes_new( void * shmem,
-                    ulong  max_vote_accounts,
-                    ulong  expected_vote_accounts,
+fd_vote_stakes_new( void * mem,
+                    ulong  max_live_slots,
                     ulong  max_fork_width,
                     ulong  seed );
 
-
-/* fd_vote_stakes_join joins a valid fd_vote_stakes_t object from a
-   region of memory. */
-
 fd_vote_stakes_t *
-fd_vote_stakes_join( void * shmem );
+fd_vote_stakes_join( void * mem );
 
-/* fd_vote_stakes_root_{insert, update}_key are APIs for
-   inserting and updating keys for the root fork.  These
-   operations are split out in order to support the snapshot loading
-   process.  The set of stakes from the T-1 epoch are inserted into
-   the root fork with a call to fd_vote_stakes_root_insert_key.  The
-   set of stakes from the T-2 epoch are updated with a call to
-   fd_vote_stakes_root_update_meta.  The caller is responsible for
-   ensuring that for a given pubkey, insert_key is called before
-   update_meta.  It is important that these APIs should only be called
-   while the root fork is the only and current fork in use.
+/* fd_vote_stakes_fork_epoch returns the epoch of the fork. */
 
-   If update_meta is called on a key that has not had a corresponding
-   insert_key call, a key is created into the root fork with a t-1 stake
-   of 0.  This usually means the vote account has been deleted, but it
-   can be possible in the case where the only staker of a vote account
-   has been marked delinquent in epoch T-1 and needs to be counted
-   towards clock calculation for the rest of the epoch. */
+ulong
+fd_vote_stakes_fork_epoch( ulong fork_id );
 
-void
-fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
-                                fd_pubkey_t const * pubkey,
-                                fd_pubkey_t const * node_account_t_1,
-                                ulong               stake_t_1,
-                                ushort              commission_t_1,
-                                ulong               epoch );
+/* fd_vote_stakes_init initializes the vote stakes data structure for a
+   given epoch. */
 
-void
-fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
-                                 fd_pubkey_t const * pubkey,
-                                 fd_pubkey_t const * node_account_t_2,
-                                 ulong               stake_t_2,
-                                 ushort              commission_t_2,
-                                 ulong               epoch );
+ulong
+fd_vote_stakes_init( fd_vote_stakes_t * vote_stakes,
+                     ulong              epoch );
 
-/* fd_vote_stakes_insert inserts a new vote account stake into a given
-   fork.  If the element already exists on a different fork, then the
-   reference is incremented in the index and the fork will now have an
-   element which points to the vote stake index element. */
-
-void
-fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
-                       ushort              fork_idx,
-                       fd_pubkey_t const * pubkey,
-                       fd_pubkey_t const * node_account_t_1,
-                       fd_pubkey_t const * node_account_t_2,
-                       ulong               stake_t_1,
-                       ulong               stake_t_2,
-                       ushort              commission_t_1,
-                       ushort              commission_t_2,
-                       uchar               exists_t_1,
-                       uchar               exists_t_2,
-                       ulong               epoch );
-
-/* fd_vote_stakes_genesis_fini finalizes the vote stakes on the genesis
-   block.  Any vote stakes that have been inserted will be updated to
-   have identical T-1/T-2 stakes and node accounts.  This function
-   assumes that all vote accounts have already been inserted into the
-   genesis fork. */
-
-void
-fd_vote_stakes_genesis_fini( fd_vote_stakes_t * vote_stakes );
-
-/* fd_vote_stakes_new_child creates a new child fork and returns the
-   index identifier for the new fork. */
-
-ushort
-fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes );
-
-/* fd_vote_stakes_advance_root will move the root fork to the new
-   candidate root fork.  If the root_idx is equal to the root, this
-   function is a no-op.  However, if the root is different, all other
-   child nodes will be removed from the structure. */
-
-void
-fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
-                             ushort             root_idx );
-
-/* fd_vote_stakes_query_stake queries the stake for a given vote account
-   in the given fork.  If the element is found returns 1, otherwise
-   returns 0.  If any of the optional fields are set to NULL, then their
-   corresponding value will not be set.  An account can have zero stake
-   but still exist. */
-
-int
-fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
-                      ushort              fork_idx,
-                      fd_pubkey_t const * pubkey,
-                      ulong *             stake_t_1_out_opt,
-                      ulong *             stake_t_2_out_opt,
-                      fd_pubkey_t *       node_account_t_1_out_opt,
-                      fd_pubkey_t *       node_account_t_2_out_opt,
-                      ushort *            commission_t_1_out_opt,
-                      ushort *            commission_t_2_out_opt,
-                      uchar *             exists_t_1_out_opt,
-                      uchar *             exists_t_2_out_opt );
-
-/* fd_vote_stakes_query_t_1 and fd_vote_stakes_query_t_2 are shortcuts
-   for querying the t_1 and t_2 stake for a given vote account in the
-   given fork.  0 is returned if the vote account does not exist for the
-   epoch.  If the account is found, stake_out, node_account_out, and
-   commission_out will be set. */
-
-int
-fd_vote_stakes_query_t_1( fd_vote_stakes_t *  vote_stakes,
-                          ushort              fork_idx,
-                          fd_pubkey_t const * pubkey,
-                          ulong *             stake_out,
-                          fd_pubkey_t *       node_account_out,
-                          ushort *            commission_out );
-
-int
-fd_vote_stakes_query_t_2( fd_vote_stakes_t *  vote_stakes,
-                          ushort              fork_idx,
-                          fd_pubkey_t const * pubkey,
-                          ulong *             stake_out,
-                          fd_pubkey_t *       node_account_out,
-                          ushort *            commission_out );
-
-/* fd_vote_stakes_ele_cnt returns the number of entries for a given
-   fork. */
-
-uint
-fd_vote_stakes_ele_cnt( fd_vote_stakes_t * vote_stakes,
-                        ushort             fork_idx );
-
-/* fd_vote_stakes_get_root_idx returns the index of the root fork. */
-
-ushort
-fd_vote_stakes_get_root_idx( fd_vote_stakes_t * vote_stakes );
-
-/* fd_vote_stakes_reset resets the vote stakes object to the initial
-   state.  This is useful for resetting vote stakes if a new snapshot
-   manifest is being loaded. */
+/* fd_vote_stakes_reset resets the vote stakes data structure. */
 
 void
 fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes );
 
-#define FD_VOTE_STAKES_ITER_FOOTPRINT (16UL)
-#define FD_VOTE_STAKES_ITER_ALIGN     (8UL)
-struct stakes_map_iter_t;
-typedef struct stakes_map_iter_t fd_vote_stakes_iter_t;
+/* fd_vote_stakes_snap_insert_t_1 inserts a new vote account into the
+   t-1 set.  This skips over any vote account validation and should
+   only be used when loading in vote accounts from a snapshot. */
 
-/* A caller can iterate through the entries for a given fork.  The
-   iterator is initialized by a call to fd_vote_stakes_fork_iter_init.
-   The caller is responsible for managing the memory for the iterator.
-   It is safe to call fd_vote_stakes_fork_iter_next if the result of
-   fd_vote_stakes_fork_iter_done() == 0.  It is safe to call
-   fd_vote_stakes_fork_iter_ele() to get the current entry if there is
-   a valid initialized iterator.  fd_vote_stakes_fork_iter_next is
-   called to advance the iterator.
+void
+fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
+                                ulong               fork_id,
+                                fd_pubkey_t const * pubkey,
+                                fd_pubkey_t const * node_account,
+                                ulong               stake,
+                                ushort              commission );
 
-   fd_vote_stakes_fork_iter_init acquires a write lock on the vote
-   stakes.  The caller MUST call fd_vote_stakes_fork_iter_fini after
-   the iteration loop completes to release the lock.
+/* fd_vote_stakes_snap_insert_t_2 inserts a new vote account into the
+   t-2 set.  This skips over any vote account validation and should
+   only be used when loading in vote accounts from a snapshot. */
 
-   It is not safe to call any other vote stakes apis while an iteration
-   is in progress.
+void
+fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
+                                ulong               fork_id,
+                                fd_pubkey_t const * pubkey,
+                                fd_pubkey_t const * node_account,
+                                ulong               stake,
+                                ushort              commission );
 
-   Example use:
-   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
-        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
-        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2, &commission_t_1, &commission_t_2 );
-   }
-   fd_vote_stakes_fork_iter_fini( vote_stakes );
+/* fd_vote_stakes_insert inserts a new vote account into the t-1 set.
+   This can be called repeatedly after a boundary-crossing
+   fd_vote_stakes_new_fork.  An account will only be inserted if it
+   matches the semantics of the validator_admission_ticket feature.
+   The top 2000 vote accounts by stake are inserted into the t-1 set. */
 
-   Under the hood, the vote stakes iterator is a wrapper of the map
-   chain iterator.
+void
+fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
+                       ulong               fork_id,
+                       fd_pubkey_t const * pubkey,
+                       fd_pubkey_t const * node_account,
+                       ulong               stake,
+                       ushort              commission );
 
-   TODO: fork_idx can probably get absorbed into the iterator. */
+/* fd_vote_stakes_purge_fork removes a t-1 set.  This should be called
+   when the banks are evicting a bank or during root advancement. */
 
-fd_vote_stakes_iter_t *
-fd_vote_stakes_fork_iter_init( fd_vote_stakes_t * vote_stakes,
-                               ushort             fork_idx,
-                               uchar              iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] );
+void
+fd_vote_stakes_purge_fork( fd_vote_stakes_t * vote_stakes,
+                           ulong              fork_id );
+
+/* fd_vote_stakes_new_fork creates a child of the given parent fork.
+   Within an epoch, the child shares the parent's t-1 set and receives a
+   copy of its t-2 state.  At an epoch boundary, it rotates t-1 into
+   t-2 and acquires fresh t-1 and t-2 state. */
+
+ulong
+fd_vote_stakes_new_fork( fd_vote_stakes_t * vote_stakes,
+                         ulong              parent_fork_id,
+                         ulong              epoch );
+
+/* fd_vote_stakes_update updates the vote account state for a given
+   fork id.  It is a no-op if the pubkey corresponds to an account not
+   in the t-2 set.  If is_valid==0, the last vote arguments will be
+   ignored. */
+
+void
+fd_vote_stakes_update_state( fd_vote_stakes_t *  vote_stakes,
+                             ulong               fork_id,
+                             fd_pubkey_t const * pubkey,
+                             ulong               last_vote_slot,
+                             long                last_vote_ts,
+                             uchar               is_valid );
+
+void
+fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
+                        ulong              fork_id,
+                        fd_accdb_t *        accdb,
+                        fd_accdb_fork_id_t  accdb_fork_id );
+
+/* fd_vote_stakes_query_t_1 queries the fork's t-1 vote account.
+   Returns 1 if the account exists in t-1 and 0 otherwise. */
 
 int
-fd_vote_stakes_fork_iter_done( fd_vote_stakes_t *      vote_stakes,
-                               ushort                  fork_idx,
-                               fd_vote_stakes_iter_t * iter );
+fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          fd_pubkey_t const *      pubkey,
+                          fd_pubkey_t *            node_account_out_opt,
+                          ulong *                  stake_out_opt,
+                          ushort *                 commission_out_opt );
+
+/* fd_vote_stakes_query_t_2 queries the t-2 vote account and fork-local
+   vote state.  Returns 1 if the account exists in t-2 and 0 otherwise. */
+
+int
+fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          fd_pubkey_t const *      pubkey,
+                          fd_pubkey_t *            node_account_out_opt,
+                          ulong *                  stake_out_opt,
+                          ulong *                  last_vote_slot_out_opt,
+                          long *                   last_vote_ts_out_opt,
+                          ushort *                 commission_out_opt,
+                          uchar *                  is_valid_out_opt );
+
+/* fd_vote_stakes_query_t_3 queries the fork's t-3 vote account.
+   Returns 1 if the account exists in t-3 and 0 otherwise. */
+
+int
+fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          fd_pubkey_t const *      pubkey,
+                          fd_pubkey_t *            node_account_out_opt,
+                          ulong *                  stake_out_opt,
+                          ushort *                 commission_out_opt );
+
+/* fd_vote_stakes_cnt_t_{1,2} returns the number of vote accounts in the
+   t-1 and t-2 sets respectively. */
+
+ulong
+fd_vote_stakes_cnt_t_1( fd_vote_stakes_t const * vote_stakes,
+                        ulong                    fork_id );
+
+ulong
+fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
+                        ulong                    fork_id );
+
+/* Defined below are the iterators for the t-1 and t-2 sets.  These
+   iterators will NOT skip over invalid vote accounts intentionally.
+   The reason being is that invalid vote accounts are still considered
+   for stake and leader calculations: the caller is expected to handle
+   the state of each account correctly. */
+
+#define FD_VOTE_STAKES_ITER_FOOTPRINT     (16UL)
+#define FD_VOTE_STAKES_ITER_ALIGN         (8UL)
+#define FD_VOTE_STAKES_T_1_ITER_FOOTPRINT FD_VOTE_STAKES_ITER_FOOTPRINT
+#define FD_VOTE_STAKES_T_1_ITER_ALIGN     FD_VOTE_STAKES_ITER_ALIGN
+#define FD_VOTE_STAKES_T_2_ITER_FOOTPRINT FD_VOTE_STAKES_ITER_FOOTPRINT
+#define FD_VOTE_STAKES_T_2_ITER_ALIGN     FD_VOTE_STAKES_ITER_ALIGN
+
+struct vacc_map_iter;
+typedef struct vacc_map_iter fd_vote_stakes_iter_t;
+typedef fd_vote_stakes_iter_t fd_vote_stakes_t_1_iter_t;
+typedef fd_vote_stakes_iter_t fd_vote_stakes_t_2_iter_t;
+
+fd_vote_stakes_t_1_iter_t *
+fd_vote_stakes_t_1_iter_init( fd_vote_stakes_t const * vote_stakes,
+                              ulong                    fork_id,
+                              uchar                    iter_mem[ static FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ] );
+
+int
+fd_vote_stakes_t_1_iter_done( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_1_iter_t * iter );
 
 void
-fd_vote_stakes_fork_iter_next( fd_vote_stakes_t *      vote_stakes,
-                               ushort                  fork_idx,
-                               fd_vote_stakes_iter_t * iter );
+fd_vote_stakes_t_1_iter_next( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_1_iter_t * iter );
 
 void
-fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
-                              ushort                  fork_idx,
-                              fd_vote_stakes_iter_t * iter,
-                              fd_pubkey_t *           pubkey_out,
-                              ulong *                 stake_t_1_out_opt,
-                              ulong *                 stake_t_2_out_opt,
-                              fd_pubkey_t *           node_account_t_1_out_opt,
-                              fd_pubkey_t *           node_account_t_2_out_opt,
-                              ushort *                commission_t_1_out_opt,
-                              ushort *                commission_t_2_out_opt );
+fd_vote_stakes_t_1_iter_ele( fd_vote_stakes_t const *    vote_stakes,
+                             ulong                       fork_id,
+                             fd_vote_stakes_t_1_iter_t * iter,
+                             fd_pubkey_t *               pubkey_out,
+                             fd_pubkey_t *               node_account_out_opt,
+                             ulong *                     stake_out_opt,
+                             ushort *                    commission_out_opt );
+
+fd_vote_stakes_t_2_iter_t *
+fd_vote_stakes_t_2_iter_init( fd_vote_stakes_t const * vote_stakes,
+                              ulong                    fork_id,
+                              uchar                    iter_mem[ static FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ] );
+
+int
+fd_vote_stakes_t_2_iter_done( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_2_iter_t * iter );
 
 void
-fd_vote_stakes_fork_iter_fini( fd_vote_stakes_t * vote_stakes );
+fd_vote_stakes_t_2_iter_next( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_2_iter_t * iter );
+
+void
+fd_vote_stakes_t_2_iter_ele( fd_vote_stakes_t const *    vote_stakes,
+                             ulong                       fork_id,
+                             fd_vote_stakes_t_2_iter_t * iter,
+                             fd_pubkey_t *               pubkey_out,
+                             fd_pubkey_t *               node_account_out_opt,
+                             ulong *                     stake_out_opt,
+                             ulong *                     last_vote_slot_out_opt,
+                             long *                      last_vote_ts_out_opt,
+                             ushort *                    commission_out_opt,
+                             uchar *                     is_valid_out_opt );
 
 FD_PROTOTYPES_END
 
-#endif
+#endif /* HEADER_fd_src_flamenco_stakes_fd_vote_stakes_h */

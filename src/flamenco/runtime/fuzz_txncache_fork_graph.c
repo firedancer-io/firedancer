@@ -126,7 +126,7 @@ fuzz_bounded( fuzz_cursor_t * cur,
 
 static fd_txncache_t *
 setup( ulong max_live_slots, ulong max_txn_per_slot ) {
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0, 0UL ) );
   FD_TEST( shtc );
 
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc ) );
@@ -448,6 +448,13 @@ target_purge_reachable( model_t const * m,
     FD_TEST( idx<tc->shmem->active_slots_max );
     if( reachable[ idx ] ) continue;
     reachable[ idx ] = 1U;
+
+    /* Every node reachable by the purge walk must be live.  A freed
+       slot here means a child_id/sibling_id link was left dangling into
+       the pool free list.  Checking after every op catches the dangle
+       when it is created, not only when a purge is later triggered. */
+    FD_TEST( m->fork[ idx ].alive );
+    FD_TEST( tc->blockcache_pool[ idx ].shmem->frozen>=0 );
 
     ushort child_id = tc->blockcache_pool[ idx ].shmem->child_id.val;
     for( ulong depth=0UL; child_id!=USHORT_MAX; depth++ ) {
@@ -807,7 +814,15 @@ op_finalize( model_t *       m,
   } else {
     model_make_finalize_hash( m, cur, fork_id, blockhash );
   }
-  ulong offset = fuzz_bounded( cur, 13UL );
+
+  /* A HASHED fork's blockcache may already hold txns stored with the
+     attach-time offset of 0, and finalizing with a different offset
+     would reinterpret those stored 20-byte windows.  Production keeps
+     the two consistent by inserting pre-truncated hashes that match
+     the offset later passed to finalize (snapshot load), so the offset
+     must stay 0 here.  Fresh blockhashes take a random offset, which
+     all subsequent inserts then use. */
+  ulong offset = m->fork[ fork_id ].frozen==FORK_HASHED ? 0UL : fuzz_bounded( cur, 13UL );
 
   fd_txncache_finalize_fork( m->tc, (fd_txncache_fork_id_t){ .val = fork_id }, offset, blockhash->uc );
   m->fork[ fork_id ].frozen         = FORK_FINAL;
@@ -833,9 +848,7 @@ op_insert( model_t *       m,
   fd_hash_t txnhash[ 1 ];
   hash_from_counter( txnhash, 0x7A58000000000000UL, ++m->hash_nonce, fuzz_u8( cur ) );
 
-  fd_txncache_fork_id_t block_fork_id = { .val = block_fork };
-
-  fd_txncache_insert( m->tc, block_fork_id, m->fork[ block_fork ].blockhash.uc, txnhash->uc );
+  fd_txncache_insert( m->tc, (fd_txncache_fork_id_t){ .val = fork_id }, m->fork[ block_fork ].blockhash.uc, txnhash->uc );
 
   model_record_txn( m, block_fork, fork_id, txnhash );
 }
@@ -1128,7 +1141,7 @@ LLVMFuzzerInitialize( int *    argc,
   fd_log_level_logfile_set( 4 );
   atexit( fd_halt );
 
-  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT );
+  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT, 0 );
   fuzz_ljoin_fp = fd_txncache_footprint( FUZZ_MAX_LIVE_SLOTS );
   FD_TEST( fuzz_shmem_fp );
   FD_TEST( fuzz_ljoin_fp );

@@ -7,6 +7,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../util/net/fd_ip6.h"
 #include "../pack/fd_pack.h" /* for FD_PACK_ACCT_BLOCKLIST_MAX */
 
 /* Maximum number of workspaces that may be present in a topology. */
@@ -189,9 +190,13 @@ struct fd_topo_tile {
       char   xdp_mode[8];
       int    zero_copy;
 
+      char poll_mode[ 16 ]; /* "softirq" or "prefbusy" */
+
       ulong netdev_tbl_obj_id;
-      ulong fib4_main_obj_id;      /* fib4 containing main route table */
-      ulong fib4_local_obj_id;     /* fib4 containing local route table */
+
+      ulong route_max;
+      ulong route_peer_max;
+      ulong route_peer_seed;
       ulong neigh4_obj_id;         /* neigh4 hash map */
 
       int xsk_core_dump;
@@ -206,19 +211,23 @@ struct fd_topo_tile {
 
     struct {
       ulong netdev_tbl_obj_id;
-      ulong fib4_main_obj_id;      /* fib4 containing main route table */
-      ulong fib4_local_obj_id;     /* fib4 containing local route table */
+      ulong route_max;
+      ulong route_peer_max;
       char  neigh_if[ 16 ];        /* neigh4 interface name */
       ulong neigh4_obj_id;         /* neigh4 hash map */
     } netlink;
+
+    struct {
+      char identity_key_path[ PATH_MAX ];
+    } admin;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
 
     struct {
       char identity_key_path[ PATH_MAX ];
 
-      ulong         entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      ulong entrypoints_cnt;
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
 
       long boot_timestamp_nanos;
 
@@ -227,6 +236,7 @@ struct fd_topo_tile {
       ushort shred_version;
       int allow_private_address;
 
+      char          gossip_host[ 256 ];
       fd_ip4_port_t gossip_addr;
       fd_ip4_port_t src_addr;
     } gossvf;
@@ -234,11 +244,13 @@ struct fd_topo_tile {
     struct {
       char identity_key_path[ PATH_MAX ];
 
-      ulong         entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      ulong entrypoints_cnt;
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
 
       long boot_timestamp_nanos;
 
+      char   gossip_host[ 256 ];
+      uint   net_ip_addr; /* net.ip_addr fallback when gossip_host empty */
       uint   ip_addr;
       uint   bind_ip_addr;
       ushort shred_version;
@@ -295,9 +307,11 @@ struct fd_topo_tile {
     } bundle;
 
     struct {
-      char  url[ 256 ];
-      char  identity_key_path[ PATH_MAX ];
-      char  action[ 16 ];
+      char   url[ 256 ];
+      char   identity_key_path[ PATH_MAX ];
+      char   action[ 16 ];
+      uchar  genesis_hash[ 32 ];
+      ushort shred_version;
     } event;
 
     struct {
@@ -370,11 +384,14 @@ struct fd_topo_tile {
       char   cluster[ 32 ];
       char   identity_key_path[ PATH_MAX ];
       char   vote_key_path[ PATH_MAX ];
+      char   accounts_database_path[ PATH_MAX ];
+      char   gui_database_path[ PATH_MAX ];
 
       ulong  max_http_connections;
       ulong  max_websocket_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      ulong  db_size_gib;
       int    schedule_strategy;
 
       int websocket_compression;
@@ -387,7 +404,7 @@ struct fd_topo_tile {
     } gui;
 
     struct {
-      uint   listen_addr;
+      fd_ip6_addr_t listen_addr;
       ushort listen_port;
 
       ulong max_http_connections;
@@ -396,12 +413,17 @@ struct fd_topo_tile {
       ulong max_http_request_length;
 
       ulong max_live_slots;
+      ulong genesis_max_message_size;
 
       ulong accdb_obj_id;
       ulong accdb_epoch_fseq_obj_id;
 
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
+
+      int    snapshot_server_enabled;
+      char   snapshot_server_host[ 256 ];
+      ushort snapshot_server_port;
     } rpc;
 
     struct {
@@ -432,8 +454,12 @@ struct fd_topo_tile {
       ulong heap_size_gib;
       ulong sched_depth;
       ulong max_live_slots;
+      ulong full_snapshot_interval_slots;
+      ulong incremental_snapshot_interval_slots;
 
       /* not specified in TOML */
+
+      long boot_timestamp_nanos;
 
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
@@ -472,6 +498,7 @@ struct fd_topo_tile {
       int   dump_txn_to_pb;
       int   dump_txn_as_fixture;
       int   dump_syscall_to_pb;
+      int   report_transaction_diffs;
     } execrp;
 
     struct {
@@ -527,15 +554,6 @@ struct fd_topo_tile {
     } pktgen;
 
     struct {
-      ulong end_slot;
-      char  rocksdb_path[ PATH_MAX ];
-      char  ingest_mode[ 32 ];
-
-      /* Set internally by the archiver tile */
-      int archive_fd;
-    } archiver;
-
-    struct {
       char  ledger_format[ 16 ];
       char  ledger_path[ PATH_MAX ];
       ulong end_slot;
@@ -569,6 +587,9 @@ struct fd_topo_tile {
       ulong rpc_epoch_obj_id;
       ulong resolv_epoch_obj_ids[ 16 ];
       ulong resolv_epoch_obj_cnt;
+      ulong snapmk_epoch_obj_id;
+      ulong snapzp_epoch_obj_ids[ 64 ];
+      ulong snapzp_epoch_obj_cnt;
     } accdb;
 
     struct {
@@ -586,6 +607,9 @@ struct fd_topo_tile {
     struct fd_topo_tile_snapct {
       char snapshots_path[ PATH_MAX ];
 
+      ulong entrypoints_cnt;
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
+
       struct {
         uint max_local_full_effective_age;
         uint max_local_incremental_age;
@@ -599,20 +623,14 @@ struct fd_topo_tile {
         } gossip;
 
         ulong         servers_cnt;
-        struct {
-          fd_ip4_port_t addr;
-          char          hostname[ 256UL ];
-          int           is_https;
-        } servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED ];
+        char          servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ 128 ];
       } sources;
 
       int  incremental_snapshots;
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
-
-      uint target_uid;
-      uint target_gid;
+      long wait_for_peers_timeout_nanos;
     } snapct;
 
     struct {
@@ -639,7 +657,7 @@ struct fd_topo_tile {
 
       ushort expected_shred_version;
       ulong entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
     } ipecho;
 
     struct {
@@ -647,6 +665,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong accdb_obj_id;
+      int   report_transaction_diffs;
     } execle;
 
     struct {
@@ -655,7 +674,7 @@ struct fd_topo_tile {
 
       ushort expected_shred_version;
       ulong entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
 
       int has_expected_genesis_hash;
       uchar expected_genesis_hash[ 32UL ];
@@ -667,6 +686,7 @@ struct fd_topo_tile {
 
       ulong max_live_slots;
       ulong accdb_obj_id;
+      ulong max_message_size;
     } genesi;
 
     struct {
@@ -675,6 +695,44 @@ struct fd_topo_tile {
       int   recent_only;
       ulong recent_slots_per_file;
     } solcap;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong accdb_epoch_obj_id;
+      ulong visited_set_obj_id;
+      ulong banks_obj_id;
+      ulong zp_fseq_id;
+      ulong txncache_obj_id;
+      ulong max_accounts;
+      ulong max_live_slots;
+      uint  max_full_snapshots_to_keep;
+      char  snapshots_path[ PATH_MAX ];
+      uint  max_incremental_snapshots_to_keep;
+    } snapmk;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong accdb_epoch_obj_id;
+      ulong visited_set_obj_id;
+      ulong zp_fseq_id;
+      ulong max_live_slots;
+      uint  snap_fd_cnt;
+    } snapzp;
+
+    struct {
+      ulong accdb_obj_id;
+    } snaprd;
+
+    struct {
+      ulong         snap_max;
+      ulong         conn_max;
+      uint          io_worker_cnt;
+      ulong         idle_timeout_millis;
+      ulong         send_timeout_millis;
+      ulong         send_buffer_size_kib;
+      fd_ip6_addr_t listen_addr;
+      ushort        listen_port;
+    } snapsv;
   };
 };
 
@@ -717,6 +775,8 @@ struct fd_topo {
 
   ulong          max_page_size; /* 2^21 or 2^30 */
   ulong          gigantic_page_threshold; /* see [hugetlbfs.gigantic_page_threshold_mib]*/
+
+  ulong          layout_hash;
 };
 typedef struct fd_topo fd_topo_t;
 
@@ -732,8 +792,7 @@ typedef struct {
   ulong        rlimit_nproc;
   int          for_tpool;
 
-  ulong        max_event_sz;
-
+  ulong (*max_event_sz            )( fd_topo_tile_t const * tile );
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );
   ulong (*scratch_align           )( void );
@@ -1244,6 +1303,11 @@ fd_topo_normal_page_cnt( fd_topo_t const * topo );
 void
 fd_topo_print_log( int         stdout,
                    fd_topo_t * topo );
+
+/* fd_topo_print_json prints the same topology description as
+   fd_topo_print_log to stdout, as a JSON document. */
+void
+fd_topo_print_json( fd_topo_t * topo );
 
 FD_PROTOTYPES_END
 

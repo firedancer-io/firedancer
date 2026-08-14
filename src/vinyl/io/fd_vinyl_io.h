@@ -17,7 +17,7 @@
      underlying physical storage.
 
      poll: finish an outstanding read.  Outstanding reads can complete
-     in an arbitary order.  All reads must be finished by poll but note
+     in an arbitrary order.  All reads must be finished by poll but note
      that it is possible to detect a read is complete out-of-band too
      (for speculative processing).
 

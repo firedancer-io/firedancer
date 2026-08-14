@@ -281,7 +281,7 @@ env_build( fd_svm_mini_t *        mini,
   memset( instr, 0, sizeof(fd_instr_info_t) );
   instr->program_id = 0;
   ulong outer_acct_total = 1UL + cfg->n_outer;
-  FD_TEST( outer_acct_total <= FD_INSTR_ACCT_MAX );
+  FD_TEST( outer_acct_total <= FD_TXN_INSTR_ACCT_MAX );
   instr->acct_cnt = (ushort)outer_acct_total;
 
   uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
@@ -700,7 +700,7 @@ run_matrix( fd_svm_mini_t *  mini,
         if( FD_UNLIKELY( got != want ) ) {
           fd_txn_out_t * txo = mini->vm->instr_ctx->txn_out;
           FD_LOG_ERR(( "%s: combo=%d dep=%d abi=%s expected=%d got=%d "
-                       "(txn.err.exec_err=%d idx=%d)",
+                       "(txn.err.exec_err=%d idx=%u)",
                        name, c, dep, abi==0 ? "rust" : "c", want, got,
                        txo->err.exec_err, txo->err.exec_err_idx ));
         }

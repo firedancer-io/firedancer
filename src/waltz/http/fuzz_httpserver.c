@@ -525,7 +525,7 @@ void* stem_thread(void* arg) {
             random_api_call(&poll_rng);
         }
 
-        fd_http_server_poll(http_server, 0);
+        fd_http_server_poll(http_server, 0, ULONG_MAX);
 
         for (uint i = 0; i < xorshift_next(&poll_rng) % 3; ++i) {
             random_api_call(&poll_rng);

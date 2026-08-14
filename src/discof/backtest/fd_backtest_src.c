@@ -10,16 +10,6 @@
 #include "fd_libc_zstd.h"
 #endif
 
-#define FD_BACKT_SRC_INVAL       0x00
-#define FD_BACKT_SRC_FMT_ROCKSDB 0x01
-#define FD_BACKT_SRC_FMT_PCAP    0x02
-#define FD_BACKT_SRC_FMT_PCAPNG  0x03
-#define FD_BACKT_SRC_FMT_MASK    0x07
-#define FD_BACKT_SRC_FLAG_ZSTD   0x08
-
-extern fd_backt_src_t *
-fd_backt_src_rocksdb_create( fd_backtest_src_opts_t const * opts );
-
 extern fd_backt_src_t *
 fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
                           uint                          format,
@@ -28,10 +18,13 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
 static uint
 detect_src_type( char const * path ) {
 
-  char path_tmp[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path_tmp, PATH_MAX, NULL, "%s/CURRENT", path ) );
   struct stat st;
-  if( 0==stat( path_tmp, &st ) ) return FD_BACKT_SRC_FMT_ROCKSDB;
+  if( 0==stat( path, &st ) && S_ISDIR( st.st_mode ) ) {
+    FD_LOG_WARNING(( "\"%s\" is a directory, expected a pcap/pcapng file; if this is a RocksDB blockstore, convert "
+                     "it to a shredcap capture first (fd_blockstore2shredcap --rocksdb %s --out <path>.pcapng.zst --zstd)",
+                     path, path ));
+    return FD_BACKT_SRC_INVAL;
+  }
 
   int fd = open( path, O_RDONLY );
   if( FD_UNLIKELY( fd<0 ) ) {
@@ -138,26 +131,12 @@ fd_backtest_src_create( fd_backtest_src_opts_t const * opts ) {
       FD_LOG_WARNING(( "cannot open ledger" ));
       return NULL;
     }
-#if FD_HAS_ROCKSDB
-  } else if( 0==strcmp( opts->format, "rocksdb" ) ) {
-    if( fmt!=FD_BACKT_SRC_FMT_ROCKSDB ) {
-      FD_LOG_WARNING(( "cannot open ledger" ));
-      return NULL;
-    }
-#endif
   } else {
     FD_LOG_WARNING(( "unsupported opts.format \"%s\"", opts->format ));
     return NULL;
   }
 
   switch( fmt ) {
-    case FD_BACKT_SRC_FMT_ROCKSDB:
-#   if FD_HAS_ROCKSDB
-      return fd_backt_src_rocksdb_create( opts );
-#   else
-      FD_LOG_WARNING(( "this firedancer build does not support RocksDB (run ./deps.sh +dev; make clean; make -j firedancer-dev)" ));
-      return NULL;
-#   endif
     case FD_BACKT_SRC_FMT_PCAP:
     case FD_BACKT_SRC_FMT_PCAPNG:  return fd_backt_src_pcap_create( opts, fmt, flags );
     default:

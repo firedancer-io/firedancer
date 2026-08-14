@@ -3,7 +3,7 @@
 
 #ifndef PB_PACKET_PACKET_PB_H_INCLUDED
 #define PB_PACKET_PACKET_PB_H_INCLUDED
-#include "../../../ballet/nanopb/pb_firedancer.h"
+#include "../../../third_party/nanopb/pb_firedancer.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.
@@ -32,7 +32,7 @@ typedef struct _packet_Meta {
     uint64_t sender_stake;
 } packet_Meta;
 
-typedef PB_BYTES_ARRAY_T(2048) packet_Packet_data_t;
+typedef PB_BYTES_ARRAY_T(4096) packet_Packet_data_t;
 typedef struct _packet_Packet {
     packet_Packet_data_t data;
     bool has_meta;
@@ -120,7 +120,7 @@ extern const pb_msgdesc_t packet_PacketFlags_msg;
 #define PACKET_PACKET_PB_H_MAX_SIZE              packet_Packet_size
 #define packet_Meta_size                         300
 #define packet_PacketFlags_size                  12
-#define packet_Packet_size                       2354
+#define packet_Packet_size                       4402
 
 #ifdef __cplusplus
 } /* extern "C" */

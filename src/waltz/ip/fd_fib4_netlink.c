@@ -57,10 +57,10 @@ fd_fib4_rta_prefsrc( fd_fib4_hop_t * hop,
   hop->ip4_src = FD_LOAD( uint, rta ); /* big endian */
 }
 
-static int
-fd_fib4_netlink_translate( fd_fib4_t *             fib,
-                           struct nlmsghdr const * msg_hdr,
-                           uint                    table_id ) {
+int
+fd_fib4_netlink_translate( struct nlmsghdr const * msg_hdr,
+                           uint                    table_id,
+                           fd_iproute_msg_t *      route ) {
   uint ip4_dst = 0U;
   int  prefix  = -1; /* -1 indicates unset ip4_dst / prefix */
   uint prio    = 0U; /* default metric */
@@ -154,15 +154,23 @@ fd_fib4_netlink_translate( fd_fib4_t *             fib,
     }
   }
 
-  if( FD_UNLIKELY( !fd_fib4_insert( fib, ip4_dst, prefix, prio, hop ) ) ) return ENOSPC;
-
-  return 0;
+  if( FD_UNLIKELY( prefix<0 ) ) prefix = 0; /* default route omits RTA_DST */
+  *route = (fd_iproute_msg_t) {
+    .hop       = *hop,
+    .dst_addr  = ip4_dst,
+    .prio      = prio,
+    .table_id  = table_id,
+    .op        = msg_hdr->nlmsg_type==RTM_DELROUTE ? FD_IPROUTE_OP_DELETE : FD_IPROUTE_OP_UPSERT,
+    .prefix    = (uchar)prefix,
+  };
+  return 1;
 }
 
 int
-fd_fib4_netlink_load_table( fd_fib4_t *    fib,
-                            fd_netlink_t * netlink,
-                            uint           table_id ) {
+fd_fib4_netlink_dump_table( fd_netlink_t *                 netlink,
+                            uint                           table_id,
+                            fd_fib4_netlink_route_fn_t      fn,
+                            void *                         arg ) {
 
   uint seq = netlink->seq++;
 
@@ -197,11 +205,7 @@ fd_fib4_netlink_load_table( fd_fib4_t *    fib,
     return EPIPE;
   }
 
-  fd_fib4_clear( fib );
-
   int   dump_intr = 0;
-  int   no_space  = 0;
-  ulong route_cnt = 0UL;
 
   uchar buf[ 4096 ];
   fd_netlink_iter_t iter[1];
@@ -220,23 +224,11 @@ fd_fib4_netlink_load_table( fd_fib4_t *    fib,
       FD_LOG_DEBUG(( "unexpected nlmsg_type %u", nlh->nlmsg_type ));
       continue;
     }
-    route_cnt++;
-
-    int translate_err = fd_fib4_netlink_translate( fib, nlh, table_id );
-    if( FD_UNLIKELY( translate_err==ENOSPC ) ) {
-      no_space = 1;
-      break;
-    }
+    fd_iproute_msg_t route;
+    if( fd_fib4_netlink_translate( nlh, table_id, &route ) && FD_UNLIKELY( fn( arg, &route ) ) ) break;
   }
   if( FD_UNLIKELY( iter->err > 0 ) ) return FD_FIB_NETLINK_ERR_IO;
   ulong drain_cnt = fd_netlink_iter_drain( iter, netlink );
-
-  if( no_space ) {
-    FD_LOG_WARNING(( "Routing table is too small! `ip route show table %u` returned %lu entries, which exceeds the configured maximum of %lu",
-                     table_id, route_cnt+drain_cnt, fd_fib4_max( fib ) ));
-    fd_fib4_clear( fib );
-    return FD_FIB_NETLINK_ERR_SPACE;
-  }
 
   if( dump_intr ) {
     FD_LOG_DEBUG(( "received NLM_F_DUMP_INTR (our read of the routing table was overrun by a concurrent write)" ));
@@ -249,6 +241,37 @@ fd_fib4_netlink_load_table( fd_fib4_t *    fib,
   }
 
   return 0;
+}
+
+typedef struct {
+  fd_fib4_t * fib;
+  int         no_space;
+} fd_fib4_load_ctx_t;
+
+static int
+fd_fib4_load_route( void * arg, fd_iproute_msg_t const * route ) {
+  fd_fib4_load_ctx_t * ctx = arg;
+  if( FD_UNLIKELY( !fd_fib4_insert( ctx->fib, route->dst_addr, route->prefix, route->prio, &route->hop ) ) ) {
+    ctx->no_space = 1;
+    return 1;
+  }
+  return 0;
+}
+
+int
+fd_fib4_netlink_load_table( fd_fib4_t *    fib,
+                            fd_netlink_t * netlink,
+                            uint           table_id ) {
+  fd_fib4_clear( fib );
+  fd_fib4_load_ctx_t ctx = { .fib = fib };
+  int err = fd_fib4_netlink_dump_table( netlink, table_id, fd_fib4_load_route, &ctx );
+  if( FD_UNLIKELY( ctx.no_space ) ) {
+    FD_LOG_WARNING(( "Routing table is too small for table %u (max %lu)", table_id, fd_fib4_max( fib ) ));
+    fd_fib4_clear( fib );
+    return FD_FIB_NETLINK_ERR_SPACE;
+  }
+  if( FD_UNLIKELY( err ) ) fd_fib4_clear( fib );
+  return err;
 }
 
 FD_FN_CONST char const *

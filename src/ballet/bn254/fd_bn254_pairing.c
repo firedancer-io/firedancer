@@ -1,4 +1,4 @@
-#include "./fd_bn254.h"
+#include "./fd_bn254_g2_inl.h"
 
 /* Pairing */
 
@@ -218,86 +218,4 @@ fd_bn254_miller_loop( fd_bn254_fp12_t *   f,
     fd_bn254_fp12_mul_sparse( f, f, l );
   }
   return f;
-}
-
-fd_bn254_fp12_t *
-fd_bn254_fp12_pow_x( fd_bn254_fp12_t * restrict r,
-                     fd_bn254_fp12_t const *    a ) {
-  /* https://github.com/Consensys/gnark-crypto/blob/v0.12.1/ecc/bn254/internal/fptower/e12_pairing.go#L16 */
-  fd_bn254_fp12_t t[7];
-  fd_bn254_fp12_sqr_fast( &t[3], a );
-  fd_bn254_fp12_sqr_fast( &t[5], &t[3] );
-  fd_bn254_fp12_sqr_fast( r,     &t[5] );
-  fd_bn254_fp12_sqr_fast( &t[0], r );
-  fd_bn254_fp12_mul     ( &t[2], &t[0], a );
-  fd_bn254_fp12_mul     ( &t[0], &t[2], &t[3] );
-  fd_bn254_fp12_mul     ( &t[1], &t[0], a );
-  fd_bn254_fp12_mul     ( &t[4], &t[2], r );
-  fd_bn254_fp12_sqr_fast( &t[6], &t[2] );
-  fd_bn254_fp12_mul     ( &t[1], &t[1], &t[0] );
-  fd_bn254_fp12_mul     ( &t[0], &t[1], &t[3] );
-  for( int i=0; i<6; i++ ) fd_bn254_fp12_sqr_fast( &t[6], &t[6] );
-  fd_bn254_fp12_mul     ( &t[5], &t[5], &t[6] );
-  fd_bn254_fp12_mul     ( &t[5], &t[5], &t[4] );
-  for( int i=0; i<7; i++ ) fd_bn254_fp12_sqr_fast( &t[5], &t[5] );
-  fd_bn254_fp12_mul     ( &t[4], &t[4], &t[5] );
-  for( int i=0; i<8; i++ ) fd_bn254_fp12_sqr_fast( &t[4], &t[4] );
-  fd_bn254_fp12_mul     ( &t[4], &t[4], &t[0] );
-  fd_bn254_fp12_mul     ( &t[3], &t[3], &t[4] );
-  for( int i=0; i<6; i++ ) fd_bn254_fp12_sqr_fast( &t[3], &t[3] );
-  fd_bn254_fp12_mul     ( &t[2], &t[2], &t[3] );
-  for( int i=0; i<8; i++ ) fd_bn254_fp12_sqr_fast( &t[2], &t[2] );
-  fd_bn254_fp12_mul     ( &t[2], &t[2], &t[0] );
-  for( int i=0; i<6; i++ ) fd_bn254_fp12_sqr_fast( &t[2], &t[2] );
-  fd_bn254_fp12_mul     ( &t[2], &t[2], &t[0] );
-  for( int i=0; i<10; i++ ) fd_bn254_fp12_sqr_fast( &t[2], &t[2] );
-  fd_bn254_fp12_mul     ( &t[1], &t[1], &t[2] );
-  for( int i=0; i<6; i++ ) fd_bn254_fp12_sqr_fast( &t[1], &t[1] );
-  fd_bn254_fp12_mul     ( &t[0], &t[0], &t[1] );
-  fd_bn254_fp12_mul     ( r, r, &t[0] );
-  return r;
-}
-
-fd_bn254_fp12_t *
-fd_bn254_final_exp( fd_bn254_fp12_t *       r,
-                    fd_bn254_fp12_t * const x ) {
-  /* https://github.com/Consensys/gnark-crypto/blob/v0.12.1/ecc/bn254/pairing.go#L62 */
-  fd_bn254_fp12_t t[5], s[1];
-  fd_bn254_fp12_conj ( &t[0], x );            /* x^(p^6) */
-  fd_bn254_fp12_inv  ( &t[1], x );            /* x^(-1) */
-  fd_bn254_fp12_mul  ( &t[0], &t[0], &t[1] ); /* x^(p^6-1) */
-  fd_bn254_fp12_frob2( &t[2], &t[0] );        /* x^(p^6-1)(p^2) */
-  fd_bn254_fp12_mul  ( s, &t[0], &t[2] );     /* x^(p^6-1)(p^2+1) */
-  /* Fast chain, https://eprint.iacr.org/2015/192, Alg. 10.
-     Variant of https://eprint.iacr.org/2010/354, Alg. 31. */
-  fd_bn254_fp12_pow_x   ( &t[0], s );
-  fd_bn254_fp12_conj    ( &t[0], &t[0] );
-  fd_bn254_fp12_sqr_fast( &t[0], &t[0] );
-  fd_bn254_fp12_sqr_fast( &t[1], &t[0] );
-  fd_bn254_fp12_mul     ( &t[1], &t[1], &t[0] );
-
-  fd_bn254_fp12_pow_x   ( &t[2], &t[1] );
-  fd_bn254_fp12_conj    ( &t[2], &t[2] );
-  fd_bn254_fp12_conj    ( &t[3], &t[1] );
-  fd_bn254_fp12_mul     ( &t[1], &t[2], &t[3] );
-
-  fd_bn254_fp12_sqr_fast( &t[3], &t[2] );
-  fd_bn254_fp12_pow_x   ( &t[4], &t[3] );
-  fd_bn254_fp12_mul     ( &t[4], &t[1], &t[4] );
-  fd_bn254_fp12_mul     ( &t[3], &t[0], &t[4] );
-  fd_bn254_fp12_mul     ( &t[0], &t[2], &t[4] );
-  fd_bn254_fp12_mul     ( &t[0], &t[0], s );
-
-  fd_bn254_fp12_frob    ( &t[2], &t[3] );
-  fd_bn254_fp12_mul     ( &t[0], &t[0], &t[2] );
-  fd_bn254_fp12_frob2   ( &t[2], &t[4] );
-  fd_bn254_fp12_mul     ( &t[0], &t[0], &t[2] );
-
-  fd_bn254_fp12_conj    ( &t[2], s );
-  fd_bn254_fp12_mul     ( &t[2], &t[2], &t[3] );
-  // fd_bn254_fp12_frob3   ( &t[2], &t[2] );
-  fd_bn254_fp12_frob2   ( &t[2], &t[2] );
-  fd_bn254_fp12_frob    ( &t[2], &t[2] );
-  fd_bn254_fp12_mul     ( r, &t[0], &t[2] );
-  return r;
 }

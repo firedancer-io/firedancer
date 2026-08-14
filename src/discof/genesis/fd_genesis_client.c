@@ -1,6 +1,6 @@
 #include "fd_genesis_client_private.h"
 
-#include "../../waltz/http/picohttpparser.h"
+#include "../../third_party/picohttpparser/picohttpparser.h"
 #include "../../util/fd_util.h"
 #include "../../waltz/http/fd_http.h"
 #include "../../ballet/sha256/fd_sha256.h"

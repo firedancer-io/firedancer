@@ -1,6 +1,5 @@
 # Default Clang executables
 ifeq ($(CROSS),)
 CC=clang
-CXX=clang++
-LD=clang++
+LD=clang
 endif

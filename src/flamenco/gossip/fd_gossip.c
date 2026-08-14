@@ -357,7 +357,7 @@ random_entrypoint( fd_gossip_t const * gossip ) {
   return gossip->entrypoints[ idx ];
 }
 
-ulong
+static ulong
 get_stake( fd_gossip_t const * gossip,
            uchar const *       pubkey ) {
   stake_t const * entry = stake_map_ele_query_const( gossip->stake.map, (fd_pubkey_t const *)pubkey, NULL, gossip->stake.pool );
@@ -368,7 +368,8 @@ get_stake( fd_gossip_t const * gossip,
 void
 fd_gossip_set_identity( fd_gossip_t * gossip,
                         uchar const * identity_pubkey,
-                        long          now ) {
+                        long          now,
+                        ulong         identity_outset ) {
   int identity_changed = memcmp( gossip->identity_pubkey, identity_pubkey, 32UL );
   if( FD_UNLIKELY( !identity_changed ) ) return;
 
@@ -391,6 +392,9 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
   fd_active_set_set_identity( gossip->active_set, gossip->identity_pubkey, gossip->identity_stake );
   fd_prune_finder_set_identity( gossip->prune_finder, gossip->identity_pubkey, gossip->identity_stake );
 
+  /* For identity swaps, refresh the contact info outset so this
+     instance can override older contact info for the same identity. */
+  gossip->my_contact_info.ci->contact_info->outset = identity_outset;
   refresh_contact_info( gossip, now );
 }
 

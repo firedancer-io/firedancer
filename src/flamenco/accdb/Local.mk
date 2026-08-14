@@ -1,7 +1,7 @@
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_ALLOCA
 
-$(call add-hdrs,fd_accdb.h fd_accdb_cache.h fd_accdb_shmem.h)
+$(call add-hdrs,fd_accdb.h fd_accdb_base.h fd_accdb_cache.h fd_accdb_shmem.h)
 $(call add-objs,fd_accdb fd_accdb_cache fd_accdb_shmem,fd_flamenco)
 $(call add-objs,fd_accdb_tile,fd_disco) # TODO: MOVE TO DISCOF
 

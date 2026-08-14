@@ -211,6 +211,10 @@ FD_STATIC_ASSERT( LIVE_TABLE_MAX_SORT_KEY_CNT >= 2UL, "Requires at least 2 sort 
 #error "need to define LIVE_TABLE_ROW_T"
 #endif
 
+#ifndef LIVE_TABLE_IDX_T
+#define LIVE_TABLE_IDX_T ulong
+#endif
+
 #ifndef LIVE_TABLE_COLUMNS
 #error "need to define LIVE_TABLE_COLUMNS"
 #endif
@@ -304,13 +308,17 @@ LIVE_TABLE_(private_row_lt)(LIVE_TABLE_ROW_T const * a, LIVE_TABLE_ROW_T const *
 #define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; })) /* which means we don't need to give a real
                                                                           implementation to cmp either */
 #define TREAP_LT(e0,e1) (LIVE_TABLE_(private_row_lt)( (e0), (e1) ))
+#define TREAP_IDX_T     LIVE_TABLE_IDX_T
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_PARENT LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].parent
 #define TREAP_LEFT   LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].left
 #define TREAP_RIGHT  LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].right
 #define TREAP_NEXT   LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].next
 #define TREAP_PREV   LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].prev
-#define TREAP_PRIO   LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].prio
+/* Priorities depend only on (row, seed), identical across sort keys,
+   and treap operations only ever read them, so all sort keys share
+   slot 0's prio to reduce cache misses. */
+#define TREAP_PRIO   LIVE_TABLE_TREAP[ 0 ].prio
 #define TREAP_IMPL_STYLE LIVE_TABLE_IMPL_STYLE
 #include "../../util/tmpl/fd_treap.c"
 
@@ -582,9 +590,10 @@ FD_PROTOTYPES_END
 
 LIVE_TABLE_STATIC void
 LIVE_TABLE_(seed)( LIVE_TABLE_ROW_T * pool, ulong rows_max, ulong seed ) {
-  for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-    LIVE_TABLE_(private_active_sort_key_idx) = i;
-    LIVE_TABLE_(private_treap_seed)( pool, rows_max, seed ); /* set random priorities */
+  ulong idx_null = LIVE_TABLE_(private_treap_idx_null)();
+  for( ulong row=0UL; row<rows_max; row++ ) {
+    ulong r = fd_ulong_hash( row ^ seed ) & idx_null;
+    pool[ row ].LIVE_TABLE_TREAP[ 0 ].prio = (LIVE_TABLE_IDX_T)(r - (ulong)(r==idx_null));
   }
 }
 
@@ -752,6 +761,7 @@ LIVE_TABLE_(verify)( LIVE_TABLE_(t) const * join, LIVE_TABLE_ROW_T const * pool 
 #undef LIVE_TABLE_COLUMN_CNT
 #undef LIVE_TABLE_MAX_SORT_KEY_CNT
 #undef LIVE_TABLE_ROW_T
+#undef LIVE_TABLE_IDX_T
 #undef LIVE_TABLE_COLUMNS
 #undef LIVE_TABLE_SORT_KEYS
 #undef LIVE_TABLE_TREAP

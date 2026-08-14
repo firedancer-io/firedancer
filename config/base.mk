@@ -9,16 +9,14 @@ SHELL:=bash
 CPPFLAGS:=-isystem ./$(OPT)/include
 RUSTFLAGS:=-C force-frame-pointers=yes
 CFLAGS=-std=c17 -fwrapv
-CXXFLAGS=-std=c++17
 LDFLAGS:=-lm -ldl -L./$(OPT)/lib
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
 AR:=ar
-ARFLAGS:=rc
+ARFLAGS:=rcs
 RANLIB:=ranlib
 CP:=cp -p
 RM:=rm -f
-PATCH:=patch
 MKDIR:=mkdir -p
 RMDIR:=rm -rf
 TOUCH:=touch
@@ -33,15 +31,11 @@ CBMC?=cbmc
 
 # Default compiler configuration, if not already set
 CC?=gcc
-CXX?=g++
-LD?=$(CXX)
+LD?=$(CC)
 
 # LLVM toolchain
 LLVM_COV?=llvm-cov
 LLVM_PROFDATA?=llvm-profdata
-
-# C++ support (libstdc++ and default exception handler)
-#FD_HAS_CXX:=1
 
 # Rust
 RUST_PROFILE=debug
@@ -60,6 +54,15 @@ CC_MAJOR_VERSION:=$(shell $(CC) -dumpversion | cut -f1 -d.)
 
 # Default _FORTIFY_SOURCE level
 FORTIFY_SOURCE?=2
+
+# Prefer LLD when available
+ifeq ($(CROSS),)
+ifneq ($(shell command -v ld.lld 2>/dev/null),)
+ifeq ($(shell test $(CC_MAJOR_VERSION) -ge 9 2>/dev/null && echo ok),ok)
+LDFLAGS+=-fuse-ld=lld
+endif
+endif
+endif
 
 ifneq ($(CROSS),)
 include config/cross/$(CROSS).mk

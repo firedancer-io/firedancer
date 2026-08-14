@@ -7,9 +7,8 @@
 
 FD_STATIC_ASSERT( FD_HARD_FORKS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->hard_forks)/sizeof(fd_hard_fork_t), hard_forks_max );
 FD_STATIC_ASSERT( FD_BLOCKHASHES_MAX==sizeof(((fd_snapshot_manifest_t *)0)->blockhashes)/sizeof(fd_snapshot_manifest_blockhash_t), blockhashes_max );
-FD_STATIC_ASSERT( FD_VOTE_ACCOUNTS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->vote_accounts)/sizeof(fd_snapshot_manifest_vote_account_t), vote_accounts_max );
-FD_STATIC_ASSERT( FD_EPOCH_STAKES_LEN==sizeof(((fd_snapshot_manifest_t *)0)->epoch_stakes)/sizeof(fd_snapshot_manifest_epoch_stakes_t), epoch_stakes_len );
-FD_STATIC_ASSERT( FD_EPOCH_CREDITS_MAX==sizeof(((fd_snapshot_manifest_vote_account_full_t *)0)->epoch_credits)/sizeof(epoch_credits_t), vote_account_epoch_credits_max );
+FD_STATIC_ASSERT( FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS==sizeof(((fd_snapshot_manifest_t *)0)->vote_accounts)/sizeof(fd_snapshot_manifest_vote_account_t), vote_accounts_max );
+FD_STATIC_ASSERT( FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN==sizeof(((fd_snapshot_manifest_t *)0)->epoch_stakes)/sizeof(fd_snapshot_manifest_epoch_stakes_t), epoch_stakes_len );
 FD_STATIC_ASSERT( FD_EPOCH_CREDITS_MAX==sizeof(((fd_snapshot_manifest_vote_stakes_t *)0)->epoch_credits)/sizeof(epoch_credits_t), vote_stakes_epoch_credits_max );
 
 int
@@ -17,10 +16,10 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                              ulong                          max_vote_accounts,
                              ulong                          max_stake_accounts ) {
 
-  if( FD_UNLIKELY( max_vote_accounts!=FD_RUNTIME_MAX_VOTE_ACCOUNTS ||
+  if( FD_UNLIKELY( max_vote_accounts!=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ||
                    max_stake_accounts!=FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) {
     FD_LOG_WARNING(( "banks capacity mismatch: max_vote_accounts=%lu (expected %lu) max_stake_accounts=%lu (expected %lu)",
-                     max_vote_accounts,  FD_RUNTIME_MAX_VOTE_ACCOUNTS,
+                     max_vote_accounts,  FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS,
                      max_stake_accounts, FD_RUNTIME_MAX_STAKE_ACCOUNTS ));
     return -1;
   }
@@ -113,9 +112,9 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
 
-  if( FD_UNLIKELY( manifest->stake_delegations_len>FD_STAKE_DELEGATIONS_MAX ) ) {
+  if( FD_UNLIKELY( manifest->stake_delegations_len>FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: stake_delegations_len %lu exceeds max %lu",
-                     manifest->stake_delegations_len, FD_STAKE_DELEGATIONS_MAX ));
+                     manifest->stake_delegations_len, FD_RUNTIME_MAX_STAKE_ACCOUNTS ));
     return -1;
   }
 
@@ -125,15 +124,9 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
 
-  if( FD_UNLIKELY( manifest->vote_accounts_len>FD_VOTE_ACCOUNTS_MAX ) ) {
+  if( FD_UNLIKELY( manifest->vote_accounts_len>FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: vote_accounts_len %lu exceeds max %lu",
-                     manifest->vote_accounts_len, FD_VOTE_ACCOUNTS_MAX ));
-    return -1;
-  }
-
-  if( FD_UNLIKELY( manifest->vote_accounts_len>max_vote_accounts ) ) {
-    FD_LOG_WARNING(( "corrupt snapshot: vote_accounts_len %lu exceeds max_vote_accounts %lu",
-                     manifest->vote_accounts_len, max_vote_accounts ));
+                     manifest->vote_accounts_len, FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
     return -1;
   }
 
@@ -186,9 +179,9 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
   ulong t_1_idx = leader_schedule_epoch-epoch_stakes_base;
-  if( FD_UNLIKELY( t_1_idx>=FD_EPOCH_STAKES_LEN ) ) {
+  if( FD_UNLIKELY( t_1_idx>=FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: epoch stakes index %lu out of range (max %lu)",
-                     t_1_idx, FD_EPOCH_STAKES_LEN ));
+                     t_1_idx, FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ));
     return -1;
   }
 
@@ -297,8 +290,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1118
      None gets treated as 0 for hash verification. */
-  if( FD_LIKELY( manifest->has_hashes_per_tick ) ) bank->f.hashes_per_tick = manifest->hashes_per_tick;
-  else                                             bank->f.hashes_per_tick = 0UL;
+  ulong restored_hashes_per_tick = manifest->has_hashes_per_tick ? manifest->hashes_per_tick : 0UL;
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
@@ -319,18 +311,21 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
   if( FD_LIKELY( last_hash ) ) bank->f.poh = *last_hash;
 
-  bank->f.capitalization = manifest->capitalization;
-  bank->f.txn_count = manifest->transaction_count;
-  bank->f.signature_count = manifest->signature_count;
-  bank->f.tick_height = manifest->tick_height;
-  bank->f.max_tick_height = manifest->max_tick_height;
-  bank->f.ns_per_slot = (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } };
-  bank->f.ticks_per_slot = manifest->ticks_per_slot;
-  bank->f.genesis_creation_time = manifest->creation_time_seconds;
-  bank->f.slots_per_year = manifest->slots_per_year;
-  bank->f.block_height = manifest->block_height;
-  bank->f.execution_fees = manifest->collector_fees;
-  bank->f.priority_fees = 0UL;
+  bank->f.capitalization                   = manifest->capitalization;
+  bank->f.txn_count                        = manifest->transaction_count;
+  bank->f.signature_count                  = manifest->signature_count;
+  bank->f.tick_height                      = manifest->tick_height;
+  bank->f.max_tick_height                  = manifest->max_tick_height;
+  bank->f.ticks_per_slot                   = manifest->ticks_per_slot;
+  bank->f.genesis_creation_time            = manifest->creation_time_seconds;
+  bank->f.slot_params                      = FD_SLOT_PARAMS_400MS;
+  bank->f.slot_params.ns_per_slot          = manifest->ns_per_slot;
+  bank->f.slot_params.ns_per_slot_adjusted = fd_ulong_sat_sub( bank->f.slot_params.ns_per_slot, FD_TARGET_SLOT_ADJUSTMENT_NS );
+  bank->f.slot_params.slots_per_year       = manifest->slots_per_year;
+  bank->f.slot_params.hashes_per_tick      = restored_hashes_per_tick;
+  bank->f.block_height                     = manifest->block_height;
+  bank->f.execution_fees                   = manifest->collector_fees;
+  bank->f.priority_fees                    = 0UL;
 
   /* Set the cluster type based on the genesis creation time.  This is
      later cross referenced against the genesis hash. */
@@ -371,6 +366,10 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     }
   }
 
+  /* snapin populates the root stake delegation cache directly from the
+     account stream.  The manifest's primary stake delegations are
+     intentionally ignored. */
+
   /* We also want to set the total stake to be the total amount of stake
      at the end of the previous epoch. This value is used for the
      get_epoch_stake syscall.
@@ -397,116 +396,183 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
   bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
 
-  bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
+  bank->accdb_fork_id        = (fd_accdb_fork_id_t){ .val = manifest->accdb_fork_id };
+  bank->parent_accdb_fork_id = bank->accdb_fork_id;
+  bank->txncache_fork_id     = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 
   return 0;
 }
 
 void
-fd_ssload_records_reset( fd_banks_t * banks,
-                         fd_bank_t *  bank ) {
-  fd_stake_delegations_reset( fd_banks_stake_delegations_root_query( banks ) );
-  fd_new_votes_reset_root   ( fd_bank_new_votes( bank )  );
-  fd_vote_stakes_reset      ( fd_bank_vote_stakes( bank ) );
-  fd_top_votes_init         ( fd_bank_top_votes_t_1_modify( bank ) );
-  fd_top_votes_init         ( fd_bank_top_votes_t_2_modify( bank ) );
-  *fd_bank_epoch_credits_len( bank )           = 0UL;
+fd_ssload_records_reset( fd_bank_t * bank,
+                         ulong       epoch ) {
+  fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
+  fd_collector_overrides_reset( overrides );
+  bank->collector_overrides_fork_id = fd_collector_overrides_get_root_idx( overrides );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_reset( vote_stakes );
+  bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, epoch );
+
+  fd_bank_epoch_credits_new_fork( bank );
   *fd_bank_snapshot_commission_t_3_len( bank ) = 0UL;
 }
 
-void
-fd_ssload_apply_delegation( fd_banks_t *                                    banks,
-                            fd_snapshot_manifest_stake_delegation_t const * rec ) {
-  if( FD_UNLIKELY( rec->stake_delegation==0UL ) ) return;
-  fd_stake_delegations_root_update(
-      fd_banks_stake_delegations_root_query( banks ),
-      (fd_pubkey_t *)rec->stake_pubkey,
-      (fd_pubkey_t *)rec->vote_pubkey,
-      rec->stake_delegation,
-      rec->activation_epoch,
-      rec->deactivation_epoch,
-      rec->credits_observed,
-      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+static int
+fd_ssload_epoch_credits_validate( fd_snapshot_manifest_vote_stakes_t const * rec ) {
+  if( FD_UNLIKELY( rec->epoch_credits_history_len>FD_EPOCH_CREDITS_MAX ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: epoch credits length %lu exceeds max %lu",
+                     rec->epoch_credits_history_len, FD_EPOCH_CREDITS_MAX ));
+    return -1;
+  }
+
+  ulong base = rec->epoch_credits_history_len ? rec->epoch_credits[ 0 ].prev_credits : 0UL;
+  for( ulong i=0UL; i<rec->epoch_credits_history_len; i++ ) {
+    epoch_credits_t const * credits = &rec->epoch_credits[ i ];
+    if( FD_UNLIKELY( credits->prev_credits>credits->credits ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch credits prev_credits %lu exceeds credits %lu",
+                       credits->prev_credits, credits->credits ));
+      return -1;
+    }
+    if( FD_UNLIKELY( i && credits->epoch<=rec->epoch_credits[ i-1UL ].epoch ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch credits epoch %lu is not greater than previous epoch %lu",
+                       credits->epoch, rec->epoch_credits[ i-1UL ].epoch ));
+      return -1;
+    }
+    if( FD_UNLIKELY( i && credits->prev_credits!=rec->epoch_credits[ i-1UL ].credits ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch credits prev_credits %lu does not equal previous credits %lu",
+                       credits->prev_credits, rec->epoch_credits[ i-1UL ].credits ));
+      return -1;
+    }
+    if( FD_UNLIKELY( credits->epoch>(ulong)USHORT_MAX ||
+                     credits->credits<base || credits->credits-base>(ulong)UINT_MAX ||
+                     credits->prev_credits<base || credits->prev_credits-base>(ulong)UINT_MAX ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch credits downcast out of range" ));
+      return -1;
+    }
+  }
+  return 0;
 }
 
-void
-fd_ssload_apply_vote_account( fd_bank_t *                                      bank,
-                              fd_snapshot_manifest_vote_account_full_t const * rec ) {
-  if( FD_UNLIKELY( rec->stake==0UL ) ) {
-    fd_new_votes_root_insert( fd_bank_new_votes( bank ), (fd_pubkey_t *)rec->vote_account_pubkey );
-  }
+static void
+fd_ssload_apply_collector_overrides( fd_bank_t *                                bank,
+                                     ulong                                      epoch,
+                                     fd_snapshot_manifest_vote_stakes_t const * rec ) {
+  int has_inflation = !!memcmp( rec->commission_inflation, rec->vote,     32UL );
+  int has_block     = !!memcmp( rec->commission_block,     rec->identity, 32UL );
+  if( FD_LIKELY( !(has_inflation | has_block) ) ) return;
+
+  fd_collector_overrides_upsert( fd_bank_collector_overrides( bank ),
+                                 bank->collector_overrides_fork_id,
+                                 epoch,
+                                 (fd_pubkey_t const *)rec->vote,
+                                 has_inflation,
+                                 (fd_pubkey_t const *)rec->commission_inflation,
+                                 has_block,
+                                 (fd_pubkey_t const *)rec->commission_block );
 }
 
 int
-fd_ssload_apply_vote_stakes( fd_bank_t *                                bank,
+fd_ssload_apply_vote_stakes( fd_banks_t *                               banks,
+                             fd_bank_t *                                bank,
                              ulong                                      epoch,
                              ulong                                      epoch_idx,
                              ulong                                      t_1_idx,
                              ulong                                      t_2_idx,
                              int                                        has_t_2,
                              fd_snapshot_manifest_vote_stakes_t const * rec ) {
-  /* T-1: insert vote stake + top votes + epoch credits. */
-  if( epoch_idx==t_1_idx ) {
-    fd_vote_stakes_root_insert_key(
-        fd_bank_vote_stakes( bank ),
-        (fd_pubkey_t *)rec->vote,
-        (fd_pubkey_t *)rec->identity,
-        rec->stake,
-        rec->commission,
-        epoch );
+  if( FD_UNLIKELY( fd_ssload_epoch_credits_validate( rec ) ) ) return -1;
 
-    fd_top_votes_insert( fd_bank_top_votes_t_1_modify( bank ),
-                         (fd_pubkey_t *)rec->vote, (fd_pubkey_t *)rec->identity, rec->stake, rec->commission );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+
+  /* T-1: insert vote stake, collector overrides, and epoch credits. */
+  if( epoch_idx==t_1_idx ) {
+    if( FD_UNLIKELY( !rec->stake ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: T-1 vote stake has zero stake" ));
+      return -1;
+    }
+
+    fd_vote_stakes_snap_insert_t_1( vote_stakes,
+                                    bank->vote_stakes_fork_id,
+                                    (fd_pubkey_t const *)rec->vote,
+                                    (fd_pubkey_t const *)rec->identity,
+                                    rec->stake,
+                                    rec->commission );
+    fd_ssload_apply_collector_overrides( bank, epoch, rec );
+
+    /* Reward recalculation only retains admitted T-1 accounts. */
+    if( FD_UNLIKELY( !fd_vote_stakes_query_t_1( vote_stakes,
+                                                bank->vote_stakes_fork_id,
+                                                (fd_pubkey_t const *)rec->vote,
+                                                NULL,
+                                                NULL,
+                                                NULL ) ) ) return 0;
 
     ulong idx = *fd_bank_epoch_credits_len( bank );
-    if( FD_UNLIKELY( idx>=FD_RUNTIME_MAX_VOTE_ACCOUNTS ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: epoch_credits overflow (idx %lu >= max %lu)", idx, (ulong)FD_RUNTIME_MAX_VOTE_ACCOUNTS ));
+    if( FD_UNLIKELY( idx>=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch credits overflow (idx %lu >= max %lu)",
+                       idx, (ulong)FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ));
       return -1;
     }
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[ idx ];
     fd_memcpy( ec->pubkey, rec->vote, 32UL );
-    ec->cnt          = rec->epoch_credits_history_len;
+    ec->cnt          = (uchar)rec->epoch_credits_history_len;
     ec->base_credits = ec->cnt>0UL ? rec->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<rec->epoch_credits_history_len; j++ ) {
       epoch_credits_t const * epc = &rec->epoch_credits[ j ];
-      if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX
-                    || epc->credits<ec->base_credits      || epc->credits-ec->base_credits>(ulong)UINT_MAX
-                    || epc->prev_credits<ec->base_credits || epc->prev_credits-ec->base_credits>(ulong)UINT_MAX ) ) {
-        FD_LOG_WARNING(( "corrupt snapshot: vote_stakes epoch_credits downcast out of range" ));
-        return -1;
-      }
       ec->epoch[ j ]              = (ushort)epc->epoch;
       ec->credits_delta[ j ]      = (uint)( epc->credits      - ec->base_credits );
       ec->prev_credits_delta[ j ] = (uint)( epc->prev_credits - ec->base_credits );
     }
+    ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
+    FD_TEST( ec->fast_path_ok );
     *fd_bank_epoch_credits_len( bank ) = idx+1UL;
   }
 
-  /* T-2: top votes + vote stake meta. */
+  /* T-2: vote stake and collector overrides. */
   if( has_t_2 && epoch_idx==t_2_idx ) {
-    fd_top_votes_insert( fd_bank_top_votes_t_2_modify( bank ),
-                         (fd_pubkey_t *)rec->vote, (fd_pubkey_t *)rec->identity, rec->stake, rec->commission );
-    fd_vote_stakes_root_update_meta(
-        fd_bank_vote_stakes( bank ),
-        (fd_pubkey_t *)rec->vote,
-        (fd_pubkey_t *)rec->identity,
-        rec->stake,
-        rec->commission,
-        epoch );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes,
+                                    bank->vote_stakes_fork_id,
+                                    (fd_pubkey_t const *)rec->vote,
+                                    (fd_pubkey_t const *)rec->identity,
+                                    rec->stake,
+                                    rec->commission );
+    fd_ssload_apply_collector_overrides( bank, fd_ulong_sat_sub( epoch, 1UL ), rec );
   }
 
-  /* T-3 (epoch_stakes slot 0): stash commission. */
+  /* T-3 candidates are filtered against T-1 in records_fini, after all
+     streamed records have arrived. */
   if( epoch_idx==0UL ) {
-    ulong                     idx = *fd_bank_snapshot_commission_t_3_len( bank );
-    if( FD_UNLIKELY( idx>=FD_RUNTIME_MAX_VOTE_ACCOUNTS ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: snapshot_commission_t_3 overflow (idx %lu >= max %lu)", idx, (ulong)FD_RUNTIME_MAX_VOTE_ACCOUNTS ));
+    ulong idx = *fd_bank_snapshot_commission_t_3_len( bank );
+    if( FD_UNLIKELY( idx>=banks->max_vote_accounts ) ) {
+      FD_LOG_WARNING(( "T-3 commission cache exceeds max_vote_accounts %lu", banks->max_vote_accounts ));
       return -1;
     }
-    fd_stashed_commission_t * sc  = fd_bank_snapshot_commission_t_3( bank );
+    fd_stashed_commission_t * sc = fd_bank_snapshot_commission_t_3( bank );
     fd_memcpy( sc[ idx ].pubkey, rec->vote, 32UL );
     sc[ idx ].commission = rec->commission;
     *fd_bank_snapshot_commission_t_3_len( bank ) = idx+1UL;
   }
 
   return 0;
+}
+
+void
+fd_ssload_records_fini( fd_bank_t * bank ) {
+  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_stashed_commission_t * commissions = fd_bank_snapshot_commission_t_3( bank );
+  ulong                     cnt         = *fd_bank_snapshot_commission_t_3_len( bank );
+  ulong                     out         = 0UL;
+
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( !fd_vote_stakes_query_t_1( vote_stakes,
+                                                bank->vote_stakes_fork_id,
+                                                (fd_pubkey_t const *)commissions[ i ].pubkey,
+                                                NULL,
+                                                NULL,
+                                                NULL ) ) ) continue;
+    if( out!=i ) commissions[ out ] = commissions[ i ];
+    out++;
+  }
+  *fd_bank_snapshot_commission_t_3_len( bank ) = out;
 }

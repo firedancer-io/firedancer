@@ -1,6 +1,7 @@
 #include "fd_backtest_src.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/fd_event_client.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../discof/repair/fd_repair_tile.h"
@@ -98,6 +99,12 @@ struct fd_backt_tile {
 
   ulong pending_sz;
   uchar pending[ FD_SHRED_MAX_SZ ];
+
+  volatile ulong const * event_metrics;
+
+  ulong         event_in_cnt;
+  ulong const * event_in_prod[ 64 ];
+  ulong const * event_in_cons[ 64 ];
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
@@ -139,7 +146,12 @@ before_credit( fd_backt_tile_t *   ctx,
 
   if( FD_UNLIKELY( ctx->pending_sz==ULONG_MAX ) ) {
     ulong sz = fd_backtest_src_shred( ctx->src, ctx->pending, FD_SHRED_MAX_SZ );
-    if( FD_UNLIKELY( sz>=ULONG_MAX ) ) { ctx->source_exhausted = 1; return; } /* source exhausted */
+    if( FD_UNLIKELY( sz>=ULONG_MAX ) ) { /* source exhausted */
+      if( FD_UNLIKELY( !ctx->reading_slot_cnt ) )
+        FD_LOG_ERR(( "ledger has no slots to replay in (%lu, %lu] (no rooted slots after the snapshot slot?)", ctx->start_slot, ctx->end_slot ));
+      ctx->source_exhausted = 1;
+      return;
+    }
     ctx->pending_sz = sz;
     if( FD_UNLIKELY( !fd_shred_parse( ctx->pending, ctx->pending_sz, FD_SHRED_BLK_MAX ) ) ) {
       FD_LOG_HEXDUMP_WARNING(( "invalid shred", ctx->pending, ctx->pending_sz ));
@@ -153,7 +165,13 @@ before_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( shred->slot<=ctx->start_slot ) ) { ctx->pending_sz = ULONG_MAX; return; }
 
   /* Skip shreds past end_slot */
-  if( FD_UNLIKELY( shred->slot>ctx->end_slot ) ) { ctx->source_exhausted = 1; ctx->pending_sz = ULONG_MAX; return; }
+  if( FD_UNLIKELY( shred->slot>ctx->end_slot ) ) {
+    if( FD_UNLIKELY( !ctx->reading_slot_cnt ) )
+      FD_LOG_ERR(( "ledger has no slots to replay in (%lu, %lu] (no rooted slots after the snapshot slot?)", ctx->start_slot, ctx->end_slot ));
+    ctx->source_exhausted = 1;
+    ctx->pending_sz = ULONG_MAX;
+    return;
+  }
 
   /* Handle slot transition */
   if( FD_UNLIKELY( shred->slot!=ctx->reading_slot || !ctx->reading_slot_cnt ) ) {
@@ -330,13 +348,24 @@ returnable_frag( fd_backt_tile_t *   ctx,
            release the bank reference count on it. */
         ctx->prev_root             = msg->slot;
         fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+        /* Zero the fields this mock does not explicitly populate below
+           (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
+           read the whole message. */
+        memset( dst, 0, sizeof(fd_tower_slot_done_t) );
         dst->vote_slot             = msg->slot;
         dst->reset_slot            = msg->slot;
         dst->reset_block_id        = msg->block_id;
+        dst->reset_bank_seq        = msg->bank_seq;
         dst->root_slot             = msg->slot;
         dst->root_block_id         = msg->block_id;
         dst->replay_slot           = msg->slot;
         dst->replay_bank_idx       = msg->bank_idx;
+        dst->replay_bank_seq       = msg->bank_seq;
+        dst->active_fork_cnt       = 1UL;
+        dst->authority_idx         = ULONG_MAX;
+        dst->vote_acct_bal         = ULONG_MAX;
+        dst->vote_acct_com         = USHORT_MAX;
+        dst->is_voting             = 1;
         fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
         return 0;
@@ -388,18 +417,49 @@ returnable_frag( fd_backt_tile_t *   ctx,
           fd_backtest_src_destroy( ctx->src );
           ctx->src = NULL;
         }
+        if( FD_UNLIKELY( ctx->event_metrics ) ) {
+          long deadline = fd_log_wallclock() + (long)120e9;
+          for(;;) {
+            int drained = 1;
+            for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
+              if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
+            }
+            drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ];
+            if( FD_LIKELY( drained ) ) break;
+            if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
+              FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+              break;
+            }
+            if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
+              FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+              break;
+            }
+            FD_SPIN_PAUSE();
+          }
+        }
         exit(0);
       }
 
       ctx->prev_root             = root_slot;
       fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+      /* Zero the fields this mock does not explicitly populate below
+         (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
+         read the whole message. */
+      memset( dst, 0, sizeof(fd_tower_slot_done_t) );
       dst->replay_slot           = msg->slot;
       dst->replay_bank_idx       = msg->bank_idx;
+      dst->replay_bank_seq       = msg->bank_seq;
       dst->vote_slot             = msg->slot;
       dst->reset_slot            = msg->slot;
       dst->reset_block_id        = msg->block_id;
+      dst->reset_bank_seq        = msg->bank_seq;
       dst->root_slot             = root_slot;
       dst->root_block_id         = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
+      dst->active_fork_cnt       = 1UL;
+      dst->authority_idx         = ULONG_MAX;
+      dst->vote_acct_bal         = ULONG_MAX;
+      dst->vote_acct_com         = USHORT_MAX;
+      dst->is_voting             = 1;
 
       fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
@@ -450,6 +510,22 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->reasm_ready = 0;
   ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
+
+  ctx->event_metrics = NULL;
+  ctx->event_in_cnt  = 0UL;
+  ulong event_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+  if( FD_UNLIKELY( event_tile_idx!=ULONG_MAX && topo->tiles[ event_tile_idx ].metrics ) ) {
+    fd_topo_tile_t const * event_tile = &topo->tiles[ event_tile_idx ];
+    ctx->event_metrics = fd_metrics_tile( event_tile->metrics );
+    for( ulong i=0UL; i<event_tile->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !event_tile->in_link_poll[ i ] ) ) continue;
+      if( FD_UNLIKELY( !event_tile->in_link_fseq[ i ] ) ) continue;
+      FD_TEST( ctx->event_in_cnt<sizeof(ctx->event_in_prod)/sizeof(ctx->event_in_prod[0]) );
+      ctx->event_in_prod[ ctx->event_in_cnt ] = fd_mcache_seq_laddr_const( topo->links[ event_tile->in_link_id[ i ] ].mcache );
+      ctx->event_in_cons[ ctx->event_in_cnt ] = event_tile->in_link_fseq[ i ];
+      ctx->event_in_cnt++;
+    }
+  }
 
   ctx->end_slot = tile->backtest.end_slot ? tile->backtest.end_slot : ULONG_MAX;
   ctx->slot_cnt = 0UL;

@@ -4,11 +4,11 @@ set -euo pipefail
 PROJECT_ROOT=../../../..
 
 # Set protosol version
-PROTO_VERSION="v9.0.1"
+PROTO_VERSION="v11.0.0"
 
 PYTHON=${PYTHON:-python3}
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/ballet/nanopb/nanopb_tag.txt)
+FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/third_party/nanopb/nanopb_tag.txt)
 
 # Create venv and install packages
 if [ ! -e nanopb_venv ]; then "$PYTHON" -m venv nanopb_venv; fi
@@ -41,3 +41,7 @@ fi
 
 rm -rf generated/*
 ./nanopb/generator/nanopb_generator.py -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D generated
+
+# protosol's .options files reference nanopb at its pre-move location
+# (ballet/); this tree vendors it under third_party/.
+sed -i 's|../../../../ballet/nanopb/pb_firedancer.h|../../../../third_party/nanopb/pb_firedancer.h|' generated/*.pb.h generated/*.pb.c

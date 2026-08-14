@@ -29,6 +29,10 @@ struct fd_gossip_tile_ctx {
   fd_pubkey_t              identity_key[1]; /* Just the public key */
   fd_gossip_contact_info_t my_contact_info[1];
 
+  fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+  ulong         entrypoints_cnt;
+  uint          gossip_ip_addr;
+
   fd_stem_context_t * stem;
 
   uchar gossvf_staged[ FD_GOSSIP_GOSSVF_MTU ] __attribute__((aligned(128)));
@@ -65,14 +69,14 @@ struct fd_gossip_tile_ctx {
 
      We keep a copy of the snapshot bank's votes states in an array here
      for quick look up. */
-  fd_vote_stake_weight_t wfs_stakes_scratch[ FD_VOTE_ACCOUNTS_MAX ];
-  fd_stake_weight_t      wfs_stakes        [ FD_VOTE_ACCOUNTS_MAX ];
+  fd_vote_stake_weight_t wfs_stakes_scratch[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+  fd_stake_weight_t      wfs_stakes        [ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
   ulong                  wfs_stakes_cnt;
 
   /* wfs_active is used to keep track of nodes we've already labeled as
      being active on gossip, so we don't double count their stake. */
-  uchar             wfs_active[ FD_VOTE_ACCOUNTS_MAX ];
-  int               wfs_state;
+  uchar wfs_active[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+  int   wfs_state;
 
   struct {
     ulong online;

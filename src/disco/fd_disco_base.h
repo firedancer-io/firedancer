@@ -16,10 +16,10 @@
 #define DST_PROTO_SEND     (6UL)
 #define DST_PROTO_RSERVE   (7UL)
 
-#define POH_PKT_TYPE_MICROBLOCK    (0UL)
-#define POH_PKT_TYPE_BECAME_LEADER (1UL)
-#define POH_PKT_TYPE_FEAT_ACT_SLOT (2UL)
-#define POH_PKT_TYPE_LEADER_BANK   (3UL)
+#define POH_PKT_TYPE_MICROBLOCK      (0UL)
+#define POH_PKT_TYPE_BECAME_LEADER   (1UL)
+#define POH_PKT_TYPE_SHRED_EPOCH_MSG (2UL)
+#define POH_PKT_TYPE_LEADER_BANK     (3UL)
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
@@ -29,20 +29,21 @@
 
 /* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU.
 
-   This is minimum MTU of IPv6 packet - IPv6 header - UDP header
-                                 1280 -          40 -          8 */
+   As per SIMD-296, this is 4096 bytes. */
 
-#define FD_TPU_MTU (1232UL)
+#define FD_TPU_MTU (4096UL)
 
-/* FD_GOSSIP_MTU is the max sz of a gossip packet which is the same as
-   above. */
+/* FD_GOSSIP_MTU is the max sz of a gossip packet:
 
-#define FD_GOSSIP_MTU (FD_TPU_MTU)
+   Minimum MTU of IPv6 packet - IPv6 header - UDP header
+                         1280 -          40 -          8 */
+
+#define FD_GOSSIP_MTU (1232UL)
 
 /* FD_SHRED_STORE_MTU is the size of an fd_fec_set (statically
    asserted in fd_shred_tile.c). */
 
-#define FD_SHRED_STORE_MTU (78656UL)
+#define FD_SHRED_STORE_MTU (77888UL)
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ (42UL) /* The default header size, which means no vlan tags and no IP options. */
 

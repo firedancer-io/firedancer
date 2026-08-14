@@ -1,14 +1,14 @@
 #include "fd_version.h"
 #include "cstr/fd_cstr.h"
+#include "fd_version_generated.h"
 
 /* Firedancer version */
-__attribute__((weak)) ulong const fd_major_version = 0;
-__attribute__((weak)) ulong const fd_minor_version = 1;
-__attribute__((weak)) ulong const fd_patch_version = 1;
+__attribute__((weak)) ulong const fd_major_version = FD_VERSION_MAJOR;
+__attribute__((weak)) ulong const fd_minor_version = FD_VERSION_MINOR;
+__attribute__((weak)) ulong const fd_patch_version = FD_VERSION_PATCH;
 char const * fd_version_cstr = ""; /* set on boot */
 
 /* Commit information */
-#include "fd_version_generated.h"
 __attribute__((weak)) char const fd_commit_ref_private[] = FIREDANCER_COMMIT_REF_CSTR;
 char const * fd_commit_ref_cstr = ""; /* cstr */
 uint         fd_commit_ref_u32  = 0;  /* set on boot */
@@ -19,6 +19,16 @@ unhex( int c ) {
   if( c>='a' && c<='f' ) return c-'a'+0xa;
   if( c>='A' && c<='F' ) return c-'A'+0xa;
   return -1;
+}
+
+char *
+fd_version_cstr_format( char * buf,
+                        ulong  bufsz,
+                        ulong  major,
+                        ulong  minor,
+                        ulong  patch ) {
+  fd_cstr_printf( buf, bufsz, NULL, major>=26UL ? "%lu.%02lu.%lu" : "%lu.%lu.%lu", major, minor, patch );
+  return buf;
 }
 
 void
@@ -45,8 +55,6 @@ fd_version_private_boot( int *    pargc,
                          char *** pargv ) {
   (void)pargc; (void)pargv;
   static char ver_cstr[ 512 ];
-  fd_cstr_printf( ver_cstr, sizeof(ver_cstr), NULL, "%lu.%lu.%lu",
-                  fd_major_version, fd_minor_version, fd_patch_version );
-  fd_version_cstr = ver_cstr;
+  fd_version_cstr = fd_version_cstr_format( ver_cstr, sizeof(ver_cstr), fd_major_version, fd_minor_version, fd_patch_version );
   fd_version_private_commit_ref_init();
 }

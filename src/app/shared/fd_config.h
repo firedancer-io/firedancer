@@ -3,15 +3,14 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../../util/net/fd_net_headers.h"
 
 #include <net/if.h>
 
-#define NAME_SZ                          (256UL)
-#define AFFINITY_SZ                      (256UL)
-#define CONFIGURE_STAGE_COUNT            ( 12UL)
-#define GOSSIP_TILE_ENTRYPOINTS_MAX      ( 16UL)
-#define IP4_PORT_STR_MAX                 ( 22UL)
+#define NAME_SZ                     (256UL)
+#define AFFINITY_SZ                 (256UL)
+#define CONFIGURE_STAGE_COUNT       ( 24UL)
+#define GOSSIP_TILE_ENTRYPOINTS_MAX ( 16UL)
+#define IP4_PORT_STR_MAX            ( 22UL)
 
 struct fd_configh {
   char dynamic_port_range[ 32 ];
@@ -106,11 +105,15 @@ struct fd_configf {
 
   struct {
     int  enable_block_production;
+    int  enable_snapshot_production;
     uint sign_tile_count;
     uint gossvf_tile_count;
     uint resolv_tile_count;
     uint execle_tile_count;
     uint execrp_tile_count;
+    uint snapzp_tile_count;
+    uint snapsv_tile_count;
+    uint snapsv_io_worker_count;
   } layout;
 
   struct {
@@ -154,13 +157,28 @@ struct fd_configf {
     uint max_incremental_snapshots_to_keep;
     uint max_retry_abort;
     uint min_download_speed_mibs;
+    ulong wait_for_peers_timeout_seconds;
+    ulong full_snapshot_interval_slots;
+    ulong incremental_snapshot_interval_slots;
+    ulong max_incremental_snapshot_accounts;
+
+    struct {
+      int enabled;
+      char http_listen_address[ 64 ];
+      uint http_listen_port;
+      ulong max_http_connections;
+      ulong idle_timeout_millis;
+      ulong send_timeout_millis;
+      ulong send_buffer_size_kib;
+    } server;
   } snapshots;
 
   struct {
     int hard_fork_fatal;
     int fixed_fec_sets;
     struct {
-      int validate_genesis_hash;
+      int   validate_genesis_hash;
+      ulong max_file_size_mib;
     } genesis;
 
     struct {
@@ -203,15 +221,16 @@ struct fd_config_net {
   uint ingress_buffer_size;
 
   struct {
-    char xdp_mode[ 8 ];
-    int  xdp_zero_copy;
+    char xdp_mode[ 8 ]; /* "drv", "skb" or "auto" */
+    int  xdp_zero_copy; /* true/false or "auto" */
+    char poll_mode[ 16 ]; /* "prefbusy", "softirq" or "auto" */
 
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
     char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
     int  listen_gre;
-    int  native_bond;
+    int  native_bond; /* true/false or "auto" */
   } xdp;
 
   struct {
@@ -242,6 +261,8 @@ struct fd_config {
   uint gid;
 
   int is_firedancer;
+  int is_dev;
+  int has_user_config;
   union {
     fd_configh_t frankendancer;
     fd_configf_t firedancer;
@@ -259,6 +280,7 @@ struct fd_config {
     char genesis[ PATH_MAX ];
     char accounts[ PATH_MAX ];
     char shredb[ PATH_MAX ];
+    char guidb[ PATH_MAX ];
   } paths;
 
   struct {
@@ -277,6 +299,10 @@ struct fd_config {
     int  log_fd;
   } log;
 
+  /* Necessary to output auto config's decisions/observed system info
+     to log file, since auto config runs before the log file is setup. */
+  char auto_config_log[ 512 ];
+
   struct {
     ushort expected_shred_version;
     char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
@@ -287,10 +313,6 @@ struct fd_config {
   struct {
     ulong         entrypoints_cnt;
     char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ 262 ];
-    fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
-
-    /* The IPv4 addr that [gossip.host] resolves to. */
-    uint          resolved_host;
     ushort        port;
   } gossip;
 
@@ -357,6 +379,7 @@ struct fd_config {
     struct {
       int report_shreds;
       int report_transactions;
+      int report_transaction_diffs;
     } event;
 
     struct {
@@ -475,11 +498,12 @@ struct fd_config {
       ulong  max_websocket_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      ulong  db_size_gib;
     } gui;
 
     struct {
       int    enabled;
-      char   rpc_listen_address[ 16 ];
+      char   rpc_listen_address[ 64 ];
       ushort rpc_listen_port;
       ulong  max_http_connections;
       ulong  max_websocket_connections;

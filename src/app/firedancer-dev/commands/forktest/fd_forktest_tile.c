@@ -51,6 +51,8 @@ typedef struct fd_forkt_out fd_forkt_out_t;
 struct fd_forkt_tile {
   fd_backt_src_t * src;
 
+  fd_startup_gate_t startup_gate[1];
+
   uint done : 1;
 
   ulong  end_slot;
@@ -161,6 +163,8 @@ returnable_frag( fd_forkt_tile_t *   ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
+  fd_startup_gate_busy( ctx->startup_gate );
+
   ctx->idle_cnt = 0;
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -213,6 +217,8 @@ after_credit( fd_forkt_tile_t *   ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   (void)opt_poll_in;
+  if( FD_UNLIKELY( !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
+
   if( ctx->idle_cnt++ < 4UL ) return;
   if( FD_UNLIKELY( ctx->done ) ) return;
   uchar shred[ FD_SHRED_MAX_SZ ];
@@ -271,6 +277,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->shred_listen_port = tile->forktest.shred_listen_port;
   ctx->end_slot          = tile->forktest.end_slot ? tile->forktest.end_slot : ULONG_MAX;
+
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 
   FD_TEST( tile->in_cnt<=FD_TOPO_MAX_TILE_IN_LINKS  );
   FD_TEST( tile->out_cnt<=FD_TOPO_MAX_TILE_OUT_LINKS );
@@ -337,8 +345,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-
-  fd_sleep_until_replay_started( topo );
 }
 
 #define STEM_BURST (1UL)

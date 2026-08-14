@@ -23,8 +23,8 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 
 static void
 parent_signal( int sig ) {
-  if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
-  else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
+  if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s\n%sLog at \"%s\"%s", fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_log_private_path, fd_log_style_normal() ));
+  else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s",                fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal() ));
 
   if( FD_LIKELY( sig==SIGINT ) ) fd_sys_util_exit_group( 128+SIGINT );
   else                           fd_sys_util_exit_group( 0          );

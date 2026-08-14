@@ -1,12 +1,15 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
-    let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let mut build_path = PathBuf::new().join(cargo_manifest_dir);
-    build_path.pop();
-    build_path.pop();
-    build_path.pop();
+    let firedancer_path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .expect("failed to locate Firedancer root")
+        .to_path_buf();
+
+    let mut build_path = firedancer_path.clone();
     build_path.push("build");
     build_path.push("native");
     build_path.push("gcc");
@@ -14,6 +17,7 @@ fn main() {
     let mut lib_path = build_path.clone();
     lib_path.push("lib");
     println!("cargo:rustc-link-search={}", lib_path.to_str().unwrap());
+
     for lib in &[
         "fd_quic",
         "fd_waltz", // net
@@ -29,6 +33,8 @@ fn main() {
             lib
         );
     }
+
+    println!("cargo:rustc-link-lib=stdc++");
 
     let mut include_path = build_path.clone();
     include_path.push("include");

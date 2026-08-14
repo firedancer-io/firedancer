@@ -15,6 +15,18 @@ LOCAL_MKS?=$(shell $(FIND) -L src -type f -name Local.mk)
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
+# x86 Linux shadow stack (see with-security.mk).  Evaluated here
+# because everything.mk parses after all machine/extra fragments, so
+# FD_HAS_X86/FD_HAS_LINUX are finally known.
+ifdef FD_HAS_SECURITY
+ifdef FD_HAS_X86
+ifdef FD_HAS_LINUX
+CPPFLAGS+=-fcf-protection=return
+LDFLAGS_EXE+=-Wl,-z,shstk
+endif
+endif
+endif
+
 # Auxiliary rules that should not set up dependencies
 AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend env
 
@@ -46,8 +58,6 @@ help:
 	# CPPFLAGS        = $(CPPFLAGS)
 	# CC              = $(CC)
 	# CFLAGS          = $(CFLAGS)
-	# CXX             = $(CXX)
-	# CXXFLAGS        = $(CXXFLAGS)
 	# LD              = $(LD)
 	# LDFLAGS         = $(LDFLAGS)
 	# AR              = $(AR)
@@ -182,6 +192,10 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 
 # Note: The library arguments require customization of each target
 
+# Libs with the slowest compiles; prepended to exe prerequisites (link
+# order unaffected) so parallel make starts them first
+SCHED_HOT_LIBS?=fd_reedsol fd_disco fd_ballet fd_discof fd_flamenco fd_quic
+
 # _make-exe usage:
 #
 #   $(1): Filename of exe
@@ -197,7 +211,7 @@ DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR
 .PHONY: $(1)
 $(1): $(OBJDIR)/$(5)/$(1)
 
-$(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
+$(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
 	@echo -e "LD\t$$(notdir $$@) ($(5))"
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@
@@ -302,11 +316,6 @@ $(OBJDIR)/obj/%.o : src/%.c
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.cxx
-	@echo -e "CXX\t$(notdir $@)"
-	$(Q)$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
-
 $(OBJDIR)/obj/%.o : src/%.S
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
@@ -318,32 +327,18 @@ $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.S : src/%.cxx
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
-$(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
-
 $(OBJDIR)/obj/%.i : src/%.c
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@
 
-$(OBJDIR)/obj/%.i : src/%.cxx
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -E $< -o $@
-
 $(OBJDIR)/obj/%.check : src/%.c
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
-
-$(OBJDIR)/obj/%.check : src/%.cxx
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsyntax-only $<
 
 $(OBJDIR)/lib/%.a :
 	@echo -e "AR\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(RM) $@ && \
-$(AR) $(ARFLAGS) $@ $^ && \
-$(RANLIB)  $@
+$(AR) $(ARFLAGS) $@ $^
 
 $(OBJDIR)/include/firedancer/% : src/%
 	$(Q)$(MKDIR) $(dir $@) && \
@@ -478,7 +473,7 @@ endif
   -format=lcov                          \
   $(addprefix -instr-profile=,$<)       \
   $(OBJDIR)/cov/mappings.ar             \
-  --ignore-filename-regex="(test_|fuzz_).*\\.c" \
+  --ignore-filename-regex="((test_|fuzz_).*\\.c|third_party/)" \
 > $@
 
 # llvm-cov step 2.1
@@ -561,7 +556,7 @@ frontend: frontend-clean
 
 frontend-clean:
 	rm -rf src/discoh/guih/dist_cmp
-	rm -rf src/discoh/gui/dist_cmp
+	rm -rf src/disco/gui/dist_cmp
 
 env:
 	@echo BUILDDIR=\'$(BUILDDIR)\'

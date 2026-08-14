@@ -118,7 +118,8 @@ struct fd_quic_conn {
   /* initial source connection id */
   ulong              initial_source_conn_id;
 
-  uint               tx_max_datagram_sz;  /* size of maximum datagram allowed by peer */
+  uint               tx_max_datagram_sz;       /* max UDP datagram sz allowed by peer */
+  ulong              tx_max_datagram_frame_sz; /* max RFC 9221 QUIC datagram sz allowed by peer */
 
   /* handshake members */
   uint               handshake_complete  : 1; /* have we completed a successful handshake? */

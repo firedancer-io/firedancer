@@ -1002,7 +1002,6 @@ main( int     argc,
     float nqnan = uint_as_float( (1U<<31) | (255U<<23) |  1U      );
     float nsnan = uint_as_float( (1U<<31) | (255U<<23) | (1U<<22) );
 
-#   if 0 /* Detailed tester only works if fast math is disabled (most like -ffinite-math) */
 #   define _(x,y,z,w) FD_TEST( fd_float_eq( x, y )==z && (x==y)==w )
     _( psnan, psnan, 1, 0 ); _( pqnan, psnan, 0, 0 ); _( pinf , psnan, 0, 0 ); _( pzero, psnan, 0, 0 ); _( nzero, psnan, 0, 0 ); _( ninf , psnan, 0, 0 ); _( nqnan, psnan, 0, 0 ); _( nsnan, psnan, 0, 0 );
     _( psnan, pqnan, 0, 0 ); _( pqnan, pqnan, 1, 0 ); _( pinf , pqnan, 0, 0 ); _( pzero, pqnan, 0, 0 ); _( nzero, pqnan, 0, 0 ); _( ninf , pqnan, 0, 0 ); _( nqnan, pqnan, 0, 0 ); _( nsnan, pqnan, 0, 0 );
@@ -1013,7 +1012,6 @@ main( int     argc,
     _( psnan, nqnan, 0, 0 ); _( pqnan, nqnan, 0, 0 ); _( pinf , nqnan, 0, 0 ); _( pzero, nqnan, 0, 0 ); _( nzero, nqnan, 0, 0 ); _( ninf , nqnan, 0, 0 ); _( nqnan, nqnan, 1, 0 ); _( nsnan, nqnan, 0, 0 );
     _( psnan, nsnan, 0, 0 ); _( pqnan, nsnan, 0, 0 ); _( pinf , nsnan, 0, 0 ); _( pzero, nsnan, 0, 0 ); _( nzero, nsnan, 0, 0 ); _( ninf , nsnan, 0, 0 ); _( nqnan, nsnan, 0, 0 ); _( nsnan, nsnan, 1, 0 );
 #   undef _
-#   endif
 
     FD_TEST( float_as_uint( fd_float_abs( psnan ) )==float_as_uint( psnan ) );
     FD_TEST( float_as_uint( fd_float_abs( pqnan ) )==float_as_uint( pqnan ) );
@@ -1034,8 +1032,8 @@ main( int     argc,
       float z = x; fd_float_store_if( c, &z, y ); FD_TEST( fd_float_eq( z, (c ? y : x) ) );
 
       float xx; float yy;
-      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
-      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( fd_float_eq( xx, y )           & fd_float_eq( yy, x )           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( fd_float_eq( xx, (c ? y : x) ) & fd_float_eq( yy, (c ? x : y) ) );
     }
   }
 
@@ -1052,7 +1050,6 @@ main( int     argc,
     double nqnan = ulong_as_double( (1UL<<63) | (2047UL<<52) |  1UL      );
     double nsnan = ulong_as_double( (1UL<<63) | (2047UL<<52) | (1UL<<51) );
 
-#   if 0 /* Detailed tester only works if fast math is disabled (most like -ffinite-math) */
 #   define _(x,y,z,w) FD_TEST( fd_double_eq( x, y )==z && (x==y)==w )
     _( psnan, psnan, 1, 0 ); _( pqnan, psnan, 0, 0 ); _( pinf , psnan, 0, 0 ); _( pzero, psnan, 0, 0 ); _( nzero, psnan, 0, 0 ); _( ninf , psnan, 0, 0 ); _( nqnan, psnan, 0, 0 ); _( nsnan, psnan, 0, 0 );
     _( psnan, pqnan, 0, 0 ); _( pqnan, pqnan, 1, 0 ); _( pinf , pqnan, 0, 0 ); _( pzero, pqnan, 0, 0 ); _( nzero, pqnan, 0, 0 ); _( ninf , pqnan, 0, 0 ); _( nqnan, pqnan, 0, 0 ); _( nsnan, pqnan, 0, 0 );
@@ -1063,7 +1060,6 @@ main( int     argc,
     _( psnan, nqnan, 0, 0 ); _( pqnan, nqnan, 0, 0 ); _( pinf , nqnan, 0, 0 ); _( pzero, nqnan, 0, 0 ); _( nzero, nqnan, 0, 0 ); _( ninf , nqnan, 0, 0 ); _( nqnan, nqnan, 1, 0 ); _( nsnan, nqnan, 0, 0 );
     _( psnan, nsnan, 0, 0 ); _( pqnan, nsnan, 0, 0 ); _( pinf , nsnan, 0, 0 ); _( pzero, nsnan, 0, 0 ); _( nzero, nsnan, 0, 0 ); _( ninf , nsnan, 0, 0 ); _( nqnan, nsnan, 0, 0 ); _( nsnan, nsnan, 1, 0 );
 #   undef _
-#   endif
 
     FD_TEST( double_as_ulong( fd_double_abs( psnan ) )==double_as_ulong( psnan ) );
     FD_TEST( double_as_ulong( fd_double_abs( pqnan ) )==double_as_ulong( pqnan ) );
@@ -1084,8 +1080,8 @@ main( int     argc,
       double z = x; fd_double_store_if( c, &z, y ); FD_TEST( fd_double_eq( z, (c ? y : x) ) );
 
       double xx; double yy;
-      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( (xx==y)           & (yy==x)           );
-      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( (xx==(c ? y : x)) & (yy==(c ? x : y)) );
+      xx = x; yy = y; fd_swap( xx, yy );       FD_TEST( fd_double_eq( xx, y )           & fd_double_eq( yy, x )           );
+      xx = x; yy = y; fd_swap_if( c, xx, yy ); FD_TEST( fd_double_eq( xx, (c ? y : x) ) & fd_double_eq( yy, (c ? x : y) ) );
     }
   }
 # endif

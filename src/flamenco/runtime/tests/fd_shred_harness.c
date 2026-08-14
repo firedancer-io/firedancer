@@ -82,7 +82,7 @@ capture_completed_fec( fd_spad_t *                spad,
                        fd_shred_completed_fec_t * out ) {
   fd_memset( out, 0, sizeof(fd_shred_completed_fec_t) );
 
-  fd_shred_t const * base_data   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
+  fd_shred_t const * base_data   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MIN_SZ, FD_SHRED_BLK_MAX );
   fd_shred_t const * base_parity = fd_shred_parse( set->parity_shreds[ 0 ].b, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
   FD_TEST( base_data && base_parity );
 
@@ -93,7 +93,7 @@ capture_completed_fec( fd_spad_t *                spad,
   uchar * payload    = fd_spad_alloc( spad, alignof(uchar), (ulong)data_cnt*FD_SHRED_MAX_SZ );
   ulong   payload_sz = 0UL;
   for( ushort i=0U; i<data_cnt; i++ ) {
-    fd_shred_t const * shred = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
+    fd_shred_t const * shred = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MIN_SZ, FD_SHRED_BLK_MAX );
     FD_TEST( shred );
     ulong shred_payload_sz = fd_shred_payload_sz( shred );
     if( FD_LIKELY( shred_payload_sz ) ) {
@@ -103,7 +103,7 @@ capture_completed_fec( fd_spad_t *                spad,
     out->shred_offs[ i ] = (uint)payload_sz;
   }
 
-  fd_shred_t const * last = fd_shred_parse( set->data_shreds[ data_cnt-1U ].b, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
+  fd_shred_t const * last = fd_shred_parse( set->data_shreds[ data_cnt-1U ].b, FD_SHRED_MIN_SZ, FD_SHRED_BLK_MAX );
   FD_TEST( last );
 
   /* Derive the FEC set's merkle root from a shred's inclusion proof. */
@@ -194,7 +194,6 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       RESOLVER_COMPLETE_DEPTH,
       RESOLVER_DONE_DEPTH,
       resolver_sets,
-      FD_SHRED_BLK_MAX,
       0UL ) );
   FD_TEST( resolver );
 
@@ -266,6 +265,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       resolver,
       shred,
       shred_msg->size,
+      FD_SHRED_BLK_MAX,
       0,
       dummy_leader_pubkey.uc,
       &out_fec_set,
@@ -371,6 +371,25 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
         memcpy( out_fec->payload->bytes, popped_rec->payload, popped_rec->payload_sz );
       }
 
+      /* Match Agave's model of only parsing deshreddable batches.
+         Otherwise, Firedancer's eager per-FEC parsing might reject a
+         block for a bad FEC set that Agave simply doesn't parse at all.
+         A FEC set is deshreddable iff some FEC set at or after it in
+         the same slot carries DATA_COMPLETE.  Complete batches are
+         still fed one FEC set at a time.  Only the final, potentially
+         incomplete batch is held back.  fec_set_results were already
+         captured above, independent of the scheduler, so withholding
+         does not change them.  Agave likewise emits a fec_set_result
+         for every complete FEC set, deshreddable or not. */
+      int deshreddable = 0;
+      for( ulong j=0UL; j<completed_cnt; j++ ) {
+        if( completed[ j ].slot==popped_rec->slot && completed[ j ].fec_set_idx>=popped_rec->fec_set_idx && completed[ j ].data_complete ) {
+          deshreddable = 1;
+          break;
+        }
+      }
+      if( !deshreddable ) continue;
+
       /* Bank lineage comes from the reasm tree, like the replay tile.
          Reasm pops parents before children, so the parent's bank_idx
          was already recorded by the time we read it here. */
@@ -413,7 +432,9 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
         effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
       } else if( FD_LIKELY( bank_idx!=0UL ) ) {
         /* Harness stops at FEC ingest, so verify this slot's tick
-           window here; skip bank_idx 0 (reasm/sched root). */
+           window here; skip bank_idx 0 (reasm/sched root).  Only
+           complete batches reach this point, so this matches Agave's
+           model of only verifying deshredded batches. */
         if( fd_sched_block_verify_ticks( sched, bank_idx, 0UL, SLOT_MAX_TICK_HEIGHT, SLOT_HASHES_PER_TICK ) ) {
           effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
         }

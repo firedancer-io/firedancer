@@ -7,6 +7,8 @@
 #include "../../waltz/grpc/fd_grpc_client_private.h"
 #include "../../ballet/pb/fd_pb_tokenize.h"
 #include "../../ballet/pb/fd_pb_encode.h"
+#include "../../ballet/hex/fd_hex.h"
+#include "../../tango/tempo/fd_tempo.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/log/fd_log.h"
 #include "../keyguard/fd_keyguard.h"
@@ -37,6 +39,10 @@
 #define FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH  (2UL)
 #define FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS (3UL)
 
+#define FD_EVENT_CLIENT_HEARTBEAT_NANOS (15L*(long)1e9)
+
+#define FD_EVENT_CLIENT_TOKEN_SZ (217UL)
+
 struct fd_event_client {
   fd_grpc_client_t * grpc_client;
   fd_grpc_client_metrics_t grpc_metrics[1];
@@ -50,6 +56,8 @@ struct fd_event_client {
   int       has_genesis_hash;
   fd_hash_t genesis_hash[1];
 
+  int connect_fail_logged;
+
   ushort has_shred_version;
   ushort shred_version;
 
@@ -61,6 +69,9 @@ struct fd_event_client {
 
   int defer_disconnect;
   ulong consecutive_failure_count;
+
+  long last_stream_send_ticks;
+  long heartbeat_ticks;
 
   int auth_send_pending;
 
@@ -100,6 +111,13 @@ struct fd_event_client {
   fd_rng_t * rng;
   fd_circq_t * circq;
   fd_keyguard_client_t * keyguard_client;
+
+  /* Stateless-auth bearer value: "hex(challenge_token).hex(signature)",
+     built from the challenge token returned by Authenticate and our
+     ed25519 signature over it.  Presented as the `authorization: Bearer
+     <...>` header on the StreamEvents request. */
+  char  auth_bearer[ 2UL*FD_EVENT_CLIENT_TOKEN_SZ + 1UL + 2UL*64UL + 1UL ];
+  ulong auth_bearer_len;
 
   fd_event_client_metrics_t metrics;
 };
@@ -166,8 +184,7 @@ fd_event_client_new( void *                 shmem,
   client->server_fqdn_len = url->host_len;
 
   fd_memcpy( client->identity_pubkey, identity_pubkey, 32UL );
-  strncpy( client->client_version, client_version, sizeof( client->client_version ) );
-  client->client_version[ sizeof( client->client_version ) - 1UL ] = '\0';
+  fd_cstr_ncpy( client->client_version, client_version, sizeof( client->client_version ) );
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( client->commit_hash ), commit_hash, fd_ulong_min( strlen( commit_hash ), sizeof( client->commit_hash )-1UL ) ) );
   fd_cstr_ncpy( client->action, action, sizeof( client->action ) );
 
@@ -179,6 +196,7 @@ fd_event_client_new( void *                 shmem,
 
   client->has_genesis_hash = 0;
   client->has_shred_version = 0;
+  client->connect_fail_logged = 0;
 
   client->so_sndbuf = so_sndbuf;
   client->sockfd = -1;
@@ -200,6 +218,8 @@ fd_event_client_new( void *                 shmem,
 
   client->defer_disconnect = INT_MAX;
   client->consecutive_failure_count = 7UL; /* Start high, so if server is down we don't keep retrying on boot */
+  client->last_stream_send_ticks = 0L;
+  client->heartbeat_ticks = (long)(fd_tempo_tick_per_ns( NULL )*(double)FD_EVENT_CLIENT_HEARTBEAT_NANOS);
 
   client->circq = circq;
   client->rng = rng;
@@ -298,16 +318,23 @@ disconnect( fd_event_client_t * client,
   client->auth_deadline = LONG_MAX;
   client->auth_send_pending = 0;
 
+  client->auth_bearer[ 0 ] = '\0';
+  client->auth_bearer_len  = 0UL;
+
   switch( reason ) {
     case DISCONNECT_REASON_IDENTITY_CHANGED:
       FD_LOG_INFO(( "disconnected: identity changed" ));
       break;
     case DISCONNECT_REASON_CONNECT_FAILED:
-      FD_LOG_WARNING(( "connecting to " FD_IP4_ADDR_FMT ":%u failed (%i-%s)", FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( !client->connect_fail_logged ) ) FD_LOG_WARNING(( "connecting to telemetry server " FD_IP4_ADDR_FMT ":%u failed %s(%i-%s)%s", FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port, fd_log_style_dim(), errno, fd_io_strerror( errno ), fd_log_style_normal() ));
+      else                                              FD_LOG_INFO((    "connecting to telemetry server " FD_IP4_ADDR_FMT ":%u failed (%i-%s)", FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port, errno, fd_io_strerror( errno ) ));
+      client->connect_fail_logged = 1;
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_DNS_RESOLVE_FAILED:
-      FD_LOG_WARNING(( "failed to resolve host `%.*s` (%d-%s)", (int)client->server_fqdn_len, client->server_fqdn, err, fd_gai_strerror( err ) ));
+      if( FD_UNLIKELY( !client->connect_fail_logged ) ) FD_LOG_WARNING(( "failed to resolve telemetry server host %.*s %s(%d-%s)%s", (int)client->server_fqdn_len, client->server_fqdn, fd_log_style_dim(), err, fd_gai_strerror( err ), fd_log_style_normal() ));
+      else                                              FD_LOG_INFO((    "failed to resolve telemetry server host %.*s (%d-%s)", (int)client->server_fqdn_len, client->server_fqdn, err, fd_gai_strerror( err ) ));
+      client->connect_fail_logged = 1;
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_TIMEOUT:
@@ -315,27 +342,27 @@ disconnect( fd_event_client_t * client,
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_TRANSPORT_FAILED:
-      FD_LOG_WARNING(( "disconnected: transport failed (%d-%s)", err, fd_io_strerror( err ) ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: transport failed %s(%d-%s)%s", fd_log_style_dim(), err, fd_io_strerror( err ), fd_log_style_normal() ));
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_PEER_CLOSED:
-      FD_LOG_WARNING(( "disconnected: peer closed connection" ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: peer closed connection" ));
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_INVALID_CURSOR:
-      FD_LOG_WARNING(( "disconnected: invalid cursor" ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: invalid cursor" ));
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_AUTH_FAILED:
-      FD_LOG_WARNING(( "disconnected: authentication failed" ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: authentication failed" ));
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_INVALID_PROTOBUF:
-      FD_LOG_WARNING(( "disconnected: invalid protobuf message received" ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: invalid protobuf message received" ));
       client->metrics.transport_fail_cnt++;
       break;
     default:
-      FD_LOG_WARNING(( "disconnected: unknown reason %d", reason ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: unknown reason %d", reason ));
       client->metrics.transport_fail_cnt++;
       break;
   }
@@ -524,8 +551,8 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   }
 
   ulong challenge_len = challenge_tlv.len;
-  if( FD_UNLIKELY( challenge_len!=32UL ) ) {
-    FD_LOG_WARNING(( "Invalid challenge size: %lu bytes", challenge_len ));
+  if( FD_UNLIKELY( challenge_len!=FD_EVENT_CLIENT_TOKEN_SZ ) ) {
+    FD_LOG_WARNING(( "Invalid challenge token size: %lu bytes (expected %lu)", challenge_len, FD_EVENT_CLIENT_TOKEN_SZ ));
     client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
     return;
   }
@@ -536,7 +563,8 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
     return;
   }
 
-  uchar const * challenge_data = inbuf->cur;
+  uchar challenge_token[ FD_EVENT_CLIENT_TOKEN_SZ ];
+  memcpy( challenge_token, inbuf->cur, challenge_len );
   inbuf->cur += challenge_len;
 
   if( FD_UNLIKELY( fd_pb_inbuf_sz( inbuf ) ) ) {
@@ -545,61 +573,36 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
     return;
   }
 
-  uchar sign_request[ 132 ];
+  uchar sign_request[ 100UL + FD_EVENT_CLIENT_TOKEN_SZ ];
   static char const sign_prefix[ 100 ] =
     "                                "  /* 32 spaces */
     "                                "  /* 32 spaces */
     "Firedancer event challenge-response";
-  memcpy( sign_request,     sign_prefix,    sizeof(sign_prefix) );
-  memcpy( sign_request+100, challenge_data, 32UL                );
+  memcpy( sign_request,     sign_prefix,     sizeof(sign_prefix) );
+  memcpy( sign_request+100, challenge_token, challenge_len       );
 
-  uchar signed_challenge[ 64UL ];
+  uchar signature[ 64UL ];
   fd_keyguard_client_sign( client->keyguard_client,
-                           signed_challenge,
-                           sign_request, 132UL,
+                           signature,
+                           sign_request, 100UL+challenge_len,
                            FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
-  fd_pb_encoder_t confirm_req[1];
-  uchar buffer[ 128UL ];
-  fd_pb_encoder_init( confirm_req, buffer, sizeof(buffer) );
-  fd_pb_push_bytes( confirm_req, 1U, signed_challenge, 64UL );
-
-  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
-      client->grpc_client,
-      "/events.v1.EventService/ConfirmAuthChallenge", strlen("/events.v1.EventService/ConfirmAuthChallenge"),
-      FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH,
-      buffer, fd_pb_encoder_out_sz( confirm_req ),
-      NULL, 0UL,
-      0 /* not streaming */ );
-
-  if( FD_UNLIKELY( !stream ) ) {
-    FD_LOG_WARNING(( "Failed to start ConfirmAuthChallenge request" ));
-    client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
-    return;
-  }
-
-  long now = fd_log_wallclock();
-  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)2e9 );
-  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)2e9 );
-
-  client->state = FD_EVENT_CLIENT_STATE_CONFIRMING_AUTH;
-  FD_LOG_DEBUG(( "Sent signed auth challenge" ));
-}
-
-static void
-fd_event_client_handle_confirm_auth_resp( fd_event_client_t * client,
-                                          void const *        protobuf,
-                                          ulong               protobuf_sz ) {
-  (void)protobuf;
-  (void)protobuf_sz;
+  /* Build "hex(challenge_token).hex(signature)" for the bearer token. */
+  fd_hex_encode( client->auth_bearer, challenge_token, FD_EVENT_CLIENT_TOKEN_SZ );
+  client->auth_bearer[ 2UL*FD_EVENT_CLIENT_TOKEN_SZ ] = '.';
+  fd_hex_encode( client->auth_bearer + 2UL*FD_EVENT_CLIENT_TOKEN_SZ+1UL, signature, 64UL );
+  client->auth_bearer_len = 2UL*FD_EVENT_CLIENT_TOKEN_SZ + 1UL + 2UL*64UL;
+  client->auth_bearer[ client->auth_bearer_len ] = '\0';
 
   client->event_stream = NULL;
   client->metrics.transport_success_cnt++;
   client->state = FD_EVENT_CLIENT_STATE_CONNECTED;
   client->connected.connected_timestamp = fd_log_wallclock();
-  FD_LOG_NOTICE(( "connected to event server " FD_IP4_ADDR_FMT ":%u (%.*s)",
-                    FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port,
-                    (int)client->server_fqdn_len, client->server_fqdn ));
+  client->connect_fail_logged = 0;
+  FD_LOG_NOTICE(( "connected to telemetry server %s%s://%.*s:%u%s",
+                  fd_log_style_bold(), client->use_tls ? "https" : "http",
+                  (int)client->server_fqdn_len, client->server_fqdn, client->server_tcp_port,
+                  fd_log_style_normal() ));
 }
 
 static void
@@ -610,7 +613,7 @@ fd_event_client_grpc_conn_dead( void * app_ctx,
   FD_LOG_WARNING(( "Event gRPC connection closed %s (%u-%s)",
                    closed_by ? "by peer" : "due to error",
                    h2_err, fd_h2_strerror( h2_err ) ));
-  disconnect( client, DISCONNECT_REASON_PEER_CLOSED, 0, 1 );
+  client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
 }
 
 static void
@@ -674,9 +677,6 @@ fd_event_client_grpc_rx_msg( void *       app_ctx,
     case FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE:
       fd_event_client_handle_auth_challenge_resp( client, protobuf, protobuf_sz );
       break;
-    case FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH:
-      fd_event_client_handle_confirm_auth_resp( client, protobuf, protobuf_sz );
-      break;
     case FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS:
       fd_event_client_handle_stream_events_resp( client, protobuf, protobuf_sz );
       break;
@@ -694,7 +694,7 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
   fd_event_client_t * client = app_ctx;
 
   if( FD_UNLIKELY( resp->h2_status!=200 ) ) {
-    FD_LOG_WARNING(( "Event gRPC request failed (HTTP status %u)", resp->h2_status ));
+    FD_LOG_WARNING(( "telemetry server request failed %s(HTTP status %u)%s", fd_log_style_dim(), resp->h2_status, fd_log_style_normal() ));
     client->defer_disconnect = DISCONNECT_REASON_TRANSPORT_FAILED;
     return;
   }
@@ -708,29 +708,28 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
   if( FD_UNLIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
     switch( request_ctx ) {
     case FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE:
-    case FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH:
-      FD_LOG_WARNING(( "Event authentication failed (gRPC status %u-%s): %.*s",
-                       resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                       (int)resp->grpc_msg_len, resp->grpc_msg ));
+      FD_LOG_WARNING(( "telemetry server authentication failed: %.*s %s(%u-%s)%s",
+                       (int)resp->grpc_msg_len, resp->grpc_msg,
+                       fd_log_style_dim(), resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ), fd_log_style_normal() ));
       client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
       return;
     case FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS:
-      FD_LOG_WARNING(( "Event stream failed (gRPC status %u-%s): %.*s",
-                       resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                       (int)resp->grpc_msg_len, resp->grpc_msg ));
+      FD_LOG_WARNING(( "telemetry server event stream failed: %.*s %s(%u-%s)%s",
+                       (int)resp->grpc_msg_len, resp->grpc_msg,
+                       fd_log_style_dim(), resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ), fd_log_style_normal() ));
       client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
       return;
     default:
-      FD_LOG_WARNING(( "Event gRPC request failed (gRPC status %u-%s): %.*s",
-                       resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                       (int)resp->grpc_msg_len, resp->grpc_msg ));
+      FD_LOG_WARNING(( "telemetry server request failed: %.*s %s(%u-%s)%s",
+                       (int)resp->grpc_msg_len, resp->grpc_msg,
+                       fd_log_style_dim(), resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ), fd_log_style_normal() ));
       client->defer_disconnect = DISCONNECT_REASON_TRANSPORT_FAILED;
       return;
     }
   }
 
   if( request_ctx==FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS ) {
-    FD_LOG_INFO(( "Event gRPC stream ended gracefully" ));
+    FD_LOG_INFO(( "telemetry server event stream ended gracefully" ));
     client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
   }
 }
@@ -759,26 +758,42 @@ tx( fd_event_client_t * client,
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) return;
   if( FD_UNLIKELY( client->event_stream && client->grpc_client->request_stream != NULL && client->grpc_client->request_stream!=client->event_stream ) ) return;
 
-  ulong msg_sz;
-  uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
-  if( FD_LIKELY( !msg ) ) return;
-
   if( FD_UNLIKELY( !client->event_stream ) ) {
     client->event_stream = fd_grpc_client_request_start1(
         client->grpc_client,
         "/events.v1.EventService/StreamEvents", strlen("/events.v1.EventService/StreamEvents"),
         FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS,
-        msg, msg_sz,
-        NULL, 0UL,
+        NULL, 0UL, /* headers only; first message sent later */
+        client->auth_bearer, client->auth_bearer_len,
         1 /* streaming */ );
-    if( FD_UNLIKELY( !client->event_stream ) ) return; /* Only reason for failure is too big message, so just skip it */
+    if( FD_UNLIKELY( !client->event_stream ) ) return; /* transient; retry next poll */
     fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_HEADER, fd_log_wallclock()+(long)10e9 /* 10s */ );
-  } else {
-    int result = fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, msg, msg_sz );
-    if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
+    client->last_stream_send_ticks = fd_tickcount();
+    *charge_busy = 1;
+    return;
   }
 
+  ulong msg_sz;
+  uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
+  if( FD_LIKELY( !msg ) ) {
+    /* Nothing to send.  If the stream has been quiet long enough that an
+       intermediary proxy might kill it, send a zero-length
+       StreamEventsRequest to heartbeat. */
+    long now_ticks = fd_tickcount();
+    if( FD_UNLIKELY( now_ticks-client->last_stream_send_ticks>client->heartbeat_ticks ) ) {
+      if( FD_LIKELY( fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, (uchar const *)"", 0UL ) ) ) {
+        client->last_stream_send_ticks = now_ticks;
+        *charge_busy = 1;
+      }
+    }
+    return;
+  }
+
+  int result = fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, msg, msg_sz );
+  if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
+
   client->metrics.events_sent++;
+  client->last_stream_send_ticks = fd_tickcount();
   *charge_busy = 1;
 }
 
@@ -797,7 +812,7 @@ fd_event_client_poll( fd_event_client_t * client,
     }
   }
   /* Check auth handshake timeout */
-  if( FD_UNLIKELY( (client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING || client->state==FD_EVENT_CLIENT_STATE_CONFIRMING_AUTH) && now>client->auth_deadline ) ) {
+  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && now>client->auth_deadline ) ) {
     FD_LOG_WARNING(( "auth handshake timed out" ));
     client->metrics.handshake_timeout_cnt++;
     disconnect( client, DISCONNECT_REASON_TIMEOUT, 0, 1 );
@@ -817,10 +832,6 @@ fd_event_client_poll( fd_event_client_t * client,
     }
   }
 
-  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && client->auth_send_pending ) ) {
-    fd_event_client_try_send_authenticate( client );
-  }
-
   if( FD_UNLIKELY( client->defer_disconnect!=INT_MAX ) ) {
     int reason = client->defer_disconnect;
     client->defer_disconnect = INT_MAX;
@@ -828,6 +839,10 @@ fd_event_client_poll( fd_event_client_t * client,
     if( reason==DISCONNECT_REASON_INVALID_PROTOBUF ) client->metrics.invalid_msg_cnt++;
     disconnect( client, reason, 0, 1 );
     return;
+  }
+
+  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && client->auth_send_pending ) ) {
+    fd_event_client_try_send_authenticate( client );
   }
 
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED ) ) {

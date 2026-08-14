@@ -15,6 +15,7 @@
    table a custom sort key. */
 
 #include "fd_gui_config_parse.h"
+#include "fd_gui_ema.h"
 
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
@@ -41,50 +42,35 @@
   | country_codes (2*country_code_cnt bytes) |
   | city_names_cnt (8 bytes) |
   | city_names (see below) |
-  | record_cnt (8 bytes) |
-  | records (record_cnt*10UL) |
-
-  Record binary layout
-  | ip (4 bytes) |
-  | prefix_sz (1 byte) |
-  | country_code_idx (1 byte) |
-  | city_name_idx (4 bytes) |
+  | zero pad to 4-byte alignment |
+  | seg_cnt (8 bytes) |
+  | seg_start (4*seg_cnt bytes) |
+  | seg_country (1*seg_cnt bytes) |
+  | zero pad to 4-byte alignment |
+  | seg_city (4*seg_cnt bytes) |
 
   country_code_cnt: ulong count of country codes (little-endian)
   country_codes: Array of 2-byte ASCII country codes, not null-terminated.
   city_names_cnt: ulong count of city names (little-endian).
   city_names: Concatenation of variable-length, null-terminated city names
-  record_cnt: ulong count of CIDR IP ranges in records
-  records: Series of 10-byte records containing:
-  ip: network ipv4 address (big-endian)
-  prefix_sz: uchar count of 1 bits (up to 32) in the netmask of the CIDR address
-  country_code_idx: uchar country code index, into country_codes
-  city_name_idx: uint city name index, into city_names.
+  seg_cnt: ulong count of segments
 
-  In the trie, each node represents one bit position in an IP address.
-  Paths follow 0 (left child) and 1 (right child) bits from the IP's MSB
-  to LSB.  Nodes with has_prefix=1 indicate a match at that prefix
-  length country_code_idx references the 2-letter country code in the
-  table.  Maximum depth is 32 levels (for IPv4).
+  The segments partition the entire IPv4 space into disjoint,
+  contiguous ranges: segment i covers [seg_start[i], seg_start[i+1])
+  (host byte order, little-endian on disk; seg_start[0]==0 and the
+  last segment extends to 2^32).  The generator flattens the source
+  database's (possibly nested) CIDR records into this form with
+  longest-prefix-match semantics, so lookup is a binary search over
+  seg_start rather than a bit trie walk: the columnar arrays are used
+  in place directly out of the decompressed image, making startup a
+  single streaming decompress.  seg_country[i] is an index into
+  country_codes, or 255 for unmapped space; seg_city[i] is an index
+  into city_names, or UINT_MAX. */
 
-  FD_GUI_GEOIP_*_MAX_NODES should be larger than 2*num_records (since
-  records are stored in the leaves of a binary tree). */
-
-#define FD_GUI_GEOIP_DBIP_MAX_NODES   (1UL<<24UL) /* 16M nodes */
+#define FD_GUI_GEOIP_BIN_MAX          (128UL<<20) /* decompressed image cap */
 #define FD_GUI_GEOIP_MAX_CITY_NAME_SZ (80UL)
 #define FD_GUI_GEOIP_MAX_CITY_CNT     (160000UL)
 #define FD_GUI_GEOIP_MAX_COUNTRY_CNT  (254UL)
-
-struct fd_gui_geoip_node {
-  uchar has_prefix;
-  uchar country_code_idx;
-  uint  city_name_idx;
-
-  struct fd_gui_geoip_node * left;
-  struct fd_gui_geoip_node * right;
-};
-
-typedef struct fd_gui_geoip_node fd_gui_geoip_node_t;
 
 struct fd_gui_wfs_peer {
   fd_pubkey_t identity_key;
@@ -103,7 +89,6 @@ typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
 #define DLIST_NEXT  fresh_next
 #include "../../util/tmpl/fd_dlist.c"
 
-#define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
 #define FD_GUI_PEERS_NODE_UPDATE (2)
 #define FD_GUI_PEERS_NODE_DELETE (3)
@@ -114,40 +99,21 @@ typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
 #define FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS    ( 150L)
 #define FD_GUI_PEERS_GOSSIP_STATS_UPDATE_INTERVAL_MILLIS   ( 300L)
 
+FD_STATIC_ASSERT( FD_CONTACT_INFO_TABLE_SIZE < UINT_MAX, gui_peer_idx_fits_uint );
+
 #define FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT (64UL)
 
 /* Some table columns are rates of change, which require keeping a
    historical value / timestamp. */
 struct fd_gui_peers_metric_rate {
-  ulong cur;
-  ulong ref;
-  long rate_ema; /* units per sec. live_table treaps use this field to sort table entries */
-  long update_timestamp_ns; /* time when cur was last copied over to ref */
+  ulong        cur;
+  ulong        ref;
+  fd_gui_ema_t rate_ema; /* units per sec. live_table treaps use this field to sort table entries */
+  long         update_timestamp_ns; /* time when cur was last copied over to ref */
 };
 typedef struct fd_gui_peers_metric_rate fd_gui_peers_metric_rate_t;
 
 #define FD_GUI_PEERS_EMA_HALF_LIFE_NS (3000000000L)
-
-/* fd_gui_ema computes an adaptive exponential moving average tick.
-   Given the previous EMA value, a new sample, timestamps, and a
-   half-life (all in nanoseconds), returns the updated EMA.  On the
-   first call (last_update_nanos==0) the new sample is returned as-is
-   to seed the series. */
-
-static inline double
-fd_gui_ema( long   last_update_nanos,
-            long   now_nanos,
-            double new_sample,
-            double prev_ema,
-            long   half_life_ns ) {
-  if( FD_UNLIKELY( last_update_nanos==0L ) ) return new_sample;
-
-  long dt = now_nanos - last_update_nanos;
-  if( FD_UNLIKELY( dt<=0L ) ) return prev_ema;
-
-  double alpha = 1.0 - exp( -0.69314718055994 * (double)dt / (double)half_life_ns );
-  return alpha * new_sample + (1.0 - alpha) * prev_ema;
-}
 
 struct fd_gui_peers_voter {
   fd_vote_stake_weight_t weight;
@@ -201,12 +167,12 @@ struct fd_gui_peers_node {
   } sock_map;
 
   struct {
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong prio;
-    ulong next;
-    ulong prev;
+    uint parent;
+    uint left;
+    uint right;
+    uint prio;
+    uint next;
+    uint prev;
   } treaps_live_table[ FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT ];
   struct {
     ulong next;
@@ -215,12 +181,12 @@ struct fd_gui_peers_node {
   ulong sort_keys_live_table;
 
   struct {
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong prio;
-    ulong next;
-    ulong prev;
+    uint parent;
+    uint left;
+    uint right;
+    uint prio;
+    uint next;
+    uint prev;
   } treaps_bandwidth_tracking[ 2UL ];
     struct {
     ulong next;
@@ -321,7 +287,8 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 static int live_table_col_pubkey_lt( void const * a, void const * b ) { return memcmp( ((fd_pubkey_t *)a)->uc, ((fd_pubkey_t *)b)->uc, 32UL ) < 0;   }
-static int live_table_col_long_lt  ( void const * a, void const * b ) { return *(long *)a < *(long *)b;                                              }
+
+static int live_table_col_double_lt( void const * a, void const * b ) { return *(double *)a < *(double *)b;                                          }
 static int live_table_col_uchar_lt ( void const * a, void const * b ) { return *(uchar *)a < *(uchar *)b;                                            }
 static int live_table_col_ipv4_lt  ( void const * a, void const * b ) { return fd_uint_bswap(*(uint *)a) < fd_uint_bswap(*(uint *)b);                }
 static int live_table_col_name_lt  ( void const * a, void const * b ) { return memcmp( (char *)a, (char *)b, FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ) < 0; }
@@ -332,6 +299,7 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_SORT_KEYS sort_keys_live_table
 #define LIVE_TABLE_DLIST dlist_live_table
 #define LIVE_TABLE_COLUMN_CNT (9UL)
+#define LIVE_TABLE_IDX_T uint
 #define LIVE_TABLE_MAX_SORT_KEY_CNT FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
@@ -340,10 +308,10 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
   LIVE_TABLE_COL_ENTRY( "Name",         row.name,                                                                     live_table_col_name_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Country",      row.country_code_idx,                                                         live_table_col_uchar_lt  ), \
   LIVE_TABLE_COL_ENTRY( "IP Addr",      row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,         live_table_col_ipv4_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), )
+  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1, -1 } })
@@ -353,11 +321,12 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_SORT_KEYS sort_keys_bandwidth_tracking
 #define LIVE_TABLE_DLIST dlist_bandwidth_tracking
 #define LIVE_TABLE_COLUMN_CNT (2UL)
+#define LIVE_TABLE_IDX_T uint
 #define LIVE_TABLE_MAX_SORT_KEY_CNT (2UL)
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
-  LIVE_TABLE_COL_ENTRY( "Ingress Total", row.gossvf_rx_sum.rate_ema, live_table_col_long_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Total",  row.gossip_tx_sum.rate_ema, live_table_col_long_lt )  )
+  LIVE_TABLE_COL_ENTRY( "Ingress Total", row.gossvf_rx_sum.rate_ema.value, live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Total",  row.gossip_tx_sum.rate_ema.value, live_table_col_double_lt )  )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_BW_TRACKING_INGRESS_SORT_KEY ((fd_gui_peers_bandwidth_tracking_sort_key_t){ .col = { 0, 1 }, .dir = { -1, 0 } })
@@ -376,7 +345,12 @@ struct fd_gui_peers_ws_conn {
 typedef struct fd_gui_peers_ws_conn fd_gui_peers_ws_conn_t;
 
 struct fd_gui_ip_db {
-  fd_gui_geoip_node_t * nodes;
+  /* Columnar disjoint-segment table, pointing into the decompressed
+     database image (see format comment above). */
+  ulong         seg_cnt;
+  uint const *  seg_start;   /* [seg_cnt] sorted, host byte order */
+  uchar const * seg_country; /* [seg_cnt] index into country_code, 255=unknown */
+  uint const *  seg_city;    /* [seg_cnt] index into city_name, UINT_MAX=unknown */
   char country_code[ FD_GUI_GEOIP_MAX_COUNTRY_CNT ][ 3 ]; /* ISO 3166-1 alpha-2 country codes as cstrings */
   char city_name[ FD_GUI_GEOIP_MAX_CITY_CNT ][ FD_GUI_GEOIP_MAX_CITY_NAME_SZ ]; /* city_names as cstrings */
 };
@@ -415,8 +389,8 @@ struct fd_gui_peers_ctx {
     ulong epoch;
 
     ulong                    stakes_cnt;
-    fd_gui_peers_voter_t     stakes  [ MAX_COMPRESSED_STAKE_WEIGHTS ];
-    fd_gui_peers_voter_idx_t vote_idx[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    fd_gui_peers_voter_t     stakes  [ MAX_STAKE_WEIGHTS ];
+    fd_gui_peers_voter_idx_t vote_idx[ MAX_STAKE_WEIGHTS ];
   } epochs[ 2 ];
 
   union {
@@ -425,13 +399,13 @@ struct fd_gui_peers_ctx {
       ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
     };
     struct {
-      ulong wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
+      ulong wfs_peers[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
     };
     struct {
-      fd_stake_weight_t      manifest_id_weights  [ FD_VOTE_ACCOUNTS_MAX ];
-      fd_vote_stake_weight_t manifest_vote_weights[ FD_VOTE_ACCOUNTS_MAX ];
+      fd_stake_weight_t      manifest_id_weights  [ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+      fd_vote_stake_weight_t manifest_vote_weights[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
     };
-    fd_gui_peers_voter_t voters_scratch[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    fd_gui_peers_voter_t voters_scratch[ MAX_STAKE_WEIGHTS ];
     struct {
       fd_gui_peers_row_t viewport    [ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* new rows snapshotted from live_table */
       fd_gui_peers_row_t viewport_ref[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* old baseline, diff reference */
@@ -439,18 +413,15 @@ struct fd_gui_peers_ctx {
     };
   } scratch;
 
-#if FD_HAS_ZSTD
-  ZSTD_DCtx * zstd_dctx;
-#endif
-
+  uchar * dbip_image;
   fd_gui_ip_db_t dbip;
 
-  int                       wfs_enabled;
-  fd_gui_wfs_peer_t         wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
-  ulong                     wfs_peers_cnt;
-  int                       wfs_peers_valid;
-  int                       wfs_stakes_sent;
-  wfs_fresh_dlist_t         wfs_fresh_dlist[ 1 ];
+  int               wfs_enabled;
+  fd_gui_wfs_peer_t wfs_peers[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+  ulong             wfs_peers_cnt;
+  int               wfs_peers_valid;
+  int               wfs_stakes_sent;
+  wfs_fresh_dlist_t wfs_fresh_dlist[ 1 ];
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
@@ -511,6 +482,11 @@ fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
                           fd_pubkey_t const *  vote_account,
                           ulong                vote_slot,
                           int                  is_us );
+
+/* fd_gui_peers_handle_identity_change invalidates/resets state from the
+   previous identity.  Namely, it resets the vote slot. */
+void
+fd_gui_peers_handle_identity_change( fd_gui_peers_ctx_t * peers );
 
 /* fd_gui_peers_update_delinquency is called infrequently (currently,
    once per slot) and scans the cluster for any nodes that are

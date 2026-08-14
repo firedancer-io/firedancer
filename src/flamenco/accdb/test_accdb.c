@@ -2,13 +2,12 @@
 
 #include "fd_accdb.h"
 #include "fd_accdb_cache.h"
-#define FD_ACCDB_NO_FORK_ID
 #include "fd_accdb_private.h"
-#undef FD_ACCDB_NO_FORK_ID
 #include "../../util/fd_util.h"
 
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include <unistd.h>
 #include <sys/mman.h>
 
@@ -50,14 +49,14 @@ test_setup_ex( int * out_fd,
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt ) );
+                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
 
@@ -81,6 +80,16 @@ test_setup( int * out_fd,
                         partition_cnt, partition_sz, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
 }
 
+static fd_accdb_t *
+test_join_writer( int fd ) {
+  ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots );
+  void * mem = aligned_alloc( fd_accdb_align(), fp );
+  FD_TEST( mem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, 0UL, NULL ) );
+  FD_TEST( accdb );
+  return accdb;
+}
+
 static void
 test_teardown( fd_accdb_t * accdb,
                int          fd ) {
@@ -97,6 +106,22 @@ static void
 drain_background( fd_accdb_t * accdb ) {
   int charge_busy = 0;
   fd_accdb_background( accdb, &charge_busy );
+}
+
+typedef struct {
+  fd_accdb_t * accdb;
+  int          stop;
+} test_background_ctx_t;
+
+static void *
+run_background( void * _ctx ) {
+  test_background_ctx_t * ctx = _ctx;
+  while( !FD_VOLATILE_CONST( ctx->stop ) ) {
+    int charge_busy = 0;
+    fd_accdb_background( ctx->accdb, &charge_busy );
+    if( FD_LIKELY( !charge_busy ) ) FD_SPIN_PAUSE();
+  }
+  return NULL;
 }
 
 /* Helper: read a single account via acquire/release.  Returns 1 if
@@ -146,6 +171,114 @@ accdb_write( fd_accdb_t *       accdb,
   if( data_len && data ) memcpy( acc[0].data, data, data_len );
   acc[0].commit = 1;
   fd_accdb_release( accdb, 1UL, acc );
+}
+
+static void
+accdb_write_pd( fd_accdb_t *       accdb,
+                fd_accdb_fork_id_t fork_id,
+                uchar const *      pubkey,
+                ulong              lamports,
+                uchar const *      data,
+                ulong              data_len,
+                uchar const *      owner,
+                int                pd_write ) {
+  uchar const * pks[1] = { pubkey };
+  int wr[1] = { 1 };
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  acc[0].lamports = lamports;
+  acc[0].data_len = data_len;
+  memcpy( acc[0].owner, owner, 32UL );
+  if( data_len && data ) memcpy( acc[0].data, data, data_len );
+  acc[0].commit   = 1;
+  acc[0].pd_write = pd_write;
+  fd_accdb_release( accdb, 1UL, acc );
+}
+
+void
+test_pd_write_bit_and_probe( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t f1   = fd_accdb_attach_child( accdb, root );
+
+  uchar owner[32]; memset( owner, 0xAB, 32UL );
+  uchar pk[32];    memset( pk, 0x11, 32UL );
+  uchar data[128]; memset( data, 0x22, sizeof(data) );
+
+  int   pd;
+  ulong len;
+  ulong lamports;
+
+  /* Write on f1 with pd_write=1 -> probe on f1 sees bit=1, gen-match,
+     returns the committed data_len. */
+  accdb_write_pd( accdb, f1, pk, 500UL, data, sizeof(data), owner, 1 );
+  pd = 0; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len, &lamports )==1 );
+  FD_TEST( pd==1 );
+  FD_TEST( len==sizeof(data) );
+
+  /* Probe on a child fork of f1: generation mismatch -> returns 0, pd=0,
+     out_data_len untouched. */
+  fd_accdb_fork_id_t c = fd_accdb_attach_child( accdb, f1 );
+  pd = 1; len = 0xdeadUL;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len, &lamports )==0 );
+  FD_TEST( pd==0 );
+  FD_TEST( len==0xdeadUL ); /* untouched */
+
+  /* OR-sticky: overwrite on f1 with pd_write=0 must NOT clear the bit. */
+  accdb_write_pd( accdb, f1, pk, 501UL, data, sizeof(data), owner, 0 );
+  pd = 0; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len, &lamports )==1 );
+  FD_TEST( pd==1 ); /* survived the pd_write=0 overwrite */
+
+  /* New version on child fork c with pd_write=0 -> probe on c sees bit=0
+     (new current-gen version, no deploy-status write this slot). */
+  accdb_write_pd( accdb, c, pk, 502UL, data, sizeof(data), owner, 0 );
+  pd = 1; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len, &lamports )==1 );
+  FD_TEST( pd==0 );
+  FD_TEST( len==sizeof(data) );
+
+  /* Closed-this-slot: a lamports==0 current-generation tombstone with
+     pd_write=1 must still report pd==1 (the exists()-clone lamports
+     trap; Close is the fails-open case). */
+  uchar pk2[32]; memset( pk2, 0x33, 32UL );
+  fd_accdb_fork_id_t f2 = fd_accdb_attach_child( accdb, root );
+  accdb_write_pd( accdb, f2, pk2, 999UL, data, 64UL, owner, 0 ); /* fund it first */
+  accdb_write_pd( accdb, f2, pk2, 0UL,   NULL, 4UL,  owner, 1 ); /* close: lamports=0, pd_write=1 */
+  pd = 0; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk2, &pd, &len, &lamports )==1 );
+  FD_TEST( pd==1 );      /* bit reported despite lamports==0 */
+  FD_TEST( len==4UL );   /* post-close committed len */
+  FD_TEST( lamports==0UL );
+
+  /* Not-found -> returns 0, pd=0, out_data_len untouched. */
+  uchar pk3[32]; memset( pk3, 0x44, 32UL );
+  pd = 1; len = 0xbeefUL;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk3, &pd, &len, &lamports )==0 );
+  FD_TEST( pd==0 );
+  FD_TEST( len==0xbeefUL );
+
+  /* Mask discipline: a 1 MiB account with pd_write=1 reads back with the
+     correct length (SIZE_DATA excludes bit 28). */
+  uchar pk4[32]; memset( pk4, 0x55, 32UL );
+  ulong big = 1UL<<20;
+  uchar * bigbuf = aligned_alloc( 64UL, big );
+  FD_TEST( bigbuf ); memset( bigbuf, 0x66, big );
+  accdb_write_pd( accdb, f1, pk4, 700UL, bigbuf, big, owner, 1 );
+  ulong rlen = 0UL;
+  FD_TEST( accdb_read( accdb, f1, pk4, NULL, NULL, &rlen, NULL )==1 );
+  FD_TEST( rlen==big );
+  pd = 0; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk4, &pd, &len, &lamports )==1 );
+  FD_TEST( pd==1 );
+  FD_TEST( len==big );
+  free( bigbuf );
+
+  test_teardown( accdb, fd );
 }
 
 void
@@ -509,6 +642,35 @@ test_purge( void ) {
   test_teardown( accdb, fd );
 }
 
+/* A completed purge leaves its fork slot deferred until a later drain.
+   If the pool is otherwise full, attach_child must request that drain,
+   block for reader quiescence, and retry the allocation. */
+void
+test_attach_child_drains_deferred_fork( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 64UL, 3UL, 64UL, 64UL, 1UL<<30UL );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t keep = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t drop = fd_accdb_attach_child( accdb, root );
+
+  fd_accdb_purge( accdb, drop );
+
+  test_background_ctx_t bg = { .accdb = accdb, .stop = 0 };
+  pthread_t thread;
+  FD_TEST( !pthread_create( &thread, NULL, run_background, &bg ) );
+
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, keep );
+  FD_TEST( child.val==drop.val );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( bg.stop ) = 1;
+  FD_COMPILER_MFENCE();
+  FD_TEST( !pthread_join( thread, NULL ) );
+
+  test_teardown( accdb, fd );
+}
+
 /* Test that child forks inherit writes from their parent (ancestor
    visibility) and that overwriting on the child does not affect the
    parent's view. */
@@ -811,7 +973,7 @@ test_mainnet_footprint( void ) {
 
   FD_TEST( max_account_writes_per_slot==321280UL );
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL, 0UL );
   FD_TEST( shmem_fp );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
@@ -853,13 +1015,10 @@ test_mainnet_footprint( void ) {
   ulong descends_fp       = descends_set_footprint( max_live_slots );
 
   ulong sz_shmem_t        = sizeof(fd_accdb_shmem_t);
-  ulong sz_fork_pool      = fork_pool_footprint();
   ulong sz_fork_shmem     = max_live_slots*sizeof(fd_accdb_fork_shmem_t);
   ulong sz_descends       = max_live_slots*descends_fp;
   ulong sz_chain          = chain_cnt*sizeof(uint);
-  ulong sz_acc_pool_meta  = acc_pool_footprint();
   ulong sz_acc_pool       = max_accounts*sizeof(fd_accdb_accmeta_t);
-  ulong sz_txn_pool_meta  = txn_pool_footprint();
   ulong sz_txn_pool       = txn_max*sizeof(fd_accdb_txn_t);
   ulong sz_part_pool      = partition_pool_footprint( partition_cnt );
   ulong sz_compact_dlists = FD_ACCDB_COMPACTION_LAYER_CNT*compaction_dlist_footprint();
@@ -868,10 +1027,10 @@ test_mainnet_footprint( void ) {
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ )
     sz_cache_regions += cache_class_max[c]*fd_accdb_cache_slot_sz[c];
 
-  ulong sum = sz_shmem_t + sz_fork_pool + sz_fork_shmem + sz_descends
+  ulong sum = sz_shmem_t + sz_fork_shmem + sz_descends
             + sz_chain
-            + sz_acc_pool_meta + sz_acc_pool
-            + sz_txn_pool_meta + sz_txn_pool
+            + sz_acc_pool
+            + sz_txn_pool
             + sz_part_pool + sz_compact_dlists + sz_deferred_dlist
             + sz_cache_regions;
 
@@ -884,9 +1043,6 @@ test_mainnet_footprint( void ) {
     { "partition_pool",     sz_part_pool      },
     { "fork_shmem",         sz_fork_shmem     },
     { "fd_accdb_shmem_t",   sz_shmem_t       },
-    { "fork_pool meta",     sz_fork_pool      },
-    { "acc_pool meta",      sz_acc_pool_meta  },
-    { "txn_pool meta",      sz_txn_pool_meta  },
     { "compaction_dlists",  sz_compact_dlists },
     { "deferred_free_dlist",sz_deferred_dlist },
   };
@@ -1148,6 +1304,224 @@ test_revert_whead( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_deferred_write_stats: snapshot_write_batch holds
+   disk_current_bytes in the accdb instead of publishing it per
+   account, while disk_used_bytes and accounts_total stay immediate.
+   Check both halves, over inserts, replaces and ignores. */
+static void
+test_deferred_write_stats( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+
+  fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  uchar pk_a[ 32UL ] = { 0xA0 };
+  uchar pk_b[ 32UL ] = { 0xA1 };
+  uchar const * pubkeys[ 2 ] = { pk_a, pk_b };
+  ulong slots      [ 2 ] = { 10UL,  10UL };
+  ulong lamports   [ 2 ] = { 1UL,   2UL  };
+  ulong data_lens  [ 2 ] = { 100UL, 200UL };
+  int   executables[ 2 ] = { 0, 0 };
+  ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports, accepted_mask;
+
+  FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 2UL, pubkeys, slots,
+                                           lamports, data_lens, executables,
+                                           &ignored, &replaced, &loaded,
+                                           &replaced_lamports, &ignored_lamports, &accepted_mask ) );
+  FD_TEST( !ignored && !replaced && loaded==2UL );
+  FD_TEST( accepted_mask==3UL );
+
+  ulong meta_sz = sizeof(fd_accdb_disk_meta_t);
+
+  /* disk_current_bytes waits for a flush.  The other two do not. */
+  FD_TEST( shmetrics->disk_current_bytes==0UL );
+  FD_TEST( shmetrics->disk_used_bytes   ==2UL*meta_sz + 100UL + 200UL );
+  FD_TEST( shmetrics->accounts_total    ==2UL );
+
+  /* Replace pk_a at a newer slot, ignore pk_b at an older one. */
+  slots[ 0 ] = 20UL; data_lens[ 0 ] = 300UL;
+  slots[ 1 ] =  5UL; data_lens[ 1 ] = 400UL;
+
+  FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 2UL, pubkeys, slots,
+                                           lamports, data_lens, executables,
+                                           &ignored, &replaced, &loaded,
+                                           &replaced_lamports, &ignored_lamports, &accepted_mask ) );
+  FD_TEST( ignored==1UL && replaced==1UL && !loaded );
+  FD_TEST( accepted_mask==1UL );
+
+  /* Only live entries count as used, and the replaced one stops
+     counting.  The ignored entry never counted. */
+  FD_TEST( shmetrics->disk_current_bytes==0UL );
+  FD_TEST( shmetrics->disk_used_bytes   ==2UL*meta_sz + 200UL + 300UL );
+  FD_TEST( shmetrics->accounts_total    ==2UL );
+
+  /* save_whead copies disk_current_bytes, so it must publish first.
+     Every entry takes disk space, even the ignored one. */
+  fd_accdb_snapshot_recovery_t recovery;
+  fd_accdb_snapshot_save_whead( accdb, &recovery );
+
+  ulong reserved = 4UL*meta_sz + 100UL + 200UL + 300UL + 400UL;
+  FD_TEST( shmetrics->disk_current_bytes==reserved );
+  FD_TEST( recovery.disk_current_bytes  ==reserved );
+
+  fd_accdb_snapshot_load_end( accdb );
+  test_teardown( accdb, fd );
+}
+
+/* test_deferred_write_stats_rollover: held counters belong to one
+   partition, so a batch that crosses into the next partition must
+   credit each one on its own. */
+static void
+test_deferred_write_stats_rollover( void ) {
+  int fd;
+  ulong psz = 11UL<<20UL; /* 11 MiB, just above ~10 MiB minimum */
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, psz );
+
+  fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  /* 4 MiB each, so the third entry does not fit in the first
+     partition and the batch rolls over exactly once. */
+  ulong entry_sz = 4UL<<20UL;
+  uchar pks[ 4 ][ 32UL ];
+  uchar const * pubkeys[ 4 ];
+  ulong slots      [ 4 ];
+  ulong lamports   [ 4 ];
+  ulong data_lens  [ 4 ];
+  int   executables[ 4 ];
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_memset( pks[ i ], 0, 32UL );
+    pks[ i ][ 0 ]    = (uchar)( 0xB0+i );
+    pubkeys[ i ]     = pks[ i ];
+    slots[ i ]       = 10UL;
+    lamports[ i ]    = i+1UL;
+    data_lens[ i ]   = entry_sz-sizeof(fd_accdb_disk_meta_t);
+    executables[ i ] = 0;
+  }
+
+  ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports, accepted_mask;
+  FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 4UL, pubkeys, slots,
+                                           lamports, data_lens, executables,
+                                           &ignored, &replaced, &loaded,
+                                           &replaced_lamports, &ignored_lamports, &accepted_mask ) );
+  FD_TEST( !ignored && !replaced && loaded==4UL );
+  FD_TEST( accepted_mask==15UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* The load spanned more than one partition, and every entry is
+     credited to the partition it landed on. */
+  ulong partition_max = fd_accdb_shmem_partition_max( test_shmem_mem );
+  FD_TEST( partition_max>1UL );
+
+  ulong total_bytes = 0UL;
+  ulong total_ops   = 0UL;
+  ulong used_cnt    = 0UL;
+  for( ulong p=0UL; p<partition_max; p++ ) {
+    fd_accdb_shmem_partition_info_t info;
+    fd_accdb_shmem_partition_info( test_shmem_mem, p, &info );
+    total_bytes += info.bytes_written;
+    total_ops   += info.write_ops;
+    used_cnt    += !!info.write_ops;
+  }
+  FD_TEST( total_bytes==4UL*entry_sz );
+  FD_TEST( total_ops  ==4UL );
+  FD_TEST( used_cnt   > 1UL );
+
+  test_teardown( accdb, fd );
+}
+
+static void
+test_default_deferred_write_stats( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+
+  fd_accdb_attach_child( accdb, SENTINEL );
+
+  uchar pubkey[ 32UL ] = { 0xC0 };
+  ulong data_len = 123UL;
+  ulong replaced_lamports;
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pubkey, 1UL, 1UL, data_len, 0, &replaced_lamports )==1 );
+
+  fd_accdb_shmem_partition_info_t info;
+  fd_accdb_shmem_partition_info( test_shmem_mem, 0UL, &info );
+  FD_TEST( shmetrics->disk_current_bytes==0UL );
+  FD_TEST( info.bytes_written==0UL );
+  FD_TEST( info.write_ops==0UL );
+
+  fd_accdb_flush_metrics( accdb );
+
+  ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
+  fd_accdb_shmem_partition_info( test_shmem_mem, 0UL, &info );
+  FD_TEST( shmetrics->disk_current_bytes==entry_sz );
+  FD_TEST( info.bytes_written==entry_sz );
+  FD_TEST( info.write_ops==1UL );
+
+  test_teardown( accdb, fd );
+}
+
+static void
+test_deferred_write_stats_two_joiners( void ) {
+  int fd;
+  ulong psz = 11UL<<20UL;
+  fd_accdb_t * accdb_a = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, psz,
+                                        TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+  fd_accdb_t * accdb_b = test_join_writer( fd );
+
+  fd_accdb_attach_child( accdb_a, SENTINEL );
+
+  uchar pubkey_a[ 32UL ] = { 0xC1 };
+  uchar pubkey_b[ 32UL ] = { 0xC2 };
+  ulong entry_sz_a = 4UL<<20UL;
+  ulong entry_sz_b = 8UL<<20UL;
+  ulong replaced_lamports;
+
+  FD_TEST( fd_accdb_snapshot_write_one( accdb_a, SENTINEL, pubkey_a, 1UL, 1UL,
+                                        entry_sz_a-sizeof(fd_accdb_disk_meta_t), 0, &replaced_lamports )==1 );
+  FD_TEST( fd_accdb_snapshot_write_one( accdb_b, SENTINEL, pubkey_b, 1UL, 1UL,
+                                        entry_sz_b-sizeof(fd_accdb_disk_meta_t), 0, &replaced_lamports )==1 );
+
+  FD_TEST( fd_accdb_shmem_partition_max( test_shmem_mem )==2UL );
+
+  ulong old_idx = ULONG_MAX;
+  ulong new_idx = ULONG_MAX;
+  for( ulong p=0UL; p<2UL; p++ ) {
+    fd_accdb_shmem_partition_info_t info;
+    fd_accdb_shmem_partition_info( test_shmem_mem, p, &info );
+    if( info.is_write_head ) new_idx = p;
+    else                     old_idx = p;
+    FD_TEST( info.bytes_written==0UL );
+    FD_TEST( info.write_ops==0UL );
+  }
+  FD_TEST( old_idx!=ULONG_MAX && new_idx!=ULONG_MAX );
+
+  fd_accdb_flush_metrics( accdb_b );
+
+  fd_accdb_shmem_partition_info_t old_info;
+  fd_accdb_shmem_partition_info_t new_info;
+  fd_accdb_shmem_partition_info( test_shmem_mem, old_idx, &old_info );
+  fd_accdb_shmem_partition_info( test_shmem_mem, new_idx, &new_info );
+  FD_TEST( old_info.bytes_written==0UL );
+  FD_TEST( old_info.write_ops==0UL );
+  FD_TEST( new_info.bytes_written==entry_sz_b );
+  FD_TEST( new_info.write_ops==1UL );
+
+  fd_accdb_flush_metrics( accdb_a );
+
+  fd_accdb_shmem_partition_info( test_shmem_mem, old_idx, &old_info );
+  fd_accdb_shmem_partition_info( test_shmem_mem, new_idx, &new_info );
+  FD_TEST( old_info.bytes_written==entry_sz_a );
+  FD_TEST( old_info.write_ops==1UL );
+  FD_TEST( new_info.bytes_written==entry_sz_b );
+  FD_TEST( new_info.write_ops==1UL );
+
+  free( accdb_b );
+  test_teardown( accdb_a, fd );
+}
+
 /* test_incremental_cross_fork_override verifies that incremental
    cross-fork overrides create new acc_pool entries with txn records,
    and that purging the incremental fork + revert_whead fully restores
@@ -1215,6 +1589,96 @@ test_incremental_cross_fork_override( void ) {
   test_teardown( accdb, fd );
 }
 
+/* Verify a retry reuses entries moved to the free stack after lazy
+   allocation is exhausted. */
+static void
+test_incremental_retry_reuses_acc_pool( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 5UL, 8UL, 64UL, 64UL, 1UL<<30UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+  fd_accdb_t * background = test_join_writer( fd );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+  acc_pool_shmem_t * pool = test_shmem_mem->acc_pool;
+
+  uchar full_pk[ 32UL ] = { 0xC0 };
+  ulong replaced_lamports;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, full_pk, 10UL, 1UL, 0UL, 0,
+                                        &replaced_lamports )==1 );
+
+  fd_accdb_snapshot_recovery_t recovery;
+  fd_accdb_snapshot_save_whead( accdb, &recovery );
+
+  test_background_ctx_t bg_ctx = { .accdb = background, .stop = 0 };
+  pthread_t bg_thread;
+  FD_TEST( !pthread_create( &bg_thread, NULL, run_background, &bg_ctx ) );
+
+  for( ulong attempt=0UL; attempt<2UL; attempt++ ) {
+    fd_accdb_fork_id_t failed = fd_accdb_attach_child( accdb, root );
+    for( ulong i=0UL; i<2UL; i++ ) {
+      uchar failed_pk[ 32UL ] = {0};
+      failed_pk[ 0 ] = (uchar)(0xD0UL + 2UL*attempt + i);
+      FD_TEST( fd_accdb_snapshot_write_one( accdb, failed, failed_pk,
+                                            20UL+attempt, 2UL+i, 0UL, 0,
+                                            &replaced_lamports )==1 );
+    }
+    fd_accdb_purge( accdb, failed );
+    fd_accdb_snapshot_revert_whead( accdb, &recovery );
+    FD_TEST( shmetrics->accounts_total==1UL );
+  }
+
+  ulong top_before  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy_before = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( acc_pool_private_vidx_idx( top_before  )<5UL );
+  FD_TEST( acc_pool_private_vidx_idx( lazy_before )==acc_pool_idx_null() );
+  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==2UL );
+
+  fd_accdb_fork_id_t success = fd_accdb_attach_child( accdb, root );
+  uchar success_pk[ 32UL ] = { 0xE0 };
+  uchar const * pubkeys[ 2 ] = { full_pk, success_pk };
+  ulong slots      [ 2 ] = { 30UL, 30UL };
+  ulong lamports   [ 2 ] = { 10UL, 20UL };
+  ulong data_lens  [ 2 ] = { 0UL,  0UL };
+  int   executables[ 2 ] = { 0,    0 };
+  ulong ignored, replaced, loaded, ignored_lamports, accepted_mask;
+
+  FD_TEST( !fd_accdb_snapshot_write_batch( accdb, success, 2UL, pubkeys, slots,
+                                           lamports, data_lens, executables,
+                                           &ignored, &replaced, &loaded,
+                                           &replaced_lamports, &ignored_lamports, &accepted_mask ) );
+  FD_TEST( !ignored && replaced==1UL && loaded==1UL );
+  FD_TEST( replaced_lamports==1UL && !ignored_lamports );
+  FD_TEST( accepted_mask==3UL );
+  FD_TEST( acc_pool_private_vidx_idx( FD_VOLATILE_CONST( pool->ver_top ) )==acc_pool_idx_null() );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_before );
+
+  fd_accdb_advance_root( accdb, success );
+  fd_accdb_snapshot_load_end( accdb );
+
+  fd_accdb_fork_id_t next = fd_accdb_attach_child( accdb, success );
+  FD_TEST( shmetrics->accounts_total==2UL );
+
+  /* Drain the replaced full-snapshot account. */
+  fd_accdb_advance_root( accdb, next );
+  while( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )!=FD_ACCDB_CMD_IDLE ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
+  FD_TEST( !test_shmem_mem->deferred_acc_buf_cnt );
+
+  FD_VOLATILE( bg_ctx.stop ) = 1;
+  FD_TEST( !pthread_join( bg_thread, NULL ) );
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ulong read_lamports;
+    FD_TEST( accdb_read( accdb, next, pubkeys[ i ], &read_lamports,
+                         NULL, NULL, NULL ) );
+    FD_TEST( read_lamports==lamports[ i ] );
+  }
+
+  free( background );
+  test_teardown( accdb, fd );
+}
+
 /* test_sentinel_index_wrap is a regression for issue #543: at the
    maximum partition_cnt==8192 the initial write-head sentinel's packed
    partition index (partition_cnt) does not fit in the 13-bit index
@@ -1256,7 +1720,7 @@ test_sentinel_index_wrap( void ) {
   FD_TEST( packed_partition_idx   ( &sentinel )==0UL          ); /* wrapped! */
   FD_TEST( packed_partition_offset( &sentinel )==partition_sz );
 
-  /* (2) The switch-wait loop in allocate_next_write must not rely on the
+  /* (2) The switch-wait loop in reserve_next_write must not rely on the
      head's partition index changing away from the sentinel's: a freshly
      acquired partition can reuse index 0, colliding with the wrapped
      sentinel index, and an index-only check would then spin forever
@@ -1283,7 +1747,7 @@ test_sentinel_index_wrap( void ) {
      default), so the wrap above is a reachable configuration, not a
      rejected one. */
   ulong fp = fd_accdb_shmem_footprint( 1024UL, 64UL, 8192UL, max_cnt,
-                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
+                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
   FD_TEST( fp ); /* 0 would mean partition_cnt==8192 was rejected */
 }
 
@@ -1322,6 +1786,9 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_purge ..." ));
   test_purge();
 
+  FD_LOG_NOTICE(( "test_attach_child_drains_deferred_fork ..." ));
+  test_attach_child_drains_deferred_fork();
+
   FD_LOG_NOTICE(( "test_child_inherits_parent ..." ));
   test_child_inherits_parent();
 
@@ -1355,8 +1822,26 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_revert_whead ..." ));
   test_revert_whead();
 
+  FD_LOG_NOTICE(( "test_deferred_write_stats ..." ));
+  test_deferred_write_stats();
+
+  FD_LOG_NOTICE(( "test_deferred_write_stats_rollover ..." ));
+  test_deferred_write_stats_rollover();
+
+  FD_LOG_NOTICE(( "test_default_deferred_write_stats ..." ));
+  test_default_deferred_write_stats();
+
+  FD_LOG_NOTICE(( "test_deferred_write_stats_two_joiners ..." ));
+  test_deferred_write_stats_two_joiners();
+
   FD_LOG_NOTICE(( "test_incremental_cross_fork_override ..." ));
   test_incremental_cross_fork_override();
+
+  FD_LOG_NOTICE(( "test_incremental_retry_reuses_acc_pool ..." ));
+  test_incremental_retry_reuses_acc_pool();
+
+  FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
+  test_pd_write_bit_and_probe();
 
   FD_LOG_NOTICE(( "success" ));
 

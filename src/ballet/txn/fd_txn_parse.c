@@ -1,11 +1,12 @@
 /* https://docs.solana.com/developing/programming-model/transactions#anatomy-of-a-transaction */
 
 #include "fd_txn.h"
+#include "fd_txn_v1.h"
 #include "fd_compact_u16.h"
 
 ulong
 fd_txn_parse_core( uchar const             * payload,
-                   ulong                     payload_sz,
+                   ulong                     original_payload_sz,
                    void                    * out_buf,
                    fd_txn_parse_counters_t * counters_opt,
                    ulong *                   payload_sz_opt ) {
@@ -76,7 +77,147 @@ fd_txn_parse_core( uchar const             * payload,
   /* Minimal instr has 1B for program id, 1B for an acct_addr list
      containing no accounts, 1B for length-0 instruction data */
   #define MIN_INSTR_SZ (3UL)
-  CHECK( payload_sz<=FD_TXN_MTU );
+
+  /* Determine the transaction version.
+
+     For V1 transactions, the message is moved to the front of the payload,
+     whereas for legacy and V0 transactions the first byte is the signature
+     count.
+
+     Because for legacy and V0 transactions the signature count is <128,
+     Agave uses the high bit to determine if the transaction is V1 or
+     legacy/V0:
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-view/src/transaction_frame.rs#L194-L203
+
+     High bit 1 = V1
+     High bit 0 = Legacy/V0 */
+  CHECK( original_payload_sz ); ulong payload_msb = payload[ 0UL ];
+  int is_v1 = payload_msb&0x80;
+
+  /* For V1 transactions, the payload size can be up to FD_TXN_MTU.
+     For V0/legacy transactions, the maximum payload size is limited
+     to FD_TXN_MTU_V0. */
+  ulong maximum_payload_sz = is_v1 ? FD_TXN_MTU : FD_TXN_MTU_V0;
+  ulong payload_sz         = fd_ulong_min( original_payload_sz, maximum_payload_sz );
+
+  if( is_v1 ) {
+    /* ------------------------------ V1 transaction parser ------------------------------ */
+
+    /* Check that the version byte is correct
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-view/src/transaction_frame.rs#L117-L122 */
+    CHECK_LEFT( 1UL                             );   uchar version_byte   = payload[ i ];     i++;
+    CHECK( (version_byte&0x7FU)==FD_TXN_V1 );
+
+    /* Must have at least 1 signer (the fee payer) and no more than FD_TXN_SIG_MAX */
+    CHECK_LEFT( 1UL                             );   uchar signature_cnt  = payload[ i ];     i++;
+    CHECK( (1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX) );
+    CHECK_LEFT( 1UL                             );   uchar ro_signed_cnt  = payload[ i ];     i++;
+
+    /* Fee payer must be a writable signer */
+    CHECK( ro_signed_cnt<signature_cnt );
+    CHECK_LEFT( 1UL                             );   uchar ro_unsigned_cnt= payload[ i ];     i++;
+
+    /* Check the transaction config mask is valid:
+       - Only bits 0-4 are used
+       - Bits 0 and 1 must either be both set or both clear
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-view/src/transaction_config_frame.rs#L90-L112 */
+    CHECK_LEFT( 4UL                             );   uint  config_mask    = fd_uint_load_4( payload+i ); i+=4UL;
+    CHECK( (config_mask & ~0x1FU)==0U );
+    CHECK( ((config_mask>>0)&1U)==((config_mask>>1)&1U) );
+
+    CHECK_LEFT( FD_TXN_BLOCKHASH_SZ             );   ulong recent_blockhash_off = i;          i+=FD_TXN_BLOCKHASH_SZ;
+
+    CHECK_LEFT( 1UL                             );   uchar instr_cnt      = payload[ i ];     i++;
+    CHECK( (ulong)instr_cnt<=FD_TXN_INSTR_MAX );
+
+    /* V1 has no ALTs, so acct_addr_cnt is the total address count in this transaction */
+    CHECK_LEFT( 1UL                             );   uchar acct_addr_cnt  = payload[ i ];     i++;
+    CHECK( (signature_cnt<=acct_addr_cnt) & (acct_addr_cnt<=FD_TXN_ACCT_ADDR_MAX) );
+    CHECK( (ulong)signature_cnt+(ulong)ro_unsigned_cnt<=(ulong)acct_addr_cnt );
+
+    CHECK_LEFT( FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt ); ulong acct_addr_off  =          i  ;     i+=FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt;
+
+    /* Config values: 4 bytes per set mask bit */
+    ulong config_values_off = i;
+    ulong num_config_values = (ulong)fd_uint_popcnt( config_mask );
+    CHECK_LEFT( 4UL*num_config_values           );                                            i+=4UL*num_config_values;
+
+    /* If the requested heap size (bit 4) is set, it must be a multiple
+       of 1 KiB in the range [32 KiB, 256 KiB].
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L156-L164 */
+    if( (config_mask>>4)&1U ) {
+      uint requested_heap = fd_uint_load_4( payload + config_values_off + 4UL*(num_config_values-1UL) );
+      CHECK( (requested_heap>=FD_TXN_V1_MIN_HEAP_SZ          ) &
+             (requested_heap<=FD_TXN_V1_MAX_HEAP_SZ          ) &
+             ((requested_heap%FD_TXN_V1_HEAP_GRANULARITY)==0U) );
+    }
+
+    fd_txn_t * parsed = (fd_txn_t *)out_buf;
+
+    /* Instructions are serialized as a block of fixed-size 4-byte headers
+       followed by a block of variable-size instruction payloads. The headers
+       are serialized separately to the instruction payloads, so we parse them in
+       two passes: first the headers, then the payloads. */
+
+    /* Pass 1: instruction headers (program_id_index, num_accounts, data_len) */
+    for( ulong j=0UL; j<instr_cnt; j++ ) {
+      CHECK_LEFT( 1UL                           );   uchar  program_id = payload[ i ];        i++;
+      /* program_id must be a static account and can't be the fee payer
+         https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-view/src/sanitize.rs#L163-L172 */
+      CHECK( (0UL<(ulong)program_id) & ((ulong)program_id<(ulong)acct_addr_cnt) );
+      CHECK_LEFT( 1UL                           );   uchar  acct_cnt   = payload[ i ];        i++;
+      CHECK_LEFT( 2UL                           );   ushort data_sz    = fd_ushort_load_2( payload+i ); i+=2UL;
+
+      parsed->instr[ j ].program_id          = program_id;
+      parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
+      parsed->instr[ j ].acct_cnt            = (ushort)acct_cnt;
+      parsed->instr[ j ].data_sz             = data_sz;
+    }
+
+    /* Pass 2: instruction payloads */
+    for( ulong j=0UL; j<instr_cnt; j++ ) {
+      ushort acct_cnt = parsed->instr[ j ].acct_cnt;
+      ushort data_sz  = parsed->instr[ j ].data_sz;
+
+      CHECK_LEFT( acct_cnt                      );   ulong acct_off       =          i  ;
+      ulong end = i+acct_cnt;
+      for( ; i<end; i++ ) CHECK( payload[ i ]<acct_addr_cnt );
+      CHECK_LEFT( data_sz                       );   ulong data_off       =          i  ;     i+=data_sz;
+
+      parsed->instr[ j ].acct_off            = (ushort)acct_off;
+      parsed->instr[ j ].data_off            = (ushort)data_off;
+    }
+
+    CHECK_LEFT( FD_TXN_SIGNATURE_SZ*signature_cnt ); ulong signature_off  =          i  ;     i+=FD_TXN_SIGNATURE_SZ*signature_cnt;
+
+    parsed->transaction_version          = FD_TXN_V1;
+    parsed->signature_cnt                = signature_cnt;
+    /* In V1, the message is at the front of the packet and the
+       signatures are at the end. So message_off = 0. */
+    parsed->signature_off                = (ushort)signature_off;
+    parsed->message_off                  = 0;
+    parsed->readonly_signed_cnt          = ro_signed_cnt;
+    parsed->readonly_unsigned_cnt        = ro_unsigned_cnt;
+    parsed->acct_addr_cnt                = (ushort)acct_addr_cnt;
+    parsed->acct_addr_off                = (ushort)acct_addr_off;
+    parsed->recent_blockhash_off         = (ushort)recent_blockhash_off;
+    /* No ALTs in V1 */
+    parsed->addr_table_lookup_cnt        = (uchar)0;
+    parsed->addr_table_adtl_writable_cnt = (uchar)0;
+    parsed->addr_table_adtl_cnt          = (uchar)0;
+    parsed->_padding_reserved_1          = (uchar)0;
+    parsed->v1_txn_config_values_off     = (ushort)config_values_off;
+    parsed->instr_cnt                    = (ushort)instr_cnt;
+
+    /* Check for leftover bytes if payload_sz_opt not specified. */
+    CHECK( (payload_sz_opt!=NULL) | (i==original_payload_sz) );
+
+    if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
+    if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;
+    return fd_txn_footprint( instr_cnt, 0 );
+  }
+
+  /* ------------------------------ Legacy/V0 transaction parser ------------------------------ */
 
   /* The documentation sometimes calls signature_cnt a compact-u16 and
      sometimes a u8.  Because of transaction size limits, even allowing
@@ -128,21 +269,21 @@ fd_txn_parse_core( uchar const             * payload,
 
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
 
-  if( parsed ) {
-    parsed->transaction_version           = transaction_version;
-    parsed->signature_cnt                 = signature_cnt;
-    parsed->signature_off                 = (ushort)signature_off;
-    parsed->message_off                   = (ushort)message_off;
-    parsed->readonly_signed_cnt           = ro_signed_cnt;
-    parsed->readonly_unsigned_cnt         = ro_unsigned_cnt;
-    parsed->acct_addr_cnt                 = acct_addr_cnt;
-    parsed->acct_addr_off                 = (ushort)acct_addr_off;
-    parsed->recent_blockhash_off          = (ushort)recent_blockhash_off;
-    /* Need to assign addr_table_lookup_cnt,
-       addr_table_adtl_writable_cnt, addr_table_adtl_cnt,
-       _padding_reserved_1 later */
-    parsed->instr_cnt                     = instr_cnt;
-  }
+  parsed->transaction_version           = transaction_version;
+  parsed->signature_cnt                 = signature_cnt;
+  parsed->signature_off                 = (ushort)signature_off;
+  parsed->message_off                   = (ushort)message_off;
+  parsed->readonly_signed_cnt           = ro_signed_cnt;
+  parsed->readonly_unsigned_cnt         = ro_unsigned_cnt;
+  parsed->acct_addr_cnt                 = acct_addr_cnt;
+  parsed->acct_addr_off                 = (ushort)acct_addr_off;
+  parsed->recent_blockhash_off          = (ushort)recent_blockhash_off;
+  parsed->_padding_reserved_1           = (uchar)0;
+  /* v1_txn_config_values_off is a V1-specific field */
+  parsed->v1_txn_config_values_off      = (ushort)0;
+  /* Need to assign addr_table_lookup_cnt,
+     addr_table_adtl_writable_cnt, addr_table_adtl_cnt later */
+  parsed->instr_cnt                     = instr_cnt;
 
   uchar max_acct = 0UL;
   for( ulong j=0UL; j<instr_cnt; j++ ) {
@@ -152,6 +293,7 @@ fd_txn_parse_core( uchar const             * payload,
     ushort data_sz  = (ushort)0;
     CHECK_LEFT( MIN_INSTR_SZ                    );   uchar program_id     = payload[ i ];     i++;
     READ_CHECKED_COMPACT_U16( bytes_consumed,             acct_cnt,                  i );     i+=bytes_consumed;
+    CHECK( acct_cnt<=FD_TXN_INSTR_ACCT_MAX      );
     CHECK_LEFT( acct_cnt                        );   ulong acct_off       =          i  ;
     for( ulong k=0; k<acct_cnt; k++ ) { max_acct=fd_uchar_max( max_acct,  payload[ k+i ] ); } i+=acct_cnt;
     READ_CHECKED_COMPACT_U16( bytes_consumed,             data_sz,                   i );     i+=bytes_consumed;
@@ -165,16 +307,14 @@ fd_txn_parse_core( uchar const             * payload,
        program ID can't come from a table. */
     CHECK( (0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) );
 
-    if( parsed ){
-      parsed->instr[ j ].program_id          = program_id;
-      parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
-      parsed->instr[ j ].acct_cnt            = acct_cnt;
-      parsed->instr[ j ].data_sz             = data_sz;
-      /* By our invariant, i<size when it was copied into acct_off and
-         data_off, and size<=USHORT_MAX from above, so this cast is safe */
-      parsed->instr[ j ].acct_off            = (ushort)acct_off;
-      parsed->instr[ j ].data_off            = (ushort)data_off;
-    }
+    parsed->instr[ j ].program_id          = program_id;
+    parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
+    parsed->instr[ j ].acct_cnt            = acct_cnt;
+    parsed->instr[ j ].data_sz             = data_sz;
+    /* By our invariant, i<size when it was copied into acct_off and
+       data_off, and size<=USHORT_MAX from above, so this cast is safe */
+    parsed->instr[ j ].acct_off            = (ushort)acct_off;
+    parsed->instr[ j ].data_off            = (ushort)data_off;
   }
   #undef MIN_INSTR_SIZE
 
@@ -183,7 +323,7 @@ fd_txn_parse_core( uchar const             * payload,
   ulong  addr_table_adtl_cnt          = 0;
 
   /* parsed->instr_cnt set above, so calling get_address_tables is safe */
-  fd_txn_acct_addr_lut_t * address_tables = (parsed == NULL) ? NULL : fd_txn_get_address_tables( parsed );
+  fd_txn_acct_addr_lut_t * address_tables = fd_txn_get_address_tables( parsed );
   if( FD_LIKELY( transaction_version==FD_TXN_V0 ) ) {
   #define MIN_ADDR_LUT_SIZE (34UL)
     READ_CHECKED_COMPACT_U16( bytes_consumed,             addr_table_cnt,            i );     i+=bytes_consumed;
@@ -203,13 +343,11 @@ fd_txn_parse_core( uchar const             * payload,
       CHECK( writable_cnt<=FD_TXN_ACCT_ADDR_MAX-acct_addr_cnt ); /* implies <256 ... */
       CHECK( readonly_cnt<=FD_TXN_ACCT_ADDR_MAX-acct_addr_cnt );
       CHECK( (ushort)1   <=writable_cnt+readonly_cnt          ); /* ... so the sum can't overflow */
-      if( address_tables ) {
-        address_tables[ j ].addr_off      = (ushort)addr_off;
-        address_tables[ j ].writable_cnt  = (uchar )writable_cnt;
-        address_tables[ j ].readonly_cnt  = (uchar )readonly_cnt;
-        address_tables[ j ].writable_off  = (ushort)writable_off;
-        address_tables[ j ].readonly_off  = (ushort)readonly_off;
-      }
+      address_tables[ j ].addr_off      = (ushort)addr_off;
+      address_tables[ j ].writable_cnt  = (uchar )writable_cnt;
+      address_tables[ j ].readonly_cnt  = (uchar )readonly_cnt;
+      address_tables[ j ].writable_off  = (ushort)writable_off;
+      address_tables[ j ].readonly_off  = (ushort)readonly_off;
 
       addr_table_adtl_writable_cnt += (ulong)writable_cnt;
       addr_table_adtl_cnt          += (ulong)writable_cnt + (ulong)readonly_cnt;
@@ -217,20 +355,17 @@ fd_txn_parse_core( uchar const             * payload,
   }
   #undef MIN_ADDR_LUT_SIZE
   /* Check for leftover bytes if out_sz_opt not specified. */
-  CHECK( (payload_sz_opt!=NULL) | (i==payload_sz) );
+  CHECK( (payload_sz_opt!=NULL) | (i==original_payload_sz) );
 
   CHECK( acct_addr_cnt+addr_table_adtl_cnt<=FD_TXN_ACCT_ADDR_MAX ); /* implies addr_table_adtl_cnt<256 */
 
   /* Final validation that all the account address indices are in range */
   CHECK( max_acct < acct_addr_cnt + addr_table_adtl_cnt );
 
-  if( parsed ) {
-    /* Assign final variables */
-    parsed->addr_table_lookup_cnt         = (uchar)addr_table_cnt;
-    parsed->addr_table_adtl_writable_cnt  = (uchar)addr_table_adtl_writable_cnt;
-    parsed->addr_table_adtl_cnt           = (uchar)addr_table_adtl_cnt;
-    parsed->_padding_reserved_1           = (uchar)0;
-  }
+  /* Assign final variables */
+  parsed->addr_table_lookup_cnt         = (uchar)addr_table_cnt;
+  parsed->addr_table_adtl_writable_cnt  = (uchar)addr_table_adtl_writable_cnt;
+  parsed->addr_table_adtl_cnt           = (uchar)addr_table_adtl_cnt;
 
   if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
   if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;

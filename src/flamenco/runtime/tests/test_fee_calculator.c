@@ -259,7 +259,7 @@ test_advance_nonce_fee( fd_svm_mini_t * mini ) {
 
   FD_TEST( txn_out->err.is_committable );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
-  fd_runtime_commit_txn( mini->runtime, env.bank, txn_out );
+  fd_runtime_commit_txn( mini->runtime, env.bank, NULL, txn_out, 0 );
 
   FD_TEST( read_nonce_fee( mini, env.fork_id, &nonce_key ) == FEE_A );
   FD_TEST( payer_before - read_lamports( mini, env.fork_id, &fee_payer_key ) == FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE );
@@ -309,7 +309,7 @@ test_initialize_nonce_fee( fd_svm_mini_t * mini ) {
 
   FD_TEST( txn_out->err.is_committable );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
-  fd_runtime_commit_txn( mini->runtime, env.bank, txn_out );
+  fd_runtime_commit_txn( mini->runtime, env.bank, NULL, txn_out, 0 );
 
   FD_TEST( read_nonce_fee( mini, env.fork_id, &nonce_key ) == FEE_A );
 

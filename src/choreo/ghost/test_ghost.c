@@ -636,7 +636,7 @@ test_ignore_out_of_order_vote( fd_wksp_t * wksp ) {
 // /* Key differences between Agave and Firedancer:  Agave inserts to their
 //    fork tracking structure before the bank is frozen.  Thus they can
 //    build forks and mark things duplicate/duplicate confirmed, but it has
-//    no effect bevause the bank is not yet frozen.  However, Firedancer
+//    no effect because the bank is not yet frozen.  However, Firedancer
 //    only adds to ghost once the bank is frozen, and the slot has been
 //    fully replayed. */
 

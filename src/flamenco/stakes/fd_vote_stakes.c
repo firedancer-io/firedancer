@@ -1,5 +1,181 @@
 #include "fd_vote_stakes.h"
-#include "fd_vote_stakes_private.h"
+#include "../accdb/fd_accdb.h"
+#include "../fd_flamenco_base.h"
+#include "../runtime/fd_runtime_const.h"
+#include "../runtime/program/vote/fd_vote_state_versioned.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
+#include "../../util/bits/fd_bits.h"
+#include "../../util/log/fd_log.h"
+
+#define FD_VOTE_STAKES_MAGIC          (0xF17EDA2CE7601E70UL) /* FIREDANCER VOTE STAKES V0 */
+#define FD_VOTE_STAKES_MAX_FORK_WIDTH (128UL)
+
+struct vacc {
+  fd_pubkey_t pubkey;
+  fd_pubkey_t node_account;
+  ulong       stake;
+  ushort      commission;
+  uint        left;
+  uint        right;
+  uint        next;
+};
+typedef struct vacc vacc_t;
+
+#define HEAP_NAME       vacc_heap
+#define HEAP_IDX_T      uint
+#define HEAP_T          vacc_t
+#define HEAP_LT(e0,e1) ( ((e0)->stake < (e1)->stake) | \
+                         (((e0)->stake==(e1)->stake) & \
+                          (memcmp( &(e0)->pubkey, &(e1)->pubkey, sizeof(fd_pubkey_t) )<0 ) ) )
+#include "../../util/tmpl/fd_heap.c"
+
+#define POOL_NAME  vacc_pool
+#define POOL_T     vacc_t
+#define POOL_IDX_T uint
+#define POOL_LAZY  1
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               vacc_map
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_ELE_T              vacc_t
+#define MAP_KEY                pubkey
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_IDX_T              uint
+#include "../../util/tmpl/fd_map_chain.c"
+
+struct vacc_fork {
+  uint ref_cnt;
+  uint next;
+};
+typedef struct vacc_fork vacc_fork_t;
+
+#define POOL_NAME  vacc_fork_pool
+#define POOL_T     vacc_fork_t
+#define POOL_IDX_T uint
+#define POOL_LAZY  1
+#include "../../util/tmpl/fd_pool.c"
+
+struct vacc_states {
+  struct {
+    ulong last_vote_slot;
+    long  last_vote_ts;
+    uchar is_valid;
+  } states[ FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ];
+  uint next;
+};
+typedef struct vacc_states vacc_states_t;
+
+#define POOL_NAME  vacc_state_pool
+#define POOL_T     vacc_states_t
+#define POOL_IDX_T uint
+#define POOL_LAZY  1
+#include "../../util/tmpl/fd_pool.c"
+
+struct fd_vote_stakes {
+  ulong magic;
+  ulong max_fork_width;
+  ulong max_live_slots;
+  ulong min_stake_wmark;
+
+  /* (pubkey, stake) pairs for the t-2 epoch.  These are shared across
+     forks/banks. */
+  ulong t_2_epoch[ 2UL ];
+  uint  t_2_vacc_pool_off[ 2UL ];
+  uint  t_2_vacc_map_off [ 2UL ];
+
+  /* (pubkey, stake) pairs for the t-1 epoch.  These can be different
+     for every fork across the epoch boundary.  These must be sized to
+     the max fork width of the running system.  These are keyed by fork
+     idx. */
+  uint vacc_fork_pool_off;
+  uint t_1_vacc_pools_off;
+  uint t_1_vacc_maps_off;
+  uint vacc_heap_off;
+
+  /* Per-bank state about the t-2 vote state.  Each per-bank state will
+     be an array sized to length max_live_slots which is a system-wide
+     bound.  Keyed by bank idx. */
+  uint vacc_states_pool_off;
+};
+typedef struct fd_vote_stakes fd_vote_stakes_t;
+
+FD_FN_UNUSED static inline vacc_t *
+t_2_vacc_pool( fd_vote_stakes_t const * vote_stakes,
+               ulong                    idx ) {
+  return fd_type_pun( (uchar *)vote_stakes + vote_stakes->t_2_vacc_pool_off[ idx ] );
+}
+
+FD_FN_UNUSED static inline vacc_map_t *
+t_2_vacc_map( fd_vote_stakes_t const * vote_stakes,
+              ulong                    idx ) {
+  return fd_type_pun( (uchar *)vote_stakes + vote_stakes->t_2_vacc_map_off[ idx ] );
+}
+
+FD_FN_UNUSED static inline vacc_fork_t *
+vacc_fork_pool( fd_vote_stakes_t const * vote_stakes ) {
+  return fd_type_pun( (uchar *)vote_stakes + vote_stakes->vacc_fork_pool_off );
+}
+
+FD_FN_UNUSED static inline vacc_t *
+t_1_vacc_pool( fd_vote_stakes_t const * vote_stakes,
+               ulong                    width_idx ) {
+  ulong off = vote_stakes->t_1_vacc_pools_off + width_idx*vacc_pool_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+  return fd_type_pun( (uchar *)vote_stakes + off );
+}
+
+FD_FN_UNUSED static inline vacc_map_t *
+t_1_vacc_map( fd_vote_stakes_t const * vote_stakes,
+              ulong                    width_idx ) {
+  ulong chain_cnt = vacc_map_chain_cnt_est( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+  ulong off       = vote_stakes->t_1_vacc_maps_off + width_idx*vacc_map_footprint( chain_cnt );
+  return fd_type_pun( (uchar *)vote_stakes + off );
+}
+
+FD_FN_UNUSED static inline vacc_heap_t *
+vacc_heap( fd_vote_stakes_t const * vote_stakes ) {
+  return fd_type_pun( (uchar *)vote_stakes + vote_stakes->vacc_heap_off );
+}
+
+FD_FN_UNUSED static inline vacc_states_t *
+vacc_states_pool( fd_vote_stakes_t const * vote_stakes ) {
+  return fd_type_pun( (uchar *)vote_stakes + vote_stakes->vacc_states_pool_off );
+}
+
+/* The fork id is a compound of the epoch, width idx, and bank idx. */
+
+FD_FN_UNUSED static inline ushort
+fork_id_bank_id( ulong fork_id ) {
+  return (ushort)(fork_id & (ulong)USHORT_MAX);
+}
+
+FD_FN_UNUSED static inline ushort
+fork_id_width_id( ulong fork_id ) {
+  return (ushort)((fork_id>>16UL) & (ulong)USHORT_MAX);
+}
+
+FD_FN_UNUSED static inline ushort
+fork_id_epoch( ulong fork_id ) {
+  return (ushort)((fork_id>>32UL) & (ulong)USHORT_MAX);
+}
+
+FD_FN_UNUSED static inline void
+fork_id_set_bank_id( ulong * fork_id,
+                     ushort  bank_id ) {
+  *fork_id = (*fork_id & ~(ulong)USHORT_MAX) | (ulong)bank_id;
+}
+
+FD_FN_UNUSED static inline void
+fork_id_set_width_id( ulong * fork_id,
+                      ushort  width_id ) {
+  *fork_id = (*fork_id & ~((ulong)USHORT_MAX<<16UL)) | ((ulong)width_id<<16UL);
+}
+
+FD_FN_UNUSED static inline void
+fork_id_set_epoch( ulong * fork_id,
+                   ushort  epoch ) {
+  *fork_id = (*fork_id & ~((ulong)USHORT_MAX<<32UL)) | ((ulong)epoch<<32UL);
+}
 
 ulong
 fd_vote_stakes_align( void ) {
@@ -7,118 +183,140 @@ fd_vote_stakes_align( void ) {
 }
 
 ulong
-fd_vote_stakes_footprint( ulong max_vote_accounts,
-                          ulong expected_vote_accounts,
+fd_vote_stakes_footprint( ulong max_live_slots,
                           ulong max_fork_width ) {
-  ulong map_chain_cnt = index_map_chain_cnt_est( expected_vote_accounts );
+  if( FD_UNLIKELY( !max_live_slots || max_live_slots>USHORT_MAX ) ) return 0UL;
+  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_VOTE_STAKES_MAX_FORK_WIDTH ) ) return 0UL;
+
+  ulong map_chain_cnt  = vacc_map_chain_cnt_est( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+  ulong pool_footprint = vacc_pool_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+  ulong map_footprint  = vacc_map_footprint( map_chain_cnt );
+  ulong width_cnt      = max_fork_width + 1UL;
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),  sizeof(fd_vote_stakes_t) );
-  l = FD_LAYOUT_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts * 2UL ) );
-  l = FD_LAYOUT_APPEND( l, index_map_align(),       index_map_footprint( map_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, index_map_multi_align(), index_map_multi_footprint( map_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
-  l = FD_LAYOUT_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
-  for( ulong i=0; i<max_fork_width; i++ ) {
-    l = FD_LAYOUT_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
-    l = FD_LAYOUT_APPEND( l, stakes_map_align(),  stakes_map_footprint( map_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(), sizeof(fd_vote_stakes_t) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    l = FD_LAYOUT_APPEND( l, vacc_pool_align(), pool_footprint );
+    l = FD_LAYOUT_APPEND( l, vacc_map_align(),  map_footprint );
   }
+  l = FD_LAYOUT_APPEND( l, vacc_fork_pool_align(),  vacc_fork_pool_footprint( width_cnt ) );
+  l = FD_LAYOUT_APPEND( l, vacc_pool_align(),       width_cnt*pool_footprint );
+  l = FD_LAYOUT_APPEND( l, vacc_map_align(),        width_cnt*map_footprint );
+  l = FD_LAYOUT_APPEND( l, vacc_heap_align(),       vacc_heap_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+  l = FD_LAYOUT_APPEND( l, vacc_state_pool_align(), vacc_state_pool_footprint( max_live_slots ) );
   return FD_LAYOUT_FINI( l, fd_vote_stakes_align() );
 }
 
 void *
-fd_vote_stakes_new( void * shmem,
-                    ulong  max_vote_accounts,
-                    ulong  expected_vote_accounts,
+fd_vote_stakes_new( void * mem,
+                    ulong  max_live_slots,
                     ulong  max_fork_width,
                     ulong  seed ) {
-  if( FD_UNLIKELY( !shmem ) ) {
+  if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_vote_stakes_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_vote_stakes_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( max_fork_width>MAX_FORK_WIDTH ) ) {
-    FD_LOG_WARNING(( "max_fork_width is too large" ));
+  if( FD_UNLIKELY( !max_live_slots || max_live_slots>USHORT_MAX ) ) {
+    FD_LOG_WARNING(( "invalid max_live_slots" ));
     return NULL;
   }
 
-  ulong map_chain_cnt = index_map_chain_cnt_est( expected_vote_accounts );
+  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_VOTE_STAKES_MAX_FORK_WIDTH ) ) {
+    FD_LOG_WARNING(( "invalid max_fork_width" ));
+    return NULL;
+  }
 
-  FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_vote_stakes_t * vote_stakes         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),  sizeof(fd_vote_stakes_t) );
-  void *             index_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts * 2UL ) );
-  void *             index_map_mem       = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),       index_map_footprint( map_chain_cnt ) );
-  void *             index_map_multi_mem = FD_SCRATCH_ALLOC_APPEND( l, index_map_multi_align(), index_map_multi_footprint( map_chain_cnt ) );
-  void *             fork_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
-  void *             fork_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
-  for( ulong i=0; i<max_fork_width; i++ ) {
-    void *    stakes_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
-    stake_t * stakes_pool     = stakes_pool_join( stakes_pool_new( stakes_pool_mem, max_vote_accounts ) );
-    if( FD_UNLIKELY( !stakes_pool ) ) {
-      FD_LOG_WARNING(( "Failed to create vote stakes ele pool" ));
+  ulong map_chain_cnt  = vacc_map_chain_cnt_est( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+  ulong pool_footprint = vacc_pool_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+  ulong map_footprint  = vacc_map_footprint( map_chain_cnt );
+  ulong width_cnt      = max_fork_width + 1UL;
+
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_vote_stakes_t * vote_stakes = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(), sizeof(fd_vote_stakes_t) );
+  void * t_2_pool_mem[ 2UL ];
+  void * t_2_map_mem [ 2UL ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    t_2_pool_mem[ i ] = FD_SCRATCH_ALLOC_APPEND( l, vacc_pool_align(), pool_footprint );
+    t_2_map_mem [ i ] = FD_SCRATCH_ALLOC_APPEND( l, vacc_map_align(),  map_footprint );
+  }
+  void * vacc_fork_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, vacc_fork_pool_align(), vacc_fork_pool_footprint( width_cnt ) );
+  void * t_1_vacc_pools_mem   = FD_SCRATCH_ALLOC_APPEND( l, vacc_pool_align(),      width_cnt*pool_footprint );
+  void * t_1_vacc_maps_mem    = FD_SCRATCH_ALLOC_APPEND( l, vacc_map_align(),       width_cnt*map_footprint );
+  void * vacc_heap_mem        = FD_SCRATCH_ALLOC_APPEND( l, vacc_heap_align(),       vacc_heap_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+  void * vacc_states_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, vacc_state_pool_align(), vacc_state_pool_footprint( max_live_slots ) );
+
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_vote_stakes_align() )!=(ulong)mem+fd_vote_stakes_footprint( max_live_slots, max_fork_width ) ) ) {
+    FD_LOG_WARNING(( "fd_vote_stakes_new: bad layout" ));
+    return NULL;
+  }
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    vacc_t * t_2_pool = vacc_pool_join( vacc_pool_new( t_2_pool_mem[ i ], FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+    if( FD_UNLIKELY( !t_2_pool ) ) {
+      FD_LOG_WARNING(( "Failed to create t-2 vote account pool" ));
       return NULL;
     }
-    vote_stakes->stakes_pool_off[ i ] = (ulong)stakes_pool - (ulong)shmem;
 
-    void * stakes_map_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_map_align(), stakes_map_footprint( map_chain_cnt ) );
-    stakes_map_t * stakes_map = stakes_map_join( stakes_map_new( stakes_map_mem, map_chain_cnt, seed ) );
-    if( FD_UNLIKELY( !stakes_map ) ) {
-      FD_LOG_WARNING(( "Failed to create vote stakes ele map" ));
+    vacc_map_t * t_2_map = vacc_map_join( vacc_map_new( t_2_map_mem[ i ], map_chain_cnt, seed ) );
+    if( FD_UNLIKELY( !t_2_map ) ) {
+      FD_LOG_WARNING(( "Failed to create t-2 vote account map" ));
       return NULL;
     }
-    vote_stakes->stakes_map_off[ i ] = (ulong)stakes_map - (ulong)shmem;
+
+    vote_stakes->t_2_vacc_pool_off[ i ] = (uint)((ulong)t_2_pool - (ulong)mem);
+    vote_stakes->t_2_vacc_map_off [ i ] = (uint)((ulong)t_2_map  - (ulong)mem);
   }
 
-  index_ele_t * index_pool = index_pool_join( index_pool_new( index_pool_mem, max_vote_accounts * 2UL ) );
-  if( FD_UNLIKELY( !index_pool ) ) {
-    FD_LOG_WARNING(( "Failed to create vote stakes index pool" ));
-    return NULL;
-  }
-
-  index_map_t * index_map = index_map_join( index_map_new( index_map_mem, map_chain_cnt, seed ) );
-  if( FD_UNLIKELY( !index_map ) ) {
-    FD_LOG_WARNING(( "Failed to create vote stakes index map" ));
-    return NULL;
-  }
-
-  index_map_multi_t * index_map_multi = index_map_multi_join( index_map_multi_new( index_map_multi_mem, map_chain_cnt, seed ) );
-  if( FD_UNLIKELY( !index_map_multi ) ) {
-    FD_LOG_WARNING(( "Failed to create vote stakes index map multi" ));
-    return NULL;
-  }
-
-  fork_t * fork_pool = fork_pool_join( fork_pool_new( fork_pool_mem, max_fork_width ) );
+  vacc_fork_t * fork_pool = vacc_fork_pool_join( vacc_fork_pool_new( vacc_fork_pool_mem, width_cnt ) );
   if( FD_UNLIKELY( !fork_pool ) ) {
-    FD_LOG_WARNING(( "Failed to create vote stakes fork pool" ));
+    FD_LOG_WARNING(( "Failed to create vote account fork pool" ));
+    return NULL;
+  }
+  vote_stakes->vacc_fork_pool_off = (uint)((ulong)fork_pool - (ulong)mem);
+
+  for( ulong i=0UL; i<width_cnt; i++ ) {
+    void *   pool_mem = (uchar *)t_1_vacc_pools_mem + i*pool_footprint;
+    vacc_t * pool     = vacc_pool_join( vacc_pool_new( pool_mem, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+    if( FD_UNLIKELY( !pool ) ) {
+      FD_LOG_WARNING(( "Failed to create t-1 vote account pool" ));
+      return NULL;
+    }
+    if( FD_UNLIKELY( !i ) ) vote_stakes->t_1_vacc_pools_off = (uint)((ulong)pool - (ulong)mem);
+
+    void *       map_mem = (uchar *)t_1_vacc_maps_mem + i*map_footprint;
+    vacc_map_t * map = vacc_map_join( vacc_map_new( map_mem, map_chain_cnt, seed ) );
+    if( FD_UNLIKELY( !map ) ) {
+      FD_LOG_WARNING(( "Failed to create t-1 vote account map" ));
+      return NULL;
+    }
+  }
+  vote_stakes->t_1_vacc_maps_off = (uint)((ulong)t_1_vacc_maps_mem - (ulong)mem);
+
+  vacc_heap_t * heap = vacc_heap_join( vacc_heap_new( vacc_heap_mem, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+  if( FD_UNLIKELY( !heap ) ) {
+    FD_LOG_WARNING(( "Failed to create vote account heap" ));
     return NULL;
   }
 
-  fork_dlist_t * fork_dlist = fork_dlist_join( fork_dlist_new( fork_dlist_mem ) );
-  if( FD_UNLIKELY( !fork_dlist ) ) {
-    FD_LOG_WARNING(( "Failed to create vote stakes fork dlist" ));
+  vacc_states_t * vacc_states_pool = vacc_state_pool_join( vacc_state_pool_new( vacc_states_pool_mem, max_live_slots ) );
+  if( FD_UNLIKELY( !vacc_states_pool ) ) {
+    FD_LOG_WARNING(( "Failed to create vote account state pool" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( max_fork_width>USHORT_MAX ) ) {
-    FD_LOG_WARNING(( "max_fork_width is too large" ));
-    return NULL;
-  }
-
-  vote_stakes->max_fork_width      = (ushort)max_fork_width;
-  vote_stakes->index_pool_off      = (ulong)index_pool - (ulong)shmem;
-  vote_stakes->index_map_off       = (ulong)index_map - (ulong)shmem;
-  vote_stakes->index_map_multi_off = (ulong)index_map_multi - (ulong)shmem;
-  vote_stakes->fork_pool_off       = (ulong)fork_pool - (ulong)shmem;
-  vote_stakes->fork_dlist_off      = (ulong)fork_dlist - (ulong)shmem;
-  vote_stakes->root_idx            = (ushort)fork_pool_idx_acquire( fork_pool );
-  fork_dlist_idx_push_tail( fork_dlist, vote_stakes->root_idx, fork_pool );
-
-  fd_rwlock_new( &vote_stakes->lock );
+  vote_stakes->max_live_slots       = max_live_slots;
+  vote_stakes->max_fork_width       = max_fork_width;
+  vote_stakes->min_stake_wmark      = 0UL;
+  vote_stakes->vacc_heap_off        = (uint)((ulong)heap - (ulong)mem);
+  vote_stakes->vacc_states_pool_off = (uint)((ulong)vacc_states_pool - (ulong)mem);
+  vote_stakes->t_2_epoch[ 0 ]       = ULONG_MAX;
+  vote_stakes->t_2_epoch[ 1 ]       = ULONG_MAX;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( vote_stakes->magic ) = FD_VOTE_STAKES_MAGIC;
@@ -128,15 +326,15 @@ fd_vote_stakes_new( void * shmem,
 }
 
 fd_vote_stakes_t *
-fd_vote_stakes_join( void * shmem ) {
-  fd_vote_stakes_t * vote_stakes = (fd_vote_stakes_t *)shmem;
+fd_vote_stakes_join( void * mem ) {
+  fd_vote_stakes_t * vote_stakes = (fd_vote_stakes_t *)mem;
 
   if( FD_UNLIKELY( !vote_stakes ) ) {
     FD_LOG_WARNING(( "NULL vote stakes" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( vote_stakes->magic != FD_VOTE_STAKES_MAGIC ) ) {
+  if( FD_UNLIKELY( vote_stakes->magic!=FD_VOTE_STAKES_MAGIC ) ) {
     FD_LOG_WARNING(( "Invalid vote stakes magic" ));
     return NULL;
   }
@@ -144,466 +342,474 @@ fd_vote_stakes_join( void * shmem ) {
   return vote_stakes;
 }
 
-void
-fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
-                                fd_pubkey_t const * pubkey,
-                                fd_pubkey_t const * node_account_t_1,
-                                ulong               stake_t_1,
-                                ushort              commission_t_1,
-                                ulong               epoch ) {
-  fd_rwlock_write( &vote_stakes->lock );
-
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_t *       index_map       = get_index_map( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-
-  index_ele_t * ele     = index_pool_ele_acquire( index_pool );
-  ele->pubkey           = *pubkey;
-  ele->refcnt           = 1;
-  ele->stake_t_1        = (stake_t_1 & 0x7FFFFFFFFFFFFFFFUL);
-  ele->commission_t_1   = commission_t_1;
-  ele->node_account_t_1 = *node_account_t_1;
-  ele->stake_t_2        = 0UL;
-  ele->node_account_t_2 = (fd_pubkey_t){0};
-  ele->commission_t_2   = 0;
-  ele->epoch            = epoch % 2;
-  ele->exists_t_1       = 1;
-  ele->exists_t_2       = 0;
-  /* It is fine to leave node account t_2 uninitalized because it will
-     only be used if stake_t_2 is non-zero. */
-
-  FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
-  FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
-
-  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, vote_stakes->root_idx );
-  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, vote_stakes->root_idx );
-
-  uint      pubkey_idx = (uint)index_pool_idx( index_pool, ele );
-  stake_t * new_stake = stakes_pool_ele_acquire( stakes_pool );
-  new_stake->idx = pubkey_idx;
-  FD_TEST( stakes_map_ele_insert( stakes_map, new_stake, stakes_pool ) );
-
-  fd_rwlock_unwrite( &vote_stakes->lock );
+ulong
+fd_vote_stakes_fork_epoch( ulong fork_id ) {
+  return (ulong)fork_id_epoch( fork_id );
 }
 
-void
-fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
-                                 fd_pubkey_t const * pubkey,
-                                 fd_pubkey_t const * node_account_t_2,
-                                 ulong               stake_t_2,
-                                 ushort              commission_t_2,
-                                 ulong               epoch ) {
-  fd_rwlock_write( &vote_stakes->lock );
+ulong
+fd_vote_stakes_init( fd_vote_stakes_t * vote_stakes,
+                     ulong              epoch ) {
+  /* Acquire t-1 key set width idx */
+  vacc_fork_t * fork_pool = vacc_fork_pool( vote_stakes );
+  FD_CHECK_CRIT( vacc_fork_pool_free( fork_pool ), "vote stakes width pool exhausted" );
+  ushort        width_idx = (ushort)vacc_fork_pool_idx_acquire( fork_pool );
+  vacc_fork_pool_ele( fork_pool, width_idx )->ref_cnt = 1U;
 
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_t *       index_map       = get_index_map( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-  index_ele_t *       ele             = index_map_multi_ele_query( index_map_multi, pubkey, NULL, index_pool );
-  if( FD_UNLIKELY( !ele ) ) {
-    ele                   = index_pool_ele_acquire( index_pool );
-    ele->pubkey           = *pubkey;
-    ele->refcnt           = 1;
-    ele->stake_t_1        = 0UL;
-    ele->node_account_t_1 = (fd_pubkey_t){0};
-    ele->epoch            = epoch % 2;
-    ele->commission_t_1   = 0U;
-    ele->exists_t_1       = 0;
+  /* Acquire t-2 state bank idx */
+  vacc_states_t * states_pool = vacc_states_pool( vote_stakes );
+  FD_CHECK_CRIT( vacc_state_pool_free( states_pool ), "vote stakes state pool exhausted" );
+  ushort          bank_idx    = (ushort)vacc_state_pool_idx_acquire( states_pool );
+  vacc_states_t * states = vacc_state_pool_ele( states_pool, bank_idx );
+  memset( states->states, 0, sizeof(states->states) );
+  vote_stakes->t_2_epoch[ epoch & 1UL ] = epoch;
 
-    FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
-    FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
-
-    stake_t *      stakes_pool = get_stakes_pool( vote_stakes, vote_stakes->root_idx );
-    stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, vote_stakes->root_idx );
-
-    uint      pubkey_idx = (uint)index_pool_idx( index_pool, ele );
-    stake_t * new_stake = stakes_pool_ele_acquire( stakes_pool );
-    new_stake->idx = pubkey_idx;
-    FD_TEST( stakes_map_ele_insert( stakes_map, new_stake, stakes_pool ) );
-  }
-
-  ele->commission_t_2   = commission_t_2;
-  ele->node_account_t_2 = *node_account_t_2;
-  ele->stake_t_2        = stake_t_2;
-  ele->exists_t_2       = 1;
-
-  fd_rwlock_unwrite( &vote_stakes->lock );
-}
-
-void
-fd_vote_stakes_root_purge_key( fd_vote_stakes_t *  vote_stakes,
-                               fd_pubkey_t const * pubkey ) {
-  fd_rwlock_write( &vote_stakes->lock );
-
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_t *       index_map       = get_index_map( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-
-  uint ele_idx = (uint)index_map_multi_idx_query( index_map_multi, pubkey, UINT_MAX, index_pool );
-  FD_TEST( ele_idx!=UINT_MAX );
-
-  index_ele_t * ele = index_pool_ele( index_pool, ele_idx );
-
-  FD_TEST( index_map_multi_ele_remove_fast( index_map_multi, ele, index_pool ) );
-  FD_TEST( index_map_ele_remove( index_map, &ele->index_key, NULL, index_pool ) );
-
-  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, vote_stakes->root_idx );
-  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, vote_stakes->root_idx );
-
-  stake_t * stake_ele = stakes_map_ele_remove( stakes_map, &ele_idx, NULL, stakes_pool );
-  stakes_pool_ele_release( stakes_pool, stake_ele );
-
-  index_pool_ele_release( index_pool, ele );
-
-  fd_rwlock_unwrite( &vote_stakes->lock );
-}
-
-void
-fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
-                       ushort              fork_idx,
-                       fd_pubkey_t const * pubkey,
-                       fd_pubkey_t const * node_account_t_1,
-                       fd_pubkey_t const * node_account_t_2,
-                       ulong               stake_t_1,
-                       ulong               stake_t_2,
-                       ushort              commission_t_1,
-                       ushort              commission_t_2,
-                       uchar               exists_t_1,
-                       uchar               exists_t_2,
-                       ulong               epoch ) {
-  fd_rwlock_write( &vote_stakes->lock );
-
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_t *       index_map       = get_index_map( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-  stake_t *           stakes_pool     = get_stakes_pool( vote_stakes, fork_idx );
-  stakes_map_t *      stakes_map      = get_stakes_map( vote_stakes, fork_idx );
-
-  index_key_t index_key = {
-    .pubkey           = *pubkey,
-    .node_account_t_1 = *node_account_t_1,
-    .stake_t_1        = stake_t_1 & 0x7FFFFFFFFFFFFFFFUL,
-    .epoch            = epoch % 2,
-    .commission_t_1   = commission_t_1,
-    .exists_t_1       = exists_t_1,
-  };
-  index_ele_t * index_ele = index_map_ele_query( index_map, &index_key, NULL, index_pool );
-  if( FD_LIKELY( !index_ele ) ) {
-    index_ele                   = index_pool_ele_acquire( index_pool );
-    index_ele->index_key        = index_key;
-    index_ele->epoch            = epoch % 2;
-    index_ele->refcnt           = 1;
-    index_ele->node_account_t_2 = *node_account_t_2;
-    index_ele->commission_t_2   = commission_t_2;
-    index_ele->stake_t_2        = stake_t_2;
-    index_ele->exists_t_2       = exists_t_2;
-    FD_TEST( index_map_multi_ele_insert( index_map_multi, index_ele, index_pool ) );
-    FD_TEST( index_map_ele_insert( index_map, index_ele, index_pool ) );
-  } else {
-    index_ele->refcnt++;
-  }
-
-  stake_t * stake = stakes_pool_ele_acquire( stakes_pool );
-  stake->idx = (uint)index_pool_idx( index_pool, index_ele );
-  FD_TEST( stakes_map_ele_insert( stakes_map, stake, stakes_pool ) );
-
-  fd_rwlock_unwrite( &vote_stakes->lock );
-}
-
-void
-fd_vote_stakes_genesis_fini( fd_vote_stakes_t * vote_stakes ) {
-  fd_rwlock_write( &vote_stakes->lock );
-
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-
-  for( index_map_multi_iter_t iter = index_map_multi_iter_init( index_map_multi, index_pool );
-       !index_map_multi_iter_done( iter, index_map_multi, index_pool );
-       iter = index_map_multi_iter_next( iter, index_map_multi, index_pool ) ) {
-    index_ele_t * ele = index_map_multi_iter_ele( iter, index_map_multi, index_pool );
-    ele->node_account_t_2 = ele->node_account_t_1;
-    ele->stake_t_2        = ele->stake_t_1;
-  }
-
-  fd_rwlock_unwrite( &vote_stakes->lock );
-}
-
-ushort
-fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes ) {
-  fd_rwlock_write( &vote_stakes->lock );
-
-  fork_t *       fork_pool  = get_fork_pool( vote_stakes );
-  fork_dlist_t * fork_dlist = get_fork_dlist( vote_stakes );
-
-  if( FD_UNLIKELY( !fork_pool_free( fork_pool ) ) ) {
-    FD_LOG_CRIT(( "no free forks in pool" ));
-  }
-
-  ushort idx = (ushort)fork_pool_idx_acquire( fork_pool );
-
-  fork_dlist_idx_push_tail( fork_dlist, idx, fork_pool );
-
-  fd_rwlock_unwrite( &vote_stakes->lock );
-  return idx;
-}
-
-void
-fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
-                             ushort             root_idx ) {
-  fd_rwlock_write( &vote_stakes->lock );
-
-  /* Only expect the vote stakes to update once an epoch. */
-  if( FD_LIKELY( root_idx==vote_stakes->root_idx ) ) {
-    fd_rwlock_unwrite( &vote_stakes->lock );
-    return;
-  }
-
-  fork_t *       fork_pool  = get_fork_pool( vote_stakes );
-  fork_dlist_t * fork_dlist = get_fork_dlist( vote_stakes );
-
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_t *       index_map       = get_index_map( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-  /* For every outstanding fork that is not the new candidate root,
-     remove all stakes refcnts from the index.  If the index has no
-     outstanding references, remove the index entry. */
-  while( !fork_dlist_is_empty( fork_dlist, fork_pool ) ) {
-    ushort fork_idx = (ushort)fork_dlist_idx_pop_head( fork_dlist, fork_pool );
-    if( fork_idx==root_idx ) continue;
-
-    stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
-    stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
-    for( stakes_map_iter_t iter = stakes_map_iter_init( stakes_map, stakes_pool );
-         !stakes_map_iter_done( iter, stakes_map, stakes_pool );
-         iter = stakes_map_iter_next( iter, stakes_map, stakes_pool ) ) {
-      stake_t *     stake = stakes_map_iter_ele( iter, stakes_map, stakes_pool );
-      index_ele_t * ele   = index_pool_ele( index_pool, stake->idx );
-      ele->refcnt--;
-
-      if( FD_UNLIKELY( ele->refcnt==0U ) ) {
-        FD_TEST( index_map_ele_remove( index_map, &ele->index_key, NULL, index_pool ) );
-        FD_TEST( index_map_multi_ele_remove_fast( index_map_multi, ele, index_pool ) );
-        index_pool_ele_release( index_pool, ele );
-      }
-    }
-    fork_pool_idx_release( fork_pool, fork_idx );
-    stakes_map_reset( get_stakes_map( vote_stakes, fork_idx ) );
-    stakes_pool_reset( get_stakes_pool( vote_stakes, fork_idx ) );
-  }
-  /* TODO: There's probably a way to do a more efficient reset here. */
-
-  fork_dlist_idx_push_head( fork_dlist, root_idx, fork_pool );
-  vote_stakes->root_idx = root_idx;
-
-  fd_rwlock_unwrite( &vote_stakes->lock );
-}
-
-static int
-fd_vote_stakes_query_private( fd_vote_stakes_t *  vote_stakes,
-                              ushort              fork_idx,
-                              fd_pubkey_t const * pubkey,
-                              ulong *             stake_t_1_out_opt,
-                              ulong *             stake_t_2_out_opt,
-                              fd_pubkey_t *       node_account_t_1_out_opt,
-                              fd_pubkey_t *       node_account_t_2_out_opt,
-                              ushort *            commission_t_1_out_opt,
-                              ushort *            commission_t_2_out_opt,
-                              uchar *             exists_t_1_out_opt,
-                              uchar *             exists_t_2_out_opt ) {
-
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-
-  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
-  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
-
-  /* The index may have multiple entries for the same pubkey, so every
-     single matching index entry must be checked to see if the index
-     exists in the given fork's stakes map.  If it does, return the
-     t_2 stake value.*/
-  uint ele_idx = (uint)index_map_multi_idx_query_const( index_map_multi, pubkey, UINT_MAX, index_pool );
-  if( FD_UNLIKELY( ele_idx==UINT_MAX ) ) {
-    return 0;
-  }
-
-  while( !stakes_map_ele_query_const( stakes_map, &ele_idx, NULL, stakes_pool ) ) {
-    ele_idx = (uint)index_map_multi_idx_next_const( ele_idx, UINT_MAX, index_pool );
-    if( FD_UNLIKELY( ele_idx==UINT_MAX ) ) {
-      return 0;
-    }
-  }
-
-  index_ele_t * index_ele = index_pool_ele( index_pool, ele_idx );
-  if( stake_t_1_out_opt )        *stake_t_1_out_opt        = index_ele->stake_t_1;
-  if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
-  if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
-  if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
-  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = (ushort)index_ele->commission_t_1;
-  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = index_ele->commission_t_2;
-  if( exists_t_1_out_opt )       *exists_t_1_out_opt       = (uchar)index_ele->exists_t_1;
-  if( exists_t_2_out_opt )       *exists_t_2_out_opt       = index_ele->exists_t_2;
-  return 1;
-}
-
-int
-fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
-                      ushort              fork_idx,
-                      fd_pubkey_t const * pubkey,
-                      ulong *             stake_t_1_out_opt,
-                      ulong *             stake_t_2_out_opt,
-                      fd_pubkey_t *       node_account_t_1_out_opt,
-                      fd_pubkey_t *       node_account_t_2_out_opt,
-                      ushort *            commission_t_1_out_opt,
-                      ushort *            commission_t_2_out_opt,
-                      uchar *             exists_t_1_out_opt,
-                      uchar *             exists_t_2_out_opt ) {
-  fd_rwlock_read( &vote_stakes->lock );
-  int result = fd_vote_stakes_query_private( vote_stakes,
-                                             fork_idx,
-                                             pubkey,
-                                             stake_t_1_out_opt,
-                                             stake_t_2_out_opt,
-                                             node_account_t_1_out_opt,
-                                             node_account_t_2_out_opt,
-                                             commission_t_1_out_opt,
-                                             commission_t_2_out_opt,
-                                             exists_t_1_out_opt,
-                                             exists_t_2_out_opt );
-  fd_rwlock_unread( &vote_stakes->lock );
-  return result;
-}
-
-int
-fd_vote_stakes_query_t_1( fd_vote_stakes_t *  vote_stakes,
-                          ushort              fork_idx,
-                          fd_pubkey_t const * pubkey,
-                          ulong *             stake_out,
-                          fd_pubkey_t *       node_account_out,
-                          ushort *            commission_out ) {
-  fd_rwlock_read( &vote_stakes->lock );
-  uchar exists_t_1 = 0;
-  int found = fd_vote_stakes_query_private( vote_stakes, fork_idx, pubkey, stake_out, NULL, node_account_out, NULL, commission_out, NULL, &exists_t_1, 0 );
-  fd_rwlock_unread( &vote_stakes->lock );
-  return found && exists_t_1;
-}
-
-int
-fd_vote_stakes_query_t_2( fd_vote_stakes_t *  vote_stakes,
-                          ushort              fork_idx,
-                          fd_pubkey_t const * pubkey,
-                          ulong *             stake_out,
-                          fd_pubkey_t *       node_account_out,
-                          ushort *            commission_out ) {
-  fd_rwlock_read( &vote_stakes->lock );
-  uchar exists_t_2 = 0;
-  int found = fd_vote_stakes_query_private( vote_stakes, fork_idx, pubkey, NULL, stake_out, NULL, node_account_out, NULL, commission_out, NULL, &exists_t_2 );
-  fd_rwlock_unread( &vote_stakes->lock );
-  return found && exists_t_2;
+  /* Construct the fork id */
+  ulong fork_id = 0UL;
+  fork_id_set_bank_id( &fork_id, bank_idx );
+  fork_id_set_width_id( &fork_id, width_idx );
+  fork_id_set_epoch( &fork_id, (ushort)epoch );
+  return fork_id;
 }
 
 void
 fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes ) {
-  fd_rwlock_write( &vote_stakes->lock );
-
-  /* Pop the fork dlist */
-  fork_t *       fork_pool  = get_fork_pool( vote_stakes );
-  fork_dlist_t * fork_dlist = get_fork_dlist( vote_stakes );
-  fork_dlist_remove_all( fork_dlist, fork_pool );
-
-  fork_pool_reset( fork_pool );
-
-  /* For each fork, reset the stakes map and pool */
-  for( ushort i=0; i<vote_stakes->max_fork_width; i++ ) {
-    stakes_map_reset( get_stakes_map( vote_stakes, i ) );
-    stakes_pool_reset( get_stakes_pool( vote_stakes, i ) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    vacc_map_reset( t_2_vacc_map( vote_stakes, i ) );
+    vacc_pool_reset( t_2_vacc_pool( vote_stakes, i ) );
+    vote_stakes->t_2_epoch[ i ] = ULONG_MAX;
   }
 
-  /* Reset the index map and multi map */
-  index_map_reset( get_index_map( vote_stakes ) );
-  index_map_multi_reset( get_index_map_multi( vote_stakes ) );
+  ulong width_cnt = vote_stakes->max_fork_width + 1UL;
+  for( ulong i=0UL; i<width_cnt; i++ ) {
+    vacc_map_reset( t_1_vacc_map( vote_stakes, i ) );
+    vacc_pool_reset( t_1_vacc_pool( vote_stakes, i ) );
+  }
 
-  /* Reset the index pool */
-  index_pool_reset( get_index_pool( vote_stakes ) );
-
-  /* Setup the pool again */
-  vote_stakes->root_idx = (ushort)fork_pool_idx_acquire( fork_pool );
-  fork_dlist_idx_push_tail( fork_dlist, vote_stakes->root_idx, fork_pool );
-
-  fd_rwlock_unwrite( &vote_stakes->lock );
-}
-
-uint
-fd_vote_stakes_ele_cnt( fd_vote_stakes_t * vote_stakes,
-                        ushort             fork_idx ) {
-  fd_rwlock_read( &vote_stakes->lock );
-  stake_t * stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
-  uint cnt = (uint)stakes_pool_used( stakes_pool );
-  fd_rwlock_unread( &vote_stakes->lock );
-  return cnt;
-}
-
-ushort
-fd_vote_stakes_get_root_idx( fd_vote_stakes_t * vote_stakes ) {
-  fd_rwlock_read( &vote_stakes->lock );
-  ushort idx = vote_stakes->root_idx;
-  fd_rwlock_unread( &vote_stakes->lock );
-  return idx;
-}
-
-fd_vote_stakes_iter_t *
-fd_vote_stakes_fork_iter_init( fd_vote_stakes_t * vote_stakes,
-                               ushort             fork_idx,
-                               uchar              iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] ) {
-  fd_rwlock_write( &vote_stakes->lock );
-
-  stakes_map_iter_t iter = stakes_map_iter_init( get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
-  memcpy( iter_mem, &iter, sizeof(stakes_map_iter_t) );
-  return (fd_vote_stakes_iter_t *)iter_mem;
+  vacc_fork_pool_reset( vacc_fork_pool( vote_stakes ) );
+  vacc_state_pool_reset( vacc_states_pool( vote_stakes ) );
+  FD_TEST( vacc_heap_new( vacc_heap( vote_stakes ), FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+  vote_stakes->min_stake_wmark = 0UL;
 }
 
 void
-fd_vote_stakes_fork_iter_fini( fd_vote_stakes_t * vote_stakes ) {
-  fd_rwlock_unwrite( &vote_stakes->lock );
+fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
+                                ulong               fork_id,
+                                fd_pubkey_t const * pubkey,
+                                fd_pubkey_t const * node_account,
+                                ulong               stake,
+                                ushort              commission ) {
+  if( FD_UNLIKELY( !stake ) ) return;
+
+  vacc_t *     pool = t_1_vacc_pool( vote_stakes, fork_id_width_id( fork_id ) );
+  vacc_map_t * map  = t_1_vacc_map ( vote_stakes, fork_id_width_id( fork_id ) );
+
+  vacc_t * vacc      = vacc_pool_ele_acquire( pool );
+  vacc->pubkey       = *pubkey;
+  vacc->node_account = *node_account;
+  vacc->stake        = stake;
+  vacc->commission   = commission;
+  FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
+}
+
+void
+fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
+                                ulong               fork_id,
+                                fd_pubkey_t const * pubkey,
+                                fd_pubkey_t const * node_account,
+                                ulong               stake,
+                                ushort              commission ) {
+  if( FD_UNLIKELY( !stake ) ) return;
+
+  ulong        epoch_idx = (ulong)fork_id_epoch( fork_id ) & 1UL;
+  vacc_t *     pool      = t_2_vacc_pool( vote_stakes, epoch_idx );
+  vacc_map_t * map       = t_2_vacc_map ( vote_stakes, epoch_idx );
+
+  vacc_t * vacc      = vacc_pool_ele_acquire( pool );
+  vacc->pubkey       = *pubkey;
+  vacc->node_account = *node_account;
+  vacc->stake        = stake;
+  vacc->commission   = commission;
+  FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
+}
+
+void
+fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
+                       ulong               fork_id,
+                       fd_pubkey_t const * pubkey,
+                       fd_pubkey_t const * node_account,
+                       ulong               stake,
+                       ushort              commission ) {
+  ulong         width_idx = (ulong)fork_id_width_id( fork_id );
+  vacc_t *      pool      = t_1_vacc_pool( vote_stakes, width_idx );
+  vacc_map_t *  map       = t_1_vacc_map ( vote_stakes, width_idx );
+  vacc_heap_t * heap      = vacc_heap( vote_stakes );
+
+  if( FD_UNLIKELY( stake==0UL || stake<=vote_stakes->min_stake_wmark ) ) return;
+
+  if( FD_UNLIKELY( vacc_heap_ele_cnt( heap )==vacc_heap_ele_max( heap ) ) ) {
+    vacc_t * ele       = vacc_heap_ele_peek_min( heap, pool );
+    ulong    min_stake = ele->stake;
+    if( stake<min_stake ) return;
+
+    vote_stakes->min_stake_wmark = min_stake;
+    while( (ele=vacc_heap_ele_peek_min( heap, pool )) && min_stake==ele->stake ) {
+      vacc_heap_ele_remove_min( heap, pool );
+      vacc_map_ele_remove( map, &ele->pubkey, NULL, pool );
+      vacc_pool_ele_release( pool, ele );
+    }
+    if( FD_UNLIKELY( stake==min_stake ) ) return;
+  }
+
+  vacc_t * vacc      = vacc_pool_ele_acquire( pool );
+  vacc->pubkey       = *pubkey;
+  vacc->node_account = *node_account;
+  vacc->stake        = stake;
+  vacc->commission   = commission;
+  vacc_heap_ele_insert( heap, vacc, pool );
+  FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
+}
+
+void
+fd_vote_stakes_purge_fork( fd_vote_stakes_t * vote_stakes,
+                           ulong              fork_id ) {
+  ushort bank_id  = fork_id_bank_id( fork_id );
+  ushort width_id = fork_id_width_id( fork_id );
+
+  vacc_state_pool_idx_release( vacc_states_pool( vote_stakes ), bank_id );
+
+  vacc_fork_t * fork_pool = vacc_fork_pool( vote_stakes );
+  vacc_fork_t * fork      = vacc_fork_pool_ele( fork_pool, width_id );
+  FD_TEST( fork->ref_cnt );
+  if( !--fork->ref_cnt ) {
+    vacc_map_reset( t_1_vacc_map( vote_stakes, width_id ) );
+    vacc_pool_reset( t_1_vacc_pool( vote_stakes, width_id ) );
+    vacc_fork_pool_idx_release( fork_pool, width_id );
+  }
+}
+
+ulong
+fd_vote_stakes_new_fork( fd_vote_stakes_t * vote_stakes,
+                         ulong              parent_fork_id,
+                         ulong              epoch ) {
+  FD_TEST( epoch<=USHORT_MAX );
+
+  vacc_states_t * states_pool    = vacc_states_pool( vote_stakes );
+  FD_CHECK_CRIT( vacc_state_pool_free( states_pool ), "vote stakes state pool exhausted" );
+  ushort          parent_bank_id = fork_id_bank_id( parent_fork_id );
+  ushort          bank_id        = (ushort)vacc_state_pool_idx_acquire( states_pool );
+  ushort          parent_epoch   = fork_id_epoch( parent_fork_id );
+  ushort          width_id;
+
+  vacc_states_t * child_state = vacc_state_pool_ele( states_pool, bank_id );
+  if( FD_LIKELY( epoch==(ulong)parent_epoch ) ) {
+    /* Standard case: just inherit the parent's t-1 set (and increment
+       the ref count) and copy over the t-2 state. */
+    width_id = fork_id_width_id( parent_fork_id );
+    vacc_fork_pool_ele( vacc_fork_pool( vote_stakes ), width_id )->ref_cnt++;
+
+    vacc_states_t const * parent_state = vacc_state_pool_ele_const( states_pool, parent_bank_id );
+    memcpy( child_state->states, parent_state->states, sizeof(child_state->states) );
+  } else {
+    /* Epoch boundary: copy the parent's t-1 set into the t-2 set and
+       acquire new t-1 and t-2 state. */
+
+    /* Copy the t-1 set iff it's the first time crossing into a new
+       epoch boundary. */
+    ulong t_2_idx = epoch & 1UL;
+    if( vote_stakes->t_2_epoch[ t_2_idx ]!=epoch ) {
+      ulong        parent_width_id = (ulong)fork_id_width_id( parent_fork_id );
+      vacc_t *     t_1_pool        = t_1_vacc_pool( vote_stakes, parent_width_id );
+      vacc_map_t * t_1_map         = t_1_vacc_map ( vote_stakes, parent_width_id );
+      vacc_t *     t_2_pool        = t_2_vacc_pool( vote_stakes, t_2_idx );
+      vacc_map_t * t_2_map         = t_2_vacc_map ( vote_stakes, t_2_idx );
+
+      vacc_map_reset( t_2_map );
+      vacc_pool_reset( t_2_pool );
+      for( vacc_map_iter_t iter = vacc_map_iter_init( t_1_map, t_1_pool );
+           !vacc_map_iter_done( iter, t_1_map, t_1_pool );
+           iter = vacc_map_iter_next( iter, t_1_map, t_1_pool ) ) {
+        vacc_t const * src = vacc_map_iter_ele_const( iter, t_1_map, t_1_pool );
+        vacc_t *       dst = vacc_pool_ele_acquire( t_2_pool );
+        dst->pubkey       = src->pubkey;
+        dst->node_account = src->node_account;
+        dst->stake        = src->stake;
+        dst->commission   = src->commission;
+        FD_TEST( vacc_map_ele_insert( t_2_map, dst, t_2_pool ) );
+      }
+      vote_stakes->t_2_epoch[ t_2_idx ] = epoch;
+    }
+
+    /* Reset the t-2 states for the new fork and prepare the heap for
+       insertion into the new t-1 set. */
+    vacc_fork_t * fork_pool = vacc_fork_pool( vote_stakes );
+    FD_CHECK_CRIT( vacc_fork_pool_free( fork_pool ), "vote stakes width pool exhausted" );
+    width_id = (ushort)vacc_fork_pool_idx_acquire( fork_pool );
+    vacc_fork_pool_ele( fork_pool, width_id )->ref_cnt = 1U;
+    vacc_map_reset( t_1_vacc_map( vote_stakes, width_id ) );
+    vacc_pool_reset( t_1_vacc_pool( vote_stakes, width_id ) );
+    memset( child_state->states, 0, sizeof(child_state->states) );
+
+    FD_TEST( vacc_heap_new( vacc_heap( vote_stakes ), FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+    vote_stakes->min_stake_wmark = 0UL;
+  }
+
+  ulong fork_id = 0UL;
+  fork_id_set_bank_id( &fork_id, bank_id );
+  fork_id_set_width_id( &fork_id, width_id );
+  fork_id_set_epoch( &fork_id, (ushort)epoch );
+  return fork_id;
+}
+
+void
+fd_vote_stakes_update_state( fd_vote_stakes_t *  vote_stakes,
+                             ulong               fork_id,
+                             fd_pubkey_t const * pubkey,
+                             ulong               last_vote_slot,
+                             long                last_vote_ts,
+                             uchar               is_valid ) {
+  ulong        epoch_idx = (ulong)fork_id_epoch( fork_id ) & 1UL;
+  vacc_t *     pool      = t_2_vacc_pool( vote_stakes, epoch_idx );
+  vacc_map_t * map       = t_2_vacc_map ( vote_stakes, epoch_idx );
+
+  vacc_t const * vacc = vacc_map_ele_query_const( map, pubkey, NULL, pool );
+  if( FD_UNLIKELY( !vacc ) ) return;
+
+  ulong           vacc_idx = vacc_pool_idx( pool, vacc );
+  vacc_states_t * states   = vacc_state_pool_ele( vacc_states_pool( vote_stakes ), fork_id_bank_id( fork_id ) );
+  states->states[ vacc_idx ].is_valid = (uchar)!!is_valid;
+  if( is_valid ) {
+    states->states[ vacc_idx ].last_vote_slot = last_vote_slot;
+    states->states[ vacc_idx ].last_vote_ts   = last_vote_ts;
+  }
+}
+
+void
+fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
+                        ulong              fork_id,
+                        fd_accdb_t *        accdb,
+                        fd_accdb_fork_id_t  accdb_fork_id ) {
+  uchar __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ];
+
+  for( fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, iter_mem );
+       !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter );
+       fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, iter ) ) {
+    fd_pubkey_t pubkey;
+    fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
+
+    fd_acc_t acc = fd_accdb_read_one( accdb, accdb_fork_id, pubkey.uc );
+    if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
+      fd_accdb_unread_one( accdb, &acc );
+      fd_vote_stakes_update_state( vote_stakes, fork_id, &pubkey, 0UL, 0L, 0 );
+      continue;
+    }
+
+    fd_vote_block_timestamp_t last_vote;
+    FD_TEST( !fd_vote_account_last_timestamp( acc.data, acc.data_len, &last_vote ) );
+    fd_vote_stakes_update_state( vote_stakes, fork_id, &pubkey, last_vote.slot, last_vote.timestamp, 1 );
+    fd_accdb_unread_one( accdb, &acc );
+  }
 }
 
 int
-fd_vote_stakes_fork_iter_done( fd_vote_stakes_t *      vote_stakes,
-                               ushort                  fork_idx,
-                               fd_vote_stakes_iter_t * iter ) {
-  stakes_map_iter_t * stakes_map_iter = (stakes_map_iter_t *)iter;
-  return stakes_map_iter_done( *stakes_map_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
+fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          fd_pubkey_t const *      pubkey,
+                          fd_pubkey_t *            node_account_out_opt,
+                          ulong *                  stake_out_opt,
+                          ushort *                 commission_out_opt ) {
+  ulong        width_idx = (ulong)fork_id_width_id( fork_id );
+  vacc_t *     pool      = t_1_vacc_pool( vote_stakes, width_idx );
+  vacc_map_t * map       = t_1_vacc_map ( vote_stakes, width_idx );
+
+  vacc_t const * vacc = vacc_map_ele_query_const( map, pubkey, NULL, pool );
+  if( FD_UNLIKELY( !vacc ) ) return 0;
+
+  if( node_account_out_opt ) *node_account_out_opt = vacc->node_account;
+  if( stake_out_opt )        *stake_out_opt        = vacc->stake;
+  if( commission_out_opt )   *commission_out_opt   = vacc->commission;
+  return 1;
+}
+
+int
+fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          fd_pubkey_t const *      pubkey,
+                          fd_pubkey_t *            node_account_out_opt,
+                          ulong *                  stake_out_opt,
+                          ulong *                  last_vote_slot_out_opt,
+                          long *                   last_vote_ts_out_opt,
+                          ushort *                 commission_out_opt,
+                          uchar *                  is_valid_out_opt ) {
+  ulong        epoch_idx = (ulong)fork_id_epoch( fork_id ) & 1UL;
+  vacc_t *     pool      = t_2_vacc_pool( vote_stakes, epoch_idx );
+  vacc_map_t * map       = t_2_vacc_map ( vote_stakes, epoch_idx );
+
+  vacc_t const * vacc = vacc_map_ele_query_const( map, pubkey, NULL, pool );
+  if( FD_UNLIKELY( !vacc ) ) return 0;
+
+  ulong                 vacc_idx = vacc_pool_idx( pool, vacc );
+  vacc_states_t const * states   = vacc_state_pool_ele_const( vacc_states_pool( vote_stakes ), fork_id_bank_id( fork_id ) );
+
+  if( node_account_out_opt )   *node_account_out_opt   = vacc->node_account;
+  if( stake_out_opt )          *stake_out_opt          = vacc->stake;
+  if( last_vote_slot_out_opt ) *last_vote_slot_out_opt = states->states[ vacc_idx ].last_vote_slot;
+  if( last_vote_ts_out_opt )   *last_vote_ts_out_opt   = states->states[ vacc_idx ].last_vote_ts;
+  if( commission_out_opt )     *commission_out_opt     = vacc->commission;
+  if( is_valid_out_opt )       *is_valid_out_opt       = states->states[ vacc_idx ].is_valid;
+  return 1;
+}
+
+int
+fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          fd_pubkey_t const *      pubkey,
+                          fd_pubkey_t *            node_account_out_opt,
+                          ulong *                  stake_out_opt,
+                          ushort *                 commission_out_opt ) {
+  ulong epoch = (ulong)fork_id_epoch( fork_id );
+  if( FD_UNLIKELY( !epoch ) ) return 0;
+
+  ulong t_3_epoch = epoch - 1UL;
+  ulong t_3_idx   = t_3_epoch & 1UL;
+  if( FD_UNLIKELY( vote_stakes->t_2_epoch[ t_3_idx ]!=t_3_epoch ) ) return 0;
+
+  vacc_t *       pool = t_2_vacc_pool( vote_stakes, t_3_idx );
+  vacc_map_t *   map  = t_2_vacc_map ( vote_stakes, t_3_idx );
+  vacc_t const * vacc = vacc_map_ele_query_const( map, pubkey, NULL, pool );
+  if( FD_UNLIKELY( !vacc ) ) return 0;
+
+  if( node_account_out_opt ) *node_account_out_opt = vacc->node_account;
+  if( stake_out_opt )        *stake_out_opt        = vacc->stake;
+  if( commission_out_opt )   *commission_out_opt   = vacc->commission;
+  return 1;
+}
+
+ulong
+fd_vote_stakes_cnt_t_1( fd_vote_stakes_t const * vote_stakes,
+                        ulong                    fork_id ) {
+  return vacc_pool_used( t_1_vacc_pool( vote_stakes, fork_id_width_id( fork_id ) ) );
+}
+
+ulong
+fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
+                        ulong                    fork_id ) {
+  return vacc_pool_used( t_2_vacc_pool( vote_stakes, (ulong)fork_id_epoch( fork_id ) & 1UL ) );
+}
+
+FD_STATIC_ASSERT( FD_VOTE_STAKES_T_1_ITER_FOOTPRINT == sizeof(vacc_map_iter_t), t_1_iter_footprint );
+FD_STATIC_ASSERT( FD_VOTE_STAKES_T_1_ITER_ALIGN == alignof(vacc_map_iter_t), t_1_iter_align );
+FD_STATIC_ASSERT( FD_VOTE_STAKES_T_2_ITER_FOOTPRINT == sizeof(vacc_map_iter_t), t_2_iter_footprint );
+FD_STATIC_ASSERT( FD_VOTE_STAKES_T_2_ITER_ALIGN == alignof(vacc_map_iter_t), t_2_iter_align );
+
+fd_vote_stakes_t_1_iter_t *
+fd_vote_stakes_t_1_iter_init( fd_vote_stakes_t const * vote_stakes,
+                              ulong                    fork_id,
+                              uchar                    iter_mem[ static FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ] ) {
+  ulong        width_idx = (ulong)fork_id_width_id( fork_id );
+  vacc_t *     pool      = t_1_vacc_pool( vote_stakes, width_idx );
+  vacc_map_t * map       = t_1_vacc_map ( vote_stakes, width_idx );
+  vacc_map_iter_t iter = vacc_map_iter_init( map, pool );
+  memcpy( iter_mem, &iter, sizeof(iter) );
+  return (fd_vote_stakes_t_1_iter_t *)iter_mem;
+}
+
+int
+fd_vote_stakes_t_1_iter_done( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_1_iter_t * iter ) {
+  ulong        width_idx = (ulong)fork_id_width_id( fork_id );
+  vacc_t *     pool      = t_1_vacc_pool( vote_stakes, width_idx );
+  vacc_map_t * map       = t_1_vacc_map ( vote_stakes, width_idx );
+  return vacc_map_iter_done( *(vacc_map_iter_t *)iter, map, pool );
 }
 
 void
-fd_vote_stakes_fork_iter_next( fd_vote_stakes_t *      vote_stakes,
-                               ushort                  fork_idx,
-                               fd_vote_stakes_iter_t * iter ) {
-  stakes_map_iter_t * stakes_map_iter = (stakes_map_iter_t *)iter;
-  *stakes_map_iter = stakes_map_iter_next( *stakes_map_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
+fd_vote_stakes_t_1_iter_next( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_1_iter_t * iter ) {
+  ulong            width_idx = (ulong)fork_id_width_id( fork_id );
+  vacc_t *         pool      = t_1_vacc_pool( vote_stakes, width_idx );
+  vacc_map_t *     map       = t_1_vacc_map ( vote_stakes, width_idx );
+  vacc_map_iter_t * map_iter = (vacc_map_iter_t *)iter;
+  *map_iter = vacc_map_iter_next( *map_iter, map, pool );
 }
 
 void
-fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
-                              ushort                  fork_idx,
-                              fd_vote_stakes_iter_t * iter,
-                              fd_pubkey_t *           pubkey_out,
-                              ulong *                 stake_t_1_out_opt,
-                              ulong *                 stake_t_2_out_opt,
-                              fd_pubkey_t *           node_account_t_1_out_opt,
-                              fd_pubkey_t *           node_account_t_2_out_opt,
-                              ushort *                commission_t_1_out_opt,
-                              ushort *                commission_t_2_out_opt ) {
-  stakes_map_iter_t * stakes_map_iter = (stakes_map_iter_t *)iter;
-  stake_t * stake = stakes_map_iter_ele( *stakes_map_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
+fd_vote_stakes_t_1_iter_ele( fd_vote_stakes_t const *    vote_stakes,
+                             ulong                       fork_id,
+                             fd_vote_stakes_t_1_iter_t * iter,
+                             fd_pubkey_t *               pubkey_out,
+                             fd_pubkey_t *               node_account_out_opt,
+                             ulong *                     stake_out_opt,
+                             ushort *                    commission_out_opt ) {
+  ulong          width_idx = (ulong)fork_id_width_id( fork_id );
+  vacc_t *       pool      = t_1_vacc_pool( vote_stakes, width_idx );
+  vacc_map_t *   map       = t_1_vacc_map ( vote_stakes, width_idx );
+  vacc_t const * vacc      = vacc_map_iter_ele_const( *(vacc_map_iter_t *)iter, map, pool );
 
-  index_ele_t * index_pool = get_index_pool( vote_stakes );
-  index_ele_t * index_ele  = index_pool_ele( index_pool, stake->idx );
+  *pubkey_out = vacc->pubkey;
+  if( node_account_out_opt ) *node_account_out_opt = vacc->node_account;
+  if( stake_out_opt )        *stake_out_opt        = vacc->stake;
+  if( commission_out_opt )   *commission_out_opt   = vacc->commission;
+}
 
-  *pubkey_out = index_ele->index_key.pubkey;
+fd_vote_stakes_t_2_iter_t *
+fd_vote_stakes_t_2_iter_init( fd_vote_stakes_t const * vote_stakes,
+                              ulong                    fork_id,
+                              uchar                    iter_mem[ static FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ] ) {
+  ulong        epoch_idx = (ulong)fork_id_epoch( fork_id ) & 1UL;
+  vacc_t *     pool      = t_2_vacc_pool( vote_stakes, epoch_idx );
+  vacc_map_t * map       = t_2_vacc_map ( vote_stakes, epoch_idx );
+  vacc_map_iter_t iter = vacc_map_iter_init( map, pool );
+  memcpy( iter_mem, &iter, sizeof(iter) );
+  return (fd_vote_stakes_t_2_iter_t *)iter_mem;
+}
 
-  if( stake_t_1_out_opt )        *stake_t_1_out_opt        = index_ele->index_key.stake_t_1;
-  if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
-  if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
-  if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
-  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = (ushort)index_ele->commission_t_1;
-  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = index_ele->commission_t_2;
+int
+fd_vote_stakes_t_2_iter_done( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_2_iter_t * iter ) {
+  ulong        epoch_idx = (ulong)fork_id_epoch( fork_id ) & 1UL;
+  vacc_t *     pool      = t_2_vacc_pool( vote_stakes, epoch_idx );
+  vacc_map_t * map       = t_2_vacc_map ( vote_stakes, epoch_idx );
+  return vacc_map_iter_done( *(vacc_map_iter_t *)iter, map, pool );
+}
+
+void
+fd_vote_stakes_t_2_iter_next( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_2_iter_t * iter ) {
+  ulong            epoch_idx = (ulong)fork_id_epoch( fork_id ) & 1UL;
+  vacc_t *         pool      = t_2_vacc_pool( vote_stakes, epoch_idx );
+  vacc_map_t *     map       = t_2_vacc_map ( vote_stakes, epoch_idx );
+  vacc_map_iter_t * map_iter = (vacc_map_iter_t *)iter;
+  *map_iter = vacc_map_iter_next( *map_iter, map, pool );
+}
+
+void
+fd_vote_stakes_t_2_iter_ele( fd_vote_stakes_t const *    vote_stakes,
+                             ulong                       fork_id,
+                             fd_vote_stakes_t_2_iter_t * iter,
+                             fd_pubkey_t *               pubkey_out,
+                             fd_pubkey_t *               node_account_out_opt,
+                             ulong *                     stake_out_opt,
+                             ulong *                     last_vote_slot_out_opt,
+                             long *                      last_vote_ts_out_opt,
+                             ushort *                    commission_out_opt,
+                             uchar *                     is_valid_out_opt ) {
+  ulong                 epoch_idx = (ulong)fork_id_epoch( fork_id ) & 1UL;
+  vacc_t *              pool      = t_2_vacc_pool( vote_stakes, epoch_idx );
+  vacc_map_t *          map       = t_2_vacc_map ( vote_stakes, epoch_idx );
+  vacc_t const *        vacc      = vacc_map_iter_ele_const( *(vacc_map_iter_t *)iter, map, pool );
+  ulong                 vacc_idx  = vacc_pool_idx( pool, vacc );
+  vacc_states_t const * states    = vacc_state_pool_ele_const( vacc_states_pool( vote_stakes ), fork_id_bank_id( fork_id ) );
+
+  *pubkey_out = vacc->pubkey;
+  if( node_account_out_opt )   *node_account_out_opt   = vacc->node_account;
+  if( stake_out_opt )          *stake_out_opt          = vacc->stake;
+  if( last_vote_slot_out_opt ) *last_vote_slot_out_opt = states->states[ vacc_idx ].last_vote_slot;
+  if( last_vote_ts_out_opt )   *last_vote_ts_out_opt   = states->states[ vacc_idx ].last_vote_ts;
+  if( commission_out_opt )     *commission_out_opt     = vacc->commission;
+  if( is_valid_out_opt )       *is_valid_out_opt       = states->states[ vacc_idx ].is_valid;
 }

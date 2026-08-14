@@ -1,7 +1,7 @@
 #include "fd_bundle_auth.h"
 #include "proto/auth.pb.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/nanopb/pb_decode.h"
+#include "../../third_party/nanopb/pb_decode.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 

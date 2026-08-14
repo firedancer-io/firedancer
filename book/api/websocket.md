@@ -236,9 +236,9 @@ were published with. The `mine` field of blocks similarly indicates if
 this validator published the block, not whether it had the same identity
 key as the validator has now.
 
-Because of this, when changing identity key, no other information will
-be republished. It will simply continue counting for blocks published
-with the new key.
+When changing identity key, current vote information is reset and
+republished for the new identity. Other summary information continues
+counting for blocks published by this validator instance.
 
 #### `summary.vote_state`
 | frequency       | type     | example  |
@@ -301,7 +301,8 @@ sporadically become unboundedly large) and provides the same guarantees.
 | *Once* + *Live* | `number\|null` | `100`   |
 
 The most recent slot this node has landed a vote for. Will typically be
-one slot behind the current slot on the leader schedule.
+one slot behind the current slot on the leader schedule. This is reset
+to `null` when the validator identity changes.
 
 #### `summary.caught_up_slot`
 | frequency       | type           | example |
@@ -524,6 +525,8 @@ Some interesting transitions are,
 	"key": "boot_progress",
     "value": {
         "phase": "waiting_for_supermajority",
+        "accounts_database_path": "/path/to/accounts.db",
+        "gui_database_path": "/path/to/gui.db",
         "joining_gossip_elapsed_seconds": 5,
         "loading_full_snapshot_elapsed_seconds": 7.8,
         "loading_full_snapshot_reset_count": 0,
@@ -570,6 +573,8 @@ Some interesting transitions are,
 | Field                                                                 | Type            | Description |
 |-----------------------------------------------------------------------|-----------------|-------------|
 | phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, `waiting_for_supermajority`, or `running`. This indicates the current phase of the boot process |
+| accounts_database_path                                                | `string`        | Absolute path to the on-disk accounts database file that this validator loads accounts into |
+| gui_database_path                                                     | `string`        | Absolute path to the on-disk gui database file that this validator saves historical monitoring info into |
 | joining_gossip_elapsed_seconds                                        | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
 | loading_{full\|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
 | loading_{full\|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |
@@ -732,20 +737,30 @@ genesis hash).
 :::
 
 #### `summary.identity_balance`
-| frequency      | type     | example      |
-|----------------|----------|--------------|
-| *Once* + *60s* | `string` | `"21125572"` |
+| frequency       | type     | example      |
+|-----------------|----------|--------------|
+| *Once* + *Live* | `string` | `"21125572"` |
 
 Account balance of this validator's identity account in lamports. The
 balance is on the highest slot of the currently active fork of the validator.
 
 #### `summary.vote_balance`
-| frequency      | type     | example      |
-|----------------|----------|--------------|
-| *Once* + *60s* | `string` | `"21125572"` |
+| frequency       | type     | example      |
+|-----------------|----------|--------------|
+| *Once* + *Live* | `string` | `"21125572"` |
 
 Account balance of this validator's vote account in lamports. The balance
 is on the highest slot of the currently active fork of the validator.
+
+#### `summary.vote_commission`
+| frequency       | type           | example |
+|-----------------|----------------|---------|
+| *Once* + *Live* | `number\|null` | `500`   |
+
+Commission configured on this validator's vote account in basis points.
+The value is read from the highest slot of the currently active fork of
+this validator. For example, `500` represents a 5% commission. The value
+is `null` when the vote account is not found.
 
 #### `summary.root_slot`
 | frequency       | type     | example     |
@@ -852,13 +867,13 @@ start incorporating skips for the new identity key.
 |-----------|--------------|---------|
 | *Once*    | `number[][]` | `[[5492.2,4578.841,914.24,0],[6134.44419,5149.23,985,0]]` |
 
-A list of the last 150 TPS samples taken by the validator. Currently the
+A list of the last 300 TPS samples taken by the validator. Currently the
 spacing between samples is poorly defined, but it's roughly one sample
-per slot. Each element in the outer array represents a sample, and the
-outer array will have up to 150 samples. Each sample will have 4
-elements, which are `total_tps`, `vote_tps`, `nonvote_success_tps`, and
-`nonvote_failed_tps` as defined below. Samples are listed from oldest
-first.
+per slot. Each sample is a moving average from the prior 10 seconds.
+Each element in the outer array represents a sample, and the outer array
+will have up to 300 samples. Each sample will have 4 elements, which are
+`total_tps`, `vote_tps`, `nonvote_success_tps`, and `nonvote_failed_tps`
+as defined below. Samples are listed from oldest first.
 
 #### `summary.estimated_tps`
 | frequency       | type     | example     |
@@ -867,9 +882,9 @@ first.
 
 The estimated number of transactions per second the network is running
 at. This includes total, vote, non-vote successful, and non-vote failed
-transactions. This is a moving average from the prior 150 slots, or
-around one minute. For a more precise view of transactions per second,
-the client can calculate it from the stream of new slot data.
+transactions. This is a moving average from the prior 10 seconds. For a
+more precise view of transactions per second, the client can calculate
+it from the stream of new slot data.
 
 The sum of the non-vote successful and the non-vote failed transactions
 represent the number of non-vote transactions. The sum of the estimated
@@ -1213,6 +1228,7 @@ whatever regime was running when the tile got switched out.
     "idle",
     "user",
     "system",
+    "interrupt",
 ]
 ```
 
@@ -1221,7 +1237,11 @@ The regimes mean the following
 - wait: the time a tile's process spent waiting in the runqueue before being dispatched
 - user: the time a tile's process spent executing in user mode
 - system: the time a tile's process spent executing in kernel mode
-- idle: Any remaining wallclock time not accounted for by the other 3 regimes
+- interrupt: the time stolen from the tile's CPU by hardirq/softirq
+  handlers or a hypervisor. Only reported for fixed (pinned) tiles;
+  floating tiles report `0`. Requires a kernel with
+  `CONFIG_IRQ_TIME_ACCOUNTING` for accurate accounting
+- idle: Any remaining wallclock time not accounted for by the other 4 regimes
 
 The tile indices `i` appear in the same order here that they are
 reported when you first connect by the `summary.tiles` message.
@@ -1239,8 +1259,8 @@ reported when you first connect by the `summary.tiles` message.
             ...
         ],
         "sched_timers": [
-            [20.5, 29.5, 49.0, 1.0],
-            [10.5, 39.5, 39.0, 11.0],
+            [20.5, 29.5, 49.0, 1.0, 0.0],
+            [10.5, 39.5, 38.5, 11.0, 0.5],
             ...
         ],
         "in_backp": [
@@ -1288,10 +1308,20 @@ reported when you first connect by the `summary.tiles` message.
             5821,
             ...
         ],
+        "tlb_shootdowns": [
+            0,
+            42,
+            ...
+        ],
         "priority": [
             "normal",
             "critical",
             ...
+        ],
+        "timer_ticks": [
+          1234,
+          0,
+          ...
         ]
     }
 }
@@ -1313,6 +1343,8 @@ reported when you first connect by the `summary.tiles` message.
 | majflt       | `number[]`           | `majflt[i]` is the number of major page faults that occurred for tile `i` since startup. Major page faults occur for requested pages not in memory or the page table |
 | last_cpu     | `number[]`           | `last_cpu[i]` is the CPU index that tile `i` was last recorded executing on |
 | interrupts   | `number[]`           | `interrupts[i]` is the number of device IRQs handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0` |
+| tlb_shootdowns | `number[]`         | `tlb_shootdowns[i]` is the number of TLB shootdowns handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0` |
+| timer_ticks  | `number[]`           | `timer_ticks[i]` is the number of local timer interrupts (LOC) handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0`. Near-zero on `nohz_full` CPUs running a single task |
 | priority     | `string[]`           | `priority[i]` is the priority label of tile `i`. One of `"floating"`, `"startup"`, `"normal"`, or `"critical"` |
 
 Note that a `null` entry in `timers` field indicates that the tile has
@@ -1499,6 +1531,8 @@ since process start.
         },
         "compaction": {
             "in_compaction": 1,
+            "next_compaction_remaining_seconds": 0.0,
+            "next_compaction_partition_idx": 184,
             "compactions_requested": 184,
             "compactions_completed": 183,
             "accounts_relocated_bytes": 9382913024,
@@ -1578,25 +1612,25 @@ since process start.
                 "file_offset": 6597069766656,
                 "tier": 0,
                 "write_offset": 12884901888,
-                "bytes_freed": 0,
-                "read_ops": 41,
-                "bytes_read": 167936,
+                "bytes_freed": 4187593113,
+                "read_ops": 18320,
+                "bytes_read": 5153960755,
                 "write_ops": 8421,
                 "bytes_written": 12884901888,
-                "read_ops_per_sec": 0.4,
-                "bytes_read_per_sec": 4096.0,
-                "write_ops_per_sec": 819.0,
-                "bytes_written_per_sec": 10485760.0,
-                "utilization": 0.375,
-                "fragmentation": 0.0,
-                "used_frac": 0.375,
-                "fragmented_frac": 0.0,
+                "read_ops_per_sec": 210.0,
+                "bytes_read_per_sec": 41943040.0,
+                "write_ops_per_sec": 0.0,
+                "bytes_written_per_sec": 0.0,
+                "utilization": 1.0,
+                "fragmentation": 0.325,
+                "used_frac": 1.0,
+                "fragmented_frac": 0.325,
                 "compaction_trigger_frac": 0.30,
-                "age_seconds": 184.2,
-                "filled_seconds": 0.0,
-                "compaction_state": 0,
-                "compaction_frac": 0.0,
-                "is_write_head": true
+                "age_seconds": 9182.4,
+                "filled_seconds": 8710.9,
+                "compaction_state": 2,
+                "compaction_frac": 0.15,
+                "is_write_head": false
             }
         ]
     }
@@ -1626,13 +1660,15 @@ since process start.
 | used_bytes        | `number` | Bytes currently in use by live account data (excluding fragmentation) |
 
 **`Compaction`**
-| Field                    | Type     | Description |
-|--------------------------|----------|-------------|
-| in_compaction            | `number` | Non-zero if a partition is currently being compacted |
-| compactions_requested    | `number` | Total number of partition compactions enqueued since startup |
-| compactions_completed    | `number` | Total number of partition compactions completed since startup |
-| accounts_relocated_bytes | `number` | Total bytes of account data rewritten by compaction since startup |
-| relocated_bytes_per_sec  | `number` | Recent rate at which compaction is rewriting account data, in bytes per second |
+| Field                             | Type           | Description |
+|-----------------------------------|----------------|-------------|
+| in_compaction                     | `number`       | Non-zero if a partition is currently being compacted |
+| next_compaction_remaining_seconds | `number\|null` | Estimated time remaining, in seconds, until the next compaction starts. `0` if a compaction is currently in progress (`in_compaction` is non-zero). `null` if no compaction is currently projected |
+| next_compaction_partition_idx     | `number\|null` | Index of the partition estimated to be compacted next. If a compaction is currently in progress (`in_compaction` is non-zero), this is the index of the partition being compacted. `null` if no compaction is currently projected |
+| compactions_requested             | `number`       | Total number of partition compactions enqueued since startup |
+| compactions_completed             | `number`       | Total number of partition compactions completed since startup |
+| accounts_relocated_bytes          | `number`       | Total bytes of account data rewritten by compaction since startup |
+| relocated_bytes_per_sec           | `number`       | Recent rate at which compaction is rewriting account data, in bytes per second |
 
 **`Cache`**
 | Field        | Type            | Description |
@@ -1805,6 +1841,7 @@ once they are confirmed (the prior epoch has fully rooted).
     "end_time_nanos": "1719910299914232",
     "start_slot": 274752000,
     "end_slot": 275183999,
+    "target_slot_duration_nanos": 400000000,
     "excluded_stake_lamports": "0",
     "staked_pubkeys": [
         "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
@@ -1839,8 +1876,9 @@ once they are confirmed (the prior epoch has fully rooted).
 | end_time_nanos | `string` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
-| excluded_stake_lamports | `string` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But it is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
-| staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
+| target_slot_duration_nanos | `number` | The cluster-wide target slot duration, in nanoseconds, for the epoch. This is typically `400000000` (400ms) on most clusters unless a `reduce_slot_time` feature gate is in effect |
+| excluded_stake_lamports | `string` | Always zero. Firedancer tracks the complete validator-admission-ticket stake set.
+| staked_pubkeys | `string[]` | All validator identity keys in the validator-admission-ticket stake set for this epoch, capped at 2,000 entries |
 | staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
 | leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divided by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
 
@@ -2413,6 +2451,59 @@ connect).
 Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
+### timeline
+Historical shred event data recorded by the validator, queryable over a
+UNIX nanosecond timestamp window.
+
+#### `timeline.query_shreds`
+| frequency   | type          | example |
+|-------------|---------------|---------|
+| *Request*   | `SlotShreds`  | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound of the UNIX nanosecond timestamp window to query for shred events |
+| end_ns   | `string` | Inclusive upper bound of the UNIX nanosecond timestamp window to query for shred events |
+
+WebSocket clients may request historical shred metadata over a UNIX
+nanosecond timestamp window.  The requested window must not exceed 10
+seconds.  The response has the same shape as the live `slot.live_shreds`
+topic and covers every shred event recorded in the window across all
+slots.  If no shred events fall in the window, the response arrays will
+be empty.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 32,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 32,
+    "value": {
+        "reference_slot": 289245044,
+        "reference_ts": "1739657041588242791",
+        "slot_delta": [0, 0],
+        "shred_idx": [1234, null],
+        "event": [0, 1],
+        "event_ts_delta": ["1000000", "2000000"]
+    }
+}
+```
+
+:::
+
 ### slot
 Slots are opportunities for a leader to produce a block. A slot can be
 in one of five levels, and in typical operation a slot moves through
@@ -2496,7 +2587,8 @@ initially replay one but the cluster votes on the other one.
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 | vote_slot                    | `number\|null` | The most recent slot for which this validator had landed a vote as of the time that this slot was replayed.  This is equivalent to the largest voted-for slot in this validator's on-chain vote account after the execution of `slot`. `vote_slot` will typically be one less than `slot`, though `vote_slot` may be arbitrarily small if the last successfully landed vote from this validator was long before `slot`. May be `null` if the vote account for this node does not exist |
-| vote_latency                 | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot.  This field is `null` if we have not yet landed a vote for this slot, and this message will be re-published once our vote lands. Due to forking or votes not landing, this field may be updated arbitrarily many times, or never |
+| vote_latency_exact           | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot, discounting slots that were skipped on the fork our vote landed on.  `null` when we have not landed a vote for this slot |
+| is_voter                     | `boolean` | True if this validator was structurally a voter (held the authorized voter key with a matching identity) at the time this slot was replayed.  This reflects the historical voting configuration and is unaffected by later runtime identity switches |
 
 #### `slot.skipped_history`
 | frequency | type       | example |
@@ -2506,17 +2598,16 @@ initially replay one but the cluster votes on the other one.
 A list of leader slot of the validator from the current epoch which were
 skipped.
 
-The skipped slots include unrooted and unconfirmed slots of ours which
-are skipped on the currently active fork.
+The skipped slots include only rooted slots of ours which are skipped on
+the currently active fork.
 
 #### `slot.skipped_history_cluster`
 | frequency | type       | example |
 |-----------|------------|---------|
 | *Once*     | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
 
-A list of all of the leader slots which were skipped in the current
-epoch.  Recent non-rooted slots may be included, and included skipped
-slots will not become unskipped as a later slot has rooted.
+A list of all of the leader slots which were skipped and rooted in the
+current epoch.
 
 #### `slot.late_votes_history`
 | frequency | type       | example |
@@ -2528,17 +2619,13 @@ late or not at all. Specifically, the following slots are included
 - rooted slots with a vote latency > 1
 - rooted slots that were never voted for that were not skipped
 
-The slot array is run-length encoded. For example
+The `slot` array is run-length encoded: it holds pairs
+`[run_start, run_end]` (both inclusive) describing contiguous ranges of
+affected slots.  Each run shares the same `latency_exact` value.
 
-```
-[ a, b, c, d, e, f ]
-```
-
-means that slots `[a, b]`, slots `[c, d]`, and slots `[e, f]` all
-received late or non-existent votes.
-
-The latency array is not run-length encoded. That means if the decoded
-slots array has `n` slots, then the length of `latency` will be `n`.
+The `latency_exact` array holds one entry per run, so its length is
+exactly half the length of the `slot`. It is the skip-discounted vote
+latency (`null` for missing vote).
 
 :::details Example
 
@@ -2547,8 +2634,8 @@ slots array has `n` slots, then the length of `latency` will be `n`.
 	"topic": "slot",
 	"key": "late_votes_history",
 	"value": {
-        "slot": [286576808, 286576808, 286576810, 286576811, 286625025, 286625026],
-        "latency": [2, 3, null, 2, 2]
+        "slot": [286576808, 286576808, 286576810, 286576810, 286576811, 286576811, 286625025, 286625025],
+        "latency_exact": [2, null, 3, 2]
     }
 }
 ```
@@ -2587,57 +2674,12 @@ and is broadcast to all WebSocket clients.
 **`SlotShreds`**
 | Field           | Type               | Description |
 |-----------------|--------------------|-------------|
-| reference_slot  | `number`           | The smallest slot number across all the shreds in a given message |
-| reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
-| slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
+| reference_slot  | `number`           | The smallest slot number across all the shreds in a given message |
+| reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
+| slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
 | shred_idx       | `(number\|null)[]` | `shred_idx[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
 | event           | `number[]`         | `event[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
 | event_ts_delta  | `string[]`         | `reference_ts + event_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occurred |
-
-#### `slot.query_shreds`
-| frequency   | type          | example |
-|-------------|---------------|---------|
-| *Request*   | `SlotShreds\|null` | below   |
-
-| param | type     | description |
-|-------|----------|-------------|
-| slot  | `number` | The requested slot for which the response will provide shred timing data |
-
-WebSocket clients may request historical shred metadata on a per-slot
-basis. For slots that are too old (i.e. they've been expired from an
-in-memory store) or too new (i.e. they haven't been finalized yet), the
-response value will be `null`.
-
-::: details Example
-
-```json
-{
-    "topic": "slot",
-    "key": "query_shreds",
-    "id": 32,
-    "params": {
-        "slot": 289245044
-    }
-}
-```
-
-```json
-{
-    "topic": "slot",
-    "key": "query_shreds",
-    "id": 32,
-    "value": {
-        "reference_slot": 289245044,
-        "reference_ts": "1739657041588242791",
-        "slot_delta": [0, 0],
-        "shred_idx": [1234, null],
-        "event": [0, 1],
-        "event_ts_delta": ["1000000", "2000000"]
-    }
-}
-```
-
-:::
 
 #### `slot.update`
 | frequency   | type          | example |

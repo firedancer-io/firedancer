@@ -62,8 +62,9 @@ fd_long_sat_add( long x, long y ) {
   /* https://stackoverflow.com/a/56531252
      x + y overflows => x, y have the same sign
      we can use either to determine the result,
-     with the trick described in the SO answe.
-     We chose x because it works also for sub. */
+     with the trick described in the SO answer.
+     We chose x because it works also for sub.
+     It is not UB because we compile with -fwrapv. */
   return fd_long_if( cf, (long)((ulong)x >> 63) + LONG_MAX, res );
 }
 
@@ -78,7 +79,7 @@ FD_FN_CONST static inline long
 fd_long_sat_mul( long x, long y ) {
   long res;
   int cf = __builtin_smull_overflow ( x, y, &res );
-  return fd_long_if( cf, (long)((ulong)((x ^ y) >> 63)) + LONG_MAX, res );
+  return fd_long_if( cf, (long)((ulong)(x ^ y) >> 63) + LONG_MAX, res );
 }
 
 FD_FN_CONST static inline uint

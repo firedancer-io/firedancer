@@ -51,6 +51,11 @@ else
   fi
 
   git -C "$CACHE" fetch -q --prune
+
+  # Repair cache state left by interrupted checkouts
+  git -C "$CACHE" reset -q --hard
+  git -C "$CACHE" clean -q -fd
+
   git -C "$CACHE" checkout -q "$GIT_REF"
 
   # Remove stale working copies older than 24 hours (non-fatal)
@@ -75,6 +80,7 @@ export FD_LOG_PATH="$LOG_PATH/solfuzz.log"
   "$WORK_DIR/instr/fixtures" \
   "$WORK_DIR/shred/fixtures" \
   "$WORK_DIR/cost/fixtures" \
-  "$WORK_DIR/vm_serialization/fixtures"
+  "$WORK_DIR/vm_serialization/fixtures" \
+  "$WORK_DIR/gossip/fixtures"
 
 echo "Test vectors success"

@@ -28,7 +28,7 @@
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
-#include "../../ballet/json/cJSON_alloc.h"
+#include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
@@ -181,7 +181,7 @@ before_credit( fd_guih_ctx_t *      ctx,
   int charge_busy_server = 0;
   long now = fd_tickcount();
   if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
-    charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
+    charge_busy_server = fd_http_server_poll( ctx->gui_server, 0, 1UL );
     ctx->next_poll_deadline = fd_tickcount() + (long)(ctx->tick_per_ns * 128L * 1000L);
   }
 
@@ -228,8 +228,8 @@ during_frag( fd_guih_ctx_t * ctx,
     } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
       ulong staked_vote_cnt = FD_LOAD( ulong, src+8UL );
       ulong staked_id_cnt   = FD_LOAD( ulong, src+16UL );
-      FD_TEST( staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
-      FD_TEST( staked_id_cnt<=MAX_SHRED_DESTS );
+      FD_TEST( staked_vote_cnt<=MAX_STAKE_WEIGHTS );
+      FD_TEST( staked_id_cnt<=MAX_STAKE_WEIGHTS );
       sz = fd_stake_weight_msg_sz( staked_vote_cnt, staked_id_cnt );
     }
   }

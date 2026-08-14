@@ -29,6 +29,8 @@ def main():
     for path in Path("./src").rglob("*.h"):
         if ".pb.h" in path.name:
             continue
+        if str(path).startswith("src/third_party/"):
+            continue
         try:
             check_file(path)
         except IOError:

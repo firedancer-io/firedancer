@@ -468,8 +468,8 @@ pair_setup_vf( pair_node_t * node,
                ulong         _mem,
                ulong         seed ) {
   fd_gossvf_tile_ctx_t * ctx = node->vf;
-  /* ctx embeds stake.msg_buf[ FD_EPOCH_INFO_MAX_MSG_SZ ] (~10 MiB, sized for
-     MAX_STAKED_LEADERS).  Zeroing it every input dominates the per-exec cost
+  /* ctx embeds stake.msg_buf[ FD_EPOCH_INFO_MAX_MSG_SZ ] (sized for
+     MAX_STAKE_WEIGHTS).  Zeroing it every input dominates the per-exec cost
      and is unnecessary: pair_apply_stakes() zeroes the used prefix before
      writing it, and handle_epoch() only reads staked_id_cnt entries.  Zero
      everything except that buffer. */

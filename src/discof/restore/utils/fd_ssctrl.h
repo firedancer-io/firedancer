@@ -91,6 +91,12 @@
    that control message until all tiles forward it on, or an ERROR
    message is triggered by any of the tiles and forwarded. */
 
+/* MTU for the snapshot data stream links (snapld_dc, snapdc_in).
+   Producers adapt to the link mtu, so the value just needs to exceed
+   the control structs.  64 KiB - 128 fills one dcache slot exactly
+   and keeps a depth-16384 link under a gigantic page boundary. */
+#define FD_SNAPSHOT_DATA_MTU                   (65408UL)
+
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
 #define FD_SNAPSHOT_STATE_PROCESSING           (1UL) /* Performing usual work, no errors / EoF condition encountered */
 #define FD_SNAPSHOT_STATE_FINISHING            (2UL) /* Tile has observed EoF, expects no additional data frags */
@@ -124,11 +130,16 @@ typedef struct fd_ssctrl_init {
   char          path[ PATH_MAX ];
   ulong         path_len;
   int           is_https;
+  int           is_redirect; /* 1 if using well-known redirect path */
+  ulong         file_sz;     /* file size in bytes (file loads only, 0 for HTTP) */
 } fd_ssctrl_init_t;
 
 /* Sent by snapld to tell snapct metadata about a downloaded snapshot. */
 typedef struct fd_ssctrl_meta {
   ulong total_sz;
+  ulong resolved_slot;
+  uchar resolved_hash[ FD_HASH_FOOTPRINT ];
+  char  resolved_name[ PATH_MAX ];
 } fd_ssctrl_meta_t;
 
 struct fd_snapshot_account_hdr {

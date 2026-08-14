@@ -65,6 +65,77 @@ test_vm_syscall_sol_memcpy( char const * test_case_name,
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
+/* sol_memcmp searches by 256B blocks, then 8B words, then bytes.  Walk the
+   first difference across every position of sizes that straddle each of those
+   boundaries, against a byte loop reference. */
+
+static void
+test_vm_syscall_sol_memcmp_search( fd_vm_t * vm ) {
+  ulong const OFF0 = 0UL, OFF1 = 2048UL, OFFR = 4096UL;
+  uchar * m0 = vm->heap + OFF0;
+  uchar * m1 = vm->heap + OFF1;
+  int *   r  = (int *)( vm->heap + OFFR );
+
+  static ulong const szs[] = { 0UL,1UL,7UL,8UL,9UL,255UL,256UL,257UL,263UL,264UL,265UL,511UL,512UL,513UL,520UL };
+
+  for( ulong si=0UL; si<sizeof(szs)/sizeof(szs[0]); si++ ) {
+    ulong sz = szs[si];
+
+    /* pos==sz means "no difference" */
+    for( ulong pos=0UL; pos<=sz; pos++ ) {
+      for( ulong i=0UL; i<sz; i++ ) m0[i] = m1[i] = (uchar)( i*7UL+1UL );
+      if( pos<sz ) m1[pos] = (uchar)( m0[pos] ^ 0x80U );
+
+      int want = 0;
+      for( ulong i=0UL; i<sz; i++ ) if( m0[i]!=m1[i] ) { want = (int)m0[i] - (int)m1[i]; break; }
+
+      *r = -12345;
+      ulong ret = 1UL;
+      int   err = fd_vm_syscall_sol_memcmp( vm,
+                    FD_VM_MEM_MAP_HEAP_REGION_START + OFF0,
+                    FD_VM_MEM_MAP_HEAP_REGION_START + OFF1, sz,
+                    FD_VM_MEM_MAP_HEAP_REGION_START + OFFR, 0UL, &ret );
+      FD_TEST( err==FD_VM_SUCCESS );
+      FD_TEST( ret==0UL       );
+      FD_TEST( *r ==want      );
+    }
+  }
+
+  FD_LOG_NOTICE(( "Passed test program (test_vm_syscall_sol_memcmp: block/word/byte search)" ));
+}
+
+/* A slice compared against itself is equal at every size, including the sizes
+   where the block, word and byte searches take over. */
+
+static void
+test_vm_syscall_sol_memcmp_alias( fd_vm_t * vm ) {
+  ulong const OFF = 0UL, OFFR = 4096UL;
+  uchar * m = vm->heap + OFF;
+  int *   r = (int *)( vm->heap + OFFR );
+
+  static ulong const szs[] = { 0UL,1UL,7UL,8UL,9UL,255UL,256UL,257UL,264UL,512UL,2500UL };
+
+  for( ulong si=0UL; si<sizeof(szs)/sizeof(szs[0]); si++ ) {
+    ulong sz = szs[si];
+
+    /* Nonzero contents, so a comparison that reads nothing at all still has to
+       produce 0 for the right reason. */
+    for( ulong i=0UL; i<sz; i++ ) m[i] = (uchar)( i*7UL+1UL );
+
+    *r = -12345;
+    ulong ret = 1UL;
+    int   err = fd_vm_syscall_sol_memcmp( vm,
+                  FD_VM_MEM_MAP_HEAP_REGION_START + OFF,
+                  FD_VM_MEM_MAP_HEAP_REGION_START + OFF, sz,
+                  FD_VM_MEM_MAP_HEAP_REGION_START + OFFR, 0UL, &ret );
+    FD_TEST( err==FD_VM_SUCCESS );
+    FD_TEST( ret==0UL           );
+    FD_TEST( *r ==0             );
+  }
+
+  FD_LOG_NOTICE(( "Passed test program (test_vm_syscall_sol_memcmp: aliased slices)" ));
+}
+
 static void
 test_vm_syscall_sol_memcmp( char const * test_case_name,
                             fd_vm_t *    vm,
@@ -663,6 +734,9 @@ main( int     argc,
                                 vm->input_mem_regions[0].haddr + 450UL,
                                 500UL,
                                 0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
+
+  test_vm_syscall_sol_memcmp_search( vm );
+  test_vm_syscall_sol_memcmp_alias( vm );
 
   // test for memcmp at the heap region
   test_vm_syscall_sol_memcmp( "test_vm_syscall_sol_memcmp: memcmp at the heap region",

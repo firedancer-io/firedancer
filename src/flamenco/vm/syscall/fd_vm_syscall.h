@@ -241,7 +241,7 @@ FD_VM_SYSCALL_DECL( sol_log_pubkey );
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented
      and vm->cu>=0.  The value logged will be the value of cu when
-     between when the syscall completed and the next interation starts
+     between when the syscall completed and the next iteration starts
      and will be >=0.
 
      IMPORTANT SAFETY TIP!  The log message will be silently truncated
@@ -379,7 +379,7 @@ FD_VM_SYSCALL_DECL( sol_memcpy );
      uchars.  Specifically, if the regions are different, *_out will be
      (int)m0[i] - (int)m1[i] where i is the first differing byte.
 
-     IMPORANT SAFETY TIP!  Note that, strangely, this returns the result
+     IMPORTANT SAFETY TIP!  Note that, strangely, this returns the result
      in memory instead via *_ret like a libc-style memcmp would. */
 
 FD_VM_SYSCALL_DECL( sol_memcmp );
@@ -773,8 +773,8 @@ int
 fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
                            fd_exec_instr_ctx_t *    instr_ctx,
                            fd_pubkey_t const *      callee_program_id_pubkey,
-                           fd_pubkey_t const        instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
-                           fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
+                           fd_pubkey_t const        instr_acct_keys[ FD_TXN_INSTR_ACCT_MAX ],
+                           fd_instruction_account_t instruction_accounts[ FD_TXN_INSTR_ACCT_MAX ],
                            ulong *                  instruction_accounts_cnt,
                            fd_pubkey_t const *      signers,
                            ulong                    signers_cnt );
@@ -850,8 +850,7 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_group_op    );
 
 FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
 
-/* syscall(174c5122) "sol_blake3"
-   syscall(d7793abb) "sol_keccak256"
+/* syscall(d7793abb) "sol_keccak256"
    syscall(11f49d86) "sol_sha256"
 
    Inputs:
@@ -878,9 +877,8 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
      check_align set).  *_ret unchanged.  Compute budget decremented.
 
      FD_VM_SUCCESS: success.  *_ret=0 and hash[i] holds the hash of the
-     concatentation of the slices.  Compute budget decremented. */
+     concatenation of the slices.  Compute budget decremented. */
 
-FD_VM_SYSCALL_DECL( sol_blake3    );
 FD_VM_SYSCALL_DECL( sol_keccak256 );
 FD_VM_SYSCALL_DECL( sol_sha256    );
 FD_VM_SYSCALL_DECL( sol_sha512    );

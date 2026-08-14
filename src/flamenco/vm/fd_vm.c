@@ -69,7 +69,6 @@ fd_vm_ebpf_strerror( int err ) {
   case FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT:   return "callx attempted to call outside of the text segment";
   case FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS:   return "exceeded CUs meter at BPF instruction";
   case FD_VM_ERR_EBPF_JIT_NOT_COMPILED:            return "program has not been JIT-compiled";
-  case FD_VM_ERR_EBPF_INVALID_VIRTUAL_ADDRESS:     return "invalid virtual address"; // truncated
   case FD_VM_ERR_EBPF_INVALID_MEMORY_REGION:       return "Invalid memory region at index"; // truncated
   case FD_VM_ERR_EBPF_ACCESS_VIOLATION:            return "Access violation"; // truncated
   case FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION:      return "Access violation in stack frame"; // truncated

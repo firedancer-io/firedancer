@@ -6,6 +6,7 @@
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
@@ -14,6 +15,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
+#include "../../flamenco/events/fd_event_runtime.h"
 #include <time.h>
 #include "generated/fd_execle_tile_seccomp.h"
 
@@ -29,6 +31,8 @@ typedef struct fd_execle_out fd_execle_out_t;
 
 struct fd_execle_tile {
   ulong kind_id;
+
+  fd_startup_gate_t startup_gate[1];
 
   fd_blake3_t * blake3;
   void * bmtree;
@@ -86,6 +90,9 @@ struct fd_execle_tile {
     /* Ticks spent committing a txn (database writes) */
     ulong txn_commit_cum_ticks;
   } metrics;
+
+  /* If non-zero, emit one runtime_txn event per dispatched txn */
+  int report_transaction_diffs;
 };
 
 typedef struct fd_execle_tile fd_execle_tile_t;
@@ -109,6 +116,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_execle_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+
   FD_MCNT_ENUM_COPY( EXECLE, TXN_RESULT, ctx->metrics.txn_result );
   FD_MCNT_ENUM_COPY( EXECLE, TXN_LANDED, ctx->metrics.txn_landed );
 
@@ -127,7 +136,31 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
   FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
 
+  fd_progcache_metrics_t * pm = ctx->progcache->metrics;
+  FD_MCNT_SET( EXECLE, PROGCACHE_LOOKUP,                 pm->lookup_cnt     );
+  FD_MCNT_SET( EXECLE, PROGCACHE_HIT,                    pm->hit_cnt        );
+  FD_MCNT_SET( EXECLE, PROGCACHE_MISS,                   pm->miss_cnt       );
+  FD_MCNT_SET( EXECLE, PROGCACHE_OOM_HEAP,               pm->oom_heap_cnt   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_OOM_DESC,               pm->oom_desc_cnt   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_FILL,                   pm->fill_cnt       );
+  FD_MCNT_SET( EXECLE, PROGCACHE_FILL_BYTES,             pm->fill_tot_sz    );
+  FD_MCNT_SET( EXECLE, PROGCACHE_SPILL,                  pm->spill_cnt      );
+  FD_MCNT_SET( EXECLE, PROGCACHE_SPILL_BYTES,            pm->spill_tot_sz   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_EVICTION,               pm->evict_cnt      );
+  FD_MCNT_SET( EXECLE, PROGCACHE_EVICTION_BYTES,         pm->evict_tot_sz   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_DURATION_SECONDS,       pm->cum_pull_ticks );
+  FD_MCNT_SET( EXECLE, PROGCACHE_LOAD_DURATION_SECONDS,  pm->cum_load_ticks );
+
   FD_ACCDB_METRICS_WRITE( EXECLE, fd_accdb_metrics( ctx->accdb ) );
+}
+
+static inline void
+after_credit( fd_execle_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  (void)stem; (void)opt_poll_in; (void)charge_busy;
+  fd_startup_gate_idle( ctx->startup_gate );
 }
 
 static int
@@ -136,6 +169,8 @@ before_frag( fd_execle_tile_t * ctx,
              ulong              seq,
              ulong              sig ) {
   (void)in_idx; (void)seq;
+
+  fd_startup_gate_busy( ctx->startup_gate );
 
   /* Pack also outputs "leader slot done" which we can ignore. */
   if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK ) ) return 1;
@@ -229,6 +264,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt = (fd_txn_ns_dt_t){0};
+  trailer->bank_seq  = bank->bank_seq;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
@@ -247,6 +283,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
     txn_in->bundle.is_bundle = 0;
     txn_in->txn              = txn;
+    txn_in->index_in_slot    = ctx->_txn_idx + i;
 
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 
@@ -255,7 +292,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
-      fd_runtime_cancel_txn( ctx->runtime, txn_out );
+      fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
       /* Use pre-resolved ALT accounts for rebates even for unlanded transactions */
       fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
@@ -276,7 +313,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
         FD_LOG_WARNING(( "FeesOnly txn actual CUs (%u+%u) exceed requested (%u), dropping",
                          fee_only_actual_exec_cus, fee_only_actual_data_cus, requested_exec_plus_acct_data_cus ));
         txn_out->err.is_committable = 0;
-        fd_runtime_cancel_txn( ctx->runtime, txn_out );
+        fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
         /* txn->execle_cu already initialized to full rebate at top of loop */
         fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
         if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
@@ -310,7 +347,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
+    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
 
     long const txn_end_ticks = fd_tickcount();
 
@@ -450,6 +487,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
     writable_alt[i]                   = ctx->_alt_accts[i];
     ctx->txn_in[ i ].txn              = &txns[ i ];
     ctx->txn_in[ i ].bundle.is_bundle = 1;
+    ctx->txn_in[ i ].index_in_slot    = ctx->_txn_idx + i;
   }
 
 
@@ -466,7 +504,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   }
 
   /* Every transaction in the bundle should be executed in order against
-     different transaciton contexts. */
+     different transaction contexts. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
 
     fd_txn_p_t *   txn     = &txns[ i ];
@@ -497,7 +535,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   }
 
   /* If all of the transactions in the bundle executed successfully, we
-     can commit the transactions in order.  At this point, we cann also
+     can commit the transactions in order.  At this point, we can also
      accumulate unused CUs to the rebate.  Otherwise, if any transaction
      fails, we need to exclude all the bundle transactions and rebate
      all of the CUs. */
@@ -508,7 +546,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
+      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
 
       txn_end_ticks[ i ] = fd_tickcount();
 
@@ -564,6 +602,9 @@ handle_bundle( fd_execle_tile_t *  ctx,
     }
   } else {
     FD_TEST( failed_idx != ULONG_MAX );
+    /* A failed bundle is dropped in its entirety: every transaction is
+       marked non-committable and none of them land in the block. We
+       intentionally do NOT emit runtime_txn events here */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
       ctx->txn_out[ i ].err.is_committable = 0;
@@ -606,6 +647,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
+
     uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
     fd_memcpy( dst, bundle_txn_temp+i, sizeof(fd_txn_p_t) );
 
@@ -613,6 +655,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
     trailer->pack_txn_idx = ctx->_txn_idx + i;
     trailer->tips         = tips[ i ];
+    trailer->bank_seq     = bank->bank_seq;
 
     ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 
@@ -777,7 +820,13 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->ns_per_tick = 1.f / (float)fd_tempo_tick_per_ns( NULL );
 
-  fd_sleep_until_replay_started( topo );
+  ctx->report_transaction_diffs = tile->execle.report_transaction_diffs;
+
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 static ulong
@@ -823,14 +872,24 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_execle_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT  after_credit
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile ) {
+  /* execle emits accdb_partition_added, plus runtime_txn when diffs are on. */
+  ulong sz = sizeof(fd_event_accdb_partition_added_t);
+  if( tile->execle.report_transaction_diffs && sizeof(fd_event_runtime_txn_t)>sz ) sz = sizeof(fd_event_runtime_txn_t);
+  return sz;
+}
+
 fd_topo_run_tile_t fd_tile_execle = {
   .name                     = "execle",
+  .max_event_sz             = max_event_sz,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

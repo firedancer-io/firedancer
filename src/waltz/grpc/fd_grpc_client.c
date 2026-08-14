@@ -1,6 +1,6 @@
 #include "fd_grpc_client.h"
 #include "fd_grpc_client_private.h"
-#include "../../ballet/nanopb/pb_encode.h" /* pb_msgdesc_t */
+#include "../../third_party/nanopb/pb_encode.h" /* pb_msgdesc_t */
 #include <sys/socket.h>
 #include "../h2/fd_h2_rbuf_sock.h"
 #include "fd_grpc_codec.h"
@@ -418,10 +418,10 @@ fd_grpc_client_request_continue1( fd_grpc_client_t * client ) {
   fd_h2_stream_t *      h2_stream = &stream->s;
   fd_h2_tx_op_copy( client->conn, h2_stream, client->frame_tx, client->request_tx_op );
   if( FD_UNLIKELY( client->request_tx_op->chunk_sz ) ) return 0;
+  client->request_stream = NULL;
   if( FD_UNLIKELY( h2_stream->state != FD_H2_STREAM_STATE_CLOSING_TX ) ) return 0;
   client->metrics->stream_chunks_tx_cnt++;
   /* Request finished */
-  client->request_stream = NULL;
   client->callbacks->tx_complete( client->ctx, stream->request_ctx );
   return 1;
 }
@@ -448,13 +448,14 @@ fd_grpc_client_request_is_blocked( fd_grpc_client_t * client ) {
   if( FD_UNLIKELY( client->conn->flags & FD_H2_CONN_FLAGS_DEAD      ) ) return 1;
   if( FD_UNLIKELY( !client->h2_hs_done                              ) ) return 1;
   if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx )         ) ) return 1;
+  if( FD_UNLIKELY( client->request_tx_op->chunk_sz > 0UL            ) ) return 1;
   if( FD_UNLIKELY( !fd_grpc_client_stream_acquire_is_safe( client ) ) ) return 1;
   return 0;
 }
 
 int
 fd_grpc_client_request_stream_busy( fd_grpc_client_t * client ) {
-  return client->request_stream != NULL;
+  return client->request_stream && client->request_tx_op->chunk_sz;
 }
 
 fd_grpc_h2_stream_t *
@@ -547,6 +548,12 @@ fd_grpc_client_request_start1(
 ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client ) ) ) return NULL;
 
+  int const headers_only = (protobuf==NULL);
+  if( FD_UNLIKELY( headers_only && !is_streaming ) ) {
+    FD_LOG_WARNING(( "headers-only request requires is_streaming (path %.*s). This is a bug", (int)path_len, path ));
+    return NULL;
+  }
+
   /* Validate protobuf size */
   FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
   ulong const max_proto_sz = client->nanopb_tx_max - sizeof(fd_grpc_hdr_t);
@@ -555,16 +562,18 @@ fd_grpc_client_request_start1(
     return NULL;
   }
 
-  /* Copy protobuf to buffer after gRPC header */
-  uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
-  memcpy( proto_buf, protobuf, protobuf_sz );
+  if( FD_LIKELY( !headers_only ) ) {
+    /* Copy protobuf to buffer after gRPC header */
+    uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
+    memcpy( proto_buf, protobuf, protobuf_sz );
 
-  /* Create gRPC length prefix */
-  fd_grpc_hdr_t hdr = {
-    .compressed=0,
-    .msg_sz=fd_uint_bswap( (uint)protobuf_sz )
-  };
-  memcpy( client->nanopb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
+    /* Create gRPC length prefix */
+    fd_grpc_hdr_t hdr = {
+      .compressed=0,
+      .msg_sz=fd_uint_bswap( (uint)protobuf_sz )
+    };
+    memcpy( client->nanopb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
+  }
   ulong const payload_sz = protobuf_sz + sizeof(fd_grpc_hdr_t);
 
   /* Allocate stream descriptor */
@@ -596,6 +605,13 @@ fd_grpc_client_request_start1(
   }
   fd_h2_tx_commit( client->conn, client->frame_tx );
 
+  client->metrics->streams_active++;
+
+  if( FD_UNLIKELY( headers_only ) ) {
+    client->request_stream = NULL;
+    return stream;
+  }
+
   /* Queue request payload for send
      (Protobuf message might have to be fragmented into multiple HTTP/2
      DATA frames if the client gets blocked)
@@ -604,7 +620,6 @@ fd_grpc_client_request_start1(
   fd_h2_tx_op_init( client->request_tx_op, client->nanopb_tx, payload_sz, flags );
   fd_grpc_client_request_continue1( client );
   client->metrics->requests_sent++;
-  client->metrics->streams_active++;
 
   FD_LOG_DEBUG(( "gRPC request path=%.*s sz=%lu streaming=%d", (int)path_len, path, protobuf_sz, is_streaming ));
 
@@ -621,7 +636,10 @@ fd_grpc_client_stream_send_msg(
   if( FD_UNLIKELY( !client || !stream ) ) return 0;
   if( FD_UNLIKELY( client->conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) return 0;
   if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx ) ) ) return 0;
+  if( FD_UNLIKELY( client->request_tx_op->chunk_sz > 0UL ) ) return 0;
   if( FD_UNLIKELY( client->request_stream != NULL && client->request_stream != stream ) ) return 0; /* Another stream has a request in progress */
+  if( FD_UNLIKELY( stream->s.state!=FD_H2_STREAM_STATE_OPEN &&
+                   stream->s.state!=FD_H2_STREAM_STATE_CLOSING_RX ) ) return 0;
 
   /* Encode message */
   FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
@@ -661,7 +679,10 @@ fd_grpc_client_stream_send_msg1(
   if( FD_UNLIKELY( !client || !stream ) ) return 0;
   if( FD_UNLIKELY( client->conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) return 0;
   if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx ) ) ) return 0;
+  if( FD_UNLIKELY( client->request_tx_op->chunk_sz > 0UL ) ) return 0;
   if( FD_UNLIKELY( client->request_stream != NULL && client->request_stream != stream ) ) return 0; /* Another stream has a request in progress */
+  if( FD_UNLIKELY( stream->s.state!=FD_H2_STREAM_STATE_OPEN &&
+                   stream->s.state!=FD_H2_STREAM_STATE_CLOSING_RX ) ) return 0;
 
   /* Validate protobuf size */
   FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
@@ -702,8 +723,11 @@ fd_grpc_client_stream_close(
   if( FD_UNLIKELY( client->conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) return 0;
   if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx ) ) ) return 0;
   if( FD_UNLIKELY( client->request_stream != NULL ) ) return 0; /* Another request in progress */
+  if( FD_UNLIKELY( stream->s.state!=FD_H2_STREAM_STATE_OPEN &&
+                   stream->s.state!=FD_H2_STREAM_STATE_CLOSING_RX ) ) return 0;
 
   /* Send empty DATA frame with END_STREAM flag to close the stream */
+  fd_h2_stream_close_tx( &stream->s, client->conn );
   fd_h2_tx_prepare( client->conn, client->frame_tx, FD_H2_FRAME_TYPE_DATA, FD_H2_FLAG_END_STREAM, stream->s.stream_id );
   fd_h2_tx_commit( client->conn, client->frame_tx );
 
@@ -809,11 +833,7 @@ fd_grpc_h2_cb_data(
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
   if( FD_UNLIKELY( ( stream->hdrs.h2_status!=200 ) |
                    ( !stream->hdrs.is_grpc_proto ) ) ) {
-    if( flags & FD_H2_FLAG_END_STREAM ) {
-      client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
-      fd_grpc_client_stream_release( client, stream );
-    }
-    return;
+    goto check_end_stream;
   }
 
   do {
@@ -825,7 +845,7 @@ fd_grpc_h2_cb_data(
       stream->msg_buf_used += hdr_frag_sz;
       data     = (void const *)( (ulong)data + (ulong)hdr_frag_sz );
       data_sz -= hdr_frag_sz;
-      if( FD_UNLIKELY( stream->msg_buf_used < sizeof(fd_grpc_hdr_t) ) ) return;
+      if( FD_UNLIKELY( stream->msg_buf_used < sizeof(fd_grpc_hdr_t) ) ) goto check_end_stream;
 
       /* Header complete */
       stream->msg_sz = fd_uint_bswap( FD_LOAD( uint, (void *)( (ulong)stream->msg_buf+1 ) ) );
@@ -859,6 +879,10 @@ fd_grpc_h2_cb_data(
 
   } while( data_sz );
 
+
+  /* Check whether the server might want to end the stream in a DATA frame so no stream is leaked.
+     This shouldn't happen in gRPC as server responses should indicate end of stream in headers */
+  check_end_stream:
   if( flags & FD_H2_FLAG_END_STREAM ) {
     /* FIXME incomplete gRPC message */
     if( FD_UNLIKELY( stream->msg_buf_used ) ) {
@@ -876,14 +900,16 @@ fd_grpc_h2_rst_stream( fd_h2_conn_t *   conn,
                        fd_h2_stream_t * h2_stream,
                        uint             error_code,
                        int              closed_by ) {
+  fd_grpc_client_t * client = conn->ctx;
   if( closed_by==1 ) {
-    FD_LOG_WARNING(( "Server terminated request stream_id=%u (%u-%s)",
-                     h2_stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+    FD_LOG_WARNING(( "server %s%.*s%s terminated request %s(%u-%s)%s",
+                     fd_log_style_bold(), (int)client->host_len, client->host, fd_log_style_normal(),
+                     fd_log_style_dim(), error_code, fd_h2_strerror( error_code ), fd_log_style_normal() ));
   } else {
-    FD_LOG_WARNING(( "Stream failed stream_id=%u (%u-%s)",
-                     h2_stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+    FD_LOG_WARNING(( "request to server %s%.*s%s failed %s(%u-%s)%s",
+                     fd_log_style_bold(), (int)client->host_len, client->host, fd_log_style_normal(),
+                     fd_log_style_dim(), error_code, fd_h2_strerror( error_code ), fd_log_style_normal() ));
   }
-  fd_grpc_client_t *    client = conn->ctx;
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
   client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
   fd_grpc_client_stream_release( client, stream );
