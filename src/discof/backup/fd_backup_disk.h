@@ -153,6 +153,10 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
 
 static inline int
 fd_snapmk_accparse_keep( fd_snapmk_accparse_t * parse ) {
+  if( FD_UNLIKELY( parse->meta.generation>parse->idx.root_generation ) ) {
+    parse->acc_idx = UINT_MAX;
+    return 0;
+  }
   ulong chain_idx = fd_backup_accidx_chain( &parse->idx, parse->meta.pubkey );
   fd_snapmk_accparse_lookup( parse, &chain_idx, &parse->acc_file_off, &parse->acc_idx, 1UL );
   return parse->acc_idx!=UINT_MAX;
@@ -193,11 +197,13 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
     ulong rec      = meta_sz + data_len;
     if( parse->data_sz < rec ) break;     /* account data straddles frag end */
 
-    chain_idx[ n ] = fd_backup_accidx_chain( idx, dm->pubkey );
-    __builtin_prefetch( &acc_map[ chain_idx[ n ] ], 0, 3 );
-    parse->ps_frag_off[ n ] = (uint)( parse->src_gaddr - parse->frag_base_gaddr );
-    parse->ps_file_off[ n ] = parse->src_off;
-    n++;
+    if( FD_LIKELY( dm->generation <= idx->root_generation ) ) {
+      chain_idx[ n ] = fd_backup_accidx_chain( idx, dm->pubkey );
+      __builtin_prefetch( &acc_map[ chain_idx[ n ] ], 0, 3 );
+      parse->ps_frag_off[ n ] = (uint)( parse->src_gaddr - parse->frag_base_gaddr );
+      parse->ps_file_off[ n ] = parse->src_off;
+      n++;
+    }
 
     parse->data      += rec;
     parse->data_sz   -= rec;

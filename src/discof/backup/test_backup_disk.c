@@ -223,6 +223,82 @@ test_keep_derives_chain( void ) {
   FD_TEST( parse->acc_idx==UINT_MAX );
 }
 
+/* A record header above the root generation is dropped without ever
+   reaching the index, so the entry it would have hit stays unclaimed. */
+
+static void
+test_keep_skips_too_new( void ) {
+  env_reset();
+
+  uchar const * pubkey   = pubkey_n( 888UL );
+  ulong         chain    = fd_backup_accidx_chain( &parse->idx, pubkey );
+  ulong         file_off = 0xc000UL;
+  uint          ele      = index_add( 44U, chain, pubkey, 5U, 1000UL, file_off );
+
+  memcpy( parse->meta.pubkey, pubkey, 32UL );
+  parse->acc_file_off   = file_off;
+  parse->acc_idx        = UINT_MAX;
+  parse->meta.generation = ROOT_GEN+1U;
+
+  FD_TEST( fd_snapmk_accparse_keep( parse )==0 );
+  FD_TEST( parse->acc_idx==UINT_MAX );
+
+  /* the skip must not have burned the visited bit */
+  parse->meta.generation = ROOT_GEN;
+  FD_TEST( fd_snapmk_accparse_keep( parse )==1 );
+  FD_TEST( parse->acc_idx==ele );
+}
+
+/* Same skip on the whole-record path: too-new records are consumed off
+   the frag but never staged into the batch. */
+
+static void
+test_prestage_skips_too_new( void ) {
+  env_reset();
+
+  ulong const rec_sz  = sizeof(fd_accdb_disk_meta_t); /* data_len 0 */
+  ulong const off_base = 0x20000UL;
+
+  static fd_accdb_disk_meta_t recs[ 3 ];
+  uint expected[ 3 ];
+  for( ulong i=0UL; i<3UL; i++ ) {
+    uchar const * pubkey = pubkey_n( 200UL+i );
+    ulong chain = fd_backup_accidx_chain( &parse->idx, pubkey );
+    uint  gen   = ( i==1UL ) ? ROOT_GEN+1U : 5U;
+
+    memset( &recs[ i ], 0, sizeof(recs[ i ]) );
+    memcpy( recs[ i ].pubkey, pubkey, 32UL );
+    recs[ i ].size       = 0U;
+    recs[ i ].generation = gen;
+
+    uint ele = index_add( (uint)(50UL+i), chain, pubkey, gen, 1000UL, off_base + i*rec_sz );
+    expected[ i ] = ( gen<=ROOT_GEN ) ? ele : UINT_MAX;
+  }
+
+  parse->data            = (uchar const *)recs;
+  parse->data_sz         = 3UL*rec_sz;
+  parse->src_gaddr       = 0x900000UL;
+  parse->frag_base_gaddr = 0x900000UL;
+  parse->src_off         = off_base;
+  parse->pf_cursor       = NULL;
+  parse->ps_cnt          = 0U;
+  parse->pub_pending     = 0;
+  parse->acc_active      = 0;
+  parse->meta_sz         = 0U;
+
+  fd_backup_disk_batch_msg_t batch[1];
+  ulong n = fd_snapmk_accparse_publish_batch( parse, batch );
+
+  FD_TEST( n==2UL );                                   /* middle one dropped */
+  FD_TEST( batch->acc_idx [ 0 ]==expected[ 0 ] );
+  FD_TEST( batch->frag_off[ 0 ]==0U             );
+  FD_TEST( batch->acc_idx [ 1 ]==expected[ 2 ] );      /* record 2, not 1 */
+  FD_TEST( batch->frag_off[ 1 ]==(uint)(2UL*rec_sz) );
+  for( ulong i=n; i<FD_BACKUP_DISK_PARA; i++ ) FD_TEST( batch->acc_idx[ i ]==UINT_MAX );
+
+  FD_TEST( !parse->data_sz ); /* every record consumed, skipped ones too */
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -255,6 +331,8 @@ main( int     argc,
   test_visited_dedup();
   test_full_batch();
   test_keep_derives_chain();
+  test_keep_skips_too_new();
+  test_prestage_skips_too_new();
 
   /* every lookup must have released its epoch announcement */
   FD_TEST( epoch_slot==ULONG_MAX );
