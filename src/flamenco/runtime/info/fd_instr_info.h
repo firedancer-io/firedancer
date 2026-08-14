@@ -45,6 +45,20 @@ typedef struct fd_instr_info fd_instr_info_t;
 
 FD_PROTOTYPES_BEGIN
 
+static inline fd_instr_info_t *
+fd_instr_info_new( fd_instr_info_t * instr ) {
+  if( FD_UNLIKELY( !instr ) ) return NULL;
+
+  instr->program_id          = UCHAR_MAX;
+  instr->acct_cnt            = 0U;
+  instr->data_sz             = 0U;
+  instr->stack_height        = 0U;
+  instr->starting_lamports_h = 0UL;
+  instr->starting_lamports_l = 0UL;
+
+  return instr;
+}
+
 static inline fd_instruction_account_t
 fd_instruction_account_init( ushort idx_in_txn,
                              ushort idx_in_caller,

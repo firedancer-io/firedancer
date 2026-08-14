@@ -59,17 +59,28 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( &runner->bank->f.block_hash_queue, blockhash_seed );
   fd_memset( fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque ), 0, sizeof(fd_hash_t) );
 
+  /* Set up instruction context */
+  fd_instr_info_t * info = fd_instr_info_new( &runtime->instr.trace[ 0UL ] );
+  info->stack_height = 1;
+
   /* Set up mock txn descriptor and payload
      FIXME: More fields may need to be initialized. This seems to be
      the minimal set of fields needed to retain full context for
      precompile execution. */
   fd_txn_p_t * txn            = fd_spad_alloc_check( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
   fd_txn_t *   txn_descriptor = TXN( txn );
+
+  txn->payload_sz = 0UL;
   if( test_ctx->data ) {
-    memcpy( txn->payload, test_ctx->data->bytes, test_ctx->data->size );
-    txn->payload_sz = test_ctx->data->size;
-  } else {
-    txn->payload_sz = 0;
+    if( FD_UNLIKELY( test_ctx->data->size>FD_INSTR_DATA_MAX ) ) {
+      FD_LOG_ERR(( "invariant violation: instr data sz is too large %u > %lu", test_ctx->data->size, FD_INSTR_DATA_MAX ));
+    }
+    info->data_sz = (ushort)test_ctx->data->size;
+    memcpy( info->data, test_ctx->data->bytes, info->data_sz );
+
+    ulong payload_sz = fd_ulong_min( test_ctx->data->size, sizeof(txn->payload) );
+    memcpy( txn->payload, test_ctx->data->bytes, payload_sz );
+    txn->payload_sz = payload_sz;
   }
   txn_descriptor->transaction_version = FD_TXN_VLEGACY;
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;
@@ -110,19 +121,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   runtime->log.tracing_mem                           = runner->enable_vm_tracing ?
                                                        fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH ) :
                                                        NULL;
-
-  /* Set up instruction context */
-  fd_instr_info_t * info = &runtime->instr.trace[ 0UL ];
-  memset( info, 0, sizeof(fd_instr_info_t) );
-  info->stack_height = 1;
-
-  if( test_ctx->data ) {
-    if( FD_UNLIKELY( test_ctx->data->size>FD_INSTR_DATA_MAX ) ) {
-      FD_LOG_ERR(( "invariant violation: instr data sz is too large %u > %lu", test_ctx->data->size, FD_INSTR_DATA_MAX ));
-    }
-    info->data_sz = (ushort)test_ctx->data->size;
-    memcpy( info->data, test_ctx->data->bytes, info->data_sz );
-  }
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 
