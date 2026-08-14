@@ -53,11 +53,24 @@ void
 fd_event_register( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile );
 
+#define FD_EVENT_SIG( type, sz ) ( ((ulong)(sz)<<8) | ((ulong)(type)&0xFFUL) )
+#define FD_EVENT_SIG_TYPE( sig ) ( (ulong)(sig)&0xFFUL )
+#define FD_EVENT_SIG_SZ( sig )   ( (ulong)(sig)>>8 )
+
+struct fd_event_report_iov {
+  void const * base;
+  ulong        sz;
+};
+
+typedef struct fd_event_report_iov fd_event_report_iov_t;
+
 /* fd_event_report_ publishes a single event of sz bytes (the serialized
    fd_event_<name>_t struct) to the event link.  type is the event schema
-   id, carried in the frag sig so the event tile can dispatch.  No-op when
-   fd_event_tl is NULL.  The generated fd_event_report_<name>() macros call
-   this with the right type and sizeof. */
+   id, carried with the byte size in the frag sig (see FD_EVENT_SIG) so the
+   event tile can dispatch and size-validate; the frag sz field is too
+   narrow for large events and is published as 0.  No-op when
+   fd_event_tl is NULL.  The generated fd_event_report_<name>() helpers call
+   this with the right type and size. */
 
 static inline void
 fd_event_report_( ulong        type,
@@ -66,12 +79,40 @@ fd_event_report_( ulong        type,
   fd_event_reporter_t * r = fd_event_tl;
   if( FD_UNLIKELY( !r ) ) return; /* no event link / telemetry off */
 
+  FD_TEST( type<=0xFFUL );
   FD_TEST( sz<=r->mtu );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
   fd_memcpy( fd_chunk_to_laddr( r->mem, r->chunk ), event, sz );
-  fd_mcache_publish( r->mcache, r->depth, r->seq, type, r->chunk, sz, 0UL, 0UL, tspub );
+  fd_mcache_publish( r->mcache, r->depth, r->seq, FD_EVENT_SIG( type, sz ), r->chunk, 0UL, 0UL, 0UL, tspub );
+  r->seq   = fd_seq_inc( r->seq, 1UL );
+  r->chunk = fd_dcache_compact_next( r->chunk, sz, r->chunk0, r->wmark );
+  fd_mcache_seq_update( r->seq_store, r->seq );
+}
+
+static inline void
+fd_event_report_gather_( ulong                         type,
+                         fd_event_report_iov_t const * iov,
+                         ulong                         iov_cnt ) {
+  fd_event_reporter_t * r = fd_event_tl;
+  if( FD_UNLIKELY( !r ) ) return; /* no event link / telemetry off */
+
+  FD_TEST( type<=0xFFUL );
+  ulong sz = 0UL;
+  for( ulong i=0UL; i<iov_cnt; i++ ) {
+    FD_TEST( iov[ i ].sz<=r->mtu-sz );
+    sz += iov[ i ].sz;
+  }
+
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+
+  uchar * dst = fd_chunk_to_laddr( r->mem, r->chunk );
+  for( ulong i=0UL; i<iov_cnt; i++ ) {
+    fd_memcpy( dst, iov[ i ].base, iov[ i ].sz );
+    dst += iov[ i ].sz;
+  }
+  fd_mcache_publish( r->mcache, r->depth, r->seq, FD_EVENT_SIG( type, sz ), r->chunk, 0UL, 0UL, 0UL, tspub );
   r->seq   = fd_seq_inc( r->seq, 1UL );
   r->chunk = fd_dcache_compact_next( r->chunk, sz, r->chunk0, r->wmark );
   fd_mcache_seq_update( r->seq_store, r->seq );

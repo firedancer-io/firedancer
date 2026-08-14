@@ -35,11 +35,11 @@
 
 #include "generated/fd_event_tile_seccomp.h"
 
-#define GRPC_BUF_MAX (2048UL<<10UL) /* 2 MiB */
+#define GRPC_BUF_MAX (12UL<<20UL) /* 12 MiB */
 
-/* Sized so the event workspace (circq + ~24 MiB client/ctx + 64 MiB
+/* Sized so the event workspace (circq + ~144 MiB client/ctx + 64 MiB
    OpenSSL loose) fits in one gigantic page. */
-#define EVENT_CIRCQ_SZ ((1UL<<30UL)-(96UL<<20UL))
+#define EVENT_CIRCQ_SZ ((1UL<<30UL)-(224UL<<20UL))
 
 #define IN_KIND_SHRED  (0)
 #define IN_KIND_DEDUP  (1)
@@ -212,11 +212,12 @@ during_frag( fd_event_tile_t * ctx,
       ctx->chunk = chunk;
       break;
     case IN_KIND_EVENT: {
-      if( FD_UNLIKELY( chunk<in->chunk0 || chunk>in->wmark || sz>in->mtu ) )
-        FD_LOG_CRIT(( "chunk %lu corrupt, not in range [%lu,%lu]", chunk, in->chunk0, in->wmark ));
-      fd_memcpy( ctx->event_buf, fd_chunk_to_laddr_const( in->mem, chunk ), sz );
-      ctx->event_type = sig;
-      ctx->event_sz   = sz;
+      ulong event_sz = FD_EVENT_SIG_SZ( sig );
+      if( FD_UNLIKELY( chunk<in->chunk0 || chunk>in->wmark || event_sz>in->mtu ) )
+        FD_LOG_CRIT(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, event_sz, in->chunk0, in->wmark ));
+      fd_memcpy( ctx->event_buf, fd_chunk_to_laddr_const( in->mem, chunk ), event_sz );
+      ctx->event_type = FD_EVENT_SIG_TYPE( sig );
+      ctx->event_sz   = event_sz;
       break;
     }
     default:
