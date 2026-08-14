@@ -2203,9 +2203,12 @@ test_stack_depth_limit( fd_svm_mini_t * mini ) {
                              simd_0268, depth, c, dep, abi==0?"rust":"c", got ));
               }
             } else {
-              if( FD_UNLIKELY( got == FD_EXECUTOR_INSTR_ERR_CALL_DEPTH ) ) {
-                FD_LOG_ERR(( "test_stack_depth_limit: simd_0268=%d depth=%lu (below limit) combo=%d dep=%d abi=%s unexpected CALL_DEPTH",
-                             simd_0268, depth, c, dep, abi==0?"rust":"c" ));
+              /* Must actually succeed, not merely avoid CALL_DEPTH: a
+                 regression that rejects a valid no-op CPI for some other
+                 depth-sized reason would otherwise pass. */
+              if( FD_UNLIKELY( got != FD_VM_SUCCESS ) ) {
+                FD_LOG_ERR(( "test_stack_depth_limit: simd_0268=%d depth=%lu (below limit) combo=%d dep=%d abi=%s expected success got=%d",
+                             simd_0268, depth, c, dep, abi==0?"rust":"c", got ));
               }
             }
           }
