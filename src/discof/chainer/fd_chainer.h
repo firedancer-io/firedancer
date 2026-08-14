@@ -10,38 +10,37 @@
    include it.
 
    Version 0 is reserved for the turbine version of the slot, and
-   notar-fallback / parent-discovery versions are assigned from 1 up.
-   Version numbers are therefore NOT densely packed: a slot we only know
-   about from a notar-fallback cert has a v1 and no v0 until turbine (or
-   block-id repair) delivers something for it.
+   notar-fallback versions are assigned from 1 up. Version numbers are
+   therefore NOT densely packed: a slot we only know about from a
+   notar-fallback cert has a v1 and no v0 until a real shred arrives.
 
    Under alpenglow, we can simplify equivocation handling. As turbine
    shreds arrive, each (slot, fec_set_idx) only accepts shreds of the
    first-seen root. Any shred with a different root is dropped.
 
-   When a notar-fallback cert is received for a block_id of a slot we
-   don't have yet, we can add additional versions. Protocol dictates
-   only 3 notar-fallbacks can arrive per slot.
-
+   When a notar-fallback cert or a SafeToNotar is received for a
+   block_id of a slot we don't have yet, we can add additional versions.
+   Protocol dictates up to 3 SafeToNotars can occur and up to 3
+   notar-fallbacks can arrive per slot. So we need to track up to 7
+   versions per slot.
    Note for the turbine slotv (v0) - it accepts THE FIRST seen of any
    shred or FEC set. this can be populated by regular turbine shreds or
    by alpenglow blockid repair results.
 
-   A notar-fallback cert should trigger getParentandFecCount requests.
+   A cert or SafeToNotar should trigger getParentandFecCount requests.
    The response should trigger getFecRoot requests.  The v>=1 version of
    a FEC set only exists once a getFecRoot response creates the sentinel
    with that root. Equivocating FEC shreds are accepted iff the sentinel
    already exists.  If the sentinel does not exist, the FEC shreds are
-   dropped.
-
-   This way -- turbine shreds are accepted without concern for whether
-   the FEC sets belong to the "same slot", but notar-fallback certs
-   guarantee repair of shreds that verifiably belong to the same slot.
+   dropped. This way -- turbine shreds are accepted without concern for
+   whether the FEC sets belong to the "same slot", but votor-driven
+   events guarantee repair of shreds that verifiably belong to the same
+   slot.
 
    Note that in the uncommon but not impossible case where we may be
-   taking a long to complete a block, we may receive a notar-fallback
-   cert for an honest slot that we are still in the process of receiving
-   from turbine.  Since we can't compute the block_id for a slot still
+   taking a long to complete a block, we may receive a votor event for
+   an honest slot that we are still in the process of receiving from
+   turbine.  Since we can't compute the block_id for a slot still
    incomplete from turbine, we would create a redundant SLOTV entry for,
    logically, the same slot.  In effect, this would generate an extra
    getParentAndFecCount request and getFecRoot requests, but since we
@@ -73,7 +72,7 @@
 
 #define FD_CHAINER_MAGIC (0xf17eda2ce7c4a112UL) /* firedancer chainer v1 */
 
-#define FD_CHAINER_SLOT_VER_MAX 4 /* Protocol dictates 3 notar-fallbacks per slot + 1 turbine version */
+#define FD_CHAINER_SLOT_VER_MAX 7 /* up to 3 notar-fallbacks per slot + 3 SafeToNotars per slot + 1 turbine version */
 
 /* slot:47 | fec_set_idx:15 */
 #define FD_CHAINER_FEC_KEY( slot, fec_set_idx ) \
@@ -124,11 +123,11 @@ typedef struct fd_fec fd_fec_t;
 #define FD_CHAINER_SLOTV_KEY( slot, version ) \
   ( ((ulong)(slot))<<17 | (ushort)(version) )
 #define FD_CHAINER_SLOTV_SLOT( key )    ( (ulong)(key) >> 17 )
-#define FD_CHAINER_SLOTV_VERSION( key ) ( (ulong)(key) & 0x3UL )
+#define FD_CHAINER_SLOTV_VERSION( key ) ( (ulong)(key) & 0x7UL )
 
 #define AG_UNKNOWN_SLOT ULONG_MAX
 struct fd_slotv {
-  ulong           key; /* (slot:47, v) where v<4 */
+  ulong           key; /* (slot:47, v) where v<7 */
   ulong           next; /* reserved by pool and map_chain */
   fd_hash_t       block_id;
   fd_shred_idxs_t shred_idxs[fd_shred_idxs_word_cnt];
