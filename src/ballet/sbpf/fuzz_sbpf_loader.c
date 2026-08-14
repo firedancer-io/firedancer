@@ -6,6 +6,7 @@
 #include "fd_sbpf_loader.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 
 uint const _syscalls[] = {
@@ -66,11 +67,38 @@ LLVMFuzzerTestOneInput( uchar const * data,
     FD_FUZZ_MUST_BE_COVERED;
   }
 
+  if( !fd_sbpf_loader_is_legacy_lenient( &info ) ) {
+    void * fast_rodata = malloc( fd_ulong_max( info.load_buf_sz, 1UL ) );
+    FD_TEST( fast_rodata );
+
+    fd_sbpf_program_t * fast_prog = fd_sbpf_program_new( aligned_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, fast_rodata );
+    FD_TEST( fast_prog );
+
+    int fast_res = fd_sbpf_program_load( fast_prog, data, size, syscalls, &config, NULL, 0UL );
+    FD_FUZZ_MUST_BE_COVERED;
+
+    FD_TEST( !fast_res == !res );
+
+    if( !fast_res ) {
+      FD_TEST( fast_prog->rodata_sz == prog->rodata_sz );
+      FD_TEST( fast_prog->entry_pc  == prog->entry_pc  );
+      FD_TEST( 0==memcmp( fast_rodata, rodata, prog->rodata_sz ) );
+      FD_TEST( !!fast_prog->calldests == !!prog->calldests );
+      for( ulong pc=0UL; fast_prog->calldests && pc<info.text_cnt; pc++ ) {
+        FD_TEST( !!fd_sbpf_calldests_test( fast_prog->calldests, pc ) ==
+                 !!fd_sbpf_calldests_test( prog->calldests, pc ) );
+      }
+    }
+
+    free( fd_sbpf_program_delete( fast_prog ) );
+    free( fast_rodata );
+  }
+
   /* Clean up */
-  free( rodata );
   free( scratch );
   free( fd_sbpf_syscalls_delete( syscalls ) );
   free( fd_sbpf_program_delete( prog ) );
+  free( rodata );
 
   return 0;
 }
