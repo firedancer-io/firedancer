@@ -472,7 +472,7 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
 
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
-      weights[ weights_cnt ].stake = stake_t_2;
+      fd_memset( weights[ weights_cnt ].bls_key, 0, sizeof(weights[ weights_cnt ].bls_key) );
       weights_cnt++;
     }
   } else {
@@ -489,6 +489,7 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
       weights[ weights_cnt ].stake = stake_t_2;
+      fd_memset( weights[ weights_cnt ].bls_key, 0, sizeof(weights[ weights_cnt ].bls_key) );
       weights_cnt++;
     }
     fd_vote_stakes_fork_iter_fini( vote_stakes );
