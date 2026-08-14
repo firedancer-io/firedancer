@@ -3,6 +3,7 @@
 
 #include "../../fd_bootinfo.h"
 
+#include "../../../../discof/backup/fd_snapmk_tile.h"
 #include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../discof/gossip/fd_gossip_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
@@ -237,6 +238,15 @@ static ulong snapshot_acc_idx = 0UL;
 static ulong snapshot_acc_samples[ 100UL ];
 static ulong snapshot_wr_idx = 0UL;
 static ulong snapshot_wr_samples[ 100UL ];
+/* Backup */
+static ulong backup_acc_idx = 0UL;
+static ulong backup_acc_samples[ 100UL ];
+static ulong backup_read_idx = 0UL;
+static ulong backup_read_samples[ 100UL ];
+static ulong backup_comp_idx = 0UL;
+static ulong backup_comp_samples[ 100UL ];
+static ulong backup_upload_idx = 0UL;
+static ulong backup_upload_samples[ 100UL ];
 /* Event */
 static ulong events_sent_samples_idx = 0UL;
 static ulong events_sent_samples[ 100UL ];
@@ -1510,6 +1520,87 @@ write_node_info( config_t const *       config,
   return 2U;
 }
 
+static uint
+write_backup( config_t const * config,
+              ulong const *    cur_tile ) {
+  ulong snapmk_idx = fd_topo_find_tile( &config->topo, "snapmk", 0UL );
+  ulong snapsv_idx = fd_topo_find_tile( &config->topo, "snapsv", 0UL );
+  ulong conns      = snapsv_idx==ULONG_MAX ? 0UL : cur_tile[ snapsv_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPSV, CONN_ACTIVE ) ];
+  ulong state      = snapmk_idx==ULONG_MAX ? SNAPMK_STATE_IDLE : cur_tile[ snapmk_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPMK, STATE ) ];
+  int   active     = state>=SNAPMK_STATE_START && state<=SNAPMK_STATE_FAIL;
+  int   server_on  = conns>0UL;
+  if( FD_UNLIKELY( !active && !server_on ) ) return 0U;
+
+  ulong upload_sum = 0UL;
+  ulong upload_cnt = fd_ulong_min( backup_upload_idx, sizeof(backup_upload_samples)/sizeof(backup_upload_samples[0]) );
+  for( ulong i=0UL; i<upload_cnt; i++ ) upload_sum += backup_upload_samples[ i ];
+  double upload_mbps = upload_cnt ? 800.0*(double)upload_sum/(double)upload_cnt/1e6 : 0.0;
+
+  PRINT( ROWH( "□", BLUE, "backup      " ) );
+  if( FD_LIKELY( server_on ) ) {
+    PRINT( K( "conns" ) "%3lu" K( "upload" ) "%4.0f" U( " Mbit/s" ), conns, upload_mbps );
+  }
+  if( FD_UNLIKELY( !active ) ) {
+    PRINT( CLEARLN "\n" );
+    return 1U;
+  }
+
+  ulong snapmk_off = snapmk_idx*FD_METRICS_TOTAL_SZ;
+  ulong full_slot  = cur_tile[ snapmk_off+MIDX( GAUGE, SNAPMK, LAST_SNAPSHOT_SLOT_STARTED_FULL        ) ];
+  ulong incr_slot  = cur_tile[ snapmk_off+MIDX( GAUGE, SNAPMK, LAST_SNAPSHOT_SLOT_STARTED_INCREMENTAL ) ];
+  int   incremental = incr_slot>full_slot;
+
+  double progress = 0.0;
+  if( FD_LIKELY( !incremental && state==SNAPMK_STATE_ACCDB_DISK ) ) {
+    ulong snaprd_idx = fd_topo_find_tile( &config->topo, "snaprd", 0UL );
+    if( FD_LIKELY( snaprd_idx!=ULONG_MAX ) ) {
+      ulong snaprd_off = snaprd_idx*FD_METRICS_TOTAL_SZ;
+      ulong done       = cur_tile[ snaprd_off+MIDX( GAUGE, SNAPRD, EXPORT_PROGRESS_BYTES ) ];
+      ulong total      = cur_tile[ snaprd_off+MIDX( GAUGE, SNAPRD, EXPORT_TOTAL_BYTES    ) ];
+      if( FD_LIKELY( total ) ) progress = 100.0*(double)fd_ulong_min( done, total )/(double)total;
+    }
+  } else if( FD_LIKELY( !incremental && state>SNAPMK_STATE_ACCDB_DISK && state<=SNAPMK_STATE_DONE ) ) {
+    progress = 100.0;
+  } else if( FD_UNLIKELY( incremental && state==SNAPMK_STATE_ACCDB_DELTA ) ) {
+    ulong done  = cur_tile[ snapmk_off+MIDX( GAUGE, SNAPMK, INCREMENTAL_ACCOUNT_PROGRESS ) ];
+    ulong total = cur_tile[ snapmk_off+MIDX( GAUGE, SNAPMK, INCREMENTAL_ACCOUNT_TOTAL    ) ];
+    progress = total ? 100.0*(double)fd_ulong_min( done, total )/(double)total : 100.0;
+  } else if( FD_UNLIKELY( incremental && state>SNAPMK_STATE_ACCDB_DELTA && state<=SNAPMK_STATE_DONE ) ) {
+    progress = 100.0;
+  }
+
+  ulong acc_sum = 0UL;
+  ulong acc_cnt = fd_ulong_min( backup_acc_idx, sizeof(backup_acc_samples)/sizeof(backup_acc_samples[0]) );
+  for( ulong i=0UL; i<acc_cnt; i++ ) acc_sum += backup_acc_samples[ i ];
+
+  ulong read_sum = 0UL;
+  ulong read_cnt = fd_ulong_min( backup_read_idx, sizeof(backup_read_samples)/sizeof(backup_read_samples[0]) );
+  for( ulong i=0UL; i<read_cnt; i++ ) read_sum += backup_read_samples[ i ];
+
+  ulong comp_sum = 0UL;
+  ulong comp_cnt = fd_ulong_min( backup_comp_idx, sizeof(backup_comp_samples)/sizeof(backup_comp_samples[0]) );
+  for( ulong i=0UL; i<comp_cnt; i++ ) comp_sum += backup_comp_samples[ i ];
+
+  double accounts_per_second = acc_cnt  ? 100.0*(double)acc_sum /(double)acc_cnt       : 0.0;
+  double read_mbps           = read_cnt ? 100.0*(double)read_sum/(double)read_cnt/1e6 : 0.0;
+  double comp_mbps           = comp_cnt ? 100.0*(double)comp_sum/(double)comp_cnt/1e6 : 0.0;
+  char * accounts_rate = COUNTF_T( accounts_per_second );
+
+  PRINT( "  %s " BOLD "%5.1f" RESET U( "%%" )
+         K( "type" ) "%-4s"
+         K( "slot" ) "%10lu"
+         K( "acc" ) "%s" U( "/s" )
+         K( "read" ) "%4.0f" U( " MB/s" )
+         K( "comp" ) "%4.0f" U( " MB/s" ) CLEARLN "\n",
+    BAR( progress, 20UL ), progress,
+    incremental ? "incr" : "full",
+    incremental ? incr_slot : full_slot,
+    accounts_rate,
+    read_mbps,
+    comp_mbps );
+  return 1U;
+}
+
 static void
 write_summary( config_t const *           config,
                fd_node_info_box_t const * shinfo,
@@ -1560,6 +1651,7 @@ write_summary( config_t const *           config,
   lines_printed += write_replay( config, cur_tile );
   lines_printed += write_gui( config, cur_tile, prev_tile );
   lines_printed += write_event( config, cur_tile );
+  lines_printed += write_backup( config, cur_tile );
 
   PRINT( "\033[?7h" ); /* enable autowrap mode */
 }
@@ -1673,6 +1765,17 @@ run( config_t const * config,
       snapshot_acc_idx++;
       snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = diff_tile( config, "snapwr", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) );
       snapshot_wr_idx++;
+
+      /* Backup */
+      backup_acc_samples[ backup_acc_idx%(sizeof(backup_acc_samples)/sizeof(backup_acc_samples[0])) ] = diff_tile( config, "snapzp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, SNAPZP, ACCOUNTS_COMPRESSED ) );
+      backup_acc_idx++;
+      backup_read_samples[ backup_read_idx%(sizeof(backup_read_samples)/sizeof(backup_read_samples[0])) ] = diff_tile( config, "snaprd", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, SNAPRD, BYTES_READ ) );
+      backup_read_idx++;
+      backup_comp_samples[ backup_comp_idx%(sizeof(backup_comp_samples)/sizeof(backup_comp_samples[0])) ] = diff_tile( config, "snapmk", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, SNAPMK, BYTES_COMPRESSED ) ) +
+                                                                                                          diff_tile( config, "snapzp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, SNAPZP, BYTES_COMPRESSED ) );
+      backup_comp_idx++;
+      backup_upload_samples[ backup_upload_idx%(sizeof(backup_upload_samples)/sizeof(backup_upload_samples[0])) ] = diff_tile( config, "snapsv", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, SNAPSV, BYTES_WRITTEN ) );
+      backup_upload_idx++;
 
       /* Events */
       events_sent_samples[ events_sent_samples_idx%(sizeof(events_sent_samples)/sizeof(events_sent_samples[0])) ] = diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, SENT ) );
