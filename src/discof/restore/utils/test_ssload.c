@@ -303,31 +303,6 @@ test_hard_forks( fd_snapshot_manifest_t * manifest ) {
 }
 
 static void
-test_stake_delegations( fd_snapshot_manifest_t * manifest ) {
-  FD_LOG_NOTICE(( "testing stake delegations" ));
-
-  /* Exactly at max. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->stake_delegations_len = FD_RUNTIME_MAX_STAKE_ACCOUNTS;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-
-  /* Exceeds max. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->stake_delegations_len = FD_RUNTIME_MAX_STAKE_ACCOUNTS + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
-
-  /* Exceeds runtime max_stake_accounts. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->stake_delegations_len = FD_RUNTIME_MAX_STAKE_ACCOUNTS + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
-
-  FD_LOG_NOTICE(( "... pass" ));
-}
-
-static void
 test_vote_accounts( fd_snapshot_manifest_t * manifest ) {
   FD_LOG_NOTICE(( "testing vote accounts" ));
 
@@ -526,23 +501,14 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
                                     197U,
                                     FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 
-  /* Manifest A: one stake delegation (pubkey_A), one vote stake
-    (pubkey_X).  With slot=0, epoch=0, leader_schedule_epoch=1,
+  /* Manifest A: one vote stake (pubkey_X).  With slot=0, epoch=0,
+     leader_schedule_epoch=1,
      epoch_stakes_base=0, t_1_idx=1. */
 
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->accdb_fork_id    = 37U;
   manifest->txncache_fork_id = 38U;
-
-  uchar pubkey_a[32]; fd_memset( pubkey_a, 0xAA, 32 );
-  uchar vote_a[32];   fd_memset( vote_a,   0xA1, 32 );
-  manifest->stake_delegations_len = 1UL;
-  fd_memcpy( manifest->stake_delegations[0].stake_pubkey, pubkey_a, 32 );
-  fd_memcpy( manifest->stake_delegations[0].vote_pubkey,  vote_a,   32 );
-  manifest->stake_delegations[0].stake_delegation   = 1000UL;
-  manifest->stake_delegations[0].activation_epoch   = 0UL;
-  manifest->stake_delegations[0].deactivation_epoch = ULONG_MAX;
 
   uchar pubkey_x[32]; fd_memset( pubkey_x, 0xBB, 32 );
   uchar ident_x[32];  fd_memset( ident_x,  0xB1, 32 );
@@ -560,10 +526,8 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( bank->parent_accdb_fork_id.val==37U );
   FD_TEST( bank->txncache_fork_id.val==38U );
 
-  /* ssload must ignore the manifest's primary stake delegations and
-     leave the cache populated by snapin untouched. */
+  /* ssload must leave the cache populated by snapin untouched. */
   FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_s )!=NULL );
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )==NULL );
   FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
@@ -572,22 +536,12 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_x, NULL, &stake_out, NULL ) );
   FD_TEST( stake_out==5000UL );
 
-  /* Manifest B: different stake delegation (pubkey_B),
-     different vote stake (pubkey_Y). */
+  /* Manifest B: different vote stake (pubkey_Y). */
 
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->accdb_fork_id    = 39U;
   manifest->txncache_fork_id = 40U;
-
-  uchar pubkey_b[32]; fd_memset( pubkey_b, 0xCC, 32 );
-  uchar vote_b[32];   fd_memset( vote_b,   0xC1, 32 );
-  manifest->stake_delegations_len = 1UL;
-  fd_memcpy( manifest->stake_delegations[0].stake_pubkey, pubkey_b, 32 );
-  fd_memcpy( manifest->stake_delegations[0].vote_pubkey,  vote_b,   32 );
-  manifest->stake_delegations[0].stake_delegation   = 2000UL;
-  manifest->stake_delegations[0].activation_epoch   = 0UL;
-  manifest->stake_delegations[0].deactivation_epoch = ULONG_MAX;
 
   uchar pubkey_y[32]; fd_memset( pubkey_y, 0xDD, 32 );
   uchar ident_y[32];  fd_memset( ident_y,  0xD1, 32 );
@@ -605,10 +559,8 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( bank->parent_accdb_fork_id.val==39U );
   FD_TEST( bank->txncache_fork_id.val==40U );
 
-  /* Neither manifest-provided delegation is imported. */
+  /* snapin's delegation remains present. */
   FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_s )!=NULL );
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )==NULL );
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_b )==NULL );
   FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
 
   /* Top votes: pubkey_X must have been removed, pubkey_Y must be
@@ -643,7 +595,6 @@ main( int     argc,
   test_epoch_schedule( manifest );
   test_blockhash_queue( manifest );
   test_hard_forks( manifest );
-  test_stake_delegations( manifest );
   test_vote_accounts( manifest );
   test_epoch_credits_downcasting( manifest );
   test_recover_preserves_snapin_stake_delegations( wksp, manifest );

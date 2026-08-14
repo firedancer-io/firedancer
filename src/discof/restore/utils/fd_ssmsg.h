@@ -53,31 +53,6 @@ struct fd_snapshot_manifest_vote_account {
 
 typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
 
-struct fd_snapshot_manifest_stake_delegation {
-  /* The stake pubkey */
-  uchar stake_pubkey[ 32UL ];
-
-  /* The vote pubkey that the stake account is delegated to */
-  uchar vote_pubkey[ 32UL ];
-
-  /* The amount of stake delegated */
-  ulong stake_delegation;
-
-  /* The activation epoch of the stake delegation */
-  ulong activation_epoch;
-
-  /* The deactivation epoch of the stake delegation */
-  ulong deactivation_epoch;
-
-  /* The amount of credits observed for the stake delegation */
-  ulong credits_observed;
-
-  /* The warmup cooldown rate for the stake delegation */
-  double warmup_cooldown_rate;
-};
-
-typedef struct fd_snapshot_manifest_stake_delegation fd_snapshot_manifest_stake_delegation_t;
-
 /* TODO: Consider combining this struct with
    fd_snapshot_manifest_vote_account. */
 
@@ -433,10 +408,6 @@ struct fd_snapshot_manifest {
      what fraction of activated stake is visible in gossip. */
   ulong                               vote_accounts_len;
   fd_snapshot_manifest_vote_account_t vote_accounts[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
-
-  /* FIXME: Make this unbounded or support a much larger bound. */
-  ulong stake_delegations_len;
-  fd_snapshot_manifest_stake_delegation_t stake_delegations[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of a previous epoch.  They are primarily

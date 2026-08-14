@@ -185,7 +185,18 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( manifest_sz>0UL );
   FD_LOG_NOTICE(( "manifest serialized size: %lu", manifest_sz ));
 
-  uchar * buf = aligned_alloc( 1UL, manifest_sz );
+  /* The writer emits an empty primary stake-delegations map.  Inject
+     one entry to verify that the parser consumes but does not retain
+     primary stake delegations in fd_snapshot_manifest_t. */
+  fd_pubkey_t ignored_stake_pubkey;
+  fd_pubkey_t ignored_vote_pubkey;
+  for( ulong i=0UL; i<sizeof(fd_pubkey_t); i++ ) {
+    ignored_stake_pubkey.uc[i] = (uchar)(0x80UL+i);
+    ignored_vote_pubkey.uc[i]  = (uchar)(0xC0UL+i);
+  }
+  ulong const stake_delegation_sz = 2UL*sizeof(fd_pubkey_t) + 3UL*sizeof(ulong) + sizeof(double);
+
+  uchar * buf = aligned_alloc( 1UL, manifest_sz+stake_delegation_sz );
   FD_TEST( buf );
 
   uchar * chunk_buf = aligned_alloc( 1UL, FD_SSMANIFEST_BUF_MIN );
@@ -194,14 +205,43 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   fd_ssmanifest_writer_t writer[1];
   fd_ssmanifest_writer_init( writer, bank );
   ulong total_written = 0UL;
+  int   injected      = 0;
   for(;;) {
     ulong sz = fd_snap_manifest_serialize( writer, chunk_buf, FD_SSMANIFEST_BUF_MIN );
     if( !sz ) break;
-    FD_TEST( total_written + sz <= manifest_sz );
-    memcpy( buf + total_written, chunk_buf, sz );
-    total_written += sz;
+    FD_TEST( total_written + sz <= manifest_sz+stake_delegation_sz );
+
+    /* This uniquely identifies the writer's vote-accounts chunk:
+       empty vote accounts, empty stake delegations, unused=0, epoch. */
+    if( FD_UNLIKELY( !injected &&
+                     sz==4UL*sizeof(ulong) &&
+                     FD_LOAD( ulong, chunk_buf     )==0UL &&
+                     FD_LOAD( ulong, chunk_buf+ 8UL )==0UL &&
+                     FD_LOAD( ulong, chunk_buf+16UL )==0UL &&
+                     FD_LOAD( ulong, chunk_buf+24UL )==bank->f.epoch ) ) {
+      uchar * dst = buf+total_written;
+      memcpy( dst, chunk_buf, 8UL );
+      dst += 8UL;
+      FD_STORE( ulong, dst, 1UL );
+      dst += 8UL;
+      memcpy( dst, &ignored_stake_pubkey, sizeof(fd_pubkey_t) );
+      dst += sizeof(fd_pubkey_t);
+      memcpy( dst, &ignored_vote_pubkey, sizeof(fd_pubkey_t) );
+      dst += sizeof(fd_pubkey_t);
+      FD_STORE( ulong, dst, 1234UL ); dst += sizeof(ulong);
+      FD_STORE( ulong, dst, 5UL    ); dst += sizeof(ulong);
+      FD_STORE( ulong, dst, 9UL    ); dst += sizeof(ulong);
+      FD_STORE( double, dst, 0.25  ); dst += sizeof(double);
+      memcpy( dst, chunk_buf+16UL, sz-16UL );
+      total_written += sz+stake_delegation_sz;
+      injected = 1;
+    } else {
+      memcpy( buf + total_written, chunk_buf, sz );
+      total_written += sz;
+    }
   }
-  FD_TEST( total_written==manifest_sz );
+  FD_TEST( injected );
+  FD_TEST( total_written==manifest_sz+stake_delegation_sz );
 
   fd_snapshot_manifest_t * manifest = aligned_alloc( alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
   FD_TEST( manifest );
@@ -227,6 +267,16 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( manifest->rent_params.burn_percent==bank->f.rent.burn_percent );
   FD_TEST( manifest->has_block_id );
   FD_TEST( !memcmp( manifest->block_id, block_id.uc, sizeof(fd_hash_t) ) );
+
+  int found_stake_delegation = 0;
+  for( ulong i=0UL; i+sizeof(fd_pubkey_t)<=sizeof(*manifest); i++ ) {
+    if( !memcmp( (uchar const *)manifest+i, &ignored_stake_pubkey, sizeof(fd_pubkey_t) ) ||
+        !memcmp( (uchar const *)manifest+i, &ignored_vote_pubkey,  sizeof(fd_pubkey_t) ) ) {
+      found_stake_delegation = 1;
+      break;
+    }
+  }
+  FD_TEST( !found_stake_delegation );
 
   /* Collector round-trip: the encoder tags t_1 entries (epoch_stakes
      key epoch+1) with the epoch override tag and t_2 entries (key
