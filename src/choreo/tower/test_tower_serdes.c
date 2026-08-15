@@ -76,6 +76,15 @@ test_de_attacker( void ) {
     FD_TEST( 0==fd_compact_tower_sync_de( serde, buf, sz ) );
     FD_TEST( serde->root==42UL );
     FD_TEST( serde->lockouts_cnt==3 );
+
+    uchar shifted[ 1024+7 ] __attribute__((aligned(8)));
+    for( ulong off=0UL; off<8UL; off++ ) {
+      fd_memcpy( shifted+off, buf, sz );
+      FD_TEST( 0==fd_compact_tower_sync_de( serde, shifted+off, sz ) );
+      FD_TEST( serde->root==42UL );
+      FD_TEST( serde->lockouts_cnt==3 );
+      FD_TEST( serde->timestamp==1234567890L );
+    }
   }
 
   /* Sanity: zero lockouts is valid. */
