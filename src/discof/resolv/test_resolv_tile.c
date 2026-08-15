@@ -4,6 +4,7 @@
 #include "../../util/tmpl/fd_unit_test.c"
 
 #define TOPO_TAG 2UL
+#define TEST_MAX_LIVE_SLOTS 32UL
 #define TEST_HASH_SEED (0x0123456789abcdefUL)
 
 static fd_svm_mini_t * mini;
@@ -165,11 +166,14 @@ test_env_create( test_env_t * env ) {
     .out_reliable        = env->out_reliable
   };
 
-  env->tile_mem = fd_wksp_alloc_laddr( mini->wksp, scratch_align(), scratch_footprint( NULL ), TOPO_TAG );
+  fd_topo_tile_t tile = {0};
+  tile.resolv.max_live_slots = TEST_MAX_LIVE_SLOTS;
+  env->tile_mem = fd_wksp_alloc_laddr( mini->wksp, scratch_align(), scratch_footprint( &tile ), TOPO_TAG );
   FD_TEST( env->tile_mem );
   FD_SCRATCH_ALLOC_INIT( l, env->tile_mem );
   env->ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_resolv_ctx_t), sizeof(fd_resolv_ctx_t) );
   fd_memset( env->ctx, 0, sizeof(fd_resolv_ctx_t) );
+  env->ctx->startup_gate->started = 1;
 
   env->ctx->completed_slot     = 200UL;
   env->ctx->flush_pool_idx     = ULONG_MAX;
@@ -406,7 +410,7 @@ main( int     argc,
       char ** argv ) {
   fd_svm_mini_limits_t limits[1];
   fd_svm_mini_limits_default( limits );
-  limits->max_live_slots      = 32;
+  limits->max_live_slots      = TEST_MAX_LIVE_SLOTS;
   limits->max_txn_per_slot    = 32;
   limits->max_txn_write_locks = MAX_TX_ACCOUNT_LOCKS;
   limits->wksp_addl_sz        = 5UL<<30;
