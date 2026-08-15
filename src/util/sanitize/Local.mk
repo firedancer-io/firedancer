@@ -6,3 +6,7 @@ ifdef FD_HAS_HONGGFUZZ
 $(call add-objs,fd_hfuzz_metrics_stubs,fd_util)
 endif
 endif
+ifdef FD_HAS_UBSAN
+# Built for CI's pointer-overflow check; not an automatic unit test
+$(call make-unit-test,test_ubsan_pointer_overflow,test_ubsan_pointer_overflow,fd_util)
+endif
