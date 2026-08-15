@@ -3,7 +3,7 @@
 
 #define DE( T, name ) do {                                \
     if( FD_UNLIKELY( buf_sz<sizeof(T) ) ) return -1;      \
-    serde->name = *(T const *)fd_type_pun_const( buf );   \
+    serde->name = FD_LOAD( T, buf );                      \
     buf    += sizeof(T);                                  \
     buf_sz -= sizeof(T);                                  \
 } while(0)
