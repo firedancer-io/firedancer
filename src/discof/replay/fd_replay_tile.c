@@ -2063,7 +2063,7 @@ try_process_fec( fd_replay_tile_t *  ctx,
        evictable bank.  The RPC tile is the only tile which holds onto
        non-rooted banks, non-transiently. */
     fd_replay_drop_bank_ref_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    fd_sched_block_abandon( ctx->sched, evictable_bank_idx );
+    fd_sched_block_abandon( ctx->sched, evictable_bank_idx, 0 );
     msg->bank_idx = evictable_bank_idx;
     fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_DROP_BANK_REF, ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -2195,7 +2195,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         /* Every transaction in a valid block has to execute.
            Otherwise, we should mark the block as dead. */
         mark_bank_dead( ctx, stem, bank->idx );
-        fd_sched_block_abandon( ctx->sched, bank->idx );
+        fd_sched_block_abandon( ctx->sched, bank->idx, 1 );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
@@ -2225,7 +2225,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
         mark_bank_dead( ctx, stem, bank->idx );
-        fd_sched_block_abandon( ctx->sched, bank->idx );
+        fd_sched_block_abandon( ctx->sched, bank->idx, 1 );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
@@ -2236,7 +2236,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
     }
     case FD_EXECRP_TT_POH_HASH: {
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
-      if( FD_UNLIKELY( res<0 && bank->state!=FD_BANK_STATE_DEAD ) ) {
+      if( FD_UNLIKELY( res && bank->state!=FD_BANK_STATE_DEAD ) ) {
         mark_bank_dead( ctx, stem, bank->idx );
       }
       break;
