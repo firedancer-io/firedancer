@@ -30,16 +30,16 @@ test_bundle_env_create( test_bundle_env_t * env,
   fd_memset( env, 0, sizeof(test_bundle_env_t) );
 
   ulong const mcache_depth = 128UL;
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new(
-      fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( mcache_depth, 0UL ), 1UL ),
-      128UL, 0UL, 0UL ) );
+  void * mcache_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( mcache_depth, 0UL ), 1UL );
+  FD_TEST( mcache_mem );
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( mcache_mem, 128UL, 0UL, 0UL ) );
   FD_TEST( mcache );
 
   ulong const mtu = FD_TPU_PARSED_MTU;
   ulong const dcache_data_sz = fd_dcache_req_data_sz( mtu, mcache_depth, 1UL, 1 );
-  void * dcache = fd_dcache_join( fd_dcache_new(
-      fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL ),
-      dcache_data_sz, 0UL ) );
+  void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+  FD_TEST( dcache_mem );
+  void * dcache = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) );
   FD_TEST( dcache );
 
   /* Create a fake stem context */
@@ -74,6 +74,7 @@ test_bundle_env_create( test_bundle_env_t * env,
   state->tcp_sock        = -1;
   state->grpc_buf_max    = 16384UL + sizeof(fd_h2_frame_hdr_t);
   state->grpc_client_mem = fd_wksp_alloc_laddr( wksp, fd_grpc_client_align(), fd_grpc_client_footprint( state->grpc_buf_max ), 1UL );
+  FD_TEST( state->grpc_client_mem );
   state->grpc_client     = fd_grpc_client_new( state->grpc_client_mem, &fd_bundle_client_grpc_callbacks, state->grpc_metrics, state, state->grpc_buf_max, 1UL );
   fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->grpc_client );
   h2_conn->flags = 0;
@@ -85,6 +86,7 @@ test_bundle_env_create( test_bundle_env_t * env,
 
   const ulong pending_max  = mcache_depth;
   env->deque_mem      = fd_wksp_alloc_laddr( wksp, pending_txn_align(), pending_txn_footprint( pending_max ), 1UL );
+  FD_TEST( env->deque_mem );
   state->pending_txns = pending_txn_join( pending_txn_new( env->deque_mem, pending_max ) );
   FD_TEST( state->pending_txns );
 
