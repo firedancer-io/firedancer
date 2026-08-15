@@ -738,11 +738,9 @@ fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self ) {
 int
 fd_vsv_is_correct_size_and_initialized( uchar const * data,
                                         ulong         data_len ) {
-  uint const *  disc_ptr = (uint const *)data; // NOT SAFE TO ACCESS YET!
-
   /* VoteStateV4::is_correct_size_and_initialized
      https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v4.rs#L207-L210 */
-  if( FD_LIKELY( data_len==FD_VOTE_STATE_V4_SZ && *disc_ptr==fd_vote_state_versioned_enum_v4 ) ) {
+  if( FD_LIKELY( data_len==FD_VOTE_STATE_V4_SZ && FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v4 ) ) {
     return 1;
   }
 
