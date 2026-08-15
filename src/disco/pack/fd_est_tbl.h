@@ -159,7 +159,9 @@ fd_est_tbl_estimate( fd_est_tbl_t const * tbl,
     var  = 0.0;
   } else {
     mean = bin->x / bin->d;
-    var  = (bin->d * bin->x2 - (bin->x*bin->x)) / ( bin->d * bin->d - bin->d2 );
+    double denom = bin->d * bin->d - bin->d2;
+    if( FD_LIKELY( denom>0.0 ) ) var = (bin->d * bin->x2 - (bin->x*bin->x)) / denom;
+    else                         var = 0.0;
   }
   var  = fd_double_if( var>0.0, var, 0.0 );
   if( FD_LIKELY( variance_out ) ) *variance_out = var;
@@ -181,8 +183,9 @@ fd_est_tbl_update( fd_est_tbl_t * tbl,
 #else
   double C = tbl->ema_coeff;
 #endif
-  bin->x  = value       + fd_double_if( C*bin->x >DBL_MIN, C*bin->x , 0.0 );
-  bin->x2 = value*value + fd_double_if( C*bin->x2>DBL_MIN, C*bin->x2, 0.0 );
+  double value_d = (double)value;
+  bin->x  = value_d         + fd_double_if( C*bin->x >DBL_MIN, C*bin->x , 0.0 );
+  bin->x2 = value_d*value_d + fd_double_if( C*bin->x2>DBL_MIN, C*bin->x2, 0.0 );
   bin->d  = 1.0         +   C*bin->d ; /* Can't go denormal */
   bin->d2 = 1.0         + C*C*bin->d2; /* Can't go denormal */
 }
