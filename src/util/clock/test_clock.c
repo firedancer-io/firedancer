@@ -73,9 +73,13 @@ main( int     argc,
   FD_TEST( !fd_clock_new( shmem,       0L,        recal_jit, recal_hist, recal_frac, init_x0, init_y0, init_w ) );
   FD_TEST( !fd_clock_new( shmem,       recal_avg, -1L,       recal_hist, recal_frac, init_x0, init_y0, init_w ) );
   FD_TEST( !fd_clock_new( shmem,       recal_avg, LONG_MAX,  recal_hist, recal_frac, init_x0, init_y0, init_w ) );
+  FD_TEST( !fd_clock_new( shmem,       LONG_MAX,  1L,        recal_hist, recal_frac, init_x0, init_y0, init_w ) );
   FD_TEST( !fd_clock_new( shmem,       recal_avg, recal_jit, -1.,        recal_frac, init_x0, init_y0, init_w ) );
   FD_TEST( !fd_clock_new( shmem,       recal_avg, recal_jit, recal_hist, -1,         init_x0, init_y0, init_w ) );
   FD_TEST( !fd_clock_new( shmem,       recal_avg, recal_jit, recal_hist, recal_frac, init_x0, init_y0, 0.     ) );
+  FD_TEST( !fd_clock_new( shmem,       recal_avg, recal_jit, recal_hist, recal_frac, init_x0, init_y0, DBL_TRUE_MIN ) );
+
+  FD_TEST( fd_clock_new( shmem, LONG_MAX-1L, 1L, recal_hist, recal_frac, 0L, 0L, init_w )==shmem );
 
   void * shclock = fd_clock_new( shmem, recal_avg, recal_jit, recal_hist, recal_frac, init_x0, init_y0, init_w );
   FD_TEST( shclock==shmem );
