@@ -132,7 +132,8 @@ main( int     argc,
 
     FD_TEST( vl_test( vd_to_vl( x ), (long)x0, (long)x1 ) );
 
-    FD_TEST( vv_test( vd_to_vv( x ), (ulong)x0, (ulong)x1 ) );
+    /* Exclude negative values from unsigned conversions, as above. */
+    FD_TEST( vv_test( vd_to_vv( vd_abs( x ) ), (ulong)fabs(x0), (ulong)fabs(x1) ) );
 
     /* Reduction operations */
 

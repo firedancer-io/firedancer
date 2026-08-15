@@ -254,8 +254,9 @@ main( int     argc,
     FD_TEST( wl_test( wf_to_wl( x, 0 ), (long)x0, (long)x1, (long)x2, (long)x3 ) );
     FD_TEST( wl_test( wf_to_wl( x, 1 ), (long)x4, (long)x5, (long)x6, (long)x7 ) );
 
-    FD_TEST( wv_test( wf_to_wv( x, 0 ), (ulong)x0, (ulong)x1, (ulong)x2, (ulong)x3 ) );
-    FD_TEST( wv_test( wf_to_wv( x, 1 ), (ulong)x4, (ulong)x5, (ulong)x6, (ulong)x7 ) );
+    /* Exclude negative values from unsigned conversions, as above. */
+    FD_TEST( wv_test( wf_to_wv( wf_abs( x ), 0 ), (ulong)fabsf(x0), (ulong)fabsf(x1), (ulong)fabsf(x2), (ulong)fabsf(x3) ) );
+    FD_TEST( wv_test( wf_to_wv( wf_abs( x ), 1 ), (ulong)fabsf(x4), (ulong)fabsf(x5), (ulong)fabsf(x6), (ulong)fabsf(x7) ) );
 
     /* Reduction operations */
 

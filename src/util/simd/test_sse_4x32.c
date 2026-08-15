@@ -259,22 +259,23 @@ main( int     argc,
     FD_TEST( vl_test( vf_to_vl( x, 3, 2 ), (long)x3, (long)x2 ) );
     FD_TEST( vl_test( vf_to_vl( x, 3, 3 ), (long)x3, (long)x3 ) );
 
-    FD_TEST( vv_test( vf_to_vv( x, 0, 0 ), (ulong)x0, (ulong)x0 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 0, 1 ), (ulong)x0, (ulong)x1 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 0, 2 ), (ulong)x0, (ulong)x2 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 0, 3 ), (ulong)x0, (ulong)x3 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 1, 0 ), (ulong)x1, (ulong)x0 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 1, 1 ), (ulong)x1, (ulong)x1 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 1, 2 ), (ulong)x1, (ulong)x2 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 1, 3 ), (ulong)x1, (ulong)x3 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 2, 0 ), (ulong)x2, (ulong)x0 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 2, 1 ), (ulong)x2, (ulong)x1 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 2, 2 ), (ulong)x2, (ulong)x2 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 2, 3 ), (ulong)x2, (ulong)x3 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 3, 0 ), (ulong)x3, (ulong)x0 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 3, 1 ), (ulong)x3, (ulong)x1 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 3, 2 ), (ulong)x3, (ulong)x2 ) );
-    FD_TEST( vv_test( vf_to_vv( x, 3, 3 ), (ulong)x3, (ulong)x3 ) );
+    /* Exclude negative values from unsigned conversions, as above. */
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 0, 0 ), (ulong)fabsf(x0), (ulong)fabsf(x0) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 0, 1 ), (ulong)fabsf(x0), (ulong)fabsf(x1) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 0, 2 ), (ulong)fabsf(x0), (ulong)fabsf(x2) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 0, 3 ), (ulong)fabsf(x0), (ulong)fabsf(x3) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 1, 0 ), (ulong)fabsf(x1), (ulong)fabsf(x0) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 1, 1 ), (ulong)fabsf(x1), (ulong)fabsf(x1) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 1, 2 ), (ulong)fabsf(x1), (ulong)fabsf(x2) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 1, 3 ), (ulong)fabsf(x1), (ulong)fabsf(x3) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 2, 0 ), (ulong)fabsf(x2), (ulong)fabsf(x0) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 2, 1 ), (ulong)fabsf(x2), (ulong)fabsf(x1) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 2, 2 ), (ulong)fabsf(x2), (ulong)fabsf(x2) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 2, 3 ), (ulong)fabsf(x2), (ulong)fabsf(x3) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 3, 0 ), (ulong)fabsf(x3), (ulong)fabsf(x0) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 3, 1 ), (ulong)fabsf(x3), (ulong)fabsf(x1) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 3, 2 ), (ulong)fabsf(x3), (ulong)fabsf(x2) ) );
+    FD_TEST( vv_test( vf_to_vv( vf_abs( x ), 3, 3 ), (ulong)fabsf(x3), (ulong)fabsf(x3) ) );
 
     /* Reduction operations */
 
