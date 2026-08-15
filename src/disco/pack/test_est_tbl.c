@@ -21,12 +21,20 @@ main( int     argc,
   FD_LOG_NOTICE(( "testing empty query gives default value" )); /* in bin 0 */
   FD_TEST( fd_est_tbl_estimate( tbl, 0UL, &out_var ) == default_val );
   FD_TEST( out_var == 0.0 );
+  fd_est_tbl_update( tbl, 3UL, 0U );
+  FD_TEST( fd_est_tbl_estimate( tbl, 3UL, &out_var )==0.0 );
+  FD_TEST( out_var==0.0 );
   for( uint i=0U; i<9U; i++ ) {
     fd_est_tbl_update( tbl, 0UL, i );
     out_var = 1.0;
     FD_TEST( fd_est_tbl_estimate( tbl, 0UL, &out_var ) < 9.0 );
   }
   FD_TEST( fd_est_tbl_estimate( tbl, 0UL, &out_var ) < 5.0 );
+
+  fd_est_tbl_update( tbl, 4UL, UINT_MAX );
+  FD_TEST( tbl->bins[ 4 ].x2>1.0e18 );
+  FD_TEST( fd_est_tbl_estimate( tbl, 4UL, &out_var )==(double)UINT_MAX );
+  FD_TEST( out_var==0.0 );
 
   FD_LOG_NOTICE(( "testing single entry normal distribution" )); /* in bin 1 */
   for( ulong i=0UL; i<2000UL; i++ ) {
@@ -105,4 +113,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
