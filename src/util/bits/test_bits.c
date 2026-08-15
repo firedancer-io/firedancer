@@ -675,7 +675,11 @@ main( int     argc,
     }
     FD_TEST( fd_uint128_popcnt  ( zeros )==0                ); FD_TEST( fd_uint128_popcnt  ( ones  )==w                     );
     FD_TEST( fd_uint128_find_lsb( ones  )==0                ); FD_TEST( fd_uint128_find_msb( ones  )==(w-1)                 );
-    FD_TEST( fd_uint128_find_lsb_w_default( zeros, -1 )==-1 ); FD_TEST( fd_uint128_find_lsb_w_default( ones, -1 )==0        );
+    FD_TEST( fd_uint128_find_lsb_w_default( zeros,      -1 )==     -1 ); FD_TEST( fd_uint128_find_lsb_w_default( ones,  -1 )== 0       );
+    FD_TEST( fd_uint128_find_lsb_w_default( zeros,       0 )==      0 ); FD_TEST( fd_uint128_find_lsb_w_default( zeros, 63 )==63       );
+    FD_TEST( fd_uint128_find_lsb_w_default( zeros,     127 )==    127 );
+    FD_TEST( fd_uint128_find_lsb_w_default( zeros, INT_MIN )==INT_MIN );
+    FD_TEST( fd_uint128_find_lsb_w_default( zeros, INT_MAX )==INT_MAX );
     FD_TEST( fd_uint128_find_msb_w_default( zeros, -1 )==-1 ); FD_TEST( fd_uint128_find_msb_w_default( ones, -1 )==(w-1)    );
     FD_TEST( fd_uint128_pow2_up ( zeros )==(uint128)0       ); FD_TEST( fd_uint128_pow2_up ( ones  )==(uint128)0            );
     FD_TEST( fd_uint128_pow2_dn ( zeros )==(uint128)1       ); FD_TEST( fd_uint128_pow2_dn ( ones  )==(((uint128)1)<<(w-1)) );
