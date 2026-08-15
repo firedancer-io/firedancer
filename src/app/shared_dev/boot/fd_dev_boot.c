@@ -71,6 +71,7 @@ fd_global_options_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--no-sandbox",       NULL,      "Disable the security sandbox (development only)" );
   fd_action_help_arg( help, "--no-clone",         NULL,      "Run all tiles in a single process instead of one per tile (development only)" );
   fd_action_help_arg( help, "--max-live-slots",   "<count>", "Override the [runtime.max_live_slots] configuration (development only)" );
+  fd_action_help_arg( help, "--alpenglow",        NULL,      "Run Alpenglow consensus in lieu of Tower consensus" );
   fd_action_help_arg( help, "--version",          NULL,      "Show the current software version" );
   fd_action_help_arg( help, "--help/-h",          NULL,      "Print this help message" );
 }
@@ -98,6 +99,7 @@ fd_dev_main( int                        argc,
 
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
   int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
+  int alpenglow = fd_env_strip_cmdline_contains( &argc, &argv, "--alpenglow" );
 
   ulong max_live_slots = fd_env_strip_cmdline_ulong( &argc, &argv, "--max-live-slots", NULL, 0UL );
 
@@ -164,6 +166,7 @@ fd_dev_main( int                        argc,
 
   if( FD_LIKELY( load_topo ) ) {
     if( FD_UNLIKELY( max_live_slots && config.is_firedancer ) ) config.firedancer.runtime.max_live_slots = max_live_slots;
+    if( FD_UNLIKELY( alpenglow      && config.is_firedancer ) ) config.firedancer.development.alpenglow = 1;
     if( FD_LIKELY( action->topo ) ) action->topo( &config );
     else                            topo_init( &config );
   }

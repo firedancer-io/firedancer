@@ -133,6 +133,7 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
+  CFG_POP      ( bool,   development.alpenglow                               );
 
   CFG_POP      ( bool,   development.genesis.validate_genesis_hash           );
   CFG_POP      ( ulong,  development.genesis.max_file_size_mib               );

@@ -1911,6 +1911,14 @@ telemetry = true
     # value of true unless attempting to replay old ledgers.
     fixed_fec_sets = true
 
+    # Whether to run Alpenglow consensus.  Firedancer runs exactly one
+    # consensus algorithm, so when this is enabled any Tower-related
+    # components will be replaced with Alpenglow.
+    #
+    # You can also enable Alpenglow with the `--alpenglow` argument to
+    # `firedancer-dev`.
+    alpenglow = false
+
     [development.gossip]
         # Under normal operating conditions, a validator should always
         # reach out to a host located on the public internet.  If this

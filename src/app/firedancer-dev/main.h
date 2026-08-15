@@ -111,6 +111,7 @@ extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execrp;
 extern fd_topo_run_tile_t fd_tile_txsend;
 extern fd_topo_run_tile_t fd_tile_tower;
+extern fd_topo_run_tile_t fd_tile_votor;
 extern fd_topo_run_tile_t fd_tile_accdb;
 extern fd_topo_run_tile_t fd_tile_backtest;
 extern fd_topo_run_tile_t fd_tile_forktest;
@@ -157,6 +158,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_poh,
   &fd_tile_txsend,
   &fd_tile_tower,
+  &fd_tile_votor,
   &fd_tile_accdb,
   &fd_tile_backtest,
   &fd_tile_forktest,
