@@ -40,6 +40,7 @@
 #define FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS (3UL)
 
 #define FD_EVENT_CLIENT_HEARTBEAT_NANOS (15L*(long)1e9)
+#define FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS (60L*(long)1e9)
 
 #define FD_EVENT_CLIENT_TOKEN_SZ (217UL)
 
@@ -72,6 +73,8 @@ struct fd_event_client {
 
   long last_stream_send_ticks;
   long heartbeat_ticks;
+  long last_response_ticks;
+  long response_timeout_ticks;
 
   int auth_send_pending;
 
@@ -219,7 +222,8 @@ fd_event_client_new( void *                 shmem,
   client->defer_disconnect = INT_MAX;
   client->consecutive_failure_count = 7UL; /* Start high, so if server is down we don't keep retrying on boot */
   client->last_stream_send_ticks = 0L;
-  client->heartbeat_ticks = (long)(fd_tempo_tick_per_ns( NULL )*(double)FD_EVENT_CLIENT_HEARTBEAT_NANOS);
+  client->heartbeat_ticks        = (long)(fd_tempo_tick_per_ns( NULL )*(double)FD_EVENT_CLIENT_HEARTBEAT_NANOS);
+  client->response_timeout_ticks = (long)(fd_tempo_tick_per_ns( NULL )*(double)FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS);
 
   client->circq = circq;
   client->rng = rng;
@@ -655,6 +659,7 @@ fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
   }
 
   client->metrics.events_acked++;
+  client->last_response_ticks = fd_tickcount();
   if( FD_UNLIKELY( nonce_ack==ULONG_MAX ) ) return;
 
   client->metrics.last_acked_id = nonce_ack;
@@ -774,6 +779,7 @@ tx( fd_event_client_t * client,
     if( FD_UNLIKELY( !client->event_stream ) ) return; /* transient; retry next poll */
     fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_HEADER, fd_log_wallclock()+(long)10e9 /* 10s */ );
     client->last_stream_send_ticks = fd_tickcount();
+    client->last_response_ticks    = client->last_stream_send_ticks;
     *charge_busy = 1;
     return;
   }
@@ -851,6 +857,11 @@ fd_event_client_poll( fd_event_client_t * client,
   }
 
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
+    if( FD_UNLIKELY( client->event_stream && fd_tickcount()-client->last_response_ticks>client->response_timeout_ticks ) ) {
+      FD_LOG_WARNING(( "no response from telemetry server in over %ld seconds", FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS/(long)1e9 ));
+      disconnect( client, DISCONNECT_REASON_TIMEOUT, 0, 1 );
+      return;
+    }
     if( FD_UNLIKELY( client->consecutive_failure_count && (now-client->connected.connected_timestamp>10L*(long)1e9 ) ) ) client->consecutive_failure_count = 0UL;
     tx( client, charge_busy );
   }
