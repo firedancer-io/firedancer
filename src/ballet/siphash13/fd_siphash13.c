@@ -161,11 +161,11 @@ fd_siphash13_hash( void const * data,
 
   /* Hash blocks */
 
-  ulong m;
-  ulong const * in    = (ulong const *)data;
-  ulong const * end   = in + data_sz/8UL;
-  for( ; in!=end; in++ ) {
-    m = *in;
+  ulong         m;
+  uchar const * in  = (uchar const *)data;
+  uchar const * end = in + (data_sz & ~7UL);
+  for( ; in!=end; in+=8UL ) {
+    m = FD_LOAD( ulong, in );
     v[ 3 ] ^= m;
     FD_SIPHASH_ROUND( v );
     v[ 0 ] ^= m;
@@ -175,7 +175,7 @@ fd_siphash13_hash( void const * data,
 
   int const     left = data_sz & 7;
   ulong         b    = ((ulong)data_sz) << 56;
-  uchar const * rem  = (uchar const *)in;
+  uchar const * rem  = in;
   switch( left ) {
     case 7: b |= ((ulong)rem[6]) << 48; __attribute__((fallthrough));
     case 6: b |= ((ulong)rem[5]) << 40; __attribute__((fallthrough));

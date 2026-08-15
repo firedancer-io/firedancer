@@ -82,13 +82,19 @@ main( int     argc,
   fd_siphash13_t  _sip[1];
   fd_siphash13_t * sip = fd_siphash13_init( _sip, k0, k1 );
 
-  uchar buf[ 64 ];
+  uchar buf    [ 64 ];
+  uchar shifted[ 64+7 ] __attribute__((aligned(8)));
   for( ulong i=0UL; i<FD_SIPHASH13_TEST_CNT; i++ ) {
     uchar const * msg   = buf;
     ulong         msgsz = i;
 
     ulong hash = fd_siphash13_hash( msg, msgsz, k0, k1 );
     FD_TEST( hash == fd_siphash13_test_vector[ i ] );
+
+    for( ulong off=0UL; off<8UL; off++ ) {
+      fd_memcpy( shifted+off, msg, msgsz );
+      FD_TEST( fd_siphash13_hash( shifted+off, msgsz, k0, k1 )==hash );
+    }
 
     fd_siphash13_t sip2 = *sip;
     ulong hash2 = fd_siphash13_fini( &sip2 );
@@ -164,4 +170,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
