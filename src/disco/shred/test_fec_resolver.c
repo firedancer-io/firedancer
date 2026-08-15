@@ -204,6 +204,8 @@ test_interleaved( void ) {
   fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+1UL, chained_merkle_root );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
+  FD_TEST( !fd_ulong_is_aligned( (ulong)set0->data_shreds[ 1 ].s, alignof(ulong) ) );
+
   fd_fec_set_t const * out_fec[1];
   fd_shred_t const   * out_shred[1];
   fd_bmtree_node_t     out_merkle_root[1];

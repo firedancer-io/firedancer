@@ -5,10 +5,10 @@
 #include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
 
-typedef union {
+typedef struct {
   fd_ed25519_sig_t u;
-  ulong            l;
 } wrapped_sig_t;
+FD_STATIC_ASSERT( alignof(wrapped_sig_t)==1UL, wrapped_sig_t_align );
 
 typedef struct __attribute__((packed)) {
   ulong slot;
@@ -68,7 +68,7 @@ typedef struct set_ctx set_ctx_t;
 #define MAP_PREV              map_prev
 #define MAP_ELE_T             set_ctx_t
 #define MAP_KEY_EQ(k0,k1)    (!memcmp( (k0)->u, (k1)->u, FD_ED25519_SIG_SZ ))
-#define MAP_KEY_HASH(key,s)  (fd_ulong_hash( (key)->l ^ (s) ))
+#define MAP_KEY_HASH(key,s)  (fd_ulong_hash( FD_LOAD( ulong, (key)->u ) ^ (s) ))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
