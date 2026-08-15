@@ -891,7 +891,7 @@ complete_task( case_t *     tc,
       if( FD_UNLIKELY( block->failure_mode==TEST_FAIL_EXEC && !block->failure_injected ) ) {
         block->failure_injected = 1;
         block->dead_seen        = 1;
-        fd_sched_block_abandon( tc->sched, task->bank_idx );
+        fd_sched_block_abandon( tc->sched, task->bank_idx, 1 /* invalid */ );
       }
       FD_TEST( 0==fd_sched_task_done( tc->sched, FD_SCHED_TT_TXN_EXEC, task->txn_idx, task->exec_idx, NULL ) );
       info = fd_sched_get_txn_info( tc->sched, task->txn_idx );
@@ -906,7 +906,7 @@ complete_task( case_t *     tc,
       if( FD_UNLIKELY( block->failure_mode==TEST_FAIL_SIG && !block->failure_injected ) ) {
         block->failure_injected = 1;
         block->dead_seen        = 1;
-        fd_sched_block_abandon( tc->sched, task->bank_idx );
+        fd_sched_block_abandon( tc->sched, task->bank_idx, 1 /* invalid */ );
       }
       FD_TEST( 0==fd_sched_task_done( tc->sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_idx, task->exec_idx, NULL ) );
       info = fd_sched_get_txn_info( tc->sched, task->txn_idx );
@@ -930,11 +930,11 @@ complete_task( case_t *     tc,
       }
       int rc = fd_sched_task_done( tc->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->exec_idx, msg );
       if( FD_UNLIKELY( block->failure_mode==TEST_FAIL_POH && block->failure_injected ) ) {
-        FD_TEST( rc==0 || rc==-1 );
-        if( FD_UNLIKELY( rc==-1 ) ) block->dead_seen = 1;
+        FD_TEST( rc>=0 );
+        if( FD_UNLIKELY( rc ) ) block->dead_seen = 1;
       } else if( FD_UNLIKELY( is_lineage_dead ) ) {
-        FD_TEST( rc==0 || rc==-1 );
-        if( FD_UNLIKELY( rc==-1 ) ) block->dead_seen = 1;
+        FD_TEST( rc>=0 );
+        if( FD_UNLIKELY( rc ) ) block->dead_seen = 1;
       } else {
         FD_TEST( rc==0 );
       }

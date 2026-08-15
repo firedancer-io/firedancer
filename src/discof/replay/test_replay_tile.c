@@ -63,7 +63,7 @@ int mock_sched_fec_ingest_fn( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_fec_t * f
 }
 ulong mock_sched_can_ingest_fn  ( fd_sched_t * s FD_PARAM_UNUSED ) { return mock_sched_capacity; }
 int   mock_sched_is_drained_fn  ( fd_sched_t * s FD_PARAM_UNUSED ) { return 1; }
-void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
+void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i, int invalid FD_PARAM_UNUSED ) {
   mock_sched_abandon_cnt++;
   mock_sched_abandon_idx = i;
 }
