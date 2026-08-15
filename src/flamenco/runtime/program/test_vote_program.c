@@ -3,6 +3,7 @@
 #include "../fd_runtime.h"
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
+#include "fd_vote_program.h"
 #include "../../features/fd_features.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include "vote/fd_vote_codec.h"
@@ -1088,6 +1089,24 @@ test_vote_instruction_footprints( void ) {
   FD_LOG_NOTICE(( "test_vote_instruction_footprints... ok" ));
 }
 
+static void
+test_vote_state_alignment( void ) {
+  uchar storage[ FD_VOTE_STATE_V4_SZ+3UL ] __attribute__((aligned(4)));
+
+  for( ulong off=0UL; off<4UL; off++ ) {
+    uchar * data = storage+off;
+
+    fd_memset( data, 0, FD_VOTE_STATE_V4_SZ );
+    FD_STORE( uint, data, fd_vote_state_versioned_enum_v4 );
+    FD_TEST( fd_vsv_is_correct_size_and_initialized( data, FD_VOTE_STATE_V4_SZ ) );
+    FD_TEST( !fd_vsv_is_correct_size_and_initialized( data, FD_VOTE_STATE_V4_SZ-1UL ) );
+
+    fd_memset( data, 0, FD_VOTE_STATE_V3_SZ );
+    data[ 4 ] = 1U;
+    FD_TEST( fd_vsv_is_correct_size_and_initialized( data, FD_VOTE_STATE_V3_SZ ) );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1114,6 +1133,7 @@ main( int     argc,
   test_landed_votes_footprint();
   test_epoch_credits_footprint();
   test_vote_instruction_footprints();
+  test_vote_state_alignment();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );
