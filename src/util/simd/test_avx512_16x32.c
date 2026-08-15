@@ -100,12 +100,18 @@ main( int     argc,
                             fd_int_max(x4,y4), fd_int_max(x5,y5), fd_int_max(x6,y6), fd_int_max(x7,y7),
                             fd_int_max(x8,y8), fd_int_max(x9,y9), fd_int_max(xa,ya), fd_int_max(xb,yb),
                             fd_int_max(xc,yc), fd_int_max(xd,yd), fd_int_max(xe,ye), fd_int_max(xf,yf) );
-    WWI_TEST( wwi_add(x,y), x0+y0, x1+y1, x2+y2, x3+y3, x4+y4, x5+y5, x6+y6, x7+y7,
-                            x8+y8, x9+y9, xa+ya, xb+yb, xc+yc, xd+yd, xe+ye, xf+yf );
-    WWI_TEST( wwi_sub(x,y), x0-y0, x1-y1, x2-y2, x3-y3, x4-y4, x5-y5, x6-y6, x7-y7,
-                            x8-y8, x9-y9, xa-ya, xb-yb, xc-yc, xd-yd, xe-ye, xf-yf );
-    WWI_TEST( wwi_mul(x,y), x0*y0, x1*y1, x2*y2, x3*y3, x4*y4, x5*y5, x6*y6, x7*y7,
-                            x8*y8, x9*y9, xa*ya, xb*yb, xc*yc, xd*yd, xe*ye, xf*yf );
+    WWU_TEST( wwi_to_wwu( wwi_add(x,y) ), (uint)x0+(uint)y0, (uint)x1+(uint)y1, (uint)x2+(uint)y2, (uint)x3+(uint)y3,
+                                          (uint)x4+(uint)y4, (uint)x5+(uint)y5, (uint)x6+(uint)y6, (uint)x7+(uint)y7,
+                                          (uint)x8+(uint)y8, (uint)x9+(uint)y9, (uint)xa+(uint)ya, (uint)xb+(uint)yb,
+                                          (uint)xc+(uint)yc, (uint)xd+(uint)yd, (uint)xe+(uint)ye, (uint)xf+(uint)yf );
+    WWU_TEST( wwi_to_wwu( wwi_sub(x,y) ), (uint)x0-(uint)y0, (uint)x1-(uint)y1, (uint)x2-(uint)y2, (uint)x3-(uint)y3,
+                                          (uint)x4-(uint)y4, (uint)x5-(uint)y5, (uint)x6-(uint)y6, (uint)x7-(uint)y7,
+                                          (uint)x8-(uint)y8, (uint)x9-(uint)y9, (uint)xa-(uint)ya, (uint)xb-(uint)yb,
+                                          (uint)xc-(uint)yc, (uint)xd-(uint)yd, (uint)xe-(uint)ye, (uint)xf-(uint)yf );
+    WWU_TEST( wwi_to_wwu( wwi_mul(x,y) ), (uint)x0*(uint)y0, (uint)x1*(uint)y1, (uint)x2*(uint)y2, (uint)x3*(uint)y3,
+                                          (uint)x4*(uint)y4, (uint)x5*(uint)y5, (uint)x6*(uint)y6, (uint)x7*(uint)y7,
+                                          (uint)x8*(uint)y8, (uint)x9*(uint)y9, (uint)xa*(uint)ya, (uint)xb*(uint)yb,
+                                          (uint)xc*(uint)yc, (uint)xd*(uint)yd, (uint)xe*(uint)ye, (uint)xf*(uint)yf );
 
     /* Test bit ops */
 
@@ -208,16 +214,24 @@ main( int     argc,
               ((c>> 4)&1) ? y4 : z4, ((c>> 5)&1) ? y5 : z5, ((c>> 6)&1) ? y6 : z6, ((c>> 7)&1) ? y7 : z7,
               ((c>> 8)&1) ? y8 : z8, ((c>> 9)&1) ? y9 : z9, ((c>>10)&1) ? ya : za, ((c>>11)&1) ? yb : zb,
               ((c>>12)&1) ? yc : zc, ((c>>13)&1) ? yd : zd, ((c>>14)&1) ? ye : ze, ((c>>15)&1) ? yf : zf );
-    WWI_TEST( wwi_add_if( c, x, y, z ),
-              ((c>> 0)&1) ? (x0+y0) : z0, ((c>> 1)&1) ? (x1+y1) : z1, ((c>> 2)&1) ? (x2+y2) : z2, ((c>> 3)&1) ? (x3+y3) : z3,
-              ((c>> 4)&1) ? (x4+y4) : z4, ((c>> 5)&1) ? (x5+y5) : z5, ((c>> 6)&1) ? (x6+y6) : z6, ((c>> 7)&1) ? (x7+y7) : z7,
-              ((c>> 8)&1) ? (x8+y8) : z8, ((c>> 9)&1) ? (x9+y9) : z9, ((c>>10)&1) ? (xa+ya) : za, ((c>>11)&1) ? (xb+yb) : zb,
-              ((c>>12)&1) ? (xc+yc) : zc, ((c>>13)&1) ? (xd+yd) : zd, ((c>>14)&1) ? (xe+ye) : ze, ((c>>15)&1) ? (xf+yf) : zf );
-    WWI_TEST( wwi_sub_if( c, x, y, z ),
-              ((c>> 0)&1) ? (x0-y0) : z0, ((c>> 1)&1) ? (x1-y1) : z1, ((c>> 2)&1) ? (x2-y2) : z2, ((c>> 3)&1) ? (x3-y3) : z3,
-              ((c>> 4)&1) ? (x4-y4) : z4, ((c>> 5)&1) ? (x5-y5) : z5, ((c>> 6)&1) ? (x6-y6) : z6, ((c>> 7)&1) ? (x7-y7) : z7,
-              ((c>> 8)&1) ? (x8-y8) : z8, ((c>> 9)&1) ? (x9-y9) : z9, ((c>>10)&1) ? (xa-ya) : za, ((c>>11)&1) ? (xb-yb) : zb,
-              ((c>>12)&1) ? (xc-yc) : zc, ((c>>13)&1) ? (xd-yd) : zd, ((c>>14)&1) ? (xe-ye) : ze, ((c>>15)&1) ? (xf-yf) : zf );
+    WWU_TEST( wwi_to_wwu( wwi_add_if( c, x, y, z ) ),
+              ((c>> 0)&1) ? (uint)x0+(uint)y0 : (uint)z0, ((c>> 1)&1) ? (uint)x1+(uint)y1 : (uint)z1,
+              ((c>> 2)&1) ? (uint)x2+(uint)y2 : (uint)z2, ((c>> 3)&1) ? (uint)x3+(uint)y3 : (uint)z3,
+              ((c>> 4)&1) ? (uint)x4+(uint)y4 : (uint)z4, ((c>> 5)&1) ? (uint)x5+(uint)y5 : (uint)z5,
+              ((c>> 6)&1) ? (uint)x6+(uint)y6 : (uint)z6, ((c>> 7)&1) ? (uint)x7+(uint)y7 : (uint)z7,
+              ((c>> 8)&1) ? (uint)x8+(uint)y8 : (uint)z8, ((c>> 9)&1) ? (uint)x9+(uint)y9 : (uint)z9,
+              ((c>>10)&1) ? (uint)xa+(uint)ya : (uint)za, ((c>>11)&1) ? (uint)xb+(uint)yb : (uint)zb,
+              ((c>>12)&1) ? (uint)xc+(uint)yc : (uint)zc, ((c>>13)&1) ? (uint)xd+(uint)yd : (uint)zd,
+              ((c>>14)&1) ? (uint)xe+(uint)ye : (uint)ze, ((c>>15)&1) ? (uint)xf+(uint)yf : (uint)zf );
+    WWU_TEST( wwi_to_wwu( wwi_sub_if( c, x, y, z ) ),
+              ((c>> 0)&1) ? (uint)x0-(uint)y0 : (uint)z0, ((c>> 1)&1) ? (uint)x1-(uint)y1 : (uint)z1,
+              ((c>> 2)&1) ? (uint)x2-(uint)y2 : (uint)z2, ((c>> 3)&1) ? (uint)x3-(uint)y3 : (uint)z3,
+              ((c>> 4)&1) ? (uint)x4-(uint)y4 : (uint)z4, ((c>> 5)&1) ? (uint)x5-(uint)y5 : (uint)z5,
+              ((c>> 6)&1) ? (uint)x6-(uint)y6 : (uint)z6, ((c>> 7)&1) ? (uint)x7-(uint)y7 : (uint)z7,
+              ((c>> 8)&1) ? (uint)x8-(uint)y8 : (uint)z8, ((c>> 9)&1) ? (uint)x9-(uint)y9 : (uint)z9,
+              ((c>>10)&1) ? (uint)xa-(uint)ya : (uint)za, ((c>>11)&1) ? (uint)xb-(uint)yb : (uint)zb,
+              ((c>>12)&1) ? (uint)xc-(uint)yc : (uint)zc, ((c>>13)&1) ? (uint)xd-(uint)yd : (uint)zd,
+              ((c>>14)&1) ? (uint)xe-(uint)ye : (uint)ze, ((c>>15)&1) ? (uint)xf-(uint)yf : (uint)zf );
     WWI_TEST( wwi_and_if( c, x, y, z ),
               ((c>> 0)&1) ? (x0&y0) : z0, ((c>> 1)&1) ? (x1&y1) : z1, ((c>> 2)&1) ? (x2&y2) : z2, ((c>> 3)&1) ? (x3&y3) : z3,
               ((c>> 4)&1) ? (x4&y4) : z4, ((c>> 5)&1) ? (x5&y5) : z5, ((c>> 6)&1) ? (x6&y6) : z6, ((c>> 7)&1) ? (x7&y7) : z7,

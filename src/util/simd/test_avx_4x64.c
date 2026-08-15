@@ -145,7 +145,8 @@ main( int     argc,
 
     FD_TEST( wl_test( wd_to_wl( x ), (long)x0, (long)x1, (long)x2, (long)x3 ) );
 
-    FD_TEST( wv_test( wd_to_wv( x ), (ulong)x0, (ulong)x1, (ulong)x2, (ulong)x3 ) );
+    /* Exclude negative values from unsigned conversions, as above. */
+    FD_TEST( wv_test( wd_to_wv( wd_abs( x ) ), (ulong)fabs(x0), (ulong)fabs(x1), (ulong)fabs(x2), (ulong)fabs(x3) ) );
 
     /* Reduction operations */
 

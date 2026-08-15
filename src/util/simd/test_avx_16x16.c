@@ -141,7 +141,7 @@ main( int     argc,
     INIT_HJ( fd_ushort_max( xi[j], yi[j] )               ); FD_TEST( wh_test( wh_max(   x, y ), hj ) );
     INIT_HJ( (ushort)(xi[j]+yi[j])                       ); FD_TEST( wh_test( wh_add(   x, y ), hj ) );
     INIT_HJ( (ushort)(xi[j]-yi[j])                       ); FD_TEST( wh_test( wh_sub(   x, y ), hj ) );
-    INIT_HJ( (ushort)(xi[j]*yi[j])                       ); FD_TEST( wh_test( wh_mul(   x, y ), hj ) );
+    INIT_HJ( (ushort)(((uint)xi[j])*((uint)yi[j]))       ); FD_TEST( wh_test( wh_mul(   x, y ), hj ) );
     /*                                                   */ FD_TEST( wh_test( wh_mullo( x, y ), hj ) );
     INIT_HJ( (ushort)((((uint)xi[j])*((uint)yi[j]))>>16) ); FD_TEST( wh_test( wh_mulhi( x, y ), hj ) );
 

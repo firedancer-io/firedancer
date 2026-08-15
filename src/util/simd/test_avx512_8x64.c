@@ -77,9 +77,12 @@ main( int     argc,
                                fd_long_min(x4,y4), fd_long_min(x5,y5), fd_long_min(x6,y6), fd_long_min(x7,y7) );
     WWL_TEST( wwl_max(x,y),    fd_long_max(x0,y0), fd_long_max(x1,y1), fd_long_max(x2,y2), fd_long_max(x3,y3),
                                fd_long_max(x4,y4), fd_long_max(x5,y5), fd_long_max(x6,y6), fd_long_max(x7,y7) );
-    WWL_TEST( wwl_add(x,y),    x0+y0, x1+y1, x2+y2, x3+y3, x4+y4, x5+y5, x6+y6, x7+y7 );
-    WWL_TEST( wwl_sub(x,y),    x0-y0, x1-y1, x2-y2, x3-y3, x4-y4, x5-y5, x6-y6, x7-y7 );
-    WWL_TEST( wwl_mul(x,y),    x0*y0, x1*y1, x2*y2, x3*y3, x4*y4, x5*y5, x6*y6, x7*y7 );
+    WWV_TEST( wwl_to_wwv( wwl_add(x,y) ), (ulong)x0+(ulong)y0, (ulong)x1+(ulong)y1, (ulong)x2+(ulong)y2, (ulong)x3+(ulong)y3,
+                                          (ulong)x4+(ulong)y4, (ulong)x5+(ulong)y5, (ulong)x6+(ulong)y6, (ulong)x7+(ulong)y7 );
+    WWV_TEST( wwl_to_wwv( wwl_sub(x,y) ), (ulong)x0-(ulong)y0, (ulong)x1-(ulong)y1, (ulong)x2-(ulong)y2, (ulong)x3-(ulong)y3,
+                                          (ulong)x4-(ulong)y4, (ulong)x5-(ulong)y5, (ulong)x6-(ulong)y6, (ulong)x7-(ulong)y7 );
+    WWV_TEST( wwl_to_wwv( wwl_mul(x,y) ), (ulong)x0*(ulong)y0, (ulong)x1*(ulong)y1, (ulong)x2*(ulong)y2, (ulong)x3*(ulong)y3,
+                                          (ulong)x4*(ulong)y4, (ulong)x5*(ulong)y5, (ulong)x6*(ulong)y6, (ulong)x7*(ulong)y7 );
     WWL_TEST( wwl_mul_ll(x,y), ((long)(int)x0)*((long)(int)y0), ((long)(int)x1)*((long)(int)y1),
                                ((long)(int)x2)*((long)(int)y2), ((long)(int)x3)*((long)(int)y3),
                                ((long)(int)x4)*((long)(int)y4), ((long)(int)x5)*((long)(int)y5),
@@ -159,12 +162,16 @@ main( int     argc,
     WWL_TEST( wwl_if( c, y, z ),
               ((c>>0)&1) ? y0 : z0, ((c>>1)&1) ? y1 : z1, ((c>>2)&1) ? y2 : z2, ((c>>3)&1) ? y3 : z3,
               ((c>>4)&1) ? y4 : z4, ((c>>5)&1) ? y5 : z5, ((c>>6)&1) ? y6 : z6, ((c>>7)&1) ? y7 : z7 );
-    WWL_TEST( wwl_add_if( c, x, y, z ),
-              ((c>>0)&1) ? (x0+y0) : z0, ((c>>1)&1) ? (x1+y1) : z1, ((c>>2)&1) ? (x2+y2) : z2, ((c>>3)&1) ? (x3+y3) : z3,
-              ((c>>4)&1) ? (x4+y4) : z4, ((c>>5)&1) ? (x5+y5) : z5, ((c>>6)&1) ? (x6+y6) : z6, ((c>>7)&1) ? (x7+y7) : z7 );
-    WWL_TEST( wwl_sub_if( c, x, y, z ),
-              ((c>>0)&1) ? (x0-y0) : z0, ((c>>1)&1) ? (x1-y1) : z1, ((c>>2)&1) ? (x2-y2) : z2, ((c>>3)&1) ? (x3-y3) : z3,
-              ((c>>4)&1) ? (x4-y4) : z4, ((c>>5)&1) ? (x5-y5) : z5, ((c>>6)&1) ? (x6-y6) : z6, ((c>>7)&1) ? (x7-y7) : z7 );
+    WWV_TEST( wwl_to_wwv( wwl_add_if( c, x, y, z ) ),
+              ((c>>0)&1) ? (ulong)x0+(ulong)y0 : (ulong)z0, ((c>>1)&1) ? (ulong)x1+(ulong)y1 : (ulong)z1,
+              ((c>>2)&1) ? (ulong)x2+(ulong)y2 : (ulong)z2, ((c>>3)&1) ? (ulong)x3+(ulong)y3 : (ulong)z3,
+              ((c>>4)&1) ? (ulong)x4+(ulong)y4 : (ulong)z4, ((c>>5)&1) ? (ulong)x5+(ulong)y5 : (ulong)z5,
+              ((c>>6)&1) ? (ulong)x6+(ulong)y6 : (ulong)z6, ((c>>7)&1) ? (ulong)x7+(ulong)y7 : (ulong)z7 );
+    WWV_TEST( wwl_to_wwv( wwl_sub_if( c, x, y, z ) ),
+              ((c>>0)&1) ? (ulong)x0-(ulong)y0 : (ulong)z0, ((c>>1)&1) ? (ulong)x1-(ulong)y1 : (ulong)z1,
+              ((c>>2)&1) ? (ulong)x2-(ulong)y2 : (ulong)z2, ((c>>3)&1) ? (ulong)x3-(ulong)y3 : (ulong)z3,
+              ((c>>4)&1) ? (ulong)x4-(ulong)y4 : (ulong)z4, ((c>>5)&1) ? (ulong)x5-(ulong)y5 : (ulong)z5,
+              ((c>>6)&1) ? (ulong)x6-(ulong)y6 : (ulong)z6, ((c>>7)&1) ? (ulong)x7-(ulong)y7 : (ulong)z7 );
     WWL_TEST( wwl_and_if( c, x, y, z ),
               ((c>>0)&1) ? (x0&y0) : z0, ((c>>1)&1) ? (x1&y1) : z1, ((c>>2)&1) ? (x2&y2) : z2, ((c>>3)&1) ? (x3&y3) : z3,
               ((c>>4)&1) ? (x4&y4) : z4, ((c>>5)&1) ? (x5&y5) : z5, ((c>>6)&1) ? (x6&y6) : z6, ((c>>7)&1) ? (x7&y7) : z7 );
@@ -192,14 +199,14 @@ main( int     argc,
     WWL_TEST( wwl_pack_halves( y,1, z,1 ), y4,y5,y6,y7, z4,z5,z6,z7 );
     WWL_TEST( wwl_pack_h0_h1 ( y,   z   ), y0,y1,y2,y3, z4,z5,z6,z7 );
 
-    long const m52 = (1L<<52)-1L;
+    ulong const m52 = (1UL<<52)-1UL;
 
-#   define MADD52LO(x,y,z) ((x) + (((long)((((uint128)((y) & m52))*((uint128)((z) & m52)))    ))&m52))
-#   define MADD52HI(x,y,z) ((x) + (((long)((((uint128)((y) & m52))*((uint128)((z) & m52)))>>52))    ))
-    WWL_TEST( wwl_madd52lo( x, y, z ), MADD52LO(x0,y0,z0), MADD52LO(x1,y1,z1), MADD52LO(x2,y2,z2), MADD52LO(x3,y3,z3),
-                                       MADD52LO(x4,y4,z4), MADD52LO(x5,y5,z5), MADD52LO(x6,y6,z6), MADD52LO(x7,y7,z7) );
-    WWL_TEST( wwl_madd52hi( x, y, z ), MADD52HI(x0,y0,z0), MADD52HI(x1,y1,z1), MADD52HI(x2,y2,z2), MADD52HI(x3,y3,z3),
-                                       MADD52HI(x4,y4,z4), MADD52HI(x5,y5,z5), MADD52HI(x6,y6,z6), MADD52HI(x7,y7,z7) );
+#   define MADD52LO(x,y,z) ((ulong)(x) + ((ulong)(((uint128)((ulong)(y) & m52))*((uint128)((ulong)(z) & m52))) & m52))
+#   define MADD52HI(x,y,z) ((ulong)(x) +  (ulong)((((uint128)((ulong)(y) & m52))*((uint128)((ulong)(z) & m52)))>>52))
+    WWV_TEST( wwl_to_wwv( wwl_madd52lo( x, y, z ) ), MADD52LO(x0,y0,z0), MADD52LO(x1,y1,z1), MADD52LO(x2,y2,z2), MADD52LO(x3,y3,z3),
+                                                        MADD52LO(x4,y4,z4), MADD52LO(x5,y5,z5), MADD52LO(x6,y6,z6), MADD52LO(x7,y7,z7) );
+    WWV_TEST( wwl_to_wwv( wwl_madd52hi( x, y, z ) ), MADD52HI(x0,y0,z0), MADD52HI(x1,y1,z1), MADD52HI(x2,y2,z2), MADD52HI(x3,y3,z3),
+                                                        MADD52HI(x4,y4,z4), MADD52HI(x5,y5,z5), MADD52HI(x6,y6,z6), MADD52HI(x7,y7,z7) );
 #   undef MADD52HI
 #   undef MADD52LO
 
