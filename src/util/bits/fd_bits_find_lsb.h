@@ -166,11 +166,8 @@ fd_uint128_find_lsb_w_default( uint128 x,
            "cmovz  %3, %0  # if( !xl ) c = 64;\n\t"
            "cmovnz %2, %1  # if(!!xl ) xh = xl;"
            : "+&r" (c), "+&r" (xh) : "r" (xl), "r" (_64) : "cc" );
-  int r = c + fd_ulong_find_lsb( xh );
-  __asm__( "testq  %1, %1  # cc.zf = !xh;\n\t"
-           "cmovz  %2, %0  # if( !xl ) c = d;"
-           : "+&r" (r) : "r" (xh), "r" (d) : "cc" );
-  return r;
+  int r = fd_ulong_find_lsb_w_default( xh, (int)((uint)d - (uint)c) );
+  return (int)((uint)c + (uint)r);
 }
 
 #else /* other architectures */
@@ -180,4 +177,3 @@ FD_FN_CONST static inline int fd_uint128_find_lsb_w_default( uint128 x, int d ) 
 #endif
 
 #endif
-
