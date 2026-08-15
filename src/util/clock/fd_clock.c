@@ -165,7 +165,7 @@ fd_clock_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !((1L<=recal_jit) & (recal_jit<=recal_avg) & (recal_avg<=(LONG_MAX-recal_jit))) ) ) {
+  if( FD_UNLIKELY( !((1L<=recal_jit) && (recal_jit<=recal_avg) && (recal_avg<=(LONG_MAX-recal_jit))) ) ) {
     FD_LOG_WARNING(( "bad recal_avg / recal_jit" ));
     return NULL;
   }
@@ -180,8 +180,12 @@ fd_clock_new( void * shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( !(init_w>0.) ) ) {
+    FD_LOG_WARNING(( "bad w" ));
+    return NULL;
+  }
   double init_m = 1./init_w;
-  if( FD_UNLIKELY( !((init_w>0.) & (init_m>0.)) ) ) {
+  if( FD_UNLIKELY( !((init_m>0.) && (init_m<=DBL_MAX)) ) ) {
     FD_LOG_WARNING(( "bad w" ));
     return NULL;
   }
