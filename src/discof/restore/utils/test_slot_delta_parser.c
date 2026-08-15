@@ -104,11 +104,11 @@ mock_one_input( uchar * input,
   uchar * p = input;
 
   /* len is 1 */
-  *(ulong *)p = 1UL;
+  FD_STORE( ulong, p, 1UL );
   p += sizeof(ulong);
 
   /* slot is 1000 */
-  *(ulong *)p = slot;
+  FD_STORE( ulong, p, slot );
   p += sizeof(ulong);
 
   /* is root is 1 */
@@ -116,7 +116,7 @@ mock_one_input( uchar * input,
   p += sizeof(uchar);
 
   /* status len */
-  *(ulong *)p = 1UL;
+  FD_STORE( ulong, p, 1UL );
   p += sizeof(ulong);
 
   /* blockhash */
@@ -125,11 +125,11 @@ mock_one_input( uchar * input,
   p += 32UL;
 
   /* txn idx */
-  *(ulong *)p = FD_SLOT_DELTA_MAX_TXNHASH_OFFSET;
+  FD_STORE( ulong, p, FD_SLOT_DELTA_MAX_TXNHASH_OFFSET );
   p += sizeof(ulong);
 
   /* cache status len */
-  *(ulong *)p = 1UL;
+  FD_STORE( ulong, p, 1UL );
   p += sizeof(ulong);
 
   /* key slice */
@@ -156,60 +156,60 @@ insert_error( uchar * input,
   switch( error_type ) {
     case MOCK_ERROR_TYPE_NONE:
       FD_TEST( input_sz>=4UL );
-      *(uint *)p = 0U;
+      FD_STORE( uint, p, 0U );
       p += sizeof(uint);
       break;
     case MOCK_ERROR_TYPE_TXN:
       FD_TEST( input_sz>=8UL );
-      *(uint *)p = 1U;
+      FD_STORE( uint, p, 1U );
       p += sizeof(uint);
-      *(uint *)p = (uint)error_code;
+      FD_STORE( uint, p, (uint)error_code );
       p += sizeof(uint);
       break;
     case MOCK_ERROR_TYPE_TXN_CUSTOM:
       FD_TEST( input_sz>=9UL );
-      *(uint *)p = 1U;
+      FD_STORE( uint, p, 1U );
       p += sizeof(uint);
-      *(uint *)p = 30U;
+      FD_STORE( uint, p, 30U );
       p += sizeof(uint);
       *p = (uchar)error_code;
       p += sizeof(uchar);
       break;
     case MOCK_ERROR_TYPE_INSTR:
       FD_TEST( input_sz>=13UL );
-      *(uint *)p = 1U;
+      FD_STORE( uint, p, 1U );
       p += sizeof(uint);
-      *(uint *)p = 8U;
+      FD_STORE( uint, p, 8U );
       p += sizeof(uint);
       *p = 0U; /* instr idx */
       p += sizeof(uchar);
-      *(uint *)p = (uint)error_code;
+      FD_STORE( uint, p, (uint)error_code );
       p += sizeof(uint);
       break;
     case MOCK_ERROR_TYPE_INSTR_CUSTOM:
       FD_TEST( input_sz>=17UL );
-      *(uint *)p = 1U;
+      FD_STORE( uint, p, 1U );
       p += sizeof(uint);
-      *(uint *)p = 8U;
+      FD_STORE( uint, p, 8U );
       p += sizeof(uint);
       *p = 0U; /* instr idx */
       p += sizeof(uchar);
-      *(uint *)p = 25U;
+      FD_STORE( uint, p, 25U );
       p += sizeof(uint);
-      *(uint *)p = (uint)error_code;
+      FD_STORE( uint, p, (uint)error_code );
       p += sizeof(uint);
       break;
     case MOCK_ERROR_TYPE_INSTR_BORSH_IO:
       FD_TEST( input_sz>=29UL );
-      *(uint *)p = 1U;
+      FD_STORE( uint, p, 1U );
       p += sizeof(uint);
-      *(uint *)p = 8U;
+      FD_STORE( uint, p, 8U );
       p += sizeof(uint);
       *p = 0U; /* instr idx */
       p += sizeof(uchar);
-      *(uint *)p = 44U;
+      FD_STORE( uint, p, 44U );
       p += sizeof(uint);
-      *(ulong *)p = 8UL;
+      FD_STORE( ulong, p, 8UL );
       p += sizeof(ulong);
       char const * err_str = "1234567";
       fd_memcpy( p, err_str, 8UL );
@@ -250,17 +250,17 @@ mock_slot_delta_input( uchar * input,
   uchar num_entries = 0;
 
   /* len */
-  *(ulong *)p = num_slot_deltas;
+  FD_STORE( ulong, p, num_slot_deltas );
   p += sizeof(ulong);
 
   for( ulong i=0UL; i<num_slot_deltas; i++ ) {
-    *(ulong *)p = slots[i]; /* slot */
+    FD_STORE( ulong, p, slots[i] ); /* slot */
     p += sizeof(ulong);
 
     *p = 1; /* is_root */
     p += sizeof(uchar);
 
-    *(ulong *)p = num_statuses[i]; /* status len */
+    FD_STORE( ulong, p, num_statuses[i] ); /* status len */
     p += sizeof(ulong);
 
     for( ulong j=0UL; j<num_statuses[i]; j++ ) {
@@ -268,10 +268,10 @@ mock_slot_delta_input( uchar * input,
       fd_memcpy( p, blockhash, 32UL );
       p += 32UL;
 
-      *(ulong *)p = FD_SLOT_DELTA_MAX_TXNHASH_OFFSET; /* txn idx */
+      FD_STORE( ulong, p, FD_SLOT_DELTA_MAX_TXNHASH_OFFSET ); /* txn idx */
       p += sizeof(ulong);
 
-      *(ulong *)p = num_cache_statuses[j]; /* cache status len */
+      FD_STORE( ulong, p, num_cache_statuses[j] ); /* cache status len */
       p += sizeof(ulong);
 
       for( ulong k=0UL; k<num_cache_statuses[j]; k++ ) {
@@ -381,15 +381,15 @@ test_unexpected_eof_in_instr_borsh_io_error( fd_slot_delta_parser_t * parser ) {
   mock_one_input( input, sizeof(input), 1, 1000UL );
   uchar * p = input + 93UL;
 
-  *(uint *)p = 1U;
+  FD_STORE( uint, p, 1U );
   p += sizeof(uint);
-  *(uint *)p = 8U;
+  FD_STORE( uint, p, 8U );
   p += sizeof(uint);
   *p = 0U; /* instr idx */
   p += sizeof(uchar);
-  *(uint *)p = 44U;
+  FD_STORE( uint, p, 44U );
   p += sizeof(uint);
-  *(ulong *)p = ULONG_MAX;
+  FD_STORE( ulong, p, ULONG_MAX );
   p += sizeof(ulong);
   FD_TEST( (ulong)(p - input)==sizeof(input) );
 
@@ -472,7 +472,7 @@ test_zero_slot_deltas( fd_slot_delta_parser_t * parser ) {
   fd_slot_delta_parser_init( parser );
 
   /* len is 0 */
-  *(ulong *)input = 0UL;
+  FD_STORE( ulong, input, 0UL );
 
   fd_slot_delta_parser_advance_result_t result[1];
   int res = fd_slot_delta_parser_consume( parser, input, sizeof(input), result );
@@ -492,7 +492,7 @@ test_invalid_txnhash_offset( fd_slot_delta_parser_t * parser ) {
   p += sizeof(uchar); /* is_root */
   p += sizeof(ulong); /* status len */
   p += 32UL;          /* blockhash */
-  *(ulong *)p = FD_SLOT_DELTA_MAX_TXNHASH_OFFSET + 1UL;
+  FD_STORE( ulong, p, FD_SLOT_DELTA_MAX_TXNHASH_OFFSET + 1UL );
 
   consume( parser, input, sizeof(input), entry_cb_no_err, 1, FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET );
 }

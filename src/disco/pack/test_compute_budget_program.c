@@ -82,13 +82,13 @@ main( int     argc,
   uchar _txn2[ txn2_sz ];
   fd_memcpy( _txn2, txn2, txn2_sz );
 
-  uint  * cu_limit  = (uint  *) &_txn2[ 260 ];
-  ulong * ulamports = (ulong *) &_txn2[ 268 ];
-  *cu_limit = 1000000U; *ulamports = 1000000UL;    test_txn( _txn2, txn2_sz, 2UL, 1000000UL, 1000000UL,        16384UL ); /* No overflow  */
-  *cu_limit = 1000000U; *ulamports = ULONG_MAX>>1; test_txn( _txn2, txn2_sz, 2UL, 1000000UL, ULONG_MAX>>1,     16384UL ); /* Product>2^64 */
-  *cu_limit = 1400000U; *ulamports = ULONG_MAX;    test_txn( _txn2, txn2_sz, 2UL, 1400000UL, ULONG_MAX,        16384UL ); /* Result>2^64  */
-  *cu_limit = 1400000U; *ulamports = 1UL<<44;      test_txn( _txn2, txn2_sz, 2UL, 1400000UL, 24629060462183UL, 16384UL ); /* Product<2^64 */
-  *cu_limit =       1U; *ulamports = 1UL;          test_txn( _txn2, txn2_sz, 2UL,       1UL, 1UL,              16384UL ); /* Test ceil    */
+  uchar * cu_limit  = &_txn2[ 260 ];
+  uchar * ulamports = &_txn2[ 268 ];
+  FD_STORE( uint, cu_limit, 1000000U ); FD_STORE( ulong, ulamports, 1000000UL );    test_txn( _txn2, txn2_sz, 2UL, 1000000UL, 1000000UL,        16384UL ); /* No overflow  */
+  FD_STORE( uint, cu_limit, 1000000U ); FD_STORE( ulong, ulamports, ULONG_MAX>>1 ); test_txn( _txn2, txn2_sz, 2UL, 1000000UL, ULONG_MAX>>1,     16384UL ); /* Product>2^64 */
+  FD_STORE( uint, cu_limit, 1400000U ); FD_STORE( ulong, ulamports, ULONG_MAX );    test_txn( _txn2, txn2_sz, 2UL, 1400000UL, ULONG_MAX,        16384UL ); /* Result>2^64  */
+  FD_STORE( uint, cu_limit, 1400000U ); FD_STORE( ulong, ulamports, 1UL<<44 );      test_txn( _txn2, txn2_sz, 2UL, 1400000UL, 24629060462183UL, 16384UL ); /* Product<2^64 */
+  FD_STORE( uint, cu_limit,       1U ); FD_STORE( ulong, ulamports, 1UL );          test_txn( _txn2, txn2_sz, 2UL,       1UL, 1UL,              16384UL ); /* Test ceil    */
 
   FD_TEST( test_duplicate( 1, 1, 0, 0, 0 ) == 0 );
   FD_TEST( test_duplicate( 2, 0, 0, 0, 0 ) == 0 );

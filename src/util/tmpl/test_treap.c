@@ -587,8 +587,8 @@ main( int     argc,
         break;
       }
 
-      ulong less_mask = fd_ulong_if( q+!strict>=64, ~0UL, (1UL<<(q+!strict))-1UL );
-      ulong mask      = fd_ulong_if( less, less_mask, ~0UL<<(q+strict) );
+      ulong mask      = less ?  FD_ULONG_MASK_LSB( q+!strict )
+                             : ~FD_ULONG_MASK_LSB( q+ strict );
       ulong options   = mask & val_pmap;
       if( !options ) FD_TEST( treap_idx_is_null( idx ) ); /* nothing satisfying query in map */
       else {
