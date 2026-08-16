@@ -1789,12 +1789,15 @@ test_wfs_auto_override( fd_wksp_t * wksp ) {
   static fd_replay_tile_t  ctx[1];
   static fd_runtime_stack_t stack[1];
 
-  /* WFS enabled + slot match: override fires. */
+  /* WFS enabled + slot match: override fires.  All three WFS legs (slot,
+     bank hash, shred version) must be set for wfs_enabled to be valid,
+     matching fd_wfs_configured. */
   memset( ctx, 0, sizeof(*ctx) );
   fd_bank_t * root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
   ctx->wfs_enabled                    = 1;
   ctx->expected_bank_hash             = root->f.bank_hash;
   ctx->wait_for_supermajority_at_slot = 100UL;
+  ctx->expected_shred_version         = 1234;
   ctx->wait_for_vote_to_start_leader  = 1;
   snapshot_done( ctx );
   FD_TEST( !ctx->wait_for_vote_to_start_leader );
@@ -1807,6 +1810,7 @@ test_wfs_auto_override( fd_wksp_t * wksp ) {
   ctx->wfs_enabled                    = 1;
   ctx->expected_bank_hash             = root->f.bank_hash;
   ctx->wait_for_supermajority_at_slot = 100UL;
+  ctx->expected_shred_version         = 1234;
   ctx->wait_for_vote_to_start_leader  = 1;
   snapshot_done( ctx );
   FD_TEST( ctx->wait_for_vote_to_start_leader );

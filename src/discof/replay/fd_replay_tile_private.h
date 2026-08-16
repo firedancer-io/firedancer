@@ -96,6 +96,12 @@ struct fd_replay_tile {
 
   ulong     wait_for_supermajority_at_slot;
   fd_hash_t expected_bank_hash;
+  int       wfs_hash_is_zero;
+
+  /* Effective boot slot (bank->f.slot of the boot snapshot), recorded in
+     on_snapshot_message so the WFS mode can be recomputed later (e.g. on
+     identity change).  ULONG_MAX until the boot snapshot is loaded. */
+  ulong     wfs_boot_slot;
 
   ulong            blockhash_seed;
   ulong            reasm_seed;

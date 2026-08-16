@@ -16,6 +16,7 @@
 #include "../tower/fd_tower_tile.h"
 #include "../resolv/fd_resolv_tile.h"
 #include "../restore/utils/fd_ssload.h"
+#include "../restore/utils/fd_wfs.h"
 
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
@@ -103,6 +104,16 @@
 /* The first bank that the replay tile produces either for genesis
    or the snapshot boot will always be at bank index 0. */
 #define FD_REPLAY_BOOT_BANK_SEQ (0UL)
+
+/* wfs_should_suppress_leader_gate returns 1 iff wait-for-supermajority
+   (WFS) mode is MATCH and WFS has not yet completed.  Otherwise,
+   normal equivocation protection should resume. */
+
+static inline int
+wfs_should_suppress_leader_gate( int wfs_mode,
+                                 int wfs_complete ) {
+  return wfs_mode==FD_WFS_MODE_MATCH && !wfs_complete;
+}
 
 static inline ulong
 fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) {
@@ -638,6 +649,20 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   ctx->identity_vote_rooted = 0;
   ctx->identity_idx++;
   fd_vote_tracker_reset( ctx->vote_tracker );
+
+  /* Resetting identity_vote_rooted above re-arms the leader gate.
+     Suppress it only while WFS is still pending (before supermajority
+     is reached).  Once WFS completes, normal equivocation protection
+     resumes.  See wfs_should_suppress_leader_gate above. */
+  int wfs_mode = fd_wfs_mode( ctx->wait_for_supermajority_at_slot,
+                              ctx->wfs_hash_is_zero,
+                              ctx->expected_shred_version,
+                              ctx->wfs_boot_slot );
+  if( FD_UNLIKELY( wfs_should_suppress_leader_gate( wfs_mode, ctx->wfs_complete ) ) ) {
+    FD_LOG_NOTICE(( "auto-overriding wait_for_vote_to_start_leader to false "
+                    "after identity rotation (WFS at slot %lu)", ctx->wfs_boot_slot ));
+    ctx->wait_for_vote_to_start_leader = 0;
+  }
 }
 
 static int
@@ -1254,39 +1279,59 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     }
 
     ulong snapshot_slot = bank->f.slot;
+    ctx->wfs_boot_slot  = snapshot_slot;
 
     fd_hash_t bank_hash = bank->f.bank_hash;
     if( FD_UNLIKELY( ctx->wfs_enabled ) ) {
-      if( FD_LIKELY( snapshot_slot==ctx->wait_for_supermajority_at_slot ) ) {
-        /* Snapshot slot matches WFS slot, activate the gate. */
-        if( FD_UNLIKELY( memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
-          FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
-          FD_BASE58_ENCODE_32_BYTES( bank_hash.uc,               actual_bank_hash_cstr );
-          FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] expected_bank_hash=%s does not match snapshot slot"
-                       "=%lu bank_hash=%s. If you are loading a snapshot from the network, check that the slot matches the "
-                       "cluster restart slot.", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
+      /* Classify WFS against the effective boot slot.  fd_wfs.h is the
+         single source of truth shared by snapct/snapin/gossip/replay. */
+      int wfs_mode = fd_wfs_mode( ctx->wait_for_supermajority_at_slot,
+                                  ctx->wfs_hash_is_zero,
+                                  ctx->expected_shred_version,
+                                  snapshot_slot );
+      switch( wfs_mode ) {
+        case FD_WFS_MODE_MATCH: {
+          /* Snapshot slot matches WFS slot, activate the gate. */
+          if( FD_UNLIKELY( memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
+            FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
+            FD_BASE58_ENCODE_32_BYTES( bank_hash.uc,               actual_bank_hash_cstr );
+            FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] expected_bank_hash=%s does not match snapshot slot"
+                         "=%lu bank_hash=%s. If you are loading a snapshot from the network, check that the slot matches the "
+                         "cluster restart slot.", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
+          }
+          if( FD_UNLIKELY( wfs_should_suppress_leader_gate( wfs_mode, ctx->wfs_complete ) && ctx->wait_for_vote_to_start_leader ) ) {
+            FD_LOG_NOTICE(( "auto-overriding wait_for_vote_to_start_leader to false "
+                            "(WFS at slot %lu)", snapshot_slot ));
+            ctx->wait_for_vote_to_start_leader = 0;
+          }
+          if( FD_LIKELY( !ctx->wfs_complete ) ) {
+            FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
+          }
+          break;
         }
-        if( FD_UNLIKELY( ctx->wait_for_vote_to_start_leader ) ) {
-          FD_LOG_NOTICE(( "auto-overriding wait_for_vote_to_start_leader to false "
-                          "(WFS active at slot %lu)", snapshot_slot ));
-          ctx->wait_for_vote_to_start_leader = 0;
+        case FD_WFS_MODE_ERROR: {
+          /* Snapshot is behind the WFS slot and we cannot replay up to
+             it.  Crash so the operator can provide the correct snapshot. */
+          FD_LOG_ERR(( "snapshot slot %lu is behind wait_for_supermajority_at_slot %lu "
+                       "and no incremental snapshot bridged the gap. "
+                       "Provide a snapshot at the WFS slot or disable WFS.",
+                       snapshot_slot, ctx->wait_for_supermajority_at_slot ));
+          break;
         }
-        if( FD_LIKELY( !ctx->wfs_complete ) ) {
-          FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
+        case FD_WFS_MODE_NOOP: {
+          /* Snapshot is ahead of WFS slot, network already moved on. */
+          FD_LOG_WARNING(( "snapshot slot %lu is ahead of wait_for_supermajority_at_slot %lu, "
+                           "skipping wait for supermajority and bank hash verification",
+                           snapshot_slot, ctx->wait_for_supermajority_at_slot ));
+          ctx->wfs_complete = 1;
+          break;
         }
-      } else if( FD_UNLIKELY( snapshot_slot<ctx->wait_for_supermajority_at_slot ) ) {
-        /* Snapshot is behind the WFS slot and we cannot replay up to
-           it.  Crash so the operator can provide the correct snapshot. */
-        FD_LOG_ERR(( "snapshot slot %lu is behind wait_for_supermajority_at_slot %lu "
-                     "and no incremental snapshot bridged the gap. "
-                     "Provide a snapshot at the WFS slot or disable WFS.",
-                     snapshot_slot, ctx->wait_for_supermajority_at_slot ));
-      } else {
-        /* Snapshot is ahead of WFS slot — network already moved on. */
-        FD_LOG_WARNING(( "snapshot slot %lu is ahead of wait_for_supermajority_at_slot %lu, "
-                         "skipping wait for supermajority and bank hash verification",
-                         snapshot_slot, ctx->wait_for_supermajority_at_slot ));
-        ctx->wfs_complete = 1;
+        default: {
+          /* DISABLED/UNRESOLVED are unreachable here: wfs_enabled gates this
+             block, and snapshot_slot is a concrete slot (not ULONG_MAX). */
+          FD_LOG_CRIT(( "invariant violation: unexpected WFS mode %d (%s) at boot slot %lu",
+                        wfs_mode, fd_wfs_mode_str( wfs_mode ), snapshot_slot ));
+        }
       }
     }
 
@@ -3159,9 +3204,15 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
 
-  ctx->wfs_enabled = memcmp( tile->replay.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) );
+  /* WFS is enabled iff slot, bank hash and shred version are all set
+     together (fd_wfs.h is the single source of truth for this predicate). */
+  ctx->wfs_hash_is_zero = !memcmp( tile->replay.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) );
+  ctx->wfs_enabled = fd_wfs_configured( tile->replay.wait_for_supermajority_at_slot,
+                                        ctx->wfs_hash_is_zero,
+                                        tile->replay.expected_shred_version );
   ctx->wait_for_supermajority_at_slot = tile->replay.wait_for_supermajority_at_slot;
   ctx->expected_bank_hash = tile->replay.wait_for_supermajority_with_bank_hash;
+  ctx->wfs_boot_slot = ULONG_MAX; /* set once the boot snapshot is loaded */
   ctx->wfs_complete = !ctx->wfs_enabled;
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );

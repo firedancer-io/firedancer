@@ -6,6 +6,7 @@
 #include "utils/fd_ssarchive.h"
 #include "utils/fd_http_resolver.h"
 #include "utils/fd_ssmsg.h"
+#include "utils/fd_wfs.h"
 #include "../backup/fd_snap_pool.h"
 
 #include "../../disco/topo/fd_topo.h"
@@ -303,6 +304,34 @@ snapshot_path_gui_publish( fd_snapct_tile_t *  ctx,
   out->type = fd_int_if( is_full, FD_SNAPCT_SNAPSHOT_TYPE_FULL, FD_SNAPCT_SNAPSHOT_TYPE_INCREMENTAL );
   fd_stem_publish( stem, ctx->out_gui.idx, 0UL, ctx->out_gui.chunk, sizeof(fd_snapct_update_t) , 0UL, 0UL, 0UL );
   ctx->out_gui.chunk = fd_dcache_compact_next( ctx->out_gui.chunk, sizeof(fd_snapct_update_t), ctx->out_gui.chunk0, ctx->out_gui.wmark );
+}
+
+/* WFS note: snapct runs pre-boot and drives snapshot *selection*, not the
+   authoritative WFS classification (that is done downstream by
+   snapin/replay/gossip once the boot slot is known, via fd_wfs_mode).
+   fd_wfs_load_needs_incr below is snapct's selection-time policy, layered
+   on the fd_wfs.h contract.  See src/discof/restore/utils/fd_wfs.h. */
+
+int
+fd_wfs_load_needs_incr( ulong slot,
+                        int   hash_is_zero,
+                        ulong shred_version,
+                        ulong full_slot,
+                        int   config_incr ) {
+  /* Unlike fd_wfs_mode, which classifies a final boot slot and treats
+     full_slot<slot as ERROR, selection is mid-pipeline, therefore
+     full_slot<slot is the normal "bridge full up to the WFS slot"
+     case, not an error.
+       - WFS not configured        -> honor config_incr (normal boot).
+       - WFS engaged (full<=slot)  -> take an incremental ONLY to bridge a
+         full short of the WFS slot (full<slot), never past it; a full
+         exactly at slot needs none.  config_incr is ignored: an ACTIVE
+         restart must land exactly on slot regardless of config.
+       - WFS no-op (full>slot)     -> network already past the WFS slot,
+         honor config_incr (normal boot). */
+  if( !fd_wfs_configured( slot, hash_is_zero, shred_version ) ) return config_incr;
+  if( full_slot<=slot ) return full_slot<slot; /* engaged: bridge iff short */
+  return config_incr;                          /* no-op: normal boot        */
 }
 
 static void
@@ -750,11 +779,24 @@ process_load_failure( fd_snapct_tile_t * ctx ) {
 static ulong
 compute_fini_sig( fd_snapct_tile_t * ctx ) {
   if( !ctx->is_full ) return FD_SNAPSHOT_MSG_CTRL_DONE;
-  ulong wfs_slot = ctx->config.wait_for_supermajority_at_slot;
-  int need_incr = wfs_slot ? ctx->predicted_incremental.full_slot < wfs_slot : ctx->config.incremental_snapshots;
+  ulong wfs_slot  = ctx->config.wait_for_supermajority_at_slot;
+  ulong full_slot = ctx->predicted_incremental.full_slot;
+  /* fd_wfs.h is the single source of truth for the incremental-selection
+     decision.  wfs_needs_incr is the "must bridge a full short of the WFS
+     slot" sub-case, kept separate so the fatal below only fires when WFS
+     genuinely cannot proceed without an incremental. */
+  int wfs_needs_incr = fd_wfs_configured( wfs_slot,
+                                         ctx->config.wait_for_supermajority_hash_is_zero,
+                                         ctx->config.expected_shred_version )
+                      && full_slot < wfs_slot;
+  int need_incr = fd_wfs_load_needs_incr( wfs_slot,
+                                          ctx->config.wait_for_supermajority_hash_is_zero,
+                                          ctx->config.expected_shred_version,
+                                          full_slot,
+                                          ctx->config.incremental_snapshots );
   int want_incr = need_incr &&
                   (ctx->local_in.incremental_snapshot_slot!=ULONG_MAX || ctx->download_enabled);
-  if( FD_UNLIKELY( !want_incr && need_incr && wfs_slot ) ) {
+  if( FD_UNLIKELY( !want_incr && wfs_needs_incr ) ) {
     FD_LOG_ERR(( "wait-for-supermajority at slot %lu requires an incremental snapshot "
                  "(full slot %lu), but no incremental snapshot exists on disk and no snapshot peers are configured",
                  wfs_slot, ctx->predicted_incremental.full_slot ));
@@ -785,10 +827,20 @@ transition_after_done( fd_snapct_tile_t *  ctx,
     return;
   }
 
-  /* Full done: check for incremental. */
-  ulong wfs_slot = ctx->config.wait_for_supermajority_at_slot;
-  int wfs_need_incr = wfs_slot && ctx->predicted_incremental.full_slot < wfs_slot;
-  int need_incr = wfs_slot ? wfs_need_incr : ctx->config.incremental_snapshots;
+  /* Full done: check for incremental.  fd_wfs.h owns the decision;
+     wfs_need_incr (the WFS-must-bridge sub-case) is kept for the
+     local-incremental override below. */
+  ulong wfs_slot  = ctx->config.wait_for_supermajority_at_slot;
+  ulong full_slot = ctx->predicted_incremental.full_slot;
+  int wfs_need_incr = fd_wfs_configured( wfs_slot,
+                                        ctx->config.wait_for_supermajority_hash_is_zero,
+                                        ctx->config.expected_shred_version )
+                     && full_slot < wfs_slot;
+  int need_incr = fd_wfs_load_needs_incr( wfs_slot,
+                                          ctx->config.wait_for_supermajority_hash_is_zero,
+                                          ctx->config.expected_shred_version,
+                                          full_slot,
+                                          ctx->config.incremental_snapshots );
   if( !need_incr ) {
     ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
     fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -946,13 +998,20 @@ after_credit( fd_snapct_tile_t *  ctx,
     /* ============================================================== */
     case FD_SNAPCT_STATE_INIT: {
       ulong wfs_slot = ctx->config.wait_for_supermajority_at_slot;
-      int wfs_has_local = wfs_slot && ( ctx->local_in.full_snapshot_slot==wfs_slot ||
-                                        ctx->local_in.incremental_snapshot_slot==wfs_slot );
+      int wfs_configured = fd_wfs_configured( wfs_slot,
+                                              ctx->config.wait_for_supermajority_hash_is_zero,
+                                              ctx->config.expected_shred_version );
+      int wfs_has_local = wfs_configured && ( ctx->local_in.full_snapshot_slot==wfs_slot ||
+                                              ctx->local_in.incremental_snapshot_slot==wfs_slot );
       ctx->wfs_active = wfs_has_local;
       if( FD_UNLIKELY( !ctx->download_enabled ) ) {
-        int wfs_need_incr = wfs_has_local
-                            && ctx->local_in.full_snapshot_slot < ctx->config.wait_for_supermajority_at_slot;
-        int need_incr = wfs_has_local ? wfs_need_incr : ctx->config.incremental_snapshots;
+        /* fd_wfs.h owns the incremental-selection decision, keyed on the
+           local full slot (the only snapshot source when download is off). */
+        int need_incr = fd_wfs_load_needs_incr( wfs_slot,
+                                                ctx->config.wait_for_supermajority_hash_is_zero,
+                                                ctx->config.expected_shred_version,
+                                                ctx->local_in.full_snapshot_slot,
+                                                ctx->config.incremental_snapshots );
         ulong local_slot = (need_incr && ctx->local_in.incremental_snapshot_slot!=ULONG_MAX)
                            ? ctx->local_in.incremental_snapshot_slot
                            : ctx->local_in.full_snapshot_slot;
@@ -977,11 +1036,25 @@ after_credit( fd_snapct_tile_t *  ctx,
         if( FD_UNLIKELY( !ctx->wfs_active ) ) {
           FD_LOG_ERR(( "timed out waiting for peers." ));
         }
+        /* If peers reported a cluster slot past the WFS slot, the
+           network has moved on.  Falling back to the local snapshot
+           would silently re-arm WFS in ACTIVE mode. */
+        fd_sscluster_slot_t cluster = fd_sspeer_selector_cluster_slot( ctx->selector );
+        ulong wfs_slot = ctx->config.wait_for_supermajority_at_slot;
+        if( cluster.full!=FD_SSPEER_SLOT_UNKNOWN && cluster.full>wfs_slot ) {
+          FD_LOG_ERR(( "peer timeout with stale WFS config: cluster full "
+                       "slot %lu is past WFS slot %lu. Remove the stale "
+                       "wait_for_supermajority config and restart.",
+                       cluster.full, wfs_slot ));
+        }
         FD_LOG_NOTICE(( "no snapshot peers found within timeout, falling back to "
                         "local WFS snapshot at slot %lu",
                         ctx->local_in.full_snapshot_slot ));
-        int wfs_need_incr = ctx->local_in.full_snapshot_slot
-                            < ctx->config.wait_for_supermajority_at_slot;
+        int wfs_need_incr = fd_wfs_load_needs_incr( ctx->config.wait_for_supermajority_at_slot,
+                                                    ctx->config.wait_for_supermajority_hash_is_zero,
+                                                    ctx->config.expected_shred_version,
+                                                    ctx->local_in.full_snapshot_slot,
+                                                    0 /* config_incr irrelevant in WFS fallback */ );
         ulong local_slot = (wfs_need_incr
                             && ctx->local_in.incremental_snapshot_slot!=ULONG_MAX)
                             ? ctx->local_in.incremental_snapshot_slot
@@ -1036,14 +1109,30 @@ after_credit( fd_snapct_tile_t *  ctx,
       fd_sscluster_slot_t cluster = fd_sspeer_selector_cluster_slot( ctx->selector );
 
       ulong wfs_slot = ctx->config.wait_for_supermajority_at_slot;
-      int need_incr = (wfs_slot && cluster.full!=FD_SSPEER_SLOT_UNKNOWN) ? cluster.full < wfs_slot : ctx->config.incremental_snapshots;
+      /* fd_wfs.h owns the incremental-selection decision, keyed on the
+         cluster full slot.  wfs_needs_incr (the WFS-must-bridge sub-case)
+         is kept separate so the fatal below only fires when WFS genuinely
+         needs an incremental the cluster cannot provide.  cluster.full may
+         be UNKNOWN (ULONG_MAX); that is > wfs_slot, so the helper treats it
+         as the no-op/config case, matching the prior behavior. */
+      int wfs_needs_incr = fd_wfs_configured( wfs_slot,
+                                            ctx->config.wait_for_supermajority_hash_is_zero,
+                                            ctx->config.expected_shred_version )
+                          && cluster.full!=FD_SSPEER_SLOT_UNKNOWN && cluster.full < wfs_slot;
+      int need_incr = fd_wfs_load_needs_incr( wfs_slot,
+                                              ctx->config.wait_for_supermajority_hash_is_zero,
+                                              ctx->config.expected_shred_version,
+                                              cluster.full,
+                                              ctx->config.incremental_snapshots );
 
       if( FD_UNLIKELY( cluster.incremental==FD_SSPEER_SLOT_UNKNOWN && need_incr ) ) {
         /* We must have a cluster full slot to be in this state. */
         FD_TEST( cluster.full!=FD_SSPEER_SLOT_UNKNOWN );
         /* fall back to full snapshot only if the highest cluster slot
-           is a full snapshot only */
-        if( wfs_slot ) {
+           is a full snapshot only.  Only fatal when WFS genuinely needs
+           the incremental to reach the WFS slot; a NOOP boot (incremental
+           wanted only via config) falls back with a warning. */
+        if( wfs_needs_incr ) {
           FD_LOG_ERR(( "wait-for-supermajority at slot %lu requires an incremental snapshot "
                        "(cluster full slot %lu), but no incremental snapshot is available in the cluster",
                        wfs_slot, cluster.full ));

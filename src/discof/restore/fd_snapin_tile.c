@@ -3,6 +3,7 @@
 #include "utils/fd_ssmsg.h"
 #include "utils/fd_ssparse.h"
 #include "utils/fd_ssmanifest_parser.h"
+#include "utils/fd_wfs.h"
 #include "utils/fd_slot_delta_parser.h"
 
 #include "../../disco/topo/fd_topo.h"
@@ -209,6 +210,7 @@ struct fd_snapin_tile {
 
   ulong     wfs_slot;
   fd_hash_t wfs_bank_hash;
+  ushort    wfs_shred_version;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -756,8 +758,13 @@ process_manifest( fd_snapin_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->wfs_slot && memcmp( ctx->wfs_bank_hash.uc, ((fd_hash_t){0}).uc, FD_HASH_FOOTPRINT )
-                   && manifest->slot==ctx->wfs_slot ) ) {
+  /* WFS bank-hash validation only applies when the boot manifest lands
+     exactly at the WFS slot (mode ACTIVE).  For NOOP (manifest ahead
+     of the WFS slot) the check is skipped; the ERROR case (manifest
+     behind the WFS slot) is owned by replay. */
+  int wfs_hash_is_zero = !memcmp( ctx->wfs_bank_hash.uc, ((fd_hash_t){0}).uc, FD_HASH_FOOTPRINT );
+  int wfs_mode = fd_wfs_mode( ctx->wfs_slot, wfs_hash_is_zero, ctx->wfs_shred_version, manifest->slot );
+  if( FD_UNLIKELY( wfs_mode==FD_WFS_MODE_MATCH ) ) {
     if( FD_UNLIKELY( memcmp( manifest->bank_hash, ctx->wfs_bank_hash.uc, FD_HASH_FOOTPRINT ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( manifest->bank_hash,   manifest_hash_enc );
       FD_BASE58_ENCODE_32_BYTES( ctx->wfs_bank_hash.uc, expected_hash_enc );
@@ -1608,8 +1615,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
-  ctx->wfs_slot      = tile->snapin.wait_for_supermajority_at_slot;
-  ctx->wfs_bank_hash = tile->snapin.wait_for_supermajority_with_bank_hash;
+  ctx->wfs_slot          = tile->snapin.wait_for_supermajority_at_slot;
+  ctx->wfs_bank_hash     = tile->snapin.wait_for_supermajority_with_bank_hash;
+  ctx->wfs_shred_version = tile->snapin.expected_shred_version;
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
   ctx->boot_timestamp = fd_log_wallclock();

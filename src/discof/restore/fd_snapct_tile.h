@@ -82,4 +82,21 @@ typedef struct {
   char read_path[ PATH_MAX ];
 } fd_snapct_update_t;
 
+FD_PROTOTYPES_BEGIN
+
+/* fd_wfs_load_needs_incr decides, while selecting snapshots, whether to
+   load an incremental following a full at full_slot.  When WFS is
+   engaged, it bridges a full short of the WFS slot (never past it);
+   otherwise it honors the operator's incremental_snapshots setting
+   (config_incr).  See fd_wfs.h for the WFS mode contract. */
+
+int
+fd_wfs_load_needs_incr( ulong slot,
+                        int   hash_is_zero,
+                        ulong shred_version,
+                        ulong full_slot,
+                        int   config_incr );
+
+FD_PROTOTYPES_END
+
 #endif /* HEADER_fd_src_discof_restore_fd_snapct_tile_h */

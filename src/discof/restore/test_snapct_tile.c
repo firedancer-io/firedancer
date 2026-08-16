@@ -507,6 +507,36 @@ test_blacklist_pool_exhaustion( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+/* fd_wfs_load_needs_incr: snapct's snapshot-selection policy over the
+   fd_wfs.h contract.  S is the WFS slot; H_SET/H_ZERO are hash_is_zero;
+   SV is a nonzero shred version. */
+#define WFS_S      (100UL)
+#define WFS_H_SET  (0)      /* bank hash configured */
+#define WFS_H_ZERO (1)      /* bank hash all zeros  */
+#define WFS_SV     (1234UL) /* nonzero shred version */
+
+static void
+test_wfs_load_needs_incr( void ) {
+  /* ACTIVE, full short of S: bridge, regardless of config. */
+  FD_TEST(  fd_wfs_load_needs_incr( WFS_S, WFS_H_SET, WFS_SV, WFS_S-1UL, 0 ) );
+  FD_TEST(  fd_wfs_load_needs_incr( WFS_S, WFS_H_SET, WFS_SV, WFS_S-1UL, 1 ) );
+  /* ACTIVE, full exactly at S: no incremental, even if config wants one
+     (must not overshoot S). */
+  FD_TEST( !fd_wfs_load_needs_incr( WFS_S, WFS_H_SET, WFS_SV, WFS_S,     0 ) );
+  FD_TEST( !fd_wfs_load_needs_incr( WFS_S, WFS_H_SET, WFS_SV, WFS_S,     1 ) );
+  /* NOOP, full past S: honor config. */
+  FD_TEST( !fd_wfs_load_needs_incr( WFS_S, WFS_H_SET, WFS_SV, WFS_S+1UL, 0 ) );
+  FD_TEST(  fd_wfs_load_needs_incr( WFS_S, WFS_H_SET, WFS_SV, WFS_S+1UL, 1 ) );
+
+  /* WFS not configured (any missing leg): always honor config. */
+  FD_TEST( !fd_wfs_load_needs_incr( 0UL,   WFS_H_SET,  WFS_SV, WFS_S, 0 ) );
+  FD_TEST(  fd_wfs_load_needs_incr( 0UL,   WFS_H_SET,  WFS_SV, WFS_S, 1 ) );
+  FD_TEST(  fd_wfs_load_needs_incr( WFS_S, WFS_H_ZERO, WFS_SV, WFS_S, 1 ) );
+  FD_TEST(  fd_wfs_load_needs_incr( WFS_S, WFS_H_SET,  0UL,    WFS_S, 1 ) );
+  FD_TEST( !fd_wfs_load_needs_incr( WFS_S, WFS_H_ZERO, WFS_SV, WFS_S, 0 ) );
+  FD_LOG_NOTICE(( "pass: test_wfs_load_needs_incr" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -518,6 +548,7 @@ main( int     argc,
   (void)populate_allowed_seccomp;
   (void)rlimit_file_cnt;
 
+  test_wfs_load_needs_incr();
   test_allow_any_contact_info_insert_and_update();
   test_allow_any_contact_info_remove();
   test_allow_list_contact_info_insert();

@@ -18,6 +18,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../discof/restore/utils/fd_wfs.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
@@ -285,7 +286,13 @@ struct fd_tower_tile {
 
   int    halt_signing;
   int    hard_fork_fatal;
-  int    wfs;           /* 1 if booted with wait_for_supermajority */
+  int    wfs;           /* 1 if wait_for_supermajority is configured */
+  /* WFS classifier inputs (fd_wfs.h), used to distinguish an ACTIVE
+     coordinated restart from a NOOP boot (network already past the WFS
+     slot) when deciding whether to skip the first tower reconcile. */
+  ulong  wfs_slot;
+  int    wfs_hash_is_zero;
+  ushort wfs_shred_version;
   ushort shred_version;
   int    init; /* 1 after ghost_init has been called */
 
@@ -919,10 +926,15 @@ query_towers( fd_tower_tile_t *            ctx,
   /* Reconcile our local tower with the on-chain tower (stored inside
      our vote account).
 
-     Skip reconciliation on the first replay_slot_completed if booted
-     with wait_for_supermajority.  This prevents spurious lockout_check
-     failures (slot <= last_vote_slot) and threshold_check failures
-     (deep stale tower with no voter support) */
+     Skip reconciliation on the first replay_slot_completed only if WFS is
+     ACTIVE, i.e. the boot slot is exactly the WFS slot (a genuine
+     coordinated restart).  This prevents spurious lockout_check failures
+     (slot <= last_vote_slot) and threshold_check failures (deep stale
+     tower with no voter support).  Using fd_wfs_mode (rather than the
+     bank-hash-only wfs flag) means a NOOP boot (stale WFS config with
+     the network already past the WFS slot) correctly does NOT skip the
+     reconcile.  The first completion (!ctx->init) is the boot slot, so
+     slot_completed->slot is the effective boot slot the classifier needs. */
 
   *our_vote_acct_bal   = ULONG_MAX;
   *our_vote_acct_com   = USHORT_MAX;
@@ -937,7 +949,8 @@ query_towers( fd_tower_tile_t *            ctx,
                                                FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ),
                                                our_vote_acct_com ) );
     fd_memcpy( ctx->our_vote_acct, reconcile_ro.data, ctx->our_vote_acct_sz );
-    int skip_reconcile = !ctx->init && ctx->wfs;
+    int wfs_mode = fd_wfs_mode( ctx->wfs_slot, ctx->wfs_hash_is_zero, ctx->wfs_shred_version, slot_completed->slot );
+    int skip_reconcile = !ctx->init && ( wfs_mode==FD_WFS_MODE_MATCH );
     if( FD_LIKELY( !skip_reconcile ) ) {
       ulong root;
       fd_tower_vote_remove_all( ctx->scratch_tower );
@@ -1689,6 +1702,9 @@ init_choreo( void                 * scratch,
   ctx->halt_signing    = 0;
   ctx->hard_fork_fatal = tile->tower.hard_fork_fatal;
   ctx->wfs             = tile->tower.wait_for_supermajority;
+  ctx->wfs_slot          = tile->tower.wait_for_supermajority_at_slot;
+  ctx->wfs_hash_is_zero  = tile->tower.wait_for_supermajority_hash_is_zero;
+  ctx->wfs_shred_version = tile->tower.expected_shred_version;
   ctx->shred_version   = 0;
   ctx->init            = 0;
   ctx->root_epoch      = ULONG_MAX;
