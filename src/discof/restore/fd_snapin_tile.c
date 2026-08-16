@@ -764,16 +764,25 @@ process_manifest( fd_snapin_tile_t *  ctx,
      behind the WFS slot) is owned by replay. */
   int wfs_hash_is_zero = !memcmp( ctx->wfs_bank_hash.uc, ((fd_hash_t){0}).uc, FD_HASH_FOOTPRINT );
   int wfs_mode = fd_wfs_mode( ctx->wfs_slot, wfs_hash_is_zero, ctx->wfs_shred_version, manifest->slot );
+  FD_LOG_NOTICE(( "*** DEBUG_ONLY *** snapin WFS check: wfs_slot=%lu manifest_slot=%lu shred_version=%u "
+                  "wfs_hash_configured=%d -> mode=%s",
+                  ctx->wfs_slot, manifest->slot, ctx->wfs_shred_version, !wfs_hash_is_zero,
+                  fd_wfs_mode_str( wfs_mode ) ));
   if( FD_UNLIKELY( wfs_mode==FD_WFS_MODE_MATCH ) ) {
     if( FD_UNLIKELY( memcmp( manifest->bank_hash, ctx->wfs_bank_hash.uc, FD_HASH_FOOTPRINT ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( manifest->bank_hash,   manifest_hash_enc );
       FD_BASE58_ENCODE_32_BYTES( ctx->wfs_bank_hash.uc, expected_hash_enc );
+      FD_LOG_NOTICE(( "*** DEBUG_ONLY *** snapin WFS bank hash MISMATCH: manifest=%s expected=%s",
+                      manifest_hash_enc, expected_hash_enc ));
       FD_LOG_WARNING(( "snapshot manifest bank hash %s at WFS slot %lu does not match "
                        "configured wait_for_supermajority_with_bank_hash %s",
                        manifest_hash_enc, ctx->wfs_slot, expected_hash_enc ));
       transition_malformed( ctx, stem );
       return;
     }
+    FD_BASE58_ENCODE_32_BYTES( manifest->bank_hash, manifest_hash_enc2 );
+    FD_LOG_NOTICE(( "*** DEBUG_ONLY *** snapin WFS bank hash MATCH: manifest slot %lu hash %s matches configured WFS hash",
+                    manifest->slot, manifest_hash_enc2 ));
   }
 
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
@@ -1618,6 +1627,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->wfs_slot          = tile->snapin.wait_for_supermajority_at_slot;
   ctx->wfs_bank_hash     = tile->snapin.wait_for_supermajority_with_bank_hash;
   ctx->wfs_shred_version = tile->snapin.expected_shred_version;
+  {
+    int wfs_hash_nonzero = memcmp( ctx->wfs_bank_hash.uc, ((fd_hash_t){0}).uc, FD_HASH_FOOTPRINT )!=0;
+    FD_LOG_NOTICE(( "*** DEBUG_ONLY *** snapin init: wfs_slot=%lu wfs_bank_hash_configured=%d shred_version=%u",
+                    ctx->wfs_slot, wfs_hash_nonzero, ctx->wfs_shred_version ));
+  }
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
   ctx->boot_timestamp = fd_log_wallclock();

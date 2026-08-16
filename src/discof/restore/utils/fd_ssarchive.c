@@ -120,8 +120,17 @@ fd_ssarchive_latest_pair( char const * directory,
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( incremental_snapshot ) ) {
-    if( FD_UNLIKELY( incremental_snapshots_cnt==0UL && full_snapshots_cnt==0UL ) ) return -1;
-    if( FD_UNLIKELY( full_snapshots_cnt==0UL ) )                                   return -1;
+    FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: scanning `%s` with incremental=1 required_effective_slot=%lu "
+                    "found %lu full snapshots and %lu incremental snapshots",
+                    directory, required_effective_slot, full_snapshots_cnt, incremental_snapshots_cnt ));
+    if( FD_UNLIKELY( incremental_snapshots_cnt==0UL && full_snapshots_cnt==0UL ) ) {
+      FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: no snapshots found at all in `%s`, returning -1", directory ));
+      return -1;
+    }
+    if( FD_UNLIKELY( full_snapshots_cnt==0UL ) ) {
+      FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: no full snapshots found in `%s`, returning -1", directory ));
+      return -1;
+    }
 
     sort_ssarchive_entries_inplace( incremental_snapshots, incremental_snapshots_cnt );
     sort_ssarchive_entries_inplace( full_snapshots, full_snapshots_cnt );
@@ -131,7 +140,13 @@ fd_ssarchive_latest_pair( char const * directory,
       ulong fi = 0UL;
       if( required_effective_slot ) {
         fi = ssarchive_find_by_slot( full_snapshots, full_snapshots_cnt, required_effective_slot );
-        if( fi==ULONG_MAX ) return -1;
+        if( fi==ULONG_MAX ) {
+          FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: WFS required slot %lu but no full snapshot matches, returning -1",
+                          required_effective_slot ));
+          return -1;
+        }
+        FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: WFS required slot %lu, found matching full-only snapshot at slot %lu",
+                        required_effective_slot, full_snapshots[ fi ].slot ));
       }
       *full_slot           = full_snapshots[ fi ].slot;
       *full_is_zstd        = full_snapshots[ fi ].is_zstd;
@@ -160,6 +175,8 @@ fd_ssarchive_latest_pair( char const * directory,
           FD_TEST( fd_cstr_printf_check( incremental_path, PATH_MAX, NULL, "%s", incremental_snapshots[ i ].path ) );
           fd_memcpy( full_hash, full_snapshots[ j ].hash, FD_HASH_FOOTPRINT );
           fd_memcpy( incremental_hash, incremental_snapshots[ i ].hash, FD_HASH_FOOTPRINT );
+          FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: selected full+incr pair: full_slot=%lu incr_slot=%lu "
+                          "(required_effective_slot=%lu)", base_slot, incremental_snapshots[ i ].slot, required_effective_slot ));
           return 0;
         } else if( FD_LIKELY( full_snapshots[ j ].slot<base_slot ) ) {
             /* full snapshots are sorted in descending order, so if we reach a
@@ -173,10 +190,16 @@ fd_ssarchive_latest_pair( char const * directory,
     /* if we reach here, it means all incrementals are dangling (they
        don't build off any full snapshot). fallback to a full
        snapshot in that case. */
+    FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: all incrementals are dangling, falling back to full-only "
+                    "(required_effective_slot=%lu)", required_effective_slot ));
     ulong fi = 0UL;
     if( required_effective_slot ) {
       fi = ssarchive_find_by_slot( full_snapshots, full_snapshots_cnt, required_effective_slot );
-      if( fi==ULONG_MAX ) return -1;
+      if( fi==ULONG_MAX ) {
+        FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: WFS required slot %lu but no full snapshot matches after dangling fallback, returning -1",
+                        required_effective_slot ));
+        return -1;
+      }
     }
     *full_slot           = full_snapshots[ fi ].slot;
     *full_is_zstd        = full_snapshots[ fi ].is_zstd;
@@ -189,14 +212,25 @@ fd_ssarchive_latest_pair( char const * directory,
     return 0;
 
   } else {
-    if( FD_UNLIKELY( full_snapshots_cnt==0UL ) ) return -1;
+    FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: scanning `%s` with incremental=0 required_effective_slot=%lu "
+                    "found %lu full snapshots", directory, required_effective_slot, full_snapshots_cnt ));
+    if( FD_UNLIKELY( full_snapshots_cnt==0UL ) ) {
+      FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: no full snapshots found, returning -1" ));
+      return -1;
+    }
 
     sort_ssarchive_entries_inplace( full_snapshots, full_snapshots_cnt );
 
     ulong fi = 0UL;
     if( required_effective_slot ) {
       fi = ssarchive_find_by_slot( full_snapshots, full_snapshots_cnt, required_effective_slot );
-      if( fi==ULONG_MAX ) return -1;
+      if( fi==ULONG_MAX ) {
+        FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: WFS required slot %lu but no full snapshot matches, returning -1",
+                        required_effective_slot ));
+        return -1;
+      }
+      FD_LOG_NOTICE(( "*** DEBUG_ONLY *** fd_ssarchive_latest_pair: WFS required slot %lu, selected full snapshot at slot %lu",
+                      required_effective_slot, full_snapshots[ fi ].slot ));
     }
     *full_slot           = full_snapshots[ fi ].slot;
     *full_is_zstd        = full_snapshots[ fi ].is_zstd;

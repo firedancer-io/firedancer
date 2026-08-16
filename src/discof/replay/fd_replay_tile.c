@@ -1303,6 +1303,13 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
             FD_LOG_NOTICE(( "auto-overriding wait_for_vote_to_start_leader to false "
                             "(WFS at slot %lu)", snapshot_slot ));
             ctx->wait_for_vote_to_start_leader = 0;
+            FD_LOG_NOTICE(( "*** DEBUG_ONLY *** WFS decision: snapshot_slot=%lu wfs_slot=%lu -> WFS MATCH (not a no-op), "
+                            "wait_for_vote_to_start_leader override APPLIED (now %d)",
+                            snapshot_slot, ctx->wait_for_supermajority_at_slot, ctx->wait_for_vote_to_start_leader ));
+          } else {
+            FD_LOG_NOTICE(( "*** DEBUG_ONLY *** WFS decision: snapshot_slot=%lu wfs_slot=%lu -> WFS MATCH (not a no-op), "
+                            "wait_for_vote_to_start_leader override NOT NEEDED (already %d)",
+                            snapshot_slot, ctx->wait_for_supermajority_at_slot, ctx->wait_for_vote_to_start_leader ));
           }
           if( FD_LIKELY( !ctx->wfs_complete ) ) {
             FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
@@ -1324,6 +1331,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                            "skipping wait for supermajority and bank hash verification",
                            snapshot_slot, ctx->wait_for_supermajority_at_slot ));
           ctx->wfs_complete = 1;
+          FD_LOG_NOTICE(( "*** DEBUG_ONLY *** WFS decision: snapshot_slot=%lu wfs_slot=%lu -> WFS NO-OP (snapshot ahead), "
+                          "wait_for_vote_to_start_leader override NOT applied (stays %d)",
+                          snapshot_slot, ctx->wait_for_supermajority_at_slot, ctx->wait_for_vote_to_start_leader ));
           break;
         }
         default: {
@@ -1333,6 +1343,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                         wfs_mode, fd_wfs_mode_str( wfs_mode ), snapshot_slot ));
         }
       }
+    } else {
+      FD_LOG_NOTICE(( "*** DEBUG_ONLY *** WFS decision: WFS disabled (no bank hash configured) -> WFS NO-OP, "
+                      "wait_for_vote_to_start_leader stays %d", ctx->wait_for_vote_to_start_leader ));
     }
 
     /* Manifest message must arrive before DONE */
@@ -3214,6 +3227,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->expected_bank_hash = tile->replay.wait_for_supermajority_with_bank_hash;
   ctx->wfs_boot_slot = ULONG_MAX; /* set once the boot snapshot is loaded */
   ctx->wfs_complete = !ctx->wfs_enabled;
+
+  FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, wfs_bank_hash_cstr );
+  FD_LOG_NOTICE(( "*** DEBUG_ONLY *** replay init: WFS toml config: wait_for_supermajority_at_slot=%lu "
+                  "wait_for_supermajority_with_bank_hash=%s expected_shred_version=%u "
+                  "wait_for_vote_to_start_leader=%d (wfs_enabled=%d)",
+                  ctx->wait_for_supermajority_at_slot, wfs_bank_hash_cstr, ctx->expected_shred_version,
+                  ctx->wait_for_vote_to_start_leader, ctx->wfs_enabled ));
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );
