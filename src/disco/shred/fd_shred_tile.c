@@ -21,11 +21,13 @@
 #include "../fd_disco.h"
 #include "../net/fd_net_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
+#include "../../ballet/base58/fd_base58.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/fd_slot_params.h"
 #include "../../discof/tower/fd_tower_slot_rooted.h"
+#include "../../discof/votor/fd_votor_tile.h"
 
 /* The shred tile handles shreds from two data sources: shreds generated
    from microblocks from the leader pipeline, and shreds retransmitted
@@ -99,6 +101,7 @@
 #define IN_KIND_GOSSIP  ( 8UL)
 #define IN_KIND_ROOTED  ( 9UL)
 #define IN_KIND_ROOTEDH (10UL)
+#define IN_KIND_ROOTEDA (11UL) /* Alpenglow rooting */
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
@@ -442,6 +445,9 @@ before_frag( fd_shred_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTED ) ) {
     return sig!=FD_TOWER_SIG_SLOT_ROOTED; /* only care about slot_confirmed messages */
   }
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDA ) ) {
+    return sig!=FD_VOTOR_SIG_ROOTED; /* only care about rooted messages */
+  }
   return 0;
 }
 
@@ -507,6 +513,15 @@ during_frag( fd_shred_ctx_t * ctx,
        to) followed by the rooted slot. */
     ulong const * replay_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     ctx->new_root = replay_msg[ 1 ];
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDA ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(ag_votor_rooted_t) ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    ag_votor_rooted_t const * rooteda = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    ctx->new_root = rooteda->slot;
     return;
   }
 
@@ -625,14 +640,20 @@ during_frag( fd_shred_ctx_t * ctx,
         producing a block that never lands on chain. */
 
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      /* An alpenglow batch_flush frag is metadata only: no entry header
+         and no marker, so it is exactly sizeof(fd_entry_batch_meta_t).
+         Everything else must carry at least an entry header. */
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_POH_SHRED_MTU ||
-          sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) ) )
+          sz<sizeof(fd_entry_batch_meta_t) ) )
         FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
               ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
       fd_entry_batch_meta_t const * entry_meta = (fd_entry_batch_meta_t const *)dcache_entry;
       uchar const *                 entry      = dcache_entry + sizeof(fd_entry_batch_meta_t);
       ulong                         entry_sz   = sz           - sizeof(fd_entry_batch_meta_t);
+
+      if( FD_UNLIKELY( !entry_meta->batch_flush && sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) ) )
+        FD_LOG_ERR(( "poh frag of %lu bytes is too small to carry an entry header", sz ));
 
       fd_entry_batch_header_t const * microblock = (fd_entry_batch_header_t const *)entry;
 
@@ -735,20 +756,71 @@ during_frag( fd_shred_ctx_t * ctx,
          batch is closed now, shredded, and a new batch is started
          with the incoming microblock.  If false, no shredding takes
          place, and the microblock is added to the current batch. */
-      int forced_end_batch         = entry_meta->block_complete | new_slot;
+      /* ALPENGLOW.  Two extra frag kinds arrive on this link:
+
+         - a MARKER, one whole serialized BlockComponent block marker,
+           which must be a batch all of its own because the batch's
+           leading u64 is the entry count and a marker needs that count
+           to be zero;
+
+         - a FLUSH, metadata only, whose only job is to close whatever
+           batch is pending so the marker that follows it gets an empty
+           one.  It exists because this tile closes at most one batch
+           per frag, and on the marker frag it would otherwise have to
+           both flush the pending entries and open the marker's batch. */
+      int is_marker = !!entry_meta->block_marker;
+      int is_flush  = !!entry_meta->batch_flush;
+
+      int forced_end_batch         = entry_meta->block_complete | new_slot | is_marker;
       int batch_would_exceed_wmark = ( ctx->pending_batch.pos + entry_sz ) > pending_batch_wmark;
-      int include_in_current_batch = forced_end_batch | ( !batch_would_exceed_wmark );
-      int process_current_batch    = forced_end_batch | batch_would_exceed_wmark;
-      int init_new_batch           = !include_in_current_batch;
+      int include_in_current_batch = (!is_flush) & (forced_end_batch | ( !batch_would_exceed_wmark ));
+      int process_current_batch    = forced_end_batch | batch_would_exceed_wmark | is_flush;
+      int init_new_batch           = (!is_flush) & (!include_in_current_batch);
+
+      /* Never shred an empty batch.  It would consume a FEC set for
+         nothing, and at the start of a block it would take FEC set 0
+         and push the block header off shred index 0 -- which every
+         receiver parses the header from, and silently defers the whole
+         window when it is not there.  A flush with nothing pending, and
+         the new_slot that fires on it, both land here. */
+      if( FD_UNLIKELY( !ctx->pending_batch.pos && !include_in_current_batch ) ) process_current_batch = 0;
+
+      /* The flush that precedes every marker leaves the batch empty, so
+         the marker always starts one.  If that ever stops holding, the
+         copy below would silently overwrite buffered entries; say so
+         rather than losing them quietly. */
+      if( FD_UNLIKELY( is_marker && ctx->pending_batch.pos ) ) {
+        FD_LOG_WARNING(( "alpenglow marker for slot %lu arrived with %lu bytes still batched; overwriting them",
+                         target_slot, ctx->pending_batch.pos ));
+      }
 
       if( FD_LIKELY( include_in_current_batch ) ) {
         if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
-          /* Ugh, yet another memcpy */
-          fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
+          if( FD_UNLIKELY( is_marker ) ) {
+            /* The batch is written as [u64 microblock_cnt][payload], and
+               a marker's own first eight bytes are that same zero count.
+               Copy the marker after the count and leave microblock_cnt
+               at zero rather than emitting the zero twice. */
+            fd_memcpy( ctx->pending_batch.payload, entry+sizeof(ulong), entry_sz-sizeof(ulong) );
+          } else {
+            /* Ugh, yet another memcpy */
+            fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
+          }
         }
-        ctx->pending_batch.pos            += entry_sz;
-        ctx->pending_batch.microblock_cnt += 1UL;
-        ctx->pending_batch.txn_cnt        += microblock->txn_cnt;
+        if( FD_UNLIKELY( is_marker ) ) {
+          /* microblock_cnt must be zero: that zero is what tells a
+             replaying peer to parse this batch as a marker rather than
+             as entries.  Assigned, not accumulated, so the batch is
+             still well formed on the overwrite path warned about
+             above. */
+          ctx->pending_batch.pos            = entry_sz-sizeof(ulong);
+          ctx->pending_batch.microblock_cnt = 0UL;
+          ctx->pending_batch.txn_cnt        = 0UL;
+        } else {
+          ctx->pending_batch.pos            += entry_sz;
+          ctx->pending_batch.microblock_cnt += 1UL;
+          ctx->pending_batch.txn_cnt        += microblock->txn_cnt;
+        }
       }
 
       if( FD_LIKELY( process_current_batch )) {
@@ -965,7 +1037,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     return;
   }
 
-  if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_ROOTED) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDH) ) ) {
+  if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_ROOTED) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDH) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDA) ) ) {
     if( FD_LIKELY( (ctx->new_root > 0UL) & (ctx->new_root<ULONG_MAX) ) ) fd_fec_resolver_advance_slot_old( ctx->resolver, ctx->new_root );
     return;
   }
@@ -1453,7 +1525,8 @@ unprivileged_init( fd_topo_t const *      topo,
                                                             sign_out->dcache,
                                                             sign_in->mcache,
                                                             sign_in->dcache,
-                                                            sign_out->mtu ) ) );
+                                                            sign_out->mtu,
+                                                            sign_in->mtu ) ) );
 
   ctx->larger_shred_limits_per_block = tile->shred.larger_shred_limits_per_block;
   ulong shred_limit                  = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
@@ -1509,6 +1582,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) )   ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) )   ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTED;
+    else if( FD_LIKELY( !strcmp( link->name, "votor_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDA;
     else if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDH;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_CONTACT;
       if( FD_UNLIKELY( has_contact_info_in ) ) FD_LOG_ERR(( "shred tile has multiple contact info in link types, can only be either gossip_out or crds_shred" ));

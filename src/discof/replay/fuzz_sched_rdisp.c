@@ -716,7 +716,7 @@ ingest_next_segment( case_t * tc,
   FD_TEST( fd_sched_fec_ingest( tc->sched, fec ) );
   block->ingested_seg_cnt++;
   if( FD_UNLIKELY( !block->poh_params_set ) ) {
-    fd_sched_set_poh_params( tc->sched, block->bank_idx, block->tick_height, block->max_tick_height, block->hashes_per_tick, block->start_poh );
+    fd_sched_set_poh_params( tc->sched, block->bank_idx, block->tick_height, block->max_tick_height, block->hashes_per_tick, 0 /* alpenglow */, block->start_poh );
     block->poh_params_set = 1;
   }
 }

@@ -9,7 +9,8 @@ fd_keyguard_client_new( void *           shmem,
                         uchar *          request_dcache,
                         fd_frag_meta_t * response_mcache,
                         uchar *          response_dcache,
-                        ulong            request_mtu ) {
+                        ulong            request_mtu,
+                        ulong            response_mtu ) {
   fd_keyguard_client_t * client = (fd_keyguard_client_t*)shmem;
 
   client->request        = request_mcache;
@@ -26,18 +27,21 @@ fd_keyguard_client_new( void *           shmem,
   client->response_seq    = 0UL;
   client->response_mem    = fd_wksp_containing( response_dcache );
   client->response_chunk0 = fd_dcache_compact_chunk0( client->response_mem, response_dcache );
-  client->response_wmark  = fd_dcache_compact_wmark( client->response_mem, response_dcache, 64UL );
+  client->response_wmark  = fd_dcache_compact_wmark( client->response_mem, response_dcache, response_mtu );
+  client->response_mtu    = response_mtu;
 
   return shmem;
 }
 
 void
-fd_keyguard_client_sign( fd_keyguard_client_t * client,
-                         uchar *                signature,
-                         uchar const *          sign_data,
-                         ulong                  sign_data_len,
-                         int                    sign_type ) {
-  FD_TEST( sign_data_len<=client->request_mtu );
+fd_keyguard_client_sign_sz( fd_keyguard_client_t * client,
+                            uchar *                signature,
+                            ulong                  signature_sz,
+                            uchar const *          sign_data,
+                            ulong                  sign_data_len,
+                            int                    sign_type ) {
+  FD_TEST( sign_data_len<=client->request_mtu  );
+  FD_TEST( signature_sz <=client->response_mtu );
 
   uchar * dst = fd_chunk_to_laddr( client->request_mem, client->request_chunk );
   fd_memcpy( dst, sign_data, sign_data_len );
@@ -62,11 +66,20 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
   FD_TEST( chunk>=client->response_chunk0 && chunk<=client->response_wmark );
 
   uchar * src = fd_chunk_to_laddr( client->response_mem, chunk );
-  fd_memcpy( signature, src, 64UL );
+  fd_memcpy( signature, src, signature_sz );
 
   seq_found = fd_frag_meta_seq_query( mline );
   if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));
   client->response_seq = fd_seq_inc( client->response_seq, 1UL );
+}
+
+void
+fd_keyguard_client_sign( fd_keyguard_client_t * client,
+                         uchar *                signature,
+                         uchar const *          sign_data,
+                         ulong                  sign_data_len,
+                         int                    sign_type ) {
+  fd_keyguard_client_sign_sz( client, signature, 64UL, sign_data, sign_data_len, sign_type );
 }
 
 void

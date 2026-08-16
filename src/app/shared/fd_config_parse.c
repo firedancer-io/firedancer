@@ -147,6 +147,9 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( cstr,   development.forktest.affinity                       );
 
+  CFG_POP      ( cstr,   development.votor.ssl_key_log_file                  );
+  CFG_POP      ( bool,   development.votor.monitor                           );
+
   return config;
 }
 
@@ -291,6 +294,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.rserve.repair_serve_listen_port            );
   CFG_POP      ( ulong,  tiles.rserve.shred_storage_limit_gib             );
 
+  CFG_POP      ( ushort, tiles.alpenglow.listen_port                      );
+  CFG_POP      ( ushort, tiles.alpenglow.client_port                      );
+
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );
   CFG_POP      ( bool,   capture.recent_only                              );
@@ -321,6 +327,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  development.genesis.fund_initial_amount_lamports );
   CFG_POP      ( ulong,  development.genesis.vote_account_stake_lamports  );
   CFG_POP      ( bool,   development.genesis.warmup_epochs                );
+  CFG_POP      ( bool,   development.genesis.alpenglow                    );
 
   CFG_POP      ( uint,   development.bench.benchg_tile_count              );
   CFG_POP      ( uint,   development.bench.benchs_tile_count              );

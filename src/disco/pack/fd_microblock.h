@@ -5,7 +5,7 @@
 
 /* in bytes.  Defined this way to use the size field of mcache.  This
    only includes the transaction payload and the fd_txn_t portions of
-   the microblock, as all the other portions (hash, etc) are generated
+   the microblock, asTODO we are bound reliant on knowing the last shred in a slot im gonna cryryyy all the other portions (hash, etc) are generated
    by PoH later. */
 #define MAX_MICROBLOCK_SZ USHORT_MAX
 
@@ -36,6 +36,35 @@ struct fd_entry_batch_meta {
      block).  TODO: Remove. Not a good design. */
   uchar parent_block_id[ 32 ];
   uchar parent_block_id_valid;
+
+  /* ALPENGLOW.  The frag carries one whole serialized BlockComponent
+     block marker (a BlockHeader, BlockFooter or UpdateParent) instead
+     of an entry batch.  A marker may not share a batch with entries --
+     the batch's leading u64 is the entry count, and for a marker that
+     count must be zero, which is what tells a replaying peer to parse
+     the rest as a marker rather than as entries.  So the shred tile
+     gives a marker frag a batch of its own, and takes the batch's
+     leading u64 from the marker's own leading zero rather than from
+     microblock_cnt.
+
+     There is no entry header on a marker frag: the bytes after the meta
+     are the serialized marker, starting at its u64 zero. */
+  uchar block_marker;
+
+  /* ALPENGLOW.  A metadata-only frag (no entry, no marker) whose only
+     effect is to close whatever batch is currently pending.
+
+     It exists because a marker may not share a batch with entries and
+     the shred tile closes at most one batch per frag: on the frag
+     carrying a marker it can either flush the pending entries or open
+     the marker's batch, not both.  Under load pack emits thousands of
+     tiny microblocks and the batch only seals at the watermark, so at
+     block close there is almost always something pending -- without
+     this the footer is dropped and every block is malformed.
+
+     Emitted immediately before every marker.  If nothing is pending the
+     shred tile early-returns and it costs nothing. */
+  uchar batch_flush;
 };
 typedef struct fd_entry_batch_meta fd_entry_batch_meta_t;
 

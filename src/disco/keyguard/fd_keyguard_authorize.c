@@ -5,6 +5,7 @@
 #include "../../flamenco/gossip/fd_gossip_value.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../waltz/tls/fd_tls.h"
+#include "../../alpenglow/consensus/ag_vote.h"
 /* manually include just fd_features_generated.h so we can get
    FD_FEATURE_SET_ID without anything else that we don't need. */
 #define HEADER_fd_src_flamenco_features_fd_features_h
@@ -269,7 +270,7 @@ fd_keyguard_authorize_repair( fd_keyguard_authority_t const * authority,
   uchar const * sender       = data+4;
 
   if( discriminant< 8 ) return 0; /* window_index is min ID */
-  if( discriminant>11 ) return 0; /* ancestor_hashes is max ID */
+  if( discriminant>14 ) return 0; /* shred_for_block_id is max ID */
 
   if( 0!=memcmp( authority->identity_pubkey, sender, 32 ) ) return 0;
 
@@ -286,6 +287,29 @@ fd_keyguard_authorize_tls_cv( fd_keyguard_authority_t const * authority FD_PARAM
 
   /* validate client prefix against fd_tls */
   return fd_memeq( fd_tls13_cli_sign_prefix, data, sizeof(fd_tls13_cli_sign_prefix) );
+}
+
+/* An Alpenglow vote is signed with the BLS voting key, and its payload
+   carries no pubkey to bind to the authority (the signer is identified
+   by its epoch rank on the wire, not in the signed bytes).  So all the
+   keyguard can enforce is the exact payload shape -- which the matcher
+   already pinned -- plus the BLS sign type. */
+
+static int
+fd_keyguard_authorize_ag_vote( fd_keyguard_authority_t const * authority FD_PARAM_UNUSED,
+                               uchar const *                   data,
+                               ulong                           sz,
+                               int                             sign_type ) {
+  if( FD_UNLIKELY( sign_type != FD_KEYGUARD_SIGN_TYPE_BLS12_381 ) ) return 0;
+  if( FD_UNLIKELY( sz < 1UL ) ) return 0;
+
+  uint kind = (uint)data[ 0 ] - 1U;
+  int  has_block_id = (kind==AG_VOTE_TYPE_NOTAR) | (kind==AG_VOTE_TYPE_NOTAR_FALLBACK);
+  int  known        = (kind==AG_VOTE_TYPE_NOTAR) | (kind==AG_VOTE_TYPE_FINAL) |
+                      (kind==AG_VOTE_TYPE_SKIP ) | (kind==AG_VOTE_TYPE_NOTAR_FALLBACK) |
+                      (kind==AG_VOTE_TYPE_SKIP_FALLBACK);
+  if( FD_UNLIKELY( !known ) ) return 0;
+  return sz == 1UL + 8UL + ( has_block_id ? sizeof(fd_hash_t) : 0UL ) + 2UL;
 }
 
 int
@@ -338,6 +362,25 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
                  fd_keyguard_authorize_tls_cv( authority, data, sz, sign_type );
     if( FD_UNLIKELY( !txn_ok && !tls_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for send (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    return 1;
+  }
+
+  case FD_KEYGUARD_ROLE_VOTOR: {
+    (void)authority;
+    static char const server_prefix[ 98 ] =
+      "                                "
+      "                                "
+      "TLS 1.3, server CertificateVerify";
+    int tls_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
+                 ( fd_memeq( fd_tls13_cli_sign_prefix, data, sizeof(fd_tls13_cli_sign_prefix) ) ||
+                   fd_memeq( server_prefix,            data, sizeof(server_prefix)            ) );
+    /* Alpenglow consensus votes, signed with the BLS voting key. */
+    int vote_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_AG_VOTE )) &&
+                  fd_keyguard_authorize_ag_vote( authority, data, sz, sign_type );
+    if( FD_UNLIKELY( !tls_ok && !vote_ok ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for votor (mask=%#lx)", payload_mask ));
       return 0;
     }
     return 1;

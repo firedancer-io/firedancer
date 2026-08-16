@@ -965,10 +965,22 @@ static void
 fd_log_private_sig_abort( int         sig,
                           siginfo_t * info,
                           void *      context ) {
-  (void)sig; (void)info; (void)context;
+  (void)context;
 
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
   FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s", fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal() ));
+
+  /* A SIGSYS is a seccomp denial, and the only thing worth knowing about
+     it is which syscall the policy is missing.  The kernel puts that in
+     si_syscall, but it is only visible here: by the time the parent
+     reports the tile's exit the number is gone, and audit records it
+     only when auditing is enabled, which it usually is not.  Without
+     this line the operator sees "Bad system call" and nothing else. */
+
+  if( FD_UNLIKELY( sig==SIGSYS && info ) ) {
+    FD_LOG_ERR_NOEXIT(( "seccomp denied syscall number %i at %p -- the tile's seccomppolicy is missing it",
+                        info->si_syscall, info->si_call_addr ));
+  }
 #undef FD_LOG_ERR_NOEXIT
 
 # if FD_HAS_BACKTRACE

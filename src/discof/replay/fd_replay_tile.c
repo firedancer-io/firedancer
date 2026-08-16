@@ -12,14 +12,17 @@
 #include "../admin/fd_adminctl.h"
 #include "../genesis/fd_genesi_tile.h"
 #include "../poh/fd_poh.h"
+#include "../../alpenglow/consensus/ag_cert.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
+#include "../votor/fd_votor_tile.h"
 #include "../resolv/fd_resolv_tile.h"
 #include "../restore/utils/fd_ssload.h"
 
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/shred/fd_fec_set.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../backup/fd_snapmk_tile.h"
@@ -37,6 +40,7 @@
 #include "../repair/fd_repair_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -97,6 +101,7 @@
 #define IN_KIND_GOSSIP_OUT (10)
 #define IN_KIND_SNAPMK     (11)
 #define IN_KIND_ADMIN      (12)
+#define IN_KIND_VOTOR      (13) /* Alpenglow rooting */
 
 #define DEBUG_LOGGING 0
 
@@ -107,6 +112,36 @@
 static inline ulong
 fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) {
   return (ulong)(ele - ele_arr);
+}
+
+/* resolve_block_id_ele translates a consensus block id to its
+   fd_block_id_ele.  In alpenglow the id is a double merkle root, so we
+   look it up in block_id_dm_map; otherwise it is the block's last-FEC
+   merkle root, keyed in block_id_map.  Centralizes the branch so every
+   consensus lookup uses the correct index. */
+static inline fd_block_id_ele_t *
+resolve_block_id_ele( fd_replay_tile_t * ctx, fd_hash_t const * block_id ) {
+  return ctx->is_alpenglow
+    ? fd_dmr_map_ele_query     ( ctx->dmr_map,      block_id, NULL, ctx->block_id_arr )
+    : fd_block_id_map_ele_query( ctx->block_id_map, block_id, NULL, ctx->block_id_arr );
+}
+
+/* consensus_block_id returns the id a bank is named by in consensus
+   messages: the double merkle root under alpenglow, the last-FEC merkle
+   root otherwise.  The counterpart of resolve_block_id_ele, for
+   confirming that a resolved element really is the bank we asked for. */
+
+static inline fd_hash_t const *
+consensus_block_id( fd_replay_tile_t const * ctx, fd_bank_t const * bank ) {
+  return ctx->is_alpenglow ? &bank->block_id : &bank->f.block_id;
+}
+
+/* bank_slot_duration_ticks is a slot of bank's duration expressed in
+   fd_tickcount units. */
+
+static inline double
+bank_slot_duration_ticks( fd_replay_tile_t const * ctx, fd_bank_t const * bank ) {
+  return (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
 }
 
 FD_FN_CONST static inline ulong
@@ -122,6 +157,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),     fd_runtime_stack_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_dmr_map_align(),           fd_dmr_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
@@ -129,6 +165,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
+  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+    l = FD_LAYOUT_APPEND( l, ag_epoch_info_align(),      ag_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
+  }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -197,6 +236,42 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
 
+FD_STATIC_ASSERT( FD_EPOCH_INFO_BLS_PUBKEY_SZ==FD_BLS_PUBKEY_COMPRESSED_SZ, bls_pubkey_sz );
+
+/* A footer carrying the largest possible finalization cert must still
+   fit the marker buffer poh publishes out of.  Envelope + footer fields
+   + the cert + the two absent reward cert options. */
+FD_STATIC_ASSERT( FD_POH_AG_MARKER_HDR_SZ + 1UL+32UL+8UL+1UL + 1UL +
+                  AG_BLOCK_FINAL_CERT_SERIALIZED_MAX + 1UL+1UL <= FD_POH_AG_MARKER_MAX, ag_footer_fits );
+
+/* update_cert_epoch_vtrs builds the ranked Alpenglow validator set for
+   the epoch described by an outgoing epoch msg and stores it in the
+   epoch_vtrs ring, so footer finalization certs can be verified against
+   the validator set of their own epoch.  This is the same ranking the
+   votor tile builds from the very same msg on the receiving end
+   (update_epoch_vtrs). TODO consider building the set first and sending
+   to votor tile so it doesnt need to do the same work. */
+
+static void
+update_cert_epoch_vtrs( fd_replay_tile_t *          ctx,
+                        fd_epoch_info_msg_t const * msg ) {
+  fd_vote_stake_weight_t const * stakes      = fd_epoch_info_msg_stake_weights( msg );
+  uchar const *                  bls_pubkeys = fd_epoch_info_msg_bls_pubkeys( msg );
+
+  ulong cnt = ag_epoch_info_rank( ctx->epoch_vtrs_scratch, FD_EPOCH_INFO_MAX_VOTERS, stakes, msg->staked_vote_cnt, bls_pubkeys );
+  if( FD_UNLIKELY( !cnt ) ) {
+    FD_LOG_WARNING(( "epoch %lu has no ranked validators; certs of this epoch will not verify", msg->epoch ));
+    return;
+  }
+
+  fd_replay_epoch_vtrs_t * s = &ctx->epoch_vtrs[ msg->epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
+  /* Don't let a stale (older) re-publish evict a newer epoch sharing this
+     ring slot.  Refresh (==) and normal advance (older occupant) proceed. */
+  if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) return;
+  s->epoch = msg->epoch;
+  s->info  = ag_epoch_info_join( ag_epoch_info_new( s->mem, ctx->epoch_vtrs_scratch, cnt ) );
+}
+
 static void
 publish_epoch_info( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
@@ -228,6 +303,23 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   fd_stake_weight_t * src_id_weights = next_epoch ? runtime_stack->epoch_weights.next_id_weights : runtime_stack->epoch_weights.id_weights;
   fd_memcpy( id_weights, src_id_weights, epoch_info_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
+  /* alpenglow:
+     Append one compressed BLS voting pubkey per staked voter, indexed
+     1:1 with the vote stake weights, read from each voter's vote
+     account.  The votor tile consumes these; other consumers ignore
+     the trailing array */
+  FD_TEST( epoch_info_msg->staked_vote_cnt<=FD_EPOCH_INFO_MAX_VOTERS );
+  uchar * bls_pubkeys = fd_epoch_info_msg_bls_pubkeys( epoch_info_msg );
+  for( ulong i=0UL; i<epoch_info_msg->staked_vote_cnt; i++ ) {
+    uchar *  out = bls_pubkeys + i*FD_EPOCH_INFO_BLS_PUBKEY_SZ;
+    fd_acc_t acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, stake_weights[i].vote_key.uc );
+    if( FD_UNLIKELY( !acc.lamports || fd_vote_account_bls_pubkey( acc.data, acc.data_len, out ) ) ) {
+      memset( out, 0, FD_EPOCH_INFO_BLS_PUBKEY_SZ );
+      FD_LOG_WARNING(("bls pubkey not found TODO?"));
+    }
+    fd_accdb_unread_one( ctx->accdb, &acc );
+  }
+
   ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt , epoch_info_msg->staked_id_cnt );
 
   ulong epoch_info_sig = 4UL;
@@ -236,6 +328,8 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) update_cert_epoch_vtrs( ctx, epoch_info_msg );
 }
 
 /**********************************************************************/
@@ -289,7 +383,29 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
   }
   bank->f.max_tick_height = max_tick_height;
-  fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.slot_params.hashes_per_tick, &parent_bank->f.poh );
+
+  /* An alpenglow block carries exactly one tick, at the very end, so it
+     opens one short of its max tick height and that tick closes it.
+
+     Its entries also all carry num_hashes==1 regardless of what the
+     bank says hashes_per_tick is, and agave skips the tick hash count
+     check outright for alpenglow blocks
+     (blockstore_processor::verify_ticks, should_have_alpenglow_ticks).
+
+     Firedancer decides alpenglow per node (from the topology) rather
+     than per slot the way agave's migration status does, so this
+     applies to every block a votor-wired validator replays.  The
+     configurations that supports are alpenglow from genesis, and
+     joining a cluster that has already migrated from a snapshot taken
+     after the migration; it cannot replay across the boundary. */
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) bank->f.tick_height = bank->f.max_tick_height - 1UL;
+  fd_sched_set_poh_params( ctx->sched,
+                           bank->idx,
+                           bank->f.tick_height,
+                           bank->f.max_tick_height,
+                           bank->f.slot_params.hashes_per_tick,
+                           ctx->is_alpenglow,
+                           &parent_bank->f.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
@@ -330,7 +446,8 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
      id */
   fd_hash_t parent_block_id = {0};
   if( FD_LIKELY( !is_initial ) ) {
-    parent_block_id = ctx->block_id_arr[ bank->parent_idx ].latest_mr;
+    parent_block_id = ctx->is_alpenglow ? fd_banks_bank_query( ctx->banks, bank->parent_idx )->block_id
+                                        : ctx->block_id_arr[ bank->parent_idx ].latest_mr;
   }
 
   fd_hash_t const * bank_hash  = &bank->f.bank_hash;
@@ -368,7 +485,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->slots_per_epoch       = fd_epoch_slot_cnt( epoch_schedule, epoch );
   slot_info->block_height          = bank->f.block_height;
   slot_info->parent_slot           = bank->f.parent_slot;
-  slot_info->block_id              = block_id_ele->latest_mr;
+  slot_info->block_id              = ctx->is_alpenglow ? bank->block_id : block_id_ele->latest_mr;
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
@@ -398,7 +515,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done using the bank. */
-  bank->refcnt++; /* tower_tile */
+  if( !ctx->is_alpenglow ) bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
   slot_info->bank_idx = bank->idx;
   slot_info->bank_seq = bank->bank_seq;
@@ -486,7 +603,88 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*txn_executed), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
-static void
+/* verify_footer_final_cert decodes and verifies the finalization cert
+   the sched parsed out of the block's footer, if any.  Returns 1 and
+   fills out_certs / out_cert_cnt (1 for a FastFinal cert, 2 for Final +
+   Notar) if the footer carried a cert that verified; returns 0 if the
+   footer carried none; returns -1 if the footer carried a cert that did
+   not decode or verify -- the block is invalid, and the caller must mark
+   its bank dead rather than trust it.
+
+   A cert we cannot check at all because OUR OWN state is missing (no
+   validator set for the cert's epoch, unknown shred version) stays a
+   CRIT: the block may well be valid, so neither trusting nor killing it
+   is right, and silently marking it dead would fork us off the cluster. */
+
+FD_WARN_UNUSED static int
+verify_footer_final_cert( fd_replay_tile_t * ctx,
+                          fd_bank_t *        bank,
+                          ag_cert_t          out_certs[ 2 ],
+                          ulong *            out_cert_cnt ) {
+  ulong         cert_sz;
+  uchar const * cert_bytes = fd_sched_get_final_cert( ctx->sched, bank->idx, &cert_sz );
+  if( FD_LIKELY( !cert_bytes ) ) return 0;
+
+  int err = ag_block_final_cert_de( out_certs, out_cert_cnt, cert_bytes, cert_sz );
+  if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS ) ) {
+    FD_LOG_WARNING(( "slot %lu: failed to deserialize footer cert (%i); marking bank dead", bank->f.slot, err ));
+    return -1;
+  }
+
+  err = ag_block_final_cert_decompress( out_certs, *out_cert_cnt );
+  if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS ) ) {
+    FD_LOG_WARNING(( "slot %lu: failed to decompress footer cert (%i); marking bank dead", bank->f.slot, err ));
+    return -1;
+  }
+
+  /* A footer cert we cannot check is not a reason to reject the block,
+     and definitely not a reason to die: the cert is an optional
+     shortcut to finalization that we would otherwise learn over
+     All2All, and whether we hold the validator set for its epoch is our
+     problem, not the block's.  Dropping it back to "no cert" is the
+     conservative answer -- we never act on a cert we did not verify.
+
+     This USED to be an FD_LOG_CRIT.  A leader that embedded a cert from
+     an epoch we had already rotated out of the window would have taken
+     down every Firedancer node that replayed its block. */
+  ulong cert_slot  = ag_cert_slot( &out_certs[0] );
+  ulong cert_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, cert_slot, NULL );
+  fd_replay_epoch_vtrs_t const * s = &ctx->epoch_vtrs[ cert_epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
+  if( FD_UNLIKELY( s->epoch!=cert_epoch ) ) {
+    FD_LOG_WARNING(( "slot %lu: no validator set for epoch %lu; ignoring the footer finalization cert for slot %lu", bank->f.slot, cert_epoch, cert_slot ));
+    return 0;
+  }
+
+  /* Signed vote payloads bind the cluster shred version. */
+  ushort shred_version;
+  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX ) ) shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+  else                                                                      shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
+  if( FD_UNLIKELY( !shred_version ) ) {
+    FD_LOG_WARNING(( "slot %lu: shred version unknown; ignoring the footer finalization cert for slot %lu", bank->f.slot, cert_slot ));
+    return 0;
+  }
+
+  for( ulong i=0UL; i<*out_cert_cnt; i++ ) {
+    ag_cert_t const * cert = &out_certs[ i ];
+    if( FD_UNLIKELY( !ag_cert_check_threshold( cert, s->info ) ) ) {
+      FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed the stake threshold; marking bank dead", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
+      return -1;
+    }
+    if( FD_UNLIKELY( !ag_cert_check_sig( cert, shred_version, s->info ) ) ) {
+      FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed signature verification; marking bank dead", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
+      return -1;
+    }
+  }
+  FD_LOG_INFO(( "slot %lu: footer cert verified (%s finalization of slot %lu)", bank->f.slot, *out_cert_cnt==2UL ? "slow" : "fast", cert_slot ));
+  return 1;
+}
+
+/* replay_block_finalize completes bank's block.  Returns 1 if the block
+   turned out to be invalid -- its footer carried a finalization cert that
+   did not verify -- in which case the bank has NOT been frozen or
+   published and the caller must mark it dead; 0 on success. */
+
+FD_WARN_UNUSED static int
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
@@ -498,6 +696,19 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   /* Set shred count in bank. */
   bank->f.shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->idx );
+
+  /* Verify the finalization cert embedded in the block footer, if any,
+     and forward it to the votor tile's consensus pool. */
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    fd_replay_final_cert_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+    int cert_err = verify_footer_final_cert( ctx, bank, msg->certs, &msg->cert_cnt );
+    if( FD_UNLIKELY( cert_err<0 ) ) return 1; /* invalid block; caller marks the bank dead */
+    if( FD_UNLIKELY( cert_err>0 ) ) {
+      msg->slot = bank->f.slot;
+      fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_FINAL_CERT, ctx->replay_out->chunk, sizeof(fd_replay_final_cert_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_final_cert_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+    }
+  }
 
   ulong execution_fees_pre_settle = bank->f.execution_fees;
   ulong priority_fees_pre_settle  = bank->f.priority_fees;
@@ -536,6 +747,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->dump_proto_ctx, ctx->runtime_stack );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
+
+  return 0;
 }
 
 /**********************************************************************/
@@ -579,6 +792,11 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
   }
   ctx->leader_bank->f.max_tick_height = max_tick_height;
+  /* An alpenglow block carries exactly one tick, at the very end, so
+     the bank opens one short of its max tick height and that tick
+     closes it.  Same thing replay_block_start does for a block we are
+     replaying rather than producing. */
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) ctx->leader_bank->f.tick_height = max_tick_height-1UL;
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -615,7 +833,7 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
     /* If we are booted, we have a reset_bank, so use it to set
        next_leader_tickcount. If we are not booted, then we don't need
        to set next_leader_tickcount as it will be set when we boot. */
-    fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->reset_block_id, NULL, ctx->block_id_arr );
+    fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &ctx->reset_block_id );
     if( FD_LIKELY( block_id_ele ) ) {
       fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
       if( FD_LIKELY( reset_bank && reset_bank->bank_seq==block_id_ele->bank_seq && reset_bank->state!=FD_BANK_STATE_PRUNABLE ) ) {
@@ -628,6 +846,55 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   ctx->identity_vote_rooted = 0;
   ctx->identity_idx++;
   fd_vote_tracker_reset( ctx->vote_tracker );
+}
+
+/* ALPENGLOW.  Hand poh the fork votor last named, so it builds the next
+   block on the right parent.  Split out of process_votor_slot_done
+   because it also has to run from try_fini_leader, for a slot_done that
+   arrived while we were still producing a block; see ag_reset_pending. */
+
+static void
+publish_votor_reset( fd_replay_tile_t *  ctx,
+                     fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return;
+
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &ctx->reset_block_id );
+  if( FD_UNLIKELY( !block_id_ele ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->reset_block_id.key, reset_block_id_b58 );
+    FD_LOG_CRIT(( "invariant violation: block id ele doesn't exist for reset block id: %s, slot: %lu", reset_block_id_b58, ctx->reset_slot ));
+  }
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
+  if( FD_UNLIKELY( !bank || bank->bank_seq!=block_id_ele->bank_seq || bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+    FD_LOG_WARNING(( "ignoring reset block update from votor because block has been evicted (slot=%lu)", ctx->reset_slot ));
+    return;
+  }
+
+  fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+
+  reset->bank_idx         = bank->idx;
+  reset->timestamp        = ctx->reset_timestamp_nanos;
+  reset->completed_slot   = ctx->reset_slot;
+  reset->hashcnt_per_tick = bank->f.slot_params.hashes_per_tick;
+  reset->ticks_per_slot   = bank->f.ticks_per_slot;
+  reset->tick_duration_ns = bank->f.slot_params.ns_per_slot_adjusted/reset->ticks_per_slot;
+
+  /* The shred tile chains from the parent's LAST FEC SET merkle root,
+     which is latest_mr, not from the alpenglow block id (the double
+     merkle root).  Two different values; this is the chaining one. */
+  fd_memcpy( reset->completed_block_id, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
+
+  fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  FD_TEST( last_hash );
+  fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );
+
+  /* Alpenglow does not tie microblocks to ticks; see fd_poh_ag_enable. */
+  reset->max_microblocks_in_slot = MAX_MICROBLOCKS_PER_SLOT;
+  reset->next_leader_slot        = ctx->next_leader_slot;
+  reset->wfs_paused              = !ctx->wfs_complete;
+  reset->alpenglow               = 1;
+
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
 static int
@@ -653,7 +920,15 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ulong execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
   ulong priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
 
-  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx );
+  if( FD_UNLIKELY( ctx->ag_bank_frozen ) ) {
+    /* Under alpenglow the bank was already frozen when the closing tick
+       arrived, because the footer we published states its bank hash.
+       Freezing twice would change that hash. */
+    execution_fees_pre_settle = ctx->ag_execution_fees_pre_settle;
+    priority_fees_pre_settle  = ctx->ag_priority_fees_pre_settle;
+  } else {
+    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx );
+  }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
@@ -674,11 +949,22 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
   /* We are no longer leader so we can clear the bank index we use for
      being the leader. */
-  ctx->leader_bank = NULL;
-  ctx->recv_poh    = 0;
-  ctx->is_leader   = 0;
+  ctx->leader_bank    = NULL;
+  ctx->recv_poh       = 0;
+  ctx->is_leader      = 0;
+  ctx->ag_bank_frozen = 0;
 
   maybe_switch_identity( ctx );
+
+  /* ALPENGLOW.  A votor slot_done that landed mid-block had its reset
+     withheld; hand it over now, before anything can make us leader
+     again, so poh's reset_slot and next_leader_slot are current when
+     the next became_leader reaches it.  After maybe_switch_identity,
+     which recomputes next_leader_slot. */
+  if( FD_UNLIKELY( ctx->ag_reset_pending ) ) {
+    ctx->ag_reset_pending = 0;
+    publish_votor_reset( ctx, stem );
+  }
 
   return 1;
 }
@@ -838,7 +1124,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
      inactive or have been resused, we can't become leader.  We may miss
      our leader slot if we happen to evict our reset bank.  As soon as
      we re-replay the slot, we will be able to become leader again. */
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->reset_block_id, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &ctx->reset_block_id );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
@@ -914,6 +1200,13 @@ try_become_leader( fd_replay_tile_t *  ctx,
   ctx->is_leader = 1;
   ctx->recv_poh  = 0;
 
+  /* ALPENGLOW.  Nothing self clocks, so replay owns the block timer:
+     poh has no clock of its own to end the block on and will hash
+     nothing until told.  One slot duration from now. */
+  ctx->ag_complete_sent            = 0;
+  ctx->ag_bank_frozen              = 0;
+  ctx->ag_block_deadline_tickcount = ctx->is_alpenglow ? now+(long)bank_slot_duration_ticks( ctx, reset_bank ) : LONG_MAX;
+
   FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || ctx->highwater_leader_slot<ctx->next_leader_slot );
   ctx->highwater_leader_slot = ctx->next_leader_slot;
 
@@ -966,7 +1259,23 @@ try_become_leader( fd_replay_tile_t *  ctx,
   memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
   memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc, sizeof(fd_pubkey_t) );
 
-  if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
+  msg->alpenglow = !!ctx->is_alpenglow;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    /* Alpenglow does not tie microblocks to ticks at all: the block
+       carries as many as fit before the deadline and exactly one tick
+       at the end.  The low power cap below would hold the block to
+       ticks_per_slot microblocks -- and an alpenglow genesis DOES leave
+       hashes_per_tick unset, so that branch is the one that would be
+       taken -- which is about three orders of magnitude too few. */
+    msg->max_microblocks_in_slot = MAX_MICROBLOCKS_PER_SLOT;
+
+    /* The BlockHeader must state the parent's alpenglow block id, which
+       is its DOUBLE merkle root, not the last FEC set merkle root the
+       shred tile chains from. */
+    fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, bank->parent_idx );
+    msg->alpenglow_parent_slot = bank->f.parent_slot;
+    memcpy( msg->alpenglow_parent_block_id, parent_bank ? parent_bank->block_id.uc : (uchar const *)&(fd_hash_t){0}, 32UL );
+  } else if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
     msg->max_microblocks_in_slot = msg->ticks_per_slot;
   } else {
@@ -974,7 +1283,9 @@ try_become_leader( fd_replay_tile_t *  ctx,
     msg->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, msg->ticks_per_slot*(msg->hashcnt_per_tick-1UL) );
   }
 
-  msg->total_skipped_ticks = msg->ticks_per_slot*(ctx->next_leader_slot-ctx->reset_slot);
+  /* Under alpenglow nothing self clocks, so no ticks were produced for
+     the intervening slots and there are none to replay. */
+  msg->total_skipped_ticks = ctx->is_alpenglow ? 0UL : msg->ticks_per_slot*(ctx->next_leader_slot-ctx->reset_slot);
   msg->epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->next_leader_slot, NULL );
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
@@ -1020,6 +1331,171 @@ process_poh_message( fd_replay_tile_t *                 ctx,
   ctx->recv_poh = 1;
 }
 
+/* ALPENGLOW.  Remember the highest finalization cert votor has seen, so
+   the next block we produce can carry it in its footer.  A footer cert
+   is how a peer learns finalization from the block itself instead of
+   waiting for the certs to reach it over All2All; it is an Option and
+   omitting it costs only that.
+
+   Only Final / FastFinal finalize.  A FastFinal stands alone; a Final
+   only serializes paired with the Notar cert for the same slot, which
+   is a separate frag that may arrive either side of it, so the two are
+   tracked separately and matched up in ag_footer_cert.
+
+   NOTE: which cert to embed is a policy choice, not a protocol
+   requirement -- a peer verifies whatever it finds independently
+   (verify_footer_final_cert above) and a redundant one is harmless.
+   Highest-we-hold is chosen here for being obviously safe.  Agave's
+   reward certs service may pick differently; that has not been checked
+   against this agave revision. */
+
+static void
+cache_final_cert( fd_replay_tile_t * ctx,
+                  ag_cert_t const *  cert ) {
+  switch( cert->kind ) {
+  case AG_CERT_TYPE_FAST_FINAL:
+    if( FD_LIKELY( ctx->ag_footer_final_slot==ULONG_MAX || cert->inner.fast_final.slot>ctx->ag_footer_final_slot ) ) {
+      ctx->ag_footer_final      = *cert;
+      ctx->ag_footer_final_slot = cert->inner.fast_final.slot;
+    }
+    break;
+  case AG_CERT_TYPE_FINAL:
+    if( FD_LIKELY( ctx->ag_footer_final_slot==ULONG_MAX || cert->inner.final.slot>ctx->ag_footer_final_slot ) ) {
+      ctx->ag_footer_final      = *cert;
+      ctx->ag_footer_final_slot = cert->inner.final.slot;
+    }
+    break;
+  case AG_CERT_TYPE_NOTAR:
+    if( FD_LIKELY( ctx->ag_footer_notar_slot==ULONG_MAX || cert->inner.notar.slot>ctx->ag_footer_notar_slot ) ) {
+      ctx->ag_footer_notar      = *cert;
+      ctx->ag_footer_notar_slot = cert->inner.notar.slot;
+    }
+    break;
+  default: break;
+  }
+}
+
+/* ALPENGLOW.  Assemble the cached certs into the footer form, if there
+   is one to assemble and it is worth carrying.  Returns the cert count
+   (0, 1 or 2) and the slot it finalizes.
+
+   Only a cert for a slot strictly before the block is meaningful (one
+   for this block cannot exist yet, and one for a later slot would be
+   nonsense), and only one recent enough that a peer still holds the
+   validator set to check it against -- peers keep a small window of
+   epochs, and one older than the previous epoch is at best ignored. */
+
+static ulong
+ag_footer_cert( fd_replay_tile_t const * ctx,
+                fd_bank_t const *        bank,
+                ulong                    slot,
+                ag_cert_t                out[ 2 ] ) {
+  if( FD_UNLIKELY( ctx->ag_footer_final_slot==ULONG_MAX ) ) return 0UL;
+  if( FD_UNLIKELY( ctx->ag_footer_final_slot>=slot       ) ) return 0UL;
+
+  ulong block_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, slot,                      NULL );
+  ulong cert_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->ag_footer_final_slot, NULL );
+  if( FD_UNLIKELY( cert_epoch+1UL<block_epoch ) ) return 0UL;
+
+  out[ 0 ] = ctx->ag_footer_final;
+  if( FD_LIKELY( ctx->ag_footer_final.kind==AG_CERT_TYPE_FAST_FINAL ) ) return 1UL;
+
+  /* A Final cert alone does not serialize: the footer form states the
+     block id, and only the Notar cert for that slot carries it. */
+  if( FD_UNLIKELY( ctx->ag_footer_notar_slot!=ctx->ag_footer_final_slot ) ) return 0UL;
+  out[ 1 ] = ctx->ag_footer_notar;
+  return 2UL;
+}
+
+/* ALPENGLOW.  poh has computed the block's single closing tick and is
+   holding it, along with the footer, until we answer.
+
+   Registering the tick takes tick_height to max_tick_height (replay set
+   tick_height to max-1 when it opened the block, precisely so that one
+   tick closes it), which is what lets the bank freeze.  Only once it
+   has frozen is the bank hash known, and the footer states the bank
+   hash -- hence the round trip.
+
+   Publishes REPLAY_SIG_AG_FOOTER, after which poh puts footer then tick
+   on the wire and the block is over. */
+
+static void
+process_poh_ag_tick_ready( fd_replay_tile_t *             ctx,
+                           fd_stem_context_t *            stem,
+                           fd_poh_ag_tick_ready_t const * tick ) {
+  FD_TEST( ctx->is_alpenglow );
+  FD_TEST( ctx->is_leader );
+  FD_TEST( ctx->leader_bank!=NULL );
+
+  if( FD_UNLIKELY( tick->slot!=ctx->leader_bank->f.slot ) ) {
+    FD_LOG_WARNING(( "alpenglow tick for slot %lu while leader bank is %lu; dropping", tick->slot, ctx->leader_bank->f.slot ));
+    return;
+  }
+
+  /* The tick is the block's last entry, so its hash is the blockhash. */
+  memcpy( &ctx->leader_bank->f.poh, tick->tick_hash, sizeof(fd_hash_t) );
+  ctx->leader_bank->f.tick_height = ctx->leader_bank->f.max_tick_height;
+
+  /* Freeze the bank and settle fees, exactly as the non-leader path
+     does at the end of a replayed block.  It has to happen here rather
+     than in try_fini_leader because the footer built below states the
+     bank hash, and there is no bank hash until the bank freezes.
+     try_fini_leader must therefore not do it again -- fd_runtime_freeze
+     is not idempotent -- which is what ag_bank_frozen says. */
+  ctx->ag_execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
+  ctx->ag_priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
+  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx );
+  ctx->ag_bank_frozen = 1;
+
+  fd_replay_ag_footer_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->slot = tick->slot;
+
+  /* A footer without a cert is valid; see cache_final_cert. */
+  ag_cert_t certs[ 2 ];
+  ulong     cert_cnt = ag_footer_cert( ctx, ctx->leader_bank, tick->slot, certs );
+
+  uchar   cert_buf[ AG_BLOCK_FINAL_CERT_SERIALIZED_MAX ];
+  uchar * cert    = NULL;
+  ulong   cert_sz = 0UL;
+  if( FD_LIKELY( cert_cnt ) ) {
+    cert_sz = ag_block_final_cert_se( certs, cert_cnt, cert_buf, sizeof(cert_buf) );
+    if( FD_UNLIKELY( !cert_sz ) ) {
+      /* Not fatal: publish the block without the optional cert rather
+         than not publishing the block. */
+      FD_LOG_WARNING(( "slot %lu: could not serialize the footer finalization cert for slot %lu; omitting it", tick->slot, ctx->ag_footer_final_slot ));
+    } else {
+      cert = cert_buf;
+    }
+  }
+
+  msg->footer_sz = fd_poh_ag_footer_encode( msg->footer,
+                                            &ctx->leader_bank->f.bank_hash,
+                                            fd_log_wallclock(),
+                                            cert,
+                                            cert_sz );
+
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_AG_FOOTER, ctx->replay_out->chunk, sizeof(fd_replay_ag_footer_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_ag_footer_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
+/* ALPENGLOW.  Ask poh to close the block in progress.  Idempotent: poh
+   ignores a second request while one is outstanding, and we latch so we
+   do not spam the link every after_credit once the deadline passes. */
+
+static void
+publish_ag_complete_block( fd_replay_tile_t *  ctx,
+                           fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return;
+
+  fd_replay_ag_complete_block_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->slot = ctx->leader_bank->f.slot;
+
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_AG_COMPLETE_BLOCK, ctx->replay_out->chunk, sizeof(fd_replay_ag_complete_block_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_ag_complete_block_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+
+  ctx->ag_complete_sent = 1;
+}
+
 static void
 publish_reset( fd_replay_tile_t *  ctx,
                fd_stem_context_t * stem,
@@ -1041,7 +1517,10 @@ publish_reset( fd_replay_tile_t *  ctx,
   fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
 
   ulong ticks_per_slot = bank->f.ticks_per_slot;
-  if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    /* Alpenglow does not tie microblocks to ticks; see fd_poh_ag_enable. */
+    reset->max_microblocks_in_slot = MAX_MICROBLOCKS_PER_SLOT;
+  } else if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
     reset->max_microblocks_in_slot = ticks_per_slot;
   } else {
@@ -1050,6 +1529,7 @@ publish_reset( fd_replay_tile_t *  ctx,
   }
   reset->next_leader_slot = ctx->next_leader_slot;
   reset->wfs_paused       = !ctx->wfs_complete;
+  reset->alpenglow        = !!ctx->is_alpenglow;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -1143,7 +1623,6 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->has_cluster_type = 1;
 
   ctx->is_booted = 1;
-  try_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
   fd_reasm_fec_t * fec       = fd_reasm_init( ctx->reasm, &initial_block_id, 0 /* genesis slot */ );
@@ -1157,7 +1636,16 @@ boot_genesis( fd_replay_tile_t *        ctx,
   block_id_ele->bank_seq  = bank->bank_seq;
   bank->f.block_id        = initial_block_id;
 
+  /* Seed the genesis bank's block id so it can serve as parent_block_id
+     for the first replayed block's double merkle tree. */
+  bank->block_id = initial_block_id;
+
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    block_id_ele->block_id      = initial_block_id;
+    block_id_ele->block_id_seen = 1;
+    FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+  }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( bank, slot_info );
@@ -1167,6 +1655,13 @@ boot_genesis( fd_replay_tile_t *        ctx,
   publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
   publish_root_advanced( ctx, stem, bank );
   publish_reset( ctx, stem, bank );
+
+  /* Only now, after poh has been given the genesis block to build on.
+     A became_leader that arrives first finds poh uninitialized, and
+     under alpenglow poh would additionally have no reset_slot to derive
+     parent_offset from and no parent block id to chain the first FEC
+     set to. */
+  try_become_leader( ctx, stem );
 }
 
 static inline void
@@ -1275,6 +1770,16 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     block_id_ele->latest_fec_idx = 0U;
     bank->f.block_id             = manifest_block_id;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+    if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+      block_id_ele->block_id = manifest_block_id;
+      FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+    }
+
+    /* Seed the snapshot bank's block id (the snapshot slot's double
+       merkle root, carried in the manifest) so it can serve as
+       parent_block_id for the first replayed block's double merkle
+       tree. */
+    bank->block_id = manifest_block_id;
 
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
@@ -1464,7 +1969,11 @@ try_replay( fd_replay_tile_t *  ctx,
     }
     case FD_SCHED_TT_BLOCK_END: {
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
-      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) replay_block_finalize( ctx, stem, bank );
+      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) {
+        /* An unverifiable footer finalization cert makes the block invalid;
+           kill the bank (and its descendants) instead of trusting it. */
+        if( FD_UNLIKELY( replay_block_finalize( ctx, stem, bank ) ) ) mark_bank_dead( ctx, stem, task->block_end->bank_idx );
+      }
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
       break;
     }
@@ -1575,6 +2084,42 @@ can_process_fec( fd_replay_tile_t * ctx,
   return 1;
 }
 
+/* finish_double_merkle finalizes the block's double merkle tree once
+   the slot-complete FEC has been ingested.  It appends the Agave
+   parent-info leaf SHA-256( parent_slot_le8 | parent_block_id |
+   fec_set_count_le4 ) as the final leaf, then finalizes the tree to
+   derive the block's double merkle root (the Alpenglow block id).  The
+   lifetime of the resulting block id is the same lifetime as the bmtree
+   commit. */
+static uchar *
+finish_double_merkle( fd_replay_tile_t * ctx,
+                      fd_reasm_fec_t *   reasm_fec ) {
+  fd_block_id_ele_t *  block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+  fd_bmtree_commit_t * tree         = fd_block_id_ele_tree( block_id_ele );
+
+  fd_bank_t * bank            = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
+  fd_bank_t * parent_bank     = fd_banks_bank_query( ctx->banks, bank->parent_idx );
+  ulong       parent_slot     = reasm_fec->slot - reasm_fec->parent_off;
+  //weird but the parent bank could be in a weirdge state because maybe its just been cloned from its parent,
+  // or it hasnt been cloned yet. since its in the f field, is unreliable until time of execution
+  // the double merkle computation happens as we are accumulating fecs, not at execution time. saurrrrr
+  // yeah maybe we should move it to right after execution is done. BUT right now im just computing it
+  // from the reasm fecs.
+  fd_hash_t   parent_block_id = parent_bank->block_id;
+  uint        fec_set_count   = (uint)fd_bmtree_commit_leaf_cnt( tree );
+
+  fd_bmtree_node_t parent_info[1];
+  fd_sha256_t sha[1];
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, &parent_slot,       sizeof(ulong)     ); /* little-endian on x86 */
+  fd_sha256_append( sha, parent_block_id.uc, sizeof(fd_hash_t) );
+  fd_sha256_append( sha, &fec_set_count,     sizeof(uint)      ); /* little-endian on x86 */
+  fd_sha256_fini( sha, parent_info->hash );
+  fd_bmtree_commit_append( tree, parent_info, 1UL );
+
+  return fd_bmtree_commit_fini( tree );
+}
+
 /* Returns 0 on successful FEC ingestion, 1 if the block got marked
    dead.  insert_fec_set assumes that all FECs that are inserted are
    directly connected to a parent FEC.  Every block that is replayed
@@ -1631,11 +2176,21 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr )==block_id_ele ) ) {
       FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr ) );
     }
+    /* Mirror the eviction in the alpenglow double-merkle index.  Only
+       completed blocks (block_id_seen) were ever inserted there. */
+    if( FD_UNLIKELY( ctx->is_alpenglow && block_id_ele->block_id_seen ) ) {
+      if( FD_LIKELY( fd_dmr_map_ele_query( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr )==block_id_ele ) ) {
+        FD_TEST( fd_dmr_map_ele_remove( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
+      }
+    }
     block_id_ele->block_id_seen  = 0;
     block_id_ele->slot           = reasm_fec->slot;
     block_id_ele->bank_seq       = bank->bank_seq;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
+
+    /* The double merkle tree uses the same hashing as shred tree */
+    fd_bmtree_commit_init( block_id_ele->tree_mem, 20UL, FD_BMTREE_LONG_PREFIX_SZ, 0UL );
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
@@ -1646,6 +2201,15 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
     block_id_ele->latest_mr      = reasm_fec->key;
+  }
+
+  /* alpenglow: accumulate this FEC set's merkle root as the next leaf
+     of the block's double merkle tree. */
+  {
+    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+    fd_bmtree_node_t leaf[1];
+    memcpy( leaf->hash, reasm_fec->key.uc, sizeof(fd_hash_t) );
+    fd_bmtree_commit_append( fd_block_id_ele_tree( block_id_ele ), leaf, 1UL );
   }
 
   /* If the FEC set is a slot complete, this means we have finally seen
@@ -1661,6 +2225,20 @@ insert_fec_set( fd_replay_tile_t *  ctx,
       FD_LOG_DEBUG(( "finished re-replaying evicted bank (slot=%lu, bank_idx=%lu)", reasm_fec->slot, reasm_fec->bank_idx ));
     }
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+
+    /* The block is complete: finalize its double merkle tree to derive
+       the block id. */
+    fd_bank_t * bank  = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
+    uchar * double_mr = finish_double_merkle( ctx, reasm_fec );
+    memcpy( bank->block_id.uc, double_mr, sizeof(fd_hash_t) );
+
+    /* alpenglow: index the completed block by its double merkle root so
+       consensus lookups (which speak double merkle) resolve.  Must run
+       after finish_double_merkle since that is when block_id exists. */
+    if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+      block_id_ele->block_id = bank->block_id;
+      FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+    }
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */
@@ -1811,13 +2389,13 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ctx->notified_root_slot==ctx->consensus_root_slot &&
                  fd_hash_eq( &ctx->notified_root, &ctx->consensus_root ) ) ) return 0;
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &ctx->consensus_root );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !bank ||
                    bank->bank_seq!=block_id_ele->bank_seq ||
-                   !fd_hash_eq( &bank->f.block_id, &ctx->consensus_root ) ||
+                   !fd_hash_eq( consensus_block_id( ctx, bank ), &ctx->consensus_root ) ||
                    bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
 
   fd_sched_root_notify( ctx->sched, bank->idx );
@@ -1885,12 +2463,12 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &ctx->consensus_root );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * target_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !target_bank ||
                    target_bank->bank_seq!=block_id_ele->bank_seq ||
-                   !fd_hash_eq( &target_bank->f.block_id, &ctx->consensus_root ) ||
+                   !fd_hash_eq( consensus_block_id( ctx, target_bank ), &ctx->consensus_root ) ||
                    target_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
 
   /* If the identity vote has been seen on a bank that should be rooted,
@@ -2096,6 +2674,18 @@ after_credit( fd_replay_tile_t *  ctx,
      WARNING: The ordering here is VERY load bearing and it should not
      be changed without extreme caution. */
 
+  /* ALPENGLOW.  Replay owns the block timer, because under alpenglow
+     nothing self clocks: poh does no free running hashing and will hold
+     the block open forever unless told to close it.  Ask it to close
+     once the deadline passes; poh then waits for pack's in-flight
+     microblocks to drain before computing the closing tick. */
+  if( FD_UNLIKELY( ctx->is_alpenglow && ctx->is_leader && !ctx->ag_complete_sent && ctx->leader_bank ) ) {
+    if( FD_UNLIKELY( fd_tickcount()>=ctx->ag_block_deadline_tickcount ) ) {
+      publish_ag_complete_block( ctx, stem );
+      *charge_busy = 1;
+    }
+  }
+
   if( FD_UNLIKELY( try_evict_reasm( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
@@ -2277,7 +2867,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     ctx->consensus_root      = msg->root_block_id;
   }
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->reset_block_id, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &msg->reset_block_id );
   if( FD_UNLIKELY( !block_id_ele ) ) {
     FD_LOG_WARNING(( "ignoring reset block update from tower because block has been evicted (slot=%lu)", msg->reset_slot ));
     return;
@@ -2329,6 +2919,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     }
     reset->next_leader_slot = ctx->next_leader_slot;
     reset->wfs_paused       = !ctx->wfs_complete;
+    reset->alpenglow        = 0;
 
     fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -2340,13 +2931,148 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   ulong distance = 0UL;
   fd_bank_t * parent = bank;
   while( parent ) {
-    if( FD_UNLIKELY( fd_hash_eq( &parent->f.block_id, &ctx->consensus_root ) ) ) break;
+    if( FD_UNLIKELY( fd_hash_eq( consensus_block_id( ctx, parent ), &ctx->consensus_root ) ) ) break;
     parent = fd_banks_get_parent( ctx->banks, parent );
     distance++;
   }
 
   FD_MGAUGE_SET( REPLAY, ROOT_DISTANCE, distance );
 
+}
+
+/* ALPENGLOW.  publish_consensus_update hands the gui the consensus
+   state votor named by block id, translated into the (slot, bank_seq)
+   pairs the gui indexes on.  See fd_replay_consensus_update_t for why
+   this goes out from replay and not from votor.  Every slot argument is
+   ULONG_MAX when this update does not carry it.
+
+   No-op when nothing consumes replay_out. */
+
+static void
+publish_consensus_update( fd_replay_tile_t *  ctx,
+                          fd_stem_context_t * stem,
+                          ulong               replay_slot,
+                          ulong               replay_bank_seq,
+                          ulong               reset_slot,
+                          ulong               reset_bank_seq,
+                          ulong               finalized_slot,
+                          ulong               finalized_bank_seq ) {
+  if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return;
+
+  fd_replay_consensus_update_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+
+  msg->replay_slot        = replay_slot;
+  msg->replay_bank_seq    = replay_bank_seq;
+  msg->reset_slot         = reset_slot;
+  msg->reset_bank_seq     = reset_bank_seq;
+  msg->finalized_slot     = finalized_slot;
+  msg->finalized_bank_seq = finalized_bank_seq;
+  msg->vote_slot          = ctx->ag_vote_slot;
+  msg->is_voting          = ctx->ag_is_voting;
+
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_CONSENSUS_UPDATE, ctx->replay_out->chunk, sizeof(fd_replay_consensus_update_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_consensus_update_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
+/* ALPENGLOW.  votor finalized a slot by certificate.  Nothing in replay
+   acts on it -- rooting is driven separately by FD_VOTOR_SIG_ROOTED --
+   but the gui cannot resolve a block id itself, so translate and
+   forward.  Finalization is cert driven and can run ahead of our own
+   replay, in which case there is no bank to name yet and the update is
+   simply skipped; votor publishes again as finalization advances. */
+
+static void
+process_votor_finalized( fd_replay_tile_t *           ctx,
+                         fd_stem_context_t *          stem,
+                         ag_votor_finalized_t const * fin ) {
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &fin->block_id );
+  if( FD_UNLIKELY( !block_id_ele ) ) return;
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
+  if( FD_UNLIKELY( !bank ||
+                   bank->bank_seq!=block_id_ele->bank_seq ||
+                   bank->state==FD_BANK_STATE_PRUNABLE ) ) return;
+
+  publish_consensus_update( ctx, stem, ULONG_MAX, ULONG_MAX, ULONG_MAX, ULONG_MAX, fin->slot, bank->bank_seq );
+}
+
+/* ALPENGLOW.  The votor tile's per-completed-slot message, and the
+   analogue of process_tower_slot_done: it echoes the replayed slot back
+   so replay can drop the bank refcount, and names the fork the leader
+   pipeline should reset onto.
+
+   It does NOT advance the root -- under alpenglow that is a separate,
+   cert driven event (FD_VOTOR_SIG_ROOTED, process_votor_rooted), which
+   is why this is shorter than the tower version. */
+
+static void
+process_votor_slot_done( fd_replay_tile_t *           ctx,
+                         fd_stem_context_t *          stem,
+                         ag_votor_slot_done_t const * msg ) {
+  fd_bank_t * replay_bank = fd_banks_bank_query( ctx->banks, msg->replay_bank_idx );
+  if( FD_UNLIKELY( !replay_bank ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
+
+  ctx->reset_block_id        = msg->reset_block_id;
+  ctx->reset_slot            = msg->reset_slot;
+  ctx->reset_timestamp_nanos = fd_log_wallclock();
+
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &msg->reset_block_id );
+  if( FD_UNLIKELY( !block_id_ele ) ) {
+    FD_BASE58_ENCODE_32_BYTES( msg->reset_block_id.key, reset_block_id_b58 );
+    FD_LOG_CRIT(( "invariant violation: block id ele doesn't exist for reset block id: %s, slot: %lu", reset_block_id_b58, msg->reset_slot ));
+  }
+  ulong       reset_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
+  fd_bank_t * bank           = fd_banks_bank_query( ctx->banks, reset_bank_idx );
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", reset_bank_idx ));
+
+  ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) {
+    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*bank_slot_duration_ticks( ctx, bank )) + fd_tickcount();
+  } else {
+    ctx->next_leader_tickcount = LONG_MAX;
+  }
+
+  FD_LOG_INFO(( "votor_slot_done(reset_slot=%lu, next_leader_slot=%lu, replay_slot=%lu)", msg->reset_slot, ctx->next_leader_slot, msg->replay_slot ));
+
+  /* The gui is told unconditionally, including while we are leader: the
+     reset withheld below is withheld for poh's sake, and starving the
+     gui of the canonical fork for a whole leader window would stall the
+     slot display and the skip rate along with it. */
+  ctx->ag_vote_slot = msg->vote_slot;
+  ctx->ag_is_voting = msg->is_voting;
+  publish_consensus_update( ctx, stem,
+                            msg->replay_slot, replay_bank->bank_seq,
+                            msg->reset_slot,  bank->bank_seq,
+                            ULONG_MAX,        ULONG_MAX );
+
+  if( FD_UNLIKELY( ctx->is_leader ) ) {
+    /* Do not reset poh in the middle of a block it is producing: the
+       parent_offset it stamps on every entry batch is derived from
+       reset_slot, and moving that mid-block would misparent the rest of
+       the block.  Withhold it until the block is finished; that is also
+       when try_become_leader can next do anything, so nothing is lost
+       by waiting.  See ag_reset_pending. */
+    ctx->ag_reset_pending = 1;
+    return;
+  }
+
+  publish_votor_reset( ctx, stem );
+  try_become_leader( ctx, stem );
+}
+
+/* Only records the new root; try_notify_consensus_root and
+   try_advance_published_root pick it up from after_credit, exactly as
+   they do for the tower root. */
+
+static void
+process_votor_rooted( fd_replay_tile_t * ctx, ag_votor_rooted_t const * rooted ) {
+
+  FD_TEST( rooted->slot>=ctx->consensus_root_slot );
+  FD_BASE58_ENCODE_32_BYTES( rooted->block_id.key, block_id_b58 );
+  FD_LOG_INFO(( "votor_rooted(slot=%lu, block_id=%s)", rooted->slot, block_id_b58 ));
+  ctx->consensus_root_slot = rooted->slot;
+  ctx->consensus_root      = rooted->block_id;
 }
 
 static void
@@ -2534,7 +3260,7 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
                                     fd_stem_context_t *               stem,
                                     fd_tower_slot_confirmed_t const * msg ) {
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->block_id, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &msg->block_id );
   if( FD_UNLIKELY( !block_id_ele ) ) {
     FD_BASE58_ENCODE_32_BYTES( msg->block_id.key, block_id_b58 );
     FD_LOG_WARNING(( "missing bank for confirmed block_id: %s level %d", block_id_b58, msg->level ));
@@ -2794,7 +3520,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_POH: {
-      process_poh_message( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      if( FD_UNLIKELY( sig==FD_POH_SIG_AG_TICK ) ) {
+        process_poh_ag_tick_ready( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      } else {
+        process_poh_message( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      }
       break;
     }
     case IN_KIND_RESOLV: {
@@ -2823,6 +3553,21 @@ returnable_frag( fd_replay_tile_t *  ctx,
       }
       break;
     }
+    case IN_KIND_VOTOR: {
+      if( sig==FD_VOTOR_SIG_ROOTED ) {
+        ag_votor_rooted_t const * rooted = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        process_votor_rooted( ctx, rooted );
+      } else if( sig==FD_VOTOR_SIG_SLOT ) {
+        ag_votor_slot_done_t const * slot_done = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        process_votor_slot_done( ctx, stem, slot_done );
+      } else if( sig==FD_VOTOR_SIG_FINALIZED ) {
+        ag_votor_finalized_t const * finalized = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        process_votor_finalized( ctx, stem, finalized );
+      } else if( FD_VOTOR_SIG_KIND( sig )==FD_VOTOR_SIG_CERT ) {
+        cache_final_cert( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      }
+      break;
+    }
     case IN_KIND_REPAIR: {
       /* Store and reasm follow the invariant that any FEC in the
          shred->out link, repair->out link, or reasm must be present in
@@ -2847,7 +3592,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
          on_snapshot_message). */
       ctx->next_leader_tickcount = LONG_MAX;
       if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) {
-        fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->reset_block_id, NULL, ctx->block_id_arr );
+        fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &ctx->reset_block_id );
         if( FD_LIKELY( block_id_ele ) ) {
           fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
           if( FD_LIKELY( reset_bank && reset_bank->bank_seq==block_id_ele->bank_seq && reset_bank->state!=FD_BANK_STATE_PRUNABLE ) ) {
@@ -2953,6 +3698,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * runtime_stack_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_align(),    fd_runtime_stack_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
+  void * dmr_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_dmr_map_align(),          fd_dmr_map_footprint( chain_cnt ) );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->replay.max_live_slots ) );
   void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
@@ -2960,6 +3706,11 @@ unprivileged_init( fd_topo_t const *      topo,
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
+  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+    ctx->epoch_vtrs[ i ].epoch = ULONG_MAX;
+    ctx->epoch_vtrs[ i ].info  = NULL;
+    ctx->epoch_vtrs[ i ].mem   = FD_SCRATCH_ALLOC_APPEND( l, ag_epoch_info_align(), ag_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
+  }
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -3117,6 +3868,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->reset_timestamp_nanos = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
+  ctx->ag_complete_sent            = 0;
+  ctx->ag_bank_frozen              = 0;
+  ctx->ag_reset_pending            = 0;
+  ctx->ag_block_deadline_tickcount = LONG_MAX;
+  ctx->ag_footer_final_slot        = ULONG_MAX;
+  ctx->ag_footer_notar_slot        = ULONG_MAX;
+  ctx->ag_vote_slot                = ULONG_MAX;
+  ctx->ag_is_voting                = 0;
   ctx->highwater_leader_slot = ULONG_MAX;
 
   ctx->caught_up                = 0;
@@ -3128,6 +3887,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->block_id_len = tile->replay.max_live_slots;
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
+  ctx->dmr_map      = fd_dmr_map_join( fd_dmr_map_new( dmr_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->block_id_arr[ i ].block_id_seen = 0;
 
@@ -3153,7 +3913,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "ipecho_out"    ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( !strcmp( link->name, "snapin_manif"  ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "execrp_replay" ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
-    else if( !strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
+    else if( !strcmp( link->name, "tower_out"     ) ) { ctx->in_kind[ i ] = IN_KIND_TOWER; ctx->is_alpenglow = 0; }
     else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
@@ -3163,6 +3923,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
+    else if( !strcmp( link->name, "votor_out"     ) ) { ctx->in_kind[ i ] = IN_KIND_VOTOR; ctx->is_alpenglow = 1; }
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
 
     if( ctx->in_kind[ i ]==IN_KIND_ADMIN ) {
@@ -3271,10 +4032,12 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 #undef DEBUG_LOGGING
 
-/* counting carefully, after_credit can generate at most 8 frags and
-   returnable_frag boot_genesis can generate at most 7 frags, so 15 is a
+/* counting carefully, after_credit can generate at most 8 frags (10
+   under alpenglow, which adds the complete-block request and the reset
+   that try_fini_leader hands over when one was withheld mid-block) and
+   returnable_frag boot_genesis can generate at most 7 frags, so 19 is a
    conservative bound. */
-#define STEM_BURST (15UL)
+#define STEM_BURST (19UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch, which is so infrequent

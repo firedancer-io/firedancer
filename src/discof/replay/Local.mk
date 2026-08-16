@@ -11,7 +11,7 @@ endif
 
 ifdef FD_HAS_ZSTD # required to load snapshot
 $(call add-objs,fd_replay_tile,fd_discof)
-$(call make-unit-test,test_replay_tile,test_replay_tile,fd_discof fd_choreo fd_disco fd_flamenco fd_vinyl fd_tango fd_ballet fd_util)
+$(call make-unit-test,test_replay_tile,test_replay_tile,fd_discof ag_alpenglow fd_choreo fd_disco fd_flamenco fd_vinyl fd_tango fd_ballet fd_util)
 $(call add-hdrs,fd_vote_tracker.h)
 $(call add-objs,fd_vote_tracker,fd_discof)
 else

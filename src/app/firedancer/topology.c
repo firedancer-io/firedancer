@@ -22,6 +22,7 @@
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../tango/dcache/fd_dcache.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
@@ -273,9 +274,24 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay" );
   fd_topob_wksp( topo, "accdb"  );
   fd_topob_wksp( topo, "execrp" );
-  if( alpenglow_enabled ) fd_topob_wksp( topo, "votor" );
-  else                    fd_topob_wksp( topo, "tower" );
   fd_topob_wksp( topo, "txsend" );
+  fd_topob_wksp( topo, "net_txsend"   );
+  fd_topob_wksp( topo, "txsend_out"    );
+  fd_topob_wksp( topo, "txsend_sign"   );
+  fd_topob_wksp( topo, "sign_txsend"   );
+
+  if( alpenglow_enabled ) {
+    /* Votor tile (Alpenglow consensus + folded-in QUIC ingress). */
+    fd_topob_wksp( topo, "votor"         );
+    fd_topob_wksp( topo, "votor_out"     );
+    fd_topob_wksp( topo, "net_votor"     );
+    fd_topob_wksp( topo, "votor_sign"    );
+    fd_topob_wksp( topo, "sign_votor"    );
+  } else {
+    fd_topob_wksp( topo, "tower"  );
+    fd_topob_wksp( topo, "tower_out" );
+  }
+
   fd_topob_wksp( topo, "sign"   )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
   fd_topob_wksp( topo, "admin"  )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
 
@@ -301,7 +317,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "net_shred"    );
   fd_topob_wksp( topo, "net_repair"   );
   if( rserve_enabled ) fd_topob_wksp( topo, "net_rserve" );
-  fd_topob_wksp( topo, "net_txsend"   );
   if( leader_enabled ) fd_topob_wksp( topo, "net_quic" );
 
   fd_topob_wksp( topo, "genesi_out"    );
@@ -315,9 +330,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay_epoch"  );
   fd_topob_wksp( topo, "replay_execrp" );
   fd_topob_wksp( topo, "replay_out"    );
-  if( alpenglow_enabled ) fd_topob_wksp( topo, "votor_out" );
-  else                    fd_topob_wksp( topo, "tower_out" );
-  fd_topob_wksp( topo, "txsend_out"    );
 
   if( leader_enabled ) {
     fd_topob_wksp( topo, "quic_verify"   );
@@ -360,8 +372,6 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "sign_rserve"   );
   }
 
-  fd_topob_wksp( topo, "txsend_sign"   );
-  fd_topob_wksp( topo, "sign_txsend"   );
 
   fd_topob_wksp( topo, "execrp_replay" );
   fd_topob_wksp( topo, "admin_replay"  );
@@ -402,7 +412,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    32768UL,                                  FD_NET_MTU,                    1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",     "net_shred",     32768UL,                                  FD_NET_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "repair_net",    "net_repair",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
-  /**/                 fd_topob_link( topo, "txsend_net",    "net_txsend",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",      "net_quic",      config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
   if( FD_LIKELY( rserve_enabled ) ) {
@@ -427,7 +436,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "snapwr_ct",     "snapwr_ct",     128UL,                                    0UL,                           1UL );
   }
   FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp",     "snapmk_zp",     1024UL,                                   sizeof(fd_backup_frag_t),      1UL );
-  if( snapmk_enabled ) fd_topob_link( topo, "replay_snapmk", "replay_snapmk", 16UL,                                     sizeof(fd_replay_snap_start_t),1UL );
+  if( snapmk_enabled ) fd_topob_link( topo, "replay_snapmk", "replay_snapmk", 32UL,                                     sizeof(fd_replay_snap_start_t),1UL ); /* min pow2 >= replay's STEM_BURST */
   if( snapmk_enabled ) fd_topob_link( topo, "snapmk_out",    "snapmk_out",    128UL,                                    sizeof(fd_snapmk_msg_t),       1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "snaprd_out",    "snaprd_out",    1024UL,                                   FD_BACKUP_RD_MTU,              1UL );
   fd_topo_obj_t * zp_fseq = NULL;
@@ -448,7 +457,7 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",   "quic_verify",   config->tiles.verify.receive_buffer_size, sizeof(fd_tpu_msg_t),          config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup",  "verify_dedup",  config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,             1UL );
-  /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  16UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* min pow2 >= replay's STEM_BURST (14); ideally 2, needs per-link burst */
+  /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  32UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* min pow2 >= replay's STEM_BURST (19); ideally 2, needs per-link burst */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL );
   /**/                 fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL,                                  sizeof(fd_execrp_task_msg_t),  1UL );
   /**/                 fd_topob_link( topo, "admin_replay",  "admin_replay",  32UL,                                     0UL,                           1UL );
@@ -466,7 +475,7 @@ fd_topo_initialize( config_t * config ) {
       FOR(execle_tile_cnt) fd_topob_link( topo, "execle_pack",   "execle_pack",   16384UL,                                  FD_PACK_REBATE_MAX_SZ,         1UL );
     }
     /**/                   fd_topob_link( topo, "poh_shred",     "poh_shred",     16384UL,                                  FD_POH_SHRED_MTU,              1UL );
-    /**/                   fd_topob_link( topo, "poh_replay",    "poh_replay",    4096UL,                                   sizeof(fd_poh_leader_slot_ended_t), 1UL );
+    /**/                   fd_topob_link( topo, "poh_replay",    "poh_replay",    4096UL,                                   sizeof(fd_poh_replay_msg_t),   1UL );
   }
 
   FOR(resolv_tile_cnt) fd_topob_link( topo, "resolv_replay", "resolv_replay", 4096UL,                                   sizeof(fd_resolv_slot_exchanged_t), 1UL );
@@ -480,17 +489,27 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",   "repair_sign",   256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL ); /* See repair_tile.c for explanation */
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",   "sign_repair",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
-  /**/                 fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU_V0,                 1UL ); /* TODO: Depth probably doesn't need to be 128 */
-  /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    shred_depth,                              sizeof(fd_fec_complete_t),   1UL );
-  if( alpenglow_enabled ) {
-    /**/               fd_topob_link( topo, "votor_out",     "votor_out",     16384UL,                                  sizeof(fd_votor_msg_t),                        2UL )->permit_no_consumers = 1;
-  } else {
-    /**/               fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
-  }
   /**/                 fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
+  /**/                 fd_topob_link( topo, "txsend_net",    "net_txsend",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU_V0,                 1UL ); /* TODO: Depth probably doesn't need to be 128 */
+  /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
+
+  if( alpenglow_enabled ) {
+    /* votor_net carries QUIC TX frames (handshake/ack) back to the net tile.
+       votor_out has no consumer yet (bring-up: votor only logs the kind). */
+    fd_topob_link( topo, "votor_net",     "net_votor",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+    fd_topob_link( topo, "votor_out",     "votor_out",     16384UL,                                  1024UL /* >= sizeof(ag_votor_msg_t), asserted in fd_votor_tile.c */, 2UL )->permit_no_consumers = 1;
+    fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,      1UL );
+    /* 192B: carries either the 64B QUIC TLS CertificateVerify signature
+       or a BLS12-381 Alpenglow vote signature (AG_AGGSIG_SIG_SZ) */
+    fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    192UL,                         1UL );
+
+  } else {
+    fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
+  }
 
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
 
@@ -522,9 +541,10 @@ fd_topo_initialize( config_t * config ) {
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_gossvf", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
-  if( rserve_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve", i, config->net.ingress_buffer_size );
-  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_txsend", i, config->net.ingress_buffer_size );
-  if( leader_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
+  if( rserve_enabled )    FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve",    i, config->net.ingress_buffer_size );
+  /**/                    FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_txsend",    i, config->net.ingress_buffer_size );
+  if( alpenglow_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_alpenglow", i, config->net.ingress_buffer_size );
+  if( leader_enabled )    FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",      i, config->net.ingress_buffer_size );
 
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch */
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
@@ -841,10 +861,30 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( alpenglow_enabled ) {
+    /* Votor runs Alpenglow consensus with the QUIC all-to-all vote
+       transport folded in: it consumes raw frames on the alpenglow port
+       and runs the QUIC server in its frag callbacks, and votor_net
+       carries the TX frames back to the net tile. */
+    FOR(net_tile_cnt)  fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "net_alpenglow", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "ipecho_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_out",     0UL                                                  );
+    /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_net",     0UL                                                  );
+    /**/               fd_topos_tile_in_net( topo,                        "metric_in", "votor_net",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+
+    /* votor_out is the alpenglow counterpart of tower_out. */
+    /**/               fd_topob_tile_in (   topo, "replay", 0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_in (   topo, "repair", 0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    FOR(shred_tile_cnt)fd_topob_tile_in (   topo, "shred",  i,            "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+
+    /* Votor signs both the QUIC TLS CertificateVerify and its BLS
+       votes, so it needs its own sign link pair. */
+    /**/               fd_topob_tile_in (   topo, "sign",   0UL,          "metric_in", "votor_sign",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_sign",    0UL                                                  );
+    /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "sign_votor",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out(   topo, "sign",   0UL,                       "sign_votor",    0UL                                                  );
   }
 
   /* Sign links don't need to be reliable because they are synchronous,
@@ -882,6 +922,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "sign_txsend",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_txsend",  0UL                                                  );
+
 
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_link( topo, "rpc_replay", "rpc_replay", 8UL, 0UL, 1UL );
@@ -1276,6 +1317,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->net.repair_client_listen_port        = config->tiles.repair.repair_client_listen_port;
     tile->net.repair_serve_listen_port         = config->tiles.rserve.repair_serve_listen_port;
     tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
+    tile->net.alpenglow_listen_port            = config->firedancer.development.alpenglow ? config->tiles.alpenglow.listen_port : 0;
+    tile->net.alpenglow_client_listen_port     = config->firedancer.development.alpenglow ? config->tiles.alpenglow.client_port : 0;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
@@ -1359,6 +1402,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.tpu_quic         = config->tiles.quic.quic_transaction_listen_port;
     tile->gossip.ports.repair           = config->tiles.repair.repair_client_listen_port;
     tile->gossip.ports.rserve           = config->tiles.rserve.repair_serve_listen_port;
+    tile->gossip.ports.alpen            = config->tiles.alpenglow.listen_port;
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
     for( ulong i=0UL; i<tile->gossip.entrypoints_cnt; i++ ) {
@@ -1422,7 +1466,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->repair.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->repair.slot_max                  = config->tiles.repair.slot_max;
     tile->repair.repair_sign_cnt           = config->firedancer.layout.sign_tile_count - 1; /* -1 because this excludes the keyguard client */
-
+    tile->repair.is_alpenglow              = config->firedancer.development.alpenglow;
     for( ulong i=0; i<tile->in_cnt; i++ ) {
       if( !strcmp( config->topo.links[ tile->in_link_id[ i ] ].name, "sign_repair" ) ) {
         tile->repair.repair_sign_depth = config->topo.links[ tile->in_link_id[ i ] ].depth;
@@ -1510,8 +1554,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
     tile->execrp.report_transaction_diffs = config->development.event.report_transaction_diffs;
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "votor" ) ) ) {
-
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
     for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
@@ -1525,6 +1567,32 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     fd_cstr_ncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
     fd_cstr_ncpy( tile->tower.base_path, config->paths.base, sizeof(tile->tower.base_path) );
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "votor" ) ) ) {
+    /* Votor reuses the tower tile's config struct for the fields it shares
+       (identity key + max_live_slots) and the quic tile's QUIC config
+       fields for its folded-in QUIC ingress server. */
+    tile->tower.max_live_slots = config->firedancer.runtime.max_live_slots;
+    fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
+
+    /* Sized by the alpenglow mesh, NOT by [tiles.quic]: those defaults are
+       for TPU transaction senders (131072 connections) and would reserve
+       a multi-gigabyte workspace for a mesh that can never exceed one
+       connection per validator in the set. */
+    tile->quic.max_concurrent_connections     = FD_VOTOR_VALIDATOR_MAX;
+    tile->quic.max_concurrent_handshakes      = FD_VOTOR_VALIDATOR_MAX;
+    tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
+    tile->quic.ack_delay_millis               = config->tiles.quic.ack_delay_millis;
+    /* Retry MUST be disabled here: the votor mesh is symmetric, so peers can
+       both demand retry cookies from each other before either side commits
+       connection state.  Retry is only a spoofing/DoS mitigation, unneeded in
+       a known validator set. */
+    tile->quic.retry                          = 0;
+    tile->quic.alpenglow_ip_addr              = config->net.ip_addr;
+    tile->quic.alpenglow_listen_port          = config->tiles.alpenglow.listen_port;
+    tile->quic.alpenglow_client_listen_port   = config->tiles.alpenglow.client_port;
+    tile->quic.alpenglow_publish_rx           = config->firedancer.development.votor.monitor;
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->quic.key_log_path ), config->firedancer.development.votor.ssl_key_log_file, sizeof(tile->quic.key_log_path) ) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {
 

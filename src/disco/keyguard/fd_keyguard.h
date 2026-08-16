@@ -24,7 +24,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_EVENT        (6)  /* Event tile */
 #define FD_KEYGUARD_ROLE_BUNDLE_CRANK (7)  /* Sign cranking transactions for bundle tips */
 #define FD_KEYGUARD_ROLE_RSERVE       (8)  /* Repair server tile */
-#define FD_KEYGUARD_ROLE_CNT          (9)  /* number of known roles */
+#define FD_KEYGUARD_ROLE_VOTOR        (9)  /* Alpenglow QUIC CertificateVerify signer */
+#define FD_KEYGUARD_ROLE_CNT          (10) /* number of known roles */
 
 /* Payload types ******************************************************/
 
@@ -38,6 +39,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_LG_BUNDLE ( 8)  /* Bundle block producer authentication */
 #define FD_KEYGUARD_PAYLOAD_LG_EVENT  ( 9)  /* Event reporter authentication */
 #define FD_KEYGUARD_PAYLOAD_LG_PONG   (10)  /* Gossip/Repair ping/pong protocol */
+#define FD_KEYGUARD_PAYLOAD_LG_AG_VOTE (11) /* Alpenglow VotePayloadToSign (BLS) */
 
 #define FD_KEYGUARD_PAYLOAD_TXN    (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN   )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP)
@@ -49,13 +51,22 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_BUNDLE (1UL<<FD_KEYGUARD_PAYLOAD_LG_BUNDLE)
 #define FD_KEYGUARD_PAYLOAD_EVENT  (1UL<<FD_KEYGUARD_PAYLOAD_LG_EVENT )
 #define FD_KEYGUARD_PAYLOAD_PONG   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PONG  )
+#define FD_KEYGUARD_PAYLOAD_AG_VOTE (1UL<<FD_KEYGUARD_PAYLOAD_LG_AG_VOTE)
 
 /* Sign types *********************************************************/
 
 #define FD_KEYGUARD_SIGN_TYPE_ED25519               (0)  /* ed25519_sign(input) */
 #define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519        (1)  /* ed25519_sign(sha256(data)) */
 #define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519 (2)  /* ed25519_sign(pubkey-data) */
-#define FD_KEYGUARD_SIGN_TYPE_CNT                   (3)  /* number of sign types */
+
+/* BLS12-381 min-sig signing under the Alpenglow voting key.  This is a
+   DIFFERENT key from the validator identity, so a payload signed this
+   way can never be replayed as any of the Ed25519 payload types above
+   (and vice versa) -- the type-confusion surface that motivates
+   fd_keyguard_match does not span the two keys. */
+
+#define FD_KEYGUARD_SIGN_TYPE_BLS12_381             (3)  /* bls_sign(input) */
+#define FD_KEYGUARD_SIGN_TYPE_CNT                   (4)  /* number of sign types */
 
 /* Type confusion/ambiguity checks ************************************/
 

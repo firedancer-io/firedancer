@@ -1,13 +1,91 @@
 #include "fd_genesis_create.h"
 
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/fd_pubkey_utils.h"
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 
-/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/genesis/src/main.rs#L69 */
+#include <stddef.h>
+
+/* ALPENGLOW GENESIS.
+
+   A cluster that runs alpenglow from slot 0 never goes through the
+   TowerBFT migration, so genesis has to contain what the migration
+   would otherwise have written.  Mirrors agave's
+   runtime/src/genesis_utils.rs::activate_all_features_alpenglow.
+
+   FD_ALPENGLOW_FEATURE_GATE is the alpenglow feature gate pubkey.  It
+   is written here rather than coming out of the feature map because
+   Firedancer has no alpenglow feature: every tile learns alpenglow from
+   the topology (firedancer.development.alpenglow), so there is
+   nothing for the runtime to gate.  Agave peers do read it, and the two
+   accounts below are program derived addresses under it.
+
+   ⚠️ This value must match the agave the cluster is paired with.  Agave
+   has rekeyed this gate more than once; the pinned submodule here
+   (v4.1.0-rc.0) still carries the literal placeholder
+   "mustRekeyVm2QHYB3JPefBiU4BY3Z6JkW2k3Scw5GWP" for a normal build, so
+   the real key below is what a current agave uses, not what that
+   submodule would.  For an all-Firedancer cluster the value only has to
+   be self consistent, and nothing in Firedancer reads it at all. */
+
+#define FD_ALPENGLOW_FEATURE_GATE "A1pENGLtPKvimJcQ8eNJ3cN6hMPLg1PWEyCvc7i5LFL8"
+
+/* In order to satisfy the validator admission ticket, every vote
+   account has to be funded for 100 epochs worth of VAT burn on top of
+   its rent exemption.  agave does the same, off
+   bank::VAT_TO_BURN_PER_EPOCH (1.6 SOL).
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/genesis/src/main.rs#L69 */
+
 #define FD_GENESIS_VAT_MINIMUM_LAMPORTS (1600000000UL*100UL)
+
+/* Seeds of the two program derived addresses, from agave's
+   votor-messages/src/migration.rs (GENESIS_CERTIFICATE_ACCOUNT) and
+   runtime/src/block_component_processor/vote_reward/
+   epoch_inflation_account_state.rs (VOTE_REWARD_ACCOUNT_ADDR). */
+
+#define FD_ALPENGLOW_GENESIS_CERT_SEED    "carlgration"
+#define FD_ALPENGLOW_EPOCH_INFLATION_SEED "vote_reward_account"
+
+/* Size of an uncompressed ("affine") BLS12-381 signature: a G2 point is
+   a pair of Fp2 coordinates of 96 bytes each.  Matches
+   solana_bls_signatures::BLS_SIGNATURE_AFFINE_SIZE. */
+
+#define FD_ALPENGLOW_BLS_SIGNATURE_AFFINE_SZ (192UL)
+
+/* Serialized size of the genesis certificate.  agave writes it with
+   Account::new_data, i.e. bincode over
+
+     Certificate {
+       cert_type: CertificateType,     enum, u32 discriminant
+       signature: BLSSignature,        [u8; 192]
+       bitmap:    Vec<u8>,             u64 length prefix
+     }
+
+   as CertificateType::Genesis(0, Hash::default()) -- discriminant 5,
+   the sixth variant -- with a zero signature and an empty bitmap.  That
+   is what tells agave every slot after 0 is an alpenglow block
+   (MigrationPhase::is_alpenglow_block).  The signature and the bitmap
+   are never checked: every consumer of
+   Bank::get_alpenglow_genesis_certificate reads only the block. */
+
+#define FD_ALPENGLOW_CERT_VARIANT_GENESIS (5U)
+
+#define FD_ALPENGLOW_GENESIS_CERT_SZ \
+  (4UL + 8UL + 32UL + FD_ALPENGLOW_BLS_SIGNATURE_AFFINE_SZ + 8UL)
+
+/* Serialized size of EpochInflationAccountState:
+
+     current: EpochInflationState { max_possible_validator_reward: u64,
+                                    slots_per_epoch:               u64,
+                                    epoch:                         u64 }
+     prev:    Option<EpochInflationState>
+
+   An Option is a one byte tag followed by the payload when present. */
+
+#define FD_ALPENGLOW_EPOCH_INFLATION_SZ (8UL + 8UL + 8UL + 1UL)
 
 /* TODO: Unify type with the one in fd_genesis_parse.c */
 
@@ -309,6 +387,17 @@ genesis_create( void *                       buf,
     vote_state->block_revenue_commission_bps     = 0;
     vote_state->has_bls_pubkey_compressed        = 1;
 
+    /* Alpenglow votes are BLS signed, and epoch_stakes gives no weight
+       at all to a vote account without a usable BLS pubkey
+       (fd_refresh_vote_accounts_vat), so a cluster running alpenglow
+       from slot 0 needs the validator's real one here.  It is derived
+       from the authorized voter, which is the identity registered
+       below, so the validator signs with the key written here. */
+
+    if( FD_UNLIKELY( options->alpenglow ) ) {
+      fd_memcpy( vote_state->bls_pubkey_compressed, options->identity_bls_pubkey, FD_BLS_PUBKEY_COMPRESSED_SZ );
+    }
+
     fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
     *voter = (fd_vote_authorized_voter_t) {
       .epoch  = 0UL,
@@ -373,8 +462,13 @@ genesis_create( void *                       buf,
 
   ulong default_funded_cnt = options->fund_initial_accounts;
 
+  /* The alpenglow feature gate account, the genesis certificate and the
+     epoch inflation state. */
+  ulong alpenglow_cnt      = options->alpenglow ? 3UL : 0UL;
+
   ulong default_funded_idx = genesis->accounts_len;      genesis->accounts_len += default_funded_cnt;
   ulong feature_gate_idx   = genesis->accounts_len;      genesis->accounts_len += feature_cnt;
+  ulong alpenglow_idx      = genesis->accounts_len;      genesis->accounts_len += alpenglow_cnt;
 
   genesis->accounts = fd_scratch_alloc( alignof(fd_genesis_account_pair_t),
                                         genesis->accounts_len * sizeof(fd_genesis_account_pair_t) );
@@ -433,6 +527,70 @@ genesis_create( void *                       buf,
       .data_len   = FEATURE_ENABLED_SZ,
       .data       = (uchar *)feature_enabled_data,
       .owner      = fd_solana_feature_program_id
+    };
+  }
+
+  /* Set up the alpenglow accounts: the feature gate, which Firedancer
+     has no feature map entry for, and the two off curve accounts the
+     TowerBFT migration would otherwise have written.  See the layout
+     comments at the top of this file. */
+
+  uchar alpenglow_cert_data     [ FD_ALPENGLOW_GENESIS_CERT_SZ    ] = {0};
+  uchar alpenglow_inflation_data[ FD_ALPENGLOW_EPOCH_INFLATION_SZ ] = {0};
+
+  if( FD_UNLIKELY( options->alpenglow ) ) {
+    fd_pubkey_t alpenglow_program_id[1];
+    REQUIRE( fd_base58_decode_32( FD_ALPENGLOW_FEATURE_GATE, alpenglow_program_id->uc ) );
+
+    genesis->accounts[ alpenglow_idx ] = (fd_genesis_account_pair_t) {
+      .key     = *alpenglow_program_id,
+      .account = (fd_genesis_account_t) {
+        .lamports   = default_feature_enabled_balance,
+        .data_len   = FEATURE_ENABLED_SZ,
+        .data       = (uchar *)feature_enabled_data,
+        .owner      = fd_solana_feature_program_id
+      }
+    };
+
+    uchar bump;
+    uint  custom_err;
+
+    /* Genesis certificate.  Certifies slot 0 with a zero block id, a
+       zero signature and an empty signer bitmap; only the variant tag
+       is non-zero. */
+
+    FD_STORE( uint, alpenglow_cert_data, FD_ALPENGLOW_CERT_VARIANT_GENESIS );
+
+    uchar const * const cert_seeds   [1] = { (uchar const *)FD_ALPENGLOW_GENESIS_CERT_SEED };
+    ulong         const cert_seed_szs[1] = { sizeof(FD_ALPENGLOW_GENESIS_CERT_SEED)-1UL };
+
+    fd_genesis_account_pair_t * cert_pair = &genesis->accounts[ alpenglow_idx+1UL ];
+    REQUIRE( !fd_pubkey_find_program_address( alpenglow_program_id, 1UL, cert_seeds, cert_seed_szs,
+                                              &cert_pair->key, &bump, &custom_err ) );
+    cert_pair->account = (fd_genesis_account_t) {
+      .lamports = fd_rent_exempt_minimum_balance( &genesis->rent, FD_ALPENGLOW_GENESIS_CERT_SZ ),
+      .data_len = FD_ALPENGLOW_GENESIS_CERT_SZ,
+      .data     = alpenglow_cert_data,
+      .owner    = fd_solana_system_program_id
+    };
+
+    /* Epoch inflation state.  Nothing has been earned yet in epoch 0
+       and there is no previous epoch, so only slots_per_epoch is
+       non-zero. */
+
+    FD_STORE( ulong, alpenglow_inflation_data+8UL, genesis->epoch_schedule.slots_per_epoch );
+
+    uchar const * const infl_seeds   [1] = { (uchar const *)FD_ALPENGLOW_EPOCH_INFLATION_SEED };
+    ulong         const infl_seed_szs[1] = { sizeof(FD_ALPENGLOW_EPOCH_INFLATION_SEED)-1UL };
+
+    fd_genesis_account_pair_t * infl_pair = &genesis->accounts[ alpenglow_idx+2UL ];
+    REQUIRE( !fd_pubkey_find_program_address( alpenglow_program_id, 1UL, infl_seeds, infl_seed_szs,
+                                              &infl_pair->key, &bump, &custom_err ) );
+    infl_pair->account = (fd_genesis_account_t) {
+      .lamports = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( &genesis->rent, FD_ALPENGLOW_EPOCH_INFLATION_SZ ) ),
+      .data_len = FD_ALPENGLOW_EPOCH_INFLATION_SZ,
+      .data     = alpenglow_inflation_data,
+      .owner    = fd_solana_system_program_id
     };
   }
 #undef FEATURE_ENABLED_SZ

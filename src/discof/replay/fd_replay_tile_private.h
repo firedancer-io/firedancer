@@ -2,6 +2,9 @@
 #define HEADER_fd_src_discof_replay_fd_replay_tile_private_h
 
 #include "fd_vote_tracker.h"
+#include "../../alpenglow/consensus/ag_cert.h" /* for the footer finalization cert */
+#include "../../alpenglow/consensus/ag_epoch_info.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
@@ -47,13 +50,30 @@ typedef struct fd_replay_out_link fd_replay_out_link_t;
 
 struct fd_block_id_ele {
   fd_hash_t latest_mr;
+  /* alpenglow: the block's double merkle root (Alpenglow block id),
+     valid once block_id_seen is set.  Key for fd_block_id_dm_map. */
+  fd_hash_t block_id;
   uint      latest_fec_idx;
   int       block_id_seen;
   ulong     slot;
   ulong     bank_seq;
-  ulong     next_;
+  ulong     next_;    /* fd_block_id_map chain    (key: latest_mr) */
+  ulong     next_dm_; /* fd_block_id_dm_map chain (key: block_id)  */
+
+  /* tree_mem holds an inline bmtree commit that accumulates the merkle
+     roots of each FEC set in the block as they are replayed.  On slot
+     completion it is finalized (together with the Agave parent-info
+     leaf) to derive the block's double merkle root (Alpenglow block
+     id).  Sized for a commit with no inclusion proofs and accessed via
+     fd_block_id_ele_tree(). */
+  uchar tree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
+
+FD_FN_CONST static inline fd_bmtree_commit_t *
+fd_block_id_ele_tree( fd_block_id_ele_t * ele ) {
+  return (fd_bmtree_commit_t *)fd_type_pun( ele->tree_mem );
+}
 
 #define MAP_NAME               fd_block_id_map
 #define MAP_ELE_T              fd_block_id_ele_t
@@ -63,6 +83,35 @@ typedef struct fd_block_id_ele fd_block_id_ele_t;
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
+
+/* fd_dmr_map is a parallel index over the SAME block_id_arr,
+   keyed by the alpenglow double merkle root (block_id).  It is only
+   populated and queried when is_alpenglow, so the merkle-root path and
+   non-alpenglow behavior are left entirely untouched.  Both maps thread
+   their own chain field (next_ / next_dm_) through the shared element. */
+#define MAP_NAME               fd_dmr_map
+#define MAP_ELE_T              fd_block_id_ele_t
+#define MAP_KEY_T              fd_hash_t
+#define MAP_KEY                block_id
+#define MAP_NEXT               next_dm_
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#include "../../util/tmpl/fd_map_chain.c"
+
+/* fd_replay_epoch_vtrs_t is one epoch's ranked Alpenglow validator set,
+   used to verify the finalization certs embedded in block footers with
+   the exact checks the votor tile / pool run on network certs.  Mirrors
+   the votor tile's epoch window: footer certs only reference the
+   current or an immediately-adjacent epoch. */
+
+#define FD_REPLAY_VTR_EPOCH_WINDOW (4UL)
+
+struct fd_replay_epoch_vtrs {
+  ulong             epoch; /* ULONG_MAX marks an empty entry */
+  ag_epoch_info_t * info;  /* ranked epoch info, joined in mem */
+  void *            mem;   /* ag_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) backing bytes */
+};
+typedef struct fd_replay_epoch_vtrs fd_replay_epoch_vtrs_t;
 
 struct fd_replay_tile {
   fd_wksp_t * wksp;
@@ -292,9 +341,10 @@ struct fd_replay_tile {
      2. when a block is completed, we must map the bank index to a block
         id to send a slot complete message to tower. */
   ulong               block_id_len;
-  fd_block_id_ele_t * block_id_arr;
-  ulong               block_id_map_seed;
-  fd_block_id_map_t * block_id_map;
+  fd_block_id_ele_t *    block_id_arr;
+  ulong                  block_id_map_seed;
+  fd_block_id_map_t *    block_id_map;
+  fd_dmr_map_t *         dmr_map; /* alpenglow: double merkle root -> bank idx */
 
   /* Capture-related configs */
   fd_capture_ctx_t *     capture_ctx;
@@ -419,6 +469,64 @@ struct fd_replay_tile {
 
   ulong                runtime_stack_seed;
   fd_runtime_stack_t * runtime_stack;
+
+  int is_alpenglow;
+
+  /* ALPENGLOW.  Latched once REPLAY_SIG_AG_COMPLETE_BLOCK has been sent
+     for the block in progress, so the deadline check does not re-send
+     it on every after_credit.  Cleared when the next block opens. */
+  int ag_complete_sent;
+
+  /* ALPENGLOW.  Latched once the leader bank has been frozen by
+     process_poh_ag_tick_ready, which has to happen there because the
+     footer states the bank hash.  try_fini_leader must then NOT freeze
+     it a second time: fd_runtime_freeze is not idempotent (it registers
+     the blockhash, settles fees and takes the jito commission again)
+     and the second bank hash would differ from the one already
+     published in the footer.  The pre-settle fee totals are captured at
+     the same time, purely so the completed-slot metrics report the same
+     numbers they would have under TowerBFT. */
+  int   ag_bank_frozen;
+  ulong ag_execution_fees_pre_settle;
+  ulong ag_priority_fees_pre_settle;
+
+  /* ALPENGLOW.  A votor slot_done arrived while we were leader, so its
+     reset was withheld: applying it mid-block would move poh's
+     reset_slot, and every subsequent parent_offset with it, and holding
+     the frag on the link instead would deadlock the block (see the
+     deferral comment in fd_poh_tile.c).  It is published as soon as the
+     leader slot finishes, before try_become_leader can run again. */
+  int ag_reset_pending;
+
+  /* ALPENGLOW.  Tickcount at which the block in progress must be
+     closed.  Under alpenglow nothing self clocks, so replay owns the
+     block timer; poh has no clock of its own to end the block on.
+     LONG_MAX when not leader. */
+  long ag_block_deadline_tickcount;
+
+  /* ALPENGLOW.  The highest finalization cert votor has published, held
+     so the next block we produce can carry it in its footer.  The
+     footer form is either one FastFinal cert or a Final paired with the
+     Notar cert for the same slot (ag_block_final_cert_{de,se}), and the
+     two halves of that pair arrive as separate frags in no guaranteed
+     order, so the Notar is tracked on its own and matched up at footer
+     build time.  ULONG_MAX slots mean nothing is held. */
+  ag_cert_t ag_footer_final;
+  ulong     ag_footer_final_slot;
+  ag_cert_t ag_footer_notar;
+  ulong     ag_footer_notar_slot;
+
+  /* ALPENGLOW.  Last vote state votor reported, cached so that a
+     consensus update triggered by a finalization cert still carries the
+     current values -- finalization is cert-driven and arrives on a
+     different frag from the slot_done that carries these.  Purely for
+     the gui; nothing in replay reads them. */
+  ulong ag_vote_slot;
+  int   ag_is_voting;
+
+  /* alpenglow: ranked per-epoch validator sets for cert verification */
+  fd_replay_epoch_vtrs_t epoch_vtrs[ FD_REPLAY_VTR_EPOCH_WINDOW ];
+  ag_validator_info_t    epoch_vtrs_scratch[ FD_EPOCH_INFO_MAX_VOTERS ];
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;

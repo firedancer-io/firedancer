@@ -151,6 +151,7 @@ fd_gui_new( void *                   shmem,
 
   gui->summary.slot_tower  = ULONG_MAX;
   gui->summary.slot_tower_bank_seq = ULONG_MAX;
+  gui->summary.slot_finalized = ULONG_MAX;
   gui->summary.schedule_strategy = schedule_strategy;
 
 
@@ -2454,13 +2455,24 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
   fd_http_server_ws_broadcast( gui->http );
 
   for( ulong cslot=_slot, cbank_seq=bank_seq; ; ) {
+    /* The previous root terminates the walk, not the slot's level.  The
+       epoch bookkeeping below runs nowhere else, and under alpenglow a
+       finalization certificate raises these slots above ROOTED before
+       rooting reaches them, so a level test would break out before any
+       of it ran.  Everything at or below the previous root was walked
+       when that root was taken. */
+    if( FD_UNLIKELY( prev_rooted!=ULONG_MAX && cslot<=prev_rooted ) ) break;
+
     fd_gui_slot_t * c = fd_gui_slot_get( gui, cslot, cbank_seq );
-    if( FD_UNLIKELY( !c || c->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
+    if( FD_UNLIKELY( !c ) ) break;
 
-    c->level = FD_GUI_SLOT_LEVEL_ROOTED;
+    /* Never lower a slot that finalization already raised past ROOTED. */
+    if( FD_LIKELY( c->level<FD_GUI_SLOT_LEVEL_ROOTED ) ) {
+      c->level = FD_GUI_SLOT_LEVEL_ROOTED;
 
-    fd_gui_printf_slot( gui, cslot, c );
-    fd_http_server_ws_broadcast( gui->http );
+      fd_gui_printf_slot( gui, cslot, c );
+      fd_http_server_ws_broadcast( gui->http );
+    }
 
     /* Finalize vote latencies from votes that landed in this block. */
     for( ulong r=0UL; r<gui->landed_vote_cnt; r++ ) {
@@ -2847,6 +2859,142 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
 
     if( FD_LIKELY( exact>=slot->vote_latency_exact ) ) continue;
     fd_gui_record_vote_latency( gui, gui->landed_votes[ r ].voted_slot, voted_bank_seq, (uchar)exact );
+  }
+}
+
+/* ALPENGLOW.  handle_finalized raises (slot, bank_seq) and its ancestors
+   to FD_GUI_SLOT_LEVEL_FINALIZED, the level TowerBFT can never reach.
+
+   Alpenglow only roots a block that already carries a finalization
+   certificate, so root <= finalized always holds and these slots are
+   raised past ROOTED before rooting reaches them.  That is why
+   fd_gui_handle_root_advanced terminates its walk on the previous root
+   rather than on the level: the level would already be too high and it
+   would skip the epoch bookkeeping it alone performs.
+
+   The walk stops at the previous watermark, so steady state is the
+   handful of slots finalized since the last update. */
+
+static void
+handle_finalized( fd_gui_t * gui,
+                  ulong      _slot,
+                  ulong      bank_seq ) {
+  if( FD_UNLIKELY( gui->summary.slot_finalized!=ULONG_MAX && _slot<=gui->summary.slot_finalized ) ) return;
+
+  /* Do not advance the watermark past a slot we cannot see: dropping it
+     here would lose the level for good, whereas leaving it lets the next
+     finalization pick the chain up again. */
+  if( FD_UNLIKELY( !fd_gui_slot_get( gui, _slot, bank_seq ) ) ) return;
+
+  ulong prev_finalized = gui->summary.slot_finalized;
+  gui->summary.slot_finalized = _slot;
+
+  for( ulong cslot=_slot, cbank_seq=bank_seq; ; ) {
+    if( FD_UNLIKELY( prev_finalized!=ULONG_MAX && cslot<=prev_finalized ) ) break;
+
+    fd_gui_slot_t * c = fd_gui_slot_get( gui, cslot, cbank_seq );
+    if( FD_UNLIKELY( !c || c->level>=FD_GUI_SLOT_LEVEL_FINALIZED ) ) break;
+
+    c->level = FD_GUI_SLOT_LEVEL_FINALIZED;
+    fd_gui_printf_slot( gui, cslot, c );
+    fd_http_server_ws_broadcast( gui->http );
+
+    ulong pslot = c->parent_slot, pseq = c->parent_bank_seq;
+    if( FD_UNLIKELY( pslot==ULONG_MAX || pslot>=cslot ) ) break;
+    cslot = pslot; cbank_seq = pseq;
+  }
+}
+
+/* ALPENGLOW.  reset_walks_back reports that consensus has named a fork
+   tip strictly below the one it last named, on that same fork.
+
+   Tower's reset only ever advances along a fork, and handle_tower_slot
+   asserts as much.  Votor's does not: publish_slot_done names the block
+   that just finished replaying, and replay can finish an older block on
+   the current fork after a newer one, so a slot_done can walk the tip
+   backwards.  It is not a fork switch -- a real switch lands on a tip
+   that is NOT an ancestor of the old one and is passed through -- so the
+   gui keeps the higher tip and lets the next completion move it on.
+
+   Deliberately mirrors the precondition of the assertion it stands in
+   for: below the first root handle_tower_slot returns before asserting,
+   and skipping there would strand the gui with no canonical tip. */
+
+static int
+reset_walks_back( fd_gui_t * gui,
+                  ulong      reset_slot ) {
+  if( FD_UNLIKELY( gui->summary.slot_tower==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX ) ) return 0;
+  if( FD_LIKELY( reset_slot>=gui->summary.slot_tower ) ) return 0;
+  return fd_gui_slot_is_ancestor( gui, reset_slot, gui->summary.slot_tower );
+}
+
+/* ALPENGLOW.  The counterpart of fd_gui_handle_tower_update.  Unlike the
+   tower path this cannot defer: it rides replay_out, which is also where
+   the slot records come from, so a record either exists by now or the
+   block was never replayed (an equivocating twin certified out from
+   under us) and there is nothing to show.  Hence the guards where the
+   tower path asserts.
+
+   Several things tower reports have no alpenglow counterpart and are
+   deliberately left alone: alpenglow votes are BLS consensus messages
+   rather than transactions, so no vote lands in a block to time, and
+   votor reads no vote account, so there is no balance or commission to
+   report.  active_fork_cnt has no cheap source either -- tower takes it
+   from fd_ghost, and the alpenglow pool keeps no equivalent. */
+
+void
+fd_gui_handle_consensus_update( fd_gui_t *                           gui,
+                                fd_replay_consensus_update_t const * msg,
+                                long                                 now ) {
+  if( FD_LIKELY( msg->replay_slot!=ULONG_MAX ) ) {
+    fd_gui_slot_t * replay_slot = fd_gui_slot_get( gui, msg->replay_slot, msg->replay_bank_seq );
+    if( FD_LIKELY( replay_slot ) ) {
+      replay_slot->is_voter = (uchar)(!!msg->is_voting);
+
+      /* Already-rooted edge case, as in the tower path: the epoch's
+         copy is otherwise only taken when the slot is rooted. */
+      if( FD_UNLIKELY( replay_slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) {
+        fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, msg->replay_slot );
+        if( FD_LIKELY( epoch ) ) {
+          ulong cidx = msg->replay_slot - epoch->start_slot;
+          if( FD_LIKELY( cidx<epoch->slot_cnt ) ) epoch->is_voter[ cidx ] = replay_slot->is_voter;
+        }
+      }
+    }
+  }
+
+  if( FD_UNLIKELY( msg->finalized_slot!=ULONG_MAX ) ) handle_finalized( gui, msg->finalized_slot, msg->finalized_bank_seq );
+
+  if( FD_LIKELY( msg->reset_slot!=ULONG_MAX && !reset_walks_back( gui, msg->reset_slot ) ) ) {
+    fd_gui_slot_t * reset_slot = fd_gui_slot_get( gui, msg->reset_slot, msg->reset_bank_seq );
+    if( FD_LIKELY( reset_slot ) ) {
+      /* publish_vote_status reads the vote slot off the frontier record,
+         which under TowerBFT is stamped from the votes that landed in
+         the block.  Alpenglow votes never land in a block, so stamp it
+         from the votes votor actually cast; the field means the same
+         thing either way.
+
+         Clamped to the tip because votor votes on slots the tip has not
+         reached yet -- a skip vote for a slot nobody produced, or a
+         notarization vote for a block replayed out of order -- and
+         publish_vote_status subtracts the two.  A vote at or past the
+         tip is exactly "caught up", which is what the clamp reports. */
+      reset_slot->vote_slot = fd_ulong_if( msg->vote_slot==ULONG_MAX,
+                                           ULONG_MAX,
+                                           fd_ulong_min( msg->vote_slot, msg->reset_slot ) );
+
+      handle_tower_slot( gui, msg->reset_slot, msg->reset_bank_seq, now );
+      publish_vote_status( gui, msg->is_voting );
+
+      if( FD_LIKELY( gui->summary.slot_reset!=msg->reset_slot ) ) {
+        gui->summary.slot_reset = msg->reset_slot;
+        fd_gui_printf_reset_slot( gui );
+        fd_http_server_ws_broadcast( gui->http );
+      }
+    }
+  } else if( FD_UNLIKELY( !msg->is_voting ) ) {
+    /* NON_VOTING does not need a reset slot, unlike publish_vote_status. */
+    set_vote_state( gui, FD_GUI_VOTE_STATE_NON_VOTING );
   }
 }
 

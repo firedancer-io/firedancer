@@ -19,8 +19,9 @@ static int
 role_from_payload( int payload_lg_type ) {
   switch( payload_lg_type ) {
   case FD_KEYGUARD_PAYLOAD_LG_TXN:
-  case FD_KEYGUARD_PAYLOAD_LG_TLS_CV:
     return FD_KEYGUARD_ROLE_TXSEND;
+  case FD_KEYGUARD_PAYLOAD_LG_TLS_CV:
+    return FD_KEYGUARD_ROLE_VOTOR;
   case FD_KEYGUARD_PAYLOAD_LG_GOSSIP:
   case FD_KEYGUARD_PAYLOAD_LG_PRUNE:
   case FD_KEYGUARD_PAYLOAD_LG_PING:

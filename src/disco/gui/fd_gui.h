@@ -762,6 +762,7 @@ struct fd_gui_summary {
   ulong slot_storage;
   ulong slot_tower;
   ulong slot_tower_bank_seq; /* tracks canonical fork frontier */
+  ulong slot_finalized;      /* alpenglow only; ULONG_MAX under TowerBFT, which has no finalization */
   ulong active_fork_cnt;
 
   struct {
@@ -1061,6 +1062,15 @@ void
 fd_gui_handle_tower_update( fd_gui_t *                   gui,
                             fd_tower_slot_done_t const * msg,
                             long                         now );
+
+/* fd_gui_handle_consensus_update is the alpenglow counterpart of
+   fd_gui_handle_tower_update.  It arrives on replay_out rather than on
+   a consensus tile's own link; see fd_replay_consensus_update_t. */
+
+void
+fd_gui_handle_consensus_update( fd_gui_t *                           gui,
+                                fd_replay_consensus_update_t const * msg,
+                                long                                 now );
 
 void
 fd_gui_handle_replay_update( fd_gui_t *                         gui,

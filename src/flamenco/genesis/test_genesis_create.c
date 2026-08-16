@@ -148,6 +148,61 @@ main( int     argc,
   fd_sha256_hash( result_mem, result_sz2, hash2->hash );
   FD_TEST( fd_hash_eq( hash1, hash2 ) );
 
+  /* Alpenglow genesis.  A cluster running alpenglow from slot 0 needs
+     the vote account written as a v4 carrying the validator's BLS
+     voting key, and the two off curve accounts the TowerBFT migration
+     would otherwise have written. */
+
+  options->alpenglow = 1;
+  for( ulong i=0UL; i<FD_BLS_PUBKEY_COMPRESSED_SZ; i++ ) options->identity_bls_pubkey[ i ] = (uchar)(1UL+i);
+  options->hashes_per_tick = 0UL;
+
+  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
+  FD_TEST( result_sz );
+  FD_TEST( fd_genesis_parse( genesis, result_mem, result_sz ) );
+
+  /* An alpenglow genesis leaves hashes_per_tick unset. */
+  FD_TEST( genesis->poh.hashes_per_tick==0UL );
+
+  /* Three accounts more than the TowerBFT genesis: the feature gate,
+     the genesis certificate and the epoch inflation state. */
+  ulong ag_account_cnt = genesis->account_cnt;
+
+  int found_ag_vote = 0;
+  int found_zero_owned_by_system = 0;
+  for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
+    fd_genesis_account_t account[1];
+    fd_genesis_account( genesis, result_mem, account, i );
+    if( fd_pubkey_eq( &account->pubkey, &options->vote_pubkey ) ) {
+      FD_TEST( account->data_len==FD_VOTE_STATE_V4_SZ );
+      /* The BLS pubkey has to be readable back out of the encoded vote
+         account, because that is how the epoch stake weights pick it
+         up (fd_vote_account_bls_pubkey, publish_epoch_info). */
+      uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+      FD_TEST( !fd_vote_account_bls_pubkey( account->data, account->data_len, bls ) );
+      FD_TEST( !memcmp( bls, options->identity_bls_pubkey, FD_BLS_PUBKEY_COMPRESSED_SZ ) );
+      FD_TEST( fd_vote_account_is_v4_with_bls_pubkey( account->data, account->data_len ) );
+      found_ag_vote = 1;
+    }
+    /* The genesis certificate certifies slot 0 with a zero block id,
+       which is the whole point of it: it is what tells agave that every
+       later slot is an alpenglow block. */
+    if( account->data_len==(4UL+8UL+32UL+192UL+8UL) &&
+        !memcmp( account->owner.key, fd_solana_system_program_id.key, 32 ) ) {
+      FD_TEST( FD_LOAD( uint,  account->data      )==5U   ); /* CertificateType::Genesis */
+      FD_TEST( FD_LOAD( ulong, account->data+4UL  )==0UL  ); /* slot                     */
+      found_zero_owned_by_system = 1;
+    }
+  }
+  FD_TEST( found_ag_vote );
+  FD_TEST( found_zero_owned_by_system );
+
+  options->alpenglow = 0;
+  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
+  FD_TEST( result_sz );
+  FD_TEST( fd_genesis_parse( genesis, result_mem, result_sz ) );
+  FD_TEST( ag_account_cnt==genesis->account_cnt+3UL );
+
   FD_LOG_NOTICE(( "pass" ));
 
   fd_scratch_detach( NULL );

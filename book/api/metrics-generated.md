@@ -933,6 +933,9 @@
 | <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | Client messages sent, by type (Need Window) |
 | <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | Client messages sent, by type (Need Highest Window) |
 | <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | Client messages sent, by type (Need Orphans) |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">parent_&#8203;fec_&#8203;count</span>"} | counter | Client messages sent, by type (Parent Fec Count) |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">fec_&#8203;root</span>"} | counter | Client messages sent, by type (Fec Root) |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">shred_&#8203;block_&#8203;id</span>"} | counter | Client messages sent, by type (Shred Block Id) |
 | <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">pong</span>"} | counter | Client messages sent, by type (Pong) |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;highest_&#8203;repaired</span> | gauge | Highest slot up to which we have fully repaired |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;current</span> | gauge | Our view of the current cluster slot, max slot received |
@@ -956,6 +959,9 @@
 | <span class="metrics-name">repair_&#8203;slot_&#8203;last_&#8203;insert_&#8203;failed</span> | gauge | Most recent slot we failed to insert into the forest |
 | <span class="metrics-name">repair_&#8203;chain_&#8203;verify_&#8203;failed</span> | counter | Times any block failed chained merkle verification |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;last_&#8203;chain_&#8203;verify_&#8203;failed</span> | gauge | Most recent slot that failed chained merkle verification |
+| <span class="metrics-name">repair_&#8203;shred_&#8203;block_&#8203;id_&#8203;failed</span> | counter | Times we failed to verify a shred for block id response |
+| <span class="metrics-name">repair_&#8203;fec_&#8203;root_&#8203;failed</span> | counter | Times we failed to verify a FEC root response |
+| <span class="metrics-name">repair_&#8203;parent_&#8203;fec_&#8203;count_&#8203;failed</span> | counter | Times we failed to verify a parent FEC count response |
 
 </div>
 

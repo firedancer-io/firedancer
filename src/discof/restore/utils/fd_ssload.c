@@ -119,7 +119,13 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
 
-  /* Epoch credits downcasting validation */
+  /* Epoch credits downcasting validation.  The tower->alpenglow
+     migration marker is not a real credits record, and is skipped both
+     here and by the loops below that populate fd_epoch_credits_t, so
+     the invariants hold over the kept entries rather than over the raw
+     history. */
+
+  int alpen_migration = 0;
 
   for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
     if( FD_UNLIKELY( manifest->epoch_stakes[i].vote_stakes_len>FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) ) {
@@ -134,22 +140,33 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                          i, j, vs->epoch_credits_history_len, FD_EPOCH_CREDITS_MAX ));
         return -1;
       }
-      ulong ec_base = vs->epoch_credits_history_len>0UL ? vs->epoch_credits[0].prev_credits : 0UL;
+      epoch_credits_t const * prev    = NULL; /* last kept entry */
+      int                     skipped = 0;    /* a marker sits between prev and the current entry */
+      ulong                   ec_base = 0UL;
       for( ulong k=0UL; k<vs->epoch_credits_history_len; k++ ) {
         epoch_credits_t const * epc = &vs->epoch_credits[k];
+        if( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epc->epoch, epc->credits, epc->prev_credits ) ) {
+          alpen_migration = 1;
+          skipped         = 1;
+          continue;
+        }
+        if( FD_UNLIKELY( !prev ) ) ec_base = epc->prev_credits;
         if( FD_UNLIKELY( epc->prev_credits>epc->credits ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].prev_credits %lu exceeds credits %lu",
                            i, j, k, epc->prev_credits, epc->credits ));
           return -1;
         }
-        if( FD_UNLIKELY( k>0UL && epc->epoch<=vs->epoch_credits[k-1UL].epoch ) ) {
+        /* The first alpenglow entry shares the migration epoch with the
+           last tower one, so epochs only strictly increase where no
+           marker separates them. */
+        if( FD_UNLIKELY( prev && (skipped ? epc->epoch<prev->epoch : epc->epoch<=prev->epoch) ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu is not greater than previous epoch %lu",
-                           i, j, k, epc->epoch, vs->epoch_credits[k-1UL].epoch ));
+                           i, j, k, epc->epoch, prev->epoch ));
           return -1;
         }
-        if( FD_UNLIKELY( k>0UL && epc->prev_credits!=vs->epoch_credits[k-1UL].credits ) ) {
+        if( FD_UNLIKELY( prev && epc->prev_credits!=prev->credits ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].prev_credits %lu does not equal previous credits %lu",
-                           i, j, k, epc->prev_credits, vs->epoch_credits[k-1UL].credits ));
+                           i, j, k, epc->prev_credits, prev->credits ));
           return -1;
         }
         if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX ) ) {
@@ -167,9 +184,15 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                            i, j, k, epc->prev_credits, ec_base ));
           return -1;
         }
+        prev    = epc;
+        skipped = 0;
       }
     }
   }
+
+  /* Absence proves nothing: a cluster running alpenglow from genesis
+     never migrated, and the marker ages out of the credits history. */
+  if( FD_UNLIKELY( alpen_migration ) ) FD_LOG_NOTICE(( "snapshot carries the alpenglow migration marker" ));
 
   /* Epoch stakes index validation.  fd_slot_to_leader_schedule_epoch
      is inlined here with overflow-safe arithmetic. */
@@ -351,7 +374,9 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   rent->burn_percent            = manifest->rent_params.burn_percent;
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1118
-     None gets treated as 0 for hash verification. */
+     None gets treated as 0 for hash verification.  An alpenglow cluster
+     leaves it unset, so this is also how a post-migration snapshot
+     arrives. */
   ulong restored_hashes_per_tick = manifest->has_hashes_per_tick ? manifest->hashes_per_tick : 0UL;
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
@@ -504,13 +529,25 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     }
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
-    ec->cnt          = (uchar)elem->epoch_credits_history_len; /* Manifest validation guarantees no overflow. */
-    ec->base_credits = ec->cnt > 0UL ? elem->epoch_credits[0].prev_credits : 0UL;
+    /* The alpenglow migration marker is not a real credits record, so
+       cnt counts the entries kept and base comes from the first kept
+       one rather than from epoch_credits[0].  Manifest validation
+       guarantees no overflow. */
+    ulong cnt  = 0UL;
+    ulong base = 0UL;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      ec->epoch[ j ]              = (ushort)elem->epoch_credits[ j ].epoch;
-      ec->credits_delta[ j ]      = (uint)( elem->epoch_credits[ j ].credits      - ec->base_credits );
-      ec->prev_credits_delta[ j ] = (uint)( elem->epoch_credits[ j ].prev_credits - ec->base_credits );
+      ulong epoch        = elem->epoch_credits[ j ].epoch;
+      ulong credits      = elem->epoch_credits[ j ].credits;
+      ulong prev_credits = elem->epoch_credits[ j ].prev_credits;
+      if( FD_UNLIKELY( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epoch, credits, prev_credits ) ) ) continue;
+      if( FD_UNLIKELY( !cnt ) ) base = prev_credits;
+      ec->epoch[ cnt ]              = (ushort)epoch;
+      ec->credits_delta[ cnt ]      = (uint)( credits      - base );
+      ec->prev_credits_delta[ cnt ] = (uint)( prev_credits - base );
+      cnt++;
     }
+    ec->cnt          = (uchar)cnt;
+    ec->base_credits = base;
     /* Manifest validation already rejects non-increasing epochs. */
     ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
     FD_TEST( ec->fast_path_ok ); /* manifest validation enforces all three invariants */

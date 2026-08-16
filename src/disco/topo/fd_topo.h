@@ -112,6 +112,8 @@ struct fd_topo_net_tile {
   ushort repair_client_listen_port;
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
+  ushort alpenglow_listen_port;
+  ushort alpenglow_client_listen_port;
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 
@@ -269,6 +271,7 @@ struct fd_topo_tile {
         ushort tpu_quic;
         ushort repair;
         ushort rserve;
+        ushort alpen;
       } ports;
     } gossip;
 
@@ -282,6 +285,14 @@ struct fd_topo_tile {
       uint   ack_delay_millis;
       int    retry;
       char   key_log_path[ PATH_MAX ];
+      uint   alpenglow_ip_addr;            /* votor tile: our IPv4 (network order), src for the broadcast client */
+      ushort alpenglow_listen_port;        /* votor tile: alpenglow server UDP port                           */
+      ushort alpenglow_client_listen_port; /* votor tile: alpenglow outbound client UDP source port            */
+      /* votor tile, dev only: also publish the votes/certs RECEIVED from
+         peers on votor_out, so `firedancer-dev votor` can draw live
+         consensus.  Off in production -- votor_out's consumers are
+         reliable, so the extra frags would backpressure consensus. */
+      int    alpenglow_publish_rx;
     } quic;
 
     struct {
@@ -530,6 +541,7 @@ struct fd_topo_tile {
 
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;
+      int     is_alpenglow;
     } repair;
 
     struct {

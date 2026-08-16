@@ -2,6 +2,7 @@
 #include <stdarg.h> /* for va_list */
 
 #include "fd_sched.h"
+#include "fd_block_marker.h" /* for Alpenglow block header/footer markers */
 #include "fd_execrp.h" /* for poh hash value */
 #include "../../util/math/fd_stat.h" /* for sorted search */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
@@ -22,6 +23,11 @@
 
 #define FD_SCHED_MAX_MBLK_PER_SLOT             (MAX_SKIPPED_TICKS)
 #define FD_SCHED_MAX_POH_HASHES_PER_TASK       (4096UL) /* This seems to be the sweet spot. */
+
+/* An alpenglow block has no intermediate ticks to bound the hash count
+   against, so bound the block as a whole at the same total a 64 tick
+   TowerBFT block gets.  See the use site. */
+#define FD_SCHED_AG_MAX_BLOCK_HASHCNT          (64UL*FD_RUNTIME_MAX_HASHES_PER_TICK)
 
 /* 64 ticks per slot, and a single gigantic microblock containing min
    size transactions. */
@@ -46,6 +52,11 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for res
 FD_STATIC_ASSERT( FD_SCHED_MIN_DEPTH>=FD_SCHED_MAX_TXN_PER_FEC, limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
+
+/* max size of an Alpenglow footer cert: slot (8) + block_id (32) + two
+   agg certs (96B compressed BLS sig + 2B bitmap length + up to 259B
+   base2 bitmap for 2048 signers) + 1 option byte. */
+#define FD_SCHED_MAX_FINAL_CERT_SZ         (8UL+32UL+2UL*(96UL+2UL+259UL)+1UL) /* 755 */
 
 #define FD_SCHED_MAGIC (0xace8a79c181f89b6UL) /* echo -n "fd_sched_v0" | sha512sum | head -c 16 */
 
@@ -133,6 +144,7 @@ struct fd_sched_block {
   ulong hashes_per_tick;   /* Fixed per block, feature gated, known after bank clone. */
   int inconsistent_hashes_per_tick;
   int zero_hash_tick;
+  int alpenglow;           /* Block carries a single closing tick and one hash per entry. */
 
   /* Parser state. */
   uchar               txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
@@ -198,10 +210,15 @@ struct fd_sched_block {
   uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
                                                              parseable after the next FEC set is ingested. */
   uint                shred_blk_offs[ FD_SHRED_BLK_MAX ]; /* The byte offsets into block data of ingested shreds */
+
+  /* Alpenglow footer cert: raw cert bytes copied out of the footer.
+     TODO: lifetime/availability?  */
+  uint                final_cert_sz;                      /* 0 if the footer carries no finalization cert */
+  uchar               final_cert[ FD_SCHED_MAX_FINAL_CERT_SZ ];
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==596672UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==597440UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -1727,7 +1744,7 @@ fd_sched_pruned_block_next( fd_sched_t * sched ) {
 }
 
 void
-fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh ) {
+fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, int alpenglow, fd_hash_t const * start_poh ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
   FD_TEST( max_tick_height>tick_height );
@@ -1735,6 +1752,7 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
   block->tick_height = tick_height;
   block->max_tick_height = max_tick_height;
   block->hashes_per_tick = hashes_per_tick;
+  block->alpenglow       = !!alpenglow;
   #if FD_SCHED_SKIP_POH
   /* No-op. */
   (void)start_poh;
@@ -1798,6 +1816,15 @@ fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( bank_idx<sched->block_cnt_max );
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   return block->shred_cnt;
+}
+
+uchar const *
+fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx, ulong * sz ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  *sz = (ulong)block->final_cert_sz;
+  return block->final_cert_sz ? block->final_cert : NULL;
 }
 
 void
@@ -1914,6 +1941,9 @@ add_block( fd_sched_t * sched,
   block->hashes_per_tick              = ULONG_MAX;
   block->inconsistent_hashes_per_tick = 0;
   block->zero_hash_tick               = 0;
+  block->alpenglow                    = 0;
+
+  block->final_cert_sz = 0U;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
@@ -1993,15 +2023,22 @@ verify_ticks_eager( fd_sched_block_t * block ) {
     FD_LOG_INFO(( "bad block: TOO_MANY_TICKS, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
     return -1;
   }
-  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->zero_hash_tick ) ) {
+  /* Agave skips the hash count checks outright for an alpenglow block
+     (blockstore_processor::verify_ticks, should_have_alpenglow_ticks):
+     every entry carries exactly one hash and the block ends on its only
+     tick, so there is no hashes_per_tick to hold it to.  The bank field
+     is NOT the signal -- a cluster that migrated from TowerBFT keeps
+     whatever its genesis set, typically 62,500 -- hence the explicit
+     flag. */
+  if( FD_UNLIKELY( !block->alpenglow && block->hashes_per_tick>1UL && block->zero_hash_tick ) ) {
     FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, has at least one zero hash tick", block->slot, block->parent_slot ));
     return -1;
   }
-  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->mblk_tick_cnt && (block->hashes_per_tick!=block->tick_hashcnt_wmk||block->inconsistent_hashes_per_tick) ) ) {
+  if( FD_UNLIKELY( !block->alpenglow && block->hashes_per_tick>1UL && block->mblk_tick_cnt && (block->hashes_per_tick!=block->tick_hashcnt_wmk||block->inconsistent_hashes_per_tick) ) ) {
     FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, expected %lu, got %lu", block->slot, block->parent_slot, block->hashes_per_tick, block->tick_hashcnt_wmk ));
     return -1;
   }
-  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->curr_tick_hashcnt>block->hashes_per_tick ) ) { /* >1 to ignore low power hashing or no hashing cases */
+  if( FD_UNLIKELY( !block->alpenglow && block->hashes_per_tick>1UL && block->curr_tick_hashcnt>block->hashes_per_tick ) ) { /* >1 to ignore low power hashing or no hashing cases */
     /* We couldn't really check this at parse time because we may not
        have the expected hashes per tick value yet.  We couldn't delay
        this till after all PoH hashing is done, because this would be a
@@ -2065,6 +2102,61 @@ fd_sched_block_verify_ticks( fd_sched_t * sched,
 /* CHECK that it is safe to read at least n more bytes. */
 #define CHECK_LEFT( n ) CHECK( (n)<=(block->fec_buf_sz-block->fec_buf_soff) )
 
+/* parse_footer_final_cert walks an footer block marker payload and
+   copies the raw finalization cert bytes, if present, into
+   block->final_cert.
+   payload points at the footer version byte (the LengthPrefixed inner
+   value); payload_sz is the number of bytes available in the parse
+   buffer.
+   Layout BlockFooterV1:
+
+     version (1) | bank_hash (32) | producer_time_nanos (8) | ua_len (1) |
+     user agent (ua_len) | has_final_cert (1) | [BlockFinalizationCert] | ...
+
+   where BlockFinalizationCert is:
+
+     slot (8) | block_id (32) | final_aggregate | has_notar (1) | [notar_aggregate]
+     aggregate: compressed BLS sig (96) | bitmap len (u16 LE) | bitmap
+
+   A footer that is truncated in the parse buffer (footers spanning FEC
+   sets are dropped with the rest of the trailing bytes) or malformed is
+   logged and ignored. up to caller to verify/handle badly formed
+   footers.*/
+static void
+parse_footer_final_cert( fd_sched_block_t * block, uchar const * payload, ulong payload_sz ) {
+  if( FD_UNLIKELY( payload[ 0 ]!=1 ) ) return; /* unknown footer version */
+  ulong off = 1UL+32UL+8UL+1UL; /* version + bank_hash + producer_time_nanos + ua_len */
+  if( FD_UNLIKELY( payload_sz<off ) ) goto truncated;
+  off += (ulong)payload[ off-1UL ]; /* skip user agent */
+  if( FD_UNLIKELY( payload_sz<off+1UL ) ) goto truncated;
+  if( payload[ off++ ]!=1 ) return; /* footer carries no finalization cert */
+
+  ulong cert_off = off;
+  off += 8UL+32UL; /* slot + block_id */
+  for( int aggregate=0; aggregate<2; aggregate++ ) {
+    if( FD_UNLIKELY( payload_sz<off+96UL+2UL ) ) goto truncated;
+    off += 96UL+2UL+(ulong)FD_LOAD( ushort, payload+off+96UL );
+    if( FD_UNLIKELY( payload_sz<off ) ) goto truncated;
+    if( aggregate==0 ) {
+      if( FD_UNLIKELY( payload_sz<off+1UL ) ) goto truncated;
+      if( !payload[ off++ ] ) break; /* fast finalization, no notar aggregate */
+    }
+  }
+
+  ulong cert_sz = off-cert_off;
+  if( FD_UNLIKELY( cert_sz>FD_SCHED_MAX_FINAL_CERT_SZ ) ) {
+    FD_LOG_WARNING(( "alpenglow block footer finalization cert too large: slot %lu, %lu bytes", block->slot, cert_sz ));
+    return;
+  }
+  fd_memcpy( block->final_cert, payload+cert_off, cert_sz );
+  block->final_cert_sz = (uint)cert_sz;
+  FD_LOG_INFO(( "alpenglow block footer finalization cert: slot %lu, %lu bytes", block->slot, cert_sz ));
+  return;
+
+truncated:
+  FD_LOG_WARNING(( "alpenglow block footer truncated in parse buffer: slot %lu, payload_sz %lu", block->slot, payload_sz ));
+}
+
 /* Consume as much as possible from the buffer.  By the end of this
    function, there could be residual data left over in the buffer.  That
    residual has to be either a partially received microblock header or a
@@ -2099,7 +2191,22 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         FD_LOG_INFO(( "bad block: illegally many transactions specified in microblock header in slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
         return FD_SCHED_BAD_BLOCK;
       }
-      if( FD_UNLIKELY( hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
+      /* Bounding the CUMULATIVE hash count since the last tick is what
+         keeps a malformed block from making us hash forever.  Under
+         TowerBFT that doubles as a real protocol bound, because a tick
+         lands every hashes_per_tick hashes.  Under alpenglow there is
+         one tick, at the very end, so "since the last tick" is the
+         whole block and this would reject any block carrying more
+         entries than a tick has hashes -- a rule agave does not have,
+         so we would fork off a cluster whose leader produced one.
+         Bound the block as a whole instead, at the same total hash
+         budget a 64 tick TowerBFT block gets.  A real alpenglow block
+         spends one hash per entry and cannot hold more than
+         FD_SCHED_MAX_MBLK_PER_SLOT of them, an order of magnitude
+         below this, so the bound is DoS mitigation only. */
+      ulong hash_cnt_max = fd_ulong_sat_sub( block->alpenglow ? FD_SCHED_AG_MAX_BLOCK_HASHCNT : FD_RUNTIME_MAX_HASHES_PER_TICK,
+                                             block->curr_tick_hashcnt );
+      if( FD_UNLIKELY( hdr->hash_cnt>hash_cnt_max ) ) {
         FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
         return FD_SCHED_BAD_BLOCK;
       }
@@ -2210,6 +2317,45 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       FD_TEST( block->fec_buf_soff==0U );
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
       block->fec_buf_soff += (uint)sizeof(ulong);
+
+      /* block markers logging */
+      if( FD_UNLIKELY( block->mblks_rem==0UL && block->fec_buf_sz>sizeof(ulong) ) ) {
+        fd_block_marker_t const * m = (fd_block_marker_t const *)fd_type_pun_const( block->fec_buf );
+        if( m->variant==HEADER &&
+            block->fec_buf_sz>=offsetof( fd_block_marker_t, data )+sizeof(fd_block_header_t) ) {
+          FD_BASE58_ENCODE_32_BYTES( m->data.header.v1.parent_block_id.hash, pbid_str );
+          FD_LOG_INFO(( "alpenglow block header: slot %lu, parent_slot %lu, parent_block_id %s",
+                          block->slot, m->data.header.v1.parent_slot, pbid_str ));
+        } else if( m->variant==FOOTER &&
+                   block->fec_buf_sz>=offsetof( fd_block_marker_t, data )+
+                                      offsetof( fd_block_footer_t, v1 )+sizeof(fd_hash_t) ) {
+          ulong payload_sz = fd_ulong_min( (ulong)block->fec_buf_sz-offsetof( fd_block_marker_t, data ), (ulong)m->length );
+          parse_footer_final_cert( block, block->fec_buf+offsetof( fd_block_marker_t, data ), payload_sz );
+        } else if( m->variant==UPDATE_PARENT &&
+                   block->fec_buf_sz>=offsetof( fd_block_marker_t, data )+sizeof(fd_update_parent_t) ) {
+          /* An UpdateParent re-parents the block mid-stream, which agave
+             emits on a sad leader handover: it started the window on an
+             optimistic parent, ParentReady named a different one, so it
+             clears the bank and re-opens the SAME slot on the correct
+             parent.  Firedancer does not produce these (it abandons the
+             window instead, see fd_poh.h) and cannot consume one either
+             -- the block's parent, and so its whole execution context
+             and its double merkle tree, would have to be rebuilt
+             partway through.
+
+             This USED to be an FD_LOG_CRIT.  That is not survivable
+             behaviour: the marker is a legitimate thing for an agave
+             peer to put in a block, so a single sad handover anywhere in
+             the cluster would take down every Firedancer node at once.
+             Treat it the way any other block we cannot process is
+             treated -- reject just this block, keep running.  We will
+             not build on it, which costs us that one slot. */
+          FD_BASE58_ENCODE_32_BYTES( m->data.update_parent.new_parent_block_id.hash, pbid_str );
+          FD_LOG_WARNING(( "unsupported alpenglow update parent, rejecting block: slot %lu, new_parent_slot %lu, new_parent_block_id %s",
+                           block->slot, m->data.update_parent.new_parent_slot, pbid_str ));
+          return FD_SCHED_BAD_BLOCK;
+        }
+      }
 
       if( FD_UNLIKELY( block->mblks_rem>fd_ulong_sat_sub( FD_SCHED_MAX_MBLK_PER_SLOT, block->mblk_cnt ) ) ) {
         FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks), hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, FD_SCHED_MAX_MBLK_PER_SLOT ));

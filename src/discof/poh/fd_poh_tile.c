@@ -81,7 +81,7 @@ after_credit( fd_poh_tile_t *     ctx,
   if( FD_UNLIKELY( !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
 
   ctx->idle_cnt++;
-  if( FD_LIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt || fd_poh_must_tick( ctx->poh ) || fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) {
+  if( FD_LIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt || fd_poh_must_tick( ctx->poh ) || fd_poh_must_publish_skipped_tick( ctx->poh ) || fd_poh_ag_pending( ctx->poh ) ) ) {
     /* We would like to fully drain input links to the best of our
        knowledge, before we spend cycles on hashing.  That is, we would
        like to assert that all input links have stayed empty since the
@@ -168,7 +168,23 @@ returnable_frag( fd_poh_tile_t *     ctx,
      is. */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && !fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
+  /* A reset or a new become_leader may not land in the middle of a
+     block, so they are held on the link until it is finished.  Note
+     this is a head-of-line block on the whole replay_out link, which is
+     why it is now scoped to just those two sigs rather than to every
+     replay frag: under alpenglow the block does not end until replay
+     says so over this very link (REPLAY_SIG_AG_COMPLETE_BLOCK, then
+     REPLAY_SIG_AG_FOOTER), and holding, say, a slot-completed frag in
+     front of those deadlocks the block forever.  Everything replay
+     publishes other than these two is a no-op for this tile anyway, so
+     consuming it costs nothing.
+
+     Replay upholds the other half of this: under alpenglow it does not
+     publish a reset while it is leader, so the two AG frags can never
+     end up queued behind one. */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY &&
+                   fd_poh_have_leader_bank( ctx->poh ) &&
+                   (sig==REPLAY_SIG_BECAME_LEADER || sig==REPLAY_SIG_RESET) ) ) return 1;
   /* If prior leaders skipped, it might happen that replay tells us to
      become leader, but poh is still hashing through the skipped slots
      and could not yet mixin any microblocks.  In this case, we hold
@@ -208,11 +224,57 @@ returnable_frag( fd_poh_tile_t *     ctx,
     case IN_KIND_REPLAY: {
       if( FD_LIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t const * became_leader = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        /* Latch alpenglow before begin_leader: begin_leader re-derives
+           the microblock cap, and under alpenglow the tick-derived cap
+           does not apply. */
+        if( FD_UNLIKELY( became_leader->alpenglow ) ) fd_poh_ag_enable( ctx->poh );
         fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot, became_leader->slot_start_ns );
+        if( FD_UNLIKELY( became_leader->alpenglow ) ) {
+          /* Publish the BlockHeader now, out of this same frag, so it is
+             ahead of every microblock and lands in FEC set 0.  Pack only
+             learns it is leader from this frag too, so nothing it
+             produces can overtake the header.  A header that is not at
+             shred index 0 is silently deferred by every receiver. */
+          fd_poh_ag_begin_block( ctx->poh,
+                                 stem,
+                                 became_leader->alpenglow_parent_slot,
+                                 (fd_hash_t const *)fd_type_pun_const( became_leader->alpenglow_parent_block_id ) );
+        }
       } else if( sig==REPLAY_SIG_RESET ) {
         fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        /* Latch alpenglow before the reset, not just before becoming
+           leader: the reset re-derives the microblock cap, and under
+           alpenglow the tick derived one does not apply. */
+        if( FD_UNLIKELY( reset->alpenglow ) ) fd_poh_ag_enable( ctx->poh );
         fd_poh_reset( ctx->poh, stem, reset->timestamp, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot, reset->completed_block_id );
         ctx->poh->wfs_paused = reset->wfs_paused;
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_AG_COMPLETE_BLOCK ) ) {
+        /* Alpenglow: replay says the block is over.  poh only marks it
+           completing here -- the tick cannot be computed until pack's
+           in-flight microblocks have drained, which fd_poh_advance
+           watches for. */
+        fd_replay_ag_complete_block_t const * cb = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        if( FD_UNLIKELY( !fd_poh_have_leader_bank( ctx->poh ) ) ) break; /* the window was already abandoned */
+        if( FD_UNLIKELY( cb->slot!=ctx->poh->slot ) ) {
+          FD_LOG_WARNING(( "ignoring alpenglow complete_block for slot %lu while producing %lu", cb->slot, ctx->poh->slot ));
+          break;
+        }
+        fd_poh_ag_complete_block( ctx->poh );
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_AG_FOOTER ) ) {
+        /* Alpenglow: the bank froze and replay built the footer, so the
+           block can finally go out.  Publishes footer then tick. */
+        fd_replay_ag_footer_t const * f = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        if( FD_UNLIKELY( !fd_poh_ag_tick_ready( ctx->poh ) ) ) {
+          FD_LOG_WARNING(( "ignoring alpenglow footer for slot %lu; no tick is pending", f->slot ));
+          break;
+        }
+        if( FD_UNLIKELY( f->slot!=ctx->poh->slot ) ) {
+          FD_LOG_WARNING(( "ignoring alpenglow footer for slot %lu while producing %lu", f->slot, ctx->poh->slot ));
+          break;
+        }
+        if( FD_UNLIKELY( fd_poh_ag_publish_footer( ctx->poh, stem, f->footer, f->footer_sz ) ) ) {
+          FD_LOG_ERR(( "could not publish the alpenglow footer for slot %lu", f->slot ));
+        }
       }
       break;
     }
@@ -329,8 +391,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* One tick, one microblock */
-#define STEM_BURST (2UL)
+/* One tick, one microblock.
+
+   Alpenglow's block close is the widest burst: the flush and the footer
+   marker, then the closing tick, then the leader-slot-ended message to
+   replay, four frags out of one returnable_frag.  after_credit can have
+   published the tick-ready message in the same iteration, so budget for
+   both. */
+#define STEM_BURST (6UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)

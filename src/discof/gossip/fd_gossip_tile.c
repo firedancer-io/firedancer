@@ -597,7 +597,8 @@ unprivileged_init( fd_topo_t const *      topo,
                                                        sign_out->dcache,
                                                        sign_in->mcache,
                                                        sign_in->dcache,
-                                                       sign_out->mtu ) )==NULL ) {
+                                                       sign_out->mtu,
+                                                       sign_in->mtu ) )==NULL ) {
     FD_LOG_ERR(( "failed to join keyguard client" ));
   }
 
@@ -626,6 +627,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu      ? ctx->gossip_ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.rserve   ? ctx->gossip_ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.rserve )   };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.rserve   ? ctx->gossip_ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.rserve )   };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW ]         = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.alpen    ? ctx->gossip_ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.alpen )    };
 
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };

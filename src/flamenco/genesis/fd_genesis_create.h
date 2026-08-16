@@ -6,6 +6,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../features/fd_features.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
 
 
 /* fd_genesis_options_t exists as a convenient way to specify options
@@ -29,6 +30,30 @@ struct fd_genesis_options {
   ulong fund_initial_amount_lamports;
 
   int   warmup_epochs;
+
+  /* alpenglow creates a genesis for a cluster running alpenglow
+     consensus from slot 0 rather than TowerBFT.  The vote account is
+     written as a VoteStateV4 carrying identity_bls_pubkey and funded
+     for the validator admission ticket, and the alpenglow feature gate,
+     genesis certificate and epoch inflation accounts are added.
+
+     The caller is responsible for enabling the alpenglow dependency
+     feature gates in features (bls_pubkey_management_in_vote_account
+     and validator_admission_ticket) and for leaving hashes_per_tick
+     unset.  The alpenglow gate itself is not in Firedancer's feature
+     map -- Firedancer decides alpenglow from its topology, not from a
+     feature -- so this writes that one account directly. */
+
+  int   alpenglow;
+
+  /* identity_bls_pubkey is the compressed BLS12-381 pubkey the
+     validator signs alpenglow votes with, derived from the authorized
+     voter key with fd_bls12_381_kdf.  Only read when alpenglow is set,
+     and it must be a real key: epoch_stakes gives no weight to a vote
+     account without one, so a zero here means the validator cannot
+     vote. */
+
+  uchar identity_bls_pubkey[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
 
   /* features points to an externally owned feature map.
      Adds a feature account to the genesis blob for feature enabled at

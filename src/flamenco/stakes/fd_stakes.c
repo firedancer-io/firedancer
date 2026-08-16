@@ -481,26 +481,34 @@ get_vote_credits( uchar const *        account_data,
                   ushort               commission,
                   fd_epoch_credits_t * epoch_credits ) {
 
-  ulong                           cnt                = 0UL;
-  fd_vote_epoch_credits_t const * vote_epoch_credits = fd_vote_account_epoch_credits( account_data, account_data_len, &cnt );
+  ulong raw_cnt = 0UL;
+  fd_vote_epoch_credits_t const * vote_epoch_credits = fd_vote_account_epoch_credits( account_data, account_data_len, &raw_cnt );
   FD_TEST( vote_epoch_credits );
-  FD_TEST( cnt<=FD_EPOCH_CREDITS_MAX );
-  epoch_credits->cnt        = (uchar)cnt;
+  FD_TEST( raw_cnt<=FD_EPOCH_CREDITS_MAX );
   epoch_credits->commission = commission;
 
-  ulong base = cnt ? vote_epoch_credits[0].prev_credits : 0UL;
-  for( ulong i=0UL; i<cnt; i++ ) {
+  /* The tower to alpenglow migration inserts a sentinel entry that is
+     not a real credits record; skip it.  cnt therefore counts the
+     entries kept, which is why base is taken from the first kept one
+     rather than from vote_epoch_credits[0]. */
+  ulong cnt  = 0UL;
+  ulong base = 0UL;
+  for( ulong i=0UL; i<raw_cnt; i++ ) {
     fd_vote_epoch_credits_t const * ele = &vote_epoch_credits[ i ];
+    if( FD_UNLIKELY( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( ele->epoch, ele->credits, ele->prev_credits ) ) ) continue;
+    if( FD_UNLIKELY( !cnt ) ) base = ele->prev_credits;
 
     FD_TEST( ele->credits-base<=UINT_MAX );      /* Final delta should fit. */
     FD_TEST( ele->prev_credits-base<=UINT_MAX ); /* Initial delta should fit. */
     FD_TEST( ele->epoch<=USHORT_MAX );           /* Epoch should fit. */
 
-    epoch_credits->epoch[ i ]              = (ushort)ele->epoch;
-    epoch_credits->credits_delta[ i ]      = (uint)( ele->credits      - base );
-    epoch_credits->prev_credits_delta[ i ] = (uint)( ele->prev_credits - base );
+    epoch_credits->epoch[ cnt ]              = (ushort)ele->epoch;
+    epoch_credits->credits_delta[ cnt ]      = (uint)( ele->credits      - base );
+    epoch_credits->prev_credits_delta[ cnt ] = (uint)( ele->prev_credits - base );
+    cnt++;
   }
 
+  epoch_credits->cnt          = (uchar)cnt;
   epoch_credits->base_credits = base;
   epoch_credits->fast_path_ok = fd_epoch_credits_fast_path_ok( epoch_credits );
 }

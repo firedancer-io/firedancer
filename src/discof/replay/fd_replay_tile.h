@@ -66,6 +66,7 @@
    the snapshot is created. */
 
 #include "../poh/fd_poh_tile.h"
+#include "../../alpenglow/consensus/ag_cert.h"
 #include "../../disco/tiles.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
@@ -79,6 +80,10 @@
 #define REPLAY_SIG_WFS_DONE       (8)
 #define REPLAY_SIG_DROP_BANK_REF  (9)
 #define REPLAY_SIG_SNAP_START    (10)
+#define REPLAY_SIG_FINAL_CERT    (11)
+#define REPLAY_SIG_AG_COMPLETE_BLOCK (12) /* alpenglow: close the block in progress */
+#define REPLAY_SIG_AG_FOOTER         (13) /* alpenglow: the serialized BlockFooter */
+#define REPLAY_SIG_CONSENSUS_UPDATE  (14) /* alpenglow: consensus state for the gui */
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -220,15 +225,82 @@ struct fd_replay_snap_start {
 };
 typedef struct fd_replay_snap_start fd_replay_snap_start_t;
 
+/* fd_replay_final_cert carries the finalization cert parsed out of an
+   Alpenglow block footer, already verified by replay.  cert_cnt is 1
+   (FastFinal) or 2 (Final + Notar, slow finalization). */
+struct fd_replay_final_cert {
+  ulong     slot;     /* the block whose footer carried the cert */
+  ulong     cert_cnt;
+  ag_cert_t certs[ 2 ];
+};
+typedef struct fd_replay_final_cert fd_replay_final_cert_t;
+
+/* ALPENGLOW.  Sent to poh when the deadline for the block in progress
+   has passed, or pack has run dry, asking it to close the block.  poh
+   does not close it immediately: it first waits for every microblock
+   pack accounted for to land, because registering the tick freezes the
+   bank and a microblock still in flight would then commit against a
+   frozen bank. */
+struct fd_replay_ag_complete_block {
+  ulong slot;
+};
+typedef struct fd_replay_ag_complete_block fd_replay_ag_complete_block_t;
+
+/* ALPENGLOW.  The serialized BlockFooter, built by replay once the tick
+   poh sent with FD_POH_SIG_AG_TICK has been registered and the bank has
+   frozen.  poh publishes it, then the tick, and the block is over. */
+struct fd_replay_ag_footer {
+  ulong slot;
+  ulong footer_sz;
+  uchar footer[ FD_POH_AG_MARKER_MAX ];
+};
+typedef struct fd_replay_ag_footer fd_replay_ag_footer_t;
+
+/* ALPENGLOW.  The consensus summary the gui needs, and the alpenglow
+   counterpart of the fd_tower_slot_done_t the tower tile sends the gui
+   directly over tower_out.  There is no votor_gui link: it comes from
+   replay because the gui keys every record on (slot, bank_seq) and
+   replay owns the block_id -> bank mapping that votor's messages, which
+   name blocks only by block_id, do not have.  The same indirection
+   already carries the optimistically-confirmed level under TowerBFT
+   (fd_tower_slot_confirmed_t -> REPLAY_SIG_OC_ADVANCED).
+
+   Riding on replay_out also fixes the ordering for free: the gui learns
+   a slot exists from REPLAY_SIG_SLOT_COMPLETED on this same link, which
+   is necessarily published before votor can respond to it, so no
+   deferral is needed the way it is for tower_out.
+
+   Each of the three slots is ULONG_MAX when this update does not carry
+   it.  vote_slot and is_voting are whatever votor last reported, which
+   is nothing at all until the first slot completes -- an update driven
+   by a certificate can precede that, and reports not voting until the
+   first slot_done corrects it. */
+
+struct fd_replay_consensus_update {
+  ulong replay_slot;        /* the slot votor just processed a completion for */
+  ulong replay_bank_seq;
+  ulong reset_slot;         /* the fork the leader pipeline was reset onto    */
+  ulong reset_bank_seq;
+  ulong finalized_slot;     /* newly finalized by certificate                 */
+  ulong finalized_bank_seq;
+  ulong vote_slot;          /* highest slot we cast a vote in, ULONG_MAX if none */
+  int   is_voting;
+};
+typedef struct fd_replay_consensus_update fd_replay_consensus_update_t;
+
 union fd_replay_message {
-  fd_replay_slot_completed_t  slot_completed;
-  fd_replay_root_advanced_t   root_advanced;
-  fd_replay_oc_advanced_t     oc_advanced;
-  fd_poh_reset_t              reset;
-  fd_became_leader_t          became_leader;
-  fd_replay_txn_executed_t    txn_executed;
-  fd_replay_fec_evicted_t     reasm_evicted;
-  fd_replay_drop_bank_ref_t   drop_bank_ref;
+  fd_replay_slot_completed_t    slot_completed;
+  fd_replay_root_advanced_t     root_advanced;
+  fd_replay_oc_advanced_t       oc_advanced;
+  fd_poh_reset_t                reset;
+  fd_became_leader_t            became_leader;
+  fd_replay_txn_executed_t      txn_executed;
+  fd_replay_fec_evicted_t       reasm_evicted;
+  fd_replay_drop_bank_ref_t     drop_bank_ref;
+  fd_replay_final_cert_t        final_cert;
+  fd_replay_ag_complete_block_t ag_complete_block;
+  fd_replay_ag_footer_t         ag_footer;
+  fd_replay_consensus_update_t  consensus_update;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

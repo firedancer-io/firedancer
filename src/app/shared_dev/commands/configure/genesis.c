@@ -3,6 +3,9 @@
 
 #include "../../../platform/fd_file_util.h"
 #include "../../../../ballet/poh/fd_poh.h"
+#if FD_HAS_BLST
+#include "../../../../ballet/bls/fd_bls12_381_kdf.h"
+#endif
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../discof/genesis/genesis_hash.h"
 #include "../../../../flamenco/features/fd_features.h"
@@ -72,6 +75,26 @@ default_enable_features( fd_features_t * features ) {
   features->disable_fees_sysvar = 0UL;
 }
 
+/* alpenglow_enable_features enables the two gates an alpenglow cluster
+   hard depends on.
+
+   bls_pubkey_management_in_vote_account must be on, otherwise
+   epoch_stakes skips every vote account carrying a BLS pubkey and it
+   gets no weight in the rank map, so nobody can vote.
+   validator_admission_ticket must be on, otherwise Agave asserts in
+   epoch rewards ("Alpenglow should not be activated before the VAT").
+   vote_state_v4 is already on, it is a cleaned up feature.
+
+   The alpenglow gate itself is not here: Firedancer has no such
+   feature, because every tile learns alpenglow from the topology.
+   fd_genesis_create writes that one account directly. */
+
+static void
+alpenglow_enable_features( fd_features_t * features ) {
+  features->bls_pubkey_management_in_vote_account = 0UL;
+  features->validator_admission_ticket            = 0UL;
+}
+
 /* estimate_hashes_per_tick approximates the PoH hashrate of the current
    tile.  Spins PoH hashing for estimate_dur_ns nanoseconds.  Returns
    the hashes per tick achieved, where tick_dur_us is the target tick
@@ -112,12 +135,53 @@ create_genesis( config_t const * config,
 
   fd_genesis_options_t options[1];
 
-  /* Read in keys */
+  int const alpenglow = !!config->development.genesis.alpenglow;
+  options->alpenglow  = alpenglow;
+  memset( options->identity_bls_pubkey, 0, sizeof(options->identity_bls_pubkey) );
 
-  uchar const * identity_pubkey_ = fd_keyload_load( config->paths.identity_key, 1 );
-  if( FD_UNLIKELY( !identity_pubkey_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
-  memcpy( options->identity_pubkey.key, identity_pubkey_, 32 );
-  fd_keyload_unload( identity_pubkey_, 1 );
+  /* Which consensus the genesis describes and which one this validator
+     is wired to run are two separate switches, and there is no useful
+     configuration in which they disagree.  A votor tile on a TowerBFT
+     genesis has no BLS voting key in its vote account, so it is given
+     no weight in the alpenglow rank map and can never vote; a tower
+     tile on an alpenglow genesis has no ticks to keep time with. */
+
+  if( FD_UNLIKELY( config->is_firedancer && alpenglow!=!!config->firedancer.development.alpenglow ) ) {
+    FD_LOG_ERR(( "[development.genesis.alpenglow] is %s but [development.alpenglow] is %s; they must agree",
+                 alpenglow ? "true" : "false",
+                 config->firedancer.development.alpenglow ? "true" : "false" ));
+  }
+
+  /* Read in keys.  An alpenglow genesis needs the whole identity
+     keypair rather than just its public part, because the BLS key the
+     validator votes with is derived from it.  The identity is the
+     authorized voter of the vote account created below, and the sign
+     tile derives the same key from the same place
+     (fd_sign_tile.c derive_fields), so the two agree. */
+
+  int const identity_public_key_only = !alpenglow;
+
+  uchar const * identity_key_ = fd_keyload_load( config->paths.identity_key, identity_public_key_only );
+  if( FD_UNLIKELY( !identity_key_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
+  memcpy( options->identity_pubkey.key, identity_key_ + ( alpenglow ? 32UL : 0UL ), 32 );
+
+  if( FD_UNLIKELY( alpenglow ) ) {
+#if FD_HAS_BLST
+    uchar       bls_sk[ 32 ];
+    fd_sha512_t sha[1];
+    if( FD_UNLIKELY( fd_bls12_381_kdf( options->identity_bls_pubkey, bls_sk,
+                                       identity_key_+32UL, identity_key_,
+                                       fd_sha512_join( fd_sha512_new( sha ) ) ) ) )
+      FD_LOG_ERR(( "Failed to derive an alpenglow BLS pubkey from identity key `%s`", config->paths.identity_key ));
+    fd_memzero_explicit( bls_sk, sizeof(bls_sk) );
+#else
+    FD_LOG_ERR(( "[development.genesis.alpenglow] is enabled but this binary was built without "
+                 "blst, so it cannot derive the BLS voting key the genesis vote account has to "
+                 "carry." ));
+#endif
+  }
+
+  fd_keyload_unload( identity_key_, identity_public_key_only );
 
   char file_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
@@ -149,7 +213,16 @@ create_genesis( config_t const * config,
 
   /* Set up PoH config */
 
-  if( 0UL==config->development.genesis.hashes_per_tick ) {
+  if( alpenglow ) {
+
+    /* Alpenglow blocks carry exactly one tick and every entry has
+       num_hashes==1, so proof of history always runs in low power mode
+       and hashes_per_tick is left unset in the genesis regardless of
+       what is configured.  Matches agave's
+       genesis_utils::configure_alpenglow_at_genesis. */
+    options->hashes_per_tick = 0UL;
+
+  } else if( 0UL==config->development.genesis.hashes_per_tick ) {
 
     /* set hashes_per_tick to whatever machine is capable of */
     ulong hashes_per_tick =
@@ -188,6 +261,7 @@ create_genesis( config_t const * config,
   fd_features_disable_all( features );
   fd_features_enable_cleaned_up( features );
   default_enable_features( features );
+  if( FD_UNLIKELY( alpenglow ) ) alpenglow_enable_features( features );
 
   options->features = features;
 

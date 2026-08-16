@@ -196,6 +196,16 @@ struct fd_configf {
     struct {
       char affinity[ AFFINITY_SZ ];
     } forktest;
+
+    struct {
+      char ssl_key_log_file[ PATH_MAX ];
+      /* Have the votor tile publish the votes and certs it RECEIVES on
+         votor_out, so the consensus monitor has peer traffic to draw.
+         Off by default: votor_out's consumers are reliable, so the extra
+         frags are work they would not otherwise do.  Set by
+         `firedancer-dev dev --votor-monitor`. */
+      int  monitor;
+    } votor;
   } development;
 
   struct {
@@ -359,6 +369,7 @@ struct fd_config {
       ulong fund_initial_amount_lamports;
       ulong vote_account_stake_lamports;
       int   warmup_epochs;
+      int   alpenglow;
     } genesis;
 
     struct {
@@ -523,6 +534,11 @@ struct fd_config {
       ushort repair_serve_listen_port;
       ulong  shred_storage_limit_gib;
     } rserve;
+
+    struct {
+      ushort listen_port;
+      ushort client_port;
+    } alpenglow;
 
     struct {
       ulong max_transaction_lookahead_buffer_size;

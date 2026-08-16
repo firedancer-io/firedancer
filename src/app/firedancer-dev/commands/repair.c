@@ -1092,8 +1092,14 @@ repair_cmd_fn_forest( args_t *   args,
   ulong forest_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->forest );
   fd_forest_t * forest = (fd_forest_t *)fd_wksp_laddr( repair_wksp->wksp, forest_gaddr );
 
+  ulong chainer_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->chainer );
+  fd_chainer_t * chainer = (fd_chainer_t *)fd_wksp_laddr( repair_wksp->wksp, chainer_gaddr );
+
   for( ;; ) {
     fd_forest_print( forest );
+
+    printf("Chainer orphan request treap:\n");
+    fd_chainer_print( chainer );
     sleep( 1 );
   }
 }

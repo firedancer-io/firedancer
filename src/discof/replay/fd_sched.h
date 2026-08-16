@@ -371,8 +371,15 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx );
 ulong
 fd_sched_pruned_block_next( fd_sched_t * sched );
 
+/* fd_sched_set_poh_params gives bank_idx's block the tick window it
+   must land in and the hash count each of its ticks must carry.
+   alpenglow marks a block that carries a single closing tick and one
+   hash per entry, for which agave skips the hash count checks
+   altogether; it is NOT derivable from hashes_per_tick, which keeps its
+   genesis value across a migration. */
+
 void
-fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );
+fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, int alpenglow, fd_hash_t const * start_poh );
 
 /* fd_sched_block_verify_ticks sets the tick window and verifies
    ticks on bank_idx (shred fuzz harness, no exec); 0 if valid. */
@@ -409,6 +416,15 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
+
+/* fd_sched_get_final_cert returns the raw finalization cert bytes
+   parsed out of bank_idx's block footer, writing the byte count to sz.
+   Returns NULL (*sz==0) if the block footer carried none (or has not
+   been parsed yet; only meaningful once the block is done).  The bytes
+   are decodable with ag_block_final_cert_de and stay valid until the
+   block is pruned. */
+uchar const *
+fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx, ulong * sz );
 
 void
 fd_sched_metrics_write( fd_sched_t * sched );

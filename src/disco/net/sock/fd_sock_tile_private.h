@@ -11,7 +11,7 @@
 /* FD_SOCK_TILE_MAX_SOCKETS controls the max number of UDP ports that a
    sock tile can bind to. */
 
-#define FD_SOCK_TILE_MAX_SOCKETS (8)
+#define FD_SOCK_TILE_MAX_SOCKETS (9)
 
 /* MAX_NET_INS controls the max number of TX links that a sock tile can
    serve. */
@@ -19,9 +19,13 @@
 #define MAX_NET_INS (32UL)
 
 /* MAX_NET_OUTS controls the max number of RX links that a sock tile can
-   serve. */
+   serve.  The firedancer topology creates one per protocol that receives
+   on its own port: gossvf, shred, repair, rserve, txsend, quic, and
+   under alpenglow the votor mesh's net_alpenglow -- seven with every
+   one of them enabled, which is exactly what TowerBFT's six became when
+   alpenglow was added. */
 
-#define MAX_NET_OUTS (6UL)
+#define MAX_NET_OUTS (8UL)
 
 /* Local metrics.  Periodically copied to the metric_in shm region. */
 

@@ -306,10 +306,11 @@ during_frag( fd_gui_ctx_t * ctx,
   }
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
-    if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED &&
-                   sig!=REPLAY_SIG_BECAME_LEADER  &&
-                   sig!=REPLAY_SIG_ROOT_ADVANCED  &&
-                   sig!=REPLAY_SIG_OC_ADVANCED ) ) return;
+    if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED    &&
+                   sig!=REPLAY_SIG_BECAME_LEADER     &&
+                   sig!=REPLAY_SIG_ROOT_ADVANCED     &&
+                   sig!=REPLAY_SIG_OC_ADVANCED       &&
+                   sig!=REPLAY_SIG_CONSENSUS_UPDATE ) ) return;
   }
 
   if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
@@ -407,6 +408,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_OC_ADVANCED ) ) {
         fd_replay_oc_advanced_t const * oc = (fd_replay_oc_advanced_t const *)src;
         fd_gui_handle_oc_advanced( ctx->gui, oc->slot, oc->bank_seq, fd_clock_tile_now( ctx->clock ) );
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_CONSENSUS_UPDATE ) ) {
+        fd_replay_consensus_update_t const * cu = (fd_replay_consensus_update_t const *)src;
+        fd_gui_handle_consensus_update( ctx->gui, cu, fd_clock_tile_now( ctx->clock ) );
       } else {
         return;
       }

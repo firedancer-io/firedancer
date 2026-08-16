@@ -62,6 +62,24 @@ struct fd_became_leader {
   /* The epoch of the slot for which we are becoming leader. */
   ulong epoch;
 
+  /* ALPENGLOW.  Whether the block being opened is an alpenglow block,
+     which changes its shape completely: no free running proof of
+     history, exactly one tick at the end, and a BlockHeader as the very
+     first component.  See the long comment in fd_poh.h.
+
+     Deliberately carried per block rather than read from a global,
+     because the poh tile has no other way to learn it -- it never sees
+     a bank. */
+  int alpenglow;
+
+  /* ALPENGLOW.  The parent this block is built on, as its BlockHeader
+     must state it.  Under alpenglow a block id is the block's DOUBLE
+     merkle root, which is NOT the last FEC set's merkle root that the
+     shred tile chains from, so this is a different value from the
+     chained merkle root carried on each entry batch. */
+  ulong alpenglow_parent_slot;
+  uchar alpenglow_parent_block_id[ 32UL ];
+
   /* Consensus-critical cost limits for the slot we are becoming leader.
      These are typically unchanging, but may change after a feature
      activation. */

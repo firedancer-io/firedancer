@@ -347,6 +347,72 @@
    569,424 or more prior slots. */
 #define MAX_SKIPPED_TICKS (1UL+(FD_PACK_MAX_DATA_PER_BLOCK/48UL))
 
+/* ALPENGLOW.
+
+   Under Alpenglow the shape of a block changes completely and PoH stops
+   being a clock.
+
+   A TowerBFT block is a stream of ticks with microblocks interleaved
+   between them, and the tick chain is what proves the passage of time.
+   PoH free-runs hash(hash(...)) even when not leader so that it can
+   prove it waited before skipping a slot.
+
+   An Alpenglow block is
+
+     BlockHeader, microblock, microblock, ..., BlockFooter, tick
+
+   with exactly ONE tick, at the very end, and every entry carrying
+   num_hashes==1.  Time is kept by consensus (votor's ParentReady and
+   the window timers), not by hashing, so:
+
+     - PoH does no free-running hashing at all.  There is no tick per
+       hashcnt boundary to hit, so none of the interleaving rules or the
+       restricted_hashcnt arithmetic apply, and the slot clock comes
+       from the reset rather than from PoH running ahead.
+
+     - A microblock is hash(hash, mixin), published as it arrives.
+
+     - The single closing tick is hash(hash), computed only once every
+       in-flight microblock pack sent for the slot has landed.  Ending
+       the block before then would freeze the bank underneath a
+       microblock still in flight.
+
+   The BlockHeader must be the FIRST component of the block: a replaying
+   peer reads the parent_block_id out of it, and a block whose header is
+   not at FEC set 0 is silently deferred by every receiver.  So it is
+   published synchronously out of the become_leader frag, before pack is
+   told to start packing and therefore before any microblock can exist.
+
+   FD_POH_AG_MARKER_MAX is the largest serialized marker: a footer with
+   a full user agent and all three optional certs.  The largest in
+   practice is a footer carrying a slow-finalization cert (Final +
+   Notar), which is well under this. */
+
+#define FD_POH_AG_MARKER_MAX   (1024UL)
+
+/* Wire sizes of the marker envelope, verified against agave's
+   entry/src/block_component.rs wincode schema:
+
+     BlockComponent::BlockMarker  u64 entry count, always 0
+     VersionedBlockMarker         u16 tag,  tag_encoding="u16", V1 = 1
+     BlockMarkerV1                u8  variant (see below)
+     LengthPrefixed<T>            u16 byte length of the inner value,
+                                      INCLUDING its own version tag
+     VersionedBlockHeader/...     u8  tag, tag_encoding="u8", V1 = 1
+     ...payload
+
+   The doc comment in block_component.rs draws the layouts WITHOUT the
+   inner Versioned* tag byte; the derive is what is authoritative and it
+   emits one.  fd_block_marker.h models it correctly. */
+
+#define FD_POH_AG_MARKER_HDR_SZ  (13UL) /* u64 + u16 + u8 + u16 */
+#define FD_POH_AG_MARKER_VER     (1U)
+
+#define FD_POH_AG_VARIANT_FOOTER        (0)
+#define FD_POH_AG_VARIANT_HEADER        (1)
+#define FD_POH_AG_VARIANT_UPDATE_PARENT (2)
+#define FD_POH_AG_VARIANT_GENESIS_CERT  (3)
+
 struct fd_poh_leader_slot_ended {
   int   completed;
   ulong slot;
@@ -437,6 +503,35 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
      the slot hashes sysvar can be updated correctly, and also publish
      them to peer nodes as part of our outgoing shreds. */
   uchar skipped_tick_hashes[ MAX_SKIPPED_TICKS ][ 32 ];
+
+  /* ALPENGLOW state.  See the long comment above fd_poh_leader_slot_ended
+     for the shape of an alpenglow block. */
+
+  /* Whether the cluster is running alpenglow.  Set from the reset bank,
+     which is the only thing that knows, and latched: once alpenglow is
+     on it never goes back off within a run, so a later reset carrying a
+     stale flag cannot switch the tile back to producing TowerBFT-shaped
+     blocks mid-block. */
+  int   ag_enabled;
+
+  /* Set once the block has been asked to close, cleared when the tick
+     is published.  While set, PoH is waiting for pack's in-flight
+     microblocks to drain. */
+  int   ag_completing;
+
+  /* The closing tick, computed once ag_completing is set AND every
+     microblock accounted for has landed.  ag_tick_ready gates the
+     footer+tick publish. */
+  int   ag_tick_ready;
+  uchar ag_tick_hash[ 32 ];
+
+  /* Parent of the block being produced, as the BlockHeader must state
+     it.  Under alpenglow the block id is the block's DOUBLE merkle
+     root, not the last FEC set's merkle root, so this is not the same
+     value as completed_block_id (which is what the shred tile chains
+     from).  Kept separately for that reason. */
+  ulong     ag_parent_slot;
+  fd_hash_t ag_parent_block_id;
 
   fd_sha256_t * sha256;
 
@@ -529,6 +624,114 @@ fd_poh_wfs_done( fd_poh_t * poh );
 void
 fd_poh_update_max_microblocks( fd_poh_t * poh,
                                ulong      new_max );
+
+/* ALPENGLOW ------------------------------------------------------- */
+
+/* fd_poh_ag_enabled returns whether the tile is producing alpenglow
+   shaped blocks. */
+
+FD_FN_PURE int
+fd_poh_ag_enabled( fd_poh_t const * poh );
+
+/* fd_poh_ag_enable latches alpenglow mode on and re-derives the
+   microblock cap.
+
+   Under TowerBFT the cap is min(MAX_MICROBLOCKS_PER_SLOT,
+   ticks_per_slot*(hashcnt_per_tick-1)) because each microblock has to
+   fit between two ticks.  Alpenglow does not tie microblocks to ticks
+   at all -- the block carries as many as fit before the deadline and
+   exactly one tick at the end -- and an alpenglow genesis leaves
+   hashes_per_tick unset, which would otherwise pin the cap at
+   ticks_per_slot, about three orders of magnitude too few. */
+
+void
+fd_poh_ag_enable( fd_poh_t * poh );
+
+/* fd_poh_ag_begin_block publishes the BlockHeader for the block that
+   begin_leader just opened.  parent_slot / parent_block_id are the
+   alpenglow (double merkle root) identity of the parent, from replay.
+
+   MUST be called from the same frag handler as fd_poh_begin_leader, and
+   after it.  Publishing here rather than deferring to fd_poh_advance is
+   what guarantees the header is ahead of every microblock and lands in
+   FEC set 0: pack only learns it is leader from the very same frag, so
+   nothing it produces can overtake this.  A header that is not at shred
+   index 0 is silently deferred by every receiver. */
+
+void
+fd_poh_ag_begin_block( fd_poh_t *          poh,
+                       fd_stem_context_t * stem,
+                       ulong               parent_slot,
+                       fd_hash_t const *   parent_block_id );
+
+/* fd_poh_ag_complete_block asks PoH to end the block in progress.  It
+   does not end it: the closing tick may only be computed once every
+   microblock pack sent for this slot has landed, so this just sets
+   ag_completing and the drain is finished in fd_poh_advance.
+
+   fd_poh_ag_tick_ready reports when the tick has been computed, i.e.
+   when the caller may build the footer (it needs the bank frozen, which
+   needs the tick registered). */
+
+void
+fd_poh_ag_complete_block( fd_poh_t * poh );
+
+FD_FN_PURE int
+fd_poh_ag_tick_ready( fd_poh_t const * poh );
+
+/* fd_poh_ag_pending reports that fd_poh_advance has alpenglow work
+   outstanding, namely a block that has been asked to close whose tick
+   has not been computed yet.  The tile uses it to force an advance:
+   under alpenglow fd_poh_must_tick is always false, so otherwise the
+   only thing scheduling an advance is the input links going idle, and
+   the block would close late (or, if pack keeps the links busy, not at
+   all). */
+
+FD_FN_PURE int
+fd_poh_ag_pending( fd_poh_t const * poh );
+
+/* fd_poh_ag_publish_footer publishes the footer marker and then the
+   closing tick, in that order, and returns the tile to follower state.
+
+   Order on the wire is microblocks..., footer, tick.  The footer has to
+   precede the tick because the tick is what carries
+   FD_SHRED_DATA_FLAG_SLOT_COMPLETE, and anything after it is not part
+   of the block.
+
+   footer/footer_sz is the serialized BlockFooter marker, built by the
+   caller with fd_poh_ag_footer_encode once the bank has frozen (the
+   footer states the bank hash).  Returns 0 on success, -1 if the footer
+   is larger than FD_POH_AG_MARKER_MAX, in which case nothing is
+   published and the block never completes. */
+
+int
+fd_poh_ag_publish_footer( fd_poh_t *          poh,
+                          fd_stem_context_t * stem,
+                          uchar const *       footer,
+                          ulong               footer_sz );
+
+/* fd_poh_ag_header_encode serializes a BlockHeader marker into out,
+   which must have room for FD_POH_AG_MARKER_MAX bytes.  Returns the
+   number of bytes written.
+
+   fd_poh_ag_footer_encode does the same for a BlockFooter.  cert /
+   cert_sz is the optional serialized FinalCertificate (NULL for none);
+   the skip-reward and notar-reward certs are always encoded absent, as
+   Firedancer does not produce them.  block_producer_time_nanos is the
+   leader's wall clock at block close, which replaying peers clamp
+   against the parent's timestamp. */
+
+ulong
+fd_poh_ag_header_encode( uchar *           out,
+                         ulong             parent_slot,
+                         fd_hash_t const * parent_block_id );
+
+ulong
+fd_poh_ag_footer_encode( uchar *           out,
+                         fd_hash_t const * bank_hash,
+                         long              block_producer_time_nanos,
+                         uchar const *     cert,
+                         ulong             cert_sz );
 
 FD_PROTOTYPES_END
 

@@ -69,6 +69,7 @@ union fdctl_args {
     int  parent_pipefd;
     int  no_watch;
     int  full_watch;
+    int  votor_monitor;
     int  no_configure;
     int  no_init_workspaces;
     int  no_agave;
@@ -81,6 +82,11 @@ union fdctl_args {
   struct {
     int no_watch;
   } forktest;
+
+  struct {
+    char   target[ IP4_PORT_STR_MAX ];
+    ushort local_port;
+  } votor_test;
 
   struct {
     char tile_name[ 7UL ];

@@ -2,6 +2,7 @@
 #include "fd_sock_tile_private.h"
 #include "../fd_net_common.h"
 #include "../../topo/fd_topo.h"
+#include "../../../discof/repair/fd_repair.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
@@ -186,27 +187,33 @@ privileged_init( fd_topo_t const *      topo,
     (ushort)tile->sock.net.gossip_listen_port,
     (ushort)tile->sock.net.repair_client_listen_port,
     (ushort)tile->sock.net.repair_serve_listen_port,
-    (ushort)tile->sock.net.txsend_src_port
+    (ushort)tile->sock.net.txsend_src_port,
+    (ushort)tile->sock.net.alpenglow_listen_port,
+    (ushort)tile->sock.net.alpenglow_client_listen_port
   };
   static char const * udp_port_links[] = {
-    "net_quic",   /* legacy_transaction_listen_port */
-    "net_quic",   /* quic_transaction_listen_port */
-    "net_shred",  /* shred_listen_port (turbine) */
-    "net_gossvf", /* gossip_listen_port */
-    "net_shred",  /* shred_listen_port (repair) */
-    "net_rserve", /* repair_serve_listen_port */
-    "net_txsend"  /* txsend_src_port */
+    "net_quic",      /* legacy_transaction_listen_port */
+    "net_quic",      /* quic_transaction_listen_port */
+    "net_shred",     /* shred_listen_port (turbine) */
+    "net_gossvf",    /* gossip_listen_port */
+    "net_shred",     /* shred_listen_port (repair) */
+    "net_rserve",    /* repair_serve_listen_port */
+    "net_txsend",    /* txsend_src_port */
+    "net_alpenglow", /* alpenglow_listen_port */
+    "net_alpenglow"  /* alpenglow_client_listen_port */
   };
   static uchar const udp_port_protos[] = {
-    DST_PROTO_TPU_UDP,  /* legacy_transaction_listen_port */
-    DST_PROTO_TPU_QUIC, /* quic_transaction_listen_port */
-    DST_PROTO_SHRED,    /* shred_listen_port (turbine) */
-    DST_PROTO_GOSSIP,   /* gossip_listen_port */
-    DST_PROTO_REPAIR,   /* shred_listen_port (repair) */
-    DST_PROTO_RSERVE,   /* repair_serve_listen_port */
-    DST_PROTO_SEND      /* send_src_port */
+    DST_PROTO_TPU_UDP,   /* legacy_transaction_listen_port */
+    DST_PROTO_TPU_QUIC,  /* quic_transaction_listen_port */
+    DST_PROTO_SHRED,     /* shred_listen_port (turbine) */
+    DST_PROTO_GOSSIP,    /* gossip_listen_port */
+    DST_PROTO_REPAIR,    /* shred_listen_port (repair) */
+    DST_PROTO_RSERVE,    /* repair_serve_listen_port */
+    DST_PROTO_SEND,      /* send_src_port */
+    DST_PROTO_ALPENGLOW, /* alpenglow_listen_port */
+    DST_PROTO_ALPENGLOW  /* alpenglow_client_listen_port */
   };
-  for( uint candidate_idx=0U; candidate_idx<7; candidate_idx++ ) {
+  for( uint candidate_idx=0U; candidate_idx<sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]); candidate_idx++ ) {
     if( !udp_port_candidates[ candidate_idx ] ) continue;
     uint sock_idx = ctx->sock_cnt;
     if( sock_idx>=FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));
@@ -418,11 +425,11 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
     /* When a message arrives on the repair intake port, it is sent
-       to the shred tile, unless it is a ping message (identified by
-       the frame size), then it is sent to the repair tile.
-       The repair tile does not own any sockets, so we look up the
-       net_repair link directly.*/
-    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && frame_sz==REPAIR_PING_SZ ) ) {
+       to the shred tile, unless it is a ping or an alpenglow blockid
+       repair response (identified by the frame size), then it is sent to
+       the repair tile.  The repair tile does not own any sockets, so
+       we look up the net_repair link directly. */
+    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && frame_sz<AG_REPAIR_RESPONSE_MAX_SZ+sizeof(fd_ip4_udp_hdrs_t) ) ) {
       fd_sock_link_rx_t * repair_link = ctx->link_rx + ctx->repair_rx;
       uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
       memcpy( repair_buf, eth_hdr, frame_sz );

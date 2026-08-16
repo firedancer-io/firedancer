@@ -12,7 +12,7 @@
 
 static void
 test_sched_footprint( void ) {
-  FD_TEST( fd_sched_footprint( 512UL, 4UL )==14039424UL );
+  FD_TEST( fd_sched_footprint( 512UL, 4UL )==14042496UL );
 }
 
 static void
@@ -107,7 +107,7 @@ run_bad_tick_case( fd_hash_t const * start_poh,
   }};
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
   FD_TEST( fd_sched_fec_ingest( sched, fec ) );
-  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, max_tick_height, hashes_per_tick, start_poh );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, max_tick_height, hashes_per_tick, 0 /* alpenglow */, start_poh );
 
   fd_sched_task_t task[ 1 ];
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
@@ -208,7 +208,7 @@ run_lane_policy_case( void ) {
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
     FD_TEST( fd_sched_fec_ingest( sched, fec ) );
-    fd_sched_set_poh_params( sched, bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx + 1UL, 1UL, start_poh );
+    fd_sched_set_poh_params( sched, bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx + 1UL, 1UL, 0 /* alpenglow */, start_poh );
 
     fd_sched_task_t task[ 1 ];
     FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) );
@@ -239,7 +239,7 @@ run_lane_policy_case( void ) {
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
     FD_TEST( fd_sched_fec_ingest( sched, fec ) );
-    fd_sched_set_poh_params( sched, bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx + 1UL, 1UL, start_poh );
+    fd_sched_set_poh_params( sched, bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx + 1UL, 1UL, 0 /* alpenglow */, start_poh );
   }
 
   state = fd_sched_get_state_cstr( sched );

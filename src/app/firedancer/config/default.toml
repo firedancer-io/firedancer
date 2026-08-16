@@ -1686,6 +1686,15 @@ telemetry = true
         # evicted as new shreds are added.
         shred_storage_limit_gib = 50
 
+    [tiles.alpenglow]
+        # The port the validator listens for Alpenglow votes and
+        # certificates.
+        listen_port = 9011
+
+        # The local UDP source port the votor tile uses for outbound
+        # Alpenglow QUIC client connections.
+        client_port = 9012
+
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just
     # used to send votes that our validator produces.
@@ -2002,6 +2011,22 @@ telemetry = true
         # of the cluster.
         warmup_epochs = false
 
+        # Create a genesis for a cluster that runs Alpenglow consensus
+        # from slot 0 rather than TowerBFT.  The vote account is written
+        # as a VoteStateV4 carrying the BLS voting key derived from the
+        # identity, funded for the validator admission ticket, and the
+        # Alpenglow feature gate, genesis certificate and epoch
+        # inflation accounts are added.  hashes_per_tick above is
+        # ignored and left unset in the genesis, because an Alpenglow
+        # block carries exactly one tick.
+        #
+        # This has to agree with [development.alpenglow], which is
+        # what actually decides whether this validator runs the votor
+        # tile instead of the tower tile, and genesis creation refuses
+        # to run if the two disagree.  A votor tile on a TowerBFT
+        # genesis has no BLS voting key and cannot vote at all.
+        alpenglow = false
+
     [development.bench]
         # How many benchg tiles to run when benchmarking.  benchg tiles
         # are responsible for generating and signing outgoing
@@ -2182,6 +2207,20 @@ telemetry = true
     [development.forktest]
         # See [layout.affinity]
         affinity = "auto"
+
+    # Development and diagnostic only options for the votor tile.
+    [development.votor]
+        # Log TLS encryption keys to decrypt Alpenglow QUIC traffic to
+        # this file path in NSS SSLKEYLOGFILE format.  An empty string
+        # (the default) disables key logging.
+        ssl_key_log_file = ""
+
+        # Have the votor tile also publish the votes and certificates it
+        # RECEIVES on votor_out, so `firedancer-dev votor-monitor` has peer
+        # traffic to draw.  Off by default: votor_out's consumers are
+        # reliable, so these are frags they would not otherwise have to
+        # consume.  `firedancer-dev dev --votor-monitor` turns it on.
+        monitor = false
 
     # Tuning for the accounts database.  These options are for advanced
     # users and should not be changed in production.
