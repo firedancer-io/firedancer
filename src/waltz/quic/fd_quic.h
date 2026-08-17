@@ -214,6 +214,10 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   fd_tls_sign_fn_t sign;
   void *           sign_ctx;
 
+  /* alpn: either "solana-tpu" or "alpenglow-v1" */
+  uchar alpn[ 32 ];
+  ulong alpn_sz;
+
 # define FD_QUIC_PATH_LEN 1023UL
   char keylog_file[ FD_QUIC_PATH_LEN+1UL ];
 

@@ -61,7 +61,9 @@ fd_quic_tls_tp_peer( void *        handshake,
 static void
 fd_quic_tls_init( fd_tls_t *    tls,
                   fd_tls_sign_t signer,
-                  uchar const   cert_public_key[ static 32 ] );
+                  uchar const   cert_public_key[ static 32 ],
+                  uchar const * alpn,
+                  ulong         alpn_sz );
 
 fd_quic_tls_t *
 fd_quic_tls_new( fd_quic_tls_t *     self,
@@ -87,7 +89,7 @@ fd_quic_tls_new( fd_quic_tls_t *     self,
   self->peer_params_cb        = cfg->peer_params_cb;
 
   /* Initialize fd_tls */
-  fd_quic_tls_init( &self->tls, cfg->signer, cfg->cert_public_key );
+  fd_quic_tls_init( &self->tls, cfg->signer, cfg->cert_public_key, cfg->alpn, cfg->alpn_sz );
 
   return self;
 }
@@ -98,7 +100,9 @@ fd_quic_tls_new( fd_quic_tls_t *     self,
 static void
 fd_quic_tls_init( fd_tls_t *    tls,
                   fd_tls_sign_t signer,
-                  uchar const   cert_public_key[ static 32 ] ) {
+                  uchar const   cert_public_key[ static 32 ],
+                  uchar const * alpn,
+                  ulong         alpn_sz ) {
   tls = fd_tls_new( tls );
   *tls = (fd_tls_t) {
     .quic = 1,
@@ -129,9 +133,15 @@ fd_quic_tls_init( fd_tls_t *    tls,
   /* Set ALPN protocol ID
      (Technically, don't need to copy the length prefix but we'll do
       so anyways.) */
-  tls->alpn[ 0 ] = 0x0a;
-  memcpy( tls->alpn+1, "solana-tpu", 11UL );
-  tls->alpn_sz = 11UL;
+  if( FD_UNLIKELY( alpn_sz ) ) {
+    if( FD_UNLIKELY( alpn_sz>sizeof(tls->alpn) ) ) FD_LOG_ERR(( "alpn_sz %lu too large", alpn_sz ));
+    memcpy( tls->alpn, alpn, alpn_sz );
+    tls->alpn_sz = alpn_sz;
+  } else { /* default this for backwards compatibility */
+    tls->alpn[ 0 ] = 0x0a;
+    memcpy( tls->alpn+1, "solana-tpu", 11UL );
+    tls->alpn_sz = 11UL;
+  }
 }
 
 void *

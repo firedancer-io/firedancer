@@ -473,6 +473,7 @@ void
 ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
                    ag_block_id_t const * parent_id ) {
+
   ulong             slot        = block_id->slot;
   fd_hash_t const * block_hash  = &block_id->hash;
   ulong             parent_slot = parent_id->slot;
@@ -480,7 +481,7 @@ ag_pool_add_block( ag_pool_t *           self,
 
   ag_finalization_event_t finalization_event = ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id );
   ag_parent_ready_t       new_parents_ready  = ag_parent_ready_tracker_handle_finalization( self->parent_ready_tracker, &finalization_event, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
-  if( new_parents_ready.slot!=ULONG_MAX ) {
+  if( FD_UNLIKELY( new_parents_ready.slot!=ULONG_MAX ) ) {
     ag_pool_event_t event = { .kind = AG_POOL_EVENT_PARENT_READY, .inner.parent_ready = { .slot = new_parents_ready.slot, .parent = new_parents_ready.parent } };
     votor_event_channel_push( self->votor_event_channel, event );
   }

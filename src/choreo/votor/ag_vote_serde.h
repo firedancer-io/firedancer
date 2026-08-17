@@ -11,7 +11,6 @@
 
 struct __attribute__((packed)) ag_vote_signature_serde {
   ag_aggsig_sig_t signature;     /* WireVoteSignature::signature          (BLSSignature) */
-  ushort          signer;        /* WireVoteSignature::rank               (u16)          */
   ushort          shred_version; /* WireConsensusMessageV1::shred_version (u16)          */
 };
 typedef struct ag_vote_signature_serde ag_vote_signature_serde_t;

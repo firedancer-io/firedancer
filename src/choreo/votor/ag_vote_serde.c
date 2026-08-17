@@ -1,6 +1,6 @@
 #include "ag_vote_serde.h"
 
-FD_STATIC_ASSERT( sizeof(ag_vote_signature_serde_t)==AG_AGGSIG_SIG_SZ+4UL,                                     ag_vote_serde );
+FD_STATIC_ASSERT( sizeof(ag_vote_signature_serde_t)==AG_AGGSIG_SIG_SZ+2UL,                                     ag_vote_serde );
 FD_STATIC_ASSERT( sizeof(ag_vote_serde_t          )==10UL+sizeof(fd_hash_t)+sizeof(ag_vote_signature_serde_t), ag_vote_serde );
 
 static ag_aggsig_sig_t const *
@@ -32,7 +32,6 @@ ag_vote_ser( ag_vote_t const * self,
   out->slot    = ag_vote_slot( self );
   if( block_id ) out->block_vote.block_id = *block_id;
   signature->signature     = *vote_signature( self );
-  signature->signer        = ag_vote_signer( self );
   signature->shred_version = shred_version;
 
   if( buf_sz ) *buf_sz = sz;
@@ -70,33 +69,31 @@ ag_vote_de( ag_vote_t *   out,
 
   fd_memset( out, 0, sizeof(ag_vote_t) );
   out->kind = kind;
+
+  ag_vote_set_signer( out, USHORT_MAX ); /* FIXME */
+
   switch( kind ) {
   case AG_VOTE_TYPE_NOTAR:
     out->inner.notar.slot       = vote->slot;
     out->inner.notar.block_hash = vote->block_vote.block_id;
     out->inner.notar.sig        = signature->signature;
-    out->inner.notar.signer     = signature->signer;
     break;
   case AG_VOTE_TYPE_NOTAR_FALLBACK:
     out->inner.notar_fallback.slot       = vote->slot;
     out->inner.notar_fallback.block_hash = vote->block_vote.block_id;
     out->inner.notar_fallback.sig        = signature->signature;
-    out->inner.notar_fallback.signer     = signature->signer;
     break;
   case AG_VOTE_TYPE_SKIP:
-    out->inner.skip.slot   = vote->slot;
-    out->inner.skip.sig    = signature->signature;
-    out->inner.skip.signer = signature->signer;
+    out->inner.skip.slot = vote->slot;
+    out->inner.skip.sig  = signature->signature;
     break;
   case AG_VOTE_TYPE_SKIP_FALLBACK:
-    out->inner.skip_fallback.slot   = vote->slot;
-    out->inner.skip_fallback.sig    = signature->signature;
-    out->inner.skip_fallback.signer = signature->signer;
+    out->inner.skip_fallback.slot = vote->slot;
+    out->inner.skip_fallback.sig  = signature->signature;
     break;
   default:
-    out->inner.final.slot   = vote->slot;
-    out->inner.final.sig    = signature->signature;
-    out->inner.final.signer = signature->signer;
+    out->inner.final.slot = vote->slot;
+    out->inner.final.sig  = signature->signature;
     break;
   }
 

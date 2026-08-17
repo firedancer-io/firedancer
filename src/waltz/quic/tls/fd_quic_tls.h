@@ -88,6 +88,10 @@ struct fd_quic_tls_cfg {
 
   /* Ed25519 public key */
   uchar const * cert_public_key;
+
+  /* alpn: either "solana-tpu" or "alpenglow-v1" */
+  uchar const * alpn;
+  ulong         alpn_sz;
 };
 
 /* structure for organising handshake data */
@@ -255,4 +259,3 @@ fd_quic_tls_clear_hs_data( fd_quic_tls_hs_t * self, uint enc_level );
 
 
 #endif /* HEADER_fd_src_waltz_quic_tls_fd_quic_tls_h */
-

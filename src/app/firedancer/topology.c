@@ -301,6 +301,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "net_shred"    );
   fd_topob_wksp( topo, "net_repair"   );
   if( rserve_enabled ) fd_topob_wksp( topo, "net_rserve" );
+  if( alpenglow_enabled ) fd_topob_wksp( topo, "net_votor" );
   fd_topob_wksp( topo, "net_txsend"   );
   if( leader_enabled ) fd_topob_wksp( topo, "net_quic" );
 
@@ -487,6 +488,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    shred_depth,                              sizeof(fd_fec_complete_t),   1UL );
   if( alpenglow_enabled ) {
     /**/               fd_topob_link( topo, "votor_out",     "votor_out",     16384UL,                                  sizeof(fd_votor_msg_t),                        2UL )->permit_no_consumers = 1;
+    /**/               fd_topob_link( topo, "votor_net",     "net_votor",     config->net.ingress_buffer_size,          FD_NET_MTU,                                    1UL );
   } else {
     /**/               fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
   }
@@ -523,6 +525,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   if( rserve_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve", i, config->net.ingress_buffer_size );
+  if( alpenglow_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_votor", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_txsend", i, config->net.ingress_buffer_size );
   if( leader_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
 
@@ -844,7 +847,10 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "ipecho_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    FOR(net_tile_cnt)  fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "net_votor",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
     /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_out",     0UL                                                  );
+    /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_net",     0UL                                                  );
+    /**/               fd_topos_tile_in_net( topo,                        "metric_in", "votor_net",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   }
 
   /* Sign links don't need to be reliable because they are synchronous,
@@ -1230,6 +1236,8 @@ fd_topo_initialize( config_t * config ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_configure_tile( &topo->tiles[ i ], config );
     if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, "gui" ) ) ) topo->tiles[ i ].gui.tile_cnt = topo->tile_cnt;
+    if( FD_UNLIKELY( alpenglow_enabled && ( !strcmp( topo->tiles[ i ].name, "net" ) || !strcmp( topo->tiles[ i ].name, "sock" ) ) ) )
+      topo->tiles[ i ].net.votor_quic_server_listen_port = config->firedancer.development.votor.quic_server_listen_port;
   }
 
   if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
@@ -1512,6 +1520,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.report_transaction_diffs = config->development.event.report_transaction_diffs;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "votor" ) ) ) {
+    tile->votor.quic_server_listen_port = config->firedancer.development.votor.quic_server_listen_port;
+    tile->votor.max_live_slots          = config->firedancer.runtime.max_live_slots;
+    fd_cstr_ncpy( tile->votor.identity_key_path, config->paths.identity_key, sizeof(tile->votor.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
