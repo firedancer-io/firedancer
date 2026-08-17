@@ -1604,7 +1604,9 @@ handle_lane_data_frag( fd_snapin_tile_t *  ctx,
   /* EOM marks the end of a frame */
   int eom = !!fd_frag_meta_ctl_eom( ctl );
 
-  /* Tar EOF can precede a zero-byte EOM that closes the frame. */
+  /* The tar parser can reach EOF before snapdc reports the end of the
+     zstd frame.  Only the empty EOM is valid (any payload after EOF is
+     malformed). */
   int trailing_eom = ctx->state==FD_SNAPSHOT_STATE_FINISHING && eom && !sz;
   if( FD_UNLIKELY( !trailing_eom && handle_data_frag( ctx, in_idx, chunk, sz, stem ) ) ) {
     return 1;
