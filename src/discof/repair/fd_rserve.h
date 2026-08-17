@@ -14,8 +14,16 @@
 /* Token rotation period in nanoseconds (640 seconds, half of TTL). */
 #define FD_RSERVE_TOKEN_ROTATE_NS   (640UL * 1000000000UL)
 
+
+struct __attribute__((packed)) ping_cache_key {
+  fd_pubkey_t pubkey; /* pubkey of the node which sent the ping */
+  uint        ip4;    /* source ipv4 address of the pong */
+  ushort      port;   /* source udp port of the pong */
+};
+typedef struct ping_cache_key ping_cache_key_t;
+
 typedef struct {
-  fd_pubkey_t addr;      /* The public key of the validator which sent the ping. */
+  ping_cache_key_t key;  /* (pubkey, address) that completed a ping */
   ulong       next;      /* Pool free-list next. */
   struct {
     ulong prev;
@@ -34,12 +42,12 @@ typedef struct {
 
 #define MAP_NAME                           ping_map
 #define MAP_ELE_T                          ping_cache_entry_t
-#define MAP_KEY_T                          fd_pubkey_t
-#define MAP_KEY                            addr
+#define MAP_KEY_T                          ping_cache_key_t
+#define MAP_KEY                            key
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
-#define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,sizeof(fd_pubkey_t)))
-#define MAP_KEY_HASH(key,seed)             fd_ulong_hash( fd_ulong_load_8( (key)->uc ) ^ (seed) )
+#define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0),(k1),sizeof(ping_cache_key_t)))
+#define MAP_KEY_HASH(key,seed)             fd_ulong_hash( fd_hash( (seed), key->pubkey.uc, sizeof(fd_pubkey_t) ) ^ ((ulong)(key)->ip4) ^ (((ulong)(key)->port)<<32) ^ (seed) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -54,12 +62,12 @@ typedef struct {
   ping_map_t         * ping_map;
   ping_dlist_t       * ping_dlist;
 
-  /* Ping tokens to send in responses. We maintain two tokens so that
-     a pong arriving shortly after a rotation is still accepted. */
-  uchar token_cur [ 32 ];
-  uchar token_prev[ 32 ];
+  uchar secret_master[ 32 ];
+  uchar secret_cur   [ 32 ];
+  uchar secret_prev  [ 32 ];
   ulong token_idx;
   ulong last_rotate_ts;
+
   ulong seed;
 } fd_rserve_t;
 
@@ -72,9 +80,10 @@ ulong
 fd_rserve_footprint( ulong ping_cache_entries );
 
 void *
-fd_rserve_new( void * shmem,
-               ulong  ping_cache_entries,
-               ulong  seed );
+fd_rserve_new( void      * shmem,
+               ulong       ping_cache_entries,
+               ulong       seed,
+               uchar const secret[ 32 ] );
 
 fd_rserve_t *
 fd_rserve_join( void * shrserve );
@@ -85,27 +94,22 @@ fd_rserve_leave( fd_rserve_t const * rserve );
 void *
 fd_rserve_delete( void * rserve );
 
-/* fd_rserve_pong_token_verify checks whether the pong hash matches
-   either the current or previous token.  Returns 1 if valid, 0 if
-   not.  pong_hash is the 32-byte hash field from the pong message. */
+void
+fd_rserve_ping_token( fd_rserve_t const * rserve,
+                      uchar               token[ 32 ],
+                      fd_pubkey_t const * from,
+                      uint                ip4,
+                      ushort              port );
+
 int
 fd_rserve_pong_token_verify( fd_rserve_t const * rserve,
-                             uchar const       * pong_hash );
+                             uchar const       * pong_hash,
+                             fd_pubkey_t const * from,
+                             uint                ip4,
+                             ushort              port );
 
-static void
-fd_rserve_derive_token( uchar token[ 32 ],
-                        ulong seed,
-                        ulong idx ) {
-  /* The first 16 bytes are the "SOLANA_PING_PONG" domain prefix.
-     This is required by the keyguard signing tile, which validates
-     that any payload signed with FD_KEYGUARD_SIGN_TYPE_ED25519 for
-     the rserve role starts with this prefix.  The remaining 16
-     bytes are derived pseudo-randomly. */
-  memcpy( token, "SOLANA_PING_PONG", 16UL );
-  for( ulong i=0UL; i<2UL; i++ ) {
-    ulong v = fd_ulong_hash( seed ^ fd_ulong_hash( idx*2UL + i ) );
-    FD_STORE( ulong, token + 16UL + i*8UL, v );
-  }
-}
+void
+fd_rserve_maybe_rotate( fd_rserve_t * rserve,
+                        ulong         now_ns );
 
 #endif /* HEADER_fd_src_discof_repair_fd_rserve_h */
