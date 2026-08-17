@@ -276,11 +276,6 @@ struct fd_bank {
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
-  /* Double merkle root (Alpenglow block id); seeded from the snapshot
-     manifest at boot, otherwise derived from shred reassembly at slot
-     completion. */
-  fd_hash_t block_id;
-
   /* Timestamps written and read only by replay */
 
   long first_fec_set_received_nanos;

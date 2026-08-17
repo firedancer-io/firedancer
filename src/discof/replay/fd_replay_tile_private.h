@@ -48,14 +48,10 @@ typedef struct fd_replay_out_link fd_replay_out_link_t;
 
 struct fd_block_id_ele {
   fd_hash_t latest_mr;
-  /* alpenglow: the block's double merkle root (Alpenglow block id),
-     valid once block_id_seen is set.  Key for fd_block_id_dm_map. */
-  fd_hash_t block_id;
   uint      latest_fec_idx;
   int       block_id_seen;
   ulong     slot;
   ulong     next_;    /* fd_block_id_map chain    (key: latest_mr) */
-  ulong     next_dm_; /* fd_block_id_dm_map chain (key: block_id)  */
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
@@ -64,20 +60,6 @@ typedef struct fd_block_id_ele fd_block_id_ele_t;
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY                latest_mr
 #define MAP_NEXT               next_
-#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
-#include "../../util/tmpl/fd_map_chain.c"
-
-/* fd_dmr_map is a parallel index over the SAME block_id_arr,
-   keyed by the alpenglow double merkle root (block_id).  It is only
-   populated and queried when is_alpenglow, so the merkle-root path and
-   non-alpenglow behavior are left entirely untouched.  Both maps thread
-   their own chain field (next_ / next_dm_) through the shared element. */
-#define MAP_NAME               fd_dmr_map
-#define MAP_ELE_T              fd_block_id_ele_t
-#define MAP_KEY_T              fd_hash_t
-#define MAP_KEY                block_id
-#define MAP_NEXT               next_dm_
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
@@ -324,7 +306,6 @@ struct fd_replay_tile {
   fd_block_id_ele_t *    block_id_arr;
   ulong                  block_id_map_seed;
   fd_block_id_map_t *    block_id_map;
-  fd_dmr_map_t *         dmr_map; /* alpenglow: double merkle root -> bank idx */
 
   /* Capture-related configs */
   fd_capture_ctx_t *     capture_ctx;
