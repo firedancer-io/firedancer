@@ -622,16 +622,12 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
   /* Now load the blockhash offsets for these blockhashes ... */
   if( FD_UNLIKELY( !ctx->blockhash_offsets_len ) ) {
-    fd_slot_delta_slot_set_t ss = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
-    /* No offsets AND no rooted slots is corruption in either mode.  No
-       offsets WITH rooted slots only happens under Alpenglow. */
-    if( FD_UNLIKELY( !ctx->alpenglow || !ss.ele_cnt ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: no blockhash offsets found (rooted_slots=%lu)", ss.ele_cnt ));
+    if( FD_UNLIKELY( !ctx->alpenglow ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: no blockhash offsets found (nothing is rooted)" ));
       return 1;
     }
-    FD_LOG_WARNING(( "status cache has no blockhash offsets (rooted_slots=%lu txn_entries=%lu); "
-                     "proceeding with empty txncache offsets",
-                     ss.ele_cnt, ctx->txncache_entries_len ));
+    fd_slot_delta_slot_set_t ss = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
+    FD_LOG_NOTICE(( "status cache has no blockhash offsets (rooted_slots=%lu); proceeding with empty txncache offsets", ss.ele_cnt ));
   }
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
     fd_hash_t key;

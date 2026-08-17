@@ -198,6 +198,7 @@ ENCODE_FN {
     fd_pubkey_t node_account = {0};
     ushort      commission   = 0;
     ulong       ec_cnt       = 0UL;
+    ulong       ec_marker    = UCHAR_MAX;
     fd_epoch_credits_t const * ec = NULL;
 
     fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
@@ -212,8 +213,9 @@ ENCODE_FN {
       fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, &commission );
       ec = find_epoch_credits( enc->bank, &pubkey );
       FD_TEST( ec );
-      ec_cnt = ec->cnt;
-      co_epoch = bank->f.epoch;
+      ec_cnt    = ec->cnt;
+      ec_marker = ec->marker_idx;
+      co_epoch  = bank->f.epoch;
     } else if( entry_type==1U ) {
       fd_vote_stakes_t_2_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
       FD_TEST( !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter ) );
@@ -244,7 +246,9 @@ ENCODE_FN {
     }
 
     enc->total_stake += stake;
-    ulong data_length = 186UL + 24UL * ec_cnt;
+    int   ec_has_marker = ec_marker!=UCHAR_MAX;
+    ulong ec_out_cnt    = ec_cnt + (ulong)ec_has_marker;
+    ulong data_length   = 186UL + 24UL * ec_out_cnt;
 
     /* Vote account key + stake */
     PUSH_VAL( fd_pubkey_t, pubkey );
@@ -269,11 +273,21 @@ ENCODE_FN {
     PUSH_VAL( ulong,  0UL      ); /* authorized_voters_length = 0 */
 
     /* Epoch credits */
-    PUSH_VAL( ulong, ec_cnt );
+    PUSH_VAL( ulong, ec_out_cnt );
     for( ulong j=0UL; j<ec_cnt; j++ ) {
+      if( FD_UNLIKELY( ec_has_marker && j==ec_marker ) ) {
+        PUSH_VAL( ulong, ULONG_MAX );
+        PUSH_VAL( ulong, ULONG_MAX );
+        PUSH_VAL( ulong, ULONG_MAX );
+      }
       PUSH_VAL( ulong, (ulong)ec->epoch[j] );
-      PUSH_VAL( ulong, ec->base_credits + (ulong)ec->credits_delta[j] );
-      PUSH_VAL( ulong, ec->base_credits + (ulong)ec->prev_credits_delta[j] );
+      PUSH_VAL( ulong, ec->base_credits + ec->credits_delta[j] );
+      PUSH_VAL( ulong, ec->base_credits + ec->prev_credits_delta[j] );
+    }
+    if( FD_UNLIKELY( ec_has_marker && ec_marker==ec_cnt ) ) {
+      PUSH_VAL( ulong, ULONG_MAX );
+      PUSH_VAL( ulong, ULONG_MAX );
+      PUSH_VAL( ulong, ULONG_MAX );
     }
 
     PUSH_VAL( ulong, 0UL ); /* last_timestamp_slot */

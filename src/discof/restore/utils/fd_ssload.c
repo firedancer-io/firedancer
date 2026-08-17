@@ -140,9 +140,9 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
          can be the same.  Validators who earned credits before and
          after will have two entries for the same epoch. */
 
-      ulong ec_base     = 0UL;
-      ulong prev        = ULONG_MAX; /* index of the previous non-marker entry */
-      int   marker_seen = 0;
+      ulong prev            = ULONG_MAX; /* index of the previous non-marker entry */
+      int   marker_seen     = 0;
+      int   marker_straddle = 0;         /* the previous entry sits immediately before the marker */
 
       for( ulong k=0UL; k<vs->epoch_credits_history_len; k++ ) {
         epoch_credits_t const * epc = &vs->epoch_credits[k];
@@ -151,18 +151,25 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
             FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu] has more than one alpenglow migration marker", i, j ));
             return -1;
           }
-          marker_seen = 1;
+          marker_seen     = 1;
+          marker_straddle = 1;
           continue;
         }
-        if( FD_UNLIKELY( prev==ULONG_MAX ) ) ec_base = epc->prev_credits;
         if( FD_UNLIKELY( epc->prev_credits>epc->credits ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].prev_credits %lu exceeds credits %lu",
                            i, j, k, epc->prev_credits, epc->credits ));
           return -1;
         }
-        if( FD_UNLIKELY( prev!=ULONG_MAX && epc->epoch<vs->epoch_credits[prev].epoch ) ) {
-          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu is less than previous epoch %lu",
-                           i, j, k, epc->epoch, vs->epoch_credits[prev].epoch ));
+        /* Epochs strictly increase.  The one exception is the pair
+           straddling the migration marker, which may share an epoch
+           because the migration happens at a slot: a validator that
+           earned credits both before and after it has a tower entry and
+           an Alpenglow entry for the same epoch. */
+        if( FD_UNLIKELY( prev!=ULONG_MAX &&
+                         ( marker_straddle ? epc->epoch< vs->epoch_credits[prev].epoch
+                                           : epc->epoch<=vs->epoch_credits[prev].epoch ) ) ) {
+          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu does not follow previous epoch %lu (across_marker=%i)",
+                           i, j, k, epc->epoch, vs->epoch_credits[prev].epoch, marker_straddle ));
           return -1;
         }
         if( FD_UNLIKELY( prev!=ULONG_MAX && epc->prev_credits!=vs->epoch_credits[prev].credits ) ) {
@@ -175,12 +182,12 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                            i, j, k, epc->epoch ));
           return -1;
         }
-        if( FD_UNLIKELY( epc->credits<ec_base ) ) {
-          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].credits %lu is below base %lu",
-                           i, j, k, epc->credits, ec_base ));
-          return -1;
-        }
-        prev = k;
+        /* Note credits>=base_credits needs no check: base_credits is the
+           first entry's prev_credits, and the prev_credits<=credits and
+           prev_credits==previous credits checks above make it hold
+           transitively for every entry. */
+        prev            = k;
+        marker_straddle = 0;
       }
     }
   }
@@ -519,10 +526,18 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
 
+    /* The marker itself is not stored, but where it sat is: entries
+       before it are tower credits and entries after it are Alpenglow
+       reward lamports, and the two are scored differently.  Dropping the
+       boundary would merge them irrecoverably. */
     ulong cnt        = 0UL;
+    ulong marker_idx = UCHAR_MAX;
     ec->base_credits = 0UL;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      if( FD_UNLIKELY( fd_epoch_credits_is_alpenglow_marker( &elem->epoch_credits[ j ] ) ) ) continue;
+      if( FD_UNLIKELY( fd_epoch_credits_is_alpenglow_marker( &elem->epoch_credits[ j ] ) ) ) {
+        marker_idx = cnt; /* Manifest validation rejects a second marker. */
+        continue;
+      }
       if( FD_UNLIKELY( !cnt ) ) ec->base_credits = elem->epoch_credits[ j ].prev_credits;
       ec->epoch[ cnt ]              = (ushort)elem->epoch_credits[ j ].epoch;
       ec->credits_delta[ cnt ]      = elem->epoch_credits[ j ].credits      - ec->base_credits;
@@ -531,7 +546,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     }
     /* Manifest validation already rejects non-increasing epochs (except
        Alpenglow marker). */
-    ec->cnt = (uchar)cnt;
+    ec->cnt        = (uchar)cnt;
+    ec->marker_idx = (uchar)marker_idx;
     ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
     FD_TEST( ec->fast_path_ok ); /* manifest validation enforces all three invariants */
     epoch_credits_len++;

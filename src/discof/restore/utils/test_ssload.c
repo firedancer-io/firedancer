@@ -439,12 +439,13 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 101UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* Duplicate epoch (epoch_stakes path).  Legal: the two entries either
-     side of an Alpenglow migration marker both carry the migration
-     epoch, so epochs are only required to be non-decreasing. */
+  /* Duplicate epoch (epoch_stakes path).  Still corruption: epochs
+     strictly increase.  The one legal duplicate is the pair straddling
+     an Alpenglow migration marker, covered by
+     test_epoch_credits_migration_marker. */
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 100UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Descending epoch (epoch_stakes path). */
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch = 0UL;
@@ -529,6 +530,23 @@ test_epoch_credits_migration_marker( fd_snapshot_manifest_t * manifest ) {
   set_epoch_credit( manifest, 0UL, 5UL, 100UL, 0UL );
   set_epoch_credit( manifest, 1UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
   set_epoch_credit( manifest, 2UL, 4UL, 300UL, 100UL );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Equal epochs are legal for exactly one pair, the one straddling the
+     marker.  A duplicate before it is still corruption, ... */
+  setup_migration_marker_case( manifest, 4UL );
+  set_epoch_credit( manifest, 0UL, 5UL, 100UL, 0UL );
+  set_epoch_credit( manifest, 1UL, 5UL, 200UL, 100UL );
+  set_epoch_credit( manifest, 2UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
+  set_epoch_credit( manifest, 3UL, 6UL, 300UL, 200UL );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* ... and so is a second duplicate after it. */
+  setup_migration_marker_case( manifest, 4UL );
+  set_epoch_credit( manifest, 0UL, 5UL, 100UL, 0UL );
+  set_epoch_credit( manifest, 1UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
+  set_epoch_credit( manifest, 2UL, 5UL, 200UL, 100UL );
+  set_epoch_credit( manifest, 3UL, 5UL, 300UL, 200UL );
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* A near miss on the sentinel is not a marker, it is corruption. */

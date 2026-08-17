@@ -20,6 +20,17 @@
    Seed distinct base, credits, and previous credits per entry so a
    dropped base or a swapped credits/prev_credits pair is caught. */
 
+#define EPOCH_CREDITS_STEP (0x100000007UL) /* > UINT_MAX */
+
+static ulong
+seed_marker_idx( ulong i ) {
+  switch( i ) {
+    case 1UL:  return 1UL;                        /* mid history */
+    case 2UL:  return EPOCH_CREDITS_CNT;          /* newest entry: migrated, no Alpenglow entry yet */
+    default:   return UCHAR_MAX; /* never migrated */
+  }
+}
+
 static void
 seed_epoch_credits( fd_bank_t * bank ) {
   ulong len = *fd_bank_epoch_credits_len( bank );
@@ -28,12 +39,13 @@ seed_epoch_credits( fd_bank_t * bank ) {
   for( ulong i=0UL; i<len; i++ ) {
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[ i ];
     ec->cnt          = EPOCH_CREDITS_CNT;
+    ec->marker_idx   = (uchar)seed_marker_idx( i );
     ec->commission   = (ushort)( 4321U + i );
     ec->base_credits = 10000UL + 1000UL*i;
     for( ulong j=0UL; j<EPOCH_CREDITS_CNT; j++ ) {
       ec->epoch[ j ]              = (ushort)( j+1UL );
-      ec->prev_credits_delta[ j ] = (uint)( 100UL*j + 7UL*i );
-      ec->credits_delta[ j ]      = (uint)( 100UL*j + 7UL*i + 50UL );
+      ec->credits_delta[ j ]      = (j+1UL)*EPOCH_CREDITS_STEP + 7UL*i;
+      ec->prev_credits_delta[ j ] = j ? ec->credits_delta[ j-1UL ] : 0UL;
     }
   }
 }
@@ -49,12 +61,29 @@ check_epoch_credits( fd_bank_t *                                bank,
   }
   FD_TEST( ec );
   FD_TEST( ec->cnt==EPOCH_CREDITS_CNT );
-  FD_TEST( vs->epoch_credits_history_len==ec->cnt );
+
+  ulong marker_idx = (ulong)ec->marker_idx;
+  int   has_marker = marker_idx!=UCHAR_MAX;
+  FD_TEST( vs->epoch_credits_history_len==(ulong)ec->cnt + (ulong)has_marker );
+
+  ulong k = 0UL;
   for( ulong j=0UL; j<ec->cnt; j++ ) {
-    FD_TEST( vs->epoch_credits[j].epoch       ==(ulong)ec->epoch[j] );
-    FD_TEST( vs->epoch_credits[j].credits     ==ec->base_credits+(ulong)ec->credits_delta[j] );
-    FD_TEST( vs->epoch_credits[j].prev_credits==ec->base_credits+(ulong)ec->prev_credits_delta[j] );
+    if( has_marker && j==marker_idx ) {
+      FD_TEST( fd_epoch_credits_is_alpenglow_marker( &vs->epoch_credits[k] ) );
+      k++;
+    }
+    FD_TEST( !fd_epoch_credits_is_alpenglow_marker( &vs->epoch_credits[k] ) );
+    FD_TEST( vs->epoch_credits[k].epoch       ==(ulong)ec->epoch[j] );
+    FD_TEST( vs->epoch_credits[k].credits     ==ec->base_credits+ec->credits_delta[j] );
+    FD_TEST( vs->epoch_credits[k].prev_credits==ec->base_credits+ec->prev_credits_delta[j] );
+    FD_TEST( vs->epoch_credits[k].credits>(ulong)UINT_MAX ); /* the widening is exercised */
+    k++;
   }
+  if( has_marker && marker_idx==(ulong)ec->cnt ) {
+    FD_TEST( fd_epoch_credits_is_alpenglow_marker( &vs->epoch_credits[k] ) );
+    k++;
+  }
+  FD_TEST( k==vs->epoch_credits_history_len );
 }
 
 typedef struct {

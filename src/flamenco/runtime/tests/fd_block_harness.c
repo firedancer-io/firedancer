@@ -335,13 +335,24 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len++];
     fd_memcpy( ec->pubkey, prev_vote_accs->address, sizeof(fd_pubkey_t) );
-    ec->cnt          = (uchar)prev_vote_accs->epoch_credits_count; /* <=FD_EPOCH_CREDITS_MAX tested above */
-    ec->base_credits = ec->cnt > 0UL ? prev_vote_accs->epoch_credits[0].prev_credits : 0UL;
+    ulong cnt        = 0UL;
+    ulong marker_idx = UCHAR_MAX;
+    ec->base_credits = 0UL;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
-      ec->epoch[j]              = (ushort)prev_vote_accs->epoch_credits[j].epoch;
-      ec->credits_delta[j]      = prev_vote_accs->epoch_credits[j].credits      - ec->base_credits;
-      ec->prev_credits_delta[j] = prev_vote_accs->epoch_credits[j].prev_credits - ec->base_credits;
+      if( FD_UNLIKELY( fd_epoch_credits_is_alpenglow_marker_raw( prev_vote_accs->epoch_credits[j].epoch,
+                                                                 prev_vote_accs->epoch_credits[j].credits,
+                                                                 prev_vote_accs->epoch_credits[j].prev_credits ) ) ) {
+        marker_idx = cnt;
+        continue;
+      }
+      if( FD_UNLIKELY( !cnt ) ) ec->base_credits = prev_vote_accs->epoch_credits[j].prev_credits;
+      ec->epoch[cnt]              = (ushort)prev_vote_accs->epoch_credits[j].epoch;
+      ec->credits_delta[cnt]      = prev_vote_accs->epoch_credits[j].credits      - ec->base_credits;
+      ec->prev_credits_delta[cnt] = prev_vote_accs->epoch_credits[j].prev_credits - ec->base_credits;
+      cnt++;
     }
+    ec->cnt          = (uchar)cnt; /* <=FD_EPOCH_CREDITS_MAX tested above */
+    ec->marker_idx   = (uchar)marker_idx;
     ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
   }
   *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;

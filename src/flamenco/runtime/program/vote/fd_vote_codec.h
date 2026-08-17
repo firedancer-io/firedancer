@@ -173,7 +173,7 @@ typedef struct fd_vote_epoch_credits fd_vote_epoch_credits_t;
 
 FD_FN_PURE static inline int
 fd_vote_epoch_credits_is_alpenglow_marker( fd_vote_epoch_credits_t const * ec ) {
-  return ec->epoch==ULONG_MAX && ec->credits==ULONG_MAX && ec->prev_credits==ULONG_MAX;
+  return fd_epoch_credits_is_alpenglow_marker_raw( ec->epoch, ec->credits, ec->prev_credits );
 }
 
 struct fd_vote_block_timestamp {

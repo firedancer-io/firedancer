@@ -289,7 +289,9 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
   }
   bank->f.max_tick_height = max_tick_height;
-  if( FD_UNLIKELY( ctx->alpenglow ) ) bank->f.tick_height = bank->f.max_tick_height - 1UL;
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    bank->f.tick_height = fd_ulong_max( max_tick_height, 1UL ) - 1UL; /* TODO gate this on the migration slot */
+  }
   fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.slot_params.hashes_per_tick, &parent_bank->f.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));

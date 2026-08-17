@@ -28,7 +28,7 @@ typedef struct epoch_credits epoch_credits_t;
 
 FD_FN_PURE static inline int
 fd_epoch_credits_is_alpenglow_marker( epoch_credits_t const * ec ) {
-  return ec->epoch==ULONG_MAX && ec->credits==ULONG_MAX && ec->prev_credits==ULONG_MAX;
+  return fd_epoch_credits_is_alpenglow_marker_raw( ec->epoch, ec->credits, ec->prev_credits );
 }
 
 /* The FD_SSMSG_EXPECTED_SLOT uses the tsorig and tspub fields
@@ -96,15 +96,20 @@ struct fd_snapshot_manifest_vote_stakes {
 
   /* The epoch credits array tracks the history of how many credits the
      provided vote account earned in each recorded epoch.  Entries are
-     ordered by strictly increasing epoch: epoch_credits[0] is the
-     oldest and epoch_credits[epoch_credits_history_len-1] is the
-     newest.  Epochs with no recorded credits can be absent.  When
-     booting a new chain from genesis, or for new vote accounts, the
-     epoch credits history may be short.  The maximum number of entries
-     in the epoch credits history is 64.
+     ordered oldest first: epoch_credits[0] is the oldest and
+     epoch_credits[epoch_credits_history_len-1] is the newest.  Epochs
+     with no recorded credits can be absent.  When booting a new chain
+     from genesis, or for new vote accounts, the epoch credits history
+     may be short.  The maximum number of entries in the epoch credits
+     history is 64.
 
-     Note one entry may be the Alpenglow migration marker (all three
-     fields ULONG_MAX, see fd_epoch_credits_is_alpenglow_marker). */
+     At most one entry is the Alpenglow migration marker (all three
+     fields ULONG_MAX, see fd_epoch_credits_is_alpenglow_marker).
+     Epochs strictly increase, except that the two entries straddling
+     the marker may share an epoch: the migration happens at a slot, so
+     a validator that earned credits both before and after it has one
+     tower entry and one Alpenglow entry for the same epoch.  Do not
+     assume epochs are distinct. */
   ulong           epoch_credits_history_len;
   epoch_credits_t epoch_credits[ FD_EPOCH_CREDITS_MAX ];
 };

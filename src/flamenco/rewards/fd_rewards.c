@@ -392,10 +392,31 @@ calculate_stake_points_and_credits( fd_epoch_credits_t const *     epoch_credits
                                     fd_calculated_stake_points_t * result ) {
 
   ulong credits_in_stake = stake->credits_observed;
-  ulong credits_cnt      = epoch_credits->cnt;
+  ulong credits_cnt      = fd_epoch_credits_tower_cnt( epoch_credits );
   ulong base             = epoch_credits->base_credits;
   ulong credits_in_vote  = credits_cnt > 0UL ? base + epoch_credits->credits_delta[ credits_cnt - 1UL ] : 0UL;
 
+  /* Entries after the Alpenglow migration marker record reward lamports
+     rather than vote credits, so only the tower entries feed the points
+     formula below.  Agave does the same: tower_epoch_credits_iter breaks
+     at the marker and the remainder is scored by
+     calculate_alpenglow_points, which needs per-vote-account delegated
+     stake totals the runtime does not track yet.
+
+     TODO: implement Alpenglow reward points.  Until then a migrated vote
+     account earns no points for its Alpenglow entries.  It must not earn
+     negative ones either: excluding those entries can leave the tower
+     total at or below credits_observed, which is expected rather than
+     the corruption the force-update branch below is for, and rewinding
+     credits_observed would make every delegation re-earn its whole
+     credit history.  Agave leaves credits_observed untouched here. */
+  if( FD_UNLIKELY( epoch_credits->marker_idx!=UCHAR_MAX &&
+                   credits_in_vote<=credits_in_stake ) ) {
+    result->points.ud = 0;
+    result->new_credits_observed = credits_in_stake;
+    result->force_credits_update_with_skipped_reward = 0;
+    return;
+  }
 
   /* If the Vote account has less credits observed than the Stake account,
       something is wrong and we need to force an update.
@@ -424,7 +445,7 @@ calculate_stake_points_and_credits( fd_epoch_credits_t const *     epoch_credits
   /* Calculate the points for each epoch credit */
   uint128 points               = 0;
   ulong   new_credits_observed = credits_in_stake;
-  for( ulong i=0UL; i<epoch_credits->cnt; i++ ) {
+  for( ulong i=0UL; i<credits_cnt; i++ ) {
 
     ulong final_epoch_credits   = base + epoch_credits->credits_delta[ i ];
     ulong initial_epoch_credits = base + epoch_credits->prev_credits_delta[ i ];
@@ -723,8 +744,12 @@ calculate_stake_points_fast( fd_epoch_credits_t *           epoch_credits,
     return;
   }
 
-  ulong cnt = epoch_credits->cnt;
-  if( FD_LIKELY( epoch_credits->fast_path_ok && cnt ) ) {
+  /* Tower entries only; see calculate_stake_points_and_credits.  A
+     migrated account falls through to the slow path, which handles the
+     marker explicitly. */
+  ulong cnt = fd_epoch_credits_tower_cnt( epoch_credits );
+  if( FD_LIKELY( epoch_credits->fast_path_ok && cnt &&
+                 epoch_credits->marker_idx==UCHAR_MAX ) ) {
     ulong base             = epoch_credits->base_credits;
     ulong credits_in_stake = stake->credits_observed;
     ulong credits_in_vote  = base+epoch_credits->credits_delta[ cnt-1UL ];

@@ -133,6 +133,13 @@ typedef struct fd_stake_rewards fd_stake_rewards_t;
 
 #define FD_EPOCH_CREDITS_MAX (64UL)
 
+FD_FN_CONST static inline int
+fd_epoch_credits_is_alpenglow_marker_raw( ulong epoch,
+                                          ulong credits,
+                                          ulong prev_credits ) {
+  return epoch==ULONG_MAX && credits==ULONG_MAX && prev_credits==ULONG_MAX;
+}
+
 /* credits_delta/prev_credits_delta are stored as deltas from
    base_credits.  These are u64 (no longer u32). */
 
@@ -144,6 +151,12 @@ struct fd_epoch_credits {
   ulong  prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
   ushort commission;
   uchar  cnt;
+  uchar  marker_idx; /* UCHAR_MAX for an account that has not migrated.  Otherwise the
+                        marker itself is not stored, and entries [0,marker_idx) are
+                        tower-era credits while [marker_idx,cnt) are Alpenglow-era reward
+                        lamports.  marker_idx==cnt means the marker was the newest entry,
+                        i.e. the account migrated but has not recorded an Alpenglow entry
+                        yet.  Every writer must set this. */
   uchar  fast_path_ok; /* True if the entries satisfy the boundary fast path prerequisites:
                           (1) initial[n]<=final[n], (2) initial[n]==final[n-1], and (3)
                           epoch[n]>=epoch[n-1].  Always true for production accounts written
@@ -155,6 +168,12 @@ typedef struct fd_epoch_credits fd_epoch_credits_t;
 
 FD_STATIC_ASSERT( (ulong)UCHAR_MAX>=FD_EPOCH_CREDITS_MAX, cnt_width );
 FD_STATIC_ASSERT( sizeof(fd_epoch_credits_t)==1200UL, fd_epoch_credits );
+FD_STATIC_ASSERT( (ulong)UCHAR_MAX>FD_EPOCH_CREDITS_MAX, marker_idx_sentinel );
+
+FD_FN_PURE static inline ulong
+fd_epoch_credits_tower_cnt( fd_epoch_credits_t const * epoch_credits ) {
+  return epoch_credits->marker_idx==UCHAR_MAX ? (ulong)epoch_credits->cnt : (ulong)epoch_credits->marker_idx;
+}
 
 static inline uchar
 fd_epoch_credits_fast_path_ok( fd_epoch_credits_t const * epoch_credits ) {
