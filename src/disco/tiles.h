@@ -145,9 +145,9 @@ typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 #define FD_PACK_MSG_DONE_DRAINING   (ULONG_MAX)
 #define FD_PACK_MSG_REDUCE_MB_BOUND (ULONG_MAX-1UL)
 
-#define FD_PACK_END_SLOT_REASON_TIME          (1)
-#define FD_PACK_END_SLOT_REASON_MICROBLOCK    (2)
-#define FD_PACK_END_SLOT_REASON_LEADER_SWITCH (3)
+#define FD_PACK_END_SLOT_REASON_TIME       (1)
+#define FD_PACK_END_SLOT_REASON_MICROBLOCK (2)
+#define FD_PACK_END_SLOT_REASON_ABANDONED  (3)
 
 struct fd_done_packing {
   ulong microblocks_in_slot;

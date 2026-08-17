@@ -564,6 +564,16 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
 
   ctx->leader_bank->f.slot = slot;
 
+  fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ ctx->leader_bank->idx ];
+  if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr )==block_id_ele ) ) {
+    FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr ) );
+  }
+  block_id_ele->block_id_seen  = 0;
+  block_id_ele->slot           = slot;
+  block_id_ele->bank_seq       = ctx->leader_bank->bank_seq;
+  block_id_ele->latest_fec_idx = 0U;
+  memset( &block_id_ele->latest_mr, 0, sizeof(fd_hash_t) );
+
   ctx->leader_bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   ctx->leader_bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
   ctx->leader_bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
@@ -634,13 +644,14 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
   /* If we are leader, we can only unbecome the leader iff we have
      received the poh hash from the poh tile and block id from reasm.
-     We have to do an additional check against the slot of the leader
-     bank because we lazily remove entries from the block id arr. */
+     The block id entry is claimed for the leader slot in
+     prepare_leader_bank, so a slot mismatch here means the claim
+     discipline broke. */
 
   if( FD_LIKELY( !ctx->is_leader ) ) return 0;
   if( !ctx->recv_poh ) return 0;
   if( !ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen ) return 0;
-  if( ctx->block_id_arr[ ctx->leader_bank->idx ].slot!=ctx->leader_bank->f.slot ) return 0;
+  FD_TEST( ctx->block_id_arr[ ctx->leader_bank->idx ].slot==ctx->leader_bank->f.slot );
 
   ctx->leader_bank->last_transaction_finished_nanos = fd_log_wallclock();
 
@@ -1001,7 +1012,13 @@ try_become_leader( fd_replay_tile_t *  ctx,
 }
 
 static void
+mark_bank_dead( fd_replay_tile_t *  ctx,
+                fd_stem_context_t * stem,
+                ulong               bank_idx );
+
+static void
 process_poh_message( fd_replay_tile_t *                 ctx,
+                     fd_stem_context_t *                stem,
                      fd_poh_leader_slot_ended_t const * slot_ended ) {
 
   FD_TEST( ctx->is_booted );
@@ -1010,6 +1027,20 @@ process_poh_message( fd_replay_tile_t *                 ctx,
 
   FD_TEST( ctx->highwater_leader_slot>=slot_ended->slot );
   FD_TEST( ctx->next_leader_slot>ctx->highwater_leader_slot );
+
+  if( FD_UNLIKELY( !slot_ended->completed ) ) {
+    /* The leader slot was aborted by a reset mid-production.  The
+       block-complete entry was never emitted, so no slot-complete FEC
+       (and thus no block id) will ever arrive. */
+    ulong bank_idx = ctx->leader_bank->idx;
+    ctx->leader_bank->refcnt--;
+    ctx->leader_bank = NULL;
+    ctx->recv_poh    = 0;
+    ctx->is_leader   = 0;
+    mark_bank_dead( ctx, stem, bank_idx );
+    maybe_switch_identity( ctx );
+    return;
+  }
 
   /* Update the poh hash in the bank.  We will want to maintain a refcnt
      on the bank until we have received the block id for the block after
@@ -1611,6 +1642,11 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   }
 
   long now = fd_log_wallclock();
+
+  /* A leader FEC arriving after its slot was aborted (or after a later
+     leadership began) has no bank to bind to; drop it. */
+  if( FD_UNLIKELY( reasm_fec->is_leader &&
+                   ( !ctx->leader_bank || ctx->leader_bank->f.slot!=reasm_fec->slot ) ) ) return 0;
 
   /* Assign parent bank idx + seq no to the FEC */
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
@@ -2273,6 +2309,8 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     ctx->consensus_root      = msg->root_block_id;
   }
 
+  if( FD_UNLIKELY( fd_hash_eq( &msg->reset_block_id, &ctx->reset_block_id ) ) ) return;
+
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->reset_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
     FD_LOG_WARNING(( "ignoring reset block update from tower because block has been evicted (slot=%lu)", msg->reset_slot ));
@@ -2790,7 +2828,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_POH: {
-      process_poh_message( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      process_poh_message( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     case IN_KIND_RESOLV: {
