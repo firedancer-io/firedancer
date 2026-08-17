@@ -193,6 +193,7 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
   /* Absence proves nothing: a cluster running alpenglow from genesis
      never migrated, and the marker ages out of the credits history. */
   if( FD_UNLIKELY( alpen_migration ) ) FD_LOG_NOTICE(( "snapshot carries the alpenglow migration marker" ));
+  FD_LOG_DEBUG(( "AGDBG ssload/manifest_validate alpen_migration_marker=%d", alpen_migration ));
 
   /* Epoch stakes index validation.  fd_slot_to_leader_schedule_epoch
      is inlined here with overflow-safe arithmetic. */
@@ -548,6 +549,10 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     }
     ec->cnt          = (uchar)cnt;
     ec->base_credits = base;
+    if( FD_UNLIKELY( cnt!=elem->epoch_credits_history_len ) ) {
+      FD_LOG_DEBUG(( "AGDBG ssload/epoch_credits raw=%lu kept=%lu base=%lu (alpenglow migration marker skipped)",
+                     elem->epoch_credits_history_len, cnt, base ));
+    }
     /* Manifest validation already rejects non-increasing epochs. */
     ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
     FD_TEST( ec->fast_path_ok ); /* manifest validation enforces all three invariants */

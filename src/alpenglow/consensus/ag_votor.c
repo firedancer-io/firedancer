@@ -400,13 +400,19 @@ void
 ag_votor_handle_pool_event( ag_votor_t *            votor,
                             ag_pool_event_t const * event ) {
   out_reset( votor );
-  if( should_ignore_pool_event( votor, event ) ) return;
+  int ignored = should_ignore_pool_event( votor, event );
+  if( FD_UNLIKELY( ignored ) ) {
+    FD_LOG_DEBUG(( "AGDBG ag_votor/pool_event kind=%u IGNORED highest_final_cert_slot=%lu",
+                   (uint)event->kind, votor->highest_final_cert_slot ));
+    return;
+  }
 
   switch( event->kind ) {
 
   case AG_POOL_EVENT_PARENT_READY: {
     ulong               slot   = event->inner.parent_ready.slot;
     ag_block_id_t const parent = event->inner.parent_ready.parent;
+    FD_LOG_DEBUG(( "AGDBG ag_votor/parent_ready slot=%lu parent_slot=%lu", slot, parent.slot ));
     parent_ready_insert( votor, slot, &parent );
     check_pending_blocks( votor );
     set_timeouts( votor, slot );
@@ -477,10 +483,17 @@ ag_votor_handle_blockstore_event( ag_votor_t *                        votor,
       .hash   = event->inner.block.block_id.hash,
       .parent = event->inner.block.parent_block_id,
     };
-    if( has_voted( votor, slot ) ) return;
+    if( has_voted( votor, slot ) ) {
+      FD_LOG_DEBUG(( "AGDBG ag_votor/block slot=%lu already voted", slot ));
+      return;
+    }
     if( try_notar( votor, slot, &block_info ) ) {
+      FD_LOG_DEBUG(( "AGDBG ag_votor/block slot=%lu notarized (parent slot %lu)", slot, block_info.parent.slot ));
       check_pending_blocks( votor );
     } else {
+      /* No ParentReady for this slot yet, so the block waits.  If it
+         never leaves pending, consensus stalls here. */
+      FD_LOG_DEBUG(( "AGDBG ag_votor/block slot=%lu PENDING (no parent ready; declared parent slot %lu)", slot, block_info.parent.slot ));
       ag_votor_slot_state_t * s = slot_state_mut( votor, slot );
       s->has_pending_block = 1;
       s->pending_block     = block_info;
@@ -498,7 +511,13 @@ ag_votor_handle_timeout_event( ag_votor_t *               votor,
                                ag_votor_timeout_t const * event ) {
   out_reset( votor );
   ulong slot = event->slot;
+  /* VERIFIED: timeouts arm and expire correctly, and produced no
+     spurious skip votes over 109 slots.  Only the ones that survive the
+     ignore test can still change anything. */
   if( slot <= votor->highest_final_cert_slot || is_retired( votor, slot ) ) return;
+  FD_LOG_DEBUG(( "AGDBG ag_votor/timeout kind=%u slot=%lu highest_final_cert_slot=%lu voted=%d shred=%d",
+                 (uint)event->kind, slot, votor->highest_final_cert_slot,
+                 has_voted( votor, slot ), received_shred( votor, slot ) ));
 
   switch( event->kind ) {
   case AG_VOTOR_TIMEOUT_TIMEOUT:

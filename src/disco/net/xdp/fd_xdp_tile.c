@@ -1121,15 +1121,24 @@ net_rx_packet( fd_net_ctx_t * ctx,
     out = ctx->gossvf_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_client_listen_port ) ) {
     proto = DST_PROTO_REPAIR;
-    if( FD_UNLIKELY( sz < AG_REPAIR_RESPONSE_MAX_SZ+sizeof(fd_ip4_udp_hdrs_t) ) ) out = ctx->repair_out; /* ping-pongs, blockid repair responses */
-    else                                                                          out = ctx->shred_out;
+    /* NOTE: this size split replaced `sz==REPAIR_PING_SZ` and applies to
+       the TowerBFT path too -- anything under the threshold now goes to
+       repair rather than to shred. */
+    if( FD_UNLIKELY( sz < AG_REPAIR_RESPONSE_MAX_SZ+sizeof(fd_ip4_udp_hdrs_t) ) ) {
+      FD_LOG_DEBUG(( "AGDBG xdp/repair_port_split sz=%lu -> repair (threshold %lu)",
+                     sz, AG_REPAIR_RESPONSE_MAX_SZ+sizeof(fd_ip4_udp_hdrs_t) ));
+      out = ctx->repair_out; /* ping-pongs, blockid repair responses */
+    } else                                                                        out = ctx->shred_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
     if( FD_UNLIKELY( !ctx->rserve_enabled ) ) return;
     proto = DST_PROTO_RSERVE;
     out = ctx->rserve_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->alpenglow_listen_port ||
                           udp_dstport==ctx->alpenglow_client_listen_port ) ) {
-    if( FD_UNLIKELY( !ctx->alpenglow_enabled ) ) return;
+    if( FD_UNLIKELY( !ctx->alpenglow_enabled ) ) {
+      FD_LOG_DEBUG(( "AGDBG xdp/alpenglow_rx DROPPED port=%hu (no net_alpenglow out link)", udp_dstport ));
+      return;
+    }
     proto = DST_PROTO_ALPENGLOW;
     out = ctx->alpenglow_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->txsend_src_port ) ) {
@@ -1712,6 +1721,8 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->alpenglow_out->depth  = fd_mcache_depth( ctx->alpenglow_out->mcache );
       ctx->alpenglow_out->seq    = fd_mcache_seq_query( ctx->alpenglow_out->sync );
       ctx->alpenglow_enabled     = 1;
+      FD_LOG_DEBUG(( "AGDBG xdp/init net_alpenglow out link wired (listen_port=%hu client_port=%hu)",
+                     ctx->alpenglow_listen_port, ctx->alpenglow_client_listen_port ));
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
     }

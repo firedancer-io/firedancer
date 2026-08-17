@@ -155,6 +155,7 @@ ag_repair_parent_and_fec_set_count( fd_repair_t *       repair,
   repair->msg.parent_fec_set_count.nonce = nonce;
   repair->msg.parent_fec_set_count.slot = slot;
   repair->msg.parent_fec_set_count.block_id = *block_id;
+  FD_LOG_DEBUG(( "AGDBG repair_msg/parent_and_fec_set_count nonce=%u slot=%lu", nonce, slot ));
   return &repair->msg;
 }
 
@@ -175,6 +176,7 @@ ag_repair_fec_set_root( fd_repair_t *       repair,
   repair->msg.fec_set_root.slot = slot;
   repair->msg.fec_set_root.block_id = *block_id;
   repair->msg.fec_set_root.fec_set_idx = fec_set_idx;
+  FD_LOG_DEBUG(( "AGDBG repair_msg/fec_set_root nonce=%u slot=%lu fec_set_idx=%u", nonce, slot, fec_set_idx ));
   return &repair->msg;
 }
 
@@ -195,6 +197,7 @@ ag_repair_shred_block_id( fd_repair_t *       repair,
   repair->msg.shred_block_id.slot = slot;
   repair->msg.shred_block_id.shred_idx = shred_idx;
   repair->msg.shred_block_id.block_id = *block_id;
+  FD_LOG_DEBUG(( "AGDBG repair_msg/shred_block_id nonce=%u slot=%lu shred_idx=%u", nonce, slot, shred_idx ));
   return &repair->msg;
 }
 
@@ -287,6 +290,8 @@ ag_repair_parent_fec_count_verify( ag_parent_fec_count_res_t const * res,
                                    fd_hash_t const *                 block_id ) {
   /* The parent-info leaf is the last of the tree's fec_set_count+1
      leaves, so the proof must be exactly as deep as that tree. */
+  FD_LOG_DEBUG(( "AGDBG repair/parent_fec_count_verify parent_slot=%lu fec_set_count=%u proof_len=%lu expected_len=%lu",
+                 res->parent_slot, res->fec_set_count, res->proof_len, fd_bmtree_depth( res->fec_set_count+1UL )-1UL ));
   if( FD_UNLIKELY( res->proof_len != fd_bmtree_depth( res->fec_set_count+1UL )-1UL ) ) return -1;
 
   fd_bmtree_node_t leaf[1];
@@ -307,6 +312,8 @@ ag_repair_fec_set_root_verify( ag_fec_root_res_t const * res,
   fd_bmtree_node_t leaf[1];
   memcpy( leaf->hash, res->root.uc, sizeof(fd_hash_t) );
 
+  FD_LOG_DEBUG(( "AGDBG repair/fec_set_root_verify fec_set_idx=%u leaf_idx=%u proof_len=%lu",
+                 fec_set_idx, fec_set_idx/FD_FEC_SHRED_CNT, res->proof_len ));
   return verify_merkle_proof( leaf, fec_set_idx / FD_FEC_SHRED_CNT, res->fec_proof[0], res->proof_len, block_id );
 }
 

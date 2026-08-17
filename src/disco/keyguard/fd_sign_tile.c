@@ -101,6 +101,10 @@ derive_fields( fd_sign_ctx_t * ctx ) {
                    ctx->public_key, ctx->private_key, ctx->sha512 );
   ag_aggsig_sk_derive( ctx->bls_voting_key, ikm, sizeof(ikm) );
   fd_memzero_explicit( ikm, sizeof(ikm) );
+  /* This key MUST match the one fd_bls12_381_kdf baked into the genesis
+     vote account, or the validator signs votes nobody can verify. */
+  FD_LOG_DEBUG(( "AGDBG sign/derive_bls_voting_key identity=%.*s (re-derived)",
+                 (int)ctx->public_key_base58_sz, (char const *)ctx->concat ));
 }
 
 static void FD_FN_SENSITIVE
@@ -409,6 +413,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
       FD_TEST( out_link->mtu==64UL*2UL );
     } else if ( !strcmp(in_link->name, "votor_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_VOTOR;
+      FD_LOG_DEBUG(( "AGDBG sign/init link[%lu] votor_sign in_mtu=%lu out_mtu=%lu", i, in_link->mtu, out_link->mtu ));
       FD_TEST( !strcmp( out_link->name, "sign_votor" ) );
       FD_TEST( in_link->mtu==FD_KEYGUARD_SIGN_REQ_MTU );
       /* carries both the 64B QUIC TLS CertificateVerify signature and

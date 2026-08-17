@@ -445,6 +445,9 @@ ag_finality_tracker_add_parent( ag_finality_tracker_t * self,
   ag_finalization_event_t event = event_default();
   FD_TEST( block->slot > parent->slot );
 
+  FD_LOG_DEBUG(( "AGDBG ag_ft/add_parent slot=%lu parent_slot=%lu first_unpruned=%lu highest_finalized=%lu",
+                 block->slot, parent->slot, self->first_unpruned_slot,
+                 ag_finality_tracker_highest_finalized_slot( self ) ));
   if( FD_UNLIKELY( block->slot < self->first_unpruned_slot ) ) return event;
 
   ag_ft_parent_ele_t * pe = parent_map_ele_query( self->parent_map, block, NULL, self->parent_pool );

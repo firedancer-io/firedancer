@@ -1,5 +1,6 @@
 #include "fd_poh.h"
 #include "fd_poh_tile.h" /* for the poh_replay link sigs and messages */
+#include "../../ballet/base58/fd_base58.h" /* AGDBG hash logging */
 
 /* The PoH implementation is at its core a state machine ...
 
@@ -91,6 +92,7 @@ fd_poh_new( void * shmem ) {
   poh->ag_enabled           = 0;
   poh->ag_completing        = 0;
   poh->ag_tick_ready        = 0;
+  poh->ag_drain_logged      = 0;
   poh->ag_parent_slot       = ULONG_MAX;
 
   FD_COMPILER_MFENCE();
@@ -185,6 +187,9 @@ update_hashes_per_tick( fd_poh_t * poh,
        was not abandoned.  Rewinding to reset_slot would produce the
        wrong slot, and both assertions fail outright the first time a
        window is skipped. */
+    FD_LOG_DEBUG(( "AGDBG poh/update_hashes_per_tick ag=%d hashcnt_per_tick=%lu hashcnt_per_slot=%lu slot=%lu reset_slot=%lu last_slot=%lu last_hashcnt=%lu rewind=%d",
+                   poh->ag_enabled, poh->hashcnt_per_tick, poh->hashcnt_per_slot,
+                   poh->slot, poh->reset_slot, poh->last_slot, poh->last_hashcnt, !poh->ag_enabled ));
     if( FD_LIKELY( !poh->ag_enabled ) ) {
       FD_TEST( poh->last_slot==poh->reset_slot );
       FD_TEST( !poh->last_hashcnt );
@@ -240,6 +245,10 @@ fd_poh_reset( fd_poh_t *          poh,
        Also drop any half-produced block: a reset means the window we
        were building is gone, and a half-set completing flag would
        corrupt the next one. */
+    FD_LOG_DEBUG(( "AGDBG poh/reset completed_slot=%lu next_leader_slot=%lu state=%d slot=%lu was_completing=%d was_tick_ready=%d dropping_block=%d",
+                   completed_slot, next_leader_slot, poh->state, poh->slot,
+                   poh->ag_completing, poh->ag_tick_ready,
+                   poh->ag_completing|poh->ag_tick_ready ));
     poh->max_microblocks_per_slot = MAX_MICROBLOCKS_PER_SLOT;
     poh->microblocks_lower_bound  = poh->max_microblocks_per_slot;
     poh->ag_completing            = 0;
@@ -292,6 +301,9 @@ fd_poh_begin_leader( fd_poh_t * poh,
        parent's last blockhash from the reset.  reset_slot is left
        alone, so the parent_offset the shred tile derives stays
        correct. */
+    FD_LOG_DEBUG(( "AGDBG poh/begin_leader slot=%lu poh_slot=%lu reset_slot=%lu next_leader_slot=%lu adopting=%d max_mblk=%lu hashcnt_per_tick=%lu ticks_per_slot=%lu",
+                   slot, poh->slot, poh->reset_slot, poh->next_leader_slot,
+                   slot!=poh->slot, poh->max_microblocks_per_slot, hashcnt_per_tick, ticks_per_slot ));
     if( FD_UNLIKELY( slot<poh->slot ) ) FD_LOG_ERR(( "asked to lead slot %lu but poh is already on slot %lu", slot, poh->slot ));
     poh->slot         = slot;
     poh->hashcnt      = 0UL;
@@ -392,6 +404,9 @@ fd_poh_ag_enable( fd_poh_t * poh ) {
   poh->microblocks_lower_bound  = poh->max_microblocks_per_slot;
 
   FD_LOG_INFO(( "fd_poh_ag_enable(slot=%lu,reset_slot=%lu)", poh->slot, poh->reset_slot ));
+  FD_LOG_DEBUG(( "AGDBG poh/ag_enable slot=%lu reset_slot=%lu state=%d hashcnt_per_tick=%lu ticks_per_slot=%lu max_mblk=%lu",
+                 poh->slot, poh->reset_slot, poh->state, poh->hashcnt_per_tick,
+                 poh->ticks_per_slot, poh->max_microblocks_per_slot ));
 }
 
 FD_FN_PURE int
@@ -457,6 +472,10 @@ publish_marker( fd_poh_t *          poh,
   ulong sz    = sizeof(fd_entry_batch_meta_t)+marker_sz;
   ulong sig   = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  /* variant is the byte after the u64 marker_flag and the u16 version */
+  FD_LOG_DEBUG(( "AGDBG poh/publish_marker slot=%lu variant=%u marker_sz=%lu frag_sz=%lu parent_offset=%lu reset_slot=%lu leading_u64=%lu",
+                 slot, (uint)marker[ 10 ], marker_sz, sz, meta->parent_offset,
+                 poh->reset_slot, FD_LOAD( ulong, marker ) ));
   fd_stem_publish( stem, poh->shred_out->idx, sig, poh->shred_out->chunk, sz, 0UL, 0UL, tspub );
   poh->shred_out->chunk = fd_dcache_compact_next( poh->shred_out->chunk, sz, poh->shred_out->chunk0, poh->shred_out->wmark );
 }
@@ -494,6 +513,9 @@ publish_ag_tick( fd_poh_t *          poh,
   ulong sz    = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
   ulong sig   = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  FD_BASE58_ENCODE_32_BYTES( poh->ag_tick_hash, tick_hash_b58 );
+  FD_LOG_DEBUG(( "AGDBG poh/publish_ag_tick slot=%lu parent_offset=%lu reset_slot=%lu block_complete=1 tick_hash=%s",
+                 slot, meta->parent_offset, poh->reset_slot, tick_hash_b58 ));
   fd_stem_publish( stem, poh->shred_out->idx, sig, poh->shred_out->chunk, sz, 0UL, 0UL, tspub );
   poh->shred_out->chunk = fd_dcache_compact_next( poh->shred_out->chunk, sz, poh->shred_out->chunk0, poh->shred_out->wmark );
 }
@@ -558,6 +580,9 @@ fd_poh_ag_begin_block( fd_poh_t *          poh,
 
   uchar marker[ FD_POH_AG_MARKER_MAX ];
   ulong marker_sz = fd_poh_ag_header_encode( marker, parent_slot, parent_block_id );
+  FD_BASE58_ENCODE_32_BYTES( parent_block_id->uc, pbid_b58 );
+  FD_LOG_DEBUG(( "AGDBG poh/ag_begin_block slot=%lu parent_slot=%lu parent_block_id=%s header_sz=%lu reset_slot=%lu",
+                 poh->slot, parent_slot, pbid_b58, marker_sz, poh->reset_slot ));
   publish_marker( poh, stem, poh->slot, marker, marker_sz );
 }
 
@@ -565,6 +590,9 @@ void
 fd_poh_ag_complete_block( fd_poh_t * poh ) {
   FD_TEST( poh->ag_enabled );
   FD_TEST( poh->state==STATE_LEADER );
+  FD_LOG_DEBUG(( "AGDBG poh/ag_complete_block slot=%lu mblk_lower_bound=%lu max_mblk=%lu drained=%d already_completing=%d",
+                 poh->slot, poh->microblocks_lower_bound, poh->max_microblocks_per_slot,
+                 poh->microblocks_lower_bound>=poh->max_microblocks_per_slot, poh->ag_completing ));
   poh->ag_completing = 1;
 }
 
@@ -584,6 +612,9 @@ fd_poh_ag_publish_footer( fd_poh_t *          poh,
 
   ulong slot = poh->slot;
 
+  FD_LOG_DEBUG(( "AGDBG poh/ag_publish_footer slot=%lu footer_sz=%lu mblks=%lu/%lu reset_slot=%lu",
+                 slot, footer_sz, poh->microblocks_lower_bound, poh->max_microblocks_per_slot, poh->reset_slot ));
+
   /* Order on the wire is microblocks..., footer, tick.  The tick
      carries FD_SHRED_DATA_FLAG_SLOT_COMPLETE, so anything published
      after it is not part of the block. */
@@ -601,6 +632,7 @@ fd_poh_ag_publish_footer( fd_poh_t *          poh,
   poh->last_slot    = poh->slot;
   poh->last_hashcnt = 0UL;
 
+  FD_LOG_DEBUG(( "AGDBG poh/ag_block_done published_slot=%lu poh_slot_now=%lu -> follower", slot, poh->slot ));
   transition_to_follower( poh, stem, 1 );
   return 0;
 }
@@ -629,7 +661,17 @@ ag_advance( fd_poh_t *          poh,
      drained condition.  Timing alone is not a guarantee: registering
      the tick freezes the bank, and a microblock still in flight would
      then be committed against a frozen bank. */
-  if( FD_UNLIKELY( poh->microblocks_lower_bound<poh->max_microblocks_per_slot ) ) return;
+  if( FD_UNLIKELY( poh->microblocks_lower_bound<poh->max_microblocks_per_slot ) ) {
+    /* Rate limited: only say so once per block, on the first advance
+       that finds the block still draining. */
+    if( FD_UNLIKELY( !poh->ag_drain_logged ) ) {
+      poh->ag_drain_logged = 1;
+      FD_LOG_DEBUG(( "AGDBG poh/ag_advance_waiting_drain slot=%lu mblks=%lu/%lu",
+                     poh->slot, poh->microblocks_lower_bound, poh->max_microblocks_per_slot ));
+    }
+    return;
+  }
+  poh->ag_drain_logged = 0;
 
   /* A tick is hash(hash): no mixin, exactly one hash, its own entry. */
   fd_sha256_hash( poh->hash, 32UL, poh->hash );
@@ -643,6 +685,9 @@ ag_advance( fd_poh_t *          poh,
   fd_poh_ag_tick_ready_t * dst = fd_chunk_to_laddr( poh->replay_out->mem, poh->replay_out->chunk );
   dst->slot = poh->slot;
   fd_memcpy( dst->tick_hash, poh->ag_tick_hash, 32UL );
+  FD_BASE58_ENCODE_32_BYTES( poh->ag_tick_hash, tick_b58 );
+  FD_LOG_DEBUG(( "AGDBG poh/ag_tick_ready slot=%lu hashcnt=%lu tick_hash=%s -> replay",
+                 poh->slot, poh->hashcnt, tick_b58 ));
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, poh->replay_out->idx, FD_POH_SIG_AG_TICK, poh->replay_out->chunk, sizeof(fd_poh_ag_tick_ready_t), 0UL, 0UL, tspub );
   poh->replay_out->chunk = fd_dcache_compact_next( poh->replay_out->chunk, sizeof(fd_poh_ag_tick_ready_t), poh->replay_out->chunk0, poh->replay_out->wmark );
@@ -1027,6 +1072,22 @@ publish_microblock( fd_poh_t *          poh,
        all is a SIGFPE on the first microblock of every block. */
     meta->reference_tick = 0UL;
     meta->block_complete = 0;
+    /* HOT under load: pack emits hundreds of microblocks per slot and
+       each of these is a synchronous write(2) on the tile that has a
+       350ms deadline to close the block -- logging all of them would
+       distort the very timing we are measuring.  This path is still
+       unverified (no run has yet carried a real entry batch), so the
+       line stays, rate limited to the first few and then powers of two
+       so the shape of a block's microblock flow is still visible. */
+    /* VERIFIED under bench load: 3092 blocks, up to 32768 microblocks in
+       a slot, every block well formed and closed on its deadline.  One
+       line per slot is enough to show load is reaching the leader. */
+    ulong mblk_idx = poh->microblocks_lower_bound;
+    if( FD_UNLIKELY( !mblk_idx ) ) {
+      FD_LOG_DEBUG(( "AGDBG poh/publish_microblock slot=%lu parent_offset=%lu reset_slot=%lu mblk=%lu/%lu txn_cnt=%lu hashcnt_delta=%lu",
+                     slot, meta->parent_offset, poh->reset_slot,
+                     mblk_idx, poh->max_microblocks_per_slot, txn_cnt, hashcnt_delta ));
+    }
   } else {
     meta->reference_tick = (poh->hashcnt/poh->hashcnt_per_tick) % poh->ticks_per_slot;
     meta->block_complete = !poh->hashcnt;
@@ -1144,6 +1205,9 @@ fd_poh1_mixin( fd_poh_t *          poh,
       }
     }
   } else {
+    /* Alpenglow: the slot NEVER rolls here and the block never ends
+       here.  If poh->slot ever moves in this function under alpenglow
+       something upstream is wrong, so record what it was. */
     poh->last_slot    = poh->slot;
     poh->last_hashcnt = poh->hashcnt;
   }

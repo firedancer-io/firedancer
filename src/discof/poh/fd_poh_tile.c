@@ -49,6 +49,12 @@ struct fd_poh_tile {
 
   fd_poh_out_t shred_out[ 1 ];
   fd_poh_out_t replay_out[ 1 ];
+
+  /* AGDBG only.  returnable_frag can defer the same frag millions of
+     times a second while a block is open, so the deferral debug line
+     is emitted only when the deferred sig changes.  ULONG_MAX means
+     nothing is currently being deferred. */
+  ulong ag_dbg_deferred_sig;
 };
 
 typedef struct fd_poh_tile fd_poh_tile_t;
@@ -184,7 +190,17 @@ returnable_frag( fd_poh_tile_t *     ctx,
      end up queued behind one. */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY &&
                    fd_poh_have_leader_bank( ctx->poh ) &&
-                   (sig==REPLAY_SIG_BECAME_LEADER || sig==REPLAY_SIG_RESET) ) ) return 1;
+                   (sig==REPLAY_SIG_BECAME_LEADER || sig==REPLAY_SIG_RESET) ) ) {
+    if( FD_UNLIKELY( ctx->ag_dbg_deferred_sig!=sig ) ) {
+      ctx->ag_dbg_deferred_sig = sig;
+      FD_LOG_DEBUG(( "AGDBG pohtile/defer_replay_frag sig=%lu (%s) poh_slot=%lu ag=%d completing=%d tick_ready=%d",
+                     sig, sig==REPLAY_SIG_BECAME_LEADER ? "became_leader" : "reset",
+                     ctx->poh->slot, fd_poh_ag_enabled( ctx->poh ),
+                     ctx->poh->ag_completing, fd_poh_ag_tick_ready( ctx->poh ) ));
+    }
+    return 1;
+  }
+  ctx->ag_dbg_deferred_sig = ULONG_MAX;
   /* If prior leaders skipped, it might happen that replay tells us to
      become leader, but poh is still hashing through the skipped slots
      and could not yet mixin any microblocks.  In this case, we hold
@@ -332,6 +348,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->in_cnt   = tile->in_cnt;
   ctx->idle_cnt = 0UL;
+  ctx->ag_dbg_deferred_sig = ULONG_MAX;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];

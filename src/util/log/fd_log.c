@@ -977,6 +977,12 @@ fd_log_private_sig_abort( int         sig,
      only when auditing is enabled, which it usually is not.  Without
      this line the operator sees "Bad system call" and nothing else. */
 
+  /* NB this only runs when the seccomp filter returns SECCOMP_RET_TRAP.
+     Firedancer's generated filters return SECCOMP_RET_KILL_PROCESS, which
+     kills the process without delivering a catchable SIGSYS, so on a real
+     policy violation this handler does NOT run and the syscall number is
+     still lost.  Kept because it costs nothing and does fire under a
+     TRAP-based filter or a ptrace supervisor. */
   if( FD_UNLIKELY( sig==SIGSYS && info ) ) {
     FD_LOG_ERR_NOEXIT(( "seccomp denied syscall number %i at %p -- the tile's seccomppolicy is missing it",
                         info->si_syscall, info->si_call_addr ));

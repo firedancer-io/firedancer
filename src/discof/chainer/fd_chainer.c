@@ -1,5 +1,6 @@
 #include "fd_chainer.h"
 #include "../../disco/shred/fd_fec_set.h"
+#include "../../ballet/base58/fd_base58.h" /* AGDBG hash logging */
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
@@ -119,6 +120,8 @@ fd_chainer_init( fd_chainer_t    * chainer,
 
   chainer->root = slot;
   chainer->highest_repaired = slot;
+  FD_BASE58_ENCODE_32_BYTES( block_id->uc, bid_b58 );
+  FD_LOG_DEBUG(( "AGDBG chainer/init root=%lu block_id=%s", slot, bid_b58 ));
 }
 
 static inline ushort
@@ -446,7 +449,11 @@ finalize_block_id( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
 
   if( FD_UNLIKELY( slotv->complete_idx==UINT_MAX ) )                 return 0;
   if( FD_UNLIKELY( slotv->parent_slot==AG_UNKNOWN_SLOT ) )           return 0;
-  if( FD_UNLIKELY( fd_hash_check_zero( &slotv->parent_block_id ) ) ) return 0;
+  if( FD_UNLIKELY( fd_hash_check_zero( &slotv->parent_block_id ) ) ) {
+    FD_LOG_DEBUG(( "AGDBG chainer/finalize_block_id slot=%lu v%lu FAIL parent_block_id is zero (parent_slot=%lu)",
+                   slot, version, slotv->parent_slot ));
+    return 0;
+  }
 
   uint fec_set_cnt = ( slotv->complete_idx + 1U ) / FD_FEC_SHRED_CNT;
   uchar tree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
@@ -473,6 +480,13 @@ finalize_block_id( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
 
   uchar * root = fd_bmtree_commit_fini( tree );
   memcpy( slotv->block_id.uc, root, sizeof(fd_hash_t) );
+  FD_BASE58_ENCODE_32_BYTES( slotv->parent_block_id.uc, pbid_b58 );
+  FD_BASE58_ENCODE_32_BYTES( slotv->block_id.uc,        bid_b58  );
+  /* This is the chainer's copy of the double merkle root; replay
+     computes the same thing in finish_double_merkle.  If the two ever
+     disagree the block id is unresolvable for one of them. */
+  FD_LOG_DEBUG(( "AGDBG chainer/finalize_block_id slot=%lu v%lu parent_slot=%lu parent_block_id=%s fec_set_cnt=%u block_id=%s",
+                 slot, version, slotv->parent_slot, pbid_b58, fec_set_cnt, bid_b58 ));
   return 1;
 }
 
@@ -524,6 +538,9 @@ fd_chainer_shred_insert( fd_chainer_t    * chainer,
        yet", so it is not a batch index to compare against. */
     if( parent_slot != AG_UNKNOWN_SLOT &&
       ( slotv->parent_slot_batch==UINT_MAX || shred_idx>slotv->parent_slot_batch ) ) {
+      FD_BASE58_ENCODE_32_BYTES( parent_block_id ? parent_block_id->uc : (uchar const *)&(fd_hash_t){0}, pbid_b58 );
+      FD_LOG_DEBUG(( "AGDBG chainer/parent_learned slot=%lu v%lu shred_idx=%u parent_slot=%lu parent_block_id=%s (was %lu batch %u)",
+                     slot, i, shred_idx, parent_slot, pbid_b58, slotv->parent_slot, slotv->parent_slot_batch ));
       slotv->parent_slot       = parent_slot;
       slotv->parent_slot_batch = shred_idx;
       FD_TEST( parent_block_id ); /* TODO do handholding check */
@@ -627,6 +644,15 @@ fd_chainer_fec_insert( fd_chainer_t * chainer,
                        fd_hash_t    * mr ) {
   uint fec_set_idx = (uint)fec_set_idx_;
 
+  /* VERIFIED: block ids finalize and the root advances every slot. */
+  if( FD_UNLIKELY( slot_complete ) ) {
+    FD_BASE58_ENCODE_32_BYTES( mr->uc, mr_b58 );
+    FD_LOG_DEBUG(( "AGDBG chainer/fec_insert slot=%lu fec_set_idx=%u slot_complete=%d mr=%s root=%lu",
+                   slot, fec_set_idx, slot_complete, mr_b58, chainer->root ));
+  }
+
+  /* NOTE: parent is passed as AG_UNKNOWN_SLOT here -- the FEC path never
+     teaches the chainer a parent, only after_alpen_shred does. */
   for( uint i = 0; i < FD_FEC_SHRED_CNT; i++ ) {
     fd_chainer_shred_insert( chainer, slot, fec_set_idx_ + i, slot_complete && (i == FD_FEC_SHRED_CNT - 1), mr, AG_UNKNOWN_SLOT, NULL );
   }
@@ -667,6 +693,9 @@ fd_chainer_fec_insert( fd_chainer_t * chainer,
        it computed: a notar-fallback version already learned its block_id
        from the cert, and recomputing would be a waste. */
     if( FD_UNLIKELY( slotv->complete_idx != UINT_MAX && slotv->buffered_fec_idx == slotv->complete_idx && fd_hash_check_zero( &slotv->block_id ) ) ) {
+      FD_LOG_DEBUG(( "AGDBG chainer/slot_complete slot=%lu v%lu complete_idx=%u buffered_fec_idx=%u parent_slot=%lu parent_slot_batch=%u connected=%d",
+                     slot, v, slotv->complete_idx, slotv->buffered_fec_idx,
+                     slotv->parent_slot, slotv->parent_slot_batch, slotv->connected ));
       if( FD_UNLIKELY( slotv->parent_slot == AG_UNKNOWN_SLOT ) ) FD_LOG_CRIT(( "slot %lu is complete, but parent_slot is still unknown", slot ));
       if( FD_UNLIKELY( !finalize_block_id( chainer, slotv ) ) ) FD_LOG_CRIT(( "failed to finalize block_id for slot %lu", slot ));
     }
@@ -687,6 +716,9 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
   fd_slotv_t * slotv = fd_chainer_slot_version_query( chainer, slot, block_id );
   if( FD_UNLIKELY( !slotv ) ) FD_LOG_CRIT(("slotv not found for slot %lu", slot ));
 
+  FD_BASE58_ENCODE_32_BYTES( parent_block_id->uc, vpbid_b58 );
+  FD_LOG_DEBUG(( "AGDBG chainer/verified_parent_fec_count slot=%lu fec_set_cnt=%u complete_idx=%u parent_slot=%lu parent_block_id=%s",
+                 slot, fec_set_cnt, (fec_set_cnt*FD_FEC_SHRED_CNT)-1U, parent_slot, vpbid_b58 ));
   slotv->complete_idx    = (fec_set_cnt*FD_FEC_SHRED_CNT) - 1;
   slotv->parent_slot     = parent_slot;
   slotv->parent_block_id = *parent_block_id;
@@ -782,6 +814,9 @@ fd_chainer_publish( fd_chainer_t *    chainer,
   fd_fec_map_t   * fec_map    = fd_chainer_fec_map  ( chainer );
   fd_fec_t       * fec_pool   = fd_chainer_fec_pool ( chainer );
   ulong root = chainer->root;
+  FD_BASE58_ENCODE_32_BYTES( new_root_block_id ? new_root_block_id->uc : (uchar const *)&(fd_hash_t){0}, nrbid_b58 );
+  FD_LOG_DEBUG(( "AGDBG chainer/publish old_root=%lu new_root=%lu block_id=%s uninitialised=%d",
+                 root, new_root, nrbid_b58, root==ULONG_MAX ));
   if( FD_UNLIKELY( root==ULONG_MAX ) ) return;
   FD_TEST( root < new_root );
   FD_TEST( slotv_query( chainer, new_root, 0 ) );

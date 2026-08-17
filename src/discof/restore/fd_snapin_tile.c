@@ -627,6 +627,9 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     FD_LOG_WARNING(( "status cache has no blockhash offsets (rooted_slots=%lu txn_entries=%lu); "
                      "proceeding with empty txncache offsets",
                      ss.ele_cnt, ctx->txncache_entries_len ));
+    /* Valid under alpenglow (votes are not transactions), a corrupt
+       snapshot otherwise. */
+    FD_LOG_DEBUG(( "AGDBG snapin/empty_blockhash_offsets rooted_slots=%lu txn_entries=%lu", ss.ele_cnt, ctx->txncache_entries_len ));
   }
 
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {

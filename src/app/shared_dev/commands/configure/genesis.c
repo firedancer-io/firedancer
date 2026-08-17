@@ -174,6 +174,10 @@ create_genesis( config_t const * config,
                                        fd_sha512_join( fd_sha512_new( sha ) ) ) ) )
       FD_LOG_ERR(( "Failed to derive an alpenglow BLS pubkey from identity key `%s`", config->paths.identity_key ));
     fd_memzero_explicit( bls_sk, sizeof(bls_sk) );
+    /* This must equal the key fd_sign_tile.c derive_fields produces from
+       the same identity, or the validator cannot vote. */
+    FD_LOG_DEBUG(( "AGDBG genesis_cmd/bls_kdf derived the alpenglow voting pubkey from `%s`",
+                   config->paths.identity_key ));
 #else
     FD_LOG_ERR(( "[development.genesis.alpenglow] is enabled but this binary was built without "
                  "blst, so it cannot derive the BLS voting key the genesis vote account has to "
@@ -212,6 +216,10 @@ create_genesis( config_t const * config,
   options->vote_account_stake = config->development.genesis.vote_account_stake_lamports;
 
   /* Set up PoH config */
+
+  FD_LOG_DEBUG(( "AGDBG genesis_cmd/create alpenglow=%d development.alpenglow=%d ticks_per_slot=%lu",
+                 alpenglow, config->is_firedancer ? config->firedancer.development.alpenglow : 0,
+                 config->development.genesis.ticks_per_slot ));
 
   if( alpenglow ) {
 

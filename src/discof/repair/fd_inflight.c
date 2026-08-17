@@ -176,6 +176,7 @@ ag_inflights_request_insert( fd_inflights_t *  table,
   req->fec_set_idx  = fec_set_idx;
   req->timestamp_ns = fd_log_wallclock();
 
+  FD_LOG_DEBUG(( "AGDBG inflight/ag_insert nonce=%lu kind=%u slot=%lu fec_set_idx=%u", nonce, kind, slot, fec_set_idx ));
   ag_inflight_map_ele_insert     ( table->ag_map,             req, table->ag_pool );
   ag_inflight_dlist_ele_push_tail( table->ag_outstanding_dl,  req, table->ag_pool );
 }
@@ -201,6 +202,7 @@ ag_inflight_t *
 ag_inflights_request_match( fd_inflights_t * table, ulong nonce ) {
   ag_inflight_t * req = ag_inflight_map_ele_remove( table->ag_map, &nonce, NULL, table->ag_pool );
   if( FD_LIKELY( req ) ) ag_inflight_dlist_ele_remove( table->ag_outstanding_dl, req, table->ag_pool );
+  FD_LOG_DEBUG(( "AGDBG inflight/ag_match nonce=%lu matched=%d", nonce, !!req ));
   return req; /* caller releases via ag_inflight_pool_ele_release */
 }
 

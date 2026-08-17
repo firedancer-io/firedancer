@@ -311,8 +311,15 @@ int
 ag_cert_check_threshold( ag_cert_t const *       self,
                          ag_epoch_info_t const * ei ) {
   ulong stake = signed_stake( self, ei );
-  if( self->kind==AG_CERT_TYPE_FAST_FINAL ) return ag_epoch_info_is_strong_quorum( ei, stake );
-  return ag_epoch_info_is_quorum( ei, stake );
+  int   ok    = self->kind==AG_CERT_TYPE_FAST_FINAL ? ag_epoch_info_is_strong_quorum( ei, stake )
+                                                    : ag_epoch_info_is_quorum( ei, stake );
+  /* A cert that fails here is usually a validator-set mismatch (missing
+     BLS keys, or the wrong epoch), not a malicious peer. */
+  if( FD_UNLIKELY( !ok ) ) {
+    FD_LOG_DEBUG(( "AGDBG ag_cert/check_threshold kind=%u slot=%lu signed_stake=%lu total_stake=%lu validators=%lu FAILED",
+                   (uint)self->kind, ag_cert_slot( self ), stake, ei->total_stake, ei->validator_cnt ));
+  }
+  return ok;
 }
 
 int

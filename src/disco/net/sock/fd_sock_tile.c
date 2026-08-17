@@ -273,6 +273,10 @@ unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   fd_sock_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  /* Under alpenglow this is seven (gossvf, shred, repair, rserve,
+     txsend, quic, alpenglow); MAX_NET_OUTS was raised from 6 to 8 for
+     it, so a failure here means a stale object file. */
+  FD_LOG_DEBUG(( "AGDBG sock/init out_cnt=%lu max_net_outs=%lu", tile->out_cnt, MAX_NET_OUTS ));
   if( FD_UNLIKELY( tile->out_cnt > MAX_NET_OUTS ) ) {
     FD_LOG_ERR(( "sock tile has %lu out links which exceeds the max (%lu)", tile->out_cnt, MAX_NET_OUTS ));
   }
@@ -429,7 +433,11 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
        repair response (identified by the frame size), then it is sent to
        the repair tile.  The repair tile does not own any sockets, so
        we look up the net_repair link directly. */
+    /* NOTE: this size split replaced `frame_sz==REPAIR_PING_SZ` and
+       applies to the TowerBFT path too. */
     if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && frame_sz<AG_REPAIR_RESPONSE_MAX_SZ+sizeof(fd_ip4_udp_hdrs_t) ) ) {
+      FD_LOG_DEBUG(( "AGDBG sock/repair_port_split frame_sz=%lu -> repair (threshold %lu)",
+                     frame_sz, AG_REPAIR_RESPONSE_MAX_SZ+sizeof(fd_ip4_udp_hdrs_t) ));
       fd_sock_link_rx_t * repair_link = ctx->link_rx + ctx->repair_rx;
       uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
       memcpy( repair_buf, eth_hdr, frame_sz );

@@ -655,6 +655,13 @@ during_frag( fd_shred_ctx_t * ctx,
       if( FD_UNLIKELY( !entry_meta->batch_flush && sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) ) )
         FD_LOG_ERR(( "poh frag of %lu bytes is too small to carry an entry header", sz ));
 
+      if( FD_UNLIKELY( entry_meta->block_marker || entry_meta->batch_flush || entry_meta->block_complete ) ) {
+        FD_LOG_DEBUG(( "AGDBG shred/poh_frag kind=%s sz=%lu entry_sz=%lu parent_offset=%lu ref_tick=%lu pending_pos=%lu pending_mblk=%lu",
+                       entry_meta->block_marker ? "marker" : (entry_meta->batch_flush ? "flush" : "tick"),
+                       sz, entry_sz, entry_meta->parent_offset, entry_meta->reference_tick,
+                       ctx->pending_batch.pos, ctx->pending_batch.microblock_cnt ));
+      }
+
       fd_entry_batch_header_t const * microblock = (fd_entry_batch_header_t const *)entry;
 
       /* It should never be possible for this to fail, but we check it
@@ -784,6 +791,14 @@ during_frag( fd_shred_ctx_t * ctx,
          window when it is not there.  A flush with nothing pending, and
          the new_slot that fires on it, both land here. */
       if( FD_UNLIKELY( !ctx->pending_batch.pos && !include_in_current_batch ) ) process_current_batch = 0;
+
+      if( FD_UNLIKELY( is_marker | is_flush | new_slot | entry_meta->block_complete ) ) {
+        FD_LOG_DEBUG(( "AGDBG shred/batch_decide slot=%lu marker=%d flush=%d new_slot=%d complete=%d wmark_exceeded=%d "
+                       "include=%d process=%d init_new=%d pending_pos=%lu pending_mblk=%lu",
+                       target_slot, is_marker, is_flush, new_slot, entry_meta->block_complete,
+                       batch_would_exceed_wmark, include_in_current_batch, process_current_batch,
+                       init_new_batch, ctx->pending_batch.pos, ctx->pending_batch.microblock_cnt ));
+      }
 
       /* The flush that precedes every marker leaves the batch empty, so
          the marker always starts one.  If that ever stops holding, the
@@ -1297,6 +1312,20 @@ after_frag( fd_shred_ctx_t *    ctx,
          link burst value can be lowered to 2. */
       ulong sig = ctx->in_kind[ in_idx ]==IN_KIND_POH ? SHRED_SIG_FEC_COMPLETE_LEADER : SHRED_SIG_FEC_COMPLETE;
 
+      /* AGDBG.  For a leader FEC set every data shred is "reconstructed"
+         (data_shred_rcvd is 0), so the loop above published all 32 shred
+         headers before this; repair's alpenglow parent discovery only
+         runs on shred idx 0 of those, so record whether idx 0 went out. */
+      if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH &&
+                       (last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) ) ) {
+        /* VERIFIED for the whole-block shape; one line per block now. */
+        FD_LOG_DEBUG(( "AGDBG shred/fec_complete_leader slot=%lu fec_set_idx=%u last_idx=%u data_shred_rcvd=%#x "
+                       "slot_complete=%d shreds_published=%d",
+                       last->slot, last->fec_set_idx, last->idx, set->data_shred_rcvd,
+                       !!(last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE),
+                       ctx->shred_out_idx!=ULONG_MAX && replay_fwd ));
+      }
+
       fd_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
       complete_msg->last_shred_hdr = *last;
       memcpy( &complete_msg->merkle_root, ctx->out_merkle_roots[fset_k].hash, sizeof(fd_hash_t) );
@@ -1582,7 +1611,8 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) )   ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) )   ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTED;
-    else if( FD_LIKELY( !strcmp( link->name, "votor_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDA;
+    else if( FD_LIKELY( !strcmp( link->name, "votor_out"    ) ) ) { ctx->in_kind[ i ] = IN_KIND_ROOTEDA;
+      FD_LOG_DEBUG(( "AGDBG shred/init in_link[%lu]=votor_out (alpenglow rooting)", i )); }
     else if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDH;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_CONTACT;
       if( FD_UNLIKELY( has_contact_info_in ) ) FD_LOG_ERR(( "shred tile has multiple contact info in link types, can only be either gossip_out or crds_shred" ));

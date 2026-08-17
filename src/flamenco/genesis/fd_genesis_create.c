@@ -396,6 +396,11 @@ genesis_create( void *                       buf,
 
     if( FD_UNLIKELY( options->alpenglow ) ) {
       fd_memcpy( vote_state->bls_pubkey_compressed, options->identity_bls_pubkey, FD_BLS_PUBKEY_COMPRESSED_SZ );
+      /* An all-zero key here means the validator gets no weight in the
+         alpenglow rank map and can never vote. */
+      int zero = 1;
+      for( ulong i=0UL; i<FD_BLS_PUBKEY_COMPRESSED_SZ; i++ ) zero &= !options->identity_bls_pubkey[ i ];
+      FD_LOG_DEBUG(( "AGDBG genesis/vote_account v4 bls_pubkey_written=1 all_zero=%d", zero ));
     }
 
     fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
@@ -592,6 +597,12 @@ genesis_create( void *                       buf,
       .data     = alpenglow_inflation_data,
       .owner    = fd_solana_system_program_id
     };
+
+    FD_BASE58_ENCODE_32_BYTES( alpenglow_program_id->uc, gate_b58 );
+    FD_BASE58_ENCODE_32_BYTES( cert_pair->key.uc,        cert_b58 );
+    FD_BASE58_ENCODE_32_BYTES( infl_pair->key.uc,        infl_b58 );
+    FD_LOG_DEBUG(( "AGDBG genesis/alpenglow_accounts gate=%s genesis_cert=%s epoch_inflation=%s hashes_per_tick=%lu",
+                   gate_b58, cert_b58, infl_b58, options->hashes_per_tick ));
   }
 #undef FEATURE_ENABLED_SZ
 

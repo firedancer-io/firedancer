@@ -525,6 +525,11 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
   int   ag_tick_ready;
   uchar ag_tick_hash[ 32 ];
 
+  /* AGDBG only.  Rate limits the "still draining" debug line in
+     ag_advance to once per block; without it the line fires on every
+     single after_credit while the block closes. */
+  int   ag_drain_logged;
+
   /* Parent of the block being produced, as the BlockHeader must state
      it.  Under alpenglow the block id is the block's DOUBLE merkle
      root, not the last FEC set's merkle root, so this is not the same

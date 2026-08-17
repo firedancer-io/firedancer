@@ -376,6 +376,8 @@ void
 ag_pool_prune_to_root( ag_pool_t *       self,
                        ulong             root_slot,
                        fd_hash_t const * root_hash ) {
+  FD_LOG_DEBUG(( "AGDBG ag_pool/prune_to_root root_slot=%lu first_unpruned=%lu finalized=%lu",
+                 root_slot, ag_pool_first_unpruned_slot( self ), ag_pool_finalized_slot( self ) ));
   ag_finality_tracker_prune_to( self->finality_tracker, root_slot, root_hash );
   prune( self );
 }
@@ -502,6 +504,8 @@ ag_pool_add_vote( ag_pool_t *       self,
 
   ulong slot_far_in_future = ag_pool_finalized_slot( self ) + 2UL*AG_SLOTS_PER_EPOCH;
   if( slot < ag_pool_first_unpruned_slot( self ) || slot >= slot_far_in_future ) {
+    FD_LOG_DEBUG(( "AGDBG ag_pool/add_vote slot=%lu OUT_OF_BOUNDS first_unpruned=%lu finalized=%lu",
+                   slot, ag_pool_first_unpruned_slot( self ), ag_pool_finalized_slot( self ) ));
     return AG_ADD_VOTE_ERR_SLOT_OUT_OF_BOUNDS;
   }
 
@@ -555,6 +559,10 @@ ag_pool_add_block( ag_pool_t *           self,
                                                    finalization_event.implicitly_skipped,   finalization_event.is_cnt,
                                                    &new_parents_ready ) )
     send_parent_ready_events( self, &new_parents_ready, 1UL );
+
+  FD_LOG_DEBUG(( "AGDBG ag_pool/add_block slot=%lu parent_slot=%lu has_finalized=%d if_cnt=%lu is_cnt=%lu",
+                 slot, parent_slot, finalization_event.has_finalized,
+                 finalization_event.if_cnt, finalization_event.is_cnt ));
 
   ag_slot_state_notify_parent_known( ag_pool_slot_state( self, slot ), block_hash );
 

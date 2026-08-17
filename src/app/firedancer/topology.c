@@ -280,6 +280,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "txsend_sign"   );
   fd_topob_wksp( topo, "sign_txsend"   );
 
+  FD_LOG_DEBUG(( "AGDBG topo/init alpenglow_enabled=%d leader_enabled=%d rserve_enabled=%d net_tile_cnt=%lu shred_tile_cnt=%lu",
+                 alpenglow_enabled, leader_enabled, rserve_enabled, net_tile_cnt, shred_tile_cnt ));
+
   if( alpenglow_enabled ) {
     /* Votor tile (Alpenglow consensus + folded-in QUIC ingress). */
     fd_topob_wksp( topo, "votor"         );
@@ -1319,6 +1322,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
     tile->net.alpenglow_listen_port            = config->firedancer.development.alpenglow ? config->tiles.alpenglow.listen_port : 0;
     tile->net.alpenglow_client_listen_port     = config->firedancer.development.alpenglow ? config->tiles.alpenglow.client_port : 0;
+    FD_LOG_DEBUG(( "AGDBG topo/net_tile alpenglow_listen_port=%hu alpenglow_client_port=%hu",
+                   tile->net.alpenglow_listen_port, tile->net.alpenglow_client_listen_port ));
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
@@ -1467,6 +1472,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->repair.slot_max                  = config->tiles.repair.slot_max;
     tile->repair.repair_sign_cnt           = config->firedancer.layout.sign_tile_count - 1; /* -1 because this excludes the keyguard client */
     tile->repair.is_alpenglow              = config->firedancer.development.alpenglow;
+    FD_LOG_DEBUG(( "AGDBG topo/repair_tile is_alpenglow=%d slot_max=%lu", tile->repair.is_alpenglow, tile->repair.slot_max ));
     for( ulong i=0; i<tile->in_cnt; i++ ) {
       if( !strcmp( config->topo.links[ tile->in_link_id[ i ] ].name, "sign_repair" ) ) {
         tile->repair.repair_sign_depth = config->topo.links[ tile->in_link_id[ i ] ].depth;
@@ -1592,6 +1598,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->quic.alpenglow_listen_port          = config->tiles.alpenglow.listen_port;
     tile->quic.alpenglow_client_listen_port   = config->tiles.alpenglow.client_port;
     tile->quic.alpenglow_publish_rx           = config->firedancer.development.votor.monitor;
+    FD_LOG_DEBUG(( "AGDBG topo/votor_tile max_live_slots=%lu max_conns=%lu listen_port=%hu client_port=%hu publish_rx=%d",
+                   tile->tower.max_live_slots, tile->quic.max_concurrent_connections,
+                   tile->quic.alpenglow_listen_port, tile->quic.alpenglow_client_listen_port,
+                   tile->quic.alpenglow_publish_rx ));
     fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->quic.key_log_path ), config->firedancer.development.votor.ssl_key_log_file, sizeof(tile->quic.key_log_path) ) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {

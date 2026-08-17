@@ -380,6 +380,10 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     int vote_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_AG_VOTE )) &&
                   fd_keyguard_authorize_ag_vote( authority, data, sz, sign_type );
     if( FD_UNLIKELY( !tls_ok && !vote_ok ) ) {
+      FD_LOG_DEBUG(( "AGDBG keyguard/authorize_votor sz=%lu sign_type=%d mask=%#lx tls_ok=%d vote_ok=%d",
+                     sz, sign_type, payload_mask, tls_ok, vote_ok ));
+    }
+    if( FD_UNLIKELY( !tls_ok && !vote_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for votor (mask=%#lx)", payload_mask ));
       return 0;
     }

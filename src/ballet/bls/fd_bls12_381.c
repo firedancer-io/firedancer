@@ -610,7 +610,12 @@ fd_bls12_381_batch_verify( uchar const msgs[],
     blst_fp12_mul( acc_result, acc_result, partial );
   }
 
-  if( FD_LIKELY( blst_fp12_finalverify( acc_result, blst_fp12_one() ) ) ) {
+  int ok = blst_fp12_finalverify( acc_result, blst_fp12_one() );
+  /* NB pk_aff/h_aff above are VLAs of up to
+     FD_BLS12_381_INDIVIDUAL_VERIFY_MAX entries -- ~590 KiB of stack at
+     n=2048.  Worth watching if a tile ever crashes here. */
+  if( FD_UNLIKELY( !ok ) ) FD_LOG_DEBUG(( "AGDBG bls/batch_verify n=%lu FAILED", n ));
+  if( FD_LIKELY( ok ) ) {
     return 0; /* success */
   }
   return -1;
@@ -672,6 +677,7 @@ fd_bls12_381_individual_verify( uchar const msgs[],
     msg_off += msg_len;
   }
 
+  FD_LOG_DEBUG(( "AGDBG bls/individual_verify n=%lu fail_cnt=%lu", n, fail_cnt ));
   return fail_cnt;
 }
 

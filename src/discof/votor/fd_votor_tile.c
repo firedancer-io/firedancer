@@ -203,6 +203,9 @@ typedef struct vtr_epoch_set vtr_epoch_set_t;
 struct fd_votor_tile {
   ulong          seed; /* map seed */
   fd_pubkey_t    identity_key[1];
+
+  /* AGDBG only: rate limits the "broadcast with no peers" line. */
+  ulong          dbg_no_peer_bcast;
   /* Only the PUBLIC half of the BLS voting key lives here: votes are
      signed by the sign tile over the keyguard (votor_sign / sign_votor,
      FD_KEYGUARD_SIGN_TYPE_BLS12_381).  The pubkey is kept so we can
@@ -436,6 +439,7 @@ static void
 handle_votor_out( fd_votor_tile_t * ctx ) {
   ag_votor_out_t const * out = ag_votor_out( ctx->votor );
 
+
   for( ulong i=0UL; i<out->timeout_cnt; i++ ) {
     ag_votor_timeout_t const * t = &out->timeouts[ i ];
     schedule_timeout( ctx, t->kind, t->slot );
@@ -461,11 +465,18 @@ handle_votor_out( fd_votor_tile_t * ctx ) {
       ulong voted = ag_vote_slot( &vote );
       if( FD_UNLIKELY( ctx->vote_slot==ULONG_MAX || voted>ctx->vote_slot ) ) ctx->vote_slot = voted;
 
+      FD_LOG_DEBUG(( "AGDBG votor/vote kind=%u slot=%lu epoch=%lu signer=%lu vote_slot_hwm=%lu",
+                     (uint)vote.kind, voted, epoch, s->own_id, ctx->vote_slot ));
       publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_VOTOR_SIG_VOTE, .bcast = 1, .msg.vote = vote } );
       ag_pool_add_vote( ctx->pool, &vote ); /* count our own vote; the pool events
                                                it emits are consumed by a later
                                                after_credit iteration */
     } else {
+      /* VERIFIED: all four cert kinds form every slot and drive
+         finalization.  Only the finalizing kinds still warrant a line. */
+      if( FD_UNLIKELY( m->inner.cert.kind==AG_CERT_TYPE_FINAL || m->inner.cert.kind==AG_CERT_TYPE_FAST_FINAL ) ) {
+        FD_LOG_DEBUG(( "AGDBG votor/cert kind=%u slot=%lu", (uint)m->inner.cert.kind, ag_cert_slot( &m->inner.cert ) ));
+      }
       publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_VOTOR_SIG_CERT, .bcast = 1, .msg.cert = m->inner.cert } );
     }
   }
@@ -519,10 +530,19 @@ publish_slot_done( fd_votor_tile_t *     ctx,
   msg->reset_block_id = block->hash;
 
   fd_hash_t notarized[1];
-  if( FD_LIKELY( ag_pool_get_notarized_block( ctx->pool, block->slot, notarized ) ) ) {
+  int have_notarized = ag_pool_get_notarized_block( ctx->pool, block->slot, notarized );
+  if( FD_LIKELY( have_notarized ) ) {
     msg->reset_slot     = block->slot;
     msg->reset_block_id = *notarized;
   }
+  FD_BASE58_ENCODE_32_BYTES( msg->reset_block_id.uc, rbid_b58 );
+  /* reset_slot can go BACKWARDS relative to the last one we named -- a
+     late completion of an older block on the same fork -- which poh does
+     not defend against.  Flag it here. */
+  FD_LOG_DEBUG(( "AGDBG votor/slot_done replay_slot=%lu bank_idx=%lu reset_slot=%lu reset_block_id=%s notarized=%d vote_slot=%lu is_voting=%d walks_back=%d",
+                 msg->replay_slot, bank_idx, msg->reset_slot, rbid_b58, have_notarized,
+                 msg->vote_slot, msg->is_voting,
+                 ctx->reset_slot!=ULONG_MAX && msg->reset_slot<ctx->reset_slot ));
   ctx->reset_slot = msg->reset_slot;
 }
 
@@ -549,6 +569,9 @@ maybe_publish_finalized( fd_votor_tile_t * ctx ) {
     pub->msg.finalized.block_id = *block_id;
     ctx->finalized_slot         = fin;
     ctx->standstill_armed       = 1; /* a real final cert now backs the finalized slot */
+    FD_BASE58_ENCODE_32_BYTES( block_id->uc, fbid_b58 );
+    FD_LOG_DEBUG(( "AGDBG votor/finalized slot=%lu block_id=%s highest_replayed=%lu root=%lu",
+                   fin, fbid_b58, ctx->highest_replayed_slot, ctx->root_slot ));
   }
 
   /* ROOTED: the bank root can advance to the highest finalized+replayed slot. */
@@ -574,6 +597,11 @@ maybe_publish_finalized( fd_votor_tile_t * ctx ) {
          per-slot pools exhaust (see ag_finality_tracker_prune_to) */
       ag_pool_prune_to_root( ctx->pool, rootable, block_id );
       FD_LOG_INFO(( "votor rooted slot %lu", rootable ));
+      FD_BASE58_ENCODE_32_BYTES( block_id->uc, rbid_b58 );
+      FD_LOG_DEBUG(( "AGDBG votor/rooted slot=%lu block_id=%s finalized=%lu highest_replayed=%lu", rootable, rbid_b58, fin, ctx->highest_replayed_slot ));
+    } else {
+      FD_LOG_DEBUG(( "AGDBG votor/root_held rootable=%lu root=%lu finalized=%lu highest_replayed=%lu (no certified block id yet)",
+                     rootable, ctx->root_slot, fin, ctx->highest_replayed_slot ));
     }
   }
 }
@@ -628,6 +656,8 @@ set_active_epoch( fd_votor_tile_t * ctx,
 
   FD_LOG_NOTICE(( "votor active epoch -> %lu (%lu validators, own_id %u, staked=%d)",
                   epoch, s->validator_cnt, (uint)s->own_id, s->have_own_id ));
+  FD_LOG_DEBUG(( "AGDBG votor/set_active_epoch epoch=%lu validators=%lu own_id=%u have_own_id=%d root_slot=%lu shred_version=%u (pool+votor rebuilt, timeouts dropped)",
+                 epoch, s->validator_cnt, (uint)s->own_id, s->have_own_id, ctx->root_slot, (uint)ctx->shred_version ));
   return 1;
 }
 
@@ -652,6 +682,9 @@ seed_consensus_root( fd_votor_tile_t *     ctx,
     ctx->root_slot     = block->slot;
     ctx->root_block_id = block->hash;
   }
+  FD_BASE58_ENCODE_32_BYTES( ctx->root_block_id.uc, sbid_b58 );
+  FD_LOG_DEBUG(( "AGDBG votor/seed_consensus_root block_slot=%lu parent_slot=%lu parent_id_known=%d -> root_slot=%lu root_block_id=%s",
+                 block->slot, parent->slot, parent_id_known, ctx->root_slot, sbid_b58 ));
 }
 
 /* advance_epoch switches the active consensus epoch to the replayed
@@ -679,6 +712,9 @@ advance_epoch( fd_votor_tile_t *     ctx,
   if( FD_UNLIKELY( ctx->active_epoch==ULONG_MAX ) ) seed_consensus_root( ctx, block, parent );
 
   ulong tip_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, block->slot, NULL );
+  FD_LOG_DEBUG(( "AGDBG votor/advance_epoch tip_slot=%lu tip_epoch=%lu active_epoch=%lu curr=%lu next=%lu switching=%d",
+                 block->slot, tip_epoch, ctx->active_epoch, ctx->curr.epoch, ctx->next.epoch,
+                 !(ctx->active_epoch!=ULONG_MAX && tip_epoch<=ctx->active_epoch) ));
   if( FD_LIKELY( ctx->active_epoch!=ULONG_MAX && tip_epoch<=ctx->active_epoch ) ) return;
 
   if( FD_UNLIKELY( !set_active_epoch( ctx, tip_epoch ) ) ) {
@@ -822,6 +858,8 @@ broadcast( fd_votor_tile_t * ctx,
            ulong             payload_sz ) {
   if( FD_UNLIKELY( !ctx->quic_client ) ) return; /* QUIC disabled (unit test) */
 
+  ulong sent = 0UL;
+
   for( peer_map_iter_t iter = peer_map_iter_init( ctx->peer_map, ctx->peer_pool );
        !peer_map_iter_done( iter, ctx->peer_map, ctx->peer_pool );
        iter = peer_map_iter_next( iter, ctx->peer_map, ctx->peer_pool ) ) {
@@ -835,6 +873,24 @@ broadcast( fd_votor_tile_t * ctx,
       continue;
     }
     ctx->tx_msg++;
+    sent++;
+  }
+  /* A broadcast that reaches nobody is the single most common reason a
+     cluster never reaches a certificate, and sending to a real peer has
+     still never been exercised -- so the line stays.  With no peers at
+     all "sent=0" is the correct answer and six of them per slot is
+     noise, so that case alone is rate limited. */
+  ulong peer_cnt = peer_pool_used( ctx->peer_pool );
+  if( FD_LIKELY( peer_cnt ) ) {
+    FD_LOG_DEBUG(( "AGDBG votor/broadcast payload_sz=%lu sent=%lu peers=%lu drop_no_conn=%lu drop_no_stream=%lu drop_send=%lu",
+                   payload_sz, sent, peer_cnt,
+                   ctx->tx_drop_no_conn, ctx->tx_drop_no_stream, ctx->tx_drop_send ));
+  } else {
+    ctx->dbg_no_peer_bcast++;
+    if( FD_UNLIKELY( fd_ulong_is_pow2( ctx->dbg_no_peer_bcast ) ) ) {
+      FD_LOG_DEBUG(( "AGDBG votor/broadcast payload_sz=%lu sent=0 NO PEERS (cnt %lu)",
+                     payload_sz, ctx->dbg_no_peer_bcast ));
+    }
   }
 }
 
@@ -1099,7 +1155,10 @@ handle_consensus_payload( fd_votor_tile_t * ctx,
                           uchar const *     data,
                           ulong             data_sz ) {
   ctx->rx_msg++;
-  if( FD_UNLIKELY( !ctx->init || !ctx->have_schedule ) ) return; /* consensus not ready (pre first slot completion / epoch set) */
+  if( FD_UNLIKELY( !ctx->init || !ctx->have_schedule ) ) {
+    FD_LOG_DEBUG(( "AGDBG votor/rx_dropped_not_ready sz=%lu init=%d have_schedule=%d", data_sz, ctx->init, ctx->have_schedule ));
+    return; /* consensus not ready (pre first slot completion / epoch set) */
+  }
 
   ag_consensus_message_t msg[1];
   int err = ag_consensus_message_de( msg, data, data_sz, ctx->shred_version );
@@ -1134,6 +1193,10 @@ handle_consensus_payload( fd_votor_tile_t * ctx,
     }
 
     int cert_err = ag_pool_add_cert( ctx->pool, cert );
+    if( FD_UNLIKELY( cert_err!=AG_POOL_SUCCESS ) ) {
+      FD_LOG_DEBUG(( "AGDBG votor/rx_cert kind=%u slot=%lu epoch=%lu err=%d (%s)",
+                     (uint)cert->kind, ag_cert_slot( cert ), cert_epoch, cert_err, ag_pool_strerror( cert_err ) ));
+    }
     if( FD_LIKELY( cert_err==AG_POOL_SUCCESS ) ) {
       ctx->rx_cert_ok++;
       maybe_publish_finalized( ctx );
@@ -1150,6 +1213,11 @@ handle_consensus_payload( fd_votor_tile_t * ctx,
     publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_VOTOR_SIG_VOTE|FD_VOTOR_SIG_RX, .msg.vote = *vote } );
 
   int add_err = ag_pool_add_vote( ctx->pool, vote );
+  if( FD_UNLIKELY( add_err!=AG_POOL_SUCCESS ) ) {
+    FD_LOG_DEBUG(( "AGDBG votor/rx_vote kind=%u slot=%lu signer=%u err=%d (%s)",
+                   (uint)vote->kind, ag_vote_slot( vote ), (uint)ag_vote_signer( vote ),
+                   add_err, ag_pool_strerror( add_err ) ));
+  }
   switch( add_err ) {
   case AG_POOL_SUCCESS:
     /* finalized/rooted publication happens at the end of after_frag /
@@ -1560,6 +1628,11 @@ after_frag( fd_votor_tile_t *   ctx,
 
       ctx->init = 1;
 
+      FD_BASE58_ENCODE_32_BYTES( block.hash.uc,  sc_bid_b58  );
+      FD_BASE58_ENCODE_32_BYTES( parent.hash.uc, sc_pbid_b58 );
+      FD_LOG_DEBUG(( "AGDBG votor/slot_completed slot=%lu block_id=%s parent_slot=%lu parent_block_id=%s bank_idx=%lu active_epoch=%lu",
+                     block.slot, sc_bid_b58, parent.slot, sc_pbid_b58, sc->bank_idx, ctx->active_epoch ));
+
       advance_epoch( ctx, &block, &parent );
 
       /* Register the block and its parent with the pool. */
@@ -1612,6 +1685,7 @@ after_frag( fd_votor_tile_t *   ctx,
 
     case REPLAY_SIG_SLOT_DEAD: {
       fd_replay_slot_dead_t const * sd = fd_type_pun_const( ctx->msg_buf );
+      FD_LOG_DEBUG(( "AGDBG votor/slot_dead slot=%lu root_slot=%lu ignored=%d", sd->slot, ctx->root_slot, sd->slot<ctx->root_slot ));
       if( FD_UNLIKELY( sd->slot < ctx->root_slot ) ) break;
 
       ag_votor_blockstore_event_t ib = { .kind = AG_VOTOR_BLOCKSTORE_EVENT_INVALID_BLOCK };
@@ -1631,6 +1705,8 @@ after_frag( fd_votor_tile_t *   ctx,
          cert is an invariant violation. */
       if( FD_UNLIKELY( !ctx->have_schedule ) ) break;
       fd_replay_final_cert_t const * final_cert = fd_type_pun_const( ctx->msg_buf );
+      FD_LOG_DEBUG(( "AGDBG votor/footer_cert_in slot=%lu cert_cnt=%lu active_epoch=%lu",
+                     final_cert->slot, final_cert->cert_cnt, ctx->active_epoch ));
       for( ulong i=0UL; i<final_cert->cert_cnt; i++ ) {
         ag_cert_t const * cert = fd_type_pun_const( &final_cert->certs[ i ] );
 
@@ -1679,6 +1755,8 @@ after_frag( fd_votor_tile_t *   ctx,
     FD_TEST( msg->staked_vote_cnt<=FD_EPOCH_INFO_MAX_VOTERS );
     FD_TEST( msg->staked_id_cnt<=MAX_SHRED_DESTS );
     fd_vote_stake_weight_t const * stakes = fd_epoch_info_msg_stake_weights( msg );
+    FD_LOG_DEBUG(( "AGDBG votor/epoch_msg epoch=%lu staked_vote_cnt=%lu staked_id_cnt=%lu",
+                   msg->epoch, msg->staked_vote_cnt, msg->staked_id_cnt ));
     update_epoch_vtrs( ctx, msg, stakes, msg->staked_vote_cnt );
     break;
   }

@@ -640,8 +640,14 @@ fd_vote_account_bls_pubkey( uchar const * data,
   /* is_v4_with_bls_pubkey verifies v4 + has_bls byte set (and room for
      that byte at WIRE_BLS_OFF_V4); the compressed key immediately
      follows it, so additionally ensure there are 48 bytes to read. */
-  if( FD_UNLIKELY( !fd_vote_account_is_v4_with_bls_pubkey( data, data_sz ) )      ) return 1;
-  if( FD_UNLIKELY( data_sz<WIRE_BLS_OFF_V4+1UL+FD_BLS_PUBKEY_COMPRESSED_SZ )      ) return 1;
+  if( FD_UNLIKELY( !fd_vote_account_is_v4_with_bls_pubkey( data, data_sz ) )      ) {
+    FD_LOG_DEBUG(( "AGDBG vote_codec/bls_pubkey miss: not a v4 vote account with a bls pubkey (data_sz=%lu)", data_sz ));
+    return 1;
+  }
+  if( FD_UNLIKELY( data_sz<WIRE_BLS_OFF_V4+1UL+FD_BLS_PUBKEY_COMPRESSED_SZ )      ) {
+    FD_LOG_DEBUG(( "AGDBG vote_codec/bls_pubkey miss: truncated (data_sz=%lu)", data_sz ));
+    return 1;
+  }
   memcpy( out, data+WIRE_BLS_OFF_V4+1UL, FD_BLS_PUBKEY_COMPRESSED_SZ );
   return 0;
 }

@@ -537,6 +537,9 @@ void
 fd_config_validate( fd_config_t const * config ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     fd_config_validatef( &config->firedancer );
+    FD_LOG_DEBUG(( "AGDBG config/validate alpenglow.listen_port=%hu alpenglow.client_port=%hu development.alpenglow=%d development.genesis.alpenglow=%d",
+                   config->tiles.alpenglow.listen_port, config->tiles.alpenglow.client_port,
+                   config->firedancer.development.alpenglow, config->development.genesis.alpenglow ));
     CFG_HAS_NON_ZERO( tiles.alpenglow.listen_port );
     CFG_HAS_NON_ZERO( tiles.alpenglow.client_port );
     if( FD_UNLIKELY( config->tiles.alpenglow.listen_port==config->tiles.alpenglow.client_port ) ) {

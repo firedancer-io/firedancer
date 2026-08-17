@@ -2464,7 +2464,10 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
     if( FD_UNLIKELY( prev_rooted!=ULONG_MAX && cslot<=prev_rooted ) ) break;
 
     fd_gui_slot_t * c = fd_gui_slot_get( gui, cslot, cbank_seq );
-    if( FD_UNLIKELY( !c ) ) break;
+    if( FD_UNLIKELY( !c ) ) {
+      FD_LOG_DEBUG(( "AGDBG gui/root_walk stopped at slot=%lu (no record); prev_rooted=%lu", cslot, prev_rooted ));
+      break;
+    }
 
     /* Never lower a slot that finalization already raised past ROOTED. */
     if( FD_LIKELY( c->level<FD_GUI_SLOT_LEVEL_ROOTED ) ) {
@@ -2879,6 +2882,8 @@ static void
 handle_finalized( fd_gui_t * gui,
                   ulong      _slot,
                   ulong      bank_seq ) {
+  FD_LOG_DEBUG(( "AGDBG gui/finalized slot=%lu bank_seq=%lu watermark=%lu have_record=%d",
+                 _slot, bank_seq, gui->summary.slot_finalized, !!fd_gui_slot_get( gui, _slot, bank_seq ) ));
   if( FD_UNLIKELY( gui->summary.slot_finalized!=ULONG_MAX && _slot<=gui->summary.slot_finalized ) ) return;
 
   /* Do not advance the watermark past a slot we cannot see: dropping it
@@ -2925,7 +2930,10 @@ reset_walks_back( fd_gui_t * gui,
                   ulong      reset_slot ) {
   if( FD_UNLIKELY( gui->summary.slot_tower==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX ) ) return 0;
   if( FD_LIKELY( reset_slot>=gui->summary.slot_tower ) ) return 0;
-  return fd_gui_slot_is_ancestor( gui, reset_slot, gui->summary.slot_tower );
+  int back = fd_gui_slot_is_ancestor( gui, reset_slot, gui->summary.slot_tower );
+  FD_LOG_DEBUG(( "AGDBG gui/reset_walks_back reset_slot=%lu slot_tower=%lu is_ancestor=%d (0 => real fork switch)",
+                 reset_slot, gui->summary.slot_tower, back ));
+  return back;
 }
 
 /* ALPENGLOW.  The counterpart of fd_gui_handle_tower_update.  Unlike the
@@ -2994,6 +3002,7 @@ fd_gui_handle_consensus_update( fd_gui_t *                           gui,
     }
   } else if( FD_UNLIKELY( !msg->is_voting ) ) {
     /* NON_VOTING does not need a reset slot, unlike publish_vote_status. */
+    FD_LOG_DEBUG(( "AGDBG gui/consensus_update -> NON_VOTING (reset_slot=%lu)", msg->reset_slot ));
     set_vote_state( gui, FD_GUI_VOTE_STATE_NON_VOTING );
   }
 }

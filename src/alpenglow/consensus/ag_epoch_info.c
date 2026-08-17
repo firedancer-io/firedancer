@@ -102,6 +102,10 @@ ag_epoch_info_rank( ag_validator_info_t *          out,
   ei_rank_sort_inplace( rank, m );
 
   ulong cnt = fd_ulong_min( m, out_max );
+  /* stake_cnt -> m is where voters with a missing/duplicate/undecodable
+     BLS key silently disappear from consensus. */
+  FD_LOG_DEBUG(( "AGDBG ag_epoch_info/rank stake_cnt=%lu considered=%lu survived=%lu ranked=%lu out_max=%lu",
+                 stake_cnt, in_cnt, m, cnt, out_max ));
   for( ulong r=0UL; r<cnt; r++ ) {
     ulong                 src = rank[r].src;
     ag_validator_info_t * vi  = out + r;

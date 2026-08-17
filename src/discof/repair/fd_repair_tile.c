@@ -342,6 +342,9 @@ struct ctx {
   ulong repair_seed;
   int   is_alpenglow;
 
+  /* AGDBG only: rate limits the ag_policy_next capacity-gate log. */
+  ulong ag_dbg_capacity_gate;
+
   /* When set (alpenglow only), the repair policy walk emits ONLY
      block-id requests (ShredForBlockId, driven by known block_ids and
      the event-driven getParentAndFecSetCount/getFecRoot path).  All
@@ -668,7 +671,11 @@ after_snap( ctx_t * ctx,
   if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) return;
   fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)chunk;
 
-  if( ctx->is_alpenglow ) fd_chainer_init( ctx->chainer, manifest->slot, (fd_hash_t *)fd_type_pun( manifest->block_id ) );
+  if( ctx->is_alpenglow ) {
+    FD_BASE58_ENCODE_32_BYTES( manifest->block_id, mbid_b58 );
+    FD_LOG_DEBUG(( "AGDBG repair/chainer_init source=snapshot slot=%lu block_id=%s", manifest->slot, mbid_b58 ));
+    fd_chainer_init( ctx->chainer, manifest->slot, (fd_hash_t *)fd_type_pun( manifest->block_id ) );
+  }
   fd_forest_init( ctx->forest, manifest->slot );
 }
 
@@ -1033,6 +1040,10 @@ after_alpen_repair( ctx_t * ctx,
                     ag_repair_response_t * response ) {
   uint nonce = response->nonce;
   ag_inflight_t * request = ag_inflights_request_match( ctx->inflights, nonce );
+  FD_LOG_DEBUG(( "AGDBG repair/alpen_response nonce=%u kind=%u matched=%d req_kind=%u req_slot=%lu chainer_root=%lu",
+                 nonce, (uint)response->kind, !!request,
+                 request ? (uint)request->kind : 0U, request ? request->slot : ULONG_MAX,
+                 ctx->chainer->root ));
   if( FD_UNLIKELY( !request ) ) {
     // probably got popped on rerequested. TODO do the popped queue for ag inflights
     return;
@@ -1059,6 +1070,8 @@ after_alpen_repair( ctx_t * ctx,
         goto cleanup;
       }
 
+      FD_LOG_DEBUG(( "AGDBG repair/verified_parent_fec_count slot=%lu fec_set_count=%u parent_slot=%lu",
+                     request->slot, parent_fec_set_res->fec_set_count, parent_fec_set_res->parent_slot ));
       fd_chainer_verified_parent_fec_count( ctx->chainer, request->slot, &request->block_id, parent_fec_set_res->fec_set_count, parent_fec_set_res->parent_slot, &parent_fec_set_res->parent_block_id );
 
       ulong now_ms = (ulong)(fd_log_wallclock()/(long)1e6);
@@ -1148,7 +1161,14 @@ after_alpen_shred( ctx_t      * ctx,
                    fd_shred_t * shred,
                    ulong        nonce,
                    fd_hash_t *  mr ) {
-  if( FD_UNLIKELY( shred->slot <= ctx->chainer->root ) ) return;
+  if( FD_UNLIKELY( shred->slot <= ctx->chainer->root ) ) {
+    /* On a genesis boot chainer->root is never initialised and stays
+       ULONG_MAX, which makes this early-return unconditional and starves
+       the chainer of every parent. */
+    FD_LOG_DEBUG(( "AGDBG repair/alpen_shred DROPPED slot=%lu idx=%u chainer_root=%lu",
+                   shred->slot, shred->idx, ctx->chainer->root ));
+    return;
+  }
 
   /* Match this response to its inflight request (repair, data shreds).
      If the inflight was a ShredForBlockId (non-zero block_id), verify
@@ -1183,13 +1203,26 @@ after_alpen_shred( ctx_t      * ctx,
   ulong       parent_slot        = AG_UNKNOWN_SLOT;
   fd_hash_t   parent_block_id    = {0};
   if( FD_UNLIKELY( shred->idx == 0 && !fd_shred_is_code( fd_shred_type( shred->variant ) ) ) ) {
-    if( FD_UNLIKELY( !ag_parse_parent_marker( shred, &parent_slot, &parent_block_id ) ) ) {
+    int parsed = ag_parse_parent_marker( shred, &parent_slot, &parent_block_id );
+    FD_BASE58_ENCODE_32_BYTES( parent_block_id.uc, pbid_b58 );
+    FD_LOG_DEBUG(( "AGDBG repair/alpen_parent slot=%lu payload_sz=%lu parsed=%d parent_slot=%lu parent_block_id=%s",
+                   shred->slot, fd_shred_payload_sz( shred ), parsed, parent_slot, pbid_b58 ));
+    if( FD_UNLIKELY( !parsed ) ) {
       /* TODO what to do with this slot if theres no block header? */
       FD_LOG_ERR(("we would fail an FD_TEST finalize_block_id in fd_chainer so decide what to do here"));
     }
   }
 
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+  /* VERIFIED: parent discovery and slot completion both work end to end.
+     Only shred 0 (carries the header) and the closing shred are worth a
+     line; the other ~94 per slot were 56% of the whole trace. */
+  if( FD_UNLIKELY( shred->idx==0U || slot_complete ) ) {
+    FD_LOG_DEBUG(( "AGDBG repair/alpen_shred_insert slot=%lu idx=%u src=%s slot_complete=%d has_parent=%d",
+                   shred->slot, shred->idx,
+                   fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE ? "turbine" : "repair/reconstructed",
+                   slot_complete, parent_slot!=AG_UNKNOWN_SLOT ));
+  }
   fd_chainer_shred_insert( ctx->chainer, shred->slot, shred->idx, slot_complete, mr, parent_slot, &parent_block_id );
 }
 
@@ -1199,6 +1232,9 @@ after_alpen_fec( ctx_t      * ctx,
                  fd_shred_t * shred,
                  fd_hash_t  * mr ) {
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+  /* NB no chainer->root guard here, unlike after_alpen_shred: FEC sets
+     go in even when every shred was dropped, which is how a slot can
+     complete with an unknown parent. */
   return fd_chainer_fec_insert( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, mr );
 }
 
@@ -1206,6 +1242,8 @@ static inline void
 after_votor_notar_fallback( ctx_t * ctx,
                             ag_votor_notar_fallback_t const * nf ) {
   fd_slotv_t * slotv = fd_chainer_slot_version_query( ctx->chainer, nf->slot, &nf->block_id );
+  FD_BASE58_ENCODE_32_BYTES( nf->block_id.uc, nfbid_b58 );
+  FD_LOG_DEBUG(( "AGDBG repair/notar_fallback slot=%lu block_id=%s already_have=%d", nf->slot, nfbid_b58, !!slotv ));
   if( FD_LIKELY( slotv ) ) return; /* we already have this NF version recorded, no need for action */
   /* else, we don't have this NF version, we need to repair for it. */
   fd_chainer_notar_fallback( ctx->chainer, nf->slot, nf->block_id );
@@ -1295,7 +1333,10 @@ after_frag( ctx_t *             ctx,
         after_ping( ctx, data, data_sz, ip4, udp );
       } else if( ctx->is_alpenglow ) { /* alpen repair response */
         ag_repair_response_t response[1];
-        if( FD_UNLIKELY( ag_repair_response_de( response, data, data_sz ) ) ) return; /* malformed */
+        if( FD_UNLIKELY( ag_repair_response_de( response, data, data_sz ) ) ) {
+          FD_LOG_DEBUG(( "AGDBG repair/alpen_response_malformed data_sz=%lu", data_sz ));
+          return; /* malformed */
+        }
         after_alpen_repair( ctx, response );
       } else {
         /* Under TowerBFT there are no block-id repair responses, and the
@@ -1316,6 +1357,15 @@ after_frag( ctx_t *             ctx,
     }
     case IN_KIND_GENESIS: {
       fd_genesis_meta_t const * meta = (fd_genesis_meta_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+      /* NOTE: unlike the snapshot path above, nothing calls
+         fd_chainer_init here, so chainer->root stays ULONG_MAX on a
+         genesis boot.  after_alpen_shred early-returns on
+         `slot <= chainer->root`, so alpenglow parent discovery never
+         runs.  This line is here to make that state visible. */
+      FD_LOG_DEBUG(( "AGDBG repair/genesis bootstrap=%d ag=%d chainer_root=%lu forest_root=%lu",
+                     meta->bootstrap, ctx->is_alpenglow,
+                     ctx->chainer ? ctx->chainer->root : ULONG_MAX,
+                     fd_forest_root_slot( ctx->forest ) ));
       if( meta->bootstrap ) fd_forest_init( ctx->forest, 0 );
       break;
     }
@@ -1335,6 +1385,8 @@ after_frag( ctx_t *             ctx,
            every shred is dropped by after_alpen_shred. */
         if( FD_UNLIKELY( ctx->is_alpenglow && ctx->chainer->root==ULONG_MAX ) ) {
           fd_replay_slot_completed_t const * sc = (fd_replay_slot_completed_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+          FD_BASE58_ENCODE_32_BYTES( sc->block_id.uc, scbid_b58 );
+          FD_LOG_DEBUG(( "AGDBG repair/chainer_init source=slot_completed slot=%lu block_id=%s", sc->slot, scbid_b58 ));
           fd_chainer_init( ctx->chainer, sc->slot, &sc->block_id );
         }
         break;
@@ -1952,6 +2004,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->halt_signing = 0;
   ctx->is_alpenglow = tile->repair.is_alpenglow;
+  ctx->ag_dbg_capacity_gate = 0UL;
+  FD_LOG_DEBUG(( "AGDBG repair/init is_alpenglow=%d chainer=%p chainer_root=%lu slot_max=%lu",
+                 ctx->is_alpenglow, (void *)ctx->chainer,
+                 ctx->chainer ? ctx->chainer->root : ULONG_MAX, tile->repair.slot_max ));
 
   /* Flip to 1 to exercise block-id-only repair/catchup */
   ctx->block_id_repair_only = 0;

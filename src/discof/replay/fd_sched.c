@@ -1753,6 +1753,8 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
   block->max_tick_height = max_tick_height;
   block->hashes_per_tick = hashes_per_tick;
   block->alpenglow       = !!alpenglow;
+  FD_LOG_DEBUG(( "AGDBG sched/set_poh_params bank_idx=%lu slot=%lu tick_height=%lu max_tick_height=%lu hashes_per_tick=%lu alpenglow=%d",
+                 bank_idx, block->slot, tick_height, max_tick_height, hashes_per_tick, block->alpenglow ));
   #if FD_SCHED_SKIP_POH
   /* No-op. */
   (void)start_poh;
@@ -2065,6 +2067,11 @@ static int
 verify_ticks_final( fd_sched_block_t * block ) {
   FD_TEST( block->fec_eos );
 
+  FD_LOG_DEBUG(( "AGDBG sched/verify_ticks_final slot=%lu ag=%d tick_cnt=%u tick_height=%lu max_tick_height=%lu hashes_per_tick=%lu tick_hashcnt_wmk=%lu zero_hash_tick=%d inconsistent=%d",
+                 block->slot, block->alpenglow, block->mblk_tick_cnt, block->tick_height,
+                 block->max_tick_height, block->hashes_per_tick, block->tick_hashcnt_wmk,
+                 block->zero_hash_tick, block->inconsistent_hashes_per_tick ));
+
   if( FD_UNLIKELY( block->mblk_tick_cnt+block->tick_height<block->max_tick_height ) ) {
     FD_LOG_INFO(( "bad block: TOO_FEW_TICKS, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
     return -1;
@@ -2151,6 +2158,7 @@ parse_footer_final_cert( fd_sched_block_t * block, uchar const * payload, ulong 
   fd_memcpy( block->final_cert, payload+cert_off, cert_sz );
   block->final_cert_sz = (uint)cert_sz;
   FD_LOG_INFO(( "alpenglow block footer finalization cert: slot %lu, %lu bytes", block->slot, cert_sz ));
+  FD_LOG_DEBUG(( "AGDBG sched/footer_cert slot=%lu cert_off=%lu cert_sz=%lu payload_sz=%lu", block->slot, cert_off, cert_sz, payload_sz ));
   return;
 
 truncated:
@@ -2321,6 +2329,12 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       /* block markers logging */
       if( FD_UNLIKELY( block->mblks_rem==0UL && block->fec_buf_sz>sizeof(ulong) ) ) {
         fd_block_marker_t const * m = (fd_block_marker_t const *)fd_type_pun_const( block->fec_buf );
+        /* Every zero-entry batch lands here, marker or not.  variant and
+           version are what decide which branch (if any) is taken, so log
+           them raw before the dispatch. */
+        FD_LOG_DEBUG(( "AGDBG sched/marker slot=%lu ag=%d fec_buf_sz=%u version=%u variant=%u length=%u",
+                       block->slot, block->alpenglow, block->fec_buf_sz,
+                       (uint)m->version, (uint)m->variant, (uint)m->length ));
         if( m->variant==HEADER &&
             block->fec_buf_sz>=offsetof( fd_block_marker_t, data )+sizeof(fd_block_header_t) ) {
           FD_BASE58_ENCODE_32_BYTES( m->data.header.v1.parent_block_id.hash, pbid_str );

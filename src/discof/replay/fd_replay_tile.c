@@ -121,9 +121,17 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
    consensus lookup uses the correct index. */
 static inline fd_block_id_ele_t *
 resolve_block_id_ele( fd_replay_tile_t * ctx, fd_hash_t const * block_id ) {
-  return ctx->is_alpenglow
+  fd_block_id_ele_t * ele = ctx->is_alpenglow
     ? fd_dmr_map_ele_query     ( ctx->dmr_map,      block_id, NULL, ctx->block_id_arr )
     : fd_block_id_map_ele_query( ctx->block_id_map, block_id, NULL, ctx->block_id_arr );
+  /* A miss is what turns into "block has been evicted" warnings and
+     CRITs upstream, and under alpenglow it also means the double merkle
+     root we computed does not match the one consensus named. */
+  if( FD_UNLIKELY( !ele ) ) {
+    FD_BASE58_ENCODE_32_BYTES( block_id->uc, block_id_b58 );
+    FD_LOG_DEBUG(( "AGDBG replay/resolve_block_id_ele MISS ag=%d block_id=%s", ctx->is_alpenglow, block_id_b58 ));
+  }
+  return ele;
 }
 
 /* consensus_block_id returns the id a bank is named by in consensus
@@ -270,6 +278,8 @@ update_cert_epoch_vtrs( fd_replay_tile_t *          ctx,
   if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) return;
   s->epoch = msg->epoch;
   s->info  = ag_epoch_info_join( ag_epoch_info_new( s->mem, ctx->epoch_vtrs_scratch, cnt ) );
+  FD_LOG_DEBUG(( "AGDBG replay/cert_epoch_vtrs epoch=%lu ranked=%lu staked_vote_cnt=%lu ring_slot=%lu",
+                 msg->epoch, cnt, msg->staked_vote_cnt, msg->epoch % FD_REPLAY_VTR_EPOCH_WINDOW ));
 }
 
 static void
@@ -310,15 +320,24 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
      the trailing array */
   FD_TEST( epoch_info_msg->staked_vote_cnt<=FD_EPOCH_INFO_MAX_VOTERS );
   uchar * bls_pubkeys = fd_epoch_info_msg_bls_pubkeys( epoch_info_msg );
+  ulong   bls_missing = 0UL;
   for( ulong i=0UL; i<epoch_info_msg->staked_vote_cnt; i++ ) {
     uchar *  out = bls_pubkeys + i*FD_EPOCH_INFO_BLS_PUBKEY_SZ;
     fd_acc_t acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, stake_weights[i].vote_key.uc );
     if( FD_UNLIKELY( !acc.lamports || fd_vote_account_bls_pubkey( acc.data, acc.data_len, out ) ) ) {
       memset( out, 0, FD_EPOCH_INFO_BLS_PUBKEY_SZ );
+      bls_missing++;
       FD_LOG_WARNING(("bls pubkey not found TODO?"));
     }
     fd_accdb_unread_one( ctx->accdb, &acc );
   }
+  /* Every voter with a zero BLS key here gets no weight in the alpenglow
+     rank map, so a non-zero missing count is why a cert will not reach
+     threshold later. */
+  FD_LOG_DEBUG(( "AGDBG replay/publish_epoch_info epoch=%lu next=%d staked_vote_cnt=%lu staked_id_cnt=%lu bls_missing=%lu sz=%lu",
+                 epoch_info_msg->epoch, next_epoch, epoch_info_msg->staked_vote_cnt,
+                 epoch_info_msg->staked_id_cnt, bls_missing,
+                 fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt, epoch_info_msg->staked_id_cnt ) ));
 
   ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt , epoch_info_msg->staked_id_cnt );
 
@@ -398,7 +417,12 @@ replay_block_start( fd_replay_tile_t * ctx,
      configurations that supports are alpenglow from genesis, and
      joining a cluster that has already migrated from a snapshot taken
      after the migration; it cannot replay across the boundary. */
-  if( FD_UNLIKELY( ctx->is_alpenglow ) ) bank->f.tick_height = bank->f.max_tick_height - 1UL;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    bank->f.tick_height = bank->f.max_tick_height - 1UL;
+    FD_LOG_DEBUG(( "AGDBG replay/block_start slot=%lu bank_idx=%lu parent_bank_idx=%lu tick_height=%lu max_tick_height=%lu hashes_per_tick=%lu",
+                   slot, bank_idx, parent_bank_idx, bank->f.tick_height,
+                   bank->f.max_tick_height, bank->f.slot_params.hashes_per_tick ));
+  }
   fd_sched_set_poh_params( ctx->sched,
                            bank->idx,
                            bank->f.tick_height,
@@ -486,6 +510,13 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->block_height          = bank->f.block_height;
   slot_info->parent_slot           = bank->f.parent_slot;
   slot_info->block_id              = ctx->is_alpenglow ? bank->block_id : block_id_ele->latest_mr;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    FD_BASE58_ENCODE_32_BYTES( bank->block_id.uc,       ag_bid_b58  );
+    FD_BASE58_ENCODE_32_BYTES( block_id_ele->latest_mr.uc, ag_lmr_b58 );
+    FD_BASE58_ENCODE_32_BYTES( parent_block_id.uc,      ag_pbid_b58 );
+    FD_LOG_DEBUG(( "AGDBG replay/slot_completed slot=%lu bank_idx=%lu bank_seq=%lu is_leader=%d dmr=%s last_fec_mr=%s parent_dmr=%s",
+                   bank->f.slot, bank->idx, bank->bank_seq, is_leader, ag_bid_b58, ag_lmr_b58, ag_pbid_b58 ));
+  }
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
@@ -623,6 +654,8 @@ verify_footer_final_cert( fd_replay_tile_t * ctx,
                           ulong *            out_cert_cnt ) {
   ulong         cert_sz;
   uchar const * cert_bytes = fd_sched_get_final_cert( ctx->sched, bank->idx, &cert_sz );
+  FD_LOG_DEBUG(( "AGDBG replay/footer_cert slot=%lu bank_idx=%lu cert_sz=%lu present=%d",
+                 bank->f.slot, bank->idx, cert_sz, !!cert_bytes ));
   if( FD_LIKELY( !cert_bytes ) ) return 0;
 
   int err = ag_block_final_cert_de( out_certs, out_cert_cnt, cert_bytes, cert_sz );
@@ -702,6 +735,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
     fd_replay_final_cert_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
     int cert_err = verify_footer_final_cert( ctx, bank, msg->certs, &msg->cert_cnt );
+    FD_LOG_DEBUG(( "AGDBG replay/block_finalize slot=%lu bank_idx=%lu shred_cnt=%lu cert_err=%d cert_cnt=%lu",
+                   bank->f.slot, bank->idx, bank->f.shred_cnt, cert_err, cert_err>0 ? msg->cert_cnt : 0UL ));
     if( FD_UNLIKELY( cert_err<0 ) ) return 1; /* invalid block; caller marks the bank dead */
     if( FD_UNLIKELY( cert_err>0 ) ) {
       msg->slot = bank->f.slot;
@@ -796,7 +831,11 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
      the bank opens one short of its max tick height and that tick
      closes it.  Same thing replay_block_start does for a block we are
      replaying rather than producing. */
-  if( FD_UNLIKELY( ctx->is_alpenglow ) ) ctx->leader_bank->f.tick_height = max_tick_height-1UL;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    ctx->leader_bank->f.tick_height = max_tick_height-1UL;
+    FD_LOG_DEBUG(( "AGDBG replay/prepare_leader_bank slot=%lu bank_idx=%lu tick_height=%lu max_tick_height=%lu",
+                   slot, ctx->leader_bank->idx, ctx->leader_bank->f.tick_height, max_tick_height ));
+  }
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -893,6 +932,11 @@ publish_votor_reset( fd_replay_tile_t *  ctx,
   reset->wfs_paused              = !ctx->wfs_complete;
   reset->alpenglow               = 1;
 
+  FD_BASE58_ENCODE_32_BYTES( block_id_ele->latest_mr.uc, latest_mr_b58 );
+  FD_LOG_DEBUG(( "AGDBG replay/publish_votor_reset completed_slot=%lu bank_idx=%lu next_leader_slot=%lu chained_mr=%s hashcnt_per_tick=%lu wfs_paused=%d",
+                 ctx->reset_slot, bank->idx, ctx->next_leader_slot, latest_mr_b58,
+                 reset->hashcnt_per_tick, reset->wfs_paused ));
+
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
@@ -920,6 +964,9 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ulong execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
   ulong priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
 
+  FD_LOG_DEBUG(( "AGDBG replay/try_fini_leader slot=%lu ag=%d ag_bank_frozen=%d reset_pending=%d skipping_second_freeze=%d",
+                 ctx->leader_bank->f.slot, ctx->is_alpenglow, ctx->ag_bank_frozen,
+                 ctx->ag_reset_pending, ctx->ag_bank_frozen ));
   if( FD_UNLIKELY( ctx->ag_bank_frozen ) ) {
     /* Under alpenglow the bank was already frozen when the closing tick
        arrived, because the footer we published states its bank hash.
@@ -962,6 +1009,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
      the next became_leader reaches it.  After maybe_switch_identity,
      which recomputes next_leader_slot. */
   if( FD_UNLIKELY( ctx->ag_reset_pending ) ) {
+    FD_LOG_DEBUG(( "AGDBG replay/withheld_reset_release reset_slot=%lu next_leader_slot=%lu", ctx->reset_slot, ctx->next_leader_slot ));
     ctx->ag_reset_pending = 0;
     publish_votor_reset( ctx, stem );
   }
@@ -1206,6 +1254,11 @@ try_become_leader( fd_replay_tile_t *  ctx,
   ctx->ag_complete_sent            = 0;
   ctx->ag_bank_frozen              = 0;
   ctx->ag_block_deadline_tickcount = ctx->is_alpenglow ? now+(long)bank_slot_duration_ticks( ctx, reset_bank ) : LONG_MAX;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    FD_LOG_DEBUG(( "AGDBG replay/try_become_leader slot=%lu reset_slot=%lu reset_bank_idx=%lu deadline_in_ticks=%ld ns_per_slot=%lu",
+                   ctx->next_leader_slot, ctx->reset_slot, reset_bank->idx,
+                   ctx->ag_block_deadline_tickcount-now, reset_bank->f.slot_params.ns_per_slot_adjusted ));
+  }
 
   FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || ctx->highwater_leader_slot<ctx->next_leader_slot );
   ctx->highwater_leader_slot = ctx->next_leader_slot;
@@ -1275,6 +1328,12 @@ try_become_leader( fd_replay_tile_t *  ctx,
     fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, bank->parent_idx );
     msg->alpenglow_parent_slot = bank->f.parent_slot;
     memcpy( msg->alpenglow_parent_block_id, parent_bank ? parent_bank->block_id.uc : (uchar const *)&(fd_hash_t){0}, 32UL );
+    FD_BASE58_ENCODE_32_BYTES( msg->alpenglow_parent_block_id, ag_pbid_b58 );
+    /* A zero parent_block_id here means the parent bank was gone, and the
+       BlockHeader we are about to emit will not chain for any peer. */
+    FD_LOG_DEBUG(( "AGDBG replay/became_leader_msg slot=%lu parent_slot=%lu parent_bank=%d parent_dmr=%s max_mblk=%lu",
+                   ctx->next_leader_slot, msg->alpenglow_parent_slot, !!parent_bank,
+                   ag_pbid_b58, msg->max_microblocks_in_slot ));
   } else if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
     msg->max_microblocks_in_slot = msg->ticks_per_slot;
@@ -1390,20 +1449,37 @@ ag_footer_cert( fd_replay_tile_t const * ctx,
                 fd_bank_t const *        bank,
                 ulong                    slot,
                 ag_cert_t                out[ 2 ] ) {
-  if( FD_UNLIKELY( ctx->ag_footer_final_slot==ULONG_MAX ) ) return 0UL;
-  if( FD_UNLIKELY( ctx->ag_footer_final_slot>=slot       ) ) return 0UL;
+  if( FD_UNLIKELY( ctx->ag_footer_final_slot==ULONG_MAX ) ) {
+    FD_LOG_DEBUG(( "AGDBG replay/ag_footer_cert slot=%lu -> none (no cert held)", slot ));
+    return 0UL;
+  }
+  if( FD_UNLIKELY( ctx->ag_footer_final_slot>=slot ) ) {
+    FD_LOG_DEBUG(( "AGDBG replay/ag_footer_cert slot=%lu -> none (held cert slot %lu not older)", slot, ctx->ag_footer_final_slot ));
+    return 0UL;
+  }
 
   ulong block_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, slot,                      NULL );
   ulong cert_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->ag_footer_final_slot, NULL );
-  if( FD_UNLIKELY( cert_epoch+1UL<block_epoch ) ) return 0UL;
+  if( FD_UNLIKELY( cert_epoch+1UL<block_epoch ) ) {
+    FD_LOG_DEBUG(( "AGDBG replay/ag_footer_cert slot=%lu -> none (cert epoch %lu too old for block epoch %lu)", slot, cert_epoch, block_epoch ));
+    return 0UL;
+  }
 
   out[ 0 ] = ctx->ag_footer_final;
-  if( FD_LIKELY( ctx->ag_footer_final.kind==AG_CERT_TYPE_FAST_FINAL ) ) return 1UL;
+  if( FD_LIKELY( ctx->ag_footer_final.kind==AG_CERT_TYPE_FAST_FINAL ) ) {
+    FD_LOG_DEBUG(( "AGDBG replay/ag_footer_cert slot=%lu -> fast_final for slot %lu", slot, ctx->ag_footer_final_slot ));
+    return 1UL;
+  }
 
   /* A Final cert alone does not serialize: the footer form states the
      block id, and only the Notar cert for that slot carries it. */
-  if( FD_UNLIKELY( ctx->ag_footer_notar_slot!=ctx->ag_footer_final_slot ) ) return 0UL;
+  if( FD_UNLIKELY( ctx->ag_footer_notar_slot!=ctx->ag_footer_final_slot ) ) {
+    FD_LOG_DEBUG(( "AGDBG replay/ag_footer_cert slot=%lu -> none (final for %lu but notar is for %lu)",
+                   slot, ctx->ag_footer_final_slot, ctx->ag_footer_notar_slot ));
+    return 0UL;
+  }
   out[ 1 ] = ctx->ag_footer_notar;
+  FD_LOG_DEBUG(( "AGDBG replay/ag_footer_cert slot=%lu -> final+notar for slot %lu", slot, ctx->ag_footer_final_slot ));
   return 2UL;
 }
 
@@ -1423,6 +1499,11 @@ static void
 process_poh_ag_tick_ready( fd_replay_tile_t *             ctx,
                            fd_stem_context_t *            stem,
                            fd_poh_ag_tick_ready_t const * tick ) {
+  /* These three FD_TESTs kill the tile if poh sends a tick after the
+     window was abandoned, so say what the state was before they fire. */
+  FD_LOG_DEBUG(( "AGDBG replay/poh_ag_tick_ready slot=%lu ag=%d is_leader=%d have_leader_bank=%d leader_slot=%lu",
+                 tick->slot, ctx->is_alpenglow, ctx->is_leader, !!ctx->leader_bank,
+                 ctx->leader_bank ? ctx->leader_bank->f.slot : ULONG_MAX ));
   FD_TEST( ctx->is_alpenglow );
   FD_TEST( ctx->is_leader );
   FD_TEST( ctx->leader_bank!=NULL );
@@ -1474,6 +1555,11 @@ process_poh_ag_tick_ready( fd_replay_tile_t *             ctx,
                                             cert,
                                             cert_sz );
 
+  FD_BASE58_ENCODE_32_BYTES( ctx->leader_bank->f.bank_hash.uc, bank_hash_b58 );
+  FD_LOG_DEBUG(( "AGDBG replay/ag_footer_built slot=%lu bank_hash=%s tick_height=%lu/%lu cert_cnt=%lu cert_sz=%lu footer_sz=%lu",
+                 tick->slot, bank_hash_b58, ctx->leader_bank->f.tick_height,
+                 ctx->leader_bank->f.max_tick_height, cert_cnt, cert_sz, msg->footer_sz ));
+
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_AG_FOOTER, ctx->replay_out->chunk, sizeof(fd_replay_ag_footer_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_ag_footer_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
@@ -1489,6 +1575,9 @@ publish_ag_complete_block( fd_replay_tile_t *  ctx,
 
   fd_replay_ag_complete_block_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot = ctx->leader_bank->f.slot;
+
+  FD_LOG_DEBUG(( "AGDBG replay/ag_complete_block slot=%lu deadline_overrun_ticks=%ld -> poh",
+                 msg->slot, fd_tickcount()-ctx->ag_block_deadline_tickcount ));
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_AG_COMPLETE_BLOCK, ctx->replay_out->chunk, sizeof(fd_replay_ag_complete_block_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_ag_complete_block_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -1520,6 +1609,8 @@ publish_reset( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
     /* Alpenglow does not tie microblocks to ticks; see fd_poh_ag_enable. */
     reset->max_microblocks_in_slot = MAX_MICROBLOCKS_PER_SLOT;
+    FD_LOG_DEBUG(( "AGDBG replay/publish_reset completed_slot=%lu next_leader_slot=%lu hashcnt_per_tick=%lu wfs_paused=%d",
+                   reset->completed_slot, ctx->next_leader_slot, reset->hashcnt_per_tick, !ctx->wfs_complete ));
   } else if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
     reset->max_microblocks_in_slot = ticks_per_slot;
@@ -1645,6 +1736,9 @@ boot_genesis( fd_replay_tile_t *        ctx,
     block_id_ele->block_id      = initial_block_id;
     block_id_ele->block_id_seen = 1;
     FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+    FD_BASE58_ENCODE_32_BYTES( initial_block_id.uc, ibid_b58 );
+    FD_LOG_DEBUG(( "AGDBG replay/boot_genesis ag=1 bank_idx=%lu bank_seq=%lu genesis_block_id=%s (seeded into dmr_map)",
+                   bank->idx, bank->bank_seq, ibid_b58 ));
   }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1773,6 +1867,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
       block_id_ele->block_id = manifest_block_id;
       FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+      FD_BASE58_ENCODE_32_BYTES( manifest_block_id.uc, mbid_b58 );
+      FD_LOG_DEBUG(( "AGDBG replay/snapshot_boot ag=1 slot=%lu bank_idx=%lu manifest_block_id=%s (seeded into dmr_map)",
+                     bank->f.slot, bank->idx, mbid_b58 ));
     }
 
     /* Seed the snapshot bank's block id (the snapshot slot's double
@@ -2117,7 +2214,15 @@ finish_double_merkle( fd_replay_tile_t * ctx,
   fd_sha256_fini( sha, parent_info->hash );
   fd_bmtree_commit_append( tree, parent_info, 1UL );
 
-  return fd_bmtree_commit_fini( tree );
+  uchar * root = fd_bmtree_commit_fini( tree );
+  FD_BASE58_ENCODE_32_BYTES( parent_block_id.uc, pbid_b58 );
+  FD_BASE58_ENCODE_32_BYTES( root,               dmr_b58  );
+  /* fec_set_count and parent_block_id are the two inputs a peer must
+     agree with us on; a mismatch here is a block id mismatch, which
+     shows up later as a resolve_block_id_ele MISS. */
+  FD_LOG_DEBUG(( "AGDBG replay/double_merkle slot=%lu bank_idx=%lu parent_slot=%lu parent_dmr=%s fec_set_cnt=%u dmr=%s",
+                 reasm_fec->slot, reasm_fec->bank_idx, parent_slot, pbid_b58, fec_set_count, dmr_b58 ));
+  return root;
 }
 
 /* Returns 0 on successful FEC ingestion, 1 if the block got marked
@@ -2179,6 +2284,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     /* Mirror the eviction in the alpenglow double-merkle index.  Only
        completed blocks (block_id_seen) were ever inserted there. */
     if( FD_UNLIKELY( ctx->is_alpenglow && block_id_ele->block_id_seen ) ) {
+      FD_BASE58_ENCODE_32_BYTES( block_id_ele->block_id.uc, evict_b58 );
       if( FD_LIKELY( fd_dmr_map_ele_query( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr )==block_id_ele ) ) {
         FD_TEST( fd_dmr_map_ele_remove( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
       }
@@ -2238,6 +2344,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
       block_id_ele->block_id = bank->block_id;
       FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+      FD_BASE58_ENCODE_32_BYTES( bank->block_id.uc, ins_b58 );
     }
   }
 
@@ -2681,6 +2788,7 @@ after_credit( fd_replay_tile_t *  ctx,
      microblocks to drain before computing the closing tick. */
   if( FD_UNLIKELY( ctx->is_alpenglow && ctx->is_leader && !ctx->ag_complete_sent && ctx->leader_bank ) ) {
     if( FD_UNLIKELY( fd_tickcount()>=ctx->ag_block_deadline_tickcount ) ) {
+      FD_LOG_DEBUG(( "AGDBG replay/block_deadline_hit slot=%lu", ctx->leader_bank->f.slot ));
       publish_ag_complete_block( ctx, stem );
       *charge_busy = 1;
     }
@@ -2970,6 +3078,7 @@ publish_consensus_update( fd_replay_tile_t *  ctx,
   msg->vote_slot          = ctx->ag_vote_slot;
   msg->is_voting          = ctx->ag_is_voting;
 
+
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_CONSENSUS_UPDATE, ctx->replay_out->chunk, sizeof(fd_replay_consensus_update_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_consensus_update_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
@@ -2985,13 +3094,21 @@ static void
 process_votor_finalized( fd_replay_tile_t *           ctx,
                          fd_stem_context_t *          stem,
                          ag_votor_finalized_t const * fin ) {
+  FD_BASE58_ENCODE_32_BYTES( fin->block_id.uc, fin_b58 );
+  FD_LOG_DEBUG(( "AGDBG replay/votor_finalized slot=%lu block_id=%s", fin->slot, fin_b58 ));
+
   fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &fin->block_id );
   if( FD_UNLIKELY( !block_id_ele ) ) return;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !bank ||
                    bank->bank_seq!=block_id_ele->bank_seq ||
-                   bank->state==FD_BANK_STATE_PRUNABLE ) ) return;
+                   bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+    FD_LOG_DEBUG(( "AGDBG replay/votor_finalized slot=%lu skipped (bank=%d seq_ok=%d prunable=%d)",
+                   fin->slot, !!bank, bank && bank->bank_seq==block_id_ele->bank_seq,
+                   bank && bank->state==FD_BANK_STATE_PRUNABLE ));
+    return;
+  }
 
   publish_consensus_update( ctx, stem, ULONG_MAX, ULONG_MAX, ULONG_MAX, ULONG_MAX, fin->slot, bank->bank_seq );
 }
@@ -3009,6 +3126,11 @@ static void
 process_votor_slot_done( fd_replay_tile_t *           ctx,
                          fd_stem_context_t *          stem,
                          ag_votor_slot_done_t const * msg ) {
+  FD_BASE58_ENCODE_32_BYTES( msg->reset_block_id.uc, dbg_rbid_b58 );
+  FD_LOG_DEBUG(( "AGDBG replay/votor_slot_done replay_slot=%lu replay_bank_idx=%lu reset_slot=%lu reset_block_id=%s vote_slot=%lu is_voting=%d is_leader=%d",
+                 msg->replay_slot, msg->replay_bank_idx, msg->reset_slot, dbg_rbid_b58,
+                 msg->vote_slot, msg->is_voting, ctx->is_leader ));
+
   fd_bank_t * replay_bank = fd_banks_bank_query( ctx->banks, msg->replay_bank_idx );
   if( FD_UNLIKELY( !replay_bank ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
 
@@ -3053,6 +3175,8 @@ process_votor_slot_done( fd_replay_tile_t *           ctx,
        the block.  Withhold it until the block is finished; that is also
        when try_become_leader can next do anything, so nothing is lost
        by waiting.  See ag_reset_pending. */
+    FD_LOG_DEBUG(( "AGDBG replay/votor_slot_done withholding reset (leader for slot %lu)",
+                   ctx->leader_bank ? ctx->leader_bank->f.slot : ULONG_MAX ));
     ctx->ag_reset_pending = 1;
     return;
   }
@@ -3913,7 +4037,8 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "ipecho_out"    ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( !strcmp( link->name, "snapin_manif"  ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "execrp_replay" ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
-    else if( !strcmp( link->name, "tower_out"     ) ) { ctx->in_kind[ i ] = IN_KIND_TOWER; ctx->is_alpenglow = 0; }
+    else if( !strcmp( link->name, "tower_out"     ) ) { ctx->in_kind[ i ] = IN_KIND_TOWER; ctx->is_alpenglow = 0;
+      FD_LOG_DEBUG(( "AGDBG replay/init in_link[%lu]=tower_out -> is_alpenglow=0", i )); }
     else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
@@ -3923,7 +4048,8 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
-    else if( !strcmp( link->name, "votor_out"     ) ) { ctx->in_kind[ i ] = IN_KIND_VOTOR; ctx->is_alpenglow = 1; }
+    else if( !strcmp( link->name, "votor_out"     ) ) { ctx->in_kind[ i ] = IN_KIND_VOTOR; ctx->is_alpenglow = 1;
+      FD_LOG_DEBUG(( "AGDBG replay/init in_link[%lu]=votor_out -> is_alpenglow=1", i )); }
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
 
     if( ctx->in_kind[ i ]==IN_KIND_ADMIN ) {

@@ -19,6 +19,11 @@ struct __attribute__((aligned(128UL))) ag_parent_ready_tracker {
   ulong          root;
   state_pool_t * state_pool;
   state_map_t *  state_map;
+
+  /* AGDBG only: consecutive handle_finalization calls that produced no
+     parent-ready, so the log can report a stall without a line per
+     call.  Zeroed with the rest of the footprint by _new. */
+  ulong          dbg_not_ready;
 };
 
 ulong
@@ -303,6 +308,18 @@ ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t * self,
   }
 
   if( have_max ) *out = best;
+  /* have_max==0 means nothing became parent-ready, which is what leaves
+     votor's blocks PENDING -- the signature of a stalled consensus, and
+     how that bug was found.  A ready is always worth a line; the
+     not-readys are rate limited to powers of two so a long run of them
+     is still visible without 4 lines per slot. */
+  self->dbg_not_ready = have_max ? 0UL : self->dbg_not_ready+1UL;
+  if( FD_UNLIKELY( have_max || fd_ulong_is_pow2( self->dbg_not_ready ) ) ) {
+    FD_LOG_DEBUG(( "AGDBG ag_prt/handle_finalization has_finalized=%d finalized_slot=%lu if_cnt=%lu is_cnt=%lu -> ready=%d slot=%lu parent_slot=%lu not_ready_run=%lu",
+                   has_finalized, has_finalized ? finalized->slot : ULONG_MAX, if_cnt, is_cnt,
+                   have_max, have_max ? best.slot : ULONG_MAX, have_max ? best.parent.slot : ULONG_MAX,
+                   self->dbg_not_ready ));
+  }
   return have_max;
 }
 

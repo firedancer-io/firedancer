@@ -510,6 +510,10 @@ get_vote_credits( uchar const *        account_data,
 
   epoch_credits->cnt          = (uchar)cnt;
   epoch_credits->base_credits = base;
+  if( FD_UNLIKELY( cnt!=raw_cnt ) ) {
+    FD_LOG_DEBUG(( "AGDBG stakes/get_vote_credits raw=%lu kept=%lu base=%lu (alpenglow migration marker skipped)",
+                   raw_cnt, cnt, base ));
+  }
   epoch_credits->fast_path_ok = fd_epoch_credits_fast_path_ok( epoch_credits );
 }
 
