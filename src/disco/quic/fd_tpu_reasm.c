@@ -34,6 +34,7 @@ void *
 fd_tpu_reasm_new( void * shmem,
                   ulong  depth,
                   ulong  burst,
+                  ulong  seed,
                   ulong  orig,
                   void * dcache ) {
 
@@ -64,7 +65,7 @@ fd_tpu_reasm_new( void * shmem,
   fd_memset( reasm, 0, sizeof(fd_tpu_reasm_t) );
   fd_memset( slots, 0, burst*sizeof(fd_tpu_reasm_slot_t) );
 
-  fd_tpu_reasm_map_t * map = fd_tpu_reasm_map_join( fd_tpu_reasm_map_new( map_mem, chain_cnt, 0UL ) );
+  fd_tpu_reasm_map_t * map = fd_tpu_reasm_map_join( fd_tpu_reasm_map_new( map_mem, chain_cnt, seed ) );
   if( FD_UNLIKELY( !map ) ) {
     FD_LOG_WARNING(( "fd_tpu_reasm_map_new failed" ));
     return NULL;

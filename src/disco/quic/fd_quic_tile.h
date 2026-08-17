@@ -15,6 +15,7 @@ extern fd_topo_run_tile_t fd_tile_quic;
 
 typedef struct {
   fd_tpu_reasm_t * reasm;
+  ulong            reasm_seed;
 
   fd_stem_context_t * stem;
 

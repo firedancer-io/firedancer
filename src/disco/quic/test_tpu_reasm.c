@@ -105,7 +105,8 @@ main( int     argc,
 # define depth    (128UL)
 # define burst    (128UL)
 # define slot_cnt (depth+burst)
-  ulong orig  = 48UL;
+  ulong seed = 0x0123456789abcdefUL;
+  ulong orig = 48UL;
 
   FD_LOG_DEBUG(( "fd_tpu_reasm_footprint(%lu,%lu)==%lu", depth, burst, fd_tpu_reasm_footprint( depth, burst ) ));
 
@@ -127,8 +128,9 @@ main( int     argc,
   FD_LOG_INFO(( "fd_tpu_reasm_footprint(%lu,%lu)==%lu", depth, burst, fd_tpu_reasm_footprint( depth, burst ) ));
   FD_TEST( sizeof(tpu_reasm_mem)==fd_tpu_reasm_footprint( depth, burst ) );
 
-  fd_tpu_reasm_t * reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig, dcache ) );
+  fd_tpu_reasm_t * reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, seed, orig, dcache ) );
   FD_TEST( reasm );
+  FD_TEST( fd_tpu_reasm_map_seed( fd_tpu_reasm_map_laddr( reasm ) )==seed );
 
   FD_LOG_INFO(( "Test initialization" ));
 
@@ -190,7 +192,7 @@ main( int     argc,
 
   FD_LOG_INFO(( "Test basic publishing" ));
 
-  reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig, dcache ) );
+  reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, seed, orig, dcache ) );
   do {
     fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_acquire( reasm, 0UL, 0UL, 0UL );
     FD_TEST( slot->k.state == FD_TPU_REASM_STATE_BUSY );
