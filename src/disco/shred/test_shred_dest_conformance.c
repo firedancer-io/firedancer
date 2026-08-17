@@ -69,6 +69,7 @@ typedef struct {
 #define EXPECTED_BROADCAST_IDX     (31U)
 #define EXPECTED_BROADCAST_IS_DATA (1)
 #define EXPECTED_BROADCAST_PUBKEY  "c8fpTXm3XTRgE5maYQ24Li4L65wMYvAFomzXknxVEx7"
+#define TEST_HASH_SEED              (0x9b6d1f47a2c583e0UL)
 
 /* Expected first layer of turbine tree.
    These are the children of the broadcast peer (root node). */
@@ -111,7 +112,7 @@ test_shred_dest_conformance( void ) {
 
   /* Create fd_stake_ci with the leader node as identity */
   fd_pubkey_t const * identity_key = &pubkeys[0];
-  fd_stake_ci_t * stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, identity_key ) );
+  fd_stake_ci_t * stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, identity_key, TEST_HASH_SEED ) );
   FD_TEST( stake_ci );
 
   /* Initialize stake message for epoch 123 */
@@ -238,7 +239,7 @@ test_shred_dest_conformance( void ) {
   /* Test 3: Turbine tree children */
   FD_LOG_NOTICE(( "\n=== Testing Turbine Tree Children ===" ));
 
-  fd_stake_ci_t * stake_ci_broadcast = fd_stake_ci_join( fd_stake_ci_new( _stake_ci_broadcast, &broadcast_peer->pubkey ) );
+  fd_stake_ci_t * stake_ci_broadcast = fd_stake_ci_join( fd_stake_ci_new( _stake_ci_broadcast, &broadcast_peer->pubkey, TEST_HASH_SEED ) );
   FD_TEST( stake_ci_broadcast );
 
   fd_stake_ci_stake_msg_init( stake_ci_broadcast, stake_msg );
@@ -316,7 +317,7 @@ test_shred_dest_conformance( void ) {
 
     if( expected_num_children == 0UL ) continue;
 
-    fd_stake_ci_t * parent_stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci_broadcast, &parent->pubkey ) );
+    fd_stake_ci_t * parent_stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci_broadcast, &parent->pubkey, TEST_HASH_SEED ) );
     FD_TEST( parent_stake_ci );
 
     fd_stake_ci_stake_msg_init( parent_stake_ci, stake_msg );

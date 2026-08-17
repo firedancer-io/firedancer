@@ -13,8 +13,9 @@
 #define SELF_DUMMY_IP 1U
 
 void *
-fd_stake_ci_new( void             * mem,
-                fd_pubkey_t const * identity_key ) {
+fd_stake_ci_new( void *              mem,
+                 fd_pubkey_t const * identity_key,
+                 ulong               seed ) {
   fd_stake_ci_t * info = (fd_stake_ci_t *)mem;
 
   fd_vote_stake_weight_t dummy_stakes[ 1 ] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
@@ -30,9 +31,10 @@ fd_stake_ci_new( void             * mem,
     ei->slot_cnt          = 0UL;
 
     ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL, info->vote_stake_weight ) );
-    ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key ) );
+    ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key, seed ) );
   }
   info->identity_key[ 0 ] = *identity_key;
+  info->seed              = seed;
 
   return (void *)info;
 }
@@ -189,7 +191,7 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,
                                                                 info->scratch->staked_vote_cnt, info->vote_stake_weight ) );
   new_ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( new_ei->_sdest, info->shred_dest, j,
-                                                                new_ei->lsched, info->identity_key ) );
+                                                                new_ei->lsched, info->identity_key, info->seed ) );
   log_summary( "stake update", info );
 }
 
@@ -265,7 +267,8 @@ fd_stake_ci_dest_add_fini_impl( fd_stake_ci_t       * info,
 
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
-  ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j, ei->lsched, info->identity_key ) );
+  ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j, ei->lsched,
+                                                      info->identity_key, info->seed ) );
 
   if( FD_UNLIKELY( ei->sdest==NULL ) ) {
     /* The bounded destination table must always retain our identity. */
@@ -355,7 +358,8 @@ fd_stake_ci_set_identity( fd_stake_ci_t *     info,
 
       fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
-      ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j+1UL, ei->lsched, identity_key ) );
+      ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j+1UL, ei->lsched,
+                                                          identity_key, info->seed ) );
       FD_TEST( ei->sdest );
     }
 
@@ -372,7 +376,8 @@ refresh_sdest( fd_stake_ci_t *            info,
   sort_pubkey_inplace( shred_dest_temp + staked_cnt, cnt - staked_cnt );
 
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
-  ei->sdest = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, shred_dest_temp, cnt, ei->lsched, info->identity_key ) );
+  ei->sdest = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, shred_dest_temp, cnt, ei->lsched,
+                                                     info->identity_key, info->seed ) );
   if( FD_UNLIKELY( ei->sdest==NULL ) ) {
     FD_LOG_ERR(( "Identity key is missing from the shred destination table.  Cannot continue." ));
   }

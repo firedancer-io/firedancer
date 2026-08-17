@@ -109,6 +109,8 @@ static inline ulong fd_shred_dest_align    ( void      ) { return FD_SHRED_DEST_
    of the current validator, i.e. the one who sends out the shreds
    computed by this object.  info must contain contact info for
    `source,` although it will never be returned as a destination.
+   `seed` is the hash seed for an internal pubkey lookup hash map; this
+   value should be generated using a random number generator.
 
    Returns mem on success and NULL on errors.  Logs a warning with
    details on errors. */
@@ -117,7 +119,8 @@ fd_shred_dest_new( void                           * mem,
                    fd_shred_dest_weighted_t const * info, /* Accessed [0, cnt) */
                    ulong                            cnt,
                    fd_epoch_leaders_t       const * lsched,
-                   fd_pubkey_t              const * source );
+                   fd_pubkey_t              const * source,
+                   ulong                            seed );
 
 /* fd_shred_dest_join joins the caller to a region of memory formatted
    as an fd_shred_dest_t. fd_shred_dest_leave does the opposite.
