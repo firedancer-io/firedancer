@@ -84,6 +84,7 @@ struct fd_replay_tile {
      set.  This parallels the Agave 'has_new_vote_been_rooted'. */
   int identity_vote_rooted;
   int wait_for_vote_to_start_leader;
+  int alpenglow;
 
   /* wfs_enabled is 1 if the validator is booted in
      wait_for_supermajority mode. In this mode replay (and, by extension,

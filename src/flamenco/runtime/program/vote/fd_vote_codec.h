@@ -168,6 +168,14 @@ struct __attribute__((packed)) fd_vote_epoch_credits {
 typedef struct fd_vote_epoch_credits fd_vote_epoch_credits_t;
 #define FD_VOTE_EPOCH_CREDITS_ALIGN alignof(fd_vote_epoch_credits_t)
 
+/* fd_vote_epoch_credits_is_alpenglow_marker returns 1 if ec is the
+   tower->Alpenglow migration sentinel, 0 otherwise. */
+
+FD_FN_PURE static inline int
+fd_vote_epoch_credits_is_alpenglow_marker( fd_vote_epoch_credits_t const * ec ) {
+  return ec->epoch==ULONG_MAX && ec->credits==ULONG_MAX && ec->prev_credits==ULONG_MAX;
+}
+
 struct fd_vote_block_timestamp {
   ulong slot;
   long  timestamp;

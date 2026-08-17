@@ -144,6 +144,8 @@ struct fd_snapin_tile {
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
 
+  int alpenglow; /* consensus mode, from config.firedancer.development.alpenglow */
+
   ulong txncache_entries_len;
   fd_sstxncache_entry_t * txncache_entries;
 
@@ -620,8 +622,16 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
   /* Now load the blockhash offsets for these blockhashes ... */
   if( FD_UNLIKELY( !ctx->blockhash_offsets_len ) ) {
-    FD_LOG_WARNING(( "corrupt snapshot: no blockhash offsets found (nothing is rooted)" ));
-    return 1;
+    fd_slot_delta_slot_set_t ss = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
+    /* No offsets AND no rooted slots is corruption in either mode.  No
+       offsets WITH rooted slots only happens under Alpenglow. */
+    if( FD_UNLIKELY( !ctx->alpenglow || !ss.ele_cnt ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: no blockhash offsets found (rooted_slots=%lu)", ss.ele_cnt ));
+      return 1;
+    }
+    FD_LOG_WARNING(( "status cache has no blockhash offsets (rooted_slots=%lu txn_entries=%lu); "
+                     "proceeding with empty txncache offsets",
+                     ss.ele_cnt, ctx->txncache_entries_len ));
   }
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
     fd_hash_t key;
@@ -1534,6 +1544,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( txncache_shmem );
   ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( ctx->txncache );
+
+  ctx->alpenglow = tile->snapin.alpenglow;
 
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->snapin.banks_obj_id ) );
   FD_TEST( ctx->banks );
