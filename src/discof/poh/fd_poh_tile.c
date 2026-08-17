@@ -1,6 +1,7 @@
 #include "fd_poh.h"
 #include "fd_poh_tile.h"
 #include "../replay/fd_replay_tile.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../disco/tiles.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../discof/fd_startup.h"
@@ -204,8 +205,7 @@ returnable_frag( fd_poh_tile_t *     ctx,
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_PACK: {
       fd_done_packing_t const * done_packing = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      fd_poh_done_packing( ctx->poh, stem, done_packing->microblocks_in_slot,
-                           done_packing->end_slot_reason==FD_PACK_END_SLOT_REASON_ABANDONED );
+      fd_poh_done_packing( ctx->poh, stem, done_packing );
       break;
     }
     case IN_KIND_REPLAY: {
@@ -225,7 +225,12 @@ returnable_frag( fd_poh_tile_t *     ctx,
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
       fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const*)txns+sz-sizeof(fd_microblock_trailer_t) );
-      fd_poh1_mixin( ctx->poh, stem, target_slot, trailer->hash, txn_cnt, txns );
+
+      fd_leader_txn_timing_rec_t timing = {
+        .dispatched_ticks = trailer->exec_start_ticks,
+        .replayed_ticks   = trailer->exec_end_ticks,
+      };
+      fd_poh1_mixin( ctx->poh, stem, target_slot, trailer->hash, txn_cnt, txns, &timing );
       break;
     }
     default: {
@@ -292,7 +297,11 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->shred_out = out1( topo, tile, "poh_shred" );
   *ctx->replay_out = out1( topo, tile, "poh_replay" );
 
-  FD_TEST( fd_poh_join( fd_poh_new( ctx->poh ), ctx->shred_out, ctx->replay_out ) );
+  void * timing_tables = NULL;
+  ulong ldr_tt_obj_id = fd_pod_query_ulong( topo->props, "ldr_tt", ULONG_MAX );
+  if( FD_LIKELY( ldr_tt_obj_id!=ULONG_MAX ) ) timing_tables = fd_topo_obj_laddr( topo, ldr_tt_obj_id );
+
+  FD_TEST( fd_poh_join( fd_poh_new( ctx->poh ), ctx->shred_out, ctx->replay_out, timing_tables ) );
 
   fd_clock_tile_init( ctx->poh->clock );
 

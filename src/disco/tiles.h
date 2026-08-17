@@ -137,6 +137,12 @@ struct fd_microblock_trailer {
   ulong bank_seq;
 
   fd_txn_ns_dt_t txn_ns_dt;
+
+  /* When the exec tile began executing this microblock (for a bundle,
+     the bundle start) and when its transaction finished committing
+     (LONG_MAX if nothing committed). */
+  long exec_start_ticks;
+  long exec_end_ticks;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
@@ -162,6 +168,10 @@ struct fd_done_packing {
   fd_pack_smallest_t pending_votes_smallest[ 1 ];
 
   int end_slot_reason;
+
+  long  pack_start_ns;
+  long  pack_end_ns;
+  ulong bundle_txn_count;
 };
 typedef struct fd_done_packing fd_done_packing_t;
 
