@@ -4,6 +4,7 @@
 #include "../../util/tmpl/fd_unit_test.c"
 
 #define TOPO_TAG 2UL
+#define TEST_HASH_SEED (0x0123456789abcdefUL)
 
 static fd_svm_mini_t * mini;
 static uchar           metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
@@ -173,10 +174,11 @@ test_env_create( test_env_t * env ) {
   env->ctx->completed_slot     = 200UL;
   env->ctx->flush_pool_idx     = ULONG_MAX;
   env->ctx->pool               = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
-  env->ctx->map_chain          = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192UL ) ), 8192UL, 0UL ) );
+  env->ctx->map_chain          = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192UL ) ), 8192UL, TEST_HASH_SEED ) );
   env->ctx->blockhash_map      = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint() ) ) );
   FD_TEST( env->ctx->pool );
   FD_TEST( env->ctx->map_chain );
+  FD_TEST( map_chain_seed( env->ctx->map_chain )==TEST_HASH_SEED );
   FD_TEST( env->ctx->blockhash_map );
   FD_TEST( env->ctx->lru_list==lru_list_join( lru_list_new( env->ctx->lru_list ) ) );
 
@@ -204,6 +206,28 @@ test_env_destroy( test_env_t * env ) {
     fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( env->out_dcache[i] ) ) );
   }
   fd_memset( env, 0, sizeof(test_env_t) );
+}
+
+FD_UNIT_TEST( resolv_stash_map_seed_initialized ) {
+  void * tile_mem = fd_wksp_alloc_laddr( mini->wksp, alignof(fd_resolv_ctx_t), sizeof(fd_resolv_ctx_t), TOPO_TAG );
+  FD_TEST( tile_mem );
+
+  static fd_topo_t topo[1];
+  topo->workspaces[ 0 ].wksp = mini->wksp;
+  topo->objs[ 0 ] = (fd_topo_obj_t) {
+    .id      = 0UL,
+    .wksp_id = 0UL,
+    .offset  = (ulong)tile_mem-(ulong)mini->wksp,
+  };
+  fd_topo_tile_t tile = { .tile_obj_id = 0UL };
+
+  fd_resolv_ctx_t * ctx = tile_mem;
+  ctx->map_seed = TEST_HASH_SEED;
+  FD_TEST( fd_tile_resolv.privileged_init );
+  fd_tile_resolv.privileged_init( topo, &tile );
+  FD_TEST( ctx->map_seed!=TEST_HASH_SEED );
+
+  fd_wksp_free_laddr( tile_mem );
 }
 
 static void

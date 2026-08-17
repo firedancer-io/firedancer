@@ -133,6 +133,7 @@ typedef struct {
 typedef struct {
   ulong round_robin_idx;
   ulong round_robin_cnt;
+  ulong map_seed;
 
   int   bundle_failed;
   ulong bundle_id;
@@ -582,6 +583,16 @@ after_frag( fd_resolv_ctx_t *   ctx,
 }
 
 static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_resolv_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t ) );
+  FD_TEST( fd_rng_secure( &ctx->map_seed, sizeof(ctx->map_seed) ) );
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -603,7 +614,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->pool = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
   FD_TEST( ctx->pool );
 
-  ctx->map_chain = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192ULL ) ), 8192UL , 0UL ) );
+  ctx->map_chain = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192ULL ) ), 8192UL, ctx->map_seed ) );
   FD_TEST( ctx->map_chain );
 
   FD_TEST( ctx->lru_list==lru_list_join( lru_list_new( ctx->lru_list ) ) );
@@ -722,6 +733,7 @@ fd_topo_run_tile_t fd_tile_resolv = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
