@@ -2,6 +2,11 @@
 #include "fd_snapct_tile.c"
 #include <stdlib.h>
 
+#define TEST_SSPING_SEED    (0x0123456789abcdefUL)
+#define TEST_GOSSIP_CI_SEED (0x123456789abcdef0UL)
+#define TEST_SELECTOR_SEED  (0x23456789abcdef01UL)
+#define TEST_BLACKLIST_SEED (0x3456789abcdef012UL)
+
 static void
 send_contact_info( fd_snapct_tile_t *           ctx,
                    fd_gossip_update_message_t * msg,
@@ -38,8 +43,9 @@ setup_gossip_only_snapct( void *                       scratch,
 
   fd_memset( ci_table, 0, sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX );
   ctx->gossip.ci_table = ci_table;
-  ctx->gossip.ci_map   = gossip_ci_map_join( gossip_ci_map_new( ci_map, gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ), 0UL ) );
+  ctx->gossip.ci_map   = gossip_ci_map_join( gossip_ci_map_new( ci_map, gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ), TEST_GOSSIP_CI_SEED ) );
   FD_TEST( ctx->gossip.ci_map );
+  FD_TEST( gossip_ci_map_seed( ctx->gossip.ci_map )==TEST_GOSSIP_CI_SEED );
 
   ctx->gossip_in_mem = msg;
 
@@ -97,9 +103,9 @@ setup_blacklist_snapct( void *              scratch,
   /* Shared ssping: fd_ssping_new opens real sockets and has no
      teardown, so it is created once in main() and passed in here. */
   ctx->ssping         = ssping;
-  ctx->selector       = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, 42UL ) );
+  ctx->selector       = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
   ctx->blacklist_pool = blacklist_pool_join( blacklist_pool_new( _bl_pool, bl_max ) );
-  ctx->blacklist_map  = blacklist_map_join( blacklist_map_new( _bl_map, blacklist_map_chain_cnt_est( bl_max ), 42UL ) );
+  ctx->blacklist_map  = blacklist_map_join( blacklist_map_new( _bl_map, blacklist_map_chain_cnt_est( bl_max ), TEST_BLACKLIST_SEED ) );
 
   FD_TEST( ctx->ssping );
   FD_TEST( ctx->selector );
@@ -519,7 +525,7 @@ main( int     argc,
   ulong ssping_max = 16UL;
   void * _ssping_mem = aligned_alloc( fd_ssping_align(), fd_ssping_footprint( ssping_max ) );
   FD_TEST( _ssping_mem );
-  fd_ssping_t * ssping = fd_ssping_join( fd_ssping_new( _ssping_mem, ssping_max, 42UL, on_ping_stub, NULL ) );
+  fd_ssping_t * ssping = fd_ssping_join( fd_ssping_new( _ssping_mem, ssping_max, TEST_SSPING_SEED, on_ping_stub, NULL ) );
   FD_TEST( ssping );
 
   test_blacklist_peer_basic( ssping );
