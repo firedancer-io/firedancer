@@ -58,7 +58,8 @@ FD_FN_CONST ulong
 fd_prune_finder_footprint( void );
 
 void *
-fd_prune_finder_new( void * shmem );
+fd_prune_finder_new( void * shmem,
+                     ulong  seed );
 
 fd_prune_finder_t *
 fd_prune_finder_join( void * shpf );

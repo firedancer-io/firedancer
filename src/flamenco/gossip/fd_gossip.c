@@ -270,7 +270,7 @@ fd_gossip_new( void *                           shmem,
   gossip->ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng, gossip->entrypoints_cnt, gossip->entrypoints, ping_tracker_change, gossip ) );
   FD_TEST( gossip->ping_tracker );
 
-  gossip->prune_finder = fd_prune_finder_join( fd_prune_finder_new( prune_finder ) );
+  gossip->prune_finder = fd_prune_finder_join( fd_prune_finder_new( prune_finder, fd_rng_ulong( rng ) ) );
   FD_TEST( gossip->prune_finder );
 
   gossip->stake.count = 0UL;
