@@ -489,8 +489,11 @@ main( int     argc,
 
   {
     /* Drive shred frags through the stem callback sequence */
-    ulong shred_in_idx = 1UL; /* gossip_out is 0 */
-    FD_TEST( ctx->in_kind[ shred_in_idx ]==IN_KIND_SHRED );
+    ulong shred_in_idx = ctx->in_cnt;
+    for( ulong in_idx=0UL; in_idx<ctx->in_cnt; in_idx++ ) {
+      if( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) { shred_in_idx = in_idx; break; }
+    }
+    FD_TEST( shred_in_idx<ctx->in_cnt );
     fd_shred_base_t * shred_msg = fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_shred_out->dcache ) );
     ulong             shred_chunk = fd_laddr_to_chunk( wksp, shred_msg );
 
