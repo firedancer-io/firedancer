@@ -4,6 +4,7 @@
 #include "../../util/fd_util_base.h"
 #include "../fd_flamenco_base.h"
 #include "../accdb/fd_accdb_base.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
 
 #define FD_VOTE_STAKES_ALIGN (128UL)
 
@@ -88,7 +89,8 @@ fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
                                 fd_pubkey_t const * pubkey,
                                 fd_pubkey_t const * node_account,
                                 ulong               stake,
-                                ushort              commission );
+                                ushort              commission,
+                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
 /* fd_vote_stakes_snap_insert_t_2 inserts a new vote account into the
    t-2 set.  This skips over any vote account validation and should
@@ -100,7 +102,8 @@ fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
                                 fd_pubkey_t const * pubkey,
                                 fd_pubkey_t const * node_account,
                                 ulong               stake,
-                                ushort              commission );
+                                ushort              commission,
+                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
 /* fd_vote_stakes_insert inserts a new vote account into the t-1 set.
    This can be called repeatedly after a boundary-crossing
@@ -114,7 +117,8 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
                        fd_pubkey_t const * pubkey,
                        fd_pubkey_t const * node_account,
                        ulong               stake,
-                       ushort              commission );
+                       ushort              commission,
+                       uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
 /* fd_vote_stakes_purge_fork removes a t-1 set.  This should be called
    when the banks are evicting a bank or during root advancement. */
@@ -239,7 +243,8 @@ fd_vote_stakes_t_1_iter_ele( fd_vote_stakes_t const *    vote_stakes,
                              fd_pubkey_t *               pubkey_out,
                              fd_pubkey_t *               node_account_out_opt,
                              ulong *                     stake_out_opt,
-                             ushort *                    commission_out_opt );
+                             ushort *                    commission_out_opt,
+                             uchar                       bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
 fd_vote_stakes_t_2_iter_t *
 fd_vote_stakes_t_2_iter_init( fd_vote_stakes_t const * vote_stakes,
@@ -266,7 +271,8 @@ fd_vote_stakes_t_2_iter_ele( fd_vote_stakes_t const *    vote_stakes,
                              ulong *                     last_vote_slot_out_opt,
                              long *                      last_vote_ts_out_opt,
                              ushort *                    commission_out_opt,
-                             uchar *                     is_valid_out_opt );
+                             uchar *                     is_valid_out_opt,
+                             uchar                       bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
 FD_PROTOTYPES_END
 

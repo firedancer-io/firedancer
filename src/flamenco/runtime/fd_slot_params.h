@@ -48,6 +48,7 @@ struct fd_slot_params {
   ulong  max_shred_idx;
   ulong  max_entry_bytes_per_slot;
   ulong  stake_account_stores_per_block;
+  ulong  vat_to_burn_per_epoch;
 };
 typedef struct fd_slot_params fd_slot_params_t;
 
@@ -63,6 +64,7 @@ typedef struct fd_slot_params fd_slot_params_t;
   .max_shred_idx                      = 32768UL,                                  \
   .max_entry_bytes_per_slot           = FD_DEFAULT_MAX_ENTRY_BYTES_PER_SLOT,      \
   .stake_account_stores_per_block     = 4096UL,                                   \
+  .vat_to_burn_per_epoch              = 1600000000UL,                             \
 })
 
 /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L135-L145 */
@@ -77,6 +79,7 @@ typedef struct fd_slot_params fd_slot_params_t;
   .max_shred_idx                      = 28672UL,                                  \
   .max_entry_bytes_per_slot           = 18350080UL,                               \
   .stake_account_stores_per_block     = 3584UL,                                   \
+  .vat_to_burn_per_epoch              = 1400000000UL,                             \
 })
 
 /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L147-L157 */
@@ -91,6 +94,7 @@ typedef struct fd_slot_params fd_slot_params_t;
   .max_shred_idx                      = 24576UL,                                  \
   .max_entry_bytes_per_slot           = 15728640UL,                               \
   .stake_account_stores_per_block     = 3072UL,                                   \
+  .vat_to_burn_per_epoch              = 1200000000UL,                             \
 })
 
 /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L159-L169 */
@@ -105,6 +109,7 @@ typedef struct fd_slot_params fd_slot_params_t;
   .max_shred_idx                      = 20480UL,                                  \
   .max_entry_bytes_per_slot           = 13107200UL,                               \
   .stake_account_stores_per_block     = 2560UL,                                   \
+  .vat_to_burn_per_epoch              = 1000000000UL,                             \
 })
 
 /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L171-L181 */
@@ -119,6 +124,7 @@ typedef struct fd_slot_params fd_slot_params_t;
   .max_shred_idx                      = 16384UL,                                  \
   .max_entry_bytes_per_slot           = 10485760UL,                               \
   .stake_account_stores_per_block     = 2048UL,                                   \
+  .vat_to_burn_per_epoch              = 800000000UL,                              \
 })
 
 FD_PROTOTYPES_BEGIN
