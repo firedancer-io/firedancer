@@ -138,6 +138,10 @@ fd_vsv_set_block_revenue_commission_bps( fd_vote_state_versioned_t * self,
 void
 fd_vsv_set_root_slot( fd_vote_state_versioned_t * self, ulong * root_slot );
 
+void
+fd_vsv_set_last_timestamp( fd_vote_state_versioned_t *       self,
+                           fd_vote_block_timestamp_t const * last_timestamp );
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L843-L851 */
 int
 fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,

@@ -205,10 +205,17 @@ struct fd_sched_block {
   uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
                                                              parseable after the next FEC set is ingested. */
   uint                shred_blk_offs[ FD_SHRED_BLK_MAX ]; /* The byte offsets into block data of ingested shreds */
+
+  /* Alpenglow block footer, deserialized out of the marker batch at
+     parse time.  footer_present is set if the block carries a footer
+     marker and it is seen by sched; footer is only meaningful in that
+     case. */
+  int               footer_present;
+  fd_block_footer_t footer;
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==596704UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==599296UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -1876,6 +1883,62 @@ fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx ) {
   return block->shred_cnt;
 }
 
+fd_hash_t const *
+fd_sched_get_footer_bank_hash( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return block->footer_present ? &block->footer.bank_hash : NULL;
+}
+
+ulong
+fd_sched_get_footer_producer_time_nanos( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return block->footer_present ? block->footer.block_producer_time_nanos : 0UL;
+}
+
+fd_reward_cert_t const *
+fd_sched_get_skip_reward_cert( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return ( block->footer_present && block->footer.has_skip_reward_cert ) ? &block->footer.skip_reward_cert : NULL;
+}
+
+fd_reward_cert_t const *
+fd_sched_get_notar_reward_cert( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return ( block->footer_present && block->footer.has_notar_reward_cert ) ? &block->footer.notar_reward_cert : NULL;
+}
+
+ag_fast_final_cert_t const *
+fd_sched_get_fast_final_cert( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return ( block->footer_present && block->footer.has_fast_final_cert ) ? &block->footer.fast_final_cert : NULL;
+}
+
+ag_final_cert_t const *
+fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return ( block->footer_present && block->footer.has_final_cert ) ? &block->footer.final_cert : NULL;
+}
+
+ag_notar_cert_t const *
+fd_sched_get_final_notar_cert( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return ( block->footer_present && block->footer.has_final_cert ) ? &block->footer.notar_cert : NULL;
+}
+
 void
 fd_sched_metrics_write( fd_sched_t * sched ) {
   FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_INDEX, sched->active_bank_idx );
@@ -1991,6 +2054,8 @@ add_block( fd_sched_t * sched,
   block->hashes_per_tick              = ULONG_MAX;
   block->inconsistent_hashes_per_tick = 0;
   block->zero_hash_tick               = 0;
+
+  block->footer_present = 0;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
@@ -2306,17 +2371,18 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
 
       block->fec_sob = 0;
 
-      /* TODO parse alpenglow block markers */
       if( FD_UNLIKELY( !block->mblks_rem && sched->is_alpenglow ) ) {
-        if( block->fec_buf_sz < sizeof(ulong) + sizeof(ushort) + sizeof(uchar) ) FD_LOG_CRIT(( "unhandled bad block marker - should mark dead"));
-        fd_block_marker_t const * m = (fd_block_marker_t const *)fd_type_pun_const( block->fec_buf );
-        if( m->variant==HEADER ) {
-          // TODO
-        } else if( m->variant==FOOTER ) {
-          // TODO
-        } else if( m->variant==UPDATE_PARENT ) {
-          // TODO
-          FD_LOG_CRIT(( "UNHANDLED alpenglow update parent: slot %lu", block->slot ));
+        fd_block_marker_t marker[1];
+        int err = fd_block_marker_de( marker, block->fec_buf, (ulong)block->fec_buf_sz, NULL );
+        if( FD_UNLIKELY( err ) ) {
+          FD_LOG_INFO(( "bad block: slot %lu, unable to parse footer marker (err %d)", block->slot, err ));
+          return FD_SCHED_DEAD_REASON_BAD_FOOTER;
+        }
+        if( marker->variant==FOOTER ) {
+          block->footer         = marker->footer;
+          block->footer_present = 1;
+        } else if( marker->variant==UPDATE_PARENT ) {
+          FD_LOG_CRIT(( "UNHANDLED alpenglow update parent: slot %lu, new_parent_slot %lu", block->slot, marker->update_parent.new_parent_slot ));
         }
       } else if( FD_UNLIKELY( !block->mblks_rem && !sched->is_alpenglow ) ) {
         FD_LOG_INFO(( "bad block: ZERO_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks)", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));

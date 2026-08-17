@@ -126,6 +126,11 @@ base3_bitmap_de( ag_bls_agg_t * base,
   return AG_CERT_DE_SUCCESS;
 }
 
+/* TODO: check serde accepting AG_BLS_SIGNERS_MAX (2048) vs AG_VAT_MAX
+   (2000); reward processing ignores bits past the validator count
+   instead of rejecting the cert. Check what Agave does with signer bits
+   >= the epoch's validator set size and match it. */
+
 static int
 footer_aggregate_de( ag_bls_agg_t * agg,
                      uchar const *  buf,

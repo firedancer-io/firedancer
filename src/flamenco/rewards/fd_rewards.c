@@ -2,6 +2,7 @@
 #include "fd_stake_rewards.h"
 #include "fd_reward_epoch_delegated_stakes.h"
 #include "fd_epoch_inflation_account.h"
+#include "fd_alpen_rewards.h"
 
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -602,6 +603,29 @@ fd_rewards_inflation_collector( fd_bank_t *         bank,
                                 NULL );
 }
 
+/* rewarded_epoch_is_alpenglow checks if the rewarded
+   epoch contains or follows the alpenglow migration.  This is distinct
+   from the alpenglow feature being active: between feature activation
+   and the migration slot (and for the epoch that ended at the
+   activation boundary) stake rewards are still computed the tower way.
+
+   See https://github.com/anza-xyz/agave/blob/ef22c39d51b90c1f4cfccfe1f9fde94471c6242a/runtime/src/alpenglow_epoch_type.rs#L154
+
+   TODO: the migration epoch itself is a mixed Tower+Alpenglow epoch
+   (Agave AlpenglowEpochType::MigrationEpoch) whose stake rewards must
+   prorate tower and alpenglow points over num_tower_slots/num_ag_slots
+   (Agave calculate_migration_points); it is currently treated as fully
+   alpenglow. */
+
+static int
+rewarded_epoch_is_alpenglow( fd_bank_t *  bank,
+                             fd_accdb_t * accdb,
+                             ulong        rewarded_epoch ) {
+  ulong migration_slot = fd_alpenglow_migration_slot( bank, accdb );
+  if( FD_LIKELY( migration_slot==ULONG_MAX ) ) return 0;
+  return fd_slot_to_epoch( &bank->f.epoch_schedule, migration_slot, NULL )<=rewarded_epoch;
+}
+
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33
    https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/inflation_rewards/mod.rs#L204-L371 */
 static int
@@ -857,9 +881,9 @@ calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
   ulong base             = epoch_credits->base_credits;
   ulong credits_in_vote  = cnt ? base+epoch_credits->credits_delta[ cnt-1UL ] : 0UL;
 
-  *result = (fd_calculated_stake_points_t) {
-    .new_credits_observed = credits_in_stake,
-  };
+  result->points.ud                                = 0;
+  result->new_credits_observed                     = credits_in_stake;
+  result->force_credits_update_with_skipped_reward = 0;
 
   if( FD_UNLIKELY( credits_in_vote<credits_in_stake ) ) {
     result->new_credits_observed                     = credits_in_vote;
@@ -900,7 +924,7 @@ calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
 }
 
 static inline void
-calculate_stake_points_for_reward( fd_bank_t *                    bank,
+calculate_stake_points_for_reward( int                            alpenglow_enabled,
                                    fd_runtime_stack_t *           runtime_stack,
                                    fd_epoch_credits_t *           epoch_credits,
                                    fd_stake_history_t const *     stake_history,
@@ -910,7 +934,7 @@ calculate_stake_points_for_reward( fd_bank_t *                    bank,
                                    ulong                          rewarded_epoch,
                                    ulong                          tower_fast_path_epoch,
                                    fd_calculated_stake_points_t * result ) {
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+  if( FD_UNLIKELY( alpenglow_enabled ) ) {
     ulong                    validator_reward_epoch_stake = 0UL;
     fd_stake_accum_t const * accumulated                  = fd_stake_accum_map_ele_query_const(
         runtime_stack->stakes.stake_accum_map,
@@ -947,7 +971,8 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                      ulong                          rewarded_epoch,
                                      fd_runtime_stack_t *           runtime_stack ) {
   /* Calculate the points for each stake delegation */
-  uint128 total_points = 0;
+  uint128 total_points      = 0;
+  int     alpenglow_enabled = rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch );
 
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
@@ -984,7 +1009,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
     fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
-    calculate_stake_points_for_reward( bank,
+    calculate_stake_points_for_reward( alpenglow_enabled,
                                        runtime_stack,
                                        epoch_credits,
                                        stake_history,
@@ -995,7 +1020,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                        rewarded_epoch,
                                        stake_points_result );
 
-    if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+    if( FD_LIKELY( !alpenglow_enabled ) ) {
       total_points += stake_points_result->points.ud;
     }
   }
@@ -1061,6 +1086,8 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                               int                            is_recalculation ) {
 
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
+
+  int alpenglow_enabled = rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch );
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
   fd_epoch_credits_t *          epoch_credits_arr = fd_bank_epoch_credits( bank );
@@ -1138,7 +1165,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       /* We have not cached the stake points yet if we are recalculating
          stake rewards so we need to recalculate them.  ULONG_MAX
          disables the tag fast path. */
-      calculate_stake_points_for_reward( bank,
+      calculate_stake_points_for_reward( alpenglow_enabled,
                                          runtime_stack,
                                          epoch_credits,
                                          stake_history,
@@ -1160,7 +1187,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         rewarded_epoch,
         total_rewards,
         total_points,
-        FD_FEATURE_ACTIVE_BANK( bank, alpenglow ),
+        alpenglow_enabled,
         runtime_stack,
         stake_points_result,
         calculated_stake_rewards );
@@ -1227,6 +1254,8 @@ setup_stake_partitions( fd_bank_t *                    bank,
                         ulong                          total_rewards,
                         uint128                        total_points ) {
 
+  int alpenglow_enabled = rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch );
+
   fd_stake_rewards_t * stake_rewards     = fd_bank_stake_rewards_modify( bank );
   fd_epoch_credits_t * epoch_credits_arr = fd_bank_epoch_credits( bank );
 
@@ -1271,7 +1300,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
       fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
       fd_calculated_stake_points_t stake_points_result[1];
-      calculate_stake_points_for_reward( bank,
+      calculate_stake_points_for_reward( alpenglow_enabled,
                                          runtime_stack,
                                          epoch_credits,
                                          stake_history,
@@ -1291,7 +1320,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
           rewarded_epoch,
           total_rewards,
           total_points,
-          FD_FEATURE_ACTIVE_BANK( bank, alpenglow ),
+          alpenglow_enabled,
           runtime_stack,
           stake_points_result,
           calculated_stake_rewards );
@@ -1363,7 +1392,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
   /* Tower requires a non-zero global points denominator.  Alpenglow
      stake rewards are already denominated in lamports per validator. */
-  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) && !total_points ) {
+  if( FD_LIKELY( !rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch ) ) && !total_points ) {
     *rewards_out = 0UL;
   }
 
@@ -1442,7 +1471,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                               bank->f.capitalization,
                                               prev_epoch,
                                               &rewards );
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+  if( FD_UNLIKELY( rewarded_epoch_is_alpenglow( bank, accdb, prev_epoch ) ) ) {
     rewards.validator_rewards = fd_epoch_inflation_rewards_for_epoch( bank, accdb, prev_epoch );
   }
 
@@ -1882,7 +1911,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               ulong                          parent_epoch,
                               ulong                          parent_capitalization ) {
 
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+  if( FD_UNLIKELY( rewarded_epoch_is_alpenglow( bank, accdb, parent_epoch ) ) ) {
     fd_reward_epoch_stakes_set( bank,
                                 accdb,
                                 capture_ctx,
@@ -2066,7 +2095,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
   ulong const epoch          = bank->f.epoch;
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+  if( FD_UNLIKELY( rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch ) ) ) {
     fd_reward_epoch_stakes_restore( bank, accdb, rewarded_epoch, runtime_stack );
   }
 

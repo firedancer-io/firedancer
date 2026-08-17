@@ -340,6 +340,34 @@ reward_epoch_stakes_account_id( void ) {
   return *address;
 }
 
+/* Writes the "carlgration" genesis certificate account, marking the
+   chain as migrated to alpenglow at migration_slot.  The reward gates
+   key on this (rewarded_epoch_is_alpenglow), not on the feature bit. */
+static void
+set_alpenglow_migration( fd_svm_mini_t * mini,
+                         ulong           migration_slot ) {
+  fd_pubkey_t   program_id  = alpenglow_feature_id();
+  uchar const   seed[]      = "carlgration";
+  uchar const * seeds[1]    = { seed };
+  ulong         seed_szs[1] = { sizeof(seed)-1UL };
+  fd_pubkey_t   address[1];
+  uchar         bump_seed;
+  uint          custom_err  = 0U;
+  FD_TEST( !fd_pubkey_find_program_address( &program_id, 1UL, seeds, seed_szs,
+                                            address, &bump_seed, &custom_err ) );
+
+  uchar data[8];
+  FD_STORE( ulong, data, migration_slot );
+
+  fd_acc_t acc = {0};
+  fd_memcpy( acc.pubkey, address->uc, 32UL );
+  fd_memcpy( acc.owner, fd_solana_system_program_id.uc, 32UL );
+  acc.lamports = 1000000UL;
+  acc.data_len = sizeof(data);
+  acc.data     = data;
+  fd_svm_mini_put_account_rooted( mini, &acc );
+}
+
 static void
 init_epoch_inflation_account( fd_svm_mini_t * mini ) {
   fd_pubkey_t address  = epoch_inflation_account_id();
@@ -426,6 +454,7 @@ test_alpenglow_reward_uses_vote_credits( fd_svm_mini_t * mini ) {
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
   activate_alpenglow( mini );
+  set_alpenglow_migration( mini, TEST_ROOT_SLOT );
   init_epoch_inflation_account( mini );
 
   fd_pubkey_t identity_key, vote_key, stake_key;
@@ -497,6 +526,7 @@ test_alpenglow_preserves_commission_remainder( fd_svm_mini_t * mini ) {
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
   activate_alpenglow( mini );
+  set_alpenglow_migration( mini, TEST_ROOT_SLOT );
   init_epoch_inflation_account( mini );
 
   fd_pubkey_t identity_key, vote_key, stake_key;

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_replay_fd_sched_h
 
 #include "fd_rdisp.h"
+#include "fd_block_marker.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../flamenco/accdb/fd_accdb.h"
@@ -193,7 +194,7 @@ typedef struct fd_sched_task fd_sched_task_t;
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH         (17) /* PoH hash of a transaction entry did not verify, detected when the entry's PoH hashing task completed. */
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST  (18) /* PoH hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions. */
 #define FD_SCHED_DEAD_REASON_DEAD_ANCESTOR               (19) /* The block went down with its lineage.  Whether the lineage was discarded or ruled invalid is distinguished by fd_sched_block_is_discarded. */
-
+#define FD_SCHED_DEAD_REASON_BAD_FOOTER                  (20) /* The block's footer was invalid. */
 /* Cause to pass to fd_sched_block_abandon().  A block is considered
    invalid when it violates the protocol, so validity is a function of
    the block's content.  A block may be discarded (temporarily) because
@@ -478,6 +479,46 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
+
+/* fd_sched_get_footer_bank_hash returns the bank hash in the block
+   footer, or NULL if no footer marker has been parsed for the block.
+   The hash stays valid until the block is pruned. */
+fd_hash_t const *
+fd_sched_get_footer_bank_hash( fd_sched_t * sched, ulong bank_idx );
+
+/* fd_sched_get_footer_producer_time_nanos returns the producer
+   timestamp in the block footer, or 0 if no footer marker has been
+   parsed for the block. */
+ulong
+fd_sched_get_footer_producer_time_nanos( fd_sched_t * sched, ulong bank_idx );
+
+/* fd_sched_get_{skip,notar}_reward_cert return the skip/notar reward
+   cert deserialized out of the block footer.  Returns NULL if the
+   footer carries none or no footer marker has been parsed for the
+   block.  The cert's shape was validated at parse time, but its
+   signature is not verified.  The cert stays valid until the block is
+   pruned. */
+fd_reward_cert_t const *
+fd_sched_get_skip_reward_cert( fd_sched_t * sched, ulong bank_idx );
+
+fd_reward_cert_t const *
+fd_sched_get_notar_reward_cert( fd_sched_t * sched, ulong bank_idx );
+
+/* fd_sched_get_{fast_final,final,final_notar}_cert return the
+   finalization cert deserialized out of the block footer.  A fast
+   finalization cert yields fast_final only; a slow one yields final +
+   final_notar.  Returns NULL if the footer carries none (of that kind)
+   or no footer marker has been parsed for the block.  The certs' shapes
+   were validated at parse time, but their signatures are not verified.
+   The certs stay valid until the block is pruned. */
+ag_fast_final_cert_t const *
+fd_sched_get_fast_final_cert( fd_sched_t * sched, ulong bank_idx );
+
+ag_final_cert_t const *
+fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx );
+
+ag_notar_cert_t const *
+fd_sched_get_final_notar_cert( fd_sched_t * sched, ulong bank_idx );
 
 void
 fd_sched_metrics_write( fd_sched_t * sched );
