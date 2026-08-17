@@ -515,15 +515,16 @@ ag_pool_recover_from_standstill( ag_pool_t * self ) {
 
   /* 1. collect our finalized slot's cert */
 
-  ulong                          finalized_slot      = ag_pool_finalized_slot( self );
-  ag_slot_certificates_t const * fast_final_or_final = &slot_state_map_ele_query_const( self->slot_states->map, &finalized_slot, NULL, self->slot_states->pool )->slot_state.certificates;
-  if( FD_LIKELY( fast_final_or_final && fast_final_or_final->fast_finalize.slot!=ULONG_MAX ) ) {
-    certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_TYPE_FAST_FINAL, .inner.fast_final = fast_final_or_final->fast_finalize };
-  } else if( fast_final_or_final && fast_final_or_final->finalize.slot!=ULONG_MAX && fast_final_or_final->notar.slot!=ULONG_MAX ) {
-    certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_TYPE_FINAL,      .inner.final      = fast_final_or_final->finalize      };
-    certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_TYPE_NOTAR,      .inner.notar      = fast_final_or_final->notar         };
-  } else {
-    __builtin_unreachable();
+  ulong                    finalized_slot  = ag_pool_finalized_slot( self );
+  slot_state_ele_t const * finalized_state = slot_state_map_ele_query_const( self->slot_states->map, &finalized_slot, NULL, self->slot_states->pool );
+  if( FD_LIKELY( finalized_state ) ) {
+    ag_slot_certificates_t const * fast_final_or_final = &finalized_state->slot_state.certificates;
+    if( FD_LIKELY( fast_final_or_final->fast_finalize.slot!=ULONG_MAX ) ) {
+      certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_TYPE_FAST_FINAL, .inner.fast_final = fast_final_or_final->fast_finalize };
+    } else if( fast_final_or_final->finalize.slot!=ULONG_MAX && fast_final_or_final->notar.slot!=ULONG_MAX ) {
+      certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_TYPE_FINAL,      .inner.final      = fast_final_or_final->finalize      };
+      certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_TYPE_NOTAR,      .inner.notar      = fast_final_or_final->notar         };
+    }
   }
 
   /* 2. collect every cert and own vote for slots > finalized slot */
