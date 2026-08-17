@@ -177,6 +177,11 @@ struct fd_configf {
     int hard_fork_fatal;
     int fixed_fec_sets;
     int alpenglow;
+
+    struct {
+      ushort quic_server_listen_port;
+    } votor;
+
     struct {
       int   validate_genesis_hash;
       ulong max_file_size_mib;

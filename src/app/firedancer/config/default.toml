@@ -1919,6 +1919,11 @@ telemetry = true
     # `firedancer-dev`.
     alpenglow = false
 
+    [development.votor]
+        # Votes and certs are sent by peer validators via QUIC datagrams
+        # to this port.
+        quic_server_listen_port = 8004
+
     [development.gossip]
         # Under normal operating conditions, a validator should always
         # reach out to a host located on the public internet.  If this
