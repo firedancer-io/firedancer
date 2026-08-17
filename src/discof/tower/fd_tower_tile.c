@@ -1873,6 +1873,11 @@ returnable_frag( fd_tower_tile_t *   ctx,
     case REPLAY_SIG_SLOT_COMPLETED:;
       if( FD_UNLIKELY( ctx->halt_signing ) ) return 1; /* backpressure replay_slot_completed during halt_signing. */
       fd_replay_slot_completed_t * slot_completed = (fd_replay_slot_completed_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      /* Return frags until the epoch schedule is loaded.  The epoch
+         schedule frag (replay_epoch link) can arrive after this
+         slot frag (replay_out link) because they travel on different
+         links with no cross-link ordering guarantee. */
+      if( FD_UNLIKELY( !fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, slot_completed->slot ) ) ) return 1;
       replay_slot_completed( ctx, slot_completed, tsorig, stem );
       break;
     case REPLAY_SIG_SLOT_DEAD:;
