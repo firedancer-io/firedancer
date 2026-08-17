@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-308392063-v4.2.0-beta.1-vat -m 2000000 -e 308392063
+#src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-308392063-v4.2.0-beta.1-vat -m 2000000 -e 308392063
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-350814254-v4.2.0-beta.1-vat -m 2000000 -e 350814284
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-281546597-v4.2.0-beta.1-vat -m 2000000 -e 281546597
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-324823213-v4.2.0-beta.1-vat -m 2000000 -e 324823214

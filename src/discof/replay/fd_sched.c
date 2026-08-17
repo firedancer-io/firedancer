@@ -2,6 +2,7 @@
 #include <stdarg.h> /* for va_list */
 
 #include "fd_sched.h"
+#include "fd_block_marker.h"
 #include "fd_execrp.h" /* for poh hash value */
 #include "../../util/math/fd_stat.h" /* for sorted search */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
@@ -268,6 +269,7 @@ struct fd_sched {
   ulong                 print_buf_sz;
   fd_chkdup_t           chkdup[ 1 ];
   fd_sched_metrics_t    metrics[ 1 ];
+  int                   is_alpenglow; /* set if alpenglow is enabled. */
   ulong                 canary; /* == FD_SCHED_MAGIC */
   ulong                 depth;         /* Immutable. */
   ulong                 block_cnt_max; /* Immutable. */
@@ -668,7 +670,8 @@ fd_sched_new( void *     mem,
               fd_rng_t * rng,
               ulong      depth,
               ulong      block_cnt_max,
-              ulong      exec_cnt ) {
+              ulong      exec_cnt,
+              int        is_alpenglow ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -736,6 +739,7 @@ fd_sched_new( void *     mem,
   sched->next_ready_last_tick     = LONG_MAX;
   sched->next_ready_last_bank_idx = ULONG_MAX;
 
+  sched->is_alpenglow           = is_alpenglow;
   sched->canary                 = FD_SCHED_MAGIC;
   sched->depth                  = depth;
   sched->block_cnt_max          = block_cnt_max;
@@ -2301,7 +2305,20 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       }
 
       block->fec_sob = 0;
-      if( FD_UNLIKELY( !block->mblks_rem ) ) {
+
+      /* TODO parse alpenglow block markers */
+      if( FD_UNLIKELY( !block->mblks_rem && sched->is_alpenglow ) ) {
+        if( block->fec_buf_sz < sizeof(ulong) + sizeof(ushort) + sizeof(uchar) ) FD_LOG_CRIT(( "unhandled bad block marker - should mark dead"));
+        fd_block_marker_t const * m = (fd_block_marker_t const *)fd_type_pun_const( block->fec_buf );
+        if( m->variant==HEADER ) {
+          // TODO
+        } else if( m->variant==FOOTER ) {
+          // TODO
+        } else if( m->variant==UPDATE_PARENT ) {
+          // TODO
+          FD_LOG_CRIT(( "UNHANDLED alpenglow update parent: slot %lu", block->slot ));
+        }
+      } else if( FD_UNLIKELY( !block->mblks_rem && !sched->is_alpenglow ) ) {
         FD_LOG_INFO(( "bad block: ZERO_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks)", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));
         return FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS;
       }

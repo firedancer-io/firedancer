@@ -3,6 +3,7 @@
 
 #include "ag_votor_base.h"
 #include "ag_bls.h"
+#include "../../flamenco/stakes/fd_stake_weight.h"
 
 struct ag_validator_info {
   ulong        id;
@@ -16,6 +17,7 @@ struct ag_epoch_info {
   ulong               validator_cnt;
   ulong               total_stake;
   ag_validator_info_t validators[ AG_VAT_MAX ]; /* indexed by rank; validator_cnt live */
+  ag_bls_pub_t        pubkeys   [ AG_VAT_MAX ]; /* same validators list, pubkeys continguous for easy cert verification. TODO keep/remove? */
 };
 typedef struct ag_epoch_info ag_epoch_info_t;
 
@@ -53,6 +55,27 @@ FD_FN_PURE int ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * self, ul
 FD_FN_PURE int ag_epoch_info_is_weak_quorum   ( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_quorum        ( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_strong_quorum ( ag_epoch_info_t const * self, ulong stake );
+
+/* ag_epoch_info_init formats mem as an ag_epoch_info_t holding the
+   canonical Alpenglow validator ranking derived from the epoch info
+   msg's staked VAT voters.  init drops entries with a missing or
+   undecodable compressed BLS voting pubkey, drop ALL copies of a
+   duplicated BLS key or identity pubkey, then order survivors by stake,
+   tie-broken by compressed BLS pubkey asc.
+
+   See Agave BLSPubkeyToRankMap https://github.com/anza-xyz/agave/blob/19e021d626df202b0ec11b4b39c76c3cfe9b90e4/runtime/src/epoch_stakes.rs#L87
+
+   Zero-stake, vote account balance, and top-2000 VAT admission are
+   already enforced by the producer (fd_stakes_activate_epoch) and are
+   not re-checked here.
+
+   Returns mem on success.  Returns NULL, leaving mem untouched, if mem
+   is no validator survives the filters. */
+
+ag_epoch_info_t *
+ag_epoch_info_init( ag_epoch_info_t              * ei_mem,
+                    fd_vote_stake_weight_t const * stakes,
+                    ulong                          stake_cnt );
 
 FD_PROTOTYPES_END
 

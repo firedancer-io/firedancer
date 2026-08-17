@@ -1567,8 +1567,10 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
       fd_pubkey_t node_account;
       ulong       stake;
       ushort      commission;
-      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, &commission );
-      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &pubkey, &node_account, stake, commission );
+      uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+
+      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, &commission, bls_key );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &pubkey, &node_account, stake, commission, bls_key );
     }
     fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );
   }

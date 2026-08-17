@@ -98,6 +98,7 @@
 #define IN_KIND_GOSSIP_OUT (10)
 #define IN_KIND_SNAPMK     (11)
 #define IN_KIND_ADMIN      (12)
+#define IN_KIND_VOTOR      (13)
 
 #define DEBUG_LOGGING 0
 
@@ -137,6 +138,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
+  }
+  if( FD_UNLIKELY( tile->replay.alpenglow ) ) {
+    for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+      l = FD_LAYOUT_APPEND( l, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
+    }
   }
 
   l = FD_LAYOUT_FINI( l, scratch_align() );
@@ -202,6 +208,22 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
 
+/* ag_epoch_vtrs_update stores the ranked Alpenglow validator set for
+   the epoch built from outgoing epoch msg. */
+
+static void
+ag_epoch_vtrs_update( fd_replay_tile_t *          ctx,
+                      fd_epoch_info_msg_t const * msg ) {
+  fd_replay_epoch_vtrs_t * s = &ctx->epoch_vtrs[ msg->epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
+  /* Don't let a stale (older) re-publish evict a newer epoch sharing this
+    ring slot.  Refresh (==) and normal advance (older occupant) proceed. */
+  if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) return;
+  if( FD_UNLIKELY( !ag_epoch_info_init( s->info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt ) ) ) {
+    FD_LOG_CRIT(( "epoch %lu info failed", msg->epoch ));
+  }
+  s->epoch = msg->epoch;
+}
+
 static void
 publish_epoch_info( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
@@ -233,14 +255,15 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   fd_stake_weight_t * src_id_weights = next_epoch ? runtime_stack->epoch_weights.next_id_weights : runtime_stack->epoch_weights.id_weights;
   fd_memcpy( id_weights, src_id_weights, epoch_info_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
-  ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt , epoch_info_msg->staked_id_cnt );
-
+  ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt, epoch_info_msg->staked_id_cnt );
   ulong epoch_info_sig = 4UL;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->epoch_out->chunk = fd_dcache_compact_next( ctx->epoch_out->chunk, epoch_info_sz, ctx->epoch_out->chunk0, ctx->epoch_out->wmark );
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) ag_epoch_vtrs_update( ctx, epoch_info_msg );
 }
 
 /**********************************************************************/
@@ -311,7 +334,14 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
   }
   bank->f.max_tick_height = max_tick_height;
-  if( FD_UNLIKELY( ctx->alpenglow ) ) { FD_TEST( bank->f.max_tick_height > 0 ); bank->f.tick_height = bank->f.max_tick_height - 1UL; }
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    /* in alpenglow, we expect only one tick per block.  Instead of
+       adjusting max tick height, we match agave behavior by setting
+       tick height to max tick height - 1. These fields must stay in
+       line with agave behavior. */
+    bank->f.tick_height = bank->f.max_tick_height - 1UL;
+    bank->f.slot_params.hashes_per_tick = 1UL;
+  }
   fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.slot_params.hashes_per_tick, &parent_bank->f.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
@@ -687,7 +717,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done using the bank. */
-  bank->refcnt++; /* tower_tile */
+  if( FD_LIKELY( !ctx->is_alpenglow ) ) bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
   slot_info->bank_idx = bank->idx;
   slot_info->bank_seq = bank->bank_seq;
@@ -3525,6 +3555,12 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
   }
+  if( FD_UNLIKELY( tile->replay.alpenglow ) ) {
+    for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+      ctx->epoch_vtrs[ i ].epoch = ULONG_MAX;
+      ctx->epoch_vtrs[ i ].info  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
+    }
+  }
 
   ctx->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( runtime_stack_mem, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS, ctx->runtime_stack_seed ) );
   FD_TEST( ctx->runtime_stack );
@@ -3655,10 +3691,11 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->reception_stats_cnt );
   for( ulong i=0UL; i<ctx->reception_stats_cnt; i++ ) ctx->reception_stats[ i ].slot = ULONG_MAX;
   ctx->reasm_evicted = NULL;
+  ctx->is_alpenglow = tile->replay.alpenglow;
 
   ctx->leader_stats.slot = ULONG_MAX;
 
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ), ctx->is_alpenglow ) );
   FD_TEST( ctx->sched );
 
   ctx->in_cnt          = tile->in_cnt;
@@ -3735,7 +3772,6 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "ipecho_out"    ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( !strcmp( link->name, "snapin_manif"  ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "execrp_replay" ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
-    else if( !strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
@@ -3745,6 +3781,8 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
+    else if( !strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
+    else if( !strcmp( link->name, "votor_out"     ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
 
     if( ctx->in_kind[ i ]==IN_KIND_ADMIN ) {

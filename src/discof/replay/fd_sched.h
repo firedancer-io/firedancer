@@ -247,7 +247,8 @@ fd_sched_new( void *     mem,
               fd_rng_t * rng,
               ulong      depth,
               ulong      block_cnt_max,
-              ulong      exec_cnt );
+              ulong      exec_cnt,
+              int        is_alpenglow );
 
 fd_sched_t *
 fd_sched_join( void * mem );

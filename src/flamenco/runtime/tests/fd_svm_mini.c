@@ -384,8 +384,9 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 
     /* Populate bank structures */
 
-    fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U );
+    uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0}; /* zeroed means no key is registered */
+    fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls );
     fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_key, 0UL, 0L, 1 );
 
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ i ];

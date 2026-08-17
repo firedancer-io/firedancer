@@ -362,6 +362,7 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 2UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
@@ -375,6 +376,7 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = (ulong)USHORT_MAX;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
@@ -385,6 +387,7 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = (ulong)UINT_MAX;
@@ -406,6 +409,7 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = (ulong)UINT_MAX + 1UL;
@@ -430,6 +434,7 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 2UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
@@ -481,6 +486,7 @@ setup_migration_marker_case( fd_snapshot_manifest_t * manifest,
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = history_len;
 }
 
@@ -602,6 +608,8 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity, ident_x,  32 );
   manifest->epoch_stakes[1].vote_stakes[0].stake      = 5000UL;
   manifest->epoch_stakes[1].vote_stakes[0].commission = 10;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  fd_memset( manifest->epoch_stakes[1].vote_stakes[0].identity_bls, 0xB2, sizeof(manifest->epoch_stakes[1].vote_stakes[0].identity_bls) );
   manifest->epoch_stakes[1].total_stake               = 5000UL;
 
   /* First apply: simulate initial full snapshot load. */
@@ -635,6 +643,8 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity, ident_y,  32 );
   manifest->epoch_stakes[1].vote_stakes[0].stake      = 7000UL;
   manifest->epoch_stakes[1].vote_stakes[0].commission = 5;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  fd_memset( manifest->epoch_stakes[1].vote_stakes[0].identity_bls, 0xD2, sizeof(manifest->epoch_stakes[1].vote_stakes[0].identity_bls) );
   manifest->epoch_stakes[1].total_stake               = 7000UL;
 
   /* A second manifest apply must also leave snapin's cache untouched. */

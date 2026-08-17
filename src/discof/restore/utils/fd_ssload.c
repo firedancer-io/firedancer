@@ -493,7 +493,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
 
-    fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
+    fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
 
     /* Record SIMD-0232 collector overrides for the t_1 set (tag
        bank->f.epoch). */
@@ -543,8 +543,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   if( has_t_2 ) {
     for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
-
-      fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
 
       /* Record SIMD-0232 collector overrides for the t_2 set (tag
          bank->f.epoch-1, the leader schedule source state). */
