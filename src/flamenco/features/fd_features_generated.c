@@ -1830,7 +1830,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x07\x36\xf2\xe3\x3a\x52\xff\xd2\x69\xb9\x98\xdc\x58\xcf\x07\xc0\x35\xc3\x8a\x0e\xab\x82\xa0\x89\xb8\xb7\x5e\xc2\x0f\xcb\x39\x97"},
                                  /* VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ */
     .name                      = "validator_admission_ticket",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, discard_unexpected_data_complete_shreds)>>3,
