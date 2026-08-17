@@ -52,7 +52,8 @@ fd_shred_dest_new( void                           * mem,
                    fd_shred_dest_weighted_t const * info,
                    ulong                            cnt,
                    fd_epoch_leaders_t const       * lsched,
-                   fd_pubkey_t const              * source ) {
+                   fd_pubkey_t const              * source,
+                   ulong                            seed ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -100,7 +101,7 @@ fd_shred_dest_new( void                           * mem,
   for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
   _staked   = fd_wsample_new_fini( _staked, 0UL );
 
-  pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt, 0UL ) );
+  pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt, seed ) );
   for( ulong i=0UL; i<cnt; i++ ) {
     /* we should never have duplicates in info[i].pubkey, but in case
        of duplicates it's better to skip than to segfault. */
