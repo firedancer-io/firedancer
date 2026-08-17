@@ -470,6 +470,7 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "insufficient tile scratch space" ));
   }
   fd_memset( ctx, 0, sizeof(fd_quic_ctx_t) );
+  FD_TEST( fd_rng_secure( &ctx->reasm_seed, sizeof(ctx->reasm_seed) ) );
   ctx->keylog_fd = -1;
 
   if( 0!=strcmp( tile->quic.key_log_path, "" ) ) {
@@ -564,7 +565,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong  orig      = 0UL; /* fd_tango origin ID */
   ulong  reasm_max = tile->quic.reasm_cnt;
   void * reasm_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_tpu_reasm_align(), fd_tpu_reasm_footprint( out_depth, reasm_max ) );
-  ctx->reasm       = fd_tpu_reasm_join( fd_tpu_reasm_new( reasm_mem, out_depth, reasm_max, orig, txn_dcache ) );
+  ctx->reasm       = fd_tpu_reasm_join( fd_tpu_reasm_new( reasm_mem, out_depth, reasm_max, ctx->reasm_seed, orig, txn_dcache ) );
   if( FD_UNLIKELY( !ctx->reasm ) ) FD_LOG_ERR(( "fd_tpu_reasm_new failed" ));
 
   if( FD_UNLIKELY( tile->quic.ack_delay_millis == 0 ) ) {

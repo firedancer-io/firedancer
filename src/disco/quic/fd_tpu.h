@@ -208,8 +208,9 @@ fd_tpu_reasm_req_data_sz( ulong depth,
    tpu_reasm.  shmem is a non-NULL pointer to this region in the local
    address space with the required footprint and alignment.  {depth,
    reasm_max,mtu} as described above.  orig is the Tango origin ID of
-   this tpu_reasm.  dcache is a local join to an fd_dcache that
-   tpu_reasm will write frags to.  dcache should have at least
+   this tpu_reasm.  seed is the hash seed used by the reassembly map and
+   should be randomly generated.  dcache is a local join to an fd_dcache
+   that tpu_reasm will write frags to.  dcache should have at least
    fd_tpu_reasm_req_data_sz() bytes of data_sz.  The dcache app region
    is ignored and not written to. */
 
@@ -217,6 +218,7 @@ void *
 fd_tpu_reasm_new( void * shmem,
                   ulong  depth,     /* Assumed in {2^0,2^1,2^2,...,2^32} */
                   ulong  reasm_max, /* Assumed in [1,2^32) */
+                  ulong  seed,
                   ulong  orig,      /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */
                   void * dcache );
 
