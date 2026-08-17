@@ -44,6 +44,7 @@ typedef struct fd_per_epoch_info_private fd_per_epoch_info_t;
 
 struct fd_stake_ci {
   fd_pubkey_t identity_key[ 1 ];
+  ulong       seed;
 
   /* scratch and stake_weight are only relevant between stake_msg_init
      and stake_msg_fini.  shred_dest is only relevant between
@@ -81,9 +82,11 @@ FD_FN_CONST static inline ulong fd_stake_ci_align    ( void ) { return alignof(f
    information store.  `identity_key` is a pointer to the public key of
    the identity keypair of the local validator.  This is used by
    fd_shred_dest to know where in the Turbine tree it belongs.
+   `seed` is the hash seed for an internal pubkey lookup hash map; this
+   value should be generated using a random number generator.
    Does NOT retain a read interest in identity_key after the function
    returns. */
-void          * fd_stake_ci_new ( void * mem, fd_pubkey_t const * identity_key );
+void          * fd_stake_ci_new ( void * mem, fd_pubkey_t const * identity_key, ulong seed );
 fd_stake_ci_t * fd_stake_ci_join( void * mem );
 
 void * fd_stake_ci_leave ( fd_stake_ci_t * info );

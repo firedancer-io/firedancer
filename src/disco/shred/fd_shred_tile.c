@@ -199,9 +199,10 @@ typedef struct {
   ulong shred_buffer_sz;
   uchar shred_buffer[ FD_NET_MTU ];
 
-  /* resolver_seed gets generated in privileged_init but used in
-     unprivileged_init, so we store it here in between. */
+  /* These seeds get generated in privileged_init but used in
+     unprivileged_init, so we store them here in between. */
   ulong resolver_seed;
+  ulong shred_dest_seed;
 
   fd_shred_in_ctx_t in[ 32 ];
   int               in_kind[ 32 ];
@@ -1326,6 +1327,9 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !fd_rng_secure( &(ctx->resolver_seed), sizeof(ulong) ) ) ) {
     FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
+  if( FD_UNLIKELY( !fd_rng_secure( &(ctx->shred_dest_seed), sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
   /* This is only needed in frankendancer, but we'll overwrite it with
      the value the repair tile generated in full firedancer. */
   if( FD_UNLIKELY( !fd_rng_secure( ctx->repair_nonce_ss->bytes, sizeof(fd_rnonce_ss_t) ) ) ) {
@@ -1474,7 +1478,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->fec_sets = fec_sets;
 
-  ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key ) );
+  ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key, ctx->shred_dest_seed ) );
 
   ctx->net_id   = (ushort)0;
 
