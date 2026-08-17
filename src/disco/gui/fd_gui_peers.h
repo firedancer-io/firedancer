@@ -445,6 +445,7 @@ fd_gui_peers_new( void *             shmem,
                   fd_topo_t const *  topo,
                   ulong              max_ws_conn_cnt,
                   char const *       wfs_expected_bank_hash_cstr,
+                  ulong              seed,
                   long               now );
 
 fd_gui_peers_ctx_t *

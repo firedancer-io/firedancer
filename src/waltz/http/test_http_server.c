@@ -477,6 +477,23 @@ default_test_params( void ) {
 }
 
 static void
+test_treap_seed( void ) {
+  fd_http_server_params_t params = default_test_params();
+  params.treap_seed = 0x0123456789abcdefUL;
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), fd_http_server_align() );
+  void * scratch = aligned_alloc( fd_http_server_align(), footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, (fd_http_server_callbacks_t){0}, NULL ) );
+  FD_TEST( http );
+  FD_TEST( http->conns   [ 0 ].prio==11498U );
+  FD_TEST( http->ws_conns[ 0 ].prio==11498U );
+
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+static void
 test_poll_interest( void ) {
   fd_http_server_params_t params = default_test_params();
   fd_http_server_callbacks_t callbacks = {
@@ -863,6 +880,7 @@ main( int     argc,
   test_oring();
   test_content_length_overflow_close();
   test_poll_conn_max();
+  test_treap_seed();
   test_poll_interest();
   test_location_raw_path();
   test_transfer_encoding_close();

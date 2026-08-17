@@ -11,6 +11,7 @@
 #define DB_ENTBIG (2UL) /* entity, 8-byte key, 256-byte value           */
 #define DB_TS    (3UL)  /* time-series, 8-byte val                      */
 #define DB_CNT   (4UL)
+#define TEST_SEED (0x0123456789abcdefUL)
 
 struct ent8_val  { ulong key;                  ulong payload; };
 struct ent16_val { ulong slot; ulong bank_seq; ulong payload; };
@@ -68,7 +69,7 @@ db_open( char const * path, ulong size ) {
   FD_TEST( fp );
   void * mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fp, fd_gui_store_align() ) );
   FD_TEST( mem );
-  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, DB_CNT, descs ) );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, DB_CNT, TEST_SEED, descs ) );
   FD_TEST( db );
   return db;
 }

@@ -189,11 +189,9 @@ fd_http_server_new( void *                     shmem,
 
   http->conns = conn_pool_join( conn_pool_new( conn_pool, params.max_connection_cnt ) );
   conn_treap_join( conn_treap_new( http->conn_treap, params.max_connection_cnt ) );
-  conn_treap_seed( http->conns, params.max_connection_cnt, 42UL );
 
   http->ws_conns = ws_conn_pool_join( ws_conn_pool_new( ws_conn_pool, params.max_ws_connection_cnt ) );
   ws_conn_treap_join( ws_conn_treap_new( http->ws_conn_treap, params.max_ws_connection_cnt ) );
-  ws_conn_treap_seed( http->ws_conns, params.max_ws_connection_cnt, 42UL );
 
   for( ulong i=0UL; i<params.max_connection_cnt; i++ ) {
     http->pollfds[ i ].fd     = -1;
@@ -213,6 +211,8 @@ fd_http_server_new( void *                     shmem,
       .parent = http->ws_conns[ i ].parent,
     };
   }
+  conn_treap_seed   ( http->conns,    params.max_connection_cnt,    params.treap_seed );
+  ws_conn_treap_seed( http->ws_conns, params.max_ws_connection_cnt, params.treap_seed );
 
   http->pollfds[ params.max_connection_cnt+params.max_ws_connection_cnt ].fd     = -1;
   http->pollfds[ params.max_connection_cnt+params.max_ws_connection_cnt ].events = POLLIN;
