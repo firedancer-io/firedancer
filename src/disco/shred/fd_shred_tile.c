@@ -250,6 +250,7 @@ typedef struct {
     ulong txn_cnt;
     ulong pos; /* in payload, range [0, FD_SHRED_BATCH_RAW_BUF_SZ-8UL) */
     ulong slot; /* set to 0 when pos==0 */
+    fd_entry_batch_meta_t meta; /* of the last microblock included; parent_offset/reference_tick for a forced finalize */
     union {
       struct {
         ulong microblock_cnt;
@@ -643,13 +644,43 @@ during_frag( fd_shred_ctx_t * ctx,
 
       ulong target_slot = fd_disco_poh_sig_slot( sig );
       if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=target_slot) ) ) {
-        /* TODO: The Agave client sends a dummy entry batch with only 1
-          byte and the block-complete bit set.  This helps other
-          validators know that the block is dead and they should not try
-          to continue building a fork on it.  We probably want a similar
-          approach eventually. */
         FD_LOG_WARNING(( "Abandoning %lu microblocks for slot %lu and switching to slot %lu",
               ctx->pending_batch.microblock_cnt, ctx->pending_batch.slot, target_slot ));
+
+        if( FD_LIKELY( ctx->store_out_idx==ULONG_MAX ) ) { /* Frankendancer keeps the legacy drop */
+          /* Finalize the abandoned slot with a one-byte entry batch
+             marked block-complete, like Agave: the dead partial block
+             gets a definite last shred, so its block id is derivable
+             (our own leader bookkeeping can conclude) and other
+             validators stop repairing toward a completion that will
+             never come.  One byte cannot parse as an entry batch, so
+             every replayer deterministically rules the block dead.
+             The pending microblocks are discarded; their buffer backs
+             the dummy batch. */
+          fd_entry_batch_meta_t dummy_meta = ctx->pending_batch.meta;
+          dummy_meta.block_complete = 1;
+          if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
+            memset( ctx->pending_batch.raw, 0, FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ ); /* one zero byte plus padding */
+            fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ, ctx->pending_batch.slot, &dummy_meta );
+
+            fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
+            FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, ctx->chained_merkle_root ) );
+            memcpy( ctx->out_merkle_roots[ ctx->send_fec_set_cnt ].hash, ctx->chained_merkle_root, 32UL );
+
+            out->data_shred_rcvd   = 0U;
+            out->parity_shred_rcvd = 0U;
+
+            ctx->send_fec_set_idx[ ctx->send_fec_set_cnt ] = ctx->shredder_fec_set_idx;
+            ctx->send_fec_set_cnt += 1UL;
+            ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
+
+            fd_shredder_fini_batch( ctx->shredder );
+            ctx->shredded_txn_cnt = 0UL;
+          } else {
+            fd_shredder_skip_batch( ctx->shredder, FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ, ctx->pending_batch.slot, 1 /* block_complete */ );
+          }
+        }
+
         ctx->pending_batch.slot           = 0UL;
         ctx->pending_batch.pos            = 0UL;
         ctx->pending_batch.microblock_cnt = 0UL;
@@ -660,6 +691,7 @@ during_frag( fd_shred_ctx_t * ctx,
       }
 
       ctx->pending_batch.slot = target_slot;
+      ctx->pending_batch.meta = *entry_meta;
       /* We want to send out some shreds immediately when we start a new
          slot to help with leader targeting. */
       int new_slot = 0;
@@ -766,19 +798,17 @@ during_frag( fd_shred_ctx_t * ctx,
 
           fd_memset( ctx->pending_batch.payload + ctx->pending_batch.pos, 0, padding_sz );
 
-          ctx->send_fec_set_cnt = 0UL; /* verbose */
           ctx->shredded_txn_cnt = ctx->pending_batch.txn_cnt;
 
           fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz_padded, target_slot, entry_meta );
 
-          ulong pend_sz  = batch_sz_padded;
-          ulong pend_idx = 0;
+          ulong pend_sz = batch_sz_padded;
           while( pend_sz > 0UL ) {
 
             fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
 
             FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, chained_merkle_root ) );
-            memcpy( ctx->out_merkle_roots[pend_idx].hash, chained_merkle_root, 32UL );
+            memcpy( ctx->out_merkle_roots[ ctx->send_fec_set_cnt ].hash, chained_merkle_root, 32UL );
 
             out->data_shred_rcvd   = 0U;
             out->parity_shred_rcvd = 0U;
@@ -788,7 +818,6 @@ during_frag( fd_shred_ctx_t * ctx,
             ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
 
             pend_sz -= load_for_32_shreds;
-            pend_idx++;
           }
 
           fd_shredder_fini_batch( ctx->shredder );
@@ -799,8 +828,6 @@ during_frag( fd_shred_ctx_t * ctx,
           fd_histf_sample( ctx->metrics->batch_microblock_cnt, ctx->pending_batch.microblock_cnt );
           fd_histf_sample( ctx->metrics->shredding_timing,     (ulong)shredding_timing           );
         } else {
-          ctx->send_fec_set_cnt = 0UL; /* verbose */
-
           fd_shredder_skip_batch( ctx->shredder, batch_sz_padded, target_slot, entry_meta->block_complete );
         }
 
