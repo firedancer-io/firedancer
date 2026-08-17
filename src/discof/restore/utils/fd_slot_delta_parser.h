@@ -14,6 +14,11 @@ struct fd_sstxncache_entry {
 };
 typedef struct fd_sstxncache_entry fd_sstxncache_entry_t;
 
+struct fd_sstxncache_hash {
+  uchar txnhash[ 20UL ];
+};
+typedef struct fd_sstxncache_hash fd_sstxncache_hash_t;
+
 #define FD_SLOT_DELTA_MAX_ENTRIES (300UL)
 
 /* status cache txn hashes are a 20 byte extract of the 32 byte txn

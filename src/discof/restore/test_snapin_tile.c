@@ -169,12 +169,19 @@ test_streaming_stake_delegation( void ) {
   free( banks_mem );
 }
 
+static void
+test_txncache_staging_entry_size( void ) {
+  fd_snapin_tile_t ctx[ 1 ];
+  FD_TEST( sizeof(ctx->txncache_entries[ 0 ])==20UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   test_batch_stake_delegation();
   test_streaming_stake_delegation();
+  test_txncache_staging_entry_size();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
