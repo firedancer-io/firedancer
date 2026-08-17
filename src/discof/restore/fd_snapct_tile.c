@@ -134,7 +134,10 @@ struct fd_snapct_tile {
   fd_ssping_t *          ssping;
   fd_http_resolver_t *   ssresolver;
   fd_sspeer_selector_t * selector;
+  ulong                  ssping_seed;
+  ulong                  gossip_ci_seed;
   ulong                  selector_seed;
+  ulong                  blacklist_seed;
 
   fd_sspeer_blacklist_entry_t * blacklist_pool;
   blacklist_map_t *             blacklist_map;
@@ -1916,6 +1919,11 @@ privileged_init( fd_topo_t const *      topo,
                                    FD_SCRATCH_ALLOC_APPEND( l, blacklist_map_align(),      blacklist_map_footprint( blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ) ) );
                                    FD_SCRATCH_ALLOC_APPEND( l, fd_adns_align(),            fd_adns_footprint( ADNS_REQS_MAX ) );
 
+  FD_TEST( fd_rng_secure( &ctx->ssping_seed,    sizeof(ctx->ssping_seed)    ) );
+  FD_TEST( fd_rng_secure( &ctx->gossip_ci_seed, sizeof(ctx->gossip_ci_seed) ) );
+  FD_TEST( fd_rng_secure( &ctx->selector_seed,  sizeof(ctx->selector_seed)  ) );
+  FD_TEST( fd_rng_secure( &ctx->blacklist_seed, sizeof(ctx->blacklist_seed) ) );
+
 #if FD_HAS_OPENSSL
   void * _alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), tile->kind_id );
@@ -1923,7 +1931,7 @@ privileged_init( fd_topo_t const *      topo,
 #endif
 
   ctx->ssping = NULL;
-  if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, 1UL, on_ping, ctx ) );
+  if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, ctx->ssping_seed, on_ping, ctx ) );
   if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, on_resolve, ctx ) );
   else                                                ctx->ssresolver = NULL;
 
@@ -2056,8 +2064,6 @@ privileged_init( fd_topo_t const *      topo,
         FD_LOG_ERR(( "close(snapshot pool fd %d) failed (%i-%s)", fd, errno, fd_io_strerror( errno ) ));
     }
   }
-
-  FD_TEST( fd_rng_secure( &ctx->selector_seed, 8UL ) );
 }
 
 static inline fd_snapct_out_link_t
@@ -2125,7 +2131,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->selector       = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->selector_seed ) );
   ctx->blacklist_pool = blacklist_pool_join( blacklist_pool_new( _bl_pool, TOTAL_PEERS_MAX ) );
-  ctx->blacklist_map  = blacklist_map_join( blacklist_map_new( _bl_map, blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ), ctx->selector_seed ) );
+  ctx->blacklist_map  = blacklist_map_join( blacklist_map_new( _bl_map, blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ), ctx->blacklist_seed ) );
 
   if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
     FD_LOG_WARNING(( "incremental snapshots disabled via [snapshots.incremental_snapshots]." ));
@@ -2173,7 +2179,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_memset( _ci_table, 0, sizeof(gossip_ci_entry_t) * GOSSIP_PEERS_MAX );
   ctx->gossip.ci_table             = _ci_table;
-  ctx->gossip.ci_map               = gossip_ci_map_join( gossip_ci_map_new( _ci_map, gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ), 0UL ) );
+  ctx->gossip.ci_map               = gossip_ci_map_join( gossip_ci_map_new( _ci_map, gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ), ctx->gossip_ci_seed ) );
   ctx->gossip.allowed_cnt          = 0UL;
   ctx->gossip.saturated            = !ctx->gossip_enabled;
 
