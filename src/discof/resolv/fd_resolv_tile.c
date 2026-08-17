@@ -53,23 +53,23 @@ static const blockhash_t null_blockhash = { 0 };
 #define BLOCKHASH_LG_RING_CNT 22UL
 #define BLOCKHASH_RING_LEN   (1UL<<BLOCKHASH_LG_RING_CNT)
 
-#define MAP_NAME              map
-#define MAP_T                 blockhash_map_t
-#define MAP_KEY_T             blockhash_t
-#define MAP_LG_SLOT_CNT       (BLOCKHASH_LG_RING_CNT+1UL)
-#define MAP_KEY_NULL          null_blockhash
+#define MAP_NAME               map
+#define MAP_T                  blockhash_map_t
+#define MAP_KEY_T              blockhash_t
+#define MAP_LG_SLOT_CNT        (BLOCKHASH_LG_RING_CNT+1UL)
+#define MAP_KEY_NULL           null_blockhash
 #if FD_HAS_AVX
-# define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
+# define MAP_KEY_INVAL(k)      _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
 #else
-# define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_blockhash)
+# define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_blockhash)
 #endif
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, 32UL))
-#define MAP_MEMOIZE           0
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     fd_uint_load_4( (key).b )
-#define MAP_QUERY_OPT         1
+#define MAP_KEY_EQUAL(k0,k1)   (!memcmp((k0).b,(k1).b, 32UL))
+#define MAP_MEMOIZE            0
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_KEY_HASH(key,seed) ((uint)fd_hash( (seed), (key).b, sizeof((key).b) ))
+#define MAP_QUERY_OPT          1
 
-#include "../../util/tmpl/fd_map.c"
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 typedef struct {
   union {
@@ -201,7 +201,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t )                          );
   l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL )                   );
   l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    )                   );
-  l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint()                                    );
+  l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( MAP_LG_SLOT_CNT )                   );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->resolv.max_live_slots )  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -518,7 +518,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   blockhash_t const * recent_blockhash = (blockhash_t const *)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off );
   blockhash_map_t const * blockhash = NULL;
   if( FD_LIKELY( !map_key_inval( *recent_blockhash ) ) ) {
-    blockhash = map_query_const( ctx->blockhash_map, *recent_blockhash, NULL );
+    blockhash = map_query( ctx->blockhash_map, *recent_blockhash, NULL );
   }
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_slot = blockhash->slot;
@@ -622,7 +622,7 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( ctx->blockhash_ring, 0, sizeof( ctx->blockhash_ring ) );
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
 
-  ctx->blockhash_map = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint() ) ) );
+  ctx->blockhash_map = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( MAP_LG_SLOT_CNT ) ), MAP_LG_SLOT_CNT, ctx->map_seed ) );
   FD_TEST( ctx->blockhash_map );
 
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );

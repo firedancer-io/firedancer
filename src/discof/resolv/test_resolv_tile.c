@@ -175,11 +175,12 @@ test_env_create( test_env_t * env ) {
   env->ctx->flush_pool_idx     = ULONG_MAX;
   env->ctx->pool               = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
   env->ctx->map_chain          = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192UL ) ), 8192UL, TEST_HASH_SEED ) );
-  env->ctx->blockhash_map      = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint() ) ) );
+  env->ctx->blockhash_map      = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( MAP_LG_SLOT_CNT ) ), MAP_LG_SLOT_CNT, TEST_HASH_SEED ) );
   FD_TEST( env->ctx->pool );
   FD_TEST( env->ctx->map_chain );
   FD_TEST( map_chain_seed( env->ctx->map_chain )==TEST_HASH_SEED );
   FD_TEST( env->ctx->blockhash_map );
+  FD_TEST( map_seed( env->ctx->blockhash_map )==TEST_HASH_SEED );
   FD_TEST( env->ctx->lru_list==lru_list_join( lru_list_new( env->ctx->lru_list ) ) );
 
   env->ctx->in[0].kind = IN_KIND_DEDUP;
@@ -206,6 +207,34 @@ test_env_destroy( test_env_t * env ) {
     fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( env->out_dcache[i] ) ) );
   }
   fd_memset( env, 0, sizeof(test_env_t) );
+}
+
+FD_UNIT_TEST( resolv_blockhash_map_hashes_full_key ) {
+# define COLLISION_CNT (64UL)
+  void * map_mem = fd_wksp_alloc_laddr( mini->wksp, map_align(), map_footprint( MAP_LG_SLOT_CNT ), TOPO_TAG );
+  FD_TEST( map_mem );
+  blockhash_map_t * blockhash_map = map_join( map_new( map_mem, MAP_LG_SLOT_CNT, TEST_HASH_SEED ) );
+  FD_TEST( blockhash_map );
+  FD_TEST( map_seed( blockhash_map )==TEST_HASH_SEED );
+
+  blockhash_map_t * inserted[ COLLISION_CNT ];
+  for( ulong i=0UL; i<COLLISION_CNT; i++ ) {
+    blockhash_t key = {0};
+    uint  prefix = 0x12345678U;
+    ulong suffix = i+1UL;
+    fd_memcpy( key.b,     &prefix, sizeof(prefix) );
+    fd_memcpy( key.b+8UL, &suffix, sizeof(suffix) );
+    inserted[ i ] = map_insert( blockhash_map, key );
+    FD_TEST( inserted[ i ] );
+  }
+
+  ulong adjacent_cnt = 0UL;
+  for( ulong i=1UL; i<COLLISION_CNT; i++ )
+    adjacent_cnt += inserted[ i ]==inserted[ i-1UL ]+1;
+  FD_TEST( adjacent_cnt<COLLISION_CNT/2UL );
+
+  fd_wksp_free_laddr( map_leave( blockhash_map ) );
+# undef COLLISION_CNT
 }
 
 FD_UNIT_TEST( resolv_stash_map_seed_initialized ) {
