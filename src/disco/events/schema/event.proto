@@ -8,7 +8,7 @@ import "events.proto";
 message StreamEventsRequest {
   // A nonce provided by the application to identify this event, should be acknowledged back in StreamEventsResponse
   uint64 nonce = 1;
-  // The unique ID of the event from this application, monotonically increasing from zero, may have gaps if events get dropped
+  // The unique ID of the event from this application instance, monotonically increasing from zero; restarts from zero when the validator restarts (scope by AuthenticateRequest.instance_id), may have gaps if events get dropped
   uint64 event_id = 2;
   // The producer's per-link sequence number, monotonically increasing from zero, gaps indicate the producer's link to the event tile overran and dropped events
   uint64 link_seq = 3;

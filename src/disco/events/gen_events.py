@@ -100,6 +100,9 @@ class Field:
     element: Optional["Field"] = None
     shared_name: Optional[str] = None
     max_len: Optional[int] = None
+    dynamic: bool = False  # Array only: stored at the end of the C struct and
+                           # shipped to the event tile at its used length
+                           # rather than max_len capacity
 
 @dataclass
 class Schema:
@@ -108,7 +111,12 @@ class Schema:
     description: str
     fields: Dict[str, Field]
 
+_FIELD_KEYS = {"type", "description", "variants", "fields", "element", "max_len", "dynamic", "compression"}
+
 def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
+    unknown = set(f) - _FIELD_KEYS
+    if unknown:
+        raise ValueError(f"Unknown field keys (typo?): {sorted(unknown)}")
     if f["type"].startswith("ref:"):
         field = parse_field(shared_types[f["type"][4:]], shared_types)
         field.shared_name = f["type"][4:]
@@ -120,6 +128,18 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
 
     element = parse_field(f["element"], shared_types) if f["type"] == "Array" else None
 
+    if f.get("dynamic") and f["type"] != "Array":
+        raise ValueError("'dynamic' is only supported on Array fields")
+
+    compression = f.get("compression")
+    if compression is not None:
+        if compression not in ("Delta, ZSTD", "DoubleDelta, ZSTD", "T64, ZSTD"):
+            raise ValueError(f"Unsupported compression: {compression!r}")
+        int_types = ("UInt8", "UInt16", "UInt32", "UInt64", "Int64")
+        allowed = int_types if compression.startswith("T64") else int_types + ("DateTime64(9)",)
+        if f["type"] not in allowed:
+            raise ValueError(f"Compression {compression!r} not applicable to column type {f['type']}")
+
     return Field(
         chtype=ClickHouseType.from_str(f["type"]),
         description=f["description"],
@@ -127,6 +147,7 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
         fields=fields,
         element=element,
         max_len=f.get("max_len"),
+        dynamic=bool(f.get("dynamic")),
     )
 
 def parse_schema(path: Path, shared_types: Dict[str, dict]) -> Schema:
@@ -230,14 +251,31 @@ _SCALAR_C = {
 def field_is_supported(f: Field) -> bool:
     """Whether the C codegen can emit a fixed-size struct + serializer for a
     field.  Variable-length types (Bytes/String/Array) are supported only when
-    bounded by max_len.  Tuples/Flattens are supported when all subfields are."""
+    bounded by max_len.  An enum (LowCardinality(String)) is supported only at
+    the top level and only with variants: variant-less enums have no C
+    representation, and nested enums would get proto enums but no C value
+    defines.  Tuple/Flatten subfields and non-Tuple Array elements are limited
+    to what the emitters actually handle: scalar or fixed-byte (a shape
+    outside this set previously passed the gate and then crashed the emitters
+    with a raw KeyError)."""
+    _NON_LEAF = (ClickHouseType.String, ClickHouseType.Bytes,
+                 ClickHouseType.Flatten, ClickHouseType.Tuple, ClickHouseType.Array)
+    _SUB_UNSUPPORTED = _NON_LEAF + (ClickHouseType.LowCardinalityString,)
+    if f.chtype == ClickHouseType.LowCardinalityString:
+        return f.variants is not None
     if f.chtype in (ClickHouseType.String, ClickHouseType.Bytes):
         return f.max_len is not None
     if f.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
-        return all(field_is_supported(sf) for sf in f.fields.values())
+        return all(sf.chtype not in _SUB_UNSUPPORTED and sf.variants is None
+                   for sf in f.fields.values())
     if f.chtype == ClickHouseType.Array:
-        return f.max_len is not None and field_is_supported(f.element)
-    return True  # scalar, enum, or fixed-byte type
+        if f.max_len is None:
+            return False
+        el = f.element
+        if el.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
+            return field_is_supported(el)
+        return el.chtype not in _SUB_UNSUPPORTED and el.variants is None
+    return True  # scalar or fixed-byte type
 
 def schema_is_supported(s: Schema) -> bool:
     return all(field_is_supported(f) for f in s.fields.values())
@@ -277,10 +315,11 @@ def field_max_encoded_sz(f: Field) -> int:
     return scalar_max_encoded_sz(f)
 
 def event_buf_max(s: Schema) -> int:
-    """Tight upper bound on the encoded size of a whole event (envelope +
+    """Conservative upper bound on the encoded size of a whole event (tags
+    modeled at worst-case varint width; real tags are 1-2 bytes) (envelope +
     Event submsg + inner submsg + all fields), padded for encoder slack."""
-    # Envelope: 3 uint64 fields (nonce, event_id, timestamp_nanos).
-    envelope = 3 * (_PB_TAG_MAX + _PB_VARINT64)
+    # Envelope: 4 uint64 fields (nonce, event_id, link_seq, timestamp_nanos).
+    envelope = 4 * (_PB_TAG_MAX + _PB_VARINT64)
     # Two submessage openers (Event, then the specific event): each is a
     # tag plus a reserved length-prefix.
     submsgs = 2 * (_PB_TAG_MAX + _PB_LP_RESERVE)
@@ -355,13 +394,14 @@ def generate_c_header(schemas: List[Schema]) -> str:
         "#ifndef HEADER_fd_src_disco_events_generated_fd_event_gen_h",
         "#define HEADER_fd_src_disco_events_generated_fd_event_gen_h",
         "",
+        "#include <stddef.h> /* offsetof */",
+        "",
         '#include "../fd_circq.h"',
         '#include "../fd_event_client.h"',
         '#include "../fd_event_report.h"',
         "",
     ]
 
-    struct_max_names = [f"sizeof(fd_event_{s.name}_t)" for s in eligible]
 
     # Enum #defines, structs, and per-event buffer sizes.
     for s in eligible:
@@ -391,9 +431,29 @@ def generate_c_header(schemas: List[Schema]) -> str:
         #   Bytes/String(max_len)  -> uchar <name>[max_len]; ulong <name>_len;
         #   Tuple                  -> <tuple_t> <name>;
         #   Array(max_len)         -> <elem-decl>[max_len]; ulong <name>_cnt;
-        members = []  # (ctype, decl, desc)
+        # Arrays tagged "dynamic" are placed at the end of the struct (their
+        # _cnt stays in the prefix) so the event can travel to the event tile
+        # packed: prefix bytes followed by each dynamic array's used entries,
+        # instead of full max_len capacity.
+        def array_elem_decl(name, f):
+            el = f.element
+            if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+                return (c_tuple_name( s.name, name ), f"{name}[ {f.max_len}UL ]")
+            if el.variants:
+                return ("int", f"{name}[ {f.max_len}UL ]")
+            if el.chtype in _FIXED_BYTE_SZ:
+                return ("uchar", f"{name}[ {f.max_len}UL ][ {_FIXED_BYTE_SZ[el.chtype]}UL ]")
+            return (_SCALAR_C[el.chtype][0], f"{name}[ {f.max_len}UL ]")
+
+        members     = []  # (ctype, decl, desc) prefix members
+        dyn_members = []  # (ctype, decl, desc) trailing dynamic arrays
+        dyn_names   = [n for n, f in s.fields.items() if f.dynamic]
         for name, f in s.fields.items():
-            if f.variants:
+            if f.dynamic:
+                ectype, decl = array_elem_decl( name, f )
+                members.append(("ulong", f"{name}_cnt", f"Number of {name} entries (<= {f.max_len})"))
+                dyn_members.append((ectype, decl, f.description + " (dynamic: stored at end, shipped at used length)"))
+            elif f.variants:
                 members.append(("int", name, f.description))
             elif f.chtype in _FIXED_BYTE_SZ:
                 members.append(("uchar", f"{name}[ {_FIXED_BYTE_SZ[f.chtype]}UL ]", f.description))
@@ -403,32 +463,58 @@ def generate_c_header(schemas: List[Schema]) -> str:
             elif f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
                 members.append((c_tuple_name( s.name, name ), name, f.description))
             elif f.chtype == ClickHouseType.Array:
-                el = f.element
-                if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
-                    ectype = c_tuple_name( s.name, name )
-                elif el.variants:
-                    ectype = "int"
-                elif el.chtype in _FIXED_BYTE_SZ:
-                    ectype = None  # handled specially below
-                else:
-                    ectype = _SCALAR_C[el.chtype][0]
-                if ectype is None:
-                    # Array of fixed-byte values: <name>[max_len][N]
-                    n = _FIXED_BYTE_SZ[el.chtype]
-                    members.append(("uchar", f"{name}[ {f.max_len}UL ][ {n}UL ]", f.description))
-                else:
-                    members.append((ectype, f"{name}[ {f.max_len}UL ]", f.description))
+                ectype, decl = array_elem_decl( name, f )
+                members.append((ectype, decl, f.description))
                 members.append(("ulong", f"{name}_cnt", f"Number of {name} entries (<= {f.max_len})"))
             else:
                 members.append((_SCALAR_C[f.chtype][0], name, f.description))
-        tw = max(len(c) for c, _, _ in members)
-        dw = max(len(d) for _, d, _ in members)
+        all_members = members + dyn_members
+        tw = max(len(c) for c, _, _ in all_members)
+        dw = max(len(d) for _, d, _ in all_members)
         lines += [f"/* {s.description} */", "struct fd_event_" + s.name + " {"]
-        for ctype, decl, desc in members:
+        for ctype, decl, desc in all_members:
             lines.append(f"  {ctype:<{tw}} {decl + ';':<{dw + 1}} /* {desc} */")
         lines += ["};", f"typedef struct fd_event_{s.name} fd_event_{s.name}_t;", ""]
 
-        # Tight upper bound on this event's encoded size.
+        # Dynamic-event support: the fixed prefix ends at the first dynamic
+        # array member.  On the wire the event is the prefix followed by each
+        # dynamic array's used entries (in declaration order), so the fixed
+        # prefix of a packed event aliases the struct layout directly.
+        if dyn_names:
+            first = dyn_names[0]
+            up = s.name.upper()
+            lines += [
+                f"#define FD_EVENT_{up}_PREFIX_SZ (offsetof(fd_event_{s.name}_t, {first}))",
+                "",
+            ]
+            # Capacity of each dynamic array, so producers can clamp against
+            # the real bound rather than a constant that might drift from it.
+            for dn in dyn_names:
+                lines += [f"#define FD_EVENT_{up}_{dn.upper()}_MAX ({s.fields[dn].max_len}UL)"]
+            lines += [""]
+            # 8-aligned record sizes keep the packed tail at natural
+            # alignment and make max fill equal the struct size; the assert
+            # name identifies the offending schema and field.
+            for dn in dyn_names:
+                lines += [f"FD_STATIC_ASSERT( sizeof(((fd_event_{s.name}_t *)0)->{dn}[0])%8UL==0UL, {s.name}_{dn}_align );"]
+            lines += [
+                "",
+                f"/* Packed (wire) footprint of a {s.name} event: prefix plus used",
+                "   dynamic array entries.  msg may point at a full struct or at a",
+                "   packed event's prefix. */",
+                "static inline ulong",
+                f"fd_event_{s.name}_footprint( fd_event_{s.name}_t const * msg ) {{",
+                f"  return FD_EVENT_{up}_PREFIX_SZ",
+            ] + [
+                f"       + msg->{dn}_cnt*sizeof(((fd_event_{s.name}_t *)0)->{dn}[0])"
+                for dn in dyn_names
+            ] + [
+                "       ;",
+                "}",
+                "",
+            ]
+
+        # Conservative upper bound on this event's encoded size.
         lines += [
             f"/* Worst-case encoded size of a {s.name} event (envelope + Event",
             "   submsg + inner submsg + all fields, padded for encoder slack). */",
@@ -436,15 +522,14 @@ def generate_c_header(schemas: List[Schema]) -> str:
             "",
         ]
 
-    # Max sizeof over all generated event structs.
-    if struct_max_names:
-        expr = struct_max_names[0]
-        for n in struct_max_names[1:]:
-            expr = f"( {n} > {expr} ? {n} : {expr} )"
+    # Max sizeof over all generated event structs.  A sizeof-union stays O(n)
+    # in the schema count; a nested ternary fold doubles per schema.
+    if eligible:
+        members = " ".join(f"fd_event_{s.name}_t {s.name}_;" for s in eligible)
         lines += [
             "/* Largest generated event struct; a consumer can stage any incoming",
             "   event in a buffer of this size. */",
-            f"#define FD_EVENT_GEN_STRUCT_MAX ({expr})",
+            f"#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union {{ {members} }}))",
             "",
         ]
 
@@ -474,17 +559,44 @@ def generate_c_header(schemas: List[Schema]) -> str:
 
     # Per-event report helpers: type-safe wrappers over fd_event_report_ that
     # ship a fully-formed event struct to the event tile via the thread-local
-    # reporter.  No-op when the calling tile has no event link.
+    # reporter.  No-op when the calling tile has no event link.  Schemas with
+    # dynamic arrays are shipped packed (prefix + used entries of each dynamic
+    # array) via the gather variant, so typical events consume only their
+    # actual footprint of dcache rather than max_len capacity.
     for s in eligible:
-        lines += [
-            f"/* Report a {s.name} event ({to_pascal_case(s.name)}, id {s.id}) to the event tile via",
-            "   the thread-local reporter (no-op when the tile has no event link). */",
-            "static inline void",
-            f"fd_event_report_{s.name}( fd_event_{s.name}_t const * msg ) {{",
-            f"  fd_event_report_( {s.id}UL, msg, sizeof(fd_event_{s.name}_t) );",
-            "}",
-            "",
-        ]
+        dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+        if not dyn_names:
+            lines += [
+                f"/* Report a {s.name} event ({to_pascal_case(s.name)}, id {s.id}) to the event tile via",
+                "   the thread-local reporter (no-op when the tile has no event link). */",
+                "static inline void",
+                f"fd_event_report_{s.name}( fd_event_{s.name}_t const * msg ) {{",
+                f"  fd_event_report_( {s.id}UL, msg, sizeof(fd_event_{s.name}_t) );",
+                "}",
+                "",
+            ]
+        else:
+            up = s.name.upper()
+            iovs = [f"    {{ (void const *)msg, FD_EVENT_{up}_PREFIX_SZ }},"]
+            for dn in dyn_names:
+                iovs.append(f"    {{ (void const *)msg->{dn}, msg->{dn}_cnt*sizeof(msg->{dn}[0]) }},")
+            lines += [
+                f"/* Report a {s.name} event ({to_pascal_case(s.name)}, id {s.id}) to the event tile via",
+                "   the thread-local reporter (no-op when the tile has no event link).",
+                "   The event travels packed: fixed prefix followed by the used entries",
+                "   of each dynamic array. */",
+                "static inline void",
+                f"fd_event_report_{s.name}( fd_event_{s.name}_t const * msg ) {{",
+            ] + [
+                f"  FD_TEST( msg->{dn}_cnt<={f.max_len}UL );" for dn, f in s.fields.items() if f.dynamic
+            ] + [
+                "  fd_event_report_iov_t iov[] = {",
+            ] + iovs + [
+                "  };",
+                f"  fd_event_report_gather_( {s.id}UL, iov, sizeof(iov)/sizeof(iov[0]) );",
+                "}",
+                "",
+            ]
 
     lines += ["FD_PROTOTYPES_END", "", "#endif", ""]
     return "\n".join(lines)
@@ -495,27 +607,27 @@ def encode_scalar( f: Field, field_id: int, acc: str, ind: str, omit_default: bo
     (proto3 default); fixed-byte fields are always emitted."""
     if f.variants:
         guard = f"if( {acc} ) " if omit_default else ""
-        return [f"{ind}{guard}fd_pb_push_int32 ( encoder, {field_id}U, {acc} );"]
+        return [f"{ind}{guard}ok &= !!fd_pb_push_int32 ( encoder, {field_id}U, {acc} );"]
     if f.chtype in _FIXED_BYTE_SZ:
-        return [f"{ind}fd_pb_push_bytes ( encoder, {field_id}U, {acc}, {_FIXED_BYTE_SZ[f.chtype]}UL );"]
+        return [f"{ind}ok &= !!fd_pb_push_bytes ( encoder, {field_id}U, {acc}, {_FIXED_BYTE_SZ[f.chtype]}UL );"]
     suffix = _SCALAR_C[f.chtype][1]
     cast   = "(ulong)" if suffix == "uint64" else ("(uint)" if suffix == "uint32" else "")
     guard  = f"if( {acc} ) " if omit_default else ""
-    return [f"{ind}{guard}fd_pb_push_{suffix:<6}( encoder, {field_id}U, {cast}{acc} );"]
+    return [f"{ind}{guard}ok &= !!fd_pb_push_{suffix:<6}( encoder, {field_id}U, {cast}{acc} );"]
 
 def encode_tuple( f: Field, field_id: int, acc: str, ind: str ) -> List[str]:
     """Emit a submessage encoding a Tuple value at field_id.  acc is the C
     accessor for the tuple struct (e.g. 'msg->x' or 'msg->arr[ k ]')."""
-    out = [f"{ind}fd_pb_submsg_open( encoder, {field_id}U );"]
+    out = [f"{ind}ok &= !!fd_pb_submsg_open( encoder, {field_id}U );"]
     for j, (sn, sf) in enumerate(f.fields.items(), 1):
         out += encode_scalar( sf, j, f"{acc}.{sn}", ind, omit_default=True )
-    out += [f"{ind}fd_pb_submsg_close( encoder );"]
+    out += [f"{ind}ok &= !!fd_pb_submsg_close( encoder );"]
     return out
 
 def encode_field( f: Field, field_id: int, name: str, acc: str, ind: str ) -> List[str]:
     """Emit encode lines for one struct field of any supported type."""
     if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
-        return [f"{ind}if( {acc}_len ) fd_pb_push_bytes ( encoder, {field_id}U, {acc}, {acc}_len );"]
+        return [f"{ind}if( {acc}_len ) ok &= !!fd_pb_push_bytes ( encoder, {field_id}U, {acc}, {acc}_len );"]
     if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
         return encode_tuple( f, field_id, acc, ind )
     if f.chtype == ClickHouseType.Array:
@@ -550,11 +662,16 @@ def generate_c_source(schemas: List[Schema]) -> str:
             "  fd_pb_encoder_t encoder[1];",
             f"  fd_pb_encoder_init( encoder, buffer, {bufmax} );",
             "",
+            "  /* Pushes fail (returning NULL) rather than overflow; accumulate so",
+            f"     a {bufmax} that under-models the encoder aborts loudly instead",
+            "     of silently truncating fields off published rows. */",
+            "  int ok = 1;",
+            "",
             "  FD_TEST( circq->cursor_push_seq );",
-            "  fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );",
-            "  fd_pb_push_uint64( encoder, 2U, event_id );",
-            "  fd_pb_push_uint64( encoder, 3U, link_seq );",
-            "  fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );",
+            "  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );",
+            "  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );",
+            "  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );",
+            "  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );",
             "",
         ]
         # Bound the variable-length fields against the generated struct
@@ -568,19 +685,49 @@ def generate_c_source(schemas: List[Schema]) -> str:
                 bound_checks.append(f"  FD_TEST( msg->{name}_cnt<={f.max_len}UL );")
         if bound_checks:
             lines += bound_checks + [""]
+        # Dynamic arrays arrive packed after the fixed prefix (see the report
+        # helper): compute their base pointers by walking from the prefix end
+        # in declaration order.  Also works for a full in-memory struct only
+        # if it was packed first; serializers only ever see packed events.
+        dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+        if dyn_names:
+            up = s.name.upper()
+            lines += [f"  uchar const * _dyn = (uchar const *)msg + FD_EVENT_{up}_PREFIX_SZ;"]
+            for dn in dyn_names:
+                f  = s.fields[dn]
+                el = f.element
+                if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+                    ct = c_tuple_name( s.name, dn ) + " const *"
+                elif el.variants:
+                    ct = "int const *"
+                elif el.chtype in _FIXED_BYTE_SZ:
+                    ct = f"uchar const (*)[ {_FIXED_BYTE_SZ[el.chtype]}UL ]"
+                else:
+                    ct = _SCALAR_C[el.chtype][0] + " const *"
+                if "(*)" in ct:
+                    lines += [f"  uchar const (* {dn})[ {_FIXED_BYTE_SZ[el.chtype]}UL ] = (uchar const (*)[ {_FIXED_BYTE_SZ[el.chtype]}UL ])_dyn;"]
+                    lines += [f"  _dyn += msg->{dn}_cnt*{_FIXED_BYTE_SZ[el.chtype]}UL;"]
+                else:
+                    lines += [f"  {ct} {dn} = ({ct})_dyn;"]
+                    lines += [f"  _dyn += msg->{dn}_cnt*sizeof({dn}[0]);"]
+                lines += [f"  ulong {dn}_cnt = msg->{dn}_cnt;"]
+            lines += [""]
         lines += [
-            "  fd_pb_submsg_open( encoder, 5U ); /* Event */",
-            f"  fd_pb_submsg_open( encoder, {s.id}U ); /* {to_pascal_case(s.name)} */",
+            "  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */",
+            f"  ok &= !!fd_pb_submsg_open( encoder, {s.id}U ); /* {to_pascal_case(s.name)} */",
         ]
         # Encode each field.  proto3 omits scalar fields at their default
         # (0/false) - skipped here (a conformant reader reconstructs the
         # default).  Fixed-byte fields are always emitted (a 32-byte hash is
-        # meaningful content, not the empty `bytes` default).
+        # meaningful content, not the empty `bytes` default).  Dynamic arrays
+        # are accessed via the packed-tail locals declared above.
         for i, (name, f) in enumerate(s.fields.items(), 1):
-            lines += encode_field( f, i, name, f"msg->{name}", "  " )
+            acc = name if f.dynamic else f"msg->{name}"
+            lines += encode_field( f, i, name, acc, "  " )
         lines += [
-            "  fd_pb_submsg_close( encoder );",
-            "  fd_pb_submsg_close( encoder );",
+            "  ok &= !!fd_pb_submsg_close( encoder );",
+            "  ok &= !!fd_pb_submsg_close( encoder );",
+            "  FD_TEST( ok );",
             "  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );",
             "}",
             "",
@@ -599,16 +746,131 @@ def generate_c_source(schemas: List[Schema]) -> str:
         "  switch( type ) {",
     ]
     for s in eligible:
-        lines += [
-            f"  case {s.id}UL:",
-            f"    FD_TEST( ev_sz==sizeof(fd_event_{s.name}_t) );",
-            f"    fd_event_{s.name}_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_{s.name}_t const *)ev );",
-            "    break;",
-        ]
+        dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+        if not dyn_names:
+            lines += [
+                f"  case {s.id}UL:",
+                f"    FD_TEST( ev_sz==sizeof(fd_event_{s.name}_t) );",
+                f"    fd_event_{s.name}_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_{s.name}_t const *)ev );",
+                "    break;",
+            ]
+        else:
+            # Packed event: validate the size against the footprint implied by
+            # the prefix's counts before touching the dynamic tail.
+            up = s.name.upper()
+            lines += [
+                f"  case {s.id}UL: {{",
+                f"    FD_TEST( ev_sz>=FD_EVENT_{up}_PREFIX_SZ );",
+                f"    fd_event_{s.name}_t const * msg = (fd_event_{s.name}_t const *)ev;",
+            ] + [
+                f"    FD_TEST( msg->{dn}_cnt<={f.max_len}UL );" for dn, f in s.fields.items() if f.dynamic
+            ] + [
+                f"    FD_TEST( ev_sz==fd_event_{s.name}_footprint( msg ) );",
+                f"    fd_event_{s.name}_serialize( circq, client, timestamp_nanos, link_seq, msg );",
+                "    break;",
+                "  }",
+            ]
     lines += [
         '  default: FD_LOG_ERR(( "unexpected event type %lu", type ));',
         "  }",
         "}",
+        "",
+    ]
+    return "\n".join(lines)
+
+_CTYPE_MAX = { "ulong": "ULONG_MAX", "long": "LONG_MAX", "uint": "UINT_MAX",
+               "int": "INT_MAX", "ushort": "USHORT_MAX", "uchar": "UCHAR_MAX" }
+
+def fill_scalar( f: Field, acc: str, ind: str ) -> List[str]:
+    """Emit lines setting a scalar/enum/fixed-byte field to the value with the
+    largest encoded width its C type allows (bounded by the model width)."""
+    if f.variants:
+        # Widest legal enum varint (5 bytes, matching the int32 model bound;
+        # negative enums, which would encode wider, cannot occur).
+        return [f"{ind}{acc} = INT_MAX;"]
+    if f.chtype in _FIXED_BYTE_SZ:
+        return [f"{ind}fd_memset( {acc}, 0xFF, {_FIXED_BYTE_SZ[f.chtype]}UL );"]
+    if _SCALAR_C[f.chtype][1] == "bool":
+        return [f"{ind}{acc} = 1;"]
+    return [f"{ind}{acc} = {_CTYPE_MAX[_SCALAR_C[f.chtype][0]]};"]
+
+def fill_field( f: Field, acc: str, ind: str ) -> List[str]:
+    """Emit max-fill lines for one struct field of any supported type,
+    mirroring encode_field's shapes."""
+    if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
+        return [f"{ind}fd_memset( {acc}, 0xFF, {f.max_len}UL );",
+                f"{ind}{acc}_len = {f.max_len}UL;"]
+    if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        out = []
+        for sn, sf in f.fields.items():
+            out += fill_scalar( sf, f"{acc}.{sn}", ind )
+        return out
+    if f.chtype == ClickHouseType.Array:
+        el  = f.element
+        out = [f"{ind}{acc}_cnt = {f.max_len}UL;",
+               f"{ind}for( ulong k=0UL; k<{f.max_len}UL; k++ ) {{"]
+        if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+            for sn, sf in el.fields.items():
+                out += fill_scalar( sf, f"{acc}[ k ].{sn}", ind + "  " )
+        else:
+            out += fill_scalar( el, f"{acc}[ k ]", ind + "  " )
+        out += [f"{ind}}}"]
+        return out
+    return fill_scalar( f, acc, ind )
+
+def generate_c_test_header(schemas: List[Schema]) -> str:
+    eligible = [s for s in schemas if schema_is_supported(s)]
+    lines = [
+        "/* THIS FILE WAS GENERATED BY gen_events.py. DO NOT EDIT BY HAND! */",
+        "#ifndef HEADER_fd_src_disco_events_generated_fd_event_gen_test_h",
+        "#define HEADER_fd_src_disco_events_generated_fd_event_gen_test_h",
+        "",
+        "/* Test-only: per-event fillers that set every field to the value with",
+        "   the largest encoded width the BUF_MAX model allows, so a unit test",
+        "   can drive the real serializer at the modeled worst case (see",
+        "   test_events.c). */",
+        "",
+        '#include "fd_event_gen.h"',
+        "",
+        "FD_PROTOTYPES_BEGIN",
+        "",
+    ]
+    for s in eligible:
+        lines += [
+            "static inline void",
+            f"fd_event_{s.name}_fill_max( fd_event_{s.name}_t * msg ) {{",
+            "  fd_memset( msg, 0, sizeof(*msg) );",
+        ]
+        for name, f in s.fields.items():
+            lines += fill_field( f, f"msg->{name}", "  " )
+        lines += [
+            "}",
+            "",
+            "static void",
+            f"fd_event_{s.name}_fill_max_v( void * msg ) {{ fd_event_{s.name}_fill_max( (fd_event_{s.name}_t *)msg ); }}",
+            "",
+        ]
+    lines += [
+        "typedef struct {",
+        "  ulong        type;    /* event schema id */",
+        "  ulong        buf_max; /* modeled encode bound */",
+        "  ulong        ev_sz;   /* struct size; == packed footprint at max fill (dynamic arrays are declared at max_len and their record sizes are 8-aligned, so no padding drifts) */",
+        "  char const * name;",
+        "  void       (*fill_max)( void * msg );",
+        "} fd_event_gen_test_case_t;",
+        "",
+        "static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {",
+    ]
+    for s in eligible:
+        lines.append(f'  {{ {s.id}UL, {event_buf_max_define(s)}, sizeof(fd_event_{s.name}_t), "{s.name}", fd_event_{s.name}_fill_max_v }},')
+    lines += [
+        "};",
+        "",
+        f"#define FD_EVENT_GEN_TEST_CASE_CNT ({len(eligible)}UL)",
+        "",
+        "FD_PROTOTYPES_END",
+        "",
+        "#endif",
         "",
     ]
     return "\n".join(lines)
@@ -641,6 +903,17 @@ def main() -> None:
     shared_types = json.loads(shared_path.read_text()) if shared_path.exists() else {}
     schema_files = [f for f in schema_dir.glob("*.json") if f.name != "shared.json"]
     schemas = sorted([parse_schema(f, shared_types) for f in schema_files], key=lambda s: s.id)
+    seen_ids: Dict[int, str] = {}
+    seen_names: Dict[str, int] = {}
+    for s in schemas:
+        if not (1 <= s.id <= 255):
+            raise SystemExit(f"ERROR: schema id {s.id} ({s.name}) must fit the 8-bit event type of FD_EVENT_SIG (1..255)")
+        if s.id in seen_ids:
+            raise SystemExit(f"ERROR: duplicate schema id {s.id}: {seen_ids[s.id]} and {s.name}")
+        if s.name in seen_names:
+            raise SystemExit(f"ERROR: duplicate schema name {s.name!r} (ids {seen_names[s.name]} and {s.id})")
+        seen_ids[s.id]     = s.name
+        seen_names[s.name] = s.id
     proto_path.write_text(generate_protobuf(schemas))
 
     print(f"Protobuf generated successfully from {len(schemas)} schemas")
@@ -649,6 +922,7 @@ def main() -> None:
     gen_dir.mkdir(exist_ok=True)
     (gen_dir / "fd_event_gen.h").write_text(generate_c_header(schemas))
     (gen_dir / "fd_event_gen.c").write_text(generate_c_source(schemas))
+    (gen_dir / "fd_event_gen_test.h").write_text(generate_c_test_header(schemas))
     eligible = [s.name for s in schemas if schema_is_supported(s)]
     skipped  = [s.name for s in schemas if not schema_is_supported(s)]
     print(f"C structs/serializers generated for fixed-length schemas: {eligible}")
