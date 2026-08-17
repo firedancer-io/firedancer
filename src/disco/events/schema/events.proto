@@ -329,7 +329,7 @@ message BlockEquivocated {
 
 // One row per dispatched transaction (committable or not), with the execution results
 message RuntimeTxn {
-  // Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  // Bank sequence number, counting from 1 within a run; the join key to block_completed. Not meaningful across restarts: scope by the stream's instance id from the connection's authentication metadata. 0 if unavailable.
   uint64 bank_seq = 1;
   // Bank slot in which this transaction was executed
   uint64 slot = 2;
@@ -337,7 +337,7 @@ message RuntimeTxn {
   uint64 index_in_slot = 3;
   // 0-indexed commit-completion order within this slot
   uint64 commit_index_in_slot = 4;
-  // FEC merkle root that was the current block_id of the bank when this txn was dispatched; NULL on the leader path
+  // FEC merkle root that was the current block_id of the bank when this txn was dispatched. All-zero on the leader path, which executes without FEC context.
   bytes fec_merkle_root = 5;
   // Epoch the transaction was executed in
   uint64 epoch = 6;

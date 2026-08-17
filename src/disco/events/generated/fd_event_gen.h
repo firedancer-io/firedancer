@@ -2,6 +2,8 @@
 #ifndef HEADER_fd_src_disco_events_generated_fd_event_gen_h
 #define HEADER_fd_src_disco_events_generated_fd_event_gen_h
 
+#include <stddef.h> /* offsetof */
+
 #include "../fd_circq.h"
 #include "../fd_event_client.h"
 #include "../fd_event_report.h"
@@ -32,7 +34,7 @@ typedef struct fd_event_signed_vote fd_event_signed_vote_t;
 
 /* Worst-case encoded size of a signed_vote event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_SIGNED_VOTE_BUF_MAX (2765UL)
+#define FD_EVENT_SIGNED_VOTE_BUF_MAX (2780UL)
 
 /* Commitment level reached, weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a terminal outcome, not a level. A block never named directly by any vote emits no propagated/duplicate/optimistic/super rows even when confirmed transitively through a descendant, and the transitive walk stops at it, so voted ancestors above it can miss those rows too; all still emit processed and rooted rows. */
 #define FD_EVENT_SLOT_CONFIRMED_LEVEL_IGNORED    (1) /* Replay finished a block consensus had already pruned, so no processed row is emitted. Forward vote-level rows for the block may precede this. */
@@ -58,7 +60,7 @@ typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
 
 /* Worst-case encoded size of a slot_confirmed event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_SLOT_CONFIRMED_BUF_MAX (221UL)
+#define FD_EVENT_SLOT_CONFIRMED_BUF_MAX (236UL)
 
 /* A single accounts-database partition finished compacting. Compaction scans one partition, relocates its still-live account records forward into the next storage tier, and reclaims the partition. Emitted once per partition per compaction pass by the accdb tile. Partitions are large (e.g. 32 GiB) so this is a rare, coarse-grained event rather than a hot-path counter. */
 struct fd_event_accdb_compaction_completed {
@@ -77,7 +79,7 @@ typedef struct fd_event_accdb_compaction_completed fd_event_accdb_compaction_com
 
 /* Worst-case encoded size of a accdb_compaction_completed event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_ACCDB_COMPACTION_COMPLETED_BUF_MAX (237UL)
+#define FD_EVENT_ACCDB_COMPACTION_COMPLETED_BUF_MAX (252UL)
 
 /* The accounts database grew its backing file by one partition. The accounts DB is a single file divided into fixed-size partitions; when a write head runs off the end of the allocated file, a new partition is fallocated and the file grows. Emitted once per grow by the accdb tile. Partitions are large (e.g. 32 GiB) so grows are infrequent and each one is a meaningful step in the database's on-disk footprint. */
 struct fd_event_accdb_partition_added {
@@ -93,7 +95,7 @@ typedef struct fd_event_accdb_partition_added fd_event_accdb_partition_added_t;
 
 /* Worst-case encoded size of a accdb_partition_added event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX (197UL)
+#define FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX (212UL)
 
 /* How the equivocation was detected. */
 #define FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_DUPLICATE_REPLAY (1) /* A second, different block for the slot finished replaying locally. */
@@ -122,7 +124,7 @@ typedef struct fd_event_block_equivocated fd_event_block_equivocated_t;
 
 /* Worst-case encoded size of a block_equivocated event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX (398UL)
+#define FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX (413UL)
 
 /* Transaction execution error */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_SUCCESS                                 (1) /* Transaction succeeded */
@@ -233,11 +235,11 @@ typedef struct fd_event_runtime_txn_account_diffs fd_event_runtime_txn_account_d
 
 /* One row per dispatched transaction (committable or not), with the execution results */
 struct fd_event_runtime_txn {
-  ulong                                bank_seq;                          /* Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong                                bank_seq;                          /* Bank sequence number, counting from 1 within a run; the join key to block_completed. Not meaningful across restarts: scope by the stream's instance id from the connection's authentication metadata. 0 if unavailable. */
   ulong                                slot;                              /* Bank slot in which this transaction was executed */
   ulong                                index_in_slot;                     /* 0-indexed position of this transaction within its block */
   ulong                                commit_index_in_slot;              /* 0-indexed commit-completion order within this slot */
-  uchar                                fec_merkle_root[ 32UL ];           /* FEC merkle root that was the current block_id of the bank when this txn was dispatched; NULL on the leader path */
+  uchar                                fec_merkle_root[ 32UL ];           /* FEC merkle root that was the current block_id of the bank when this txn was dispatched. All-zero on the leader path, which executes without FEC context. */
   ulong                                epoch;                             /* Epoch the transaction was executed in */
   uchar                                signature[ 64UL ];                 /* First signature of the transaction (64 bytes) */
   uchar                                blockhash[ 32UL ];                 /* Blockhash referenced by the transaction */
@@ -283,11 +285,11 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 
 /* Worst-case encoded size of a runtime_txn event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23234UL)
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23249UL)
 
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (( sizeof(fd_event_runtime_txn_t) > ( sizeof(fd_event_block_equivocated_t) > ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ? sizeof(fd_event_block_equivocated_t) : ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ) ? sizeof(fd_event_runtime_txn_t) : ( sizeof(fd_event_block_equivocated_t) > ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ? sizeof(fd_event_block_equivocated_t) : ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ) ))
+#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; }))
 
 FD_PROTOTYPES_BEGIN
 
