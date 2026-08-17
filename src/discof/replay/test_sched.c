@@ -80,7 +80,7 @@ run_bad_tick_case( fd_hash_t const * start_poh,
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
 
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -182,7 +182,7 @@ run_lane_policy_case( void ) {
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
 
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -308,7 +308,7 @@ new_sched( fd_rng_t * rng, void ** mem_out, ulong block_cnt_max ) {
   ulong footprint = fd_sched_footprint( depth, block_cnt_max );
   void * mem      = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
   *mem_out = mem;
   return sched;

@@ -641,7 +641,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     ulong       stake;
     fd_pubkey_t node;
     ushort      commission;
-    fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node, &stake, &commission );
+    fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node, &stake, &commission, NULL );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t1[ va_t1_cnt++ ];
@@ -675,7 +675,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     ulong       stake;
     fd_pubkey_t node;
     ushort      commission;
-    fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node, &stake, NULL, NULL, &commission, NULL );
+    fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node, &stake, NULL, NULL, &commission, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t2[ va_t2_cnt++ ];

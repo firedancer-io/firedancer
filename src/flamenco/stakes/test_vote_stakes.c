@@ -25,10 +25,13 @@ main( int argc, char ** argv ) {
   fd_pubkey_t node_b = key( 4UL );
   fd_pubkey_t vote_c = key( 5UL );
   fd_pubkey_t node_c = key( 6UL );
+  uchar bls_a[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 7UL };
+  uchar bls_b[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 8UL };
+  uchar bls_c[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 9UL };
 
   ulong root = fd_vote_stakes_init( vote_stakes, 0UL );
-  fd_vote_stakes_snap_insert_t_1( vote_stakes, root, &vote_a, &node_a, 100UL, 10U );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &vote_b, &node_b, 200UL, 20U );
+  fd_vote_stakes_snap_insert_t_1( vote_stakes, root, &vote_a, &node_a, 100UL, 10U, bls_a );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &vote_b, &node_b, 200UL, 20U, bls_b );
   fd_vote_stakes_update_state( vote_stakes, root, &vote_b, 7UL, 8L, 1 );
 
   ulong stake;
@@ -45,7 +48,7 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, child, &vote_b, NULL, NULL, &commission ) );
   FD_TEST( commission==20U );
 
-  fd_vote_stakes_insert( vote_stakes, child, &vote_c, &node_c, 300UL, 30U );
+  fd_vote_stakes_insert( vote_stakes, child, &vote_c, &node_c, 300UL, 30U, bls_c );
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, child, &vote_c, NULL, &stake, &commission ) );
   FD_TEST( stake==300UL && commission==30U );
 
@@ -61,7 +64,7 @@ main( int argc, char ** argv ) {
        !fd_vote_stakes_t_1_iter_done( vote_stakes, sibling, iter );
        fd_vote_stakes_t_1_iter_next( vote_stakes, sibling, iter ) ) {
     fd_pubkey_t pubkey;
-    fd_vote_stakes_t_1_iter_ele( vote_stakes, sibling, iter, &pubkey, NULL, NULL, NULL );
+    fd_vote_stakes_t_1_iter_ele( vote_stakes, sibling, iter, &pubkey, NULL, NULL, NULL, NULL );
     iter_cnt++;
   }
   FD_TEST( iter_cnt==1UL );
@@ -82,21 +85,21 @@ main( int argc, char ** argv ) {
   child = fd_vote_stakes_new_fork( vote_stakes, root, 1UL );
   fd_pubkey_t tie_a = key( 10000UL );
   fd_pubkey_t tie_b = key( 10001UL );
-  fd_vote_stakes_insert( vote_stakes, child, &tie_a, &node_a, 10UL, 1U );
-  fd_vote_stakes_insert( vote_stakes, child, &tie_b, &node_b, 10UL, 1U );
+  fd_vote_stakes_insert( vote_stakes, child, &tie_a, &node_a, 10UL, 1U, bls_a );
+  fd_vote_stakes_insert( vote_stakes, child, &tie_b, &node_b, 10UL, 1U, bls_b );
   for( ulong i=2UL; i<FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS; i++ ) {
     fd_pubkey_t vote = key( 10000UL+i );
-    fd_vote_stakes_insert( vote_stakes, child, &vote, &node_a, 100UL+i, 1U );
+    fd_vote_stakes_insert( vote_stakes, child, &vote, &node_a, 100UL+i, 1U, bls_a );
   }
   fd_pubkey_t tie_candidate = key( 20000UL );
-  fd_vote_stakes_insert( vote_stakes, child, &tie_candidate, &node_a, 10UL, 1U );
+  fd_vote_stakes_insert( vote_stakes, child, &tie_candidate, &node_a, 10UL, 1U, bls_a );
   FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, child, &tie_a, NULL, NULL, NULL ) );
   FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, child, &tie_b, NULL, NULL, NULL ) );
   FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, child, &tie_candidate, NULL, NULL, NULL ) );
   FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, child )==FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS-2UL );
 
   fd_pubkey_t above_floor = key( 20001UL );
-  fd_vote_stakes_insert( vote_stakes, child, &above_floor, &node_a, 11UL, 1U );
+  fd_vote_stakes_insert( vote_stakes, child, &above_floor, &node_a, 11UL, 1U, bls_a );
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, child, &above_floor, NULL, NULL, NULL ) );
   fd_vote_stakes_purge_fork( vote_stakes, child );
   fd_vote_stakes_purge_fork( vote_stakes, root );

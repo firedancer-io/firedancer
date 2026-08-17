@@ -215,7 +215,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   fd_rng_t rng_mem[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 0UL ) );
   void * sched_mem = fd_spad_alloc( runner->spad, fd_sched_align(), fd_sched_footprint( SCHED_DEPTH, SCHED_BLOCK_CNT_MAX ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( sched_mem, rng, SCHED_DEPTH, SCHED_BLOCK_CNT_MAX, SCHED_EXEC_CNT ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( sched_mem, rng, SCHED_DEPTH, SCHED_BLOCK_CNT_MAX, SCHED_EXEC_CNT, 0 ) );
   FD_TEST( sched );
   fd_sched_set_bypass_poh_verify( sched, 1 ); /* skip PoH end_hash compare */
   fd_sched_set_bypass_alut_resolution( sched, 1 ); /* skip ALUT resolution (no accdb) */

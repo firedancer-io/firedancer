@@ -389,8 +389,12 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
     put_vote_account_v4( env, &v, &v, commission, VOTE_ACCOUNT_LAMPORTS,
                          voter_has_bls( i ), 0UL, voter_vote_ts( i ) );
     if( voter_has_bls( i ) ) {
-      fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &v, &v, stake, commission );
-      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &v, &v, stake, commission );
+      /* Match the 0xBB key pattern put_vote_account_v4 writes into the
+         account data. */
+      uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+      fd_memset( bls, 0xBB, sizeof(bls) );
+      fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &v, &v, stake, commission, bls );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &v, &v, stake, commission, bls );
       fd_vote_stakes_update_state( vote_stakes, fork_id, &v, 0UL, voter_vote_ts( i ), 1 );
     }
     add_delegated_stake_account     ( env, &s, &v, stake );
