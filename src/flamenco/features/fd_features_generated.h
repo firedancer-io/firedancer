@@ -154,7 +154,7 @@ union fd_features {
     /* 0x71eba1d288ba2bfc */ ulong keep_merkle_shreds;
     /* 0x823d14dd6235f859 */ ulong move_serialized_len_ptr_in_cpi;
     /* 0xb3f6cd09abba192b */ ulong update_hashes_per_tick;
-    /* 0x3a315b1ab012eec3 */ ulong enable_big_mod_exp_syscall;
+    /* 0xf67e481aac99b909 */ ulong enable_big_mod_exp_syscall;
     /* 0x500aab8a23ff8b33 */ ulong disable_builtin_loader_ownership_chains;
     /* 0xffe35ea7abb29bbb */ ulong cap_transaction_accounts_data_size;
     /* 0x8a22c4e80489c387 */ ulong remove_congestion_multiplier_from_fee_calculation;

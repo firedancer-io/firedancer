@@ -232,7 +232,9 @@ deser_bitvec_u8_epoch_slots( uchar const ** payload,
   uchar has_bits;
   READ_OPTION( has_bits, payload, payload_sz );
   if( FD_UNLIKELY( !has_bits ) ) {
-    SKIP_BYTES( 8UL, payload, payload_sz );
+    ulong bits_cnt;
+    READ_U64( bits_cnt, payload, payload_sz );
+    CHECK( !bits_cnt );
     return 1;
   }
 
@@ -241,7 +243,6 @@ deser_bitvec_u8_epoch_slots( uchar const ** payload,
   SKIP_BYTES( bits_cap, payload, payload_sz );
   ulong bits_cnt;
   READ_U64( bits_cnt, payload, payload_sz );
-  bits_cnt = fd_ulong_min( bits_cnt, bits_cap*8UL );
   CHECK( bits_cnt==bits_cap*8UL );
   return 1;
 }
@@ -449,23 +450,25 @@ deser_contact_info( fd_gossip_value_t * value,
   return 1;
 }
 
-/* wincode returns a default (empty) bitvec for None and also relaxes
-   length checks.
-   https://github.com/anza-xyz/wincode/blob/wincode%40v0.5.5/wincode/src/schema/external/bv.rs#L68-L81 */
+/* https://github.com/anza-xyz/wincode/blob/wincode%40v0.6.1/wincode/src/schema/external/bv.rs#L89-L147 */
 static int
 deser_bitvec_u8_restart_last_voted_fork_slots( uchar const ** payload,
                                                ulong *        payload_sz ) {
   uchar has_bits;
   READ_OPTION( has_bits, payload, payload_sz );
   if( FD_UNLIKELY( !has_bits ) ) {
-    SKIP_BYTES( 8UL, payload, payload_sz );
+    ulong bits_len;
+    READ_U64( bits_len, payload, payload_sz );
+    CHECK( !bits_len );
     return 1;
   }
 
   ulong bits_cap;
   READ_U64( bits_cap, payload, payload_sz );
   SKIP_BYTES( bits_cap, payload, payload_sz );
-  SKIP_BYTES( 8UL, payload, payload_sz );
+  ulong bits_len;
+  READ_U64( bits_len, payload, payload_sz );
+  CHECK( bits_len<=bits_cap*8UL );
   return 1;
 }
 
@@ -528,10 +531,7 @@ deser_value( fd_gossip_value_t * value,
   }
 }
 
-/* wincode returns a default bitvec for None and also relaxes length
-   checks.  For Some, it additionally truncates the bitvec bits_len to
-   the bits_cap*64 if bits_len is larger.
-   https://github.com/anza-xyz/wincode/blob/wincode%40v0.5.5/wincode/src/schema/external/bv.rs#L68-L81 */
+/* https://github.com/anza-xyz/wincode/blob/wincode%40v0.6.1/wincode/src/schema/external/bv.rs#L89-L147 */
 static int
 deser_bitvec_u64( fd_gossip_bloom_t * bloom,
                   uchar const **      payload,
@@ -541,16 +541,16 @@ deser_bitvec_u64( fd_gossip_bloom_t * bloom,
   if( FD_UNLIKELY( !has_bits ) ) {
     bloom->bits_cap = 0UL;
     READ_U64( bloom->bits_len, payload, payload_sz );
-    bloom->bits_len = 0UL;
+    CHECK( !bloom->bits_len );
     return 1;
   }
 
   READ_U64( bloom->bits_cap, payload, payload_sz );
-  ulong dummy;
-  CHECK( !__builtin_mul_overflow( bloom->bits_cap, 8UL, &dummy ) );
-  READ_BYTES( bloom->bits, bloom->bits_cap*8UL, payload, payload_sz );
+  ulong bits_sz;
+  CHECK( !__builtin_mul_overflow( bloom->bits_cap, 8UL, &bits_sz ) );
+  READ_BYTES( bloom->bits, bits_sz, payload, payload_sz );
   READ_U64( bloom->bits_len, payload, payload_sz );
-  bloom->bits_len = fd_ulong_min( bloom->bits_len, bloom->bits_cap*64UL );
+  CHECK( bloom->bits_len<=bits_sz*8UL );
   return 1;
 }
 
