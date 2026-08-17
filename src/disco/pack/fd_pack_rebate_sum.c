@@ -12,21 +12,23 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_T       fd_acct_addr_t
 #define MAP_KEY_NULL    null_addr
 #if FD_HAS_AVX
-# define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
+# define MAP_KEY_INVAL(k)      _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
 #else
-# define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
+# define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_addr)
 #endif
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key)     ((uint)fd_hash( 132132, (key).b, 32UL ))
-#define MAP_MOVE(d,s)         (__extension__({ FD_LOG_CRIT(( "Tried to move a map value" )); (d)=(s); }))
+#define MAP_KEY_EQUAL(k0,k1)   (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_MEMOIZE            0
+#define MAP_KEY_HASH(key,seed) ((uint)fd_hash( (seed), (key).b, 32UL ))
+#define MAP_MOVE(d,s)          (__extension__({ FD_LOG_CRIT(( "Tried to move a map value" )); (d)=(s); }))
 
-#include "../../util/tmpl/fd_map.c"
+#include "../../util/tmpl/fd_map_dynamic.c"
 
+FD_STATIC_ASSERT( (1UL<<MAP_LG_SLOT_CNT)==8192UL, map_slot_cnt );
 
 void *
-fd_pack_rebate_sum_new( void * mem ) {
+fd_pack_rebate_sum_new( void * mem,
+                        ulong  seed ) {
   fd_pack_rebate_sum_t * s = (fd_pack_rebate_sum_t *)mem;
 
   s->total_cost_rebate        = 0UL;
@@ -37,11 +39,13 @@ fd_pack_rebate_sum_new( void * mem ) {
   s->ib_result                = 0;
   s->writer_cnt               = 0U;
 
-  rmap_new( s->map );
+  s->map = rmap_join( rmap_new( s->map_mem, MAP_LG_SLOT_CNT, seed ) );
+  FD_TEST( s->map );
 
   /* Not a good place to put this, but there's not really a better place
      for it either.  The compiler should eliminate it. */
-  FD_TEST( rmap_footprint()==sizeof(s->map) );
+  FD_TEST( rmap_align()==FD_PACK_REBATE_SUM_MAP_ALIGN );
+  FD_TEST( rmap_footprint( MAP_LG_SLOT_CNT )==FD_PACK_REBATE_SUM_MAP_FOOTPRINT );
   return mem;
 }
 
