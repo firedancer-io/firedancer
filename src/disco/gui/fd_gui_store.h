@@ -136,7 +136,7 @@ fd_gui_store_footprint( ulong                       size_bytes,
    backing store whose data file is `path`, with a size ceiling of
    `size_bytes`.  The parent directory of `path` must already exist.
    `ring_cnt` named rings are created, one per entry of `descs`.  The
-   store is wiped on open.
+   `seed+i` initializes KV ring `i`'s index.  The store is wiped on open.
 
    Returns `mem` on success, or NULL on failure (logged at WARNING). */
 
@@ -145,6 +145,7 @@ fd_gui_store_new( void *                      mem,
                   char const *                path,
                   ulong                       size_bytes,
                   ulong                       ring_cnt,
+                  ulong                       seed,
                   fd_gui_store_desc_t const * descs );
 
 fd_gui_store_t *

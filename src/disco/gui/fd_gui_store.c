@@ -202,6 +202,7 @@ fd_gui_store_new( void *                      mem,
                   char const *                path,
                   ulong                       size_bytes,
                   ulong                       ring_cnt,
+                  ulong                       seed,
                   fd_gui_store_desc_t const * descs ) {
 
   if( FD_UNLIKELY( !mem ) )                 { FD_LOG_WARNING(( "fd_gui_store_new: null mem" )); return NULL; }
@@ -277,7 +278,7 @@ fd_gui_store_new( void *                      mem,
   for( ulong i=0UL; i<FD_GUI_STORE_MAX_RINGS; i++ ) db->kv_idx[ i ] = NULL;
   for( ulong i=0UL; i<ring_cnt; i++ ) {
     if( !kv_idx_mem[ i ] ) continue;
-    if( FD_UNLIKELY( !fd_gui_store_kv_idx_new( kv_idx_mem[ i ], kv_idx_chains[ i ], (ulong)i ) ) ) { FD_LOG_WARNING(( "fd_gui_store_new: ent_idx_new[%lu] failed", i )); return NULL; }
+    if( FD_UNLIKELY( !fd_gui_store_kv_idx_new( kv_idx_mem[ i ], kv_idx_chains[ i ], seed+i ) ) ) { FD_LOG_WARNING(( "fd_gui_store_new: kv_idx_new[%lu] failed", i )); return NULL; }
     db->kv_idx[ i ] = fd_gui_store_kv_idx_join( kv_idx_mem[ i ] );
     if( FD_UNLIKELY( !db->kv_idx[ i ] ) ) { FD_LOG_WARNING(( "fd_gui_store_new: kv_idx join[%lu] failed", i )); return NULL; }
   }

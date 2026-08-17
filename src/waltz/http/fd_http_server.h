@@ -79,6 +79,7 @@ fd_http_server_method_str( uchar method );
 /* Parameters needed for constructing an HTTP server.  */
 
 struct fd_http_server_params {
+  ulong treap_seed;             /* Seed used to randomize connection treap priorities */
   ulong max_connection_cnt;    /* Maximum number of concurrent HTTP/1.1 connections open.  Connections are not persistent and will be closed after one request is served */
   ulong max_ws_connection_cnt; /* Maximum number of concurrent websocket connections open */
   ulong max_request_len;       /* Maximum total length of an HTTP request, including the terminating \r\n\r\n and any body in the case of a POST */
