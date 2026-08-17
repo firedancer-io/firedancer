@@ -25,6 +25,8 @@ typedef struct {
   ulong rebate_cus;
 } fd_pack_rebate_entry_t;
 
+#define FD_PACK_REBATE_SUM_MAP_FOOTPRINT (4UL*sizeof(ulong) + 8192UL*sizeof(fd_pack_rebate_entry_t))
+#define FD_PACK_REBATE_SUM_MAP_ALIGN     (8UL)
 
 struct fd_pack_rebate_sum_private {
   ulong total_cost_rebate;
@@ -35,7 +37,8 @@ struct fd_pack_rebate_sum_private {
   int   ib_result; /* -1: IB failed, 0: not an IB, 1: IB success */
   uint  writer_cnt;
 
-  fd_pack_rebate_entry_t map[ 8192UL ];
+  uchar map_mem[ FD_PACK_REBATE_SUM_MAP_FOOTPRINT ] __attribute__((aligned(FD_PACK_REBATE_SUM_MAP_ALIGN)));
+  fd_pack_rebate_entry_t * map;
   fd_pack_rebate_entry_t * inserted[ FD_PACK_REBATE_SUM_CAPACITY ];
 };
 typedef struct fd_pack_rebate_sum_private fd_pack_rebate_sum_t;
@@ -70,7 +73,14 @@ FD_FN_PURE static inline ulong fd_pack_rebate_sum_footprint( void ) { return siz
 
 FD_FN_PURE static inline fd_pack_rebate_sum_t * fd_pack_rebate_sum_join( void * mem ) { return (fd_pack_rebate_sum_t *)mem; }
 
-void * fd_pack_rebate_sum_new( void * mem );
+/* fd_pack_rebate_sum_new creates a new rebate sum object.  `mem` must
+   point to a region of memory with at least
+   fd_pack_rebate_sum_footprint() bytes of capacity and an alignment of
+   at least fd_pack_rebate_sum_align().  `seed` is the hash seed used by
+   the writer rebate map and should be randomly generated. */
+void *
+fd_pack_rebate_sum_new( void * mem,
+                        ulong  seed );
 
 /* fd_pack_rebate_sum_add_txn adds rebate information from a bundle or
    microblock to the pending summary.  This reads the EXECUTE_SUCCESS

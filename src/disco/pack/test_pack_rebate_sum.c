@@ -7,6 +7,8 @@
 #define SANITIZE FD_TXN_P_FLAGS_SANITIZE_SUCCESS
 #define EXECUTE  FD_TXN_P_FLAGS_EXECUTE_SUCCESS
 
+#define TEST_SEED (0x0123456789abcdefUL)
+
 static inline void
 fake_transaction( fd_txn_p_t     * txnp,
                   fd_acct_addr_t * alt,
@@ -59,6 +61,43 @@ check_writer( fd_pack_rebate_t const * r,
   }
 }
 
+static void
+test_fixed_seed_collisions_are_distributed( fd_pack_rebate_sum_t * sum ) {
+# define COLLISION_CNT (64UL)
+  fd_acct_addr_t accts[ COLLISION_CNT ];
+
+  ulong acct_cnt = 0UL;
+  for( ulong nonce=1UL; acct_cnt<COLLISION_CNT; nonce++ ) {
+    fd_acct_addr_t candidate;
+    for( ulong j=0UL; j<4UL; j++ ) {
+      ulong word = fd_ulong_hash( nonce+128UL*j );
+      fd_memcpy( candidate.b+8UL*j, &word, sizeof(word) );
+    }
+    if( FD_UNLIKELY( !(fd_hash( 132132UL, candidate.b, sizeof(candidate.b) ) & 8191U) ) )
+      accts[ acct_cnt++ ] = candidate;
+  }
+
+  fd_txn_p_t txnp[1] = {0};
+  fd_txn_t * txn = TXN( txnp );
+  txn->addr_table_adtl_cnt          = (uchar)COLLISION_CNT;
+  txn->addr_table_adtl_writable_cnt = (uchar)COLLISION_CNT;
+  txn->addr_table_lookup_cnt        = 1U;
+  txnp->flags                       = EXECUTE;
+  txnp->execle_cu.rebated_cus       = 1U;
+
+  fd_acct_addr_t const * alt[1] = { accts };
+  FD_TEST( 0UL==fd_pack_rebate_sum_add_txn( sum, txnp, alt, 1UL ) );
+  FD_TEST( sum->writer_cnt==COLLISION_CNT );
+
+  ulong adjacent_cnt = 0UL;
+  for( ulong i=1UL; i<COLLISION_CNT; i++ )
+    adjacent_cnt += sum->inserted[i]==sum->inserted[i-1UL]+1;
+  FD_TEST( adjacent_cnt<COLLISION_CNT/2UL );
+
+  fd_pack_rebate_sum_clear( sum );
+# undef COLLISION_CNT
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -67,7 +106,9 @@ main( int     argc,
   /* Normal, votes, microblock cnt with/without bundle, IB result,
      limits */
   fd_pack_rebate_sum_t _sum[1];
-  fd_pack_rebate_sum_t * sum = fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( _sum ) );
+  fd_pack_rebate_sum_t * sum = fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( _sum, TEST_SEED ) );
+
+  test_fixed_seed_collisions_are_distributed( sum );
 
   union{ fd_pack_rebate_t rebate[1]; uchar footprint[USHORT_MAX]; } report;
 
