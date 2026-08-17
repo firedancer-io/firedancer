@@ -478,6 +478,9 @@ fd_quic_init( fd_quic_t * quic ) {
     },
 
     .cert_public_key       = quic->config.identity_public_key,
+
+    .alpn                  = config->alpn,
+    .alpn_sz               = config->alpn_sz,
   };
 
   /* State: Initialize handshake pool */

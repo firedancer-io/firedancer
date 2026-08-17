@@ -271,6 +271,7 @@ typedef struct {
   ushort repair_client_listen_port;
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
+  ushort votor_listen_port;
 
   ulong in_cnt;
   fd_net_in_ctx_t in[ MAX_NET_INS ];
@@ -285,6 +286,9 @@ typedef struct {
 
   fd_net_out_ctx_t rserve_out[1];
   int rserve_enabled;
+
+  fd_net_out_ctx_t votor_out[1];
+  int votor_enabled;
 
   /* XDP stats refresh timer */
   long xdp_stats_interval_ticks;
@@ -1123,10 +1127,14 @@ net_rx_packet( fd_net_ctx_t * ctx,
   } else if( FD_UNLIKELY( udp_dstport==ctx->txsend_src_port ) ) {
     proto = DST_PROTO_SEND;
     out = ctx->txsend_out;
+  } else if( FD_UNLIKELY( udp_dstport==ctx->votor_listen_port ) ) {
+    if( FD_UNLIKELY( !ctx->votor_enabled ) ) return;
+    proto = DST_PROTO_VOTOR;
+    out = ctx->votor_out;
   } else {
     FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
                   "Only the following ports should be configured to forward packets: "
-                  "%hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
+                  "%hu, %hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
                   "Please report this error to Firedancer maintainers.",
                   udp_dstport,
                   ctx->shred_listen_port,
@@ -1134,7 +1142,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
                   ctx->legacy_transaction_listen_port,
                   ctx->gossip_listen_port,
                   ctx->repair_client_listen_port,
-                  ctx->repair_serve_listen_port ));
+                  ctx->repair_serve_listen_port,
+                  ctx->votor_listen_port ));
   }
 
   /* tile can decide how to partition based on src ip addr and src port */
@@ -1624,6 +1633,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->repair_client_listen_port      = tile->net.repair_client_listen_port;
   ctx->repair_serve_listen_port       = tile->net.repair_serve_listen_port;
   ctx->txsend_src_port                = tile->net.txsend_src_port;
+  ctx->votor_listen_port              = tile->net.votor_quic_server_listen_port;
 
   /* Put a bound on chunks we read from the input, to make sure they
      are within in the data region of the workspace. */
@@ -1689,6 +1699,13 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->rserve_out->depth  = fd_mcache_depth( ctx->rserve_out->mcache );
       ctx->rserve_out->seq    = fd_mcache_seq_query( ctx->rserve_out->sync );
       ctx->rserve_enabled     = 1;
+    } else if( strcmp( out_link->name, "net_votor" ) == 0 ) {
+      fd_topo_link_t const * votor_out = out_link;
+      ctx->votor_out->mcache = votor_out->mcache;
+      ctx->votor_out->sync   = fd_mcache_seq_laddr( ctx->votor_out->mcache );
+      ctx->votor_out->depth  = fd_mcache_depth( ctx->votor_out->mcache );
+      ctx->votor_out->seq    = fd_mcache_seq_query( ctx->votor_out->sync );
+      ctx->votor_enabled     = 1;
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
     }
@@ -1711,6 +1728,8 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "netlink request link not found" ));
   } else if( FD_UNLIKELY( ctx->txsend_src_port!=0 && ctx->txsend_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "txsend listen port set but no out link was found" ));
+  } else if( FD_UNLIKELY( ctx->votor_listen_port!=0 && ctx->votor_out->mcache==NULL ) ) {
+    FD_LOG_ERR(( "votor listen port set but no out link was found" ));
   }
 
   for( uint j=0U; j<2U; j++ ) {

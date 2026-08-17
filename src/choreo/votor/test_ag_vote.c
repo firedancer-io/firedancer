@@ -72,7 +72,7 @@ check_wire( ag_vote_t const * v, ag_aggsig_pk_t const * pk ) {
   FD_TEST( n>0UL );
 
   fd_hash_t const * h       = ag_vote_block_hash( v );
-  ulong             body_sz = 8UL + ( h ? 32UL : 0UL ) + AG_AGGSIG_SIG_SZ + 2UL;
+  ulong             body_sz = 8UL + ( h ? 32UL : 0UL ) + AG_AGGSIG_SIG_SZ;
   FD_TEST( n == 2UL + body_sz + 2UL );
 
   ulong off = 0UL;
@@ -81,7 +81,6 @@ check_wire( ag_vote_t const * v, ag_aggsig_pk_t const * pk ) {
   FD_TEST( FD_LOAD( ulong, out+off )==ag_vote_slot( v )); off += 8UL;
   if( h ) { FD_TEST( !memcmp( out+off, h->uc, 32UL ) ); off += 32UL; }
   uchar const * wire_sig = out+off; off += AG_AGGSIG_SIG_SZ;
-  FD_TEST( FD_LOAD( ushort, out+off )==ag_vote_signer( v ) ); off += 2UL;
   FD_TEST( FD_LOAD( ushort, out+off )==TEST_SHRED_VERSION  ); off += 2UL;
   FD_TEST( off==n );
 
@@ -90,7 +89,7 @@ check_wire( ag_vote_t const * v, ag_aggsig_pk_t const * pk ) {
   FD_TEST( consumed==n );
   FD_TEST( rt.kind==v->kind );
   FD_TEST( ag_vote_slot  ( &rt )==ag_vote_slot  ( v ) );
-  FD_TEST( ag_vote_signer( &rt )==ag_vote_signer( v ) );
+  FD_TEST( ag_vote_signer( &rt )==USHORT_MAX ); /* rank is not on the wire */
   fd_hash_t const * rt_h = ag_vote_block_hash( &rt );
   FD_TEST( !rt_h==!h );
   if( h ) FD_TEST( !memcmp( rt_h->uc, h->uc, sizeof(fd_hash_t) ) );
