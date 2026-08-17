@@ -501,8 +501,10 @@ fd_poh_begin_leader( fd_poh_t * poh,
                      long       slot_start_ns );
 
 void
-fd_poh_done_packing( fd_poh_t * poh,
-                     ulong      microblocks_in_slot );
+fd_poh_done_packing( fd_poh_t *          poh,
+                     fd_stem_context_t * stem,
+                     ulong               microblocks_in_slot,
+                     int                 abandoned );
 
 void
 fd_poh_advance( fd_poh_t *          poh,

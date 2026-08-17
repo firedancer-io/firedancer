@@ -127,7 +127,7 @@ transition_to_follower( fd_poh_t *          poh,
   if( FD_LIKELY( poh->state==STATE_LEADER || poh->state==STATE_WAITING_FOR_SLOT ) ) {
     fd_poh_leader_slot_ended_t * dst = fd_chunk_to_laddr( poh->replay_out->mem, poh->replay_out->chunk );
     dst->completed = completed_leader_slot;
-    dst->slot      = poh->slot-1UL;
+    dst->slot      = fd_ulong_if( completed_leader_slot, poh->slot-1UL, poh->slot );
     fd_memcpy( dst->blockhash, poh->hash, 32UL );
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem, poh->replay_out->idx, 0UL, poh->replay_out->chunk, sizeof(fd_poh_leader_slot_ended_t), 0UL, 0UL, tspub );
@@ -187,6 +187,8 @@ fd_poh_reset( fd_poh_t *          poh,
               ulong               next_leader_slot,        /* The next slot where this node will be leader */
               ulong               max_microblocks_in_slot, /* The maximum number of microblocks that may appear in a slot */
               uchar const *       completed_block_id       /* The block id of the completed block */)  {
+  FD_TEST( memcmp( poh->completed_block_id, completed_block_id, 32UL ) );
+
   memcpy( poh->reset_hash, completed_blockhash, 32UL );
   memcpy( poh->hash, completed_blockhash, 32UL );
   memcpy( poh->completed_block_id, completed_block_id, 32UL );
@@ -290,8 +292,10 @@ fd_poh_update_max_microblocks( fd_poh_t * poh,
 }
 
 void
-fd_poh_done_packing( fd_poh_t * poh,
-                     ulong      microblocks_in_slot ) {
+fd_poh_done_packing( fd_poh_t *          poh,
+                     fd_stem_context_t * stem,
+                     ulong               microblocks_in_slot,
+                     int                 abandoned ) {
   FD_TEST( poh->state==STATE_LEADER );
   FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
                 poh->slot,
@@ -299,6 +303,11 @@ fd_poh_done_packing( fd_poh_t * poh,
                 microblocks_in_slot ));
   FD_TEST( poh->microblocks_lower_bound==microblocks_in_slot );
   FD_TEST( poh->microblocks_lower_bound<=poh->max_microblocks_per_slot );
+
+  if( FD_UNLIKELY( abandoned ) ) {
+    transition_to_follower( poh, stem, 0 );
+    return;
+  }
 
   poh->microblocks_lower_bound += 1UL /* done_packing as a phantom "microblock"*/
                                 + (poh->max_microblocks_per_slot-1UL) /* the canonical microblock limit */

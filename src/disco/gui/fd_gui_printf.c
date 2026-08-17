@@ -2127,7 +2127,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
               jsonp_string( gui->http, "end_slot_reason", "microblock_limit" );
               break;
             }
-            case FD_PACK_END_SLOT_REASON_LEADER_SWITCH: {
+            case FD_PACK_END_SLOT_REASON_ABANDONED: {
               jsonp_string( gui->http, "end_slot_reason", "leader_switch" );
               break;
             }
