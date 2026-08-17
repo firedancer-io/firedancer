@@ -323,3 +323,30 @@ fd_sysvar_clock_update( fd_bank_t *          bank,
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2209-L2214 */
   fd_sysvar_clock_write( bank, accdb, capture_ctx, clock );
 }
+
+void
+fd_sysvar_clock_update_slot_alpenglow( fd_bank_t *        bank,
+                                       fd_accdb_t *       accdb,
+                                       fd_capture_ctx_t * capture_ctx ) {
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock_ );
+  if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
+
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot,        NULL );
+  ulong parent_epoch  = fd_slot_to_epoch( epoch_schedule, bank->f.parent_slot, NULL );
+
+  long epoch_start_timestamp;
+  if(      FD_UNLIKELY( !bank->f.slot               ) ) epoch_start_timestamp = unix_timestamp_from_genesis( bank );
+  else if( FD_UNLIKELY( parent_epoch!=current_epoch ) ) epoch_start_timestamp = clock->unix_timestamp;
+  else                                                  epoch_start_timestamp = clock->epoch_start_timestamp;
+
+  *clock = (fd_sol_sysvar_clock_t){
+    .slot                  = bank->f.slot,
+    .epoch_start_timestamp = epoch_start_timestamp,
+    .epoch                 = current_epoch,
+    .leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, bank->f.slot ),
+    .unix_timestamp        = clock->unix_timestamp, /* parent's footer timestamp */
+  };
+  fd_sysvar_clock_write( bank, accdb, capture_ctx, clock );
+}

@@ -411,7 +411,7 @@ fd_vsv_set_root_slot( fd_vote_state_versioned_t * self, ulong * root_slot ) {
   }
 }
 
-static void
+void
 fd_vsv_set_last_timestamp( fd_vote_state_versioned_t *       self,
                            fd_vote_block_timestamp_t const * last_timestamp ) {
   switch( self->kind ) {

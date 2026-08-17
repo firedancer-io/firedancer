@@ -11,6 +11,7 @@
 #include "context/fd_exec_instr_ctx.h"
 #include "../fd_flamenco_base.h"
 #include "../accdb/fd_accdb.h"
+#include "../rewards/fd_alpen_rewards.h"
 
 /* The general structure for executing transactions in Firedancer can
    be thought of as a state machine where transaction execution is a
@@ -357,6 +358,20 @@ void
 fd_runtime_block_execute_finalize( fd_bank_t *        bank,
                                    fd_accdb_t  *      accdb,
                                    fd_capture_ctx_t * capture_ctx );
+
+/* fd_runtime_apply_footer applies an Alpenglow block footer's side
+   effects to the bank's accounts.  The clock sysvar and the
+   alpenclock account are rewritten from the footer's producer timestamp,
+   then the rewards are applied to the vote accounts.  Returns 0 on
+   success, -1 on failure and bank should be marked dead. */
+int
+fd_runtime_apply_footer( fd_bank_t *               bank,
+                         fd_accdb_t *              accdb,
+                         fd_capture_ctx_t *        capture_ctx,
+                         fd_footer_certs_t const * certs,
+                         ulong                     producer_time_nanos,
+                         fd_footer_epoch_info_fn_t epoch_info_fn,
+                         void *                    epoch_info_ctx );
 
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of

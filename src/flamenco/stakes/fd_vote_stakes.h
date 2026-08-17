@@ -203,6 +203,15 @@ ulong
 fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
                         ulong                    fork_id );
 
+/* fd_vote_stakes_total_stake returns the total stake of the epoch
+   stakes set for epoch.
+   epoch must be the current (the t-2 set) or the one before it
+   (the t-3 set); returns 0 if that epoch's set is not resident. */
+
+ulong
+fd_vote_stakes_total_stake( fd_vote_stakes_t const * vote_stakes,
+                            ulong                    epoch );
+
 /* Defined below are the iterators for the t-1 and t-2 sets.  These
    iterators will NOT skip over invalid vote accounts intentionally.
    The reason being is that invalid vote accounts are still considered

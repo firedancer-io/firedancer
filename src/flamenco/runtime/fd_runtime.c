@@ -12,6 +12,9 @@
 #include "fd_compute_budget_details.h"
 #include "tests/fd_dump_pb.h"
 
+#include "fd_system_ids.h"
+#include "sysvar/fd_sysvar.h"
+#include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_recent_hashes.h"
 #include "sysvar/fd_sysvar_stake_history.h"
@@ -733,9 +736,13 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *          bank,
 
   fd_runtime_new_fee_rate_governor_derived( bank, bank->f.parent_signature_cnt );
 
-  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, bank->f.parent_slot, NULL );
-  fd_sysvar_clock_update( bank, accdb, capture_ctx, runtime_stack, &parent_epoch );
+  if( fd_alpenglow_migration_slot( bank, accdb )!=ULONG_MAX ) {
+    fd_sysvar_clock_update_slot_alpenglow( bank, accdb, capture_ctx );
+  } else {
+    fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+    ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, bank->f.parent_slot, NULL );
+    fd_sysvar_clock_update( bank, accdb, capture_ctx, runtime_stack, &parent_epoch );
+  }
 
   // It has to go into the current txn previous info but is not in slot 0
   if( bank->f.slot != 0 ) {
@@ -1650,6 +1657,51 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
 
   int err = fd_runtime_process_genesis_block( bank, accdb, capture_ctx, runtime_stack );
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
+}
+
+int
+fd_runtime_apply_footer( fd_bank_t *               bank,
+                         fd_accdb_t *              accdb,
+                         fd_capture_ctx_t *        capture_ctx,
+                         fd_footer_certs_t const * certs,
+                         ulong                     producer_time_nanos,
+                         fd_footer_epoch_info_fn_t epoch_info_fn,
+                         void *                    epoch_info_ctx ) {
+
+  /* Rewrite the clock sysvar and the alpenclock account from the
+     footer's producer timestamp (Agave Bank::update_clock_from_footer).
+     The clock must be applied before the reward certs. */
+
+  long unix_timestamp = (long)( producer_time_nanos/1000000000UL );
+
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock_ );
+  if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
+
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot, NULL );
+
+  fd_sol_sysvar_clock_t new_clock = {
+    .slot                  = bank->f.slot,
+    .epoch_start_timestamp = clock->epoch_start_timestamp,
+    .epoch                 = current_epoch,
+    .leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, bank->f.slot ),
+    .unix_timestamp        = unix_timestamp,
+  };
+  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_clock_id, &new_clock, sizeof(fd_sol_sysvar_clock_t) );
+
+  fd_pubkey_t alpenclock_addr;
+  fd_alpenglow_pda( "alpenclock", &alpenclock_addr );
+
+  /* size the alpenclock balance with default rent */
+  uchar data[ 8UL ];
+  FD_STORE( ulong, data, producer_time_nanos );
+  fd_accdb_svm_write( bank, accdb, capture_ctx, &alpenclock_addr, &fd_solana_system_program_id,
+                      data, sizeof(data), fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, sizeof(data) ), 0 );
+
+  return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs,
+                                  producer_time_nanos,
+                                  epoch_info_fn, epoch_info_ctx );
 }
 
 void

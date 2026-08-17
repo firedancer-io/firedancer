@@ -53,6 +53,20 @@ fd_sysvar_clock_update( fd_bank_t *          bank,
                         fd_runtime_stack_t * runtime_stack,
                         ulong const *        parent_epoch );
 
+/* fd_sysvar_clock_update_slot_for_alpenglow advances the clock sysvar's
+   slot, epoch and leader_schedule_epoch at the start of an alpenglow
+   block, without the stake-weighted timestamp calculation.
+
+   https://github.com/anza-xyz/agave/blob/386cf57c45e135d8a3a8b7d16877eb896f695c64/runtime/src/bank.rs#L2507
+
+   At an epoch boundary the parent's timestamp becomes the epoch start
+   timestamp. */
+
+void
+fd_sysvar_clock_update_slot_alpenglow( fd_bank_t *        bank,
+                                       fd_accdb_t *       accdb,
+                                       fd_capture_ctx_t * capture_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_clock_h */

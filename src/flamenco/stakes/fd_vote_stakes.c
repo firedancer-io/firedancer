@@ -704,6 +704,24 @@ fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
   return vacc_pool_used( t_2_vacc_pool( vote_stakes, (ulong)fork_id_epoch( fork_id ) & 1UL ) );
 }
 
+ulong
+fd_vote_stakes_total_stake( fd_vote_stakes_t const * vote_stakes,
+                            ulong                    epoch ) {
+  ulong idx = epoch & 1UL;
+  if( FD_UNLIKELY( vote_stakes->t_2_epoch[ idx ]!=epoch ) ) return 0UL;
+
+  vacc_t *     pool = t_2_vacc_pool( vote_stakes, idx );
+  vacc_map_t * map  = t_2_vacc_map ( vote_stakes, idx );
+
+  ulong total = 0UL;
+  for( vacc_map_iter_t iter = vacc_map_iter_init( map, pool );
+       !vacc_map_iter_done( iter, map, pool );
+       iter = vacc_map_iter_next( iter, map, pool ) ) {
+    total += vacc_map_iter_ele_const( iter, map, pool )->stake;
+  }
+  return total;
+}
+
 FD_STATIC_ASSERT( FD_VOTE_STAKES_T_1_ITER_FOOTPRINT == sizeof(vacc_map_iter_t), t_1_iter_footprint );
 FD_STATIC_ASSERT( FD_VOTE_STAKES_T_1_ITER_ALIGN == alignof(vacc_map_iter_t), t_1_iter_align );
 FD_STATIC_ASSERT( FD_VOTE_STAKES_T_2_ITER_FOOTPRINT == sizeof(vacc_map_iter_t), t_2_iter_footprint );

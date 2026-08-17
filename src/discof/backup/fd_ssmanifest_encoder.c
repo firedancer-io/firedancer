@@ -199,6 +199,7 @@ ENCODE_FN {
     ushort      commission   = 0;
     ulong       ec_cnt       = 0UL;
     fd_epoch_credits_t const * ec = NULL;
+    uchar bls_key[ AG_BLS_PUB_COMPRESSED_SZ ] = {0};
 
     fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
     ushort co_root = fd_collector_overrides_get_root_idx( overrides );
@@ -209,7 +210,7 @@ ENCODE_FN {
     if( entry_type==2U ) {
       fd_vote_stakes_t_1_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
       FD_TEST( !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter ) );
-      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, &commission, NULL );
+      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, &commission, bls_key );
       ec = find_epoch_credits( enc->bank, &pubkey );
       FD_TEST( ec );
       ec_cnt = ec->cnt;
@@ -217,7 +218,7 @@ ENCODE_FN {
     } else if( entry_type==1U ) {
       fd_vote_stakes_t_2_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
       FD_TEST( !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter ) );
-      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, &commission, NULL, NULL );
+      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, &commission, NULL, bls_key );
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
       /* The bank epoch credits will have the resolved commission for
@@ -243,11 +244,15 @@ ENCODE_FN {
       fd_collector_overrides_query( overrides, co_root, co_epoch, &pubkey, &inflation_collector, &block_collector );
     }
 
+    /* A zeroed key means no BLS key is registered (serialized as None) */
+    static uchar const no_bls_key[ AG_BLS_PUB_COMPRESSED_SZ ] = {0};
+    int has_bls = !fd_memeq( bls_key, no_bls_key, AG_BLS_PUB_COMPRESSED_SZ );
+
     enc->total_stake += stake;
 
     FD_TEST( ec_cnt<=FD_EPOCH_CREDITS_MAX );
 
-    ulong data_length = 186UL + 24UL * ec_cnt;
+    ulong data_length = 186UL + fd_ulong_if( !!has_bls, AG_BLS_PUB_COMPRESSED_SZ, 0UL ) + 24UL * ec_cnt;
 
     /* Vote account key + stake */
     PUSH_VAL( fd_pubkey_t, pubkey );
@@ -266,7 +271,13 @@ ENCODE_FN {
     PUSH_VAL( ushort, commission ); /* inflation_rewards_commission_bps */
     PUSH_VAL( ushort, (ushort)0 ); /* block_revenue_commission_bps */
     PUSH_VAL( ulong,  0UL      ); /* pending_delegator_rewards */
-    PUSH_VAL( uchar,  0        ); /* bls_pubkey_compressed = None */
+    if( has_bls ) {
+      typedef struct { uchar b[ AG_BLS_PUB_COMPRESSED_SZ ]; } bls_key_compressed_t;
+      PUSH_VAL( uchar, 1        ); /* bls_pubkey_compressed = Some */
+      PUSH_VAL( bls_key_compressed_t, *(bls_key_compressed_t const *)bls_key );
+    } else {
+      PUSH_VAL( uchar, 0        ); /* bls_pubkey_compressed = None */
+    }
     PUSH_VAL( ulong,  0UL      ); /* votes_length = 0 */
     PUSH_VAL( uchar,  0        ); /* root_slot = None */
     PUSH_VAL( ulong,  0UL      ); /* authorized_voters_length = 0 */

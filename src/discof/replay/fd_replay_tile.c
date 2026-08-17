@@ -37,6 +37,7 @@
 #include "../repair/fd_repair_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
+
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -875,6 +876,26 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
 }
 
 static void
+mark_bank_dead( fd_replay_tile_t *  ctx,
+                fd_stem_context_t * stem,
+                ulong               bank_idx,
+                int                 dead_reason,
+                int                 abandoned_reason );
+
+/* replay_epoch_info returns the ranked Alpenglow validator set tracked
+   for epoch, NULL if unknown. */
+
+static ag_epoch_info_t const *
+replay_epoch_info( void * _ctx,
+                   ulong  epoch ) {
+  fd_replay_tile_t * ctx = (fd_replay_tile_t *)_ctx;
+  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+    if( ctx->epoch_vtrs[ i ].epoch==epoch ) return ctx->epoch_vtrs[ i ].info;
+  }
+  return NULL;
+}
+
+static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
@@ -890,8 +911,40 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   ulong execution_fees_pre_settle = bank->f.execution_fees;
   ulong priority_fees_pre_settle  = bank->f.priority_fees;
 
+  /* Apply footer side effects before hashing. */
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    fd_footer_certs_t certs[1];
+    certs->fast_final_cert   = fd_sched_get_fast_final_cert  ( ctx->sched, bank->idx );
+    certs->final_cert        = fd_sched_get_final_cert       ( ctx->sched, bank->idx );
+    certs->final_notar_cert  = fd_sched_get_final_notar_cert ( ctx->sched, bank->idx );
+    certs->skip_reward_cert  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
+    certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
+
+    // TODO missing cert verify - inline to replay or use new verify tiles
+    if( FD_UNLIKELY( fd_runtime_apply_footer( bank, ctx->accdb, ctx->capture_ctx, certs,
+                                              fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx ),
+                                              replay_epoch_info, ctx ) ) ) {
+      FD_LOG_CRIT(( "slot %lu: footer cert processing failed; marking bank dead", bank->f.slot ));
+      return;
+    }
+  }
+
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
+
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
+    if( FD_UNLIKELY( memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
+      FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
+      FD_LOG_CRIT(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+      return;
+    } else {
+      FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58 );
+      FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
+      FD_LOG_INFO(( "slot %lu: bank hash matches, footer declares %s, executed %s", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+    }
+  }
 
   /* Copy out cost tracker fields before freezing */
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1404,12 +1457,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
   return 1;
 }
 
-static void
-mark_bank_dead( fd_replay_tile_t *  ctx,
-                fd_stem_context_t * stem,
-                ulong               bank_idx,
-                int                 dead_reason,
-                int                 abandoned_reason );
 
 static void
 process_poh_message( fd_replay_tile_t *                 ctx,
@@ -3691,7 +3738,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->reception_stats_cnt );
   for( ulong i=0UL; i<ctx->reception_stats_cnt; i++ ) ctx->reception_stats[ i ].slot = ULONG_MAX;
   ctx->reasm_evicted = NULL;
-  ctx->is_alpenglow = tile->replay.alpenglow;
+  ctx->is_alpenglow             = tile->replay.alpenglow;
 
   ctx->leader_stats.slot = ULONG_MAX;
 
