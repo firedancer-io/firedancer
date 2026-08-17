@@ -303,6 +303,7 @@ main( int     argc,
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;
   fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_out", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
+  fd_topo_link_t * link_shred_out  = create_link( topo, wksp, "shred_out",  4UL, sizeof(fd_shred_message_t), 3UL );
 
   fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
@@ -319,6 +320,7 @@ main( int     argc,
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
+  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "shred_out",  0UL, 0, 1 );
 
   void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
   fd_http_server_params_t http_params = derive_http_params( tile );
@@ -473,6 +475,64 @@ main( int     argc,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}",
       "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32005,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":1}"
   );
+
+  /* -- getMaxRetransmitSlot -- */
+
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMaxRetransmitSlot\"}",
+      "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":1}"
+  );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMaxRetransmitSlot\",\"params\":[1]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":1}"
+  );
+
+  {
+    /* Drive shred frags through the stem callback sequence */
+    ulong shred_in_idx = 1UL; /* gossip_out is 0 */
+    FD_TEST( ctx->in_kind[ shred_in_idx ]==IN_KIND_SHRED );
+    fd_shred_base_t * shred_msg = fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_shred_out->dcache ) );
+    ulong             shred_chunk = fd_laddr_to_chunk( wksp, shred_msg );
+
+#define PUBLISH_SHRED( _slot, _src, _res ) do {                                                                          \
+      memset( shred_msg, 0, sizeof(fd_shred_base_t) );                                                                   \
+      shred_msg->shred.slot = (_slot);                                                                                    \
+      ulong _sig = ((ulong)(_res) << 32UL) | (ulong)(_src);                                                               \
+      if( !before_frag( ctx, shred_in_idx, 0UL, _sig ) ) {                                                                \
+        during_frag( ctx, shred_in_idx, 0UL, _sig, shred_chunk, sizeof(fd_shred_base_t), 0UL );                          \
+        FD_TEST( !returnable_frag( ctx, shred_in_idx, 0UL, _sig, shred_chunk, sizeof(fd_shred_base_t), 0UL, 0UL, 0UL, NULL ) ); \
+      }                                                                                                                  \
+    } while( 0 )
+
+    PUBLISH_SHRED( 100UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_OKAY );
+    FD_TEST( ctx->max_retransmit_slot==100UL );
+    PUBLISH_SHRED( 105UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_COMPLETES );
+    FD_TEST( ctx->max_retransmit_slot==105UL );
+    /* Lower slots never move it backwards */
+    PUBLISH_SHRED( 90UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_OKAY );
+    FD_TEST( ctx->max_retransmit_slot==105UL );
+    /* Repair shreds are not retransmitted */
+    PUBLISH_SHRED( 200UL, SHRED_SIG_SRC_REPAIR, SHRED_SIG_RESULT_OKAY );
+    PUBLISH_SHRED( 201UL, SHRED_SIG_SRC_BAD_REPAIR, SHRED_SIG_RESULT_OKAY );
+    FD_TEST( ctx->max_retransmit_slot==105UL );
+    /* Nor are duplicate / equivocating turbine shreds */
+    PUBLISH_SHRED( 202UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_DUPLICATE );
+    PUBLISH_SHRED( 203UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_EQVOC );
+    FD_TEST( ctx->max_retransmit_slot==105UL );
+    /* Nor reconstructed shreds (leader FEC sets ride this sig too) */
+    PUBLISH_SHRED( 204UL, SHRED_SIG_SRC_RECONSTRUCTED, SHRED_SIG_RESULT_COMPLETES );
+    FD_TEST( ctx->max_retransmit_slot==105UL );
+    /* FEC events carry no shred and are filtered before the dcache read */
+    FD_TEST( before_frag( ctx, shred_in_idx, 0UL, SHRED_SIG_FEC_COMPLETE ) );
+    FD_TEST( before_frag( ctx, shred_in_idx, 0UL, SHRED_SIG_FEC_EVICTED  ) );
+    FD_TEST( before_frag( ctx, shred_in_idx, 0UL, SHRED_SIG_FEC_COMPLETE_LEADER ) );
+#undef PUBLISH_SHRED
+
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMaxRetransmitSlot\"}",
+        "{\"jsonrpc\":\"2.0\",\"result\":105,\"id\":1}"
+    );
+  }
 
   /* -- getMultipleAccounts -- */
 
