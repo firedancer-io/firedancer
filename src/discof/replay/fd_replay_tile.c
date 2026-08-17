@@ -875,6 +875,13 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
 }
 
 static void
+mark_bank_dead( fd_replay_tile_t *  ctx,
+                fd_stem_context_t * stem,
+                ulong               bank_idx,
+                int                 dead_reason,
+                int                 abandoned_reason );
+
+static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
@@ -892,6 +899,19 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
+
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    /* An Alpenglow block's footer announces the bank hash the block
+       producer computed.  A completed block with no footer, or whose
+       executed bank hash differs from the announced one, is invalid. */
+    fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
+    if( FD_UNLIKELY( memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
+      FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
+      FD_LOG_CRIT(( "slot %lu: bank hash mismatch, footer announced %s but executed %s; marking bank dead", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+      return;
+    }
+  }
 
   /* Copy out cost tracker fields before freezing */
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1404,12 +1424,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
   return 1;
 }
 
-static void
-mark_bank_dead( fd_replay_tile_t *  ctx,
-                fd_stem_context_t * stem,
-                ulong               bank_idx,
-                int                 dead_reason,
-                int                 abandoned_reason );
 
 static void
 process_poh_message( fd_replay_tile_t *                 ctx,

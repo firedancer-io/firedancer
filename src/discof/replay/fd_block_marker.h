@@ -1,68 +1,108 @@
 #ifndef HEADER_fd_src_discof_replay_fd_block_marker_h
 #define HEADER_fd_src_discof_replay_fd_block_marker_h
 
-#include "../../util/fd_util_base.h"
+/* fd_block_marker deserializes Alpenglow block markers. */
+
 #include "../../flamenco/fd_flamenco_base.h"
 
+#define FD_BLOCK_MARKER_DE_SUCCESS         ( 0)
+#define FD_BLOCK_MARKER_DE_ERR_TRUNCATED   (-1) /* input ended short of the encoding */
+#define FD_BLOCK_MARKER_DE_ERR_MALFORMED   (-2) /* not a valid encoding */
+#define FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED (-3) /* valid, but a version/variant we don't handle */
 
-/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L251 */
-struct __attribute__((packed)) fd_block_header {
-   uchar header_version;
-   struct {
-     ulong     parent_slot;
-     fd_hash_t parent_block_id;
-   } v1;
-};
-typedef struct fd_block_header fd_block_header_t;
-
-/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L240 */
-struct __attribute__((packed)) fd_block_footer {
-   uchar footer_version;
-   struct {
-     fd_hash_t bank_hash;
-     ulong     block_producer_time_nanos;
-     uchar     block_user_agent_length;
-     /* optional fields... */
-     // uchar   block_user_agent[255];
-     /* uchar   has_final_cert;
-        uchar   final_cert[255];
-
-        uchar   has_skip_reward_cert;
-        uchar   skip_reward_cert[255];
-        uchar   has_notar_reward_cert;
-        uchar notar_reward_cert[255]; */
-   } v1;
-};
-typedef struct fd_block_footer fd_block_footer_t;
-
-/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L257 */
-struct __attribute__((packed)) fd_update_parent {
-   uchar     update_parent_version;
-   ulong     new_parent_slot;
-   fd_hash_t new_parent_block_id;
-};
-typedef struct fd_update_parent fd_update_parent_t;
+/* Size of the fixed marker preamble: marker_flag (8) + version (2) +
+   variant (1) + length (2). */
+#define FD_BLOCK_MARKER_PREAMBLE_SZ (13UL)
 
 /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L381 */
 enum fd_block_marker_variant {
    FOOTER = 0,
    HEADER = 1,
    UPDATE_PARENT = 2,
-   GENESIS_CERTIFICATE = 3, /* ??? */
+   GENESIS_CERTIFICATE = 3,
 };
+struct fd_block_header {
+   ulong     parent_slot;
+   fd_hash_t parent_block_id;
+};
+typedef struct fd_block_header fd_block_header_t;
 
 /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L436 */
-struct __attribute__((packed)) fd_block_marker {
-   ulong  marker_flag; /* always 0 */
-   ushort version;     /* block marker header version, currently 1  */
-   uchar  variant;     /* variant of block marker */
-   ushort length;
+struct fd_update_parent {
+   ulong     new_parent_slot;
+   fd_hash_t new_parent_block_id;
+};
+typedef struct fd_update_parent fd_update_parent_t;
+
+#define FD_BLOCK_FOOTER_USER_AGENT_MAX (255UL)
+
+struct fd_block_footer {
+   fd_hash_t bank_hash;
+   ulong     block_producer_time_nanos;
+   ulong     user_agent_len;
+   uchar     user_agent[ FD_BLOCK_FOOTER_USER_AGENT_MAX ];
+
+   /* Optional certificates.  point into the caller's input buffer, so
+      they are only valid for the buffer's lifetime. NULL (with sz 0) if
+      the footer does not carry the certificate.  certs are not verified. */
+   uchar const * final_cert;
+   ulong         final_cert_sz;
+   uchar const * skip_reward_cert;
+   ulong         skip_reward_cert_sz;
+   uchar const * notar_reward_cert;
+   ulong         notar_reward_cert_sz;
+};
+typedef struct fd_block_footer fd_block_footer_t;
+
+struct fd_block_marker {
+   uchar variant; /* enum fd_block_marker_variant */
    union {
-    fd_block_header_t header;
-    fd_block_footer_t footer;
+    fd_block_header_t  header;
+    fd_block_footer_t  footer;
     fd_update_parent_t update_parent;
-   } data;
+   };
 };
 typedef struct fd_block_marker fd_block_marker_t;
 
-#endif /*HEADER_fd_src_discof_replay_fd_block_marker_h */
+FD_PROTOTYPES_BEGIN
+
+/* The variant deserializers below decode a versioned marker payload,
+   with buf pointing at the payload byte (FD_BLOCK_MARKER_PREAMBLE_SZ
+   into the marker). They return FD_BLOCK_MARKER_DE_SUCCESS and write
+   the number of bytes consumed to buf_sz (if non-NULL) on success, and
+   return FD_BLOCK_MARKER_DE_ERR_* on failure. */
+
+int
+fd_block_header_de( fd_block_header_t * header,
+                    uchar const *       buf,
+                    ulong               buf_max,
+                    ulong *             buf_sz );
+
+int
+fd_block_footer_de( fd_block_footer_t * footer,
+                    uchar const *       buf,
+                    ulong               buf_max,
+                    ulong *             buf_sz );
+
+int
+fd_update_parent_de( fd_update_parent_t * update_parent,
+                     uchar const *        buf,
+                     ulong                buf_max,
+                     ulong *              buf_sz );
+
+/* fd_block_marker_de deserializes a whole block marker, with buf
+   pointing at the marker flag (the start of the marker batch). Trailing
+   bytes past buf_max are not consumed (and not an error): buf_sz
+   receives FD_BLOCK_MARKER_PREAMBLE_SZ + length on success.  Returns
+   FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED or
+   FD_BLOCK_MARKER_DE_ERR_MALFORMED. */
+
+int
+fd_block_marker_de( fd_block_marker_t * marker,
+                    uchar const *       buf,
+                    ulong               buf_max,
+                    ulong *             buf_sz );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_discof_replay_fd_block_marker_h */

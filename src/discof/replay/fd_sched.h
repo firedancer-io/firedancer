@@ -479,6 +479,23 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
 
+/* fd_sched_get_footer_bank_hash returns the bank hash announced by
+   bank_idx's Alpenglow block footer, or NULL if no footer marker has
+   been parsed for the block (including when the footer simply hasn't
+   arrived yet; only meaningful once the block is done).  The hash stays
+   valid until the block is pruned. */
+fd_hash_t const *
+fd_sched_get_footer_bank_hash( fd_sched_t * sched, ulong bank_idx );
+
+/* fd_sched_get_final_cert returns the raw finalization cert bytes
+   parsed out of bank_idx's Alpenglow block footer, writing the byte
+   count to sz.  Returns NULL (*sz==0) if the block footer carried none
+   (or has not been parsed yet; only meaningful once the block is done).
+   The bytes are decodable with ag_cert_block_final_de and stay valid
+   until the block is pruned. */
+uchar const *
+fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx, ulong * sz );
+
 void
 fd_sched_metrics_write( fd_sched_t * sched );
 

@@ -1,4 +1,8 @@
 $(call add-hdrs,fd_execrp.h)
+$(call add-hdrs,fd_block_marker.h)
+$(call add-objs,fd_block_marker,fd_discof)
+$(call make-unit-test,test_block_marker,test_block_marker,fd_discof fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_block_marker)
 $(call add-objs,fd_rdisp,fd_discof)
 $(call make-unit-test,test_rdisp,test_rdisp,fd_discof fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_rdisp)
