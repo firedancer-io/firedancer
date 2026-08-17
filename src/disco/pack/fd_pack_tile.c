@@ -163,6 +163,9 @@ typedef struct {
 
   ulong pack_txn_cnt; /* total num transactions packed since startup */
 
+  long  slot_pack_start_ns;  /* wallclock ns production began for leader_slot */
+  ulong slot_bundle_txn_cnt; /* bundled txns scheduled into leader_slot */
+
   /* The maximum number of microblocks that can be packed in this slot.
      Provided by the PoH tile when we become leader.*/
   ulong slot_max_microblocks;
@@ -445,6 +448,11 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
 #undef DELTA
 
   fd_pack_get_pending_smallest( ctx->pack, done_packing->pending_smallest, done_packing->pending_votes_smallest );
+
+  done_packing->bundle_txn_count = ctx->slot_bundle_txn_cnt;
+  done_packing->pack_start_ns    = ctx->slot_pack_start_ns;
+  done_packing->pack_end_ns      = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
+
 }
 
 static inline void
@@ -872,6 +880,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       ctx->slot_microblock_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 1UL );
       ctx->pack_idx += fd_uint_if( trailer->is_bundle, (uint)schedule_cnt, 1U );
       ctx->pack_txn_cnt += schedule_cnt;
+      ctx->slot_bundle_txn_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 0UL );
 
       ctx->execle_idle_bitset = fd_ulong_pop_lsb( ctx->execle_idle_bitset );
       ctx->skip_cnt           = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)execle_cnt/2L, 1L );
@@ -1184,6 +1193,9 @@ after_frag( fd_pack_ctx_t *     ctx,
       remove_ib( ctx );
     }
     ctx->leader_slot = leader_slot;
+
+    ctx->slot_pack_start_ns  = now_ns;
+    ctx->slot_bundle_txn_cnt = 0UL;
 
     ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
     FD_MCNT_INC( PACK, TXN_EXPIRED, exp_cnt );

@@ -9,6 +9,7 @@
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/node_info/fd_node_info.h"
+#include "../../discof/poh/fd_poh.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -226,6 +227,24 @@ fd_topo_obj_callbacks_t fd_obj_cb_node_info = {
   .footprint = node_info_footprint,
   .align     = node_info_align,
   .new       = node_info_new,
+};
+
+static ulong
+leader_txn_timing_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                             fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return FD_LEADER_TXN_TIMING_TABLE_CNT*sizeof(fd_leader_txn_timing_table_t);
+}
+
+static ulong
+leader_txn_timing_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                         fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return alignof(fd_leader_txn_timing_table_t);
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_leader_txn_timing = {
+  .name      = "ldr_tt",
+  .footprint = leader_txn_timing_footprint,
+  .align     = leader_txn_timing_align,
 };
 
 fd_topo_run_tile_t

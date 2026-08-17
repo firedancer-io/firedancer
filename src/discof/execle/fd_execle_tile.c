@@ -251,7 +251,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
                    ulong               sz,
                    ulong               begin_tspub,
                    fd_stem_context_t * stem ) {
-  long const microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, fd_tickcount() );
+  long const exec_start_ticks       = fd_tickcount();
+  long const microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, exec_start_ticks );
 
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
@@ -264,8 +265,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
   FD_TEST( bank_slot==slot );
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
-  trailer->txn_ns_dt = (fd_txn_ns_dt_t){0};
-  trailer->bank_seq  = bank->bank_seq;
+  trailer->txn_ns_dt        = (fd_txn_ns_dt_t){0};
+  trailer->bank_seq         = bank->bank_seq;
+  trailer->exec_start_ticks = exec_start_ticks;
+  trailer->exec_end_ticks   = LONG_MAX;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
@@ -367,6 +370,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
     trailer->txn_ns_dt.exec_start   = fd_float_if( txn_out->details.exec_start_ticks==LONG_MAX,   trailer->txn_ns_dt.check_start,  (float)fd_long_max( 0L, txn_out->details.exec_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
     trailer->txn_ns_dt.commit_start = fd_float_if( txn_out->details.commit_start_ticks==LONG_MAX, trailer->txn_ns_dt.exec_start,   (float)fd_long_max( 0L, txn_out->details.commit_start_ticks - microblock_start_ticks ) * ctx->ns_per_tick );
     trailer->txn_ns_dt.commit_end   = fd_float_if( txn_end_ticks==LONG_MAX,                       trailer->txn_ns_dt.commit_start, (float)fd_long_max( 0L, txn_end_ticks                       - microblock_start_ticks ) * ctx->ns_per_tick );
+    trailer->exec_end_ticks         = txn_end_ticks;
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
@@ -464,7 +468,8 @@ handle_bundle( fd_execle_tile_t *  ctx,
                ulong               sz,
                ulong               begin_tspub,
                fd_stem_context_t * stem ) {
-  long const microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, fd_tickcount() );
+  long const bundle_start_ticks     = fd_tickcount();
+  long const microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, bundle_start_ticks );
 
   fd_txn_p_t * txns = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
@@ -654,9 +659,11 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
-    trailer->pack_txn_idx = ctx->_txn_idx + i;
-    trailer->tips         = tips[ i ];
-    trailer->bank_seq     = bank->bank_seq;
+    trailer->pack_txn_idx     = ctx->_txn_idx + i;
+    trailer->tips             = tips[ i ];
+    trailer->bank_seq         = bank->bank_seq;
+    trailer->exec_start_ticks = bundle_start_ticks;
+    trailer->exec_end_ticks   = txn_end_ticks[ i ];
 
     ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 

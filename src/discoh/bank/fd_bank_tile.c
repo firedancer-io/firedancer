@@ -358,6 +358,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   trailer->txn_ns_dt.exec_start   = (float)fd_long_max( 0L, tx_load_end_ticks    - microblock_start_ticks ) * ctx->ns_per_tick;
   trailer->txn_ns_dt.commit_start = (float)fd_long_max( 0L, tx_end_ticks         - microblock_start_ticks ) * ctx->ns_per_tick;
   trailer->txn_ns_dt.commit_end   = (float)fd_long_max( 0L, fd_tickcount()       - microblock_start_ticks ) * ctx->ns_per_tick;
+  trailer->exec_start_ticks       = 0L;
+  trailer->exec_end_ticks         = 0L;
 
 
   /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_p_t to PoH,
@@ -544,6 +546,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     trailer->txn_ns_dt.exec_start   = (float)fd_long_max( 0L, tx_load_end_ticks    - microblock_start_ticks ) * ctx->ns_per_tick;
     trailer->txn_ns_dt.commit_start = (float)fd_long_max( 0L, tx_end_ticks         - microblock_start_ticks ) * ctx->ns_per_tick;
     trailer->txn_ns_dt.commit_end   = (float)fd_long_max( 0L, fd_tickcount()       - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->exec_start_ticks       = 0L;
+    trailer->exec_end_ticks         = 0L;
 
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
     fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( tickcount ) );
