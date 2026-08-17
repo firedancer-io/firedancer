@@ -142,7 +142,8 @@ fd_prune_finder_footprint( void ) {
 }
 
 void *
-fd_prune_finder_new( void * shmem ) {
+fd_prune_finder_new( void * shmem,
+                     ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) return NULL;
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_prune_finder_align() ) ) ) return NULL;
 
@@ -156,7 +157,7 @@ fd_prune_finder_new( void * shmem ) {
 
   pf->pool    = pool_join( pool_new( pool_mem, FD_PRUNE_FINDER_ORIGIN_MAX ) );
   FD_TEST( pf->pool );
-  pf->origins = origin_map_join( origin_map_new( map_mem, chain_cnt, 0UL ) );
+  pf->origins = origin_map_join( origin_map_new( map_mem, chain_cnt, seed ) );
   FD_TEST( pf->origins );
   pf->lru     = lru_list_join( lru_list_new( lru_mem ) );
   FD_TEST( pf->lru );
