@@ -932,6 +932,35 @@ test_bank_epoch_vote_data_singleton( void * mem ) {
   FD_TEST( *fd_bank_snapshot_commission_t_3_len( child_b )==2UL );
 }
 
+/* Banks size each stake rewards window to half the maximum supported
+   stake rewards so that oversized reward sets are handled by the
+   existing window advance path instead of being fully materialized. */
+
+static void
+test_bank_stake_rewards_window_capacity( fd_wksp_t * wksp ) {
+  ulong const max_stake_rewards = 64UL;
+  ulong const max_fork_width    = 2UL;
+  ulong const fp = fd_banks_footprint( 4UL, max_fork_width, max_stake_rewards, 256UL, 8UL );
+  uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fp, 1UL );
+  FD_TEST( mem );
+
+  FD_TEST( fd_banks_new( mem, 4UL, max_fork_width, max_stake_rewards, 256UL, 8UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( mem );
+  FD_TEST( banks );
+
+  fd_bank_t * bank = fd_banks_init_bank( banks );
+  FD_TEST( bank );
+
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  fd_hash_t blockhash = {{ 0 }};
+  uchar fork_idx = fd_stake_rewards_init( stake_rewards, 1UL, &blockhash, 0UL, 8U, max_stake_rewards );
+
+  FD_TEST( fd_stake_rewards_window_lo( stake_rewards, fork_idx )==0U );
+  FD_TEST( fd_stake_rewards_window_hi( stake_rewards, fork_idx )==2U );
+
+  fd_wksp_free_laddr( mem );
+}
+
 /* fd_banks_new must reject fork widths the collector override store
    cannot track (128-bit membership mask, one bit reserved for the
    root). */
@@ -974,6 +1003,7 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp          = fd_wksp_new( wksp_mem, "snapin", 1U, wksp_part_max, wksp_data_max ); FD_TEST( wksp );
   fd_shmem_join_anonymous( "snapin", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, wksp_mem, FD_SHMEM_NORMAL_PAGE_SZ, mem_req>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
 
+  test_bank_stake_rewards_window_capacity( wksp );
   test_bank_max_fork_width_limit( wksp );
 
   ulong const fp = fd_banks_footprint( 16UL, 8UL, 2048UL, 32768UL, 2048UL );
