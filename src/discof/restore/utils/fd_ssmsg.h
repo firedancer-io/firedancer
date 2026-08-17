@@ -23,6 +23,14 @@ struct epoch_credits {
 
 typedef struct epoch_credits epoch_credits_t;
 
+/* fd_epoch_credits_is_alpenglow_marker returns 1 if ec is the
+   tower->Alpenglow migration sentinel, 0 otherwise. */
+
+FD_FN_PURE static inline int
+fd_epoch_credits_is_alpenglow_marker( epoch_credits_t const * ec ) {
+  return ec->epoch==ULONG_MAX && ec->credits==ULONG_MAX && ec->prev_credits==ULONG_MAX;
+}
+
 /* The FD_SSMSG_EXPECTED_SLOT uses the tsorig and tspub fields
    of the fd_frag_meta_t struct to store the low and high 32 bits of
    the slot number. */
@@ -93,7 +101,10 @@ struct fd_snapshot_manifest_vote_stakes {
      newest.  Epochs with no recorded credits can be absent.  When
      booting a new chain from genesis, or for new vote accounts, the
      epoch credits history may be short.  The maximum number of entries
-     in the epoch credits history is 64. */
+     in the epoch credits history is 64.
+
+     Note one entry may be the Alpenglow migration marker (all three
+     fields ULONG_MAX, see fd_epoch_credits_is_alpenglow_marker). */
   ulong           epoch_credits_history_len;
   epoch_credits_t epoch_credits[ FD_EPOCH_CREDITS_MAX ];
 };
