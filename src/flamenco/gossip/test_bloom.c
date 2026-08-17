@@ -85,7 +85,7 @@ void
 test_bitvec_deserialize_case( uchar has_bits,
                               ulong bits_cap,
                               ulong encoded_bits_len,
-                              ulong expected_bits_len ) {
+                              int   expected ) {
   uchar payload[ 183UL ] = {0};
   uchar * cur = payload;
 
@@ -119,19 +119,23 @@ test_bitvec_deserialize_case( uchar has_bits,
   *cur++ = 0U; /* extensions */
 
   fd_gossip_message_t message[1] = {0};
-  FD_TEST( fd_gossip_message_deserialize( message, payload, (ulong)(cur-payload) ) );
-  FD_TEST( message->pull_request->crds_filter->filter->bits_cap==(has_bits ? bits_cap : 0UL) );
-  FD_TEST( message->pull_request->crds_filter->filter->bits_len==expected_bits_len );
+  FD_TEST( fd_gossip_message_deserialize( message, payload, (ulong)(cur-payload) )==expected );
+  if( expected ) {
+    FD_TEST( message->pull_request->crds_filter->filter->bits_cap==(has_bits ? bits_cap : 0UL) );
+    FD_TEST( message->pull_request->crds_filter->filter->bits_len==encoded_bits_len );
+  }
 }
 
 void
 test_bitvec_deserialize( void ) {
-  test_bitvec_deserialize_case( 0U, 0UL,  0UL,  0UL );
-  test_bitvec_deserialize_case( 0U, 0UL,  1UL,  0UL );
-  test_bitvec_deserialize_case( 1U, 0UL,  0UL,  0UL );
-  test_bitvec_deserialize_case( 1U, 0UL,  1UL,  0UL );
-  test_bitvec_deserialize_case( 1U, 1UL, 64UL, 64UL );
-  test_bitvec_deserialize_case( 1U, 1UL, 65UL, 64UL );
+  /*                            has_bits  cap  bits_len  accept */
+  test_bitvec_deserialize_case( 0U,       0UL,  0UL,     1 ); /* None, empty            */
+  test_bitvec_deserialize_case( 0U,       0UL,  1UL,     0 ); /* None, over capacity 0  */
+  test_bitvec_deserialize_case( 1U,       0UL,  0UL,     1 ); /* Some([]), empty        */
+  test_bitvec_deserialize_case( 1U,       0UL,  1UL,     0 ); /* Some([]), over cap 0   */
+  test_bitvec_deserialize_case( 1U,       1UL, 32UL,     1 ); /* surplus capacity is ok */
+  test_bitvec_deserialize_case( 1U,       1UL, 64UL,     1 ); /* exact fit              */
+  test_bitvec_deserialize_case( 1U,       1UL, 65UL,     0 ); /* over capacity 64       */
 }
 
 void
@@ -170,12 +174,14 @@ test_epoch_slots_bitvec_deserialize_case( uchar has_bits,
 
 void
 test_epoch_slots_bitvec_deserialize( void ) {
-  test_epoch_slots_bitvec_deserialize_case( 1U, 0UL, 0UL, 1 );
-  test_epoch_slots_bitvec_deserialize_case( 0U, 0UL, 1UL, 1 );
-  test_epoch_slots_bitvec_deserialize_case( 1U, 0UL, 1UL, 1 );
-  test_epoch_slots_bitvec_deserialize_case( 1U, 1UL, 7UL, 0 );
-  test_epoch_slots_bitvec_deserialize_case( 1U, 1UL, 8UL, 1 );
-  test_epoch_slots_bitvec_deserialize_case( 1U, 1UL, 9UL, 1 );
+  /*                                        has_bits  cap  bits_cnt  accept */
+  test_epoch_slots_bitvec_deserialize_case( 0U,       0UL, 0UL,      1 ); /* None, empty          */
+  test_epoch_slots_bitvec_deserialize_case( 1U,       0UL, 0UL,      1 ); /* Some([]), empty      */
+  test_epoch_slots_bitvec_deserialize_case( 0U,       0UL, 1UL,      0 ); /* None, over cap 0     */
+  test_epoch_slots_bitvec_deserialize_case( 1U,       0UL, 1UL,      0 ); /* Some([]), over cap 0 */
+  test_epoch_slots_bitvec_deserialize_case( 1U,       1UL, 7UL,      0 ); /* under capacity 8     */
+  test_epoch_slots_bitvec_deserialize_case( 1U,       1UL, 8UL,      1 ); /* exact fit            */
+  test_epoch_slots_bitvec_deserialize_case( 1U,       1UL, 9UL,      0 ); /* over capacity 8      */
 }
 
 /* If keys region is incorrectly sized, it would overlap with filter
