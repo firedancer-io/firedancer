@@ -45,6 +45,7 @@ typedef struct {
   ulong       rebate_wmark;
   ulong       rebate_chunk;
   ulong       rebates_for_slot;
+  ulong       rebate_seed;
   fd_pack_rebate_sum_t rebater[ 1 ];
 
   float ns_per_tick;
@@ -585,6 +586,16 @@ after_frag( fd_bank_ctx_t *     ctx,
 }
 
 static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bank_ctx_t), sizeof(fd_bank_ctx_t) );
+  FD_TEST( fd_rng_secure( &ctx->rebate_seed, sizeof(ctx->rebate_seed) ) );
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -605,7 +616,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->blake3 = NONNULL( fd_blake3_join( fd_blake3_new( blake3 ) ) );
   ctx->bmtree = NONNULL( bmtree );
 
-  NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
+  NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater, ctx->rebate_seed ) ) );
   ctx->rebates_for_slot  = 0UL;
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
@@ -655,6 +666,7 @@ fd_topo_run_tile_t fd_tile_bank = {
   .name                     = "bank",
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

@@ -1093,7 +1093,7 @@ test_limits( void ) {
 
   fd_pack_rebate_sum_t _rebater[1];
   union{ fd_pack_rebate_t rebate[1]; uchar footprint[USHORT_MAX]; } report[1];
-  fd_pack_rebate_sum_t * rebater = fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( _rebater ) );
+  fd_pack_rebate_sum_t * rebater = fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( _rebater, 0x0123456789abcdefUL ) );
   fd_acct_addr_t const * rebate_alt[1] = { NULL };
 
   /* Test the max txn per microblock limit */
