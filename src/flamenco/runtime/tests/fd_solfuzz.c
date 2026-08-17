@@ -80,8 +80,9 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   /* Allocate objects */
   ulong const txn_max  = 16UL;
   ulong const rec_max  = 1024UL;
-  ulong const spad_max = 1750000000UL; /* 1.75GB: 128 accounts * ~10MB + 100MB execute_wrapper
-                                          out buf + 64MB cmp_binary_strict scratch + headroom */
+  ulong const spad_max = 2147483648UL; /* 2GiB: 64 accounts * 10MiB + 100MB execute_wrapper
+                                          out buf + 64MB cmp_binary_strict scratch + 1.125GiB
+                                          VM trace + headroom */
   ulong const bank_max = 2UL;
   ulong const fork_max = 2UL;
 
