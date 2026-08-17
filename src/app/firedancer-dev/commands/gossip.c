@@ -76,6 +76,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   gossip_tile->gossip.shred_version        = config->consensus.expected_shred_version;
   gossip_tile->gossip.max_entries          = config->tiles.gossip.max_entries;
   gossip_tile->gossip.ports.gossip         = config->gossip.port;
+  gossip_tile->gossip.ports.votor          = 0;
   gossip_tile->gossip.ports.repair         = 0;
   gossip_tile->gossip.ports.rserve         = 0;
   gossip_tile->gossip.ports.tpu            = 0;
