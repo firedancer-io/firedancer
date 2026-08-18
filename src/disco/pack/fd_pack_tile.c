@@ -130,6 +130,14 @@ typedef struct {
 } fd_pack_in_ctx_t;
 
 typedef struct {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+  ulong       out_idx;
+} fd_pack_out_ctx_t;
+
+typedef struct {
   fd_pack_t *  pack;
   fd_txn_e_t * cur_spot;
   int          is_bundle; /* is the current transaction a bundle */
@@ -271,15 +279,8 @@ typedef struct {
      least execle_ready_at[x]. */
   long     execle_ready_at[ FD_PACK_MAX_EXECLE_TILES  ];
 
-  fd_wksp_t * execle_out_mem;
-  ulong       execle_out_chunk0;
-  ulong       execle_out_wmark;
-  ulong       execle_out_chunk;
-
-  fd_wksp_t * poh_out_mem;
-  ulong       poh_out_chunk0;
-  ulong       poh_out_wmark;
-  ulong       poh_out_chunk;
+  fd_pack_out_ctx_t execle_out[ FD_PACK_MAX_EXECLE_TILES ];
+  fd_pack_out_ctx_t poh_out;
 
   ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
   fd_histf_t schedule_duration[ 1 ];
@@ -668,13 +669,13 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
     *charge_busy = 1;
 
-    fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
+    fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
     get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_TIME ); /* needs to be called before fd_pack_end_block */
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers ); /* needs to be called after fd_pack_end_block */
 
-    fd_stem_publish( stem, 1UL, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(fd_done_packing_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+    fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
 
     log_end_block_metrics( ctx, now, "time", done_packing->limits_usage->block_cost );
@@ -718,7 +719,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
          TODO: This is only needed for Frankendancer, not Firedancer,
          which manages bank lifetime different. */
-      fd_stem_publish( stem, 1UL, FD_PACK_MSG_DONE_DRAINING, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, ctx->poh_out.out_idx, FD_PACK_MSG_DONE_DRAINING, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       *charge_busy = 1;
       return;
     } else {
@@ -728,10 +729,10 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   if( FD_UNLIKELY( ctx->pending_reduce_mb_bound ) ) {
     ctx->pending_reduce_mb_bound = 0;
-    ulong * dst = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
+    ulong * dst = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
     *dst = ctx->slot_dynamic_max_microblocks;
-    fd_stem_publish( stem, 1UL, FD_PACK_MSG_REDUCE_MB_BOUND, ctx->poh_out_chunk, sizeof(ulong), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(ulong), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+    fd_stem_publish( stem, ctx->poh_out.out_idx, FD_PACK_MSG_REDUCE_MB_BOUND, ctx->poh_out.chunk, sizeof(ulong), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(ulong), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     *charge_busy = 1;
     return;
   }
@@ -846,7 +847,8 @@ after_credit( fd_pack_ctx_t *     ctx,
         break;
     }
 
-    fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( ctx->execle_out_mem, ctx->execle_out_chunk );
+    fd_pack_out_ctx_t * execle_out = &ctx->execle_out[ i ];
+    fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( execle_out->mem, execle_out->chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
@@ -857,7 +859,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       long  now2   = fd_tickcount();
       ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed execle was idle */
       ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
-      ulong chunk  = ctx->execle_out_chunk;
+      ulong chunk  = execle_out->chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_e_t);
       fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
@@ -873,10 +875,9 @@ after_credit( fd_pack_ctx_t *     ctx,
       FD_STATIC_ASSERT( MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t)<=MAX_MICROBLOCK_SZ, pack_execle_mtu );
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
-      fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );
-      ctx->execle_expect[ i ] = stem->seqs[0]-1UL;
+      ctx->execle_expect[ i ] = fd_stem_publish( stem, execle_out->out_idx, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );
       ctx->execle_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
-      ctx->execle_out_chunk = fd_dcache_compact_next( ctx->execle_out_chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), ctx->execle_out_chunk0, ctx->execle_out_wmark );
+      execle_out->chunk = fd_dcache_compact_next( execle_out->chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), execle_out->chunk0, execle_out->wmark );
       ctx->slot_microblock_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 1UL );
       ctx->pack_idx += fd_uint_if( trailer->is_bundle, (uint)schedule_cnt, 1U );
       ctx->pack_txn_cnt += schedule_cnt;
@@ -926,13 +927,13 @@ after_credit( fd_pack_ctx_t *     ctx,
        increment it here. */
     FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT_REACHED, 1UL );
 
-    fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
+    fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
     get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_MICROBLOCK );
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
-    fd_stem_publish( stem, 1UL, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(fd_done_packing_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+    fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
 
     log_end_block_metrics( ctx, now, "microblock", done_packing->limits_usage->block_cost );
@@ -1134,13 +1135,13 @@ after_frag( fd_pack_ctx_t *     ctx,
         FD_MCNT_INC( PACK, TXN_ALREADY_EXECUTED, deleted );
       }
       if( FD_UNLIKELY( sig==REPLAY_SIG_RESET && ctx->leader_slot!=ULONG_MAX ) ) {
-        fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
+        fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
         get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_ABANDONED );
         fd_pack_end_block( ctx->pack );
         fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
-        fd_stem_publish( stem, 1UL, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-        ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(fd_done_packing_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+        fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
         ctx->pack_idx++;
 
         FD_LOG_WARNING(( "consensus reset while packing for slot %lu, ending block early", ctx->leader_slot ));
@@ -1176,13 +1177,13 @@ after_frag( fd_pack_ctx_t *     ctx,
     long now_ns    = fd_log_wallclock();
 
     if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
-      fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
+      fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
       get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_ABANDONED );
       fd_pack_end_block( ctx->pack );
       fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
-      fd_stem_publish( stem, 1UL, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(fd_done_packing_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+      fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
       ctx->pack_idx++;
 
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining execle tiles.", leader_slot, ctx->leader_slot ));
@@ -1403,9 +1404,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_pack_set_block_limits( ctx->pack, limits_lower );
 
-  if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many input links (%lu>32) to pack tile", tile->in_cnt ));
-
-  FD_TEST( tile->in_cnt<sizeof( ctx->in_kind )/sizeof( ctx->in_kind[0] ) );
+  ulong in_max = sizeof(ctx->in)/sizeof(ctx->in[0]);
+  if( FD_UNLIKELY( tile->in_cnt>in_max ) )
+    FD_LOG_ERR(( "Too many input links (%lu>%lu) to pack tile", tile->in_cnt, in_max ));
+  FD_TEST( in_max==sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
@@ -1421,18 +1423,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
-  ulong execle_cnt = 0UL;
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t const * consumer_tile = &topo->tiles[ i ];
-    if( FD_UNLIKELY( strcmp( consumer_tile->name, "execle" ) && strcmp( consumer_tile->name, "replay" ) ) ) continue;
-    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ 0 ] ) ) execle_cnt++;
-    }
-  }
-
-  // if( FD_UNLIKELY( !execle_cnt                            ) ) FD_LOG_ERR(( "pack tile connects to no execle tiles" ));
-  if( FD_UNLIKELY( execle_cnt>FD_PACK_MAX_EXECLE_TILES       ) ) FD_LOG_ERR(( "pack tile connects to too many execle tiles" ));
-  // if( FD_UNLIKELY( execle_cnt!=tile->pack.execle_tile_count ) ) FD_LOG_ERR(( "pack tile connects to %lu execle tiles, but tile->pack.execle_tile_count is %lu", execle_cnt, tile->pack.execle_tile_count ));
+  if( FD_UNLIKELY( tile->pack.execle_tile_count>FD_PACK_MAX_EXECLE_TILES ) ) FD_LOG_ERR(( "pack tile connects to too many execle tiles" ));
 
   FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BALANCED) );
 
@@ -1547,15 +1538,26 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  ctx->execle_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->execle_out_chunk0 = fd_dcache_compact_chunk0( ctx->execle_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->execle_out_wmark  = fd_dcache_compact_wmark ( ctx->execle_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->execle_out_chunk  = ctx->execle_out_chunk0;
+  char const * execle_out_name = fd_topo_find_tile_out_link( topo, tile, "pack_execle", 0UL )!=ULONG_MAX ? "pack_execle" : "pack_bank";
+  for( ulong i=0UL; i<ctx->execle_cnt; i++ ) {
+    fd_pack_out_ctx_t * out = &ctx->execle_out[ i ];
+    out->out_idx = fd_topo_find_tile_out_link( topo, tile, execle_out_name, i );
+    FD_TEST( out->out_idx!=ULONG_MAX );
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ out->out_idx ] ];
+    out->mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    out->chunk0 = fd_dcache_compact_chunk0( out->mem, link->dcache );
+    out->wmark  = fd_dcache_compact_wmark ( out->mem, link->dcache, link->mtu );
+    out->chunk  = out->chunk0;
+  }
 
-  ctx->poh_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->poh_out_chunk0 = fd_dcache_compact_chunk0( ctx->poh_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
-  ctx->poh_out_wmark  = fd_dcache_compact_wmark ( ctx->poh_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
-  ctx->poh_out_chunk  = ctx->poh_out_chunk0;
+  ctx->poh_out.out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_poh", 0UL );
+  if( FD_UNLIKELY( ctx->poh_out.out_idx==ULONG_MAX ) ) ctx->poh_out.out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_pohh", 0UL );
+  FD_TEST( ctx->poh_out.out_idx!=ULONG_MAX );
+  fd_topo_link_t const * poh_out_link = &topo->links[ tile->out_link_id[ ctx->poh_out.out_idx ] ];
+  ctx->poh_out.mem    = topo->workspaces[ topo->objs[ poh_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->poh_out.chunk0 = fd_dcache_compact_chunk0( ctx->poh_out.mem, poh_out_link->dcache );
+  ctx->poh_out.wmark  = fd_dcache_compact_wmark ( ctx->poh_out.mem, poh_out_link->dcache, poh_out_link->mtu );
+  ctx->poh_out.chunk  = ctx->poh_out.chunk0;
 
   /* Initialize metrics storage */
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );

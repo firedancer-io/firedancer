@@ -107,10 +107,10 @@ typedef struct {
   int               has_vote_key;
   fd_pubkey_t const vote_key[ 1UL ];
 
-  ulong           in_kind[ 64UL ];
-  int             in_reliable[ 64UL ];
-  ulong           in_bank_idx[ 64UL ];
-  fd_guih_in_ctx_t in[ 64UL ];
+  ulong            in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  int              in_reliable[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  ulong            in_bank_idx[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  fd_guih_in_ctx_t in[ FD_TOPO_MAX_TILE_IN_LINKS ];
 } fd_guih_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -513,6 +513,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_poll_deadline = fd_tickcount();
 
   ctx->idle_cnt = 0UL;
+  FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ctx->in_cnt = tile->in_cnt;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
