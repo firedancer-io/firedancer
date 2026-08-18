@@ -60,7 +60,7 @@ typedef struct fd_policy_peer fd_policy_peer_t;
 #define MAP_ELE_T                fd_policy_peer_t
 #define MAP_KEY_T                fd_pubkey_t
 #define MAP_KEY_EQ(k0,k1)        (!memcmp( (k0)->uc, (k1)->uc, 32UL ))
-#define MAP_KEY_HASH(key,seed)   (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_KEY_HASH(key,seed)   fd_hash( (seed), (key)->uc, sizeof(fd_pubkey_t) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME fd_policy_peer_pool
