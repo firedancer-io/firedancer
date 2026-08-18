@@ -4,32 +4,135 @@
 /* fd_io_uring_sys.h provides the io_uring syscall API. */
 
 #include "../fd_util_base.h"
+#include <sys/syscall.h> /* SYS_* */
 
-#ifndef IORING_SETUP_R_DISABLED
-#define IORING_SETUP_R_DISABLED (1U<<6)
+/* fd_kernel_timespec_t matches struct __kernel_timespec, which
+   <linux/time_types.h> only provides since Linux v5.1. */
+
+struct fd_kernel_timespec {
+  long tv_sec;
+  long tv_nsec;
+};
+
+typedef struct fd_kernel_timespec fd_kernel_timespec_t;
+
+struct fd_io_uring_sqe {
+  uchar  opcode;  /* FD_IORING_OP_* */
+  uchar  flags;   /* FD_IOSQE_* */
+  ushort ioprio;
+  int    fd;
+  union {
+    ulong off;
+    ulong addr2;
+  };
+  union {
+    ulong addr;
+    ulong splice_off_in;
+  };
+  uint len;
+  union {
+    uint   rw_flags;
+    uint   fsync_flags;
+    ushort poll_events;
+    uint   poll32_events;
+    uint   sync_range_flags;
+    uint   msg_flags;
+    uint   timeout_flags;
+    uint   accept_flags;
+    uint   cancel_flags;
+    uint   open_flags;
+    uint   splice_flags;
+    uint   futex_flags;
+  };
+  ulong user_data;
+  union {
+    ushort buf_index;
+    ushort buf_group;
+  } __attribute__((packed));
+  ushort personality;
+  union {
+    int  splice_fd_in;
+    uint file_index;
+  };
+  union {
+    ulong addr3;
+    ulong optval;
+  };
+  ulong __pad2[1];
+};
+
+typedef struct fd_io_uring_sqe fd_io_uring_sqe_t;
+
+struct fd_io_uring_cqe {
+  ulong user_data; /* sqe->user_data value passed back */
+  int   res;       /* result code for this event */
+  uint  flags;
+};
+
+typedef struct fd_io_uring_cqe fd_io_uring_cqe_t;
+
+struct fd_io_uring_rsrc_update {
+  uint  offset;
+  uint  resv;
+  ulong data;
+};
+
+typedef struct fd_io_uring_rsrc_update fd_io_uring_rsrc_update_t;
+
+struct fd_io_uring_getevents_arg {
+  ulong sigmask;
+  uint  sigmask_sz;
+  uint  min_wait_usec;
+  ulong ts;
+};
+
+typedef struct fd_io_uring_getevents_arg fd_io_uring_getevents_arg_t;
+
+FD_STATIC_ASSERT( sizeof(fd_kernel_timespec_t)            ==16UL, abi );
+FD_STATIC_ASSERT( sizeof(fd_io_uring_sqe_t)               ==64UL, abi );
+FD_STATIC_ASSERT( sizeof(fd_io_uring_cqe_t)               ==16UL, abi );
+FD_STATIC_ASSERT( sizeof(fd_io_uring_rsrc_update_t)       ==16UL, abi );
+FD_STATIC_ASSERT( sizeof(fd_io_uring_getevents_arg_t)     ==24UL, abi );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_io_uring_sqe_t, user_data )==32UL, abi );
+FD_STATIC_ASSERT( __builtin_offsetof( fd_io_uring_sqe_t, addr3     )==48UL, abi );
+
+/* io_uring syscall numbers are identical on all architectures that
+   Firedancer supports. */
+
+#ifndef SYS_io_uring_setup
+#define SYS_io_uring_setup 425
 #endif
 
-#ifndef IORING_SETUP_COOP_TASKRUN
-#define IORING_SETUP_COOP_TASKRUN (1U << 8)
+#ifndef SYS_io_uring_enter
+#define SYS_io_uring_enter 426
 #endif
 
-#ifndef IORING_SETUP_SINGLE_ISSUER
-#define IORING_SETUP_SINGLE_ISSUER (1U<<12)
+#ifndef SYS_io_uring_register
+#define SYS_io_uring_register 427
 #endif
 
-#ifndef IORING_SETUP_DEFER_TASKRUN
-#define IORING_SETUP_DEFER_TASKRUN (1U << 13)
-#endif
+#define FD_IORING_SETUP_CQSIZE        (1U<< 3)
+#define FD_IORING_SETUP_R_DISABLED    (1U<< 6)
+#define FD_IORING_SETUP_COOP_TASKRUN  (1U<< 8)
+#define FD_IORING_SETUP_SINGLE_ISSUER (1U<<12)
+#define FD_IORING_SETUP_DEFER_TASKRUN (1U<<13)
+#define FD_IORING_SETUP_NO_MMAP       (1U<<14)
 
-#ifndef IORING_SETUP_NO_MMAP
-#define IORING_SETUP_NO_MMAP (1U<<14)
-#endif
+/* mmap(2) offsets of the ring regions */
 
-#define FD_IORING_REGISTER_BUFFERS       0
-#define FD_IORING_REGISTER_FILES         2
-#define FD_IORING_REGISTER_FILES_UPDATE  6
-#define FD_IORING_REGISTER_RESTRICTIONS 11
-#define FD_IORING_REGISTER_ENABLE_RINGS 12
+#define FD_IORING_OFF_SQ_RING 0x0UL
+#define FD_IORING_OFF_CQ_RING 0x8000000UL
+#define FD_IORING_OFF_SQES    0x10000000UL
+
+#define FD_IORING_ENTER_GETEVENTS (1U<<0)
+#define FD_IORING_ENTER_EXT_ARG   (1U<<3)
+
+#define FD_IORING_REGISTER_BUFFERS           0
+#define FD_IORING_REGISTER_FILES             2
+#define FD_IORING_REGISTER_FILES_UPDATE      6
+#define FD_IORING_REGISTER_RESTRICTIONS     11
+#define FD_IORING_REGISTER_ENABLE_RINGS     12
+#define FD_IORING_REGISTER_IOWQ_MAX_WORKERS 19
 
 #define FD_IORING_RESTRICTION_REGISTER_OP        0
 #define FD_IORING_RESTRICTION_SQE_OP             1
@@ -91,13 +194,11 @@
 #define FD_IORING_OP_FUTEX_WAKE             52
 #define FD_IORING_OP_FUTEX_WAITV            53
 
-#ifndef IOSQE_CQE_SKIP_SUCCESS
-#define IOSQE_CQE_SKIP_SUCCESS (1U<<6)
-#endif
+#define FD_IOSQE_FIXED_FILE       (1U<<0)
+#define FD_IOSQE_IO_LINK          (1U<<2)
+#define FD_IOSQE_CQE_SKIP_SUCCESS (1U<<6)
 
-#ifndef IORING_RECVSEND_FIXED_BUF
-#define IORING_RECVSEND_FIXED_BUF (1U<<2)
-#endif
+#define FD_IORING_RECVSEND_FIXED_BUF (1U<<2)
 
 #ifndef FUTEX2_SIZE_U32
 #define FUTEX2_SIZE_U32 0x02

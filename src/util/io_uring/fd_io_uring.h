@@ -10,7 +10,6 @@
 
 #include "fd_io_uring_sys.h"
 #include <stdatomic.h>
-#include <linux/io_uring.h>
 
 struct fd_io_uring_sq {
 
@@ -26,8 +25,8 @@ struct fd_io_uring_sq {
   atomic_uint * kflags;
   atomic_uint * kdropped;
 
-  uint *                array;
-  struct io_uring_sqe * sqes;
+  uint *              array;
+  fd_io_uring_sqe_t * sqes;
 
   uint sqe_head;
   uint sqe_tail;
@@ -43,7 +42,7 @@ struct fd_io_uring_cq {
   atomic_uint * ktail;
   atomic_uint * koverflow;
 
-  struct io_uring_cqe * cqes;
+  fd_io_uring_cqe_t * cqes;
 };
 
 typedef struct fd_io_uring_cq fd_io_uring_cq_t;
@@ -95,7 +94,7 @@ fd_io_uring_cq_overflow( fd_io_uring_cq_t const * cq ) {
   return atomic_load_explicit( cq->koverflow, memory_order_relaxed );
 }
 
-static inline struct io_uring_sqe *
+static inline fd_io_uring_sqe_t *
 fd_io_uring_get_sqe( fd_io_uring_sq_t * sq ) {
   uint tail  = sq->sqe_tail;
   uint depth = sq->depth;
@@ -134,7 +133,7 @@ fd_io_uring_cq_advance( fd_io_uring_cq_t * cq,
   atomic_store_explicit( cq->khead, head + cnt, memory_order_release );
 }
 
-static inline struct io_uring_cqe *
+static inline fd_io_uring_cqe_t *
 fd_io_uring_cq_head( fd_io_uring_cq_t const * cq ) {
   uint head = atomic_load_explicit( cq->khead, memory_order_relaxed );
   return &cq->cqes[ head & (cq->depth - 1U) ];

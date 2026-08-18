@@ -92,7 +92,7 @@ static void populate_sock_filter_policy_fd_snapsv_tile( ulong out_cnt, struct so
 //  and_2:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(IORING_REGISTER_FILES_UPDATE), /* io_uring_register_ALLOW */ 1, /* io_uring_register_KILL */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FD_IORING_REGISTER_FILES_UPDATE), /* io_uring_register_ALLOW */ 1, /* io_uring_register_KILL */ 0 ),
 //  io_uring_register_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  io_uring_register_ALLOW:
