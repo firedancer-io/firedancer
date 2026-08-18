@@ -640,7 +640,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   out_txn->num_secp256r1_instruction_signatures = sig_counters[ HASH( SECP256R1_PROG_ID   ) ];
 
   /* VersionedTransactionConfiguration::LegacyAndV0(ComputeBudgetInstructionDetails)
-     TODO: permalink */
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L131-L137 */
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V1 ) ) {
     out_txn->versioned_transaction_config.compute_budget_instruction_details.num_non_compute_budget_instructions     = (ushort)(txn->instr_cnt - cbp_state->compute_budget_instr_cnt);
     out_txn->versioned_transaction_config.compute_budget_instruction_details.num_non_migratable_builtin_instructions = (ushort)instr_cnt[ CATEGORY_NON_MIGRATABLE ];
