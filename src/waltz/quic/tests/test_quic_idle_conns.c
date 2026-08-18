@@ -142,25 +142,12 @@ main( int argc,
                                                 NULL,
                                                 256 );
 
-  ulong num_pages = fd_env_strip_cmdline_ulong( &argc,
-                                                &argv,
-                                                "--num-pages",
-                                                NULL,
-                                                1 << 15 );
-
-  char const * _page_sz = fd_env_strip_cmdline_cstr( &argc,
-                                                     &argv,
-                                                     "--page-sz",
-                                                     NULL,
-                                                     "normal" );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "normal" );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 32768UL  );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-  ulong numa_idx = fd_env_strip_cmdline_ulong( &argc,
-                                               &argv,
-                                               "--numa-idx",
-                                               NULL,
-                                               fd_shmem_numa_idx(cpu_idx) );
+  ulong numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -170,8 +157,8 @@ main( int argc,
   }
 
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz,
-                                            num_pages,
-                                            numa_idx,
+                                            page_cnt,
+                                            fd_shmem_cpu_idx( numa_idx ),
                                             "wksp",
                                             0UL );
   FD_TEST( wksp );
