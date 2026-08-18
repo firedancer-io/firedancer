@@ -1,4 +1,5 @@
 #include "../../firedancer/topology.h"
+#include <string.h>
 #include "../../platform/fd_sys_util.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
@@ -75,6 +76,32 @@ static void
 snapshot_load_topo( config_t * config ) {
   config->firedancer.layout.resolv_tile_count = 0;
   fd_topo_t * topo = &config->topo;
+
+  /* Honour [layout] affinity, as src/app/firedancer/topology.c does.  This was
+     previously ignored here: auto_layout ran unconditionally below and the
+     configured affinity had no effect at all. */
+  ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
+  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
+
+  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
+
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+
+  ulong affinity_tile_cnt = 0UL;
+  if( FD_LIKELY( !is_auto_affinity ) )
+    affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 1 );
+
+  ulong tile_to_cpu[ FD_TILE_MAX ];
+  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) tile_to_cpu[ i ] = ULONG_MAX;
+  for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
+    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
+      FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] specifies a CPU index of %hu, but the system "
+                   "only has %lu CPUs.",
+                   parsed_tile_to_cpu[ i ], cpus->cpu_cnt ));
+    tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
+  }
+  ulong tile_idx = 0UL;
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
 
@@ -110,35 +137,35 @@ snapshot_load_topo( config_t * config ) {
   /* metrics tile *****************************************************/
   fd_topob_wksp( topo, "metric_in" );
   fd_topob_wksp( topo, "metric" );
-  fd_topob_tile( topo, "metric",  "metric", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ tile_idx++ ], 0, 0, 0 );
 
   /* read() tile */
   fd_topob_wksp( topo, "snapct" );
-  fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "metric_in", tile_to_cpu[ tile_idx++ ], 0, 0, 0 );
   snapct_tile->allow_shutdown = 1;
 
   /* load tile */
   fd_topob_wksp( topo, "snapld" );
-  fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "metric_in", tile_to_cpu[ tile_idx++ ], 0, 0, 0 );
   snapld_tile->allow_shutdown = 1;
 
   /* "snapdc": Zstandard decompress tile */
   fd_topob_wksp( topo, "snapdc" );
-  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ tile_idx++ ], 0, 0, 0 );
   snapdc_tile->allow_shutdown = 1;
 
   /* "snapin": Snapshot parser tile */
   fd_topob_wksp( topo, "snapin" );
-  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ tile_idx++ ], 0, 0, 0 );
   snapin_tile->allow_shutdown = 1;
 
   fd_topob_wksp( topo, "snapwr" );
-  fd_topo_tile_t * snapwr_tile = fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topo_tile_t * snapwr_tile = fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", tile_to_cpu[ tile_idx++ ], 0, 0, 0 );
   snapwr_tile->allow_shutdown = 1;
 
   fd_topob_wksp( topo, "diag" );
-  fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0 );
-  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topob_tile( topo, "diag", "diag", "metric_in", tile_to_cpu[ tile_idx++ ], 0, 0, 0 );
+  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", tile_to_cpu[ tile_idx++ ], 0, 0, 0 );
 
   fd_topob_wksp( topo, "snapct_ld"    );
   fd_topob_wksp( topo, "snapld_dc"    );
@@ -188,7 +215,11 @@ snapshot_load_topo( config_t * config ) {
     fd_topo_configure_tile( tile, config );
   }
 
-  fd_topob_auto_layout( topo, 0 );
+  if( FD_UNLIKELY( !is_auto_affinity && affinity_tile_cnt<topo->tile_cnt ) )
+    FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the configuration file as [layout.affinity] only "
+                 "provides for %lu cores.",
+                 topo->tile_cnt, affinity_tile_cnt ));
+  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
   fd_topob_finish( topo, CALLBACKS );
 }
 
@@ -427,7 +458,7 @@ fixup_config( config_t *     config,
            we construct the topology again (a third time ... sigh). */
   snapshot_load_topo( config );
 
-  fd_topob_auto_layout( topo, 0 );
+  if( FD_UNLIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) fd_topob_auto_layout( topo, 0 );
   fd_topob_finish( topo, CALLBACKS );
 }
 
