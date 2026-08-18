@@ -504,6 +504,7 @@ main( int     argc,
       if( !before_frag( ctx, shred_in_idx, 0UL, _sig ) ) {                                                                \
         during_frag( ctx, shred_in_idx, 0UL, _sig, shred_chunk, sizeof(fd_shred_base_t), 0UL );                          \
         FD_TEST( !returnable_frag( ctx, shred_in_idx, 0UL, _sig, shred_chunk, sizeof(fd_shred_base_t), 0UL, 0UL, 0UL, NULL ) ); \
+        after_frag( ctx, shred_in_idx, 0UL, _sig, sizeof(fd_shred_base_t), 0UL, 0UL, NULL );                                  \
       }                                                                                                                  \
     } while( 0 )
 

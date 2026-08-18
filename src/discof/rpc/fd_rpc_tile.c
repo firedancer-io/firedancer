@@ -832,8 +832,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         else                                                      ctx->cluster_confirmed_slot = fd_ulong_max( ctx->cluster_confirmed_slot, msg->slot );
       }
     }
-  } else if( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) {
-    ctx->max_retransmit_slot = fd_ulong_max( ctx->max_retransmit_slot, ctx->shred_slot );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
     fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -855,6 +853,20 @@ returnable_frag( fd_rpc_tile_t *     ctx,
   }
 
   return 0;
+}
+
+static inline void
+after_frag( fd_rpc_tile_t *     ctx,
+            ulong               in_idx,
+            ulong               seq    FD_PARAM_UNUSED,
+            ulong               sig    FD_PARAM_UNUSED,
+            ulong               sz     FD_PARAM_UNUSED,
+            ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
+  /* Unreliable inputs are handled here, after the overrun check */
+  if( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) return;
+  ctx->max_retransmit_slot = fd_ulong_max( ctx->max_retransmit_slot, ctx->shred_slot );
 }
 
 /* Silence warnings due gcc not recognizing nan-infinity-disabled
@@ -2682,6 +2694,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
