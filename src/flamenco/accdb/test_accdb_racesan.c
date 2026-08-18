@@ -42,7 +42,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
+#include <linux/perf_event.h>
+#include <linux/hw_breakpoint.h>
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
@@ -2801,6 +2807,150 @@ test_overwrite_discard_vs_evictor( void ) {
   test_teardown( accdb, fd );
 }
 
+/* ------------------------------------------------------------------ */
+/* Store-ordering case: the markers must be published before refcnt=0  */
+/* ------------------------------------------------------------------ */
+
+/* Every site that frees a cache line clears key.generation/acc_idx, sets
+   persisted, then releases refcnt to 0 and pushes the line.  Sweepers
+   (acquire_cache_line's CLOCK, background_preevict) infer free-list
+   residency from the two markers and claim with CAS(refcnt,0,SENTINEL),
+   so the markers MUST be visible before refcnt reads 0 — otherwise a
+   sweeper reads a live-looking line whose claim CAS succeeds, and walks
+   away owning a line that is about to become a free-list node.
+
+   The stores are plain, so the compiler is free to reorder them, and GCC
+   does: it merges key.generation (offset 32) and acc_idx (offset 36)
+   into one 8-byte store and sinks it BELOW the refcnt store (offset 44).
+
+   This is a codegen defect, not an interleaving, so racesan cannot repro
+   it: fd_racesan_hook is an out-of-line call, i.e. a compiler barrier,
+   so a hook placed in the reordered window forces the very ordering the
+   window is missing.  Instead, arm a hardware watchpoint on the line's
+   refcnt word and inspect the markers from the trap handler.  An x86
+   data breakpoint is a trap, taken after the storing instruction retires
+   and before the next one issues, so the handler observes exactly what a
+   concurrent sweeper could observe at that instant. */
+
+static fd_accdb_cache_line_t * volatile g_wp_line;
+static volatile uint g_wp_prev;
+static volatile int  g_wp_fired;
+static volatile int  g_wp_violation;
+static volatile uint g_wp_bad_acc_idx;
+static volatile uint g_wp_bad_gen;
+
+void * fd_accdb_debug_line_addr( fd_accdb_t * accdb, ulong size_class, ulong line_idx );
+
+static void
+wp_handler( int        sig,
+            siginfo_t * si,
+            void *      uc ) {
+  (void)sig; (void)si; (void)uc;
+  fd_accdb_cache_line_t * line = g_wp_line;
+  if( FD_UNLIKELY( !line ) ) return;
+  g_wp_fired++;
+
+  uint rc   = line->refcnt;
+  uint prev = g_wp_prev;
+  g_wp_prev = rc;
+
+  /* Only the free path releases an eviction claim, SENTINEL -> 0.  A
+     plain unpin of a still-resident line (1 -> 0) leaves the markers
+     live by design and is not a push. */
+  if( FD_UNLIKELY( prev==FD_ACCDB_EVICT_SENTINEL && rc==0U ) ) {
+    uint a = line->acc_idx;
+    uint g = line->key.generation;
+    if( FD_UNLIKELY( a!=UINT_MAX || g!=UINT_MAX ) ) {
+      g_wp_violation   = 1;
+      g_wp_bad_acc_idx = a;
+      g_wp_bad_gen     = g;
+    }
+  }
+}
+
+/* Watch the 4 bytes at addr for writes, delivering SIGIO.  Returns the
+   perf fd, or -1 if breakpoint events are unavailable (sandbox). */
+static int
+wp_arm( void const * addr ) {
+  struct sigaction sa;
+  memset( &sa, 0, sizeof(sa) );
+  sa.sa_sigaction = wp_handler;
+  sa.sa_flags     = SA_SIGINFO | SA_RESTART;
+  FD_TEST( !sigaction( SIGIO, &sa, NULL ) );
+
+  struct perf_event_attr attr;
+  memset( &attr, 0, sizeof(attr) );
+  attr.type           = PERF_TYPE_BREAKPOINT;
+  attr.size           = sizeof(attr);
+  attr.bp_type        = HW_BREAKPOINT_W;
+  attr.bp_addr        = (ulong)addr;
+  attr.bp_len         = HW_BREAKPOINT_LEN_4;
+  attr.sample_period  = 1UL;
+  attr.wakeup_events  = 1U;
+  attr.exclude_kernel = 1;
+  attr.exclude_hv     = 1;
+
+  int fd = (int)syscall( __NR_perf_event_open, &attr, 0, -1, -1, 0UL );
+  if( FD_UNLIKELY( fd<0 ) ) return -1;
+  FD_TEST( !fcntl( fd, F_SETFL, O_ASYNC|O_NONBLOCK ) );
+  FD_TEST( !fcntl( fd, F_SETOWN, getpid() ) );
+  FD_TEST( !fcntl( fd, F_SETSIG, SIGIO ) );
+  return fd;
+}
+
+static void
+test_preevict_release_store_order( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* P resident and dirty, so pre-eviction takes the writeback branch and
+     then runs the free tail on P's line. */
+  seq_write_data( accdb, root0, key_P, 100UL, owner_P, 100UL, 0xA1 );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) );
+  fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
+
+  g_wp_line        = line;
+  g_wp_prev        = line->refcnt;
+  g_wp_fired       = 0;
+  g_wp_violation   = 0;
+
+  int wp = wp_arm( &line->refcnt );
+  if( FD_UNLIKELY( wp<0 ) ) {
+    FD_LOG_WARNING(( "  (skipped: perf_event_open breakpoint unavailable: %s)", strerror( errno ) ));
+    g_wp_line = NULL;
+    test_teardown( accdb, fd );
+    return;
+  }
+
+  fd_accdb_debug_force_preevict( accdb );
+
+  close( wp );
+  g_wp_line = NULL;
+
+  /* The watchpoint must have seen the claim and the release, else the
+     test proved nothing. */
+  FD_TEST( g_wp_fired>=2 );
+  FD_TEST( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX );
+
+  if( FD_UNLIKELY( g_wp_violation ) ) {
+    FD_LOG_ERR(( "refcnt released to 0 while the markers were still live "
+                 "(acc_idx=0x%x generation=0x%x): the marker stores were "
+                 "reordered below the refcnt store, so a concurrent sweeper "
+                 "can claim this line while it is being freed",
+                 g_wp_bad_acc_idx, g_wp_bad_gen ));
+  }
+  FD_LOG_NOTICE(( "marker stores precede the refcnt release (%d watchpoint hits)", g_wp_fired ));
+
+  test_teardown( accdb, fd );
+}
+
 /* test_probe_vs_pd_commit the pd_write probe walk raced
    against a same-fork overwrite commit that sets pd_write=1.  The probe
    is designed to be called concurrently with writers on its fork; it
@@ -3058,6 +3208,7 @@ main( int     argc,
     TEST( test_overwrite_discard_stray_pin_cls7 ),
     TEST( test_overwrite_discard_stray_pin_xclass ),
     TEST( test_overwrite_discard_vs_evictor ),
+    TEST( test_preevict_release_store_order ),
     TEST( test_probe_vs_pd_commit ),
     TEST( test_pd_same_fork_read_vs_write ),
     TEST( test_pd_parent_read_vs_child_write ),
