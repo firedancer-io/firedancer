@@ -7,6 +7,9 @@
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
+#if FD_HAS_AVX512
+#include <immintrin.h>
+#endif
 
 #define NAME "snapdc"
 
@@ -206,6 +209,40 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   }
 }
 
+/* Copy for the uncompressed path.  Identical result to fd_memcpy; the
+   difference is that the bulk of it is written with non-temporal stores, which
+   do not fetch the destination line before overwriting it.  snapdc copies the
+   whole snapshot on this path (497 GB on mainnet) and is at 100% busy doing it,
+   so the read-for-ownership traffic is worth removing.
+
+   Head and tail are handled with fd_memcpy so alignment and short lengths stay
+   exactly as correct as before.  sfence orders the streaming stores ahead of
+   the fd_stem_publish that hands the buffer to snapin -- without it the
+   consumer may observe the frag before its bytes. */
+
+static inline void
+snapdc_copy( void *       dst_,
+             void const * src_,
+             ulong        sz ) {
+#if FD_HAS_AVX512
+  uchar *       dst = (uchar *)dst_;
+  uchar const * src = (uchar const *)src_;
+
+  ulong head = fd_ulong_min( (64UL - ((ulong)dst & 63UL)) & 63UL, sz );
+  if( FD_UNLIKELY( head ) ) { fd_memcpy( dst, src, head ); dst += head; src += head; sz -= head; }
+
+  while( sz>=64UL ) {
+    _mm512_stream_si512( (void *)dst, _mm512_loadu_si512( (void const *)src ) );
+    dst += 64UL; src += 64UL; sz -= 64UL;
+  }
+
+  if( FD_UNLIKELY( sz ) ) fd_memcpy( dst, src, sz );
+  _mm_sfence();
+#else
+  fd_memcpy( dst_, src_, sz );
+#endif
+}
+
 static inline int
 handle_data_frag( fd_snapdc_tile_t *  ctx,
                   fd_stem_context_t * stem,
@@ -229,7 +266,7 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   if( FD_UNLIKELY( !ctx->is_zstd ) ) {
     FD_TEST( ctx->in.frag_pos<sz );
     ulong cpy = fd_ulong_min( sz-ctx->in.frag_pos, ctx->out.mtu );
-    fd_memcpy( out, in, cpy );
+    snapdc_copy( out, in, cpy );
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, cpy, 0UL, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, cpy, ctx->out.chunk0, ctx->out.wmark );
 
