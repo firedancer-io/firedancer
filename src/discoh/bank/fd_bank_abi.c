@@ -863,6 +863,10 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
        To simplify the code, even when the option is not specified, we
        set the default value, and then use the tag field to note that
        it is a None value. */
+
+    /* This sets priority_fee.discr to 0 or 1. That means
+       `v1->message.discr != ABI_V1_COW_BORROWED_DISCR`, so we know it
+       is owned. */
     message->priority_fee.discr                    = (ulong)( v1_config_mask    &1U);
     message->compute_unit_limit.discr              =        ((v1_config_mask>>2)&1U);
     message->loaded_accounts_data_size_limit.discr =        ((v1_config_mask>>3)&1U);
