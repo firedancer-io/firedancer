@@ -121,7 +121,7 @@ FD_STATIC_ASSERT( sizeof(fd_crds_purged_t)==128UL, purged_entry_footprint );
 #define MAP_PREV               nci_map.prev
 #define MAP_NEXT               nci_map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key)->uc, sizeof(fd_pubkey_t) )
 #define MAP_MULTI              1
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
