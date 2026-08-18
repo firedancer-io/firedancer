@@ -22,7 +22,7 @@ typedef enum fd_exec_test_block_parse_result {
 Once they're cleaned up / activated on all clusters, they can be
 removed via a reserved tag. */
 typedef struct fd_exec_test_shred_features {
-    bool discard_unexpected_data_complete_shreds;
+    char dummy_field;
 } fd_exec_test_shred_features_t;
 
 typedef struct fd_exec_test_shred_parse_context {
@@ -103,7 +103,6 @@ extern "C" {
 #define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
-#define FD_EXEC_TEST_SHRED_FEATURES_DISCARD_UNEXPECTED_DATA_COMPLETE_SHREDS_TAG 1
 #define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_SHREDS_TAG 1
 #define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_ROOT_SLOT_TAG 2
 #define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_SHRED_VERSION_TAG 3
@@ -127,7 +126,7 @@ extern "C" {
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_SHRED_FEATURES_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, BOOL,     discard_unexpected_data_complete_shreds,   1)
+
 #define FD_EXEC_TEST_SHRED_FEATURES_CALLBACK NULL
 #define FD_EXEC_TEST_SHRED_FEATURES_DEFAULT NULL
 
@@ -190,7 +189,7 @@ extern const pb_msgdesc_t fd_exec_test_shred_parse_fixture_t_msg;
 /* fd_exec_test_FECSetParseResult_size depends on runtime parameters */
 /* fd_exec_test_ShredParseEffects_size depends on runtime parameters */
 /* fd_exec_test_ShredParseFixture_size depends on runtime parameters */
-#define FD_EXEC_TEST_SHRED_FEATURES_SIZE         2
+#define FD_EXEC_TEST_SHRED_FEATURES_SIZE         0
 #define ORG_SOLANA_SEALEVEL_V1_SHRED_PB_H_MAX_SIZE FD_EXEC_TEST_SHRED_FEATURES_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */

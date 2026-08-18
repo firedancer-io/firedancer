@@ -549,13 +549,8 @@ during_frag( fd_shred_ctx_t * ctx,
                                                                      &epoch_msg->epoch_schedule,
                                                                      ctx->next_max_shred_idx_start_slot ).max_shred_idx;
     }
-    ctx->features_activation->enforce_fixed_fec_set     = fd_shred_get_feature_activation_slot0(
+    ctx->features_activation->enforce_fixed_fec_set = fd_shred_get_feature_activation_slot0(
       epoch_msg->features.enforce_fixed_fec_set, ctx );
-    ctx->features_activation->discard_unexpected_data_complete_shreds = fd_shred_get_feature_activation_slot0(
-      epoch_msg->features.discard_unexpected_data_complete_shreds, ctx );
-
-    fd_fec_resolver_set_discard_unexpected_data_complete_shreds( ctx->resolver,
-      ctx->features_activation->discard_unexpected_data_complete_shreds );
 
     return;
   }
@@ -603,8 +598,6 @@ during_frag( fd_shred_ctx_t * ctx,
       fd_shred_epoch_msg_t const * msg = (fd_shred_epoch_msg_t const *)dcache_entry;
 
       *ctx->features_activation = msg->features_activation;
-      fd_fec_resolver_set_discard_unexpected_data_complete_shreds( ctx->resolver,
-        ctx->features_activation->discard_unexpected_data_complete_shreds );
 
       if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
         fd_shred_slot_limits_t const * lim    = &msg->slot_limits;

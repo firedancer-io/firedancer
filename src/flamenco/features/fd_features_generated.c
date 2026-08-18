@@ -1720,7 +1720,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\x3e\xd9\x52\x45\xee\x7b\x8c\x8a\xaf\x88\xa2\x5e\x37\x29\x76\x1d\xa5\xfb\xfa\x47\x48\xfd\xd4\x5a\xff\x2b\xb8\xfa\xd3\x1c\x98"},
                                  /* poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb */
     .name                      = "poseidon_enforce_padding",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, relax_intrabatch_account_locks)>>3,
@@ -1837,7 +1837,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x09\x68\x3f\x18\x94\x78\x40\x21\xfc\x16\xac\x9a\xba\x18\x25\x43\x4d\x62\x51\x4c\x4c\xed\x53\x36\x8c\x79\xfd\xdf\x52\xfb\x29\x01"},
                                  /* disCA4efguFL6Wqa4pGdG7jpjC7C5uiKzKnhEBqchBe */
     .name                      = "discard_unexpected_data_complete_shreds",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, create_account_allow_prefund)>>3,
     .id                        = {"\x57\x32\x9a\x9e\x7c\x9b\x2b\x63\xa6\xee\x98\xb8\x4a\x21\x4e\xb2\x16\xce\x9d\x43\x32\xb5\x8c\x1c\x9c\xa4\x56\x8b\xde\x3b\xa9\x14"},

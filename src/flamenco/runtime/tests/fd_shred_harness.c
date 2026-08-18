@@ -200,15 +200,10 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   /* Configure resolver behavior for the fuzz run:
        - bypass Merkle proof + Ed25519 signature checks
          (see fd_fec_resolver_set_bypass_verify in fd_fec_resolver.h)
-       - drop shreds for slots strictly older than root_slot
-       - map the proto bool for the discard-unexpected-DATA_COMPLETE
-         feature onto the activation_slot extremes (0 = active for
-         every slot, ULONG_MAX = never active) */
+       - drop shreds for slots strictly older than root_slot */
   fd_fec_resolver_set_shred_version( resolver, (ushort)input->shred_version );
   fd_fec_resolver_set_bypass_verify( resolver, 1 );
   fd_fec_resolver_advance_slot_old ( resolver, input->root_slot );
-  fd_fec_resolver_set_discard_unexpected_data_complete_shreds( resolver,
-      input->features.discard_unexpected_data_complete_shreds ? 0UL : ULONG_MAX );
 
   /* Initialize reasm/sched so completed FEC sets can be
      replay-ingested in order. */
