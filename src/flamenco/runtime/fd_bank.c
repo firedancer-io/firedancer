@@ -1086,8 +1086,10 @@ fd_banks_new_bank( fd_banks_t * banks,
   }
 
   child_bank->first_fec_set_received_nanos      = now;
+  child_bank->preparation_begin_nanos           = 0L;
   child_bank->first_transaction_scheduled_nanos = 0L;
   child_bank->last_transaction_finished_nanos   = 0L;
+  child_bank->block_completed_nanos             = 0L;
 
   return child_bank;
 }
@@ -1100,6 +1102,8 @@ fd_banks_subtree_mark_dead( fd_banks_t * banks,
                             fd_bank_t *  bank,
                             ulong *      opt_idxs ) {
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
+
+  if( FD_UNLIKELY( bank->state==FD_BANK_STATE_DEAD ) ) return 0UL;
 
   ulong idxs_cnt = 0UL;
   if( FD_UNLIKELY( bank->state==FD_BANK_STATE_PRUNABLE ) ) {

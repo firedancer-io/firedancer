@@ -254,15 +254,17 @@ after_credit( fd_backt_tile_t *   ctx,
      of the shred tile.  This involves copying the data shred header and
      appending the merkle root and chained merkle root. */
 
-  fd_fec_complete_t * complete_msg = (fd_fec_complete_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ) );
-  complete_msg->last_shred_hdr = *shred;
-  complete_msg->last_shred_hdr.idx = (uint)out_shred_idx;
-  complete_msg->last_shred_hdr.fec_set_idx = (uint)ctx->out_fec_set_idx;
-  memcpy( &complete_msg->merkle_root, &mr, sizeof(fd_hash_t) );
-  memcpy( &complete_msg->chained_merkle_root, &cmr, sizeof(fd_hash_t) );
+  fd_repair_fec_complete_t * complete_msg = (fd_repair_fec_complete_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ) );
+  complete_msg->fec.last_shred_hdr = *shred;
+  complete_msg->fec.last_shred_hdr.idx = (uint)out_shred_idx;
+  complete_msg->fec.last_shred_hdr.fec_set_idx = (uint)ctx->out_fec_set_idx;
+  memcpy( &complete_msg->fec.merkle_root, &mr, sizeof(fd_hash_t) );
+  memcpy( &complete_msg->fec.chained_merkle_root, &cmr, sizeof(fd_hash_t) );
 
-  fd_stem_publish( stem, ctx->repair_out->idx, REPAIR_SIG_FEC, ctx->repair_out->chunk, sizeof(fd_fec_complete_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_fec_complete_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+  memset( &complete_msg->metrics, 0, sizeof(fd_fec_complete_metrics_t) );
+
+  fd_stem_publish( stem, ctx->repair_out->idx, REPAIR_SIG_FEC, ctx->repair_out->chunk, sizeof(fd_repair_fec_complete_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_repair_fec_complete_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
 
   if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }

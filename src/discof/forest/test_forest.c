@@ -21,7 +21,7 @@ fd_forest_blk_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_
   fd_forest_blk_insert( forest, slot, parent_slot, &evicted );
   fd_hash_t mr = (fd_hash_t){ .key = { 1 } };
   fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
-  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR, &mr, &cmr );
+  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR, &mr, &cmr, fd_tickcount() );
 }
 
 fd_forest_blk_t *
@@ -30,7 +30,7 @@ fd_forest_blk_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, u
   fd_forest_blk_insert( forest, slot, parent_slot, &evicted );
   fd_hash_t mr  = (fd_hash_t){ .key = { 1 } };
   fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
-  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0, &mr, &cmr );
+  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0, &mr, &cmr, fd_tickcount() );
 }
 
 #define slot_idx( forest, slot ) fd_forest_pool_idx( fd_forest_pool( forest ), fd_forest_query( forest, slot ) )
@@ -956,11 +956,11 @@ test_slot_clear( fd_wksp_t * wksp ) {
   fd_forest_blk_insert( forest, 2, 0, NULL );
   fd_forest_blk_insert( forest, 3, 2, NULL );
   /*                            slot paren  last  fec_set  slot_cmpl  rt  mr        cmr */
-  fd_forest_fec_insert( forest, 2,   0,     31,   0,       0,         0,  &mr_2_0,  &mr_0 );
-  fd_forest_fec_insert( forest, 2,   0,     63,   32,      1,         0,  &mr_2_32, &mr_2_0 );
+  fd_forest_fec_insert( forest, 2,   0,     31,   0,       0,         0,  &mr_2_0,  &mr_0, fd_tickcount() );
+  fd_forest_fec_insert( forest, 2,   0,     63,   32,      1,         0,  &mr_2_32, &mr_2_0, fd_tickcount() );
 
-  fd_forest_fec_insert( forest, 3,   2,     31,   0,       0,         0,  &mr_3_0,  &mr_2_0 );
-  fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0 );
+  fd_forest_fec_insert( forest, 3,   2,     31,   0,       0,         0,  &mr_3_0,  &mr_2_0, fd_tickcount() );
+  fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0, fd_tickcount() );
 
   ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
   FD_TEST( ele == fd_forest_query( forest, 3 ) );
@@ -970,7 +970,7 @@ test_slot_clear( fd_wksp_t * wksp ) {
   fd_forest_fec_clear( forest, 3, 32, 31 );
 
   /* Now pretend we have received the correct FEC for 3, 32 */
-  fd_forest_fec_insert( forest, 3,    2,    63,   32,      1,         0,  &mr_3_32_, &mr_3_0_ );
+  fd_forest_fec_insert( forest, 3,    2,    63,   32,      1,         0,  &mr_3_32_, &mr_3_0_, fd_tickcount() );
   ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
   FD_TEST( ele == fd_forest_query( forest, 3 ) );
   FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 0 );
@@ -985,8 +985,8 @@ test_slot_clear( fd_wksp_t * wksp ) {
 
   /* Now pretend we have received the correct FEC for 3, 0 */
   fd_hash_t garbage_mr = (fd_hash_t){ .key = { 67 } };
-  FD_TEST( !fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, 0, &garbage_mr, &garbage_mr ) ); // first get an incorrect shred, should be rejected.
-  fd_forest_fec_insert( forest, 3,   2,    31,      0,      0,          0, &mr_3_0_, &mr_2_32 );
+  FD_TEST( !fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, 0, &garbage_mr, &garbage_mr, fd_tickcount() ) ); // first get an incorrect shred, should be rejected.
+  fd_forest_fec_insert( forest, 3,   2,    31,      0,      0,          0, &mr_3_0_, &mr_2_32, fd_tickcount() );
 
   ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
   FD_TEST( !ele );
@@ -1073,20 +1073,20 @@ test_verify_orphans( fd_wksp_t * wksp ) {
   FD_TEST( fd_forest_requests_ele_query( fd_forest_orphreqs( forest ), &idx, NULL, fd_forest_reqspool( forest ) ) );
 
   /*                            slot paren  last  fec_set  slot_cmpl  rt  mr        cmr */
-  fd_forest_fec_insert( forest, 2,   1,     31,   0,       0,         0,  &mr_2_0,  &mr_1_32 );
-  fd_forest_fec_insert( forest, 2,   1,     63,   32,      1,         0,  &mr_2_32, &mr_2_0 );
+  fd_forest_fec_insert( forest, 2,   1,     31,   0,       0,         0,  &mr_2_0,  &mr_1_32, fd_tickcount() );
+  fd_forest_fec_insert( forest, 2,   1,     63,   32,      1,         0,  &mr_2_32, &mr_2_0, fd_tickcount() );
 
-  fd_forest_fec_insert( forest, 3,   2,     31,   0,       0,         0,  &mr_3_0,  &mr_2_32 );
-  fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0 );
+  fd_forest_fec_insert( forest, 3,   2,     31,   0,       0,         0,  &mr_3_0,  &mr_2_32, fd_tickcount() );
+  fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0, fd_tickcount() );
 
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
   /* orphans verify */
 
   /* Now chain 1 to 0, and this should trigger a verification of the chain from 2 to 0 */
   fd_forest_blk_insert( forest, 1, 0, NULL );
-  ele = fd_forest_fec_insert( forest, 1,   0,     31,   0,       0,         0,  &mr_1_0,  &mr_0 );
+  ele = fd_forest_fec_insert( forest, 1,   0,     31,   0,       0,         0,  &mr_1_0,  &mr_0, fd_tickcount() );
   FD_TEST( ele->lowest_verified_fec == UINT_MAX );
-  ele = fd_forest_fec_insert( forest, 1,   0,     63,   32,      1,         0,  &mr_1_32, &mr_1_0 );
+  ele = fd_forest_fec_insert( forest, 1,   0,     63,   32,      1,         0,  &mr_1_32, &mr_1_0, fd_tickcount() );
   FD_TEST( ele->lowest_verified_fec == 32/32 );
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
   /* orphans verify */
@@ -1463,13 +1463,13 @@ test_parent_update( fd_wksp_t * wksp ) {
 
   fd_forest_blk_insert( forest, 1, 0, NULL );
   fd_forest_blk_insert( forest, 3, 1, NULL );
-  fd_forest_fec_insert( forest, 3, 1, 31, 0, 1, 0, &mr_3_2, &mr_1 );
+  fd_forest_fec_insert( forest, 3, 1, 31, 0, 1, 0, &mr_3_2, &mr_1, fd_tickcount() );
   /* orphans */
   fd_forest_blk_insert( forest, 7, 6, NULL );
-  fd_forest_fec_insert( forest, 7, 6, 31, 0,  0, 0, &mr_7_0, &mr_6_0 );
-  fd_forest_fec_insert( forest, 7, 6, 63, 32, 1, 0, &mr_7_32_, &mr_7_0 );
+  fd_forest_fec_insert( forest, 7, 6, 31, 0,  0, 0, &mr_7_0, &mr_6_0, fd_tickcount() );
+  fd_forest_fec_insert( forest, 7, 6, 63, 32, 1, 0, &mr_7_32_, &mr_7_0, fd_tickcount() );
   fd_forest_blk_insert( forest, 8, 7, NULL );
-  fd_forest_data_shred_insert( forest, 8, 7, 31, 0, 0, 0, SHRED_SRC_REPAIR, &mr_8_0, &mr_7_0 );
+  fd_forest_data_shred_insert( forest, 8, 7, 31, 0, 0, 0, SHRED_SRC_REPAIR, &mr_8_0, &mr_7_0, fd_tickcount() );
 
   /* now confirm 7 with a different block id. */
   FD_TEST( fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 7 ), &mr_7_1 ) );
@@ -1479,8 +1479,8 @@ test_parent_update( fd_wksp_t * wksp ) {
   fd_forest_fec_clear( forest, 7, 32, 31 );
 
   /* now get a data shred / fec that is correct */
-  //FD_TEST( fd_forest_data_shred_insert( forest, 7, 3, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_7_1, &mr_3 ) );
-  fd_forest_fec_insert( forest, 7, 3, 31, 0, 1, 0, &mr_7_1, &mr_3 );
+  //FD_TEST( fd_forest_data_shred_insert( forest, 7, 3, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_7_1, &mr_3, fd_tickcount() ) );
+  fd_forest_fec_insert( forest, 7, 3, 31, 0, 1, 0, &mr_7_1, &mr_3, fd_tickcount() );
   FD_TEST( fd_forest_query( forest, 7 )->parent_slot == 3 ); /* parent slot should be updated */
   ulong _8 = 8;
   FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_8, NULL, fd_forest_pool( forest ) ) );
@@ -1491,7 +1491,7 @@ test_parent_update( fd_wksp_t * wksp ) {
 
   /* an old data shred with the wrong parent_slot shouldn't cause the
      parent_slot to update */
-  FD_TEST( !fd_forest_data_shred_insert( forest, 7, 6, 31, 0, 1, 0, 0, &mr_7_0, &mr_6_0 ) );
+  FD_TEST( !fd_forest_data_shred_insert( forest, 7, 6, 31, 0, 1, 0, 0, &mr_7_0, &mr_6_0, fd_tickcount() ) );
   FD_TEST( fd_forest_query( forest, 7 )->parent_slot == 3 );
 
   FD_TEST( fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 7 ), &mr_7_1 ) == fd_forest_query( forest, 3 ) );
@@ -1499,7 +1499,7 @@ test_parent_update( fd_wksp_t * wksp ) {
 
   /* SURPRISE! let's say slot 3's real parent should be slot 2 */
 
-  fd_forest_data_shred_insert( forest, 3, 2, 31, 0, 0, 0, SHRED_SRC_REPAIR, &mr_3, &mr_2 );
+  fd_forest_data_shred_insert( forest, 3, 2, 31, 0, 0, 0, SHRED_SRC_REPAIR, &mr_3, &mr_2, fd_tickcount() );
   /*should get accepted*/
   FD_TEST( fd_forest_query( forest, 3 )->parent_slot == 2 );
   ulong _3 = 3; ulong _7 = 7;
@@ -1513,7 +1513,7 @@ test_parent_update( fd_wksp_t * wksp ) {
   ulong _9 = 9;
   fd_hash_t mr_9_0 = (fd_hash_t){ .ul = { 9, 0 } };
   fd_forest_blk_insert( forest, 9, 8, NULL );
-  fd_forest_data_shred_insert( forest, 9, 8, 31, 0, 1, 1, SHRED_SRC_REPAIR, &mr_9_0, &mr_8_0 );
+  fd_forest_data_shred_insert( forest, 9, 8, 31, 0, 1, 1, SHRED_SRC_REPAIR, &mr_9_0, &mr_8_0, fd_tickcount() );
 
   fd_hash_t mr_9_1 = (fd_hash_t){ .ul = { 9, 1 } };
   fd_hash_t mr_5   = (fd_hash_t){ .ul = { 5 } };
@@ -1525,7 +1525,7 @@ test_parent_update( fd_wksp_t * wksp ) {
      1-FEC slot.  Previously the test passed with slot_complete=0 because
      the stale lowest_verified_fec (from the old fec_chain_verify pre-set)
      made merkle_verified return true. */
-  fd_forest_data_shred_insert( forest, 9, 5, 31, 0, 1, 1, SHRED_SRC_REPAIR, &mr_9_1, &mr_5 );
+  fd_forest_data_shred_insert( forest, 9, 5, 31, 0, 1, 1, SHRED_SRC_REPAIR, &mr_9_1, &mr_5, fd_tickcount() );
   FD_TEST( fd_forest_query( forest, 9 )->parent_slot == 5 );
   FD_TEST( fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_9, NULL, fd_forest_pool( forest ) ) );
   FD_TEST( !fd_forest_verify( forest ) );
@@ -1550,8 +1550,8 @@ test_eqvoc_blk_wrong_parent( fd_wksp_t * wksp ) {
   fd_forest_blk_insert( forest, 4, 1, NULL );
 
   fd_forest_blk_insert( forest, 3, 1, NULL );
-  fd_forest_data_shred_insert( forest, 3, 1, 63, 32, 1, 0, SHRED_SRC_REPAIR, &mr_3_32, &mr_3_0 );
-  fd_forest_fec_insert( forest, 3, 1, 31, 0, 0, 0, &mr_3_0, &mr1 );
+  fd_forest_data_shred_insert( forest, 3, 1, 63, 32, 1, 0, SHRED_SRC_REPAIR, &mr_3_32, &mr_3_0, fd_tickcount() );
+  fd_forest_fec_insert( forest, 3, 1, 31, 0, 0, 0, &mr_3_0, &mr1, fd_tickcount() );
 
   fd_hash_t mr_3_32_ = (fd_hash_t){ .key = { 3, 1, 1 } };
   fd_hash_t mr_3_0_  = (fd_hash_t){ .key = { 3, 0, 1 } };
@@ -1560,11 +1560,11 @@ test_eqvoc_blk_wrong_parent( fd_wksp_t * wksp ) {
   FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == 32UL );
 
   fd_forest_fec_clear( forest, 3, 32, 31 );
-  fd_forest_data_shred_insert( forest, 3, 2, 63, 32, 1, 0, SHRED_SRC_REPAIR, &mr_3_32_, &mr_3_0_ );
+  fd_forest_data_shred_insert( forest, 3, 2, 63, 32, 1, 0, SHRED_SRC_REPAIR, &mr_3_32_, &mr_3_0_, fd_tickcount() );
   FD_TEST( fd_forest_query( forest, 3 )->parent_slot == 2 ); /* parent slot should be updated */
   FD_TEST( !fd_forest_verify( forest ) );
 
-  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_32_, &mr_3_0_ );
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_32_, &mr_3_0_, fd_tickcount() );
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ ) );
   FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == 0UL );
 }
@@ -1596,20 +1596,20 @@ test_buffered_idx_gt_complete_idx( fd_wksp_t * wksp ) {
   fd_hash_t mr_a  = (fd_hash_t){ .key = { 1 } };
   fd_hash_t cmr_a = (fd_hash_t){ .key = { 1 } };
   for( uint i = 0; i < 32; i++ ) {
-    fd_forest_data_shred_insert( forest, 2, 1, i, 0, 0, 0, SHRED_SRC_TURBINE, &mr_a, &cmr_a );
+    fd_forest_data_shred_insert( forest, 2, 1, i, 0, 0, 0, SHRED_SRC_TURBINE, &mr_a, &cmr_a, fd_tickcount() );
   }
 
   fd_hash_t mr_b  = (fd_hash_t){ .key = { 2 } };
   fd_hash_t cmr_b = (fd_hash_t){ .key = { 2 } };
   for( uint i = 32; i < 64; i++ ) {
-    fd_forest_data_shred_insert( forest, 2, 1, i, 32, 0, 0, SHRED_SRC_TURBINE, &mr_b, &cmr_b );
+    fd_forest_data_shred_insert( forest, 2, 1, i, 32, 0, 0, SHRED_SRC_TURBINE, &mr_b, &cmr_b, fd_tickcount() );
   }
 
   FD_TEST( fd_forest_query( forest, 2 )->buffered_idx == 63 );
 
   /* Real slot-complete shred: slot is actually only 1 FEC set (32 shreds).
      complete_idx = 31, but buffered_idx stays at 63 without the fix. */
-  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_a, &cmr_a );
+  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_a, &cmr_a, fd_tickcount() );
 
   fd_forest_blk_t * ele = fd_forest_query( forest, 2 );
   FD_TEST( ele->complete_idx == 31 );
@@ -1652,17 +1652,17 @@ test_verified_parent_update_stale_sibling( fd_wksp_t * wksp ) {
   /* Main tree: 0 -> 1 -> 3 */
   fd_forest_blk_insert( forest, 1, 0, NULL );
   fd_forest_blk_insert( forest, 3, 1, NULL );
-  fd_forest_fec_insert( forest, 3, 1, 31, 0, 1, 0, &mr_3, &mr_1 );
+  fd_forest_fec_insert( forest, 3, 1, 31, 0, 1, 0, &mr_3, &mr_1, fd_tickcount() );
 
   /* Orphan subtree: 7 -> {8, 9}  (8 and 9 are siblings under 7) */
   fd_forest_blk_insert( forest, 7, 6, NULL );
-  fd_forest_fec_insert( forest, 7, 6, 31, 0, 1, 0, &mr_7_0, &mr_6_0 );
+  fd_forest_fec_insert( forest, 7, 6, 31, 0, 1, 0, &mr_7_0, &mr_6_0, fd_tickcount() );
 
   fd_forest_blk_insert( forest, 8, 7, NULL );
-  fd_forest_data_shred_insert( forest, 8, 7, 0, 0, 0, 0, SHRED_SRC_REPAIR, &mr_8_0, &mr_7_0 );
+  fd_forest_data_shred_insert( forest, 8, 7, 0, 0, 0, 0, SHRED_SRC_REPAIR, &mr_8_0, &mr_7_0, fd_tickcount() );
 
   fd_forest_blk_insert( forest, 9, 7, NULL );
-  fd_forest_data_shred_insert( forest, 9, 7, 0, 0, 0, 0, SHRED_SRC_REPAIR, &mr_9_0, &mr_7_0 );
+  fd_forest_data_shred_insert( forest, 9, 7, 0, 0, 0, 0, SHRED_SRC_REPAIR, &mr_9_0, &mr_7_0, fd_tickcount() );
 
   /* Confirm slot 7 with a different block id to mark the current FEC
      as incorrect. */
@@ -1678,7 +1678,7 @@ test_verified_parent_update_stale_sibling( fd_wksp_t * wksp ) {
 
      If sibling pointers are not cleared during detach, blk_insert's
      frontier-extension BFS will loop forever here. */
-  fd_forest_fec_insert( forest, 7, 3, 31, 0, 1, 0, &mr_7_1, &mr_3 );
+  fd_forest_fec_insert( forest, 7, 3, 31, 0, 1, 0, &mr_7_1, &mr_3, fd_tickcount() );
 
   FD_TEST( fd_forest_query( forest, 7 )->parent_slot == 3 );
   FD_TEST( fd_forest_query( forest, 8 ) );
@@ -1758,13 +1758,13 @@ test_eqvoc_different_slot_size( fd_wksp_t * wksp ) {
 
   /* Set up ancestry: root=0, slot 1, slot 2 */
   fd_forest_blk_insert( forest, 1, 0, NULL );
-  fd_forest_data_shred_insert( forest, 1, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_1, &mr_0 );
+  fd_forest_data_shred_insert( forest, 1, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_1, &mr_0, fd_tickcount() );
   fd_forest_blk_insert( forest, 2, 1, NULL );
-  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_1 );
+  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_1, fd_tickcount() );
 
   /* Insert bad version of slot 3: 1 FEC set, parent=1, complete_idx=31 */
   fd_forest_blk_insert( forest, 3, 1, NULL );
-  fd_forest_fec_insert( forest, 3, 1, 31, 0, 1, 0, &mr_3_bad, &mr_1 );
+  fd_forest_fec_insert( forest, 3, 1, 31, 0, 1, 0, &mr_3_bad, &mr_1, fd_tickcount() );
 
   fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
   FD_TEST( ele->complete_idx == 31 );
@@ -1796,17 +1796,17 @@ test_eqvoc_different_slot_size( fd_wksp_t * wksp ) {
      result is NULL because the correct shred was rejected. After the
      fix, this should be non-NULL. */
 
-  ele = fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, SHRED_SRC_REPAIR, &mr_3_0c, &mr_2c );
+  ele = fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, SHRED_SRC_REPAIR, &mr_3_0c, &mr_2c, fd_tickcount() );
   FD_TEST( ele );
   FD_TEST( ele->parent_slot == 2 ); /* parent_slot changes on shred in fec 0 */
   FD_TEST( fd_hash_eq( &ele->merkle_roots[0].mr, &mr_3_0c ) );
 
   /* shred in the last FEC set doesn't do anything because we still don't know complete_idx */
-  FD_TEST( fd_forest_data_shred_insert( forest, 3, 2, 94, 64, 0, 0, SHRED_SRC_REPAIR, &mr_3_2c, &mr_3_1c ) );
+  FD_TEST( fd_forest_data_shred_insert( forest, 3, 2, 94, 64, 0, 0, SHRED_SRC_REPAIR, &mr_3_2c, &mr_3_1c, fd_tickcount() ) );
   FD_TEST( ele->lowest_verified_fec == UINT_MAX );
   FD_TEST( ele->parent_slot == 2 );
 
-  FD_TEST( fd_forest_data_shred_insert( forest, 3, 2, 95, 64, 1, 0, SHRED_SRC_REPAIR, &mr_3_2c, &mr_3_1c ) );
+  FD_TEST( fd_forest_data_shred_insert( forest, 3, 2, 95, 64, 1, 0, SHRED_SRC_REPAIR, &mr_3_2c, &mr_3_1c, fd_tickcount() ) );
   FD_TEST( ele->lowest_verified_fec == 2 );
   FD_TEST( ele->complete_idx == 95 );
   FD_TEST( ele->parent_slot == 2 );
@@ -1837,16 +1837,16 @@ test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
 
   /* Set up ancestry: root=0 -> slot 1 -> slot 2 -> slot 3 */
   fd_forest_blk_insert( forest, 1, 0, NULL );
-  fd_forest_data_shred_insert( forest, 1, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_1, &mr_0 );
+  fd_forest_data_shred_insert( forest, 1, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_1, &mr_0, fd_tickcount() );
   fd_forest_blk_insert( forest, 2, 1, NULL );
-  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_1 );
+  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_1, fd_tickcount() );
 
   /* Insert correct version of slot 3: 2 FEC sets, parent=2 */
   fd_forest_blk_insert( forest, 3, 2, NULL );
   /* FEC 0: shreds 0-31 */
-  fd_forest_fec_insert( forest, 3, 2, 31, 0, 0, 0, &mr_3_0, &mr_2 );
+  fd_forest_fec_insert( forest, 3, 2, 31, 0, 0, 0, &mr_3_0, &mr_2, fd_tickcount() );
   /* FEC 1: shreds 32-63, slot_complete=1 */
-  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0 );
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0, fd_tickcount() );
 
   fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
   FD_TEST( ele->complete_idx == 63 );
@@ -1865,7 +1865,7 @@ test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
   /* Now a conflicting FEC_COMPLETE arrives for FEC 1 (fec_set_idx=32)
      with a different merkle root.  This is the bug scenario: without
      the fix, this would overwrite the verified merkle entry. */
-  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1_bad, &cmr_bad );
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1_bad, &cmr_bad, fd_tickcount() );
 
   /* The verified merkle root must NOT have been overwritten */
   FD_TEST( fd_hash_eq( &ele->merkle_roots[1].mr,  &saved_mr  ) );
@@ -1927,7 +1927,7 @@ test_buffered_idx_oob( fd_wksp_t * wksp ) {
 
     fd_forest_fec_insert( forest, slot, parent_slot,
                           last_shred_idx, fec_set_idx, slot_complete, 0,
-                          &mr, &cmr );
+                          &mr, &cmr, fd_tickcount() );
   }
 
   /* the slot is fully buffered and complete. */
@@ -1950,7 +1950,7 @@ test_buffered_idx_oob( fd_wksp_t * wksp ) {
                                 0,   /* slot_complete */
                                 0,   /* ref_tick */
                                 SHRED_SRC_TURBINE,
-                                &bad_mr, &bad_cmr );
+                                &bad_mr, &bad_cmr, fd_tickcount() );
 
   blk = fd_forest_query( forest, slot );
   FD_TEST( blk );
@@ -1983,13 +1983,13 @@ test_fec_insert_reject_oob_after_verify( fd_wksp_t * wksp ) {
 
   /* Build chain: root=0 -> slot 1 -> slot 2 -> slot 3 (2 FEC sets) */
   fd_forest_blk_insert( forest, 1, 0, NULL );
-  fd_forest_data_shred_insert( forest, 1, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_1, &mr_0 );
+  fd_forest_data_shred_insert( forest, 1, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_1, &mr_0, fd_tickcount() );
   fd_forest_blk_insert( forest, 2, 1, NULL );
-  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_1 );
+  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_1, fd_tickcount() );
 
   fd_forest_blk_insert( forest, 3, 2, NULL );
-  fd_forest_fec_insert( forest, 3, 2, 31, 0, 0, 0, &mr_3_0, &mr_2 );
-  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0 );
+  fd_forest_fec_insert( forest, 3, 2, 31, 0, 0, 0, &mr_3_0, &mr_2, fd_tickcount() );
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0, fd_tickcount() );
 
   fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
   FD_TEST( ele->complete_idx == 63 );
@@ -2007,7 +2007,7 @@ test_fec_insert_reject_oob_after_verify( fd_wksp_t * wksp ) {
   fd_hash_t mr_bad  = (fd_hash_t){ .key = { 0xBA } };
   fd_hash_t cmr_bad = (fd_hash_t){ .key = { 0xBB } };
 
-  fd_forest_blk_t * result = fd_forest_fec_insert( forest, 3, 2, attack_last_shred, attack_fec_set_idx, 0, 0, &mr_bad, &cmr_bad );
+  fd_forest_blk_t * result = fd_forest_fec_insert( forest, 3, 2, attack_last_shred, attack_fec_set_idx, 0, 0, &mr_bad, &cmr_bad, fd_tickcount() );
   FD_TEST( !result );
 
   /* Slot 3 state must be untouched. */
@@ -2053,18 +2053,18 @@ test_fec_insert_dup_confirm_larger_complete_idx( fd_wksp_t * wksp ) {
 
   /* Build ancestry: root=0 -> slot 2 (1 FEC) */
   fd_forest_blk_insert( forest, 2, 0, NULL );
-  fd_forest_data_shred_insert( forest, 2, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_0 );
+  fd_forest_data_shred_insert( forest, 2, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_0, fd_tickcount() );
 
   /* Receive the attacker's version of slot 3: complete at shred 31 */
   fd_forest_blk_insert( forest, 3, 2, NULL );
-  fd_forest_fec_insert( forest, 3, 2, 31, 0, 1, 0, &mr_3_bad, &mr_2 );
+  fd_forest_fec_insert( forest, 3, 2, 31, 0, 1, 0, &mr_3_bad, &mr_2, fd_tickcount() );
 
   fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
   FD_TEST( ele->complete_idx == 31 );
 
   /* Canonical FEC 1 (fec_set_idx=32) should be rejected because
      fec_set_idx 32 > complete_idx 31. */
-  FD_TEST( !fd_forest_fec_insert( forest, 3, 2, 63, 32, 0, 0, &mr_3_1, &mr_3_0 ) );
+  FD_TEST( !fd_forest_fec_insert( forest, 3, 2, 63, 32, 0, 0, &mr_3_1, &mr_3_0, fd_tickcount() ) );
 
   /* Duplicate confirmation arrives: clear the bad FEC (shreds 0-31).
      This resets complete_idx to UINT_MAX. */
@@ -2074,10 +2074,10 @@ test_fec_insert_dup_confirm_larger_complete_idx( fd_wksp_t * wksp ) {
   FD_TEST( ele->complete_idx == UINT_MAX );
 
   /* Try inserting the bad version again.  It should be rejected. */
-  FD_TEST( !fd_forest_fec_insert( forest, 3, 2, 31, 0, 1, 0, &mr_3_bad, &mr_2 ) );
+  FD_TEST( !fd_forest_fec_insert( forest, 3, 2, 31, 0, 1, 0, &mr_3_bad, &mr_2, fd_tickcount() ) );
   /* Now we can receive the canonical version: 2 FEC sets */
-  FD_TEST( fd_forest_fec_insert( forest, 3, 2, 31, 0,  0, 0, &mr_3_0, &mr_2 ) );
-  FD_TEST( fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0 ) );
+  FD_TEST( fd_forest_fec_insert( forest, 3, 2, 31, 0,  0, 0, &mr_3_0, &mr_2, fd_tickcount() ) );
+  FD_TEST( fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0, fd_tickcount() ) );
   FD_TEST( ele->complete_idx == 63 );
 
   /* Chain-verify succeeds */

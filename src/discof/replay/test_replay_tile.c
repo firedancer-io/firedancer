@@ -191,7 +191,7 @@ static fd_stem_context_t test_stem[ 1 ];
 static void
 setup_repair_input( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
   ulong const depth = 128UL;
-  ulong const mtu   = sizeof(fd_fec_complete_t);
+  ulong const mtu   = sizeof(fd_repair_fec_complete_t);
   ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
 
   void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
@@ -384,21 +384,21 @@ ingest_fec_complete( fd_replay_tile_t * ctx,
                      int                data_complete,
                      int                slot_complete ) {
   ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
-  fd_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
-  memset( complete_msg, 0, sizeof(fd_fec_complete_t) );
+  fd_repair_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  memset( complete_msg, 0, sizeof(fd_repair_fec_complete_t) );
 
-  complete_msg->merkle_root         = *merkle_root;
-  complete_msg->chained_merkle_root = *chained_merkle_root;
-  complete_msg->last_shred_hdr.slot        = slot;
-  complete_msg->last_shred_hdr.fec_set_idx = fec_set_idx;
-  complete_msg->last_shred_hdr.idx         = fec_set_idx + (uint)data_cnt - 1U;
-  complete_msg->last_shred_hdr.data.parent_off = parent_off;
-  complete_msg->last_shred_hdr.data.flags =
+  complete_msg->fec.merkle_root         = *merkle_root;
+  complete_msg->fec.chained_merkle_root = *chained_merkle_root;
+  complete_msg->fec.last_shred_hdr.slot        = slot;
+  complete_msg->fec.last_shred_hdr.fec_set_idx = fec_set_idx;
+  complete_msg->fec.last_shred_hdr.idx         = fec_set_idx + (uint)data_cnt - 1U;
+  complete_msg->fec.last_shred_hdr.data.parent_off = parent_off;
+  complete_msg->fec.last_shred_hdr.data.flags =
     (uchar)( fd_uchar_if( data_complete, FD_SHRED_DATA_FLAG_DATA_COMPLETE, 0U ) |
              fd_uchar_if( slot_complete, FD_SHRED_DATA_FLAG_SLOT_COMPLETE, 0U ) );
 
   FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk,
-                             sizeof(fd_fec_complete_t), 0UL, 0UL,
+                             sizeof(fd_repair_fec_complete_t), 0UL, 0UL,
                              fd_frag_meta_ts_comp( fd_tickcount() ), test_stem ) );
 
   fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, merkle_root );

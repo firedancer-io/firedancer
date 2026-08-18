@@ -2388,13 +2388,13 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
-process_fec_complete( fd_replay_tile_t *  ctx,
-                      ulong               sig,
-                      fd_fec_complete_t * complete_msg ) {
-  fd_shred_t const * shred = &complete_msg->last_shred_hdr;
+process_fec_complete( fd_replay_tile_t *         ctx,
+                      ulong                      sig,
+                      fd_repair_fec_complete_t * complete_msg ) {
+  fd_shred_t const * shred = &complete_msg->fec.last_shred_hdr;
 
-  fd_hash_t const * merkle_root         = &complete_msg->merkle_root;
-  fd_hash_t const * chained_merkle_root = &complete_msg->chained_merkle_root;
+  fd_hash_t const * merkle_root         = &complete_msg->fec.merkle_root;
+  fd_hash_t const * chained_merkle_root = &complete_msg->fec.chained_merkle_root;
   int               is_leader_fec       = sig == REPAIR_SIG_FEC_LEADER;
   int               data_complete       = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
   int               slot_complete       = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );

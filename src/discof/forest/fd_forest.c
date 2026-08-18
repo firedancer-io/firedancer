@@ -972,10 +972,18 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted ) 
 
   fd_forest_blk_idxs_null( blk->code );
   blk->first_shred_ts = 0;
+  blk->last_shred_ts  = 0;
   blk->first_req_ts   = 0;
+  blk->last_repair_resp_ts = 0;
   blk->turbine_cnt    = 0;
   blk->repair_cnt     = 0;
   blk->recovered_cnt  = 0;
+  blk->req_window_cnt  = 0;
+  blk->req_highest_cnt = 0;
+  blk->req_orphan_cnt  = 0;
+  blk->req_retransmit_cnt = 0;
+  blk->response_cnt    = 0;
+  blk->chain_verify_failed = 0;
 
   return blk;
 }
@@ -1206,7 +1214,8 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              int           ref_tick,
                              int           src,
                              fd_hash_t   * mr,
-                             fd_hash_t   * cmr ) {
+                             fd_hash_t   * cmr,
+                             long          rx_tick ) {
   FD_TEST( shred_idx < FD_SHRED_BLK_MAX );
   fd_forest_blk_t * ele = fd_forest_query( forest, slot );
   FD_CHECK_ERR( !!ele, "ele is not in the forest. data_shred_insert should be preceded by blk_insert" );
@@ -1301,7 +1310,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
     ele->repair_cnt    += (src==SHRED_SRC_REPAIR);
     ele->recovered_cnt += (src==SHRED_SRC_RECOVERED);
   }
-  if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
+  if( FD_UNLIKELY( !ele->first_shred_ts || rx_tick<ele->first_shred_ts ) ) ele->first_shred_ts = rx_tick;
 
   fd_forest_blk_idxs_insert( ele->idxs, shred_idx );
   while( ele->buffered_idx + 1 < FD_SHRED_BLK_MAX && fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) {
@@ -1314,12 +1323,16 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   /* If equivocating, buffered_idx needs to be clamped to complete_idx */
   if( FD_UNLIKELY( ele->buffered_idx != UINT_MAX && ele->buffered_idx > ele->complete_idx ) ) ele->buffered_idx = ele->complete_idx;
 
+  if( FD_UNLIKELY( !ele->last_shred_ts && ele->complete_idx!=UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {
+    ele->last_shred_ts = rx_tick;
+  }
+
   advance_consumed_frontier( forest, slot, parent_slot );
   return ele;
 }
 
 fd_forest_blk_t *
-fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, fd_hash_t * mr, fd_hash_t * cmr ) {
+fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, fd_hash_t * mr, fd_hash_t * cmr, long rx_tick ) {
   FD_TEST( last_shred_idx < FD_SHRED_BLK_MAX );
 
   fd_forest_blk_t * ele = fd_forest_query( forest, slot );
@@ -1389,18 +1402,18 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
      the advance_consumed_frontier call in the below data_shred_insert
      to move forward the consumed frontier.  */
   for( uint idx = fec_set_idx; idx <= last_shred_idx; idx++ ) {
-    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED, mr, cmr );
+    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED, mr, cmr, rx_tick );
   }
   return ele;
 }
 
 fd_forest_blk_t *
-fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) {
+fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx, long rx_tick ) {
   fd_forest_blk_t * ele  = fd_forest_query( forest, slot );
   if( FD_UNLIKELY( !ele ) ) {
     return NULL;
   }
-  if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
+  if( FD_UNLIKELY( !ele->first_shred_ts || rx_tick<ele->first_shred_ts ) ) ele->first_shred_ts = rx_tick;
 
   if( FD_UNLIKELY( shred_idx >= fd_forest_blk_idxs_max( ele->code ) ) ) {
     ele->turbine_cnt += 1;
@@ -1480,6 +1493,8 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
 
   if( FD_UNLIKELY( fec_set_idx == 0 ) ) ele->buffered_idx = UINT_MAX;
   else                                  ele->buffered_idx = fd_uint_if( ele->buffered_idx != UINT_MAX, fd_uint_min( ele->buffered_idx, fec_set_idx - 1 ), UINT_MAX );
+
+  ele->last_shred_ts = 0;
 
   uint fec_idx = fec_set_idx / 32UL;
   memset( &ele->merkle_roots[fec_idx].mr, 0, sizeof(fd_hash_t) );
