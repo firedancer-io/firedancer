@@ -287,9 +287,161 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_RUNTIME_TXN_BUF_MAX (23249UL)
 
+/* Why the block was ruled invalid; not_dead otherwise. Blocks this validator produced are never dead: they do not go through replay's block checks. A block invalid for several independent reasons records the first one detected locally, which can differ across validators for the same block. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD                    (1) /* Not ruled invalid. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_PARENT_DEAD                 (2) /* The block went down with its lineage: an ancestor was ruled invalid, so this block cannot be replayed. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_UNPARSEABLE_CONTENT         (3) /* Bytes at the head of the stream failed to parse as any structure (transaction, microblock header, or count) within the largest size a valid block allows: malformed content. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SHORT_BLOCK                 (4) /* Block bytes ended short of the microblocks and transactions declared. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TRAILING_ENTRY              (5) /* Block did not end on a tick; a transaction entry trailed the final tick. Checked before tick-count verification, so a block Agave rules TooFewTicks can report trailing_entry here. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_MICROBLOCKS        (6) /* More microblocks than a valid block can hold. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TICK_HASHES_OVERFLOW        (7) /* More hashes since the last tick than hashes per tick allows, detected at tick verification. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST (8) /* A microblock header declared more hashes than fit before the next tick, detected at FEC ingest. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_INCONSISTENT_TICK_HASHES    (9) /* A tick's hash count differs from the block's preceding ticks, detected at FEC ingest. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ZERO_HASH_TICK              (10) /* A tick advanced zero hashes, detected at tick verification because proof-of-history parameters were unknown when the tick parsed. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ZERO_HASH_TICK_INGEST       (11) /* A tick advanced zero hashes, detected at FEC ingest. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ZERO_MICROBLOCKS            (12) /* A batch header declared zero microblocks. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_TXNS               (13) /* More transactions than a valid block can hold. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_TICKS              (14) /* More ticks than allowed. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_WRONG_HASHES_PER_TICK       (15) /* Tick hash count did not advance the expected hashes per tick. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_FEW_TICKS               (16) /* Fewer ticks than required. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TICK_HASH_MISMATCH          (17) /* Proof-of-history hash of a tick did not verify. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_HASH_MISMATCH         (18) /* Proof-of-history hash of a transaction entry did not verify, detected when the entry's hashing task completed. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST  (19) /* Proof-of-history hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED            (20) /* A transaction failed signature verification. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TXN_FAILED_TO_LOAD          (21) /* A transaction failed a pre-execution check: already processed, expired or unknown recent blockhash, address lookup table resolution failure, account lock limit, compute budget error, unsupported transaction version or sanitization failure, or fee-payer validation failure. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BLOCK_COST_LIMIT            (22) /* A transaction pushed the block over its compute limit. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ACCOUNT_COST_LIMIT          (23) /* A transaction pushed one account over its per-block compute limit. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_VOTE_COST_LIMIT             (24) /* A vote transaction pushed the block over its vote compute limit. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ACCOUNT_DATA_LIMIT          (25) /* A transaction pushed the block over its account data size limit. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_DUPLICATE_ACCOUNT           (26) /* A transaction referenced the same account more than once. */
+
+/* Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead. */
+#define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED (1) /* Not abandoned; the block completed or was ruled invalid. */
+#define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED        (2) /* A block on another fork was rooted, discarding this fork before replay finished. */
+#define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_EVICTED       (3) /* Dropped for lack of room to track in-progress blocks. The row is emitted once the block's in-flight verification has drained without ruling it invalid; a block ruled invalid while draining emits a dead row instead. May be replayed later, producing a second row for the same slot and block id under a new bank_seq; the retry usually completes but can itself end dead, evicted, or pruned. Blocks evicted after freezing already emitted a completed row and emit nothing further. Dedup on slot and block_id, keeping the highest bank_seq. */
+#define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_RESET         (4) /* Production of this leader block was abandoned mid-slot: consensus reset block production onto another fork before the slot completed. Only on blocks this validator produced; pack_end_reason is abandoned on the same row. The partial block never finished shredding, so block_id holds the merkle root of the last piece that had returned through reassembly when production was abandoned (may trail the last piece actually shredded), or 0 if none had. */
+
+/* Why block production stopped; not_leader for blocks this validator did not produce. */
+#define FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_NOT_LEADER       (1) /* Not produced by this validator. */
+#define FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_TIME             (2) /* The leader slot's time window ended, the normal case. Blocks that filled a consensus limit also end here; measure saturation via pack_block_cost and pack_data_bytes against the protocol caps. */
+#define FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_MICROBLOCK_LIMIT (3) /* Microblock count limit reached. */
+#define FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_ABANDONED        (4) /* Production was abandoned mid-slot by a reset onto another fork; only on abandoned leader blocks (abandoned_reason reset). Pack ends the block early and its summary rides on the terminating message, so microblock_count, pack costs, pack timings, and bundle_txn_count reflect what was produced before the abandonment. */
+
+/* Timestamps for one transaction. A zero timestamp means the stage did not occur on this path, was never reached, or its stamp was unavailable. */
+struct fd_event_block_completed_txn_timing {
+  ulong received_time;             /* Earliest time attributable to the transaction. Replayed blocks: network arrival of the shred completing the FEC set carrying the transaction; gap to parsed_time is the internal latency to parse. Leader blocks: entry into this validator — TPU network arrival, block engine receipt (bundles), gossip receipt (votes), or creation time (self-originated). */
+  ulong parsed_time;               /* When the scheduler parsed the transaction out of received data, including address lookup table resolution. Gap from received_time covers the pipeline hop, in-order delivery waits, and parse position within the FEC set. 0 for leader blocks. */
+  ulong dispatched_time;           /* Replayed blocks: when the scheduler handed the transaction to an execution tile. Leader blocks: when an execution tile began executing it; transactions of one bundle share the stamp. */
+  ulong replayed_time;             /* When execution finished and results were committed to the block's state, on whichever path executed it. */
+  ulong sigverify_dispatched_time; /* When the scheduler dispatched signature verification, which runs in parallel with execution. 0 for leader blocks (verified upstream of pack). */
+  ulong sigverify_done_time;       /* When the signature verification result returned to the scheduler. 0 for leader blocks. */
+  ulong poh_mixed_time;            /* When the transaction was mixed into the PoH stream, fixing its position in the block; transactions of one microblock share the stamp. 0 for blocks this validator did not produce. */
+};
+typedef struct fd_event_block_completed_txn_timing fd_event_block_completed_txn_timing_t;
+
+/* A block finished production, or replay on this validator, or was marked dead, or was abandoned before completing. A block gets a row if it was ever replayed or produced (had a bank), or if it finished reception on a fork that had already died or been discarded; a block dropped before reception finished gets no row. Delivery is best-effort: rows travel a lossy telemetry link, and a large burst of simultaneous rows (mass death of a fork) can drop some. On-chain data is deliberately not part of this event. Reception and repair tallies are best-effort: they restart if repair transiently stopped tracking the block (forest eviction), and on equivocated slots they are slot-scoped — shreds from all observed versions of the slot merge into the same counts on every version's row. */
+struct fd_event_block_completed {
+  ulong                                 bank_seq;                                  /* Bank sequence number, counting from 1 within a run; the join key to confirmation events. Not meaningful across restarts. 0 means no bank was ever allocated (a block completing reception under a dead or discarded lineage without ever getting a bank), leaving nothing to join on bank_seq; any forward confirmations for such a block join on slot and block_id. The boot bank (bank_seq 1) emits confirmation events but no block_completed row. */
+  ulong                                 bank_idx;                                  /* Bank pool index the block was tracked under: the identifier log lines print. Instance-local and recycled across blocks within a run; correlate with logs only within one validator instance and time window. Reported whenever a bank existed (any row with nonzero bank_seq). The *_fork_id and cost_tracker_pool_idx columns are debug identifiers with the same scope, reported as held when the row was emitted, and 0 unless the block began replay or production (preparation_begin_time set). */
+  ushort                                txncache_fork_id;                          /* Transaction cache fork handle held by the bank. See bank_idx for scope. */
+  ulong                                 progcache_fork_id;                         /* Program cache fork handle held by the bank. See bank_idx for scope. */
+  ushort                                accdb_fork_id;                             /* Account database fork handle held by the bank. See bank_idx for scope. */
+  ulong                                 vote_stakes_fork_id;                       /* Vote stakes fork handle held by the bank. See bank_idx for scope. */
+  ushort                                collector_overrides_fork_id;               /* Collector overrides fork handle held by the bank. See bank_idx for scope. */
+  uchar                                 stake_rewards_fork_id;                     /* Stake rewards fork handle held by the bank. See bank_idx for scope. */
+  uchar                                 epoch_credits_fork_id;                     /* Epoch credits fork handle held by the bank. See bank_idx for scope. */
+  ushort                                stake_delegations_fork_id;                 /* Stake delegations fork handle held by the bank. See bank_idx for scope. */
+  ulong                                 cost_tracker_pool_idx;                     /* Cost tracker pool index the bank held: snapshotted just before the freeze releases it on completed rows, read live on dead and abandoned rows; 0 if the block never began replay or production. See bank_idx for scope. */
+  ulong                                 slot;                                      /* Slot number of the block. */
+  ulong                                 epoch;                                     /* Epoch containing the slot. */
+  ulong                                 parent_slot;                               /* Slot number of the parent block. 0 if the parent was no longer locally known when the row was emitted; on genesis-booted clusters, 0 is also the genuine parent slot of blocks chaining directly off genesis. */
+  ulong                                 root_slot;                                 /* Finalized root slot when the row was emitted. */
+  ulong                                 storage_slot;                              /* Lowest slot still held in memory when the row was emitted. */
+  ulong                                 turbine_slot;                              /* Highest slot observed in completed FEC sets from the network (own leader blocks excluded) when the row was emitted: the validator's estimate of the cluster tip. Minus slot: how far behind this row was - 0 to 2 in steady state, large during boot catch-up and while racing back after any stall, re-detecting mid-run lag that caught_up cannot. 0 before any shred has been observed. */
+  int                                   caught_up;                                 /* Whether the validator considered itself caught up to the cluster when the row was emitted. False from boot until replay closes on the network tip (set immediately for genesis bootstrap); never cleared within a run. */
+  ulong                                 fork_width;                                /* Number of forks executing concurrently when the row was emitted. 1 in calm operation; higher values mark fork storms, explaining replay contention, evictions, and prune bursts on the rows that suffered them. */
+  int                                   snapshot_in_progress;                      /* Whether this validator was writing a snapshot when the row was emitted; snapshot creation periodically stalls replay, so timing outliers on these rows are expected. Always false when snapshot creation is unsupported or disabled. */
+  ulong                                 live_bank_count;                           /* Banks allocated when the row was emitted: executing, awaiting replay, and completed or dead awaiting prune. Bank tracking pressure; blocks are evicted when this reaches the pool bound. fork_width isolates the concurrently-executing component. */
+  uchar                                 block_id[ 32UL ];                          /* Block identifier. For blocks that never completed reception (dead or abandoned early): the merkle root of the latest piece received. */
+  uchar                                 parent_block_id[ 32UL ];                   /* Block id of the parent this block chained from, recovered from the reception chain; disambiguates the parent version when the parent slot equivocated. 0 if the reception chain could not be walked to the parent: reassembly no longer tracked the block, or an abandoned leader block that shredded nothing; parent_slot can still be known on such rows. */
+  uchar                                 bank_hash[ 32UL ];                         /* Bank hash computed by replaying the block; the state commitment consensus votes on. Rows sharing slot and block_id but differing here indicate state divergence. 0 if the block never froze (dead or abandoned). */
+  int                                   dead;                                      /* Whether the block was ruled invalid. Blocks merely given up on are not dead; see abandoned_reason. State accumulated before the ruling is still reported, so execution fields may be partially filled. */
+  int                                   dead_reason;                               /* Why the block was ruled invalid; not_dead otherwise. Blocks this validator produced are never dead: they do not go through replay's block checks. A block invalid for several independent reasons records the first one detected locally, which can differ across validators for the same block. */
+  ulong                                 dead_time;                                 /* When the block was ruled invalid; 0 if not dead. */
+  int                                   abandoned;                                 /* Whether this validator gave up on the block before it completed. Independent of dead: an abandoned block was not invalid. Equivalent to abandoned_reason != not_abandoned. State accumulated before abandonment is still reported, so execution fields may be partially filled. */
+  int                                   abandoned_reason;                          /* Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead. */
+  ulong                                 abandoned_time;                            /* When the block was abandoned; 0 if not abandoned. */
+  int                                   is_leader;                                 /* Whether this validator produced the block as leader. */
+  ulong                                 first_shred_received_time;                 /* Network arrival at the shred tile of the block's first shred, stamped before signature verification. Leader blocks: when the first entry batch reached the shredding stage, before any network send. 0 if repair pruned the block before completion. */
+  ulong                                 last_shred_received_time;                  /* Network arrival of the shred that made the block contiguous; not necessarily the highest-numbered shred. Minus first_shred_received_time: reception duration, valid only when this is nonzero. Leader blocks: when the final entry batch reached the shredding stage. 0 if the block never became fully contiguous (dead or abandoned mid-reception) or repair pruned it before completion. */
+  ulong                                 first_repair_request_time;                 /* First repair request for a specific missing shred (window request); highest-shred and orphan requests do not stamp this, so it can be 0 while their request counts are not. 0 if no window request was sent or repair pruned the block; always 0 for leader blocks. */
+  ulong                                 last_repair_received_time;                 /* Arrival of the last repair response matched to an outstanding specific-shred request; shreds from highest-shred and orphan responses do not stamp this. 0 if none was matched or repair pruned the block; always 0 for leader blocks. */
+  ulong                                 first_fec_set_received_time;               /* When the block's first complete FEC set reached replay, after verification and reassembly. Minus first_shred_received_time: internal pipeline latency from network to replay, valid only when both are nonzero. Leader blocks: when the block's own first FEC set returned to replay through reassembly; follows rather than precedes preparation_begin_time, since production shreds the block as it goes. 0 if no bank was ever allocated, and on abandoned leader blocks whose first FEC set had not returned through reassembly when production was abandoned. */
+  ulong                                 preparation_begin_time;                    /* When replay began setting up the block's execution state: cloning from the parent and applying start-of-block updates (epoch boundary processing, fee and rent state). Follows first_fec_set_received_time on replayed blocks; leader blocks reverse that order (see that field). Gap to first_transaction_scheduled_time: setup cost, which for leader blocks includes waiting for pack to schedule the first transaction; valid only when first_transaction_scheduled_time is nonzero. 0 if the block was dropped before setup. */
+  ulong                                 first_transaction_scheduled_time;          /* When replay dispatched the block's first transaction to an execution tile. Leader blocks: when an execution tile began the first packed transaction. Execution and verification run from here to last_transaction_finished_time; equal to it if the block executed no transactions or, for leader blocks, if production timing was unavailable (see txn_timing). 0 on dead and abandoned rows if no transaction was ever dispatched. */
+  ulong                                 last_transaction_finished_time;            /* When the block became fully executed and verified and end-of-block processing began: all execution and signature-verification results returned, the final FEC set received, PoH verified. At the live tip this trails the last execution result by trailing-tick reception and verification; per-transaction execution end is txn_timing.replayed_time. Leader blocks: when the block was fully produced (final PoH hash received, block id returned through reassembly), trailing the last execution result by the PoH tail and final-entry shredding, most visibly when a limit ended the block early. 0 if the block never finished executing (dead or abandoned). */
+  ulong                                 block_completed_time;                      /* When end-of-block processing finished and the block froze: state hashing complete, no further changes. Minus last_transaction_finished_time: finalization cost. 0 if the block never completed (dead or abandoned). */
+  ulong                                 parent_block_completed_time;               /* The parent's block_completed_time, denormalized to avoid a self-join; for blocks chaining directly off the snapshot or genesis boot bank, when the boot bank finished loading. 0 if the parent's completion was never observed: parent untracked, or parent never froze (dead or abandoned lineage). Slot-time queries (block_completed_time minus this) should filter on caught_up, parent_slot = slot - 1, and a nonzero value here. */
+  ulong                                 fec_set_count;                             /* Number of FEC sets in the block; for blocks that never completed reception, the number delivered to replay when the row was emitted. 0 if reassembly no longer tracked the block when the row was emitted. */
+  uint                                  data_shred_count;                          /* Data shreds received or recovered. Leader blocks: shreds produced. 0 if repair pruned the block before completion. */
+  uint                                  parity_shred_count;                        /* Parity (recovery) shreds received. Near 0 for leader blocks: only network echoes of the block's own parity shreds land here. 0 if repair pruned the block before completion. */
+  uint                                  turbine_shred_count;                       /* Shreds received over the network via turbine, plus repair deliveries whose provenance could not be verified (failed nonce) and coding shreds arriving in repair responses (nonconformant: repair serves only data shreds). Pieces cleared and re-fetched after a wrong-version detection or eviction count once per delivery, so source tallies can exceed the block's shred counts. Near 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                                  repair_shred_count;                        /* Shreds obtained from peers via repair; nonce-verified deliveries only. Re-fetched pieces count once per delivery (see turbine_shred_count). Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                                  recovered_shred_count;                     /* Shreds reconstructed locally from parity data. Re-recovered pieces count once per recovery (see turbine_shred_count). Always 0 for leader blocks, which produce rather than recover their shreds. 0 if repair pruned the block before completion. */
+  int                                   chain_confirmed;                           /* Whether every FEC set was verified to chain back to the confirmed block identity, i.e. the assembled data matches the block the cluster confirmed. Verification is confirmation-triggered and the value is snapshotted at the block's last received FEC set, so false means it had not run by then, not that it failed; at the live tip confirmation usually arrives later. True mainly when confirmation precedes reception completing, e.g. during catch-up. See lowest_verified_fec_index. */
+  uint                                  lowest_verified_fec_index;                 /* Lowest FEC set index reached by chain verification as of the block's last received FEC set; the walk anchors at the confirmed block identity and works backwards. 0 means the whole block verified. 4294967295 means no verification information (verification never ran, or repair pruned the block); not a FEC index. */
+  uint                                  last_completed_fec_set_index;              /* FEC set index of the last piece of the block to complete reception, which with out-of-order repair need not be the block's final index. 4294967295 when the reception statistics are unpopulated; not a FEC index. */
+  int                                   slot_complete_flag;                        /* Whether the shred marking the block complete was received. False if repair pruned the block before completion. */
+  int                                   equivocation_detected_shred;               /* Whether any of the block's FEC sets was ever quarantined by an equivocation hold: set when a conflicting version of a FEC set was assembled at that position, and inherited by everything chaining onto or arriving during an unresolved conflict, including from ancestor slots; persists after resolution. A lone conflicting shred discarded before reassembly does not register. False if reassembly no longer tracked the block when the row was emitted. */
+  uint                                  repair_requests_retransmitted;             /* Repair requests re-sent after a response timeout. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                                  repair_responses_received;                 /* Repair responses matched to an outstanding specific-shred request. Shreds delivered by verified highest-shred and orphan responses count in repair_shred_count but are not matched here, so this can be 0 while repair_shred_count is not. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                                  repair_request_window_count;               /* Repair requests for one specific missing shred, by index. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                                  repair_request_highest_window_count;       /* Repair requests for the highest-numbered shred a peer holds, used to learn the block's length. Highest-shred requests seeded at boot, before the block was tracked, bypass this counter. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                                  repair_request_orphan_count;               /* Repair requests for the block's ancestry when its parent is unknown; a response carries shreds from up to 11 ancestor blocks. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  int                                   repair_failed_chain_verify;                /* Whether chain verification against the confirmed block identity found a mismatched (wrong-version) FEC held for this block; the piece was cleared and re-repaired, but may have arrived by any route, turbine included. Always false for leader blocks. False if repair pruned the block before completion. */
+  ulong                                 cost_tracker_block_cost;                   /* Compute units used by all transactions, votes included; the vote/non-vote split is not part of this event (pack_vote_cost carries the producer-side vote reservation on leader rows). 0 if no cost tracker existed for the block (never prepared for replay, or no bank). */
+  ulong                                 cost_tracker_allocated_accounts_data_size; /* New account data allocated, in bytes. 0 if no cost tracker existed for the block. */
+  ulong                                 cost_tracker_block_cost_limit;             /* Block compute unit limit. 0 if no cost tracker existed for the block (never prepared for replay, or no bank). */
+  ulong                                 cost_tracker_vote_cost_limit;              /* Block vote compute unit limit. 0 if no cost tracker existed for the block. */
+  ulong                                 cost_tracker_account_cost_limit;           /* Per-account compute unit limit. 0 if no cost tracker existed for the block. */
+  ulong                                 became_leader_time;                        /* When replay began block production for the slot, all prerequisites (e.g. parent block identity) in hand. Minus leader_slot_start_time: local production start delay. 0 for blocks this validator did not produce. */
+  ulong                                 leader_slot_start_time;                    /* When the leader slot was scheduled to begin, estimated locally by projecting slot durations from the reset onto the parent fork; embeds upstream lateness rather than tracking a cluster-absolute timeline. 0 for blocks this validator did not produce. */
+  ulong                                 pack_start_time;                           /* When block production began. 0 for blocks this validator did not produce. */
+  ulong                                 pack_end_time;                             /* When block production ended. 0 for blocks this validator did not produce. */
+  ulong                                 microblock_count;                          /* Microblocks pack scheduled during production. A microblock whose transactions all failed execution is skipped at PoH mixin and absent from the block, so this can exceed block content. 0 for blocks this validator did not produce. */
+  ulong                                 pack_block_cost;                           /* Compute units pack reserved while building the block, votes included. Reservations are refunded as transactions finish, so this can exceed cost_tracker_block_cost (the charged amount) by refunds unsettled at slot end. 0 for blocks this validator did not produce. */
+  ulong                                 pack_vote_cost;                            /* Vote compute units pack reserved while building the block, less refunds settled by slot end. Pack's vote costing is not feature-gated by remove_simple_vote_from_cost_model, so this stays populated on leader rows. 0 for blocks this validator did not produce. */
+  ulong                                 pack_data_bytes;                           /* Bytes pack's cost model reserved for block content: transaction payloads plus a 48-byte header per microblock, net of rebates settled by slot end. Excludes tick entries; can exceed the block's actual content by rebates unsettled at slot end. A size, not a compute measure. 0 for blocks this validator did not produce. */
+  int                                   pack_end_reason;                           /* Why block production stopped; not_leader for blocks this validator did not produce. */
+  ulong                                 bundle_txn_count;                          /* Bundled transactions pack scheduled during production, counted whether or not the bundle survived to the block (aborted bundles are skipped at PoH mixin). 0 for blocks this validator did not produce. */
+  ulong                                 txn_timing_cnt;                            /* Number of txn_timing entries (<= 98039) */
+  fd_event_block_completed_txn_timing_t txn_timing[ 98039UL ];                     /* Per-transaction timestamps, one entry per transaction in block order. Replayed blocks: stamped by the replay scheduler. Leader blocks: stamped by the production pipeline. Columns exclusive to the other path are 0. Empty on dead and abandoned replay rows; an abandoned leader block reports the transactions mixed into the block before production was abandoned. Otherwise best-effort: empty when no capture slot was free (more than 16 blocks replaying at once) or the production timing table was unavailable. Empty does not mean the block had no transactions. (dynamic: stored at end, shipped at used length) */
+};
+typedef struct fd_event_block_completed fd_event_block_completed_t;
+
+#define FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ (offsetof(fd_event_block_completed_t, txn_timing))
+
+#define FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX (98039UL)
+
+FD_STATIC_ASSERT( sizeof(((fd_event_block_completed_t *)0)->txn_timing[0])%8UL==0UL, block_completed_txn_timing_align );
+
+/* Packed (wire) footprint of a block_completed event: prefix plus used
+   dynamic array entries.  msg may point at a full struct or at a
+   packed event's prefix. */
+static inline ulong
+fd_event_block_completed_footprint( fd_event_block_completed_t const * msg ) {
+  return FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ
+       + msg->txn_timing_cnt*sizeof(((fd_event_block_completed_t *)0)->txn_timing[0])
+       ;
+}
+
+/* Worst-case encoded size of a block_completed event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_BLOCK_COMPLETED_BUF_MAX (11275587UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; }))
+#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -353,6 +505,16 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
                                 ulong                          link_seq,
                                 fd_event_runtime_txn_t const * msg );
 
+/* Serialize a block_completed event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_block_completed_serialize( fd_circq_t *                       circq,
+                                    fd_event_client_t *                client,
+                                    long                               timestamp_nanos,
+                                    ulong                              link_seq,
+                                    fd_event_block_completed_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -404,6 +566,20 @@ fd_event_report_block_equivocated( fd_event_block_equivocated_t const * msg ) {
 static inline void
 fd_event_report_runtime_txn( fd_event_runtime_txn_t const * msg ) {
   fd_event_report_( 8UL, msg, sizeof(fd_event_runtime_txn_t) );
+}
+
+/* Report a block_completed event (BlockCompleted, id 9) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link).
+   The event travels packed: fixed prefix followed by the used entries
+   of each dynamic array. */
+static inline void
+fd_event_report_block_completed( fd_event_block_completed_t const * msg ) {
+  FD_TEST( msg->txn_timing_cnt<=98039UL );
+  fd_event_report_iov_t iov[] = {
+    { (void const *)msg, FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ },
+    { (void const *)msg->txn_timing, msg->txn_timing_cnt*sizeof(msg->txn_timing[0]) },
+  };
+  fd_event_report_gather_( 9UL, iov, sizeof(iov)/sizeof(iov[0]) );
 }
 
 FD_PROTOTYPES_END

@@ -2,11 +2,13 @@
 #define HEADER_fd_src_discof_replay_fd_replay_tile_private_h
 
 #include "fd_vote_tracker.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/node_info/fd_node_info.h"
+#include "../../discof/poh/fd_poh.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
@@ -16,6 +18,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include <stdio.h>
 
 struct fd_replay_in_link {
@@ -94,11 +97,15 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
 
+FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
+
 struct fd_replay_tile {
   fd_wksp_t * wksp;
 
   uint rng_seed;
   fd_rng_t rng[ 1 ];
+
+  fd_clock_tile_t clock[1];
 
   fd_progcache_join_t progcache[1];
   fd_wksp_mon_t       progcache_wksp_mon[1];
@@ -131,6 +138,7 @@ struct fd_replay_tile {
   ulong            reasm_seed;
   fd_reasm_t     * reasm;
   fd_reasm_fec_t * reasm_evicted; /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */
+  ulong            fec_complete_seq; /* FEC-complete arrival counter; orders forest snapshots stashed on reasm FECs */
 
   fd_sched_t * sched;
   ulong        in_cnt;
@@ -323,6 +331,7 @@ struct fd_replay_tile {
      2. when a block is completed, we must map the bank index to a block
         id to send a slot complete message to tower. */
   ulong               block_id_len;
+  ulong               max_live_slots;
   fd_block_id_ele_t * block_id_arr;
   ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
@@ -362,7 +371,9 @@ struct fd_replay_tile {
   /* When we transition to becoming leader, we can only unbecome leader
      if we have received a block id from the FEC reassembler, and a
      message from PoH that the leader slot has ended.  After both of
-     these conditions are met, then we are free to unbecome leader. */
+     these conditions are met, then we are free to unbecome leader.
+     Exception: a slot aborted by a reset unbecomes leader on the PoH
+     slot-ended message alone; no block id will ever arrive for it. */
   uint        is_leader : 1;
   uint        supports_leader : 1;
   int         recv_poh;
@@ -382,6 +393,22 @@ struct fd_replay_tile {
   fd_hash_t   reset_block_id;
   long        reset_timestamp_nanos;
   fd_bank_t * leader_bank;
+
+  struct {
+    ulong slot;
+    long  became_leader_nanos;
+    long  leader_slot_start_nanos;
+    long  first_fec_returned_nanos;
+    ulong microblock_count;
+    ulong pack_block_cost;
+    ulong pack_vote_cost;
+    ulong pack_data_bytes;
+    ulong bundle_txn_count;
+    int   pack_end_reason;
+    long  pack_start_nanos;
+    long  pack_end_nanos;
+    ulong timing_table_idx;
+  } leader_stats;
 
   fd_pubkey_t      identity_pubkey[1];
   ulong            identity_idx;
@@ -462,6 +489,10 @@ struct fd_replay_tile {
 
   ulong                runtime_stack_seed;
   fd_runtime_stack_t * runtime_stack;
+
+  fd_event_block_completed_t * block_completed_event;
+
+  fd_leader_txn_timing_table_t const * leader_txn_timing;
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;

@@ -178,6 +178,97 @@ fd_event_runtime_txn_fill_max( fd_event_runtime_txn_t * msg ) {
 static void
 fd_event_runtime_txn_fill_max_v( void * msg ) { fd_event_runtime_txn_fill_max( (fd_event_runtime_txn_t *)msg ); }
 
+static inline void
+fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_seq = ULONG_MAX;
+  msg->bank_idx = ULONG_MAX;
+  msg->txncache_fork_id = USHORT_MAX;
+  msg->progcache_fork_id = ULONG_MAX;
+  msg->accdb_fork_id = USHORT_MAX;
+  msg->vote_stakes_fork_id = ULONG_MAX;
+  msg->collector_overrides_fork_id = USHORT_MAX;
+  msg->stake_rewards_fork_id = UCHAR_MAX;
+  msg->epoch_credits_fork_id = UCHAR_MAX;
+  msg->stake_delegations_fork_id = USHORT_MAX;
+  msg->cost_tracker_pool_idx = ULONG_MAX;
+  msg->slot = ULONG_MAX;
+  msg->epoch = ULONG_MAX;
+  msg->parent_slot = ULONG_MAX;
+  msg->root_slot = ULONG_MAX;
+  msg->storage_slot = ULONG_MAX;
+  msg->turbine_slot = ULONG_MAX;
+  msg->caught_up = 1;
+  msg->fork_width = ULONG_MAX;
+  msg->snapshot_in_progress = 1;
+  msg->live_bank_count = ULONG_MAX;
+  fd_memset( msg->block_id, 0xFF, 32UL );
+  fd_memset( msg->parent_block_id, 0xFF, 32UL );
+  fd_memset( msg->bank_hash, 0xFF, 32UL );
+  msg->dead = 1;
+  msg->dead_reason = INT_MAX;
+  msg->dead_time = ULONG_MAX;
+  msg->abandoned = 1;
+  msg->abandoned_reason = INT_MAX;
+  msg->abandoned_time = ULONG_MAX;
+  msg->is_leader = 1;
+  msg->first_shred_received_time = ULONG_MAX;
+  msg->last_shred_received_time = ULONG_MAX;
+  msg->first_repair_request_time = ULONG_MAX;
+  msg->last_repair_received_time = ULONG_MAX;
+  msg->first_fec_set_received_time = ULONG_MAX;
+  msg->preparation_begin_time = ULONG_MAX;
+  msg->first_transaction_scheduled_time = ULONG_MAX;
+  msg->last_transaction_finished_time = ULONG_MAX;
+  msg->block_completed_time = ULONG_MAX;
+  msg->parent_block_completed_time = ULONG_MAX;
+  msg->fec_set_count = ULONG_MAX;
+  msg->data_shred_count = UINT_MAX;
+  msg->parity_shred_count = UINT_MAX;
+  msg->turbine_shred_count = UINT_MAX;
+  msg->repair_shred_count = UINT_MAX;
+  msg->recovered_shred_count = UINT_MAX;
+  msg->chain_confirmed = 1;
+  msg->lowest_verified_fec_index = UINT_MAX;
+  msg->last_completed_fec_set_index = UINT_MAX;
+  msg->slot_complete_flag = 1;
+  msg->equivocation_detected_shred = 1;
+  msg->repair_requests_retransmitted = UINT_MAX;
+  msg->repair_responses_received = UINT_MAX;
+  msg->repair_request_window_count = UINT_MAX;
+  msg->repair_request_highest_window_count = UINT_MAX;
+  msg->repair_request_orphan_count = UINT_MAX;
+  msg->repair_failed_chain_verify = 1;
+  msg->cost_tracker_block_cost = ULONG_MAX;
+  msg->cost_tracker_allocated_accounts_data_size = ULONG_MAX;
+  msg->cost_tracker_block_cost_limit = ULONG_MAX;
+  msg->cost_tracker_vote_cost_limit = ULONG_MAX;
+  msg->cost_tracker_account_cost_limit = ULONG_MAX;
+  msg->became_leader_time = ULONG_MAX;
+  msg->leader_slot_start_time = ULONG_MAX;
+  msg->pack_start_time = ULONG_MAX;
+  msg->pack_end_time = ULONG_MAX;
+  msg->microblock_count = ULONG_MAX;
+  msg->pack_block_cost = ULONG_MAX;
+  msg->pack_vote_cost = ULONG_MAX;
+  msg->pack_data_bytes = ULONG_MAX;
+  msg->pack_end_reason = INT_MAX;
+  msg->bundle_txn_count = ULONG_MAX;
+  msg->txn_timing_cnt = 98039UL;
+  for( ulong k=0UL; k<98039UL; k++ ) {
+    msg->txn_timing[ k ].received_time = ULONG_MAX;
+    msg->txn_timing[ k ].parsed_time = ULONG_MAX;
+    msg->txn_timing[ k ].dispatched_time = ULONG_MAX;
+    msg->txn_timing[ k ].replayed_time = ULONG_MAX;
+    msg->txn_timing[ k ].sigverify_dispatched_time = ULONG_MAX;
+    msg->txn_timing[ k ].sigverify_done_time = ULONG_MAX;
+    msg->txn_timing[ k ].poh_mixed_time = ULONG_MAX;
+  }
+}
+
+static void
+fd_event_block_completed_fill_max_v( void * msg ) { fd_event_block_completed_fill_max( (fd_event_block_completed_t *)msg ); }
+
 typedef struct {
   ulong        type;    /* event schema id */
   ulong        buf_max; /* modeled encode bound */
@@ -193,9 +284,10 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 6UL, FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX, sizeof(fd_event_accdb_partition_added_t), "accdb_partition_added", fd_event_accdb_partition_added_fill_max_v },
   { 7UL, FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX, sizeof(fd_event_block_equivocated_t), "block_equivocated", fd_event_block_equivocated_fill_max_v },
   { 8UL, FD_EVENT_RUNTIME_TXN_BUF_MAX, sizeof(fd_event_runtime_txn_t), "runtime_txn", fd_event_runtime_txn_fill_max_v },
+  { 9UL, FD_EVENT_BLOCK_COMPLETED_BUF_MAX, sizeof(fd_event_block_completed_t), "block_completed", fd_event_block_completed_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (6UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (7UL)
 
 FD_PROTOTYPES_END
 
