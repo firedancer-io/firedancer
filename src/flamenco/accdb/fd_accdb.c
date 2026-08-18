@@ -2140,6 +2140,7 @@ cold_load_acc( fd_accdb_t *     accdb,
 #define RESERVATION_TYPE_SIMPLE            (0)
 #define RESERVATION_TYPE_MAYBE_PROGRAMDATA (1)
 #define RESERVATION_TYPE_ALREADY_RESERVED  (2)
+#define RESERVATION_TYPE_NO_RESIZE         (3)
 
 static void
 fd_accdb_acquire_inner( fd_accdb_t *          accdb,
@@ -2286,7 +2287,16 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   So we acquire one of each size class.  Then when the transaction
   //   finishes, if it succeeded, we will copy the data back to the
   //   whichever size-class is now right-sized post execution.
-  if( FD_LIKELY( reservation_type==RESERVATION_TYPE_SIMPLE || reservation_type==RESERVATION_TYPE_MAYBE_PROGRAMDATA ) ) {
+  /* the only class a no-resize writer can commit into, or ULONG_MAX */
+  ulong nr_cls[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
+    nr_cls[ i ] = ULONG_MAX;
+    if( reservation_type==RESERVATION_TYPE_NO_RESIZE && writable[ i ] && accmetas[ i ] ) {
+      nr_cls[ i ] = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) );
+    }
+  }
+
+  if( FD_LIKELY( reservation_type==RESERVATION_TYPE_SIMPLE || reservation_type==RESERVATION_TYPE_MAYBE_PROGRAMDATA || reservation_type==RESERVATION_TYPE_NO_RESIZE ) ) {
     ulong requested_buckets[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
     for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
       if( FD_LIKELY( accmetas[ i ] || writable[ i ] ) ) {
@@ -2297,6 +2307,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         }
         if( FD_UNLIKELY( writable[ i ] ) ) {
           for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+            if( FD_UNLIKELY( nr_cls[ i ]!=ULONG_MAX && j!=nr_cls[ i ] && j!=7UL ) ) continue;
             if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
               requested_buckets[ j ]++;
             }
@@ -2415,7 +2426,14 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     exists_in_cache[ i ] = original_cache_line[ i ]!=NULL;
 
     if( FD_UNLIKELY( writable[ i ] ) ) {
-      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ i ][ j ] = acquire_cache_line( accdb, j, &evicted_dest_acc[ i ][ j ] );
+      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+        if( FD_UNLIKELY( nr_cls[ i ]!=ULONG_MAX && j!=nr_cls[ i ] && j!=7UL ) ) {
+          destination_cache_lines[ i ][ j ] = NULL;
+          evicted_dest_acc[ i ][ j ]        = UINT_MAX;
+          continue;
+        }
+        destination_cache_lines[ i ][ j ] = acquire_cache_line( accdb, j, &evicted_dest_acc[ i ][ j ] );
+      }
       if( FD_UNLIKELY( accmetas[ i ] && !original_cache_line[ i ] ) ) {
         original_cache_line[ i ] = cold_load_acc( accdb, accmetas[ i ], pubkeys[ i ], &exists_in_cache[ i ], &evicted_orig_acc[ i ] );
       }
@@ -2678,7 +2696,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
     if( FD_UNLIKELY( writable[ i ] ) ) {
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-        out_accs[ i ]._write.destination_cache_idx[ j ] = cache_line_idx( accdb, j, destination_cache_lines[ i ][ j ] );
+        out_accs[ i ]._write.destination_cache_idx[ j ] =
+          destination_cache_lines[ i ][ j ] ? cache_line_idx( accdb, j, destination_cache_lines[ i ][ j ] )
+                                            : ULONG_MAX;
       }
     }
   }
@@ -2934,6 +2954,18 @@ fd_accdb_acquire( fd_accdb_t *          accdb,
 }
 
 void
+fd_accdb_acquire_no_resize( fd_accdb_t *          accdb,
+                            fd_accdb_fork_id_t    fork_id,
+                            ulong                 pubkeys_cnt,
+                            uchar const * const * pubkeys,
+                            int *                 writable,
+                            fd_acc_t *            out_accs ) {
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
+  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_OPEN;
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_NO_RESIZE, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
+}
+
+void
 fd_accdb_acquire_a( fd_accdb_t *             accdb,
                        fd_accdb_fork_id_t    fork_id,
                        ulong                 pubkeys_cnt,
@@ -3069,7 +3101,11 @@ release_inner( fd_accdb_t * accdb,
     }
 
     fd_accdb_cache_line_t * destination_cache_lines[ FD_ACCDB_CACHE_CLASS_CNT ];
-    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ j ] = cache_line( accdb, j, accs[ i ]._write.destination_cache_idx[ j ] );
+    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+      destination_cache_lines[ j ] = ( accs[ i ]._write.destination_cache_idx[ j ]==ULONG_MAX )
+                                     ? NULL
+                                     : cache_line( accdb, j, accs[ i ]._write.destination_cache_idx[ j ] );
+    }
     int destination_committed[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
 
     if( FD_LIKELY( !accs[ i ].commit ) ) {
@@ -3080,6 +3116,7 @@ release_inner( fd_accdb_t * accdb,
          recently used. */
       if( FD_LIKELY( original_cache_line ) ) original_cache_line->referenced = 1;
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+        if( FD_UNLIKELY( !destination_cache_lines[ j ] ) ) continue;
         /* acquire_cache_line via CLOCK leaves line->acc_idx pointing
            at the prior owner.  cache_free_push consumers (CLOCK,
            background_preevict) skip lines only when acc_idx==UINT_MAX
@@ -3238,6 +3275,11 @@ release_inner( fd_accdb_t * accdb,
        unpin happens after the publish below), uncommitted ones are
        fully freed to the CAS free list. */
     for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+      if( FD_UNLIKELY( !destination_cache_lines[ j ] ) ) {
+        /* a class we never reserved cannot be the one that committed */
+        FD_TEST( !destination_committed[ j ] );
+        continue;
+      }
       if( destination_committed[ j ] ) {
         destination_cache_lines[ j ]->referenced = 1;
       } else {
@@ -3400,6 +3442,8 @@ release_inner( fd_accdb_t * accdb,
     }
     if( FD_UNLIKELY( accs[ i ]._writable ) ) {
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+        /* only refund the classes acquire actually requested */
+        if( FD_UNLIKELY( accs[ i ]._write.destination_cache_idx[ j ]==ULONG_MAX ) ) continue;
         if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
           refund[ j ]++;
         }

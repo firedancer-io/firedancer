@@ -1576,7 +1576,7 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
                                  &credits_observed[ batch_cnt ] );
     }
 
-    fd_accdb_acquire( accdb, bank->accdb_fork_id, batch_cnt, pubkey_ptrs, writable, accs );
+    fd_accdb_acquire_no_resize( accdb, bank->accdb_fork_id, batch_cnt, pubkey_ptrs, writable, accs );
 
     /* Calculate and flush stake account updates */
     for( ulong i=0UL; i<batch_cnt; i++ ) {

@@ -351,6 +351,18 @@ fd_accdb_acquire( fd_accdb_t *          accdb,
                   int *                 writable,
                   fd_acc_t *            out_accs );
 
+/* fd_accdb_acquire_no_resize is fd_accdb_acquire for callers that
+   promise every writable account keeps its current size class.  It
+   reserves 2 destination cache lines per account instead of 8. */
+
+void
+fd_accdb_acquire_no_resize( fd_accdb_t *          accdb,
+                            fd_accdb_fork_id_t    fork_id,
+                            ulong                 pubkeys_cnt,
+                            uchar const * const * pubkeys,
+                            int *                 writable,
+                            fd_acc_t *            out_accs );
+
 void
 fd_accdb_acquire_a( fd_accdb_t *          accdb,
                     fd_accdb_fork_id_t    fork_id,
