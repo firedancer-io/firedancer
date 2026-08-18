@@ -39,6 +39,7 @@
    does observe (with a flag indicating its detection). */
 
 #include "../../disco/store/fd_store.h"
+#include "../repair/fd_repair_tile.h"
 
 /* FD_REASM_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -197,27 +198,8 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   ulong bank_seq;
   ulong parent_bank_idx;
 
-  ulong fec_completed_ts_nanos;
-  ulong stats_seq;
-  uint  stats_valid;
-  uint  blk_turbine_cnt;
-  uint  blk_repair_cnt;
-  uint  blk_recovered_cnt;
-  uint  blk_data_cnt;
-  uint  blk_parity_cnt;
-  uint  blk_lowest_verified_fec;
-  uchar blk_chain_confirmed;
-  uchar blk_slot_complete;
-  uint  blk_req_window_cnt;
-  uint  blk_req_highest_cnt;
-  uint  blk_req_orphan_cnt;
-  uint  blk_req_retransmit_cnt;
-  uint  blk_repair_responses;
-  uchar blk_chain_verify_failed;
-  ulong blk_first_shred_ts_nanos;
-  ulong blk_last_shred_ts_nanos;
-  ulong blk_first_req_ts_nanos;
-  ulong blk_last_repair_resp_ts_nanos;
+  ulong                     stats_seq;
+  fd_fec_complete_metrics_t metrics;
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
 

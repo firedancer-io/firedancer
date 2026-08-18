@@ -699,7 +699,7 @@ fd_reasm_init( fd_reasm_t *      reasm,
   fec->bank_idx        = null;
   fec->parent_bank_idx = null;
   fec->bank_seq        = null;
-  memset( &fec->fec_completed_ts_nanos, 0, sizeof(fd_reasm_fec_t)-offsetof(fd_reasm_fec_t, fec_completed_ts_nanos) );
+  memset( &fec->stats_seq, 0, sizeof(fd_reasm_fec_t)-offsetof(fd_reasm_fec_t, stats_seq) );
   fec->out.next        = null;
   fec->out.prev        = null;
   fec->in_out          = 0;
@@ -815,7 +815,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->bank_idx        = null;
   fec->parent_bank_idx = null;
   fec->bank_seq        = null;
-  memset( &fec->fec_completed_ts_nanos, 0, sizeof(fd_reasm_fec_t)-offsetof(fd_reasm_fec_t, fec_completed_ts_nanos) );
+  memset( &fec->stats_seq, 0, sizeof(fd_reasm_fec_t)-offsetof(fd_reasm_fec_t, stats_seq) );
 
   /* set the out and subtreel pointers to null */
   fec->out.next = null;
