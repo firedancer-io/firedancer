@@ -118,17 +118,19 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong chain_cnt = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),    sizeof(fd_replay_tile_t) );
-  l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),     fd_runtime_stack_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
-  l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),             fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),       sizeof(fd_replay_tile_t) );
+  l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),        fd_runtime_stack_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),      sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
+  l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),         fd_block_id_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),             fd_txncache_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                fd_accdb_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),                fd_reasm_footprint( tile->replay.fec_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_sched_align(),                fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),         fd_vote_tracker_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),          fd_capture_ctx_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t),    sizeof(fd_dump_proto_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_timing_slot_pool_align(),   fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                  tile->replay.max_live_slots*sizeof(ulong) );
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -242,6 +244,16 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 /* Transaction execution state machine helpers                        */
 /**********************************************************************/
 
+static inline void
+timing_slot_release( fd_replay_tile_t * ctx,
+                     ulong              bank_idx ) {
+  ulong tslot = ctx->timing_slot_of_bank[ bank_idx ];
+  if( FD_LIKELY( tslot!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) ) ) {
+    fd_timing_slot_pool_idx_release( ctx->timing_slot_pool, tslot );
+    ctx->timing_slot_of_bank[ bank_idx ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
+  }
+}
+
 static void
 replay_block_start( fd_replay_tile_t * ctx,
                     ulong              bank_idx,
@@ -254,6 +266,13 @@ replay_block_start( fd_replay_tile_t * ctx,
   FD_CHECK_CRIT( bank->state==FD_BANK_STATE_INIT, "invariant violation: bank is not in correct state" );
 
   bank->preparation_begin_nanos = before;
+
+  FD_TEST( ctx->timing_slot_of_bank[ bank_idx ]==fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) );
+  if( FD_LIKELY( fd_timing_slot_pool_free( ctx->timing_slot_pool ) ) ) {
+    ulong tslot = fd_timing_slot_pool_idx_acquire( ctx->timing_slot_pool );
+    fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot )->cnt = 0UL;
+    ctx->timing_slot_of_bank[ bank_idx ] = tslot;
+  }
 
   fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
   FD_CHECK_CRIT( parent_bank, "invariant violation: parent bank is NULL" );
@@ -454,6 +473,8 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+
+  timing_slot_release( ctx, bank->idx );
 }
 
 static void
@@ -471,8 +492,23 @@ publish_slot_dead( fd_replay_tile_t *  ctx,
 static void
 publish_txn_executed( fd_replay_tile_t *  ctx,
                       fd_stem_context_t * stem,
+                      ulong               bank_idx,
                       ulong               txn_idx ) {
   fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
+
+  ulong tslot = ctx->timing_slot_of_bank[ bank_idx ];
+  if( FD_LIKELY( tslot!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) && txn_info->index_in_slot<FD_MAX_TXN_PER_SLOT ) ) {
+    fd_replay_txn_timing_slot_t * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
+    fd_replay_txn_timing_t * t = &slot->rec[ txn_info->index_in_slot ];
+    t->received_ns          = txn_info->received_ns;
+    t->parsed_ticks         = txn_info->tick_parsed;
+    t->sigverify_disp_ticks = txn_info->tick_sigverify_disp;
+    t->sigverify_done_ticks = txn_info->tick_sigverify_done;
+    t->exec_disp_ticks      = txn_info->tick_exec_disp;
+    t->exec_done_ticks      = txn_info->tick_exec_done;
+    slot->cnt = fd_ulong_max( slot->cnt, txn_info->index_in_slot+1UL );
+  }
+
   fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
   *txn_executed->txn = *fd_sched_get_txn( ctx->sched, txn_idx );
   txn_executed->txn_err = txn_info->txn_err;
@@ -1471,6 +1507,7 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ dead_idxs[ i ] ];
     fd_reasm_fec_t *    fec          = fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr );
     if( FD_LIKELY( fec ) ) fec->bank_dead = 1;
+    timing_slot_release( ctx, dead_idxs[ i ] );
   }
 }
 
@@ -1959,6 +1996,10 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
   fd_reasm_publish( ctx->reasm, &advanceable_root_ele->latest_mr, ctx->store );
 
+  for( ulong b=0UL; b<ctx->block_id_len; b++ ) {
+    if( FD_UNLIKELY( ctx->timing_slot_of_bank[ b ]!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) && !fd_banks_bank_query( ctx->banks, b ) ) ) timing_slot_release( ctx, b );
+  }
+
   ctx->published_root_slot     = advanceable_root_slot;
   ctx->published_root_bank_idx = advanceable_root_idx;
 
@@ -2019,6 +2060,7 @@ try_prune_bank( fd_replay_tile_t * ctx ) {
          bank.  The txncache/progcache/accdb forks, on the other hand,
          are only created once the bank started actual execution. */
       fd_sched_cancel( ctx->sched, cancel_info->bank_idx );
+      timing_slot_release( ctx, cancel_info->bank_idx );
       return 1;
     }
     case 0: /* no bank to prune */
@@ -2245,7 +2287,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         txn_info->flags  |= fd_ulong_if( msg->txn_exec->is_fees_only,   FD_SCHED_TXN_IS_FEES_ONLY,   0UL );
       }
       if( FD_UNLIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) { /* UNLIKELY because generally exec happens before sigverify. */
-        publish_txn_executed( ctx, stem, txn_idx );
+        publish_txn_executed( ctx, stem, bank->idx, txn_idx );
       }
       break;
     }
@@ -2268,7 +2310,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
       if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
-        publish_txn_executed( ctx, stem, txn_idx );
+        publish_txn_executed( ctx, stem, bank->idx, txn_idx );
       }
       break;
     }
@@ -3000,6 +3042,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
+  void * timing_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_timing_slot_pool_align(),  fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
+  void * timing_of_bank_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),               tile->replay.max_live_slots*sizeof(ulong) );
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -3090,6 +3134,11 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
     ctx->capture_ctx->capture_solcap = 1;
   }
+
+  ctx->timing_slot_pool = fd_timing_slot_pool_join( fd_timing_slot_pool_new( timing_pool_mem, FD_REPLAY_TXN_TIMING_SLOTS ) );
+  FD_TEST( ctx->timing_slot_pool );
+  ctx->timing_slot_of_bank = timing_of_bank_mem;
+  for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
 
   ctx->dump_proto_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
