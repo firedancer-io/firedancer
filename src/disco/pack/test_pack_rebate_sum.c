@@ -113,7 +113,7 @@ main( int     argc,
   union{ fd_pack_rebate_t rebate[1]; uchar footprint[USHORT_MAX]; } report;
 
   fd_txn_p_t microblock[MAX_TXN_PER_MICROBLOCK];
-  fd_acct_addr_t alt[MAX_TXN_PER_MICROBLOCK][128];
+  fd_acct_addr_t alt[MAX_TXN_PER_MICROBLOCK][64];
   fd_acct_addr_t const * _alt[ MAX_TXN_PER_MICROBLOCK ];
   for( ulong i=0UL; i<MAX_TXN_PER_MICROBLOCK; i++ ) _alt[i] = alt[i];
 
@@ -209,7 +209,6 @@ main( int     argc,
   FD_TEST( SZ(0UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->ib_result            ==-1  );
 
-  for( ulong i=0UL; i<MAX_TXN_PER_MICROBLOCK*128UL*32UL; i++ ) alt[i>>12][(i>>5)&0x7F].b[i&0x1F] = (uchar)fd_ulong_hash( i );
   for( ulong i=0UL; i<MAX_TXN_PER_MICROBLOCK; i++ ) {
     fd_txn_t * txn = TXN(microblock+i);
     txn->acct_addr_cnt         = 0;
@@ -217,15 +216,21 @@ main( int     argc,
     txn->readonly_signed_cnt   = 0;
     txn->readonly_unsigned_cnt = 0;
     txn->acct_addr_off         = 0;
-    txn->addr_table_adtl_cnt   = 128;
-    txn->addr_table_adtl_writable_cnt = 128;
+    txn->addr_table_adtl_cnt   = 64;
+    txn->addr_table_adtl_writable_cnt = 64;
     txn->addr_table_lookup_cnt = 1;
     microblock[i].payload_sz   = 111UL;
     microblock[i].flags        = SANITIZE | EXECUTE;
     microblock[i].execle_cu.rebated_cus = 100U;
   }
-  FD_TEST(                              0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, MAX_TXN_PER_MICROBLOCK ) );
-  FD_TEST( SZ(MAX_TXN_PER_MICROBLOCK*128UL)==fd_pack_rebate_sum_report ( sum, report.rebate                            ) );
+  for( ulong batch=0UL; batch<2UL; batch++ ) {
+    for( ulong i=0UL; i<MAX_TXN_PER_MICROBLOCK*64UL*32UL; i++ )
+      alt[i>>11][(i>>5)&0x3F].b[i&0x1F] = (uchar)fd_ulong_hash( batch*MAX_TXN_PER_MICROBLOCK*64UL*32UL+i );
+    FD_TEST( 0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, MAX_TXN_PER_MICROBLOCK ) );
+  }
+  FD_TEST(                       SZ(320UL)==fd_pack_rebate_sum_report ( sum, report.rebate                            ) );
+  FD_TEST(                       SZ(320UL)==fd_pack_rebate_sum_report ( sum, report.rebate                            ) );
+  FD_TEST(                              0UL==fd_pack_rebate_sum_report ( sum, report.rebate                            ) );
   FD_TEST(                              0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 0UL                    ) );
 
   FD_LOG_NOTICE(( "pass" ));

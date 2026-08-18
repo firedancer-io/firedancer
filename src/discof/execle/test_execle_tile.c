@@ -599,8 +599,21 @@ test_execle_run( test_env_t *     env,
   during_frag( env->execle, 0UL, 0UL, sig, in_chunk, sz, 0UL );
 
   fd_stem_context_t stem[1];
-  after_frag( env->execle, 0UL, 0UL, sig, sz, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execle, stem ) );
+  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+  after_frag( env->execle, 0UL, 0UL, sig, sz, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execle, stem ) );
   FD_TEST( fd_fseq_query( env->execle->busy_fseq )==0UL );
+
+  fd_topo_link_t const * execle_pack = test_topo_link( "execle_pack" );
+  fd_frag_meta_t const * rebate_meta = execle_pack->mcache + fd_mcache_line_idx( 0UL, execle_pack->depth );
+  FD_TEST( fd_frag_meta_seq_query( rebate_meta )!=0UL );
+
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  after_credit( env->execle, stem, &opt_poll_in, &charge_busy );
+  FD_TEST( !opt_poll_in );
+  FD_TEST( charge_busy );
+  FD_TEST( fd_frag_meta_seq_query( rebate_meta )==0UL );
+  FD_TEST( rebate_meta->tsorig==tsorig );
 }
 
 static fd_frag_meta_t const *
