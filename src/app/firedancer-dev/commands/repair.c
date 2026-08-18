@@ -2,6 +2,7 @@
    tile.  This is a standalone application, and it can be run in mainnet,
    testnet and/or a private cluster. */
 
+#include "../../../discof/repair/fd_repair_tile.h"
 #include "../../../disco/net/fd_net_tile.h"
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
@@ -13,7 +14,6 @@
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared_dev/commands/dev.h"
-#include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../waltz/resolv/fd_io_readline.h"
@@ -346,7 +346,7 @@ repair_topo( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
-  /**/                 fd_topob_link( topo, "repair_out",   "repair_out",   128UL,                                    sizeof(fd_fec_complete_t),   1UL );
+  /**/                 fd_topob_link( topo, "repair_out",   "repair_out",   128UL,                                    sizeof(fd_repair_fec_complete_t), 1UL );
 
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  FD_POH_SHRED_MTU,              1UL );
 

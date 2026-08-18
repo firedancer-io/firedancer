@@ -203,6 +203,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
     if( FD_UNLIKELY( !fd_reqlim_next( dedup, key, now ) ) ) {
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, orphan->slot, 0U, now );
       out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, nonce, orphan->slot );
+      orphan->req_orphan_cnt++;
       return out;
     }
   }
@@ -257,6 +258,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
     if( FD_UNLIKELY( ele->slot < highest_known_slot && !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_HIGHEST_SHRED, ele->slot, UINT_MAX ), now ) ) ) {
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ele->slot, 0U, now );
       out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, 0 );
+      ele->req_highest_cnt++;
     }
   } else {
     /* Regular repair requests are not deduped.  Any potential regular
@@ -265,6 +267,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
        it gets deduped. */
     uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, iter->shred_idx, now );
     out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, iter->shred_idx );
+    ele->req_window_cnt++;
     if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
   }
   return out;
