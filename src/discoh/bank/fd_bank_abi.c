@@ -859,10 +859,10 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
        which has the default values applied, and once in
        RuntimeTransaction::transaction::message::V1::message::config::*
        that stores options (None if the option is not specified in the
-      transaction).
-      To simplify the code, even when the option is not specified, we
-      set the default value, and then use the tag field to note that it
-      is a none value. */
+       transaction).
+       To simplify the code, even when the option is not specified, we
+       set the default value, and then use the tag field to note that
+       it is a None value. */
     message->priority_fee.discr                    = (ulong)( v1_config_mask    &1U);
     message->compute_unit_limit.discr              =        ((v1_config_mask>>2)&1U);
     message->loaded_accounts_data_size_limit.discr =        ((v1_config_mask>>3)&1U);
