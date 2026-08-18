@@ -272,6 +272,192 @@ run_lane_policy_case( void ) {
   free( mem );
 }
 
+
+/* Ingest a single empty FEC set to bring a new live block into the fork
+   tree as a child of parent_bank_idx.  Returns fd_sched_fec_ingest's
+   verdict: 0 when the block landed under a lineage that is already
+   going down, which is the path the replay tile reads the dead reason
+   and discarded flavor back out on. */
+static int
+add_live_block( fd_sched_t * sched,
+                ulong        bank_idx,
+                ulong        parent_bank_idx,
+                ulong        slot,
+                ulong        parent_slot ) {
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = bank_idx,
+    .parent_bank_idx   = parent_bank_idx,
+    .slot              = slot,
+    .parent_slot       = parent_slot,
+    .fec               = store_fec,
+    .shred_cnt         = 1U,
+    .is_last_in_batch  = 0U,
+    .is_last_in_block  = 0U,
+    .is_first_in_block = 1U
+  }};
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  return fd_sched_fec_ingest( sched, fec );
+}
+
+static fd_sched_t *
+new_sched( fd_rng_t * rng, void ** mem_out, ulong block_cnt_max ) {
+  ulong depth     = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
+  ulong footprint = fd_sched_footprint( depth, block_cnt_max );
+  void * mem      = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT ) );
+  FD_TEST( sched );
+  *mem_out = mem;
+  return sched;
+}
+
+/* A block given up on without fault keeps a clean dead reason and
+   raises the discarded flag, and blocks that later arrive under it
+   inherit that flavor rather than looking ruled-invalid.  A block ruled
+   invalid stays un-discarded, so the flag never masks a verdict. */
+static void
+run_abandon_flavor_case( void ) {
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+
+  /* Discarded lineage: eviction, then two generations arriving under
+     it.  Both must come back DEAD_ANCESTOR and discarded. */
+  {
+    void * mem; fd_sched_t * sched = new_sched( rng, &mem, 8UL );
+    fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+    FD_TEST( add_live_block( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
+
+    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_DISCARDED );
+    /* The block the discard was called on went down on its own, so it
+       must not pick up its live parent's flavor. */
+    FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_NONE );
+    FD_TEST( fd_sched_block_is_discarded( sched, 2UL )==1 );
+
+    FD_TEST( !add_live_block( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
+    FD_TEST( fd_sched_get_dead_reason( sched, 3UL )==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+    FD_TEST( fd_sched_block_is_discarded( sched, 3UL )==1 );
+
+    FD_TEST( !add_live_block( sched, 4UL, 3UL, TEST_ROOT_SLOT+3UL, TEST_ROOT_SLOT+2UL ) );
+    FD_TEST( fd_sched_get_dead_reason( sched, 4UL )==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+    FD_TEST( fd_sched_block_is_discarded( sched, 4UL )==1 );
+
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+  }
+
+  /* Invalid lineage: the replay tile owns the specific reason, so the
+     scheduler records none of its own, and nothing is discarded. */
+  {
+    void * mem; fd_sched_t * sched = new_sched( rng, &mem, 8UL );
+    fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+    FD_TEST( add_live_block( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
+
+    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+    FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_NONE );
+    FD_TEST( fd_sched_block_is_discarded( sched, 2UL )==0 );
+
+    FD_TEST( !add_live_block( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
+    FD_TEST( fd_sched_get_dead_reason( sched, 3UL )==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+    FD_TEST( fd_sched_block_is_discarded( sched, 3UL )==0 );
+
+    /* Discarding a block that is already going down must not relabel
+       it.  The scheduler records no reason for a ruling the replay tile
+       made, so dead_reason alone cannot tell this apart from a block
+       that is still healthy. */
+    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_DISCARDED );
+    FD_TEST( fd_sched_block_is_discarded( sched, 2UL )==0 );
+    FD_TEST( fd_sched_block_is_discarded( sched, 3UL )==0 );
+
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+  }
+}
+
+/* A minority fork loses the fork race rather than violating the
+   protocol, so a root notify discards it.  A fork already going down
+   for a fault of its own keeps that flavor. */
+static void
+run_root_notify_flavor_case( void ) {
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+
+  void * mem; fd_sched_t * sched = new_sched( rng, &mem, 8UL );
+
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+  /* The fork consensus picks.  Rooting requires a fully replayed block,
+     which add_done synthesizes. */
+  fd_sched_block_add_done( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL );
+
+  /* Minority fork, still live, with a descendant. */
+  FD_TEST( add_live_block( sched, 3UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
+  FD_TEST( add_live_block( sched, 4UL, 3UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
+
+  /* Minority fork already ruled invalid by the replay tile before the
+     root moved. */
+  FD_TEST( add_live_block( sched, 5UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
+  fd_sched_block_abandon( sched, 5UL, FD_SCHED_ABANDON_INVALID );
+
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  fd_sched_root_notify( sched, 2UL );
+
+  /* The live minority fork is discarded, and its descendant inherits. */
+  FD_TEST( fd_sched_get_dead_reason( sched, 3UL )==FD_SCHED_DEAD_REASON_NONE );
+  FD_TEST( fd_sched_block_is_discarded( sched, 3UL )==1 );
+  FD_TEST( fd_sched_get_dead_reason( sched, 4UL )==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+  FD_TEST( fd_sched_block_is_discarded( sched, 4UL )==1 );
+
+  /* The already-invalid fork is not relabeled by losing the race. */
+  FD_TEST( fd_sched_get_dead_reason( sched, 5UL )==FD_SCHED_DEAD_REASON_NONE );
+  FD_TEST( fd_sched_block_is_discarded( sched, 5UL )==0 );
+
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+}
+
+/* A block that already went down keeps the flavor it went down with
+   when an ancestor is abandoned later.  The replay tile's rulings are
+   the load-bearing case: sched records no dead reason for them, so only
+   dying tells them apart from a healthy block. */
+static void
+run_late_ancestor_discard_case( void ) {
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  void * mem; fd_sched_t * sched = new_sched( rng, &mem, 8UL );
+
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+  fd_sched_block_add_done( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL ); /* the fork consensus picks */
+
+  /* A live minority fork with a child on it. */
+  FD_TEST( add_live_block( sched, 3UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
+  FD_TEST( add_live_block( sched, 4UL, 3UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
+
+  /* The replay tile rules the child invalid. */
+  fd_sched_block_abandon( sched, 4UL, FD_SCHED_ABANDON_INVALID );
+  FD_TEST( fd_sched_get_dead_reason( sched, 4UL )==FD_SCHED_DEAD_REASON_NONE );
+  FD_TEST( fd_sched_block_is_discarded( sched, 4UL )==0 );
+
+  /* Only now does the still-live ancestor lose the fork race. */
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  fd_sched_root_notify( sched, 2UL );
+
+  /* The ancestor is discarded. */
+  FD_TEST( fd_sched_get_dead_reason( sched, 3UL )==FD_SCHED_DEAD_REASON_NONE );
+  FD_TEST( fd_sched_block_is_discarded( sched, 3UL )==1 );
+
+  /* The child is not relabeled by it. */
+  FD_TEST( fd_sched_get_dead_reason( sched, 4UL )==FD_SCHED_DEAD_REASON_NONE );
+  FD_TEST( fd_sched_block_is_discarded( sched, 4UL )==0 );
+
+  /* And a block arriving under the child reports the lineage it really
+     died of, an invalid one, not the ancestor's discard. */
+  FD_TEST( !add_live_block( sched, 5UL, 4UL, TEST_ROOT_SLOT+3UL, TEST_ROOT_SLOT+2UL ) );
+  FD_TEST( fd_sched_get_dead_reason( sched, 5UL )==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+  FD_TEST( fd_sched_block_is_discarded( sched, 5UL )==0 );
+
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -280,6 +466,9 @@ main( int     argc,
   test_sched_footprint();
   run_lane_policy_case();
   run_bad_tick_cases();
+  run_abandon_flavor_case();
+  run_root_notify_flavor_case();
+  run_late_ancestor_discard_case();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

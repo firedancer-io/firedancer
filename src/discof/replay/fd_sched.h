@@ -154,30 +154,6 @@ struct fd_sched_poh_hash {
 };
 typedef struct fd_sched_poh_hash fd_sched_poh_hash_t;
 
-#define FD_SCHED_DEAD_REASON_NONE                       (0)  /* Block was not ruled invalid by the scheduler. */
-#define FD_SCHED_DEAD_REASON_UNFINISHED_ENTRIES         (1)  /* A new microblock run began while the previously announced microblocks had not fully parsed out of the bytes. */
-#define FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT        (2)  /* Bytes at the head of the stream failed to parse out as any structure (transaction, microblock header, or count) within the largest size a valid block allows: garbage or oversized content. */
-#define FD_SCHED_DEAD_REASON_TRUNCATED_ENTRIES          (3)  /* Block bytes ended short of the microblocks and transactions announced. */
-#define FD_SCHED_DEAD_REASON_TRAILING_ENTRY             (4)  /* Block did not end on a tick. */
-#define FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS       (5)  /* More microblocks than a valid block can hold. */
-#define FD_SCHED_DEAD_REASON_TOO_MANY_TXNS_ANNOUNCED    (6)  /* Microblock header announced more transactions than a valid block can hold. */
-#define FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW       (7)  /* Microblock header announced more hashes than fit before the next tick. */
-#define FD_SCHED_DEAD_REASON_INCONSISTENT_TICK_HASHES   (8)  /* Tick hash count differs from the block's preceding ticks. */
-#define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK             (9)  /* Tick advanced zero hashes. */
-#define FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS_ANNOUNCED (10) /* Microblock count announced more microblocks than a valid block can hold. */
-#define FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS           (11) /* A microblock count announced zero microblocks. */
-#define FD_SCHED_DEAD_REASON_TOO_MANY_TXNS              (12) /* More transactions than a valid block can hold. */
-#define FD_SCHED_DEAD_REASON_DUPLICATE_ACCOUNT          (13) /* Transaction referenced the same account more than once. */
-#define FD_SCHED_DEAD_REASON_TOO_MANY_TICKS             (14) /* More ticks than allowed. */
-#define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK_VERIFY      (15) /* Tick advanced zero hashes, detected at tick verification: PoH params were unknown when the tick parsed. */
-#define FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK      (16) /* Ticks did not advance the expected hashes per tick. */
-#define FD_SCHED_DEAD_REASON_INTERTICK_HASHES_OVERFLOW  (17) /* More hashes since the last tick than hashes per tick allows. */
-#define FD_SCHED_DEAD_REASON_TOO_FEW_TICKS              (18) /* Fewer ticks than required. */
-#define FD_SCHED_DEAD_REASON_TICK_HASH_MISMATCH         (19) /* Proof-of-history hash of a tick did not verify. */
-#define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH        (20) /* Proof-of-history hash of a transaction entry did not verify, detected when the entry's PoH hashing task completed. */
-#define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST (21) /* Proof-of-history hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions. */
-#define FD_SCHED_DEAD_REASON_DEAD_ANCESTOR              (22) /* The block went down with its lineage.  Whether the lineage was discarded or ruled invalid is distinguished by fd_sched_block_is_abandoned. */
-
 struct fd_sched_mark_dead {
   ulong     bank_idx;
 };
@@ -195,6 +171,38 @@ struct fd_sched_task {
   };
 };
 typedef struct fd_sched_task fd_sched_task_t;
+
+
+#define FD_SCHED_DEAD_REASON_NONE                        (0)  /* Block was not ruled invalid by the scheduler.  The replay tile may still rule it invalid, unbeknownst to the scheduler. */
+#define FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT         (1)  /* Bytes at the head of the stream failed to parse out as any structure (transaction, microblock header, or count) within the largest size a valid block allows: malformed content. */
+#define FD_SCHED_DEAD_REASON_SHORT_BLOCK                 (2)  /* Block bytes ended short of the microblocks and transactions declared. */
+#define FD_SCHED_DEAD_REASON_TOO_MANY_TXNS               (3)  /* More transactions than a valid block can hold. */
+#define FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS        (4)  /* More microblocks than a valid block can hold. */
+#define FD_SCHED_DEAD_REASON_DUPLICATE_ACCOUNT           (5)  /* Transaction referenced the same account more than once. */
+#define FD_SCHED_DEAD_REASON_TRAILING_ENTRY              (6)  /* Block did not end on a tick. */
+#define FD_SCHED_DEAD_REASON_TOO_MANY_TICKS              (7)  /* More ticks than required. */
+#define FD_SCHED_DEAD_REASON_TOO_FEW_TICKS               (8)  /* Fewer ticks than required. */
+#define FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS            (9)  /* A batch header declared zero microblocks. */
+#define FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK       (10) /* Tick hash count did not advance the expected hashes per tick. */
+#define FD_SCHED_DEAD_REASON_INCONSISTENT_TICK_HASHES    (11) /* Tick hash count differs from the block's preceding ticks, detected at FEC ingest. */
+#define FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW        (12) /* More hashes since the last tick than hashes per tick allows. */
+#define FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST (13) /* Tick header declared more hashes than can fit before the next tick, detected at FEC ingest. */
+#define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK              (14) /* Tick advanced zero hashes; PoH params were unknown when the tick parsed. */
+#define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK_INGEST       (15) /* Tick advanced zero hashes, detected at FEC ingest. */
+#define FD_SCHED_DEAD_REASON_TICK_HASH_MISMATCH          (16) /* PoH hash of a tick did not verify. */
+#define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH         (17) /* PoH hash of a transaction entry did not verify, detected when the entry's PoH hashing task completed. */
+#define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST  (18) /* PoH hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions. */
+#define FD_SCHED_DEAD_REASON_DEAD_ANCESTOR               (19) /* The block went down with its lineage.  Whether the lineage was discarded or ruled invalid is distinguished by fd_sched_block_is_discarded. */
+
+/* Cause to pass to fd_sched_block_abandon().  A block is considered
+   invalid when it violates the protocol, so validity is a function of
+   the block's content.  A block may be discarded (temporarily) because
+   the validator is under resource pressure.  A block may be discarded
+   (permanently) if consensus converged on an alternative fork, which is
+   done implicitly in fd_sched_root_notify() for the minority forks it
+   abandons. */
+#define FD_SCHED_ABANDON_DISCARDED (0)
+#define FD_SCHED_ABANDON_INVALID   (1)
 
 struct __attribute__((packed)) fd_microblock_hdr {
   /* Number of PoH hashes between this and last microblock */
@@ -362,14 +370,15 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
    prune the block, when all other components release their refcnts on
    said bank.  Then the bank_idx may be recycled for another block.
 
-   invalid is 1 if the replay tile ruled the block invalid (sigverify
-   or runtime failure — checks the scheduler does not run itself):
-   descendants inherit the dead-lineage flavor (DEAD_ANCESTOR); the
-   scheduler records no reason of its own, the replay tile owns the
-   specific one.  invalid is 0 if the block is merely discarded
-   (eviction): the lineage is flagged abandoned instead. */
+   Pass FD_SCHED_ABANDON_INVALID if the block is ruled invalid for any
+   reason, or FD_SCHED_ABANDON_DISCARDED if we are merely giving up on
+   it without fault, e.g. eviction under resource pressure.  Descendants
+   inherit the flavor: they record DEAD_ANCESTOR, and are marked
+   discarded iff the lineage was discarded, provided they have no dead
+   reason of their own.  A block that is already going down keeps the
+   flavor it went down with, so a later abandon cannot re-label it. */
 void
-fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int invalid );
+fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int cause );
 
 /* fd_sched_get_dead_reason returns the scheduler's reason (one of
    FD_SCHED_DEAD_REASON_*) for why the block at bank_idx went down.
@@ -377,18 +386,19 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int invalid );
    discarded (root advance, eviction) or if no block is currently
    tracked at bank_idx.  Descendants of a discarded lineage carry
    DEAD_ANCESTOR like any other lineage death;
-   fd_sched_block_is_abandoned disambiguates discarded from
+   fd_sched_block_is_discarded disambiguates discarded from
    ruled-invalid.  The recorded reason is the first one; later failures
    on an already-dead block (e.g. an in-flight PoH task draining after
    the block was abandoned) do not overwrite it. */
 int
 fd_sched_get_dead_reason( fd_sched_t * sched, ulong bank_idx );
 
-/* fd_sched_block_is_abandoned returns 1 if the block went down with a
+/* fd_sched_block_is_discarded returns 1 if the block went down with a
    discarded (not invalid) lineage, 0 otherwise (including when no
-   block is tracked at bank_idx). */
+   block is tracked at bank_idx).  Never set on a block that has a dead
+   reason of its own, so it does not mask the scheduler's own verdict. */
 int
-fd_sched_block_is_abandoned( fd_sched_t * sched, ulong bank_idx );
+fd_sched_block_is_discarded( fd_sched_t * sched, ulong bank_idx );
 
 /* Prune the given block including descendants of it. */
 void
