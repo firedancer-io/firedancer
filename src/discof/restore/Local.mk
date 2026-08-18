@@ -7,12 +7,22 @@ $(call run-unit-test,test_snapct_tile)
 $(call add-objs,fd_snapld_tile,fd_discof)
 ifdef FD_HAS_ZSTD
 $(call add-objs,fd_snapdc_tile,fd_discof)
+$(call make-unit-test,test_snapdc_tile,test_snapdc_tile,fd_discof fd_disco fd_waltz fd_flamenco fd_ballet fd_tango fd_util,$(OPENSSL_LIBS))
+$(call run-unit-test,test_snapdc_tile)
 endif # FD_HAS_ZSTD
 $(call add-objs,fd_snapin_tile,fd_discof)
 $(call make-unit-test,test_snapin_tile,test_snapin_tile,fd_discof fd_disco fd_flamenco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_snapin_tile)
 $(call add-objs,fd_snapwr_tile,fd_discof)
+$(call make-unit-test,test_snapwr_tile,test_snapwr_tile,fd_discof fd_disco fd_flamenco fd_ballet fd_tango fd_util)
+$(call run-unit-test,test_snapwr_tile)
 endif # FD_HAS_SSE
+ifdef FD_HAS_ZSTD
+$(call add-objs,utils/fd_zstd_frame,fd_discof)
+$(call make-unit-test,test_zstd_frame,utils/test_zstd_frame,fd_discof fd_ballet fd_util)
+$(call run-unit-test,test_zstd_frame)
+$(call make-fuzz-test,fuzz_zstd_frame,utils/fuzz_zstd_frame,fd_discof fd_ballet fd_util)
+endif # FD_HAS_ZSTD
 $(call add-objs,utils/fd_ssparse,fd_discof)
 $(call add-objs,utils/fd_ssmanifest_parser,fd_discof)
 $(call add-objs,utils/fd_ssload,fd_discof)
