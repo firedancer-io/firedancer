@@ -57,17 +57,17 @@ fd_zstd_frame_advance( fd_zstd_frame_t * frame,
           FD_TEST( rc<=FD_ZSTD_FRAME_HEADER_MAX );
           FD_TEST( frame->header_sz<rc );
 
+          if( off==data_sz ) {
+            *consumed = off;
+            return FD_ZSTD_FRAME_MORE;
+          }
+
           ulong need    = rc-frame->header_sz;
           ulong copy_sz = fd_ulong_min( need, data_sz-off );
 
           fd_memcpy( frame->header+frame->header_sz, bytes+off, copy_sz );
           frame->header_sz += (uchar)copy_sz;
           off              += copy_sz;
-
-          if( FD_UNLIKELY( copy_sz<need ) ) {
-            *consumed = data_sz;
-            return FD_ZSTD_FRAME_MORE;
-          }
         }
 
         fd_msan_unpoison( header, sizeof(ZSTD_frameHeader) );
