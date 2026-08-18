@@ -3791,7 +3791,11 @@ background_preevict( fd_accdb_t * accdb,
     ulong max_c  = shmem->cache_class_max[ c ];
     ulong init   = fd_ulong_min( FD_VOLATILE_CONST( shmem->cache_class_init[ c ].val ), max_c );
     ulong freec  = FD_VOLATILE_CONST( shmem->cache_free_cnt[ c ].val );
-    ulong live   = init>freec ? init-freec : 0UL;
+    /* freec is approximate; freec>max_c means it wrapped past zero */
+    ulong live;
+    if(      FD_LIKELY  ( init>=freec ) ) live = init-freec;
+    else if( FD_UNLIKELY( freec>max_c ) ) live = init;
+    else                                  live = 0UL;
     ulong avail  = max_c-live;
     if( FD_LIKELY( !force && avail>=shmem->cache_free_low_water[ c ] ) ) continue;
 
