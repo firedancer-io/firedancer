@@ -3258,7 +3258,7 @@ release_inner( fd_accdb_t * accdb,
 
     /* Update the accounts index for this committed write.  For an
        overwrite (same fork+generation), update the existing acc
-       acc in place.  Otherwise allocate a new acc, prepend it
+       in place.  Otherwise allocate a new acc, prepend it
        to the hash chain, and record the write in a txn linked to
        the fork so advance_root can clean up old versions. */
     if( FD_LIKELY( accs[ i ]._overwrite ) ) {
