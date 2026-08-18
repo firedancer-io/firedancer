@@ -323,6 +323,40 @@ test_one_entry( fd_slot_delta_parser_t * parser ) {
 }
 
 static void
+test_group_reports_slot( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 97UL ];
+  fd_slot_delta_parser_init( parser );
+  mock_one_input_with_error( input, sizeof(input), 1, 1000UL, MOCK_ERROR_TYPE_NONE, 0 );
+
+  fd_slot_delta_parser_advance_result_t result[1];
+  int res = fd_slot_delta_parser_consume( parser, input, sizeof(input), result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_SLOT );
+  ulong slot_bytes_consumed = result->bytes_consumed;
+  res = fd_slot_delta_parser_consume( parser, input+slot_bytes_consumed, sizeof(input)-slot_bytes_consumed, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP );
+  FD_TEST( result->group.slot==1000UL );
+}
+
+static void
+test_zero_status_slot_is_reported( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 25UL ];
+  ulong slots[ 1UL ]        = {1000UL};
+  ulong num_statuses[ 1UL ] = {0UL};
+  uchar * p = mock_slot_delta_input( input, sizeof(input), 1UL, slots, num_statuses, NULL, NULL, NULL );
+  FD_TEST( (ulong)(p-input)==sizeof(input) );
+  fd_slot_delta_parser_init( parser );
+
+  fd_slot_delta_parser_advance_result_t result[1];
+  int res = fd_slot_delta_parser_consume( parser, input, sizeof(input), result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_SLOT );
+  FD_TEST( result->slot==1000UL );
+  FD_TEST( result->bytes_consumed==sizeof(input) );
+
+  res = fd_slot_delta_parser_consume( parser, input+sizeof(input), 0UL, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE );
+}
+
+static void
 test_one_entry_not_root( fd_slot_delta_parser_t * parser ) {
   uchar input[ 97UL ];
   mock_one_input_with_error( input, sizeof(input), 0, 1000UL, MOCK_ERROR_TYPE_NONE, 0 );
@@ -395,13 +429,18 @@ test_unexpected_eof_in_instr_borsh_io_error( fd_slot_delta_parser_t * parser ) {
 
   fd_slot_delta_parser_advance_result_t result[1];
   int res = fd_slot_delta_parser_consume( parser, input, sizeof(input), result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_SLOT );
+  ulong slot_bytes_consumed = result->bytes_consumed;
+  uchar const * input_cur = input + slot_bytes_consumed;
+
+  res = fd_slot_delta_parser_consume( parser, input_cur, sizeof(input)-slot_bytes_consumed, result );
   FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP );
   ulong group_bytes_consumed = result->bytes_consumed;
-  uchar const * input_cur = input + result->bytes_consumed;
+  input_cur += result->bytes_consumed;
 
-  res = fd_slot_delta_parser_consume( parser, input_cur, sizeof(input)-group_bytes_consumed, result );
+  res = fd_slot_delta_parser_consume( parser, input_cur, sizeof(input)-slot_bytes_consumed-group_bytes_consumed, result );
   FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN );
-  FD_TEST( result->bytes_consumed==sizeof(input)-group_bytes_consumed );
+  FD_TEST( result->bytes_consumed==sizeof(input)-slot_bytes_consumed-group_bytes_consumed );
 
   res = fd_slot_delta_parser_consume( parser, input_cur, 0UL, result );
   FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_UNEXPECTED_EOF );
@@ -529,6 +568,8 @@ int main( int     argc,
   FD_TEST( slot_delta_parser );
 
   test_one_entry( slot_delta_parser );
+  test_group_reports_slot( slot_delta_parser );
+  test_zero_status_slot_is_reported( slot_delta_parser );
   test_one_entry_not_root( slot_delta_parser );
 
   test_one_entry_with_txn_error( slot_delta_parser );

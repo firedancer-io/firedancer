@@ -26,6 +26,7 @@ struct fd_slot_delta_parser_private {
   int     state;                       /* parser state machine */
   int     entry_avail;                 /* whether a parsed entry is available */
   int     group_avail;                 /* whether a parsed group is available */
+  int     slot_avail;                  /* whether a parsed slot is available */
 
   uchar * dst;                         /* where to store the next parsed value */
   ulong   dst_cur;                     /* offset into dst */
@@ -199,6 +200,7 @@ state_process( fd_slot_delta_parser_t * parser ) {
       parser->state = STATE_SLOT_DELTA_STATUS_LEN;
       break;
     case STATE_SLOT_DELTA_STATUS_LEN:
+      parser->slot_avail = 1;
       if( FD_UNLIKELY( !parser->slot_delta_status_len ) ) loop( parser );
       else                                                parser->state = STATE_STATUS_BLOCKHASH;
       break;
@@ -314,6 +316,7 @@ fd_slot_delta_parser_new( void * shmem ) {
 
   parser->entry_avail       = 0;
   parser->group_avail       = 0;
+  parser->slot_avail        = 0;
   parser->slot_pool_ele_cnt = 0UL;
   parser->state             = STATE_DONE;
 
@@ -360,6 +363,7 @@ fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser ) {
 
   parser->entry_avail = 0;
   parser->group_avail = 0;
+  parser->slot_avail  = 0;
 }
 
 int
@@ -399,16 +403,26 @@ fd_slot_delta_parser_consume( fd_slot_delta_parser_t *                parser,
       parser->dst_sz  = state_size( parser );
       parser->dst_cur = 0UL;
 
-      if( FD_LIKELY( parser->group_avail ) ) {
+      if( FD_LIKELY( parser->slot_avail ) ) {
         FD_TEST( parser->entry_avail==0 );
+        FD_TEST( parser->group_avail==0 );
+        parser->slot_avail      = 0;
+        result->slot            = parser->entry->slot;
+        result->bytes_consumed  = (ulong)(data - buf);
+        return FD_SLOT_DELTA_PARSER_ADVANCE_SLOT;
+      } else if( FD_LIKELY( parser->group_avail ) ) {
+        FD_TEST( parser->entry_avail==0 );
+        FD_TEST( parser->slot_avail==0 );
         parser->group_avail          = 0;
         result->entry                = NULL;
         result->group.blockhash      = parser->entry->blockhash;
         result->group.txnhash_offset = parser->txnhash_offset;
+        result->group.slot           = parser->entry->slot;
         result->bytes_consumed       = (ulong)(data - buf);
         return FD_SLOT_DELTA_PARSER_ADVANCE_GROUP;
       } else if( FD_LIKELY( parser->entry_avail ) ) {
         FD_TEST( parser->group_avail==0 );
+        FD_TEST( parser->slot_avail==0 );
         parser->entry_avail    = 0;
         result->entry          = parser->entry;
         result->bytes_consumed = (ulong)(data - buf);

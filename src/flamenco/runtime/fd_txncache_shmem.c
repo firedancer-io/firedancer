@@ -41,7 +41,7 @@ fd_txncache_max_txnpages( ulong max_active_slots,
      staged snapshot load) plus every other pool fork full of live
      inserts.
 
-     The snapshot transient is at most 300 slot deltas at
+     The snapshot transient retains at most 151 slot deltas at
      max_txn_per_slot entries each.  max_txn_per_slot is 2x the actual
      per slot transaction limit, because Agave snapshots contain each
      transaction twice (once keyed by signature, once by message hash,
@@ -61,7 +61,7 @@ fd_txncache_max_txnpages( ulong max_active_slots,
        back to every active slot simultaneously full. */
     result = max_active_slots-1UL+max_active_slots*(1UL+(max_txn_per_slot-1UL)/FD_TXNCACHE_TXNS_PER_PAGE);
   } else {
-    ulong snapshot_budget = FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX*max_txn_per_slot;
+    ulong snapshot_budget = FD_TXNCACHE_MAX_SLOT_DELTAS*max_txn_per_slot;
     ulong live_budget     = (max_active_slots-1UL)*((max_txn_per_slot+1UL)/2UL);
     result = max_active_slots-1UL
            + 1UL+(snapshot_budget+live_budget-1UL)/FD_TXNCACHE_TXNS_PER_PAGE;
