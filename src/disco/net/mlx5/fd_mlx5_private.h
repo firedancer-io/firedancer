@@ -139,30 +139,30 @@ fd_mlx5_uverbs_init( fd_uverbs_ctx_t * uverbs,
    IPv4 traffic to qp.  The GRE destination IP and port select the inner
    packet.  A zero destination IP matches every local IPv4 address. */
 int
-fd_mlx5_flow_create_udp( fd_uverbs_ctx_t *     uverbs,
+fd_mlx5_flow_create_udp( fd_uverbs_ctx_t *    uverbs,
                          fd_mlx5_qp_t const * qp,
-                         uint                  dst_ip,
-                         ushort                dst_port );
+                         uint                 dst_ip,
+                         ushort               dst_port );
 
 int
-fd_mlx5_flow_create_gre_udp( fd_uverbs_ctx_t *     uverbs,
+fd_mlx5_flow_create_gre_udp( fd_uverbs_ctx_t *    uverbs,
                              fd_mlx5_qp_t const * qp,
-                             uint                  inner_dst_ip,
-                             ushort                inner_dst_port );
+                             uint                 inner_dst_ip,
+                             ushort               inner_dst_port );
 
 /* fd_mlx5_netlink_rdma_init binds a manual RDMA counter to qpn. */
 fd_netlink_rdma_ctx_t *
 fd_mlx5_netlink_rdma_init( fd_netlink_rdma_ctx_t * netlink_rdma,
-                           char const *              rdma_name,
-                           uint                      port_num,
-                           uint                      qpn );
+                           char const *            rdma_name,
+                           uint                    port_num,
+                           uint                    qpn );
 
 /* fd_mlx5_netlink_rdma_qp_counter_read returns the QP-specific mlx5
    out_of_buffer counter.  This counts packets dropped because the RQ had no
    WQE. */
 int
 fd_mlx5_netlink_rdma_qp_counter_read( fd_netlink_rdma_ctx_t * netlink_rdma,
-                                      ulong *                   out_of_buffer );
+                                      ulong *                 out_of_buffer );
 
 FD_PROTOTYPES_END
 

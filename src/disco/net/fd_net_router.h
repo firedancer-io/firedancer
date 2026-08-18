@@ -17,7 +17,7 @@
 #define FD_NET_ROUTE_FAIL_MISSING_INTERFACE     (2U)
 #define FD_NET_ROUTE_FAIL_SOURCE_IP             (3U)
 #define FD_NET_ROUTE_FAIL_UNSUPPORTED_INTERFACE (4U)
-#define FD_NET_ROUTE_FAIL_CNT                    (5U)
+#define FD_NET_ROUTE_FAIL_CNT                   (5U)
 
 #define FD_NET_TX_FILL_INVALID   (-1)
 #define FD_NET_TX_FILL_NO_SOURCE ( 0)
@@ -178,8 +178,9 @@ fd_net_tx_fill_ip4( fd_net_router_t *         ctx,
                     fd_net_tx_route_t const * route,
                     fd_ip4_hdr_t *            ip4_hdr,
                     ulong                     ip4_buf_sz ) {
-  if( FD_UNLIKELY( !route || !fd_net_tx_validate_ip4( ip4_hdr, ip4_buf_sz ) ) )
+  if( FD_UNLIKELY( !route || !fd_net_tx_validate_ip4( ip4_hdr, ip4_buf_sz ) ) ) {
     return FD_NET_TX_FILL_INVALID;
+  }
 
   if( ip4_hdr->saddr==0U ) {
     if( FD_UNLIKELY( route->src_ip==0U ) ) {
@@ -201,8 +202,9 @@ fd_net_tx_fill_addrs( fd_net_router_t *         ctx,
                       fd_net_tx_route_t const * route,
                       uchar *                   packet,
                       ulong                     sz ) {
-  if( FD_UNLIKELY( !route || !fd_net_tx_validate_frame( packet, sz ) ) )
+  if( FD_UNLIKELY( !route || !fd_net_tx_validate_frame( packet, sz ) ) ) {
     return FD_NET_TX_FILL_INVALID;
+  }
 
   fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)packet;
   fd_ip4_hdr_t * ip4_hdr = (fd_ip4_hdr_t *)(eth_hdr+1);

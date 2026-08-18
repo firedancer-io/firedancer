@@ -953,8 +953,9 @@ fd_mlx5_uverbs_cq_create( uint *               handle,
     destroy->response  = (ulong)destroy_resp;
     destroy->cq_handle = resp->cq_handle;
     if( !fd_mlx5_uverbs_cmd_hdr_init( &destroy->hdr, IB_USER_VERBS_CMD_DESTROY_CQ,
-                                      sizeof(destroy), sizeof(destroy_resp) ) )
+                                      sizeof(destroy), sizeof(destroy_resp) ) ) {
       fd_mlx5_uverbs_write_cmd( ctx->cmd_fd, destroy, sizeof(destroy) );
+    }
     FD_LOG_INFO(( "invalid mlx5 CQ response (CQEs %u, requested %u)", resp->cqe, cq->depth-1U ));
     errno = EPROTO;
     return NULL;
@@ -1394,8 +1395,9 @@ fd_mlx5_nl_parse_dev( struct nlmsghdr const * nlh,
   if( FD_UNLIKELY( fd_mlx5_nla_u32( dev_idx_attr, &dev_idx ) ) ) return -1;
   ulong const expected_name_sz = strlen( dev_find->rdma_name )+1UL;
   ulong const dev_name_sz = dev_name_attr->nla_len-sizeof(*dev_name_attr);
-  if( dev_name_sz==expected_name_sz && !memcmp( dev_name_attr+1, dev_find->rdma_name, expected_name_sz ) )
+  if( dev_name_sz==expected_name_sz && !memcmp( dev_name_attr+1, dev_find->rdma_name, expected_name_sz ) ) {
     dev_find->dev_idx = dev_idx;
+  }
   return 0;
 }
 
