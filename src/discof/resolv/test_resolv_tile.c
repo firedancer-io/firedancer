@@ -237,6 +237,22 @@ FD_UNIT_TEST( resolv_blockhash_map_hashes_full_key ) {
 # undef COLLISION_CNT
 }
 
+FD_UNIT_TEST( resolv_stash_map_hashes_full_key ) {
+  blockhash_t key0 = {0};
+  blockhash_t key1 = {0};
+  key1.b[ 31UL ] = 1U;
+
+  blockhash_t * key0_ptr = &key0;
+  blockhash_t * key1_ptr = &key1;
+
+  ulong hash0 = map_chain_key_hash( &key0_ptr, TEST_HASH_SEED );
+  ulong hash1 = map_chain_key_hash( &key1_ptr, TEST_HASH_SEED );
+
+  FD_TEST( hash0==fd_hash( TEST_HASH_SEED, key0.b, sizeof(key0.b) ) );
+  FD_TEST( hash1==fd_hash( TEST_HASH_SEED, key1.b, sizeof(key1.b) ) );
+  FD_TEST( hash0!=hash1 );
+}
+
 FD_UNIT_TEST( resolv_stash_map_seed_initialized ) {
   void * tile_mem = fd_wksp_alloc_laddr( mini->wksp, alignof(fd_resolv_ctx_t), sizeof(fd_resolv_ctx_t), TOPO_TAG );
   FD_TEST( tile_mem );
