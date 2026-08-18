@@ -5,12 +5,11 @@
    instances. */
 
 #include "fd_io_uring.h"
-#include <linux/io_uring.h>
 #include "../../util/fd_util_base.h"
 
 FD_PROTOTYPES_BEGIN
 
-/* IORING_SETUP_NO_MMAP related ***************************************/
+/* FD_IORING_SETUP_NO_MMAP related ************************************/
 
 /* fd_io_uring_shmem_{align,footprint} return the required alignment
    and footprint for a user-managed shared memory region suitable to
@@ -29,7 +28,7 @@ fd_io_uring_shmem_footprint( ulong sq_depth,
 /* fd_io_uring_shmem_setup adds a user-managed shared memory region to
    params.  params is zero initialized by the caller.  shmem points to
    a region allocated according to the above align/footprint
-   requirements.  Sets the IORING_SETUP_NO_MMAP flag, which instructs
+   requirements.  Sets the FD_IORING_SETUP_NO_MMAP flag, which instructs
    the kernel to map user memory instead of allocating new rings.
 
    Returns params on success.  On failure, returns NULL.  Reasons for
@@ -55,11 +54,11 @@ FD_FN_UNUSED static fd_io_uring_params_t *
 fd_io_uring_params_init( fd_io_uring_params_t * params,
                          uint                   depth ) {
   memset( params, 0, sizeof(fd_io_uring_params_t) );
-  params->flags      |= IORING_SETUP_CQSIZE;
+  params->flags      |= FD_IORING_SETUP_CQSIZE;
   params->sq_entries  = depth;
   params->cq_entries  = depth;
-  params->flags      |= IORING_SETUP_SINGLE_ISSUER;
-  params->flags      |= IORING_SETUP_R_DISABLED;
+  params->flags      |= FD_IORING_SETUP_SINGLE_ISSUER;
+  params->flags      |= FD_IORING_SETUP_R_DISABLED;
   return params;
 }
 

@@ -20,7 +20,6 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <linux/futex.h>
-#include <linux/io_uring.h>
 #include "../../util/io_uring/fd_io_uring.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
 #include "../../util/io_uring/fd_io_uring_register.h"
@@ -136,8 +135,8 @@ struct snapsv_conn {
     ulong range1; /* exclusive response body end */
   } snap;
 
-  long                     request_start_nanos;
-  struct __kernel_timespec idle_timeout;
+  long                 request_start_nanos;
+  fd_kernel_timespec_t idle_timeout;
 
   fd_ip6_addr_t peer_ip;
   ushort        peer_port;
@@ -166,7 +165,7 @@ struct fd_snapsv {
   uint *          conn_free;
   uint            conn_free_cnt;
   long            idle_timeout_nanos;
-  struct __kernel_timespec send_timeout;
+  fd_kernel_timespec_t send_timeout;
 
   /* Conn accept */
   uint                    accept_inflight:1;
@@ -369,7 +368,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->ring_shmem = ring_mem;
   fd_io_uring_params_t params[1];
   fd_io_uring_params_init( params, (uint)sq_depth );
-  params->flags |= IORING_SETUP_COOP_TASKRUN | IORING_SETUP_DEFER_TASKRUN;
+  params->flags |= FD_IORING_SETUP_COOP_TASKRUN | FD_IORING_SETUP_DEFER_TASKRUN;
 
   if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ring, params, ctx->ring_shmem, sq_depth, cq_depth ) ) ) {
     FD_LOG_ERR(( "fd_io_uring_init_shmem failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -398,7 +397,7 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   uint max_workers[2] = { tile->snapsv.io_worker_cnt, tile->snapsv.io_worker_cnt };
-  if( FD_UNLIKELY( fd_io_uring_register( ctx->ring->ioring_fd, IORING_REGISTER_IOWQ_MAX_WORKERS, max_workers, 2U )<0 ) ) {
+  if( FD_UNLIKELY( fd_io_uring_register( ctx->ring->ioring_fd, FD_IORING_REGISTER_IOWQ_MAX_WORKERS, max_workers, 2U )<0 ) ) {
     FD_LOG_ERR(( "io_uring_register(IORING_REGISTER_IOWQ_MAX_WORKERS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -412,9 +411,9 @@ privileged_init( fd_topo_t const *      topo,
     { .opcode      = FD_IORING_RESTRICTION_REGISTER_OP, /* deregister files */
       .register_op = FD_IORING_REGISTER_FILES_UPDATE },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
-      .sqe_flags = IOSQE_IO_LINK },
+      .sqe_flags = FD_IOSQE_IO_LINK },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
-      .sqe_flags = IOSQE_FIXED_FILE },
+      .sqe_flags = FD_IOSQE_FIXED_FILE },
   };
   if( FD_UNLIKELY( fd_io_uring_register_restrictions(
         ctx->ring->ioring_fd, restrictions,
@@ -483,7 +482,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->conn_free_cnt = (uint)tile->snapsv.conn_max;
   ctx->idle_timeout_nanos = (long)( tile->snapsv.idle_timeout_millis * ((ulong)1e6) );
   long send_timeout_nanos = (long)( tile->snapsv.send_timeout_millis * ((ulong)1e6) );
-  ctx->send_timeout = (struct __kernel_timespec) {
+  ctx->send_timeout = (fd_kernel_timespec_t) {
     .tv_sec  = send_timeout_nanos / (long)1e9,
     .tv_nsec = send_timeout_nanos % (long)1e9
   };
@@ -520,11 +519,11 @@ prep_accept( fd_snapsv_t * ctx ) {
   ctx->accept_addr_len = sizeof(ctx->accept_addr);
 
   fd_io_uring_t * ring = ctx->ring;
-  struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
+  fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ring->sq );
   FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-  *sqe = (struct io_uring_sqe) {
+  *sqe = (fd_io_uring_sqe_t) {
     .opcode     = FD_IORING_OP_ACCEPT,
-    .flags      = IOSQE_FIXED_FILE,
+    .flags      = FD_IOSQE_FIXED_FILE,
     .fd         = FIXED_FD_LISTEN,
     .off        = (ulong)&ctx->accept_addr_len,
     .addr       = (ulong)&ctx->accept_addr,
@@ -579,7 +578,7 @@ prep_peek( fd_snapsv_t * ctx,
     conn->request_start_nanos = now;
   }
   long idle_rem = fd_long_max( 1L, ctx->idle_timeout_nanos - (now - conn->request_start_nanos) );
-  conn->idle_timeout = (struct __kernel_timespec) {
+  conn->idle_timeout = (fd_kernel_timespec_t) {
     .tv_sec  = idle_rem / (long)1e9,
     .tv_nsec = idle_rem % (long)1e9
   };
@@ -588,12 +587,12 @@ prep_peek( fd_snapsv_t * ctx,
   iobuf_acquire( ctx, &conn->iobuf_idx );
 
   fd_io_uring_t * ring = ctx->ring;
-  struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
+  fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ring->sq );
   FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-  *sqe = (struct io_uring_sqe) {
+  *sqe = (fd_io_uring_sqe_t) {
     .opcode    = FD_IORING_OP_RECV,
-    .flags     = IOSQE_FIXED_FILE | IOSQE_IO_LINK,
-    //.ioprio    = IORING_RECVSEND_FIXED_BUF,
+    .flags     = FD_IOSQE_FIXED_FILE | FD_IOSQE_IO_LINK,
+    //.ioprio    = FD_IORING_RECVSEND_FIXED_BUF,
     .fd        = (int)( ctx->conn0_fd_idx + conn_idx ),
     .addr      = (ulong)( conn_iobuf( ctx, conn ) + conn->req.len ),
     .len       = len,
@@ -605,9 +604,9 @@ prep_peek( fd_snapsv_t * ctx,
 
   sqe = fd_io_uring_get_sqe( ring->sq );
   FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-  *sqe = (struct io_uring_sqe) {
+  *sqe = (fd_io_uring_sqe_t) {
     .opcode = FD_IORING_OP_LINK_TIMEOUT,
-    .flags  = IOSQE_FIXED_FILE, /* ignored */
+    .flags  = FD_IOSQE_FIXED_FILE, /* ignored */
     .addr   = (ulong)&conn->idle_timeout,
     .len    = 1U
   };
@@ -624,11 +623,11 @@ prep_consume( fd_snapsv_t * ctx,
               uchar         op ) {
   FD_CHECK_CRIT( len, "consuming zero bytes" );
   fd_io_uring_t * ring = ctx->ring;
-  struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
+  fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ring->sq );
   FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-  *sqe = (struct io_uring_sqe) {
+  *sqe = (fd_io_uring_sqe_t) {
     .opcode    = FD_IORING_OP_RECV,
-    .flags     = IOSQE_FIXED_FILE,
+    .flags     = FD_IOSQE_FIXED_FILE,
     .fd        = (int)( ctx->conn0_fd_idx + conn_idx ),
     .addr      = 0UL,
     .len       = len,
@@ -648,7 +647,7 @@ conn_close( fd_snapsv_t * ctx,
   snapsv_conn_t * conn   = &ctx->conn0[ conn_idx ];
   uint            fd_idx = ctx->conn0_fd_idx + conn_idx;
 
-  /* io_uring OP_CLOSE on a fixed file does not use IOSQE_FIXED_FILE,
+  /* io_uring OP_CLOSE on a fixed file does not use FD_IOSQE_FIXED_FILE,
      therefore would break the io_uring sandbox (restrictions). */
   int unreg = -1;
   if( FD_UNLIKELY( fd_io_uring_register_files_update( ctx->ring->ioring_fd, fd_idx, &unreg, 1U )<0 ) ) {
@@ -812,12 +811,12 @@ shovel( fd_snapsv_t * ctx,
 
   /* generate net send SQE */
   if( conn->iobuf_idx!=UINT_MAX && conn->res.sent<conn->res.len && !conn->net_inflight ) {
-    struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ctx->ring->sq );
+    fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ctx->ring->sq );
     FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-    *sqe = (struct io_uring_sqe) {
+    *sqe = (fd_io_uring_sqe_t) {
       .opcode    = FD_IORING_OP_SEND,
-      .flags     = IOSQE_FIXED_FILE | IOSQE_IO_LINK,
-      //.ioprio    = IORING_RECVSEND_FIXED_BUF,
+      .flags     = FD_IOSQE_FIXED_FILE | FD_IOSQE_IO_LINK,
+      //.ioprio    = FD_IORING_RECVSEND_FIXED_BUF,
       .fd        = (int)( ctx->conn0_fd_idx + conn_idx ),
       .addr      = (ulong)conn_iobuf( ctx, conn ) + conn->res.sent,
       .len       = conn->res.len - conn->res.sent,
@@ -830,9 +829,9 @@ shovel( fd_snapsv_t * ctx,
 
     sqe = fd_io_uring_get_sqe( ctx->ring->sq );
     FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-    *sqe = (struct io_uring_sqe) {
+    *sqe = (fd_io_uring_sqe_t) {
       .opcode = FD_IORING_OP_LINK_TIMEOUT,
-      .flags  = IOSQE_FIXED_FILE, /* ignored */
+      .flags  = FD_IOSQE_FIXED_FILE, /* ignored */
       .addr   = (ulong)&ctx->send_timeout,
       .len    = 1U
     };
@@ -854,11 +853,11 @@ shovel( fd_snapsv_t * ctx,
     ulong pool_idx = (ulong)( snap->fd - FD_SNAP_RO_FD( 0 ) );
     FD_CHECK_CRIT( pool_idx<ctx->snap_max, "snapshot has invalid file descriptor" );
 
-    struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ctx->ring->sq );
+    fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ctx->ring->sq );
     FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-    *sqe = (struct io_uring_sqe) {
+    *sqe = (fd_io_uring_sqe_t) {
       .opcode    = FD_IORING_OP_READ_FIXED,
-      .flags     = IOSQE_FIXED_FILE,
+      .flags     = FD_IOSQE_FIXED_FILE,
       .fd        = (int)( FIXED_FD_CNT + pool_idx ),
       .off       = conn->snap.range0,
       .addr      = (ulong)( ctx->iobuf0 + (ulong)conn->rdbuf_idx*ctx->iobuf_sz ),
@@ -945,13 +944,13 @@ prep_write_hdr( fd_snapsv_t * ctx,
                 uint          conn_idx ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   fd_io_uring_t * ring = ctx->ring;
-  struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
+  fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ring->sq );
   FD_CHECK_ERR( conn->res.sent < conn->res.len, "conn res state confusion" );
   FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-  *sqe = (struct io_uring_sqe) {
+  *sqe = (fd_io_uring_sqe_t) {
     .opcode    = FD_IORING_OP_SEND,
-    .flags     = IOSQE_FIXED_FILE | IOSQE_IO_LINK,
-    //.ioprio    = IORING_RECVSEND_FIXED_BUF,
+    .flags     = FD_IOSQE_FIXED_FILE | FD_IOSQE_IO_LINK,
+    //.ioprio    = FD_IORING_RECVSEND_FIXED_BUF,
     .fd        = (int)( ctx->conn0_fd_idx + conn_idx ),
     .addr      = (ulong)conn_iobuf( ctx, conn ) + conn->res.sent,
     .len       = conn->res.len - conn->res.sent,
@@ -963,9 +962,9 @@ prep_write_hdr( fd_snapsv_t * ctx,
 
   sqe = fd_io_uring_get_sqe( ring->sq );
   FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-  *sqe = (struct io_uring_sqe) {
+  *sqe = (fd_io_uring_sqe_t) {
     .opcode = FD_IORING_OP_LINK_TIMEOUT,
-    .flags  = IOSQE_FIXED_FILE, /* ignored */
+    .flags  = FD_IOSQE_FIXED_FILE, /* ignored */
     .addr   = (ulong)&ctx->send_timeout,
     .len    = 1U
   };
@@ -1478,11 +1477,11 @@ futex_prep( fd_snapsv_t * ctx,
 
   if( FD_LIKELY( ctx->in[ in_idx ].futex_armed ) ) return 1;
   fd_io_uring_t * ring = ctx->ring;
-  struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
+  fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ring->sq );
   FD_CHECK_ERR( sqe, "io_uring submission queue full" );
-  *sqe = (struct io_uring_sqe) {
+  *sqe = (fd_io_uring_sqe_t) {
     .opcode = FD_IORING_OP_FUTEX_WAIT,
-    .flags  = IOSQE_FIXED_FILE, /* ignored, required for sandbox (hope no kernel ABI breakage) */
+    .flags  = FD_IOSQE_FIXED_FILE, /* ignored, required for sandbox (hope no kernel ABI breakage) */
     .fd     = FUTEX2_SIZE_U32,
     .addr   = (ulong)ctx->in[ in_idx ].seq_prod,
     .off    = (ulong)(uint)seq_prod, /* value to compare against */
@@ -1513,7 +1512,7 @@ futex_comp( fd_snapsv_t * ctx,
 
 static void
 handle_cqe( fd_snapsv_t *               ctx,
-            struct io_uring_cqe const * cqe ) {
+            fd_io_uring_cqe_t const * cqe ) {
   snapsv_udata_t udata = { .user_data = cqe->user_data };
   switch( udata.op ) {
   case UDATA_OP_ACCEPT:
@@ -1580,11 +1579,11 @@ after_credit( fd_snapsv_t *       ctx,
   uint head = atomic_load_explicit( ring->sq->khead, memory_order_relaxed );
   ring->sq->sqe_head = head;
   uint to_submit = tail - head;
-  struct __kernel_timespec timeout = { .tv_nsec = (long)50e6L }; /* 50ms */
-  struct io_uring_getevents_arg enter_arg = { .ts = (ulong)&timeout };
+  fd_kernel_timespec_t timeout = { .tv_nsec = (long)50e6L }; /* 50ms */
+  fd_io_uring_getevents_arg_t enter_arg = { .ts = (ulong)&timeout };
   int submitted = fd_io_uring_enter(
       ring->ioring_fd, to_submit, !!waiting,
-      IORING_ENTER_GETEVENTS | IORING_ENTER_EXT_ARG,
+      FD_IORING_ENTER_GETEVENTS | FD_IORING_ENTER_EXT_ARG,
       &enter_arg, sizeof(enter_arg)
   );
   if( FD_UNLIKELY( submitted<0 ) ) {

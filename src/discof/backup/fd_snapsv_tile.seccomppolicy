@@ -27,7 +27,7 @@ io_uring_enter: (eq (arg 0) ring_fd)
 # ring's file table and close(2) cannot reach them.  They are closed by
 # dropping them from that table.
 io_uring_register: (and (eq (arg 0) ring_fd)
-                        (eq (arg 1) IORING_REGISTER_FILES_UPDATE))
+                        (eq (arg 1) FD_IORING_REGISTER_FILES_UPDATE))
 
 # snapshot: acquire/release cooperative read locks while serving files.
 fcntl: (and (>= (arg 0) pool_min_fd)
