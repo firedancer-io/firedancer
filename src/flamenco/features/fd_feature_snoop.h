@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_features_fd_feature_snoop_h
 
 #include "fd_features.h"
+#include "../runtime/fd_system_ids.h"
 
 /* fd_feature_snoop captures feature-gate account state observed while
    accounts stream by during snapshot/genesis load, so the bank's feature
@@ -36,12 +37,33 @@ typedef struct fd_epoch_schedule fd_epoch_schedule_t;
    accounts are ignored.  Non-feature accounts are a no-op. */
 
 void
+fd_feature_snoop_account_full( fd_feature_snoop_t * snoop,
+                               fd_pubkey_t const *  pubkey,
+                               ulong                lamports,
+                               uchar const *        owner,
+                               uchar const *        data,
+                               ulong                data_len );
+
+/* Inline pre-filter.  A snapshot load calls this once per account -- on
+   mainnet roughly 1.1 G times -- and virtually none are owned by the feature
+   program, so the out-of-line call was mostly frame setup for an immediate
+   reject (measured: 4.6% of the snapin tile, half of it prologue/epilogue).
+
+   This can only skip calls that _full would itself have rejected on its owner
+   compare; anything matching the prefix takes the unchanged full path. */
+
+static inline void
 fd_feature_snoop_account( fd_feature_snoop_t * snoop,
                           fd_pubkey_t const *  pubkey,
                           ulong                lamports,
                           uchar const *        owner,
                           uchar const *        data,
-                          ulong                data_len );
+                          ulong                data_len ) {
+  if( FD_LIKELY( !lamports ) ) return;
+  if( FD_LIKELY( fd_ulong_load_8( owner )!=
+                 fd_ulong_load_8( fd_solana_feature_program_id.uc ) ) ) return;
+  fd_feature_snoop_account_full( snoop, pubkey, lamports, owner, data, data_len );
+}
 
 /* fd_feature_snoop_finalize populates the feature set from snoop,
    applying the same per-feature logic as fd_features_restore but using
