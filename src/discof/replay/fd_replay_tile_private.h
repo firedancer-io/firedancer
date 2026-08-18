@@ -55,6 +55,36 @@ struct fd_block_id_ele {
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
+#define FD_REPLAY_TXN_TIMING_SLOTS (16UL)
+
+struct fd_replay_txn_timing {
+  long received_ns;
+
+  long parsed_ticks;
+  long sigverify_disp_ticks;
+  long sigverify_done_ticks;
+  long exec_disp_ticks;
+  long exec_done_ticks;
+};
+
+typedef struct fd_replay_txn_timing fd_replay_txn_timing_t;
+
+struct fd_replay_txn_timing_slot {
+  struct {
+    ulong next;
+  } pool;
+
+  ulong cnt;
+  fd_replay_txn_timing_t rec[ FD_MAX_TXN_PER_SLOT ];
+};
+
+typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
+
+#define POOL_NAME fd_timing_slot_pool
+#define POOL_T    fd_replay_txn_timing_slot_t
+#define POOL_NEXT pool.next
+#include "../../util/tmpl/fd_pool.c"
+
 #define MAP_NAME               fd_block_id_map
 #define MAP_ELE_T              fd_block_id_ele_t
 #define MAP_KEY_T              fd_hash_t
@@ -304,6 +334,18 @@ struct fd_replay_tile {
   /* Protobuf dumping context for debugging runtime execution and
      collecting seed corpora. */
   fd_dump_proto_ctx_t * dump_proto_ctx;
+
+  /* Per-txn lifecycle timing capture.  The scheduler's txn_info_pool
+     entries are recycled the moment a txn completes, so the ticks are
+     copied out at completion time into a leased capture slot, indexed by
+     the txn's position in the block.  A full-depth buffer per live bank
+     would be ~9.6 GiB, but only a handful of blocks replay concurrently,
+     so a small pool of full-depth slots is leased to banks as they start
+     replaying.  A block that cannot get a slot (more than
+     FD_REPLAY_TXN_TIMING_SLOTS blocks replaying at once) captures
+     nothing. */
+  fd_replay_txn_timing_slot_t * timing_slot_pool;    /* fd_pool, FD_REPLAY_TXN_TIMING_SLOTS elements */
+  ulong *                       timing_slot_of_bank; /* [max_live_slots] bank_idx -> pool idx or idx_null */
 
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */

@@ -254,11 +254,24 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
   };
 }
 
+static ulong test_timing_of_bank[ TEST_BANKS_MAX ];
+
+static void
+setup_timing( fd_replay_tile_t * ctx,
+              fd_wksp_t *        wksp ) {
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_timing_slot_pool_align(), fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ), 1UL );
+  ctx->timing_slot_pool = fd_timing_slot_pool_join( fd_timing_slot_pool_new( mem, FD_REPLAY_TXN_TIMING_SLOTS ) );
+  FD_TEST( ctx->timing_slot_pool );
+  ctx->timing_slot_of_bank = test_timing_of_bank;
+  for( ulong i=0UL; i<TEST_BANKS_MAX; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
+}
+
 static void
 setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
                            fd_wksp_t *        wksp,
                            ulong              max_fork_width ) {
   memset( ctx, 0, sizeof(*ctx) );
+  setup_timing( ctx, wksp );
 
   /* Reasm */
 
@@ -484,6 +497,7 @@ static void
 test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
   memset( ctx, 0, sizeof(*ctx) );
+  setup_timing( ctx, wksp );
   setup_stem( ctx, wksp );
 
   ulong const bank_cnt = 4UL;
