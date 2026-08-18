@@ -34,7 +34,7 @@ struct fd_accdb_txn {
     struct { uint next; } fork;
   };
 
-  uint acc_map_idx;
+  ulong acc_map_idx;
   uint acc_pool_idx;
 };
 
