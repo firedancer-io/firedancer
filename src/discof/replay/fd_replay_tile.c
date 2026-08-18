@@ -1723,6 +1723,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->is_first_in_block = reasm_fec->fec_set_idx==0U;
   sched_fec->fec               = store_fec;
   sched_fec->data              = fd_store_fec_data( ctx->store, store_fec );
+  sched_fec->completed_ns = (long)reasm_fec->metrics.fec_completed_ts_nanos;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;

@@ -160,6 +160,9 @@ struct fd_sched_block {
                                                                       PD-only transactions do not land in the same block.  Non-determinism
                                                                       between the PD-only transaction and an implied PD transaction in
                                                                       that case is a protocol bug. */
+  long                fec_completed_ns; /* Network arrival (wallclock ns) of the FEC set being ingested; txns
+                                           parse out only once the FEC completing their bytes arrives, so this
+                                           is stamped on every txn parsed during the current ingest. */
   uint                poison_serialize:1; /* Serialize everything in the rest of the block.  Set when the poison
                                              set overflows or we couldn't maintain the poison property for any
                                              other reason. */
@@ -198,7 +201,7 @@ struct fd_sched_block {
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==596672UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==596704UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -1048,6 +1051,8 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
       block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + (uint)fec->fec->data_sz;
     }
   }
+
+  block->fec_completed_ns = fec->completed_ns;
 
   int err = fd_sched_parse( sched, block, fec->alut_ctx );
 
@@ -1956,6 +1961,7 @@ add_block( fd_sched_t * sched,
   block->rooted               = 0;
   block->dying                = 0;
   block->abandoned            = 0;
+  block->fec_completed_ns     = 0L;
   block->refcnt               = 1;
   block->in_sched             = 1;
   block->in_rdisp             = 0;
@@ -2487,6 +2493,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   txn_bitset_remove( sched->sigverify_done_set, txn_idx );
   txn_bitset_remove( sched->poh_mixin_done_set, txn_idx );
   sched->txn_info_pool[ txn_idx ].flags = 0UL;
+  sched->txn_info_pool[ txn_idx ].received_ns = block->fec_completed_ns;
   sched->txn_info_pool[ txn_idx ].txn_err = 0;
   sched->txn_info_pool[ txn_idx ].tick_parsed = fd_tickcount();
   sched->txn_info_pool[ txn_idx ].tick_sigverify_disp = LONG_MAX;

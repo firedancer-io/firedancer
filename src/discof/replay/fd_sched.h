@@ -77,6 +77,7 @@ struct fd_sched_fec {
                                            parser should ignore trailing bytes at the end of a batch. */
   uint             is_last_in_block:1;  /* Set if this is the last FEC set in the block. */
   uint             is_first_in_block:1; /* Set if this is the first FEC set in the block.  Bank should increment refcnt for sched if such a FEC set has been ingested by sched. */
+  long             completed_ns;        /* Network arrival (wallclock ns) of the shred that completed this FEC set; 0 if unavailable. */
 
   fd_sched_alut_ctx_t alut_ctx[ 1 ];
 };
@@ -92,6 +93,7 @@ typedef struct fd_sched_fec fd_sched_fec_t;
 struct fd_sched_txn_info {
    ulong flags;
    int   txn_err;
+   long  received_ns;
    long  tick_parsed;
    long  tick_sigverify_disp;
    long  tick_sigverify_done;
