@@ -95,18 +95,21 @@ test_hardware( char const * rdma_name,
                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
   void * packet_memory = mmap( NULL, 4096UL, PROT_READ | PROT_WRITE,
                                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
-  if( FD_UNLIKELY( queue_memory==MAP_FAILED || packet_memory==MAP_FAILED ) )
+  if( FD_UNLIKELY( queue_memory==MAP_FAILED || packet_memory==MAP_FAILED ) ) {
     FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   fd_mlx5_tile_t tile[1];
   fd_memset( tile, 0, sizeof(tile) );
   FD_TEST( fd_mlx5_hw_init_queues( tile, queue_memory, rx_depth, tx_depth ) );
   if( FD_UNLIKELY( !fd_mlx5_uverbs_init( &tile->uverbs, &tile->rx_cq, &tile->tx_cq, &tile->qp,
-                                         rdma_name, port_num, packet_memory, 4096UL ) ) )
+                                         rdma_name, port_num, packet_memory, 4096UL ) ) ) {
     FD_LOG_ERR(( "fd_mlx5_uverbs_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
   if( FD_UNLIKELY( !fd_mlx5_netlink_rdma_init( &tile->netlink_rdma, rdma_name,
-                                               port_num, tile->qp.qpn ) ) )
+                                               port_num, tile->qp.qpn ) ) ) {
     FD_LOG_ERR(( "fd_mlx5_netlink_rdma_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   FD_TEST( tile->uverbs.cmd_fd>=0 && tile->uverbs.async_fd>=0 );
   FD_TEST( tile->qp.sq_doorbell );
@@ -142,11 +145,11 @@ test_rx_routes( void ) {
   fd_pod_insert_cstr( topo->props, "net.provider", "mlx5" );
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", 0UL );
   topo_tile->mlx5.batch_size = 8U;
-  topo_tile->mlx5.net.shred_listen_port        = 8000U;
-  topo_tile->mlx5.net.gossip_listen_port       = 8001U;
+  topo_tile->mlx5.net.shred_listen_port         = 8000U;
+  topo_tile->mlx5.net.gossip_listen_port        = 8001U;
   topo_tile->mlx5.net.repair_client_listen_port = 8002U;
-  topo_tile->mlx5.net.repair_serve_listen_port = 8003U;
-  topo_tile->mlx5.net.txsend_src_port          = 8004U;
+  topo_tile->mlx5.net.repair_serve_listen_port  = 8003U;
+  topo_tile->mlx5.net.txsend_src_port           = 8004U;
 
   fd_topos_net_rx_link( topo, "net_shred",  0UL, 128UL );
   fd_topos_net_rx_link( topo, "net_gossvf", 0UL, 128UL );
@@ -232,17 +235,18 @@ test_tx_cq_cnt( fd_mlx5_tile_mock_t const * mock,
 
 static void
 test_cqe_push( fd_mlx5_cq_t * cq,
-               uint            prod,
-               uint            opcode,
-               uint            wqe_counter,
-               uint            byte_cnt ) {
+               uint           prod,
+               uint           opcode,
+               uint           wqe_counter,
+               uint           byte_cnt ) {
   FD_TEST( prod-cq->cons_idx<cq->depth );
   fd_mlx5_cqe_t * cqe = cq->entries+(prod & (cq->depth-1U));
   fd_memset( cqe, 0, sizeof(*cqe) );
   FD_STORE( uint,   cqe->bytes+44, fd_uint_bswap( byte_cnt ) );
   FD_STORE( ushort, cqe->bytes+60, fd_ushort_bswap( (ushort)wqe_counter ) );
-  if( opcode==FD_MLX5_CQE_OP_RX_ERR )
+  if( opcode==FD_MLX5_CQE_OP_RX_ERR ) {
     ((fd_mlx5_hw_cqe64_t *)cqe)->syndrome = FD_MLX5_CQE_SYNDROME_LOCAL_LENGTH_ERR;
+  }
   ((fd_mlx5_hw_cqe64_t *)cqe)->op_own = (uchar)((opcode<<4) | !!(prod & cq->depth));
 }
 
@@ -697,18 +701,18 @@ main( int     argc,
   add_netdev( netdev_tbl, (fd_netdev_t) { .if_idx=IF_IDX_ETH1, .dev_type=ARPHRD_ETHER    } );
 
   /* Network configuration */
-  uint const public_ip4_addr = FD_IP4_ADDR( 203,0,113,88 ); /* our default source address */
-  uint const site_ip4_addr   = FD_IP4_ADDR( 203,0,113,89 ); /* our site address */
-  uint const banned_ip4_addr = FD_IP4_ADDR( 7,0,0,1 );      /* blackholed at the route table */
-  uint const path2_ip4_addr  = FD_IP4_ADDR( 7,20,0,1 );     /* routed via a different interface */
-  uint const no_route_ip4_addr = FD_IP4_ADDR( 7,30,0,1 );   /* explicitly has no matching route */
-  uint const missing_if_ip4_addr = FD_IP4_ADDR( 7,40,0,1 ); /* route names an absent interface */
-  uint const neigh1_ip4_addr = FD_IP4_ADDR( 192,168,1,11 ); /* missing a neighbor table entry */
-  uint const neigh2_ip4_addr = FD_IP4_ADDR( 192,168,1,12 ); /* can send packets via this guy */
-  uint const gw_ip4_addr     = FD_IP4_ADDR( 192,168,1,1 );  /* gateway */
-  uint const gre_inner_src_ip = FD_IP4_ADDR( 10,0,0,1 );
-  uint const gre_outer_src_ip = FD_IP4_ADDR( 203,0,113,88 );
-  uint const gre_outer_dst_ip = FD_IP4_ADDR( 198,51,100,9 );
+  uint const public_ip4_addr     = FD_IP4_ADDR( 203,0,113,88 ); /* our default source address */
+  uint const site_ip4_addr       = FD_IP4_ADDR( 203,0,113,89 ); /* our site address */
+  uint const banned_ip4_addr     = FD_IP4_ADDR( 7,0,0,1 );      /* blackholed at the route table */
+  uint const path2_ip4_addr      = FD_IP4_ADDR( 7,20,0,1 );     /* routed via a different interface */
+  uint const no_route_ip4_addr   = FD_IP4_ADDR( 7,30,0,1 );     /* explicitly has no matching route */
+  uint const missing_if_ip4_addr = FD_IP4_ADDR( 7,40,0,1 );     /* route names an absent interface */
+  uint const neigh1_ip4_addr     = FD_IP4_ADDR( 192,168,1,11 ); /* missing a neighbor table entry */
+  uint const neigh2_ip4_addr     = FD_IP4_ADDR( 192,168,1,12 ); /* can send packets via this guy */
+  uint const gw_ip4_addr         = FD_IP4_ADDR( 192,168,1,1 );  /* gateway */
+  uint const gre_inner_src_ip    = FD_IP4_ADDR( 10,0,0,1 );
+  uint const gre_outer_src_ip    = FD_IP4_ADDR( 203,0,113,88 );
+  uint const gre_outer_dst_ip    = FD_IP4_ADDR( 198,51,100,9 );
 
   /* Neighbor table */
   add_neighbor( neigh4_hmap, neigh2_ip4_addr, 0x01,0x23,0x45,0x67,0x89,0xab );

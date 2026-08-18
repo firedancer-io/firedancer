@@ -592,9 +592,10 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_POW2( net.mlx5.mlx5_rx_queue_size );
     CFG_HAS_POW2( net.mlx5.mlx5_tx_queue_size );
     if( FD_UNLIKELY( config->net.mlx5.mlx5_rx_queue_size<=FD_MLX5_BATCH_SIZE ||
-                     config->net.mlx5.mlx5_tx_queue_size< FD_MLX5_BATCH_SIZE ) )
+                     config->net.mlx5.mlx5_tx_queue_size< FD_MLX5_BATCH_SIZE ) ) {
       FD_LOG_ERR(( "invalid mlx5 queue depth: RX must exceed %u and TX must be at least %u",
                    FD_MLX5_BATCH_SIZE, FD_MLX5_BATCH_SIZE ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
