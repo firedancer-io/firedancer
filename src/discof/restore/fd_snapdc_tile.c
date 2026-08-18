@@ -412,11 +412,8 @@ returnable_frag( fd_snapdc_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) {
-    return handle_data_frag( ctx, stem, chunk, sz );
-  } else {
-    handle_control_frag( ctx, stem, sig, chunk, sz );
-  }
+  if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, stem, chunk, sz );
+  else                                                handle_control_frag( ctx, stem, sig, chunk, sz );
 
   return 0;
 }
