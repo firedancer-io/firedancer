@@ -102,7 +102,8 @@ fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser );
 #define FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN                            ( 0)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY                            ( 1)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_GROUP                            ( 2)
-#define FD_SLOT_DELTA_PARSER_ADVANCE_DONE                             ( 3)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_SLOT                             ( 3)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_DONE                             ( 4)
 
 static inline const char *
 fd_slot_delta_parser_advance_str( int err ) {
@@ -116,6 +117,7 @@ fd_slot_delta_parser_advance_str( int err ) {
     case FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN:                            return "again";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY:                            return "entry";
     case FD_SLOT_DELTA_PARSER_ADVANCE_GROUP:                            return "group";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_SLOT:                             return "slot";
     case FD_SLOT_DELTA_PARSER_ADVANCE_DONE:                             return "done";
     default:                                                            return "unknown";
   }
@@ -125,10 +127,12 @@ struct fd_slot_delta_parser_advance_result {
   ulong bytes_consumed;
   union {
     fd_sstxncache_entry_t const * entry;
+    ulong                         slot;
 
     struct {
       uchar const * blockhash;
       ulong         txnhash_offset;
+      ulong         slot;
     } group;
   };
 };

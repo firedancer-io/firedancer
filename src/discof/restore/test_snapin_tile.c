@@ -175,6 +175,134 @@ test_txncache_staging_entry_size( void ) {
   FD_TEST( sizeof(ctx->txncache_entries[ 0 ])==20UL );
 }
 
+static ulong
+test_txncache_staging_slot_prepare( fd_snapin_tile_t * ctx,
+                                    ulong               slot ) {
+  ulong candidate_idx;
+  if( ctx->txncache_slots_len<FD_TXNCACHE_MAX_SLOT_DELTAS ) {
+    candidate_idx = ctx->txncache_slots_len++;
+  } else {
+    candidate_idx = 0UL;
+    for( ulong i=1UL; i<FD_TXNCACHE_MAX_SLOT_DELTAS; i++ ) {
+      if( ctx->txncache_slots[ i ].slot<ctx->txncache_slots[ candidate_idx ].slot ) candidate_idx = i;
+    }
+    if( slot<ctx->txncache_slots[ candidate_idx ].slot ) return ULONG_MAX;
+  }
+
+  ctx->txncache_slots[ candidate_idx ].slot      = slot;
+  ctx->txncache_slots[ candidate_idx ].entry_cnt = 0UL;
+  return candidate_idx;
+}
+
+static void
+test_txncache_staging_slot_begin( fd_snapin_tile_t * ctx,
+                                  ulong               slot ) {
+  ctx->txncache_current_slot_idx       = test_txncache_staging_slot_prepare( ctx, slot );
+  ctx->txncache_current_slot_entry_cnt = 0UL;
+}
+
+static void
+test_txncache_staging_evicts_oldest_slot( void ) {
+  fd_snapin_tile_t ctx[ 1 ] = {0};
+  ctx->txncache_current_slot_idx       = ULONG_MAX;
+  ctx->txncache_current_slot_entry_cnt = 0UL;
+  ctx->txncache_slots_len              = 0UL;
+
+  ulong oldest_idx = ULONG_MAX;
+  for( ulong i=0UL; i<FD_TXNCACHE_MAX_SLOT_DELTAS; i++ ) {
+    ulong slot_idx = test_txncache_staging_slot_prepare( ctx, 1000UL+i );
+    FD_TEST( slot_idx!=ULONG_MAX );
+    if( FD_UNLIKELY( !i ) ) oldest_idx = slot_idx;
+  }
+
+  FD_TEST( oldest_idx!=ULONG_MAX );
+  ctx->txncache_slots[ oldest_idx ].entry_cnt = 7UL;
+  fd_sstxncache_hash_t oldest_entries[ 7UL ];
+  ctx->txncache_entries = oldest_entries;
+
+  blockhash_group_t oldest_group = {
+    .slot               = 1000UL,
+    .txncache_entry_idx = oldest_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT,
+    .txncache_entry_cnt = 7UL
+  };
+  ulong group_slot_idx = oldest_group.txncache_entry_idx/FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
+  FD_TEST( group_slot_idx<ctx->txncache_slots_len );
+  FD_TEST( ctx->txncache_slots[ group_slot_idx ].slot==oldest_group.slot );
+
+  FD_TEST( test_txncache_staging_slot_prepare( ctx, 999UL )==ULONG_MAX );
+  FD_TEST( ctx->txncache_slots[ oldest_idx ].slot==1000UL );
+
+  ulong replacement_idx = test_txncache_staging_slot_prepare( ctx, 1200UL );
+  FD_TEST( replacement_idx==oldest_idx );
+  FD_TEST( ctx->txncache_slots[ group_slot_idx ].slot!=oldest_group.slot );
+  FD_TEST( ctx->txncache_slots[ replacement_idx ].slot==1200UL );
+  FD_TEST( ctx->txncache_slots[ replacement_idx ].entry_cnt==0UL );
+}
+
+static void
+test_txncache_staging_fits_one_gigantic_page( void ) {
+  fd_topo_tile_t tile = {0};
+  tile.snapin.max_live_slots = 2048UL;
+  FD_TEST( scratch_footprint( &tile )<(1UL<<30) );
+}
+
+static void
+test_txncache_staging_validates_stale_group_offsets( void ) {
+  fd_snapin_tile_t ctx[ 1 ] = {0};
+  ctx->txncache_current_slot_idx       = ULONG_MAX;
+  ctx->txncache_current_slot_entry_cnt = 0UL;
+  ctx->txncache_slots_len              = 0UL;
+  ctx->seed = 1UL;
+
+  static uchar const blockhash[ 32UL ] = {1U};
+  blockhash_group_t groups[ 2UL ] = {
+    {
+      .slot               = 1000UL,
+      .txnhash_offset     = 1UL,
+      .txncache_entry_idx = 0UL,
+      .txncache_entry_cnt = 0UL
+    },
+    {
+      .slot               = 1200UL,
+      .txnhash_offset     = 2UL,
+      .txncache_entry_idx = 0UL,
+      .txncache_entry_cnt = 0UL
+    }
+  };
+  fd_memcpy( groups[ 0UL ].blockhash, blockhash, sizeof(blockhash) );
+  fd_memcpy( groups[ 1UL ].blockhash, blockhash, sizeof(blockhash) );
+  ctx->blockhash_groups     = groups;
+  ctx->blockhash_groups_len = 2UL;
+
+  for( ulong i=0UL; i<FD_TXNCACHE_MAX_SLOT_DELTAS; i++ ) {
+    test_txncache_staging_slot_begin( ctx, 1000UL+i );
+  }
+  test_txncache_staging_slot_begin( ctx, 1200UL );
+
+  fd_sstxncache_hash_t entries[ 1UL ];
+  ctx->txncache_entries = entries;
+
+  ulong shmem_sz = fd_txncache_shmem_footprint( 1UL, 1UL, 0 );
+  shmem_sz = fd_ulong_align_up( shmem_sz, fd_txncache_shmem_align() );
+  void * shmem = aligned_alloc( fd_txncache_shmem_align(), shmem_sz );
+  FD_TEST( shmem );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem, 1UL, 1UL, 0, 0UL ) );
+  FD_TEST( txncache_shmem );
+
+  ulong local_sz = fd_ulong_align_up( fd_txncache_footprint( 1UL ), fd_txncache_align() );
+  void * local = aligned_alloc( fd_txncache_align(), local_sz );
+  FD_TEST( local );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( local, txncache_shmem ) );
+  FD_TEST( ctx->txncache );
+
+  fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {{ .hash_index = 0UL }};
+  fd_memcpy( blockhashes[ 0UL ].hash, blockhash, sizeof(blockhash) );
+  FD_TEST( populate_txncache( ctx, blockhashes, 1UL )==1 );
+
+  free( local );
+  free( shmem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -182,6 +310,9 @@ main( int     argc,
   test_batch_stake_delegation();
   test_streaming_stake_delegation();
   test_txncache_staging_entry_size();
+  test_txncache_staging_evicts_oldest_slot();
+  test_txncache_staging_fits_one_gigantic_page();
+  test_txncache_staging_validates_stale_group_offsets();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

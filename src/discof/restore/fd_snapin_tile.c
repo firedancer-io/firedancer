@@ -57,20 +57,30 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* The most root slots Agave could possibly serve in a snapshot.  The
-   txnpage pool sizing assumes staged entries never exceed this. */
-#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
+/* For a transaction to be valid to be inserted into the txncache, it
+   must reference a blockhash that is in the set of recent blockhashes.
+   This means that only transactions executed in the latest 151 slots
+   can be in the txncache: the remaining entries can be ignored. */
+#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (FD_TXNCACHE_MAX_SLOT_DELTAS*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
 
-FD_STATIC_ASSERT( FD_SLOT_DELTA_MAX_ENTRIES==FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX, slot_delta_max );
+FD_STATIC_ASSERT( FD_TXNCACHE_MAX_SLOT_DELTAS<=FD_SLOT_DELTA_MAX_ENTRIES, txncache_staging_slot_cnt );
 
 struct blockhash_group {
   uchar blockhash[ 32UL ];
+  ulong slot;
   ulong txnhash_offset;
   ulong txncache_entry_idx;
   ulong txncache_entry_cnt;
 };
 
 typedef struct blockhash_group blockhash_group_t;
+
+struct txncache_staging_slot {
+  ulong slot;
+  ulong entry_cnt;
+};
+
+typedef struct txncache_staging_slot txncache_staging_slot_t;
 
 struct fd_snapin_out_link {
   ulong       idx;
@@ -148,8 +158,11 @@ struct fd_snapin_tile {
 
   int alpenglow;
 
-  ulong                  txncache_entries_len;
-  fd_sstxncache_hash_t * txncache_entries;
+  fd_sstxncache_hash_t *  txncache_entries;
+  txncache_staging_slot_t txncache_slots[ FD_TXNCACHE_MAX_SLOT_DELTAS ];
+  ulong                   txncache_slots_len;
+  ulong                   txncache_current_slot_idx;
+  ulong                   txncache_current_slot_entry_cnt;
 
   fd_accdb_fork_id_t accdb_root_fork_id;
   fd_accdb_fork_id_t accdb_incr_fork_id; /* child fork for incremental writes (purge on failure) */
@@ -632,9 +645,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
       FD_LOG_WARNING(( "corrupt snapshot: no blockhash offsets found (rooted_slots=%lu)", ss.ele_cnt ));
       return 1;
     }
-    FD_LOG_WARNING(( "status cache has no blockhash offsets (rooted_slots=%lu txn_entries=%lu); "
-                     "proceeding with empty txncache offsets",
-                     ss.ele_cnt, ctx->txncache_entries_len ));
+    FD_LOG_WARNING(( "status cache has no blockhash offsets (rooted_slots=%lu); proceeding with empty txncache offsets",
+                     ss.ele_cnt ));
   }
   for( ulong i=0UL; i<ctx->blockhash_groups_len; i++ ) {
     blockhash_group_t const * group = &ctx->blockhash_groups[ i ];
@@ -663,23 +675,31 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   /* Now insert all transactions as if they executed at the current
      root, per above. */
 
-  ulong insert_cnt = 0UL;
   for( ulong i=0UL; i<ctx->blockhash_groups_len; i++ ) {
     blockhash_group_t const * group = &ctx->blockhash_groups[ i ];
+    /* Skip if there are no transaction in this group or if the slot is
+       too old. */
+    if( FD_UNLIKELY( group->txncache_entry_idx==ULONG_MAX || !group->txncache_entry_cnt ) ) continue;
+
+    ulong slot_idx = group->txncache_entry_idx/FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
+    FD_TEST( slot_idx<ctx->txncache_slots_len );
+    /* Skip groups whose entries correspond to a different slot.  This
+       happens when an older slot is evicted and its storage is reused. */
+    if( FD_UNLIKELY( ctx->txncache_slots[ slot_idx ].slot!=group->slot ) ) continue;
+    ulong slot_entry_idx = group->txncache_entry_idx-slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
+    FD_TEST( slot_entry_idx<=ctx->txncache_slots[ slot_idx ].entry_cnt );
+    FD_TEST( group->txncache_entry_cnt<=ctx->txncache_slots[ slot_idx ].entry_cnt-slot_entry_idx );
+    fd_sstxncache_hash_t const * entries = &ctx->txncache_entries[ group->txncache_entry_idx ];
+
     fd_hash_t key;
     fd_memcpy( key.uc, group->blockhash, 32UL );
     if( FD_UNLIKELY( !blockhash_map_ele_query_const( blockhash_map, &key, NULL, blockhash_pool ) ) ) continue;
 
-    FD_TEST( group->txncache_entry_idx<=ctx->txncache_entries_len );
-    FD_TEST( group->txncache_entry_cnt<=ctx->txncache_entries_len-group->txncache_entry_idx );
     for( ulong j=0UL; j<group->txncache_entry_cnt; j++ ) {
-      fd_sstxncache_hash_t const * entry = &ctx->txncache_entries[ group->txncache_entry_idx+j ];
+      fd_sstxncache_hash_t const * entry = &entries[ j ];
       fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, group->blockhash, entry->txnhash );
-      insert_cnt++;
     }
   }
-
-  FD_LOG_INFO(( "inserted %lu/%lu transactions into the txncache", insert_cnt, ctx->txncache_entries_len ));
 
   /* Then finalize all the banks (freezing them) and setting the txnhash
      offset so future queries use the correct offset.  If the offset is
@@ -1099,6 +1119,27 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
             FD_LOG_WARNING(( "error while parsing slot deltas in status cache" ));
             transition_malformed( ctx, stem );
             return 0;
+          } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_SLOT ) ) {
+            /* If we're parsing a new slot, add th new slot if we
+               haven't parsed 151 slots yet.  Otherwise ignore or evict
+               slots that are too old.  */
+            ulong candidate_idx;
+            if( FD_LIKELY( ctx->txncache_slots_len<FD_TXNCACHE_MAX_SLOT_DELTAS ) ) {
+              candidate_idx = ctx->txncache_slots_len++;
+            } else {
+              candidate_idx = 0UL;
+              for( ulong i=1UL; i<FD_TXNCACHE_MAX_SLOT_DELTAS; i++ ) {
+                if( ctx->txncache_slots[ i ].slot<ctx->txncache_slots[ candidate_idx ].slot ) candidate_idx = i;
+              }
+              if( FD_UNLIKELY( sd_result->slot<ctx->txncache_slots[ candidate_idx ].slot ) ) candidate_idx = ULONG_MAX;
+            }
+
+            if( FD_LIKELY( candidate_idx!=ULONG_MAX ) ) {
+              ctx->txncache_slots[ candidate_idx ].slot      = sd_result->slot;
+              ctx->txncache_slots[ candidate_idx ].entry_cnt = 0UL;
+            }
+            ctx->txncache_current_slot_idx       = candidate_idx;
+            ctx->txncache_current_slot_entry_cnt = 0UL;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
             if( FD_UNLIKELY( ctx->blockhash_groups_len>=FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ) ) {
               FD_LOG_WARNING(( "blockhash groups overflow, max is %lu", FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ));
@@ -1108,18 +1149,46 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
             blockhash_group_t * group = &ctx->blockhash_groups[ ctx->blockhash_groups_len++ ];
             memcpy( group->blockhash, sd_result->group.blockhash, 32UL );
+            group->slot               = sd_result->group.slot;
             group->txnhash_offset     = sd_result->group.txnhash_offset;
-            group->txncache_entry_idx = ctx->txncache_entries_len;
             group->txncache_entry_cnt = 0UL;
+
+            /* Ignore the group if its corresponding slot is too old.
+               Otherwise record which entry to start looking at. */
+            ulong slot_idx = ctx->txncache_current_slot_idx;
+            if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) {
+              group->txncache_entry_idx = ULONG_MAX;
+            } else {
+              FD_TEST( slot_idx<ctx->txncache_slots_len );
+              FD_TEST( ctx->txncache_slots[ slot_idx ].slot==group->slot );
+              group->txncache_entry_idx = slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT+ctx->txncache_slots[ slot_idx ].entry_cnt;
+            }
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) ) {
-            if( FD_UNLIKELY( ctx->txncache_entries_len>=FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) ) {
-              FD_LOG_WARNING(( "txncache entries overflow, max is %lu", FD_SNAPIN_TXNCACHE_MAX_ENTRIES ));
+            FD_TEST( ctx->blockhash_groups_len );
+            blockhash_group_t * group = &ctx->blockhash_groups[ ctx->blockhash_groups_len-1UL ];
+            FD_TEST( group->slot==sd_result->entry->slot );
+
+            if( FD_UNLIKELY( ctx->txncache_current_slot_entry_cnt>=FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) ) {
+              FD_LOG_WARNING(( "txncache entries overflow for slot %lu, max is %lu",
+                               group->slot, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ));
               transition_malformed( ctx, stem );
               return 0;
             }
-            FD_TEST( ctx->blockhash_groups_len );
-            memcpy( ctx->txncache_entries[ ctx->txncache_entries_len++ ].txnhash, sd_result->entry->txnhash, sizeof(fd_sstxncache_hash_t) );
-            ctx->blockhash_groups[ ctx->blockhash_groups_len-1UL ].txncache_entry_cnt++;
+            ctx->txncache_current_slot_entry_cnt++;
+
+            /* Record the entry iff it corresponds to a valid slot. */
+            ulong slot_idx = ctx->txncache_current_slot_idx;
+            if( FD_LIKELY( slot_idx!=ULONG_MAX ) ) {
+              FD_TEST( slot_idx<ctx->txncache_slots_len );
+              txncache_staging_slot_t * staging_slot = &ctx->txncache_slots[ slot_idx ];
+              FD_TEST( staging_slot->slot==group->slot );
+              FD_TEST( staging_slot->entry_cnt<FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
+              ulong entry_idx = slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT+staging_slot->entry_cnt;
+              FD_TEST( entry_idx==group->txncache_entry_idx+group->txncache_entry_cnt );
+              memcpy( ctx->txncache_entries[ entry_idx ].txnhash, sd_result->entry->txnhash, sizeof(fd_sstxncache_hash_t) );
+              staging_slot->entry_cnt++;
+              group->txncache_entry_cnt++;
+            }
           }
 
           bytes_remaining           -= sd_result->bytes_consumed;
@@ -1253,9 +1322,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->in.pos                  = 0UL;
-      ctx->txncache_entries_len    = 0UL;
       ctx->blockhash_groups_len    = 0UL;
       ctx->manifest_capitalization = 0UL;
+
+      ctx->txncache_slots_len = 0UL;
+
       fd_txncache_reset( ctx->txncache );
       fd_ssparse_init( ctx->ssparse );
       fd_ssparse_batch_enable( ctx->ssparse, 1 );
@@ -1566,8 +1637,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->bank );
   FD_TEST( ctx->bank->idx==0UL );
 
-  ctx->txncache_entries_len = 0UL;
-  ctx->blockhash_groups_len  = 0UL;
+  ctx->blockhash_groups_len = 0UL;
 
   ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
   FD_TEST( ctx->manifest_parser );

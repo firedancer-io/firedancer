@@ -7,12 +7,11 @@
 
 #define FD_TXNCACHE_SHMEM_MAGIC (0xF17EDA2CE58CC4E1UL) /* FIREDANCE SMCCHE V1 */
 
-/* The maximum number of slot deltas an Agave snapshot can contain,
-   from status_cache.rs::MAX_CACHE_ENTRIES.  Must match
-   FD_SLOT_DELTA_MAX_ENTRIES in the slot delta parser.  Used to bound
-   the snapshot load transient when sizing the txnpage pool. */
+/* FD_TXNCACHE_MAX_SLOT_DELTAS is the practical bound on the maximum
+   number of slot deltas that can be stored into the txncache.  This
+   bound is derived from the recent blockhashes sysvar. */
 
-#define FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX (300UL)
+#define FD_TXNCACHE_MAX_SLOT_DELTAS (151UL)
 
 typedef struct { ushort val; } fd_txncache_fork_id_t;
 
