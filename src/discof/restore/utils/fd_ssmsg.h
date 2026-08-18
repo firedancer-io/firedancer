@@ -106,10 +106,13 @@ struct fd_snapshot_manifest_epoch_stakes {
   /* The total amount of active stake at the end of the given epoch.*/
   ulong                              total_stake;
 
-  /* The vote accounts and their stakes for a given epoch.
-     FIXME: Snapshot manifest has to support a much larger bound. */
+  /* The vote accounts and their stakes for a given epoch.  Bounded by
+     FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS, not the VAT limit: the manifest
+     records every staked voter Agave wrote, whereas the VAT bound describes
+     the smaller set admitted to consensus afterwards.  A mainnet snapshot at
+     slot 435541053 carries 6836 here, so the VAT bound rejects it outright. */
   ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ];
+  fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;

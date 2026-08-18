@@ -1553,8 +1553,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH: {
       ulong stakes_len = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2;
-      if( FD_UNLIKELY( stakes_len>FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) ) {
-        FD_LOG_WARNING(( "invalid versioned epoch stakes vote accounts length %lu (max %lu)", stakes_len, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ));
+      if( FD_UNLIKELY( stakes_len>FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
+        FD_LOG_WARNING(( "invalid versioned epoch stakes vote accounts length %lu (max %lu)", stakes_len, FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
         return -1;
       }
       break;
