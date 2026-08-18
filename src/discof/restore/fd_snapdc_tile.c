@@ -28,7 +28,7 @@ struct fd_snapdc_tile {
   ulong tile_count;
   ulong frame_idx;
 
-  ZSTD_DCtx *      zstd;
+  ZSTD_DCtx *     zstd;
   fd_zstd_frame_t zstd_frame[1];
 
   struct {
