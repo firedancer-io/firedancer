@@ -1817,6 +1817,27 @@ static void
 background_compact( fd_accdb_t * accdb,
                     ulong        src_layer,
                     int *        charge_busy ) {
+  /* Nothing to do?  Then do nothing, and in particular do not touch shared
+     state.  Below, this function publishes this joiner's epoch (a store plus a
+     StoreLoad fence), scans every joiner's epoch slot for min_epoch, and then --
+     if there is no compaction queued -- parks the slot at ULONG_MAX and returns.
+     Every one of those touches a line other joiners read or write, and this runs
+     once per compaction layer per stem iteration.
+
+     With no deferred partitions and nothing queued for this layer there is no
+     reclamation to perform and no compaction to start, so all of that work is
+     spent reaching the same observable state this returns directly: slot parked,
+     nothing done.  Both tests are dlist heads that only change when work is
+     enqueued. */
+  if( FD_LIKELY( deferred_free_dlist_is_empty( accdb->deferred_free_dlist, accdb->partition_pool ) &&
+                 compaction_dlist_is_empty( accdb->compaction_dlist[ src_layer ], accdb->partition_pool ) ) ) {
+    if( FD_UNLIKELY( FD_VOLATILE_CONST( *accdb->my_epoch_slot )!=ULONG_MAX ) ) {
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+    }
+    return;
+  }
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE(); /* StoreLoad: epoch store must be globally visible
