@@ -94,6 +94,10 @@ main( int     argc,
     for( ulong off=0UL; off<8UL; off++ ) {
       fd_memcpy( shifted+off, msg, msgsz );
       FD_TEST( fd_siphash13_hash( shifted+off, msgsz, k0, k1 )==hash );
+
+      fd_siphash13_t _sip3[1];
+      FD_TEST( fd_siphash13_fini( fd_siphash13_append(
+                 fd_siphash13_init( _sip3, k0, k1 ), shifted+off, msgsz ) )==hash );
     }
 
     fd_siphash13_t sip2 = *sip;
