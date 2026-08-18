@@ -1,4 +1,5 @@
 #include "fd_bank_abi.h"
+#include "../../ballet/txn/fd_txn_v1.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_alut.h"
@@ -193,6 +194,107 @@ FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v0_loaded_msg_t, loaded_addresses)=
 FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_v0_loaded_msg_t)==184UL, bank_abi );
 FD_STATIC_ASSERT( alignof(sanitized_txn_abi_v0_loaded_msg_t)==8UL, bank_abi );
 
+typedef union {
+  ulong discr;
+  /* When discr==1 */
+  struct {
+    uchar _padding[8];
+    ulong _0;
+  };
+  /* when discr==0 */
+  /* None */
+} option_u64_t;
+FD_STATIC_ASSERT( sizeof (option_u64_t)==16UL, bank_abi );
+FD_STATIC_ASSERT( alignof(option_u64_t)==8UL,  bank_abi );
+
+typedef union {
+  uint discr;
+  /* When discr==1 */
+  struct {
+    uchar _padding[4];
+    uint  _0;
+  };
+  /* when discr==0 */
+  /* None */
+} option_u32_t;
+FD_STATIC_ASSERT( sizeof (option_u32_t)==8UL, bank_abi );
+FD_STATIC_ASSERT( alignof(option_u32_t)==4UL, bank_abi );
+
+typedef struct ABI_ALIGN(8UL) {
+  option_u64_t priority_fee;
+  option_u32_t compute_unit_limit;
+  option_u32_t loaded_accounts_data_size_limit;
+  option_u32_t heap_size;
+
+  ulong                        account_keys_cap;
+  sanitized_txn_abi_pubkey_t * account_keys;
+  ulong                        account_keys_cnt;
+
+  ulong                                      instructions_cap;
+  sanitized_txn_abi_compiled_instruction_t * instructions;
+  ulong                                      instructions_cnt;
+
+  uchar lifetime_specifier[ 32 ];
+
+  sanitized_txn_abi_message_header_t header;
+} sanitized_txn_abi_v1_message_t;
+
+FD_STATIC_ASSERT( sizeof (sanitized_txn_abi_v1_message_t)==128UL, bank_abi );
+FD_STATIC_ASSERT( alignof(sanitized_txn_abi_v1_message_t)==8UL,   bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, priority_fee                          )==  0, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, priority_fee._0                       )==  8, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, compute_unit_limit                    )== 16, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, compute_unit_limit._0                 )== 20, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, loaded_accounts_data_size_limit       )== 24, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, loaded_accounts_data_size_limit._0    )== 28, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, heap_size                             )== 32, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, heap_size._0                          )== 36, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, account_keys_cap                      )== 40, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, instructions_cap                      )== 64, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, lifetime_specifier                    )== 88, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_message_t, header                                )==120, bank_abi );
+
+/* Rust's niche filling optimization stores the tag for
+   Cow<v1::Message>::Borrowed inside the Owned payload, in the Option
+   tag of the v1::Message's first field, priority_fee.
+
+   The discriminant for Cow<v1::Message>::Borrowed is therefore the
+   first bit pattern that the Option tag can never hold: 2. */
+#define ABI_V1_COW_BORROWED_DISCR (2UL)
+
+typedef struct ABI_ALIGN(8UL) {
+  union ABI_ALIGN(8UL) {
+    ulong discr;
+
+    /* when discr==ABI_V1_COW_BORROWED_DISCR */
+    struct ABI_ALIGN(8UL) {
+      uchar _padding[8];
+      sanitized_txn_abi_v1_message_t * borrowed;
+    };
+
+    /* else */
+    sanitized_txn_abi_v1_message_t owned;
+  } message;
+
+  ulong   is_writable_account_cache_cap;
+  uchar * is_writable_account_cache;
+  ulong   is_writable_account_cache_cnt;
+} sanitized_txn_abi_v1_cached_msg_t;
+
+FD_STATIC_ASSERT( sizeof (sanitized_txn_abi_v1_cached_msg_t)==152UL, bank_abi );
+FD_STATIC_ASSERT( alignof(sanitized_txn_abi_v1_cached_msg_t)==8UL,   bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_cached_msg_t, message                      )==  0, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_cached_msg_t, is_writable_account_cache_cap)==128, bank_abi );
+
+/* Rust's niche filling optimization stores the tag for
+   SanitizedMessage::V1 inside the V0 payload, in the Vec capacity of
+   the v0::LoadedMessage's first field, is_writable_account_cache.
+
+   The discriminant for SanitizedMessage::V1 is therefore the first bit
+   pattern that the Vec capacity can never hold, ABI_HIGH_BIT, plus its
+   variant index: 2. */
+#define ABI_V1_MSG_DISCR (ABI_HIGH_BIT|2UL)
+
 typedef union ABI_ALIGN(8UL) {
   ulong discr;
 
@@ -200,6 +302,12 @@ typedef union ABI_ALIGN(8UL) {
   struct ABI_ALIGN(8UL) {
     uchar _padding[8];
     sanitized_txn_abi_legacy_message1_t legacy;
+  };
+
+  /* when discr==ABI_V1_MSG_DISCR */
+  struct ABI_ALIGN(8UL) {
+    uchar _padding_v1[8];
+    sanitized_txn_abi_v1_cached_msg_t v1;
   };
 
   /* else */
@@ -210,6 +318,9 @@ typedef union ABI_ALIGN(8UL) {
 
 FD_STATIC_ASSERT( sizeof (sanitized_txn_abi_message_t) == 184UL, bank_abi );
 FD_STATIC_ASSERT( alignof(sanitized_txn_abi_message_t) == 8UL,   bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_message_t, legacy)==8UL, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_message_t, v1    )==8UL, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_message_t, v0    )==0UL, bank_abi );
 
 
 typedef union {
@@ -242,20 +353,35 @@ FD_STATIC_ASSERT( sizeof (option_u8_u32_t)==12UL, bank_abi );
 FD_STATIC_ASSERT( alignof(option_u8_u32_t)==4UL, bank_abi );
 
 
+#define ABI_V1_CONFIG_DISCR (2UL)
 
 struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
   struct ABI_ALIGN(8UL) {
-    struct ABI_ALIGN(8UL) {
-      option_u8_u64_t requested_compute_unit_price;
-      option_u8_u32_t requested_compute_unit_limit;
-      option_u8_u32_t requested_heap_size;
-      option_u8_u32_t requested_loaded_accounts_data_size_limit;
+    union ABI_ALIGN(8UL) {
+      ulong discr;
 
-      ushort num_non_compute_budget_instructions;
-      ushort num_non_migratable_builtin_instructions;
-      ushort num_non_builtin_instructions;
-      ushort migrating_builtin[1]; /* the vote program */
-    } compute_budget_instruction_details;
+      /* when discr==ABI_V1_CONFIG_DISCR */
+      struct ABI_ALIGN(8UL) {
+        uchar _padding[8];
+        ulong priority_fee_lamports;
+        uint  updated_heap_bytes;
+        uint  compute_unit_limit;
+        uint  loaded_accounts_data_size_limit;
+      } v1_transaction_config;
+
+      /* else */
+      struct ABI_ALIGN(8UL) {
+        option_u8_u64_t requested_compute_unit_price;
+        option_u8_u32_t requested_compute_unit_limit;
+        option_u8_u32_t requested_heap_size;
+        option_u8_u32_t requested_loaded_accounts_data_size_limit;
+
+        ushort num_non_compute_budget_instructions;
+        ushort num_non_migratable_builtin_instructions;
+        ushort num_non_builtin_instructions;
+        ushort migrating_builtin[1]; /* the vote program */
+      } compute_budget_instruction_details;
+    } versioned_transaction_config; /* VersionedTransactionConfiguration */
 
     uchar _message_hash[ 32 ]; /* with the same value as message_hash */
 
@@ -288,13 +414,20 @@ FD_STATIC_ASSERT( alignof(struct fd_bank_abi_txn_private)==8UL,   bank_abi );
 
 FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, signatures_cap )==144UL, bank_abi );
 
-FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.requested_compute_unit_price)==0, bank_abi );
-FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.requested_compute_unit_limit)==24, bank_abi );
-FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.requested_heap_size)==36, bank_abi );
-FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.requested_loaded_accounts_data_size_limit)==48, bank_abi );
-FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_compute_budget_instructions)==60, bank_abi );
-FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_migratable_builtin_instructions)==62, bank_abi );
-FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_builtin_instructions)==64, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.compute_budget_instruction_details.requested_compute_unit_price)==0, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.compute_budget_instruction_details.requested_compute_unit_limit)==24, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.compute_budget_instruction_details.requested_heap_size)==36, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.compute_budget_instruction_details.requested_loaded_accounts_data_size_limit)==48, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.compute_budget_instruction_details.num_non_compute_budget_instructions)==60, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.compute_budget_instruction_details.num_non_migratable_builtin_instructions)==62, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.compute_budget_instruction_details.num_non_builtin_instructions)==64, bank_abi );
+
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.discr)==0, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.v1_transaction_config.priority_fee_lamports)==8, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.v1_transaction_config.updated_heap_bytes)==16, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.v1_transaction_config.compute_unit_limit)==20, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, versioned_transaction_config.v1_transaction_config.loaded_accounts_data_size_limit)==24, bank_abi );
+
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, is_simple_vote_tx)==0x180, bank_abi );
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, is_simple_vote_transaction)==0x8a, bank_abi );
 
@@ -462,7 +595,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
 
   fd_blake3_init( blake3 );
   fd_blake3_append( blake3, "solana-tx-message-v1", 20UL );
-  fd_blake3_append( blake3, payload + txn->message_off, payload_sz - txn->message_off );
+  fd_blake3_append( blake3, payload + txn->message_off, fd_txn_msg_sz( txn, payload_sz ) );
   fd_blake3_fini( blake3, out_txn->message_hash );
   memcpy( out_txn->_message_hash, out_txn->message_hash, 32UL );
 
@@ -493,7 +626,10 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     instr_cnt[ prog_map_query( prog_id, non_builtin )->category ]++;
     instr_data_sz += txn->instr[i].data_sz;
 
-    if( FD_UNLIKELY( hash_or_def==HASH( COMPUTE_BUDGET_PROG_ID ) ) ) {
+    /* Parse compute budget instructions for legacy/v0 transactions.
+       These are ignored for V1 transactions. */
+    if( FD_UNLIKELY( txn->transaction_version!=FD_TXN_V1 &&
+                     hash_or_def==HASH( COMPUTE_BUDGET_PROG_ID ) ) ) {
       fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp_state );
     }
   }
@@ -503,23 +639,27 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   out_txn->num_ed25519_instruction_signatures   = sig_counters[ HASH( ED25519_SV_PROG_ID  ) ];
   out_txn->num_secp256r1_instruction_signatures = sig_counters[ HASH( SECP256R1_PROG_ID   ) ];
 
-  out_txn->compute_budget_instruction_details.num_non_compute_budget_instructions     = (ushort)(txn->instr_cnt - cbp_state->compute_budget_instr_cnt);
-  out_txn->compute_budget_instruction_details.num_non_migratable_builtin_instructions = (ushort)instr_cnt[ CATEGORY_NON_MIGRATABLE ];
-  out_txn->compute_budget_instruction_details.num_non_builtin_instructions            = (ushort)instr_cnt[ CATEGORY_NON_BUILTIN   ];
-  out_txn->compute_budget_instruction_details.migrating_builtin[0]                    = (ushort)instr_cnt[ CATEGORY_MIGRATING(0)  ];
-  /* The instruction index doesn't matter */
+  /* VersionedTransactionConfiguration::LegacyAndV0(ComputeBudgetInstructionDetails)
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L131-L137 */
+  if( FD_LIKELY( txn->transaction_version!=FD_TXN_V1 ) ) {
+    out_txn->versioned_transaction_config.compute_budget_instruction_details.num_non_compute_budget_instructions     = (ushort)(txn->instr_cnt - cbp_state->compute_budget_instr_cnt);
+    out_txn->versioned_transaction_config.compute_budget_instruction_details.num_non_migratable_builtin_instructions = (ushort)instr_cnt[ CATEGORY_NON_MIGRATABLE ];
+    out_txn->versioned_transaction_config.compute_budget_instruction_details.num_non_builtin_instructions            = (ushort)instr_cnt[ CATEGORY_NON_BUILTIN   ];
+    out_txn->versioned_transaction_config.compute_budget_instruction_details.migrating_builtin[0]                    = (ushort)instr_cnt[ CATEGORY_MIGRATING(0)  ];
+    /* The instruction index doesn't matter */
 #define CBP_TO_TUPLE_OPTION( out, flag, val0, val1 )                                                                      \
-  do {                                                                                                                    \
-    out_txn->compute_budget_instruction_details.out.discr = !!(cbp_state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_ ## flag); \
-    out_txn->compute_budget_instruction_details.out._0    = (val0);                                                         \
-    out_txn->compute_budget_instruction_details.out._1    = (val1);                                                         \
-  } while( 0 )
+    do {                                                                                                                  \
+      out_txn->versioned_transaction_config.compute_budget_instruction_details.out.discr = !!(cbp_state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_ ## flag); \
+      out_txn->versioned_transaction_config.compute_budget_instruction_details.out._0    = (val0);                                                       \
+      out_txn->versioned_transaction_config.compute_budget_instruction_details.out._1    = (val1);                                                       \
+    } while( 0 )
 
-  CBP_TO_TUPLE_OPTION( requested_compute_unit_price,              SET_FEE,            0, cbp_state->micro_lamports_per_cu );
-  CBP_TO_TUPLE_OPTION( requested_compute_unit_limit,              SET_CU,             0, cbp_state->compute_units         );
-  CBP_TO_TUPLE_OPTION( requested_heap_size,                       SET_HEAP,           0, cbp_state->heap_size             );
-  CBP_TO_TUPLE_OPTION( requested_loaded_accounts_data_size_limit, SET_LOADED_DATA_SZ, 0, cbp_state->loaded_acct_data_sz   );
+    CBP_TO_TUPLE_OPTION( requested_compute_unit_price,              SET_FEE,            0, cbp_state->micro_lamports_per_cu );
+    CBP_TO_TUPLE_OPTION( requested_compute_unit_limit,              SET_CU,             0, cbp_state->compute_units         );
+    CBP_TO_TUPLE_OPTION( requested_heap_size,                       SET_HEAP,           0, cbp_state->heap_size             );
+    CBP_TO_TUPLE_OPTION( requested_loaded_accounts_data_size_limit, SET_LOADED_DATA_SZ, 0, cbp_state->loaded_acct_data_sz   );
 #undef CBP_TO_TUPLE_OPTION
+  }
 
   if( FD_LIKELY( txn->transaction_version==FD_TXN_VLEGACY ) ) {
     sanitized_txn_abi_legacy_message1_t * legacy = &out_txn->message.legacy;
@@ -672,14 +812,102 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     out_sidecar += txn->addr_table_lookup_cnt*sizeof(sanitized_txn_abi_v0_message_address_table_lookup_t);
 
     return FD_BANK_ABI_TXN_INIT_SUCCESS;
+  } else if( FD_LIKELY( txn->transaction_version==FD_TXN_V1 ) ) {
+    /* VersionedTransactionConfiguration::V1
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L122-L129 */
+    uint  v1_config_mask = fd_uint_load_4( payload+4UL );
+    ulong v1_priority_fee, v1_cu_limit, v1_loaded_sz, v1_heap_sz;
+    fd_txn_parse_v1_config( v1_config_mask,
+                            payload + txn->v1_txn_config_values_off,
+                            &v1_priority_fee,
+                            &v1_cu_limit,
+                            &v1_loaded_sz,
+                            &v1_heap_sz );
+
+    out_txn->versioned_transaction_config.discr                                                 = ABI_V1_CONFIG_DISCR;
+    out_txn->versioned_transaction_config.v1_transaction_config.priority_fee_lamports           = v1_priority_fee;
+    out_txn->versioned_transaction_config.v1_transaction_config.updated_heap_bytes              = (uint)v1_heap_sz;
+    out_txn->versioned_transaction_config.v1_transaction_config.compute_unit_limit              = (uint)v1_cu_limit;
+    out_txn->versioned_transaction_config.v1_transaction_config.loaded_accounts_data_size_limit = (uint)v1_loaded_sz;
+
+    sanitized_txn_abi_v1_cached_msg_t * v1      = &out_txn->message.v1;
+    sanitized_txn_abi_v1_message_t *    message = &v1->message.owned;
+
+    out_txn->message.discr = ABI_V1_MSG_DISCR;
+
+    v1->is_writable_account_cache_cnt = txn->acct_addr_cnt;
+    v1->is_writable_account_cache_cap = txn->acct_addr_cnt;
+    v1->is_writable_account_cache     = out_sidecar;
+
+    /* V1 transactions have no ALTs so passing NULL is safe here. */
+    int _is_upgradeable_loader_present = is_upgradeable_loader_present( txn, payload, NULL );
+    for( ushort i=0; i<txn->acct_addr_cnt; i++ ) {
+      int is_writable = fd_txn_is_writable( txn, i ) &&
+                        /* Agave does this check, but we don't need to here because pack
+                           rejects these transactions before they make it to the bank.
+
+                           !fd_pack_unwritable_contains( (const fd_acct_addr_t*)(payload + txn->acct_addr_off + i*32UL) ) */
+                        (!is_key_called_as_program( txn, i ) || _is_upgradeable_loader_present);
+      v1->is_writable_account_cache[ i ] = !!is_writable;
+    }
+    out_sidecar += txn->acct_addr_cnt;
+    out_sidecar = (void*)fd_ulong_align_up( (ulong)out_sidecar, 8UL );
+
+    /* The compute budget information is stored twice in the struct,
+       once in
+       RuntimeTransaction::meta::versioned_transaction_config::V1::*
+       which has the default values applied, and once in
+       RuntimeTransaction::transaction::message::V1::message::config::*
+       that stores options (None if the option is not specified in the
+       transaction).
+       To simplify the code, even when the option is not specified, we
+       set the default value, and then use the tag field to note that
+       it is a None value. */
+
+    /* This sets priority_fee.discr to 0 or 1. That means
+       `v1->message.discr != ABI_V1_COW_BORROWED_DISCR`, so we know it
+       is owned. */
+    message->priority_fee.discr                    = (ulong)( v1_config_mask    &1U);
+    message->compute_unit_limit.discr              =        ((v1_config_mask>>2)&1U);
+    message->loaded_accounts_data_size_limit.discr =        ((v1_config_mask>>3)&1U);
+    message->heap_size.discr                       =        ((v1_config_mask>>4)&1U);
+
+    message->priority_fee._0                       = v1_priority_fee;
+    message->compute_unit_limit._0                 = (uint)v1_cu_limit;
+    message->loaded_accounts_data_size_limit._0    = (uint)v1_loaded_sz;
+    message->heap_size._0                          = (uint)v1_heap_sz;
+
+    message->account_keys_cnt = txn->acct_addr_cnt;
+    message->account_keys_cap = txn->acct_addr_cnt;
+    message->account_keys     = (void*)(payload + txn->acct_addr_off);
+
+    message->instructions_cnt = txn->instr_cnt;
+    message->instructions_cap = txn->instr_cnt;
+    message->instructions     = (void*)out_sidecar;
+    for( ulong i=0; i<txn->instr_cnt; i++ ) {
+      fd_txn_instr_t * instr = &txn->instr[ i ];
+      sanitized_txn_abi_compiled_instruction_t * out_instr = &message->instructions[ i ];
+
+      out_instr->accounts_cnt = instr->acct_cnt;
+      out_instr->accounts_cap = instr->acct_cnt;
+      out_instr->accounts     = payload + instr->acct_off;
+
+      out_instr->data_cnt = instr->data_sz;
+      out_instr->data_cap = instr->data_sz;
+      out_instr->data     = payload + instr->data_off;
+
+      out_instr->program_id_index = instr->program_id;
+    }
+    out_sidecar += txn->instr_cnt*sizeof(sanitized_txn_abi_compiled_instruction_t);
+
+    fd_memcpy( message->lifetime_specifier, payload + txn->recent_blockhash_off, 32UL );
+    message->header.num_required_signatures        = txn->signature_cnt;
+    message->header.num_readonly_signed_accounts   = txn->readonly_signed_cnt;
+    message->header.num_readonly_unsigned_accounts = txn->readonly_unsigned_cnt;
+
+    return FD_BANK_ABI_TXN_INIT_SUCCESS;
   } else {
     /* A program abort case, unknown transaction version should never make it here. */
     FD_LOG_ERR(( "unknown transaction version %u", txn->transaction_version ));
   }
-}
-
-fd_acct_addr_t const *
-fd_bank_abi_get_lookup_addresses( fd_bank_abi_txn_t const * txn ) {
-  return txn->message.discr==ABI_HIGH_BIT ? NULL :
-    (fd_acct_addr_t const *) txn->message.v0.loaded_addresses.owned.writable;
 }
