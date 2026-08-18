@@ -37,7 +37,7 @@ fd_io_uring_shmem_layout( fd_io_uring_shmem_layout_t * layout,
   if( FD_UNLIKELY( cq_depth>UINT_MAX             ) ) return 0UL;
 
   ulong cq_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( cq_depth, sizeof(struct io_uring_cqe), &cq_sz ) ) ) return 0UL;
+  if( FD_UNLIKELY( __builtin_umull_overflow( cq_depth, sizeof(fd_io_uring_cqe_t), &cq_sz ) ) ) return 0UL;
   ulong sqa_sz;
   if( FD_UNLIKELY( __builtin_umull_overflow( sq_depth, sizeof(uint), &sqa_sz ) ) ) return 0UL;
 
@@ -57,7 +57,7 @@ fd_io_uring_shmem_layout( fd_io_uring_shmem_layout_t * layout,
 
   /* Completion queue (cache line align) */
 
-  FD_SCRATCH_ALLOC_APPEND( l, 128UL, cq_depth*sizeof(struct io_uring_cqe) );
+  FD_SCRATCH_ALLOC_APPEND( l, 128UL, cq_depth*sizeof(fd_io_uring_cqe_t) );
 
   /* Submission queue index array (cache line align) */
 
@@ -66,7 +66,7 @@ fd_io_uring_shmem_layout( fd_io_uring_shmem_layout_t * layout,
   /* io_uring SQEs region */
 
   layout->sqe_off = (ulong)FD_SCRATCH_ALLOC_APPEND(
-      l, FD_SHMEM_NORMAL_PAGE_SZ, sq_depth*sizeof(struct io_uring_sqe) );
+      l, FD_SHMEM_NORMAL_PAGE_SZ, sq_depth*sizeof(fd_io_uring_sqe_t) );
 
   return FD_SCRATCH_ALLOC_FINI( l, FD_SHMEM_NORMAL_PAGE_SZ );
 }
@@ -91,7 +91,7 @@ fd_io_uring_shmem_setup( fd_io_uring_params_t * params,
     return NULL;
   }
 
-  params->flags |= IORING_SETUP_NO_MMAP;
+  params->flags |= FD_IORING_SETUP_NO_MMAP;
   params->sq_entries = (uint)sq_depth;
   params->cq_entries = (uint)cq_depth;
 
@@ -171,7 +171,7 @@ fd_io_uring_init_shmem(
   memset( ring, 0, sizeof(fd_io_uring_t) );
   ring->ioring_fd = -1;
 
-  params->flags      |= IORING_SETUP_CQSIZE;
+  params->flags      |= FD_IORING_SETUP_CQSIZE;
   params->sq_entries  = (uint)sq_depth;
   params->cq_entries  = (uint)cq_depth;
 
@@ -222,10 +222,10 @@ fd_io_uring_init_mmap(
   }
 
   ring->kern_sq_sz  = params->sq_off.array + params->sq_entries * sizeof(uint);
-  ring->kern_sqe_sz = /*                  */ params->sq_entries * sizeof(struct io_uring_sqe);
-  ring->kern_cq_sz  = params->cq_off.cqes  + params->cq_entries * sizeof(struct io_uring_cqe);
+  ring->kern_sqe_sz = /*                  */ params->sq_entries * sizeof(fd_io_uring_sqe_t);
+  ring->kern_cq_sz  = params->cq_off.cqes  + params->cq_entries * sizeof(fd_io_uring_cqe_t);
 
-  ring->kern_sq_mem = mmap( NULL, ring->kern_sq_sz, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_POPULATE, ring_fd, IORING_OFF_SQ_RING );
+  ring->kern_sq_mem = mmap( NULL, ring->kern_sq_sz, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_POPULATE, ring_fd, FD_IORING_OFF_SQ_RING );
   if( FD_UNLIKELY( ring->kern_sq_mem==MAP_FAILED ) ) {
     FD_LOG_WARNING(( "mmap SQ ring failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     close( ring_fd );
@@ -233,7 +233,7 @@ fd_io_uring_init_mmap(
     return NULL;
   }
 
-  ring->kern_sqe_mem = mmap( NULL, ring->kern_sqe_sz, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_POPULATE, ring_fd, IORING_OFF_SQES );
+  ring->kern_sqe_mem = mmap( NULL, ring->kern_sqe_sz, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_POPULATE, ring_fd, FD_IORING_OFF_SQES );
   if( FD_UNLIKELY( ring->kern_sqe_mem==MAP_FAILED ) ) {
     munmap( ring->kern_sq_mem, ring->kern_sq_sz );
     close( ring_fd );
@@ -242,7 +242,7 @@ fd_io_uring_init_mmap(
     return NULL;
   }
 
-  ring->kern_cq_mem = mmap( NULL, ring->kern_cq_sz, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_POPULATE, ring_fd, IORING_OFF_CQ_RING );
+  ring->kern_cq_mem = mmap( NULL, ring->kern_cq_sz, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_POPULATE, ring_fd, FD_IORING_OFF_CQ_RING );
   if( FD_UNLIKELY( ring->kern_cq_mem==MAP_FAILED ) ) {
     munmap( ring->kern_sqe_mem, ring->kern_sqe_sz );
     munmap( ring->kern_sq_mem,  ring->kern_sq_sz  );

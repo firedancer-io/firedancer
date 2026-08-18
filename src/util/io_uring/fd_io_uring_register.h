@@ -5,7 +5,6 @@
    sandbox restrictions to an ioring. */
 
 #include "fd_io_uring_sys.h"
-#include <linux/io_uring.h>
 #include <errno.h>
 #include <sys/uio.h>
 #include "../../util/fd_util_base.h"
@@ -33,7 +32,7 @@ fd_io_uring_register_files_update( int         ring_fd,
                                    unsigned    off,
                                    const int * files,
                                    unsigned    nr_files ) {
-	struct io_uring_rsrc_update up = {
+	fd_io_uring_rsrc_update_t up = {
 		.offset	= off,
 		.data	= (unsigned long) files,
 	};
