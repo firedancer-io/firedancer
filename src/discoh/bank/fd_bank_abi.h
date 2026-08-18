@@ -29,6 +29,9 @@
    but we do not need a sidecar to store them because the underlying
    memory already exists in the payload somewhere, so we can reuse it.
 
+   Note that V1 transactions do not support address lookup tables, so
+   they don't have (3) or (4).
+
    Note that the first field (the Vec<uchar>) does not need to be
    aligned, it has an alignment of 1, but we specify it as 8 here so
    that we can order the fields inside the sidecar data arbitrarily
