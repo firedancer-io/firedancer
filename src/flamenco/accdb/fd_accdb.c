@@ -885,8 +885,9 @@ evict_clear_acc_cache_ref( fd_accdb_accmeta_t * accmeta,
 
 /* cache_free_push pushes a fully-freed cache line onto the per-class
    CAS free list (Treiber stack).  The caller must have already
-   invalidated the line (key.generation==UINT_MAX) and set persisted=1
-   before pushing. */
+   invalidated the line (key.generation==UINT_MAX, acc_idx==UINT_MAX)
+   and set persisted=1 before pushing.  Those stores must also be
+   ordered before the store that releases refcnt to 0. */
 
 static inline void
 cache_free_push( fd_accdb_t * accdb,
@@ -1185,7 +1186,8 @@ acc_unlink( fd_accdb_t * accdb,
         stale->key.generation = UINT_MAX;
         stale->persisted = 1;
         stale->acc_idx   = UINT_MAX;
-        stale->refcnt    = 0;
+        FD_COMPILER_MFENCE();
+        FD_VOLATILE( stale->refcnt ) = 0;
         cache_free_push( accdb, sc, stale );
       } else {
         /* Wrong line (ABA).  Release claim. */
@@ -3157,7 +3159,8 @@ release_inner( fd_accdb_t * accdb,
         if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
           original_cache_line->acc_idx   = UINT_MAX;
           original_cache_line->key.generation = UINT_MAX;
-          original_cache_line->refcnt    = 0;
+          FD_COMPILER_MFENCE();
+          FD_VOLATILE( original_cache_line->refcnt ) = 0;
           cache_free_push( accdb, original_size_class, original_cache_line );
         } else {
           FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
@@ -3207,7 +3210,8 @@ release_inner( fd_accdb_t * accdb,
           if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
             original_cache_line->acc_idx   = UINT_MAX;
             original_cache_line->key.generation = UINT_MAX;
-            original_cache_line->refcnt    = 0;
+            FD_COMPILER_MFENCE();
+            FD_VOLATILE( original_cache_line->refcnt ) = 0;
             cache_free_push( accdb, original_size_class, original_cache_line );
           } else {
             FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
@@ -3899,7 +3903,8 @@ background_preevict( fd_accdb_t * accdb,
       line->persisted      = 1;
       line->acc_idx        = UINT_MAX;
       line->key.generation = UINT_MAX;
-      line->refcnt         = 0;
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( line->refcnt ) = 0;
       cache_free_push( accdb, c, line );
       evicted++;
     }
@@ -4398,6 +4403,16 @@ fd_accdb_debug_find_line( fd_accdb_t *  accdb,
   return found;
 }
 
+/* Address of one cache line.  struct fd_accdb_private is local to this
+   translation unit, so a test cannot reach accdb->cache[] itself. */
+
+void *
+fd_accdb_debug_line_addr( fd_accdb_t * accdb,
+                          ulong        size_class,
+                          ulong        line_idx ) {
+  return cache_line( accdb, size_class, line_idx );
+}
+
 /* Deterministically evict a single specified cache line via the
    foreground evictor's claim sequence (CAS refcnt 0->EVICT_SENTINEL),
    then write the dirty line back exactly as fd_accdb_acquire_inner's
@@ -4478,7 +4493,8 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
   line->persisted      = 1;
   line->acc_idx        = UINT_MAX;
   line->key.generation = UINT_MAX;
-  line->refcnt         = 0;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( line->refcnt ) = 0;
   cache_free_push( accdb, size_class, line );
   return evicted_acc_idx;
 }
