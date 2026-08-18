@@ -72,10 +72,14 @@
    A read-only pubkey contributes at most (1)+(3) = 2 in any class (no
    writable +1 every class).  Unfortunately
    - The bundle path acquires every deduped pubkey writable.
-   - We do NOT subtract for a read-only program.  While program accounts
-     referenced for invocation must be read-only, a transaction with
-     zero instructions is valid, so there need not be an invoked program
-     at all.
+   - We do NOT subtract for a read-only program.  A transaction is free
+     to declare a program as writable.  The writability is demoted
+     unless BPFUpgradeableLoader is present.  That said,
+     BPFUpgradeableLoader is one of the ones that gets demoted.  So if
+     demotion logic happens before acquire (which it is for the
+     non-bundle path), we'd have at least one read-only account.
+     Nonetheless, a transaction with zero instructions is valid, so
+     there need not be an invoked program at all.
    - We do NOT subtract for the fee payer cannot-be-programdata
      constraint: the fee payer is still writable and still receives the
      placeholder reservation at (3) — only an acquire_a code change

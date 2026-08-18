@@ -177,8 +177,14 @@ struct fd_sched_block {
   uint                rooted:1;                           /* Set if the block is rooted. */
   uint                dying:1;                            /* Set if the block has been abandoned and no transactions should be
                                                              scheduled from it. */
-  uint                abandoned:1;                        /* Set if the block went down with a discarded (not invalid)
-                                                             lineage: its own abandon or an ancestor's. */
+  uint                discarded:1;                        /* Set if the block went down with a discarded (not invalid) lineage:
+                                                             its own discard or an ancestor's.  This field, along with
+                                                             dead_reason, can be in one of three possible combinations when a
+                                                             block is dead:
+
+                                                             dead_reason!=DEAD_ANCESTOR, discarded initialized to 0: invalid block due to dead_reason
+                                                             dead_reason==DEAD_ANCESTOR, discarded==0: invalid lineage
+                                                             dead_reason==DEAD_ANCESTOR||NONE, discarded==1: discarded lineage */
   uint                refcnt:1;                           /* Starts at 1 when the block is added, set to 0 if caller has been
                                                              informed to decrement refcnt for sched. */
   uint                in_sched:1;                         /* Set if the block is being tracked by the scheduler. */
@@ -225,7 +231,9 @@ struct fd_sched_metrics {
   uint  fork_observed_cnt;
   uint  alut_success_cnt;
   uint  alut_serializing_cnt;
-  uint  poison_serializing_cnt;
+  uint  poison_latch_overflow_cnt;
+  uint  poison_latch_alt_cnt;
+  uint  poison_cnt_wmk;
   uint  txn_poison_serializing_cnt;
   uint  txn_poisoned_cnt;
   uint  txn_abandoned_parsed_cnt;
@@ -564,8 +572,8 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_serializing_cnt %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
-                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_serializing_cnt, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
+    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_latch_overflow_cnt %u, poison_latch_alt_cnt %u, poison_cnt_wmk %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
+                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_latch_overflow_cnt, sched->metrics->poison_latch_alt_cnt, sched->metrics->poison_cnt_wmk, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
 }
 
 FD_FN_UNUSED static void
@@ -592,7 +600,28 @@ print_all( fd_sched_t * sched, fd_sched_block_t * block ) {
 static inline void
 record_dead_reason( fd_sched_block_t * block,
                     int                dead_reason ) {
-  if( FD_LIKELY( block->dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) block->dead_reason = dead_reason;
+  if( FD_LIKELY( block->dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) {
+    block->dead_reason = dead_reason;
+    block->discarded = 0;
+  }
+}
+
+/* Record that the block goes down with its lineage rather than for a
+   defect of its own, aka DEAD_ANCESTOR.  Also record the parent's
+   deadness flavor so we can tell a discarded (but not invalid) lineage
+   from an invalid one.
+
+   Gated on the block having no dead reason of its own, so a verdict
+   sched already reached is never overwritten.  That gate neither bounds
+   how often the inherit runs nor sees a ruling the replay tile made,
+   which leaves dead_reason NONE.  Callers are responsible for invoking
+   this only on a block that is newly going down. */
+static inline void
+record_lineage_death( fd_sched_block_t * block, fd_sched_block_t const * parent ) {
+  if( FD_LIKELY( block->dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) {
+    record_dead_reason( block, FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+    block->discarded = parent->discarded;
+  }
 }
 
 static void
@@ -979,14 +1008,15 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_LOG_CRIT(( "invariant violation: block->fec_eos set but getting more FEC sets, slot %lu, parent slot %lu", fec->slot, fec->parent_slot ));
   }
   if( FD_UNLIKELY( block->fec_eob ) ) {
-    /* If the previous FEC set ingestion and parse was successful,
-       block->fec_eob should be cleared.  The fact that fec_eob is set
-       means that the previous batch didn't parse properly.  So this is
-       a bad block.  We should refuse to replay down the fork. */
-    FD_LOG_INFO(( "bad block: UNFINISHED_ENTRIES, slot %lu, parent slot %lu", fec->slot, fec->parent_slot ));
-    handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_UNFINISHED_ENTRIES );
-    sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
-    return 0;
+    /* fec_eob is only ever set from is_last_in_batch, and the parser is
+       expected to finish a batch in full upon getting the FEC set that
+       ends the batch.  An incomplete parse is caught eagerly below,
+       which marks the block dying and is caught above.  Getting here
+       means the eager check below regressed. */
+    sched->print_buf_sz = 0UL;
+    print_all( sched, block );
+    FD_LOG_NOTICE(( "%s", sched->print_buf ));
+    FD_LOG_CRIT(( "invariant violation: block->fec_eob set but getting more FEC sets, slot %lu, parent slot %lu", fec->slot, fec->parent_slot ));
   }
   if( FD_UNLIKELY( block->child_idx!=ULONG_MAX ) ) {
     /* This means something is wrong upstream.  FEC sets are not being
@@ -1069,8 +1099,8 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
        Upon getting a last-in-batch FEC, everything in the ongoing batch
        should completely parse, and the eob flag should be reset.  There
        should be no go around for a last-in-batch FEC. */
-    FD_LOG_INFO(( "bad block: TRUNCATED_ENTRIES, bytes_rem %u, txns_rem %lu, mblks_rem %lu, fec_eob %d, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->fec_eob, block->slot, block->parent_slot ));
-    handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_TRUNCATED_ENTRIES );
+    FD_LOG_INFO(( "bad block: SHORT_BLOCK, bytes_rem %u, txns_rem %lu, mblks_rem %lu, fec_eob %d, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->fec_eob, block->slot, block->parent_slot ));
+    handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_SHORT_BLOCK );
     return 0;
   }
 
@@ -1500,7 +1530,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
           if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
             FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
             FD_BASE58_ENCODE_32_BYTES( mblk->end_hash->hash, ref_str );
-            FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, hashcnt %lu, is_tick, slot %lu, parent slot %lu", msg->mblk_idx, our_str, ref_str, mblk->hashcnt, block->slot, block->parent_slot ));
+            FD_LOG_INFO(( "bad block: TICK_HASH_MISMATCH, mblk %lu, ours %s, claimed %s, hashcnt %lu, slot %lu, parent slot %lu", msg->mblk_idx, our_str, ref_str, mblk->hashcnt, block->slot, block->parent_slot ));
             handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_TICK_HASH_MISMATCH );
             return FD_SCHED_DEAD_REASON_TICK_HASH_MISMATCH;
           }
@@ -1551,7 +1581,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
 }
 
 void
-fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int invalid ) {
+fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int cause ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
 
@@ -1561,7 +1591,7 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int invalid ) {
                   block->slot, bank_idx, block->parent_slot ));
   }
 
-  if( FD_LIKELY( !invalid && block->dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) block->abandoned = 1;
+  if( FD_LIKELY( cause==FD_SCHED_ABANDON_DISCARDED && !block->dying ) ) block->discarded = 1;
 
   FD_LOG_INFO(( "abandoning block %lu:%lu", block->slot, bank_idx ));
   sched->print_buf_sz = 0UL;
@@ -1582,12 +1612,12 @@ fd_sched_get_dead_reason( fd_sched_t * sched, ulong bank_idx ) {
 }
 
 int
-fd_sched_block_is_abandoned( fd_sched_t * sched, ulong bank_idx ) {
+fd_sched_block_is_discarded( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   if( FD_UNLIKELY( !block->in_sched ) ) return 0;
-  return (int)block->abandoned;
+  return (int)block->discarded;
 }
 
 void
@@ -1731,7 +1761,18 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
       if( child->rooted ) {
         rooted_child_block = child;
       } else {
-        /* This is a minority fork. */
+        /* This is a minority fork.  Consensus converged elsewhere, so
+           the fork is discarded rather than invalid.  Mark the subtree
+           root as discarded so subtree_abandon() propagates the flag
+           down.
+
+           Gated on the block not already going down.  A block that is
+           already dying was abandoned for a reason of its own, either
+           sched's own verdict or runtime's verdict on its validity, and
+           losing the fork choice race afterwards must not re-label it
+           discarded. */
+        if( FD_LIKELY( !child->dying ) ) child->discarded = 1;
+
         ulong abandoned_cnt = sched->metrics->block_abandoned_cnt;
         subtree_abandon( sched, child );
         abandoned_cnt = sched->metrics->block_abandoned_cnt-abandoned_cnt;
@@ -1960,7 +2001,7 @@ add_block( fd_sched_t * sched,
   block->fec_eos              = 0;
   block->rooted               = 0;
   block->dying                = 0;
-  block->abandoned            = 0;
+  block->discarded            = 0;
   block->fec_completed_ns     = 0L;
   block->refcnt               = 1;
   block->in_sched             = 1;
@@ -2000,9 +2041,8 @@ add_block( fd_sched_t * sched,
   }
 
   if( FD_UNLIKELY( parent_block->dying ) ) {
+    record_lineage_death( block, parent_block );
     block->dying = 1;
-    if( FD_LIKELY( parent_block->abandoned ) ) block->abandoned = 1;
-    record_dead_reason( block, FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
   }
 }
 
@@ -2032,8 +2072,8 @@ verify_ticks_eager( fd_sched_block_t * block ) {
     return FD_SCHED_DEAD_REASON_TOO_MANY_TICKS;
   }
   if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->zero_hash_tick ) ) {
-    FD_LOG_INFO(( "bad block: ZERO_HASH_TICK_VERIFY, slot %lu, parent slot %lu, has at least one zero hash tick", block->slot, block->parent_slot ));
-    return FD_SCHED_DEAD_REASON_ZERO_HASH_TICK_VERIFY;
+    FD_LOG_INFO(( "bad block: ZERO_HASH_TICK, slot %lu, parent slot %lu, has at least one zero hash tick", block->slot, block->parent_slot ));
+    return FD_SCHED_DEAD_REASON_ZERO_HASH_TICK;
   }
   if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->mblk_tick_cnt && (block->hashes_per_tick!=block->tick_hashcnt_wmk||block->inconsistent_hashes_per_tick) ) ) {
     FD_LOG_INFO(( "bad block: WRONG_HASHES_PER_TICK, slot %lu, parent slot %lu, expected %lu, got %lu", block->slot, block->parent_slot, block->hashes_per_tick, block->tick_hashcnt_wmk ));
@@ -2049,8 +2089,8 @@ verify_ticks_eager( fd_sched_block_t * block ) {
        checking the hashcnt between ticks transitively places an upper
        bound on the hashcnt of individual microblocks, thus mitigating
        the DoS vector. */
-    FD_LOG_INFO(( "bad block: INTERTICK_HASHES_OVERFLOW, slot %lu, parent slot %lu, observed cumulative tick_hashcnt %lu, expected %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, block->hashes_per_tick ));
-    return FD_SCHED_DEAD_REASON_INTERTICK_HASHES_OVERFLOW;
+    FD_LOG_INFO(( "bad block: TICK_HASHES_OVERFLOW, slot %lu, parent slot %lu, observed cumulative tick_hashcnt %lu, expected %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, block->hashes_per_tick ));
+    return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW;
   }
 
   return FD_SCHED_DEAD_REASON_NONE;
@@ -2125,10 +2165,14 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
 
     if( block->txns_rem==0UL && block->mblks_rem>0UL ) {
       if( FD_UNLIKELY( block->mblk_cnt>=FD_SCHED_MAX_MBLK_PER_SLOT ) ) {
-        /* A valid block shouldn't contain more than this amount of
-           microblocks. */
-        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks) >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, FD_SCHED_MAX_MBLK_PER_SLOT ));
-        return FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS;
+        /* Microblock count is enforced as invariant
+           mblk_cnt+mblks_rem<=FD_SCHED_MAX_MBLK_PER_SLOT
+           when we read the declared count in a batch header.  So we
+           shouldn't get here. */
+        sched->print_buf_sz = 0UL;
+        print_all( sched, block );
+        FD_LOG_NOTICE(( "%s", sched->print_buf ));
+        FD_LOG_CRIT(( "invariant violation: slot %lu, parent slot %lu, mblks_rem %lu, mblk_cnt %u (%u ticks) >= %lu", block->slot, block->parent_slot, block->mblks_rem, block->mblk_cnt, block->mblk_tick_cnt, FD_SCHED_MAX_MBLK_PER_SLOT ));
       }
 
       CHECK_LEFT( sizeof(fd_microblock_hdr_t) );
@@ -2136,12 +2180,12 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       block->fec_buf_soff      += (uint)sizeof(fd_microblock_hdr_t);
 
       if( FD_UNLIKELY( hdr->txn_cnt>fd_ulong_sat_sub( FD_MAX_TXN_PER_SLOT, block->txn_parsed_cnt ) ) ) {
-        FD_LOG_INFO(( "bad block: illegally many transactions specified in microblock header in slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
-        return FD_SCHED_DEAD_REASON_TOO_MANY_TXNS_ANNOUNCED;
+        FD_LOG_INFO(( "bad block: TOO_MANY_TXNS, microblock header declared too many transactions, slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
+        return FD_SCHED_DEAD_REASON_TOO_MANY_TXNS;
       }
       if( FD_UNLIKELY( hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
-        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
-        return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW;
+        FD_LOG_INFO(( "bad block: TICK_HASHES_OVERFLOW_INGEST, slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
+        return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST;
       }
 
       block->mblks_rem--;
@@ -2204,8 +2248,8 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         if( FD_UNLIKELY( !hdr->hash_cnt ) ) {
           block->zero_hash_tick = 1;
           if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
-            FD_LOG_INFO(( "bad block: ZERO_HASH_TICK, slot %lu, parent slot %lu, tick idx %u has zero hashes", block->slot, block->parent_slot, block->mblk_tick_cnt ));
-            return FD_SCHED_DEAD_REASON_ZERO_HASH_TICK;
+            FD_LOG_INFO(( "bad block: ZERO_HASH_TICK_INGEST, slot %lu, parent slot %lu, tick idx %u has zero hashes", block->slot, block->parent_slot, block->mblk_tick_cnt ));
+            return FD_SCHED_DEAD_REASON_ZERO_HASH_TICK_INGEST;
           }
         }
         block->tick_hashcnt_wmk  = fd_ulong_max( block->curr_tick_hashcnt, block->tick_hashcnt_wmk );
@@ -2252,13 +2296,13 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       block->fec_buf_soff += (uint)sizeof(ulong);
 
       if( FD_UNLIKELY( block->mblks_rem>fd_ulong_sat_sub( FD_SCHED_MAX_MBLK_PER_SLOT, block->mblk_cnt ) ) ) {
-        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks), hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, FD_SCHED_MAX_MBLK_PER_SLOT ));
-        return FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS_ANNOUNCED;
+        FD_LOG_INFO(( "bad block: TOO_MANY_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks) + hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, FD_SCHED_MAX_MBLK_PER_SLOT ));
+        return FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS;
       }
 
       block->fec_sob = 0;
       if( FD_UNLIKELY( !block->mblks_rem ) ) {
-        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks), zero microblocks announced", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));
+        FD_LOG_INFO(( "bad block: ZERO_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks)", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));
         return FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS;
       }
       continue;
@@ -2321,11 +2365,12 @@ block_poison_insert( fd_sched_t * sched, fd_sched_block_t * block, fd_acct_addr_
 
   if( FD_UNLIKELY( block->poison_cnt>=FD_SCHED_POISON_MAX_ACCT_PER_SLOT ) ) {
     block->poison_serialize = 1;
-    sched->metrics->poison_serializing_cnt++;
+    sched->metrics->poison_latch_overflow_cnt++;
     return 1;
   }
 
   block->poison[ block->poison_cnt++ ] = *acct;
+  sched->metrics->poison_cnt_wmk = fd_uint_max( sched->metrics->poison_cnt_wmk, block->poison_cnt );
   return 0;
 }
 
@@ -2349,6 +2394,12 @@ block_poison_add( fd_sched_t *           sched,
                   fd_acct_addr_t const * imms,
                   fd_acct_addr_t const * alts,
                   ulong                  alt_cnt ) {
+  /* The poison set is never consulted again once it enters a
+     serializing regime, so there is no point in adding anything to it.
+     Returning here also keeps the serializing counters at one increment
+     per block. */
+  if( FD_UNLIKELY( block->poison_serialize ) ) return;
+
   /* If we can't expand an ALT, we'd have to conservatively assume
      there's loader v3 listed in it.  And if there also happens to be a
      writable account in an unresolvable ALT, we can't add it and we no
@@ -2376,7 +2427,7 @@ block_poison_add( fd_sched_t *           sched,
     fd_acct_addr_t const * acct = get_acct( txn, imms, alts, (ushort)fd_txn_acct_iter_idx( iter ) );
     if( FD_UNLIKELY( !acct ) ) {
       block->poison_serialize = 1;
-      sched->metrics->poison_serializing_cnt++;
+      sched->metrics->poison_latch_alt_cnt++;
       break;
     }
     if( FD_UNLIKELY( block_poison_insert( sched, block, acct ) ) ) break;
@@ -2400,10 +2451,14 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) return -1;
 
   if( FD_UNLIKELY( block->txn_parsed_cnt>=FD_MAX_TXN_PER_SLOT ) ) {
-    /* The block contains more transactions than a valid block would.
-       Mark the block dead instead of keep processing it. */
-    FD_LOG_INFO(( "bad block: illegally many transactions in slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
-    return FD_SCHED_DEAD_REASON_TOO_MANY_TXNS;
+    /* Transaction count is enforced as invariant
+       txn_parsed_cnt+txns_rem<=FD_MAX_TXN_PER_SLOT
+       when we read the declared count in a microblock header.  So we
+       shouldn't get here. */
+    sched->print_buf_sz = 0UL;
+    print_all( sched, block );
+    FD_LOG_NOTICE(( "%s", sched->print_buf ));
+    FD_LOG_CRIT(( "invariant violation: slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
   }
 
   ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
@@ -2457,9 +2512,12 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   fd_acct_addr_t * alts = (!alt_cnt||serializing) ? NULL : sched->aluts;
   alt_cnt = alts ? alt_cnt : 0UL;
   if( FD_UNLIKELY( fd_chkdup_check( sched->chkdup, imms, imm_cnt, alts, alt_cnt ) ) ) {
-    FD_LOG_INFO(( "bad block: duplicate accounts in slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
+    FD_LOG_INFO(( "bad block: DUPLICATE_ACCOUNT, slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
     return FD_SCHED_DEAD_REASON_DUPLICATE_ACCOUNT;
   }
+
+  /* After any error return but before poisoning. */
+  sched->metrics->alut_serializing_cnt += (uint)serializing;
 
   /* At this point, we've decided whether the transaction is
      ALT-serializing or not.  If it didn't get serialized by ALT
@@ -2478,7 +2536,6 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
   FD_TEST( txn_idx && txn_idx<sched->depth );
   sched->metrics->txn_parsed_cnt++;
-  sched->metrics->alut_serializing_cnt += (uint)serializing;
   sched->txn_pool_free_cnt--;
   fd_txn_p_t * txn_p = sched->txn_pool + txn_idx;
   txn_p->payload_sz  = pay_sz;
@@ -2874,24 +2931,37 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
   }
 
   fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
-  if( FD_UNLIKELY( parent && parent->in_sched && parent->slot==block->parent_slot && parent->dying ) ) {
-    if( FD_LIKELY( parent->abandoned ) ) block->abandoned = 1;
-    record_dead_reason( block, FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+  if( FD_UNLIKELY( !parent || !parent->in_sched ) ) {
+    /* Only the root has no parent.  Abandon should never be called on
+       the root.  So any block we are trying to abandon should have a
+       parent. */
+    FD_LOG_CRIT(( "invariant violation: parent not found slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
   }
+
+  /* Gated on the parent going down and on this block not already being
+     on its way down.
+
+     The parent test is because this function also runs on the block the
+     public abandon API was called on, whose parent is very much alive.
+     Inheriting there would stamp DEAD_ANCESTOR on a block that went
+     down on its own, and overwrite the discarded bit the caller just
+     set with the live parent's 0.
+
+     The block test is because the walk also revisits blocks that
+     already went down, and an ancestor abandoned later must not
+     re-label them.  This cannot be decided based on dead_reason alone
+     because a verdict the replay tile made leaves it NONE.
+
+     Descendants work fine either way, because dying is set below before
+     we recurse, so every child rightfully sees a dying parent. */
+  if( FD_UNLIKELY( parent->dying && !block->dying ) ) record_lineage_death( block, parent );
 
   /* Setting the flag is non-optional and can happen more than once. */
   block->dying = 1;
 
   /* Removal from dispatcher should only happen once. */
   if( block->in_rdisp ) {
-    fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
-    if( FD_UNLIKELY( !parent ) ) {
-      /* Only the root has no parent.  Abandon should never be called on
-         the root.  So any block we are trying to abandon should have a
-         parent. */
-      FD_LOG_CRIT(( "invariant violation: parent not found slot %lu, parent slot %lu",
-                    block->slot, block->parent_slot ));
-    }
 
     /* The dispatcher expects blocks to be abandoned in the same order
        that they were added on each lane.  There are no requirements on
