@@ -29,6 +29,9 @@
    but we do not need a sidecar to store them because the underlying
    memory already exists in the payload somewhere, so we can reuse it.
 
+   Note that V1 transactions do not support address lookup tables, so
+   they don't have (3) or (4).
+
    Note that the first field (the Vec<uchar>) does not need to be
    aligned, it has an alignment of 1, but we specify it as 8 here so
    that we can order the fields inside the sidecar data arbitrarily
@@ -114,10 +117,10 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
    be constructed and returns FD_BANK_ABI_TXN_INIT_SUCCESS on success
    and FD_BANK_ABI_TXN_INIT_FAILURE on failure.
 
-   Constructing a "legacy" transaction happens entirely in C and is
-   extremely fast, mostly just laying out a struct.
+   Constructing a "legacy" or V1 transaction happens entirely in C and
+   is extremely fast, mostly just laying out a struct.
 
-   Constructing a "v1" transaction is slower.  In this case we need to
+   Constructing a V0 transaction is slower.  In that case we need to
    load the addresses used by the transaction, which requires retrieving
    the related address lookup program accounts in the accounts database. */
 
@@ -131,17 +134,6 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,       /* Memory to place the 
                       ulong               payload_sz,    /* Transaction raw wire size. */
                       fd_txn_t *          txn,           /* The Firedancer parsed transaction representation. */
                       int                 is_simple_vote /* If the transaction is a "simple vote" or not. */ );
-
-/* This function takes a pointer to an fd_bank_abi_txn_t as constructed
-   by fd_bank_abi_txn_init and returns a pointer to the expanded address
-   lookup tables, with the writable accounts being first.  If the
-   transaction does not load any accounts from an address lookup table
-   (for example, if it's a legacy transaction), the return values is
-   undefined and may be NULL.  Otherwise, returns a pointer to somewhere
-   within the sidecar region for the transaction; as such, the returned
-   pointer has the same lifetime as the sidecar memory region. */
-fd_acct_addr_t const *
-fd_bank_abi_get_lookup_addresses( fd_bank_abi_txn_t const * txn );
 
 FD_PROTOTYPES_END
 
