@@ -90,7 +90,7 @@ typedef struct fd_ping_peer fd_ping_peer_t;
 #define MAP_IDX_T ulong
 #define MAP_NEXT  map_next
 #define MAP_PREV  map_prev
-#define MAP_KEY_HASH(k,s) ((s) ^ fd_ulong_load_8( (k)->b ))
+#define MAP_KEY_HASH(k,s) fd_hash( (s), (k)->b, sizeof((k)->b) )
 #define MAP_KEY_EQ(k0,k1) (!memcmp((k0)->b, (k1)->b, 32UL))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"

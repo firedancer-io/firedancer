@@ -83,7 +83,7 @@ typedef struct stake stake_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key)->uc, sizeof(fd_pubkey_t) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME  ping_pool
@@ -99,7 +99,7 @@ typedef struct stake stake_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key)->uc, sizeof(fd_pubkey_t) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME  stake_pool
@@ -115,7 +115,7 @@ typedef struct stake stake_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key)->uc, sizeof(fd_pubkey_t) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
