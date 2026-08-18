@@ -1984,6 +1984,10 @@ int fd_accdb_debug_find_line( fd_accdb_t * accdb, uchar const * pubkey, ulong * 
    acc_idx. */
 uint fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb, ulong size_class, ulong line_idx );
 
+/* Address of one cache line; struct fd_accdb_private is private to
+   fd_accdb.c, so a test cannot compute this itself. */
+void * fd_accdb_debug_line_addr( fd_accdb_t * accdb, ulong size_class, ulong line_idx );
+
 static void
 write_acc( fd_accdb_t *       accdb,
            fd_accdb_fork_id_t fork_id,
@@ -2808,6 +2812,104 @@ test_overwrite_discard_vs_evictor( void ) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Claim case: a sweeper must not claim a line that was already freed  */
+/* ------------------------------------------------------------------ */
+
+/* acquire_cache_line's CLOCK sweep infers free-list residency from
+   (key.generation, acc_idx) BEFORE the claiming CAS, and nothing
+   re-tests it after.  The claim CAS proves only that the line was
+   unpinned — and a freed line is unpinned too, refcnt==0 — so a line
+   that a concurrent evictor frees and pushes in between is claimed
+   anyway, and the sweeper walks away owning a line that is
+   simultaneously a live free-list node.
+
+   Schedule:
+     1. Exhaust class 0 so both cheap paths are gone: every line holds a
+        committed account and the free list is empty.  The next writable
+        acquire must therefore reach the CLOCK sweep.
+     2. Fiber W does that acquire and parks at accdb_clock:pre_refcnt on
+        a line L it is about to claim — residency passed, `referenced`
+        already cleared by an earlier pass, refcnt still 0.
+     3. Main evicts L through the foreground claim sequence: L is
+        written back, invalidated, and PUSHED to the class-0 free list.
+     4. W resumes, reads refcnt==0, wins CAS(0,EVICT_SENTINEL), and
+        without the post-claim residency re-test takes L and commits its
+        account into it.
+     5. Oracle: walk the class-0 free list — every line on it must
+        actually be free.  Pre-fix L is on the list holding W's account:
+        one line owned twice, which is how the free list ends up handing
+        the same buffer to two accounts. */
+static void
+test_clock_claim_vs_freed( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jw  = join_new();
+
+  uchar owner[ 32UL ] = { 7, 0 };
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+
+  /* Each commit keeps its destination line, so cache_class_max writes
+     leave every class-0 line resident with an empty free list. */
+  ulong max0 = g_shmem->cache_class_max[ 0 ];
+  FD_TEST( max0>=2UL );
+  for( ulong i=0UL; i<max0; i++ ) {
+    uchar k[ 32UL ]; mk_key( 700000UL+i, k );
+    seq_write( ctl, root, k, 100UL+i, owner );
+  }
+  FD_TEST( !FD_VOLATILE_CONST( g_shmem->cache_free_cnt[ 0 ].val ) );
+  FD_TEST( FD_VOLATILE_CONST( g_shmem->cache_class_init[ 0 ].val )>=max0 );
+
+  /* W: writable acquire of a NEW account, so its class-0 destination
+     comes from the CLOCK sweep. */
+  uchar key_Q[ 32UL ]; mk_key( 800001UL, key_Q );
+  fd_racesan_async_t * w = fiber_release_write( &g_fiber[0], jw, root, key_Q, 400UL );
+
+  /* Park W on a line it will actually claim.  Freshly committed lines
+     all have `referenced` set, so the first pass over the class only
+     spends their second chance; several hook hits go by first. */
+  ulong l_idx = ULONG_MAX;
+  for( ulong i=0UL; i<8UL*max0; i++ ) {
+    FD_TEST( fd_racesan_async_step_until( w, "accdb_clock:pre_refcnt", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+    ulong hand = ( FD_VOLATILE_CONST( g_shmem->clock_hand[ 0 ].val )-1UL ) % max0;
+    fd_accdb_cache_line_t * cand = fd_accdb_debug_line_addr( ctl, 0UL, hand );
+    if( !cand->referenced && !cand->refcnt ) { l_idx = hand; break; }
+  }
+  FD_TEST( l_idx!=ULONG_MAX );
+
+  fd_accdb_cache_line_t * l = fd_accdb_debug_line_addr( ctl, 0UL, l_idx );
+
+  /* Free L out from under the parked sweeper. */
+  fd_accdb_debug_clock_evict_line( ctl, 0UL, l_idx );
+  FD_TEST( l->acc_idx==UINT_MAX && l->key.generation==UINT_MAX );
+  FD_TEST( FD_VOLATILE_CONST( g_shmem->cache_free_cnt[ 0 ].val )==1UL );
+
+  for(;;) {
+    int rc = fd_racesan_async_step( w );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  fiber_done( &g_fiber[0] );
+
+  /* Oracle: everything reachable from the free list is free. */
+  uint top = (uint)( FD_VOLATILE_CONST( g_shmem->cache_free[ 0 ].ver_top ) & (ulong)UINT_MAX );
+  for( ulong guard=0UL; top!=UINT_MAX; guard++ ) {
+    FD_TEST( guard<=max0 ); /* a line pushed twice makes the list cyclic */
+    fd_accdb_cache_line_t * n = fd_accdb_debug_line_addr( ctl, 0UL, (ulong)top );
+    if( FD_UNLIKELY( n->acc_idx!=UINT_MAX || n->key.generation!=UINT_MAX ) ) {
+      FD_LOG_ERR(( "class-0 free-list line %u holds a live account (acc_idx=0x%x generation=0x%x): "
+                   "the CLOCK sweep claimed a line that had already been freed and pushed",
+                   top, n->acc_idx, n->key.generation ));
+    }
+    top = FD_VOLATILE_CONST( n->next );
+  }
+  FD_LOG_NOTICE(( "sweeper declined the freed line %lu", l_idx ));
+
+  join_delete( ctl );
+  join_delete( jw );
+  test_shmem_delete();
+}
+
+/* ------------------------------------------------------------------ */
 /* Store-ordering case: the markers must be published before refcnt=0  */
 /* ------------------------------------------------------------------ */
 
@@ -2838,8 +2940,6 @@ static volatile int  g_wp_fired;
 static volatile int  g_wp_violation;
 static volatile uint g_wp_bad_acc_idx;
 static volatile uint g_wp_bad_gen;
-
-void * fd_accdb_debug_line_addr( fd_accdb_t * accdb, ulong size_class, ulong line_idx );
 
 static void
 wp_handler( int        sig,
@@ -3208,6 +3308,7 @@ main( int     argc,
     TEST( test_overwrite_discard_stray_pin_cls7 ),
     TEST( test_overwrite_discard_stray_pin_xclass ),
     TEST( test_overwrite_discard_vs_evictor ),
+    TEST( test_clock_claim_vs_freed ),
     TEST( test_preevict_release_store_order ),
     TEST( test_probe_vs_pd_commit ),
     TEST( test_pd_same_fork_read_vs_write ),

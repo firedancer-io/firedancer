@@ -1579,6 +1579,7 @@ acquire_cache_line( fd_accdb_t * accdb,
 
     if( FD_UNLIKELY( line->key.generation==UINT_MAX && line->acc_idx==UINT_MAX ) ) continue;
 
+    fd_racesan_hook( "accdb_clock:pre_refcnt" );
     uint rc = FD_VOLATILE_CONST( line->refcnt );
     if( FD_UNLIKELY( rc!=0U ) ) continue; /* Pinned or being evicted */
 
@@ -1588,6 +1589,11 @@ acquire_cache_line( fd_accdb_t * accdb,
     }
 
     if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) continue;
+
+    if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX ) ) {
+      FD_VOLATILE( line->refcnt ) = 0;
+      continue;
+    }
 
     /* The line is now claimed for eviction (refcnt==EVICT_SENTINEL).  A
        concurrent acc_unlink that targets this same line's accmeta will
@@ -3829,6 +3835,11 @@ background_preevict( fd_accdb_t * accdb,
 
       if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) continue;
 
+      if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX ) ) {
+        FD_VOLATILE( line->refcnt ) = 0;
+        continue;
+      }
+
       uint acc_idx = line->acc_idx;
 #if FD_TMPL_USE_HANDHOLDING
       uint line_gen FD_FN_UNUSED = line->key.generation;
@@ -4437,6 +4448,11 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
 
   /* Claim for eviction, same as acquire_cache_line's CLOCK path. */
   if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) return UINT_MAX;
+
+  if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX ) ) {
+    FD_VOLATILE( line->refcnt ) = 0;
+    return UINT_MAX;
+  }
 
   fd_racesan_hook( "clock_evict:post_sentinel" );
 
