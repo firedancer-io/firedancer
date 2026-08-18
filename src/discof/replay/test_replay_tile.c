@@ -68,6 +68,7 @@ void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i, int i
   mock_sched_abandon_idx = i;
 }
 void  mock_sched_cancel_fn      ( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED ) {}
+int   mock_sched_is_discarded_fn( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED ) { return 0; }
 ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED ) {}
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, ulong d FD_PARAM_UNUSED, fd_hash_t const * e FD_PARAM_UNUSED ) {}
@@ -82,6 +83,7 @@ void  mock_sched_root_notify_fn ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
 #define fd_sched_is_drained        mock_sched_is_drained_fn
 #define fd_sched_block_abandon     mock_sched_abandon_fn
 #define fd_sched_cancel            mock_sched_cancel_fn
+#define fd_sched_block_is_discarded mock_sched_is_discarded_fn
 #define fd_sched_pruned_block_next mock_sched_pruned_fn
 #define fd_sched_metrics_write     mock_sched_metrics_fn
 #define fd_sched_set_poh_params    mock_sched_poh_fn
@@ -259,6 +261,7 @@ static ulong test_timing_of_bank[ TEST_BANKS_MAX ];
 static void
 setup_timing( fd_replay_tile_t * ctx,
               fd_wksp_t *        wksp ) {
+  fd_clock_tile_init( ctx->clock );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_timing_slot_pool_align(), fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ), 1UL );
   ctx->timing_slot_pool = fd_timing_slot_pool_join( fd_timing_slot_pool_new( mem, FD_REPLAY_TXN_TIMING_SLOTS ) );
   FD_TEST( ctx->timing_slot_pool );
@@ -335,7 +338,8 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->reset_slot            = 0UL;
   ctx->tick_per_ns           = fd_tempo_tick_per_ns( NULL );
-  ctx->block_id_len = bid_cnt;
+  ctx->block_id_len   = bid_cnt;
+  ctx->max_live_slots = bid_cnt;
   ctx->consensus_root_slot     = ULONG_MAX;
   ctx->published_root_slot     = ULONG_MAX;
   ctx->published_root_bank_idx = root_bank->idx;
@@ -529,7 +533,8 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( map_mem );
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( map_mem, chain_cnt, 44UL ) );
   FD_TEST( ctx->block_id_map );
-  ctx->block_id_len = bank_cnt;
+  ctx->block_id_len   = bank_cnt;
+  ctx->max_live_slots = bank_cnt;
 
   void * reasm_mem = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( 2UL ), 1UL );
   FD_TEST( reasm_mem );

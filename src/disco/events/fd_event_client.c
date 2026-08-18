@@ -614,9 +614,9 @@ fd_event_client_grpc_conn_dead( void * app_ctx,
                                 uint   h2_err,
                                 int    closed_by ) {
   fd_event_client_t * client = app_ctx;
-  FD_LOG_WARNING(( "Event gRPC connection closed %s (%u-%s)",
+  FD_LOG_WARNING(( "telemetry connection closed %s %s(%u-%s)%s",
                    closed_by ? "by peer" : "due to error",
-                   h2_err, fd_h2_strerror( h2_err ) ));
+                   fd_log_style_dim(), h2_err, fd_h2_strerror( h2_err ), fd_log_style_normal() ));
   client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
 }
 

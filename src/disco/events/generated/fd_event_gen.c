@@ -326,6 +326,130 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
 }
 
 void
+fd_event_block_completed_serialize( fd_circq_t *                       circq,
+                                    fd_event_client_t *                client,
+                                    long                               timestamp_nanos,
+                                    ulong                              link_seq,
+                                    fd_event_block_completed_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_BLOCK_COMPLETED_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_BLOCK_COMPLETED_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_BLOCK_COMPLETED_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  FD_TEST( msg->txn_timing_cnt<=98039UL );
+
+  uchar const * _dyn = (uchar const *)msg + FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ;
+  fd_event_block_completed_txn_timing_t const * txn_timing = (fd_event_block_completed_txn_timing_t const *)_dyn;
+  _dyn += msg->txn_timing_cnt*sizeof(txn_timing[0]);
+  ulong txn_timing_cnt = msg->txn_timing_cnt;
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 9U ); /* BlockCompleted */
+  if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->bank_idx ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->bank_idx );
+  if( msg->txncache_fork_id ) ok &= !!fd_pb_push_uint32( encoder, 3U, (uint)msg->txncache_fork_id );
+  if( msg->progcache_fork_id ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->progcache_fork_id );
+  if( msg->accdb_fork_id ) ok &= !!fd_pb_push_uint32( encoder, 5U, (uint)msg->accdb_fork_id );
+  if( msg->vote_stakes_fork_id ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->vote_stakes_fork_id );
+  if( msg->collector_overrides_fork_id ) ok &= !!fd_pb_push_uint32( encoder, 7U, (uint)msg->collector_overrides_fork_id );
+  if( msg->stake_rewards_fork_id ) ok &= !!fd_pb_push_uint32( encoder, 8U, (uint)msg->stake_rewards_fork_id );
+  if( msg->epoch_credits_fork_id ) ok &= !!fd_pb_push_uint32( encoder, 9U, (uint)msg->epoch_credits_fork_id );
+  if( msg->stake_delegations_fork_id ) ok &= !!fd_pb_push_uint32( encoder, 10U, (uint)msg->stake_delegations_fork_id );
+  if( msg->cost_tracker_pool_idx ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->cost_tracker_pool_idx );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->slot );
+  if( msg->epoch ) ok &= !!fd_pb_push_uint64( encoder, 13U, (ulong)msg->epoch );
+  if( msg->parent_slot ) ok &= !!fd_pb_push_uint64( encoder, 14U, (ulong)msg->parent_slot );
+  if( msg->root_slot ) ok &= !!fd_pb_push_uint64( encoder, 15U, (ulong)msg->root_slot );
+  if( msg->storage_slot ) ok &= !!fd_pb_push_uint64( encoder, 16U, (ulong)msg->storage_slot );
+  if( msg->turbine_slot ) ok &= !!fd_pb_push_uint64( encoder, 17U, (ulong)msg->turbine_slot );
+  if( msg->caught_up ) ok &= !!fd_pb_push_bool  ( encoder, 18U, msg->caught_up );
+  if( msg->fork_width ) ok &= !!fd_pb_push_uint64( encoder, 19U, (ulong)msg->fork_width );
+  if( msg->snapshot_in_progress ) ok &= !!fd_pb_push_bool  ( encoder, 20U, msg->snapshot_in_progress );
+  if( msg->live_bank_count ) ok &= !!fd_pb_push_uint64( encoder, 21U, (ulong)msg->live_bank_count );
+  ok &= !!fd_pb_push_bytes ( encoder, 22U, msg->block_id, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 23U, msg->parent_block_id, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 24U, msg->bank_hash, 32UL );
+  if( msg->dead ) ok &= !!fd_pb_push_bool  ( encoder, 25U, msg->dead );
+  if( msg->dead_reason ) ok &= !!fd_pb_push_int32 ( encoder, 26U, msg->dead_reason );
+  if( msg->dead_time ) ok &= !!fd_pb_push_uint64( encoder, 27U, (ulong)msg->dead_time );
+  if( msg->abandoned ) ok &= !!fd_pb_push_bool  ( encoder, 28U, msg->abandoned );
+  if( msg->abandoned_reason ) ok &= !!fd_pb_push_int32 ( encoder, 29U, msg->abandoned_reason );
+  if( msg->abandoned_time ) ok &= !!fd_pb_push_uint64( encoder, 30U, (ulong)msg->abandoned_time );
+  if( msg->is_leader ) ok &= !!fd_pb_push_bool  ( encoder, 31U, msg->is_leader );
+  if( msg->first_shred_received_time ) ok &= !!fd_pb_push_uint64( encoder, 32U, (ulong)msg->first_shred_received_time );
+  if( msg->last_shred_received_time ) ok &= !!fd_pb_push_uint64( encoder, 33U, (ulong)msg->last_shred_received_time );
+  if( msg->first_repair_request_time ) ok &= !!fd_pb_push_uint64( encoder, 34U, (ulong)msg->first_repair_request_time );
+  if( msg->last_repair_received_time ) ok &= !!fd_pb_push_uint64( encoder, 35U, (ulong)msg->last_repair_received_time );
+  if( msg->first_fec_set_received_time ) ok &= !!fd_pb_push_uint64( encoder, 36U, (ulong)msg->first_fec_set_received_time );
+  if( msg->preparation_begin_time ) ok &= !!fd_pb_push_uint64( encoder, 37U, (ulong)msg->preparation_begin_time );
+  if( msg->first_transaction_scheduled_time ) ok &= !!fd_pb_push_uint64( encoder, 38U, (ulong)msg->first_transaction_scheduled_time );
+  if( msg->last_transaction_finished_time ) ok &= !!fd_pb_push_uint64( encoder, 39U, (ulong)msg->last_transaction_finished_time );
+  if( msg->block_completed_time ) ok &= !!fd_pb_push_uint64( encoder, 40U, (ulong)msg->block_completed_time );
+  if( msg->parent_block_completed_time ) ok &= !!fd_pb_push_uint64( encoder, 41U, (ulong)msg->parent_block_completed_time );
+  if( msg->fec_set_count ) ok &= !!fd_pb_push_uint64( encoder, 42U, (ulong)msg->fec_set_count );
+  if( msg->data_shred_count ) ok &= !!fd_pb_push_uint32( encoder, 43U, (uint)msg->data_shred_count );
+  if( msg->parity_shred_count ) ok &= !!fd_pb_push_uint32( encoder, 44U, (uint)msg->parity_shred_count );
+  if( msg->turbine_shred_count ) ok &= !!fd_pb_push_uint32( encoder, 45U, (uint)msg->turbine_shred_count );
+  if( msg->repair_shred_count ) ok &= !!fd_pb_push_uint32( encoder, 46U, (uint)msg->repair_shred_count );
+  if( msg->recovered_shred_count ) ok &= !!fd_pb_push_uint32( encoder, 47U, (uint)msg->recovered_shred_count );
+  if( msg->chain_confirmed ) ok &= !!fd_pb_push_bool  ( encoder, 48U, msg->chain_confirmed );
+  if( msg->lowest_verified_fec_index ) ok &= !!fd_pb_push_uint32( encoder, 49U, (uint)msg->lowest_verified_fec_index );
+  if( msg->last_completed_fec_set_index ) ok &= !!fd_pb_push_uint32( encoder, 50U, (uint)msg->last_completed_fec_set_index );
+  if( msg->slot_complete_flag ) ok &= !!fd_pb_push_bool  ( encoder, 51U, msg->slot_complete_flag );
+  if( msg->equivocation_detected_shred ) ok &= !!fd_pb_push_bool  ( encoder, 52U, msg->equivocation_detected_shred );
+  if( msg->repair_requests_retransmitted ) ok &= !!fd_pb_push_uint32( encoder, 53U, (uint)msg->repair_requests_retransmitted );
+  if( msg->repair_responses_received ) ok &= !!fd_pb_push_uint32( encoder, 54U, (uint)msg->repair_responses_received );
+  if( msg->repair_request_window_count ) ok &= !!fd_pb_push_uint32( encoder, 55U, (uint)msg->repair_request_window_count );
+  if( msg->repair_request_highest_window_count ) ok &= !!fd_pb_push_uint32( encoder, 56U, (uint)msg->repair_request_highest_window_count );
+  if( msg->repair_request_orphan_count ) ok &= !!fd_pb_push_uint32( encoder, 57U, (uint)msg->repair_request_orphan_count );
+  if( msg->repair_failed_chain_verify ) ok &= !!fd_pb_push_bool  ( encoder, 58U, msg->repair_failed_chain_verify );
+  if( msg->cost_tracker_block_cost ) ok &= !!fd_pb_push_uint64( encoder, 59U, (ulong)msg->cost_tracker_block_cost );
+  if( msg->cost_tracker_allocated_accounts_data_size ) ok &= !!fd_pb_push_uint64( encoder, 60U, (ulong)msg->cost_tracker_allocated_accounts_data_size );
+  if( msg->cost_tracker_block_cost_limit ) ok &= !!fd_pb_push_uint64( encoder, 61U, (ulong)msg->cost_tracker_block_cost_limit );
+  if( msg->cost_tracker_vote_cost_limit ) ok &= !!fd_pb_push_uint64( encoder, 62U, (ulong)msg->cost_tracker_vote_cost_limit );
+  if( msg->cost_tracker_account_cost_limit ) ok &= !!fd_pb_push_uint64( encoder, 63U, (ulong)msg->cost_tracker_account_cost_limit );
+  if( msg->became_leader_time ) ok &= !!fd_pb_push_uint64( encoder, 64U, (ulong)msg->became_leader_time );
+  if( msg->leader_slot_start_time ) ok &= !!fd_pb_push_uint64( encoder, 65U, (ulong)msg->leader_slot_start_time );
+  if( msg->pack_start_time ) ok &= !!fd_pb_push_uint64( encoder, 66U, (ulong)msg->pack_start_time );
+  if( msg->pack_end_time ) ok &= !!fd_pb_push_uint64( encoder, 67U, (ulong)msg->pack_end_time );
+  if( msg->microblock_count ) ok &= !!fd_pb_push_uint64( encoder, 68U, (ulong)msg->microblock_count );
+  if( msg->pack_block_cost ) ok &= !!fd_pb_push_uint64( encoder, 69U, (ulong)msg->pack_block_cost );
+  if( msg->pack_vote_cost ) ok &= !!fd_pb_push_uint64( encoder, 70U, (ulong)msg->pack_vote_cost );
+  if( msg->pack_data_bytes ) ok &= !!fd_pb_push_uint64( encoder, 71U, (ulong)msg->pack_data_bytes );
+  if( msg->pack_end_reason ) ok &= !!fd_pb_push_int32 ( encoder, 72U, msg->pack_end_reason );
+  if( msg->bundle_txn_count ) ok &= !!fd_pb_push_uint64( encoder, 73U, (ulong)msg->bundle_txn_count );
+  for( ulong k=0UL; k<txn_timing_cnt; k++ ) {
+    ok &= !!fd_pb_submsg_open( encoder, 74U );
+    if( txn_timing[ k ].received_time ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)txn_timing[ k ].received_time );
+    if( txn_timing[ k ].parsed_time ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)txn_timing[ k ].parsed_time );
+    if( txn_timing[ k ].dispatched_time ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)txn_timing[ k ].dispatched_time );
+    if( txn_timing[ k ].replayed_time ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)txn_timing[ k ].replayed_time );
+    if( txn_timing[ k ].sigverify_dispatched_time ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)txn_timing[ k ].sigverify_dispatched_time );
+    if( txn_timing[ k ].sigverify_done_time ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)txn_timing[ k ].sigverify_done_time );
+    if( txn_timing[ k ].poh_mixed_time ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)txn_timing[ k ].poh_mixed_time );
+    ok &= !!fd_pb_submsg_close( encoder );
+  }
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -358,6 +482,14 @@ fd_event_serialize_by_type( ulong               type,
     FD_TEST( ev_sz==sizeof(fd_event_runtime_txn_t) );
     fd_event_runtime_txn_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_txn_t const *)ev );
     break;
+  case 9UL: {
+    FD_TEST( ev_sz>=FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ );
+    fd_event_block_completed_t const * msg = (fd_event_block_completed_t const *)ev;
+    FD_TEST( msg->txn_timing_cnt<=98039UL );
+    FD_TEST( ev_sz==fd_event_block_completed_footprint( msg ) );
+    fd_event_block_completed_serialize( circq, client, timestamp_nanos, link_seq, msg );
+    break;
+  }
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }
 }
