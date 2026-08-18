@@ -843,9 +843,13 @@ process_account_batch( fd_snapin_tile_t *            ctx,
   ulong         data_lens  [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   int           executables[ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
 
+  /* Resolve pubkey pointers first and start the acc_map prefetch, so the
+     per-account loop below runs while those lines are in flight. */
+  for( ulong i=0UL; i<cnt; i++ ) pubkeys[ i ] = entries[ i ] + 16UL;
+  fd_accdb_snapshot_prefetch_batch( ctx->accdb, cnt, pubkeys );
+
   for( ulong i=0UL; i<cnt; i++ ) {
     uchar const * e = entries[ i ];
-    pubkeys[ i ]     = e + 16UL;
     slots[ i ]       = batch_slot;
     lamports[ i ]    = fd_ulong_load_8_fast( e+48UL );
     data_lens[ i ]   = fd_ulong_load_8_fast( e+8UL );

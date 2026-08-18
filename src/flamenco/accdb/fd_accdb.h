@@ -556,6 +556,22 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
    USHORT_MAX for full-snapshot mode, otherwise incremental mode with
    txn tracking on the specified fork. */
 
+/* fd_accdb_snapshot_prefetch_batch computes the hash chain bucket for each
+   pubkey and issues a prefetch for it, then returns.  It performs no lookup
+   and mutates nothing.
+
+   Call it as early as possible before fd_accdb_snapshot_write_batch on the
+   same pubkeys -- ideally with a few hundred cycles of unrelated work in
+   between.  The acc_map is indexed by a hash, so every bucket load is a
+   random access over gigabytes and misses to DRAM; write_batch's own
+   prefetch sits only a handful of cycles ahead of its use and cannot cover
+   that latency on its own. */
+
+void
+fd_accdb_snapshot_prefetch_batch( fd_accdb_t *        accdb,
+                                  ulong               cnt,
+                                  uchar const * const pubkeys[] );
+
 int
 fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                fd_accdb_fork_id_t  fork_id,
