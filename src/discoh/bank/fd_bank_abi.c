@@ -853,13 +853,14 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     out_sidecar += txn->acct_addr_cnt;
     out_sidecar = (void*)fd_ulong_align_up( (ulong)out_sidecar, 8UL );
 
-    message->priority_fee.discr                    = (ulong)( v1_config_mask     &1U);
-    message->priority_fee._0                       = v1_priority_fee;
+    message->priority_fee.discr                    = (ulong)( v1_config_mask    &1U);
     message->compute_unit_limit.discr              =        ((v1_config_mask>>2)&1U);
-    message->compute_unit_limit._0                 = (uint)v1_cu_limit;
     message->loaded_accounts_data_size_limit.discr =        ((v1_config_mask>>3)&1U);
-    message->loaded_accounts_data_size_limit._0    = (uint)v1_loaded_sz;
     message->heap_size.discr                       =        ((v1_config_mask>>4)&1U);
+
+    message->priority_fee._0                       = v1_priority_fee;
+    message->compute_unit_limit._0                 = (uint)v1_cu_limit;
+    message->loaded_accounts_data_size_limit._0    = (uint)v1_loaded_sz;
     message->heap_size._0                          = (uint)v1_heap_sz;
 
     message->account_keys_cnt = txn->acct_addr_cnt;
