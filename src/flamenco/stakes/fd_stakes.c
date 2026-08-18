@@ -532,7 +532,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   ulong total_deactivating         = 0UL;
   ulong staked_accounts            = 0UL;
   int   use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
-  int   alpenglow_enabled          = 0; // TODO add feature
+  int   alpenglow_enabled          = FD_FEATURE_ACTIVE_BANK( bank, alpenglow );
+  FD_LOG_NOTICE(("alpenglow enabled: %d", alpenglow_enabled));
 
   fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;

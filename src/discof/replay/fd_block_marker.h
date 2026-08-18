@@ -66,9 +66,9 @@ typedef struct fd_block_marker fd_block_marker_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* The variant deserializers below decode a versioned marker payload,
+/* The deserializers below decode a versioned block marker payload,
    with buf pointing at the payload byte (FD_BLOCK_MARKER_PREAMBLE_SZ
-   into the marker). They return FD_BLOCK_MARKER_DE_SUCCESS and write
+   into the marker). returns FD_BLOCK_MARKER_DE_SUCCESS and write
    the number of bytes consumed to buf_sz (if non-NULL) on success, and
    return FD_BLOCK_MARKER_DE_ERR_* on failure. */
 
@@ -91,12 +91,10 @@ fd_update_parent_de( fd_update_parent_t * update_parent,
                      ulong *              buf_sz );
 
 /* fd_block_marker_de deserializes a whole block marker, with buf
-   pointing at the marker flag (the start of the marker batch). Trailing
-   bytes past buf_max are not consumed (and not an error): buf_sz
-   receives FD_BLOCK_MARKER_PREAMBLE_SZ + length on success.  Returns
-   FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED or
-   FD_BLOCK_MARKER_DE_ERR_MALFORMED. */
-
+   pointing at the marker flag (the start of the entry batch). Trailing
+   bytes past buf_max are not consumed.  buf_sz set to
+   FD_BLOCK_MARKER_PREAMBLE_SZ + length on success, and returns
+   FD_BLOCK_MARKER_DE_SUCCESS or FD_BLOCK_MARKER_DE_ERR_* on failure */
 int
 fd_block_marker_de( fd_block_marker_t * marker,
                     uchar const *       buf,

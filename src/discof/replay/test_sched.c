@@ -12,7 +12,7 @@
 
 static void
 test_sched_footprint( void ) {
-  FD_TEST( fd_sched_footprint( 512UL, 4UL )==14042752UL );
+  FD_TEST( fd_sched_footprint( 512UL, 4UL )==14048000UL );
 }
 
 static void

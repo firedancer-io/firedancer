@@ -3,17 +3,11 @@
 #include "../../ballet/txn/fd_compact_u16.h"      /* reward cert bitmaps are ShortU16 length prefixed */
 #include "../../choreo/votor/ag_bls.h"         /* for AG_BLS_PUB_COMPRESSED_SZ */
 
-/* Cursor helpers.  buf/rem track the unconsumed input; each helper
-   either advances past a well-formed sub-encoding or returns the
-   FD_BLOCK_MARKER_DE_ERR_* it failed with. */
-
-#define CHECK_LEFT( n ) do {                                   \
+#define CHECK_LEFT( n ) do {                                            \
   if( FD_UNLIKELY( (n)>rem ) ) return FD_BLOCK_MARKER_DE_ERR_TRUNCATED; \
 } while( 0 )
 
 #define ADVANCE( n ) do { buf += (n); rem -= (n); } while( 0 )
-
-/* option_de reads a Option tag (u8, 0 or 1). */
 
 static int
 option_de( uchar const ** _buf,
@@ -29,10 +23,7 @@ option_de( uchar const ** _buf,
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
 
-/* votes_aggregate_skip advances past a VotesAggregate:
-
-     compressed BLS signature (96) | bitmap byte count (u16 LE) | bitmap */
-
+/* votes_aggregate_skip advances past a VotesAggregate */
 static int
 votes_aggregate_skip( uchar const ** _buf,
                       ulong *        _rem ) {
@@ -213,10 +204,7 @@ fd_block_marker_de( fd_block_marker_t * marker,
 
   marker->variant = variant;
 
-  /* Decode the length-prefixed payload.  The payload deserializer may
-     consume less than length: unknown fields appended are skipped
-     rather than treated as malformed. */
-
+  /* payload deserializer may consume less than length */
   int err;
   switch( variant ) {
     case FOOTER:        err = fd_block_footer_de ( &marker->footer,        buf, length, NULL ); break;

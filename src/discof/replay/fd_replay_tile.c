@@ -901,15 +901,16 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
 
   if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
-    /* An Alpenglow block's footer announces the bank hash the block
-       producer computed.  A completed block with no footer, or whose
-       executed bank hash differs from the announced one, is invalid. */
     fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
     if( FD_UNLIKELY( memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
       FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
-      FD_LOG_CRIT(( "slot %lu: bank hash mismatch, footer announced %s but executed %s; marking bank dead", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+      FD_LOG_CRIT(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
       return;
+    } else {
+      FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58 );
+      FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
+      FD_LOG_INFO(( "slot %lu: bank hash matches, footer declares %s, executed %s", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
     }
   }
 
