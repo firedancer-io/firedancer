@@ -41,7 +41,6 @@ fd_topo_initialize( config_t * config ) {
   ulong resolh_tile_cnt = config->frankendancer.layout.resolh_tile_count;
   ulong bank_tile_cnt   = config->frankendancer.layout.bank_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
-
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
@@ -94,9 +93,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "dedup_resolh", "dedup_resolh", 65536UL,                                  FD_TPU_PARSED_MTU,      1UL );
   FOR(resolh_tile_cnt) fd_topob_link( topo, "resolh_pack",  "resolh_pack",  65536UL,                                  FD_TPU_RESOLVED_MTU,    1UL );
   /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    128UL,                                    FD_STAKE_OUT_MTU,       1UL );
-  /* pack_bank is shared across all banks, so if one bank stalls due to complex transactions, the buffer needs to be large so that
-     other banks can keep proceeding. */
-  /**/                 fd_topob_link( topo, "pack_bank",    "pack_bank",    65536UL,                                  USHORT_MAX,             1UL );
+  FOR(bank_tile_cnt)   fd_topob_link( topo, "pack_bank",    "pack_bank",    256UL,                                    USHORT_MAX,             1UL );
   /**/                 fd_topob_link( topo, "pack_pohh",    "pack_pohh",    65536UL,                                  sizeof(fd_done_packing_t), 1UL );
   FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_pohh",    "bank_pohh",    16384UL,                                  USHORT_MAX,             1UL );
   FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_pack",    "bank_pack",    16384UL,                                  USHORT_MAX,             3UL );
@@ -193,9 +190,9 @@ fd_topo_initialize( config_t * config ) {
      most one in flight at any time. */
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "pohh_pack",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "executed_txn", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-                       fd_topob_tile_out( topo, "pack",   0UL,                        "pack_bank",    0UL                                                );
-                       fd_topob_tile_out( topo, "pack",   0UL,                        "pack_pohh",    0UL                                                );
-  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "bank",   i,             "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "pack",   0UL,                        "pack_bank",    i                                                  );
+  /**/                 fd_topob_tile_out( topo, "pack",   0UL,                        "pack_pohh",    0UL                                                );
+  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "bank",   i,             "metric_in", "pack_bank",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "bank",   i,                          "bank_pohh",    i                                                  );
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "bank",   i,                          "bank_pack",    i                                                  );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "pohh",    0UL,          "metric_in", "bank_pohh",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -278,7 +275,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile( topo, "guih",    "guih",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
     /**/                 fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "pohh_pack",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "pack_bank",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "pack_pohh",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "bank_pohh",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }

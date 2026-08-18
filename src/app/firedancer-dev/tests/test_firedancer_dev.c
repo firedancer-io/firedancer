@@ -158,6 +158,23 @@ wait_children( struct child_info * children,
   return exited_child;
 }
 
+static void
+test_pack_execle_links( config_t const * config ) {
+  ulong execle_cnt = config->firedancer.layout.execle_tile_count;
+  ulong pack_idx   = fd_topo_find_tile( &config->topo, "pack", 0UL );
+  FD_TEST( pack_idx!=ULONG_MAX );
+  for( ulong i=0UL; i<execle_cnt; i++ ) {
+    ulong link_idx   = fd_topo_find_link( &config->topo, "pack_execle", i );
+    ulong execle_idx = fd_topo_find_tile( &config->topo, "execle", i );
+    FD_TEST( link_idx!=ULONG_MAX );
+    FD_TEST( execle_idx!=ULONG_MAX );
+    FD_TEST( config->topo.links[ link_idx ].depth==256UL );
+    FD_TEST( fd_topo_find_tile_out_link( &config->topo, &config->topo.tiles[ pack_idx ], "pack_execle", i )!=ULONG_MAX );
+    FD_TEST( fd_topo_find_tile_in_link( &config->topo, &config->topo.tiles[ execle_idx ], "pack_execle", i )!=ULONG_MAX );
+  }
+  FD_TEST( fd_topo_find_link( &config->topo, "pack_execle", execle_cnt )==ULONG_MAX );
+}
+
 int
 firedancer_dev_test_run( int     argc,
                          char ** argv,
@@ -185,6 +202,7 @@ firedancer_dev_test_run( int     argc,
       config->has_user_config = 1;
 
       fd_topo_initialize( config );
+      test_pack_execle_links( config );
 
       ulong genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib<<20;
       ulong genesi_idx = fd_topo_find_tile( &config->topo, "genesi", 0UL );
@@ -324,5 +342,14 @@ test_firedancer_dev( config_t * config ) {
 int
 main( int     argc,
       char ** argv ) {
+  if( argc==2 && !strcmp( argv[ 1 ], "--topology-only" ) ) {
+    fd_boot( &argc, &argv );
+    static config_t config[ 1 ];
+    fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
+    fd_topo_initialize( config );
+    test_pack_execle_links( config );
+    fd_halt();
+    return 0;
+  }
   return firedancer_dev_test_run( argc, argv, test_firedancer_dev );
 }

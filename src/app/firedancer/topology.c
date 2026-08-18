@@ -296,7 +296,6 @@ fd_topo_initialize( config_t * config ) {
     verify_tile_cnt = 0UL;
     config->tiles.bundle.enabled = 0;
   }
-
   fd_topob_wksp( topo, "metric_in"    );
 
   fd_topob_wksp( topo, "net_gossip"   );
@@ -463,10 +462,7 @@ fd_topo_initialize( config_t * config ) {
     FOR(resolv_tile_cnt)   fd_topob_link( topo, "resolv_pack",   "resolv_pack",   65536UL,                                  FD_TPU_RESOLVED_MTU,           1UL );
     /**/                   fd_topob_link( topo, "pack_poh",      "pack_poh",      4096UL,                                   sizeof(fd_done_packing_t),     1UL );
     FOR(execle_tile_cnt)   fd_topob_link( topo, "execle_poh",    "execle_poh",    16384UL,                                  FD_EXECLE_POH_MTU,             1UL );
-    /* pack_execle is shared across all execle, so if one executor stalls
-       due to complex transactions, the buffer needs to be large so that
-       other executors can keep proceeding. */
-    /**/                   fd_topob_link( topo, "pack_execle",   "pack_execle",   65536UL,                                  FD_PACK_EXECLE_MTU,            1UL );
+    FOR(execle_tile_cnt)   fd_topob_link( topo, "pack_execle",   "pack_execle",   256UL,                                    FD_PACK_EXECLE_MTU,            1UL );
     if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
       FOR(execle_tile_cnt) fd_topob_link( topo, "execle_pack",   "execle_pack",   16384UL,                                  FD_PACK_REBATE_MAX_SZ,         1UL );
     }
@@ -751,12 +747,12 @@ fd_topo_initialize( config_t * config ) {
     FOR(resolv_tile_cnt) fd_topob_tile_out( topo, "resolv",  i,                         "resolv_replay", i                                                  );
     FOR(resolv_tile_cnt) fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "resolv_pack",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_out(  topo, "pack",   0UL,                       "pack_execle",   0UL                                                );
+    FOR(execle_tile_cnt) fd_topob_tile_out(  topo, "pack",   0UL,                       "pack_execle",   i                                                  );
     /**/                 fd_topob_tile_out(  topo, "pack",   0UL,                       "pack_poh" ,     0UL                                                );
     if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
       FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "pack",  0UL,          "metric_in", "execle_pack",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
-    FOR(execle_tile_cnt) fd_topob_tile_in ( topo, "execle",  i,            "metric_in", "pack_execle",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(execle_tile_cnt) fd_topob_tile_in ( topo, "execle",  i,            "metric_in", "pack_execle",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     FOR(execle_tile_cnt) fd_topob_tile_out( topo, "execle",  i,                         "execle_poh",    i                                                  );
     if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
       FOR(execle_tile_cnt)fd_topob_tile_out(topo, "execle",  i,                         "execle_pack",   i                                                  );
@@ -1059,7 +1055,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     if( leader_enabled ) {
       /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_poh",      0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_execle",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_execle",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
       FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execle_poh",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
     FOR(execrp_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execrp_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );

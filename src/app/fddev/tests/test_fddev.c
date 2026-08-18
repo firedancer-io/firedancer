@@ -159,6 +159,23 @@ wait_children( struct child_info * children,
   return exited_child;
 }
 
+static void
+test_pack_bank_links( config_t const * config ) {
+  ulong bank_cnt = config->frankendancer.layout.bank_tile_count;
+  ulong pack_idx = fd_topo_find_tile( &config->topo, "pack", 0UL );
+  FD_TEST( pack_idx!=ULONG_MAX );
+  for( ulong i=0UL; i<bank_cnt; i++ ) {
+    ulong link_idx = fd_topo_find_link( &config->topo, "pack_bank", i );
+    ulong bank_idx = fd_topo_find_tile( &config->topo, "bank", i );
+    FD_TEST( link_idx!=ULONG_MAX );
+    FD_TEST( bank_idx!=ULONG_MAX );
+    FD_TEST( config->topo.links[ link_idx ].depth==256UL );
+    FD_TEST( fd_topo_find_tile_out_link( &config->topo, &config->topo.tiles[ pack_idx ], "pack_bank", i )!=ULONG_MAX );
+    FD_TEST( fd_topo_find_tile_in_link( &config->topo, &config->topo.tiles[ bank_idx ], "pack_bank", i )!=ULONG_MAX );
+  }
+  FD_TEST( fd_topo_find_link( &config->topo, "pack_bank", bank_cnt )==ULONG_MAX );
+}
+
 int
 fddev_test_run( int     argc,
                 char ** argv,
@@ -181,6 +198,8 @@ fddev_test_run( int     argc,
       config->has_user_config = 1;
 
       fd_topo_initialize( config );
+      test_pack_bank_links( config );
+
       config->log.log_fd = fd_log_private_logfile_fd();
       config->frankendancer.consensus.poh_speed_test = 0;
 
@@ -235,5 +254,14 @@ test_fddev( config_t * config ) {
 int
 main( int     argc,
       char ** argv ) {
+  if( argc==2 && !strcmp( argv[ 1 ], "--topology-only" ) ) {
+    fd_boot( &argc, &argv );
+    static config_t config[ 1 ];
+    fd_config_load( 0, 1, (char const *)fdctl_default_config, fdctl_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 /* dev */ );
+    fd_topo_initialize( config );
+    test_pack_bank_links( config );
+    fd_halt();
+    return 0;
+  }
   return fddev_test_run( argc, argv, test_fddev );
 }
