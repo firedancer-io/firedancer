@@ -861,10 +861,8 @@ during_frag( fd_shred_ctx_t * ctx,
       return;
     };
 
-    /* all shreds in the same FEC set will have the same signature
-       so we can round-robin shreds between the shred tiles based on
-       just the signature without splitting individual FEC sets. */
-    ulong sig = fd_ulong_load_8( shred->signature );
+    /* TODO: make this seeded per validator */
+    ulong sig = fd_ulong_hash( shred->slot ) + fd_uint_hash( shred->fec_set_idx );
     if( FD_LIKELY( sig%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
       ctx->skip_frag = 1;
       return;
