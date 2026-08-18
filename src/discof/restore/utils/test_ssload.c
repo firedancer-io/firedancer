@@ -401,7 +401,8 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* Credits delta exceeds UINT_MAX (epoch_stakes path). */
+  /* Credits delta exceeds UINT_MAX (epoch_stakes path).  Alpenglow
+     accumulates reward lamports here, so this is ordinary data. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
@@ -409,9 +410,10 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = (ulong)UINT_MAX + 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
-  /* Prev credits delta exceeds UINT_MAX (epoch_stakes path). */
+  /* Prev credits break the chain and exceed the final credits
+     (epoch_stakes path). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
@@ -437,10 +439,12 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 101UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* Duplicate epoch (epoch_stakes path). */
+  /* Duplicate epoch (epoch_stakes path).  Legal: the two entries either
+     side of an Alpenglow migration marker both carry the migration
+     epoch, so epochs are only required to be non-decreasing. */
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 100UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
   /* Descending epoch (epoch_stakes path). */
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch = 0UL;
@@ -450,6 +454,87 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
      (epoch_stakes path). */
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch   = 2UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits = 99UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  FD_LOG_NOTICE(( "... pass" ));
+}
+
+/* SIMD-0326: Agave splices AG_MIGRATION_EPOCH_CREDIT into a migrating
+   vote account's epoch credits.  It is a delimiter, not a credits
+   record, so the surrounding entries chain across it. */
+
+static void
+set_epoch_credit( fd_snapshot_manifest_t * manifest,
+                  ulong                    k,
+                  ulong                    epoch,
+                  ulong                    credits,
+                  ulong                    prev_credits ) {
+  epoch_credits_t * epc = &manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[k];
+  epc->epoch        = epoch;
+  epc->credits      = credits;
+  epc->prev_credits = prev_credits;
+}
+
+static void
+setup_migration_marker_case( fd_snapshot_manifest_t * manifest,
+                             ulong                    history_len ) {
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = history_len;
+}
+
+static void
+test_epoch_credits_migration_marker( fd_snapshot_manifest_t * manifest ) {
+  FD_LOG_NOTICE(( "testing alpenglow migration marker in epoch credits" ));
+
+  /* Marker mid-history.  The post-marker entry repeats the migration
+     epoch and chains back to the last tower-era entry, then jumps to
+     lamport scale. */
+  setup_migration_marker_case( manifest, 4UL );
+  set_epoch_credit( manifest, 0UL, 5UL, 3184235UL, 2360133UL );
+  set_epoch_credit( manifest, 1UL, 6UL, 3260485UL, 3184235UL );
+  set_epoch_credit( manifest, 2UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
+  set_epoch_credit( manifest, 3UL, 6UL, 216746563450UL, 3260485UL );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+
+  /* Marker at index 0: nothing precedes it, so the following entry may
+     start from any base. */
+  setup_migration_marker_case( manifest, 2UL );
+  set_epoch_credit( manifest, 0UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
+  set_epoch_credit( manifest, 1UL, 6UL, 9013356638607UL, 8892273541624UL );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+
+  /* Marker as the only entry. */
+  setup_migration_marker_case( manifest, 1UL );
+  set_epoch_credit( manifest, 0UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+
+  /* Agave never pushes a second marker. */
+  setup_migration_marker_case( manifest, 3UL );
+  set_epoch_credit( manifest, 0UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
+  set_epoch_credit( manifest, 1UL, 6UL, 100UL, 0UL );
+  set_epoch_credit( manifest, 2UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* The chain must still hold across the marker. */
+  setup_migration_marker_case( manifest, 3UL );
+  set_epoch_credit( manifest, 0UL, 5UL, 100UL, 0UL );
+  set_epoch_credit( manifest, 1UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
+  set_epoch_credit( manifest, 2UL, 6UL, 300UL, 101UL );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Epochs must still be non-decreasing across the marker. */
+  setup_migration_marker_case( manifest, 3UL );
+  set_epoch_credit( manifest, 0UL, 5UL, 100UL, 0UL );
+  set_epoch_credit( manifest, 1UL, ULONG_MAX, ULONG_MAX, ULONG_MAX );
+  set_epoch_credit( manifest, 2UL, 4UL, 300UL, 100UL );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* A near miss on the sentinel is not a marker, it is corruption. */
+  setup_migration_marker_case( manifest, 2UL );
+  set_epoch_credit( manifest, 0UL, 5UL, 100UL, 0UL );
+  set_epoch_credit( manifest, 1UL, ULONG_MAX, ULONG_MAX, 100UL );
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   FD_LOG_NOTICE(( "... pass" ));
@@ -597,6 +682,7 @@ main( int     argc,
   test_hard_forks( manifest );
   test_vote_accounts( manifest );
   test_epoch_credits_downcasting( manifest );
+  test_epoch_credits_migration_marker( manifest );
   test_recover_preserves_snapin_stake_delegations( wksp, manifest );
 
   fd_wksp_free_laddr( manifest );

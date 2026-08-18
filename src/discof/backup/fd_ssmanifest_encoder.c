@@ -244,6 +244,9 @@ ENCODE_FN {
     }
 
     enc->total_stake += stake;
+
+    FD_TEST( ec_cnt<=FD_EPOCH_CREDITS_MAX );
+
     ulong data_length = 186UL + 24UL * ec_cnt;
 
     /* Vote account key + stake */

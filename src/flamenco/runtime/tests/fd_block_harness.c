@@ -30,6 +30,15 @@ typedef struct {
 /* Fixed leader schedule hash seed (consistent with solfuzz-agave) */
 #define LEADER_SCHEDULE_HASH_SEED 0xDEADFACEUL
 
+/* fd_solfuzz_epoch_credit_is_alpenglow_marker returns 1 if ec is the
+   tower->Alpenglow migration sentinel, 0 otherwise.  Protobuf mirror of
+   fd_vote_epoch_credits_is_alpenglow_marker(). */
+
+FD_FN_PURE static inline int
+fd_solfuzz_epoch_credit_is_alpenglow_marker( fd_exec_test_epoch_credit_t const * ec ) {
+  return ec->epoch==ULONG_MAX && ec->credits==ULONG_MAX && ec->prev_credits==ULONG_MAX;
+}
+
 static void
 fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *                 vote_stakes,
                                            ulong                              vote_stakes_fork_id,
@@ -335,13 +344,23 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len++];
     fd_memcpy( ec->pubkey, prev_vote_accs->address, sizeof(fd_pubkey_t) );
-    ec->cnt          = (uchar)prev_vote_accs->epoch_credits_count; /* <=FD_EPOCH_CREDITS_MAX tested above */
-    ec->base_credits = ec->cnt > 0UL ? prev_vote_accs->epoch_credits[0].prev_credits : 0UL;
+
+    /* Alpenglow migration markers are not credits records: skip them so
+       base_credits comes from the first real entry (subtracting a
+       ULONG_MAX base would underflow every delta) and cnt counts only
+       real entries.  Mirrors fd_ssload.c / get_vote_credits(). */
+    ulong cnt        = 0UL;
+    ec->base_credits = 0UL;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
-      ec->epoch[j]              = (ushort)prev_vote_accs->epoch_credits[j].epoch;
-      ec->credits_delta[j]      = (uint)( prev_vote_accs->epoch_credits[j].credits      - ec->base_credits );
-      ec->prev_credits_delta[j] = (uint)( prev_vote_accs->epoch_credits[j].prev_credits - ec->base_credits );
+      fd_exec_test_epoch_credit_t const * epc = &prev_vote_accs->epoch_credits[j];
+      if( FD_UNLIKELY( fd_solfuzz_epoch_credit_is_alpenglow_marker( epc ) ) ) continue;
+      if( FD_UNLIKELY( !cnt ) ) ec->base_credits = epc->prev_credits;
+      ec->epoch[ cnt ]              = (ushort)epc->epoch;
+      ec->credits_delta[ cnt ]      = epc->credits      - ec->base_credits;
+      ec->prev_credits_delta[ cnt ] = epc->prev_credits - ec->base_credits;
+      cnt++;
     }
+    ec->cnt          = (uchar)cnt; /* <=FD_EPOCH_CREDITS_MAX tested above */
     ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
   }
   *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;

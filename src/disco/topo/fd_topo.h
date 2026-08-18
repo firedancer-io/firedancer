@@ -482,6 +482,7 @@ struct fd_topo_tile {
         char  vote_account_path[ PATH_MAX ];
       } bundle;
 
+      int alpenglow;
     } replay;
 
     struct {
@@ -652,6 +653,7 @@ struct fd_topo_tile {
       ulong accdb_obj_id;
       ulong txncache_obj_id;
       ulong banks_obj_id;
+      int   alpenglow;
     } snapin;
 
     struct {

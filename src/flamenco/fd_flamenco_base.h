@@ -132,12 +132,16 @@ typedef struct fd_stake_rewards fd_stake_rewards_t;
 /* Misc types */
 
 #define FD_EPOCH_CREDITS_MAX (64UL)
+
+/* credits_delta/prev_credits_delta are stored as deltas from
+   base_credits.  These are u64 (no longer u32). */
+
 struct fd_epoch_credits {
   uchar  pubkey[32];
   ulong  base_credits;
   ushort epoch             [ FD_EPOCH_CREDITS_MAX ];
-  uint   credits_delta     [ FD_EPOCH_CREDITS_MAX ];
-  uint   prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
+  ulong  credits_delta     [ FD_EPOCH_CREDITS_MAX ];
+  ulong  prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
   ushort commission;
   uchar  cnt;
   uchar  fast_path_ok; /* True if the entries satisfy the boundary fast path prerequisites:
@@ -150,7 +154,7 @@ struct fd_epoch_credits {
 typedef struct fd_epoch_credits fd_epoch_credits_t;
 
 FD_STATIC_ASSERT( (ulong)UCHAR_MAX>=FD_EPOCH_CREDITS_MAX, cnt_width );
-FD_STATIC_ASSERT( sizeof(fd_epoch_credits_t)==688UL, fd_epoch_credits );
+FD_STATIC_ASSERT( sizeof(fd_epoch_credits_t)==1200UL, fd_epoch_credits );
 
 static inline uchar
 fd_epoch_credits_fast_path_ok( fd_epoch_credits_t const * epoch_credits ) {
