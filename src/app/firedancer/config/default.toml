@@ -977,7 +977,7 @@ telemetry = true
 
     # How many snapshot decompressor tiles to run.  These tiles do not
     # consume CPU when idle.
-    snapdc_tile_count = 2
+    snapdc_tile_count = 1
 
     # How many snapshot compressor tiles to run.  These tiles do not
     # consume CPU when idle.  If set to 0, snapshot creation and all
