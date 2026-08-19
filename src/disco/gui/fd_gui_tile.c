@@ -275,8 +275,7 @@ before_frag( fd_gui_ctx_t * ctx,
              ulong          sig ) {
   (void)seq;
 
-  /* Ignore "done draining banks" and "reduce microblock bound" signals from pack->poh */
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && (sig==FD_PACK_MSG_DONE_DRAINING || sig==FD_PACK_MSG_REDUCE_MB_BOUND) ) ) return 1;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
@@ -498,7 +497,8 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_PACK_POH: {
-      fd_gui_unbecame_leader( ctx->gui, fd_disco_execle_sig_slot( sig ), (fd_done_packing_t const *)src, fd_clock_tile_now( ctx->clock ) );
+      if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING ) ) fd_gui_done_draining( ctx->gui, fd_clock_tile_now( ctx->clock ) );
+      else                                                fd_gui_unbecame_leader( ctx->gui, fd_disco_execle_sig_slot( sig ), (fd_done_packing_t const *)src );
       break;
     }
     case IN_KIND_PACK_EXECLE: {

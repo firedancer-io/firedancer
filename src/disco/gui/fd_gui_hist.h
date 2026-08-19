@@ -39,6 +39,7 @@ typedef struct fd_gui fd_gui_t;
    hold, plus one more which can be evicted under space pressure. */
 
 #define FD_GUI_HIST_MIN_EPOCHS (3UL)
+#define FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH (43200UL) /* 10% capacity should be enough for mainnet/testnet */
 
 /* FD_GUI_HIST_MAX_EPOCHS caps KV index provisioning at the number of
    epochs reachable within the TS index horizon (30 days) +2 for partial

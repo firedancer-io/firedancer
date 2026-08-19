@@ -429,6 +429,9 @@ handle_microblock( fd_execle_tile_t *  ctx,
     if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
   }
 
+  /* Flush GUI-visible counters before releasing the execle to pack. */
+  metrics_write( ctx );
+
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
@@ -444,12 +447,6 @@ handle_microblock( fd_execle_tile_t *  ctx,
      there's always extra bytes at the end to stash the trailer. */
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_execle_trailer_t), poh_shred_mtu );
-
-  /* We have a race window with the GUI, where if the slot is ending it
-     will snap these metrics to draw the waterfall, but see them outdated
-     because housekeeping hasn't run.  For now just update them here, but
-     PoH should eventually flush the pipeline before ending the slot. */
-  metrics_write( ctx );
 
   ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx );
 
@@ -639,6 +636,18 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
   if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_out_t const * txn_out = &ctx->txn_out[ i ];
+
+    ctx->metrics.txn_load_cum_ticks   += fd_ulong_if( txn_out->details.check_start_ticks==LONG_MAX  || txn_out->details.load_start_ticks==LONG_MAX,   0UL, (ulong)( txn_out->details.check_start_ticks  - txn_out->details.load_start_ticks   ) );
+    ctx->metrics.txn_check_cum_ticks  += fd_ulong_if( txn_out->details.exec_start_ticks==LONG_MAX   || txn_out->details.check_start_ticks==LONG_MAX,  0UL, (ulong)( txn_out->details.exec_start_ticks   - txn_out->details.check_start_ticks  ) );
+    ctx->metrics.txn_exec_cum_ticks   += fd_ulong_if( txn_out->details.commit_start_ticks==LONG_MAX || txn_out->details.exec_start_ticks==LONG_MAX,   0UL, (ulong)( txn_out->details.commit_start_ticks - txn_out->details.exec_start_ticks   ) );
+    ctx->metrics.txn_commit_cum_ticks += fd_ulong_if( txn_end_ticks[ i ]==LONG_MAX                  || txn_out->details.commit_start_ticks==LONG_MAX, 0UL, (ulong)( txn_end_ticks[ i ]                  - txn_out->details.commit_start_ticks ) );
+  }
+
+  /* Flush GUI-visible counters before releasing the execle to pack. */
+  metrics_write( ctx );
+
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
@@ -667,16 +676,6 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
     ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 
-    ulong const load_ticks_dt   = fd_ulong_if( txn_out->details.check_start_ticks==LONG_MAX  || txn_out->details.load_start_ticks==LONG_MAX,   0UL, (ulong)( txn_out->details.check_start_ticks  - txn_out->details.load_start_ticks   ) );
-    ulong const check_ticks_dt  = fd_ulong_if( txn_out->details.exec_start_ticks==LONG_MAX   || txn_out->details.check_start_ticks==LONG_MAX,  0UL, (ulong)( txn_out->details.exec_start_ticks   - txn_out->details.check_start_ticks  ) );
-    ulong const exec_ticks_dt   = fd_ulong_if( txn_out->details.commit_start_ticks==LONG_MAX || txn_out->details.exec_start_ticks==LONG_MAX,   0UL, (ulong)( txn_out->details.commit_start_ticks - txn_out->details.exec_start_ticks   ) );
-    ulong const commit_ticks_dt = fd_ulong_if( txn_end_ticks[ i ]==LONG_MAX                  || txn_out->details.commit_start_ticks==LONG_MAX, 0UL, (ulong)( txn_end_ticks[ i ]                  - txn_out->details.commit_start_ticks ) );
-
-    ctx->metrics.txn_load_cum_ticks   += load_ticks_dt;
-    ctx->metrics.txn_check_cum_ticks  += check_ticks_dt;
-    ctx->metrics.txn_exec_cum_ticks   += exec_ticks_dt;
-    ctx->metrics.txn_commit_cum_ticks += commit_ticks_dt;
-
     trailer->txn_ns_dt.load_start   = fd_float_if( txn_out->details.load_start_ticks==LONG_MAX,   0.,                              (float)fd_long_max( 0L, txn_out->details.load_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
     trailer->txn_ns_dt.check_start  = fd_float_if( txn_out->details.check_start_ticks==LONG_MAX,  trailer->txn_ns_dt.load_start,   (float)fd_long_max( 0L, txn_out->details.check_start_ticks  - microblock_start_ticks ) * ctx->ns_per_tick );
     trailer->txn_ns_dt.exec_start   = fd_float_if( txn_out->details.exec_start_ticks==LONG_MAX,   trailer->txn_ns_dt.check_start,  (float)fd_long_max( 0L, txn_out->details.exec_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
@@ -687,8 +686,6 @@ handle_bundle( fd_execle_tile_t *  ctx,
     fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
   }
-
-  metrics_write( ctx );
 }
 
 static inline void

@@ -689,23 +689,6 @@ after_credit( fd_pack_ctx_t *     ctx,
     return;
   }
 
-  /* Am I leader? If not, see about inserting at most one transaction
-     from extra storage.  It's important not to insert too many
-     transactions here, or we won't end up servicing dedup_pack enough.
-     If extra storage is empty or pack is full, do nothing. */
-  if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) {
-#if FD_PACK_USE_EXTRA_STORAGE
-    if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) &&
-         fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
-      *charge_busy = 1;
-
-      int result = insert_from_extra( ctx );
-      if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
-    }
-#endif
-    return;
-  }
-
   /* Am I in drain mode?  If so, check if I can exit it */
   if( FD_UNLIKELY( ctx->drain_execle ) ) {
     if( FD_LIKELY( ctx->execle_idle_bitset==fd_ulong_mask_lsb( (int)execle_cnt ) ) ) {
@@ -724,6 +707,23 @@ after_credit( fd_pack_ctx_t *     ctx,
     } else {
       return;
     }
+  }
+
+  /* Am I leader? If not, see about inserting at most one transaction
+     from extra storage.  It's important not to insert too many
+     transactions here, or we won't end up servicing dedup_pack enough.
+     If extra storage is empty or pack is full, do nothing. */
+  if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) {
+#if FD_PACK_USE_EXTRA_STORAGE
+    if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) &&
+         fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
+      *charge_busy = 1;
+
+      int result = insert_from_extra( ctx );
+      if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
+    }
+#endif
+    return;
   }
 
   if( FD_UNLIKELY( ctx->pending_reduce_mb_bound ) ) {
