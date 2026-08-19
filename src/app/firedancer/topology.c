@@ -1037,6 +1037,11 @@ fd_topo_initialize( config_t * config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, node_info_obj->id, "node_info" ) );
 
+  /* wait_info holds data for the wait command's safe-restart-window checks */
+  fd_topo_obj_t * wait_info_obj = fd_topob_obj( topo, "wait_info", "replay" );
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], wait_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, wait_info_obj->id, "wait_info" ) );
+
   if( FD_UNLIKELY( config->firedancer.runtime.max_fork_width>FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ) ) {
     FD_LOG_ERR(( "max_fork_width must not exceed %lu", FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ));
   }
