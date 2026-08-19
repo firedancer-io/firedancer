@@ -243,7 +243,7 @@ skip_unowned_frame( fd_snapdc_tile_t *  ctx,
     case FD_ZSTD_FRAME_MORE: {
       /* Current frame spans until the end of the frag, so we can move
          onto the next frag. */
-      FD_TEST( skipped==sz-ctx->in.frag_pos );
+      FD_TEST( skipped+ctx->in.frag_pos==sz );
       ctx->in.frag_pos = 0UL;
       return 0;
     }
