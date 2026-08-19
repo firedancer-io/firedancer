@@ -1,0 +1,15 @@
+$ sudo firedancer wait
+[32mNOTICE [0m waiting for a safe window (consensus=tower, min-idle-slots=1500, max-delinquent-stake=5%, skip-health=no, skip-snapshot=no)
+  health       [32m✓[0m caught up
+  leader gap   [31m✗[0m next leader in 412 slots (need 1500)
+  snapshot     [31m✗[0m waiting for a fresh incremental (last at slot 361280512)
+  delinquent   [32m✓[0m ≤2% delinquent (max 5%)
+  waiting... (34s elapsed)
+
+$ sudo firedancer wait --min-idle-seconds 600 --max-delinquent-stake 5
+[32mNOTICE [0m waiting for a safe window (consensus=tower, min-idle-seconds=600s, max-delinquent-stake=5%, skip-health=no, skip-snapshot=no)
+  health       [32m✓[0m caught up
+  leader gap   [32m✓[0m idle 2841 slots (need 1500)
+  snapshot     [32m✓[0m idle
+  delinquent   [32m✓[0m ≤2% delinquent (max 5%)
+[32mNOTICE [0m success at slot 361281407 (health: caught up; leader gap: idle 2841 slots (need 1500); snapshot: idle; delinquent: ≤2% delinquent (max 5%))
