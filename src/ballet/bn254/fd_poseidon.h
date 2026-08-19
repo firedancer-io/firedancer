@@ -27,8 +27,14 @@ struct FD_ALIGNED fd_poseidon {
 typedef struct fd_poseidon fd_poseidon_t;
 
 struct fd_poseidon_par {
-  fd_bn254_scalar_t * ark;
-  fd_bn254_scalar_t * mds;
+  fd_bn254_scalar_t const * ark;
+  fd_bn254_scalar_t const * mds;
+  fd_bn254_scalar_t const * ark_start;
+  fd_bn254_scalar_t const * ark_partial;
+  fd_bn254_scalar_t const * ark_end;
+  fd_bn254_scalar_t const * pre_sparse_mds;
+  fd_bn254_scalar_t const * sparse_mds_row;
+  fd_bn254_scalar_t const * sparse_mds_col;
 };
 typedef struct fd_poseidon_par fd_poseidon_par_t;
 
