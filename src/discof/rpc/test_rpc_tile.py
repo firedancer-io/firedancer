@@ -625,6 +625,33 @@ GET_GENESIS_HASH = [
     ],
 ]
 
+GET_EPOCH_SCHEDULE = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getEpochSchedule",
+        },
+        "description": f"getEpochSchedule success",
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getEpochSchedule",
+                "params": e,
+            },
+            "description": f"getEpochSchedule params={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['error']['data']"],
+        }
+        for e in [
+            *ALL_TYPES,
+            *[[_e] for _e in ALL_TYPES],
+        ]
+    ],
+]
+
 GET_INFLATION_GOVERNOR = [
     {
         "payload": {
@@ -870,6 +897,7 @@ if __name__ == "__main__":
         *GET_BALANCE,
         *GET_HEIGHT,
         *GET_GENESIS_HASH,
+        *GET_EPOCH_SCHEDULE,
         *GET_INFLATION_GOVERNOR,
         *GET_LATEST_BLOCKHASH,
         *GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION,
