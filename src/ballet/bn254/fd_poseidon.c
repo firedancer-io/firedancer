@@ -6,10 +6,9 @@
 static inline void
 fd_poseidon_apply_ark( fd_bn254_scalar_t         state[],
                        ulong const               width,
-                       fd_poseidon_par_t const * params,
-                       ulong                     round ) {
+                       fd_bn254_scalar_t const * ark ) {
   for( ulong i=0; i<width; i++ ) {
-    fd_bn254_scalar_add( &state[i], &state[i], &params->ark[ round * width + i ] );
+    fd_bn254_scalar_add( &state[i], &state[i], &ark[i] );
   }
 }
 
@@ -32,15 +31,15 @@ fd_poseidon_apply_sbox_partial( fd_bn254_scalar_t state[] ) {
 }
 
 static inline void
-fd_poseidon_apply_mds( fd_bn254_scalar_t   state[],
-                       ulong const       width,
-                       fd_poseidon_par_t const * params ) {
+fd_poseidon_apply_mds( fd_bn254_scalar_t         state[],
+                       ulong const               width,
+                       fd_bn254_scalar_t const * mds ) {
   fd_bn254_scalar_t x[FD_POSEIDON_MAX_WIDTH+1] = { 0 };
   /* Vector-matrix multiplication (state vector times mds matrix) */
   for( ulong i=0; i<width; i++ ) {
     for( ulong j=0; j<width; j++ ) {
       fd_bn254_scalar_t t[1];
-      fd_bn254_scalar_mul( t, &state[j], &params->mds[ i * width + j ] );
+      fd_bn254_scalar_mul( t, &state[j], &mds[ i * width + j ] );
       fd_bn254_scalar_add( &x[i], &x[i], t );
     }
   }
@@ -50,11 +49,92 @@ fd_poseidon_apply_mds( fd_bn254_scalar_t   state[],
 }
 
 static inline void
+fd_poseidon_apply_sparse_mds( fd_bn254_scalar_t         state[],
+                              ulong const               width,
+                              fd_bn254_scalar_t const * row,
+                              fd_bn254_scalar_t const * col ) {
+  fd_bn254_scalar_t old_s0 = state[0];
+  fd_bn254_scalar_t new_s0[1] = { 0 };
+
+  for( ulong j=0; j<width; j++ ) {
+    fd_bn254_scalar_t t[1];
+    fd_bn254_scalar_mul( t, &state[j], &row[j] );
+    fd_bn254_scalar_add( new_s0, new_s0, t );
+  }
+
+  for( ulong i=1; i<width; i++ ) {
+    fd_bn254_scalar_t t[1];
+    fd_bn254_scalar_mul( t, &old_s0, &col[i-1] );
+    fd_bn254_scalar_add( &state[i], &state[i], t );
+  }
+
+  state[0] = new_s0[0];
+}
+
+static inline void
+fd_poseidon_apply_mds_row0( fd_bn254_scalar_t         state[],
+                            ulong const               width,
+                            fd_bn254_scalar_t const * mds ) {
+  fd_bn254_scalar_t new_s0[1] = { 0 };
+
+  for( ulong j=0; j<width; j++ ) {
+    fd_bn254_scalar_t t[1];
+    fd_bn254_scalar_mul( t, &state[j], &mds[j] );
+    fd_bn254_scalar_add( new_s0, new_s0, t );
+  }
+
+  state[0] = new_s0[0];
+}
+
+static inline __attribute__((always_inline)) void
+fd_poseidon_permute( fd_bn254_scalar_t         state[],
+                     ulong const               width,
+                     fd_poseidon_par_t const * params,
+                     ulong const               partial_rounds ) {
+  const ulong half_rounds = 4UL;
+
+  fd_poseidon_apply_ark       ( state, width, params->ark_start );
+  fd_poseidon_apply_sbox_full ( state, width );
+
+  for( ulong round=1; round<half_rounds; round++ ) {
+    fd_poseidon_apply_ark       ( state, width, params->ark_start + round*width );
+    fd_poseidon_apply_mds       ( state, width, params->mds );
+    fd_poseidon_apply_sbox_full ( state, width );
+  }
+
+  fd_poseidon_apply_ark ( state, width, params->ark_start + half_rounds*width );
+  fd_poseidon_apply_mds ( state, width, params->pre_sparse_mds );
+
+  for( ulong round=0; round<partial_rounds; round++ ) {
+    fd_poseidon_apply_sbox_partial( state );
+    fd_bn254_scalar_add( &state[0], &state[0], &params->ark_partial[ round ] );
+    fd_poseidon_apply_sparse_mds( state,
+                                  width,
+                                  params->sparse_mds_row + round*width,
+                                  params->sparse_mds_col + round*(width-1UL) );
+  }
+
+  fd_poseidon_apply_sbox_full( state, width );
+  for( ulong round=0; round<half_rounds-1UL; round++ ) {
+    fd_poseidon_apply_ark       ( state, width, params->ark_end + round*width );
+    fd_poseidon_apply_mds       ( state, width, params->mds );
+    fd_poseidon_apply_sbox_full ( state, width );
+  }
+  fd_poseidon_apply_mds_row0( state, width, params->mds );
+}
+
+static inline void
 fd_poseidon_get_params( fd_poseidon_par_t * params,
                         ulong const         width ) {
-#define FD_POSEIDON_GET_PARAMS(w) case (w):                \
-  params->ark = (fd_bn254_scalar_t *)fd_poseidon_ark_## w; \
-  params->mds = (fd_bn254_scalar_t *)fd_poseidon_mds_## w; \
+#define FD_POSEIDON_GET_PARAMS(w) case (w):                       \
+  params->ark            = fd_poseidon_ark_## w;                  \
+  params->mds            = fd_poseidon_mds_## w;                  \
+  params->ark_start      = fd_poseidon_ark_start_## w;            \
+  params->ark_partial    = fd_poseidon_ark_partial_## w;          \
+  params->ark_end        = fd_poseidon_ark_end_## w;              \
+  params->pre_sparse_mds = fd_poseidon_pre_sparse_mds_## w;       \
+  params->sparse_mds_row = fd_poseidon_sparse_mds_row_## w;       \
+  params->sparse_mds_col = fd_poseidon_sparse_mds_col_## w;       \
   break
 
   switch( width ) {
@@ -130,34 +210,34 @@ fd_poseidon_fini( fd_poseidon_t * pos,
   const ulong width = pos->cnt+1;
   fd_poseidon_par_t params[1] = { 0 };
   fd_poseidon_get_params( params, width );
-  if( FD_UNLIKELY( !params->ark || !params->mds ) ) {
+  if( FD_UNLIKELY( !params->ark            ||
+                   !params->mds            ||
+                   !params->ark_start      ||
+                   !params->ark_partial    ||
+                   !params->ark_end        ||
+                   !params->pre_sparse_mds ||
+                   !params->sparse_mds_row ||
+                   !params->sparse_mds_col ) ) {
     return NULL;
   }
 
-  const ulong PARTIAL_ROUNDS[] = { 56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65, 70, 60, 64, 68 };
-  const ulong partial_rounds = PARTIAL_ROUNDS[ pos->cnt-1 ];
-  const ulong full_rounds = 8;
-  const ulong half_rounds = full_rounds / 2;
-  const ulong all_rounds = full_rounds + partial_rounds;
-
-  ulong round=0;
-  for (; round<half_rounds; round++ ) {
-    fd_poseidon_apply_ark         ( pos->state, width, params, round );
-    fd_poseidon_apply_sbox_full   ( pos->state, width );
-    fd_poseidon_apply_mds         ( pos->state, width, params );
+#define FD_POSEIDON_PERMUTE_CASE(w,p) case (w): fd_poseidon_permute( pos->state, (w), params, (p) ); break
+  switch( width ) {
+  FD_POSEIDON_PERMUTE_CASE( 2UL,  56UL );
+  FD_POSEIDON_PERMUTE_CASE( 3UL,  57UL );
+  FD_POSEIDON_PERMUTE_CASE( 4UL,  56UL );
+  FD_POSEIDON_PERMUTE_CASE( 5UL,  60UL );
+  FD_POSEIDON_PERMUTE_CASE( 6UL,  60UL );
+  FD_POSEIDON_PERMUTE_CASE( 7UL,  63UL );
+  FD_POSEIDON_PERMUTE_CASE( 8UL,  64UL );
+  FD_POSEIDON_PERMUTE_CASE( 9UL,  63UL );
+  FD_POSEIDON_PERMUTE_CASE( 10UL, 60UL );
+  FD_POSEIDON_PERMUTE_CASE( 11UL, 66UL );
+  FD_POSEIDON_PERMUTE_CASE( 12UL, 60UL );
+  FD_POSEIDON_PERMUTE_CASE( 13UL, 65UL );
+  default: return NULL;
   }
-
-  for (; round<half_rounds+partial_rounds; round++ ) {
-    fd_poseidon_apply_ark         ( pos->state, width, params, round );
-    fd_poseidon_apply_sbox_partial( pos->state );
-    fd_poseidon_apply_mds         ( pos->state, width, params );
-  }
-
-  for (; round<all_rounds; round++ ) {
-    fd_poseidon_apply_ark         ( pos->state, width, params, round );
-    fd_poseidon_apply_sbox_full   ( pos->state, width );
-    fd_poseidon_apply_mds         ( pos->state, width, params );
-  }
+#undef FD_POSEIDON_PERMUTE_CASE
 
   /* Convert through a local scalar: hash only needs to be byte aligned. */
   fd_bn254_scalar_t scalar_hash[1];
