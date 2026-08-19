@@ -80,6 +80,7 @@ main( int     argc,
   config->firedancer.layout.sign_tile_count          = 2U;
   config->firedancer.layout.resolv_tile_count        = 1U;
   config->firedancer.layout.execle_tile_count        = 1U;
+  config->firedancer.layout.snapdc_tile_count        = 1U;
   config->firedancer.layout.snapzp_tile_count        = 1U;
   config->firedancer.layout.snapsv_tile_count        = 1U;
   config->firedancer.layout.snapsv_io_worker_count   = 1U;
