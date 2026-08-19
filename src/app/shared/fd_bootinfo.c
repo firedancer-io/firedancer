@@ -402,8 +402,12 @@ fd_bootinfo_notice( fd_bootinfo_instance_t const * instance ) {
 }
 
 void
-fd_bootinfo_adopt( config_t * config ) {
+fd_bootinfo_adopt_named( config_t *   config,
+                         char const * opt_name ) {
   if( FD_LIKELY( config->has_user_config ) ) {
+    if( FD_UNLIKELY( opt_name && opt_name[ 0 ] ) )
+      FD_LOG_WARNING(( "--name is ignored when --config is given" ));
+
     /* config->boot_timestamp_nanos is this command's start time, not
        the validator's.  Adopt the running validator's, else zero it so
        consumers report no uptime rather than a wrong one. */
@@ -425,6 +429,7 @@ fd_bootinfo_adopt( config_t * config ) {
   fd_bootinfo_instance_t * match     = NULL;
   ulong                    live_cnt  = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( opt_name && opt_name[ 0 ] && strcmp( instances[ i ].info.name, opt_name ) ) ) continue;
     if( FD_UNLIKELY( !instances[ i ].live ) ) continue;
     match = &instances[ i ];
     live_cnt++;
@@ -432,13 +437,18 @@ fd_bootinfo_adopt( config_t * config ) {
 
   if( FD_UNLIKELY( !live_cnt ) ) {
     if( FD_UNLIKELY( cnt ) ) fd_bootinfo_print( instances, cnt );
+    if( FD_UNLIKELY( opt_name && opt_name[ 0 ] ) )
+      FD_LOG_ERR(( "No running validator named `%s` found. If a validator is running, pass --config with the "
+                   "configuration file it was started with.", opt_name ));
     FD_LOG_ERR(( "No running validator found. If a validator is running, pass --config with the "
                  "configuration file it was started with." ));
   }
 
   if( FD_UNLIKELY( live_cnt>1UL ) ) {
     fd_bootinfo_print( instances, cnt );
-    FD_LOG_ERR(( "Multiple running validators found. Pass --config to select one." ));
+    if( FD_UNLIKELY( opt_name && opt_name[ 0 ] ) )
+      FD_LOG_ERR(( "Multiple running validators named `%s` found. Pass --config to select one.", opt_name ));
+    FD_LOG_ERR(( "Multiple running validators found. Pass --name or --config to select one." ));
   }
 
   fd_bootinfo_t const * info = &match->info;
