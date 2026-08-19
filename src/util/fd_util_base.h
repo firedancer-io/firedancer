@@ -591,7 +591,7 @@ fd_type_pun_const( void const * p ) {
 /* FD_FN_PURE hints to the optimizer that the function, roughly
    speaking, does not have side effects.  As such, the compiler can
    replace a call to the function with the result of an earlier call to
-   that function provided the inputs and memory used hasn't changed.
+   that function provided the inputs and memory used haven't changed.
 
    IMPORTANT SAFETY TIP!  Recent compilers seem to take an undocumented
    and debatable stance that pure functions do no writes to memory.
@@ -811,7 +811,7 @@ fd_type_pun_const( void const * p ) {
    Volatility is not a property of the variable but of the
    dereferencing of a variable (e.g. what is volatile from the POV of a
    reader of a shared variable is not necessarily volatile from the POV
-   a writer of that shared variable in a different thread). */
+   of a writer of that shared variable in a different thread). */
 
 #define FD_VOLATILE_CONST(x) (*((volatile const __typeof__((x)) *)&(x)))
 
