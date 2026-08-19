@@ -889,7 +889,7 @@ fd_type_pun_const( void const * p ) {
      } while(0)
 
    But provides a low overhead guarantee that:
-     - The block will be executed by at most once over all threads
+     - The block will be executed at most once over all threads
        in a process (i.e. the set of threads which share global
        variables).
      - No thread in a process that encounters the block will continue
