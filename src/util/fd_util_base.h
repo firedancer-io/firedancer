@@ -37,7 +37,7 @@
    optimized implementations that are invoked when the build target
    supports the appropriate capabilities.
 
-   The base development itself provide lots of functionality to help
+   The base development itself provides lots of functionality to help
    with implementing portable fallbacks while making very minimal
    assumptions about the build targets and zero use of 3rd party
    libraries (these might make unknown additional assumptions about the
@@ -68,7 +68,7 @@
 /* FD_HAS_THREADS:  If the build target supports a POSIX-ish notion of
    threads (e.g. practically speaking, global variables declared within
    a compile unit are visible to more than one thread of execution,
-   pthreads.h / threading parts of C standard, the atomics parts of the
+   pthread.h / threading parts of C standard, the atomics parts of the
    C standard, ... more or less work normally), FD_HAS_THREADS will be
    1.  It will be zero otherwise.  FD_HAS_THREADS implies FD_HAS_HOSTED
    and FD_HAS_ATOMIC. */
@@ -86,10 +86,10 @@
 #endif
 
 /* FD_HAS_DOUBLE:  If the build target supports reasonably efficient
-   IEEE 754 64-bit wide double precision floating point options, define
-   FD_HAS_DOUBLE to 1 to enable use of them in implementations.  Note
-   that even if the build target does not, va_args handling in the C /
-   C++ language requires promotion of a float in an va_arg list to a
+   IEEE 754 64-bit wide double precision floating point operations,
+   define FD_HAS_DOUBLE to 1 to enable use of them in implementations.
+   Note that even if the build target does not, va_args handling in the
+   C / C++ language requires promotion of a float in a va_arg list to a
    double.  Thus, C / C++ language that support IEEE 754 float also
    implies a minimum level of support for double (though not necessarily
    efficient or IEEE 754).  That is, even if a target does not have
@@ -232,7 +232,7 @@
 
 /* The functionality provided by these vanilla headers are always
    available within the base development environment.  Notably, stdio.h
-   / stdlib.h / et al at are not included here as these make lots of
+   / stdlib.h / et al are not included here as these make lots of
    assumptions about the build target that may not be true (especially
    for on-chain and custom hardware use).  Code should prefer the fd
    util equivalents for such functionality when possible. */
@@ -271,7 +271,7 @@
 
    !! Only available if FD_HAS_INT128 is defined
 
-   !!! Should only used if FD_HAS_DOUBLE is defined but see note in
+   !!! Should only be used if FD_HAS_DOUBLE is defined but see note in
        FD_HAS_DOUBLE about C/C++ silent promotions of float to double in
        va_arg lists.
 
@@ -305,7 +305,7 @@
    Specifically, C++ allows typedefs to be defined multiple times so
    long as they are equivalent.  Inequivalent collisions are not
    supported but should be rare (e.g. if a 3rd party header thinks
-   "ulong" should be something other an "unsigned long", the 3rd party
+   "ulong" should be something other than "unsigned long", the 3rd party
    header probably should be nuked from orbit).  C11 and forward also
    allow multiple equivalent typedefs.  C99 and earlier don't but this
    is typically only a warning and then only if pedantic warnings are
@@ -394,7 +394,7 @@ __extension__ typedef unsigned __int128 uint128;
 /* FD_PROTOTYPES_{BEGIN,END}:  Headers that might be included in C++
    source should encapsulate the prototypes of code and globals
    contained in compilation units compiled as C with a
-   FD_PROTOTYPE_{BEGIN,END} pair. */
+   FD_PROTOTYPES_{BEGIN,END} pair. */
 
 #ifdef __cplusplus
 #define FD_PROTOTYPES_BEGIN extern "C" {
@@ -447,8 +447,8 @@ __extension__ typedef unsigned __int128 uint128;
    the object file as some under the hood magic to make this work.  This
    should not be used in any compile unit as some compilers (I'm looking
    at you clang-15, but apparently not clang-10) will sometimes mangle
-   its value from what it was set to in the object file even marked as
-   absolute in the object file.
+   its value from what it was set to in the object file even when marked
+   as absolute in the object file.
 
    This should only be used at global scope and should be done at most
    once over all object files / libraries used to make a program.  If
@@ -537,11 +537,11 @@ __extension__ typedef unsigned __int128 uint128;
    bytes in the file at time of import.  name will have 128 byte
    alignment.
 
-   In CSTR, the file is imported into the object caller with a '\0'
+   In CSTR, the file is imported into the object file with a '\0'
    termination appended and exposed to the caller as a cstr.  Assuming
-   the file is text (i.e. has no internal '\0's), strlen(name) will the
-   number of bytes in the file and name_sz will be strlen(name)+1.  name
-   can have arbitrary alignment. */
+   the file is text (i.e. has no internal '\0's), strlen(name) will be
+   the number of bytes in the file and name_sz will be strlen(name)+1.
+   name can have arbitrary alignment. */
 
 #ifdef FD_IMPORT
 #define FD_IMPORT_BINARY(name, path) FD_IMPORT( name, path, uchar, 7, ""        )
@@ -550,7 +550,7 @@ __extension__ typedef unsigned __int128 uint128;
 
 /* Optimizer tricks ***************************************************/
 
-/* FD_RESTRICT is a pointer modifier for to designate a pointer as
+/* FD_RESTRICT is a pointer modifier to designate a pointer as
    restricted.  Hoops jumped because C++-17 still doesn't understand
    restrict ... sigh */
 
@@ -591,7 +591,7 @@ fd_type_pun_const( void const * p ) {
 /* FD_FN_PURE hints to the optimizer that the function, roughly
    speaking, does not have side effects.  As such, the compiler can
    replace a call to the function with the result of an earlier call to
-   that function provide the inputs and memory used hasn't changed.
+   that function provided the inputs and memory used hasn't changed.
 
    IMPORTANT SAFETY TIP!  Recent compilers seem to take an undocumented
    and debatable stance that pure functions do no writes to memory.
@@ -691,8 +691,8 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_PARAM_UNUSED __attribute__((unused))
 
-/* FD_TYPE_PACKED indicates that a type is to be packed, reseting its alignment
-   to 1. */
+/* FD_TYPE_PACKED indicates that a type is to be packed, resetting its
+   alignment to 1. */
 
 #define FD_TYPE_PACKED __attribute__((packed))
 
@@ -782,7 +782,7 @@ fd_type_pun_const( void const * p ) {
    hyperthreading is in use.  IMPORTANT SAFETY TIP!  This might act as a
    FD_COMPILER_MFENCE on some combinations of toolchains and targets
    (e.g. gcc documents that __builtin_ia32_pause also does a compiler
-   memory) but this should not be relied upon for portable code
+   memory fence) but this should not be relied upon for portable code
    (consider making this a compiler memory fence on all platforms?) */
 
 #if FD_HAS_X86
@@ -803,22 +803,22 @@ fd_type_pun_const( void const * p ) {
 #define FD_YIELD() FD_SPIN_PAUSE()
 #endif
 
-/* FD_VOLATILE_CONST(x):  Tells the compiler is not able to predict the
-   value obtained by dereferencing x and that dereferencing x might have
-   other side effects (e.g. maybe another thread could change the value
-   and the compiler has no way of knowing this).  Generally speaking,
-   the volatile keyword is broken linguistically.  Volatility is not a
-   property of the variable but of the dereferencing of a variable (e.g.
-   what is volatile from the POV of a reader of a shared variable is not
-   necessarily volatile from the POV a writer of that shared variable in
-   a different thread). */
+/* FD_VOLATILE_CONST(x):  Tells the compiler that it is not able to
+   predict the value obtained by dereferencing x and that dereferencing
+   x might have other side effects (e.g. maybe another thread could
+   change the value and the compiler has no way of knowing this).
+   Generally speaking, the volatile keyword is broken linguistically.
+   Volatility is not a property of the variable but of the
+   dereferencing of a variable (e.g. what is volatile from the POV of a
+   reader of a shared variable is not necessarily volatile from the POV
+   a writer of that shared variable in a different thread). */
 
 #define FD_VOLATILE_CONST(x) (*((volatile const __typeof__((x)) *)&(x)))
 
-/* FD_VOLATILE(x): tells the compiler is not able to predict the effect
-   of modifying x and that dereferencing x might have other side effects
-   (e.g. maybe another thread is spinning on x waiting for its value to
-   change and the compiler has no way of knowing this). */
+/* FD_VOLATILE(x): tells the compiler that it is not able to predict the
+   effect of modifying x and that dereferencing x might have other side
+   effects (e.g. maybe another thread is spinning on x waiting for its
+   value to change and the compiler has no way of knowing this). */
 
 #define FD_VOLATILE(x) (*((volatile __typeof__((x)) *)&(x)))
 
@@ -889,7 +889,7 @@ fd_type_pun_const( void const * p ) {
      } while(0)
 
    But provides a low overhead guarantee that:
-     - The block will be executed by at most once over all threads
+     - The block will be executed at most once over all threads
        in a process (i.e. the set of threads which share global
        variables).
      - No thread in a process that encounters the block will continue
@@ -965,7 +965,7 @@ fd_type_pun_const( void const * p ) {
        ... It is safe to use "break" and/or "continue" within this
        ... block.  Both will exit this block and resume execution
        ... at the location indicated as per what blocking specified
-       ... then the turnstile was entered.
+       ... when the turnstile was entered.
        ...
        ... It is technically safe to return from this block but
        ... also extremely gross.
@@ -1086,9 +1086,9 @@ fd_type_pun_const( void const * p ) {
    wallclock time elapsed on the caller in some clock specific unit
    (e.g. nanoseconds, CPU ticks, etc) for a reasonable amount of "stuff"
    (including no "stuff").  args allows arbitrary clock specific context
-   to be passed to the clock implication.  (clocks that need a non-const
-   args can cast away the const in the implementation or cast the
-   function pointer as necessary.) */
+   to be passed to the clock implementation.  (clocks that need a
+   non-const args can cast away the const in the implementation or cast
+   the function pointer as necessary.) */
 
 typedef long (*fd_clock_func_t)( void const * args );
 
@@ -1248,7 +1248,7 @@ fd_mem_iszero( uchar const * s,
    the xxhash-r39 (open source BSD licensed) implementation.  In-place
    and out-of-place variants provided (out-of-place variant assumes dst
    and src do not overlap).  Caller promises valid input arguments,
-   cannot fail given valid inputs arguments.  sz==0 is fine. */
+   cannot fail given valid input arguments.  sz==0 is fine. */
 
 FD_FN_PURE ulong
 fd_hash( ulong        seed,
@@ -1275,7 +1275,7 @@ fd_hash_memcpy( ulong                    seed,
 
 #define fd_tickcount() fd_log_wallclock() /* TODO: fix ugly pre-log usage */
 
-#elif FD_TICKCOUNT_STYLE==1 /* RTDSC (fast) */
+#elif FD_TICKCOUNT_STYLE==1 /* RDTSC (fast) */
 
 /* fd_tickcount:  Reads the hardware invariant tickcounter ("RDTSC").
    This monotonically increases at an approximately constant rate
@@ -1290,8 +1290,8 @@ fd_hash_memcpy( ulong                    seed,
    in its rate relative to the wallclock.  Notably, its rate is not
    directly impacted by CPU clock frequency adaptation / Turbo mode (see
    other Intel performance monitoring counters for various CPU cycle
-   counters).  It can drift over longer period time for the usual clock
-   synchronization reasons.
+   counters).  It can drift over longer periods of time for the usual
+   clock synchronization reasons.
 
    This is a reasonably fast O(1) cost (~6-8 ns on recent Intel).
    Because of all compiler options and parallel execution going on in
