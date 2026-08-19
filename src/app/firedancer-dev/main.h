@@ -227,6 +227,7 @@ extern action_t fd_action_add_authorized_voter;
 extern action_t fd_action_remove_all_authorized_voters;
 extern action_t fd_action_forktest;
 extern action_t fd_action_snapshot_create;
+extern action_t fd_action_exit;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -271,6 +272,7 @@ action_t * ACTIONS[] = {
   &fd_action_remove_all_authorized_voters,
   &fd_action_forktest,
   &fd_action_snapshot_create,
+  &fd_action_exit,
   NULL,
 };
 

@@ -1,0 +1,79 @@
+# The exit command attaches to a running validator, optionally waits
+# for a safe exit window, then sends SIGTERM and polls until the
+# validator process terminates.
+
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# pidfd:      A pidfd opened before entering the sandbox, referring to
+#             the target validator process.  Used for PID-reuse-safe
+#             liveness probing (ppoll) and signal delivery
+#             (pidfd_send_signal).
+uint logfile_fd, uint pidfd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# Unlike the rest of Firedancer, the exit command uses STDOUT for its
+# TUI status display.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 1 is always STDOUT, and 2 is always STDERR.
+write: (or (eq (arg 0) 1)
+           (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# exit: wait until we need to poll again
+#
+# The exit command calls fd_log_wait_until() to wait between polling
+# iterations, and that function can call nanosleep depending on the
+# amount of time left to wait.
+nanosleep
+
+# exit: wait until we need to poll again
+#
+# The exit command calls fd_log_wait_until() to wait between polling
+# iterations, and that function can call sched_yield depending on the
+# amount of time left to wait.
+sched_yield
+
+# exit: restore default signal disposition after the wait phase
+#
+# After the safe window is confirmed, the exit command restores
+# SIG_DFL for SIGINT/SIGTERM so Ctrl+C immediately terminates.
+rt_sigaction
+
+# exit: signal handler returns
+#
+# The SIGINT/SIGTERM handler sets a flag and returns (unlike
+# monitor_gossip which calls exit(0) from its handler), so
+# rt_sigreturn is needed.
+rt_sigreturn
+
+# exit: PID-reuse-safe liveness probing
+#
+# ppoll on the pidfd detects validator exit without PID reuse risk.
+# The pidfd becomes readable (POLLIN) when the process terminates.
+# arg 1 is the nfds count, always 1 (single pidfd).
+ppoll: (eq (arg 1) 1)
+
+# exit: PID-reuse-safe SIGTERM delivery
+#
+# pidfd_send_signal sends a signal to the exact process incarnation
+# referenced by the pidfd, immune to PID reuse.
+# arg 0 is the pidfd, arg 1 is the signal number.
+pidfd_send_signal: (and (eq (arg 0) pidfd)
+                        (eq (arg 1) SIGTERM))
+
+# exit: exit the process
+#
+# After the validator terminates (or on error/interrupt), the exit
+# command terminates itself with exit_group().
+exit_group
