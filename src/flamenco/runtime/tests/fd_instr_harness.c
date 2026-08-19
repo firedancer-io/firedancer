@@ -373,9 +373,6 @@ fd_solfuzz_pb_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
   int charge_busy = 0;
   fd_accdb_background( runner->accdb, &charge_busy );
 
-  /* Compact the progcache allocator so empty superblocks are returned
-     to the workspace.  Required for the leak check to pass. */
-  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 /* Txn index for addr among the compiled-message accounts [0,cnt).

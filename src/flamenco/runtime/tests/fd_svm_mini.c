@@ -30,6 +30,12 @@
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
+static inline ulong
+fd_svm_mini_progcache_heap( fd_svm_mini_limits_t const * limits ) {
+  return fd_ulong_max( limits->max_progcache_heap_bytes,
+                       fd_progcache_min_shared_sz( limits->max_live_slots ) );
+}
+
 static fd_wksp_t *
 fd_wksp_new_lazy( ulong footprint,
                   ulong addl_part_cnt ) {
@@ -103,7 +109,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong txn_max     = limits->max_live_slots;
   ulong joiner_cnt  = fd_ulong_max( limits->accdb_joiner_cnt, 1UL );
 
-  ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
+  ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, fd_svm_mini_progcache_heap( limits ) );
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot, 0 );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
   ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_fallback_stake_accounts, limits->max_vote_accounts );
@@ -127,7 +133,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   sz += WKSP_ALLOC( alignof(fd_runtime_t),      sizeof(fd_runtime_t)             );
   sz += WKSP_ALLOC( fd_runtime_stack_align(),   runtime_stack_sz                 );
   sz += WKSP_ALLOC( fd_vm_align(),              fd_vm_footprint()                );
-  sz += WKSP_ALLOC( 1UL,                        limits->max_progcache_heap_bytes );
+  sz += WKSP_ALLOC( 1UL,                        fd_svm_mini_progcache_heap( limits ) );
   sz += WKSP_ALLOC( 16UL,                       limits->wksp_addl_sz             );
 # undef WKSP_ALLOC
 
@@ -142,7 +148,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   ulong const txn_max     = limits->max_live_slots;
   ulong const joiner_cnt  = fd_ulong_max( limits->accdb_joiner_cnt, 1UL );
 
-  ulong pcache_sz        = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
+  ulong progcache_heap    = fd_svm_mini_progcache_heap( limits );
+  ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, progcache_heap );
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot, 0 );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
   ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width,
@@ -197,7 +204,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   mini->accdb_max_live_slots = limits->max_live_slots;
   mini->accdb_joiner_cnt     = joiner_cnt;
 
-  void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, limits->max_progcache_recs );
+  void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, progcache_heap );
   if( FD_UNLIKELY( !shpcache ) ) FD_LOG_ERR(( "fd_progcache_shmem_new failed" ));
 
   FD_TEST( fd_progcache_join( mini->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );

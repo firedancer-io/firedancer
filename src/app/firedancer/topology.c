@@ -32,7 +32,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/accdb/fd_accdb_cache.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
-#include "../../flamenco/progcache/fd_progcache_admin.h"
+#include "../../flamenco/progcache/fd_progcache.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
 #include "../../flamenco/stakes/fd_collector_overrides.h"
 
@@ -133,27 +133,29 @@ setup_topo_fec_sets( fd_topo_t *  topo,
 void
 setup_topo_progcache( fd_topo_t *  topo,
                       char const * wksp_name,
-                      ulong        max_cache_entries,
-                      ulong        max_database_transactions,
-                      ulong        heap_size ) {
+                      ulong        txn_max,
+                      ulong        wksp_size ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "progcache", wksp_name );
   FD_TEST( fd_pod_insert_ulong(  topo->props, "progcache", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_cache_entries,         "obj.%lu.rec_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_database_transactions, "obj.%lu.txn_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, heap_size,                 "obj.%lu.heap_max", obj->id ) );
-  ulong pcache_footprint = fd_progcache_shmem_footprint( max_database_transactions, max_cache_entries );
-  if( FD_UNLIKELY( !pcache_footprint ) ) FD_LOG_ERR(( "Invalid [runtime.program_cache] parameters" ));
-  if( FD_UNLIKELY( heap_size<(2*pcache_footprint) ) ) {
-    FD_LOG_ERR(( "Invalid [runtime.program_cache] parameters: heap_size_mib should be at least %lu",
-                 ( 2*pcache_footprint )>>20 ));
+  FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max, "obj.%lu.txn_max", obj->id ) );
+
+  if( FD_UNLIKELY( wksp_size < fd_progcache_min_wksp_sz( txn_max ) ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: program_cache_size_mib must be at least %lu",
+                 fd_progcache_min_wksp_sz( txn_max )>>20 ));
   }
 
-  /* Adjust workspace partition count */
+  ulong part_max = fd_wksp_part_max_est( wksp_size, 1U<<18U );
+  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,256KiB) failed", wksp_size ));
+  ulong shared_sz = fd_progcache_shared_sz( wksp_size );
+
+  ulong progcache_footprint = fd_progcache_shmem_footprint( txn_max, shared_sz );
+  if( FD_UNLIKELY( !progcache_footprint ) ) FD_LOG_ERR(( "Invalid [runtime] program_cache_size_mib parameters" ));
+  FD_TEST( fd_pod_insertf_ulong( topo->props, shared_sz,                     "obj.%lu.shared_sz", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, shared_sz-progcache_footprint, "obj.%lu.loose",     obj->id ) );
+
   ulong wksp_idx = fd_topo_find_wksp( topo, wksp_name );
   FD_TEST( wksp_idx!=ULONG_MAX );
   fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];
-  ulong part_max = fd_wksp_part_max_est( heap_size, 1U<<18U );
-  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,256KiB) failed", heap_size ));
   wksp->part_max += part_max;
 }
 
@@ -1066,10 +1068,8 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<32UL ) ) FD_LOG_ERR(( "max_live_slots must be >= 32 in order to support tower rooting" ));
 
   setup_topo_progcache( topo, "progcache",
-      fd_progcache_est_rec_max( config->firedancer.runtime.program_cache.heap_size_mib<<20,
-                                config->firedancer.runtime.program_cache.mean_cache_entry_size ),
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.runtime.program_cache.heap_size_mib<<20 );
+      config->firedancer.runtime.program_cache_size_mib<<20 );
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ))!=ULONG_MAX );
   fd_topo_obj_t * progcache_obj = &topo->objs[ progcache_obj_id ];
 
