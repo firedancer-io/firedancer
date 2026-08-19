@@ -1753,7 +1753,25 @@ getEpochInfo( fd_rpc_tile_t * ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}\n", ctx->banks[ bank_idx ].slot, ctx->banks[ bank_idx ].block_height, ctx->banks[ bank_idx ].epoch, ctx->banks[ bank_idx ].slot_in_epoch, ctx->banks[ bank_idx ].slots_per_epoch, ctx->banks[ bank_idx ].transaction_count, id_cstr );
 }
 
-UNIMPLEMENTED(getEpochSchedule)
+static fd_http_server_response_t
+getEpochSchedule( fd_rpc_tile_t * ctx,
+                  cJSON const *   id,
+                  cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_EPOCH_SCHEDULE, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
+
+  CSTR_JSON( id, id_cstr );
+  if( FD_UNLIKELY( !ctx->has_epoch_schedule ) ) {
+    /* Arrives on the first replay_epoch frag; until then, as getGenesisHash */
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Firedancer Error: No epoch schedule\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SNAPSHOT, id_cstr );
+  }
+
+  fd_epoch_schedule_t const * schedule = &ctx->epoch_schedule;
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"slotsPerEpoch\":%lu,\"leaderScheduleSlotOffset\":%lu,\"warmup\":%s,\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu},\"id\":%s}\n",
+                      schedule->slots_per_epoch, schedule->leader_schedule_slot_offset, schedule->warmup ? "true" : "false", schedule->first_normal_epoch, schedule->first_normal_slot, id_cstr );
+}
 UNIMPLEMENTED(getFeeForMessage)
 UNIMPLEMENTED(getFirstAvailableBlock) // TODO: Used by solana-exporter
 
