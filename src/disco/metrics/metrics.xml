@@ -1209,6 +1209,7 @@ EXAMPLES
     <gauge name="IdentityBalanceLamports" summary="Identity account balance at the optimistically confirmed slot" />
     <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot" />
     <gauge name="ClusterActiveStakeLamports" summary="Total cluster active stake at the optimistically confirmed slot" />
+    <gauge name="DelinquentStakeLamports" summary="Total stake of delinquent validators (last vote more than 128 slots behind)" />
     <gauge name="EpochCredits" summary="Our vote account epoch credits at the optimistically confirmed slot" />
 
     <counter name="StoreQueryAcquired" summary="Store slock acquires for query" />
@@ -1229,6 +1230,9 @@ EXAMPLES
     <gauge name="LeaderSlot" summary="Slot at which we are currently leader, or 0 if none" />
     <gauge name="NextLeaderSlot" summary="Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot" />
     <gauge name="ResetSlot" summary="Slot at which we last reset the replay stage, or 0 if unknown" />
+    <gauge name="EpochEndSlot" summary="Last slot of the current epoch (inclusive), or 0 if unknown" />
+    <gauge name="NsPerSlot" summary="Current slot duration in nanoseconds, or 0 if unknown" />
+    <gauge name="MetricsSeqno" summary="Monotonic sequence number incremented before and after writing gauges in metrics_write. Odd means write in progress; even means done. Used by the wait command" />
     <gauge name="BankLiveMax" summary="Maximum number of banks we can have alive" />
     <gauge name="BankLive" summary="Banks we currently have alive" />
 

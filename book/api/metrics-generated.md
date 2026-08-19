@@ -1010,6 +1010,7 @@
 | <span class="metrics-name">replay_&#8203;identity_&#8203;balance_&#8203;lamports</span> | gauge | Identity account balance at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Our active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Total cluster active stake at the optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;delinquent_&#8203;stake_&#8203;lamports</span> | gauge | Total stake of delinquent validators (last vote more than 128 slots behind) |
 | <span class="metrics-name">replay_&#8203;epoch_&#8203;credits</span> | gauge | Our vote account epoch credits at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;acquired</span> | counter | Store slock acquires for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;released</span> | counter | Store slock releases for query |
@@ -1024,6 +1025,9 @@
 | <span class="metrics-name">replay_&#8203;leader_&#8203;slot</span> | gauge | Slot at which we are currently leader, or 0 if none |
 | <span class="metrics-name">replay_&#8203;next_&#8203;leader_&#8203;slot</span> | gauge | Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot |
 | <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | Slot at which we last reset the replay stage, or 0 if unknown |
+| <span class="metrics-name">replay_&#8203;epoch_&#8203;end_&#8203;slot</span> | gauge | Last slot of the current epoch (inclusive), or 0 if unknown |
+| <span class="metrics-name">replay_&#8203;ns_&#8203;per_&#8203;slot</span> | gauge | Current slot duration in nanoseconds, or 0 if unknown |
+| <span class="metrics-name">replay_&#8203;metrics_&#8203;seqno</span> | gauge | Monotonic sequence number incremented before and after writing gauges in metrics_write. Odd means write in progress; even means done. Used by the wait command |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;live_&#8203;max</span> | gauge | Maximum number of banks we can have alive |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;live</span> | gauge | Banks we currently have alive |
 | <span class="metrics-name">replay_&#8203;reassembly_&#8203;free</span> | gauge | Free FEC sets in the reassembly queue |
