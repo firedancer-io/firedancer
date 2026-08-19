@@ -165,3 +165,31 @@ validators are found.
 | `--clean` | Remove entries for validators that are no longer running |
 
 <<< @/snippets/commands/ps.ansi
+
+## `wait`
+Waits for a safe window to stop a running validator. Attaches to the
+validator and polls every second until all of the following are true:
+
+ - The validator is caught up (replay status is `RUNNING`)
+ - There are enough idle slots before the next leader slot
+ - No snapshot is currently being written, and if incremental snapshots
+   are configured, one exists that is newer than the latest full snapshot
+ - Cluster delinquent stake is below the threshold
+
+Once all checks pass the command prints `safe to stop` and exits
+successfully (exit code 0). The validator keeps running. If interrupted
+by a signal before finding a safe window, the command exits with
+code 1.
+
+Like other discovery commands, `wait` finds the running validator
+automatically. If more than one validator is running, pass
+`--name <name>` to select one.
+
+| Arguments                          | Description |
+|------------------------------------|-------------|
+| `--min-idle-slots <slots>`         | Minimum number of idle slots required before the next leader slot. Default: 1500 |
+| `--min-idle-time-secs <seconds>`   | Minimum idle time in seconds before the next leader slot. Converted to slots using the live slot duration. Mutually exclusive with `--min-idle-slots` |
+| `--max-delinquent-stake <percent>` | Maximum percentage of delinquent stake allowed, in range [0–100]. Default: 5. Set to 100 to disable the check |
+| `--skip-health-check`              | Skip the health check (replay caught-up status) |
+| `--skip-snapshot-check`            | Skip the snapshot check |
+| `--name <name>`                    | Select a specific validator by name when multiple are running on the same host |

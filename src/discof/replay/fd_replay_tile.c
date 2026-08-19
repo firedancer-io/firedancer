@@ -152,6 +152,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
+  /* Seqlock: odd seqno signals that a write is in progress.  Consumers
+     (e.g. the wait command) read the seqno before and after reading
+     gauges; a mismatch or odd value means the read is torn. */
+
+  FD_COMPILER_MFENCE();
+  ctx->metrics_seqno++;
+  FD_MGAUGE_SET( REPLAY, METRICS_SEQNO, ctx->metrics_seqno ); /* odd (writing) */
+  FD_COMPILER_MFENCE();
+
   fd_accdb_flush_metrics( ctx->accdb );
 
   FD_MCNT_SET  ( REPLAY, STORE_QUERY_ACQUIRED,      ctx->metrics.store_query_acquire      );
@@ -164,21 +173,22 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, STORE_QUERY_MISSING_MERKLE_ROOT_SAMPLE, ctx->metrics.store_query_missing_mr   );
 
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
-  ulong leader_slot = ctx->leader_bank ? ctx->leader_bank->f.slot : 0UL;
-
-  if( FD_LIKELY( ctx->leader_bank ) ) {
-    FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, leader_slot );
-    FD_MGAUGE_SET( REPLAY, LEADER_SLOT, leader_slot );
-  } else {
-    FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, ctx->next_leader_slot==ULONG_MAX ? 0UL : ctx->next_leader_slot );
-    FD_MGAUGE_SET( REPLAY, LEADER_SLOT, 0UL );
-  }
+  ulong next_leader = ctx->next_leader_slot==ULONG_MAX ? 0UL : ctx->next_leader_slot;
+  FD_MGAUGE_SET( REPLAY, LEADER_SLOT,      ctx->leader_bank ? ctx->leader_bank->f.slot : 0UL );
+  FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, ctx->leader_bank ? ctx->leader_bank->f.slot : next_leader );
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
+
+  FD_MGAUGE_SET( REPLAY, EPOCH_END_SLOT, ctx->epoch_end_slot );
+  FD_MGAUGE_SET( REPLAY, SLOTS_PER_EPOCH, ctx->slots_per_epoch );
+  FD_MGAUGE_SET( REPLAY, NS_PER_SLOT, ctx->ns_per_slot );
 
   FD_MGAUGE_SET( REPLAY, BANK_LIVE, fd_banks_pool_used_cnt( ctx->banks ) );
 
   ulong reasm_free = fd_reasm_free( ctx->reasm );
   FD_MGAUGE_SET( REPLAY, REASSEMBLY_FREE, reasm_free );
+
+  FD_MGAUGE_SET( REPLAY, DELINQUENT_STAKE_LAMPORTS,     ctx->metrics.delinquent_stake_lamports );
+  FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, ctx->metrics.cluster_active_stake_lamports );
 
   FD_MCNT_SET( REPLAY, SLOT_REPLAYED, ctx->metrics.slots_total );
   FD_MCNT_SET( REPLAY, TXN_PROCESSED, ctx->metrics.transactions_total );
@@ -206,6 +216,11 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PARTITION_MEAN_BYTES,   wm->part_mean_sz   );
 
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
+
+  FD_COMPILER_MFENCE();
+  ctx->metrics_seqno++;
+  FD_MGAUGE_SET( REPLAY, METRICS_SEQNO, ctx->metrics_seqno ); /* even (consistent) */
+  FD_COMPILER_MFENCE();
 }
 
 static ushort
@@ -1904,6 +1919,10 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->reset_slot            = 0UL;
   ctx->reset_cmr             = ctx->initial_block_id;
   ctx->reset_dmr             = ctx->initial_block_id;
+  ctx->epoch_end_slot        = 0UL;
+  ctx->slots_per_epoch       = 0UL;
+  ctx->ns_per_slot           = 0UL;
+  ctx->metrics_seqno         = 0UL;
   ctx->reset_timestamp_nanos = fd_clock_tile_now( ctx->clock );
   ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
@@ -2039,6 +2058,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->reset_slot            = snapshot_slot;
     ctx->reset_cmr             = manifest_block_id;
     ctx->reset_dmr             = manifest_block_id;
+    fd_epoch_schedule_t const * snap_sched = &bank->f.epoch_schedule;
+    ulong snap_epoch           = fd_slot_to_epoch( snap_sched, snapshot_slot, NULL );
+    ctx->epoch_end_slot        = fd_epoch_slot0( snap_sched, snap_epoch ) + fd_epoch_slot_cnt( snap_sched, snap_epoch ) - 1UL;
+    ctx->slots_per_epoch       = fd_epoch_slot_cnt( snap_sched, snap_epoch );
+    ctx->ns_per_slot           = bank->f.slot_params.ns_per_slot;
     ctx->reset_timestamp_nanos = fd_clock_tile_now( ctx->clock );
     ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
 
@@ -3321,6 +3345,11 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 
   ctx->reset_cmr             = msg->reset_block_id;
   ctx->reset_slot            = msg->reset_slot;
+  fd_epoch_schedule_t const * reset_sched = &bank->f.epoch_schedule;
+  ulong reset_epoch          = fd_slot_to_epoch( reset_sched, msg->reset_slot, NULL );
+  ctx->epoch_end_slot        = fd_epoch_slot0( reset_sched, reset_epoch ) + fd_epoch_slot_cnt( reset_sched, reset_epoch ) - 1UL;
+  ctx->slots_per_epoch       = fd_epoch_slot_cnt( reset_sched, reset_epoch );
+  ctx->ns_per_slot           = bank->f.slot_params.ns_per_slot;
   ctx->reset_timestamp_nanos = fd_clock_tile_now( ctx->clock );
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) FD_TEST( msg->root_slot<=msg->reset_slot );
 
@@ -3545,15 +3574,50 @@ update_metric_epoch_credits( fd_replay_tile_t *  ctx,
 static void
 update_metric_active_stake( fd_bank_t const *   bank,
                             fd_pubkey_t const * vote_key ) {
-  ulong my_active_stake  = 0UL;
-  ulong tot_active_stake = bank->f.total_epoch_stake;
-
   ulong stake = 0UL;
   fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL, &stake, NULL );
-  my_active_stake = stake;
 
-  FD_MGAUGE_SET( REPLAY, ACTIVE_STAKE_LAMPORTS,         my_active_stake  );
-  FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, tot_active_stake );
+  FD_MGAUGE_SET( REPLAY, ACTIVE_STAKE_LAMPORTS, stake );
+}
+
+/* Agave defines a validator as delinquent when its last vote is at
+   least 128 slots behind the current slot.
+   https://github.com/anza-xyz/agave/blob/v4.2.1/rpc-client-types/src/request.rs#L166
+
+   This is a lightweight single-pass O(n) approximation.  The
+   percentage may differ slightly from the GUI's computation. */
+
+#define DELINQUENT_VALIDATOR_SLOT_DISTANCE 128UL
+
+static void
+update_metric_delinquent_stake( fd_replay_tile_t * ctx,
+                                fd_bank_t const *  bank ) {
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ulong              cur_slot    = bank->f.slot;
+  ulong              delinquent  = 0UL;
+  ulong              total       = 0UL;
+
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
+    fd_pubkey_t pubkey;
+    ulong       stake          = 0UL;
+    ulong       last_vote_slot = 0UL;
+    uchar       is_valid       = 0;
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
+                             &pubkey, NULL, &stake, &last_vote_slot,
+                             NULL, NULL, &is_valid, NULL, NULL );
+    if( FD_UNLIKELY( !is_valid ) ) continue;
+    total += stake;
+    if( FD_UNLIKELY( last_vote_slot==ULONG_MAX || cur_slot<last_vote_slot || cur_slot-last_vote_slot>=DELINQUENT_VALIDATOR_SLOT_DISTANCE ) ) {
+      delinquent += stake;
+    }
+  }
+
+  ctx->metrics.delinquent_stake_lamports     = delinquent;
+  ctx->metrics.cluster_active_stake_lamports = total;
 }
 
 static void
@@ -3567,8 +3631,10 @@ update_metric_balances( fd_replay_tile_t * ctx,
 
   if( !fd_pubkey_check_zero( &node_info->vote_account ) ) {
     update_metric_epoch_credits( ctx, bank, fork_id, &node_info->vote_account );
-    update_metric_active_stake (      bank,          &node_info->vote_account );
+    update_metric_active_stake ( bank, &node_info->vote_account );
   }
+
+  update_metric_delinquent_stake( ctx, bank );
 }
 
 static void
@@ -4193,6 +4259,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->reset_slot            = 0UL;
   ctx->reset_cmr             = ctx->initial_block_id;
   ctx->reset_dmr             = ctx->initial_block_id;
+  ctx->epoch_end_slot        = 0UL;
+  ctx->slots_per_epoch       = 0UL;
+  ctx->ns_per_slot           = 0UL;
+  ctx->metrics_seqno         = 0UL;
   ctx->reset_timestamp_nanos = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;

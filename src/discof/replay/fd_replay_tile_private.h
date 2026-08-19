@@ -411,6 +411,10 @@ struct fd_replay_tile {
   double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
+  ulong       epoch_end_slot;
+  ulong       slots_per_epoch;
+  ulong       ns_per_slot;
+  ulong       metrics_seqno;
 
   /* Caught up to the cluster: replay has completed a slot within a few
      slots of the highest FEC set slot seen from repair (which tracks
@@ -501,6 +505,9 @@ struct fd_replay_tile {
     ulong      store_query_missing_cnt;
     ulong      store_query_mr;
     ulong      store_query_missing_mr;
+
+    ulong delinquent_stake_lamports;
+    ulong cluster_active_stake_lamports;
 
     ulong slots_total;
     ulong transactions_total;
