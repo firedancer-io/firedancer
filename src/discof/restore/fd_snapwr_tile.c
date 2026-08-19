@@ -457,11 +457,6 @@ handle_control_barrier( fd_snapwr_tile_t *  ctx,
 
   if( FD_UNLIKELY( ctx->pending_control==ULONG_MAX ) ) {
     ctx->pending_control = sig;
-  } else if( FD_UNLIKELY( ctx->control_seen[ in_idx ] ) ) {
-    FD_LOG_WARNING(( "received duplicate %s control from snapdc lane %lu",
-                     fd_ssctrl_msg_ctrl_str( sig ), in_idx ));
-    transition_malformed( ctx, stem );
-    return;
   } else if( FD_UNLIKELY( sig!=ctx->pending_control ) ) {
     FD_LOG_WARNING(( "received conflicting %s control from snapdc lane %lu while waiting for %s",
                      fd_ssctrl_msg_ctrl_str( sig ), in_idx,
