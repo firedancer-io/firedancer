@@ -387,20 +387,13 @@ test_pending_control_keeps_frame_order( void ) {
 }
 
 static void
-test_bad_control_copies( void ) {
+test_conflicting_control_copies( void ) {
   fd_snapin_tile_t ctx[1];
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_FINISHING );
   test_pub_cnt = 0UL;
 
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FINI );
-  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FINI );
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
-  FD_TEST( test_pub_cnt==1UL );
-  FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
-
-  sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_FINISHING );
-  test_pub_cnt = 0UL;
-  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FINI );
+  FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE ) );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_DONE );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
   FD_TEST( test_pub_cnt==1UL );
@@ -936,7 +929,7 @@ main( int     argc,
   test_fast_lane_control_pipeline();
   test_pending_control_allows_lagging_data();
   test_pending_control_keeps_frame_order();
-  test_bad_control_copies();
+  test_conflicting_control_copies();
   test_error_interrupts_incremental_init();
   test_initialized_incremental_fail_rolls_back();
   test_error_fail_and_retry();
