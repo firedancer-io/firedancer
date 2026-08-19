@@ -332,8 +332,14 @@
 
 #if POOL_IMPL_STYLE==0 /* local use only */
 #define POOL_STATIC FD_FN_UNUSED static
+/* For the few operations hot enough that the call itself is a measurable cost.
+   Only meaningful for the local-use style, where POOL_STATIC is already static;
+   always_inline on an external definition is not valid, so this is empty for the
+   library styles and they keep an ordinary out-of-line call. */
+#define POOL_HOT_STATIC FD_FN_UNUSED static inline __attribute__((always_inline))
 #else /* library header and/or implementation */
 #define POOL_STATIC
+#define POOL_HOT_STATIC
 #endif
 
 #define POOL_(n) FD_EXPAND_THEN_CONCAT3(POOL_NAME,_,n)
@@ -505,7 +511,7 @@ POOL_STATIC void *     POOL_(delete)( void *     shpool );
 
 POOL_STATIC POOL_ELE_T * POOL_(acquire)( POOL_(t) * join );
 
-POOL_STATIC POOL_ELE_T * POOL_(acquire_nolock)( POOL_(t) * join );
+POOL_HOT_STATIC POOL_ELE_T * POOL_(acquire_nolock)( POOL_(t) * join );
 
 POOL_STATIC void POOL_(release)( POOL_(t) * join, POOL_ELE_T * ele );
 
@@ -792,7 +798,7 @@ POOL_(acquire_lazy_nolock)( POOL_(t) * join ) {
 
 #endif /* POOL_LAZY */
 
-POOL_STATIC POOL_ELE_T *
+POOL_HOT_STATIC POOL_ELE_T *
 POOL_(acquire_nolock)( POOL_(t) * join ) {
   POOL_ELE_T * ele0    = join->ele;
   ulong        ele_max = join->ele_max;
@@ -1103,6 +1109,7 @@ POOL_(strerror)( int err ) {
 
 #undef POOL_
 #undef POOL_STATIC
+#undef POOL_HOT_STATIC
 #undef POOL_VER_WIDTH
 
 #undef POOL_LAZY
