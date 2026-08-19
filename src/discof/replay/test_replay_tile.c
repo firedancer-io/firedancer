@@ -904,6 +904,134 @@ test_snapshot_intervals_use_block_height( void ) {
 }
 
 static void
+test_snapshot_found_deleted_state( fd_wksp_t * wksp ) {
+  ulong  data_sz = fd_dcache_req_data_sz( sizeof(fd_snapmk_msg_t), 4UL, 1UL, 1 );
+  void * dcache  = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( wksp,
+                     fd_dcache_align(), fd_dcache_footprint( data_sz, 0UL ), 1UL ), data_sz, 0UL ) );
+  FD_TEST( dcache );
+
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_memset( ctx, 0, sizeof(fd_replay_tile_t) );
+
+  ulong in_idx = 0UL;
+  ctx->in[ in_idx ].mem = fd_wksp_containing( dcache );
+
+  ulong chunk0 = fd_dcache_compact_chunk0( ctx->in[ in_idx ].mem, dcache );
+
+  /* FOUND messages: keep max. */
+
+  fd_snapmk_msg_t * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk0 );
+  msg->found.slot      = 100UL;
+  msg->found.base_slot = ULONG_MAX; /* full */
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==100UL );
+  FD_TEST( ctx->snapmk.snap_finished_incr==0UL );
+
+  msg->found.slot = 200UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==200UL );
+
+  msg->found.slot = 150UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==200UL );
+
+  msg->found.slot      = 250UL;
+  msg->found.base_slot = 200UL; /* incremental */
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_incr==250UL );
+  FD_TEST( ctx->snapmk.snap_finished_full==200UL );
+
+  msg->found.slot      = 210UL;
+  msg->found.base_slot = 200UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_incr==250UL );
+
+  /* DELETED messages: reset-if-match. */
+
+  fd_snapmk_msg_deleted_t * del = &msg->deleted;
+  del->slot      = 100UL;
+  del->base_slot = ULONG_MAX; /* full */
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_DELETED, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==200UL );
+
+  del->slot = 200UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_DELETED, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==0UL );
+
+  del->slot      = 250UL;
+  del->base_slot = 200UL; /* incremental */
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_DELETED, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_incr==0UL );
+
+  del->slot      = 999UL;
+  del->base_slot = 200UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_DELETED, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_incr==0UL );
+
+  FD_LOG_NOTICE(( "pass: test_snapshot_found_deleted_state" ));
+}
+
+/* Test vote_account_is_current (the production classifier used by
+   update_metric_delinquent_stake). */
+
+static void
+test_delinquent_classifier( void ) {
+  /* last_vote_slot==ULONG_MAX is always delinquent. */
+  FD_TEST( !vote_account_is_current(   0UL, ULONG_MAX ) );
+  FD_TEST( !vote_account_is_current( 128UL, ULONG_MAX ) );
+  FD_TEST( !vote_account_is_current( 500UL, ULONG_MAX ) );
+
+  /* cur_slot < 128: last_vote_slot>0 is current, ==0 is delinquent. */
+  FD_TEST( !vote_account_is_current(   0UL, 0UL ) );
+  FD_TEST(  vote_account_is_current(   0UL, 1UL ) );
+  FD_TEST( !vote_account_is_current(  50UL, 0UL ) );
+  FD_TEST(  vote_account_is_current(  50UL, 1UL ) );
+  FD_TEST(  vote_account_is_current( 127UL, 1UL ) );
+  FD_TEST( !vote_account_is_current( 127UL, 0UL ) );
+
+  /* cur_slot >= 128: distance < 128 is current, >= 128 is delinquent. */
+  FD_TEST(  vote_account_is_current( 128UL, 128UL ) );  /* distance 0 */
+  FD_TEST(  vote_account_is_current( 128UL,   1UL ) );  /* distance 127 */
+  FD_TEST( !vote_account_is_current( 128UL,   0UL ) );  /* distance 128 */
+  FD_TEST(  vote_account_is_current( 500UL, 373UL ) );  /* distance 127 */
+  FD_TEST( !vote_account_is_current( 500UL, 372UL ) );  /* distance 128 */
+  FD_TEST( !vote_account_is_current( 500UL, 100UL ) );  /* distance 400 */
+
+  /* Future vote slot (cur_slot < last_vote_slot): always current. */
+  FD_TEST(  vote_account_is_current( 200UL, 300UL ) );
+  FD_TEST(  vote_account_is_current( 128UL, 999UL ) );
+
+  FD_LOG_NOTICE(( "pass: test_delinquent_classifier" ));
+}
+
+/* Test wait_info_healthy (the production health classifier used by
+   metrics_write). */
+
+static void
+test_wait_info_health_signal( void ) {
+  /* Not caught up: always unhealthy regardless of slots. */
+  FD_TEST( !wait_info_healthy( 0, 100UL, 100UL ) );
+  FD_TEST( !wait_info_healthy( 0, 100UL,  50UL ) );
+  FD_TEST( !wait_info_healthy( 0, ULONG_MAX, ULONG_MAX ) );
+
+  /* Caught up and close (distance <= 12): healthy. */
+  FD_TEST(  wait_info_healthy( 1, 100UL, 100UL ) );  /* distance 0 */
+  FD_TEST(  wait_info_healthy( 1, 112UL, 100UL ) );  /* distance 12 */
+  FD_TEST(  wait_info_healthy( 1,  50UL, 100UL ) );  /* turbine behind reset */
+
+  /* Caught up but fallen behind (distance > 12): unhealthy. */
+  FD_TEST( !wait_info_healthy( 1, 113UL, 100UL ) );  /* distance 13 */
+  FD_TEST( !wait_info_healthy( 1, 200UL, 100UL ) );  /* distance 100 */
+
+  /* ULONG_MAX maps to 0 for both fields. */
+  FD_TEST(  wait_info_healthy( 1, ULONG_MAX, ULONG_MAX ) );  /* both 0, distance 0 */
+  FD_TEST(  wait_info_healthy( 1, ULONG_MAX, 100UL ) );      /* turbine 0 <= reset */
+  FD_TEST( !wait_info_healthy( 1, 100UL, ULONG_MAX ) );      /* turbine 100, reset 0, distance 100 > 12 */
+
+  FD_LOG_NOTICE(( "pass: test_wait_info_health_signal" ));
+}
+
+static void
 start_fec_with_epoch_boundary_mode( fd_replay_tile_t * ctx,
                                     fd_reasm_fec_t *   fec,
                                     int                freeze_bank,
@@ -2804,6 +2932,9 @@ main( int     argc,
   test_leader_fec_payload_retained( wksp );          fd_wksp_reset( wksp, 42U );
   test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );
   test_snapshot_intervals_use_block_height();
+  test_snapshot_found_deleted_state( wksp );        fd_wksp_reset( wksp, 42U );
+  test_delinquent_classifier();
+  test_wait_info_health_signal();
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
