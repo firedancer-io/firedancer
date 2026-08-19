@@ -30,7 +30,6 @@ typedef struct fd_snapwr_out fd_snapwr_out_t;
 
 struct fd_snapwr_tile {
   int full;
-  int init_completed;     /* did INIT complete for this attempt? */
   int state;
 
   ulong lane_cnt;
@@ -292,7 +291,6 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-      ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->expected_frame = 0UL;
       for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
         ctx->in[ i ].pos = 0UL;
@@ -309,7 +307,6 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
         ctx->metrics.incremental_bytes_read = 0UL;
         ctx->metrics.accounts_written       = ctx->metrics.full_accounts_written;
       }
-      ctx->init_completed = 1;
       break;
     }
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
@@ -333,14 +330,12 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
       ctx->recovery.accounts_off = ctx->accounts_off;
       ctx->recovery.flush_off    = ctx->flush_off;
       ctx->metrics.full_accounts_written = ctx->metrics.accounts_written;
-      ctx->init_completed = 0;
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      ctx->init_completed = 0;
       break;
     }
 
@@ -353,11 +348,8 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->write_buf_used = 0UL;
-      if( FD_LIKELY( ctx->init_completed ) ) {
-        ctx->accounts_off = ctx->full ? 0UL : ctx->recovery.accounts_off;
-        ctx->flush_off    = ctx->full ? 0UL : ctx->recovery.flush_off;
-      }
-      ctx->init_completed = 0;
+      ctx->accounts_off = ctx->full ? 0UL : ctx->recovery.accounts_off;
+      ctx->flush_off    = ctx->full ? 0UL : ctx->recovery.flush_off;
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     }
@@ -456,9 +448,15 @@ handle_control_barrier( fd_snapwr_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( ctx->pending_control==ULONG_MAX ) ) {
+    /* Record the new attempt type on the first INIT copy so FAIL can
+       roll back correctly if ERROR interrupts a pending INIT message */
+    if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL || sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
+      ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+    }
+
     ctx->pending_control = sig;
   }
-  
+
   FD_TEST( sig==ctx->pending_control );
 
   /* Only process the control frag when all upstream tiles have sent
@@ -555,7 +553,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _write_buf       = FD_SCRATCH_ALLOC_APPEND( l, 1UL,                          FD_SNAPWR_WRITE_BUF_SZ            );
 
   ctx->full            = 1;
-  ctx->init_completed  = 0;
   ctx->state           = FD_SNAPSHOT_STATE_IDLE;
   ctx->lane_cnt        = tile->in_cnt;
   ctx->expected_frame  = 0UL;

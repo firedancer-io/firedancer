@@ -216,13 +216,11 @@ test_error_interrupts_incremental_init( void ) {
   FD_TEST( ctx->pending_control==FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   FD_TEST( ctx->control_seen[0] );
   FD_TEST( !ctx->control_seen[1] );
-  FD_TEST( ctx->full );
-  FD_TEST( !ctx->init_completed );
+  FD_TEST( !ctx->full );
 
   FD_TEST( !before_frag( ctx, 0UL, 1UL, FD_SNAPSHOT_MSG_CTRL_ERROR ) );
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
-  FD_TEST( !ctx->init_completed );
   FD_TEST( ctx->pending_control==ULONG_MAX );
   FD_TEST( !ctx->control_seen[0] );
   FD_TEST( !ctx->control_seen[1] );
@@ -232,11 +230,9 @@ test_error_interrupts_incremental_init( void ) {
 
   FD_TEST( !before_frag( ctx, 0UL, 2UL, FD_SNAPSHOT_MSG_CTRL_FAIL ) );
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
-  FD_TEST( !ctx->init_completed );
   FD_TEST( !before_frag( ctx, 1UL, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL ) );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-  FD_TEST( !ctx->init_completed );
   FD_TEST( !ctx->write_buf_used );
   FD_TEST( ctx->accounts_off==ctx->recovery.accounts_off );
   FD_TEST( ctx->flush_off==ctx->recovery.flush_off );
@@ -247,7 +243,7 @@ test_error_interrupts_incremental_init( void ) {
 }
 
 static void
-test_initialized_incremental_fail_rolls_back( void ) {
+test_incremental_fail_rolls_back( void ) {
   fd_snapwr_tile_t * ctx = aligned_alloc( alignof(fd_snapwr_tile_t), sizeof(fd_snapwr_tile_t) );
   FD_TEST( ctx );
   void * parser_mem = aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
@@ -263,7 +259,6 @@ test_initialized_incremental_fail_rolls_back( void ) {
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
-  FD_TEST( ctx->init_completed );
   FD_TEST( !ctx->full );
 
   ctx->accounts_off   = 8192UL;
@@ -273,7 +268,6 @@ test_initialized_incremental_fail_rolls_back( void ) {
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-  FD_TEST( !ctx->init_completed );
   FD_TEST( !ctx->write_buf_used );
   FD_TEST( ctx->accounts_off==ctx->recovery.accounts_off );
   FD_TEST( ctx->flush_off==ctx->recovery.flush_off );
@@ -289,8 +283,7 @@ test_error_and_fail( void ) {
   fd_snapwr_tile_t * ctx = aligned_alloc( alignof(fd_snapwr_tile_t), sizeof(fd_snapwr_tile_t) );
   FD_TEST( ctx );
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_FINISHING );
-  ctx->init_completed = 1;
-  test_pub_cnt        = 0UL;
+  test_pub_cnt = 0UL;
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR );
   FD_TEST( test_pub_cnt==1UL );
   FD_TEST( before_frag( ctx, 1UL, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE )>0 );
@@ -298,7 +291,6 @@ test_error_and_fail( void ) {
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-  FD_TEST( !ctx->init_completed );
   FD_TEST( test_pub_cnt==2UL );
   free( ctx );
 }
@@ -366,7 +358,6 @@ test_init_resets_lane_state( void ) {
   FD_TEST( !ctx->in[0].pos );
   FD_TEST( !ctx->in[1].pos );
   FD_TEST( !ctx->expected_frame );
-  FD_TEST( ctx->init_completed );
   FD_TEST( !ctx->full );
   free( parser_mem );
   free( ctx );
@@ -413,32 +404,44 @@ test_meta_barrier_is_swallowed( void ) {
 }
 
 static void
-test_success_clears_init_completed( void ) {
+test_control_rollback_lifecycle( void ) {
   fd_snapwr_tile_t * ctx = aligned_alloc( alignof(fd_snapwr_tile_t), sizeof(fd_snapwr_tile_t) );
   FD_TEST( ctx );
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_FINISHING );
-  ctx->init_completed = 1;
-  ctx->accounts_off   = 4096UL;
-  ctx->flush_off      = 3072UL;
-  test_pub_cnt         = 0UL;
+  ctx->accounts_off = 4096UL;
+  ctx->flush_off    = 3072UL;
+  test_pub_cnt      = 0UL;
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_NEXT );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_NEXT );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-  FD_TEST( !ctx->init_completed );
   FD_TEST( ctx->recovery.accounts_off==4096UL );
   FD_TEST( ctx->recovery.flush_off==3072UL );
 
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( !ctx->accounts_off );
+  FD_TEST( !ctx->flush_off );
+
+  sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_FINISHING );
+  ctx->accounts_off = 4096UL;
+  ctx->flush_off    = 3072UL;
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_NEXT );
+  send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_NEXT );
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
+  FD_TEST( !ctx->full );
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR );
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( ctx->accounts_off==4096UL );
   FD_TEST( ctx->flush_off==3072UL );
 
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_FINISHING );
-  ctx->init_completed = 1;
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_DONE );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-  FD_TEST( !ctx->init_completed );
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+  send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN );
   free( ctx );
 }
 
@@ -447,18 +450,16 @@ test_full_fail_resets_offsets( void ) {
   fd_snapwr_tile_t * ctx = aligned_alloc( alignof(fd_snapwr_tile_t), sizeof(fd_snapwr_tile_t) );
   FD_TEST( ctx );
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_ERROR );
-  ctx->full            = 1;
-  ctx->init_completed  = 1;
-  ctx->accounts_off    = 4096UL;
-  ctx->flush_off       = 3072UL;
-  ctx->write_buf_used  = 128UL;
+  ctx->full           = 1;
+  ctx->accounts_off   = 4096UL;
+  ctx->flush_off      = 3072UL;
+  ctx->write_buf_used = 128UL;
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
   FD_TEST( !ctx->accounts_off );
   FD_TEST( !ctx->flush_off );
   FD_TEST( !ctx->write_buf_used );
-  FD_TEST( !ctx->init_completed );
   free( ctx );
 }
 
@@ -470,14 +471,14 @@ main( int     argc,
   test_pending_control_allows_lagging_data();
   test_pending_control_keeps_frame_order();
   test_error_interrupts_incremental_init();
-  test_initialized_incremental_fail_rolls_back();
+  test_incremental_fail_rolls_back();
   test_error_and_fail();
   test_raw_lane_and_zero_eom();
   test_malformed_stream_endings();
   test_init_resets_lane_state();
   test_nonempty_raw_data();
   test_meta_barrier_is_swallowed();
-  test_success_clears_init_completed();
+  test_control_rollback_lifecycle();
   test_full_fail_resets_offsets();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
