@@ -121,11 +121,7 @@ struct fd_configf {
   struct {
     ulong max_live_slots;
     ulong max_fork_width;
-
-    struct {
-      ulong heap_size_mib;
-      ulong mean_cache_entry_size;
-    } program_cache;
+    ulong program_cache_size_mib;
   } runtime;
 
   struct {
