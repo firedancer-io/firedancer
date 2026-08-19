@@ -307,46 +307,31 @@ process_owned_frame( fd_snapdc_tile_t *  ctx,
     ctx->metrics.incremental.decompressed_bytes_written += out_produced;
   }
 
-  int frame_complete = !frame_res;
-  if( FD_UNLIKELY( !frame_complete && !in_consumed && !out_produced ) ) {
-    if( FD_LIKELY( ctx->in.frag_pos==sz ) ) {
-      /* No progress with exhausted input means zstd needs the next frag */
-      ctx->in.frag_pos = 0UL;
-    } else {
+  if( FD_UNLIKELY( frame_res && !in_consumed && !out_produced ) ) {
+    if( FD_UNLIKELY( ctx->in.frag_pos<sz ) ) {
       /* No progress with remaining input would retry forever */
       transition_malformed( ctx, stem );
+    } else {
+      /* No progress with exhausted input means zstd needs the next frag */
+      ctx->in.frag_pos = 0UL;
     }
     return 0;
   }
 
-  if( FD_LIKELY( out_produced || frame_complete ) ) {
-    ulong out_ctl = fd_frag_meta_ctl( 0UL, 0, frame_complete, 0 );
+  if( FD_LIKELY( out_produced || !frame_res ) ) {
+    ulong out_ctl = fd_frag_meta_ctl( 0UL, 0, !frame_res, 0 );
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, out_produced, out_ctl, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, out_produced, ctx->out.chunk0, ctx->out.wmark );
   }
 
-  if( FD_UNLIKELY( frame_complete ) ) {
-    finish_frame( ctx );
+  if( FD_UNLIKELY( !frame_res ) ) finish_frame( ctx );
 
-    /* If there are unconsumed bytes in the frag, reprocess the next
-       frame in this frag. */
-    if( FD_LIKELY( ctx->in.frag_pos<sz ) ) {
-      return 1;
-    }
-
-    ctx->in.frag_pos = 0UL;
-    return 0;
-  }
-
-  /* Reprocess the current frag while input remains, or when a full
-     output buffer may have left decompressed bytes buffered inside
-     zstd. */
-  if( FD_UNLIKELY( ctx->in.frag_pos<sz || out_produced==ctx->out.mtu ) ) {
-    return 1;
-  }
-
-  ctx->in.frag_pos = 0UL;
-  return 0;
+  /* frame_res==0 means the frame ended exactly at the output boundary;
+     re-polling then reports "new frame expected" and would mark the
+     stream dirty at a clean EOF. */
+  int maybe_more_output = (out_produced==ctx->out.mtu && frame_res!=0UL) || ctx->in.frag_pos<sz;
+  if( FD_LIKELY( !maybe_more_output ) ) ctx->in.frag_pos = 0UL;
+  return maybe_more_output;
 }
 
 static inline int
