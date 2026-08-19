@@ -12,14 +12,6 @@
 #if FD_HAS_S2NBIGNUM
 #include "../../third_party/s2n-bignum/include/s2n-bignum.h"
 #endif
-#if FD_HAS_X86
-#if defined(__GNUC__) && !defined(__clang__)
-#include <x86gprintrin.h> /* adc/sbb only; ~200x smaller than immintrin.h */
-#else
-#include <immintrin.h>
-#endif
-#endif
-
 /* Fp = base field */
 
 #define FLAG_INF  ((uchar)(1 << 6))
@@ -144,8 +136,32 @@ INLINE fd_bn254_fp_t *
 fd_bn254_fp_add( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
                  fd_bn254_fp_t const * b ) {
+#if FD_HAS_X86 && defined(__ADX__)
+  /* t = a + b (a,b < p < 2^254 so no carry out of 254 bits)
+     then r = min(t, t - p) via a branchless borrow-select.
+     This ends up being a shorter dependency chain than fiat's wide-add
+     + cmov strategy. */
+  ulong t0,t1,t2,t3, s0,s1,s2,s3;
+  int c = 0;
+  fd_ulong_add_carry( &t0, &c, a->limbs[0], b->limbs[0], c );
+  fd_ulong_add_carry( &t1, &c, a->limbs[1], b->limbs[1], c );
+  fd_ulong_add_carry( &t2, &c, a->limbs[2], b->limbs[2], c );
+  fd_ulong_add_carry( &t3, &c, a->limbs[3], b->limbs[3], c );
+  int br = 0;
+  fd_ulong_sub_borrow( &s0, &br, t0, fd_bn254_const_p->limbs[0], br );
+  fd_ulong_sub_borrow( &s1, &br, t1, fd_bn254_const_p->limbs[1], br );
+  fd_ulong_sub_borrow( &s2, &br, t2, fd_bn254_const_p->limbs[2], br );
+  fd_ulong_sub_borrow( &s3, &br, t3, fd_bn254_const_p->limbs[3], br );
+
+  r->limbs[0] = br ? t0 : s0;
+  r->limbs[1] = br ? t1 : s1;
+  r->limbs[2] = br ? t2 : s2;
+  r->limbs[3] = br ? t3 : s3;
+  return r;
+#else
   fiat_bn254_add( r->limbs, a->limbs, b->limbs );
   return r;
+#endif
 }
 
 /* r = a + b, output in [0, 2p).
@@ -156,17 +172,12 @@ fd_bn254_fp_add_lazy( fd_bn254_fp_t * r,
                       fd_bn254_fp_t const * a,
                       fd_bn254_fp_t const * b ) {
 #if FD_HAS_X86
-  unsigned long long t0, t1, t2, t3;
-  uchar c = 0;
-  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[0], (unsigned long long)b->limbs[0], &t0 );
-  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[1], (unsigned long long)b->limbs[1], &t1 );
-  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[2], (unsigned long long)b->limbs[2], &t2 );
-  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[3], (unsigned long long)b->limbs[3], &t3 );
+  int c = 0;
+  fd_ulong_add_carry( &r->limbs[0], &c, a->limbs[0], b->limbs[0], c );
+  fd_ulong_add_carry( &r->limbs[1], &c, a->limbs[1], b->limbs[1], c );
+  fd_ulong_add_carry( &r->limbs[2], &c, a->limbs[2], b->limbs[2], c );
+  fd_ulong_add_carry( &r->limbs[3], &c, a->limbs[3], b->limbs[3], c );
   (void)c; /* p < 2^254 so c is always 0 for a, b < 2p */
-  r->limbs[0] = (ulong)t0;
-  r->limbs[1] = (ulong)t1;
-  r->limbs[2] = (ulong)t2;
-  r->limbs[3] = (ulong)t3;
   return r;
 #else
   /* We find no performance improvement on non-x86 targets, so we
@@ -179,8 +190,29 @@ INLINE fd_bn254_fp_t *
 fd_bn254_fp_sub( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
                  fd_bn254_fp_t const * b ) {
+#if FD_HAS_X86 && defined(__ADX__)
+  ulong t0,t1,t2,t3;
+  int br = 0;
+  fd_ulong_sub_borrow( &t0, &br, a->limbs[0], b->limbs[0], br );
+  fd_ulong_sub_borrow( &t1, &br, a->limbs[1], b->limbs[1], br );
+  fd_ulong_sub_borrow( &t2, &br, a->limbs[2], b->limbs[2], br );
+  fd_ulong_sub_borrow( &t3, &br, a->limbs[3], b->limbs[3], br );
+  ulong mask = (ulong)0 - (ulong)br; /* all-ones if borrow */
+  int c = 0;
+  fd_ulong_add_carry( &t0, &c, t0, mask & fd_bn254_const_p->limbs[0], c );
+  fd_ulong_add_carry( &t1, &c, t1, mask & fd_bn254_const_p->limbs[1], c );
+  fd_ulong_add_carry( &t2, &c, t2, mask & fd_bn254_const_p->limbs[2], c );
+  fd_ulong_add_carry( &t3, &c, t3, mask & fd_bn254_const_p->limbs[3], c );
+
+  r->limbs[0] = t0; 
+  r->limbs[1] = t1; 
+  r->limbs[2] = t2; 
+  r->limbs[3] = t3;
+  return r;
+#else
   fiat_bn254_sub( r->limbs, a->limbs, b->limbs );
   return r;
+#endif
 }
 
 INLINE fd_bn254_fp_t *
