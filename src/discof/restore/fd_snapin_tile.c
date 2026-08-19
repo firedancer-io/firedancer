@@ -1635,13 +1635,9 @@ handle_control_barrier( fd_snapin_tile_t *  ctx,
 
   if( FD_UNLIKELY( ctx->pending_control==ULONG_MAX ) ) {
     ctx->pending_control = sig;
-  } else if( FD_UNLIKELY( sig!=ctx->pending_control ) ) {
-    FD_LOG_WARNING(( "received conflicting %s control from snapdc lane %lu while waiting for %s",
-                     fd_ssctrl_msg_ctrl_str( sig ), in_idx,
-                     fd_ssctrl_msg_ctrl_str( ctx->pending_control ) ));
-    transition_malformed( ctx, stem );
-    return;
   }
+  
+  FD_TEST( sig==ctx->pending_control );
 
   /* Only process the control frag when all upstream tiles have sent
      the same control message. */
