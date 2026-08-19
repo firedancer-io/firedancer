@@ -37,6 +37,14 @@
 #include "../repair/fd_repair_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
+
+#include "../../flamenco/runtime/fd_pubkey_utils.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/runtime/fd_accdb_svm.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
+#include "fd_footer_rewards.h"
+
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -881,6 +889,82 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
                 int                 dead_reason,
                 int                 abandoned_reason );
 
+/* replay_epoch_info returns the ranked Alpenglow validator set tracked
+   for epoch, NULL if unknown. */
+
+static ag_epoch_info_t const *
+replay_epoch_info( void * _ctx,
+                   ulong  epoch ) {
+  fd_replay_tile_t * ctx = (fd_replay_tile_t *)_ctx;
+  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+    if( ctx->epoch_vtrs[ i ].epoch==epoch ) return ctx->epoch_vtrs[ i ].info;
+  }
+  return NULL;
+}
+
+/* replay_leader_vote_pubkey returns the vote address of the leader of
+   bank's slot, NULL if unknown.  The leader schedule is identity
+   keyed, so the identity is resolved through the slot's ranked
+   validator set.  TODO: ambiguous if one identity runs multiple vote
+   accounts; Agave's alpenglow leader schedule carries the vote address
+   directly. */
+
+static fd_pubkey_t const *
+replay_leader_vote_pubkey( fd_replay_tile_t * ctx,
+                           fd_bank_t *        bank ) {
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, bank->f.slot );
+  if( FD_UNLIKELY( !leader ) ) return NULL;
+  ag_epoch_info_t const * info = replay_epoch_info( ctx, fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL ) );
+  if( FD_UNLIKELY( !info ) ) return NULL;
+  for( ulong i=0UL; i<info->validator_cnt; i++ ) {
+    if( fd_pubkey_eq( &info->validators[ i ].pubkey, leader ) ) return &info->validators[ i ].vote_pubkey;
+  }
+  return NULL;
+}
+
+/* replay_apply_footer_clock mirrors Agave Bank::update_clock_from_footer:
+   processing a block footer rewrites the clock sysvar from the footer's
+   nanosecond producer timestamp, and stores the raw nanosecond value in
+   the alpenclock account.  Both account writes are part of the bank's
+   account delta, so they must land before the bank hash is computed. */
+
+static void
+replay_apply_footer_clock( fd_replay_tile_t * ctx,
+                           fd_bank_t *        bank,
+                           ulong              producer_time_nanos ) {
+  long unix_timestamp = (long)( producer_time_nanos/1000000000UL );
+
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( ctx->accdb, bank->accdb_fork_id, clock_ );
+  if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
+
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot,        NULL );
+  ulong parent_epoch  = fd_slot_to_epoch( epoch_schedule, bank->f.parent_slot, NULL );
+
+  fd_sol_sysvar_clock_t new_clock = {
+    .slot                  = bank->f.slot,
+    .epoch_start_timestamp = parent_epoch!=current_epoch ? unix_timestamp : clock->epoch_start_timestamp,
+    .epoch                 = current_epoch,
+    .leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, bank->f.slot ),
+    .unix_timestamp        = unix_timestamp,
+  };
+  fd_sysvar_account_update( bank, ctx->accdb, ctx->capture_ctx, &fd_sysvar_clock_id, &new_clock, sizeof(fd_sol_sysvar_clock_t) );
+
+  if( FD_UNLIKELY( !ctx->has_alpenclock_addr ) ) {
+    FD_LOG_WARNING(( "slot %lu: alpenglow feature id unknown; skipping alpenclock update (bank hash will diverge)", bank->f.slot ));
+    return;
+  }
+
+  /* Agave sizes the alpenclock balance with Rent::default(), not the
+     bank's rent sysvar. */
+  fd_rent_t const default_rent = { .lamports_per_uint8_year=3480UL, .exemption_threshold=2.0, .burn_percent=(uchar)50 };
+  uchar data[ 8UL ];
+  FD_STORE( ulong, data, producer_time_nanos );
+  fd_accdb_svm_write( bank, ctx->accdb, ctx->capture_ctx, &ctx->alpenclock_addr, &fd_solana_system_program_id,
+                      data, sizeof(data), fd_rent_exempt_minimum_balance( &default_rent, sizeof(data) ), 0 );
+}
+
 static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
@@ -896,6 +980,27 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   ulong execution_fees_pre_settle = bank->f.execution_fees;
   ulong priority_fees_pre_settle  = bank->f.priority_fees;
+
+  /* Apply footer side effects before hashing: they are part of the
+     bank's account delta.  Order mirrors Agave's
+     update_bank_with_footer_fields: clock first, then vote rewards. */
+  if( FD_UNLIKELY( ctx->is_alpenglow && fd_sched_get_footer_bank_hash( ctx->sched, bank->idx ) ) ) {
+    replay_apply_footer_clock( ctx, bank, fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx ) );
+
+    fd_footer_certs_t certs[1];
+    certs->final_cert        = fd_sched_get_final_cert       ( ctx->sched, bank->idx, &certs->final_cert_sz        );
+    certs->skip_reward_cert  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx, &certs->skip_reward_cert_sz  );
+    certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx, &certs->notar_reward_cert_sz );
+    if( FD_UNLIKELY( fd_footer_rewards_apply( bank, ctx->accdb, ctx->capture_ctx, certs,
+                                              fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx ),
+                                              ctx->alpenglow_migration_slot,
+                                              replay_leader_vote_pubkey( ctx, bank ),
+                                              ctx->has_vote_reward_addr ? &ctx->vote_reward_addr : NULL,
+                                              replay_epoch_info, ctx ) ) ) {
+      FD_LOG_CRIT(( "slot %lu: footer cert processing failed; marking bank dead", bank->f.slot ));
+      return;
+    }
+  }
 
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
@@ -1697,6 +1802,83 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb ) );
     /* Agave zeroes manifest rent_params; reload from sysvar account */
     FD_TEST( fd_sysvar_rent_read( ctx->accdb, bank->accdb_fork_id, &bank->f.rent ) );
+
+    /* Classify the snapshot against the Alpenglow migration, mirroring
+       Agave's MigrationStatus::initialize (see Agave
+       votor-messages/src/migration.rs).  The genesis certificate
+       account (the off-curve PDA of the alpenglow feature id with seed
+       "carlgration") is populated by a marker in the first alpenglow
+       block, so it lags the migration by one block: a snapshot taken at
+       the genesis slot itself does not carry it yet.  The alpenglow
+       feature account covers that window: once the feature is
+       activated, the migration begins a fixed offset later and blocks
+       past the genesis vote carry markers. */
+    /* The alpenglow feature id (which both accounts derive from)
+       differs per Agave branch and build. */
+    static char const * alpenglow_feature_ids[] = {
+      "A1PeNGc3D8SQmKwdYf4qj1XG7XgWVSuFQaiJSCQj775h", /* alpenglow testnet (operator-keyed) */
+      "A1pENGLtPKvimJcQ8eNJ3cN6hMPLg1PWEyCvc7i5LFL8", /* upstream v4.3 */
+      "a1penGLz8Vm2QHYB3JPefBiU4BY3Z6JkW2k3Scw5GWP",  /* mainline v4.2 */
+      "8KpruRFrT59jQ9NfFX9DU6j8a1hW7y6xchvZNQ5rxD4P", /* v4.0.0-prerelease, dev-context builds */
+      "mustRekeyVm2QHYB3JPefBiU4BY3Z6JkW2k3Scw5GWP",  /* v4.0.0-prerelease, prod placeholder */
+    };
+
+    int   past_alpenglow_migration   = 0;
+    ulong alpenglow_activation_slot  = FD_FEATURE_DISABLED;
+    for( ulong i=0UL; i<sizeof(alpenglow_feature_ids)/sizeof(alpenglow_feature_ids[0]); i++ ) {
+      fd_pubkey_t alpenglow_feature_id;
+      FD_TEST( fd_base58_decode_32( alpenglow_feature_ids[ i ], alpenglow_feature_id.uc ) );
+      uchar const * seed    = (uchar const *)"carlgration";
+      ulong         seed_sz = 11UL;
+      fd_pubkey_t   genesis_cert_addr;
+      uchar         bump;
+      uint          custom_err;
+      FD_TEST( fd_pubkey_find_program_address( &alpenglow_feature_id, 1UL, &seed, &seed_sz, &genesis_cert_addr, &bump, &custom_err )==FD_PUBKEY_SUCCESS );
+
+      fd_acc_t genesis_cert_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, genesis_cert_addr.uc );
+      past_alpenglow_migration = genesis_cert_acc.lamports && genesis_cert_acc.data_len;
+      if( FD_UNLIKELY( past_alpenglow_migration && genesis_cert_acc.data_len>=8UL ) ) {
+        /* WireBlockCertMessage begins with the genesis Block's slot,
+           i.e. Agave's get_alpenglow_migration_slot. */
+        ctx->alpenglow_migration_slot = FD_LOAD( ulong, genesis_cert_acc.data );
+      }
+      fd_accdb_unread_one( ctx->accdb, &genesis_cert_acc );
+
+      fd_acc_t feature_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, alpenglow_feature_id.uc );
+      if( feature_acc.lamports && !memcmp( feature_acc.owner, fd_solana_feature_program_id.uc, sizeof(fd_pubkey_t) ) ) {
+        fd_feature_t feature;
+        if( FD_LIKELY( fd_feature_decode( &feature, feature_acc.data, feature_acc.data_len ) && feature.is_active ) ) {
+          alpenglow_activation_slot = feature.activation_slot;
+        }
+      }
+      fd_accdb_unread_one( ctx->accdb, &feature_acc );
+
+      if( past_alpenglow_migration || alpenglow_activation_slot!=FD_FEATURE_DISABLED ) {
+        uchar const * clock_seed    = (uchar const *)"alpenclock";
+        ulong         clock_seed_sz = 10UL;
+        FD_TEST( fd_pubkey_find_program_address( &alpenglow_feature_id, 1UL, &clock_seed, &clock_seed_sz, &ctx->alpenclock_addr, &bump, &custom_err )==FD_PUBKEY_SUCCESS );
+        ctx->has_alpenclock_addr = 1;
+        uchar const * reward_seed    = (uchar const *)"vote_reward_account";
+        ulong         reward_seed_sz = 19UL;
+        FD_TEST( fd_pubkey_find_program_address( &alpenglow_feature_id, 1UL, &reward_seed, &reward_seed_sz, &ctx->vote_reward_addr, &bump, &custom_err )==FD_PUBKEY_SUCCESS );
+        ctx->has_vote_reward_addr = 1;
+        FD_LOG_INFO(( "alpenglow feature id %s matched", alpenglow_feature_ids[ i ] ));
+        break;
+      }
+    }
+
+    int alpenglow_migration_underway = alpenglow_activation_slot!=FD_FEATURE_DISABLED;
+    if( FD_UNLIKELY( past_alpenglow_migration ) ) {
+      FD_LOG_NOTICE(( "snapshot slot %lu is past the alpenglow migration (genesis certificate account populated)", snapshot_slot ));
+    } else if( FD_UNLIKELY( alpenglow_migration_underway ) ) {
+      FD_LOG_NOTICE(( "alpenglow migration is underway at snapshot slot %lu: feature activated at slot %lu, genesis certificate not yet on chain", snapshot_slot, alpenglow_activation_slot ));
+    } else {
+      FD_LOG_NOTICE(( "snapshot slot %lu is pre alpenglow (feature not activated)", snapshot_slot ));
+    }
+    if( FD_UNLIKELY( ctx->is_alpenglow!=(past_alpenglow_migration || alpenglow_migration_underway) ) ) {
+      FD_LOG_WARNING(( "[development.alpenglow] is %d but the alpenglow migration is %s at snapshot slot %lu",
+                       ctx->is_alpenglow, past_alpenglow_migration ? "complete" : alpenglow_migration_underway ? "underway" : "not scheduled", snapshot_slot ));
+    }
 
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
@@ -3706,7 +3888,10 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->reception_stats_cnt );
   for( ulong i=0UL; i<ctx->reception_stats_cnt; i++ ) ctx->reception_stats[ i ].slot = ULONG_MAX;
   ctx->reasm_evicted = NULL;
-  ctx->is_alpenglow = tile->replay.alpenglow;
+  ctx->is_alpenglow             = tile->replay.alpenglow;
+  ctx->has_alpenclock_addr      = 0;
+  ctx->has_vote_reward_addr     = 0;
+  ctx->alpenglow_migration_slot = ULONG_MAX;
 
   ctx->leader_stats.slot = ULONG_MAX;
 

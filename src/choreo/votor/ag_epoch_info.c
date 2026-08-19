@@ -141,6 +141,7 @@ ag_epoch_info_init( ag_epoch_info_t *              mem,
     vi->pubkey        = stakes[src].id_key;
     memcpy(vi->voting_pubkey, rank[r].pk, sizeof(ag_bls_pub_t));
     memcpy(ei->pubkeys[ r ],  rank[r].pk, sizeof(ag_bls_pub_t));
+    vi->vote_pubkey   = stakes[src].vote_key;
     total += vi->stake;
   }
   ei->validator_cnt = k;

@@ -199,7 +199,7 @@ ENCODE_FN {
     ushort      commission   = 0;
     ulong       ec_cnt       = 0UL;
     fd_epoch_credits_t const * ec = NULL;
-    uchar bls_key[ AG_BLS_PUB_COMPRESSED_SZ ] = {0};
+    uchar bls_key[ AG_BLS_PUB_COMPRESSED_SZ ];
 
     fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
     ushort co_root = fd_collector_overrides_get_root_idx( overrides );
@@ -247,6 +247,7 @@ ENCODE_FN {
     /* A zeroed key means no BLS key is registered (serialized as None) */
     static uchar const no_bls_key[ AG_BLS_PUB_COMPRESSED_SZ ] = {0};
     int has_bls = !fd_memeq( bls_key, no_bls_key, AG_BLS_PUB_COMPRESSED_SZ );
+    (void)has_bls;
 
     enc->total_stake += stake;
 

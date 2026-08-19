@@ -157,6 +157,23 @@ struct fd_replay_tile {
   int   wfs_enabled;
   int   wfs_complete;
 
+  /* alpenclock_addr is the account the block footer's nanosecond
+     timestamp is written to: the off-curve PDA of the cluster's
+     alpenglow feature id with seed "alpenclock".  Derived when the
+     feature id is detected at snapshot load; has_alpenclock_addr is 0
+     until then. */
+  int         has_alpenclock_addr;
+  fd_pubkey_t alpenclock_addr;
+
+  /* vote_reward_addr is the epoch inflation account (PDA of the
+     alpenglow feature id with seed "vote_reward_account"), read when
+     paying footer vote rewards.  alpenglow_migration_slot is the
+     alpenglow genesis block slot from the genesis certificate account,
+     ULONG_MAX if unknown. */
+  int         has_vote_reward_addr;
+  fd_pubkey_t vote_reward_addr;
+  ulong       alpenglow_migration_slot;
+
   /* is_alpenglow is 1 if the validator is booted in alpenglow mode.
 
      Note: reasm is not used in alpenglow mode. instead frags are delivered
