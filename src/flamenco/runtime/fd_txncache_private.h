@@ -10,7 +10,7 @@
    and returning pages to the pool, but not so high that the memory
    wasted from blockhashes with only one transaction is significant. */
 
-#define FD_TXNCACHE_TXNS_PER_PAGE (16384UL)
+#define FD_TXNCACHE_TXNS_PER_PAGE (8192UL)
 
 /* The maximum distance a transaction blockhash reference can be
    (inclusive).  For example, if no slots were skipped, and the value is

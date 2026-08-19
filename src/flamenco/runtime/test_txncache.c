@@ -23,6 +23,15 @@ test_bucket_cnt( void ) {
   FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==24510UL );
 }
 
+static void
+test_page_sizing( void ) {
+  ulong const max_active_slots = 2199UL;
+  ulong const max_txn_per_slot = 196078UL;
+
+  FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot, 0 )==32118UL );
+  FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot, 0 )==32118UL );
+}
+
 void
 test0( uchar * scratch0,
        uchar * scratch1 ) {
@@ -502,6 +511,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   test_bucket_cnt();
+  test_page_sizing();
 
   ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, FD_MAX_TXN_PER_SLOT, 0 );
   ulong max_footprint_local = fd_txncache_footprint( FD_MAX_TXN_PER_SLOT );
