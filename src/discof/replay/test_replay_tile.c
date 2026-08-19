@@ -163,6 +163,7 @@ mock_sched_get_txn_info_fn( fd_sched_t * s FD_PARAM_UNUSED,
 /* ---- Mock leader setup dependencies ---- */
 
 static ulong mock_next_leader_slot = ULONG_MAX;
+static ulong mock_next_leader_slot_calls;
 static ulong mock_txncache_fork_id_next;
 static ulong mock_progcache_fork_id_next;
 static ushort mock_accdb_fork_id_next;
@@ -176,6 +177,7 @@ ulong
 mock_multi_epoch_leaders_next_slot_fn( fd_multi_epoch_leaders_t const * mleaders FD_PARAM_UNUSED,
                                        ulong                            start_slot,
                                        fd_pubkey_t const *              leader_q FD_PARAM_UNUSED ) {
+  mock_next_leader_slot_calls++;
   return mock_next_leader_slot>=start_slot ? mock_next_leader_slot : ULONG_MAX;
 }
 
@@ -359,6 +361,17 @@ setup_timing( fd_replay_tile_t * ctx,
   FD_TEST( ctx->backfill_path );
 }
 
+/* node_info is a shared topology object the replay tile always joins in
+   unprivileged_init.  Metric refresh paths read it unconditionally, so
+   every ctx needs one. */
+
+static void
+setup_node_info( fd_replay_tile_t * ctx ) {
+  static fd_node_info_box_t node_info_box[ 1 ];
+  ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( node_info_box ) );
+  FD_TEST( ctx->node_info );
+}
+
 static void
 setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
                            fd_wksp_t *        wksp,
@@ -457,6 +470,7 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   mock_epoch_boundary_fork_max = ULONG_MAX;
   mock_epoch_boundary_overflow = 0;
 
+  setup_node_info( ctx );
   setup_stem( ctx, wksp );
   setup_repair_input( ctx, wksp );
 }
@@ -958,6 +972,183 @@ test_snapshot_intervals_use_block_height( void ) {
 }
 
 static void
+test_snapshot_found_deleted_state( fd_wksp_t * wksp ) {
+  ulong  data_sz = fd_dcache_req_data_sz( sizeof(fd_snapmk_msg_t), 4UL, 1UL, 1 );
+  void * dcache  = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( wksp,
+                     fd_dcache_align(), fd_dcache_footprint( data_sz, 0UL ), 1UL ), data_sz, 0UL ) );
+  FD_TEST( dcache );
+
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_memset( ctx, 0, sizeof(fd_replay_tile_t) );
+
+  ulong in_idx = 0UL;
+  ctx->in[ in_idx ].mem = fd_wksp_containing( dcache );
+
+  ulong chunk0 = fd_dcache_compact_chunk0( ctx->in[ in_idx ].mem, dcache );
+
+  /* FOUND messages: keep max. */
+
+  fd_snapmk_msg_t * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk0 );
+  msg->found.slot      = 100UL;
+  msg->found.base_slot = ULONG_MAX; /* full */
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==100UL );
+  FD_TEST( ctx->snapmk.snap_finished_incr==0UL );
+
+  msg->found.slot = 200UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==200UL );
+
+  msg->found.slot = 150UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==200UL );
+
+  msg->found.slot      = 250UL;
+  msg->found.base_slot = 200UL; /* incremental */
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_incr==250UL );
+  FD_TEST( ctx->snapmk.snap_finished_full==200UL );
+
+  msg->found.slot      = 210UL;
+  msg->found.base_slot = 200UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_FOUND, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_incr==250UL );
+
+  /* DELETED messages: reset-if-match. */
+
+  fd_snapmk_msg_deleted_t * del = &msg->deleted;
+  del->slot      = 100UL;
+  del->base_slot = ULONG_MAX; /* full */
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_DELETED, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==200UL );
+
+  del->slot = 200UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_DELETED, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_full==0UL );
+
+  del->slot      = 250UL;
+  del->base_slot = 200UL; /* incremental */
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_DELETED, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_incr==0UL );
+
+  del->slot      = 999UL;
+  del->base_slot = 200UL;
+  msg_snapmk( ctx, NULL, FD_SNAPMK_MSG_DELETED, in_idx, chunk0 );
+  FD_TEST( ctx->snapmk.snap_finished_incr==0UL );
+
+  FD_LOG_NOTICE(( "pass: test_snapshot_found_deleted_state" ));
+}
+
+/* Test vote_account_is_current (the production classifier used by
+   update_metric_delinquent_stake). */
+
+static void
+test_delinquent_classifier( void ) {
+  /* last_vote_slot==ULONG_MAX is always delinquent. */
+  FD_TEST( !vote_account_is_current(   0UL, ULONG_MAX ) );
+  FD_TEST( !vote_account_is_current( 128UL, ULONG_MAX ) );
+  FD_TEST( !vote_account_is_current( 500UL, ULONG_MAX ) );
+
+  /* cur_slot < 128: distance < 128, so all are current. */
+  FD_TEST(  vote_account_is_current(   0UL, 0UL ) );  /* distance 0 */
+  FD_TEST(  vote_account_is_current(   0UL, 1UL ) );
+  FD_TEST(  vote_account_is_current(  50UL, 0UL ) );  /* distance 50 */
+  FD_TEST(  vote_account_is_current(  50UL, 1UL ) );
+  FD_TEST(  vote_account_is_current( 127UL, 1UL ) );
+  FD_TEST(  vote_account_is_current( 127UL, 0UL ) );  /* distance 127 */
+
+  /* cur_slot >= 128: distance < 128 is current, >= 128 is delinquent. */
+  FD_TEST(  vote_account_is_current( 128UL, 128UL ) );  /* distance 0 */
+  FD_TEST(  vote_account_is_current( 128UL,   1UL ) );  /* distance 127 */
+  FD_TEST( !vote_account_is_current( 128UL,   0UL ) );  /* distance 128 */
+  FD_TEST(  vote_account_is_current( 500UL, 373UL ) );  /* distance 127 */
+  FD_TEST( !vote_account_is_current( 500UL, 372UL ) );  /* distance 128 */
+  FD_TEST( !vote_account_is_current( 500UL, 100UL ) );  /* distance 400 */
+
+  /* Future vote slot (cur_slot < last_vote_slot): always current. */
+  FD_TEST(  vote_account_is_current( 200UL, 300UL ) );
+  FD_TEST(  vote_account_is_current( 128UL, 999UL ) );
+
+  FD_LOG_NOTICE(( "pass: test_delinquent_classifier" ));
+}
+
+/* Test wait_info_healthy (the production health classifier used by
+   metrics_write). */
+
+static void
+test_wait_info_health_signal( void ) {
+  /* Not caught up: always unhealthy regardless of slots. */
+  FD_TEST( !wait_info_healthy( 0, 100UL, 100UL ) );
+  FD_TEST( !wait_info_healthy( 0, 100UL,  50UL ) );
+  FD_TEST( !wait_info_healthy( 0, ULONG_MAX, ULONG_MAX ) );
+
+  /* Caught up and close (distance <= 12): healthy. */
+  FD_TEST(  wait_info_healthy( 1, 100UL, 100UL ) );  /* distance 0 */
+  FD_TEST(  wait_info_healthy( 1, 112UL, 100UL ) );  /* distance 12 */
+  FD_TEST(  wait_info_healthy( 1,  50UL, 100UL ) );  /* turbine behind reset */
+
+  /* Caught up but fallen behind (distance > 12): unhealthy. */
+  FD_TEST( !wait_info_healthy( 1, 113UL, 100UL ) );  /* distance 13 */
+  FD_TEST( !wait_info_healthy( 1, 200UL, 100UL ) );  /* distance 100 */
+
+  /* ULONG_MAX maps to 0 for both fields. */
+  FD_TEST(  wait_info_healthy( 1, ULONG_MAX, ULONG_MAX ) );  /* both 0, distance 0 */
+  FD_TEST(  wait_info_healthy( 1, ULONG_MAX, 100UL ) );      /* turbine 0 <= reset */
+  FD_TEST( !wait_info_healthy( 1, 100UL, ULONG_MAX ) );      /* turbine 100, reset 0, distance 100 > 12 */
+
+  FD_LOG_NOTICE(( "pass: test_wait_info_health_signal" ));
+}
+
+static void
+test_next_leader_slot_cache( void ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_memset( ctx, 0, sizeof(fd_replay_tile_t) );
+  ctx->next_leader_query_start = ULONG_MAX;
+
+  mock_next_leader_slot       = 100UL;
+  mock_next_leader_slot_calls = 0UL;
+
+  /* Cold cache: one scan. */
+  FD_TEST( query_next_leader_slot( ctx, 10UL )==100UL );
+  FD_TEST( mock_next_leader_slot_calls==1UL );
+
+  /* from advancing up to the cached slot: no rescan. */
+  for( ulong from=11UL; from<=100UL; from++ ) FD_TEST( query_next_leader_slot( ctx, from )==100UL );
+  FD_TEST( mock_next_leader_slot_calls==1UL );
+
+  /* Passing the cached slot forces exactly one rescan. */
+  mock_next_leader_slot = 250UL;
+  FD_TEST( query_next_leader_slot( ctx, 101UL )==250UL );
+  FD_TEST( mock_next_leader_slot_calls==2UL );
+  FD_TEST( query_next_leader_slot( ctx, 200UL )==250UL );
+  FD_TEST( mock_next_leader_slot_calls==2UL );
+
+  /* A cached ULONG_MAX is held until something invalidates it, so an
+     advancing from does not rescan. */
+  mock_next_leader_slot = 0UL; /* mock yields ULONG_MAX for start_slot>0 */
+  FD_TEST( query_next_leader_slot( ctx, 251UL )==ULONG_MAX );
+  FD_TEST( mock_next_leader_slot_calls==3UL );
+  for( ulong from=252UL; from<400UL; from++ ) FD_TEST( query_next_leader_slot( ctx, from )==ULONG_MAX );
+  FD_TEST( mock_next_leader_slot_calls==3UL );
+
+  /* Invalidation (mleaders or identity changed) forces a rescan. */
+  mock_next_leader_slot        = 500UL;
+  ctx->next_leader_query_start = ULONG_MAX;
+  FD_TEST( query_next_leader_slot( ctx, 400UL )==500UL );
+  FD_TEST( mock_next_leader_slot_calls==4UL );
+
+  /* A regressing from rescans; get_next_slot is not monotone in it. */
+  FD_TEST( query_next_leader_slot( ctx, 399UL )==500UL );
+  FD_TEST( mock_next_leader_slot_calls==5UL );
+  FD_TEST( query_next_leader_slot( ctx, 450UL )==500UL );  /* back inside the window */
+  FD_TEST( mock_next_leader_slot_calls==5UL );
+
+  mock_next_leader_slot       = ULONG_MAX;
+  mock_next_leader_slot_calls = 0UL;
+  FD_LOG_NOTICE(( "pass: test_next_leader_slot_cache" ));
+}
+
+static void
 start_fec_with_epoch_boundary_mode( fd_replay_tile_t * ctx,
                                     fd_reasm_fec_t *   fec,
                                     int                freeze_bank,
@@ -1171,6 +1362,7 @@ setup_rooting_ctx( fd_replay_tile_t * ctx,
                    fd_hash_t const *  root_id ) {
   memset( ctx, 0, sizeof(*ctx) );
   setup_timing( ctx, wksp );
+  setup_node_info( ctx );
   setup_stem( ctx, wksp );
   setup_votor_input( ctx, wksp );
   ctx->alpenglow = 1;
@@ -1307,6 +1499,178 @@ test_root_from_votor_cert( fd_wksp_t * wksp ) {
 
   FD_LOG_NOTICE(( "pass: test_root_from_votor_cert" ));
 }
+
+static void
+test_ag_rank_is_current( void ) {
+  /* Never observed (stamp 0) is delinquent once the watermark passes. */
+  FD_TEST(  ag_rank_is_current(   0UL, 0UL ) );
+  FD_TEST(  ag_rank_is_current( 127UL, 0UL ) );
+  FD_TEST( !ag_rank_is_current( 128UL, 0UL ) );
+
+  /* Agave's boundary: >=128 behind is delinquent. */
+  FD_TEST(  ag_rank_is_current( 1000UL, 1000UL ) );  /* distance 0   */
+  FD_TEST(  ag_rank_is_current( 1000UL,  873UL ) );  /* distance 127 */
+  FD_TEST( !ag_rank_is_current( 1000UL,  872UL ) );  /* distance 128 */
+
+  /* A stamp ahead of the watermark saturates rather than wrapping. */
+  FD_TEST( ag_rank_is_current( 100UL, 200UL ) );
+
+  FD_LOG_NOTICE(( "pass: test_ag_rank_is_current" ));
+}
+
+static void
+test_ag_delinquent_epoch_roll( void ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_memset( ctx, 0, sizeof(fd_replay_tile_t) );
+  ctx->ag_last_voted_epoch = ULONG_MAX;
+
+  /* First cert seeds the epoch and watermark. */
+  ag_delinquent_epoch_roll( ctx, 1000UL, 5UL );
+  FD_TEST( ctx->ag_last_voted_epoch==5UL );
+  FD_TEST( ctx->ag_last_settled    ==1000UL );
+
+  /* Same epoch: table and standing figure are left alone, watermark
+     rises.  An empty cert must not blank a figure that still holds. */
+  ctx->ag_last_voted[ 7 ] = 1000UL;
+  ctx->delinquent_known   = 1;
+  ag_delinquent_epoch_roll( ctx, 1128UL, 5UL );
+  FD_TEST( ctx->ag_last_voted[ 7 ]==1000UL );
+  FD_TEST( ctx->ag_last_settled   ==1128UL );
+  FD_TEST( ctx->delinquent_known );
+
+  /* Out-of-order replay must not walk the watermark backwards. */
+  ag_delinquent_epoch_roll( ctx, 1100UL, 5UL );
+  FD_TEST( ctx->ag_last_settled==1128UL );
+
+  /* Epoch rollover clears the table and the known flag: ranks are
+     epoch-scoped and would otherwise name different validators. */
+  ag_delinquent_epoch_roll( ctx, 2000UL, 6UL );
+  FD_TEST( ctx->ag_last_voted[ 7 ]==0UL );
+  FD_TEST( ctx->ag_last_settled   ==2000UL );
+  FD_TEST( !ctx->delinquent_known );
+
+  /* An older epoch must never drag the watermark back or wipe the
+     table, independently of the caller's own guard. */
+  ctx->ag_last_voted[ 9 ] = 2100UL;
+  ctx->delinquent_known   = 1;
+  ag_delinquent_epoch_roll( ctx, 1500UL, 5UL );
+  FD_TEST( ctx->ag_last_settled   ==2000UL );
+  FD_TEST( ctx->ag_last_voted[ 9 ]==2100UL );
+  FD_TEST( ctx->delinquent_known );
+
+  FD_LOG_NOTICE(( "pass: test_ag_delinquent_epoch_roll" ));
+}
+
+/* fd_vote_stakes_finalize only ranks accounts whose BLS key
+   decompresses, so the fixture needs real G1 points. */
+
+#define TEST_AG_VOTERS (4UL)
+
+static void
+test_bls_pubkey( uchar out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                 ulong seed ) {
+  uchar ikm[ 32 ] = { 0 };
+  FD_STORE( ulong, ikm, seed+1UL );
+  fd_bls_sec_t sec;
+  fd_bls_sec_derive( &sec, ikm, sizeof(ikm) );
+  fd_bls_pub_t pub;
+  fd_bls_sec_to_pub( &sec, &pub );
+  blst_p1_affine aff[ 1 ];
+  blst_p1_to_affine( aff, &pub );
+  blst_p1_affine_compress( out, aff );
+}
+
+static ushort
+test_vote_rank( fd_vote_stakes_t const * vote_stakes,
+                ulong                    fork_id,
+                fd_pubkey_t const *      vote_key ) {
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
+    fd_pubkey_t pubkey;
+    ushort      rank;
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
+                             &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
+    if( fd_pubkey_eq( &pubkey, vote_key ) ) return rank;
+  }
+  FD_LOG_ERR(( "vote account not found" ));
+}
+
+static void
+test_ag_update_delinquent( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t   root_id = { .ul = { 100UL } };
+  fd_bank_t * bank    = setup_rooting_ctx( ctx, wksp, &root_id );
+  ctx->ag_last_voted_epoch = ULONG_MAX;
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ulong              epoch       = fd_vote_stakes_fork_epoch( fork_id );
+
+  /* 100+200+300+400 == 1000 lamports of ranked, valid stake. */
+  ulong const stake[ TEST_AG_VOTERS ] = { 100UL, 200UL, 300UL, 400UL };
+  fd_pubkey_t vote[ TEST_AG_VOTERS ];
+  ushort      rank[ TEST_AG_VOTERS ];
+  for( ulong i=0UL; i<TEST_AG_VOTERS; i++ ) {
+    vote[ i ]        = (fd_pubkey_t){ .ul = { 1000UL+i } };
+    fd_pubkey_t node = (fd_pubkey_t){ .ul = { 2000UL+i } };
+    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+    test_bls_pubkey( bls, i );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, stake[ i ], 0U, bls );
+    fd_vote_stakes_update_state( vote_stakes, fork_id, &vote[ i ], 0UL, 0L, 1 );
+  }
+  fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
+  for( ulong i=0UL; i<TEST_AG_VOTERS; i++ ) {
+    rank[ i ] = test_vote_rank( vote_stakes, fork_id, &vote[ i ] );
+    FD_TEST( rank[ i ]!=FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
+  }
+
+  fd_bls_set_t reward_set[ fd_bls_set_word_cnt ];
+#define CERT_WITHOUT_VOTER_1() do {                  \
+    fd_bls_set_null( reward_set );                   \
+    fd_bls_set_insert( reward_set, rank[ 0 ] );      \
+    fd_bls_set_insert( reward_set, rank[ 2 ] );      \
+    fd_bls_set_insert( reward_set, rank[ 3 ] );      \
+  } while(0)
+
+  /* First sample: signers are stamped before being tested, so they read
+     current immediately and only the absent voter 1 is delinquent. */
+  CERT_WITHOUT_VOTER_1();
+  ag_update_delinquent( ctx, bank, 500UL, epoch, reward_set );
+  FD_TEST( ctx->delinquent_known );
+  FD_TEST( ctx->metrics.cluster_active_stake_lamports==1000UL );
+  FD_TEST( ctx->metrics.delinquent_stake_lamports    == 200UL );
+
+  /* Voter 1 shows up a slot later and clears at once. */
+  fd_bls_set_insert( reward_set, rank[ 1 ] );
+  ag_update_delinquent( ctx, bank, 501UL, epoch, reward_set );
+  FD_TEST( !ctx->metrics.delinquent_stake_lamports );
+
+  /* It then ages back out, on Agave's boundary and not before. */
+  CERT_WITHOUT_VOTER_1();
+  ag_update_delinquent( ctx, bank, 501UL+DELINQUENT_VALIDATOR_SLOT_DISTANCE-1UL, epoch, reward_set );
+  FD_TEST( !ctx->metrics.delinquent_stake_lamports );
+  ag_update_delinquent( ctx, bank, 501UL+DELINQUENT_VALIDATOR_SLOT_DISTANCE, epoch, reward_set );
+  FD_TEST( ctx->metrics.delinquent_stake_lamports==200UL );
+
+  /* An empty cert within the epoch leaves the standing figure alone. */
+  fd_bls_set_null( reward_set );
+  ag_update_delinquent( ctx, bank, 900UL, epoch, reward_set );
+  FD_TEST( ctx->delinquent_known );
+  FD_TEST( ctx->metrics.delinquent_stake_lamports==200UL );
+
+  /* A cert whose epoch the t-2 set does not address is ignored. */
+  fd_bls_set_null( reward_set );
+  fd_bls_set_insert( reward_set, rank[ 1 ] );
+  ag_update_delinquent( ctx, bank, 901UL, epoch+1UL, reward_set );
+  FD_TEST( ctx->metrics.delinquent_stake_lamports==200UL );
+
+#undef CERT_WITHOUT_VOTER_1
+  FD_LOG_NOTICE(( "pass: test_ag_update_delinquent" ));
+}
+
+#undef TEST_AG_VOTERS
 
 static void
 test_root_waits_for_replay( fd_wksp_t * wksp ) {
@@ -1507,6 +1871,40 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer_finalize = 0;
 
   FD_LOG_NOTICE(( "pass: test_root_from_footer" ));
+}
+
+static void
+test_slot_completed_keeps_leader_sentinel( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_blockhashes_init( &root->f.block_hash_queue, 42UL );
+  FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
+
+  mock_footer_finalize = 1;
+  memset( mock_footer, 0, sizeof(fd_block_footer_t) );
+
+  /* What the leader schedule would hand back if it were consulted. */
+  mock_next_leader_slot = 777UL;
+  ctx->next_leader_slot = ULONG_MAX;
+
+  fd_bank_t * b1 = add_replayable_block( ctx, root, 1UL, &id1 );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b1 ) );
+  FD_TEST( b1->state==FD_BANK_STATE_FROZEN );
+
+  /* Completing a slot under Alpenglow must not disturb
+     next_leader_slot: ULONG_MAX is the sentinel try_end_leader_slot
+     uses to continue the leader window. */
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+
+  /* The epoch info the wait command reads is still refreshed. */
+  FD_TEST( ctx->reset_slot==1UL       );
+  FD_TEST( ctx->slots_per_epoch==128UL );
+  FD_TEST( ctx->epoch_end_slot==127UL  );
+
+  mock_footer_finalize = 0;
+  FD_LOG_NOTICE(( "pass: test_slot_completed_keeps_leader_sentinel" ));
 }
 
 static void
@@ -2687,10 +3085,6 @@ test_oc_skips_unfrozen_bank( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
   setup_ctx( ctx, wksp );
 
-  static fd_node_info_box_t node_info_box[ 1 ];
-  ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( node_info_box ) );
-  FD_TEST( ctx->node_info );
-
   fd_hash_t mr_root = { .ul = { 100UL } };
   init_root_fec( ctx, &mr_root );
 
@@ -3654,13 +4048,21 @@ main( int     argc,
   test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );
   test_reward_cert_signer_count();
   test_snapshot_intervals_use_block_height();
+  test_snapshot_found_deleted_state( wksp );        fd_wksp_reset( wksp, 42U );
+  test_delinquent_classifier();
+  test_next_leader_slot_cache();
+  test_wait_info_health_signal();
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
   test_root_from_votor_cert( wksp );                fd_wksp_reset( wksp, 42U );
+  test_ag_rank_is_current();
+  test_ag_delinquent_epoch_roll();
+  test_ag_update_delinquent( wksp );                fd_wksp_reset( wksp, 42U );
   test_root_waits_for_replay( wksp );               fd_wksp_reset( wksp, 42U );
   test_root_out_of_order_certs( wksp );             fd_wksp_reset( wksp, 42U );
   test_root_lagging_replay( wksp );                 fd_wksp_reset( wksp, 42U );
   test_root_newer_first( wksp );                    fd_wksp_reset( wksp, 42U );
   test_root_from_footer( wksp );                    fd_wksp_reset( wksp, 42U );
+  test_slot_completed_keeps_leader_sentinel( wksp ); fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
   test_leader_fec_bypasses_backpressure( wksp, 0 ); fd_wksp_reset( wksp, 42U );
