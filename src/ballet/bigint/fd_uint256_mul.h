@@ -55,6 +55,24 @@ fd_ulong_sub_borrow(
 # endif
 }
 
+INLINE void
+fd_ulong_add_carry(
+    ulong * r,   /* out (r=a+b+ci) */
+    int *   c,   /* out carry flag */
+    ulong   a0,
+    ulong   a1,
+    int     ci   /* in carry flag */
+) {
+# if FD_HAS_X86
+  *c = (uchar)_addcarry_u64( (uchar)ci, a0, a1, (unsigned long long *)r );
+# else
+  ulong r0 = a0 + a1;
+  ulong r1 = r0 + !!ci;
+  *r = r1;
+  *c = (int)((r0 < a0) | (r1 < r0));
+# endif
+}
+
 #if FD_HAS_INT128
 
 INLINE void
