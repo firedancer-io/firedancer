@@ -334,22 +334,6 @@ struct __attribute__((packed)) fd_gui_slot {
 
 typedef struct fd_gui_slot fd_gui_slot_t;
 
-struct __attribute__((packed)) fd_gui_leader_slot {
-  ulong     slot;                         /* this record's slot number (the record's own key). */
-  ulong     bank_seq;                     /* this block's fork discriminator (the record's own key bank_seq). */
-  long      leader_start_time;            /* wallclock ns we became leader */
-  long      leader_end_time;              /* wallclock ns we stopped being leader */
-  fd_hash_t block_hash;                   /* block hash of the produced block */
-  ulong     max_microblocks;              /* initial max microblocks packable into the slot */
-  uint      microblocks_upper_bound;      /* final/exact microblock upper bound */
-  uint      begin_microblocks;            /* microblocks started (pack -> bank) */
-  uint      end_microblocks;              /* microblocks ended (bank -> poh) */
-  fd_done_packing_t scheduler_stats[ 1 ]; /* pack "done packing" record (limits, usage, results) */
-  uchar     unbecame_leader;              /* 1 if we relinquished leadership for this slot */
-};
-
-typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;
-
 struct fd_gui_slot_ranking {
   ulong slot;
   ulong value;
@@ -498,6 +482,25 @@ struct fd_gui_txn_waterfall {
 };
 
 typedef struct fd_gui_txn_waterfall fd_gui_txn_waterfall_t;
+
+struct __attribute__((packed)) fd_gui_leader_slot {
+  ulong     slot;                         /* this record's slot number (the record's own key). */
+  ulong     bank_seq;                     /* this block's fork discriminator (the record's own key bank_seq). */
+  long      leader_start_time;            /* wallclock ns we became leader */
+  long      leader_end_time;              /* wallclock ns we stopped being leader */
+  fd_hash_t block_hash;                   /* block hash of the produced block */
+  ulong     max_microblocks;              /* initial max microblocks packable into the slot */
+  uint      microblocks_upper_bound;      /* final/exact microblock upper bound */
+  uint      begin_microblocks;            /* microblocks started (pack -> bank) */
+  uint      end_microblocks;              /* microblocks ended (bank -> poh) */
+  fd_done_packing_t scheduler_stats[ 1 ]; /* pack "done packing" record (limits, usage, results) */
+  fd_gui_txn_waterfall_t waterfall_reference[ 1 ];
+  fd_gui_txn_waterfall_t waterfall[ 1 ];
+  uchar     has_waterfall;                /* 1 once waterfall has been finalized */
+  uchar     unbecame_leader;              /* 1 if we relinquished leadership for this slot */
+};
+
+typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;
 
 struct fd_gui_tile_stats {
   long  sample_time_nanos;
@@ -850,6 +853,8 @@ struct fd_gui {
   long next_sample_10millis;
 
   int leader_active;
+  ulong leader_slot_pending;
+  ulong leader_bank_seq_pending;
 
   fd_gui_summary_t summary;
 
@@ -979,8 +984,11 @@ fd_gui_became_leader( fd_gui_t * gui,
 void
 fd_gui_unbecame_leader( fd_gui_t *                gui,
                         ulong                     _slot,
-                        fd_done_packing_t const * done_packing,
-                        long                      now );
+                        fd_done_packing_t const * done_packing );
+
+void
+fd_gui_done_draining( fd_gui_t * gui,
+                      long       now );
 
 void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
@@ -1144,6 +1152,15 @@ fd_gui_first_replay_slot( fd_gui_t const * gui ) {
                       fd_ulong_if( slot_full!=ULONG_MAX, slot_full+1UL, ULONG_MAX ) );
 }
 
+static inline fd_gui_leader_slot_t *
+fd_gui_slot_leader_get( fd_gui_t * gui,
+                        ulong      slot,
+                        ulong      bank_seq ) {
+  if( FD_UNLIKELY( !gui->db || slot==ULONG_MAX || bank_seq==ULONG_MAX ) ) return NULL;
+  fd_gui_hist_leader_slot_key_t key = { .slot = slot, .bank_seq = bank_seq };
+  return fd_gui_hist_kv_get( gui, FD_GUI_HIST_LEADER_SLOT, &key );
+}
+
 /* fd_gui_slot_leader_get_or_create returns the mutable returns the
    DB LEADER_SLOT record for (slot, bank_seq), creating it if none
    exists yet. */
@@ -1154,11 +1171,10 @@ fd_gui_slot_leader_get_or_create( fd_gui_t * gui,
                                   ulong      bank_seq ) {
   if( FD_UNLIKELY( !gui->db || slot==ULONG_MAX ) ) return NULL;
 
-  fd_gui_hist_leader_slot_key_t key = { .slot = slot, .bank_seq = bank_seq };
-
-  fd_gui_leader_slot_t * rec = fd_gui_hist_kv_get( gui, FD_GUI_HIST_LEADER_SLOT, &key );
+  fd_gui_leader_slot_t * rec = fd_gui_slot_leader_get( gui, slot, bank_seq );
   if( FD_LIKELY( rec ) ) return rec;
 
+  fd_gui_hist_leader_slot_key_t key = { .slot = slot, .bank_seq = bank_seq };
   fd_gui_leader_slot_t * seed = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_LEADER_SLOT, &key );
   if( FD_UNLIKELY( !seed ) ) return NULL;
 
@@ -1171,6 +1187,7 @@ fd_gui_slot_leader_get_or_create( fd_gui_t * gui,
     .microblocks_upper_bound = UINT_MAX,
     .begin_microblocks       = 0U,
     .end_microblocks         = 0U,
+    .has_waterfall           = 0,
     .unbecame_leader         = 0
   };
   return seed;

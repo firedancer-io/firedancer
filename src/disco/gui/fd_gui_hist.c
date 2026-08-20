@@ -200,7 +200,8 @@ fd_gui_hist_kv_stride( int dbi ) {
 static inline ulong
 fd_gui_hist_bytes_per_epoch( void ) {
   return fd_gui_hist_kv_stride( FD_GUI_HIST_EPOCH )
-       + MAX_SLOTS_PER_EPOCH * ( fd_gui_hist_kv_stride( FD_GUI_HIST_SLOT ) + fd_gui_hist_kv_stride( FD_GUI_HIST_LEADER_SLOT ) );
+       + MAX_SLOTS_PER_EPOCH                    * fd_gui_hist_kv_stride( FD_GUI_HIST_SLOT )
+       + FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH * fd_gui_hist_kv_stride( FD_GUI_HIST_LEADER_SLOT );
 }
 
 fd_gui_store_desc_t const *
@@ -228,7 +229,9 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
       ulong val_sz = ts ? fd_ulong_max( rec_sz, 1UL ) : rec_sz;
       ulong max_records = 0UL;
       if( !ts ) {
-        max_records = ( fd_gui_hist_keyshape( i )==FD_GUI_HIST_KEYSHAPE_EPOCH ) ? epoch_n : epoch_n * MAX_SLOTS_PER_EPOCH;
+        if( fd_gui_hist_keyshape( i )==FD_GUI_HIST_KEYSHAPE_EPOCH ) max_records = epoch_n;
+        else if( i==FD_GUI_HIST_LEADER_SLOT )                       max_records = epoch_n * FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH;
+        else                                                        max_records = epoch_n * MAX_SLOTS_PER_EPOCH;
       }
 
       descs[ i ].name        = names[ i ];

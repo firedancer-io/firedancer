@@ -148,6 +148,8 @@ fd_gui_new( void *                   shmem,
   }
 
   gui->leader_active = 0;
+  gui->leader_slot_pending     = ULONG_MAX;
+  gui->leader_bank_seq_pending = ULONG_MAX;
 
   gui->summary.slot_tower  = ULONG_MAX;
   gui->summary.slot_tower_bank_seq = ULONG_MAX;
@@ -255,7 +257,7 @@ fd_gui_new( void *                   shmem,
   memset( gui->summary.estimated_tps_history, 0, sizeof(gui->summary.estimated_tps_history) );
 
   memset( gui->summary.txn_waterfall_reference, 0, sizeof(gui->summary.txn_waterfall_reference) );
-  memset( gui->summary.txn_waterfall_current,   0, sizeof(gui->summary.txn_waterfall_current) );
+  memset( gui->summary.txn_waterfall_current,   0, sizeof(gui->summary.txn_waterfall_current)   );
 
   memset( gui->summary.tile_stats_reference, 0, sizeof(gui->summary.tile_stats_reference) );
   memset( gui->summary.tile_stats_current, 0, sizeof(gui->summary.tile_stats_current) );
@@ -3015,17 +3017,42 @@ fd_gui_became_leader( fd_gui_t * gui,
 void
 fd_gui_unbecame_leader( fd_gui_t *                gui,
                         ulong                     _slot,
-                        fd_done_packing_t const * done_packing,
-                        long                      now FD_PARAM_UNUSED ) {
+                        fd_done_packing_t const * done_packing ) {
   if( FD_UNLIKELY( fd_gui_slot_is_mine( gui, _slot ) && !fd_gui_slot_is_mine( gui, _slot+1UL ) ) ) {
     gui->leader_active = 0;
   }
 
   fd_gui_leader_slot_t * lslot = fd_gui_slot_leader_get_any( gui, _slot );
-  if( FD_LIKELY( !lslot ) ) return;
+  if( FD_UNLIKELY( !lslot ) ) return;
   lslot->microblocks_upper_bound = (uint)done_packing->microblocks_in_slot;
   fd_memcpy( lslot->scheduler_stats, done_packing, sizeof(fd_done_packing_t) );
   lslot->unbecame_leader = 1;
+
+  if( FD_LIKELY( !lslot->has_waterfall ) ) {
+    gui->leader_slot_pending     = lslot->slot;
+    gui->leader_bank_seq_pending = lslot->bank_seq;
+  }
+}
+
+void
+fd_gui_done_draining( fd_gui_t * gui,
+                      long       now ) {
+  if( FD_UNLIKELY( gui->leader_slot_pending==ULONG_MAX ) ) return;
+
+  fd_gui_leader_slot_t * lslot = fd_gui_slot_leader_get( gui, gui->leader_slot_pending, gui->leader_bank_seq_pending );
+  gui->leader_slot_pending     = ULONG_MAX;
+  gui->leader_bank_seq_pending = ULONG_MAX;
+  if( FD_UNLIKELY( !lslot || lslot->has_waterfall ) ) return;
+
+  fd_gui_txn_waterfall_t waterfall[ 1 ];
+  fd_gui_txn_waterfall_snap( gui, waterfall );
+  waterfall->sample_time_nanos = now;
+
+  fd_memcpy( lslot->waterfall_reference, gui->summary.txn_waterfall_reference, sizeof(fd_gui_txn_waterfall_t) );
+  fd_memcpy( lslot->waterfall,           waterfall,                             sizeof(fd_gui_txn_waterfall_t) );
+  lslot->has_waterfall = 1;
+
+  fd_memcpy( gui->summary.txn_waterfall_reference, waterfall, sizeof(fd_gui_txn_waterfall_t) );
 }
 
 void

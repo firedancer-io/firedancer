@@ -2419,24 +2419,16 @@ fd_gui_printf_slot_request_detailed( fd_gui_t *            gui,
         long leader_end_time   = have_lmeta ? lmeta->leader_end_time   : LONG_MAX;
         int  have_window       = have_lmeta && gui->db && leader_start_time!=LONG_MAX && leader_end_time!=LONG_MAX;
 
-        int have_wf = 0;
-        fd_gui_txn_waterfall_t wf_begin[ 1 ];
-        fd_gui_txn_waterfall_t wf_end  [ 1 ];
-        if( FD_LIKELY( have_window ) ) {
-          fd_gui_hist_iter_t it;
-          if( FD_LIKELY( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_TXN_WATERFALL, leader_start_time, leader_end_time, NULL, NULL ) ) ) {
-            while( fd_gui_hist_range_next( &it ) ) {
-              fd_gui_txn_waterfall_t const * r = (fd_gui_txn_waterfall_t const *)it.rec;
-              if( FD_UNLIKELY( r->sample_time_nanos<leader_start_time || r->sample_time_nanos>leader_end_time ) ) continue;
-              if( FD_UNLIKELY( !have_wf ) ) *wf_begin = *r;
-              *wf_end = *r;
-              have_wf = 1;
-            }
-            fd_gui_hist_range_end( &it );
-          }
+        fd_gui_txn_waterfall_t previous[ 1 ];
+        fd_gui_txn_waterfall_t current [ 1 ];
+        fd_gui_leader_slot_t const * current_lslot = fd_gui_slot_leader_get( gui, _slot, slot->bank_seq );
+        int have_waterfall = current_lslot && current_lslot->has_waterfall;
+        if( FD_LIKELY( have_waterfall ) ) {
+          fd_memcpy( previous, current_lslot->waterfall_reference, sizeof(previous) );
+          fd_memcpy( current,  current_lslot->waterfall,           sizeof(current)  );
         }
-        if( FD_LIKELY( have_wf ) ) fd_gui_printf_waterfall( gui, wf_begin, wf_end );
-        else                       jsonp_null( gui->http, "waterfall" );
+        if( FD_LIKELY( have_waterfall ) ) fd_gui_printf_waterfall( gui, previous, current );
+        else                              jsonp_null( gui->http, "waterfall" );
 
         if( FD_LIKELY( have_window ) ) {
           jsonp_open_array( gui->http, "tile_timers" );

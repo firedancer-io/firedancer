@@ -551,6 +551,50 @@ store_close( test_store_t * s ) {
   rm_tmpdir( s->path );
 }
 
+static void
+test_waterfall_snapshots( fd_gui_t * gui ) {
+  fd_topo_t * topo = calloc( 1UL, sizeof(fd_topo_t) );
+  FD_TEST( topo );
+  gui->topo = topo;
+  gui->leader_slot_pending     = ULONG_MAX;
+  gui->leader_bank_seq_pending = ULONG_MAX;
+  memset( gui->summary.txn_waterfall_reference, 0, sizeof(gui->summary.txn_waterfall_reference) );
+
+  fd_done_packing_t done_packing = {0};
+  fd_gui_txn_waterfall_t zero = {0};
+
+  fd_gui_leader_slot_t * first = fd_gui_slot_leader_get_or_create( gui, 100UL, 11UL );
+  FD_TEST( first );
+  fd_gui_unbecame_leader( gui, 100UL, &done_packing );
+  FD_TEST( !first->has_waterfall );
+  FD_TEST( gui->leader_slot_pending==100UL && gui->leader_bank_seq_pending==11UL );
+  fd_gui_done_draining( gui, 123L );
+  FD_TEST( first->has_waterfall );
+  FD_TEST( !memcmp( first->waterfall_reference, &zero, sizeof(zero) ) );
+  FD_TEST( first->waterfall->sample_time_nanos==123L );
+  FD_TEST( !memcmp( gui->summary.txn_waterfall_reference, first->waterfall, sizeof(fd_gui_txn_waterfall_t) ) );
+  FD_TEST( fd_gui_slot_leader_get( gui, 100UL, 11UL )==first );
+  FD_TEST( !fd_gui_slot_leader_get( gui, 100UL, 12UL ) );
+
+  fd_gui_leader_slot_t * second = fd_gui_slot_leader_get_or_create( gui, 104UL, 22UL );
+  FD_TEST( second );
+  fd_gui_unbecame_leader( gui, 104UL, &done_packing );
+  FD_TEST( !second->has_waterfall );
+  fd_gui_done_draining( gui, 456L );
+  FD_TEST( second->has_waterfall );
+  FD_TEST( !memcmp( second->waterfall_reference, first->waterfall, sizeof(fd_gui_txn_waterfall_t) ) );
+  FD_TEST( second->waterfall->sample_time_nanos==456L );
+  FD_TEST( !memcmp( gui->summary.txn_waterfall_reference, second->waterfall, sizeof(fd_gui_txn_waterfall_t) ) );
+
+  fd_gui_unbecame_leader( gui, 104UL, &done_packing );
+  fd_gui_done_draining( gui, 789L );
+  FD_TEST( !memcmp( second->waterfall_reference, first->waterfall, sizeof(fd_gui_txn_waterfall_t) ) );
+  FD_TEST( second->waterfall->sample_time_nanos==456L );
+
+  free( topo );
+  FD_LOG_NOTICE(( "test_waterfall_snapshots: ok" ));
+}
+
 /* ---- space-pressure trigger ------------------------------------------
 
    The space-pressure *trigger* (high-water threshold via
@@ -597,6 +641,11 @@ main( int     argc,
   store_open( s4, 1UL<<30, 5 );
   test_epoch_region_reclaimed( s4->gui );
   store_close( s4 );
+
+  test_store_t s5[ 1 ];
+  store_open( s5, 1UL<<30, 7 );
+  test_waterfall_snapshots( s5->gui );
+  store_close( s5 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
