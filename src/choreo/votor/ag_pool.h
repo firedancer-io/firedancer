@@ -75,6 +75,18 @@ ag_block_id_t
 ag_pool_wait_for_parent_ready( ag_pool_t * self,
                                ulong       slot );
 
+/* ag_pool_poll_pool_event and ag_pool_poll_repair_event drain the pool's
+   two outbound event streams.  Each dequeues at most one event per call,
+   returning 1 and writing it to event, or 0 if the stream is empty. */
+
+int
+ag_pool_poll_pool_event( ag_pool_t *       self,
+                         ag_event_pool_t * event );
+
+int
+ag_pool_poll_repair_event( ag_pool_t *         self,
+                           ag_event_repair_t * event );
+
 FD_PROTOTYPES_END
 
 #endif
