@@ -3023,7 +3023,9 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
       char shred_version_str[ 8 ];
       FD_TEST( fd_cstr_printf_check( shred_version_str, sizeof(shred_version_str), NULL, "%hu", gui->summary.expected_shred_version ) );
       jsonp_string      ( gui->http, "wait_for_supermajority_shred_version",    shred_version_str );
-      if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY ) ) {
+      /* Only a MATCH boot waits, so NOOP reports null not zeroes. */
+      if( FD_LIKELY( fd_gui_wfs_mode( gui )==FD_WFS_MODE_MATCH &&
+                     gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY ) ) {
         jsonp_ulong       ( gui->http, "wait_for_supermajority_attempt",          gui->summary.boot_progress.wfs_attempt );
         jsonp_ulong_as_str( gui->http, "wait_for_supermajority_total_stake",      gui->summary.boot_progress.wfs_total_stake );
         jsonp_ulong_as_str( gui->http, "wait_for_supermajority_connected_stake",  gui->summary.boot_progress.wfs_connected_stake );
