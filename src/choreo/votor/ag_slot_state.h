@@ -2,10 +2,10 @@
 #define HEADER_fd_src_choreo_votor_ag_slot_state_h
 
 #include "ag_votor_base.h"
-#include "ag_vote.h"
 #include "ag_cert.h"
 #include "ag_epoch_info.h"
-#include "ag_pool.h"
+#include "ag_event.h"
+#include "ag_vote.h"
 
 #define AG_PARENT_STATUS_KNOWN     (1)
 #define AG_PARENT_STATUS_CERTIFIED (2)
@@ -22,7 +22,7 @@
 
 struct ag_slot_state_outputs {
   ag_cert_t       certs        [ AG_SLOT_STATE_OUT_CERT_MAX   ]; ulong certs_cnt;
-  ag_pool_event_t pool_events  [ AG_SLOT_STATE_OUT_EVENT_MAX  ]; ulong pool_events_cnt;
+  ag_event_pool_t pool_events  [ AG_SLOT_STATE_OUT_EVENT_MAX  ]; ulong pool_events_cnt;
   ag_block_id_t   block_repairs[ AG_SLOT_STATE_OUT_REPAIR_MAX ]; ulong block_repairs_cnt;
 };
 typedef struct ag_slot_state_outputs ag_slot_state_outputs_t;

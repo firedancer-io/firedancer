@@ -138,9 +138,9 @@ test_safe_to_notar( fd_wksp_t * wksp ) {
   FD_TEST( t.o.certs_cnt==0UL );
   FD_TEST( t.o.pool_events_cnt==1UL );
   FD_TEST( t.o.block_repairs_cnt==0UL );
-  FD_TEST( t.o.pool_events[0].kind==AG_POOL_EVENT_SAFE_TO_NOTAR );
-  FD_TEST( t.o.pool_events[0].inner.safe_to_notar.slot==slot );
-  FD_TEST( !memcmp( t.o.pool_events[0].inner.safe_to_notar.hash.uc, hash.uc, sizeof(fd_hash_t) ) );
+  FD_TEST( t.o.pool_events[0].kind==AG_EVENT_POOL_SAFE_TO_NOTAR );
+  FD_TEST( t.o.pool_events[0].safe_to_notar.slot==slot );
+  FD_TEST( !memcmp( t.o.pool_events[0].safe_to_notar.hash.uc, hash.uc, sizeof(fd_hash_t) ) );
 
   fd_wksp_free_laddr( ss );
   free( em );

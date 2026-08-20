@@ -30,6 +30,28 @@ struct ag_block_id {
 };
 typedef struct ag_block_id ag_block_id_t;
 
+struct ag_block_info {
+  fd_hash_t     hash;   /* double merkle root of the block */
+  ag_block_id_t parent; /* the block this block extends */
+};
+typedef struct ag_block_info ag_block_info_t;
+
+/* ag_standstill names votes and certs only through pointers, so their
+   tags suffice.  Forward declaring them here keeps ag_votor_base a leaf:
+   ag_vote.h and ag_cert.h both include it. */
+
+typedef struct ag_vote ag_vote_t;
+typedef struct ag_cert ag_cert_t;
+
+struct ag_standstill {
+  ulong       slot;
+  ag_cert_t * certs;
+  ulong       cert_cnt;
+  ag_vote_t * votes;
+  ulong       vote_cnt;
+};
+typedef struct ag_standstill ag_standstill_t;
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_PURE static inline int
