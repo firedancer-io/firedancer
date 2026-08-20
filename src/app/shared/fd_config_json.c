@@ -1,5 +1,6 @@
 #include "fd_config_json.h"
 
+#include "../../util/fd_boolau.h"
 #include "../../ballet/toml/fd_toml.h"
 
 #include <stdarg.h>
@@ -11,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22991088UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22995184UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -67,7 +68,8 @@ static void jw_str  ( jw_t * w, char const * key, char const * val ) { jw_comma(
 static void jw_ulong( jw_t * w, char const * key, ulong val )        { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%lu", val ); }
 static void jw_long ( jw_t * w, char const * key, long val )         { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%ld", val ); }
 static void jw_f64  ( jw_t * w, char const * key, double val )       { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%.17g", val ); }
-static void jw_bool ( jw_t * w, char const * key, int val )          { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%s", val ? "true" : "false" ); }
+static void jw_bool  ( jw_t * w, char const * key, int val )         { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%s", val ? "true" : "false" ); }
+static void jw_boolau( jw_t * w, char const * key, int val )         { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":" ); jw_cstr( w, val==FD_BOOLAU_AUTO ? "auto" : val ? "true" : "false" ); }
 
 /* a path (or other host-identifying string) is reported only as
    present-or-empty */
@@ -150,6 +152,7 @@ static char const * const jw_reported_keys[] = {
   "snapshots.sources.gossip.allow_list",
   "snapshots.sources.gossip.block_list",
   "consensus.expected_genesis_hash",
+  "consensus.wait_for_vote_to_start_leader",
   "consensus.wait_for_supermajority_with_bank_hash",
   "layout.affinity",
   "layout.blocklist_cores",
@@ -339,7 +342,8 @@ fd_config_to_json( fd_config_t const * config,
   jw_obj_open( &w, "consensus" );
     jw_ulong( &w, "expected_shred_version",        config->consensus.expected_shred_version );
     jw_str  ( &w, "expected_genesis_hash",         config->consensus.expected_genesis_hash );
-    jw_bool ( &w, "wait_for_vote_to_start_leader", config->consensus.wait_for_vote_to_start_leader );
+    jw_boolau( &w, "wait_for_vote_to_start_leader", config->consensus.wait_for_vote_to_start_leader );
+    jw_ulong( &w, "wait_for_supermajority_at_slot",        f->consensus.wait_for_supermajority_at_slot );
     jw_str  ( &w, "wait_for_supermajority_with_bank_hash", f->consensus.wait_for_supermajority_with_bank_hash );
   jw_obj_close( &w );
 

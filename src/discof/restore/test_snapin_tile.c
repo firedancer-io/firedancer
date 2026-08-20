@@ -170,6 +170,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_slot_delta_parser_init                    mock_slot_delta_parser_init
 #define fd_stake_delegations_reset                   mock_stake_delegations_reset
 #define fd_features_restore_chunk                    mock_features_restore_chunk
+#define fd_ssload_manifest_validate                  mock_ssload_manifest_validate
 #define fd_stem_publish                              test_stem_publish
 #define fd_ssparse_advance                           test_ssparse_advance
 #define fd_ssparse_appendvec_parse                   test_ssparse_appendvec_parse
@@ -190,6 +191,7 @@ test_padded_sz( ulong used ) {
 #undef fd_stem_publish
 #undef fd_features_restore_chunk
 #undef fd_stake_delegations_reset
+#undef fd_ssload_manifest_validate
 #undef fd_slot_delta_parser_init
 #undef fd_ssmanifest_parser_init
 #undef fd_txncache_snapin_scratch
@@ -414,6 +416,14 @@ static void
 test_ssparse_appendvec_parse( fd_ssparse_t * parser ) {
   (void)parser;
   test_appendvec_parse_cnt++;
+}
+
+int
+mock_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
+                               ulong                          max_vote_accounts,
+                               ulong                          max_stake_accounts ) {
+  (void)manifest; (void)max_vote_accounts; (void)max_stake_accounts;
+  return 0;
 }
 
 static int
@@ -2947,6 +2957,101 @@ test_max_account_staging( void ) {
   FD_TEST( test_pwrite_sz[ 0 ]==test_padded_sz( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX ) );
 }
 
+/* Set up a fd_snapshot_manifest_t that passes all preconditions before
+   the WFS block in process_manifest (advertised_slot, lthash, bank hash
+   verification, fd_ssload_manifest_validate).  Returns a pointer to the
+   manifest; the caller sets WFS fields on ctx separately.
+
+   manifest_mem must be aligned to FD_CHUNK_ALIGN and large enough for
+   fd_snapshot_manifest_t. */
+static fd_snapshot_manifest_t *
+wfs_manifest_setup( fd_snapin_tile_t * ctx,
+                    uchar *            manifest_mem,
+                    ulong              slot,
+                    int                full ) {
+  fd_snapshot_manifest_t * m = (fd_snapshot_manifest_t *)manifest_mem;
+  fd_memset( m, 0, sizeof(*m) );
+
+  m->slot                = slot;
+  m->parent_slot         = slot ? (slot-1UL) : 0UL;
+  m->has_accounts_lthash = 1;
+  m->blockhashes_len     = 1UL;
+  m->ticks_per_slot      = 64UL;
+  /* accounts_lthash, parent_bank_hash, blockhashes[0].hash, signature_count
+     are all zero from memset.  Compute the matching bank hash. */
+  fd_lthash_value_t lthash[1];
+  fd_memcpy( lthash, m->accounts_lthash, sizeof(fd_lthash_value_t) );
+  fd_hash_t parent_bh = {0};
+  fd_hash_t last_bh   = {0};
+  fd_hash_t computed[1];
+  fd_hashes_hash_bank( lthash, &parent_bh, &last_bh, 0UL, computed );
+  fd_memcpy( m->bank_hash, computed->hash, FD_HASH_FOOTPRINT );
+
+  /* advertised_hash = blake3(accounts_lthash) */
+  uchar hash32[32];
+  fd_blake3_hash( m->accounts_lthash, FD_LTHASH_LEN_BYTES, hash32 );
+
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->state          = FD_SNAPSHOT_STATE_PROCESSING;
+  ctx->full           = !!full;
+  ctx->lane_cnt       = 1UL;
+  ctx->lead.advertised_slot = slot;
+  fd_memcpy( ctx->lead.advertised_hash, hash32, FD_HASH_FOOTPRINT );
+  ctx->lead.manifest_out.mem   = (fd_wksp_t *)manifest_mem;
+  ctx->lead.manifest_out.chunk = 0UL;
+  ctx->ct_out.idx         = 0UL;
+  ctx->pending_control    = ULONG_MAX;
+
+  return m;
+}
+
+static void
+test_wfs_match_bank_hash_mismatch( void ) {
+  /* WFS MATCH + bank hash mismatch -> transition_malformed.
+     manifest->bank_hash is self-consistent (passes verify_bank_hash)
+     but differs from the configured WFS expected bank hash. */
+  static uchar manifest_mem[ sizeof(fd_snapshot_manifest_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static fd_snapin_tile_t ctx[1];
+  fd_snapshot_manifest_t * m = wfs_manifest_setup( ctx, manifest_mem, 100UL, 1 );
+
+  ctx->wfs_slot          = 100UL;
+  ctx->wfs_hash_is_zero  = 0;
+  ctx->wfs_shred_version = 1234;
+  fd_memset( ctx->wfs_bank_hash.uc, 0xFF, FD_HASH_FOOTPRINT ); /* differs from m->bank_hash */
+  (void)m;
+
+  test_pub_cnt = 0UL;
+  process_manifest( ctx, (fd_stem_context_t *)1UL );
+
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+  FD_TEST( test_pub_cnt==1UL );
+  FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
+  FD_LOG_NOTICE(( "pass: test_wfs_match_bank_hash_mismatch" ));
+}
+
+static void
+test_wfs_error_incremental( void ) {
+  /* WFS ERROR + incremental snapshot -> transition_malformed.
+     manifest slot (50) is behind WFS slot (100), incremental can't
+     bridge the gap. */
+  static uchar manifest_mem[ sizeof(fd_snapshot_manifest_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static fd_snapin_tile_t ctx[1];
+  wfs_manifest_setup( ctx, manifest_mem, 50UL, 0 /*incremental*/ );
+
+  ctx->wfs_slot          = 100UL;
+  ctx->wfs_hash_is_zero  = 0;
+  ctx->wfs_shred_version = 1234;
+  fd_memset( ctx->wfs_bank_hash.uc, 0xAA, FD_HASH_FOOTPRINT );
+
+  test_pub_cnt = 0UL;
+  process_manifest( ctx, (fd_stem_context_t *)1UL );
+
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+  FD_TEST( test_pub_cnt==1UL );
+  FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
+  FD_LOG_NOTICE(( "pass: test_wfs_error_incremental" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -3008,6 +3113,8 @@ main( int     argc,
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_requires_snapshot_slot_delta( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_accepts_empty_rooted_status_cache( wksp );
 
+  test_wfs_match_bank_hash_mismatch();
+  test_wfs_error_incremental();
   fd_wksp_delete_anonymous( wksp );
 
   test_eager_claim_coverage();

@@ -175,7 +175,9 @@ struct fd_tower_tile {
 
   int    halt_signing;
   int    hard_fork_fatal;
-  int    wfs;           /* 1 if booted with wait_for_supermajority */
+  ulong  wfs_slot;
+  int    wfs_hash_is_zero;
+  ushort wfs_shred_version;
   ushort shred_version;
   int    init; /* 1 after ghost_init has been called */
 
