@@ -15,6 +15,7 @@
 #include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/restore/utils/fd_wfs.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
@@ -1012,6 +1013,7 @@ struct fd_gui_summary {
   char         gui_database_path     [ PATH_MAX ];
 
   char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+  ulong  wfs_slot;
   ushort expected_shred_version;
   int    wfs_enabled;
 
@@ -1270,6 +1272,33 @@ fd_gui_tile_timers_diff( fd_gui_tile_timers_hist_t *  out,
                          ulong                        tile_idx,
                          long                         sample_time_nanos );
 
+/* fd_gui_boot_snapshot_slot returns the boot slot: the incremental's
+   if one loaded, else the full's, ULONG_MAX before any load.  Parsed
+   from archive filenames, so best-effort.  Do not switch to
+   catching_up_first_replay_slot: under alpenglow replay defers the
+   boot publish until the wait ends, leaving it unset during WFS. */
+
+FD_FN_PURE static inline ulong
+fd_gui_boot_snapshot_slot( fd_gui_t const * gui ) {
+  for( ulong i=FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT; i>0UL; i-- ) {
+    ulong slot = gui->summary.boot_progress.loading_snapshot[ i-1UL ].slot;
+    if( slot!=ULONG_MAX ) return slot;
+  }
+  return ULONG_MAX;
+}
+
+/* fd_gui_wfs_mode recomputes the WFS verdict (see fd_wfs.h); gossip's
+   WAIT_FOR_SUPERMAJORITY_STATE gauge cannot tell MATCH from NOOP, as
+   both end in STATE_DONE. */
+
+FD_FN_PURE static inline int
+fd_gui_wfs_mode( fd_gui_t const * gui ) {
+  return fd_wfs_mode( gui->summary.wfs_slot,
+                      gui->summary.wfs_bank_hash[ 0 ]=='\0',
+                      (ulong)gui->summary.expected_shred_version,
+                      fd_gui_boot_snapshot_slot( gui ) );
+}
+
 FD_FN_CONST ulong
 fd_gui_align( void );
 
@@ -1295,6 +1324,7 @@ fd_gui_new( void *                   shmem,
             int                      schedule_strategy,
             char const *             wfs_expected_bank_hash_cstr,
             ushort                   expected_shred_version,
+            ulong                    wfs_slot,
             char const *             accounts_database_path,
             char const *             gui_database_path,
             void *                   db,

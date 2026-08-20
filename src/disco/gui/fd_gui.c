@@ -90,6 +90,7 @@ fd_gui_new( void *                   shmem,
             int                      schedule_strategy,
             char const *             wfs_expected_bank_hash_cstr,
             ushort                   expected_shred_version,
+            ulong                    wfs_slot,
             char const *             accounts_database_path,
             char const *             gui_database_path,
             void *                   db,
@@ -201,6 +202,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.expected_shred_version        = expected_shred_version;
   gui->summary.wfs_enabled          = 0;
   gui->summary.wfs_bank_hash[ 0UL ] = '\0';
+  gui->summary.wfs_slot             = wfs_slot;
 
   {
     fd_cstr_ncpy( gui->summary.wfs_bank_hash, wfs_expected_bank_hash_cstr, sizeof(gui->summary.wfs_bank_hash) );
@@ -1584,11 +1586,9 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       fd_gui_ema_init( &gui->summary.accdb->tier_free_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
     }
   } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && wfs_state==FD_GOSSIP_WFS_STATE_DONE && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_tower!=ULONG_MAX ) ) {
-    if( FD_UNLIKELY( gui->summary.wfs_enabled ) ) {
+    if( FD_UNLIKELY( fd_gui_wfs_mode( gui )==FD_WFS_MODE_MATCH ) ) {
       if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) {
-        ulong snap_inc  = gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].slot;
-        ulong snap_full = gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].slot;
-        gui->summary.slot_caught_up = fd_ulong_if( snap_inc!=ULONG_MAX, snap_inc, snap_full );
+        gui->summary.slot_caught_up = fd_gui_boot_snapshot_slot( gui );
         gui->summary.boot_progress.catching_up_time_nanos = now;
 
         fd_gui_printf_slot_caught_up( gui );
@@ -2411,15 +2411,6 @@ fd_gui_slot_get_canon_safe( fd_gui_t * gui, ulong _slot ) {
     fd_gui_slot_set_voter_state( gui->skipped_scratch, fd_gui_slot_voter_state( gui, _slot ) );
     return gui->skipped_scratch;
   }
-}
-
-static ulong
-fd_gui_boot_snapshot_slot( fd_gui_t const * gui ) {
-  for( ulong i=FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT; i>0UL; i-- ) {
-    ulong slot = gui->summary.boot_progress.loading_snapshot[ i-1UL ].slot;
-    if( slot!=ULONG_MAX ) return slot;
-  }
-  return ULONG_MAX;
 }
 
 static void

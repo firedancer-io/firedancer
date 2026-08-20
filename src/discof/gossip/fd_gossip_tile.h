@@ -54,7 +54,6 @@ struct fd_gossip_tile_ctx {
   fd_gossip_out_ctx_t update_out[ FD_GOSSIP_UPDATE_LINK_CNT ]; /* gossip_ciaddr, gossip_ciseen, gossip_vote, gossip_misc */
   fd_gossip_out_ctx_t gossvf_out[ 1 ];
   fd_gossip_out_ctx_t sign_out[ 1 ];
-  fd_gossip_out_ctx_t gossip_wfs[ 1 ];
   fd_gossip_out_ctx_t gui_out[ 1 ];
 
   ulong sign_out_mtu;
@@ -85,6 +84,13 @@ struct fd_gossip_tile_ctx {
      being active on gossip, so we don't double count their stake. */
   uchar wfs_active[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
   int   wfs_state;
+
+  /* Inputs to fd_wfs_mode (see fd_wfs.h), so gossip can tell MATCH
+     from NOOP.  wfs_boot_slot is ULONG_MAX until the first manifest. */
+  ulong  wfs_slot;
+  ushort wfs_shred_version;
+  int    wfs_hash_is_zero;
+  ulong  wfs_boot_slot;
 
   struct {
     ulong online;

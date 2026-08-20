@@ -1,5 +1,6 @@
 #include "fd_config_json.h"
 
+#include "../../util/fd_boolau.h"
 #include "../../ballet/toml/fd_toml.h"
 
 #include <stdarg.h>
@@ -11,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26565872UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26569968UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -63,11 +64,14 @@ static void jw_obj_close( jw_t * w )                   { jw_raw( w, "}" ); w->fi
 static void jw_arr_open ( jw_t * w, char const * key ) { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":[" ); w->first = 1; }
 static void jw_arr_close( jw_t * w )                   { jw_raw( w, "]" ); w->first = 0; }
 
-static void jw_str  ( jw_t * w, char const * key, char const * val ) { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":" ); jw_cstr( w, val ); }
-static void jw_ulong( jw_t * w, char const * key, ulong val )        { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%lu", val ); }
-static void jw_long ( jw_t * w, char const * key, long val )         { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%ld", val ); }
-static void jw_f64  ( jw_t * w, char const * key, double val )       { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%.17g", val ); }
-static void jw_bool ( jw_t * w, char const * key, int val )          { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%s", val ? "true" : "false" ); }
+static void jw_str   ( jw_t * w, char const * key, char const * val ) { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":" ); jw_cstr( w, val ); }
+static void jw_ulong ( jw_t * w, char const * key, ulong val )        { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%lu", val ); }
+static void jw_long  ( jw_t * w, char const * key, long val )         { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%ld", val ); }
+static void jw_f64   ( jw_t * w, char const * key, double val )       { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%.17g", val ); }
+static void jw_bool  ( jw_t * w, char const * key, int val )          { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":%s", val ? "true" : "false" ); }
+/* Only "auto" is a string; true and false stay JSON booleans so that
+   a config not using "auto" serializes as it did before boolau. */
+static void jw_boolau( jw_t * w, char const * key, int val )          { jw_comma( w ); jw_cstr( w, key ); jw_raw( w, ":" ); if( val==FD_BOOLAU_AUTO ) jw_cstr( w, "auto" ); else jw_raw( w, "%s", val ? "true" : "false" ); }
 
 /* a path (or other host-identifying string) is reported only as
    present-or-empty */
@@ -153,6 +157,7 @@ static char const * const jw_reported_keys[] = {
   "snapshots.sources.gossip.allow_list",
   "snapshots.sources.gossip.block_list",
   "consensus.expected_genesis_hash",
+  "consensus.wait_for_vote_to_start_leader",
   "consensus.wait_for_supermajority_with_bank_hash",
   "layout.affinity",
   "layout.blocklist_cores",
@@ -343,11 +348,12 @@ fd_config_to_json( fd_config_t const * config,
   jw_obj_close( &w );
 
   jw_obj_open( &w, "consensus" );
-    jw_ulong( &w, "expected_shred_version",        config->consensus.expected_shred_version );
-    jw_str  ( &w, "expected_genesis_hash",         config->consensus.expected_genesis_hash );
-    jw_bool ( &w, "wait_for_vote_to_start_leader", config->consensus.wait_for_vote_to_start_leader );
-    jw_str  ( &w, "wait_for_supermajority_with_bank_hash", f->consensus.wait_for_supermajority_with_bank_hash );
-    jw_bool ( &w, "alpenglow",                     f->consensus.alpenglow );
+    jw_ulong ( &w, "expected_shred_version",                config->consensus.expected_shred_version );
+    jw_str   ( &w, "expected_genesis_hash",                 config->consensus.expected_genesis_hash );
+    jw_boolau( &w, "wait_for_vote_to_start_leader",         config->consensus.wait_for_vote_to_start_leader );
+    jw_ulong ( &w, "wait_for_supermajority_at_slot",        f->consensus.wait_for_supermajority_at_slot );
+    jw_str   ( &w, "wait_for_supermajority_with_bank_hash", f->consensus.wait_for_supermajority_with_bank_hash );
+    jw_bool  ( &w, "alpenglow",                             f->consensus.alpenglow );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "gossip" );

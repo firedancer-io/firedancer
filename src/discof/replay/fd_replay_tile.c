@@ -20,6 +20,7 @@
 #include "../votor/fd_votor_tile.h"
 #include "../resolv/fd_resolv_tile.h"
 #include "../restore/utils/fd_ssload.h"
+#include "../restore/utils/fd_wfs.h"
 
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
@@ -33,6 +34,7 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
+#include "../../util/fd_boolau.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/stakes/fd_stakes.h"
@@ -120,7 +122,19 @@
 
 /* The first bank that the replay tile produces either for genesis
    or the snapshot boot will always be at bank index 0. */
-#define FD_REPLAY_BOOT_BANK_SEQ (0UL)
+#define FD_REPLAY_BOOT_BANK_IDX (0UL)
+
+/* wfs_resolve_leader_gate_auto resolves to true when
+   wait_for_vote_to_start_leader is configured as auto, otherwise it
+   passes the config value through.  True keeps the leader gate armed,
+   which is correct for a non-WFS boot and for NOOP. */
+
+static inline int
+wfs_resolve_leader_gate_auto( int wait_for_vote_to_start_leader ) {
+  return fd_int_if( wait_for_vote_to_start_leader==FD_BOOLAU_AUTO,
+                    FD_BOOLAU_TRUE,
+                    wait_for_vote_to_start_leader );
+}
 
 static inline ulong
 fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) {
@@ -1537,6 +1551,12 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   ctx->identity_idx++;
   fd_vote_tracker_reset( ctx->vote_tracker );
 
+  /* identity_vote_rooted was just reset, so the gate rests on the flag
+     alone and a surviving auto would read as armed (see fd_wfs.h). */
+  if( FD_UNLIKELY( ctx->wait_for_vote_to_start_leader==FD_BOOLAU_AUTO ) ) {
+    FD_LOG_CRIT(( "wait_for_vote_to_start_leader unresolved (auto) at identity rotation" ));
+  }
+
   /* Save the current sequence so the voter knows what sequence to
      consume up to.  Tower reads replay_out, votor reads replay_slot. */
   ctx->keyswitch->result = fd_mcache_seq_query( ctx->alpenglow ? ctx->slot_out_seq : ctx->replay_out_seq );
@@ -2005,6 +2025,25 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->alpenglow ) ) fd_store_publish( ctx->store, ctx->map_join, bank->f.slot );
 }
 
+/* publish_boot_slot announces the snapshot slot, which the validator
+   did not replay, as completed and rooted.  Under WFS it runs after
+   the wait (see wfs_defer_boot_publish), so the staged fields are
+   computed here, not at the call site: the poh reset published at
+   boot advances the dcache chunk past anything staged earlier. */
+
+static void
+publish_boot_slot( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem,
+                   fd_bank_t *         bank ) {
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  cost_tracker_snap( bank, slot_info );
+  slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
+
+  fd_block_footer_t footer = { .bank_hash = bank->f.bank_hash }; /* dummy footer for the snapshot slot */
+  publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0, fd_ptr_if( ctx->alpenglow, &footer, NULL ) );
+  publish_root_advanced( ctx, stem, bank );
+}
+
 /* Determine the default slot params to use for slots where no
    reduce_slot_time feature gate is in effect. This is important for
    the inflation calculations, which use the slot times for
@@ -2065,9 +2104,9 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   /* snapin built the root stake delegations while writing the accounts
      db index.  Refresh finalizes them in memory. */
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
   if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
+    FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
   }
 
   char const * one_offs[ 16UL ];
@@ -2160,7 +2199,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX ||
                  ctx->is_leader ||
-                 (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) ||
+                 (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader!=FD_BOOLAU_FALSE) ||
                  ctx->replay_out->idx==ULONG_MAX ||
                  !ctx->wfs_complete ) ) {
     return 0;
@@ -2446,6 +2485,12 @@ boot_genesis( fd_replay_tile_t *        ctx,
               fd_stem_context_t *       stem,
               fd_genesis_meta_t const * meta ) {
 
+  if( FD_UNLIKELY( ctx->wfs_enabled ) ) {
+    FD_LOG_ERR(( "wait_for_supermajority is enabled but the validator is booting from genesis. "
+                 "Remove [consensus.wait_for_supermajority_at_slot] and "
+                 "[consensus.wait_for_supermajority_with_bank_hash] configuration and restart." ));
+  }
+
   /* TODO boot_genesis for Alpenglow */
 
   FD_CHECK_ERR( !ctx->alpenglow, "alpenglow does not support genesis yet" );
@@ -2465,7 +2510,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( bank );
   bank->f.slot = 0UL;
-  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
+  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_IDX );
 
   static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
   bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
@@ -2623,23 +2668,73 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        state machine and set the state here accordingly. */
     ctx->is_booted = 1;
 
-    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
+    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
     if( FD_UNLIKELY( !bank ) ) {
-      FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
+      FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
     }
 
     ulong snapshot_slot = bank->f.slot;
+    ctx->wfs_boot_slot  = snapshot_slot;
 
     fd_hash_t bank_hash = bank->f.bank_hash;
-    if( FD_UNLIKELY( ctx->wfs_enabled && memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
-      FD_BASE58_ENCODE_32_BYTES( bank_hash.uc,                 actual_bank_hash_cstr );
-      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] expected_bank_hash=%s does not match snapshot slot"
-                   "=%lu bank_hash=%s. If you are loading a snapshot from the network, check that the slot matches the "
-                   "cluster restart slot. ", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
-    }
     if( FD_UNLIKELY( ctx->wfs_enabled ) ) {
-      FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
+      /* Classify boot against WFS (see fd_wfs.h). */
+      int wfs_mode = fd_wfs_mode( ctx->wait_for_supermajority_at_slot,
+                                  ctx->wfs_hash_is_zero,
+                                  (ulong)ctx->expected_shred_version,
+                                  snapshot_slot );
+      switch( wfs_mode ) {
+        case FD_WFS_MODE_MATCH: {
+          if( FD_UNLIKELY( memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
+            FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
+            FD_BASE58_ENCODE_32_BYTES( bank_hash.uc,               actual_bank_hash_cstr );
+            FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] expected_bank_hash=%s does not match snapshot slot"
+                         "=%lu bank_hash=%s. If you are loading a snapshot from the network, check that the slot matches the "
+                         "cluster restart slot.", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
+          }
+          /* Not gated on wfs_complete: gossip can signal the cluster
+             back before we boot, which says nothing about our vote. */
+          if( FD_UNLIKELY( ctx->wait_for_vote_to_start_leader==FD_BOOLAU_AUTO ) ) {
+            FD_LOG_NOTICE(( "auto-overriding wait_for_vote_to_start_leader to false "
+                            "(WFS target slot %lu, boot slot %lu)",
+                            ctx->wait_for_supermajority_at_slot, snapshot_slot ));
+            ctx->wait_for_vote_to_start_leader = FD_BOOLAU_FALSE;
+          }
+          if( FD_LIKELY( !ctx->wfs_complete ) ) {
+            FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
+            /* The boot slot's completion initializes votor and anchors
+               its clock, so a long wait would read as elapsed slots.
+               Votor is alpenglow-only; tower publishes at once. */
+            ctx->wfs_defer_boot_publish = ctx->alpenglow;
+          }
+          break;
+        }
+        case FD_WFS_MODE_ERROR: {
+          FD_LOG_ERR(( "snapshot slot %lu is behind [consensus.wait_for_supermajority_at_slot] %lu "
+                       "and no incremental snapshot bridged the gap. "
+                       "Provide a snapshot at that slot, or clear it and "
+                       "[consensus.wait_for_supermajority_with_bank_hash] to disable WFS.",
+                       snapshot_slot, ctx->wait_for_supermajority_at_slot ));
+          break;
+        }
+        case FD_WFS_MODE_NOOP: {
+          FD_LOG_WARNING(( "snapshot slot %lu is ahead of [consensus.wait_for_supermajority_at_slot] %lu, "
+                           "skipping wait for supermajority and bank hash verification",
+                           snapshot_slot, ctx->wait_for_supermajority_at_slot ));
+          ctx->wfs_complete = 1;
+          ctx->wait_for_vote_to_start_leader = wfs_resolve_leader_gate_auto( ctx->wait_for_vote_to_start_leader );
+          break;
+        }
+        default: {
+          /* DISABLED and UNRESOLVED are unreachable under wfs_enabled. */
+          FD_LOG_CRIT(( "unexpected WFS mode %d (%s) at boot slot %lu",
+                        wfs_mode, fd_wfs_mode_str( wfs_mode ), snapshot_slot ));
+        }
+      }
+
+      if( FD_UNLIKELY( ctx->wait_for_vote_to_start_leader==FD_BOOLAU_AUTO ) ) {
+        FD_LOG_CRIT(( "wait_for_vote_to_start_leader unresolved (auto) after WFS boot classification" ));
+      }
     }
 
     /* Manifest message must arrive before DONE */
@@ -2714,11 +2809,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       }
     }
 
-    fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    cost_tracker_snap( bank, slot_info );
-
-    slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
-
     if( ctx->reasm ) {
       fd_reasm_fec_t * fec = fd_reasm_init( ctx->reasm, &manifest_block_id, snapshot_slot );
       fec->bank_idx        = (uint)bank->idx;
@@ -2730,9 +2820,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     FD_LOG_INFO(( "replay ready at slot %lu (%.3f s after snapshot done, %.3f s since boot)",
                   snapshot_slot, (double)(now-snapshot_done_nanos)/1e9, (double)(now-ctx->boot_timestamp_nanos)/1e9 ));
 
-    fd_block_footer_t footer = { .bank_hash = bank->f.bank_hash  }; /* dummy footer for the snapshot slot */
-    publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0, fd_ptr_if( ctx->alpenglow, &footer, NULL ) );
-    publish_root_advanced( ctx, stem, bank );
+    if( FD_LIKELY( !ctx->wfs_defer_boot_publish ) ) publish_boot_slot( ctx, stem, bank );
 
     if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
       fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -2777,13 +2865,13 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
          bank is partially mutated, and we must abort. */
       if( FD_UNLIKELY( fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                                           ctx->banks,
-                                          fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ ),
+                                          fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
                                           ctx->blockhash_seed ) ) ) {
         FD_LOG_ERR(( "Snapshot manifest recovery failed, aborting." ));
       }
 
       ctx->has_cluster_type = 1;
-      ctx->cluster_type     = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ )->f.cluster_type;
+      ctx->cluster_type     = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX )->f.cluster_type;
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       /* hard_fork_cnt already validated by fd_ssload_recover. */
@@ -4583,12 +4671,12 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
     ushort actual_shred_version   = ctx->shred_version;
 
     if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
-      FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
-      FD_LOG_ERR(( "Your genesis.bin file at `%s` combined with the hard_forks from the loaded snapshot have produced "
-                   "a shred version of %hu but the entrypoint you connected to on boot reported a shred version of %hu. "
-                   "This likely means that the genesis.bin file you have is for a different cluster than the one you "
-                   "are trying to connect to, you can delete it and restart the node to download the correct genesis "
-                   "file automatically.", ctx->genesis_path, actual_shred_version, expected_shred_version ));
+      char const * expected_source = ctx->expected_shred_version ?
+                                     "[consensus.expected_shred_version]" : "the boot entrypoint";
+      FD_LOG_ERR(( "genesis.bin at `%s` plus the loaded snapshot's hard_forks give shred version %hu, "
+                   "but %s reports %hu. Delete genesis.bin to re-download it, or the snapshot if it "
+                   "predates the latest hard fork, and restart.",
+                   ctx->genesis_path, actual_shred_version, expected_source, expected_shred_version ));
     }
   }
 }
@@ -5191,6 +5279,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_GOSSIP_OUT: {
       FD_TEST( sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE );
+      if( FD_UNLIKELY( ctx->wfs_complete ) ) break;
       ctx->wfs_complete = 1;
       maybe_verify_shred_version( ctx );
 
@@ -5210,6 +5299,17 @@ returnable_frag( fd_replay_tile_t *  ctx,
       }
 
       FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has joined." ));
+
+      /* Announce the boot slot now, if it was held back above. */
+      if( FD_UNLIKELY( ctx->wfs_defer_boot_publish ) ) {
+        ctx->wfs_defer_boot_publish = 0;
+        fd_bank_t * boot_bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
+        if( FD_UNLIKELY( !boot_bank || boot_bank->f.slot!=ctx->wfs_boot_slot ) ) {
+          FD_LOG_CRIT(( "boot bank changed during the supermajority wait" ));
+        }
+        publish_boot_slot( ctx, stem, boot_bank );
+      }
+
       if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
         publish_replay_out( ctx, stem, REPLAY_SIG_WFS_DONE, 0UL );
       }
@@ -5537,9 +5637,20 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
 
-  ctx->wfs_enabled = memcmp( tile->replay.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) );
+  ctx->wfs_hash_is_zero = !memcmp( tile->replay.wait_for_supermajority_with_bank_hash.uc, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) );
+  ctx->wfs_enabled = fd_wfs_configured( tile->replay.wait_for_supermajority_at_slot,
+                                        ctx->wfs_hash_is_zero,
+                                        (ulong)tile->replay.expected_shred_version );
+  ctx->wait_for_supermajority_at_slot = tile->replay.wait_for_supermajority_at_slot;
   ctx->expected_bank_hash = tile->replay.wait_for_supermajority_with_bank_hash;
+  ctx->wfs_boot_slot = ULONG_MAX; /* set once the boot snapshot is loaded */
+  ctx->wfs_defer_boot_publish = 0;
   ctx->wfs_complete = !ctx->wfs_enabled;
+
+  /* With WFS, auto is resolved at boot instead (on_snapshot_message). */
+  if( FD_UNLIKELY( !ctx->wfs_enabled ) ) {
+    ctx->wait_for_vote_to_start_leader = wfs_resolve_leader_gate_auto( ctx->wait_for_vote_to_start_leader );
+  }
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );

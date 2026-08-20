@@ -6,6 +6,7 @@
 #include "utils/fd_ssarchive.h"
 #include "utils/fd_http_resolver.h"
 #include "utils/fd_ssmsg.h"
+#include "utils/fd_wfs.h"
 #include "../backup/fd_snap_pool.h"
 
 #include "../../disco/topo/fd_topo.h"
@@ -104,9 +105,11 @@ typedef struct fd_sspeer_blacklist_entry fd_sspeer_blacklist_entry_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_snapct_tile {
-  struct fd_topo_tile_snapct config;
+  struct fd_topo_tile_snapct config; /* read only */
   int                        gossip_enabled;
   int                        download_enabled;
+  int                        wfs_is_configured;
+  int                        load_incremental;
 
   fd_netdb_fds_t netdb_fds[1];
 
@@ -180,6 +183,7 @@ struct fd_snapct_tile {
     ulong full_slot;
     ulong slot;
     int   pending;
+    int   committed;
   } predicted_incremental;
 
   struct {
@@ -236,6 +240,63 @@ gossip_enabled( fd_topo_tile_t const * tile ) {
 static int
 download_enabled( fd_topo_tile_t const * tile ) {
   return gossip_enabled( tile ) || tile->snapct.sources.servers_cnt>0UL;
+}
+
+static int
+snapct_needs_incr( fd_topo_tile_t const * tile ) {
+  return fd_wfs_needs_incr( tile->snapct.incremental_snapshots,
+                            tile->snapct.wfs_slot,
+                            tile->snapct.wfs_hash_is_zero,
+                            (ulong)tile->snapct.wfs_shred_version );
+}
+
+/* wfs_floor is the lowest slot a boot may land on: the WFS target
+   when configured, else 0 (fd_wfs.h).  A zero floor leaves slot 0 and
+   ULONG_MAX at or above it, so "WFS off" and "no such candidate" need
+   no special-casing. */
+
+static ulong
+wfs_floor( fd_snapct_tile_t const * ctx ) {
+  return fd_ulong_if( ctx->wfs_is_configured, ctx->config.wfs_slot, 0UL );
+}
+
+/* wfs_short_of_target returns whether booting at slot lands below the
+   floor.  ULONG_MAX, meaning no such candidate, never does. */
+
+static int
+wfs_short_of_target( fd_snapct_tile_t const * ctx,
+                     ulong                    slot ) {
+  return slot<wfs_floor( ctx );
+}
+
+/* incr_use_local returns whether to load the incremental snapshot from
+   disk rather than download it.  local_slot and fetch_slot (= the
+   available download slot) are the slots each option reaches,
+   ULONG_MAX if it does not exist, and must pair with the same full.
+   Keep the local one while it is within max_local_incremental_age of
+   the download. */
+
+static int
+incr_use_local( fd_snapct_tile_t const * ctx,
+                ulong                    local_slot,
+                ulong                    fetch_slot ) {
+  if( FD_UNLIKELY( local_slot==ULONG_MAX ) ) return 0;
+
+  /* Before the age rule and the no-download shortcut: a local
+     incremental below the floor can never be the boot. */
+
+  if( FD_UNLIKELY( wfs_short_of_target( ctx, local_slot ) ) ) {
+    FD_LOG_NOTICE(( "local incremental snapshot at slot %lu is short of "
+                    "[consensus.wait_for_supermajority_at_slot] %lu, discarding it",
+                    local_slot, wfs_floor( ctx ) ));
+    return 0;
+  }
+
+  if( FD_UNLIKELY( fetch_slot==ULONG_MAX ) ) return 1;
+
+  if( FD_UNLIKELY( local_slot<fd_ulong_sat_sub( fetch_slot, ctx->config.sources.max_local_incremental_age ) ) ) return 0;
+
+  return 1;
 }
 
 #define ADNS_REQS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX+FD_TOPO_GOSSIP_ENTRYPOINTS_MAX)
@@ -308,7 +369,7 @@ snapshot_path_gui_publish( fd_snapct_tile_t *  ctx,
 
 static void
 predict_incremental( fd_snapct_tile_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) return;
+  if( FD_UNLIKELY( !ctx->load_incremental || ctx->predicted_incremental.committed ) ) return;
   if( FD_UNLIKELY( ctx->predicted_incremental.full_slot==FD_SSPEER_SLOT_UNKNOWN ) ) return;
 
   fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
@@ -520,7 +581,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
     cnt +=    FD_SSPING_FD_CNT +                /* ssping sockets */
               2UL +                             /* dirfd + full snapshot pool fd */
               tile->snapct.sources.servers_cnt; /* http resolver peer full sockets */
-    if( tile->snapct.incremental_snapshots ) {
+    if( snapct_needs_incr( tile ) ) {
       cnt +=  1UL +                             /* incremental snapshot pool fd */
               tile->snapct.sources.servers_cnt; /* http resolver peer incr sockets */
     }
@@ -629,6 +690,12 @@ init_load( fd_snapct_tile_t *  ctx,
   if( file ) {
     if( full ) fd_cstr_fini( ctx->http_full_snapshot_name );
     else       fd_cstr_fini( ctx->http_incr_snapshot_name );
+  }
+
+  if( !full ) {
+    if( file ) ctx->predicted_incremental.slot = ctx->local_in.incremental_snapshot_slot;
+    ctx->predicted_incremental.committed = 1;
+    ctx->predicted_incremental.pending   = 1;
   }
 }
 
@@ -892,7 +959,36 @@ after_credit( fd_snapct_tile_t *  ctx,
     /* ============================================================== */
     case FD_SNAPCT_STATE_INIT: {
       if( FD_UNLIKELY( !ctx->download_enabled ) ) {
-        ulong local_slot = ctx->config.incremental_snapshots ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
+        /* Download is disabled, so the incremental on disk is the only
+           thing that can lift a full short of the target. */
+        if( FD_UNLIKELY( !ctx->load_incremental &&
+                         wfs_short_of_target( ctx, ctx->local_in.full_snapshot_slot ) ) ) {
+          FD_LOG_NOTICE(( "WFS target slot %lu ahead of local full snapshot slot %lu; "
+                          "auto-enabling incremental snapshot load",
+                          wfs_floor( ctx ), ctx->local_in.full_snapshot_slot ));
+          ctx->load_incremental = 1;
+        }
+
+        if( FD_UNLIKELY( ctx->load_incremental && ctx->local_in.incremental_snapshot_slot==ULONG_MAX ) ) {
+          FD_LOG_WARNING(( "incremental snapshots were requested (via config or WFS auto-enable) "
+                           "but no incremental snapshot exists on disk and snapshot download is not enabled. "
+                           "skipping incremental snapshot load." ));
+          ctx->load_incremental = 0;
+        }
+
+        ulong local_slot = (ctx->load_incremental && ctx->local_in.incremental_snapshot_slot!=ULONG_MAX)
+                           ? ctx->local_in.incremental_snapshot_slot
+                           : ctx->local_in.full_snapshot_slot;
+
+        /* local_slot is the boot slot: with download disabled no later
+           stage can lift it, so fail now rather than after both loads. */
+        if( FD_UNLIKELY( wfs_short_of_target( ctx, local_slot ) ) ) {
+          FD_LOG_ERR(( "local snapshots reach slot %lu, behind [consensus.wait_for_supermajority_at_slot] %lu. "
+                       "place a snapshot reaching it in the snapshot directory, or enable a download source "
+                       "via [snapshots.sources.gossip] or [snapshots.sources.servers].",
+                       local_slot, wfs_floor( ctx ) ));
+        }
+
         send_expected_slot( ctx, stem, local_slot );
         FD_LOG_NOTICE(( "reading full snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.full_snapshot_path, fd_log_style_normal() ));
         FD_LOG_INFO(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
@@ -920,7 +1016,15 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL: {
-      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for incremental snapshot peers." ));
+      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) {
+        if( FD_UNLIKELY( wfs_short_of_target( ctx, ctx->predicted_incremental.full_slot ) ) ) {
+          FD_LOG_ERR(( "timed out waiting for an incremental snapshot to lift full snapshot slot %lu to "
+                       "[consensus.wait_for_supermajority_at_slot] %lu.",
+                       ctx->predicted_incremental.full_slot, wfs_floor( ctx ) ));
+        } else {
+          FD_LOG_ERR(( "timed out waiting for incremental snapshot peers." ));
+        }
+      }
 
       FD_TEST( ctx->predicted_incremental.full_slot!=FD_SSPEER_SLOT_UNKNOWN );
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
@@ -946,17 +1050,25 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       fd_sscluster_slot_t cluster = fd_sspeer_selector_cluster_slot( ctx->selector );
-      if( FD_UNLIKELY( cluster.incremental==FD_SSPEER_SLOT_UNKNOWN && ctx->config.incremental_snapshots ) ) {
-        /* We must have a cluster full slot to be in this state. */
-        FD_TEST( cluster.full!=FD_SSPEER_SLOT_UNKNOWN );
-        /* fall back to full snapshot only if the highest cluster slot
-           is a full snapshot only */
-        FD_LOG_WARNING(( "incremental snapshots were enabled via [snapshots.incremental_snapshots], but no incremental snapshot is available in the cluster. "
-                         "falling back to full snapshots only." ));
-        ctx->config.incremental_snapshots = 0;
-      }
 
-      ulong cluster_slot = ctx->config.incremental_snapshots ? cluster.incremental : cluster.full;
+      /* A failed load returns here to pick another candidate.  Whether
+         an incremental is loaded is a property of the candidate, so
+         start from the config rather than the last pass's verdict. */
+
+      ctx->load_incremental = ctx->config.incremental_snapshots;
+
+      /* Weigh the full snapshots we could actually use, not
+         cluster.full: it can sit past the target while the best full
+         snapshot we could load falls short. */
+
+      if( !ctx->load_incremental &&
+          ( wfs_short_of_target( ctx, ctx->local_in.full_snapshot_slot ) ||
+            wfs_short_of_target( ctx, best.full_slot ) ) ) {
+        FD_LOG_NOTICE(( "WFS target slot %lu ahead of the best full snapshot (local %lu, downloadable %lu); "
+                        "auto-enabling incremental snapshot download",
+                        wfs_floor( ctx ), ctx->local_in.full_snapshot_slot, best.full_slot ));
+        ctx->load_incremental = 1;
+      }
 
       /* Determine the best effective slot achievable using the local
          full snapshot.  When incrementals are disabled, the effective
@@ -965,64 +1077,130 @@ after_credit( fd_snapct_tile_t *  ctx,
          a local file or downloaded from a peer). */
 
       ulong local_effective_slot = ULONG_MAX;
+      int   local_has_incr       = 0;
+      int   local_incr_on_disk   = 0;
       if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
-        if( FD_LIKELY( ctx->config.incremental_snapshots ) ) {
-          ulong local_incr = ctx->local_in.incremental_snapshot_slot;
-          if( local_incr!=ULONG_MAX && local_incr>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age ) ) {
+        if( FD_LIKELY( ctx->load_incremental ) ) {
+          /* Age the local incremental against the best one that pairs
+             with our full. */
+          fd_sspeer_t best_incr  = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
+          ulong       fetch_incr = best_incr.addr.l ? best_incr.incr_slot : ULONG_MAX;
+          ulong       local_incr = ctx->local_in.incremental_snapshot_slot;
+
+          if( FD_LIKELY( incr_use_local( ctx, local_incr, fetch_incr ) ) ) {
             local_effective_slot = local_incr;
+            local_has_incr       = 1;
+            local_incr_on_disk   = 1;
+          } else if( FD_LIKELY( fetch_incr!=ULONG_MAX ) ) {
+            local_effective_slot = fetch_incr;
+            local_has_incr       = 1;
           } else {
-            fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
-            if( FD_LIKELY( best_incr.addr.l ) ) {
-              ctx->predicted_incremental.slot         = best_incr.incr_slot;
-              ctx->local_in.incremental_snapshot_slot = ULONG_MAX; /* don't use the local incremental */
-              local_effective_slot                    = best_incr.incr_slot;
-            }
+            /* No incremental reaches past our full, from disk or from
+               a peer.  The full alone still reaches its own slot. */
+            local_effective_slot = ctx->local_in.full_snapshot_slot;
           }
         } else {
           local_effective_slot = ctx->local_in.full_snapshot_slot;
         }
       }
 
+      /* The slot reached by replacing the local full with a downloaded
+         one.  The local candidate may download an incremental too, so
+         this is not local versus remote, it is which full to use. */
+
+      ulong download_effective_slot = best.full_slot;
+      int   download_has_incr       = 0;
+      if( ctx->load_incremental ) {
+        fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot );
+        if( FD_LIKELY( best_incr.addr.l ) ) {
+          download_effective_slot = best_incr.incr_slot;
+          download_has_incr       = 1;
+        }
+      }
+
+      /* Objective: keep the local full while its effective slot is
+         within max_local_full_effective_age of what replacing it
+         would reach.  Not of the cluster slot: that is a max over
+         what peers advertise, which no peer need serve and any peer
+         can inflate.  This applies to every boot, not just WFS. */
+
       int can_use_local_full = local_effective_slot!=ULONG_MAX &&
-                               local_effective_slot>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_full_effective_age );
+                               local_effective_slot>=fd_ulong_sat_sub( download_effective_slot, ctx->config.sources.max_local_full_effective_age );
+
+      /* No converse rule is needed: a local snapshot that clears the
+         floor is necessarily ahead of a download that does not, so
+         the age objective already keeps it. */
+
+      if( FD_UNLIKELY( can_use_local_full &&
+                       wfs_short_of_target( ctx, local_effective_slot ) &&
+                       !wfs_short_of_target( ctx, download_effective_slot ) ) ) {
+        FD_LOG_NOTICE(( "local snapshot at effective slot %lu is short of "
+                        "[consensus.wait_for_supermajority_at_slot] %lu, downloading slot %lu instead",
+                        local_effective_slot, wfs_floor( ctx ), download_effective_slot ));
+        can_use_local_full = 0;
+      }
+
       if( FD_LIKELY( can_use_local_full ) ) {
+        if( FD_UNLIKELY( ctx->load_incremental && !local_has_incr ) ) {
+          if( FD_UNLIKELY( wfs_short_of_target( ctx, ctx->local_in.full_snapshot_slot ) ) ) {
+            FD_LOG_NOTICE(( "no incremental snapshot pairs with the local full snapshot at slot %lu yet, and "
+                            "the full alone is short of [consensus.wait_for_supermajority_at_slot] %lu; keeping "
+                            "the incremental load to wait for a peer that bridges the gap",
+                            ctx->local_in.full_snapshot_slot, wfs_floor( ctx ) ));
+          } else if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
+            FD_LOG_INFO(( "local full snapshot at slot %lu already reaches the WFS target, loading it alone",
+                          ctx->local_in.full_snapshot_slot ));
+            ctx->load_incremental = 0;
+          } else {
+            FD_LOG_WARNING(( "no incremental snapshot is available for the local full snapshot at slot %lu, "
+                             "loading the full snapshot only.", ctx->local_in.full_snapshot_slot ));
+            ctx->load_incremental = 0;
+          }
+        }
+
+        if( FD_UNLIKELY( !local_incr_on_disk && local_has_incr ) ) ctx->predicted_incremental.slot = local_effective_slot;
+
         send_expected_slot( ctx, stem, local_effective_slot );
 
         FD_LOG_NOTICE(( "reading full snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.full_snapshot_path, fd_log_style_normal() ));
-        FD_LOG_INFO(( "reading full snapshot at slot %lu with cluster slot %lu from local file `%s`",
-                      ctx->local_in.full_snapshot_slot, cluster_slot, ctx->local_in.full_snapshot_path ));
+        FD_LOG_INFO(( "reading full snapshot at slot %lu (cluster full %lu incremental %lu) from local file `%s`",
+                      ctx->local_in.full_snapshot_slot, cluster.full, cluster.incremental, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
       } else {
         if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
           if( local_effective_slot==ULONG_MAX ) {
-            if( ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) {
-              FD_LOG_INFO(( "local full snapshot at slot %lu cannot be used because local incremental snapshot at slot %lu "
-                            "is too old and no downloadable incremental could be found (cluster slot %lu), downloading instead",
-                            ctx->local_in.full_snapshot_slot, ctx->local_in.incremental_snapshot_slot, cluster_slot ));
-            } else {
-              FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because no matching incremental snapshot "
-                              "could be found (cluster slot %lu), downloading instead",
-                              ctx->local_in.full_snapshot_slot, cluster_slot ));
-            }
+            FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because no matching incremental snapshot "
+                            "could be found (cluster incremental %lu), downloading instead",
+                            ctx->local_in.full_snapshot_slot, cluster.incremental ));
           } else {
-            FD_LOG_NOTICE(( "local full snapshot at slot %lu (effective slot %lu) is too old for cluster slot %lu max age %u, downloading instead",
-                            ctx->local_in.full_snapshot_slot, local_effective_slot, cluster_slot, ctx->config.sources.max_local_full_effective_age ));
+            FD_LOG_NOTICE(( "local full snapshot at slot %lu (effective slot %lu) is too old for downloadable slot %lu max age %u, downloading instead",
+                            ctx->local_in.full_snapshot_slot, local_effective_slot, download_effective_slot, ctx->config.sources.max_local_full_effective_age ));
           }
         } else {
           FD_LOG_INFO(( "no local snapshot available, downloading from peer" ));
         }
 
-        if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
-          send_expected_slot( ctx, stem, best.full_slot );
-        } else {
-          fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot );
-          if( FD_LIKELY( best_incremental.addr.l ) ) {
-            ctx->predicted_incremental.slot = best_incremental.incr_slot;
-            send_expected_slot( ctx, stem, best_incremental.incr_slot );
+        if( FD_LIKELY( download_has_incr ) ) {
+          ctx->predicted_incremental.slot = download_effective_slot;
+        } else if( FD_UNLIKELY( ctx->load_incremental ) ) {
+          if( FD_UNLIKELY( wfs_short_of_target( ctx, best.full_slot ) ) ) {
+            FD_LOG_NOTICE(( "no incremental snapshot pairs with the full snapshot at slot %lu yet, and the "
+                            "full alone is short of [consensus.wait_for_supermajority_at_slot] %lu; keeping "
+                            "the incremental load to wait for a peer that bridges the gap",
+                            best.full_slot, wfs_floor( ctx ) ));
+          } else if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
+            FD_LOG_INFO(( "full snapshot at slot %lu already reaches the WFS target, downloading it alone",
+                          best.full_slot ));
+            ctx->load_incremental = 0;
+          } else {
+            FD_LOG_WARNING(( "no incremental snapshot is available for the full snapshot at slot %lu, "
+                             "downloading the full snapshot only.", best.full_slot ));
+            ctx->load_incremental = 0;
           }
         }
+        send_expected_slot( ctx, stem, download_effective_slot );
 
         ctx->peer                            = best;
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_HTTP;
@@ -1048,22 +1226,18 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       /* decide whether to use the local incremental snapshot if one
          exists and is not too old, otherwise download a new incremental
-         snapshot. */
-      ulong cluster_slot  = fd_sspeer_selector_cluster_slot( ctx->selector ).incremental;
-      ulong local_slot    = ctx->local_in.incremental_snapshot_slot;
-      int   local_too_old = local_slot<fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age );
-      if( FD_LIKELY( local_slot!=ULONG_MAX && !local_too_old ) ) {
-        ctx->predicted_incremental.slot = local_slot;
-        send_expected_slot( ctx, stem, local_slot );
-
+         snapshot.  The one on disk is built on the local full, so it is
+         only a candidate when that is the full we loaded. */
+      ulong local_slot = ctx->local_in.full_snapshot_slot==ctx->predicted_incremental.full_slot
+                         ? ctx->local_in.incremental_snapshot_slot
+                         : ULONG_MAX;
+      if( FD_LIKELY( incr_use_local( ctx, local_slot, best.incr_slot ) ) ) {
         FD_LOG_NOTICE(( "reading incremental snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.incremental_snapshot_path, fd_log_style_normal() ));
         FD_LOG_INFO(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
         ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
         init_load( ctx, stem, 0, 1 );
       } else {
         ctx->predicted_incremental.slot = best.incr_slot;
-        send_expected_slot( ctx, stem, best.incr_slot );
-
         ctx->peer  = best;
         ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
         init_load( ctx, stem, 0, 0 );
@@ -1169,22 +1343,12 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE;
-      ulong sig = ctx->config.incremental_snapshots &&
-                  (ctx->local_in.incremental_snapshot_slot!=ULONG_MAX || ctx->download_enabled) ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
-      if( sig==FD_SNAPSHOT_MSG_CTRL_DONE && ctx->config.incremental_snapshots ) {
-        /* set incremental snapshots to 0 if there is no local
-            incremental snapshot and download is not enabled. */
-        FD_LOG_INFO(( "incremental snapshots were enabled via [snapshots.incremental_snapshots] "
-                      "but no incremental snapshot exists on disk and no snapshot peers are configured. "
-                      "skipping incremental snapshot load." ));
-        ctx->config.incremental_snapshots = 0;
-      }
-      fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->out_ld.idx, ctx->load_incremental ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->flush_ack = 0;
       break;
 
     /* ============================================================== */
-    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE: {
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1196,23 +1360,39 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
-
       log_completion( ctx, 1/*full*/ );
-      if( FD_LIKELY( !ctx->config.incremental_snapshots ) ) {
+
+      if( !ctx->load_incremental ) {
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
 
+      /* Weigh the local incremental against the best downloadable one
+         that pairs with the full we just loaded.  With download
+         disabled there is no alternative to weigh it against. */
+
+      ulong fetch_incr = ULONG_MAX;
       if( FD_LIKELY( ctx->download_enabled ) ) {
-        ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
-        ctx->deadline_nanos = 0L;
-      } else {
-        FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
+        fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
+        if( FD_LIKELY( best_incr.addr.l ) ) fetch_incr = best_incr.incr_slot;
+      }
+
+      /* No peer yet is no reason to wait: the pair already cleared the
+         age budget at selection. */
+
+      if( FD_LIKELY( incr_use_local( ctx, ctx->local_in.incremental_snapshot_slot, fetch_incr ) ) ) {
+        FD_LOG_NOTICE(( "reading incremental snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.incremental_snapshot_path, fd_log_style_normal() ));
+        FD_LOG_INFO(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
         ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
         init_load( ctx, stem, 0, 1 );
+        break;
       }
+
+      ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
+      ctx->deadline_nanos = 0L;
       break;
+    }
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
@@ -1232,7 +1412,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE;
-      fd_stem_publish( stem, ctx->out_ld.idx, ctx->config.incremental_snapshots ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->out_ld.idx, ctx->load_incremental ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->flush_ack = 0;
       break;
 
@@ -1256,7 +1436,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       rename_full_snapshot( ctx );
 
       log_completion( ctx, 1/*full*/ );
-      if( FD_LIKELY( !ctx->config.incremental_snapshots ) ) {
+      if( FD_LIKELY( !ctx->load_incremental ) ) {
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
@@ -1271,8 +1451,6 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       ctx->predicted_incremental.slot = best.incr_slot;
-      send_expected_slot( ctx, stem, best.incr_slot );
-
       ctx->peer  = best;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
       init_load( ctx, stem, 0, 0 );
@@ -1283,7 +1461,7 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
       if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
 
-      if( ctx->metrics.full.num_retries==ctx->config.max_retry_abort ) {
+      if( ctx->metrics.full.num_retries>=ctx->config.max_retry_abort ) {
         FD_LOG_ERR(( "hit retry limit of %u for full snapshot, aborting", ctx->config.max_retry_abort ));
       }
 
@@ -1315,8 +1493,8 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
       if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
 
-      if( ctx->metrics.incremental.num_retries==ctx->config.max_retry_abort ) {
-        FD_LOG_ERR(("hit retry limit of %u for incremental snapshot. aborting", ctx->config.max_retry_abort ));
+      if( ctx->metrics.incremental.num_retries>=ctx->config.max_retry_abort ) {
+        FD_LOG_ERR(( "hit retry limit of %u for incremental snapshot, aborting", ctx->config.max_retry_abort ));
       }
 
       ctx->metrics.incremental.num_retries++;
@@ -1333,6 +1511,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting.", ctx->local_in.incremental_snapshot_path ));
       } else {
         if( ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
+        ctx->predicted_incremental.committed = 0; /* the source is undecided again */
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
         ctx->deadline_nanos = 0L;
       }
@@ -2022,7 +2201,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->ssping = NULL;
   int epoll_fd = FD_WAKER_INNER_FD( tile->waker_client_idx );
   if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, ctx->ssping_seed, on_ping, ctx, epoll_fd ) );
-  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, any_https, on_resolve, ctx, epoll_fd ) );
+  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, snapct_needs_incr( tile ), any_https, on_resolve, ctx, epoll_fd ) );
   else                                                ctx->ssresolver = NULL;
 
   ctx->netdb_fds->etc_hosts       = -1;
@@ -2034,7 +2213,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_snap_pool_layout_t layout = fd_snap_pool_layout(
       tile->snapct.max_full_snapshots_to_keep,
       tile->snapct.max_incremental_snapshots_to_keep,
-      tile->snapct.incremental_snapshots,
+      snapct_needs_incr( tile ),
       download_enabled( tile ) );
   uint snap_full_max     = (uint)layout.full_max;
   uint snap_incr_max     = (uint)layout.incr_max;
@@ -2051,19 +2230,25 @@ privileged_init( fd_topo_t const *      topo,
   char incremental_path[ PATH_MAX ] = {0};
   uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ] = {0};
   uchar incremental_snapshot_hash[ FD_HASH_FOOTPRINT ] = {0};
-  if( FD_UNLIKELY( -1==fd_ssarchive_latest_pair( tile->snapct.snapshots_path,
-                                                 tile->snapct.incremental_snapshots,
-                                                 &full_slot,
-                                                 &incremental_slot,
-                                                 full_path,
-                                                 incremental_path,
-                                                 &full_is_zstd,
-                                                 &incremental_is_zstd,
-                                                 full_snapshot_hash,
-                                                 incremental_snapshot_hash ) ) ) {
+  int found = 0==fd_ssarchive_latest_best( tile->snapct.snapshots_path,
+                                           tile->snapct.incremental_snapshots,
+                                           fd_wfs_configured( tile->snapct.wfs_slot,
+                                                              tile->snapct.wfs_hash_is_zero,
+                                                              (ulong)tile->snapct.wfs_shred_version )
+                                             ? tile->snapct.wfs_slot : 0UL,
+                                           &full_slot,
+                                           &incremental_slot,
+                                           full_path,
+                                           incremental_path,
+                                           &full_is_zstd,
+                                           &incremental_is_zstd,
+                                           full_snapshot_hash,
+                                           incremental_snapshot_hash );
+
+  if( FD_UNLIKELY( !found ) ) {
     if( FD_UNLIKELY( !download_enabled( tile ) ) ) {
       FD_LOG_ERR(( "No snapshots found in `%s` and no download sources are enabled. "
-                   "Please enable downloading via [snapshots.sources] and restart.", tile->snapct.snapshots_path ));
+                   "Please enable downloading via [snapshots.sources.gossip] or [snapshots.sources.servers] and restart.", tile->snapct.snapshots_path ));
     }
     ctx->local_in.full_snapshot_slot        = ULONG_MAX;
     ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
@@ -2131,12 +2316,13 @@ privileged_init( fd_topo_t const *      topo,
       fd_cstr_ncpy( ctx->local_out.full_snapshot_name, pool[ full_idx ].name, FD_SNAP_NAME_MAX );
     }
 
-    if( FD_LIKELY( tile->snapct.incremental_snapshots && snap_incr_max ) ) {
+    int need_incr_fd = snapct_needs_incr( tile );
+    if( FD_LIKELY( need_incr_fd && snap_incr_max ) ) {
       uint incr_idx = snapshot_pool_select( pool, snap_full_max, retained_snap_max );
       FD_TEST( incr_idx!=UINT_MAX );
       ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( incr_idx );
       fd_cstr_ncpy( ctx->local_out.incremental_snapshot_name, pool[ incr_idx ].name, FD_SNAP_NAME_MAX );
-    } else if( FD_LIKELY( tile->snapct.incremental_snapshots ) ) {
+    } else if( FD_LIKELY( need_incr_fd ) ) {
       uint incr_idx = retained_snap_max + scratch_full_cnt; /* scratch incremental slot */
       FD_TEST( scratch_incr_cnt && incr_idx<snap_max );
       ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( incr_idx );
@@ -2198,8 +2384,10 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _adns            = FD_SCRATCH_ALLOC_APPEND( l, fd_adns_align(),            fd_adns_footprint( ADNS_REQS_MAX ) );
 
   ctx->config = tile->snapct;
-  ctx->gossip_enabled   = gossip_enabled( tile );
-  ctx->download_enabled = download_enabled( tile );
+  ctx->gossip_enabled    = gossip_enabled( tile );
+  ctx->download_enabled  = download_enabled( tile );
+  ctx->wfs_is_configured = fd_wfs_configured( ctx->config.wfs_slot, ctx->config.wfs_hash_is_zero, (ulong)ctx->config.wfs_shred_version );
+  ctx->load_incremental  = ctx->config.incremental_snapshots;
 
   ctx->waker_client_idx = tile->waker_client_idx;
   FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
@@ -2232,7 +2420,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->blacklist_map  = blacklist_map_join( blacklist_map_new( _bl_map, blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ), ctx->blacklist_seed ) );
 
   if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
-    FD_LOG_WARNING(( "incremental snapshots disabled via [snapshots.incremental_snapshots]." ));
+    if( ctx->wfs_is_configured ) {
+      FD_LOG_NOTICE(( "incremental snapshots disabled via [snapshots.incremental_snapshots] "
+                      "but may be auto-enabled to reach WFS target slot %lu",
+                      ctx->config.wfs_slot ));
+    } else {
+      FD_LOG_WARNING(( "incremental snapshots disabled via [snapshots.incremental_snapshots]." ));
+    }
   }
 
   ctx->state          = FD_SNAPCT_STATE_INIT;
@@ -2272,6 +2466,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->predicted_incremental.full_slot = FD_SSPEER_SLOT_UNKNOWN;
   ctx->predicted_incremental.slot      = FD_SSPEER_SLOT_UNKNOWN;
   ctx->predicted_incremental.pending   = 0;
+  ctx->predicted_incremental.committed = 0;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
