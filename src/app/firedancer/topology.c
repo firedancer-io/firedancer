@@ -137,26 +137,28 @@ setup_topo_progcache( fd_topo_t *  topo,
                       ulong        wksp_size ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "progcache", wksp_name );
   FD_TEST( fd_pod_insert_ulong(  topo->props, "progcache", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max, "obj.%lu.txn_max", obj->id ) );
 
-  if( FD_UNLIKELY( wksp_size < fd_progcache_min_wksp_sz( txn_max ) ) ) {
-    FD_LOG_ERR(( "Invalid [runtime]: program_cache_size_mib must be at least %lu",
-                 fd_progcache_min_wksp_sz( txn_max )>>20 ));
+  /* Simple err message to fix invalid config */
+  ulong min_sz = fd_progcache_shmem_min_sz( txn_max );
+  if( FD_UNLIKELY( !min_sz ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: max_live_slots is invalid" ));
+  }
+  if( FD_UNLIKELY( wksp_size<min_sz ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: program_cache_size_mib must be at least %lu", min_sz>>20 ));
   }
 
-  ulong part_max = fd_wksp_part_max_est( wksp_size, 1U<<18U );
-  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,256KiB) failed", wksp_size ));
-  ulong shared_sz = fd_progcache_shared_sz( wksp_size );
+  /* Fit the whole progcache in exactly program_cache_size_mib, by subtracting
+     the tile's mem overhead.  For example, for the default config of
+     program_cache_size_mib = 2048, this uses exactly 2 gigantic pages. */
+  ulong wksp_overhead_sz    = 3UL * fd_topo_workspace_align();
+  ulong progcache_sz        = fd_ulong_max( wksp_size-wksp_overhead_sz, min_sz );
+  ulong progcache_footprint = fd_progcache_shmem_footprint( txn_max, progcache_sz );
+  if( FD_UNLIKELY( !progcache_footprint ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: program_cache_size_mib must be at least %lu", min_sz>>20 ));
+  }
 
-  ulong progcache_footprint = fd_progcache_shmem_footprint( txn_max, shared_sz );
-  if( FD_UNLIKELY( !progcache_footprint ) ) FD_LOG_ERR(( "Invalid [runtime] program_cache_size_mib parameters" ));
-  FD_TEST( fd_pod_insertf_ulong( topo->props, shared_sz,                     "obj.%lu.shared_sz", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, shared_sz-progcache_footprint, "obj.%lu.loose",     obj->id ) );
-
-  ulong wksp_idx = fd_topo_find_wksp( topo, wksp_name );
-  FD_TEST( wksp_idx!=ULONG_MAX );
-  fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];
-  wksp->part_max += part_max;
+  FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max, "obj.%lu.txn_max", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, progcache_sz, "obj.%lu.progcache_sz", obj->id ) );
 }
 
 fd_topo_obj_t *

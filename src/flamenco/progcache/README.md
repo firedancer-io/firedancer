@@ -21,7 +21,7 @@ There exist two kinds of users:
   - fills cache on demand
   - evicts old records lazily (when out of space)
 - replay thread (replay tile):
-  - garbage collects old records in background
+  - advances the root and cancels dead forks, deleting their records
 
 ## Terminology
 
@@ -46,7 +46,7 @@ matter for concurrency:
   has finished one txn, but has not yet started executing the next)
 
 A "resource" is a collection of objects sharing a life cycle (e.g. a
-fixed-size pool descriptor plus a variable-size heap allocation).
+cache record and its value slot).
 Reclamation ends a resource's lifetime.  The same underlying memory may
 back a new resource, but it is logically distinct.
 
@@ -70,7 +70,7 @@ The program cache maintains its own fork graph and supports the standard
 set of operations:
 - attach_child: create a fork
 - cancel: remove a fork and all its nodes/children
-- attach_root: promote a fork graph node to root and evict its siblings
+- advance_root: promote a fork graph node to root and cancel its siblings
 
 The program cache uses a variation of the accounts database structure
 design.  The fork graph is expressed as an n-ary tree:
@@ -137,34 +137,41 @@ Each record access considers the following slot numbers:
 ### Record life cycle
 
 Records have the following states:
-- hidden: resources allocated, but invisible (cannot be referenced by
-  any thread)
+- free: on the free list, available to be acquired
+- in-flight: acquired, not yet in the map
+- loading: in the map under a loading sentinel, program not yet loaded
 - published: owned by a fork, visible to users
 - rooted: finalized by consensus (not owned by a fork), visible
+
+A record is published into the map before its program is loaded, marked
+with a loading sentinel.  A thread that wants the same program finds it
+and waits, instead of running a second load of the same program.  The
+sentinel clears once the program is in, which is also what makes the
+loaded program visible to those waiters.
 
 ### Record lookup
 
 All revisions of a program are stored in the same hash map bucket.
-Lookup walks the bucket chain and selects the best matching revision.
+Lookup walks the bucket chain and takes the first exact match on key,
+feature_slot and deploy_slot.
 
 ### Record deletion
 
-Records to be deleted are immediately removed from the record map.  The
-deleting thread then spins on the rwlock until all readers release,
-after which it reclaims the record's data allocation.
-
-The record descriptor itself is reclaimed according to these rules:
-- Records that are part of a transaction defer reclamation to rooting/
-  cancellation (replay tile)
-- Records that are already rooted are immediately reclaimed
+Records to be deleted are immediately removed from the record map.  If
+the record is still read-locked, it is pushed onto a deferred-reclaim
+list shared across all threads; whichever thread next runs reclaim
+(after eviction, rooting, cancellation) frees it once its readers have
+released.  Reclamation returns the record to its class free list.
 
 ### Cache replacement policy
 
-Progcache uses the CLOCK cache replacement policy over hash map buckets.
-Any thread that inserts records also runs cache replacement.
+Progcache uses the CLOCK cache replacement policy, independently per
+size class.  Any thread that inserts records also runs cache replacement.
 
-CLOCK eviction is suppressed while rooting or fork cancellation is in
-progress.
+Eviction runs concurrently with rooting and fork cancellation.  A record
+with active readers is never taken: the sweep steps over it, and a record
+removed from the map while still read-locked goes on the deferred-reclaim
+list rather than being freed under its readers.
 
 ## Details
 
@@ -194,19 +201,43 @@ currently executing transaction, which could take multiple milliseconds.
 
 ### Allocator
 
-Progcache currently uses the general-purpose fd_wksp (large objects)
-and fd_alloc (tiny objects) allocators.  On OOM (failure to allocate a
-new object), the cache replacement algorithm does random evictions with
-a heuristic.
+Progcache uses an allocator similar to Account DB.
+Its memory is divided in size classes, one per program size range up to
+the largest program that can be deployed, and each class has a fixed
+number of slots.  A record and its value slot are the same object, so
+reserving one reserves the other.  Programs that fail verification are
+cached too, in a class that holds no program data.
 
-It is a desirable future improvement to harmonize the allocator with
-the cache replacement algorithm (e.g. by making the latter sizeclass
-aware, or by supporting heap compaction).
+The allocator handles insertions, evictions and spills.
+
+When a new program is loaded, it is inserted into Progcache, i.e. the
+allocator reserves a slot in the smallest class that fits the program
+size.
+
+If all slots are taken, the allocator attempts an eviction, i.e. finds
+an older slot, not currently read-locked, frees it and assigns it to the
+new program.
+
+In the (rare) event in which all slots are read-locked and eviction
+can't happen, the process spins until it can either reclaim a slot
+or spill.
+
+A spill is a write on a shared rw-locked memory region.
+If a user (exec tile) spills, the region is rw-locked to that user until
+it completes the full execution. For this reason, other users need to
+spin while awaiting to spill.
+
+This mechanism is very simple, but avoids deadlocks and is memory
+efficient (a single shared spill region instead of one per user).
+It is possible to test spilling by setting a very small progcache size,
+but in practice it's very unlikely to happen, and in fact a validator
+could be configured to never spill by setting a large enough progcache
+(linear in the number of exec tiles).
 
 ## Verification
 
 Progcache is a complex component:
-- Uses a general-purpose heap allocator (use-after-free risk)
+- Recycles fixed records and value slots (use-after-free risk)
 - Thread-concurrent with complex locking rules (deadlock risk)
 - Maintains a multi-versioned index (algorithmic complexity)
 - Does cache eviction (use-after-free risk, correctness risk)
@@ -217,11 +248,8 @@ To address these risks, we use various dynamic analysis tooling:
 
 ### AddressSanitizer
 
-Compiler tool for detecting invalid memory accesses.
-
-Uses compile-time instrumentation which is a mix of automatic
-hooks inserted by the compiler and `asan_poison` calls in our
-code.
+Compiler tool for detecting invalid memory accesses
+(compile-time instrumentation).
 
 ### Valgrind memcheck
 
