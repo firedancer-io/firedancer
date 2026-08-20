@@ -116,6 +116,15 @@ test_footprint( void ) {
   FD_TEST( fd_shredb_footprint( 0UL )==0UL );
   FD_TEST( fd_shredb_footprint( 1UL )>0UL );
   FD_TEST( fd_shredb_footprint( 2UL )>fd_shredb_footprint( 1UL ) );
+
+  ulong max_shreds = 1UL << 22;
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_shredb_t),        sizeof(fd_shredb_t)                              );
+  l = FD_LAYOUT_APPEND( l, fd_shredb_shred_map_align(), fd_shredb_shred_map_footprint( 23 )               );
+  l = FD_LAYOUT_APPEND( l, fd_shredb_slot_map_align(),  fd_shredb_slot_map_footprint ( 18 )               );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),              max_shreds * sizeof(ulong)                        );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),              ((max_shreds + 63UL) / 64UL) * sizeof(ulong)      );
+  FD_TEST( fd_shredb_footprint( 5UL )==FD_LAYOUT_FINI( l, fd_shredb_align() ) );
 }
 
 static void
