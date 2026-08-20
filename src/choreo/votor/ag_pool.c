@@ -102,13 +102,11 @@ ag_pool_align( void ) {
 
 ulong
 ag_pool_footprint( ulong slot_max ) {
-  if( FD_UNLIKELY( slot_max==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW ) ) return 0UL;
 
-  ulong s2n_max = slot_max*AG_BLOCK_HASH_EQVOC_MAX;
-
+  ulong s2n_max                           = slot_max*AG_BLOCK_HASH_EQVOC_MAX;
   ulong slot_state_chain_cnt              = slot_state_map_chain_cnt_est             ( slot_max    );
   ulong s2n_waiting_parent_cert_chain_cnt = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
-
 
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
@@ -586,4 +584,20 @@ ag_block_id_t
 ag_pool_wait_for_parent_ready( ag_pool_t * self,
                                ulong       slot ) {
   return ag_parent_ready_tracker_wait_for_parent_ready( self->parent_ready_tracker, slot );
+}
+
+int
+ag_pool_poll_pool_event( ag_pool_t *       self,
+                         ag_event_pool_t * event ) {
+  if( FD_LIKELY( pool_channel_empty( self->pool_events ) ) ) return 0;
+  *event = pool_channel_pop( self->pool_events );
+  return 1;
+}
+
+int
+ag_pool_poll_repair_event( ag_pool_t *         self,
+                           ag_event_repair_t * event ) {
+  if( FD_LIKELY( repair_channel_empty( self->repair_events ) ) ) return 0;
+  *event = repair_channel_pop( self->repair_events );
+  return 1;
 }
