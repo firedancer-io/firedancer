@@ -2,7 +2,7 @@
 #define HEADER_fd_src_choreo_votor_ag_votor_h
 
 #include "ag_votor_base.h"
-#include "ag_aggsig.h"
+#include "ag_bls.h"
 #include "ag_event.h"
 
 typedef struct ag_votor ag_votor_t;
@@ -16,13 +16,13 @@ FD_FN_CONST ulong
 ag_votor_footprint( ulong slot_max );
 
 void *
-ag_votor_new( void *                 mem,
-              ulong                  slot_max,
-              ulong                  seed,
-              ushort                 own_rank,
-              ag_aggsig_sk_t const * voting_key,
-              ushort                 shred_version,
-              long                   now );
+ag_votor_new( void *             mem,
+              ulong              slot_max,
+              ulong              seed,
+              ushort             own_rank,
+              ag_bls_sec_t const voting_key,
+              ushort             shred_version,
+              long               now );
 
 ag_votor_t *
 ag_votor_join( void * mem );

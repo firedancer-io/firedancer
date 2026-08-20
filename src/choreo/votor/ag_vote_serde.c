@@ -1,16 +1,16 @@
 #include "ag_vote_serde.h"
 
-FD_STATIC_ASSERT( sizeof(ag_vote_signature_serde_t)==AG_AGGSIG_SIG_SZ+2UL,                                     ag_vote_serde );
+FD_STATIC_ASSERT( sizeof(ag_vote_signature_serde_t)==AG_BLS_SIG_SZ+2UL,                                     ag_vote_serde );
 FD_STATIC_ASSERT( sizeof(ag_vote_serde_t          )==10UL+sizeof(fd_hash_t)+sizeof(ag_vote_signature_serde_t), ag_vote_serde );
 
-static ag_aggsig_sig_t const *
+static uchar const *
 vote_signature( ag_vote_t const * self ) {
   switch( self->kind ) {
-  case AG_VOTE_TYPE_NOTAR:          return &self->inner.notar.sig;
-  case AG_VOTE_TYPE_NOTAR_FALLBACK: return &self->inner.notar_fallback.sig;
-  case AG_VOTE_TYPE_SKIP:           return &self->inner.skip.sig;
-  case AG_VOTE_TYPE_SKIP_FALLBACK:  return &self->inner.skip_fallback.sig;
-  default:                          return &self->inner.final.sig;
+  case AG_VOTE_TYPE_NOTAR:          return self->inner.notar.sig;
+  case AG_VOTE_TYPE_NOTAR_FALLBACK: return self->inner.notar_fallback.sig;
+  case AG_VOTE_TYPE_SKIP:           return self->inner.skip.sig;
+  case AG_VOTE_TYPE_SKIP_FALLBACK:  return self->inner.skip_fallback.sig;
+  default:                          return self->inner.final.sig;
   }
 }
 
@@ -31,7 +31,7 @@ ag_vote_ser( ag_vote_t const * self,
   out->kind    = (uchar)( self->kind+1U );
   out->slot    = ag_vote_slot( self );
   if( block_id ) out->block_vote.block_id = *block_id;
-  signature->signature     = *vote_signature( self );
+  fd_memcpy( signature->signature, vote_signature( self ), AG_BLS_SIG_SZ );
   signature->shred_version = shred_version;
 
   if( buf_sz ) *buf_sz = sz;
@@ -76,24 +76,24 @@ ag_vote_de( ag_vote_t *   out,
   case AG_VOTE_TYPE_NOTAR:
     out->inner.notar.slot       = vote->slot;
     out->inner.notar.block_hash = vote->block_vote.block_id;
-    out->inner.notar.sig        = signature->signature;
+    fd_memcpy( out->inner.notar.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   case AG_VOTE_TYPE_NOTAR_FALLBACK:
     out->inner.notar_fallback.slot       = vote->slot;
     out->inner.notar_fallback.block_hash = vote->block_vote.block_id;
-    out->inner.notar_fallback.sig        = signature->signature;
+    fd_memcpy( out->inner.notar_fallback.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   case AG_VOTE_TYPE_SKIP:
     out->inner.skip.slot = vote->slot;
-    out->inner.skip.sig  = signature->signature;
+    fd_memcpy( out->inner.skip.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   case AG_VOTE_TYPE_SKIP_FALLBACK:
     out->inner.skip_fallback.slot = vote->slot;
-    out->inner.skip_fallback.sig  = signature->signature;
+    fd_memcpy( out->inner.skip_fallback.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   default:
     out->inner.final.slot = vote->slot;
-    out->inner.final.sig  = signature->signature;
+    fd_memcpy( out->inner.final.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   }
 

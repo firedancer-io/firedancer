@@ -2,18 +2,18 @@
 
 #include "../../ballet/bls/fd_bls12_381.h"
 
-FD_STATIC_ASSERT( sizeof(ag_cert_signature_serde_t      )==AG_AGGSIG_SIG_SZ+8UL,                                     ag_cert_serde );
+FD_STATIC_ASSERT( sizeof(ag_cert_signature_serde_t      )==AG_BLS_SIG_SZ+8UL,                                     ag_cert_serde );
 FD_STATIC_ASSERT( sizeof(ag_cert_serde_t                )==10UL+sizeof(fd_hash_t)+sizeof(ag_cert_signature_serde_t), ag_cert_serde );
 FD_STATIC_ASSERT( sizeof(ag_cert_bitmap_serde_t         )==3UL,                                                      ag_cert_serde );
-FD_STATIC_ASSERT( sizeof(ag_cert_votes_aggregate_serde_t)==AG_AGGSIG_SIG_COMPRESSED_SZ+2UL,                          ag_cert_serde );
+FD_STATIC_ASSERT( sizeof(ag_cert_votes_aggregate_serde_t)==AG_BLS_SIG_COMPRESSED_SZ+2UL,                          ag_cert_serde );
 FD_STATIC_ASSERT( sizeof(ag_cert_block_final_serde_t    )==8UL+sizeof(fd_hash_t),                                    ag_cert_serde );
 
 #define BASE2_BITMAP (0)
 #define BASE3_BITMAP (1)
 
 static ulong
-base2_bitmap_ser( uchar *             out,
-                  ag_aggsig_t const * agg ) {
+base2_bitmap_ser( uchar *              out,
+                  ag_bls_agg_t const * agg ) {
   ag_cert_bitmap_serde_t * bm      = (ag_cert_bitmap_serde_t *)out;
   ulong                    nbits   = agg->nbits;
   ulong                    payload = (nbits+7UL)/8UL;
@@ -30,9 +30,9 @@ base2_bitmap_ser( uchar *             out,
 }
 
 static ulong
-base3_bitmap_ser( uchar *             out,
-                  ag_aggsig_t const * base,
-                  ag_aggsig_t const * fb ) {
+base3_bitmap_ser( uchar *              out,
+                  ag_bls_agg_t const * base,
+                  ag_bls_agg_t const * fb ) {
   ag_cert_bitmap_serde_t * bm      = (ag_cert_bitmap_serde_t *)out;
   ulong                    nbits   = base->nbits;
   ulong                    nchunks = (nbits+4UL)/5UL;
@@ -64,19 +64,19 @@ base3_bitmap_ser( uchar *             out,
 } while( 0 )
 
 static int
-base2_bitmap_de( ag_aggsig_t * agg,
-                 uchar const * b,
-                 ulong         b_sz ) {
+base2_bitmap_de( ag_bls_agg_t * agg,
+                 uchar const *  b,
+                 ulong          b_sz ) {
   if( FD_UNLIKELY( b_sz<sizeof(ag_cert_bitmap_serde_t) ) ) return AG_CERT_DE_ERR_TRUNCATED;
 
   ag_cert_bitmap_serde_t const * bm      = (ag_cert_bitmap_serde_t const *)b;
   ulong                          nbits   = (ulong)bm->bit_cnt;
   ulong                          payload = b_sz - sizeof(ag_cert_bitmap_serde_t);
   if( FD_UNLIKELY( bm->version!=BASE2_BITMAP     ) ) return AG_CERT_DE_ERR_MALFORMED;
-  if( FD_UNLIKELY( nbits>AG_AGGSIG_MAX_SIGNERS   ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( nbits>AG_BLS_MAX_SIGNERS   ) ) return AG_CERT_DE_ERR_MALFORMED;
   if( FD_UNLIKELY( payload!=(nbits+7UL)/8UL      ) ) return AG_CERT_DE_ERR_MALFORMED;
 
-  ag_aggsig_init( agg, nbits );
+  ag_bls_agg_init( agg, nbits );
 
   uchar const * p = (uchar const *)( bm+1 );
   for( ulong i=0UL; i<nbits; i++ ) {
@@ -86,10 +86,10 @@ base2_bitmap_de( ag_aggsig_t * agg,
 }
 
 static int
-base3_bitmap_de( ag_aggsig_t * base,
-                 ag_aggsig_t * fb,
-                 uchar const * b,
-                 ulong         b_sz ) {
+base3_bitmap_de( ag_bls_agg_t * base,
+                 ag_bls_agg_t * fb,
+                 uchar const *  b,
+                 ulong          b_sz ) {
   if( FD_UNLIKELY( b_sz<sizeof(ag_cert_bitmap_serde_t) ) ) return AG_CERT_DE_ERR_TRUNCATED;
 
   ag_cert_bitmap_serde_t const * bm      = (ag_cert_bitmap_serde_t const *)b;
@@ -97,11 +97,11 @@ base3_bitmap_de( ag_aggsig_t * base,
   ulong                          payload = b_sz - sizeof(ag_cert_bitmap_serde_t);
   ulong                          nchunks = (nbits+4UL)/5UL;
   if( FD_UNLIKELY( bm->version!=BASE3_BITMAP   ) ) return AG_CERT_DE_ERR_MALFORMED;
-  if( FD_UNLIKELY( nbits>AG_AGGSIG_MAX_SIGNERS ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( nbits>AG_BLS_MAX_SIGNERS ) ) return AG_CERT_DE_ERR_MALFORMED;
   if( FD_UNLIKELY( payload!=nchunks            ) ) return AG_CERT_DE_ERR_MALFORMED;
 
-  ag_aggsig_init( base, nbits );
-  ag_aggsig_init( fb,   nbits );
+  ag_bls_agg_init( base, nbits );
+  ag_bls_agg_init( fb,   nbits );
 
   uchar const * p = (uchar const *)( bm+1 );
   for( ulong chunk=0UL; chunk<nchunks; chunk++ ) {
@@ -118,10 +118,10 @@ base3_bitmap_de( ag_aggsig_t * base,
 }
 
 static int
-footer_aggregate_de( ag_aggsig_t * agg,
-                     uchar const * buf,
-                     ulong         buf_max,
-                     ulong *       buf_sz ) {
+footer_aggregate_de( ag_bls_agg_t * agg,
+                     uchar const *  buf,
+                     ulong          buf_max,
+                     ulong *        buf_sz ) {
   ulong remaining = buf_max;
 
   ag_cert_votes_aggregate_serde_t const * aggregate = (ag_cert_votes_aggregate_serde_t const *)buf;
@@ -132,7 +132,7 @@ footer_aggregate_de( ag_aggsig_t * agg,
   SKIP_BYTES( bm_cnt, &buf, &remaining );
 
   int err = base2_bitmap_de( agg, bm, bm_cnt );  if( FD_UNLIKELY( err ) ) return err;
-  fd_memcpy( agg->sig, aggregate->signature, AG_AGGSIG_SIG_COMPRESSED_SZ );
+  fd_memcpy( agg->sig, aggregate->signature, AG_BLS_SIG_COMPRESSED_SZ );
   *buf_sz = buf_max - remaining;
   return AG_CERT_DE_SUCCESS;
 }
@@ -143,10 +143,10 @@ ag_cert_ser( ag_cert_t const * self,
              uchar *           buf,
              ulong             buf_max,
              ulong *           buf_sz ) {
-  ag_aggsig_t const * base;
-  ag_aggsig_t const * fb = NULL;
-  fd_hash_t   const * hash = NULL;
-  ulong               slot;
+  ag_bls_agg_t const * base;
+  ag_bls_agg_t const * fb = NULL;
+  fd_hash_t   const *  hash = NULL;
+  ulong                slot;
   switch( self->kind ) {
   case AG_CERT_TYPE_FINAL:
     slot = self->inner.final.slot;          base = &self->inner.final.agg_sig;
@@ -172,7 +172,7 @@ ag_cert_ser( ag_cert_t const * self,
     return -1;
   }
 
-  if( fb && !ag_aggsig_signer_cnt( fb ) ) fb = NULL;
+  if( fb && !ag_bls_agg_signer_cnt( fb ) ) fb = NULL;
 
   ulong bm_sz   = sizeof(ag_cert_bitmap_serde_t) + ( fb ? (base->nbits+4UL)/5UL : (base->nbits+7UL)/8UL );
   ulong head_sz = sizeof(ag_cert_serde_t) - ( hash ? 0UL : sizeof(fd_hash_t) );
@@ -186,7 +186,7 @@ ag_cert_ser( ag_cert_t const * self,
   out->kind    = (uchar)( self->kind+7U );
   out->slot    = slot;
   if( hash ) out->block_cert.block_id = *hash;
-  fd_memcpy( signature->signature.v, base->sig, AG_AGGSIG_SIG_SZ );
+  fd_memcpy( signature->signature, base->sig, AG_BLS_SIG_SZ );
   signature->bitmap_cnt = bm_sz;
 
   /* The bitmap starts right after the head, which is what head_sz names.
@@ -238,7 +238,7 @@ ag_cert_de( ag_cert_t *   cert,
   if( FD_UNLIKELY( FD_LOAD( ushort, buf+head_sz+bm_cnt )!=shred_version ) ) return AG_CERT_DE_ERR_SHRED_VERSION;
 
   ulong         slot = cert_->slot;
-  uchar const * sig  = signature->signature.v;
+  uchar const * sig  = signature->signature;
   uchar const * bm   = buf + head_sz;
 
   int err;
@@ -246,39 +246,39 @@ ag_cert_de( ag_cert_t *   cert,
   case AG_CERT_TYPE_FINAL:
     cert->inner.final.slot = slot;
     if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.final.agg_sig, bm, bm_cnt ) ) ) return err;
-    fd_memcpy( cert->inner.final.agg_sig.sig, sig, AG_AGGSIG_SIG_SZ );
+    fd_memcpy( cert->inner.final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_TYPE_FAST_FINAL:
     cert->inner.fast_final.slot       = slot;
     cert->inner.fast_final.block_hash = cert_->block_cert.block_id;
     if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.fast_final.agg_sig, bm, bm_cnt ) ) ) return err;
-    fd_memcpy( cert->inner.fast_final.agg_sig.sig, sig, AG_AGGSIG_SIG_SZ );
+    fd_memcpy( cert->inner.fast_final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_TYPE_NOTAR:
     cert->inner.notar.slot       = slot;
     cert->inner.notar.block_hash = cert_->block_cert.block_id;
     if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.notar.agg_sig, bm, bm_cnt ) ) ) return err;
-    fd_memcpy( cert->inner.notar.agg_sig.sig, sig, AG_AGGSIG_SIG_SZ );
+    fd_memcpy( cert->inner.notar.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_TYPE_NOTAR_FALLBACK: {
-    ag_aggsig_t * b = &cert->inner.notar_fallback.agg_sig_notar;
-    ag_aggsig_t * f = &cert->inner.notar_fallback.agg_sig_notar_fallback;
+    ag_bls_agg_t * b = &cert->inner.notar_fallback.agg_sig_notar;
+    ag_bls_agg_t * f = &cert->inner.notar_fallback.agg_sig_notar_fallback;
     cert->inner.notar_fallback.slot       = slot;
     cert->inner.notar_fallback.block_hash = cert_->block_cert.block_id;
     if( FD_UNLIKELY( bm_cnt<1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_aggsig_init( f, b->nbits ); }
+    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_init( f, b->nbits ); }
     else                      { if( FD_UNLIKELY( err = base3_bitmap_de( b, f, bm, bm_cnt ) ) ) return err; }
-    fd_memcpy( b->sig, sig, AG_AGGSIG_SIG_SZ );
+    fd_memcpy( b->sig, sig, AG_BLS_SIG_SZ );
     break;
   }
   case AG_CERT_TYPE_SKIP: {
-    ag_aggsig_t * b = &cert->inner.skip.agg_sig_skip;
-    ag_aggsig_t * f = &cert->inner.skip.agg_sig_skip_fallback;
+    ag_bls_agg_t * b = &cert->inner.skip.agg_sig_skip;
+    ag_bls_agg_t * f = &cert->inner.skip.agg_sig_skip_fallback;
     cert->inner.skip.slot = slot;
     if( FD_UNLIKELY( bm_cnt<1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_aggsig_init( f, b->nbits ); }
+    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_init( f, b->nbits ); }
     else                      { if( FD_UNLIKELY( err = base3_bitmap_de( b, f, bm, bm_cnt ) ) ) return err; }
-    fd_memcpy( b->sig, sig, AG_AGGSIG_SIG_SZ );
+    fd_memcpy( b->sig, sig, AG_BLS_SIG_SZ );
     break;
   }
   default:
@@ -291,9 +291,9 @@ ag_cert_de( ag_cert_t *   cert,
 }
 
 static int
-decompress( ag_aggsig_t * agg ) {
-  uchar csig[ AG_AGGSIG_SIG_COMPRESSED_SZ ];
-  fd_memcpy( csig, agg->sig, AG_AGGSIG_SIG_COMPRESSED_SZ );
+decompress( ag_bls_agg_t * agg ) {
+  uchar csig[ AG_BLS_SIG_COMPRESSED_SZ ];
+  fd_memcpy( csig, agg->sig, AG_BLS_SIG_COMPRESSED_SZ );
   return fd_bls12_381_g2_decompress_syscall( agg->sig, csig, 1 );
 }
 
@@ -311,8 +311,8 @@ ag_cert_block_final_de( ag_fast_final_cert_t * fast_final,
   buf       += sizeof(ag_cert_block_final_serde_t);
   remaining -= sizeof(ag_cert_block_final_serde_t);
 
-  ag_aggsig_t final_agg[1];
-  ulong       consumed;
+  ag_bls_agg_t final_agg[1];
+  ulong        consumed;
   if( FD_UNLIKELY( footer_aggregate_de( final_agg, buf, remaining, &consumed ) ) ) return -1;
   buf       += consumed;
   remaining -= consumed;
@@ -333,7 +333,7 @@ ag_cert_block_final_de( ag_fast_final_cert_t * fast_final,
     return 1;
   }
 
-  ag_aggsig_t notar_agg[1];
+  ag_bls_agg_t notar_agg[1];
   if( FD_UNLIKELY( footer_aggregate_de( notar_agg, buf, remaining, &consumed ) ) ) return -1;
   remaining -= consumed;
 

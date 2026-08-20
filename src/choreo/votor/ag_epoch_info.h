@@ -2,13 +2,13 @@
 #define HEADER_fd_src_choreo_votor_ag_epoch_info_h
 
 #include "ag_votor_base.h"
-#include "ag_aggsig.h"
+#include "ag_bls.h"
 
 struct ag_validator_info {
-  ulong          id;
-  ulong          stake;
-  fd_pubkey_t    pubkey;
-  ag_aggsig_pk_t voting_pubkey;
+  ulong        id;
+  ulong        stake;
+  fd_pubkey_t  pubkey;
+  ag_bls_pub_t voting_pubkey;
 };
 typedef struct ag_validator_info ag_validator_info_t;
 
