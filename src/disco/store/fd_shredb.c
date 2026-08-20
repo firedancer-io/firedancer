@@ -29,8 +29,8 @@ fd_shredb_footprint( ulong max_size_gib ) {
   ulong max_shreds = fd_shredb_max_shreds_for_gib( max_size_gib );
   ulong max_slots  = fd_shredb_max_slots_for_gib ( max_size_gib );
 
-  int lg_shred_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( max_shreds ) );
-  int lg_slot_cnt  = fd_ulong_find_msb( fd_ulong_pow2_up( max_slots  ) );
+  int lg_shred_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( max_shreds + 1UL ) );
+  int lg_slot_cnt  = fd_ulong_find_msb( fd_ulong_pow2_up( max_slots  + 1UL ) );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_shredb_t),        sizeof(fd_shredb_t)                           );
@@ -71,8 +71,8 @@ fd_shredb_new( void       * shmem,
   ulong max_shreds = fd_shredb_max_shreds_for_gib( max_size_gib );
   ulong max_slots  = fd_shredb_max_slots_for_gib ( max_size_gib );
 
-  int lg_shred_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( max_shreds ) );
-  int lg_slot_cnt  = fd_ulong_find_msb( fd_ulong_pow2_up( max_slots  ) );
+  int lg_shred_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( max_shreds + 1UL ) );
+  int lg_slot_cnt  = fd_ulong_find_msb( fd_ulong_pow2_up( max_slots  + 1UL ) );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   /**/                   FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_t),        sizeof(fd_shredb_t)                           );
