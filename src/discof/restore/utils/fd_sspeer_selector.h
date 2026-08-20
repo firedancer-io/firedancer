@@ -131,11 +131,16 @@ fd_sspeer_selector_remove_by_addr( fd_sspeer_selector_t * selector,
    incremental is set, base_slot must be a valid full snapshot slot.
    Peers that do not offer an incremental snapshot
    (incr_slot==FD_SSPEER_SLOT_UNKNOWN) are excluded from incremental
-   selection. */
+   selection.
+
+   A peer reaches its incremental slot when it offers one, else its
+   full slot.  Peers that do not reach min_reachable_slot are excluded
+   before scoring.  Pass 0 for no floor. */
 fd_sspeer_t
 fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          int                    incremental,
-                         ulong                  base_slot );
+                         ulong                  base_slot,
+                         ulong                  min_reachable_slot );
 
 /* Recompute the selector's internal cluster slot from the max of
    all tracked peers' slots.  If the max changes, all peers are

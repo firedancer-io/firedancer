@@ -382,8 +382,14 @@ ag_votor_init( ag_votor_t *          self,
   self->parent_ready_tracker->root = fd_ulong_sat_sub( ag_first_slot_in_window( fd_ulong_sat_sub( root->slot, AG_REWARD_SLOT_DELTA ) ), AG_SLOTS_PER_WINDOW );
   ready_cnt = ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys );
   for( ulong i=0UL; i<ready_cnt; i++ ) ag_parent_ready_state_map_ele_query( self->parent_ready_tracker->states.map, &self->scratch.parent_readys[i].slot, NULL, self->parent_ready_tracker->states.pool )->ready = 0;
+}
 
-  set_timeouts( self, ag_first_slot_in_window( root->slot ) );
+void
+ag_votor_arm_skip_timeouts( ag_votor_t * self,
+                            long         now ) {
+  FD_TEST( self->root!=ULONG_MAX );
+  self->now = fd_long_max( self->now, now );
+  set_timeouts( self, ag_first_slot_in_window( self->root ) );
 }
 
 void
