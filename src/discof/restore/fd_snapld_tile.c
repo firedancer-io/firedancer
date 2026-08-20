@@ -123,9 +123,6 @@ privileged_init( fd_topo_t const *      topo,
   uchar incr_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
   ctx->local_full_fd = -1;
   ctx->local_incr_fd = -1;
-  /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
-     of whether snapct may do the same, because this information is
-     needed here during privileged_init. */
   if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
                                                tile->snapld.incremental_snapshots,
                                                &full_slot,         &incr_slot,

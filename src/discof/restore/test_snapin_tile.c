@@ -303,6 +303,48 @@ test_txncache_staging_validates_stale_group_offsets( void ) {
   free( shmem );
 }
 
+/* Test the WFS bank-hash validation logic that lives in process_manifest.
+   Exercises MATCH (hash match/mismatch) and NOOP (check skipped). */
+static void
+test_wfs_bank_hash_validation( void ) {
+  fd_snapin_tile_t ctx[1];
+  fd_memset( ctx, 0, sizeof(*ctx) );
+
+  fd_hash_t expected_hash;
+  fd_memset( expected_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
+  ctx->wfs_slot          = 100UL;
+  ctx->wfs_bank_hash     = expected_hash;
+  ctx->wfs_shred_version = 1234;
+
+  int wfs_hash_is_zero = !memcmp( ctx->wfs_bank_hash.uc, ((fd_hash_t){0}).uc, FD_HASH_FOOTPRINT );
+  FD_TEST( !wfs_hash_is_zero );
+
+  /* MATCH + matching hash: no error */
+  int mode = fd_wfs_mode( ctx->wfs_slot, wfs_hash_is_zero, (ulong)ctx->wfs_shred_version, 100UL );
+  FD_TEST( mode==FD_WFS_MODE_MATCH );
+  FD_TEST( !memcmp( expected_hash.uc, ctx->wfs_bank_hash.uc, FD_HASH_FOOTPRINT ) );
+
+  /* MATCH + mismatching hash: would trigger malformed */
+  uchar wrong_hash[FD_HASH_FOOTPRINT];
+  fd_memset( wrong_hash, 0xCD, FD_HASH_FOOTPRINT );
+  FD_TEST( mode==FD_WFS_MODE_MATCH );
+  FD_TEST( memcmp( wrong_hash, ctx->wfs_bank_hash.uc, FD_HASH_FOOTPRINT ) );
+
+  /* NOOP: manifest ahead of WFS slot, bank hash check skipped */
+  FD_TEST( fd_wfs_mode( ctx->wfs_slot, wfs_hash_is_zero, (ulong)ctx->wfs_shred_version, 200UL )==FD_WFS_MODE_NOOP );
+
+  /* ERROR: manifest behind WFS slot */
+  FD_TEST( fd_wfs_mode( ctx->wfs_slot, wfs_hash_is_zero, (ulong)ctx->wfs_shred_version, 50UL )==FD_WFS_MODE_ERROR );
+
+  /* DISABLED: no WFS config */
+  fd_snapin_tile_t ctx_disabled[1];
+  fd_memset( ctx_disabled, 0, sizeof(*ctx_disabled) );
+  int disabled_hash_is_zero = !memcmp( ctx_disabled->wfs_bank_hash.uc, ((fd_hash_t){0}).uc, FD_HASH_FOOTPRINT );
+  FD_TEST( fd_wfs_mode( 0UL, disabled_hash_is_zero, 0UL, 100UL )==FD_WFS_MODE_DISABLED );
+
+  FD_LOG_NOTICE(( "pass: test_wfs_bank_hash_validation" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -313,6 +355,7 @@ main( int     argc,
   test_txncache_staging_evicts_oldest_slot();
   test_txncache_staging_fits_one_gigantic_page();
   test_txncache_staging_validates_stale_group_offsets();
+  test_wfs_bank_hash_validation();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

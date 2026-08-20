@@ -244,11 +244,11 @@ test_load_complete_signal( void ) {
   ctx->load_complete = 0;
 
   /* Ignored during reset states */
-  ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
+  ctx->state   = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
   snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
   FD_TEST( ctx->load_complete==0 );
 
-  ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
+  ctx->state   = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
   snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
   FD_TEST( ctx->load_complete==0 );
 

@@ -2113,7 +2113,7 @@ test_max_low_slot_outlier( fd_sspeer_selector_t * selector,
   FD_LOG_NOTICE(( "testing max low slot outlier" ));
 
   /* Verify that malicious peers reporting low slot values cannot drag
-     the cluster slot down — max ignores low outliers entirely. */
+     the cluster slot down; max ignores low outliers entirely. */
 
   fd_sspeer_key_t honest_keys[5];
   fd_ip4_port_t   honest_addrs[5];

@@ -510,43 +510,7 @@ fd_sspeer_t
 fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          int                    incremental,
                          ulong                  base_slot ) {
-  if( FD_UNLIKELY( incremental && base_slot==FD_SSPEER_SLOT_UNKNOWN ) ) {
-    FD_LOG_WARNING(( "incremental selection requires a valid base_slot" ));
-    return (fd_sspeer_t){
-      .key       = { .is_url = 0 },
-      .addr      = { .l=0UL },
-      .full_slot = FD_SSPEER_SLOT_UNKNOWN,
-      .incr_slot = FD_SSPEER_SLOT_UNKNOWN,
-      .score     = FD_SSPEER_SCORE_INVALID,
-      .full_hash = {0},
-      .incr_hash = {0},
-    };
-  }
-
-  for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( selector->score_treap, selector->pool );
-       !score_treap_fwd_iter_done( iter );
-       iter = score_treap_fwd_iter_next( iter, selector->pool ) ) {
-    fd_sspeer_private_t const * peer = score_treap_fwd_iter_ele_const( iter, selector->pool );
-    /* For full selection (!incremental), any valid peer is eligible.
-       For incremental selection, the peer must serve the same base full
-       snapshot and must actually offer an incremental snapshot. */
-    if( FD_LIKELY( peer->valid &&
-                   (!incremental ||
-                   (peer->full_slot==base_slot && peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN) ) ) ) {
-      fd_sspeer_t best = {
-        .key       = peer->key,
-        .addr      = peer->addr,
-        .full_slot = peer->full_slot,
-        .incr_slot = peer->incr_slot,
-        .score     = peer->score,
-      };
-      fd_memcpy( best.full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
-      fd_memcpy( best.incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
-      return best;
-    }
-  }
-
-  return (fd_sspeer_t){
+  fd_sspeer_t const sentinel = {
     .key       = { .is_url = 0 },
     .addr      = { .l=0UL },
     .full_slot = FD_SSPEER_SLOT_UNKNOWN,
@@ -555,6 +519,35 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
     .full_hash = {0},
     .incr_hash = {0},
   };
+
+  if( FD_UNLIKELY( incremental && base_slot==FD_SSPEER_SLOT_UNKNOWN ) ) {
+    FD_LOG_WARNING(( "incremental selection requires a valid base_slot" ));
+    return sentinel;
+  }
+
+  for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( selector->score_treap, selector->pool );
+       !score_treap_fwd_iter_done( iter );
+       iter = score_treap_fwd_iter_next( iter, selector->pool ) ) {
+    fd_sspeer_private_t const * peer = score_treap_fwd_iter_ele_const( iter, selector->pool );
+    if( FD_UNLIKELY( !peer->valid ||
+                     (incremental &&
+                     (peer->full_slot!=base_slot || peer->incr_slot==FD_SSPEER_SLOT_UNKNOWN) ) ) ) {
+      continue;
+    }
+
+    fd_sspeer_t best = {
+      .key       = peer->key,
+      .addr      = peer->addr,
+      .full_slot = peer->full_slot,
+      .incr_slot = peer->incr_slot,
+      .score     = peer->score,
+    };
+    fd_memcpy( best.full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( best.incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
+    return best;
+  }
+
+  return sentinel;
 }
 
 void
