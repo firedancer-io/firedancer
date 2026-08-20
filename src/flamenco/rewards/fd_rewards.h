@@ -29,7 +29,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_apply_double_disinflation_rate applies the
    double_disinflation_rate feature gate to the given bank. It updates
-   the given banks inflation->taper and inflation->initial values.
+   the given bank's inflation->taper and inflation->initial values.
 
    https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6117-L6130 */
 
