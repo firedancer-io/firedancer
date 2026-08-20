@@ -759,6 +759,9 @@ test_start_after_init_acks( void ) {
       FD_TEST( test_publish_cnt==1UL && test_publish_sz==sizeof(fd_ssctrl_init_t) );
       ulong           init_chunk = test_publish_chunk;
       fd_ssctrl_init_t saved_init = *(fd_ssctrl_init_t *)output;
+      /* Committing an incremental source also queues an expected slot,
+         drained by the first after_credit. */
+      ulong pre_start_cnt = full ? 1UL : 2UL;
       ctx->peer.addr                    = test_addr( 0x7f000001U, 8899 );
       ctx->resolved_servers_cnt          = 1UL;
       ctx->resolved_servers[ 0 ].addr     = ctx->peer.addr;
@@ -768,12 +771,12 @@ test_start_after_init_acks( void ) {
       int   busy = 0;
       for( int ack=0; ack<ctx->flush_ack_cnt; ack++ ) {
         after_credit( ctx, NULL, NULL, &busy );
-        FD_TEST( !ctx->start_sent && test_publish_cnt==1UL );
+        FD_TEST( !ctx->start_sent && test_publish_cnt==pre_start_cnt );
         if( !ack ) snapld_frag( ctx, sig, 0UL, 0UL, NULL );
         else       ctrl_ack_frag( ctx, sig );
       }
       after_credit( ctx, NULL, NULL, &busy );
-      FD_TEST( ctx->start_sent && test_publish_cnt==2UL );
+      FD_TEST( ctx->start_sent && test_publish_cnt==pre_start_cnt+1UL );
       FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
       FD_TEST( test_publish_sz==(file ? 0UL : sizeof(fd_ssctrl_start_t)) );
       FD_TEST( test_publish_chunk!=init_chunk );
@@ -785,12 +788,219 @@ test_start_after_init_acks( void ) {
         FD_TEST( test_start.path_len==strlen( test_start.path ) );
       }
       after_credit( ctx, NULL, NULL, &busy );
-      FD_TEST( test_publish_cnt==2UL );
+      FD_TEST( test_publish_cnt==pre_start_cnt+1UL );
     }
   }
   free( ci_map );
   free( ci_table );
   free( sel );
+  free( scratch );
+}
+
+static void
+test_incr_use_local( void ) {
+  static struct {
+    char const * name;
+    int          wfs_is_configured;
+    ulong        wfs_slot;
+    uint         age;
+    ulong        local_slot;
+    ulong        fetch_slot;
+    int          expected;
+  } const cases[] = {
+    /* the local incremental has to exist */
+    { "no local",                 0, 0UL,    100U,  ULONG_MAX, 1000UL,    0 },
+    { "no local and no fetch",    0, 0UL,    100U,  ULONG_MAX, ULONG_MAX, 0 },
+
+    /* nothing to download: whatever is on disk wins, at any age */
+    { "no fetch",                 0, 0UL,    100U,  1000UL,    ULONG_MAX, 1 },
+    { "no fetch, ancient local",  0, 0UL,    0U,    1UL,       ULONG_MAX, 1 },
+
+    /* age budget */
+    { "local ahead of fetch",     0, 0UL,    100U,  1200UL,    1000UL,    1 },
+    { "local level with fetch",   0, 0UL,    100U,  1000UL,    1000UL,    1 },
+    { "local on the age limit",   0, 0UL,    100U,  900UL,     1000UL,    1 },
+    { "local past the age limit", 0, 0UL,    100U,  899UL,     1000UL,    0 },
+    { "age budget saturates",     0, 0UL,    5000U, 10UL,      1000UL,    1 },
+
+    /* WFS decides only when the target falls between the two */
+    { "wfs neither reaches",      1, 1200UL, 1000U, 1000UL,    1100UL,    1 },
+    { "wfs both reach",           1, 1200UL, 1000U, 1250UL,    1300UL,    1 },
+    { "wfs local on the target",  1, 1200UL, 1000U, 1200UL,    1300UL,    1 },
+    { "wfs local short",          1, 1200UL, 1000U, 1000UL,    1300UL,    0 },
+    { "wfs short, nothing to get",1, 1200UL, 1000U, 1000UL,    ULONG_MAX, 1 },
+    { "wfs off, same as short",   0, 1200UL, 1000U, 1000UL,    1300UL,    1 },
+    { "wfs short and too old",    1, 1200UL, 100U,  1000UL,    1300UL,    0 },
+  };
+
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    ctx->wfs_is_configured                        = cases[ i ].wfs_is_configured;
+    ctx->config.wfs_slot                          = cases[ i ].wfs_slot;
+    ctx->config.sources.max_local_incremental_age = cases[ i ].age;
+
+    int actual = incr_use_local( ctx, cases[ i ].local_slot, cases[ i ].fetch_slot );
+    if( FD_UNLIKELY( actual!=cases[ i ].expected ) ) {
+      FD_LOG_ERR(( "incr_use_local case `%s` (local %lu fetch %lu) returned %i, expected %i",
+                   cases[ i ].name, cases[ i ].local_slot, cases[ i ].fetch_slot, actual, cases[ i ].expected ));
+    }
+  }
+}
+
+static void
+test_wfs_short_of_target( void ) {
+  static struct {
+    char const * name;
+    int          wfs_is_configured;
+    ulong        wfs_slot;
+    ulong        full_slot;
+    int          expected;
+  } const cases[] = {
+    /* WFS off: no candidate ever needs an incremental to reach a
+       target that does not exist */
+    { "wfs off, full behind",   0, 1200UL, 1000UL,    0 },
+    { "wfs off, no full",       0, 1200UL, ULONG_MAX, 0 },
+
+    /* a candidate short of the target needs the incremental */
+    { "full short",             1, 1200UL, 1000UL,    1 },
+    { "full one short",         1, 1200UL, 1199UL,    1 },
+
+    /* on or past the target it does not */
+    { "full on the target",     1, 1200UL, 1200UL,    0 },
+    { "full past the target",   1, 1200UL, 1300UL,    0 },
+
+    /* a candidate that does not exist is never short: ULONG_MAX must
+       not read as slot zero */
+    { "no full",                1, 1200UL, ULONG_MAX, 0 },
+  };
+
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    ctx->wfs_is_configured = cases[ i ].wfs_is_configured;
+    ctx->config.wfs_slot   = cases[ i ].wfs_slot;
+
+    int actual = wfs_short_of_target( ctx, cases[ i ].full_slot );
+    if( FD_UNLIKELY( actual!=cases[ i ].expected ) ) {
+      FD_LOG_ERR(( "wfs_short_of_target case `%s` (full %lu target %lu) returned %i, expected %i",
+                   cases[ i ].name, cases[ i ].full_slot, cases[ i ].wfs_slot, actual, cases[ i ].expected ));
+    }
+  }
+}
+
+static void
+test_snapct_needs_incr( void ) {
+  fd_topo_tile_t tile[1];
+  memset( tile, 0, sizeof(fd_topo_tile_t) );
+
+  /* incremental_snapshots=0, WFS disabled (all zeros) -> returns 0 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 0UL;
+  tile->snapct.wfs_hash_is_zero      = 1;
+  tile->snapct.wfs_shred_version     = 0;
+  FD_TEST( snapct_needs_incr( tile )==0 );
+
+  /* incremental_snapshots=1, WFS disabled -> returns 1 */
+  tile->snapct.incremental_snapshots = 1;
+  tile->snapct.wfs_slot              = 0UL;
+  tile->snapct.wfs_hash_is_zero      = 1;
+  tile->snapct.wfs_shred_version     = 0;
+  FD_TEST( snapct_needs_incr( tile )==1 );
+
+  /* incremental_snapshots=0, WFS fully configured -> returns 1 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 100UL;
+  tile->snapct.wfs_hash_is_zero      = 0;
+  tile->snapct.wfs_shred_version     = 1234;
+  FD_TEST( snapct_needs_incr( tile )==1 );
+
+  /* incremental_snapshots=1, WFS fully configured -> returns 1 */
+  tile->snapct.incremental_snapshots = 1;
+  tile->snapct.wfs_slot              = 100UL;
+  tile->snapct.wfs_hash_is_zero      = 0;
+  tile->snapct.wfs_shred_version     = 1234;
+  FD_TEST( snapct_needs_incr( tile )==1 );
+
+  /* WFS partially configured: slot missing -> returns 0 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 0UL;
+  tile->snapct.wfs_hash_is_zero      = 0;
+  tile->snapct.wfs_shred_version     = 1234;
+  FD_TEST( snapct_needs_incr( tile )==0 );
+
+  /* WFS partially configured: hash missing -> returns 0 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 100UL;
+  tile->snapct.wfs_hash_is_zero      = 1;
+  tile->snapct.wfs_shred_version     = 1234;
+  FD_TEST( snapct_needs_incr( tile )==0 );
+
+  /* WFS partially configured: shred_version missing -> returns 0 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 100UL;
+  tile->snapct.wfs_hash_is_zero      = 0;
+  tile->snapct.wfs_shred_version     = 0;
+  FD_TEST( snapct_needs_incr( tile )==0 );
+}
+
+static void
+test_predict_incremental_wfs_gate( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  /* Add a peer with an incremental slot so the selector has something
+     to return from fd_sspeer_selector_best(). */
+  fd_sspeer_key_t key  = test_key( 0xF1 );
+  fd_ip4_port_t   addr = test_addr( 0x10203040, 5555 );
+
+  fd_ssping_add( ctx->ssping, addr );
+  fd_sspeer_selector_add( ctx->selector, &key, addr, 5000UL,
+                          500UL, 600UL, NULL, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  /* No incremental is being loaded, so there is nothing to predict.
+     WFS does not change that: an incremental it would have required is
+     already reflected in load_incremental. */
+  ctx->load_incremental                 = 0;
+  ctx->predicted_incremental.committed  = 0;
+  ctx->predicted_incremental.full_slot  = 500UL;
+  ctx->predicted_incremental.slot       = FD_SSPEER_SLOT_UNKNOWN;
+  ctx->predicted_incremental.pending    = 0;
+  for( int wfs=0; wfs<2; wfs++ ) {
+    ctx->wfs_is_configured = wfs;
+    predict_incremental( ctx );
+    FD_TEST( ctx->predicted_incremental.slot==FD_SSPEER_SLOT_UNKNOWN );
+    FD_TEST( ctx->predicted_incremental.pending==0 );
+  }
+
+  /* Loading an incremental whose source is still open: predict. */
+  ctx->load_incremental                 = 1;
+  ctx->wfs_is_configured                = 0;
+  ctx->predicted_incremental.committed  = 0;
+  ctx->predicted_incremental.full_slot  = 500UL;
+  ctx->predicted_incremental.slot       = FD_SSPEER_SLOT_UNKNOWN;
+  ctx->predicted_incremental.pending    = 0;
+  predict_incremental( ctx );
+  FD_TEST( ctx->predicted_incremental.slot==600UL );
+  FD_TEST( ctx->predicted_incremental.pending==1 );
+
+  /* Source committed: the slot is a decision and must not move. */
+  ctx->load_incremental                 = 1;
+  ctx->predicted_incremental.committed  = 1;
+  ctx->predicted_incremental.full_slot  = 500UL;
+  ctx->predicted_incremental.slot       = 550UL;
+  ctx->predicted_incremental.pending    = 0;
+  predict_incremental( ctx );
+  FD_TEST( ctx->predicted_incremental.slot==550UL );
+  FD_TEST( ctx->predicted_incremental.pending==0 );
+
+  fd_ssping_remove( ctx->ssping, addr );
+
   free( scratch );
 }
 
@@ -812,6 +1022,9 @@ main( int     argc,
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
   test_start_after_init_acks();
+  test_snapct_needs_incr();
+  test_incr_use_local();
+  test_wfs_short_of_target();
 
   /* Shared ssping: can only be created once (opens real sockets). */
   ulong ssping_max = 16UL;
@@ -832,6 +1045,7 @@ main( int     argc,
   test_blacklist_peer_cluster_slot_regression( ssping );
   test_blacklist_peer_readd_blocked( ssping );
   test_blacklist_pool_exhaustion( ssping );
+  test_predict_incremental_wfs_gate( ssping );
 
   fd_ssping_delete( fd_ssping_leave( ssping ) );
   free( _ssping_mem );

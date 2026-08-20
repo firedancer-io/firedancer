@@ -119,6 +119,7 @@ fd_ssarchive_latest_pair( char const * directory,
       *incremental_slot    = ULONG_MAX;
       *incremental_is_zstd = 0;
       FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+      incremental_path[ 0UL ] = '\0';
       fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
       memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
       return 0;
@@ -174,4 +175,76 @@ fd_ssarchive_latest_pair( char const * directory,
     memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
     return 0;
   }
+}
+
+int
+fd_ssarchive_latest_best( char const * directory,
+                          int          incremental_snapshot,
+                          ulong        target_slot,
+                          ulong *      full_slot,
+                          ulong *      incremental_slot,
+                          char         full_path[ static PATH_MAX ],
+                          char         incremental_path[ static PATH_MAX ],
+                          int *        full_is_zstd,
+                          int *        incremental_is_zstd,
+                          uchar        full_hash[ static FD_HASH_FOOTPRINT ],
+                          uchar        incremental_hash[ static FD_HASH_FOOTPRINT ] ) {
+
+  int found = 0==fd_ssarchive_latest_pair( directory,
+                                           0,
+                                           full_slot,
+                                           incremental_slot,
+                                           full_path,
+                                           incremental_path,
+                                           full_is_zstd,
+                                           incremental_is_zstd,
+                                           full_hash,
+                                           incremental_hash );
+
+  /* An incremental has to pair with a full, so without one there is
+     nothing left to look for: the pair search fails on the same
+     condition. */
+
+  if( FD_UNLIKELY( !found ) ) return -1;
+
+  /* Consider the pair when incrementals are enabled, or when the full
+     alone falls short of the target. */
+
+  if( FD_UNLIKELY( !incremental_snapshot && !( target_slot && *full_slot<target_slot ) ) ) return 0;
+
+  ulong pair_full_slot = ULONG_MAX;
+  ulong pair_incr_slot = ULONG_MAX;
+  int   pair_full_zstd = 0;
+  int   pair_incr_zstd = 0;
+  char  pair_full_path[ PATH_MAX ] = {0};
+  char  pair_incr_path[ PATH_MAX ] = {0};
+  uchar pair_full_hash[ FD_HASH_FOOTPRINT ] = {0};
+  uchar pair_incr_hash[ FD_HASH_FOOTPRINT ] = {0};
+
+  if( FD_UNLIKELY( 0!=fd_ssarchive_latest_pair( directory,
+                                                1,
+                                                &pair_full_slot,
+                                                &pair_incr_slot,
+                                                pair_full_path,
+                                                pair_incr_path,
+                                                &pair_full_zstd,
+                                                &pair_incr_zstd,
+                                                pair_full_hash,
+                                                pair_incr_hash ) ) ) {
+    return 0;
+  }
+
+  ulong pair_slot = fd_ulong_if( pair_incr_slot!=ULONG_MAX, pair_incr_slot, pair_full_slot );
+  if( FD_LIKELY( pair_slot>*full_slot ) ) {
+    *full_slot           = pair_full_slot;
+    *incremental_slot    = pair_incr_slot;
+    *full_is_zstd        = pair_full_zstd;
+    *incremental_is_zstd = pair_incr_zstd;
+    fd_memcpy( full_path,        pair_full_path, PATH_MAX );
+    fd_memcpy( incremental_path, pair_incr_path, PATH_MAX );
+    fd_memcpy( full_hash,        pair_full_hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( incremental_hash, pair_incr_hash, FD_HASH_FOOTPRINT );
+  }
+
+  return 0;
 }

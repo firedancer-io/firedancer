@@ -107,6 +107,27 @@ fd_ssarchive_latest_pair( char const * directory,
                           uchar        full_hash[ static FD_HASH_FOOTPRINT ],
                           uchar        incremental_hash[ static FD_HASH_FOOTPRINT ] );
 
+/* fd_ssarchive_latest_best picks whichever reaches the higher slot:
+   the newest full snapshot on its own, or the newest full+incremental
+   pair.  Incrementals are considered when incremental_snapshot is
+   non-zero, or when the full alone does not reach target_slot; pass
+   target_slot 0 for no target.
+
+   Out-params and the return value follow fd_ssarchive_latest_pair. */
+
+int
+fd_ssarchive_latest_best( char const * directory,
+                          int          incremental_snapshot,
+                          ulong        target_slot,
+                          ulong *      full_slot,
+                          ulong *      incremental_slot,
+                          char         full_path[ static PATH_MAX ],
+                          char         incremental_path[ static PATH_MAX ],
+                          int *        full_is_zstd,
+                          int *        incremental_is_zstd,
+                          uchar        full_hash[ static FD_HASH_FOOTPRINT ],
+                          uchar        incremental_hash[ static FD_HASH_FOOTPRINT ] );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssarchive_h */

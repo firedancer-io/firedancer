@@ -201,6 +201,139 @@ test_ssarchive_latest_pair_dangling_incr(void) {
 }
 
 static void
+test_ssarchive_latest_pair_no_incr( void ) {
+  fd_test_ssarchive_env_t env;
+  test_ssarchive_init( &env );
+
+  /* Asking for a pair in a directory holding only full snapshots falls
+     back to the latest full.  There is no incremental to report, so
+     the path has to come back empty rather than untouched. */
+
+  char full_snapshot_name[ PATH_MAX ];
+  fd_cstr_printf_check( full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", 1000UL );
+  env.full_snapshot_fds[ 0UL ] = openat( env.dir_fd, full_snapshot_name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.full_snapshot_fds[ 0UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", full_snapshot_name, errno, fd_io_strerror( errno )));
+
+  ulong full_snapshot_slot;
+  ulong incr_snapshot_slot;
+  char  full_path[ PATH_MAX ];
+  char  incr_path[ PATH_MAX ];
+  int   full_is_zstd;
+  int   incr_is_zstd;
+  uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ];
+  uchar incr_snapshot_hash[ FD_HASH_FOOTPRINT ];
+
+  memset( incr_path, 'x', PATH_MAX );
+
+  FD_TEST( fd_ssarchive_latest_pair( env.tmp_path, 1, &full_snapshot_slot, &incr_snapshot_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_snapshot_hash, incr_snapshot_hash )==0 );
+
+  FD_TEST( full_snapshot_slot==1000UL );
+  FD_TEST( incr_snapshot_slot==ULONG_MAX );
+  FD_TEST( strcmp( incr_path, "" )==0 );
+
+  test_ssarchive_fini( &env );
+}
+
+static void
+test_ssarchive_latest_best( void ) {
+  fd_test_ssarchive_env_t env;
+  test_ssarchive_init( &env );
+
+  /* full 900 pairs with incr 1600; full 2000 stands alone and reaches
+     further */
+  char name[ PATH_MAX ];
+  fd_cstr_printf_check( name, PATH_MAX, NULL, "snapshot-%lu-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", 900UL );
+  env.full_snapshot_fds[ 0UL ] = openat( env.dir_fd, name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.full_snapshot_fds[ 0UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", name, errno, fd_io_strerror( errno )));
+
+  fd_cstr_printf_check( name, PATH_MAX, NULL, "snapshot-%lu-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", 2000UL );
+  env.full_snapshot_fds[ 1UL ] = openat( env.dir_fd, name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.full_snapshot_fds[ 1UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", name, errno, fd_io_strerror( errno )));
+
+  fd_cstr_printf_check( name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN.tar.zst", 900UL, 1600UL );
+  env.incr_snapshot_fds[ 0UL ] = openat( env.dir_fd, name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.incr_snapshot_fds[ 0UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", name, errno, fd_io_strerror( errno )));
+
+  ulong full_slot;
+  ulong incr_slot;
+  char  full_path[ PATH_MAX ];
+  char  incr_path[ PATH_MAX ];
+  int   full_is_zstd;
+  int   incr_is_zstd;
+  uchar full_hash[ FD_HASH_FOOTPRINT ];
+  uchar incr_hash[ FD_HASH_FOOTPRINT ];
+
+  /* incrementals enabled: the standalone full reaches 2000, the pair
+     only 1600, so the full wins */
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 1, 0UL, &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==0 );
+  FD_TEST( full_slot==2000UL );
+  FD_TEST( incr_slot==ULONG_MAX );
+
+  /* incrementals disabled and no target: full snapshots only */
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 0, 0UL, &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==0 );
+  FD_TEST( full_slot==2000UL );
+  FD_TEST( incr_slot==ULONG_MAX );
+
+  /* incrementals disabled, target reachable by the full alone: the
+     flag is honoured, the pair is not consulted */
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 0, 1500UL, &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==0 );
+  FD_TEST( full_slot==2000UL );
+  FD_TEST( incr_slot==ULONG_MAX );
+
+  /* incrementals disabled, target beyond every candidate: the pair is
+     consulted, but the full still reaches further */
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 0, 5000UL, &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==0 );
+  FD_TEST( full_slot==2000UL );
+  FD_TEST( incr_slot==ULONG_MAX );
+
+  /* an incremental on top of the newest full now reaches furthest */
+  fd_cstr_printf_check( name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN.tar.zst", 2000UL, 2100UL );
+  env.incr_snapshot_fds[ 1UL ] = openat( env.dir_fd, name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.incr_snapshot_fds[ 1UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", name, errno, fd_io_strerror( errno )));
+
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 1, 0UL, &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==0 );
+  FD_TEST( full_slot==2000UL );
+  FD_TEST( incr_slot==2100UL );
+
+  /* still honoured with incrementals disabled and the target met */
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 0, 2000UL, &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==0 );
+  FD_TEST( full_slot==2000UL );
+  FD_TEST( incr_slot==ULONG_MAX );
+
+  /* target the full cannot reach: the pair is consulted and wins */
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 0, 2050UL, &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==0 );
+  FD_TEST( full_slot==2000UL );
+  FD_TEST( incr_slot==2100UL );
+
+  test_ssarchive_fini( &env );
+}
+
+static void
+test_ssarchive_latest_best_empty( void ) {
+  fd_test_ssarchive_env_t env;
+  test_ssarchive_init( &env );
+
+  /* An empty directory has no full to pair with, so every combination
+     of the flag and the target fails without reading the out-params. */
+
+  ulong full_slot;
+  ulong incr_slot;
+  char  full_path[ PATH_MAX ];
+  char  incr_path[ PATH_MAX ];
+  int   full_is_zstd;
+  int   incr_is_zstd;
+  uchar full_hash[ FD_HASH_FOOTPRINT ];
+  uchar incr_hash[ FD_HASH_FOOTPRINT ];
+
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 0, 0UL,    &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==-1 );
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 1, 0UL,    &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==-1 );
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 0, 1000UL, &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==-1 );
+  FD_TEST( fd_ssarchive_latest_best( env.tmp_path, 1, 1000UL, &full_slot, &incr_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_hash, incr_hash )==-1 );
+
+  test_ssarchive_fini( &env );
+}
+
+static void
 test_ssarchive_latest_pair_over_capacity( void ) {
   fd_test_ssarchive_env_t env;
   test_ssarchive_init( &env );
@@ -235,6 +368,9 @@ main( int     argc,
   test_ssarchive_parse_filename();
   test_ssarchive_latest_pair_basic();
   test_ssarchive_latest_pair_dangling_incr();
+  test_ssarchive_latest_pair_no_incr();
+  test_ssarchive_latest_best();
+  test_ssarchive_latest_best_empty();
   test_ssarchive_latest_pair_over_capacity();
   return 0;
 }

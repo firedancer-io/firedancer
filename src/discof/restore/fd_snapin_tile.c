@@ -4,6 +4,7 @@
 #include "utils/fd_ssmsg.h"
 #include "utils/fd_ssparse.h"
 #include "utils/fd_ssmanifest_parser.h"
+#include "utils/fd_wfs.h"
 #include "utils/fd_slot_delta_parser.h"
 #include "../../util/fd_hash32.h"
 #include "../../util/bits/fd_float.h"
@@ -330,6 +331,11 @@ struct fd_snapin_tile {
     uchar owner [ 32UL ];
     uchar data[ FD_RUNTIME_ACC_SZ_MAX ] __attribute__((aligned(64)));
   } staged;
+
+  ulong     wfs_slot;
+  fd_hash_t wfs_bank_hash;
+  ushort    wfs_shred_version;
+  int       wfs_hash_is_zero;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -1205,6 +1211,37 @@ process_manifest( fd_snapin_tile_t *  ctx,
     transition_malformed( ctx, stem );
     return;
   }
+
+  /* Classify bank-hash validation against WFS (see fd_wfs.h):
+      MODE_ERROR      -> if full snapshot, defer until incremental;
+                         if incr snapshot, reject snapshot
+      MODE_NOOP       -> the network has already moved on, skip
+      MODE_MATCH      -> validate bank_hash
+      MODE_DISABLED   -> no action (fall through)
+      MODE_UNRESOLVED -> no action (fall through) */
+  int wfs_mode = fd_wfs_mode( ctx->wfs_slot, ctx->wfs_hash_is_zero, (ulong)ctx->wfs_shred_version, manifest->slot );
+  if( FD_UNLIKELY( wfs_mode==FD_WFS_MODE_ERROR ) ) {
+    if( FD_UNLIKELY( !ctx->full ) ) {
+      FD_LOG_WARNING(( "WFS: incremental snapshot manifest slot %lu still behind "
+                       "wait_for_supermajority_at_slot %lu; no further bridge possible",
+                       manifest->slot, ctx->wfs_slot ));
+      transition_malformed( ctx, stem );
+      return;
+    }
+    FD_LOG_NOTICE(( "WFS: full snapshot manifest slot %lu behind wait_for_supermajority_at_slot %lu; "
+                    "awaiting incremental snapshot to bridge the gap",
+                    manifest->slot, ctx->wfs_slot ));
+  }
+  if( FD_UNLIKELY( wfs_mode==FD_WFS_MODE_NOOP ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->wfs_bank_hash.uc, expected_hash_enc );
+    FD_LOG_WARNING(( "WFS NOOP: %s snapshot manifest slot %lu ahead of wait_for_supermajority_at_slot %lu "
+                     "(bank_hash=%s, expected_shred_version=%lu); skipping bank hash verification",
+                     ctx->full ? "full" : "incremental",
+                     manifest->slot, ctx->wfs_slot, expected_hash_enc, (ulong)ctx->wfs_shred_version ));
+  }
+  /* MATCH needs no action here.  Any manifest snapin sees may still be
+     superseded by an incremental, so it cannot tell which slot we will
+     boot at; replay verifies the bank hash of the slot we do. */
 
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
     FD_LOG_WARNING(( "slot deltas verification failed" ));
@@ -2338,6 +2375,11 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memset( &ctx->lead.recovery.accdb_metadata, 0, sizeof(ctx->lead.recovery.accdb_metadata) );
   fd_memset( &ctx->lead.flags, 0, sizeof(ctx->lead.flags) );
   ctx->lead.boot_timestamp = fd_log_wallclock();
+
+  ctx->wfs_slot          = tile->snapin.wait_for_supermajority_at_slot;
+  ctx->wfs_bank_hash     = tile->snapin.wait_for_supermajority_with_bank_hash;
+  ctx->wfs_shred_version = tile->snapin.expected_shred_version;
+  ctx->wfs_hash_is_zero  = !memcmp( ctx->wfs_bank_hash.uc, ((fd_hash_t){0}).uc, FD_HASH_FOOTPRINT );
 }
 
 /* There are 3 output links that affect the calculation of STEM_BURST:
