@@ -115,8 +115,9 @@ struct fd_snapshot_manifest_epoch_stakes {
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
 
 struct fd_snapshot_manifest_inflation_params {
-  /* The initial inflation percentage starting at genesis.
-     This value is set at genesis to 8% and is not expected to change. */
+  /* The initial inflation percentage starting at genesis.  This value is
+     set at genesis to 8%, and is only changed at the boundary when
+     double_disinflation_rate activates. */
   double initial;
 
   /* The terminal inflation percentage is the long-term steady state
@@ -126,7 +127,8 @@ struct fd_snapshot_manifest_inflation_params {
 
   /* The rate per year at which inflation is lowered until it reaches
      the terminal inflation rate.  This value is set to 15% at genesis
-     and is not expected to change. */
+     and only changes at the boundary when double_disinflation_rate
+     activates. */
   double taper;
 
   /* The percentage of total inflation allocated to the foundation.
@@ -234,9 +236,8 @@ struct fd_snapshot_manifest {
      inflation rewards going forward.  This includes what the initial
      inflation is and how the inflation curve changes over time.
 
-     Currently, these parameters can never change and are fixed from
-     genesis onwards, although in future they may change with new
-     feature flags. */
+     These parameters may change with feature gate activations, for
+     example double_disinflation_rate. */
   fd_snapshot_manifest_inflation_params_t inflation_params;
 
   /* At genesis, certain parameters can be set which control the

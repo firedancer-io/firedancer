@@ -16,6 +16,9 @@
 
 #include <math.h>
 
+/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/feature-set/src/lib.rs#L1537-L1541 */
+#define FD_DOUBLE_DISINFLATION_TAPER (0.30)
+
 /* A note on the calculation of points for inflation rewards at the
    epoch boundary.
 
@@ -280,6 +283,19 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
   ulong inflation_start_slot = inflation_start_slot_aligned_to_rewards( bank, epoch_schedule );
   return fd_slot_params_slot_range_duration_years( bank,
                                                    inflation_start_slot, inflation_start_slot + num_slots );
+}
+
+void
+fd_apply_double_disinflation_rate( fd_bank_t * bank ) {
+  double           year        = slot_in_year_for_inflation( bank );
+  fd_inflation_t * inflation   = &bank->f.inflation;
+  double           anchor_rate = total( inflation, year );
+
+  inflation->taper   = FD_DOUBLE_DISINFLATION_TAPER;
+
+  /* Matches Agave's calculation, as this is floating-point calculation
+     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6125 */
+  inflation->initial = anchor_rate / pow( 1.0-FD_DOUBLE_DISINFLATION_TAPER, year );
 }
 
 /* Returns 1 if effective stake is clearly a warmed plateau.

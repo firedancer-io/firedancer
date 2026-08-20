@@ -533,6 +533,12 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
     set_lamports_per_byte( bank, accdb, capture_ctx, 6960UL );
   }
 
+  /* SIMD-0550: double_disinflation_rate
+     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6232-L6234 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, double_disinflation_rate ) ) ) {
+    fd_apply_double_disinflation_rate( bank );
+  }
+
   /* Apply builtin program feature transitions
       https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
   fd_apply_builtin_program_feature_transitions( bank, accdb, runtime_stack, capture_ctx );
@@ -1513,6 +1519,11 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   }
 
   fd_feature_snoop_finalize( &bank->f.features, bank->f.slot, &bank->f.epoch_schedule, feature_snoop );
+
+  /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6101-L6109 */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, double_disinflation_rate ) ) ) {
+    fd_apply_double_disinflation_rate( bank );
+  }
 
   /* fd_refresh_vote_accounts is responsible for updating the vote
      states with the total amount of active delegated stake.  It does

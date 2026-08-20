@@ -27,6 +27,15 @@ typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calcula
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_apply_double_disinflation_rate applies the
+   double_disinflation_rate feature gate to the given bank. It updates
+   the given banks inflation->taper and inflation->initial values.
+
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6117-L6130 */
+
+void
+fd_apply_double_disinflation_rate( fd_bank_t * bank );
+
 /* fd_begin_partitioned_rewards updates epoch bank stake and vote
    account reward calculations.  Updates vote accounts with payouts and
    increases capitalization.  Called in the epoch boundary (start of
