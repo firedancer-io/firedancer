@@ -39,7 +39,6 @@
    does observe (with a flag indicating its detection). */
 
 #include "../../disco/store/fd_store.h"
-#include "../repair/fd_repair_tile.h"
 
 /* FD_REASM_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -198,10 +197,12 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   ulong bank_seq;
   ulong parent_bank_idx;
 
-  ulong                     stats_seq;
-  fd_fec_complete_metrics_t metrics;
+  /* Replay needs the completion timestamp for every FEC.  Detailed
+     block-level reception stats are stored separately per slot. */
+  ulong fec_completed_ts_nanos;
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
+FD_STATIC_ASSERT( sizeof(fd_reasm_fec_t)==256UL, fd_reasm_fec_footprint );
 
 FD_PROTOTYPES_BEGIN
 
