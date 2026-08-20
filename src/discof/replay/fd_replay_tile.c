@@ -126,6 +126,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),                 fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                    fd_accdb_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),                    fd_reasm_footprint( tile->replay.fec_max ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_reception_stats_t),       sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),             fd_vote_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),              fd_capture_ctx_footprint() );
@@ -378,12 +379,10 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
   fd_reasm_fec_t * chain_tip = fd_reasm_query( ctx->reasm, mr );
   if( FD_LIKELY( chain_tip ) ) {
     ulong n = 0UL;
-    fd_reasm_fec_t * stats = NULL;
-    fd_reasm_fec_t * f     = chain_tip;
+    fd_reasm_fec_t * f = chain_tip;
     for( ; f && f->slot==slot; f = fd_reasm_parent( ctx->reasm, f ) ) {
       n++;
       if( f->eqvoc ) ev->equivocation_detected_shred = 1;
-      if( f->metrics.stats_valid && ( !stats || f->stats_seq > stats->stats_seq ) ) stats = f;
     }
     ev->fec_set_count = n;
 
@@ -395,29 +394,33 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
       if( !ev->parent_slot ) ev->parent_slot = f->slot;
     }
 
-    if( FD_LIKELY( stats ) ) {
-      fd_fec_complete_metrics_t const * m = &stats->metrics;
-      ev->last_completed_fec_set_index = stats->fec_set_idx;
-      ev->turbine_shred_count       = m->blk_turbine_cnt;
-      ev->repair_shred_count        = m->blk_repair_cnt;
-      ev->recovered_shred_count     = m->blk_recovered_cnt;
-      ev->data_shred_count          = m->blk_data_cnt;
-      ev->parity_shred_count        = m->blk_parity_cnt;
-      ev->chain_confirmed           = !!m->blk_chain_confirmed;
-      ev->slot_complete_flag        = !!m->blk_slot_complete;
-      ev->lowest_verified_fec_index = m->blk_lowest_verified_fec;
+    fd_reception_stats_t * stats = &ctx->reception_stats[ slot % ctx->reception_stats_cnt ];
+    /* If there's a mismatch in the slot's stats, we just ignore it and
+       return.  This can only happen in the case where there is a large
+       jump in the slot number and it exactly matches the expected
+       slot's modulo with max_live_slots. */
+    if( FD_UNLIKELY( stats->slot!=slot ) ) return;
+    fd_fec_complete_metrics_t const * m = &stats->metrics;
+    ev->last_completed_fec_set_index = stats->fec_set_idx;
+    ev->turbine_shred_count       = m->blk_turbine_cnt;
+    ev->repair_shred_count        = m->blk_repair_cnt;
+    ev->recovered_shred_count     = m->blk_recovered_cnt;
+    ev->data_shred_count          = m->blk_data_cnt;
+    ev->parity_shred_count        = m->blk_parity_cnt;
+    ev->chain_confirmed           = !!m->blk_chain_confirmed;
+    ev->slot_complete_flag        = !!m->blk_slot_complete;
+    ev->lowest_verified_fec_index = m->blk_lowest_verified_fec;
 
-      ev->repair_request_window_count         = m->blk_req_window_cnt;
-      ev->repair_request_highest_window_count = m->blk_req_highest_cnt;
-      ev->repair_request_orphan_count         = m->blk_req_orphan_cnt;
-      ev->repair_responses_received           = m->blk_repair_responses;
-      ev->repair_requests_retransmitted       = m->blk_req_retransmit_cnt;
-      ev->repair_failed_chain_verify          = !!m->blk_chain_verify_failed;
-      ev->first_shred_received_time           = m->blk_first_shred_ts_nanos;
-      ev->last_shred_received_time            = m->blk_last_shred_ts_nanos;
-      ev->first_repair_request_time           = m->blk_first_req_ts_nanos;
-      ev->last_repair_received_time           = m->blk_last_repair_resp_ts_nanos;
-    }
+    ev->repair_request_window_count         = m->blk_req_window_cnt;
+    ev->repair_request_highest_window_count = m->blk_req_highest_cnt;
+    ev->repair_request_orphan_count         = m->blk_req_orphan_cnt;
+    ev->repair_responses_received           = m->blk_repair_responses;
+    ev->repair_requests_retransmitted       = m->blk_req_retransmit_cnt;
+    ev->repair_failed_chain_verify          = !!m->blk_chain_verify_failed;
+    ev->first_shred_received_time           = m->blk_first_shred_ts_nanos;
+    ev->last_shred_received_time            = m->blk_last_shred_ts_nanos;
+    ev->first_repair_request_time           = m->blk_first_req_ts_nanos;
+    ev->last_repair_received_time           = m->blk_last_repair_resp_ts_nanos;
   }
 }
 
@@ -2122,7 +2125,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->is_first_in_block = reasm_fec->fec_set_idx==0U;
   sched_fec->fec               = store_fec;
   sched_fec->data              = fd_store_fec_data( ctx->store, store_fec );
-  sched_fec->completed_ns = (long)reasm_fec->metrics.fec_completed_ts_nanos;
+  sched_fec->completed_ns      = (long)reasm_fec->fec_completed_ts_nanos;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
@@ -2941,12 +2944,15 @@ process_fec_complete( fd_replay_tile_t *         ctx,
     return;
   }
 
-  fec->stats_seq = ++ctx->fec_complete_seq;
+  fec->fec_completed_ts_nanos = complete_msg->metrics.fec_completed_ts_nanos;
   if( FD_LIKELY( complete_msg->metrics.stats_valid ) ) {
-    fec->metrics = complete_msg->metrics;
-  } else {
-    /* stats stay insert-zeroed (reasm tail memset) */
-    fec->metrics.fec_completed_ts_nanos = complete_msg->metrics.fec_completed_ts_nanos;
+    /* Repair builds these cumulative snapshots from fd_forest_blk_t,
+       which is keyed by slot rather than block identity.  Retain only
+       the newest valid snapshot for that slot. */
+    fd_reception_stats_t * stats = &ctx->reception_stats[ fec->slot % ctx->reception_stats_cnt ];
+    stats->slot        = fec->slot;
+    stats->fec_set_idx = fec->fec_set_idx;
+    stats->metrics     = complete_msg->metrics;
   }
 }
 
@@ -3507,6 +3513,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->replay.max_live_slots ) );
   void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
+  void * recp_stats_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reception_stats_t), sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
   void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
@@ -3643,8 +3650,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, tile->replay.fec_max, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
-  ctx->reasm_evicted    = NULL;
-  ctx->fec_complete_seq = 0UL;
+  ctx->reception_stats     = recp_stats_mem;
+  ctx->reception_stats_cnt = tile->replay.max_live_slots;
+  FD_TEST( ctx->reception_stats_cnt );
+  for( ulong i=0UL; i<ctx->reception_stats_cnt; i++ ) ctx->reception_stats[ i ].slot = ULONG_MAX;
+  ctx->reasm_evicted = NULL;
 
   ctx->leader_stats.slot = ULONG_MAX;
 

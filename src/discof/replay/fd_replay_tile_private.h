@@ -10,6 +10,7 @@
 #include "../../disco/node_info/fd_node_info.h"
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/reasm/fd_reasm.h"
+#include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
@@ -57,6 +58,13 @@ struct fd_block_id_ele {
   ulong     next_;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
+
+struct fd_reception_stats {
+  ulong                     slot;
+  uint                      fec_set_idx;
+  fd_fec_complete_metrics_t metrics;
+};
+typedef struct fd_reception_stats fd_reception_stats_t;
 
 #define FD_REPLAY_TXN_TIMING_SLOTS (16UL)
 
@@ -138,7 +146,8 @@ struct fd_replay_tile {
   ulong            reasm_seed;
   fd_reasm_t     * reasm;
   fd_reasm_fec_t * reasm_evicted; /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */
-  ulong            fec_complete_seq; /* FEC-complete arrival counter; orders forest snapshots stashed on reasm FECs */
+  fd_reception_stats_t * reception_stats;
+  ulong                  reception_stats_cnt;
 
   fd_sched_t * sched;
   ulong        in_cnt;
