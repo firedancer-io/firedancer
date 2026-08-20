@@ -172,7 +172,11 @@ struct fd_replay_tile {
   int   wfs_enabled;
   int   wfs_complete;
 
+  ulong     wait_for_supermajority_at_slot;
   fd_hash_t expected_bank_hash;
+  int       wfs_hash_is_zero;
+  /* Effective boot slot (see fd_wfs.h). */
+  ulong     wfs_boot_slot;
 
   ulong            blockhash_seed;
   ulong            reasm_seed;

@@ -296,11 +296,11 @@ test_load_complete_signal( void ) {
   ctx->load_complete = 0;
 
   /* Ignored during reset states */
-  ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
+  ctx->state   = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
   snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
   FD_TEST( ctx->load_complete==0 );
 
-  ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
+  ctx->state   = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
   snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
   FD_TEST( ctx->load_complete==0 );
 
@@ -680,6 +680,116 @@ test_contact_info_public_to_invalid_update( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+static void
+test_snapct_needs_incr( void ) {
+  fd_topo_tile_t tile[1];
+  memset( tile, 0, sizeof(fd_topo_tile_t) );
+
+  /* incremental_snapshots=0, WFS disabled (all zeros) -> returns 0 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 0UL;
+  tile->snapct.wfs_hash_is_zero      = 1;
+  tile->snapct.wfs_shred_version     = 0;
+  FD_TEST( snapct_needs_incr( tile )==0 );
+
+  /* incremental_snapshots=1, WFS disabled -> returns 1 */
+  tile->snapct.incremental_snapshots = 1;
+  tile->snapct.wfs_slot              = 0UL;
+  tile->snapct.wfs_hash_is_zero      = 1;
+  tile->snapct.wfs_shred_version     = 0;
+  FD_TEST( snapct_needs_incr( tile )==1 );
+
+  /* incremental_snapshots=0, WFS fully configured -> returns 1 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 100UL;
+  tile->snapct.wfs_hash_is_zero      = 0;
+  tile->snapct.wfs_shred_version     = 1234;
+  FD_TEST( snapct_needs_incr( tile )==1 );
+
+  /* incremental_snapshots=1, WFS fully configured -> returns 1 */
+  tile->snapct.incremental_snapshots = 1;
+  tile->snapct.wfs_slot              = 100UL;
+  tile->snapct.wfs_hash_is_zero      = 0;
+  tile->snapct.wfs_shred_version     = 1234;
+  FD_TEST( snapct_needs_incr( tile )==1 );
+
+  /* WFS partially configured: slot missing -> returns 0 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 0UL;
+  tile->snapct.wfs_hash_is_zero      = 0;
+  tile->snapct.wfs_shred_version     = 1234;
+  FD_TEST( snapct_needs_incr( tile )==0 );
+
+  /* WFS partially configured: hash missing -> returns 0 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 100UL;
+  tile->snapct.wfs_hash_is_zero      = 1;
+  tile->snapct.wfs_shred_version     = 1234;
+  FD_TEST( snapct_needs_incr( tile )==0 );
+
+  /* WFS partially configured: shred_version missing -> returns 0 */
+  tile->snapct.incremental_snapshots = 0;
+  tile->snapct.wfs_slot              = 100UL;
+  tile->snapct.wfs_hash_is_zero      = 0;
+  tile->snapct.wfs_shred_version     = 0;
+  FD_TEST( snapct_needs_incr( tile )==0 );
+}
+
+static void
+test_predict_incremental_wfs_gate( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  /* Add a peer with an incremental slot so the selector has something
+     to return from fd_sspeer_selector_best(). */
+  fd_sspeer_key_t key  = test_key( 0xF1 );
+  fd_ip4_port_t   addr = test_addr( 0x10203040, 5555 );
+
+  fd_ssping_add( ctx->ssping, addr );
+  fd_sspeer_selector_add( ctx->selector, &key, addr, 5000UL,
+                          500UL, 600UL, NULL, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  /* Both incremental_snapshots=0 and wfs_is_configured=0:
+     predict_incremental should early-return without updating. */
+  ctx->config.incremental_snapshots     = 0;
+  ctx->wfs_is_configured                = 0;
+  ctx->predicted_incremental.full_slot  = 500UL;
+  ctx->predicted_incremental.slot       = FD_SSPEER_SLOT_UNKNOWN;
+  ctx->predicted_incremental.pending    = 0;
+  predict_incremental( ctx );
+  FD_TEST( ctx->predicted_incremental.slot==FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( ctx->predicted_incremental.pending==0 );
+
+  /* wfs_is_configured=1, incremental_snapshots=0:
+     prediction should run and update the slot. */
+  ctx->config.incremental_snapshots     = 0;
+  ctx->wfs_is_configured                = 1;
+  ctx->predicted_incremental.full_slot  = 500UL;
+  ctx->predicted_incremental.slot       = FD_SSPEER_SLOT_UNKNOWN;
+  ctx->predicted_incremental.pending    = 0;
+  predict_incremental( ctx );
+  FD_TEST( ctx->predicted_incremental.slot==600UL );
+  FD_TEST( ctx->predicted_incremental.pending==1 );
+
+  /* incremental_snapshots=1, wfs_is_configured=0:
+     prediction should run and update the slot. */
+  ctx->config.incremental_snapshots     = 1;
+  ctx->wfs_is_configured                = 0;
+  ctx->predicted_incremental.full_slot  = 500UL;
+  ctx->predicted_incremental.slot       = FD_SSPEER_SLOT_UNKNOWN;
+  ctx->predicted_incremental.pending    = 0;
+  predict_incremental( ctx );
+  FD_TEST( ctx->predicted_incremental.slot==600UL );
+  FD_TEST( ctx->predicted_incremental.pending==1 );
+
+  fd_ssping_remove( ctx->ssping, addr );
+
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -697,6 +807,7 @@ main( int     argc,
   test_block_list_contact_info_insert();
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
+  test_snapct_needs_incr();
 
   /* Shared ssping: can only be created once (opens real sockets). */
   ulong ssping_max = 16UL;
@@ -715,6 +826,7 @@ main( int     argc,
   test_blacklist_peer_cluster_slot_regression( ssping );
   test_blacklist_peer_readd_blocked( ssping );
   test_blacklist_pool_exhaustion( ssping );
+  test_predict_incremental_wfs_gate( ssping );
 
   fd_ssping_delete( fd_ssping_leave( ssping ) );
   free( _ssping_mem );

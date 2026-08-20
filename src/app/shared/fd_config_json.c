@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22970296UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22974392UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -336,6 +336,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "expected_shred_version",        config->consensus.expected_shred_version );
     jw_str  ( &w, "expected_genesis_hash",         config->consensus.expected_genesis_hash );
     jw_bool ( &w, "wait_for_vote_to_start_leader", config->consensus.wait_for_vote_to_start_leader );
+    jw_ulong( &w, "wait_for_supermajority_at_slot",        f->consensus.wait_for_supermajority_at_slot );
     jw_str  ( &w, "wait_for_supermajority_with_bank_hash", f->consensus.wait_for_supermajority_with_bank_hash );
   jw_obj_close( &w );
 

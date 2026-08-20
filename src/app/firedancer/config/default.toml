@@ -376,6 +376,10 @@ telemetry = true
     #
     # If set to false, the validator will only load from a full
     # snapshot.
+    #
+    # When waiting for supermajority, this option is disregarded:
+    # the validator automatically considers both full and incremental
+    # snapshots as needed to reach the WFS slot.
     incremental_snapshots = true
 
     # Whether to allow downloading a new genesis file from a peer when
@@ -621,18 +625,26 @@ telemetry = true
     # same slot number but different blockhash) in cases where the
     # primary node may still be alive.
     #
-    # If `wait_for_supermajority_with_bank_hash` is set, then this
-    # option must be set to `false` otherwise the client will not boot.
-    # This prevents the chain from deadlocking on a hard restart if all
-    # nodes enable this option.
+    # When `wait_for_supermajority_at_slot` is set and the loaded
+    # snapshot matches the WFS slot, this option is automatically
+    # overridden to `false` to prevent the chain from deadlocking on
+    # a hard restart.
     wait_for_vote_to_start_leader = true
 
-    # If set to a valid bank hash, the client will wait until 80% of
-    # stake-weighted nodes are visible on gossip before attempting to
-    # make progress.
+    # Wait-for-supermajority (WFS): typically used during coordinated
+    # hard fork restarts to ensure all validators agree on the correct
+    # fork before resuming.  If both options below are set, the client
+    # loads snapshot(s) to reach the given slot and waits until 80% of
+    # stake-weighted nodes are visible on gossip before starting replay.
+    # Both must be set together, and `expected_shred_version` must be
+    # nonzero.  Slot 0 means disabled.
     #
-    # This parameter ensures that the correct slot and consensus fork
-    # are selected during a hard fork event.
+    # When the loaded snapshot matches the WFS slot exactly, the bank
+    # hash is verified against `wait_for_supermajority_with_bank_hash`.
+    # If the loaded snapshot is ahead of the WFS slot (the network has
+    # already moved on), WFS is treated as a no-op: the bank hash
+    # check is skipped and the supermajority wait is bypassed.
+    wait_for_supermajority_at_slot = 0
     wait_for_supermajority_with_bank_hash = ""
 
 # The primary state a validator is required to maintain is the accounts

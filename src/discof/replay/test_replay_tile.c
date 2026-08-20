@@ -2765,6 +2765,169 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_stale_id_key_does_not_shadow_rebuild" ));
 }
 
+/* Minimal context setup for on_snapshot_message with mock_snapshot_boot=1.
+   Returns the root bank (at snapshot_slot). */
+static fd_bank_t *
+setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
+                         fd_wksp_t *          wksp,
+                         fd_runtime_stack_t * runtime_stack,
+                         ulong                snapshot_slot ) {
+  setup_timing( ctx, wksp );
+  setup_stem( ctx, wksp );
+
+  ulong const bank_cnt = 4UL;
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 128UL, 8UL ), 1UL );
+  FD_TEST( banks_mem );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 0, 43UL ) );
+  FD_TEST( ctx->banks );
+
+  fd_bank_t * root = fd_banks_init_bank( ctx->banks );
+  FD_TEST( root );
+  fd_features_disable_all( &root->f.features );
+  root->f.slot                        = snapshot_slot;
+  root->f.parent_slot                 = snapshot_slot ? (snapshot_slot - 1UL) : 0UL;
+  root->f.slot_params                 = FD_SLOT_PARAMS_400MS;
+  root->f.slot_params.hashes_per_tick = 4UL;
+  root->f.slot_params_default         = FD_SLOT_PARAMS_400MS;
+  fd_epoch_schedule_derive( &root->f.epoch_schedule, 128UL, 128UL, 0 );
+  fd_hash_t root_id = { .ul = { 100UL + snapshot_slot } };
+  root->f.block_id  = root_id;
+  fd_blockhashes_init( &root->f.block_hash_queue, 42UL );
+  FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
+
+  ulong chain_cnt = fd_block_id_map_chain_cnt_est( bank_cnt );
+  ctx->block_id_arr = fd_wksp_alloc_laddr( wksp, alignof(fd_block_id_ele_t), sizeof(fd_block_id_ele_t)*bank_cnt, 1UL );
+  FD_TEST( ctx->block_id_arr );
+  memset( ctx->block_id_arr, 0, sizeof(fd_block_id_ele_t)*bank_cnt );
+  void * map_mem = fd_wksp_alloc_laddr( wksp, fd_block_id_map_align(), fd_block_id_map_footprint( chain_cnt ), 1UL );
+  FD_TEST( map_mem );
+  ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( map_mem, chain_cnt, 44UL ) );
+  FD_TEST( ctx->block_id_map );
+
+  ctx->block_id_len = bank_cnt;
+
+  void * reasm_mem = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( 2UL ), 1UL );
+  FD_TEST( reasm_mem );
+  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 2UL, 0UL ) );
+  FD_TEST( ctx->reasm );
+
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL ), 1UL );
+  FD_TEST( store_mem );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, "/tmp/test_replay_tile_wfs.db", 0UL ) );
+  FD_TEST( ctx->store );
+  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
+
+  fd_memset( runtime_stack, 0, sizeof(fd_runtime_stack_t) );
+  ctx->runtime_stack                  = runtime_stack;
+  ctx->initial_block_id               = root_id;
+  ctx->manifest_block_id              = root_id;
+  ctx->has_manifest_block_id          = 1;
+  ctx->has_expected_genesis_timestamp = 1;
+  root->accdb_fork_id                 = (fd_accdb_fork_id_t){ .val=37U };
+  root->parent_accdb_fork_id          = root->accdb_fork_id;
+  mock_accdb_fork_id_next             = 0U;
+  ctx->wfs_boot_slot                  = ULONG_MAX;
+  return root;
+}
+
+static void
+snapshot_done( fd_replay_tile_t * ctx ) {
+  static ulong wfs_metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  volatile ulong * saved = fd_metrics_tl;
+  fd_metrics_tl      = wfs_metrics;
+  mock_snapshot_boot = 1;
+  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
+  mock_snapshot_boot = 0;
+  fd_metrics_tl      = saved;
+}
+
+static void
+test_wfs_auto_override( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t  ctx[1];
+  static fd_runtime_stack_t stack[1];
+
+  /* WFS enabled + slot match: override fires.  All three WFS legs (slot,
+     bank hash, shred version) must be set for wfs_enabled to be valid,
+     matching fd_wfs_configured. */
+  memset( ctx, 0, sizeof(*ctx) );
+  fd_bank_t * root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
+  ctx->wfs_enabled                    = 1;
+  ctx->wfs_hash_is_zero               = 0;
+  ctx->expected_bank_hash             = root->f.bank_hash;
+  ctx->wait_for_supermajority_at_slot = 100UL;
+  ctx->expected_shred_version         = 1234;
+  ctx->wait_for_vote_to_start_leader  = 1;
+  snapshot_done( ctx );
+  FD_TEST( !ctx->wait_for_vote_to_start_leader );
+
+  fd_wksp_reset( wksp, 42U );
+
+  /* WFS enabled + snapshot ahead of WFS slot: WFS skipped, flag preserved. */
+  memset( ctx, 0, sizeof(*ctx) );
+  root = setup_snapshot_test_ctx( ctx, wksp, stack, 200UL );
+  ctx->wfs_enabled                    = 1;
+  ctx->wfs_hash_is_zero               = 0;
+  ctx->expected_bank_hash             = root->f.bank_hash;
+  ctx->wait_for_supermajority_at_slot = 100UL;
+  ctx->expected_shred_version         = 1234;
+  ctx->wait_for_vote_to_start_leader  = 1;
+  snapshot_done( ctx );
+  FD_TEST( ctx->wait_for_vote_to_start_leader );
+  FD_TEST( ctx->wfs_complete );
+
+  fd_wksp_reset( wksp, 42U );
+
+  /* WFS disabled: flag preserved. */
+  memset( ctx, 0, sizeof(*ctx) );
+  setup_snapshot_test_ctx( ctx, wksp, stack, 0UL );
+  ctx->wait_for_vote_to_start_leader = 1;
+  snapshot_done( ctx );
+  FD_TEST( ctx->wait_for_vote_to_start_leader );
+
+  /* WFS ERROR case (snapshot slot < WFS slot) is not tested here
+     because on_snapshot_message calls FD_LOG_ERR which terminates
+     the process. */
+
+  FD_LOG_NOTICE(( "pass: test_wfs_auto_override" ));
+}
+
+static void
+test_wfs_done_idempotency( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t   ctx[1];
+  static fd_runtime_stack_t stack[1];
+
+  /* Set up a MATCH scenario: wfs_complete starts at 0 after
+     snapshot_done because MATCH waits for the gossip WFS_DONE signal. */
+  memset( ctx, 0, sizeof(*ctx) );
+  fd_bank_t * root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
+  ctx->wfs_enabled                    = 1;
+  ctx->wfs_hash_is_zero               = 0;
+  ctx->expected_bank_hash             = root->f.bank_hash;
+  ctx->wait_for_supermajority_at_slot = 100UL;
+  ctx->expected_shred_version         = 1234;
+  ctx->wait_for_vote_to_start_leader  = 1;
+  snapshot_done( ctx );
+  FD_TEST( !ctx->wfs_complete );
+
+  /* Register a gossip_out input so returnable_frag dispatches to
+     the IN_KIND_GOSSIP_OUT handler. */
+  ctx->in_kind[ 1UL ] = IN_KIND_GOSSIP_OUT;
+
+  /* First WFS_DONE: transitions wfs_complete from 0 to 1. */
+  returnable_frag( ctx, 1UL, 0UL, FD_GOSSIP_UPDATE_TAG_WFS_DONE,
+                   0UL, 0UL, 0UL, 0UL,
+                   fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
+  FD_TEST( ctx->wfs_complete==1 );
+
+  /* Second WFS_DONE: idempotent, the early break fires. */
+  returnable_frag( ctx, 1UL, 0UL, FD_GOSSIP_UPDATE_TAG_WFS_DONE,
+                   0UL, 0UL, 0UL, 0UL,
+                   fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
+  FD_TEST( ctx->wfs_complete==1 );
+
+  FD_LOG_NOTICE(( "pass: test_wfs_done_idempotency" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2780,6 +2943,8 @@ main( int     argc,
   test_leader_fec_payload_retained( wksp );          fd_wksp_reset( wksp, 42U );
   test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );
   test_snapshot_intervals_use_block_height();
+  test_wfs_auto_override( wksp );                   fd_wksp_reset( wksp, 42U );
+  test_wfs_done_idempotency( wksp );                fd_wksp_reset( wksp, 42U );
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );

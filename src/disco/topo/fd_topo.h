@@ -276,13 +276,14 @@ struct fd_topo_tile {
       uint   net_ip_addr; /* net.ip_addr fallback when gossip_host empty */
       uint   ip_addr;
       uint   bind_ip_addr;
-      ushort shred_version;
+      ushort expected_shred_version;
 
       ulong  max_entries;
       ulong  max_purged;
       ulong  max_failed;
 
       fd_hash_t wait_for_supermajority_with_bank_hash;
+      ulong     wait_for_supermajority_at_slot;
 
       struct {
         ushort gossip;
@@ -497,6 +498,7 @@ struct fd_topo_tile {
       char  vote_account_path[ PATH_MAX ];
 
       fd_hash_t wait_for_supermajority_with_bank_hash;
+      ulong     wait_for_supermajority_at_slot;
       ushort expected_shred_version;
       int    wait_for_vote_to_start_leader;
 
@@ -631,7 +633,9 @@ struct fd_topo_tile {
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;
-      int   wait_for_supermajority;
+      ulong wait_for_supermajority_at_slot;
+      int   wait_for_supermajority_hash_is_zero;
+      ushort expected_shred_version;
       ulong max_live_slots;
       char  identity_key[ PATH_MAX ];
       char  vote_account[ PATH_MAX ];
@@ -671,7 +675,7 @@ struct fd_topo_tile {
 #define FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED (FD_TOPO_MAX_RESOLVED_ADDRS*FD_TOPO_SNAPSHOTS_SERVERS_MAX)
 
     struct fd_topo_tile_snapct {
-      char snapshots_path[ PATH_MAX ];
+      char  snapshots_path[ PATH_MAX ];
 
       ulong entrypoints_cnt;
       char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
@@ -697,6 +701,9 @@ struct fd_topo_tile {
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
       long wait_for_peers_timeout_nanos;
+      ulong  wfs_slot;
+      int    wfs_hash_is_zero;
+      ushort wfs_shred_version;
     } snapct;
 
     struct {
@@ -706,6 +713,9 @@ struct fd_topo_tile {
     } snapld;
 
     struct {
+      ulong     wait_for_supermajority_at_slot;
+      fd_hash_t wait_for_supermajority_with_bank_hash;
+      ushort    expected_shred_version;
       ulong max_live_slots;
       ulong accdb_obj_id;
       ulong txncache_obj_id;

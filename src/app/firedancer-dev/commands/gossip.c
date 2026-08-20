@@ -72,19 +72,19 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
     fd_cstr_ncpy( gossip_tile->gossip.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(gossip_tile->gossip.entrypoints[ i ]) );
   }
   fd_cstr_ncpy( gossip_tile->gossip.gossip_host, config->firedancer.gossip.host, sizeof(gossip_tile->gossip.gossip_host) );
-  gossip_tile->gossip.net_ip_addr          = config->net.ip_addr;
-  gossip_tile->gossip.ip_addr              = config->net.ip_addr;
-  gossip_tile->gossip.shred_version        = config->consensus.expected_shred_version;
-  gossip_tile->gossip.max_entries          = config->tiles.gossip.max_entries;
-  gossip_tile->gossip.ports.gossip         = config->gossip.port;
-  gossip_tile->gossip.ports.votor          = 0;
-  gossip_tile->gossip.ports.repair         = 0;
-  gossip_tile->gossip.ports.rserve         = 0;
-  gossip_tile->gossip.ports.tpu            = 0;
-  gossip_tile->gossip.ports.tpu_quic       = 0;
-  gossip_tile->gossip.ports.tvu            = 0;
-  gossip_tile->gossip.ports.tvu_quic       = 0;
-  gossip_tile->gossip.boot_timestamp_nanos = config->boot_timestamp_nanos;
+  gossip_tile->gossip.net_ip_addr            = config->net.ip_addr;
+  gossip_tile->gossip.ip_addr                = config->net.ip_addr;
+  gossip_tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
+  gossip_tile->gossip.max_entries            = config->tiles.gossip.max_entries;
+  gossip_tile->gossip.ports.gossip           = config->gossip.port;
+  gossip_tile->gossip.ports.votor            = 0;
+  gossip_tile->gossip.ports.repair           = 0;
+  gossip_tile->gossip.ports.rserve           = 0;
+  gossip_tile->gossip.ports.tpu              = 0;
+  gossip_tile->gossip.ports.tpu_quic         = 0;
+  gossip_tile->gossip.ports.tvu              = 0;
+  gossip_tile->gossip.ports.tvu_quic         = 0;
+  gossip_tile->gossip.boot_timestamp_nanos   = config->boot_timestamp_nanos;
 
   fd_topob_wksp( topo, "gossvf" );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {

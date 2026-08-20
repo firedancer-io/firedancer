@@ -49,7 +49,6 @@ struct fd_gossip_tile_ctx {
   fd_gossip_out_ctx_t gossip_out[ 1 ];
   fd_gossip_out_ctx_t gossvf_out[ 1 ];
   fd_gossip_out_ctx_t sign_out[ 1 ];
-  fd_gossip_out_ctx_t gossip_wfs[ 1 ];
 
   fd_keyguard_client_t keyguard_client[ 1 ];
   fd_keyswitch_t *     keyswitch;
@@ -76,6 +75,15 @@ struct fd_gossip_tile_ctx {
      being active on gossip, so we don't double count their stake. */
   uchar wfs_active[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
   int   wfs_state;
+
+  /* Gossip needs to be able to classify WFS mode as MATCH vs NOOP.
+     wfs_boot_slot is the effective boot slot captured from the latest
+     snapshot manifest (ULONG_MAX until then). */
+  ulong     wfs_slot;
+  fd_hash_t wfs_bank_hash;
+  ushort    wfs_shred_version;
+  int       wfs_hash_is_zero;
+  ulong     wfs_boot_slot;
 
   struct {
     ulong online;

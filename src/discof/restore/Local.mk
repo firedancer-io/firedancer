@@ -21,6 +21,7 @@ $(call make-unit-test,test_zstd_frame,utils/test_zstd_frame,fd_discof fd_ballet 
 $(call run-unit-test,test_zstd_frame)
 $(call make-fuzz-test,fuzz_zstd_frame,utils/fuzz_zstd_frame,fd_discof fd_ballet fd_util)
 endif # FD_HAS_ZSTD
+$(call add-hdrs,utils/fd_wfs.h)
 $(call add-objs,utils/fd_ssparse,fd_discof)
 $(call add-objs,utils/fd_ssmanifest_parser,fd_discof)
 $(call add-objs,utils/fd_ssload,fd_discof)
@@ -34,11 +35,13 @@ $(call make-unit-test,test_ssping,utils/test_ssping,fd_discof fd_flamenco fd_bal
 $(call make-unit-test,test_ssload,utils/test_ssload,fd_discof fd_disco fd_flamenco fd_ballet fd_tango fd_util)
 $(call make-unit-test,test_ssarchive,utils/test_ssarchive,fd_discof fdctl_platform fd_ballet fd_util)
 $(call make-unit-test,test_ssparse,utils/test_ssparse,fd_discof fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_wfs,utils/test_wfs,fd_discof fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_slot_delta_parser)
 $(call run-unit-test,test_sspeer_selector)
 $(call run-unit-test,test_ssarchive)
 $(call run-unit-test,test_ssparse)
 $(call run-unit-test,test_ssload)
+$(call run-unit-test,test_wfs)
 
 $(call make-fuzz-test,fuzz_snapshot_parser,utils/fuzz_snapshot_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_ssmanifest_parser,utils/fuzz_ssmanifest_parser,fd_discof fd_flamenco fd_ballet fd_util)

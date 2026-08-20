@@ -1423,19 +1423,20 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
 
     fd_cstr_ncpy( tile->gossip.gossip_host, config->firedancer.gossip.host, sizeof(tile->gossip.gossip_host) );
-    tile->gossip.net_ip_addr = config->net.ip_addr;
-    tile->gossip.ip_addr     = config->net.ip_addr;
-    tile->gossip.bind_ip_addr        = config->net.ip_addr;
+    tile->gossip.net_ip_addr            = config->net.ip_addr;
+    tile->gossip.ip_addr                = config->net.ip_addr;
+    tile->gossip.bind_ip_addr           = config->net.ip_addr;
     fd_cstr_ncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
-    tile->gossip.shred_version       = config->consensus.expected_shred_version;
-    tile->gossip.max_entries         = config->tiles.gossip.max_entries;
-    tile->gossip.boot_timestamp_nanos = config->boot_timestamp_nanos;
+    tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
+    tile->gossip.max_entries            = config->tiles.gossip.max_entries;
+    tile->gossip.boot_timestamp_nanos   = config->boot_timestamp_nanos;
 
     if( FD_LIKELY( !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) ) ) {
       memset( tile->gossip.wait_for_supermajority_with_bank_hash.uc, 0, sizeof(fd_pubkey_t) );
     } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, tile->gossip.wait_for_supermajority_with_bank_hash.uc ) ) ) {
       FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] failed to parse" ));
     }
+    tile->gossip.wait_for_supermajority_at_slot = config->firedancer.consensus.wait_for_supermajority_at_slot;
 
     tile->gossip.ports.gossip           = config->gossip.port;
     tile->gossip.ports.tvu              = config->tiles.shred.shred_listen_port;
@@ -1464,6 +1465,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.max_retry_abort                      = config->firedancer.snapshots.max_retry_abort;
     tile->snapct.wait_for_peers_timeout_nanos         = (long)( config->firedancer.snapshots.wait_for_peers_timeout_seconds * (ulong)1e9 );
+    tile->snapct.wfs_slot                             = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    tile->snapct.wfs_hash_is_zero                     = !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
+    tile->snapct.wfs_shred_version                    = config->consensus.expected_shred_version;
     tile->snapct.sources.gossip.allow_any             = config->firedancer.snapshots.sources.gossip.allow_any;
     tile->snapct.sources.gossip.allow_list_cnt        = config->firedancer.snapshots.sources.gossip.allow_list_cnt;
     tile->snapct.sources.gossip.block_list_cnt        = config->firedancer.snapshots.sources.gossip.block_list_cnt;
@@ -1494,6 +1498,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
+    tile->snapin.wait_for_supermajority_at_slot = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    if( FD_LIKELY( !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) ) ) {
+      memset( tile->snapin.wait_for_supermajority_with_bank_hash.uc, 0, sizeof(fd_pubkey_t) );
+    } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, tile->snapin.wait_for_supermajority_with_bank_hash.uc ) ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] failed to parse" ));
+    }
+    tile->snapin.expected_shred_version = config->consensus.expected_shred_version;
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
@@ -1562,6 +1573,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, tile->replay.wait_for_supermajority_with_bank_hash.uc ) ) ) {
       FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] failed to parse" ));
     }
+    tile->replay.wait_for_supermajority_at_slot = config->firedancer.consensus.wait_for_supermajority_at_slot;
 
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
     tile->replay.full_snapshot_interval_blocks        = config->firedancer.snapshots.full_snapshot_interval_blocks;
@@ -1624,7 +1636,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->tower.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
-    tile->tower.wait_for_supermajority = !!strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
+    tile->tower.wait_for_supermajority_at_slot      = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    tile->tower.wait_for_supermajority_hash_is_zero = !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
+    tile->tower.expected_shred_version              = config->consensus.expected_shred_version;
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     fd_cstr_ncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
