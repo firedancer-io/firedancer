@@ -496,9 +496,9 @@ ag_pool_add_block( ag_pool_t *           self,
   if( FD_LIKELY( parent_state && ag_slot_state_is_notar_fallback_or_stronger( parent_state, parent_hash ) ) ) {
     int output = ag_slot_state_notify_parent_certified( slot_state( self, slot ), block_hash );
     switch( output ) {
-    case -1: repair_channel_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = { .slot = slot, .hash = *block_hash } } ); break;
-    case  0:
-    case  1: pool_channel_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = { .slot = slot, .hash = *block_hash } } ); break;
+    case -1: repair_channel_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = { .slot = slot, .hash = *block_hash } } ); return;
+    case  0: break;
+    case  1: pool_channel_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = { .slot = slot, .hash = *block_hash } } ); return;
     }
   }
 

@@ -29,6 +29,13 @@ contains_slot( ag_pool_t const * pool,
   return slot_state_map_ele_query_const( pool->slot_states->map, &slot, NULL, pool->slot_states->pool )!=NULL;
 }
 
+static ag_block_id_t const *
+s2n_waiting_child( ag_pool_t const *     pool,
+                   ag_block_id_t const * parent ) {
+  s2n_waiting_parent_cert_ele_t const * ele = s2n_waiting_parent_cert_map_ele_query_const( pool->s2n_waiting_parent_cert->map, parent, NULL, pool->s2n_waiting_parent_cert->pool );
+  return ele ? &ele->child : NULL;
+}
+
 static ag_epoch_info_t const *
 epoch_info( ag_pool_t const * pool,
             ulong             slot ) {
@@ -897,6 +904,68 @@ test_safe_to_notar_fast_final_cert_only( fd_wksp_t * wksp ) {
   teardown_pool( pool );
 }
 
+/* Firedancer-only test */
+
+static void
+test_safe_to_notar_awaiting_votes( fd_wksp_t * wksp ) {
+  ag_pool_t * pool = setup_pool( wksp );
+
+  ulong     slot1 = 1UL;
+  ulong     slot2 = 2UL;
+  fd_hash_t hash1 = random_hash();
+  fd_hash_t hash2 = random_hash();
+
+  notar_cert( pool, slot1, &hash1, 7UL );
+
+  ag_block_id_t child  = { .slot = slot2, .hash = hash2 };
+  ag_block_id_t parent = { .slot = slot1, .hash = hash1 };
+  ag_pool_add_block( pool, &child, &parent );
+
+  FD_TEST( !drained_safe_to_notar( pool, slot2, &hash2 ) );
+
+  ag_block_id_t const * waiting = s2n_waiting_child( pool, &parent );
+  FD_TEST( waiting && ag_block_id_eq( waiting, &child ) );
+
+  teardown_pool( pool );
+}
+
+/* Firedancer-only test */
+
+static void
+test_safe_to_notar_not_queued_for_parent_cert( fd_wksp_t * wksp ) {
+  ag_pool_t * pool = setup_pool( wksp );
+
+  ulong     slot1  = 1UL;
+  ulong     slot2  = 2UL;
+  fd_hash_t hash1  = random_hash();
+  fd_hash_t hash_a = random_hash();
+  fd_hash_t hash_b = random_hash();
+
+  notar_cert( pool, slot1, &hash1, 7UL );
+
+  /* Our own skip vote plus a weak quorum notarizing hash_a makes
+     hash_a safe-to-notar the instant its parent is known certified.
+     hash_b has no votes, so it is merely awaiting votes. */
+
+  ag_vote_t skip; ag_vote_new_skip( &skip, slot2, g_sk[0], 0, TEST_SHRED_VERSION );
+  FD_TEST( ag_pool_add_vote( pool, &skip )==AG_POOL_SUCCESS );
+  add_notar_votes( pool, slot2, &hash_a, 1UL, 6UL );
+  drain_channels( pool );
+
+  ag_block_id_t parent  = { .slot = slot1, .hash = hash1  };
+  ag_block_id_t child_a = { .slot = slot2, .hash = hash_a };
+  ag_block_id_t child_b = { .slot = slot2, .hash = hash_b };
+  ag_pool_add_block( pool, &child_b, &parent );
+  ag_pool_add_block( pool, &child_a, &parent );
+
+  FD_TEST( drained_safe_to_notar( pool, slot2, &hash_a ) );
+
+  ag_block_id_t const * waiting = s2n_waiting_child( pool, &parent );
+  FD_TEST( waiting && ag_block_id_eq( waiting, &child_b ) );
+
+  teardown_pool( pool );
+}
+
 static void
 test_handle_invalid_votes( fd_wksp_t * wksp ) {
   ag_pool_t * pool = setup_pool( wksp );
@@ -1169,6 +1238,8 @@ main( int     argc,
   test_parent_ready_upon_finalization                  ( wksp );
   test_safe_to_notar_notar_cert_only                   ( wksp );
   test_safe_to_notar_fast_final_cert_only              ( wksp );
+  test_safe_to_notar_awaiting_votes                    ( wksp );
+  test_safe_to_notar_not_queued_for_parent_cert        ( wksp );
 
   test_handle_invalid_votes                            ( wksp );
   test_hash_capacity                                   ( wksp );
