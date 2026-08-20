@@ -769,7 +769,7 @@ fd_blake3_hash( void const * data,
 #if FD_BLAKE3_PARA_MAX>1
   for(;;) {
     fd_blake3_op_t op[1];
-    if( !fd_blake3_prepare_fast( s, tbl, op, FD_BLAKE3_PARA_MAX, 4 ) )
+    if( !fd_blake3_prepare_fast( s, tbl, op, FD_BLAKE3_PARA_MAX, FD_BLAKE3_PARA_MAX ) )
       break;
 #if FD_HAS_AVX512
     fd_blake3_avx512_compress16_fast( op->msg, op->out, op->counter, op->flags );

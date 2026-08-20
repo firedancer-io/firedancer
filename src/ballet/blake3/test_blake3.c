@@ -1,4 +1,6 @@
 #include "../fd_ballet.h"
+#include <stdlib.h>
+#include <string.h>
 #include "fd_blake3.h"
 #include "fd_blake3_private.h"
 #include "fd_blake3_test_vector.c"
@@ -771,6 +773,32 @@ struct test_fn {
   void (* fn)( void );
 };
 
+static void
+test_blake3_hash_para_tail( void ) {
+  ulong const para = (ulong)FD_BLAKE3_PARA_MAX;
+
+  for( ulong chunks=1UL; chunks<=3UL*para; chunks++ ) {
+    ulong sz = chunks<<FD_BLAKE3_CHUNK_LG_SZ;
+
+    uchar * data = malloc( sz );
+    FD_TEST( data );
+    for( ulong i=0UL; i<sz; i++ ) data[i] = (uchar)( i*7UL+chunks );
+
+    uchar one_shot[ 32 ];
+    fd_blake3_hash( data, sz, one_shot );
+
+    fd_blake3_t _sha[1];
+    fd_blake3_t * sha = fd_blake3_join( fd_blake3_new( _sha ) );
+    FD_TEST( sha );
+    uchar streamed[ 32 ];
+    fd_blake3_fini( fd_blake3_append( fd_blake3_init( sha ), data, sz ), streamed );
+    fd_blake3_delete( fd_blake3_leave( sha ) );
+
+    FD_TEST( !memcmp( one_shot, streamed, 32UL ) );
+    free( data );
+  }
+}
+
 static struct test_fn const tests[] = {
   { "lthash",           test_lthash },
   { "constructor",      test_constructor },
@@ -778,6 +806,7 @@ static struct test_fn const tests[] = {
   { "rand_fixtures",    test_rand_fixtures },
   { "reduced",          test_reduced },
   { "reduced xof2048",  test_reduced_xof2048 },
+  { "hash_para_tail",   test_blake3_hash_para_tail },
 
 #if FD_HAS_AVX512
   { "test avx512_compress16_fast",         test_avx512_compress16_fast },
