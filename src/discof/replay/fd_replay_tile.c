@@ -3673,13 +3673,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
   ctx->snapmk.active                = 0;
   ctx->snapmk.supported             = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
-  ctx->snapmk.scheduled_at          = ULONG_MAX;
+  ctx->snapmk.scheduled_at          = tile->replay.create_snapshot_slot ? tile->replay.create_snapshot_slot : ULONG_MAX;
   ctx->snapmk.full_interval         = tile->replay.full_snapshot_interval_slots;
   ctx->snapmk.next_full_slot        = ULONG_MAX;
   ctx->snapmk.incremental_interval  = tile->replay.incremental_snapshot_interval_slots;
   ctx->snapmk.next_incremental_slot = ULONG_MAX;
   ctx->snapmk.base_slot             = ULONG_MAX;
   if( FD_UNLIKELY( !ctx->snapmk.supported ) ) {
+    ctx->snapmk.scheduled_at         = ULONG_MAX;
     ctx->snapmk.full_interval        = 0UL;
     ctx->snapmk.incremental_interval = 0UL;
   }

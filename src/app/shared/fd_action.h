@@ -75,7 +75,8 @@ union fdctl_args {
   } dev;
 
   struct {
-    int no_watch;
+    int   no_watch;
+    ulong snapshot_slot; /* 0=disabled */
   } backtest;
 
   struct {
