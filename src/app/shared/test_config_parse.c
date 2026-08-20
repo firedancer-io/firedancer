@@ -1,5 +1,6 @@
 #include "fd_config_private.h"
 #include "../../ballet/toml/fd_toml.h"
+#include "../../util/fd_boolau.h"
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -68,6 +69,36 @@ vote_history_path_is_valid( char const * path ) {
     uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
     FD_TEST( fd_toml_parse( toml, strlen( toml ), pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
     _exit( fd_config_extract_pod( pod, config )!=config ); /* exits 1 on an invalid path */
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
+
+/* Runs fd_config_validate_consensus on the given combination and
+   reports whether it was accepted.  It exits the process on rejection,
+   so run it in a child. */
+
+static int
+consensus_is_valid( int          is_firedancer,
+                    ulong        wfs_slot,
+                    char const * bank_hash,
+                    ushort       shred_version,
+                    int          leader_gate ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    static config_t config[1];
+    config->is_firedancer = is_firedancer;
+    config->firedancer.consensus.wait_for_supermajority_at_slot = wfs_slot;
+    fd_cstr_ncpy( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, bank_hash,
+                  sizeof(config->firedancer.consensus.wait_for_supermajority_with_bank_hash) );
+    config->consensus.expected_shred_version         = shred_version;
+    config->consensus.wait_for_vote_to_start_leader  = leader_gate;
+    fd_config_validate_consensus( config );
+    _exit( 0 );
   }
 
   int status = 0;
@@ -233,6 +264,40 @@ main( int     argc,
   FD_TEST(  vote_history_path_is_valid( "/data/vote_history" ) );
   FD_TEST(  vote_history_path_is_valid( "/data/"             ) );
   FD_TEST( !vote_history_path_is_valid( "data/vote_history"  ) ); /* relative */
+
+
+  /* The WFS tuple and the leader gate.  A mistake here either
+     deadlocks a coordinated restart or rejects a valid non-WFS
+     config, so pin the whole matrix. */
+
+# define HASH "7LSPxRVx5cX1cPVgeEDqB6o2YjMMnH21CxZywpeesWiC"
+
+  /* Firedancer, WFS fully configured: an explicit true deadlocks. */
+  FD_TEST( !consensus_is_valid( 1, 100UL, HASH, 1234, FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 1, 100UL, HASH, 1234, FD_BOOLAU_AUTO  ) );
+  FD_TEST(  consensus_is_valid( 1, 100UL, HASH, 1234, FD_BOOLAU_FALSE ) );
+
+  /* Firedancer, WFS off: true is the normal setting and stays legal. */
+  FD_TEST(  consensus_is_valid( 1, 0UL, "", 0,    FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 1, 0UL, "", 1234, FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 1, 0UL, "", 0,    FD_BOOLAU_AUTO  ) );
+
+  /* Slot and bank hash are configured together or not at all, and a
+     bank hash needs a shred version to classify against. */
+  FD_TEST( !consensus_is_valid( 1, 100UL, "",   1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( 1, 0UL,   HASH, 1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( 1, 100UL, HASH, 0,    FD_BOOLAU_AUTO ) );
+
+  /* An all-zeros bank hash, and a slot no boot could ever match. */
+  FD_TEST( !consensus_is_valid( 1, 100UL, "11111111111111111111111111111111", 1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( 1, ULONG_MAX, HASH, 1234, FD_BOOLAU_AUTO ) );
+
+  /* Frankendancer cannot resolve "auto", but takes either boolean. */
+  FD_TEST( !consensus_is_valid( 0, 0UL, "", 0, FD_BOOLAU_AUTO  ) );
+  FD_TEST(  consensus_is_valid( 0, 0UL, "", 0, FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 0, 0UL, "", 0, FD_BOOLAU_FALSE ) );
+
+# undef HASH
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

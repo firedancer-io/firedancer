@@ -25,6 +25,7 @@
 #include "../../../../disco/waker/fd_waker.h"
 #include "../../../../disco/sleep/fd_sleep.h"
 #include "../../../../util/pod/fd_pod_format.h"
+#include "../../../../discof/restore/utils/fd_wfs.h"
 
 #include "../configure/configure.h"
 #include "../configure/fd_cpu_isolation.h"
@@ -1303,7 +1304,10 @@ initialize_snapshot_fds( config_t const * config ) {
   int dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
   fd_snap_pool_layout_t layout = fd_snap_pool_layout( config->firedancer.snapshots.max_full_snapshots_to_keep,
                                                       config->firedancer.snapshots.max_incremental_snapshots_to_keep,
-                                                      config->firedancer.snapshots.incremental_snapshots,
+                                                      fd_wfs_needs_incr( config->firedancer.snapshots.incremental_snapshots,
+                                                                         config->firedancer.consensus.wait_for_supermajority_at_slot,
+                                                                         !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ),
+                                                                         (ulong)config->consensus.expected_shred_version ),
                                                       download_enabled );
   ulong snap_full_max     = layout.full_max;
   ulong snap_incr_max     = layout.incr_max;

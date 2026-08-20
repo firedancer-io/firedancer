@@ -4,6 +4,7 @@
 #include "utils/fd_ssmsg.h"
 #include "utils/fd_ssparse.h"
 #include "utils/fd_ssmanifest_parser.h"
+#include "utils/fd_wfs.h"
 #include "utils/fd_slot_delta_parser.h"
 #include "../../util/fd_hash32.h"
 #include "../../util/bits/fd_float.h"
@@ -348,6 +349,11 @@ struct fd_snapin_tile {
     uchar owner [ 32UL ];
     uchar data[ FD_RUNTIME_ACC_SZ_MAX ] __attribute__((aligned(64)));
   } staged;
+
+  ulong     wfs_slot;
+  fd_hash_t wfs_bank_hash;
+  ushort    wfs_shred_version;
+  int       wfs_hash_is_zero;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -1250,6 +1256,44 @@ process_manifest( fd_snapin_tile_t *  ctx,
     /* https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/bank.rs#L4682 */
     transition_malformed( ctx, stem );
     return;
+  }
+
+  /* Classify this manifest against WFS (see fd_wfs.h).  A verdict on a
+     full is provisional (an incremental may supersede it); only on an
+     incremental is it final, so ERROR rejects only an incremental. */
+  int wfs_mode = fd_wfs_mode( ctx->wfs_slot, ctx->wfs_hash_is_zero, (ulong)ctx->wfs_shred_version, manifest->slot );
+  switch( wfs_mode ) {
+    case FD_WFS_MODE_ERROR: {
+      if( FD_UNLIKELY( !ctx->full ) ) {
+        FD_LOG_WARNING(( "incremental snapshot manifest slot %lu is behind "
+                         "[consensus.wait_for_supermajority_at_slot] %lu, contradicting the slot it was "
+                         "advertised at; rejecting this snapshot",
+                         manifest->slot, ctx->wfs_slot ));
+        transition_malformed( ctx, stem );
+        return;
+      }
+      FD_LOG_NOTICE(( "full snapshot manifest slot %lu is behind "
+                      "[consensus.wait_for_supermajority_at_slot] %lu; an incremental snapshot must "
+                      "bridge the gap or the boot will be rejected",
+                      manifest->slot, ctx->wfs_slot ));
+      break;
+    }
+    case FD_WFS_MODE_NOOP: {
+      FD_BASE58_ENCODE_32_BYTES( ctx->wfs_bank_hash.uc, expected_hash_enc );
+      FD_LOG_WARNING(( "%s snapshot manifest slot %lu is ahead of [consensus.wait_for_supermajority_at_slot] %lu "
+                       "(wait_for_supermajority_with_bank_hash=%s, expected_shred_version=%lu); configured slot and bank hash not verified",
+                       ctx->full ? "full" : "incremental",
+                       manifest->slot, ctx->wfs_slot, expected_hash_enc, (ulong)ctx->wfs_shred_version ));
+      break;
+    }
+    case FD_WFS_MODE_MATCH:
+      /* Replay verifies the bank hash of the slot we boot at. */
+    case FD_WFS_MODE_DISABLED:
+    case FD_WFS_MODE_UNRESOLVED:
+      break;
+    default:
+      FD_LOG_CRIT(( "unexpected WFS mode %d (%s) at manifest slot %lu",
+                    wfs_mode, fd_wfs_mode_str( wfs_mode ), manifest->slot ));
   }
 
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
@@ -2385,6 +2429,11 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memset( &ctx->lead.recovery.accdb_metadata, 0, sizeof(ctx->lead.recovery.accdb_metadata) );
   fd_memset( &ctx->lead.flags, 0, sizeof(ctx->lead.flags) );
   ctx->lead.boot_timestamp = fd_log_wallclock();
+
+  ctx->wfs_slot          = tile->snapin.wait_for_supermajority_at_slot;
+  ctx->wfs_bank_hash     = tile->snapin.wait_for_supermajority_with_bank_hash;
+  ctx->wfs_shred_version = tile->snapin.expected_shred_version;
+  ctx->wfs_hash_is_zero  = !memcmp( ctx->wfs_bank_hash.uc, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) );
 }
 
 /* There are 3 output links that affect the calculation of STEM_BURST:

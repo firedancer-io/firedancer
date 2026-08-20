@@ -79,12 +79,81 @@ test_switch_drains_txsend( void ) {
   free( mem );
 }
 
+
+static uchar * manifest_mem;
+
+/* Drives snapin_manif: the manifest carries the boot slot, the
+   FD_SSMSG_DONE that follows classifies it (see fd_wfs.h). */
+
+static void
+wfs_manifest( ulong slot ) {
+  fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)manifest_mem;
+  manifest->slot              = slot;
+  manifest->vote_accounts_len = 0UL;
+  FD_TEST( !returnable_frag( &ctx, 1UL, 0UL, fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ), 0UL,
+                             sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL, NULL ) );
+}
+
+static void
+wfs_done( void ) {
+  FD_TEST( !returnable_frag( &ctx, 1UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+}
+
+/* Boots with the given WFS config, feeds a manifest at boot_slot and
+   the DONE after it, and returns the state gossip settles in. */
+
+static int
+wfs_state_for( ulong  wfs_slot,
+               int    hash_is_zero,
+               ushort shred_version,
+               ulong  boot_slot ) {
+  ctx.wfs_slot          = wfs_slot;
+  ctx.wfs_hash_is_zero  = hash_is_zero;
+  ctx.wfs_shred_version = shred_version;
+  ctx.wfs_boot_slot     = ULONG_MAX;
+  ctx.wfs_state         = fd_int_if( fd_wfs_configured( wfs_slot, hash_is_zero, (ulong)shred_version ),
+                                     FD_GOSSIP_WFS_STATE_INIT, FD_GOSSIP_WFS_STATE_DONE );
+  ctx.in[ 1 ] = (fd_gossip_in_ctx_t){ .kind  = IN_KIND_SNAPIN_MANIF,
+                                      .mem   = (fd_wksp_t *)manifest_mem,
+                                      .mtu   = sizeof(fd_snapshot_manifest_t) };
+  wfs_manifest( boot_slot );
+  wfs_done();
+  return ctx.wfs_state;
+}
+
+/* Gossip is the only tile that signals the wait is over, so a
+   misclassification here leaves replay waiting forever. */
+
+static void
+test_wfs_state_transitions( void ) {
+  static ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  fd_metrics_tl = metrics;
+
+  /* aligned_alloc requires a size that is a multiple of the alignment. */
+  manifest_mem = aligned_alloc( FD_CHUNK_ALIGN, fd_ulong_align_up( sizeof(fd_snapshot_manifest_t), FD_CHUNK_ALIGN ) );
+  FD_TEST( manifest_mem );
+
+  /* MATCH waits for the supermajority. */
+  FD_TEST( wfs_state_for( 100UL, 0, 1234, 100UL )==FD_GOSSIP_WFS_STATE_WAIT );
+
+  /* NOOP and DISABLED are finished at boot and never signal. */
+  FD_TEST( wfs_state_for( 100UL, 0, 1234, 101UL )==FD_GOSSIP_WFS_STATE_DONE );
+  FD_TEST( wfs_state_for(   0UL, 1,    0, 100UL )==FD_GOSSIP_WFS_STATE_DONE );
+
+  /* ERROR holds at INIT.  Only WAIT can become PUBLISH, so completion
+     is unreachable without ever testing after_credit. */
+  FD_TEST( wfs_state_for( 100UL, 0, 1234, 99UL )==FD_GOSSIP_WFS_STATE_INIT );
+
+  free( manifest_mem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   test_switch_drains_txsend();
+  test_wfs_state_transitions();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

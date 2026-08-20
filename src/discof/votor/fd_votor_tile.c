@@ -29,6 +29,7 @@
 #include "../../waltz/quic/fd_quic_private.h"
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 #include "../replay/fd_replay_tile.h"
+#include "../restore/utils/fd_wfs.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -243,6 +244,13 @@ struct fd_votor_tile {
 
   int           init;
   ag_block_id_t boot_block_id;
+
+  /* Wait-for-supermajority (see fd_wfs.h). */
+
+  ulong  wfs_slot;
+  int    wfs_hash_is_zero;
+  ushort wfs_shred_version;
+  int    wfs_signalled;  /* latch: REPLAY_SIG_WFS_DONE seen */
 
   /* Cluster metadata */
 
@@ -588,6 +596,25 @@ sign_bls( void *         signer_ctx,
   uchar sig_bytes[ FD_BLS_SIG_SZ ];
   fd_keyguard_client_ag_vote_sign( ctx->keyguard_client, sig_bytes, auth_vtr->paths_idx, payload, payload_sz );
   if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
+}
+
+/* votor_wfs_is_green returns whether WFS permits votor to run.  The
+   classifier is a pure function of config, so it takes the configured
+   shred version, never the one ipecho observed.  ERROR is replay's
+   fatal to report, so just hold here. */
+
+static int
+votor_wfs_is_green( fd_votor_tile_t const * ctx ) {
+  int mode = fd_wfs_mode( ctx->wfs_slot, ctx->wfs_hash_is_zero,
+                          (ulong)ctx->wfs_shred_version, ctx->boot_block_id.slot );
+  switch( mode ) {
+    case FD_WFS_MODE_DISABLED:
+    case FD_WFS_MODE_NOOP:       return 1;
+    case FD_WFS_MODE_MATCH:      return ctx->wfs_signalled;
+    case FD_WFS_MODE_UNRESOLVED:
+    case FD_WFS_MODE_ERROR:      return 0;
+    default: FD_LOG_CRIT(( "unexpected WFS mode %d", mode ));
+  }
 }
 
 static int
@@ -1206,7 +1233,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( msg->start_slot, ctx->wait_to_vote_slot ), &ctx->id_key );
 
-  ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
+  ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version && votor_wfs_is_green( ctx );
 }
 
 static void
@@ -1275,15 +1302,21 @@ handle_replay( fd_votor_tile_t *           ctx,
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ctx->boot_block_id = block_id;
       ag_pool_init( ctx->pool, &block_id );
-      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, &block_id, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
-      ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
+      int wfs_green = votor_wfs_is_green( ctx );
+      /* Without ipecho's shred version, init must be deferred. */
+      if( FD_LIKELY( ctx->shred_version ) ) {
+        long now = fd_clock_tile_now( ctx->clock );
+        ag_votor_init( ctx->votor, &block_id, now, ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
+        if( FD_LIKELY( wfs_green ) ) ag_votor_arm_skip_timeouts( ctx->votor, now );
+      }
+      ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version && wfs_green;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, block_id.slot );
     }
     ag_block_info_t block_info = { .parent = parent_block_id };
     memcpy( block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
-    ag_votor_process_replay( ctx->votor, block_id.slot, &block_info );
+    if( FD_LIKELY( ctx->init ) ) ag_votor_process_replay( ctx->votor, block_id.slot, &block_info );
 
     ulong           reward_slot = block_id.slot-AG_REWARD_SLOT_DELTA;
     reward_vote_t * rv          = &ctx->reward_votes[ reward_slot%REWARD_VOTE_MAX ];
@@ -1519,8 +1552,14 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
       for( ulong i=0UL; i<3UL; i++ ) if( FD_LIKELY( epoch_infos[ i ] ) ) ag_votor_set_bls_key( ctx->votor, epoch_slots[ i ], NULL );
     }
     /* If votes and pool events drained close quic conns and update
-       leader tracking. */
-    if( FD_LIKELY( !ag_votor_metrics( ctx->votor ).vote_events_cnt && !ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) {
+       leader tracking.  The pool queue drains only under ctx->init,
+       so waiting on it while held never completes: a late ipecho
+       stalls there, and under WFS ag_pool_init's ParentReady sits in
+       it for the whole wait.  Skipping it is safe because a held
+       votor casts no vote, so the queue holds nothing decided under
+       the old identity. */
+    if( FD_LIKELY( !ag_votor_metrics( ctx->votor ).vote_events_cnt &&
+                   ( !ctx->init || !ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) ) {
       /* Save the votes drained since the halt as the old identity.  The
          admin tile switches the sign tile only after this completes. */
       if( FD_UNLIKELY( ctx->vote_history_pending ) ) vote_history_write( ctx );
@@ -1906,6 +1945,15 @@ before_frag( fd_votor_tile_t * ctx,
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
     if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD ) ) {
+      /* Handled here, not accepted: do not backpressure replay_slot. */
+      if( FD_UNLIKELY( sig==REPLAY_SIG_WFS_DONE && !ctx->wfs_signalled ) ) {
+        ctx->wfs_signalled = 1;
+        FD_LOG_NOTICE(( "wait for supermajority complete, resuming" ));
+        if( FD_LIKELY( votor_wfs_is_green( ctx ) && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && ctx->shred_version ) ) {
+          ag_votor_arm_skip_timeouts( ctx->votor, fd_clock_tile_now( ctx->clock ) );
+          ctx->init = !!ctx->curr_epoch_info;
+        }
+      }
       ctx->replay_in_seq = seq+1UL;
       return 1;
     }
@@ -1975,9 +2023,14 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
-    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, &ctx->boot_block_id, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, (ushort)sig, sign_bls, ctx );
+    int wfs_green = votor_wfs_is_green( ctx ); /* config only, so the assignment below cannot change it */
+    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) {
+      long now = fd_clock_tile_now( ctx->clock );
+      ag_votor_init( ctx->votor, &ctx->boot_block_id, now, ctx->ns_per_slot, (ushort)sig, sign_bls, ctx );
+      if( FD_LIKELY( wfs_green ) ) ag_votor_arm_skip_timeouts( ctx->votor, now );
+    }
     ctx->shred_version = (ushort)sig;
-    ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
+    ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && wfs_green;
     break;
   case IN_KIND_NET: {
     if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) break;
@@ -2112,6 +2165,11 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
 
   ctx->init                      = 0;
+  ctx->boot_block_id             = (ag_block_id_t){ .slot = ULONG_MAX };
+  ctx->wfs_slot                  = tile->votor.wait_for_supermajority_at_slot;
+  ctx->wfs_hash_is_zero          = tile->votor.wait_for_supermajority_hash_is_zero;
+  ctx->wfs_shred_version         = tile->votor.expected_shred_version;
+  ctx->wfs_signalled             = 0;
   ctx->net_tx_cnt                = 0UL;
   ctx->next_leader_slot          = ULONG_MAX;
   ctx->ns_per_slot               = 400000000L; /* until epoch info */

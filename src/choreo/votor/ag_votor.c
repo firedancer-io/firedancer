@@ -388,8 +388,14 @@ ag_votor_init( ag_votor_t *          self,
   self->parent_ready_tracker->root = fd_ulong_sat_sub( ag_first_slot_in_window( fd_ulong_sat_sub( slot, AG_REWARD_SLOT_DELTA ) ), AG_SLOTS_PER_WINDOW );
   ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys, &ready_cnt );
   for( ulong i=0UL; i<ready_cnt; i++ ) ag_parent_ready_tracker_delivered( self->parent_ready_tracker, self->scratch.parent_readys[i].slot );
+}
 
-  set_timeouts( self, ag_first_slot_in_window( slot ) );
+void
+ag_votor_arm_skip_timeouts( ag_votor_t * self,
+                            long         now ) {
+  FD_TEST( self->root!=ULONG_MAX );
+  self->now = fd_long_max( self->now, now );
+  set_timeouts( self, ag_first_slot_in_window( self->root ) );
 }
 
 void

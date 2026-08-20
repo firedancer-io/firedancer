@@ -14,6 +14,7 @@
 #include "../../disco/fd_txn_m.h"
 #include "../tower/fd_tower_tile.h"
 #include "../restore/utils/fd_ssmsg.h"
+#include "../restore/utils/fd_wfs.h"
 
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
@@ -501,13 +502,36 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
 
       if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
-        ctx->wfs_state = FD_GOSSIP_WFS_STATE_WAIT;
+        /* Classify boot against WFS (see fd_wfs.h):
+             MODE_ERROR      -> keep state, never signal WFS_DONE
+             MODE_UNRESOLVED -> error condition
+             MODE_MATCH      -> STATE_WAIT
+             MODE_DISABLED   -> STATE_DONE
+             MODE_NOOP       -> STATE_DONE
+
+           ERROR is fatal, but replay owns that decision. */
+        int wfs_mode = fd_wfs_mode( ctx->wfs_slot, ctx->wfs_hash_is_zero, (ulong)ctx->wfs_shred_version, ctx->wfs_boot_slot );
+        if( FD_UNLIKELY( wfs_mode==FD_WFS_MODE_ERROR ) ) {
+          FD_LOG_WARNING(( "boot slot %lu is behind [consensus.wait_for_supermajority_at_slot] %lu; "
+                           "the supermajority wait will not complete",
+                           ctx->wfs_boot_slot, ctx->wfs_slot ));
+          break;
+        }
+        if( FD_UNLIKELY( wfs_mode==FD_WFS_MODE_UNRESOLVED ) ) {
+          FD_LOG_CRIT(( "snapshot DONE received before any manifest" ));
+        }
+        ctx->wfs_state = fd_int_if( wfs_mode==FD_WFS_MODE_MATCH,
+                                    FD_GOSSIP_WFS_STATE_WAIT, FD_GOSSIP_WFS_STATE_DONE );
         break;
       }
 
       /* FIXME: Replace handling for this when manifest supports larger
          vote and stake account bounds. */
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+
+      /* Latest manifest, not a running max (see fd_wfs.h): a stale max
+         would classify NOOP here against replay's MATCH, and deadlock. */
+      ctx->wfs_boot_slot = manifest->slot;
 
       ulong wfs_stakes_unconverted_cnt = 0UL;
       ctx->wfs_stake.online = 0UL;
@@ -610,7 +634,14 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, ctx->rng_seed, ctx->rng_idx ) ) );
 
-  ctx->wfs_state = fd_int_if( memcmp( tile->gossip.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ), FD_GOSSIP_WFS_STATE_INIT, FD_GOSSIP_WFS_STATE_DONE );
+  /* If WFS is enabled (see fd_wfs.h), start in INIT and let the
+     manifest slot resolve the mode; otherwise immediately DONE. */
+  ctx->wfs_slot          = tile->gossip.wait_for_supermajority_at_slot;
+  ctx->wfs_shred_version = tile->gossip.expected_shred_version;
+  ctx->wfs_boot_slot     = ULONG_MAX;
+  ctx->wfs_hash_is_zero  = tile->gossip.wait_for_supermajority_hash_is_zero;
+  ctx->wfs_state = fd_int_if( fd_wfs_configured( ctx->wfs_slot, ctx->wfs_hash_is_zero, (ulong)ctx->wfs_shred_version ),
+                              FD_GOSSIP_WFS_STATE_INIT, FD_GOSSIP_WFS_STATE_DONE );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ulong sign_in_tile_idx = ULONG_MAX;
@@ -677,7 +708,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_clock_tile_init( ctx->clock );
 
-  ctx->my_contact_info->shred_version = tile->gossip.shred_version;
+  ctx->my_contact_info->shred_version = tile->gossip.expected_shred_version;
 
   ctx->my_contact_info->outset = (ulong)FD_NANOSEC_TO_MICRO( tile->gossip.boot_timestamp_nanos );
 
