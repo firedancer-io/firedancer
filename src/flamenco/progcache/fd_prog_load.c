@@ -75,16 +75,28 @@ fd_prog_load_env_t *
 fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
                             fd_bank_t const *    bank ) {
   fd_features_t const * features     = &bank->f.features;
-  ulong                 bank_slot    = bank->f.slot;
   ulong                 feature_slot = 0UL;
 
-  /* compute the max feature_slot that's active and <= bank_slot */
+#if FD_PROGCACHE_EB_ALWAYS_INVALIDATE
+
+  /* Valid for FD_FEATURE_ACTIVE only because activations land on epoch starts. */
+  feature_slot = fd_epoch_slot0( &bank->f.epoch_schedule, bank->f.epoch );
+
+#else
+
+  /* Max activation slot <= bank_slot.  Signed so DISABLED (ULONG_MAX) reads as
+     -1 and loses the max, and so this vectorizes: vpmaxsq has no unsigned form. */
+  long const * f     = (long const *)features->f;
+  long         limit = (long)bank->f.slot;
+  long         acc   = 0L;
   for( ulong i=0UL; i<FD_FEATURE_ID_CNT; i++ ) {
-    ulong s = features->f[ i ];
-    if( (s!=FD_FEATURE_DISABLED) && (s<=bank_slot) && (s>feature_slot) ) {
-      feature_slot = s;
-    }
+    long s = f[ i ];
+    long v = (s<=limit) ? s : 0L; /* a not-yet-active feature must not win */
+    acc = v>acc ? v : acc;
   }
+  feature_slot = (ulong)acc;
+
+#endif
 
   *env = (fd_prog_load_env_t) {
     .features     = features,
