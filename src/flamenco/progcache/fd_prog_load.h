@@ -47,6 +47,12 @@ fd_prog_versions( fd_features_t const * features,
 
 FD_PROTOTYPES_END
 
+/* Debug only: key on the epoch start slot so every boundary invalidates. */
+
+#ifndef FD_PROGCACHE_EB_ALWAYS_INVALIDATE
+#define FD_PROGCACHE_EB_ALWAYS_INVALIDATE 0
+#endif
+
 struct fd_prog_load_env {
   fd_features_t const * features;
   ulong feature_slot; /* newest feature activated at this slot */
