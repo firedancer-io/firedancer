@@ -94,7 +94,7 @@
 /* Parameters for the snapshot data stream links (snapld_dc,
    snapdc_in).  Producers adapt to the link MTU, which just needs to
    exceed the control structs. */
-#define FD_SNAPSHOT_DATA_DEPTH                 (4096UL)
+#define FD_SNAPSHOT_DATA_DEPTH                 (2048UL)
 #define FD_SNAPSHOT_DATA_MTU                   (65408UL)
 
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
