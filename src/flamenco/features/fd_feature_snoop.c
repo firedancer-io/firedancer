@@ -15,15 +15,22 @@ fd_feature_snoop_account( fd_feature_snoop_t * snoop,
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L42-L44 */
   if( FD_LIKELY( memcmp( owner, fd_solana_feature_program_id.uc, 32UL ) ) ) return;
 
-  /* Resolve the account address to a known feature id (by 8-byte prefix,
-     then confirm the full pubkey). */
-  fd_feature_id_t const * id = fd_feature_id_query( fd_ulong_load_8( pubkey->uc ) );
-  if( FD_UNLIKELY( !id || !fd_pubkey_eq( pubkey, &id->id ) ) ) return;
-
   /* Account data size must be >= FD_FEATURE_SIZEOF (9 bytes).
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L45-L47 */
   fd_feature_t feature[1];
   if( FD_UNLIKELY( data_len<sizeof(fd_feature_t) || !fd_feature_decode( feature, data, data_len ) ) ) return;
+
+  /* Resolve the account address to a known feature id (by 8-byte prefix,
+     then confirm the full pubkey). */
+  fd_feature_id_t const * id = fd_feature_id_query( fd_ulong_load_8( pubkey->uc ) );
+  if( FD_UNLIKELY( !id || !fd_pubkey_eq( pubkey, &id->id ) ) ) {
+    if( FD_UNLIKELY( feature->is_active ) ) {
+      FD_BASE58_ENCODE_32_BYTES( pubkey->uc, addr );
+      FD_LOG_ERR(( "Usupported feature gate %s (activated at slot %lu)",
+                   addr, feature->activation_slot ));
+    }
+    return;
+  }
 
   snoop->present        [ id->index ] = 1;
   snoop->is_active      [ id->index ] = feature->is_active;
