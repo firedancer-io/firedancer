@@ -1,10 +1,7 @@
 #include "ag_votor.c"
 
-#define SLOTS_PER_WINDOW AG_SLOTS_PER_WINDOW
-#define NV               (2UL)
-
+#define NV                 (2UL)
 #define TEST_SLOT_MAX      (64UL)
-
 #define TEST_SHRED_VERSION ((ushort)0x5a5a)
 
 /* Long enough for every timeout of a leader window to come due. */
@@ -15,6 +12,10 @@
     ag_vote_t unused_;                         \
     FD_TEST( !try_recv( (votor), &unused_ ) ); \
   } while( 0 )
+
+#define SCRATCH_MAX (1UL<<18) /* 256 KiB */
+
+static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
 static ag_bls_sec_t      g_sk  [ NV ];
 static ag_validator_info_t g_info[ NV ];
@@ -105,35 +106,31 @@ handle_timeouts( ag_votor_t * votor,
   while( ag_votor_poll_timeout_event( votor, now, &event ) ) ag_votor_handle_timeout_event( votor, &event );
 }
 
+/* The epoch info is nearly 300 KiB, too big for the stack, and only one
+   is ever live, so it gets its own file static rather than a slice of
+   the scratch. */
+
+static ag_epoch_info_t   epoch_info_mem;
 static ag_epoch_info_t * g_epoch_info = NULL;
 
 /* Creates a fresh fully wired-up votor instance. */
 
 static ag_votor_t *
-setup_votor( fd_wksp_t * wksp,
-             long        now ) {
+setup_votor( long now ) {
   create_validators();
-  void * mem = fd_wksp_alloc_laddr( wksp,
-                                    ag_votor_align(),
-                                    ag_votor_footprint( TEST_SLOT_MAX ),
-                                    42UL );
-  FD_TEST( mem );
-  ag_votor_t * votor = ag_votor_join( ag_votor_new( mem, TEST_SLOT_MAX, 42UL, (ushort)0, g_sk[0], TEST_SHRED_VERSION, now ) );
+  FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL, (ushort)0, g_sk[0], TEST_SHRED_VERSION, now ) );
   FD_TEST( votor );
 
-  g_epoch_info = fd_wksp_alloc_laddr( wksp, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t), 42UL );
-  FD_TEST( g_epoch_info );
+  g_epoch_info = &epoch_info_mem;
   ag_epoch_info( g_epoch_info, g_info, NV );
   return votor;
 }
 
 static void
 teardown_votor( ag_votor_t * votor ) {
-  fd_wksp_free_laddr( ag_votor_delete( ag_votor_leave( votor ) ) );
-  if( FD_LIKELY( g_epoch_info ) ) {
-    fd_wksp_free_laddr( g_epoch_info );
-    g_epoch_info = NULL;
-  }
+  ag_votor_delete( ag_votor_leave( votor ) );
+  g_epoch_info = NULL;
 }
 
 /* Notifies the votor of a new block and returns the resulting notar
@@ -161,20 +158,20 @@ send_block_and_expect_notar( ag_votor_t *          votor,
 /* src/consensus/votor.rs::timeouts */
 
 static void
-test_timeouts( fd_wksp_t * wksp ) {
-  ag_votor_t * votor = setup_votor( wksp, 0L );
+test_timeouts( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
 
   /* should vote skip for all slots */
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
 
-  ulong skipped_slots[ SLOTS_PER_WINDOW ];
+  ulong skipped_slots[ AG_SLOTS_PER_WINDOW ];
   ulong skipped_cnt = 0UL;
-  for( ulong s=1UL; s<SLOTS_PER_WINDOW; s++ ) {
+  for( ulong s=1UL; s<AG_SLOTS_PER_WINDOW; s++ ) {
     ag_vote_t msg = recv( votor );
     FD_TEST( msg.kind==AG_VOTE_TYPE_SKIP );
     skipped_slots[ skipped_cnt++ ] = ag_vote_slot( &msg );
   }
-  FD_TEST( skipped_cnt==SLOTS_PER_WINDOW-1UL );
+  FD_TEST( skipped_cnt==AG_SLOTS_PER_WINDOW-1UL );
   for( ulong i=0UL; i<skipped_cnt; i++ ) FD_TEST( skipped_slots[i]==i+1UL );
   FD_TEST_NO_MSG( votor );
 
@@ -184,8 +181,8 @@ test_timeouts( fd_wksp_t * wksp ) {
 /* src/consensus/votor.rs::notar_and_final */
 
 static void
-test_notar_and_final( fd_wksp_t * wksp ) {
-  ag_votor_t *  votor  = setup_votor( wksp, 0L );
+test_notar_and_final( void ) {
+  ag_votor_t *  votor  = setup_votor( 0L );
   ulong         slot   = 1UL;
   ag_block_id_t parent = genesis_block_id();
 
@@ -208,8 +205,8 @@ test_notar_and_final( fd_wksp_t * wksp ) {
 /* src/consensus/votor.rs::notar_out_of_order */
 
 static void
-test_notar_out_of_order( fd_wksp_t * wksp ) {
-  ag_votor_t * votor = setup_votor( wksp, 0L );
+test_notar_out_of_order( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
   ulong slot1 = 1UL;       fd_hash_t hash1; random_hash( &hash1 );
   ulong slot2 = slot1+1UL; fd_hash_t hash2; random_hash( &hash2 );
 
@@ -250,11 +247,11 @@ test_notar_out_of_order( fd_wksp_t * wksp ) {
 /* src/consensus/votor.rs::pending_block_not_notarized_after_skip */
 
 static void
-test_pending_block_not_notarized_after_skip( fd_wksp_t * wksp ) {
-  ag_votor_t * votor = setup_votor( wksp, 0L );
+test_pending_block_not_notarized_after_skip( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
 
   /* first slot of the second leader window; its parent is not ready yet */
-  ulong slot = SLOTS_PER_WINDOW;
+  ulong slot = AG_SLOTS_PER_WINDOW;
   FD_TEST( is_start_of_window( slot ) );
   ag_block_id_t parent = { .slot = slot-1UL }; random_hash( &parent.hash );
 
@@ -296,13 +293,13 @@ test_pending_block_not_notarized_after_skip( fd_wksp_t * wksp ) {
 /* src/consensus/votor.rs::safe_to_notar */
 
 static void
-test_safe_to_notar( fd_wksp_t * wksp ) {
-  ag_votor_t * votor = setup_votor( wksp, 0L );
+test_safe_to_notar( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
   ulong        slot  = 1UL;
 
   /* wait for skip votes */
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
-  for( ulong s=1UL; s<SLOTS_PER_WINDOW; s++ ) {
+  for( ulong s=1UL; s<AG_SLOTS_PER_WINDOW; s++ ) {
     ag_vote_t msg = recv( votor );
     FD_TEST( msg.kind==AG_VOTE_TYPE_SKIP );
   }
@@ -323,8 +320,8 @@ test_safe_to_notar( fd_wksp_t * wksp ) {
 /* src/consensus/votor.rs::safe_to_skip */
 
 static void
-test_safe_to_skip( fd_wksp_t * wksp ) {
-  ag_votor_t *  votor  = setup_votor( wksp, 0L );
+test_safe_to_skip( void ) {
+  ag_votor_t *  votor  = setup_votor( 0L );
   ulong         slot   = 1UL;
   ag_block_id_t parent = genesis_block_id();
 
@@ -345,19 +342,19 @@ test_safe_to_skip( fd_wksp_t * wksp ) {
 /* src/consensus/votor.rs::prunes_to_finalized_window */
 
 static void
-test_prunes_to_finalized_window( fd_wksp_t * wksp ) {
-  ag_votor_t * votor = setup_votor( wksp, 0L );
+test_prunes_to_finalized_window( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
 
   /* finalize a slot that is NOT first in its window and isn't in the
      genesis window */
-  ulong finalized    = SLOTS_PER_WINDOW + 1UL;
+  ulong finalized    = AG_SLOTS_PER_WINDOW + 1UL;
   ulong window_start = first_slot_in_window( finalized );
   FD_TEST( window_start>0UL       );
   FD_TEST( window_start<finalized );
 
   /* populate per-slot state across the previous window and into the next
      one */
-  ulong highest = 2UL*SLOTS_PER_WINDOW;
+  ulong highest = 2UL*AG_SLOTS_PER_WINDOW;
   for( ulong i=1UL; i<=highest; i++ ) {
     ag_event_block_t event = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = i };
     ag_votor_handle_block_event ( votor, &event );
@@ -375,7 +372,7 @@ test_prunes_to_finalized_window( fd_wksp_t * wksp ) {
 
   /* the whole finalized window is kept */
   FD_TEST( min_live_slot( votor )>=window_start );
-  for( ulong slot=window_start; slot<window_start+SLOTS_PER_WINDOW; slot++ ) {
+  for( ulong slot=window_start; slot<window_start+AG_SLOTS_PER_WINDOW; slot++ ) {
     FD_TEST( contains_slot( votor, slot ) );
   }
 
@@ -391,19 +388,13 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong       page_cnt = 16384;
-  char *      _page_sz = "normal";
-  ulong       numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-  FD_TEST( wksp );
-
-  test_timeouts                              ( wksp );
-  test_notar_and_final                       ( wksp );
-  test_notar_out_of_order                    ( wksp );
-  test_pending_block_not_notarized_after_skip( wksp );
-  test_safe_to_notar                         ( wksp );
-  test_safe_to_skip                          ( wksp );
-  test_prunes_to_finalized_window            ( wksp );
+  test_timeouts();
+  test_notar_and_final();
+  test_notar_out_of_order();
+  test_pending_block_not_notarized_after_skip();
+  test_safe_to_notar();
+  test_safe_to_skip();
+  test_prunes_to_finalized_window();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

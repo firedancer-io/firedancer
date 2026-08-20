@@ -1,8 +1,12 @@
 #include "ag_parent_ready_tracker.c"
 
+#define SCRATCH_MAX (1UL<<18) /* 256 KiB */
+
 #define TEST_SLOT_MAX (256UL)
 
 #define SLOTS_PER_WINDOW AG_SLOTS_PER_WINDOW
+
+static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
 FD_FN_CONST static inline ulong
 last_slot_in_window( ulong slot ) {
@@ -36,14 +40,9 @@ state_init( ag_parent_ready_state_t * state,
 }
 
 static ag_parent_ready_tracker_t *
-setup_tracker( fd_wksp_t * wksp,
-               ulong       slot_max ) {
-  void * mem = fd_wksp_alloc_laddr( wksp,
-                                    ag_parent_ready_tracker_align(),
-                                    ag_parent_ready_tracker_footprint( slot_max ),
-                                    42UL );
-  FD_TEST( mem );
-  ag_parent_ready_tracker_t * tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( mem, slot_max, 42UL ) );
+setup_tracker( ulong slot_max ) {
+  FD_TEST( ag_parent_ready_tracker_footprint( slot_max )<=sizeof(scratch) );
+  ag_parent_ready_tracker_t * tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( scratch, slot_max, 42UL ) );
   FD_TEST( tracker );
 
   ag_parent_ready_state_t * genesis = ag_parent_ready_state_pool_ele_acquire( tracker->states.pool );
@@ -58,7 +57,7 @@ setup_tracker( fd_wksp_t * wksp,
 
 static void
 teardown_tracker( ag_parent_ready_tracker_t * tracker ) {
-  fd_wksp_free_laddr( ag_parent_ready_tracker_delete( ag_parent_ready_tracker_leave( tracker ) ) );
+  ag_parent_ready_tracker_delete( ag_parent_ready_tracker_leave( tracker ) );
 }
 
 static int
@@ -144,8 +143,8 @@ test_state_wait_blocking_sync( void ) {
 /* src/consensus/pool/parent_ready_tracker.rs::basic */
 
 static void
-test_basic( fd_wksp_t * wksp ) {
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+test_basic( void ) {
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
@@ -166,9 +165,9 @@ test_basic( fd_wksp_t * wksp ) {
 /* src/consensus/pool/parent_ready_tracker.rs::genesis */
 
 static void
-test_genesis( fd_wksp_t * wksp ) {
+test_genesis( void ) {
   ag_block_id_t genesis = genesis_block_id();
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
@@ -188,11 +187,11 @@ test_genesis( fd_wksp_t * wksp ) {
 /* src/consensus/pool/parent_ready_tracker.rs::skips */
 
 static void
-test_skips( fd_wksp_t * wksp ) {
+test_skips( void ) {
   ag_block_id_t genesis = genesis_block_id();
   ulong         slot    = 1UL;
   ag_block_id_t block   = random_block_id( slot );
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
@@ -216,11 +215,11 @@ test_skips( fd_wksp_t * wksp ) {
 /* src/consensus/pool/parent_ready_tracker.rs::out_of_order_skips */
 
 static void
-test_out_of_order_skips( fd_wksp_t * wksp ) {
+test_out_of_order_skips( void ) {
   ag_block_id_t genesis = genesis_block_id();
   ulong         slot    = 1UL;
   ag_block_id_t block   = random_block_id( slot );
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
@@ -244,11 +243,11 @@ test_out_of_order_skips( fd_wksp_t * wksp ) {
 /* src/consensus/pool/parent_ready_tracker.rs::out_of_order_notars */
 
 static void
-test_out_of_order_notars( fd_wksp_t * wksp ) {
+test_out_of_order_notars( void ) {
   ag_block_id_t block1 = random_block_id( 1UL );
   ag_block_id_t block2 = random_block_id( 2UL );
   ag_block_id_t block3 = random_block_id( 3UL );
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
@@ -269,10 +268,10 @@ test_out_of_order_notars( fd_wksp_t * wksp ) {
 /* src/consensus/pool/parent_ready_tracker.rs::no_double_counting_skip_chain */
 
 static void
-test_no_double_counting_skip_chain( fd_wksp_t * wksp ) {
+test_no_double_counting_skip_chain( void ) {
   ulong         slot  = 1UL;
   ag_block_id_t block = random_block_id( slot );
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
@@ -304,11 +303,11 @@ test_no_double_counting_skip_chain( fd_wksp_t * wksp ) {
 /* src/consensus/pool/parent_ready_tracker.rs::no_double_counting_notar_and_skip */
 
 static void
-test_no_double_counting_notar_and_skip( fd_wksp_t * wksp ) {
+test_no_double_counting_notar_and_skip( void ) {
   ag_block_id_t genesis = genesis_block_id();
   ulong         slot    = 1UL;
   ag_block_id_t block   = random_block_id( slot );
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
@@ -333,12 +332,12 @@ test_no_double_counting_notar_and_skip( fd_wksp_t * wksp ) {
 /* src/consensus/pool/parent_ready_tracker.rs::wait_for_parent_ready */
 
 static void
-test_wait_for_parent_ready( fd_wksp_t * wksp ) {
+test_wait_for_parent_ready( void ) {
   ag_block_id_t genesis = genesis_block_id();
   ulong window1 = 0UL;
   ulong window2 = 1UL*SLOTS_PER_WINDOW;
   ulong window3 = 2UL*SLOTS_PER_WINDOW;
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong             out_cnt;
@@ -370,12 +369,12 @@ test_wait_for_parent_ready( fd_wksp_t * wksp ) {
 /* src/consensus/pool/parent_ready_tracker.rs::parent_ready_finalized */
 
 static void
-test_parent_ready_finalized( fd_wksp_t * wksp ) {
+test_parent_ready_finalized( void ) {
   ulong window2 = 1UL*SLOTS_PER_WINDOW;
   ulong window3 = 2UL*SLOTS_PER_WINDOW;
   ulong window4 = 3UL*SLOTS_PER_WINDOW;
   ulong window5 = 4UL*SLOTS_PER_WINDOW;
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   {
     ag_block_id_t block  = random_block_id( window2 );
@@ -432,8 +431,8 @@ test_parent_ready_finalized( fd_wksp_t * wksp ) {
 /* src/consensus/pool/parent_ready_tracker.rs::prune */
 
 static void
-test_prune( fd_wksp_t * wksp ) {
-  ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
+test_prune( void ) {
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong             out_cnt;
@@ -485,26 +484,20 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong       page_cnt = 16384;
-  char *      _page_sz = "normal";
-  ulong       numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-  FD_TEST( wksp );
-
   test_slot_windows();
   test_state_wait_no_blocking();
   test_state_wait_blocking_sync();
 
-  test_basic( wksp );
-  test_genesis( wksp );
-  test_skips( wksp );
-  test_out_of_order_skips( wksp );
-  test_out_of_order_notars( wksp );
-  test_no_double_counting_skip_chain( wksp );
-  test_no_double_counting_notar_and_skip( wksp );
-  test_wait_for_parent_ready( wksp );
-  test_parent_ready_finalized( wksp );
-  test_prune( wksp );
+  test_basic();
+  test_genesis();
+  test_skips();
+  test_out_of_order_skips();
+  test_out_of_order_notars();
+  test_no_double_counting_skip_chain();
+  test_no_double_counting_notar_and_skip();
+  test_wait_for_parent_ready();
+  test_parent_ready_finalized();
+  test_prune();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

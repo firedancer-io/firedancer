@@ -95,6 +95,10 @@ drain_channels( ag_pool_t * pool ) {
 
 #define TEST_SHRED_VERSION ((ushort)0x5a5a)
 
+#define SCRATCH_MAX (TEST_SLOT_MAX*sizeof(ag_slot_state_t)+(4UL<<20)) /* ~212 MiB */
+
+static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
+
 static ag_bls_sec_t      g_sk  [ NV ];
 static ag_validator_info_t g_info[ NV ];
 
@@ -146,12 +150,20 @@ event( ulong i ) {
   return &g_event[ i ];
 }
 
+/* At most three epoch infos are live at once: a, b and c in
+   test_retired_epoch_already_pruned.  They are ~281 KiB apiece and the
+   tests compare them by address, so each needs its own storage. */
+
+#define EPOCH_INFO_MAX (3UL)
+
+static ag_epoch_info_t epoch_info_mem[ EPOCH_INFO_MAX ];
+
 static ag_epoch_info_t *
-make_epoch_info( fd_wksp_t *                 wksp,
+make_epoch_info( ulong                       idx,
                  ag_validator_info_t const * info,
                  ulong                       cnt ) {
-  ag_epoch_info_t * ei = fd_wksp_alloc_laddr( wksp, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t), 42UL );
-  FD_TEST( ei );
+  FD_TEST( idx<EPOCH_INFO_MAX );
+  ag_epoch_info_t * ei = &epoch_info_mem[ idx ];
   ag_epoch_info( ei, info, cnt );
   return ei;
 }
@@ -159,34 +171,27 @@ make_epoch_info( fd_wksp_t *                 wksp,
 static ag_epoch_info_t * g_epoch_info = NULL;
 
 static ag_pool_t *
-setup_pool( fd_wksp_t * wksp ) {
+setup_pool( void ) {
   create_validators();
-  ulong slot_max      = TEST_SLOT_MAX;
-  void * mem = fd_wksp_alloc_laddr( wksp,
-                                    ag_pool_align(),
-                                    ag_pool_footprint( slot_max ),
-                                    42UL );
-  FD_TEST( mem );
-  ag_pool_t * pool = ag_pool_join( ag_pool_new( mem, slot_max, 42UL ) );
+  ulong slot_max = TEST_SLOT_MAX;
+  FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
+  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
   FD_TEST( pool );
 
-  g_epoch_info = make_epoch_info( wksp, g_info, NV );
+  g_epoch_info = make_epoch_info( 0UL, g_info, NV );
   ag_pool_advance_epoch( pool, g_epoch_info, 0UL, 0UL );
   return pool;
 }
 
 static void
 teardown_pool_only( ag_pool_t * pool ) {
-  fd_wksp_free_laddr( ag_pool_delete( ag_pool_leave( pool ) ) );
+  ag_pool_delete( ag_pool_leave( pool ) );
 }
 
 static void
 teardown_pool( ag_pool_t * pool ) {
-  fd_wksp_free_laddr( ag_pool_delete( ag_pool_leave( pool ) ) );
-  if( FD_LIKELY( g_epoch_info ) ) {
-    fd_wksp_free_laddr( g_epoch_info );
-    g_epoch_info = NULL;
-  }
+  ag_pool_delete( ag_pool_leave( pool ) );
+  g_epoch_info = NULL;
 }
 
 static void
@@ -282,8 +287,8 @@ fast_finalize( ag_pool_t *       pool,
 /* src/consensus/pool.rs::notarize_block */
 
 static void
-test_notarize_block( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_notarize_block( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t gh = genesis_hash();
 
   FD_TEST( !has_notar_cert( pool, 0UL ) );
@@ -304,8 +309,8 @@ test_notarize_block( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::skip_block */
 
 static void
-test_skip_block( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_skip_block( void ) {
+  ag_pool_t * pool = setup_pool();
 
   FD_TEST( !has_skip_cert( pool, 0UL ) );
   add_skip_votes( pool, 0UL, 0UL, 11UL );
@@ -325,8 +330,8 @@ test_skip_block( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::finalize_block */
 
 static void
-test_finalize_block( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_finalize_block( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong slot1 = 1UL;
   fd_hash_t hash1 = random_hash();
@@ -361,8 +366,8 @@ test_finalize_block( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::fast_finalize_block */
 
 static void
-test_fast_finalize_block( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_fast_finalize_block( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t gh = genesis_hash();
 
   FD_TEST( !has_final_cert( pool, 0UL ) );
@@ -386,8 +391,8 @@ test_fast_finalize_block( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::simple_branch_certified */
 
 static void
-test_simple_branch_certified( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_simple_branch_certified( void ) {
+  ag_pool_t * pool = setup_pool();
 
   fd_hash_t hashes[ SLOTS_PER_WINDOW ];
   for( ulong s=0UL; s<SLOTS_PER_WINDOW; s++ ) hashes[s] = random_hash();
@@ -404,8 +409,8 @@ test_simple_branch_certified( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::branch_certified_notar_fallback */
 
 static void
-test_branch_certified_notar_fallback( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_branch_certified_notar_fallback( void ) {
+  ag_pool_t * pool = setup_pool();
 
   fd_hash_t hashes[ SLOTS_PER_WINDOW ];
   for( ulong s=0UL; s<SLOTS_PER_WINDOW; s++ ) hashes[s] = random_hash();
@@ -426,8 +431,8 @@ test_branch_certified_notar_fallback( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::branch_certified_out_of_order */
 
 static void
-test_branch_certified_out_of_order( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_branch_certified_out_of_order( void ) {
+  ag_pool_t * pool = setup_pool();
 
   for( ulong s=2UL; s<SLOTS_PER_WINDOW; s++ ) add_skip_votes( pool, s, 0UL, 7UL );
 
@@ -450,8 +455,8 @@ test_branch_certified_out_of_order( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::branch_certified_late_cert */
 
 static void
-test_branch_certified_late_cert( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_branch_certified_late_cert( void ) {
+  ag_pool_t * pool = setup_pool();
 
   for( ulong s=2UL; s<SLOTS_PER_WINDOW; s++ ) add_skip_votes( pool, s, 0UL, 7UL );
 
@@ -476,8 +481,8 @@ test_branch_certified_late_cert( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::regular_handover */
 
 static void
-test_regular_handover( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_regular_handover( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t hashes[ SLOTS_PER_WINDOW ];
   for( ulong s=0UL; s<SLOTS_PER_WINDOW; s++ ) hashes[s] = random_hash();
 
@@ -492,8 +497,8 @@ test_regular_handover( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::one_skip_handover */
 
 static void
-test_one_skip_handover( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_one_skip_handover( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t hashes[ SLOTS_PER_WINDOW ];
   for( ulong s=0UL; s<SLOTS_PER_WINDOW; s++ ) hashes[s] = random_hash();
 
@@ -509,8 +514,8 @@ test_one_skip_handover( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::two_skip_handover */
 
 static void
-test_two_skip_handover( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_two_skip_handover( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t hashes[ SLOTS_PER_WINDOW ];
   for( ulong s=0UL; s<SLOTS_PER_WINDOW; s++ ) hashes[s] = random_hash();
 
@@ -527,8 +532,8 @@ test_two_skip_handover( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::skip_window_handover */
 
 static void
-test_skip_window_handover( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_skip_window_handover( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t hashes[ SLOTS_PER_WINDOW ];
   for( ulong s=0UL; s<SLOTS_PER_WINDOW; s++ ) hashes[s] = random_hash();
 
@@ -544,8 +549,8 @@ test_skip_window_handover( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::pruning */
 
 static void
-test_pruning( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_pruning( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong total = 3UL*SLOTS_PER_WINDOW + 10UL;
   fd_hash_t hashes[ 3UL*SLOTS_PER_WINDOW + 10UL ];
@@ -590,8 +595,8 @@ test_pruning( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::duplicate_votes */
 
 static void
-test_duplicate_votes( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_duplicate_votes( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t gh = genesis_hash();
   ulong slot = 0UL;
 
@@ -610,8 +615,8 @@ test_duplicate_votes( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::duplicate_certs */
 
 static void
-test_duplicate_certs( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_duplicate_certs( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong first_slot = 1UL;
   fd_hash_t hash = random_hash();
@@ -637,8 +642,8 @@ test_duplicate_certs( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::out_of_bounds_votes */
 
 static void
-test_out_of_bounds_votes( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_out_of_bounds_votes( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t gh = genesis_hash();
 
   ulong slot = 3UL*SLOTS_PER_WINDOW - 1UL;
@@ -665,8 +670,8 @@ test_out_of_bounds_votes( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::out_of_bounds_certs */
 
 static void
-test_out_of_bounds_certs( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_out_of_bounds_certs( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t gh = genesis_hash();
 
   ulong slot = 3UL*SLOTS_PER_WINDOW - 1UL;
@@ -701,8 +706,8 @@ test_out_of_bounds_certs( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::slow_finalize_closing_gap_no_double_parent_ready */
 
 static void
-test_slow_finalize_closing_gap_no_double_parent_ready( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_slow_finalize_closing_gap_no_double_parent_ready( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t gh = genesis_hash();
 
   ulong next_start     = SLOTS_PER_WINDOW;
@@ -737,8 +742,8 @@ test_slow_finalize_closing_gap_no_double_parent_ready( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::standstill_recovery */
 
 static void
-test_standstill_recovery( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_standstill_recovery( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong slot1 = 1UL;
   fd_hash_t hash1 = random_hash();
@@ -802,8 +807,8 @@ test_standstill_recovery( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::parent_ready_upon_finalization */
 
 static void
-test_parent_ready_upon_finalization( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_parent_ready_upon_finalization( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong slot1 = SLOTS_PER_WINDOW;
   ag_block_id_t block0 = random_block_id( slot1-1UL );
@@ -847,8 +852,8 @@ test_parent_ready_upon_finalization( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::safe_to_notar_notar_cert_only */
 
 static void
-test_safe_to_notar_notar_cert_only( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_safe_to_notar_notar_cert_only( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong     slot1 = 1UL;
   ulong     slot2 = 2UL;
@@ -877,8 +882,8 @@ test_safe_to_notar_notar_cert_only( fd_wksp_t * wksp ) {
 /* src/consensus/pool.rs::safe_to_notar_fast_final_cert_only */
 
 static void
-test_safe_to_notar_fast_final_cert_only( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_safe_to_notar_fast_final_cert_only( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong     slot1 = 1UL;
   ulong     slot2 = 2UL;
@@ -907,8 +912,8 @@ test_safe_to_notar_fast_final_cert_only( fd_wksp_t * wksp ) {
 /* Firedancer-only test */
 
 static void
-test_safe_to_notar_awaiting_votes( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_safe_to_notar_awaiting_votes( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong     slot1 = 1UL;
   ulong     slot2 = 2UL;
@@ -932,8 +937,8 @@ test_safe_to_notar_awaiting_votes( fd_wksp_t * wksp ) {
 /* Firedancer-only test */
 
 static void
-test_safe_to_notar_not_queued_for_parent_cert( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_safe_to_notar_not_queued_for_parent_cert( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong     slot1  = 1UL;
   ulong     slot2  = 2UL;
@@ -967,8 +972,8 @@ test_safe_to_notar_not_queued_for_parent_cert( fd_wksp_t * wksp ) {
 }
 
 static void
-test_handle_invalid_votes( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_handle_invalid_votes( void ) {
+  ag_pool_t * pool = setup_pool();
 
   fd_hash_t gh = genesis_hash();
   ag_vote_t vote; ag_vote_new_notar( &vote, 0UL, &gh, g_sk[0], 0, TEST_SHRED_VERSION );
@@ -978,8 +983,8 @@ test_handle_invalid_votes( fd_wksp_t * wksp ) {
 }
 
 static void
-test_hash_capacity( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_hash_capacity( void ) {
+  ag_pool_t * pool = setup_pool();
   ulong slot = 0UL;
 
   fd_hash_t hash[ NV ];
@@ -1014,8 +1019,8 @@ test_hash_capacity( fd_wksp_t * wksp ) {
 /* src/consensus/validated_vote.rs::unknown_signer */
 
 static void
-test_unknown_signer_votes( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_unknown_signer_votes( void ) {
+  ag_pool_t * pool = setup_pool();
   fd_hash_t gh = genesis_hash();
   ulong slot = 0UL;
 
@@ -1032,8 +1037,8 @@ test_unknown_signer_votes( fd_wksp_t * wksp ) {
 }
 
 static void
-test_wait_for_parent_ready( fd_wksp_t * wksp ) {
-  ag_pool_t * pool = setup_pool( wksp );
+test_wait_for_parent_ready( void ) {
+  ag_pool_t * pool = setup_pool();
 
   ulong slot1 = SLOTS_PER_WINDOW;
   ag_block_id_t block0 = random_block_id( slot1-1UL );
@@ -1079,17 +1084,14 @@ test_wait_for_parent_ready( fd_wksp_t * wksp ) {
 #define HEAVY_STAKE (3UL)
 
 static ag_pool_t *
-setup_two_epoch_pool( fd_wksp_t *        wksp,
-                      ag_epoch_info_t ** out_a,
+setup_two_epoch_pool( ag_epoch_info_t ** out_a,
                       ag_epoch_info_t ** out_b,
                       int                install_b ) {
   create_validators();
-  ulong slot_max      = TEST_SLOT_MAX;
+  ulong slot_max = TEST_SLOT_MAX;
 
-  void * mem = fd_wksp_alloc_laddr( wksp, ag_pool_align(),
-                                    ag_pool_footprint( slot_max ), 42UL );
-  FD_TEST( mem );
-  ag_pool_t * pool = ag_pool_join( ag_pool_new( mem, slot_max, 42UL ) );
+  FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
+  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
   FD_TEST( pool );
 
   ag_validator_info_t heavy[ NV ];
@@ -1098,8 +1100,8 @@ setup_two_epoch_pool( fd_wksp_t *        wksp,
     heavy[ i ].stake = i<HEAVY_CNT ? HEAVY_STAKE : 1UL;
   }
 
-  ag_epoch_info_t * a = make_epoch_info( wksp, g_info, NV );
-  ag_epoch_info_t * b = make_epoch_info( wksp, heavy,  NV );
+  ag_epoch_info_t * a = make_epoch_info( 0UL, g_info, NV );
+  ag_epoch_info_t * b = make_epoch_info( 1UL, heavy,  NV );
   FD_TEST( a->total_stake==NV );
   FD_TEST( b->total_stake==HEAVY_CNT*HEAVY_STAKE + (NV-HEAVY_CNT) );
 
@@ -1111,9 +1113,9 @@ setup_two_epoch_pool( fd_wksp_t *        wksp,
 }
 
 static void
-test_stake_resolved_per_slot_epoch( fd_wksp_t * wksp ) {
+test_stake_resolved_per_slot_epoch( void ) {
   ag_epoch_info_t * a; ag_epoch_info_t * b;
-  ag_pool_t * pool = setup_two_epoch_pool( wksp, &a, &b, 1 );
+  ag_pool_t * pool = setup_two_epoch_pool( &a, &b, 1 );
 
   ulong     slot_a = EPOCH_A_LO + 4UL;
   ulong     slot_b = EPOCH_B_LO + 4UL;
@@ -1130,13 +1132,12 @@ test_stake_resolved_per_slot_epoch( fd_wksp_t * wksp ) {
   FD_TEST( has_notar_cert( pool, slot_a ) );
 
   teardown_pool_only( pool );
-  fd_wksp_free_laddr( a ); fd_wksp_free_laddr( b );
 }
 
 static void
-test_epoch_boundary_slot( fd_wksp_t * wksp ) {
+test_epoch_boundary_slot( void ) {
   ag_epoch_info_t * a; ag_epoch_info_t * b;
-  ag_pool_t * pool = setup_two_epoch_pool( wksp, &a, &b, 1 );
+  ag_pool_t * pool = setup_two_epoch_pool( &a, &b, 1 );
 
   fd_hash_t hash_lo = random_hash();
   fd_hash_t hash_hi = random_hash();
@@ -1148,13 +1149,12 @@ test_epoch_boundary_slot( fd_wksp_t * wksp ) {
   FD_TEST( has_notar_cert( pool, EPOCH_B_LO ) );
 
   teardown_pool_only( pool );
-  fd_wksp_free_laddr( a ); fd_wksp_free_laddr( b );
 }
 
 static void
-test_epoch_installed_late( fd_wksp_t * wksp ) {
+test_epoch_installed_late( void ) {
   ag_epoch_info_t * a; ag_epoch_info_t * b;
-  ag_pool_t * pool = setup_two_epoch_pool( wksp, &a, &b, 0 );
+  ag_pool_t * pool = setup_two_epoch_pool( &a, &b, 0 );
 
   ulong     beyond = EPOCH_B_LO + 4UL;
   fd_hash_t hash   = random_hash();
@@ -1170,13 +1170,12 @@ test_epoch_installed_late( fd_wksp_t * wksp ) {
   FD_TEST( contains_slot( pool, beyond ) );
 
   teardown_pool_only( pool );
-  fd_wksp_free_laddr( a ); fd_wksp_free_laddr( b );
 }
 
 static void
-test_retired_epoch_already_pruned( fd_wksp_t * wksp ) {
+test_retired_epoch_already_pruned( void ) {
   ag_epoch_info_t * a; ag_epoch_info_t * b;
-  ag_pool_t * pool = setup_two_epoch_pool( wksp, &a, &b, 1 );
+  ag_pool_t * pool = setup_two_epoch_pool( &a, &b, 1 );
 
   for( ulong s=EPOCH_A_LO+1UL; s<=EPOCH_B_LO; s++ ) {
     fd_hash_t hash = random_hash();
@@ -1189,7 +1188,7 @@ test_retired_epoch_already_pruned( fd_wksp_t * wksp ) {
   FD_TEST( pool_first_unpruned_slot( pool )==EPOCH_B_LO );
   FD_TEST( min_live_slot( pool )==EPOCH_B_LO );
 
-  ag_epoch_info_t * c = make_epoch_info( wksp, g_info, NV );
+  ag_epoch_info_t * c = make_epoch_info( 2UL, g_info, NV );
   ag_pool_advance_epoch( pool, c, 0UL, EPOCH_B_HI+1UL );
 
   FD_TEST( epoch_info( pool, EPOCH_B_LO     )==b );
@@ -1202,7 +1201,6 @@ test_retired_epoch_already_pruned( fd_wksp_t * wksp ) {
   FD_TEST( !contains_slot( pool, EPOCH_B_LO-1UL ) );
 
   teardown_pool_only( pool );
-  fd_wksp_free_laddr( a ); fd_wksp_free_laddr( b ); fd_wksp_free_laddr( c );
 }
 
 int
@@ -1210,45 +1208,39 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL        );
-  ulong        numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t *  wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-  FD_TEST( wksp );
+  test_notarize_block();
+  test_skip_block();
+  test_finalize_block();
+  test_fast_finalize_block();
+  test_simple_branch_certified();
+  test_branch_certified_notar_fallback();
+  test_branch_certified_out_of_order();
+  test_branch_certified_late_cert();
+  test_regular_handover();
+  test_one_skip_handover();
+  test_two_skip_handover();
+  test_skip_window_handover();
+  test_pruning();
+  test_duplicate_votes();
+  test_duplicate_certs();
+  test_out_of_bounds_votes();
+  test_out_of_bounds_certs();
+  test_slow_finalize_closing_gap_no_double_parent_ready();
+  test_standstill_recovery();
+  test_parent_ready_upon_finalization();
+  test_safe_to_notar_notar_cert_only();
+  test_safe_to_notar_fast_final_cert_only();
+  test_safe_to_notar_awaiting_votes();
+  test_safe_to_notar_not_queued_for_parent_cert();
 
-  test_notarize_block                                  ( wksp );
-  test_skip_block                                      ( wksp );
-  test_finalize_block                                  ( wksp );
-  test_fast_finalize_block                             ( wksp );
-  test_simple_branch_certified                         ( wksp );
-  test_branch_certified_notar_fallback                 ( wksp );
-  test_branch_certified_out_of_order                   ( wksp );
-  test_branch_certified_late_cert                      ( wksp );
-  test_regular_handover                                ( wksp );
-  test_one_skip_handover                               ( wksp );
-  test_two_skip_handover                               ( wksp );
-  test_skip_window_handover                            ( wksp );
-  test_pruning                                         ( wksp );
-  test_duplicate_votes                                 ( wksp );
-  test_duplicate_certs                                 ( wksp );
-  test_out_of_bounds_votes                             ( wksp );
-  test_out_of_bounds_certs                             ( wksp );
-  test_slow_finalize_closing_gap_no_double_parent_ready( wksp );
-  test_standstill_recovery                             ( wksp );
-  test_parent_ready_upon_finalization                  ( wksp );
-  test_safe_to_notar_notar_cert_only                   ( wksp );
-  test_safe_to_notar_fast_final_cert_only              ( wksp );
-  test_safe_to_notar_awaiting_votes                    ( wksp );
-  test_safe_to_notar_not_queued_for_parent_cert        ( wksp );
-
-  test_handle_invalid_votes                            ( wksp );
-  test_hash_capacity                                   ( wksp );
-  test_unknown_signer_votes                            ( wksp );
-  test_wait_for_parent_ready                           ( wksp );
-  test_stake_resolved_per_slot_epoch                   ( wksp );
-  test_epoch_boundary_slot                             ( wksp );
-  test_epoch_installed_late                            ( wksp );
-  test_retired_epoch_already_pruned                    ( wksp );
+  test_handle_invalid_votes();
+  test_hash_capacity();
+  test_unknown_signer_votes();
+  test_wait_for_parent_ready();
+  test_stake_resolved_per_slot_epoch();
+  test_epoch_boundary_slot();
+  test_epoch_installed_late();
+  test_retired_epoch_already_pruned();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
