@@ -2,37 +2,10 @@
 #define HEADER_fd_src_choreo_votor_ag_pool_h
 
 #include "ag_votor_base.h"
-#include "ag_vote.h"
 #include "ag_cert.h"
 #include "ag_epoch_info.h"
-#include "ag_parent_ready_tracker.h" /* ag_parent_ready_t */
-
-#define AG_POOL_EVENT_PARENT_READY  (0)
-#define AG_POOL_EVENT_SAFE_TO_NOTAR (1)
-#define AG_POOL_EVENT_SAFE_TO_SKIP  (2)
-#define AG_POOL_EVENT_CERT_CREATED  (3)
-#define AG_POOL_EVENT_STANDSTILL    (4)
-
-struct ag_standstill {
-  ulong       slot;
-  ag_cert_t * certs;
-  ulong       cert_cnt;
-  ag_vote_t * votes;
-  ulong       vote_cnt;
-};
-typedef struct ag_standstill ag_standstill_t;
-
-struct ag_pool_event {
-  int kind;
-  union {
-    ag_parent_ready_t parent_ready;
-    ag_block_id_t     safe_to_notar;
-    ulong             safe_to_skip;
-    ag_cert_t         cert_created;
-    ag_standstill_t   standstill;
-  } inner;
-};
-typedef struct ag_pool_event ag_pool_event_t;
+#include "ag_event.h"
+#include "ag_vote.h"
 
 #define AG_POOL_SUCCESS                ( 0)
 #define AG_POOL_ERR_SLOT_OUT_OF_BOUNDS (-1)

@@ -1,6 +1,6 @@
 ifdef FD_HAS_BLST
 
-$(call add-hdrs,ag_votor_base.h ag_aggsig.h ag_aggsig_serde.h ag_vote.h ag_vote_serde.h ag_epoch_info.h ag_cert.h ag_cert_serde.h ag_pool.h ag_slot_state.h ag_finality_tracker.h ag_parent_ready_tracker.h)
+$(call add-hdrs,ag_votor_base.h ag_aggsig.h ag_aggsig_serde.h ag_vote.h ag_vote_serde.h ag_epoch_info.h ag_cert.h ag_cert_serde.h ag_event.h ag_pool.h ag_slot_state.h ag_finality_tracker.h ag_parent_ready_tracker.h)
 $(call add-objs,ag_aggsig ag_aggsig_serde ag_vote ag_vote_serde ag_epoch_info ag_cert ag_cert_serde ag_pool ag_slot_state ag_finality_tracker ag_parent_ready_tracker,fd_choreo)
 
 ifdef FD_HAS_HOSTED

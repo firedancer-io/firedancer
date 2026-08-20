@@ -68,16 +68,16 @@ is_parent_ready( ag_pool_t *           pool,
 
 static int
 votor_event_pop( ag_pool_t *       pool,
-                 ag_pool_event_t * out ) {
-  if( FD_UNLIKELY( votor_event_channel_empty( pool->votor_event_channel ) ) ) return 0;
-  *out = votor_event_channel_pop( pool->votor_event_channel );
+                 ag_event_pool_t * out ) {
+  if( FD_UNLIKELY( pool_channel_empty( pool->pool_events ) ) ) return 0;
+  *out = pool_channel_pop( pool->pool_events );
   return 1;
 }
 
 static void
 drain_channels( ag_pool_t * pool ) {
-  votor_event_channel_remove_all( pool->votor_event_channel );
-  repair_channel_remove_all     ( pool->repair_channel      );
+  pool_channel_remove_all  ( pool->pool_events   );
+  repair_channel_remove_all( pool->repair_events );
 }
 
 #define SLOTS_PER_WINDOW AG_SLOTS_PER_WINDOW
@@ -124,17 +124,17 @@ create_validators( void ) {
   }
 }
 
-static ag_pool_event_t g_event[ TEST_SLOT_MAX ];
+static ag_event_pool_t g_event[ TEST_SLOT_MAX ];
 
 static ulong
 take_events( ag_pool_t * pool ) {
   ulong cnt = 0UL;
   while( cnt<TEST_SLOT_MAX && votor_event_pop( pool, &g_event[ cnt ] ) ) cnt++;
-  FD_TEST( votor_event_channel_empty( pool->votor_event_channel ) );
+  FD_TEST( pool_channel_empty( pool->pool_events ) );
   return cnt;
 }
 
-static ag_pool_event_t const *
+static ag_event_pool_t const *
 event( ulong i ) {
   return &g_event[ i ];
 }
@@ -252,10 +252,10 @@ drained_safe_to_notar( ag_pool_t *       pool,
                        fd_hash_t const * hash ) {
   ulong cnt = take_events( pool );
   for( ulong i=0UL; i<cnt; i++ ) {
-    ag_pool_event_t const * e = event( i );
-    if( e->kind!=AG_POOL_EVENT_SAFE_TO_NOTAR ) continue;
-    if( e->inner.safe_to_notar.slot==slot &&
-        !memcmp( e->inner.safe_to_notar.hash.uc, hash->uc, sizeof(fd_hash_t) ) ) return 1;
+    ag_event_pool_t const * e = event( i );
+    if( e->kind!=AG_EVENT_POOL_SAFE_TO_NOTAR ) continue;
+    if( e->safe_to_notar.slot==slot &&
+        !memcmp( e->safe_to_notar.hash.uc, hash->uc, sizeof(fd_hash_t) ) ) return 1;
   }
   return 0;
 }
@@ -749,7 +749,7 @@ test_standstill_recovery( fd_wksp_t * wksp ) {
   ag_standstill_t const * ss = NULL;
   ulong event_cnt = take_events( pool );
   for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_POOL_EVENT_STANDSTILL ) ss = &event( i )->inner.standstill;
+    if( event( i )->kind==AG_EVENT_POOL_STANDSTILL ) ss = &event( i )->standstill;
   }
   FD_TEST( ss );
   FD_TEST( ss->slot==slot2 );
@@ -813,8 +813,8 @@ test_parent_ready_upon_finalization( fd_wksp_t * wksp ) {
   ulong cert_created = 0UL, parent_ready_cnt = 0UL;
   ulong event_cnt = take_events( pool );
   for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_POOL_EVENT_CERT_CREATED ) cert_created++;
-    if( event( i )->kind==AG_POOL_EVENT_PARENT_READY ) parent_ready_cnt++;
+    if( event( i )->kind==AG_EVENT_POOL_CERT_CREATED ) cert_created++;
+    if( event( i )->kind==AG_EVENT_POOL_PARENT_READY ) parent_ready_cnt++;
   }
   FD_TEST( cert_created==3UL );
   FD_TEST( parent_ready_cnt==0UL );
@@ -826,9 +826,9 @@ test_parent_ready_upon_finalization( fd_wksp_t * wksp ) {
   int found = 0;
   event_cnt = take_events( pool );
   for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_POOL_EVENT_PARENT_READY ) {
-      FD_TEST( event( i )->inner.parent_ready.slot==slot1 );
-      FD_TEST( ag_block_id_eq( &event( i )->inner.parent_ready.parent, &block0 ) );
+    if( event( i )->kind==AG_EVENT_POOL_PARENT_READY ) {
+      FD_TEST( event( i )->parent_ready.slot==slot1 );
+      FD_TEST( ag_block_id_eq( &event( i )->parent_ready.parent, &block0 ) );
       found = 1;
     }
   }

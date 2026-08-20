@@ -141,19 +141,14 @@ out_push_safe_to_notar( ag_slot_state_outputs_t * out,
                         ulong                     slot,
                         fd_hash_t const *         hash ) {
   FD_TEST( out->pool_events_cnt < AG_SLOT_STATE_OUT_EVENT_MAX );
-  ag_pool_event_t * ev = &out->pool_events[ out->pool_events_cnt++ ];
-  ev->kind                     = AG_POOL_EVENT_SAFE_TO_NOTAR;
-  ev->inner.safe_to_notar.slot = slot;
-  ev->inner.safe_to_notar.hash = *hash;
+  out->pool_events[ out->pool_events_cnt++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = { .slot = slot, .hash = *hash } };
 }
 
 static void
 out_push_safe_to_skip( ag_slot_state_outputs_t * out,
                        ulong                     slot ) {
   FD_TEST( out->pool_events_cnt < AG_SLOT_STATE_OUT_EVENT_MAX );
-  ag_pool_event_t * ev = &out->pool_events[ out->pool_events_cnt++ ];
-  ev->kind               = AG_POOL_EVENT_SAFE_TO_SKIP;
-  ev->inner.safe_to_skip = slot;
+  out->pool_events[ out->pool_events_cnt++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = slot };
 }
 
 static void
