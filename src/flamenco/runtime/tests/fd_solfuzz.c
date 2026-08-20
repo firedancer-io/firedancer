@@ -81,14 +81,13 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   /* Allocate objects */
   ulong const txn_max  = 16UL;
-  ulong const rec_max  = 1024UL;
-  ulong const shared_sz = fd_progcache_min_shared_sz( txn_max );
+  ulong const progcache_sz = fd_progcache_shmem_min_sz( txn_max );
   ulong const spad_max = 1750000000UL; /* 1.75GB: 128 accounts * ~10MB + 100MB execute_wrapper
                                           out buf + 64MB cmp_binary_strict scratch + headroom */
   ulong const bank_max = 2UL;
   ulong const fork_max = 2UL;
 
-  ulong const max_accounts        = rec_max;
+  ulong const max_accounts         = 1024UL;
   ulong const max_live_slots       = txn_max;
   ulong const writes_per_slot      = 1024UL;
   ulong const partition_cnt        = 8192UL;
@@ -104,7 +103,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   fd_solfuzz_runner_t * runner       = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),                                 wksp_tag );
   void *                accdb_shmem  = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(),       accdb_shmem_sz,                                              wksp_tag );
   void *                accdb_join   = fd_wksp_alloc_laddr( wksp, fd_accdb_align(),             accdb_join_sz,                                               wksp_tag );
-  void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(),   fd_progcache_shmem_footprint( txn_max, shared_sz ),          wksp_tag );
+  void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(),   fd_progcache_shmem_footprint( txn_max, progcache_sz ),       wksp_tag );
   uchar *               scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,                              wksp_tag );
   void *                spad_mem     = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),                               wksp_tag );
   void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 32768UL, 2048UL ), wksp_tag );
@@ -137,7 +136,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   /* Create root fork (sentinel parent) */
   runner->root_fork_id = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val=USHORT_MAX } );
 
-  void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, shared_sz );
+  void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, progcache_sz );
   if( FD_UNLIKELY( !shpcache ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) goto bail2;
 
@@ -212,8 +211,8 @@ fd_solfuzz_runner_leak_check( fd_solfuzz_runner_t * runner ) {
     FD_LOG_CRIT(( "leaked spad frame" ));
   }
 
-  if( FD_UNLIKELY( runner->progcache->join->shmem->fork.child_head_idx != UINT_MAX ) ) {
-    FD_LOG_CRIT(( "leaked a fork in progcache" ));
+  if( FD_UNLIKELY( runner->progcache->join->shmem->txn.child_head_idx != UINT_MAX ) ) {
+    FD_LOG_CRIT(( "leaked a txn in progcache" ));
   }
 
   ulong tags[1] = { runner->wksp_tag };
