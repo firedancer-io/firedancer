@@ -176,3 +176,5 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_t
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_tx_v1 -m 2000000 -e 637
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-closeslot -m 10000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-poison -m 10000 -e 562
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate -m 2000000 -e 840
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate_snapshot -m 2000000 -e 840
