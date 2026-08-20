@@ -123,6 +123,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_MAX_INSTRUCTION_TRACE_LENGTH (64UL)
 /* https://github.com/anza-xyz/agave/blob/f70ab5598ccd86b216c3928e4397bf4a5b58d723/compute-budget/src/compute_budget.rs#L13 */
 #define FD_MAX_INSTRUCTION_STACK_DEPTH  (5UL)
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/program-runtime/src/execution_budget.rs#L10 */
+#define FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 (9UL)
 
 
 #define FD_RUNTIME_VM_TRACE_EVENT_MAX      (128UL<<20)

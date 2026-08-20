@@ -248,7 +248,7 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
   runtime->log.enable_vm_tracing = runner->enable_vm_tracing;
   uchar * tracing_mem = NULL;
   if( runner->enable_vm_tracing ) {
-    tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
+    tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 );
   }
 
   runtime->accdb                 = runner->accdb;

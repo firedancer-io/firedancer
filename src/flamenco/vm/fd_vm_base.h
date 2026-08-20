@@ -227,19 +227,6 @@ FD_PROTOTYPES_END
  */
 #define FD_VM_ACCOUNT_INFO_BYTE_SIZE                     (             80UL)
 
-/* FD_VM_MAX_INVOKE_STACK_HEIGHT is the maximum program instruction
-   invocation stack height. Invocation stack height starts at 1 for
-   transaction instructions and the stack height is incremented each
-   time a program invokes an instruction and decremented when a program
-   returns */
-
-#define FD_VM_MAX_INVOKE_STACK_HEIGHT                   (               5UL)
-
-/* FD_VM_MAX_INSTRUCTION_TRACE_LENGTH is the maximum cross-program
-   invocation and instructions per transaction */
-
-#define FD_VM_MAX_INSTRUCTION_TRACE_LENGTH              (              64UL)
-
 /* FD_VM_SHA256_BASE_COST is the base number of compute units consumed
    to call SHA256 */
 

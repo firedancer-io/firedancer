@@ -127,6 +127,7 @@ fd_executor_consume_cus( fd_txn_out_t * txn_out,
    Normally you shouldn't be invoking these manually. */
 int
 fd_instr_stack_push( fd_runtime_t *      runtime,
+                     fd_bank_t *         bank,
                      fd_txn_in_t const * txn_in,
                      fd_txn_out_t *      txn_out,
                      fd_instr_info_t *   instr );

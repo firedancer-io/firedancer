@@ -78,7 +78,7 @@ struct fd_runtime {
 
   struct {
     uchar               stack_sz;                                /* Current depth of the instruction execution stack. */
-    fd_exec_instr_ctx_t stack[ FD_MAX_INSTRUCTION_STACK_DEPTH ]; /* Instruction execution stack. */
+    fd_exec_instr_ctx_t stack[ FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 ]; /* Instruction execution stack. */
     /* The memory for all of the instructions in the transaction
        (including CPI instructions) are preallocated.  However, the
        order in which the instructions are executed does not match the
@@ -134,7 +134,7 @@ struct fd_runtime {
   } log;
 
   struct {
-    uchar serialization_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ BPF_LOADER_SERIALIZATION_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
+    uchar serialization_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 ][ BPF_LOADER_SERIALIZATION_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
   } bpf_loader_serialization;
 
   struct {

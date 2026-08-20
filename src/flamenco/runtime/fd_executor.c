@@ -981,6 +981,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
 /* https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L319-L357 */
 static inline int
 fd_txn_ctx_push( fd_runtime_t *      runtime,
+                 fd_bank_t *         bank,
                  fd_txn_in_t const * txn_in,
                  fd_txn_out_t *      txn_out,
                  fd_instr_info_t *   instr ) {
@@ -1035,7 +1036,10 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L352-L356 */
-  if( FD_UNLIKELY( runtime->instr.stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
+  ulong max_instruction_stack_depth = FD_FEATURE_ACTIVE_BANK( bank, raise_cpi_nesting_limit_to_8 ) ?
+                                      FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 :
+                                      FD_MAX_INSTRUCTION_STACK_DEPTH;
+  if( FD_UNLIKELY( runtime->instr.stack_sz>=max_instruction_stack_depth ) ) {
     return FD_EXECUTOR_INSTR_ERR_CALL_DEPTH;
   }
   runtime->instr.stack_sz++;
@@ -1067,6 +1071,7 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
    https://github.com/anza-xyz/agave/blob/v2.0.0/program-runtime/src/invoke_context.rs#L246-L290 */
 int
 fd_instr_stack_push( fd_runtime_t *      runtime,
+                     fd_bank_t *         bank,
                      fd_txn_in_t const * txn_in,
                      fd_txn_out_t *      txn_out,
                      fd_instr_info_t *   instr ) {
@@ -1113,7 +1118,7 @@ fd_instr_stack_push( fd_runtime_t *      runtime,
   }
   /* "Push" a new instruction onto the stack by simply incrementing the stack and trace size counters
      https://github.com/anza-xyz/agave/blob/v2.0.0/program-runtime/src/invoke_context.rs#L289 */
-  return fd_txn_ctx_push( runtime, txn_in, txn_out, instr );
+  return fd_txn_ctx_push( runtime, bank, txn_in, txn_out, instr );
 }
 
 /* Pops an instruction from the instruction stack. Agave's implementation performs instruction balancing checks every time pop is called,
@@ -1184,7 +1189,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
                   fd_txn_out_t *      txn_out,
                   fd_instr_info_t *   instr ) {
   fd_sysvar_cache_t const * sysvar_cache = &bank->f.sysvar_cache;
-  int instr_exec_result = fd_instr_stack_push( runtime, txn_in, txn_out, instr );
+  int instr_exec_result = fd_instr_stack_push( runtime, bank, txn_in, txn_out, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
     FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );

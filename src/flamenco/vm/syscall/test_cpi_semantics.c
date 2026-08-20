@@ -2159,37 +2159,59 @@ test_stack_depth_limit( fd_svm_mini_t * mini ) {
   static int const cv[4] = { 0, 0, 1, 1 };
   static int const cd[4] = { 0, 0, 0, 1 };
 
-  for( int c=0; c<4; c++ ) {
-    for( int dep=0; dep<2; dep++ ) {
-      for( int abi=0; abi<2; abi++ ) {
-        cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->is_deprecated=dep;
-        env_build( mini, cfg );
-        fd_vm_t * vm = mini->vm;
+  /* Both polarities of the SIMD-0268 gate, and both sides of the boundary:
+     a push from the effective limit must fail, one below it must not. */
+  for( int simd_0268=0; simd_0268<2; simd_0268++ ) {
+    ulong limit = simd_0268 ? FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268
+                            : FD_MAX_INSTRUCTION_STACK_DEPTH;
+    for( int at_limit=0; at_limit<2; at_limit++ ) {
+      ulong depth = at_limit ? limit : limit-1UL;
+      for( int c=0; c<4; c++ ) {
+        for( int dep=0; dep<2; dep++ ) {
+          for( int abi=0; abi<2; abi++ ) {
+            cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->is_deprecated=dep;
+            env_build( mini, cfg );
+            fd_vm_t * vm = mini->vm;
+            vm->instr_ctx->bank->f.features.raise_cpi_nesting_limit_to_8 =
+                simd_0268 ? 0UL : FD_FEATURE_DISABLED;
 
-        ulong instr_va, infos_va, n_infos;
-        if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
-        else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
+            ulong instr_va, infos_va, n_infos;
+            if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
+            else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
 
-        fd_runtime_t * rt = mini->runtime;
-        for( ulong lvl=1UL; lvl < FD_MAX_INSTRUCTION_STACK_DEPTH; lvl++ ) {
-          fd_instr_info_t * fi = &rt->instr.trace[ lvl ];
-          memset( fi, 0, sizeof(*fi) );
-          fi->program_id = 0U;
-          rt->instr.stack[ lvl ] = (fd_exec_instr_ctx_t){
-            .instr   = fi,
-            .runtime = rt,
-            .txn_out = vm->instr_ctx->txn_out,
-            .bank    = vm->instr_ctx->bank,
-          };
-        }
-        rt->instr.trace_length = FD_MAX_INSTRUCTION_STACK_DEPTH;
-        rt->instr.stack_sz     = (uchar)FD_MAX_INSTRUCTION_STACK_DEPTH;
+            fd_runtime_t * rt = mini->runtime;
+            for( ulong lvl=1UL; lvl < depth; lvl++ ) {
+              fd_instr_info_t * fi = &rt->instr.trace[ lvl ];
+              memset( fi, 0, sizeof(*fi) );
+              fi->program_id = 0U;
+              rt->instr.stack[ lvl ] = (fd_exec_instr_ctx_t){
+                .instr   = fi,
+                .runtime = rt,
+                .txn_out = vm->instr_ctx->txn_out,
+                .bank    = vm->instr_ctx->bank,
+              };
+            }
+            rt->instr.trace_length = depth;
+            rt->instr.stack_sz     = (uchar)depth;
 
-        ulong ret = 0UL;
-        cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-        int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
-        if( FD_UNLIKELY( got != FD_EXECUTOR_INSTR_ERR_CALL_DEPTH ) ) {
-          FD_LOG_ERR(( "test_stack_depth_limit: combo=%d dep=%d abi=%s got=%d", c, dep, abi==0?"rust":"c", got ));
+            ulong ret = 0UL;
+            cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
+            int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+            if( at_limit ) {
+              if( FD_UNLIKELY( got != FD_EXECUTOR_INSTR_ERR_CALL_DEPTH ) ) {
+                FD_LOG_ERR(( "test_stack_depth_limit: simd_0268=%d depth=%lu (at limit) combo=%d dep=%d abi=%s expected CALL_DEPTH got=%d",
+                             simd_0268, depth, c, dep, abi==0?"rust":"c", got ));
+              }
+            } else {
+              /* Must actually succeed, not merely avoid CALL_DEPTH: a
+                 regression that rejects a valid no-op CPI for some other
+                 depth-sized reason would otherwise pass. */
+              if( FD_UNLIKELY( got != FD_VM_SUCCESS ) ) {
+                FD_LOG_ERR(( "test_stack_depth_limit: simd_0268=%d depth=%lu (below limit) combo=%d dep=%d abi=%s expected success got=%d",
+                             simd_0268, depth, c, dep, abi==0?"rust":"c", got ));
+              }
+            }
+          }
         }
       }
     }
