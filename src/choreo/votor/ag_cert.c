@@ -4,11 +4,11 @@ static int
 is_signer( ag_cert_t const * self,
            ulong             v ) {
   switch( self->kind ) {
-  case AG_CERT_TYPE_NOTAR:          return ag_aggsig_is_signer( &self->inner.notar.agg_sig, v );
-  case AG_CERT_TYPE_FAST_FINAL:     return ag_aggsig_is_signer( &self->inner.fast_final.agg_sig, v );
-  case AG_CERT_TYPE_FINAL:          return ag_aggsig_is_signer( &self->inner.final.agg_sig, v );
-  case AG_CERT_TYPE_NOTAR_FALLBACK: return ag_aggsig_is_signer( &self->inner.notar_fallback.agg_sig_notar, v ) || ag_aggsig_is_signer( &self->inner.notar_fallback.agg_sig_notar_fallback, v );
-  case AG_CERT_TYPE_SKIP:           return ag_aggsig_is_signer( &self->inner.skip.agg_sig_skip, v )            || ag_aggsig_is_signer( &self->inner.skip.agg_sig_skip_fallback, v );
+  case AG_CERT_TYPE_NOTAR:          return ag_bls_agg_is_signer( &self->inner.notar.agg_sig, v );
+  case AG_CERT_TYPE_FAST_FINAL:     return ag_bls_agg_is_signer( &self->inner.fast_final.agg_sig, v );
+  case AG_CERT_TYPE_FINAL:          return ag_bls_agg_is_signer( &self->inner.final.agg_sig, v );
+  case AG_CERT_TYPE_NOTAR_FALLBACK: return ag_bls_agg_is_signer( &self->inner.notar_fallback.agg_sig_notar, v ) || ag_bls_agg_is_signer( &self->inner.notar_fallback.agg_sig_notar_fallback, v );
+  case AG_CERT_TYPE_SKIP:           return ag_bls_agg_is_signer( &self->inner.skip.agg_sig_skip, v )            || ag_bls_agg_is_signer( &self->inner.skip.agg_sig_skip_fallback, v );
   default:                          __builtin_unreachable();
   }
 }
@@ -29,37 +29,37 @@ check_sig( ag_cert_t const *       self,
            ag_epoch_info_t const * epoch_info,
            ushort                  shred_version ) {
   ag_validator_info_t const * v             = ag_epoch_info_validators( epoch_info );
-  uchar const *               pk0           = v->voting_pubkey.v;
+  uchar const *               pk0           = v->voting_pubkey;
   ulong                       pk_stride     = sizeof(ag_validator_info_t);
   ulong                       validator_cnt = epoch_info->validator_cnt;
   uchar buf[ AG_VOTE_PAYLOAD_MAX ]; ulong sz;
   switch( self->kind ) {
   case AG_CERT_TYPE_NOTAR:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.notar.slot, &self->inner.notar.block_hash, shred_version );
-    return ag_aggsig_verify_bytes( &self->inner.notar.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
+    return ag_bls_agg_verify_bytes( &self->inner.notar.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_TYPE_FAST_FINAL:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.fast_final.slot, &self->inner.fast_final.block_hash, shred_version );
-    return ag_aggsig_verify_bytes( &self->inner.fast_final.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
+    return ag_bls_agg_verify_bytes( &self->inner.fast_final.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_TYPE_FINAL:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_FINAL, self->inner.final.slot, NULL, shred_version );
-    return ag_aggsig_verify_bytes( &self->inner.final.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
+    return ag_bls_agg_verify_bytes( &self->inner.final.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_TYPE_NOTAR_FALLBACK: {
     ag_notar_fallback_cert_t const * n = &self->inner.notar_fallback;
     uchar buf_fb[ AG_VOTE_PAYLOAD_MAX ]; ulong sz_fb;
     sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_TYPE_NOTAR,          n->slot, &n->block_hash, shred_version );
     sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_NOTAR_FALLBACK, n->slot, &n->block_hash, shred_version );
-    return ag_aggsig_verify_mixed_bytes( &n->agg_sig_notar,          buf,    sz,
-                                         &n->agg_sig_notar_fallback, buf_fb, sz_fb,
-                                         pk0, pk_stride, validator_cnt );
+    return ag_bls_agg_verify_mixed_bytes( &n->agg_sig_notar,          buf,    sz,
+                                          &n->agg_sig_notar_fallback, buf_fb, sz_fb,
+                                          pk0, pk_stride, validator_cnt );
   }
   case AG_CERT_TYPE_SKIP: {
     ag_skip_cert_t const * s = &self->inner.skip;
     uchar buf_fb[ AG_VOTE_PAYLOAD_MAX ]; ulong sz_fb;
     sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_TYPE_SKIP,          s->slot, NULL, shred_version );
     sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_SKIP_FALLBACK, s->slot, NULL, shred_version );
-    return ag_aggsig_verify_mixed_bytes( &s->agg_sig_skip,          buf,    sz,
-                                         &s->agg_sig_skip_fallback, buf_fb, sz_fb,
-                                         pk0, pk_stride, validator_cnt );
+    return ag_bls_agg_verify_mixed_bytes( &s->agg_sig_skip,          buf,    sz,
+                                          &s->agg_sig_skip_fallback, buf_fb, sz_fb,
+                                          pk0, pk_stride, validator_cnt );
   }
   default: __builtin_unreachable();
   }
@@ -69,45 +69,45 @@ static void
 aggregate_notar_votes( ag_notar_vote_t const * notar_votes,
                        ulong                   notar_vote_cnt,
                        ulong                   validator_cnt,
-                       ag_aggsig_t *           agg ) {
-  ag_aggsig_init( agg, validator_cnt );
-  for( ulong i=0UL; i<notar_vote_cnt; i++ ) ag_aggsig_add( agg, notar_votes[i].signer, &notar_votes[i].sig );
+                       ag_bls_agg_t *          agg ) {
+  ag_bls_agg_init( agg, validator_cnt );
+  for( ulong i=0UL; i<notar_vote_cnt; i++ ) ag_bls_agg_add( agg, notar_votes[i].signer, notar_votes[i].sig );
 }
 
 static void
 aggregate_notar_fallback_votes( ag_notar_fallback_vote_t const * notar_fallback_votes,
                                 ulong                            notar_fallback_vote_cnt,
                                 ulong                            validator_cnt,
-                                ag_aggsig_t *                    agg ) {
-  ag_aggsig_init( agg, validator_cnt );
-  for( ulong i=0UL; i<notar_fallback_vote_cnt; i++ ) ag_aggsig_add( agg, notar_fallback_votes[i].signer, &notar_fallback_votes[i].sig );
+                                ag_bls_agg_t *                   agg ) {
+  ag_bls_agg_init( agg, validator_cnt );
+  for( ulong i=0UL; i<notar_fallback_vote_cnt; i++ ) ag_bls_agg_add( agg, notar_fallback_votes[i].signer, notar_fallback_votes[i].sig );
 }
 
 static void
 aggregate_skip_votes( ag_skip_vote_t const * skip_votes,
                       ulong                  skip_vote_cnt,
                       ulong                  validator_cnt,
-                      ag_aggsig_t *          agg ) {
-  ag_aggsig_init( agg, validator_cnt );
-  for( ulong i=0UL; i<skip_vote_cnt; i++ ) ag_aggsig_add( agg, skip_votes[i].signer, &skip_votes[i].sig );
+                      ag_bls_agg_t *         agg ) {
+  ag_bls_agg_init( agg, validator_cnt );
+  for( ulong i=0UL; i<skip_vote_cnt; i++ ) ag_bls_agg_add( agg, skip_votes[i].signer, skip_votes[i].sig );
 }
 
 static void
 aggregate_skip_fallback_votes( ag_skip_fallback_vote_t const * skip_fallback_votes,
                                ulong                           skip_fallback_vote_cnt,
                                ulong                           validator_cnt,
-                               ag_aggsig_t *                   agg ) {
-  ag_aggsig_init( agg, validator_cnt );
-  for( ulong i=0UL; i<skip_fallback_vote_cnt; i++ ) ag_aggsig_add( agg, skip_fallback_votes[i].signer, &skip_fallback_votes[i].sig );
+                               ag_bls_agg_t *                  agg ) {
+  ag_bls_agg_init( agg, validator_cnt );
+  for( ulong i=0UL; i<skip_fallback_vote_cnt; i++ ) ag_bls_agg_add( agg, skip_fallback_votes[i].signer, skip_fallback_votes[i].sig );
 }
 
 static void
 aggregate_final_votes( ag_final_vote_t const * final_votes,
                        ulong                   final_vote_cnt,
                        ulong                   validator_cnt,
-                       ag_aggsig_t *           agg ) {
-  ag_aggsig_init( agg, validator_cnt );
-  for( ulong i=0UL; i<final_vote_cnt; i++ ) ag_aggsig_add( agg, final_votes[i].signer, &final_votes[i].sig );
+                       ag_bls_agg_t *          agg ) {
+  ag_bls_agg_init( agg, validator_cnt );
+  for( ulong i=0UL; i<final_vote_cnt; i++ ) ag_bls_agg_add( agg, final_votes[i].signer, final_votes[i].sig );
 }
 
 ag_notar_cert_t
@@ -201,7 +201,7 @@ ag_notar_fallback_cert_construct( ag_notar_vote_t const *          notar_votes,
   cert.slot = slot; cert.block_hash = block_hash; cert.stake = stake;
   aggregate_notar_votes         ( notar_votes,          notar_vote_cnt,          validator_cnt, &cert.agg_sig_notar          );
   aggregate_notar_fallback_votes( notar_fallback_votes, notar_fallback_vote_cnt, validator_cnt, &cert.agg_sig_notar_fallback );
-  ag_aggsig_merge_sig( &cert.agg_sig_notar, &cert.agg_sig_notar_fallback );
+  ag_bls_agg_merge( &cert.agg_sig_notar, &cert.agg_sig_notar_fallback );
   return cert;
 }
 
@@ -230,7 +230,7 @@ ag_skip_cert_construct( ag_skip_vote_t const *          skip_votes,
   cert.slot = slot; cert.stake = stake;
   aggregate_skip_votes         ( skip_votes,          skip_vote_cnt,          validator_cnt, &cert.agg_sig_skip          );
   aggregate_skip_fallback_votes( skip_fallback_votes, skip_fallback_vote_cnt, validator_cnt, &cert.agg_sig_skip_fallback );
-  ag_aggsig_merge_sig( &cert.agg_sig_skip, &cert.agg_sig_skip_fallback );
+  ag_bls_agg_merge( &cert.agg_sig_skip, &cert.agg_sig_skip_fallback );
   return cert;
 }
 

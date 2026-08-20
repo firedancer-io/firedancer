@@ -5,19 +5,19 @@
 
 #define MAXV 128UL
 
-static ag_aggsig_sk_t     g_sk  [ MAXV ];
+static ag_bls_sec_t     g_sk  [ MAXV ];
 static ag_validator_info_t g_info[ MAXV ];
 
 static void
 create_signers( ulong n ) {
   FD_TEST( n<=MAXV );
   for( ulong i=0UL; i<n; i++ ) {
-    fd_memset( g_sk[i].v, 0, AG_AGGSIG_SECKEY_SZ );
-    g_sk[i].v[0] = (uchar)( i+1UL );
+    fd_memset( g_sk[i], 0, AG_BLS_SEC_SZ );
+    g_sk[i][0] = (uchar)( i+1UL );
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_aggsig_sk_to_pk( &g_info[i].voting_pubkey, &g_sk[i] );
+    ag_bls_sec_to_pub( g_info[i].voting_pubkey, g_sk[i] );
   }
 }
 
@@ -37,7 +37,7 @@ mk_notar( ag_notar_vote_t * o,
           fd_hash_t const * h,
           ulong             lo,
           ulong             n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_notar_vote_new( &o[i], slot, h, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
+  for( ulong i=0UL; i<n; i++ ) ag_notar_vote_new( &o[i], slot, h, g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 static void
 mk_nf( ag_notar_fallback_vote_t * o,
@@ -45,28 +45,28 @@ mk_nf( ag_notar_fallback_vote_t * o,
        fd_hash_t const *          h,
        ulong                      lo,
        ulong                      n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_notar_fallback_vote_new( &o[i], slot, h, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
+  for( ulong i=0UL; i<n; i++ ) ag_notar_fallback_vote_new( &o[i], slot, h, g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 static void
 mk_skip( ag_skip_vote_t * o,
          ulong            slot,
          ulong            lo,
          ulong            n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_skip_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
+  for( ulong i=0UL; i<n; i++ ) ag_skip_vote_new( &o[i], slot, g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 static void
 mk_sf( ag_skip_fallback_vote_t * o,
        ulong                     slot,
        ulong                     lo,
        ulong                     n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_skip_fallback_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
+  for( ulong i=0UL; i<n; i++ ) ag_skip_fallback_vote_new( &o[i], slot, g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 static void
 mk_final( ag_final_vote_t * o,
           ulong             slot,
           ulong             lo,
           ulong             n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_final_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
+  for( ulong i=0UL; i<n; i++ ) ag_final_vote_new( &o[i], slot, g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 
 static ulong
@@ -84,16 +84,16 @@ static int
 cert_is_signer( ag_cert_t const * c,
                 ulong             v ) {
   switch( c->kind ) {
-  case AG_CERT_TYPE_NOTAR:      return ag_aggsig_is_signer( &c->inner.notar.agg_sig,      v );
-  case AG_CERT_TYPE_FAST_FINAL: return ag_aggsig_is_signer( &c->inner.fast_final.agg_sig, v );
-  case AG_CERT_TYPE_FINAL:      return ag_aggsig_is_signer( &c->inner.final.agg_sig,      v );
+  case AG_CERT_TYPE_NOTAR:      return ag_bls_agg_is_signer( &c->inner.notar.agg_sig,      v );
+  case AG_CERT_TYPE_FAST_FINAL: return ag_bls_agg_is_signer( &c->inner.fast_final.agg_sig, v );
+  case AG_CERT_TYPE_FINAL:      return ag_bls_agg_is_signer( &c->inner.final.agg_sig,      v );
   case AG_CERT_TYPE_NOTAR_FALLBACK: {
     ag_notar_fallback_cert_t const * n = &c->inner.notar_fallback;
-    return ag_aggsig_is_signer( &n->agg_sig_notar, v ) || ag_aggsig_is_signer( &n->agg_sig_notar_fallback, v );
+    return ag_bls_agg_is_signer( &n->agg_sig_notar, v ) || ag_bls_agg_is_signer( &n->agg_sig_notar_fallback, v );
   }
   default: {
     ag_skip_cert_t const * s = &c->inner.skip;
-    return ag_aggsig_is_signer( &s->agg_sig_skip, v ) || ag_aggsig_is_signer( &s->agg_sig_skip_fallback, v );
+    return ag_bls_agg_is_signer( &s->agg_sig_skip, v ) || ag_bls_agg_is_signer( &s->agg_sig_skip_fallback, v );
   }
   }
 }
@@ -343,7 +343,7 @@ test_sig_validity( void ) {
   mk_notar( nv, slot, &h, 0UL, 9UL );
   c.kind = AG_CERT_TYPE_NOTAR; c.inner.notar = ag_notar_cert_construct( nv, 9UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  ag_notar_vote_new( &nv[0], slot, &h, &g_sk[1], 0, TEST_SHRED_VERSION ); /* wrong key for rank 0 */
+  ag_notar_vote_new( &nv[0], slot, &h, g_sk[1], 0, TEST_SHRED_VERSION ); /* wrong key for rank 0 */
   c.inner.notar = ag_notar_cert_construct( nv, 9UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
@@ -353,7 +353,7 @@ test_sig_validity( void ) {
   c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
   c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 5UL, fv, 4UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  ag_notar_vote_new( &nv[0], slot, &h, &g_sk[1], 0, TEST_SHRED_VERSION );
+  ag_notar_vote_new( &nv[0], slot, &h, g_sk[1], 0, TEST_SHRED_VERSION );
   c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 5UL, fv, 4UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
@@ -361,7 +361,7 @@ test_sig_validity( void ) {
   mk_skip( sv, slot, 0UL, 9UL );
   c.kind = AG_CERT_TYPE_SKIP; c.inner.skip = ag_skip_cert_construct( sv, 9UL, NULL, 0UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  ag_skip_vote_new( &sv[0], slot, &g_sk[1], 0, TEST_SHRED_VERSION );
+  ag_skip_vote_new( &sv[0], slot, g_sk[1], 0, TEST_SHRED_VERSION );
   c.inner.skip = ag_skip_cert_construct( sv, 9UL, NULL, 0UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
@@ -369,7 +369,7 @@ test_sig_validity( void ) {
   mk_final( ev, slot, 0UL, 9UL );
   c.kind = AG_CERT_TYPE_FINAL; c.inner.final = ag_final_cert_construct( ev, 9UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  ag_final_vote_new( &ev[0], slot, &g_sk[1], 0, TEST_SHRED_VERSION );
+  ag_final_vote_new( &ev[0], slot, g_sk[1], 0, TEST_SHRED_VERSION );
   c.inner.final = ag_final_cert_construct( ev, 9UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
@@ -377,7 +377,7 @@ test_sig_validity( void ) {
   mk_notar( nv, slot, &h, 0UL, 9UL );
   c.kind = AG_CERT_TYPE_FAST_FINAL; c.inner.fast_final = ag_fast_final_cert_construct( nv, 9UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  ag_notar_vote_new( &nv[0], slot, &h, &g_sk[1], 0, TEST_SHRED_VERSION );
+  ag_notar_vote_new( &nv[0], slot, &h, g_sk[1], 0, TEST_SHRED_VERSION );
   c.inner.fast_final = ag_fast_final_cert_construct( nv, 9UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
@@ -386,18 +386,18 @@ test_sig_validity( void ) {
 
 static ulong
 put_aggregate( uchar * p, ulong nbits, ulong signer_cnt ) {
-  memset( p, 0, AG_AGGSIG_SIG_COMPRESSED_SZ );
+  memset( p, 0, AG_BLS_SIG_COMPRESSED_SZ );
   p[0] = 0xc0;
   ulong payload = (nbits+7UL)/8UL;
   ulong bm_cnt  = 3UL+payload;
-  p[ AG_AGGSIG_SIG_COMPRESSED_SZ     ] = (uchar)( bm_cnt     & 0xffUL );
-  p[ AG_AGGSIG_SIG_COMPRESSED_SZ+1UL ] = (uchar)( (bm_cnt>>8) & 0xffUL );
-  uchar * b = p+AG_AGGSIG_SIG_COMPRESSED_SZ+2UL;
+  p[ AG_BLS_SIG_COMPRESSED_SZ     ] = (uchar)( bm_cnt     & 0xffUL );
+  p[ AG_BLS_SIG_COMPRESSED_SZ+1UL ] = (uchar)( (bm_cnt>>8) & 0xffUL );
+  uchar * b = p+AG_BLS_SIG_COMPRESSED_SZ+2UL;
   b[0] = 0;
   b[1] = (uchar)( nbits & 0xffUL ); b[2] = (uchar)( nbits>>8 );
   memset( b+3UL, 0, payload );
   for( ulong i=0UL; i<signer_cnt; i++ ) b[ 3UL+(i>>3) ] = (uchar)( b[ 3UL+(i>>3) ] | (1U<<(i&7UL)) );
-  return AG_AGGSIG_SIG_COMPRESSED_SZ+2UL+bm_cnt;
+  return AG_BLS_SIG_COMPRESSED_SZ+2UL+bm_cnt;
 }
 
 static void

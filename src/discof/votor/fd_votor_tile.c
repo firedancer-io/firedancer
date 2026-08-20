@@ -109,10 +109,10 @@ typedef struct vtr_rank vtr_rank_t;
 #define SORT_NAME        vtr_rank_sort
 #define SORT_KEY_T       vtr_rank_t
 #define SORT_BEFORE(a,b) ( (a).stake >(b).stake ||                                                                  \
-                         ( (a).stake==(b).stake && memcmp((a).bls,(b).bls,AG_AGGSIG_PUBKEY_COMPRESSED_SZ)<0 ) )
+                         ( (a).stake==(b).stake && memcmp((a).bls,(b).bls,AG_BLS_PUB_COMPRESSED_SZ)<0 ) )
 #include "../../util/tmpl/fd_sort.c"
 
-FD_STATIC_ASSERT( sizeof( ((fd_vote_stake_weight_t *)NULL)->bls_key )==AG_AGGSIG_PUBKEY_COMPRESSED_SZ, bls_pubkey_sz );
+FD_STATIC_ASSERT( sizeof( ((fd_vote_stake_weight_t *)NULL)->bls_key )==AG_BLS_PUB_COMPRESSED_SZ, bls_pubkey_sz );
 
 FD_FN_UNUSED static ulong
 rank_validators( ag_validator_info_t *          out,
@@ -121,10 +121,10 @@ rank_validators( ag_validator_info_t *          out,
                  ulong                          stake_cnt ) {
   ulong in_cnt = fd_ulong_min( stake_cnt, AG_VAT_MAX );
 
-  ag_aggsig_pk_t pk  [ AG_VAT_MAX ];
-  uchar          cand[ AG_VAT_MAX ]; /* 1 if non-zero stake and BLS key is in G1 */
+  ag_bls_pub_t pk  [ AG_VAT_MAX ];
+  uchar        cand[ AG_VAT_MAX ]; /* 1 if non-zero stake and BLS key is in G1 */
   for( ulong i=0UL; i<in_cnt; i++ ) {
-    cand[ i ] = (uchar)( stakes[ i ].stake!=0UL && !fd_bls12_381_g1_decompress_syscall( pk[ i ].v, stakes[ i ].bls_key, 1 /* big endian */ ) );
+    cand[ i ] = (uchar)( stakes[ i ].stake!=0UL && !fd_bls12_381_g1_decompress_syscall( pk[ i ], stakes[ i ].bls_key, 1 /* big endian */ ) );
   }
 
   vtr_rank_t rank[ AG_VAT_MAX ];
@@ -135,7 +135,7 @@ rank_validators( ag_validator_info_t *          out,
     ulong id_dup  = 0UL;
     for( ulong j=0UL; j<in_cnt; j++ ) {
       if( FD_UNLIKELY( !cand[ j ] ) ) continue;
-      if( FD_UNLIKELY( !memcmp( stakes[ i ].bls_key,   stakes[ j ].bls_key,   AG_AGGSIG_PUBKEY_COMPRESSED_SZ ) ) ) bls_dup++;
+      if( FD_UNLIKELY( !memcmp( stakes[ i ].bls_key,   stakes[ j ].bls_key,   AG_BLS_PUB_COMPRESSED_SZ ) ) ) bls_dup++;
       if( FD_UNLIKELY( !memcmp( stakes[ i ].id_key.uc, stakes[ j ].id_key.uc, sizeof(fd_pubkey_t)             ) ) ) id_dup++;
     }
     if( FD_UNLIKELY( bls_dup!=1UL || id_dup!=1UL ) ) continue;
@@ -155,7 +155,7 @@ rank_validators( ag_validator_info_t *          out,
     vi->id            = r;
     vi->stake         = stakes[ idx ].stake;
     vi->pubkey        = stakes[ idx ].id_key;
-    vi->voting_pubkey = pk[ idx ];
+    fd_memcpy( vi->voting_pubkey, pk[ idx ], AG_BLS_PUB_SZ );
   }
   return cnt;
 }

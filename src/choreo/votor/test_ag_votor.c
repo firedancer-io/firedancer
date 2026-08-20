@@ -16,7 +16,7 @@
     FD_TEST( !try_recv( (votor), &unused_ ) ); \
   } while( 0 )
 
-static ag_aggsig_sk_t      g_sk  [ NV ];
+static ag_bls_sec_t      g_sk  [ NV ];
 static ag_validator_info_t g_info[ NV ];
 static ulong               g_hash_ctr = 0UL;
 
@@ -47,11 +47,11 @@ random_block_id( ulong slot ) {
 static void
 create_validators( void ) {
   for( ulong i=0UL; i<NV; i++ ) {
-    fd_memset( g_sk[i].v, (int)(i*7UL+1UL), AG_AGGSIG_SECKEY_SZ );
+    fd_memset( g_sk[i], (int)(i*7UL+1UL), AG_BLS_SEC_SZ );
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_aggsig_sk_to_pk( &g_info[i].voting_pubkey, &g_sk[i] );
+    ag_bls_sec_to_pub( g_info[i].voting_pubkey, g_sk[i] );
   }
 }
 
@@ -118,7 +118,7 @@ setup_votor( fd_wksp_t * wksp,
                                     ag_votor_footprint( TEST_SLOT_MAX ),
                                     42UL );
   FD_TEST( mem );
-  ag_votor_t * votor = ag_votor_join( ag_votor_new( mem, TEST_SLOT_MAX, 42UL, (ushort)0, &g_sk[0], TEST_SHRED_VERSION, now ) );
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( mem, TEST_SLOT_MAX, 42UL, (ushort)0, g_sk[0], TEST_SHRED_VERSION, now ) );
   FD_TEST( votor );
 
   g_epoch_info = fd_wksp_alloc_laddr( wksp, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t), 42UL );
@@ -366,7 +366,7 @@ test_prunes_to_finalized_window( fd_wksp_t * wksp ) {
 
   /* finalizing a mid-window slot should drop only the slots before its
      window */
-  ag_final_vote_t fv; ag_final_vote_new( &fv, finalized, &g_sk[1], (ushort)1, TEST_SHRED_VERSION );
+  ag_final_vote_t fv; ag_final_vote_new( &fv, finalized, g_sk[1], (ushort)1, TEST_SHRED_VERSION );
   ag_cert_t cert; cert.kind = AG_CERT_TYPE_FINAL;
   cert.inner.final = ag_final_cert_construct( &fv, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };

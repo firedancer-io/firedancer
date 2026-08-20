@@ -10,8 +10,8 @@ make_epoch( ulong   n,
     memset( &v[i], 0, sizeof(ag_validator_info_t) );
     v[i].id    = i;
     v[i].stake = 1UL;
-    ag_aggsig_sk_t sk; fd_memset( sk.v, (int)(i+1UL), AG_AGGSIG_SECKEY_SZ );
-    ag_aggsig_sk_to_pk( &v[i].voting_pubkey, &sk );
+    ag_bls_sec_t sk; fd_memset( sk, (int)(i+1UL), AG_BLS_SEC_SZ );
+    ag_bls_sec_to_pub( v[i].voting_pubkey, sk );
   }
   ag_epoch_info_t * ei = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
   FD_TEST( ei );

@@ -12,8 +12,8 @@
 #if FD_HAS_BLST
 #include "votor/ag_votor_base.h"
 
-#include "votor/ag_aggsig.h"
-#include "votor/ag_aggsig_serde.h"
+#include "votor/ag_bls.h"
+#include "votor/ag_bls_serde.h"
 #include "votor/ag_cert.h"
 #include "votor/ag_cert_serde.h"
 #include "votor/ag_epoch_info.h"

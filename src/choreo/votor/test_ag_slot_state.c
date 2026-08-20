@@ -6,18 +6,18 @@
 
 #define MAXV 64UL
 
-static ag_aggsig_sk_t      g_sk  [ MAXV ];
+static ag_bls_sec_t      g_sk  [ MAXV ];
 static ag_validator_info_t g_info[ MAXV ];
 
 static void
 generate_validators( ulong n ) {
   FD_TEST( n<=MAXV );
   for( ulong i=0UL; i<n; i++ ) {
-    fd_memset( g_sk[i].v, (int)(i*7UL+1UL), AG_AGGSIG_SECKEY_SZ );
+    fd_memset( g_sk[i], (int)(i*7UL+1UL), AG_BLS_SEC_SZ );
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_aggsig_sk_to_pk( &g_info[i].voting_pubkey, &g_sk[i] );
+    ag_bls_sec_to_pub( g_info[i].voting_pubkey, g_sk[i] );
   }
 }
 
@@ -76,7 +76,7 @@ test_add_cert( fd_wksp_t * wksp ) {
   ag_slot_state_t * ss = make_state( wksp, slot, ei );
 
   ag_notar_vote_t nv[ 11 ];
-  for( ulong i=0UL; i<n; i++ ) ag_notar_vote_new( &nv[i], slot, &hash, &g_sk[i], (ushort)i , TEST_SHRED_VERSION );
+  for( ulong i=0UL; i<n; i++ ) ag_notar_vote_new( &nv[i], slot, &hash, g_sk[i], (ushort)i , TEST_SHRED_VERSION );
   ag_cert_t c; c.kind = AG_CERT_TYPE_NOTAR;
   c.inner.notar = ag_notar_cert_construct( nv, n, ei );
 
@@ -101,7 +101,7 @@ test_add_vote( fd_wksp_t * wksp ) {
   out_t t;
 
   for( ulong i=0UL; i<n; i++ ) {
-    ag_vote_t vote; ag_vote_new_notar( &vote, slot, &hash, &g_sk[i], (ushort)i , TEST_SHRED_VERSION );
+    ag_vote_t vote; ag_vote_new_notar( &vote, slot, &hash, g_sk[i], (ushort)i , TEST_SHRED_VERSION );
     FD_TEST( ss->votes.notar[i].slot==ULONG_MAX );
     add_vote_helper( ss, &vote, ei, &t );
     FD_TEST( ss->votes.notar[i].slot==slot );
@@ -127,13 +127,13 @@ test_safe_to_notar( fd_wksp_t * wksp ) {
   ag_slot_state_notify_parent_known( ss, &hash );
   ag_slot_state_notify_parent_certified( ss, &hash );
 
-  ag_vote_t notar_vote; ag_vote_new_notar( &notar_vote, slot, &hash, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t notar_vote; ag_vote_new_notar( &notar_vote, slot, &hash, g_sk[1], 1UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &notar_vote, ei, &t );
   FD_TEST( t.o.certs_cnt==0UL );
   FD_TEST( t.o.pool_events_cnt==0UL );
   FD_TEST( t.o.block_repairs_cnt==0UL );
 
-  ag_vote_t skip_vote; ag_vote_new_skip( &skip_vote, slot, &g_sk[0], 0UL , TEST_SHRED_VERSION );
+  ag_vote_t skip_vote; ag_vote_new_skip( &skip_vote, slot, g_sk[0], 0UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &skip_vote, ei, &t );
   FD_TEST( t.o.certs_cnt==0UL );
   FD_TEST( t.o.pool_events_cnt==1UL );
@@ -158,14 +158,14 @@ test_slashable_skip_and_notarize( fd_wksp_t * wksp ) {
   ag_slot_state_t * ss = make_state( wksp, slot, ei );
   out_t t;
 
-  ag_vote_t s1; ag_vote_new_skip( &s1, slot, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t s1; ag_vote_new_skip( &s1, slot, g_sk[1], 1UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &s1, ei, &t );
-  ag_vote_t notar_vote; ag_vote_new_notar( &notar_vote, slot, &hash, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t notar_vote; ag_vote_new_notar( &notar_vote, slot, &hash, g_sk[1], 1UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &notar_vote )==AG_SLASHABLE_SKIP_AND_NOTARIZE );
 
-  ag_vote_t n2; ag_vote_new_notar( &n2, slot, &hash, &g_sk[2], 2UL , TEST_SHRED_VERSION );
+  ag_vote_t n2; ag_vote_new_notar( &n2, slot, &hash, g_sk[2], 2UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &n2, ei, &t );
-  ag_vote_t skip_vote; ag_vote_new_skip( &skip_vote, slot, &g_sk[2], 2UL , TEST_SHRED_VERSION );
+  ag_vote_t skip_vote; ag_vote_new_skip( &skip_vote, slot, g_sk[2], 2UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &skip_vote )==AG_SLASHABLE_SKIP_AND_NOTARIZE );
 
   fd_wksp_free_laddr( ss );
@@ -185,10 +185,10 @@ test_slashable_notar_different_hash( fd_wksp_t * wksp ) {
   ag_slot_state_t * ss = make_state( wksp, slot, ei );
   out_t t;
 
-  ag_vote_t notar_a; ag_vote_new_notar( &notar_a, slot, &hash_a, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t notar_a; ag_vote_new_notar( &notar_a, slot, &hash_a, g_sk[1], 1UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &notar_a, ei, &t );
 
-  ag_vote_t notar_b; ag_vote_new_notar( &notar_b, slot, &hash_b, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t notar_b; ag_vote_new_notar( &notar_b, slot, &hash_b, g_sk[1], 1UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &notar_b )==AG_SLASHABLE_NOTAR_DIFFERENT_HASH );
 
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &notar_a )==AG_SLASHABLE_NONE );
@@ -208,21 +208,21 @@ test_slashable_skip_and_finalize( fd_wksp_t * wksp ) {
   ag_slot_state_t * ss = make_state( wksp, slot, ei );
   out_t t;
 
-  ag_vote_t f1; ag_vote_new_final( &f1, slot, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t f1; ag_vote_new_final( &f1, slot, g_sk[1], 1UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &f1, ei, &t );
-  ag_vote_t s1; ag_vote_new_skip( &s1, slot, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t s1; ag_vote_new_skip( &s1, slot, g_sk[1], 1UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &s1 )==AG_SLASHABLE_SKIP_AND_FINALIZE );
-  ag_vote_t sf1; ag_vote_new_skip_fallback( &sf1, slot, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t sf1; ag_vote_new_skip_fallback( &sf1, slot, g_sk[1], 1UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &sf1 )==AG_SLASHABLE_SKIP_AND_FINALIZE );
 
-  ag_vote_t s2; ag_vote_new_skip( &s2, slot, &g_sk[2], 2UL , TEST_SHRED_VERSION );
+  ag_vote_t s2; ag_vote_new_skip( &s2, slot, g_sk[2], 2UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &s2, ei, &t );
-  ag_vote_t f2; ag_vote_new_final( &f2, slot, &g_sk[2], 2UL , TEST_SHRED_VERSION );
+  ag_vote_t f2; ag_vote_new_final( &f2, slot, g_sk[2], 2UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &f2 )==AG_SLASHABLE_SKIP_AND_FINALIZE );
 
-  ag_vote_t sf3; ag_vote_new_skip_fallback( &sf3, slot, &g_sk[3], 3UL , TEST_SHRED_VERSION );
+  ag_vote_t sf3; ag_vote_new_skip_fallback( &sf3, slot, g_sk[3], 3UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &sf3, ei, &t );
-  ag_vote_t f3; ag_vote_new_final( &f3, slot, &g_sk[3], 3UL , TEST_SHRED_VERSION );
+  ag_vote_t f3; ag_vote_new_final( &f3, slot, g_sk[3], 3UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &f3 )==AG_SLASHABLE_SKIP_AND_FINALIZE );
 
   fd_wksp_free_laddr( ss );
@@ -241,14 +241,14 @@ test_slashable_notar_fallback_and_finalize( fd_wksp_t * wksp ) {
   ag_slot_state_t * ss = make_state( wksp, slot, ei );
   out_t t;
 
-  ag_vote_t f1; ag_vote_new_final( &f1, slot, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t f1; ag_vote_new_final( &f1, slot, g_sk[1], 1UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &f1, ei, &t );
-  ag_vote_t nf1; ag_vote_new_notar_fallback( &nf1, slot, &hash, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t nf1; ag_vote_new_notar_fallback( &nf1, slot, &hash, g_sk[1], 1UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &nf1 )==AG_SLASHABLE_NOTAR_FALLBACK_AND_FINALIZE );
 
-  ag_vote_t nf2; ag_vote_new_notar_fallback( &nf2, slot, &hash, &g_sk[2], 2UL , TEST_SHRED_VERSION );
+  ag_vote_t nf2; ag_vote_new_notar_fallback( &nf2, slot, &hash, g_sk[2], 2UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &nf2, ei, &t );
-  ag_vote_t f2; ag_vote_new_final( &f2, slot, &g_sk[2], 2UL , TEST_SHRED_VERSION );
+  ag_vote_t f2; ag_vote_new_final( &f2, slot, g_sk[2], 2UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &f2 )==AG_SLASHABLE_NOTAR_FALLBACK_AND_FINALIZE );
 
   fd_wksp_free_laddr( ss );
@@ -268,9 +268,9 @@ test_slashable_offence_none( fd_wksp_t * wksp ) {
   out_t t;
   ulong v = 1UL;
 
-  ag_vote_t notar_vote; ag_vote_new_notar( &notar_vote, slot, &hash, &g_sk[1], (ushort)v , TEST_SHRED_VERSION );
-  ag_vote_t skip_vote;  ag_vote_new_skip( &skip_vote,  slot,        &g_sk[1], (ushort)v , TEST_SHRED_VERSION );
-  ag_vote_t final_vote; ag_vote_new_final( &final_vote, slot,        &g_sk[1], (ushort)v , TEST_SHRED_VERSION );
+  ag_vote_t notar_vote; ag_vote_new_notar( &notar_vote, slot, &hash, g_sk[1], (ushort)v , TEST_SHRED_VERSION );
+  ag_vote_t skip_vote;  ag_vote_new_skip( &skip_vote,  slot,        g_sk[1], (ushort)v , TEST_SHRED_VERSION );
+  ag_vote_t final_vote; ag_vote_new_final( &final_vote, slot,        g_sk[1], (ushort)v , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &notar_vote )==AG_SLASHABLE_NONE );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &skip_vote )==AG_SLASHABLE_NONE );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &final_vote )==AG_SLASHABLE_NONE );
@@ -295,28 +295,28 @@ test_should_ignore_duplicate_votes( fd_wksp_t * wksp ) {
   ag_slot_state_t * ss = make_state( wksp, slot, ei );
   out_t t;
 
-  ag_vote_t v1n; ag_vote_new_notar( &v1n, slot, &hash, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t v1n; ag_vote_new_notar( &v1n, slot, &hash, g_sk[1], 1UL , TEST_SHRED_VERSION );
   FD_TEST( !ag_slot_state_should_ignore_vote( ss, &v1n ) );
 
   add_vote_helper( ss, &v1n, ei, &t );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &v1n ) );
-  ag_vote_t v1n_other; ag_vote_new_notar( &v1n_other, slot, &other_hash, &g_sk[1], 1UL , TEST_SHRED_VERSION );
+  ag_vote_t v1n_other; ag_vote_new_notar( &v1n_other, slot, &other_hash, g_sk[1], 1UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &v1n_other ) );
 
-  ag_vote_t v2s; ag_vote_new_skip( &v2s, slot, &g_sk[2], 2UL , TEST_SHRED_VERSION );
+  ag_vote_t v2s; ag_vote_new_skip( &v2s, slot, g_sk[2], 2UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &v2s, ei, &t );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &v2s ) );
-  ag_vote_t v2sf; ag_vote_new_skip_fallback( &v2sf, slot, &g_sk[2], 2UL , TEST_SHRED_VERSION );
+  ag_vote_t v2sf; ag_vote_new_skip_fallback( &v2sf, slot, g_sk[2], 2UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &v2sf ) );
 
-  ag_vote_t v3f; ag_vote_new_final( &v3f, slot, &g_sk[3], 3UL , TEST_SHRED_VERSION );
+  ag_vote_t v3f; ag_vote_new_final( &v3f, slot, g_sk[3], 3UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &v3f, ei, &t );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &v3f ) );
 
-  ag_vote_t v4nf; ag_vote_new_notar_fallback( &v4nf, slot, &hash, &g_sk[4], 4UL , TEST_SHRED_VERSION );
+  ag_vote_t v4nf; ag_vote_new_notar_fallback( &v4nf, slot, &hash, g_sk[4], 4UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &v4nf, ei, &t );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &v4nf ) );
-  ag_vote_t v4nf_other; ag_vote_new_notar_fallback( &v4nf_other, slot, &other_hash, &g_sk[4], 4UL , TEST_SHRED_VERSION );
+  ag_vote_t v4nf_other; ag_vote_new_notar_fallback( &v4nf_other, slot, &other_hash, g_sk[4], 4UL , TEST_SHRED_VERSION );
   FD_TEST( !ag_slot_state_should_ignore_vote( ss, &v4nf_other ) );
 
   fd_wksp_free_laddr( ss );
@@ -335,20 +335,20 @@ test_count_finalize_creates_cert_at_quorum( fd_wksp_t * wksp ) {
   out_t t;
 
   for( ulong i=1UL; i<=3UL; i++ ) {
-    ag_vote_t fv; ag_vote_new_final( &fv, slot, &g_sk[i], (ushort)i , TEST_SHRED_VERSION );
+    ag_vote_t fv; ag_vote_new_final( &fv, slot, g_sk[i], (ushort)i , TEST_SHRED_VERSION );
     add_vote_helper( ss, &fv, ei, &t );
     FD_TEST( t.o.certs_cnt==0UL );
     FD_TEST( t.o.pool_events_cnt==0UL );
     FD_TEST( t.o.block_repairs_cnt==0UL );
   }
 
-  ag_vote_t fv4; ag_vote_new_final( &fv4, slot, &g_sk[4], 4UL , TEST_SHRED_VERSION );
+  ag_vote_t fv4; ag_vote_new_final( &fv4, slot, g_sk[4], 4UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &fv4, ei, &t );
   FD_TEST( t.o.certs_cnt==1UL );
   FD_TEST( t.o.certs[0].kind==AG_CERT_TYPE_FINAL );
 
   ag_slot_state_add_cert( ss, &t.o.certs[0] );
-  ag_vote_t fv5; ag_vote_new_final( &fv5, slot, &g_sk[5], 5UL , TEST_SHRED_VERSION );
+  ag_vote_t fv5; ag_vote_new_final( &fv5, slot, g_sk[5], 5UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &fv5, ei, &t );
   FD_TEST( t.o.certs_cnt==0UL );
 
@@ -369,26 +369,26 @@ test_count_notar_fallback_creates_cert_at_quorum( fd_wksp_t * wksp ) {
   out_t t;
 
   for( ulong i=1UL; i<=2UL; i++ ) {
-    ag_vote_t nv; ag_vote_new_notar( &nv, slot, &hash, &g_sk[i], (ushort)i , TEST_SHRED_VERSION );
+    ag_vote_t nv; ag_vote_new_notar( &nv, slot, &hash, g_sk[i], (ushort)i , TEST_SHRED_VERSION );
     add_vote_helper( ss, &nv, ei, &t );
     FD_TEST( t.o.certs_cnt==0UL );
   }
 
-  ag_vote_t nf3; ag_vote_new_notar_fallback( &nf3, slot, &hash, &g_sk[3], 3UL , TEST_SHRED_VERSION );
+  ag_vote_t nf3; ag_vote_new_notar_fallback( &nf3, slot, &hash, g_sk[3], 3UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &nf3, ei, &t );
   FD_TEST( t.o.certs_cnt==0UL );
   FD_TEST( t.o.pool_events_cnt==0UL );
   FD_TEST( t.o.block_repairs_cnt==0UL );
   FD_TEST( ag_slot_state_stake( ss->voted_stakes.notar_fallback, ss->voted_stakes.notar_fallback_cnt, &hash )==1UL );
 
-  ag_vote_t nf4; ag_vote_new_notar_fallback( &nf4, slot, &hash, &g_sk[4], 4UL , TEST_SHRED_VERSION );
+  ag_vote_t nf4; ag_vote_new_notar_fallback( &nf4, slot, &hash, g_sk[4], 4UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &nf4, ei, &t );
   FD_TEST( t.o.certs_cnt==1UL );
   FD_TEST( t.o.certs[0].kind==AG_CERT_TYPE_NOTAR_FALLBACK );
   FD_TEST( ag_cert_block_hash( &t.o.certs[0] ) && !memcmp( ag_cert_block_hash( &t.o.certs[0] )->uc, hash.uc, sizeof(fd_hash_t) ) );
 
   ag_slot_state_add_cert( ss, &t.o.certs[0] );
-  ag_vote_t nf5; ag_vote_new_notar_fallback( &nf5, slot, &hash, &g_sk[5], 5UL , TEST_SHRED_VERSION );
+  ag_vote_t nf5; ag_vote_new_notar_fallback( &nf5, slot, &hash, g_sk[5], 5UL , TEST_SHRED_VERSION );
   add_vote_helper( ss, &nf5, ei, &t );
   FD_TEST( t.o.certs_cnt==0UL );
 
@@ -408,8 +408,8 @@ test_skip_skip_fallback_conflict( fd_wksp_t * wksp ) {
   out_t t;
   ulong v = 0UL;
 
-  ag_vote_t skip;          ag_vote_new_skip         ( &skip,          slot, &g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-  ag_vote_t skip_fallback; ag_vote_new_skip_fallback( &skip_fallback, slot, &g_sk[v], (ushort)v, TEST_SHRED_VERSION );
+  ag_vote_t skip;          ag_vote_new_skip         ( &skip,          slot, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
+  ag_vote_t skip_fallback; ag_vote_new_skip_fallback( &skip_fallback, slot, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
 
   FD_TEST( !ag_slot_state_should_ignore_vote( ss, &skip          ) );
   FD_TEST( !ag_slot_state_should_ignore_vote( ss, &skip_fallback ) );
@@ -446,9 +446,9 @@ test_notar_notar_fallback_conflict( fd_wksp_t * wksp ) {
   out_t t;
   ulong v = 0UL;
 
-  ag_vote_t notar;          ag_vote_new_notar         ( &notar,          slot, &hash,       &g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-  ag_vote_t notar_fallback; ag_vote_new_notar_fallback( &notar_fallback, slot, &hash,       &g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-  ag_vote_t nf_other;       ag_vote_new_notar_fallback( &nf_other,       slot, &other_hash, &g_sk[v], (ushort)v, TEST_SHRED_VERSION );
+  ag_vote_t notar;          ag_vote_new_notar         ( &notar,          slot, &hash,       g_sk[v], (ushort)v, TEST_SHRED_VERSION );
+  ag_vote_t notar_fallback; ag_vote_new_notar_fallback( &notar_fallback, slot, &hash,       g_sk[v], (ushort)v, TEST_SHRED_VERSION );
+  ag_vote_t nf_other;       ag_vote_new_notar_fallback( &nf_other,       slot, &other_hash, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
 
   FD_TEST( !ag_slot_state_should_ignore_vote( ss, &notar          ) );
   FD_TEST( !ag_slot_state_should_ignore_vote( ss, &notar_fallback ) );
@@ -527,26 +527,26 @@ test_notar_stake_order( fd_wksp_t * wksp ) {
 
   ulong rank = 0UL;
   ag_vote_t v;
-  ag_vote_new_notar( &v, slot, &a, &g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
+  ag_vote_new_notar( &v, slot, &a, g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
   add_vote_helper( ss, &v, ei, &t );
   assert_tally( tally, ss->voted_stakes.notar_cnt, (fd_hash_t[]){ a }, (ulong[]){ 1UL }, 1UL );
 
-  ag_vote_new_notar( &v, slot, &b, &g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
+  ag_vote_new_notar( &v, slot, &b, g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
   add_vote_helper( ss, &v, ei, &t );
   assert_tally( tally, ss->voted_stakes.notar_cnt, (fd_hash_t[]){ a, b }, (ulong[]){ 1UL, 1UL }, 2UL );
 
-  ag_vote_new_notar( &v, slot, &b, &g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
+  ag_vote_new_notar( &v, slot, &b, g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
   add_vote_helper( ss, &v, ei, &t );
   assert_tally( tally, ss->voted_stakes.notar_cnt, (fd_hash_t[]){ b, a }, (ulong[]){ 2UL, 1UL }, 2UL );
 
   for( ulong i=0UL; i<3UL; i++ ) {
-    ag_vote_new_notar( &v, slot, &c, &g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
+    ag_vote_new_notar( &v, slot, &c, g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
     add_vote_helper( ss, &v, ei, &t );
   }
   assert_tally( tally, ss->voted_stakes.notar_cnt, (fd_hash_t[]){ c, b, a }, (ulong[]){ 3UL, 2UL, 1UL }, 3UL );
 
   for( ulong i=0UL; i<4UL; i++ ) {
-    ag_vote_new_notar( &v, slot, &d, &g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
+    ag_vote_new_notar( &v, slot, &d, g_sk[rank], (ushort)rank, TEST_SHRED_VERSION ); rank++;
     add_vote_helper( ss, &v, ei, &t );
   }
   FD_TEST( rank<=n );
@@ -570,21 +570,21 @@ test_notar_fallback_stake_order( fd_wksp_t * wksp ) {
   fd_hash_t own[ AG_NOTAR_FALLBACK_VOTE_MAX ];
   for( ulong i=0UL; i<AG_NOTAR_FALLBACK_VOTE_MAX; i++ ) {
     own[i] = random_hash();
-    ag_vote_t v; ag_vote_new_notar_fallback( &v, slot, &own[i], &g_sk[0], 0UL, TEST_SHRED_VERSION );
+    ag_vote_t v; ag_vote_new_notar_fallback( &v, slot, &own[i], g_sk[0], 0UL, TEST_SHRED_VERSION );
     FD_TEST( ag_slot_state_vote_fits( ss, &v ) );
     add_vote_helper( ss, &v, ei, &t );
     FD_TEST( ss->voted_stakes.notar_fallback_cnt==i+1UL );
   }
 
   fd_hash_t past = random_hash();
-  ag_vote_t v_past; ag_vote_new_notar_fallback( &v_past, slot, &past, &g_sk[0], 0UL, TEST_SHRED_VERSION );
+  ag_vote_t v_past; ag_vote_new_notar_fallback( &v_past, slot, &past, g_sk[0], 0UL, TEST_SHRED_VERSION );
   FD_TEST( !ag_slot_state_vote_fits( ss, &v_past ) );
 
   for( ulong i=0UL; i<2UL; i++ ) {
-    ag_vote_t v; ag_vote_new_notar_fallback( &v, slot, &own[2], &g_sk[1UL+i], (ushort)(1UL+i), TEST_SHRED_VERSION );
+    ag_vote_t v; ag_vote_new_notar_fallback( &v, slot, &own[2], g_sk[1UL+i], (ushort)(1UL+i), TEST_SHRED_VERSION );
     add_vote_helper( ss, &v, ei, &t );
   }
-  ag_vote_t v_mid; ag_vote_new_notar_fallback( &v_mid, slot, &own[1], &g_sk[3], 3UL, TEST_SHRED_VERSION );
+  ag_vote_t v_mid; ag_vote_new_notar_fallback( &v_mid, slot, &own[1], g_sk[3], 3UL, TEST_SHRED_VERSION );
   add_vote_helper( ss, &v_mid, ei, &t );
 
   assert_tally( ss->voted_stakes.notar_fallback, ss->voted_stakes.notar_fallback_cnt,
