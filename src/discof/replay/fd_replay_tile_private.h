@@ -160,7 +160,7 @@ struct fd_replay_tile {
      We can't become leader and pack blocks until this flag has been
      set.  This parallels the Agave 'has_new_vote_been_rooted'. */
   int identity_vote_rooted;
-  int wait_for_vote_to_start_leader;
+  int wait_for_vote_to_start_leader; /* FD_BOOLAU_{FALSE,TRUE,AUTO} */
   int alpenglow;
 
   /* wfs_enabled is 1 if the validator is booted in
@@ -172,7 +172,11 @@ struct fd_replay_tile {
   int   wfs_enabled;
   int   wfs_complete;
 
+  ulong     wait_for_supermajority_at_slot;
   fd_hash_t expected_bank_hash;
+  int       wfs_hash_is_zero;
+  /* Effective boot slot (see fd_wfs.h). */
+  ulong     wfs_boot_slot;
 
   ulong            blockhash_seed;
   ulong            reasm_seed;
