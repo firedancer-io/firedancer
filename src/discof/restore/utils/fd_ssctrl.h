@@ -91,10 +91,10 @@
    that control message until all tiles forward it on, or an ERROR
    message is triggered by any of the tiles and forwarded. */
 
-/* MTU for the snapshot data stream links (snapld_dc, snapdc_in).
-   Producers adapt to the link mtu, so the value just needs to exceed
-   the control structs.  64 KiB - 128 fills one dcache slot exactly
-   and keeps a depth-16384 link under a gigantic page boundary. */
+/* Parameters for the snapshot data stream links (snapld_dc,
+   snapdc_in).  Producers adapt to the link MTU, which just needs to
+   exceed the control structs. */
+#define FD_SNAPSHOT_DATA_DEPTH                 (1024UL)
 #define FD_SNAPSHOT_DATA_MTU                   (65408UL)
 
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
