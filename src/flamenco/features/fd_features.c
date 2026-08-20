@@ -127,15 +127,30 @@ fd_feature_restore( fd_features_t *             features,
 }
 
 void
+fd_features_restore_chunk( fd_features_t *             features,
+                           fd_accdb_t *                accdb,
+                           fd_accdb_fork_id_t          fork_id,
+                           ulong                       slot,
+                           fd_epoch_schedule_t const * epoch_schedule,
+                           ulong                       chunk_idx,
+                           ulong                       chunk_cnt ) {
+  FD_TEST( chunk_cnt>0UL );
+  FD_TEST( chunk_idx<chunk_cnt );
+
+  ulong begin = chunk_idx     * FD_FEATURE_ID_CNT / chunk_cnt;
+  ulong end   = (chunk_idx+1) * FD_FEATURE_ID_CNT / chunk_cnt;
+
+  for( fd_feature_id_t const * id=ids+begin; id<ids+end; id++ ) {
+    fd_feature_restore( features, accdb, fork_id, slot, epoch_schedule, id );
+    if( FD_UNLIKELY( one_off_forced[ id->index ] ) ) fd_features_set( features, id, 0UL );
+  }
+}
+
+void
 fd_features_restore( fd_features_t *             features,
                      fd_accdb_t *                accdb,
                      fd_accdb_fork_id_t          fork_id,
                      ulong                       slot,
                      fd_epoch_schedule_t const * epoch_schedule ) {
-  for( fd_feature_id_t const * id = fd_feature_iter_init();
-                                   !fd_feature_iter_done( id );
-                               id = fd_feature_iter_next( id ) ) {
-    fd_feature_restore( features, accdb, fork_id, slot, epoch_schedule, id );
-    if( FD_UNLIKELY( one_off_forced[ id->index ] ) ) fd_features_set( features, id, 0UL );
-  }
+  fd_features_restore_chunk( features, accdb, fork_id, slot, epoch_schedule, 0UL, 1UL );
 }

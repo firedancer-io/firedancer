@@ -1432,7 +1432,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       fd_accdb_snapshot_load_end( ctx->accdb );
 
-      fd_features_restore( &ctx->bank->f.features, ctx->accdb, ctx->accdb_root_fork_id, ctx->bank_slot, &ctx->epoch_schedule );
+      /* TODO: Pass in tile_idx and tile_cnt when parallelizing snapin */
+      fd_features_restore_chunk( &ctx->bank->f.features, ctx->accdb, ctx->accdb_root_fork_id, ctx->bank_slot, &ctx->epoch_schedule, 0UL, 1UL );
 
       /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );

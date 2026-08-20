@@ -185,6 +185,19 @@ fd_features_restore( fd_features_t *             features,
                      ulong                       slot,
                      fd_epoch_schedule_t const * epoch_schedule );
 
+/* fd_features_restore_chunk behaves like fd_features_restore but only
+   restores one balanced, contiguous chunk of the known feature IDs.
+   Assumes chunk_cnt>0 and chunk_idx<chunk_cnt. */
+
+void
+fd_features_restore_chunk( fd_features_t *             features,
+                           fd_accdb_t *                accdb,
+                           fd_accdb_fork_id_t          fork_id,
+                           ulong                       slot,
+                           fd_epoch_schedule_t const * epoch_schedule,
+                           ulong                       chunk_idx,
+                           ulong                       chunk_cnt );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_features_fd_features_h */
