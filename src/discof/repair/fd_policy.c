@@ -4,7 +4,7 @@
 #define NONCE_NULL        (UINT_MAX)
 #define DEFER_REPAIR_MS   (200UL)
 #define TARGET_TICK_PER_SLOT (64.0)
-#define MS_PER_TICK          (400.0 / TARGET_TICK_PER_SLOT)
+#define MS_PER_TICK          (200.0 / TARGET_TICK_PER_SLOT)
 
 void *
 fd_policy_new( void * shmem, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss ) {
@@ -111,7 +111,7 @@ passes_throttle_threshold( fd_policy_t * policy, fd_forest_blk_t * ele ) {
      first shred received until now ) is greater than the highest tick
      received + 200ms. */
   double current_duration = (double)(fd_tickcount() - ele->first_shred_ts) / fd_tempo_tick_per_ns(NULL);
-  double tick_plus_buffer = (ele->est_buffered_tick_recv * MS_PER_TICK + DEFER_REPAIR_MS) * 1e6; // change to 400e6 for a slot duration policy
+  double tick_plus_buffer = (ele->est_buffered_tick_recv * MS_PER_TICK + DEFER_REPAIR_MS) * 1e6;
 
   if( current_duration >= tick_plus_buffer ){
     FD_MCNT_INC( REPAIR, EAGER_THRESHOLD_EXCEEDED, 1 );
@@ -226,7 +226,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
   }
 
   fd_forest_blk_t * ele = fd_forest_pool_ele( pool, iter->ele_idx );
-  if( FD_UNLIKELY( !passes_throttle_threshold( policy, ele ) ) ) {
+  if( FD_UNLIKELY( ele->slot==highest_known_slot && !passes_throttle_threshold( policy, ele ) ) ) {
     /* When we are at the head of the turbine, we should give turbine the
        chance to complete the shreds.  Agave waits 200ms from the
        estimated "correct time" of the highest shred received to repair.
@@ -259,6 +259,10 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ele->slot, 0U, now );
       out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, 0 );
       ele->req_highest_cnt++;
+    } else if( FD_LIKELY( ele->slot == highest_known_slot ) ) {
+      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, ele->buffered_idx + 1, now );
+      out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, ele->buffered_idx + 1 );
+      ele->req_window_cnt++;
     }
   } else {
     /* Regular repair requests are not deduped.  Any potential regular
