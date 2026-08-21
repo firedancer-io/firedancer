@@ -88,6 +88,7 @@ typedef struct fd_sched_fec fd_sched_fec_t;
 #define FD_SCHED_TXN_SIGVERIFY_DONE (0x0002UL)
 #define FD_SCHED_TXN_IS_COMMITTABLE (0x0004UL)
 #define FD_SCHED_TXN_IS_FEES_ONLY   (0x0008UL)
+#define FD_SCHED_TXN_IS_NOOP        (0x0010UL)
 #define FD_SCHED_TXN_REPLAY_DONE    (FD_SCHED_TXN_EXEC_DONE|FD_SCHED_TXN_SIGVERIFY_DONE)
 
 struct fd_sched_txn_info {

@@ -835,6 +835,7 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   txn_executed->txn_err = txn_info->txn_err;
   txn_executed->is_committable = !!(txn_info->flags&FD_SCHED_TXN_IS_COMMITTABLE);
   txn_executed->is_fees_only = !!(txn_info->flags&FD_SCHED_TXN_IS_FEES_ONLY);
+  txn_executed->is_noop = !!(txn_info->flags&FD_SCHED_TXN_IS_NOOP);
   txn_executed->tick_parsed = txn_info->tick_parsed;
   txn_executed->tick_sigverify_disp = txn_info->tick_sigverify_disp;
   txn_executed->tick_sigverify_done = txn_info->tick_sigverify_done;
@@ -2749,6 +2750,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         txn_info->txn_err = msg->txn_exec->txn_err;
         txn_info->flags  |= fd_ulong_if( msg->txn_exec->is_committable, FD_SCHED_TXN_IS_COMMITTABLE, 0UL );
         txn_info->flags  |= fd_ulong_if( msg->txn_exec->is_fees_only,   FD_SCHED_TXN_IS_FEES_ONLY,   0UL );
+        txn_info->flags  |= fd_ulong_if( msg->txn_exec->is_noop,        FD_SCHED_TXN_IS_NOOP,        0UL );
       }
       if( FD_UNLIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) { /* UNLIKELY because generally exec happens before sigverify. */
         publish_txn_executed( ctx, stem, bank->idx, txn_idx );
@@ -2763,6 +2765,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         txn_info->txn_err = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
         txn_info->flags  &= ~FD_SCHED_TXN_IS_COMMITTABLE;
         txn_info->flags  &= ~FD_SCHED_TXN_IS_FEES_ONLY;
+        txn_info->flags  &= ~FD_SCHED_TXN_IS_NOOP;
       }
       if( FD_UNLIKELY( msg->txn_sigverify->err && bank->state!=FD_BANK_STATE_DEAD ) ) {
         /* Every transaction in a valid block has to sigverify.

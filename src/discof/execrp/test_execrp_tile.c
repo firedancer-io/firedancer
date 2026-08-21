@@ -515,8 +515,51 @@ FD_UNIT_TEST( execrp_simple_fee_payer_fail ) {
   FD_TEST( !env->execrp->txn_out.err.is_committable );
   FD_TEST( env->execrp->txn_out.err.txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
   FD_TEST( !out_msg->txn_exec->is_committable );
+  FD_TEST( !out_msg->txn_exec->is_noop );
   FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
   FD_TEST( test_read_lamports( env, &data_acct )==data_acct_start );
+
+  test_env_destroy( env );
+}
+
+/* Test for relax_fee_payer_constraint feature: a transaction with
+   an invalid fee payer should be classified as a "no-op" transaction,
+   have no effect on the account state, not charge any fees, but is
+   valid to include in the block. */
+FD_UNIT_TEST( execrp_simple_fee_payer_fail_relaxed ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, relax_fee_payer_constraint, 0UL );
+
+  fd_pubkey_t missing_fee_payer = { .ul = { 0x3333UL } };
+  fd_pubkey_t data_acct         = { .ul = { 0x4444UL } };
+  ulong const data_acct_start = 777UL;
+  test_fund_account( env, &data_acct, data_acct_start );
+
+  fd_txn_p_t txn[1];
+  test_build_empty_txn( txn, bank, missing_fee_payer, data_acct, 12UL, 0 );
+  fd_execrp_task_done_msg_t const * out_msg = test_execrp_run( env, txn, 19UL );
+
+  FD_TEST( env->execrp->txn_out.err.is_committable );
+  FD_TEST( env->execrp->txn_out.err.is_noop        );
+  FD_TEST( !env->execrp->txn_out.err.is_fees_only  );
+  FD_TEST( env->execrp->txn_out.err.txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  FD_TEST( out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->is_noop        );
+  FD_TEST( !out_msg->txn_exec->is_fees_only  );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+
+  /* No fees charged */
+  FD_TEST( !bank->f.execution_fees );
+  FD_TEST( !bank->f.priority_fees  );
+
+  /* No change on the account state */
+  FD_TEST( test_read_lamports( env, &data_acct )==data_acct_start );
+  FD_TEST( !test_read_lamports( env, &missing_fee_payer ) );
+
+  /* It does count towards the bank hash signature count */
+  FD_TEST( bank->f.txn_count==1UL       );
+  FD_TEST( bank->f.signature_count==1UL );
 
   test_env_destroy( env );
 }
