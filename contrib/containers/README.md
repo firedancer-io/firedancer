@@ -57,7 +57,7 @@ FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install
 Compile desired targets:
 
 ```bash
-make -j all fdctl fddev
+make -j
 ```
 
 ## GCC 12 AVX512 build example

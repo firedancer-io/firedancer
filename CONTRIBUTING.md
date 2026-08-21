@@ -326,15 +326,11 @@ are well supported by Clang and CBMC many years back.
 
 #### 7.3. Compiler compatibility
 
-As of 2024-Jul, Firedancer builds on GNU/Linux sysroots with GCC 8.5 or
+As of June 2026, Firedancer builds on GNU/Linux sysroots with GCC 11 or
 newer.  Clang and CBMC are also supported build environments.
 
-The "Frankendancer" build target (fdctl) only targets x86_64 with a
-Haswell like minimum feature set (AVX2, FMA).
-
-Experimental support exists for the following targets:
-- musl Linux, macOS, FreeBSD, Solana (SVM) C programs
-- arm64, ppc64le, sBPFv1, sBPFv2
+The "firedancer" build target only targets x86_64 with a Haswell like
+minimum feature set (AVX2, FMA, atomic 32 byte load/store).
 
 #### 7.4. seccomp
 
