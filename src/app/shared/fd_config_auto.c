@@ -148,9 +148,8 @@ is_xdp_zc_auto( fd_config_t * config ) {
 static int
 xdp_zc_check( fd_config_t    const * config FD_PARAM_UNUSED,
               fd_auto_info_t const * info   FD_PARAM_UNUSED ) {
-  /* zc turned off for initial config auto rollout just to
-     be safe. */
-  return 0;
+  if( strcmp( config->net.xdp.xdp_mode, "drv") ) return 0;
+  return 1;
 }
 
 static void
