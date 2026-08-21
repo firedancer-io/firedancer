@@ -7,6 +7,7 @@
 #include "fd_backup.h"
 #include "fd_backup_accidx.h"
 #include "fd_backup_shmem.h"
+#include "../../tango/fd_tango_base.h"
 
 /* FD_SNAPMK_PF_LEAD is how far ahead of the record cursor the parser
    prefetches disk bytes. */
@@ -160,6 +161,123 @@ fd_snapmk_accparse_keep( fd_snapmk_accparse_t * parse ) {
   ulong chain_idx = fd_backup_accidx_chain( &parse->idx, parse->meta.pubkey );
   fd_snapmk_accparse_lookup( parse, &chain_idx, &parse->acc_file_off, &parse->acc_idx, 1UL );
   return parse->acc_idx!=UINT_MAX;
+}
+
+/* fd_snapmk_accparse_publish produces an account-aligned frag from
+   accumulated source data.  It returns meta if a frag was produced and
+   NULL otherwise.  In particular, after discarding a complete record it
+   returns NULL at the clean record boundary so the caller can retry the
+   whole-record batch path on the remaining input. */
+
+static inline fd_frag_meta_t *
+fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
+                            fd_frag_meta_t *       meta ) {
+  for(;;) {
+    if( FD_UNLIKELY( parse->pub_pending ) ) {
+      meta->sig    = parse->pub_gaddr;
+      meta->chunk  = parse->acc_idx;
+      meta->sz     = 0;
+      meta->ctl    = (ushort)fd_frag_meta_ctl( FD_BACKUP_ORIG_ACC_DISK, parse->pub_som, parse->pub_eom, 0 );
+      meta->tsorig = 0U;
+      meta->tspub  = (uint)parse->pub_sz;
+      parse->pub_pending = 0;
+      return meta;
+    }
+
+    if( FD_UNLIKELY( !parse->data_sz ) ) return NULL;
+
+    if( FD_UNLIKELY( !parse->acc_active ) ) {
+      if( FD_UNLIKELY( !parse->meta_sz ) ) {
+        parse->acc_file_off = parse->src_off;
+        parse->acc_snap_sz  = 0U;
+        parse->acc_idx      = UINT_MAX;
+        parse->acc_keep     = 1U;
+      }
+
+      ulong meta_rem = sizeof(fd_accdb_disk_meta_t) - (ulong)parse->meta_sz;
+      ulong take     = fd_ulong_min( meta_rem, parse->data_sz );
+      fd_memcpy( parse->buf + parse->meta_sz, parse->data, take );
+      parse->meta_sz   += (uint)take;
+      parse->data      += take;
+      parse->data_sz   -= take;
+      parse->src_gaddr += take;
+      parse->src_off   += take;
+
+      if( FD_UNLIKELY( parse->meta_sz < sizeof(fd_accdb_disk_meta_t) ) ) continue;
+
+      ulong data_sz = (ulong)FD_ACCDB_SIZE_DATA( parse->meta.size );
+      ulong snap_sz = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_sz, 8UL );
+      if( FD_UNLIKELY( data_sz>UINT_MAX ) ) {
+        FD_LOG_CRIT(( "accdb disk account data too large (%lu bytes)", data_sz ));
+      }
+      if( FD_UNLIKELY( snap_sz>UINT_MAX ) ) {
+        FD_LOG_CRIT(( "snapshot account record too large (%lu bytes)", snap_sz ));
+      }
+
+      parse->acc_active  = 1;
+      parse->acc_off     = 0U;
+      parse->acc_sz      = (uint)data_sz;
+      parse->acc_snap_sz = (uint)snap_sz;
+      parse->meta_sz     = 0U;
+      parse->acc_keep    = (uint)fd_snapmk_accparse_keep( parse );
+
+      if( FD_UNLIKELY( !parse->acc_sz ) ) {
+        if( FD_LIKELY( parse->acc_keep ) ) {
+          parse->pub_gaddr   = 0UL;
+          parse->pub_sz      = 0U;
+          parse->pub_som     = 1;
+          parse->pub_eom     = 1;
+          parse->pub_pending = 1;
+        }
+        parse->acc_active = 0;
+        parse->acc_off    = 0U;
+        parse->acc_sz     = 0U;
+        if( FD_UNLIKELY( !parse->acc_keep ) ) return NULL;
+        continue;
+      }
+
+      continue;
+    }
+
+    ulong acc_rem = (ulong)parse->acc_sz - (ulong)parse->acc_off;
+    ulong take    = fd_ulong_min( acc_rem, parse->data_sz );
+    if( FD_UNLIKELY( !take ) ) return NULL;
+
+    if( FD_UNLIKELY( !parse->acc_keep ) ) {
+      parse->acc_off   += (uint)take;
+      parse->data      += take;
+      parse->data_sz   -= take;
+      parse->src_gaddr += take;
+      parse->src_off   += take;
+      if( FD_UNLIKELY( parse->acc_off==parse->acc_sz ) ) {
+        parse->acc_active = 0;
+        parse->acc_off    = 0U;
+        parse->acc_sz     = 0U;
+        parse->acc_keep   = 1U;
+        return NULL;
+      }
+      continue;
+    }
+
+    uint old_acc_off = parse->acc_off;
+    parse->pub_gaddr   = parse->src_gaddr;
+    parse->pub_sz      = (uint)take;
+    parse->pub_som     = !old_acc_off;
+    parse->pub_eom     = ( old_acc_off + take )==parse->acc_sz;
+    parse->pub_pending = 1;
+
+    parse->acc_off   += (uint)take;
+    parse->data      += take;
+    parse->data_sz   -= take;
+    parse->src_gaddr += take;
+    parse->src_off   += take;
+
+    if( FD_UNLIKELY( parse->pub_eom ) ) {
+      parse->acc_active = 0;
+      parse->acc_sz     = 0U;
+      parse->acc_off    = 0U;
+    }
+  }
 }
 
 /* fd_snapmk_accparse_prestage consumes up to FD_BACKUP_DISK_PARA whole

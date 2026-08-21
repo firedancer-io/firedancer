@@ -31,7 +31,12 @@ env_reset( void ) {
   FD_TEST( visited );
   visited_set_null( visited );
 
-  parse->visited_set = visited;
+  fd_backup_accidx_t idx = parse->idx;
+  *parse = (fd_snapmk_accparse_t) {
+    .idx         = idx,
+    .visited_set = visited,
+    .acc_keep    = 1U
+  };
 }
 
 /* pubkey_n returns a distinct address for n. */
@@ -299,6 +304,132 @@ test_prestage_skips_too_new( void ) {
   FD_TEST( !parse->data_sz ); /* every record consumed, skipped ones too */
 }
 
+/* record_init writes one disk record and returns its total byte size. */
+
+static ulong
+record_init( uchar *       dst,
+             uchar const * pubkey,
+             uint          generation,
+             uint          data_sz ) {
+  fd_accdb_disk_meta_t * dm = (fd_accdb_disk_meta_t *)dst;
+  memset( dm, 0, sizeof(fd_accdb_disk_meta_t) );
+  memcpy( dm->pubkey, pubkey, 32UL );
+  dm->size       = data_sz;
+  dm->generation = generation;
+  memset( dst + sizeof(fd_accdb_disk_meta_t), 0xa5, data_sz );
+  return sizeof(fd_accdb_disk_meta_t) + (ulong)data_sz;
+}
+
+/* Performance regression: a record that straddles a frag boundary caused
+   the scalar loop to consume all following stale records, resulting in a
+   ton of non-parallel accdb pointer chasing.  The fix was to return to the
+   batch path as soon as possible, so map chain walks are parallelized
+   across multiple accounts. */
+
+static void
+test_scalar_skip_yields_to_batch( void ) {
+  env_reset();
+
+  ulong const file_off0 = 0x30000UL;
+  uint  const data_sz0  = 16U;
+  ulong const split0    = 5UL;
+  ulong const tail0     = (ulong)data_sz0 - split0;
+  ulong const rec_sz    = sizeof(fd_accdb_disk_meta_t) + 8UL;
+
+  uchar full0[ sizeof(fd_accdb_disk_meta_t) + data_sz0 ];
+  uchar frag1[ tail0 + 2UL*rec_sz ];
+
+  uchar const * pk0 = pubkey_n( 300UL );
+  record_init( full0, pk0, 5U, data_sz0 );
+  ulong chain0 = fd_backup_accidx_chain( &parse->idx, pk0 );
+  index_add( 60U, chain0, pk0, 5U, 1000UL, 0xdead0000UL );
+
+  memcpy( frag1, full0+sizeof(fd_accdb_disk_meta_t)+split0, tail0 );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    uchar const * pk = pubkey_n( 301UL+i );
+    record_init( frag1 + tail0 + i*rec_sz, pk, 5U, 8U );
+    ulong chain = fd_backup_accidx_chain( &parse->idx, pk );
+    index_add( (uint)(61UL+i), chain, pk, 5U, 1000UL, 0xbeef0000UL+i );
+  }
+
+  parse->data            = full0;
+  parse->data_sz         = sizeof(fd_accdb_disk_meta_t) + split0;
+  parse->src_gaddr       = 0x100000UL;
+  parse->frag_base_gaddr = parse->src_gaddr;
+  parse->src_off         = file_off0;
+  parse->pf_cursor       = full0;
+
+  fd_backup_disk_batch_msg_t batch[1];
+  fd_frag_meta_t             meta [1];
+  FD_TEST( fd_snapmk_accparse_publish_batch( parse, batch )==0UL );
+  FD_TEST( !fd_snapmk_accparse_publish( parse, meta ) );
+  FD_TEST( parse->acc_active );
+  FD_TEST( parse->acc_off==split0 );
+
+  parse->data            = frag1;
+  parse->data_sz         = sizeof(frag1);
+  parse->src_gaddr       = 0x200000UL;
+  parse->frag_base_gaddr = parse->src_gaddr;
+  parse->pf_cursor       = frag1;
+
+  FD_TEST( !fd_snapmk_accparse_publish( parse, meta ) );
+  FD_TEST( !parse->acc_active && !parse->meta_sz && !parse->pub_pending );
+  FD_TEST( parse->data==frag1+tail0 );
+  FD_TEST( parse->data_sz==2UL*rec_sz );
+
+  FD_TEST( fd_snapmk_accparse_publish_batch( parse, batch )==2UL );
+  FD_TEST( batch->frag_off[ 0 ]==tail0          );
+  FD_TEST( batch->frag_off[ 1 ]==tail0+rec_sz   );
+  FD_TEST( batch->acc_idx [ 0 ]==UINT_MAX       );
+  FD_TEST( batch->acc_idx [ 1 ]==UINT_MAX       );
+  FD_TEST( !parse->data_sz );
+
+  /* Also cover a torn, zero-data stale record. */
+  env_reset();
+
+  ulong const file_off2 = 0x40000UL;
+  ulong const split2    = 20UL;
+  ulong const tail2     = sizeof(fd_accdb_disk_meta_t)-split2;
+  uchar full2[ sizeof(fd_accdb_disk_meta_t) ];
+  uchar frag2[ split2 ];
+  uchar frag3[ tail2 + rec_sz ];
+
+  uchar const * pk2 = pubkey_n( 310UL );
+  record_init( full2, pk2, 5U, 0U );
+  memcpy( frag2, full2, split2 );
+  memcpy( frag3, full2+split2, tail2 );
+  ulong chain2 = fd_backup_accidx_chain( &parse->idx, pk2 );
+  index_add( 70U, chain2, pk2, 5U, 1000UL, 0xcafe0000UL );
+
+  uchar const * pk3 = pubkey_n( 311UL );
+  record_init( frag3+tail2, pk3, 5U, 8U );
+  ulong chain3 = fd_backup_accidx_chain( &parse->idx, pk3 );
+  index_add( 71U, chain3, pk3, 5U, 1000UL, 0xcafe0001UL );
+
+  parse->data            = frag2;
+  parse->data_sz         = sizeof(frag2);
+  parse->src_gaddr       = 0x300000UL;
+  parse->frag_base_gaddr = parse->src_gaddr;
+  parse->src_off         = file_off2;
+  parse->pf_cursor       = frag2;
+  FD_TEST( !fd_snapmk_accparse_publish( parse, meta ) );
+  FD_TEST( parse->meta_sz==split2 );
+
+  parse->data            = frag3;
+  parse->data_sz         = sizeof(frag3);
+  parse->src_gaddr       = 0x400000UL;
+  parse->frag_base_gaddr = parse->src_gaddr;
+  parse->pf_cursor       = frag3;
+  FD_TEST( !fd_snapmk_accparse_publish( parse, meta ) );
+  FD_TEST( !parse->acc_active && !parse->meta_sz && !parse->pub_pending );
+  FD_TEST( parse->data==frag3+tail2 );
+  FD_TEST( parse->data_sz==rec_sz );
+  FD_TEST( fd_snapmk_accparse_publish_batch( parse, batch )==1UL );
+  FD_TEST( batch->frag_off[ 0 ]==tail2    );
+  FD_TEST( batch->acc_idx [ 0 ]==UINT_MAX );
+  FD_TEST( !parse->data_sz );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -333,6 +464,7 @@ main( int     argc,
   test_keep_derives_chain();
   test_keep_skips_too_new();
   test_prestage_skips_too_new();
+  test_scalar_skip_yields_to_batch();
 
   /* every lookup must have released its epoch announcement */
   FD_TEST( epoch_slot==ULONG_MAX );
