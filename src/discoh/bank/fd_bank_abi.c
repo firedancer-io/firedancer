@@ -88,7 +88,7 @@ typedef struct ABI_ALIGN(8UL) {
   union ABI_ALIGN(8UL) {
     ulong discr;
 
-    /* when discr==ABI_HIGH_BIT */
+    /* when discr==ULONG_MAX */
     struct ABI_ALIGN(8UL) {
       uchar _padding[8];
       sanitized_txn_abi_legacy_message0_t * borrowed;
@@ -160,7 +160,7 @@ typedef struct ABI_ALIGN(8UL) {
   union __attribute__((__packed__)) __attribute__((aligned(8UL))) {
     ulong discr;
 
-    /* when discr==ABI_HIGH_BIT */
+    /* when discr==ULONG_MAX */
     struct __attribute__((__packed__)) __attribute__((aligned(8UL))) {
       uchar _padding[8];
       sanitized_txn_abi_v0_message_t * borrowed;
@@ -175,7 +175,7 @@ typedef struct ABI_ALIGN(8UL) {
   union __attribute__((__packed__)) __attribute__((aligned(8UL))) {
     ulong discr;
 
-    /* when discr==ABI_HIGH_BIT */
+    /* when discr==ULONG_MAX */
     struct __attribute__((__packed__)) __attribute__((aligned(8UL))) {
       uchar _padding[8];
       sanitized_txn_abi_v0_loaded_addresses_t * borrowed;
@@ -298,7 +298,7 @@ FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v1_cached_msg_t, is_writable_accoun
 typedef union ABI_ALIGN(8UL) {
   ulong discr;
 
-  /* when discr==ABI_HIGH_BIT */
+  /* when discr==ULONG_MAX */
   struct ABI_ALIGN(8UL) {
     uchar _padding[8];
     sanitized_txn_abi_legacy_message1_t legacy;
