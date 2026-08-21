@@ -24,6 +24,7 @@ void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui, ulong epoch );
 void fd_gui_printf_late_votes_history( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_boot_progress( fd_gui_t * gui );
+void fd_gui_printf_snapshot_transfers( fd_gui_t * gui );
 void fd_gui_printf_block_engine( fd_gui_t * gui );
 void fd_gui_printf_tiles( fd_gui_t * gui );
 void fd_gui_printf_schedule_strategy( fd_gui_t * gui );
