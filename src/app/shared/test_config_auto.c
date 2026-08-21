@@ -29,7 +29,7 @@ main( int     argc,
   fd_auto_net( config, &info1 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "drv"      ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "prefbusy" ) );
-  FD_TEST( config->net.xdp.xdp_zero_copy==0 ); /* zc is not auto enabled for now */
+  FD_TEST( config->net.xdp.xdp_zero_copy==1 );
   FD_TEST( config->net.xdp.native_bond  ==0 );
 
   /* Unsupported NIC falls back to safe defaults */
@@ -62,7 +62,7 @@ main( int     argc,
   fd_auto_net( config, &info4 );
   FD_TEST( config->net.xdp.native_bond==1 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode, "drv" ) );
-  FD_TEST( config->net.xdp.xdp_zero_copy==0 );
+  FD_TEST( config->net.xdp.xdp_zero_copy==1 );
 
   /* Non XDP provider still collapses "auto" fields to defaults */
 
