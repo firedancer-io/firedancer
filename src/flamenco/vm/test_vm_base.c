@@ -294,6 +294,21 @@ vm_trace_done:
 
   FD_LOG_NOTICE(( "Synthetic trace"));
   FD_TEST( !fd_vm_trace_printf( trace, NULL ) );
+
+  FD_LOG_NOTICE(( "Testing large trace data print" ));
+  uchar large_data[ 4096 ];
+  for( ulong off=0UL; off<sizeof(large_data); off++ ) large_data[ off ] = (uchar)off;
+
+  uchar large_shmem[ 8192 ] __attribute__((aligned(8)));
+  ulong large_event_max = fd_ulong_align_up( sizeof(fd_vm_trace_event_mem_t) + sizeof(large_data), align );
+  ulong large_footprint = fd_vm_trace_footprint( large_event_max, sizeof(large_data) );
+  FD_TEST( large_footprint && large_footprint<=sizeof(large_shmem) );
+
+  fd_vm_trace_t * large_trace = fd_vm_trace_join( fd_vm_trace_new( large_shmem, large_event_max, sizeof(large_data) ) );
+  FD_TEST( large_trace );
+  FD_TEST( !fd_vm_trace_event_mem( large_trace, 0, 0x1234UL, sizeof(large_data), large_data ) );
+  FD_TEST( !fd_vm_trace_printf( large_trace, NULL ) );
+  FD_TEST( fd_vm_trace_delete( fd_vm_trace_leave( large_trace ) )==(void *)large_shmem );
   /* FIXME: More fd_vm_trace coverage */
 
   /* Test destructors */
