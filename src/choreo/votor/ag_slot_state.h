@@ -31,20 +31,20 @@ typedef struct ag_slot_state_outputs ag_slot_state_outputs_t;
 #define AG_NOTAR_FALLBACK_STAKE_MAX (AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX)
 
 struct ag_hashstake {
-  fd_hash_t hash;
-  ulong     stake;
+  ag_block_hash_t hash;
+  ulong           stake;
 };
 typedef struct ag_hashstake ag_hashstake_t;
 
 struct ag_parent_status {
-  fd_hash_t hash;
-  int       kind;
+  ag_block_hash_t hash;
+  int             kind;
 };
 typedef struct ag_parent_status ag_parent_status_t;
 
 struct ag_hash_set {
-  ulong     cnt;
-  fd_hash_t hash[ AG_BLOCK_HASH_EQVOC_MAX ];
+  ulong           cnt;
+  ag_block_hash_t hash[ AG_EQVOC_BLOCK_HASH_MAX ];
 };
 typedef struct ag_hash_set ag_hash_set_t;
 
@@ -83,7 +83,7 @@ struct __attribute__((aligned(128UL))) ag_slot_state {
   ag_slot_voted_stake_t  voted_stakes;
   ag_slot_certificates_t certificates;
 
-  ag_parent_status_t parents[ AG_BLOCK_HASH_EQVOC_MAX ];
+  ag_parent_status_t parents[ AG_EQVOC_BLOCK_HASH_MAX ];
   ulong              parents_cnt;
 
   ag_hash_set_t pending_safe_to_notar;
@@ -124,12 +124,12 @@ ag_slot_state_add_vote( ag_slot_state_t * self,
                         ulong             voter_stake );
 
 void
-ag_slot_state_notify_parent_known( ag_slot_state_t * self,
-                                   fd_hash_t const * hash );
+ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
+                                   ag_block_hash_t const hash );
 
 int
-ag_slot_state_notify_parent_certified( ag_slot_state_t * self,
-                                       fd_hash_t const * hash );
+ag_slot_state_notify_parent_certified( ag_slot_state_t *     self,
+                                       ag_block_hash_t const hash );
 
 FD_FN_PURE int
 ag_slot_state_check_slashable_offence( ag_slot_state_t const * self,
@@ -142,15 +142,15 @@ ag_slot_state_should_ignore_vote( ag_slot_state_t const * self,
 FD_FN_PURE ulong
 ag_slot_state_stake( ag_hashstake_t const * ele,
                      ulong                  cnt,
-                     fd_hash_t const *      hash );
+                     ag_block_hash_t const  hash );
 
 FD_FN_PURE int
 ag_slot_state_is_notar_fallback( ag_slot_state_t const * self,
-                                 fd_hash_t const *       block_hash );
+                                 ag_block_hash_t const   block_hash );
 
 FD_FN_PURE int
 ag_slot_state_is_notar_fallback_or_stronger( ag_slot_state_t const * self,
-                                            fd_hash_t const *       block_hash );
+                                             ag_block_hash_t const   block_hash );
 
 FD_FN_PURE ulong ag_slot_state_cert_voted_stake( ag_slot_state_t const * self, ag_cert_t const * cert );
 

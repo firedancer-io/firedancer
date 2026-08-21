@@ -11,17 +11,17 @@ struct ag_parent_ready {
 typedef struct ag_parent_ready ag_parent_ready_t;
 
 struct ag_parent_ready_state {
-  ulong         slot; /* map key */
-  ulong         next; /* reserved for fd_pool, fd_map_chain */
+  ulong           slot; /* map key */
+  ulong           next; /* reserved for fd_pool, fd_map_chain */
 
-  int           skip;
+  int             skip;
 
-  fd_hash_t     notar_fallbacks[AG_NOTAR_FALLBACK_CERT_MAX];
-  uchar         notar_fallbacks_cnt;
+  ag_block_hash_t notar_fallbacks[AG_NOTAR_FALLBACK_CERT_MAX];
+  uchar           notar_fallbacks_cnt;
 
-  int           is_ready;
-  ag_block_id_t ready_ids[AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX];
-  ulong         ready_id_cnt;
+  int             is_ready;
+  ag_block_id_t   ready_ids[AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX];
+  ulong           ready_id_cnt;
 };
 typedef struct ag_parent_ready_state ag_parent_ready_state_t;
 

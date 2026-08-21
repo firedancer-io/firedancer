@@ -1,19 +1,5 @@
 #include "ag_parent_ready_tracker.h"
 
-/* Window arithmetic.  Only the parent-ready walk cares where a window
-   starts and ends -- readiness is granted at window starts -- so it keeps
-   these to itself. */
-
-FD_FN_CONST static inline ulong
-first_slot_in_window( ulong slot ) {
-  return ( slot / AG_SLOTS_PER_WINDOW ) * AG_SLOTS_PER_WINDOW;
-}
-
-FD_FN_CONST static inline int
-is_start_of_window( ulong slot ) {
-  return ( slot % AG_SLOTS_PER_WINDOW )==0UL;
-}
-
 ulong
 ag_parent_ready_tracker_align( void ) {
   return alignof(ag_parent_ready_tracker_t);
@@ -133,7 +119,7 @@ wait_for_parent_ready( ag_parent_ready_state_t * state ) {
     ag_block_id_t arg_min = state->ready_ids[0];
     for( ulong i=1; i<state->ready_id_cnt; i++ ) {
       ag_block_id_t const * id = &state->ready_ids[i];
-      if( FD_UNLIKELY( id->slot<arg_min.slot ) || ( id->slot==arg_min.slot && 0<memcmp( id->hash.uc, arg_min.hash.uc, sizeof(fd_hash_t) ) ) ) {
+      if( FD_UNLIKELY( id->slot<arg_min.slot ) || ( id->slot==arg_min.slot && 0<memcmp( id->hash, arg_min.hash, sizeof(ag_block_hash_t) ) ) ) {
         arg_min = *id;
       }
     }
@@ -171,20 +157,20 @@ ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
                                              ulong *                     newly_certified_cnt ) {
   *newly_certified_cnt = 0UL;
 
-  ulong             slot = id->slot;
-  fd_hash_t const * hash = &id->hash;
+  ulong         slot = id->slot;
+  uchar const * hash = id->hash;
 
   if( FD_UNLIKELY( slot < self->root ) ) return;
 
   ag_parent_ready_state_t * state = slot_state( self, slot );
   for( ulong i=0UL; i<state->notar_fallbacks_cnt; i++ ) {
-    if( FD_UNLIKELY( 0==memcmp( &state->notar_fallbacks[i], hash, sizeof(fd_hash_t) ) ) ) return;
+    if( FD_UNLIKELY( 0==memcmp( state->notar_fallbacks[i], hash, sizeof(ag_block_hash_t) ) ) ) return;
   }
-  state->notar_fallbacks[ state->notar_fallbacks_cnt++ ] = *hash;
+  memcpy( state->notar_fallbacks[ state->notar_fallbacks_cnt++ ], hash, sizeof(ag_block_hash_t) );
 
   for( ulong slot_=slot+1; ; slot_++ ) {
     ag_parent_ready_state_t * state_ = slot_state( self, slot_ );
-    if( is_start_of_window( slot_ ) ) {
+    if( ag_is_start_of_window( slot_ ) ) {
       add_to_ready( state_, id );
       newly_certified[ *newly_certified_cnt ].slot   = slot_;
       newly_certified[ *newly_certified_cnt ].parent = *id;
@@ -210,14 +196,13 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
   ag_block_id_t potential_parents[ AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX ];
   ulong         potential_cnt = 0UL;
 
-  for( ulong slot=marked_slot; slot>=fd_ulong_max( first_slot_in_window( marked_slot ), self->root ); slot-- ) {
+  for( ulong slot=marked_slot; slot>=fd_ulong_max( ag_first_slot_in_window( marked_slot ), self->root ); slot-- ) {
     ag_parent_ready_state_t * state = slot_state( self, slot );
 
     if( FD_LIKELY( slot!=marked_slot ) ) {
       for( ulong i=0UL; i<state->notar_fallbacks_cnt; i++ ) {
         FD_TEST( potential_cnt < AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX );
-        potential_parents[ potential_cnt ].slot = slot;
-        potential_parents[ potential_cnt ].hash = state->notar_fallbacks[i];
+        potential_parents[ potential_cnt ] = ag_block_id( slot, state->notar_fallbacks[i] );
         potential_cnt++;
       }
     }
@@ -233,7 +218,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
 
   for( ulong s=marked_slot+1UL; ; s++ ) {
     ag_parent_ready_state_t * fstate = slot_state( self, s );
-    if( is_start_of_window( s ) ) {
+    if( ag_is_start_of_window( s ) ) {
       for( ulong i=0UL; i<potential_cnt; i++ ) {
         add_to_ready( fstate, &potential_parents[i] );
         FD_TEST( *newly_certified_cnt < ag_parent_ready_state_pool_max( self->states.pool ) ); /* caller sized for slot_max */

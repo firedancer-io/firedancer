@@ -25,7 +25,7 @@ struct __attribute__((packed)) ag_cert_serde {
       ag_cert_signature_serde_t signature; /* WireSlotCertMessage::signature        (WireCertSignature) */
     } slot_cert;
     struct __attribute__((packed)) {
-      fd_hash_t                 block_id;  /* Block::block_id                       (Hash)              */
+      ag_block_hash_t           block_id;  /* Block::block_id                       (Hash)              */
       ag_cert_signature_serde_t signature; /* WireBlockCertMessage::signature       (WireCertSignature) */
     } block_cert;
   };
@@ -48,8 +48,8 @@ struct __attribute__((packed)) ag_cert_votes_aggregate_serde {
 typedef struct ag_cert_votes_aggregate_serde ag_cert_votes_aggregate_serde_t;
 
 struct __attribute__((packed)) ag_cert_block_final_serde {
-  ulong     slot;                                        /* BlockFinalizationCert::slot            (Slot)                   */
-  fd_hash_t block_id;                                    /* BlockFinalizationCert::block_id        (Hash)                   */
+  ulong           slot;                                  /* BlockFinalizationCert::slot            (Slot)                   */
+  ag_block_hash_t block_id;                              /* BlockFinalizationCert::block_id        (Hash)                   */
 /*ag_cert_votes_aggregate_serde_t final_aggregate;    */ /* BlockFinalizationCert::final_aggregate (VotesAggregate)         */
 /*uchar                           has_notar_aggregate;*/ /* BlockFinalizationCert::notar_aggregate (Option<VotesAggregate>) */
 /*ag_cert_votes_aggregate_serde_t notar_aggregate;    */ /* BlockFinalizationCert::notar_aggregate (Option<VotesAggregate>) */

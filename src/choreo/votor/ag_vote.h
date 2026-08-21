@@ -11,18 +11,18 @@
 #define AG_VOTE_TYPE_SKIP_FALLBACK   (4U)
 
 struct __attribute__((packed)) ag_notar_vote {
-  ulong        slot;
-  fd_hash_t    block_hash;
-  ag_bls_sig_t sig;
-  ushort       signer;
+  ulong           slot;
+  ag_block_hash_t block_hash;
+  ag_bls_sig_t    sig;
+  ushort          signer;
 };
 typedef struct ag_notar_vote ag_notar_vote_t;
 
 struct __attribute__((packed)) ag_notar_fallback_vote {
-  ulong        slot;
-  fd_hash_t    block_hash;
-  ag_bls_sig_t sig;
-  ushort       signer;
+  ulong           slot;
+  ag_block_hash_t block_hash;
+  ag_bls_sig_t    sig;
+  ushort          signer;
 };
 typedef struct ag_notar_fallback_vote ag_notar_fallback_vote_t;
 
@@ -65,20 +65,24 @@ typedef struct ag_vote ag_vote_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* ag_vote_payload_bytes_to_sign lays the bytes a vote signs into out.  h
+   is the block hash for the notar and notar-fallback kinds and NULL for
+   the kinds that carry none. */
+
 ulong
-ag_vote_payload_bytes_to_sign( uchar *           out,
-                               uint              kind,
-                               ulong             slot,
-                               fd_hash_t const * h,
-                               ushort            shred_version );
+ag_vote_payload_bytes_to_sign( uchar *               out,
+                               uint                  kind,
+                               ulong                 slot,
+                               ag_block_hash_t const h,
+                               ushort                shred_version );
 
 void
-ag_notar_vote_new( ag_notar_vote_t *  out,
-                   ulong              slot,
-                   fd_hash_t const *  h,
-                   ag_bls_sec_t const sk,
-                   ushort             signer,
-                   ushort             shred_version );
+ag_notar_vote_new( ag_notar_vote_t *     out,
+                   ulong                 slot,
+                   ag_block_hash_t const h,
+                   ag_bls_sec_t const    sk,
+                   ushort                signer,
+                   ushort                shred_version );
 int
 ag_notar_vote_check_sig( ag_notar_vote_t const * self,
                          ag_bls_pub_t const      pk,
@@ -86,7 +90,7 @@ ag_notar_vote_check_sig( ag_notar_vote_t const * self,
 void
 ag_notar_fallback_vote_new( ag_notar_fallback_vote_t * out,
                             ulong                      slot,
-                            fd_hash_t const *          h,
+                            ag_block_hash_t const      h,
                             ag_bls_sec_t const         sk,
                             ushort                     signer,
                             ushort                     shred_version );
@@ -125,30 +129,34 @@ ag_final_vote_check_sig( ag_final_vote_t const * self,
                          ag_bls_pub_t const      pk,
                          ushort                  shred_version );
 
-void
-ag_vote_new_signed( ag_vote_t *       out,
-                    uint              kind,
-                    ulong             slot,
-                    fd_hash_t const * h,
-                    ag_bls_sign_fn    sign,
-                    void *            sign_ctx,
-                    ushort            signer,
-                    ushort            shred_version );
+/* ag_vote_new_signed builds a vote of the given kind and signs it with
+   the supplied callback.  h is the block hash for the notar and
+   notar-fallback kinds and NULL for the kinds that carry none. */
 
 void
-ag_vote_new_notar( ag_vote_t *        out,
-                   ulong              slot,
-                   fd_hash_t const *  h,
-                   ag_bls_sec_t const sk,
-                   ushort             signer,
-                   ushort             shred_version );
+ag_vote_new_signed( ag_vote_t *           out,
+                    uint                  kind,
+                    ulong                 slot,
+                    ag_block_hash_t const h,
+                    ag_bls_sign_fn        sign,
+                    void *                sign_ctx,
+                    ushort                signer,
+                    ushort                shred_version );
+
 void
-ag_vote_new_notar_fallback( ag_vote_t *        out,
-                            ulong              slot,
-                            fd_hash_t const *  h,
-                            ag_bls_sec_t const sk,
-                            ushort             signer,
-                            ushort             shred_version );
+ag_vote_new_notar( ag_vote_t *           out,
+                   ulong                 slot,
+                   ag_block_hash_t const h,
+                   ag_bls_sec_t const    sk,
+                   ushort                signer,
+                   ushort                shred_version );
+void
+ag_vote_new_notar_fallback( ag_vote_t *           out,
+                            ulong                 slot,
+                            ag_block_hash_t const h,
+                            ag_bls_sec_t const    sk,
+                            ushort                signer,
+                            ushort                shred_version );
 void
 ag_vote_new_skip( ag_vote_t *        out,
                   ulong              slot,
@@ -206,11 +214,16 @@ ag_vote_set_signer( ag_vote_t * self, ushort signer ) {
   }
 }
 
-FD_FN_PURE static inline fd_hash_t const *
+/* ag_vote_block_hash returns the vote's block hash, or NULL for the
+   kinds that carry none.  uchar const * rather than ag_block_hash_t for
+   the same reason as ag_cert_block_hash: C cannot return an array
+   type. */
+
+FD_FN_PURE static inline uchar const *
 ag_vote_block_hash( ag_vote_t const * self ) {
   switch( self->kind ) {
-  case AG_VOTE_TYPE_NOTAR:          return &self->inner.notar.block_hash;
-  case AG_VOTE_TYPE_NOTAR_FALLBACK: return &self->inner.notar_fallback.block_hash;
+  case AG_VOTE_TYPE_NOTAR:          return self->inner.notar.block_hash;
+  case AG_VOTE_TYPE_NOTAR_FALLBACK: return self->inner.notar_fallback.block_hash;
   default:                          return NULL;
   }
 }
