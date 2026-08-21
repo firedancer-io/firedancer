@@ -7,9 +7,7 @@
 #include "fd_grpc_codec.h"
 #include "../fd_fqdn.h"
 #include "../../third_party/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
-#if FD_HAS_OPENSSL
-#include <openssl/types.h> /* SSL */
-#endif
+#include "../tlsrec/fd_tlsrec.h"
 
 struct fd_grpc_client_private;
 typedef struct fd_grpc_client_private fd_grpc_client_t;
@@ -208,26 +206,6 @@ fd_grpc_client_set_authority( fd_grpc_client_t * client,
                               ulong              host_len,
                               ushort             port );
 
-#if FD_HAS_OPENSSL
-
-/* fd_grpc_client_rxtx_ossl drives I/O against the SSL object
-   (SSL_read_ex and SSL_write_ex).
-
-   This function currently copies back-and-forth between SSL and
-   fd_h2 rbuf.  This could be improved by adding an interface to allow
-   OpenSSL->h2 or h2->OpenSSL writes to directly place data into the
-   target buffer.
-
-   Returns 0 on success and -1 if there is an unrecoverable SSL
-   error. */
-
-int
-fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
-                          SSL *              ssl,
-                          int *              charge_busy );
-
-#endif /* FD_HAS_OPENSSL */
-
 /* fd_grpc_client_rxtx_socket drives I/O against a TCP socket.
    (recvmsg(2) and sendmsg(2)).  Uses MSG_NOSIGNAL|MSG_DONTWAIT flags.
 
@@ -238,6 +216,18 @@ int
 fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
                             int                sock_fd,
                             int *              charge_busy );
+
+/* fd_grpc_client_rxtx_tls drives I/O against a TCP socket with
+   fd_tlsrec encryption.  Handles TLS handshake, encrypts outgoing
+   frames, and decrypts incoming data.
+
+   Returns 0 on success and -1 if there is an unrecoverable error. */
+
+int
+fd_grpc_client_rxtx_tls( fd_grpc_client_t * client,
+                          fd_tlsrec_conn_t * tls_conn,
+                          int                sock_fd,
+                          int *              charge_busy );
 
 /* fd_grpc_client_request_start queues a gRPC request for send.  The
    request includes one Protobuf message (unary request).  The client

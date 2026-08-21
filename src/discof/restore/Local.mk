@@ -7,7 +7,7 @@ $(call run-unit-test,test_snapct_tile)
 $(call add-objs,fd_snapld_tile,fd_discof)
 ifdef FD_HAS_ZSTD
 $(call add-objs,fd_snapdc_tile,fd_discof)
-$(call make-unit-test,test_snapdc_tile,test_snapdc_tile,fd_discof fd_disco fd_waltz fd_flamenco fd_ballet fd_tango fd_util,$(OPENSSL_LIBS))
+$(call make-unit-test,test_snapdc_tile,test_snapdc_tile,fd_discof fd_disco fd_waltz fd_tls fd_flamenco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_snapdc_tile)
 endif # FD_HAS_ZSTD
 $(call add-objs,fd_snapin_tile,fd_discof)

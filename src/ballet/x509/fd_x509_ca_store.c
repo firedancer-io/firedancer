@@ -134,6 +134,26 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
   return (long)loaded;
 }
 
+long
+fd_x509_ca_store_load_system( fd_x509_ca_store_t * store ) {
+  static char const * const ca_paths[] = {
+    "/etc/ssl/certs/ca-certificates.crt", /* Debian/Ubuntu */
+    "/etc/pki/tls/certs/ca-bundle.crt",   /* RHEL/Fedora */
+    "/etc/ssl/cert.pem",                  /* Alpine */
+    NULL
+  };
+
+  for( ulong i=0UL; ca_paths[i]; i++ ) {
+    long loaded = fd_x509_ca_store_load( store, ca_paths[i] );
+    if( loaded>=0L ) {
+      FD_LOG_INFO(( "Loaded %ld CA certificates from %s", loaded, ca_paths[i] ));
+      return loaded;
+    }
+  }
+
+  return -1L;
+}
+
 #endif /* FD_HAS_HOSTED */
 
 fd_x509_ca_entry_t const *

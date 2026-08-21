@@ -45,6 +45,14 @@ long
 fd_x509_ca_store_load( fd_x509_ca_store_t * store,
                        char const *         pem_path );
 
+/* fd_x509_ca_store_load_system loads the host's system CA bundle into
+   store, trying the well known bundle paths of the common distros in
+   order.  Returns the number of trust anchors loaded from the first bundle
+   that could be read, or -1 if no bundle was found. */
+
+long
+fd_x509_ca_store_load_system( fd_x509_ca_store_t * store );
+
 #endif /* FD_HAS_HOSTED */
 
 /* fd_x509_ca_store_find_next returns the trust anchor at index *idx or
