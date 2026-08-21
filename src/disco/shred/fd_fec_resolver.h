@@ -195,6 +195,12 @@ fd_fec_resolver_advance_slot_old( fd_fec_resolver_t * resolver,
 #define FD_FEC_RESOLVER_SHRED_OKAY      ( 0)
 #define FD_FEC_RESOLVER_SHRED_COMPLETES ( 1)
 
+/* Shred sources. BAD_REPAIR is a repair with an invalid nonce,
+   incurring stricter validation checks. */
+#define FD_FEC_RESOLVER_SHRED_SRC_TURBINE    (0U)
+#define FD_FEC_RESOLVER_SHRED_SRC_REPAIR     (1U)
+#define FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR (2U)
+
 /* Return values + RETVAL_OFF are in [0, RETVAL_CNT) */
 #define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT 6
 #define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF 4
@@ -216,10 +222,10 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    reduce_slot_time feature gates, SIMD-525): the FEC resolver
    rejects any shred with an index >= max_shred_idx, or that is part
    of an FEC set whose highest shred index would reach the bound.  If
-   is_repair is non-zero, some validity checks will be omitted, as
-   detailed below.  leader_pubkey must be a pointer to the first byte
-   of the public identity key of the validator that was leader during
-   slot shred->slot.
+   source is REPAIR, some validity checks will be omitted, as detailed
+   below.  leader_pubkey must be a pointer to the first byte of the
+   public identity key of the validator that was leader during slot
+   shred->slot.
 
    On success ie. SHRED_{OKAY,COMPLETES}, a pointer to a copy of shred
    will be written to the location pointed to by out_shred.
@@ -235,16 +241,16 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
 
    If the shred is validly signed but has a Merkle root that differs
    from the Merkle root of a previously received shred with the same
-   values for slot and FEC index, and is_repair is zero, the shred may
-   be rejected with return value SHRED_EQUIVOC.  In general (other than
-   if done_depth is too small), the FEC resolver will return
+   values for slot and FEC index, and source is not REPAIR, the shred
+   may be rejected with return value SHRED_EQUIVOC.  In general (other
+   than if done_depth is too small), the FEC resolver will return
    SHRED_EQUIVOC for the first equivocating shred with that slot and FEC
    index and SHRED_IGNORED for any subsequent ones.  Additionally, the
    FEC resolver has a limited memory and uses a probabilistic scheme
    with (per-validator independent) probability 2^-31 of returning
    SHRED_IGNORED instead of SHRED_EQUIVOC, which is why equivocation
    detection cannot be guaranteed.  Note that these checks are bypassed
-   if is_repair is non-zero.  Similar to SHRED_{OKAY,COMPLETES},
+   if source is REPAIR.  Similar to SHRED_{OKAY,COMPLETES},
    out_merkle_root will be populated on SHRED_EQUIVOC if non-NULL.  Note
    that there are forms of equivocation not covered by this strict
    check.
@@ -293,7 +299,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const          * shred,
                            ulong                       shred_sz,
                            ulong                       max_shred_idx,
-                           int                         is_repair,
+                           uint                        source,
                            uchar const               * leader_pubkey,
                            fd_fec_set_t const      * * out_fec_set,
                            fd_shred_t const        * * out_shred,

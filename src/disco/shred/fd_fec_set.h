@@ -19,6 +19,8 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_fec_set {
   /* Compact bitset of whether we've received the shred or not. */
   uint data_shred_rcvd;
   uint parity_shred_rcvd;
+  ulong turbine_shred_rcvd;
+  ulong repair_shred_rcvd;
 
   union {
     fd_shred_t s[ 1 ];

@@ -86,6 +86,10 @@ struct fd_fec_complete {
   fd_hash_t  merkle_root;    /* placed first to match format of shred base */
   fd_shred_t last_shred_hdr; /* header of last data shred in the FEC set */
   fd_hash_t  chained_merkle_root;
+
+  ulong turbine_shred_cnt;
+  ulong repair_shred_cnt;
+  ulong reconstructed_shred_cnt; /* data plus coding */
 };
 typedef struct fd_fec_complete fd_fec_complete_t;
 
