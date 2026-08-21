@@ -10,14 +10,14 @@ static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
 FD_FN_CONST static inline ulong
 last_slot_in_window( ulong slot ) {
-  return first_slot_in_window( slot ) + AG_SLOTS_PER_WINDOW - 1UL;
+  return ag_first_slot_in_window( slot ) + AG_SLOTS_PER_WINDOW - 1UL;
 }
 
 static ag_block_id_t
 random_block_id( ulong slot ) {
   ag_block_id_t id;
   id.slot = slot;
-  fd_memset( id.hash.uc, (int)( ( slot & 0xffUL ) | 0x40UL ), sizeof(fd_hash_t) );
+  fd_memset( id.hash, (int)( ( slot & 0xffUL ) | 0x40UL ), sizeof(ag_block_hash_t) );
   return id;
 }
 
@@ -25,7 +25,7 @@ static ag_block_id_t
 genesis_block_id( void ) {
   ag_block_id_t id;
   id.slot = 0UL;
-  fd_memset( id.hash.uc, 0, sizeof(fd_hash_t) );
+  fd_memset( id.hash, 0, sizeof(ag_block_hash_t) );
   return id;
 }
 
@@ -47,7 +47,7 @@ setup_tracker( ulong slot_max ) {
 
   ag_parent_ready_state_t * genesis = ag_parent_ready_state_pool_ele_acquire( tracker->states.pool );
   state_init( genesis, 0UL );
-  fd_memset( &genesis->notar_fallbacks[0], 0, sizeof(fd_hash_t) );
+  fd_memset( genesis->notar_fallbacks[0], 0, sizeof(ag_block_hash_t) );
   genesis->notar_fallbacks_cnt = (uchar)1;
   ag_parent_ready_state_map_ele_insert( tracker->states.map, genesis, tracker->states.pool );
   tracker->root = 0UL;
@@ -77,8 +77,8 @@ static void
 test_slot_windows( void ) {
   for( ulong window=0UL; window<9UL; window++ ) {
     ulong first_slot = window*AG_SLOTS_PER_WINDOW;
-    FD_TEST( is_start_of_window( first_slot ) );
-    FD_TEST( first_slot_in_window( first_slot )==first_slot );
+    FD_TEST( ag_is_start_of_window( first_slot ) );
+    FD_TEST( ag_first_slot_in_window( first_slot )==first_slot );
 
     ulong last_slot  = last_slot_in_window( first_slot );
     ulong next_first = (window+1UL)*AG_SLOTS_PER_WINDOW;
@@ -86,9 +86,9 @@ test_slot_windows( void ) {
     FD_TEST( last_slot==next_first-1UL );
 
     for( ulong s=first_slot; s<=last_slot; s++ ) {
-      FD_TEST( first_slot_in_window( s )==first_slot );
+      FD_TEST( ag_first_slot_in_window( s )==first_slot );
       FD_TEST( last_slot_in_window ( s )==last_slot  );
-      FD_TEST( is_start_of_window( s )==( s==first_slot ) );
+      FD_TEST( ag_is_start_of_window( s )==( s==first_slot ) );
     }
   }
 }

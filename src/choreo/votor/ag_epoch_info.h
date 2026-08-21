@@ -6,10 +6,11 @@
 #include "../../flamenco/stakes/fd_stake_weight.h"
 
 struct ag_validator_info {
-  ulong        id;
-  ulong        stake;
-  fd_pubkey_t  pubkey;
-  ag_bls_pub_t voting_pubkey;
+  ulong         id;
+  ulong         stake;
+  ag_id_key_t   id_key;
+  ag_vote_key_t vote_key;
+  ag_bls_pub_t  bls_key;
 };
 typedef struct ag_validator_info ag_validator_info_t;
 

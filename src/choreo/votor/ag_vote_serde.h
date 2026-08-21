@@ -24,7 +24,7 @@ struct __attribute__((packed)) ag_vote_serde {
       ag_vote_signature_serde_t signature;   /* WireSlotVoteMessage::signature    (WireVoteSignature) */
     } slot_vote;
     struct __attribute__((packed)) {
-      fd_hash_t                 block_id;    /* Block::block_id                   (Hash)              */
+      ag_block_hash_t           block_id;    /* Block::block_id                   (Hash)              */
       ag_vote_signature_serde_t signature;   /* WireBlockVoteMessage::signature   (WireVoteSignature) */
     } block_vote;
   };

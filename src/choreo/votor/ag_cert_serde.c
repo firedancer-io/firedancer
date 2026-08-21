@@ -2,11 +2,11 @@
 
 #include "../../ballet/bls/fd_bls12_381.h"
 
-FD_STATIC_ASSERT( sizeof(ag_cert_signature_serde_t      )==AG_BLS_SIG_SZ+8UL,                                     ag_cert_serde );
-FD_STATIC_ASSERT( sizeof(ag_cert_serde_t                )==10UL+sizeof(fd_hash_t)+sizeof(ag_cert_signature_serde_t), ag_cert_serde );
-FD_STATIC_ASSERT( sizeof(ag_cert_bitmap_serde_t         )==3UL,                                                      ag_cert_serde );
-FD_STATIC_ASSERT( sizeof(ag_cert_votes_aggregate_serde_t)==AG_BLS_SIG_COMPRESSED_SZ+2UL,                          ag_cert_serde );
-FD_STATIC_ASSERT( sizeof(ag_cert_block_final_serde_t    )==8UL+sizeof(fd_hash_t),                                    ag_cert_serde );
+FD_STATIC_ASSERT( sizeof(ag_cert_signature_serde_t      )==AG_BLS_SIG_SZ+8UL,                                              ag_cert_serde );
+FD_STATIC_ASSERT( sizeof(ag_cert_serde_t                )==10UL+sizeof(ag_block_hash_t)+sizeof(ag_cert_signature_serde_t), ag_cert_serde );
+FD_STATIC_ASSERT( sizeof(ag_cert_bitmap_serde_t         )==3UL,                                                            ag_cert_serde );
+FD_STATIC_ASSERT( sizeof(ag_cert_votes_aggregate_serde_t)==AG_BLS_SIG_COMPRESSED_SZ+2UL,                                   ag_cert_serde );
+FD_STATIC_ASSERT( sizeof(ag_cert_block_final_serde_t    )==8UL+sizeof(ag_block_hash_t),                                    ag_cert_serde );
 
 #define BASE2_BITMAP (0)
 #define BASE3_BITMAP (1)
@@ -145,7 +145,7 @@ ag_cert_ser( ag_cert_t const * self,
              ulong *           buf_sz ) {
   ag_bls_agg_t const * base;
   ag_bls_agg_t const * fb = NULL;
-  fd_hash_t   const *  hash = NULL;
+  uchar const *        hash = NULL;
   ulong                slot;
   switch( self->kind ) {
   case AG_CERT_TYPE_FINAL:
@@ -153,16 +153,16 @@ ag_cert_ser( ag_cert_t const * self,
     break;
   case AG_CERT_TYPE_FAST_FINAL:
     slot = self->inner.fast_final.slot;     base = &self->inner.fast_final.agg_sig;
-    hash = &self->inner.fast_final.block_hash;
+    hash = self->inner.fast_final.block_hash;
     break;
   case AG_CERT_TYPE_NOTAR:
     slot = self->inner.notar.slot;          base = &self->inner.notar.agg_sig;
-    hash = &self->inner.notar.block_hash;
+    hash = self->inner.notar.block_hash;
     break;
   case AG_CERT_TYPE_NOTAR_FALLBACK:
     slot = self->inner.notar_fallback.slot; base = &self->inner.notar_fallback.agg_sig_notar;
     fb   = &self->inner.notar_fallback.agg_sig_notar_fallback;
-    hash = &self->inner.notar_fallback.block_hash;
+    hash = self->inner.notar_fallback.block_hash;
     break;
   case AG_CERT_TYPE_SKIP:
     slot = self->inner.skip.slot;           base = &self->inner.skip.agg_sig_skip;
@@ -175,7 +175,7 @@ ag_cert_ser( ag_cert_t const * self,
   if( fb && !ag_bls_agg_signer_cnt( fb ) ) fb = NULL;
 
   ulong bm_sz   = sizeof(ag_cert_bitmap_serde_t) + ( fb ? (base->nbits+4UL)/5UL : (base->nbits+7UL)/8UL );
-  ulong head_sz = sizeof(ag_cert_serde_t) - ( hash ? 0UL : sizeof(fd_hash_t) );
+  ulong head_sz = sizeof(ag_cert_serde_t) - ( hash ? 0UL : sizeof(ag_block_hash_t) );
   ulong sz      = head_sz + bm_sz + sizeof(ushort);
   if( FD_UNLIKELY( buf_max<sz ) ) return -1;
 
@@ -185,7 +185,7 @@ ag_cert_ser( ag_cert_t const * self,
   out->version = (uchar)1;
   out->kind    = (uchar)( self->kind+7U );
   out->slot    = slot;
-  if( hash ) out->block_cert.block_id = *hash;
+  if( hash ) memcpy( out->block_cert.block_id, hash, sizeof(ag_block_hash_t) );
   fd_memcpy( signature->signature, base->sig, AG_BLS_SIG_SZ );
   signature->bitmap_cnt = bm_sz;
 
@@ -227,7 +227,7 @@ ag_cert_de( ag_cert_t *   cert,
   }
 
   int   has_block_id = cert->kind==AG_CERT_TYPE_FAST_FINAL || cert->kind==AG_CERT_TYPE_NOTAR || cert->kind==AG_CERT_TYPE_NOTAR_FALLBACK;
-  ulong head_sz      = sizeof(ag_cert_serde_t) - ( has_block_id ? 0UL : sizeof(fd_hash_t) );
+  ulong head_sz      = sizeof(ag_cert_serde_t) - ( has_block_id ? 0UL : sizeof(ag_block_hash_t) );
   if( FD_UNLIKELY( buf_max<head_sz ) ) return AG_CERT_DE_ERR_TRUNCATED;
 
   ag_cert_signature_serde_t const * signature = has_block_id ? &cert_->block_cert.signature : &cert_->slot_cert.signature;
@@ -249,22 +249,22 @@ ag_cert_de( ag_cert_t *   cert,
     fd_memcpy( cert->inner.final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_TYPE_FAST_FINAL:
-    cert->inner.fast_final.slot       = slot;
-    cert->inner.fast_final.block_hash = cert_->block_cert.block_id;
+    cert->inner.fast_final.slot = slot;
+    memcpy( cert->inner.fast_final.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.fast_final.agg_sig, bm, bm_cnt ) ) ) return err;
     fd_memcpy( cert->inner.fast_final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_TYPE_NOTAR:
-    cert->inner.notar.slot       = slot;
-    cert->inner.notar.block_hash = cert_->block_cert.block_id;
+    cert->inner.notar.slot = slot;
+    memcpy( cert->inner.notar.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.notar.agg_sig, bm, bm_cnt ) ) ) return err;
     fd_memcpy( cert->inner.notar.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_TYPE_NOTAR_FALLBACK: {
     ag_bls_agg_t * b = &cert->inner.notar_fallback.agg_sig_notar;
     ag_bls_agg_t * f = &cert->inner.notar_fallback.agg_sig_notar_fallback;
-    cert->inner.notar_fallback.slot       = slot;
-    cert->inner.notar_fallback.block_hash = cert_->block_cert.block_id;
+    cert->inner.notar_fallback.slot = slot;
+    memcpy( cert->inner.notar_fallback.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( bm_cnt<1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
     if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_init( f, b->nbits ); }
     else                      { if( FD_UNLIKELY( err = base3_bitmap_de( b, f, bm, bm_cnt ) ) ) return err; }
@@ -325,9 +325,9 @@ ag_cert_block_final_de( ag_fast_final_cert_t * fast_final,
 
   if( !has_notar_aggregate ) {
     fd_memset( fast_final, 0, sizeof(ag_fast_final_cert_t) );
-    fast_final->slot       = block_final->slot;
-    fast_final->block_hash = block_final->block_id;
-    fast_final->agg_sig    = *final_agg;
+    fast_final->slot    = block_final->slot;
+    fast_final->agg_sig = *final_agg;
+    memcpy( fast_final->block_hash, block_final->block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( decompress( &fast_final->agg_sig ) ) ) return -1;
     if( buf_sz ) *buf_sz = buf_max - remaining;
     return 1;
@@ -339,11 +339,11 @@ ag_cert_block_final_de( ag_fast_final_cert_t * fast_final,
 
   fd_memset( final, 0, sizeof(ag_final_cert_t) );
   fd_memset( notar, 0, sizeof(ag_notar_cert_t) );
-  final->slot       = block_final->slot;
-  final->agg_sig    = *final_agg;
-  notar->slot       = block_final->slot;
-  notar->block_hash = block_final->block_id;
-  notar->agg_sig    = *notar_agg;
+  final->slot    = block_final->slot;
+  final->agg_sig = *final_agg;
+  notar->slot    = block_final->slot;
+  notar->agg_sig = *notar_agg;
+  memcpy( notar->block_hash, block_final->block_id, sizeof(ag_block_hash_t) );
   if( FD_UNLIKELY( decompress( &final->agg_sig ) ) ) return -1;
   if( FD_UNLIKELY( decompress( &notar->agg_sig ) ) ) return -1;
   if( buf_sz ) *buf_sz = buf_max - remaining;

@@ -12,43 +12,43 @@
 #define AG_CERT_TYPE_GENESIS        (5)
 
 struct ag_notar_cert {
-  ulong        slot;
-  fd_hash_t    block_hash;
-  ag_bls_agg_t agg_sig;
-  ulong        stake;
+  ulong           slot;
+  ag_block_hash_t block_hash;
+  ag_bls_agg_t    agg_sig;
+  ulong           stake;
 };
 typedef struct ag_notar_cert ag_notar_cert_t;
 
 struct ag_notar_fallback_cert {
-  ulong        slot;
-  fd_hash_t    block_hash;
-  ag_bls_agg_t agg_sig_notar;
-  ag_bls_agg_t agg_sig_notar_fallback;
-  ulong        stake;
+  ulong           slot;
+  ag_block_hash_t block_hash;
+  ag_bls_agg_t    agg_sig_notar;
+  ag_bls_agg_t    agg_sig_notar_fallback;
+  ulong           stake;
 
 };
 typedef struct ag_notar_fallback_cert ag_notar_fallback_cert_t;
 
 struct ag_skip_cert {
-  ulong        slot;
-  ag_bls_agg_t agg_sig_skip;
-  ag_bls_agg_t agg_sig_skip_fallback;
-  ulong        stake;
+  ulong           slot;
+  ag_bls_agg_t    agg_sig_skip;
+  ag_bls_agg_t    agg_sig_skip_fallback;
+  ulong           stake;
 };
 typedef struct ag_skip_cert ag_skip_cert_t;
 
 struct ag_fast_final_cert {
-  ulong        slot;
-  fd_hash_t    block_hash;
-  ag_bls_agg_t agg_sig;
-  ulong        stake;
+  ulong           slot;
+  ag_block_hash_t block_hash;
+  ag_bls_agg_t    agg_sig;
+  ulong           stake;
 };
 typedef struct ag_fast_final_cert ag_fast_final_cert_t;
 
 struct ag_final_cert {
-  ulong        slot;
-  ag_bls_agg_t agg_sig;
-  ulong        stake;
+  ulong           slot;
+  ag_bls_agg_t    agg_sig;
+  ulong           stake;
 };
 typedef struct ag_final_cert ag_final_cert_t;
 
@@ -138,12 +138,12 @@ ag_cert_slot( ag_cert_t const * cert ) {
   }
 }
 
-FD_FN_PURE static inline fd_hash_t const *
+FD_FN_PURE static inline uchar const *
 ag_cert_block_hash( ag_cert_t const * cert ) {
   switch( cert->kind ) {
-  case AG_CERT_TYPE_NOTAR:          return &cert->inner.notar.block_hash;
-  case AG_CERT_TYPE_NOTAR_FALLBACK: return &cert->inner.notar_fallback.block_hash;
-  case AG_CERT_TYPE_FAST_FINAL:     return &cert->inner.fast_final.block_hash;
+  case AG_CERT_TYPE_NOTAR:          return cert->inner.notar.block_hash;
+  case AG_CERT_TYPE_NOTAR_FALLBACK: return cert->inner.notar_fallback.block_hash;
+  case AG_CERT_TYPE_FAST_FINAL:     return cert->inner.fast_final.block_hash;
   default:                          return NULL; /* skip and final carry no block hash */
   }
 }

@@ -9,11 +9,11 @@
 #define AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED (3)
 #define AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED   (4)
 
-              struct ag_finalization_notarized            { fd_hash_t hash; };
-__extension__ struct ag_finalization_final_pending_notar  {                 };
-              struct ag_finalization_finalized            { fd_hash_t hash; };
-              struct ag_finalization_implicitly_finalized { fd_hash_t hash; };
-__extension__ struct ag_finalization_implicitly_skipped   {                 };
+              struct ag_finalization_notarized            { ag_block_hash_t hash; };
+__extension__ struct ag_finalization_final_pending_notar  {                       };
+              struct ag_finalization_finalized            { ag_block_hash_t hash; };
+              struct ag_finalization_implicitly_finalized { ag_block_hash_t hash; };
+__extension__ struct ag_finalization_implicitly_skipped   {                       };
 
 typedef struct ag_finalization_notarized            ag_finalization_notarized_t;
 typedef struct ag_finalization_final_pending_notar  ag_finalization_final_pending_notar_t;
@@ -97,10 +97,14 @@ ag_finality_tracker_highest_finalized_slot( ag_finality_tracker_t const * self )
 FD_FN_PURE ulong
 ag_finality_tracker_first_unpruned_slot( ag_finality_tracker_t const * self );
 
+/* ag_finality_tracker_status returns the finalization status of slot, or
+   -1 if the slot is unknown.  out_hash, if non-NULL, receives the block
+   hash the status refers to, zeroed when the status carries none. */
+
 int
 ag_finality_tracker_status( ag_finality_tracker_t const * self,
                             ulong                         slot,
-                            fd_hash_t *                   out_hash );
+                            ag_block_hash_t               out_hash );
 
 FD_FN_PURE int
 ag_finality_tracker_has_parent( ag_finality_tracker_t const * self,

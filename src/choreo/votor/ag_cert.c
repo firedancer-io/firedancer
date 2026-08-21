@@ -29,16 +29,16 @@ check_sig( ag_cert_t const *       self,
            ag_epoch_info_t const * epoch_info,
            ushort                  shred_version ) {
   ag_validator_info_t const * v             = ag_epoch_info_validators( epoch_info );
-  uchar const *               pk0           = v->voting_pubkey;
+  uchar const *               pk0           = v->bls_key;
   ulong                       pk_stride     = sizeof(ag_validator_info_t);
   ulong                       validator_cnt = epoch_info->validator_cnt;
   uchar buf[ AG_VOTE_PAYLOAD_MAX ]; ulong sz;
   switch( self->kind ) {
   case AG_CERT_TYPE_NOTAR:
-    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.notar.slot, &self->inner.notar.block_hash, shred_version );
+    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.notar.slot, self->inner.notar.block_hash, shred_version );
     return ag_bls_agg_verify_bytes( &self->inner.notar.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_TYPE_FAST_FINAL:
-    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.fast_final.slot, &self->inner.fast_final.block_hash, shred_version );
+    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.fast_final.slot, self->inner.fast_final.block_hash, shred_version );
     return ag_bls_agg_verify_bytes( &self->inner.fast_final.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_TYPE_FINAL:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_FINAL, self->inner.final.slot, NULL, shred_version );
@@ -46,8 +46,8 @@ check_sig( ag_cert_t const *       self,
   case AG_CERT_TYPE_NOTAR_FALLBACK: {
     ag_notar_fallback_cert_t const * n = &self->inner.notar_fallback;
     uchar buf_fb[ AG_VOTE_PAYLOAD_MAX ]; ulong sz_fb;
-    sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_TYPE_NOTAR,          n->slot, &n->block_hash, shred_version );
-    sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_NOTAR_FALLBACK, n->slot, &n->block_hash, shred_version );
+    sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_TYPE_NOTAR,          n->slot, n->block_hash, shred_version );
+    sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_NOTAR_FALLBACK, n->slot, n->block_hash, shred_version );
     return ag_bls_agg_verify_mixed_bytes( &n->agg_sig_notar,          buf,    sz,
                                           &n->agg_sig_notar_fallback, buf_fb, sz_fb,
                                           pk0, pk_stride, validator_cnt );
@@ -117,16 +117,18 @@ ag_notar_cert_construct( ag_notar_vote_t const * notar_votes,
   ag_validator_info_t const * validators    = ag_epoch_info_validators( epoch_info );
   ulong                       validator_cnt = epoch_info->validator_cnt;
   FD_TEST( notar_vote_cnt>0UL );
-  ulong     slot       = notar_votes[0].slot;
-  fd_hash_t block_hash = notar_votes[0].block_hash;
-  ulong     stake      = 0UL;
+  ulong           slot  = notar_votes[0].slot;
+  ulong           stake = 0UL;
+  ag_block_hash_t block_hash;
+  memcpy( block_hash, notar_votes[0].block_hash, sizeof(ag_block_hash_t) );
   for( ulong i=0UL; i<notar_vote_cnt; i++ ) {
     FD_TEST( notar_votes[i].slot==slot );
-    FD_TEST( !memcmp( notar_votes[i].block_hash.uc, block_hash.uc, sizeof(fd_hash_t) ) );
+    FD_TEST( !memcmp( notar_votes[i].block_hash, block_hash, sizeof(ag_block_hash_t) ) );
     stake += validators[ notar_votes[i].signer ].stake;
   }
   ag_notar_cert_t cert;
-  cert.slot = slot; cert.block_hash = block_hash; cert.stake = stake;
+  cert.slot = slot; cert.stake = stake;
+  memcpy( cert.block_hash, block_hash, sizeof(ag_block_hash_t) );
   aggregate_notar_votes( notar_votes, notar_vote_cnt, validator_cnt, &cert.agg_sig );
   return cert;
 }
@@ -138,16 +140,18 @@ ag_fast_final_cert_construct( ag_notar_vote_t const * notar_votes,
   ag_validator_info_t const * validators    = ag_epoch_info_validators( epoch_info );
   ulong                       validator_cnt = epoch_info->validator_cnt;
   FD_TEST( notar_vote_cnt>0UL );
-  ulong     slot       = notar_votes[0].slot;
-  fd_hash_t block_hash = notar_votes[0].block_hash;
-  ulong     stake      = 0UL;
+  ulong           slot  = notar_votes[0].slot;
+  ulong           stake = 0UL;
+  ag_block_hash_t block_hash;
+  memcpy( block_hash, notar_votes[0].block_hash, sizeof(ag_block_hash_t) );
   for( ulong i=0UL; i<notar_vote_cnt; i++ ) {
     FD_TEST( notar_votes[i].slot==slot );
-    FD_TEST( !memcmp( notar_votes[i].block_hash.uc, block_hash.uc, sizeof(fd_hash_t) ) );
+    FD_TEST( !memcmp( notar_votes[i].block_hash, block_hash, sizeof(ag_block_hash_t) ) );
     stake += validators[ notar_votes[i].signer ].stake;
   }
   ag_fast_final_cert_t cert;
-  cert.slot = slot; cert.block_hash = block_hash; cert.stake = stake;
+  cert.slot = slot; cert.stake = stake;
+  memcpy( cert.block_hash, block_hash, sizeof(ag_block_hash_t) );
   aggregate_notar_votes( notar_votes, notar_vote_cnt, validator_cnt, &cert.agg_sig );
   return cert;
 }
@@ -180,25 +184,26 @@ ag_notar_fallback_cert_construct( ag_notar_vote_t const *          notar_votes,
   ag_validator_info_t const * validators    = ag_epoch_info_validators( epoch_info );
   ulong                       validator_cnt = epoch_info->validator_cnt;
   FD_TEST( notar_vote_cnt>0UL || notar_fallback_vote_cnt>0UL );
-  ulong     slot;
-  fd_hash_t block_hash;
-  if( notar_vote_cnt>0UL ) { slot = notar_votes[0].slot;          block_hash = notar_votes[0].block_hash;          }
-  else                     { slot = notar_fallback_votes[0].slot; block_hash = notar_fallback_votes[0].block_hash; }
+  ulong           slot;
+  ag_block_hash_t block_hash;
+  if( notar_vote_cnt>0UL ) { slot = notar_votes[0].slot;          memcpy( block_hash, notar_votes[0].block_hash,          sizeof(ag_block_hash_t) ); }
+  else                     { slot = notar_fallback_votes[0].slot; memcpy( block_hash, notar_fallback_votes[0].block_hash, sizeof(ag_block_hash_t) ); }
 
   ulong stake = 0UL;
   for( ulong i=0UL; i<notar_vote_cnt; i++ ) {
     FD_TEST( notar_votes[i].slot==slot );
-    FD_TEST( !memcmp( notar_votes[i].block_hash.uc, block_hash.uc, sizeof(fd_hash_t) ) );
+    FD_TEST( !memcmp( notar_votes[i].block_hash, block_hash, sizeof(ag_block_hash_t) ) );
     stake += validators[ notar_votes[i].signer ].stake;
   }
   for( ulong i=0UL; i<notar_fallback_vote_cnt; i++ ) {
     FD_TEST( notar_fallback_votes[i].slot==slot );
-    FD_TEST( !memcmp( notar_fallback_votes[i].block_hash.uc, block_hash.uc, sizeof(fd_hash_t) ) );
+    FD_TEST( !memcmp( notar_fallback_votes[i].block_hash, block_hash, sizeof(ag_block_hash_t) ) );
     stake += validators[ notar_fallback_votes[i].signer ].stake;
   }
 
   ag_notar_fallback_cert_t cert;
-  cert.slot = slot; cert.block_hash = block_hash; cert.stake = stake;
+  cert.slot = slot; cert.stake = stake;
+  memcpy( cert.block_hash, block_hash, sizeof(ag_block_hash_t) );
   aggregate_notar_votes         ( notar_votes,          notar_vote_cnt,          validator_cnt, &cert.agg_sig_notar          );
   aggregate_notar_fallback_votes( notar_fallback_votes, notar_fallback_vote_cnt, validator_cnt, &cert.agg_sig_notar_fallback );
   ag_bls_agg_merge( &cert.agg_sig_notar, &cert.agg_sig_notar_fallback );

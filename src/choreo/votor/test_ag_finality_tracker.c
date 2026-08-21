@@ -9,10 +9,10 @@ random_block_id( ulong slot ) {
   static ulong ctr = 0UL;
   ag_block_id_t b;
   b.slot = slot;
-  fd_memset( &b.hash, 0, sizeof(fd_hash_t) );
+  fd_memset( b.hash, 0, sizeof(ag_block_hash_t) );
 
-  b.hash.ul[0] = 0x1000UL + (++ctr);
-  b.hash.ul[1] = slot ^ 0xa5a5a5a5a5a5a5a5UL;
+  FD_STORE( ulong, b.hash,     0x1000UL + (++ctr) );
+  FD_STORE( ulong, b.hash+8UL, slot ^ 0xa5a5a5a5a5a5a5a5UL );
   return b;
 }
 
@@ -20,14 +20,14 @@ static ag_block_id_t
 genesis_block_id( void ) {
   ag_block_id_t b;
   b.slot = 0UL;
-  fd_memset( &b.hash, 0, sizeof(fd_hash_t) );
+  fd_memset( b.hash, 0, sizeof(ag_block_hash_t) );
   return b;
 }
 
 static int
 block_id_eq( ag_block_id_t const * a,
              ag_block_id_t const * b ) {
-  return a->slot==b->slot && 0==memcmp( a->hash.uc, b->hash.uc, sizeof(fd_hash_t) );
+  return a->slot==b->slot && 0==memcmp( a->hash, b->hash, sizeof(ag_block_hash_t) );
 }
 
 static void
@@ -117,7 +117,7 @@ test_no_duplicates( void ) {
   assert_event_default( &event );
 
   ag_block_id_t b2 = random_block_id( 2UL );
-  ag_block_id_t b1_parent = { .slot=1UL, .hash=b1.hash };
+  ag_block_id_t b1_parent = ag_block_id( 1UL, b1.hash );
   event = ag_finality_tracker_add_parent( t, &b2, &b1_parent );
   assert_event_default( &event );
   event = ag_finality_tracker_mark_fast_finalized( t, &b2 );

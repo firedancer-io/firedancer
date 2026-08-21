@@ -1,11 +1,13 @@
 #include "ag_finality_tracker.h"
 
-FD_FN_PURE static fd_hash_t const *
+#include "../../ballet/base58/fd_base58.h"
+
+FD_FN_PURE static uchar const *
 status_hash( ag_finalization_status_t const * status ) {
   switch( status->kind ) {
-  case AG_FINALIZATION_STATUS_NOTARIZED:            return &status->inner.notarized.hash;
-  case AG_FINALIZATION_STATUS_FINALIZED:            return &status->inner.finalized.hash;
-  case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED: return &status->inner.implicitly_finalized.hash;
+  case AG_FINALIZATION_STATUS_NOTARIZED:            return status->inner.notarized.hash;
+  case AG_FINALIZATION_STATUS_FINALIZED:            return status->inner.finalized.hash;
+  case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED: return status->inner.implicitly_finalized.hash;
   default:                                          return NULL;
   }
 }
@@ -135,23 +137,24 @@ prune( ag_finality_tracker_t * self ) {
 }
 
 static inline int
-hash_is_zero( fd_hash_t const * h ) {
-  return 0UL==( h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3] );
+hash_is_zero( ag_block_hash_t const h ) {
+  return 0UL==( FD_LOAD( ulong, h      ) | FD_LOAD( ulong, h+8UL  ) |
+                FD_LOAD( ulong, h+16UL ) | FD_LOAD( ulong, h+24UL ) );
 }
 
 static void
-check_same_hash( char const *      where,
-                 ulong             slot,
-                 int               old_status,
-                 fd_hash_t const * old_hash,
-                 fd_hash_t const * new_hash ) {
-  if( FD_LIKELY( 0==memcmp( old_hash->uc, new_hash->uc, sizeof(fd_hash_t) ) ) ) return;
+check_same_hash( char const *          where,
+                 ulong                 slot,
+                 int                   old_status,
+                 ag_block_hash_t const old_hash,
+                 ag_block_hash_t const new_hash ) {
+  if( FD_LIKELY( 0==memcmp( old_hash, new_hash, sizeof(ag_block_hash_t) ) ) ) return;
   if( FD_UNLIKELY( hash_is_zero( old_hash ) ) ) {
     FD_LOG_INFO(( "adopting block id for zero-seeded slot %lu (%s)", slot, where ));
     return;
   }
-  FD_BASE58_ENCODE_32_BYTES( old_hash->uc, old_b58 );
-  FD_BASE58_ENCODE_32_BYTES( new_hash->uc, new_b58 );
+  FD_BASE58_ENCODE_32_BYTES( old_hash, old_b58 );
+  FD_BASE58_ENCODE_32_BYTES( new_hash, new_b58 );
   FD_LOG_ERR(( "consensus safety violation (%s): slot %lu old_status %d old_hash %s new_hash %s",
                where, slot, old_status, old_b58, new_b58 ));
 }
@@ -190,22 +193,23 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
       event->implicitly_skipped[ event->implicitly_skipped_cnt++ ] = slot;
     }
 
-    ag_finalization_status_t implicit = { .kind = AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED, .inner.implicitly_finalized.hash = cur.hash };
+    ag_finalization_status_t implicit = { .kind = AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED };
+    memcpy( implicit.inner.implicitly_finalized.hash, cur.hash, sizeof(ag_block_hash_t) );
     ag_finalization_status_t old;
     int had = status_insert( self, cur.slot, &implicit, &old );
     if( had ) {
-      fd_hash_t const * old_hash = status_hash( &old );
+      uchar const * old_hash = status_hash( &old );
       switch( old.kind ) {
         case AG_FINALIZATION_STATUS_FINALIZED:
         case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-          check_same_hash( "implicit_finalize", cur.slot, old.kind, old_hash, &cur.hash );
+          check_same_hash( "implicit_finalize", cur.slot, old.kind, old_hash, cur.hash );
 
           { ag_finalization_status_t keep = old;
-            if( hash_is_zero( old_hash ) ) keep.inner.finalized.hash = cur.hash;
+            if( hash_is_zero( old_hash ) ) memcpy( keep.inner.finalized.hash, cur.hash, sizeof(ag_block_hash_t) );
             status_insert( self, cur.slot, &keep, NULL ); }
           return;
         case AG_FINALIZATION_STATUS_NOTARIZED:
-          check_same_hash( "implicit_finalize", cur.slot, old.kind, old_hash, &cur.hash );
+          check_same_hash( "implicit_finalize", cur.slot, old.kind, old_hash, cur.hash );
           break;
         case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:
           break;
@@ -247,7 +251,7 @@ ag_finality_tracker_align( void ) {
 ulong
 ag_finality_tracker_footprint( ulong slot_max ) {
   slot_max    = fd_ulong_pow2_up( slot_max    );
-  ulong parent_max = slot_max*AG_BLOCK_HASH_EQVOC_MAX;
+  ulong parent_max = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
   ulong status_chain_cnt = status_map_chain_cnt_est( slot_max    );
   ulong parent_chain_cnt = parent_map_chain_cnt_est( parent_max );
   return FD_LAYOUT_FINI(
@@ -293,7 +297,7 @@ ag_finality_tracker_new( void * shmem,
   }
 
   slot_max         = fd_ulong_pow2_up( slot_max );
-  ulong parent_max = slot_max*AG_BLOCK_HASH_EQVOC_MAX;
+  ulong parent_max = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
 
   fd_memset( shmem, 0, footprint );
 
@@ -389,7 +393,7 @@ ag_finality_tracker_add_parent( ag_finality_tracker_t * self,
   switch( se->status.kind ) {
     case AG_FINALIZATION_STATUS_FINALIZED:
     case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-      if( 0==memcmp( block->hash.uc, status_hash( &se->status )->uc, sizeof(fd_hash_t) ) ) {
+      if( 0==memcmp( block->hash, status_hash( &se->status ), sizeof(ag_block_hash_t) ) ) {
         ag_block_id_t p = *parent;
         handle_implicitly_finalized( self, block->slot, &p, &event );
         prune( self );
@@ -409,17 +413,18 @@ ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t * self,
   ag_finalization_event_t event = ag_finalization_event_default();
   if( FD_UNLIKELY( block->slot<self->first_unpruned_slot ) ) return event;
 
-  ag_finalization_status_t finalized = { .kind = AG_FINALIZATION_STATUS_FINALIZED, .inner.finalized.hash = block->hash };
+  ag_finalization_status_t finalized = { .kind = AG_FINALIZATION_STATUS_FINALIZED };
+  memcpy( finalized.inner.finalized.hash, block->hash, sizeof(ag_block_hash_t) );
   ag_finalization_status_t old;
   int had = status_insert( self, block->slot, &finalized, &old );
   if( had ) {
     switch( old.kind ) {
       case AG_FINALIZATION_STATUS_FINALIZED:
       case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-        check_same_hash( "fast_finalize", block->slot, old.kind, status_hash( &old ), &block->hash );
+        check_same_hash( "fast_finalize", block->slot, old.kind, status_hash( &old ), block->hash );
         return event;
       case AG_FINALIZATION_STATUS_NOTARIZED:
-        check_same_hash( "fast_finalize", block->slot, old.kind, status_hash( &old ), &block->hash );
+        check_same_hash( "fast_finalize", block->slot, old.kind, status_hash( &old ), block->hash );
         break;
       case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:
         break;
@@ -439,7 +444,8 @@ ag_finality_tracker_mark_notarized( ag_finality_tracker_t * self,
   ag_finalization_event_t event = ag_finalization_event_default();
   if( FD_UNLIKELY( block->slot<self->first_unpruned_slot ) ) return event;
 
-  ag_finalization_status_t notarized = { .kind = AG_FINALIZATION_STATUS_NOTARIZED, .inner.notarized.hash = block->hash };
+  ag_finalization_status_t notarized = { .kind = AG_FINALIZATION_STATUS_NOTARIZED };
+  memcpy( notarized.inner.notarized.hash, block->hash, sizeof(ag_block_hash_t) );
   ag_finalization_status_t old;
   int had = status_insert( self, block->slot, &notarized, &old );
   if( FD_UNLIKELY( !had ) ) return event;
@@ -448,12 +454,13 @@ ag_finality_tracker_mark_notarized( ag_finality_tracker_t * self,
     case AG_FINALIZATION_STATUS_NOTARIZED:
     case AG_FINALIZATION_STATUS_FINALIZED:
     case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-      check_same_hash( "notarize", block->slot, old.kind, status_hash( &old ), &block->hash );
+      check_same_hash( "notarize", block->slot, old.kind, status_hash( &old ), block->hash );
       return event;
     case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
       return event;
     case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR: {
-      ag_finalization_status_t finalized = { .kind = AG_FINALIZATION_STATUS_FINALIZED, .inner.finalized.hash = block->hash };
+      ag_finalization_status_t finalized = { .kind = AG_FINALIZATION_STATUS_FINALIZED };
+      memcpy( finalized.inner.finalized.hash, block->hash, sizeof(ag_block_hash_t) );
       status_insert( self, block->slot, &finalized, NULL );
       handle_finalized_block( self, block, &event );
       return event;
@@ -480,9 +487,10 @@ ag_finality_tracker_mark_finalized( ag_finality_tracker_t * self,
     case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
       return event;
     case AG_FINALIZATION_STATUS_NOTARIZED: {
-      if( FD_UNLIKELY( hash_is_zero( &old.inner.notarized.hash ) ) ) return event;
-      ag_block_id_t            block     = { .slot=slot, .hash=old.inner.notarized.hash };
-      ag_finalization_status_t finalized = { .kind = AG_FINALIZATION_STATUS_FINALIZED, .inner.finalized.hash = old.inner.notarized.hash };
+      if( FD_UNLIKELY( hash_is_zero( old.inner.notarized.hash ) ) ) return event;
+      ag_block_id_t            block     = ag_block_id( slot, old.inner.notarized.hash );
+      ag_finalization_status_t finalized = { .kind = AG_FINALIZATION_STATUS_FINALIZED };
+      memcpy( finalized.inner.finalized.hash, old.inner.notarized.hash, sizeof(ag_block_hash_t) );
       status_insert( self, slot, &finalized, NULL );
       handle_finalized_block( self, &block, &event );
       return event;
@@ -507,13 +515,13 @@ ag_finality_tracker_first_unpruned_slot( ag_finality_tracker_t const * self ) {
 int
 ag_finality_tracker_status( ag_finality_tracker_t const * self,
                             ulong                         slot,
-                            fd_hash_t *                   out_hash ) {
+                            ag_block_hash_t               out_hash ) {
   status_ele_t const * e = status_map_ele_query_const( self->status.map, &slot, NULL, self->status.pool );
   if( FD_UNLIKELY( !e ) ) return -1;
   if( out_hash ) {
-    fd_hash_t const * hash = status_hash( &e->status );
-    if( hash ) *out_hash = *hash;
-    else       fd_memset( out_hash, 0, sizeof(fd_hash_t) );
+    uchar const * hash = status_hash( &e->status );
+    if( hash ) fd_memcpy( out_hash, hash, sizeof(ag_block_hash_t) );
+    else       fd_memset( out_hash, 0,    sizeof(ag_block_hash_t) );
   }
   return e->status.kind;
 }

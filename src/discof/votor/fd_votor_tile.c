@@ -152,10 +152,11 @@ rank_validators( ag_validator_info_t *          out,
     ulong                 idx = rank[ r ].idx;
     ag_validator_info_t * vi  = out + r;
     memset( vi, 0, sizeof(ag_validator_info_t) );
-    vi->id            = r;
-    vi->stake         = stakes[ idx ].stake;
-    vi->pubkey        = stakes[ idx ].id_key;
-    fd_memcpy( vi->voting_pubkey, pk[ idx ], AG_BLS_PUB_SZ );
+    vi->id    = r;
+    vi->stake = stakes[ idx ].stake;
+    fd_memcpy( vi->id_key,        stakes[ idx ].id_key.uc,   sizeof(ag_id_key_t)   );
+    fd_memcpy( vi->vote_key,      stakes[ idx ].vote_key.uc, sizeof(ag_vote_key_t) );
+    fd_memcpy( vi->bls_key, pk[ idx ],                 AG_BLS_PUB_SZ         );
   }
   return cnt;
 }
@@ -343,8 +344,8 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_REPLAY: {
     fd_replay_slot_completed_t const * slot_completed  = &ctx->replay_msg->slot_completed;
-    ag_block_id_t                      block_id        = { .slot = slot_completed->slot,        .hash = slot_completed->block_id        };
-    ag_block_id_t                      parent_block_id = { .slot = slot_completed->parent_slot, .hash = slot_completed->parent_block_id };
+    ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
+    ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     ag_pool_add_block( ctx->pool, &block_id, &parent_block_id );
     break;
   }

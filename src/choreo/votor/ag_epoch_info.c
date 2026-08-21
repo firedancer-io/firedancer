@@ -136,11 +136,12 @@ ag_epoch_info_init( ag_epoch_info_t *              mem,
     ulong                 src = rank[r].src;
     ag_validator_info_t * vi  = ei->validators + r;
     memset( vi, 0, sizeof(ag_validator_info_t) );
-    vi->id            = r;
-    vi->stake         = stakes[src].stake;
-    vi->pubkey        = stakes[src].id_key;
-    memcpy(vi->voting_pubkey, rank[r].pk, sizeof(ag_bls_pub_t));
-    memcpy(ei->pubkeys[ r ],  rank[r].pk, sizeof(ag_bls_pub_t));
+    vi->id    = r;
+    vi->stake = stakes[src].stake;
+    fd_memcpy( vi->id_key,   stakes[src].id_key.uc,   sizeof(ag_id_key_t)   );
+    fd_memcpy( vi->vote_key, stakes[src].vote_key.uc, sizeof(ag_vote_key_t) );
+    fd_memcpy( vi->bls_key,  rank[r].pk,              sizeof(ag_bls_pub_t)  );
+    fd_memcpy( ei->pubkeys[ r ], rank[r].pk,          sizeof(ag_bls_pub_t)  );
     total += vi->stake;
   }
   ei->validator_cnt = k;

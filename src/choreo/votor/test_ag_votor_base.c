@@ -2,11 +2,11 @@
 
 static void
 test_block_id( void ) {
-  ag_block_id_t a = { .slot = 7UL };  memset( a.hash.uc, 0xAB, sizeof(fd_hash_t) );
+  ag_block_id_t a = { .slot = 7UL };  memset( a.hash, 0xAB, sizeof(ag_block_hash_t) );
   ag_block_id_t b = a;
   FD_TEST( ag_block_id_eq( &a, &b ) );
   b.slot = 8UL;            FD_TEST( !ag_block_id_eq( &a, &b ) );
-  b = a; b.hash.uc[0] ^= 1; FD_TEST( !ag_block_id_eq( &a, &b ) );
+  b = a; b.hash[0] ^= 1;   FD_TEST( !ag_block_id_eq( &a, &b ) );
 }
 
 int

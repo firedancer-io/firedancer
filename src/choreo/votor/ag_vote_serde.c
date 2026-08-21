@@ -1,10 +1,10 @@
 #include "ag_vote_serde.h"
 
-FD_STATIC_ASSERT( sizeof(ag_vote_signature_serde_t)==AG_BLS_SIG_SZ+2UL,                                     ag_vote_serde );
-FD_STATIC_ASSERT( sizeof(ag_vote_serde_t          )==10UL+sizeof(fd_hash_t)+sizeof(ag_vote_signature_serde_t), ag_vote_serde );
+FD_STATIC_ASSERT( sizeof(ag_vote_signature_serde_t)==AG_BLS_SIG_SZ+2UL,                                              ag_vote_serde );
+FD_STATIC_ASSERT( sizeof(ag_vote_serde_t          )==10UL+sizeof(ag_block_hash_t)+sizeof(ag_vote_signature_serde_t), ag_vote_serde );
 
 static uchar const *
-vote_signature( ag_vote_t const * self ) {
+sig( ag_vote_t const * self ) {
   switch( self->kind ) {
   case AG_VOTE_TYPE_NOTAR:          return self->inner.notar.sig;
   case AG_VOTE_TYPE_NOTAR_FALLBACK: return self->inner.notar_fallback.sig;
@@ -20,8 +20,8 @@ ag_vote_ser( ag_vote_t const * self,
              uchar *           buf,
              ulong             buf_max,
              ulong *           buf_sz ) {
-  fd_hash_t const * block_id = ag_vote_block_hash( self );
-  ulong             sz       = sizeof(ag_vote_serde_t) - ( block_id ? 0UL : sizeof(fd_hash_t) );
+  uchar const * block_id = ag_vote_block_hash( self );
+  ulong         sz       = sizeof(ag_vote_serde_t) - ( block_id ? 0UL : sizeof(ag_block_hash_t) );
   if( FD_UNLIKELY( buf_max<sz ) ) return -1;
 
   ag_vote_serde_t *           out       = (ag_vote_serde_t *)buf;
@@ -30,8 +30,8 @@ ag_vote_ser( ag_vote_t const * self,
   out->version = (uchar)1;
   out->kind    = (uchar)( self->kind+1U );
   out->slot    = ag_vote_slot( self );
-  if( block_id ) out->block_vote.block_id = *block_id;
-  fd_memcpy( signature->signature, vote_signature( self ), AG_BLS_SIG_SZ );
+  if( block_id ) memcpy( out->block_vote.block_id, block_id, sizeof(ag_block_hash_t) );
+  fd_memcpy( signature->signature, sig( self ), AG_BLS_SIG_SZ );
   signature->shred_version = shred_version;
 
   if( buf_sz ) *buf_sz = sz;
@@ -61,7 +61,7 @@ ag_vote_de( ag_vote_t *   out,
   }
 
   int   has_block_id = kind==AG_VOTE_TYPE_NOTAR || kind==AG_VOTE_TYPE_NOTAR_FALLBACK;
-  ulong sz           = sizeof(ag_vote_serde_t) - ( has_block_id ? 0UL : sizeof(fd_hash_t) );
+  ulong sz           = sizeof(ag_vote_serde_t) - ( has_block_id ? 0UL : sizeof(ag_block_hash_t) );
   if( FD_UNLIKELY( buf_max<sz ) ) return AG_VOTE_DE_ERR_TRUNCATED;
 
   ag_vote_signature_serde_t const * signature = has_block_id ? &vote->block_vote.signature : &vote->slot_vote.signature;
@@ -74,13 +74,13 @@ ag_vote_de( ag_vote_t *   out,
 
   switch( kind ) {
   case AG_VOTE_TYPE_NOTAR:
-    out->inner.notar.slot       = vote->slot;
-    out->inner.notar.block_hash = vote->block_vote.block_id;
+    out->inner.notar.slot = vote->slot;
+    memcpy( out->inner.notar.block_hash, vote->block_vote.block_id, sizeof(ag_block_hash_t) );
     fd_memcpy( out->inner.notar.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   case AG_VOTE_TYPE_NOTAR_FALLBACK:
-    out->inner.notar_fallback.slot       = vote->slot;
-    out->inner.notar_fallback.block_hash = vote->block_vote.block_id;
+    out->inner.notar_fallback.slot = vote->slot;
+    memcpy( out->inner.notar_fallback.block_hash, vote->block_vote.block_id, sizeof(ag_block_hash_t) );
     fd_memcpy( out->inner.notar_fallback.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   case AG_VOTE_TYPE_SKIP:

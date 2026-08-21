@@ -22,26 +22,26 @@ static ag_validator_info_t g_info[ NV ];
 static ulong               g_hash_ctr = 0UL;
 
 static void
-genesis_hash( fd_hash_t * out ) {
-  fd_memset( out->uc, 0, sizeof(fd_hash_t) );
+genesis_hash( ag_block_hash_t out ) {
+  fd_memset( out, 0, sizeof(ag_block_hash_t) );
 }
 
 static void
-random_hash( fd_hash_t * out ) {
-  fd_memset( out->uc, 0, sizeof(fd_hash_t) );
-  FD_STORE( ulong, out->uc,     0x9000UL + (++g_hash_ctr) );
-  FD_STORE( ulong, out->uc+8UL, 0xc0ffee00UL ^ g_hash_ctr );
+random_hash( ag_block_hash_t out ) {
+  fd_memset( out, 0, sizeof(ag_block_hash_t) );
+  FD_STORE( ulong, out,     0x9000UL + (++g_hash_ctr) );
+  FD_STORE( ulong, out+8UL, 0xc0ffee00UL ^ g_hash_ctr );
 }
 
 static ag_block_id_t
 genesis_block_id( void ) {
-  ag_block_id_t b; b.slot = 0UL; genesis_hash( &b.hash );
+  ag_block_id_t b; b.slot = 0UL; genesis_hash( b.hash );
   return b;
 }
 
 static ag_block_id_t
 random_block_id( ulong slot ) {
-  ag_block_id_t b; b.slot = slot; random_hash( &b.hash );
+  ag_block_id_t b; b.slot = slot; random_hash( b.hash );
   return b;
 }
 
@@ -52,7 +52,7 @@ create_validators( void ) {
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( g_info[i].voting_pubkey, g_sk[i] );
+    ag_bls_sec_to_pub( g_info[i].bls_key, g_sk[i] );
   }
 }
 
@@ -145,7 +145,7 @@ send_block_and_expect_notar( ag_votor_t *          votor,
 
   ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
   block.slot              = slot;
-  random_hash( &block.block_info.hash );
+  random_hash( block.block_info.hash );
   block.block_info.parent = *parent;
   ag_votor_handle_replay_event( votor, &block );
 
@@ -207,18 +207,17 @@ test_notar_and_final( void ) {
 static void
 test_notar_out_of_order( void ) {
   ag_votor_t * votor = setup_votor( 0L );
-  ulong slot1 = 1UL;       fd_hash_t hash1; random_hash( &hash1 );
-  ulong slot2 = slot1+1UL; fd_hash_t hash2; random_hash( &hash2 );
+  ulong slot1 = 1UL;       ag_block_hash_t hash1; random_hash( hash1 );
+  ulong slot2 = slot1+1UL; ag_block_hash_t hash2; random_hash( hash2 );
 
   /* give later block to votor first */
   ag_event_block_t first_shred = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = slot2 };
   ag_votor_handle_block_event ( votor, &first_shred );
 
   ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
-  block.slot                   = slot2;
-  block.block_info.hash        = hash2;
-  block.block_info.parent.slot = slot1;
-  block.block_info.parent.hash = hash1;
+  block.slot              = slot2;
+  block.block_info.parent = ag_block_id( slot1, hash1 );
+  memcpy( block.block_info.hash, hash2, sizeof(ag_block_hash_t) );
   ag_votor_handle_replay_event( votor, &block );
 
   /* should not vote yet */
@@ -229,8 +228,8 @@ test_notar_out_of_order( void ) {
   ag_votor_handle_block_event ( votor, &first_shred );
 
   block.slot              = slot1;
-  block.block_info.hash   = hash1;
   block.block_info.parent = genesis_block_id();
+  memcpy( block.block_info.hash, hash1, sizeof(ag_block_hash_t) );
   ag_votor_handle_replay_event( votor, &block );
 
   /* should now see notar votes */
@@ -252,14 +251,14 @@ test_pending_block_not_notarized_after_skip( void ) {
 
   /* first slot of the second leader window; its parent is not ready yet */
   ulong slot = AG_SLOTS_PER_WINDOW;
-  FD_TEST( is_start_of_window( slot ) );
-  ag_block_id_t parent = { .slot = slot-1UL }; random_hash( &parent.hash );
+  FD_TEST( ag_is_start_of_window( slot ) );
+  ag_block_id_t parent = { .slot = slot-1UL }; random_hash( parent.hash );
 
   /* block reconstructs before its parent is ready: stashed as pending, no
      vote yet (parent not in parents_ready) */
   ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
   block.slot              = slot;
-  random_hash( &block.block_info.hash );
+  random_hash( block.block_info.hash );
   block.block_info.parent = parent;
   ag_votor_handle_replay_event( votor, &block );
 
@@ -312,7 +311,7 @@ test_safe_to_notar( void ) {
   ag_vote_t msg = recv( votor );
   FD_TEST( msg.kind==AG_VOTE_TYPE_NOTAR_FALLBACK );
   FD_TEST( ag_vote_slot( &msg )==block.slot );
-  FD_TEST( !memcmp( ag_vote_block_hash( &msg )->uc, block.hash.uc, sizeof(fd_hash_t) ) );
+  FD_TEST( !memcmp( ag_vote_block_hash( &msg ), block.hash, sizeof(ag_block_hash_t) ) );
 
   teardown_votor( votor );
 }
@@ -348,7 +347,7 @@ test_prunes_to_finalized_window( void ) {
   /* finalize a slot that is NOT first in its window and isn't in the
      genesis window */
   ulong finalized    = AG_SLOTS_PER_WINDOW + 1UL;
-  ulong window_start = first_slot_in_window( finalized );
+  ulong window_start = ag_first_slot_in_window( finalized );
   FD_TEST( window_start>0UL       );
   FD_TEST( window_start<finalized );
 

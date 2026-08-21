@@ -104,7 +104,7 @@ ulong
 ag_pool_footprint( ulong slot_max ) {
   if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW ) ) return 0UL;
 
-  ulong s2n_max                           = slot_max*AG_BLOCK_HASH_EQVOC_MAX;
+  ulong s2n_max                           = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
   ulong slot_state_chain_cnt              = slot_state_map_chain_cnt_est             ( slot_max    );
   ulong s2n_waiting_parent_cert_chain_cnt = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
 
@@ -162,7 +162,7 @@ ag_pool_new( void * mem,
   }
   fd_memset( mem, 0, footprint );
 
-  ulong s2n_max                           = slot_max*AG_BLOCK_HASH_EQVOC_MAX;
+  ulong s2n_max                           = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
   ulong slot_state_chain_cnt              = slot_state_map_chain_cnt_est             ( slot_max    );
   ulong s2n_waiting_parent_cert_chain_cnt = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
 
@@ -313,8 +313,8 @@ add_valid_cert( ag_pool_t *       self,
   switch( cert->kind ) {
   case AG_CERT_TYPE_NOTAR:
   case AG_CERT_TYPE_NOTAR_FALLBACK: {
-    fd_hash_t const * block_hash = ag_cert_block_hash( cert );
-    ag_block_id_t     block_id   = { .slot = slot, .hash = *block_hash };
+    uchar const * block_hash = ag_cert_block_hash( cert );
+    ag_block_id_t block_id   = ag_block_id( slot, block_hash );
     if( FD_LIKELY( cert->kind==AG_CERT_TYPE_NOTAR ) ) {
       ag_finalization_event_t finalization_event = ag_finality_tracker_mark_notarized( self->finality_tracker, &block_id );
       handle_finalization( self, &finalization_event );
@@ -322,15 +322,14 @@ add_valid_cert( ag_pool_t *       self,
 
     s2n_waiting_parent_cert_ele_t * child = s2n_waiting_parent_cert_map_ele_remove( self->s2n_waiting_parent_cert->map, &block_id, NULL, self->s2n_waiting_parent_cert->pool );
     if( FD_LIKELY( child ) ) {
-      ulong         child_slot = child->child.slot;
-      fd_hash_t     child_hash = child->child.hash;
+      ag_block_id_t child_id = child->child; /* copy before the release below */
       s2n_waiting_parent_cert_pool_ele_release( self->s2n_waiting_parent_cert->pool, child );
 
-      int output = ag_slot_state_notify_parent_certified( slot_state( self, child_slot ), &child_hash );
+      int output = ag_slot_state_notify_parent_certified( slot_state( self, child_id.slot ), child_id.hash );
       switch( output ) {
-      case -1: repair_channel_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = { .slot = child_slot, .hash = child_hash } } ); break;
+      case -1: repair_channel_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = child_id } ); break;
       case  0: break;
-      case  1: pool_channel_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = { .slot = child_slot, .hash = child_hash } } ); break;
+      case  1: pool_channel_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = child_id } ); break;
       }
     }
 
@@ -339,7 +338,7 @@ add_valid_cert( ag_pool_t *       self,
     ulong                     ready_cnt = self->scratch.parent_ready_cnt;
     for( ulong i=0UL; i<ready_cnt; i++ ) {
       ag_parent_ready_t const * ready = &readys[i];
-      FD_TEST( ready->slot%AG_SLOTS_PER_WINDOW==0UL ); /* readiness is granted at window starts */
+      FD_TEST( ag_is_start_of_window( ready->slot ) ); /* readiness is granted at window starts */
       ag_event_pool_t event = { .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY };
       event.parent_ready.slot   = ready->slot;
       event.parent_ready.parent = ready->parent;
@@ -356,7 +355,7 @@ add_valid_cert( ag_pool_t *       self,
     ulong                     ready_cnt = self->scratch.parent_ready_cnt;
     for( ulong i=0UL; i<ready_cnt; i++ ) {
       ag_parent_ready_t const * ready = &readys[i];
-      FD_TEST( ready->slot%AG_SLOTS_PER_WINDOW==0UL ); /* readiness is granted at window starts */
+      FD_TEST( ag_is_start_of_window( ready->slot ) ); /* readiness is granted at window starts */
       ag_event_pool_t event = { .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY };
       event.parent_ready.slot   = ready->slot;
       event.parent_ready.parent = ready->parent;
@@ -367,7 +366,7 @@ add_valid_cert( ag_pool_t *       self,
 
   case AG_CERT_TYPE_FAST_FINAL: {
     ag_fast_final_cert_t const * ff_cert = &cert->inner.fast_final;
-    ag_block_id_t block_id; block_id.slot = slot; block_id.hash = ff_cert->block_hash;
+    ag_block_id_t block_id = ag_block_id( slot, ff_cert->block_hash );
     ag_finalization_event_t finalization_event = ag_finality_tracker_mark_fast_finalized( self->finality_tracker, &block_id );
     handle_finalization( self, &finalization_event );
     break;
@@ -478,10 +477,10 @@ ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
                    ag_block_id_t const * parent_id ) {
 
-  ulong             slot        = block_id->slot;
-  fd_hash_t const * block_hash  = &block_id->hash;
-  ulong             parent_slot = parent_id->slot;
-  fd_hash_t const * parent_hash = &parent_id->hash;
+  ulong         slot        = block_id->slot;
+  uchar const * block_hash  = block_id->hash;
+  ulong         parent_slot = parent_id->slot;
+  uchar const * parent_hash = parent_id->hash;
 
   ag_finalization_event_t finalization_event = ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id );
   ag_parent_ready_t       new_parents_ready  = ag_parent_ready_tracker_handle_finalization( self->parent_ready_tracker, &finalization_event, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
@@ -496,9 +495,9 @@ ag_pool_add_block( ag_pool_t *           self,
   if( FD_LIKELY( parent_state && ag_slot_state_is_notar_fallback_or_stronger( parent_state, parent_hash ) ) ) {
     int output = ag_slot_state_notify_parent_certified( slot_state( self, slot ), block_hash );
     switch( output ) {
-    case -1: repair_channel_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = { .slot = slot, .hash = *block_hash } } ); return;
+    case -1: repair_channel_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = *block_id } ); return;
     case  0: break;
-    case  1: pool_channel_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = { .slot = slot, .hash = *block_hash } } ); return;
+    case  1: pool_channel_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = *block_id } ); return;
     }
   }
 

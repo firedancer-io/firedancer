@@ -16,10 +16,10 @@ struct slot_state_ele {
 
   int             voted;
   int             voted_notar;
-  fd_hash_t       voted_notar_hash;
+  ag_block_hash_t voted_notar_hash;
   int             bad_window;
   int             block_notarized;
-  fd_hash_t       block_notarized_hash;
+  ag_block_hash_t block_notarized_hash;
   ag_block_id_t   parents_ready[ PARENTS_READY_MAX ];
   ulong           parents_ready_cnt;
   int             received_shred;
@@ -98,16 +98,6 @@ struct __attribute__((aligned(128UL))) ag_votor {
   } scratch;
 };
 
-FD_FN_CONST static inline ulong
-first_slot_in_window( ulong slot ) {
-  return ( slot / AG_SLOTS_PER_WINDOW ) * AG_SLOTS_PER_WINDOW;
-}
-
-FD_FN_CONST static inline int
-is_start_of_window( ulong slot ) {
-  return ( slot % AG_SLOTS_PER_WINDOW )==0UL;
-}
-
 FD_FN_PURE static inline int
 timer_idle( slot_state_ele_t const * ele ) {
   return ele->timeout==LONG_MAX && ele->timeout_crashed_leader==LONG_MAX;
@@ -133,7 +123,7 @@ state_mut( ag_votor_t * self,
 static void
 set_timeouts( ag_votor_t * self,
               ulong        slot ) {
-  FD_TEST( is_start_of_window( slot ) );
+  FD_TEST( ag_is_start_of_window( slot ) );
 
   long deadline = self->now + AG_DELTA_TIMEOUT_NS + AG_DELTA_FIRST_SLICE_NS;
 
@@ -143,7 +133,7 @@ set_timeouts( ag_votor_t * self,
   if( FD_UNLIKELY( start_idle ) ) timeout_dlist_ele_push_tail( self->timeout_dlist, start, self->slot_states->pool );
 
   for( ulong s=slot; s<slot+AG_SLOTS_PER_WINDOW; s++ ) {
-    deadline += fd_long_if( is_start_of_window( s ),
+    deadline += fd_long_if( ag_is_start_of_window( s ),
                             fd_long_max( AG_DELTA_BLOCK_NS-AG_DELTA_FIRST_SLICE_NS, 0L ),
                             AG_DELTA_BLOCK_NS );
     slot_state_ele_t * state = state_mut( self, s );
@@ -328,7 +318,7 @@ received_shred( ag_votor_t const * self,
 
 FD_FN_PURE static ulong
 first_unpruned_slot( ag_votor_t const * self ) {
-  return first_slot_in_window( self->highest_final_cert_slot );
+  return ag_first_slot_in_window( self->highest_final_cert_slot );
 }
 
 FD_FN_PURE static ulong
@@ -358,14 +348,14 @@ should_ignore_pool_event( ag_votor_t const *      self,
 }
 
 static void
-try_final( ag_votor_t *      self,
-           ulong             slot,
-           fd_hash_t const * hash ) {
+try_final( ag_votor_t *          self,
+           ulong                 slot,
+           ag_block_hash_t const hash ) {
   FD_TEST( slot>=first_unpruned_slot( self ) );
 
   slot_state_ele_t const * state = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
-  int notarized   = state && state->block_notarized && !memcmp( state->block_notarized_hash.uc, hash->uc, sizeof(fd_hash_t) );
-  int voted_notar = state && state->voted_notar     && !memcmp( state->voted_notar_hash.uc,     hash->uc, sizeof(fd_hash_t) );
+  int notarized   = state && state->block_notarized && !memcmp( state->block_notarized_hash, hash, sizeof(ag_block_hash_t) );
+  int voted_notar = state && state->voted_notar     && !memcmp( state->voted_notar_hash,     hash, sizeof(ag_block_hash_t) );
   int not_bad     = !( state && state->bad_window );
   if( FD_LIKELY( notarized && voted_notar && not_bad ) ) {
     ag_vote_t vote; ag_vote_new_final( &vote, slot, self->voting_key, self->own_rank, self->shred_version );
@@ -382,10 +372,11 @@ try_notar( ag_votor_t *            self,
   FD_TEST( slot>=first_unpruned_slot( self ) );
   if( FD_UNLIKELY( has_voted( self, slot ) ) ) return 0;
 
-  fd_hash_t     hash   = block_info->hash;
+  ag_block_hash_t hash;
+  memcpy( hash, block_info->hash, sizeof(ag_block_hash_t) );
   ag_block_id_t parent = block_info->parent;
 
-  if( FD_UNLIKELY( is_start_of_window( slot ) ) ) {
+  if( FD_UNLIKELY( ag_is_start_of_window( slot ) ) ) {
     slot_state_ele_t const * state        = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
     int                      valid_parent = 0;
     if( FD_LIKELY( state ) ) {
@@ -398,21 +389,21 @@ try_notar( ag_votor_t *            self,
     if( FD_UNLIKELY( parent.slot!=slot-1UL ) ) return 0;
     slot_state_ele_t const * parent_state = slot_state_map_ele_query_const( self->slot_states->map, &parent.slot, NULL, self->slot_states->pool );
     if( FD_UNLIKELY( !parent_state || !parent_state->voted_notar                                      ) ) return 0;
-    if( FD_UNLIKELY( memcmp( parent_state->voted_notar_hash.uc, parent.hash.uc, sizeof(fd_hash_t) )!=0 ) ) return 0;
+    if( FD_UNLIKELY( memcmp( parent_state->voted_notar_hash, parent.hash, sizeof(ag_block_hash_t) )!=0 ) ) return 0;
   }
 
-  ag_vote_t vote; ag_vote_new_notar( &vote, slot, &hash, self->voting_key, self->own_rank, self->shred_version );
+  ag_vote_t vote; ag_vote_new_notar( &vote, slot, hash, self->voting_key, self->own_rank, self->shred_version );
   FD_TEST( !vote_channel_full( self->vote_channel ) );
   vote_channel_push( self->vote_channel, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
 
   slot_state_ele_t * state = state_mut( self, slot );
   if( FD_UNLIKELY( state->pending_block ) ) pending_dlist_ele_remove( self->pending_dlist, state, self->slot_states->pool );
-  state->voted             = 1;
-  state->voted_notar       = 1;
-  state->pending_block     = 0;
-  state->voted_notar_hash  = hash;
+  state->voted         = 1;
+  state->voted_notar   = 1;
+  state->pending_block = 0;
+  memcpy( state->voted_notar_hash, hash, sizeof(ag_block_hash_t) );
 
-  try_final( self, slot, &hash );
+  try_final( self, slot, hash );
   return 1;
 }
 
@@ -421,7 +412,7 @@ try_skip_window( ag_votor_t * self,
                  ulong        slot ) {
   FD_TEST( slot>=first_unpruned_slot( self ) );
 
-  ulong window_start = first_slot_in_window( slot );
+  ulong window_start = ag_first_slot_in_window( slot );
   for( ulong s=window_start; s<window_start+AG_SLOTS_PER_WINDOW; s++ ) {
     if( FD_UNLIKELY( has_voted( self, s ) ) ) continue;
 
@@ -478,11 +469,11 @@ handle_cert_created( ag_votor_t *      self,
   switch( cert->kind ) {
 
   case AG_CERT_TYPE_NOTAR: {
-    fd_hash_t const * hash = ag_cert_block_hash( cert );
+    uchar const * hash = ag_cert_block_hash( cert );
 
-    slot_state_ele_t * state    = state_mut( self, slot );
-    state->block_notarized      = 1;
-    state->block_notarized_hash = *hash;
+    slot_state_ele_t * state = state_mut( self, slot );
+    state->block_notarized   = 1;
+    memcpy( state->block_notarized_hash, hash, sizeof(ag_block_hash_t) );
 
     try_final( self, slot, hash );
     break;
@@ -490,7 +481,7 @@ handle_cert_created( ag_votor_t *      self,
 
   case AG_CERT_TYPE_FINAL:
   case AG_CERT_TYPE_FAST_FINAL:
-    set_timeouts( self, first_slot_in_window( slot ) );
+    set_timeouts( self, ag_first_slot_in_window( slot ) );
 
     self->highest_final_cert_slot = fd_ulong_max( self->highest_final_cert_slot, slot );
     prune( self );
@@ -538,8 +529,8 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
   }
 
   case AG_EVENT_POOL_SAFE_TO_NOTAR: {
-    ulong             slot = event->safe_to_notar.slot;
-    fd_hash_t const * hash = &event->safe_to_notar.hash;
+    ulong         slot = event->safe_to_notar.slot;
+    uchar const * hash = event->safe_to_notar.hash;
 
     ag_vote_t vote; ag_vote_new_notar_fallback( &vote, slot, hash, self->voting_key, self->own_rank, self->shred_version );
     FD_TEST( !vote_channel_full( self->vote_channel ) );
