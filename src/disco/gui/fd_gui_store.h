@@ -88,6 +88,12 @@ typedef struct fd_gui_store_private fd_gui_store_t;
 #define FD_GUI_STORE_KIND_KV (0)
 #define FD_GUI_STORE_KIND_TS (1)
 
+/* TS_MONOTONIC promises that records are appended in nondecreasing
+   timestamp order.  The history layer preserves the source timestamp
+   verbatim instead of skew-clamping it and verifies the promise before
+   reserving space. */
+#define FD_GUI_STORE_FLAG_TS_MONOTONIC (1UL<<0)
+
 /* FD_GUI_STORE_REGION_SZ is the fixed size of every region in the pool.
    No ring's record stride may exceed it (fd_gui_store_new fails fast
    otherwise).  The store prepends no per-record header (both kinds embed
@@ -95,7 +101,7 @@ typedef struct fd_gui_store_private fd_gui_store_t;
    region size.  Callers that know their record types at compile time
    should static-assert sizeof(their largest record) <=
    FD_GUI_STORE_MAX_REC_SZ. */
-#define FD_GUI_STORE_REGION_SZ  (36UL<<20)
+#define FD_GUI_STORE_REGION_SZ  (48UL<<20)
 #define FD_GUI_STORE_MAX_REC_SZ (FD_GUI_STORE_REGION_SZ)
 
 /* FD_GUI_STORE_MAX_RINGS is the maximum number of named rings a store
@@ -109,6 +115,7 @@ typedef struct fd_gui_store_private fd_gui_store_t;
 struct fd_gui_store_desc {
   char const * name;    /* the name of the ring.  Must be non-NULL and unique within the store */
   int          kind;    /* FD_GUI_STORE_KIND_KV or FD_GUI_STORE_KIND_TS */
+  ulong        flags;   /* FD_GUI_STORE_FLAG_* (0 for KV) */
   ulong        key_off; /* byte offset, within the value, of the record's key (pass 0 for TS) */
   ulong        key_sz;  /* key size in bytes */
   ulong      ( * key_hash )( void const * key ); /* hashes a key to a ulong (pass NULL for TS) */
@@ -362,6 +369,21 @@ int
 fd_gui_store_ts_oldest_window( fd_gui_store_t * db,
                                ulong            ring_idx,
                                ulong *          out_window );
+
+/* fd_gui_store_ts_live_window_bounds returns, in *out_first_window and
+   *out_last_window, the time windows of the oldest and newest records
+   held by TS ring `ring_idx`.  Returns 1 if the ring holds any record,
+   0 if it is empty or not a TS ring.
+
+   Unlike fd_gui_store_ts_oldest_window this yields an upper bound too,
+   which is what lets a range scan reject a wholly stale or wholly
+   future request instead of walking the ring to find nothing. */
+
+int
+fd_gui_store_ts_live_window_bounds( fd_gui_store_t * db,
+                                    ulong            ring_idx,
+                                    ulong *          out_first_window,
+                                    ulong *          out_last_window );
 
 /* ---- TS ring: eviction ---------------------------------------------- */
 

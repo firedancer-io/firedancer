@@ -5,27 +5,32 @@
 #include <stddef.h> /* offsetof */
 
 /* Every record type must fit in one store region (header + record). */
-FD_STATIC_ASSERT( sizeof(fd_gui_slot_history_shred_event_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_slot_history_tvu_event_t  )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_timers_hist_t        )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_scheduler_counts_t        )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_stats_t              )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_txn_waterfall_t           )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_store_txn_start_t         )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_store_txn_end_t           )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_txn_t        )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_slot_t                    )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_leader_slot_t             )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_epoch_t                   )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_timeline_day_t            )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 
-/* fd_gui_hist_ts_append copies each TS record through a fixed stack buffer
-   so it can rewrite the clamped timestamp; every TS record type must fit. */
+/* Small TS records whose embedded timestamp needs rewriting are copied
+   through this stack buffer.  Records whose timestamp already matches are
+   appended directly, which also supports records as large as a store
+   region (notably timeline days). */
 #define FD_GUI_HIST_TS_SZ_MAX (512UL)
-FD_STATIC_ASSERT( sizeof(fd_gui_slot_history_shred_event_t)<=FD_GUI_HIST_TS_SZ_MAX, ts_rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_slot_history_tvu_event_t  )<=FD_GUI_HIST_TS_SZ_MAX, ts_rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_timers_hist_t        )<=FD_GUI_HIST_TS_SZ_MAX, ts_rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_scheduler_counts_t        )<=FD_GUI_HIST_TS_SZ_MAX, ts_rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_stats_t              )<=FD_GUI_HIST_TS_SZ_MAX, ts_rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_txn_waterfall_t           )<=FD_GUI_HIST_TS_SZ_MAX, ts_rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_store_txn_start_t         )<=FD_GUI_HIST_TS_SZ_MAX, ts_rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_store_txn_end_t           )<=FD_GUI_HIST_TS_SZ_MAX, ts_rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_txn_t        )<=FD_GUI_HIST_TS_SZ_MAX, ts_rec_fits );
 
 /* Each key type must alias the matching record field exactly. */
 FD_STATIC_ASSERT( offsetof( fd_gui_hist_slot_key_t,        slot     )==offsetof( fd_gui_slot_t,        slot     ), key_layout );
@@ -46,14 +51,30 @@ fd_gui_hist_dbi_res_ns( int dbi FD_PARAM_UNUSED ) {
 static inline ulong
 fd_gui_hist_dbi_ts_off( int dbi ) {
   switch( dbi ) {
-    case FD_GUI_HIST_SHRED_EVENTS:     return offsetof( fd_gui_slot_history_shred_event_t, timestamp           );
+    case FD_GUI_HIST_SHRED_EVENTS:
+    case FD_GUI_HIST_FEC_EVENTS:       return offsetof( fd_gui_slot_history_tvu_event_t,   timestamp           );
     case FD_GUI_HIST_TILE_TIMERS:      return offsetof( fd_gui_tile_timers_hist_t,         sample_time_nanos   );
     case FD_GUI_HIST_SCHEDULER_COUNTS: return offsetof( fd_gui_scheduler_counts_t,         sample_time_ns      );
     case FD_GUI_HIST_TILE_STATS:       return offsetof( fd_gui_tile_stats_t,               sample_time_nanos   );
     case FD_GUI_HIST_TXN_WATERFALL:    return offsetof( fd_gui_txn_waterfall_t,            sample_time_nanos   );
     case FD_GUI_HIST_TXN_START:        return offsetof( fd_gui_store_txn_start_t,          microblock_start_ns );
     case FD_GUI_HIST_TXN_END:          return offsetof( fd_gui_store_txn_end_t,            microblock_end_ns   );
+    case FD_GUI_HIST_REPLAY_TXN:       return offsetof( fd_gui_store_replay_txn_t,         completion_time_ns  );
+    case FD_GUI_HIST_REPLAY_TXN_BATCH: return offsetof( fd_gui_store_replay_txn_t,         completion_time_ns  );
+    case FD_GUI_HIST_TIMELINE_DAY:     return offsetof( fd_gui_timeline_day_t,             end_time_ns         );
     default:                           return 0UL;
+  }
+}
+
+static inline ulong
+fd_gui_hist_dbi_flags( int dbi ) {
+  switch( dbi ) {
+    case FD_GUI_HIST_SCHEDULER_COUNTS:
+    case FD_GUI_HIST_TILE_TIMERS:
+    case FD_GUI_HIST_TILE_STATS:
+    case FD_GUI_HIST_TXN_WATERFALL:
+    case FD_GUI_HIST_TIMELINE_DAY: return FD_GUI_STORE_FLAG_TS_MONOTONIC;
+    default:                       return 0UL;
   }
 }
 
@@ -71,8 +92,12 @@ fd_gui_hist_keyshape( int dbi ) {
     case FD_GUI_HIST_TXN_WATERFALL:
     case FD_GUI_HIST_TOWER:
     case FD_GUI_HIST_SHRED_EVENTS:
+    case FD_GUI_HIST_FEC_EVENTS:
     case FD_GUI_HIST_TXN_START:
     case FD_GUI_HIST_TXN_END:          return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
+    case FD_GUI_HIST_REPLAY_TXN:
+    case FD_GUI_HIST_REPLAY_TXN_BATCH:
+    case FD_GUI_HIST_TIMELINE_DAY:     return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_SLOT:
     case FD_GUI_HIST_LEADER_SLOT:      return FD_GUI_HIST_KEYSHAPE_SLOT_BANK;
     case FD_GUI_HIST_EPOCH:            return FD_GUI_HIST_KEYSHAPE_EPOCH;
@@ -139,23 +164,27 @@ fd_gui_hist_epoch_key_cmp( void const * a, void const * b ) {
 static inline ulong
 fd_gui_hist_rec_sz( int dbi ) {
   switch( dbi ) {
-    case FD_GUI_HIST_SHRED_EVENTS:     return sizeof(fd_gui_slot_history_shred_event_t);
+    case FD_GUI_HIST_SHRED_EVENTS:
+    case FD_GUI_HIST_FEC_EVENTS:       return sizeof(fd_gui_slot_history_tvu_event_t);
     case FD_GUI_HIST_TILE_TIMERS:      return sizeof(fd_gui_tile_timers_hist_t);
     case FD_GUI_HIST_SCHEDULER_COUNTS: return sizeof(fd_gui_scheduler_counts_t);
     case FD_GUI_HIST_TILE_STATS:       return sizeof(fd_gui_tile_stats_t);
     case FD_GUI_HIST_TXN_WATERFALL:    return sizeof(fd_gui_txn_waterfall_t);
     case FD_GUI_HIST_TXN_START:        return sizeof(fd_gui_store_txn_start_t);
     case FD_GUI_HIST_TXN_END:          return sizeof(fd_gui_store_txn_end_t);
+    case FD_GUI_HIST_REPLAY_TXN:       return sizeof(fd_gui_store_replay_txn_t);
+    case FD_GUI_HIST_REPLAY_TXN_BATCH: return sizeof(fd_gui_store_replay_txn_t);
     case FD_GUI_HIST_SLOT:             return sizeof(fd_gui_slot_t);
     case FD_GUI_HIST_LEADER_SLOT:      return sizeof(fd_gui_leader_slot_t);
     case FD_GUI_HIST_EPOCH:            return sizeof(fd_gui_epoch_t);
+    case FD_GUI_HIST_TIMELINE_DAY:     return sizeof(fd_gui_timeline_day_t);
     /* FD_GUI_HIST_TOWER is declared but not yet written (no record type). */
     default:                           return 0UL;
   }
 }
 
 /* fd_gui_hist_key_sz returns the KV key width for `dbi`: 16 bytes
-   (slot, bank_seq) for slot-keyed DBs, 8 bytes (epoch) for EPOCH, 0 for TS. */
+   (slot, bank_seq) for slot-keyed DBs, 8 bytes for EPOCH, 0 for TS. */
 static inline ulong
 fd_gui_hist_key_sz( int dbi ) {
   switch( dbi ) {
@@ -208,8 +237,9 @@ fd_gui_store_desc_t const *
 fd_gui_hist_db_descs( ulong store_bytes ) {
   static char const * const names[ FD_GUI_HIST_CNT ] = {
     "scheduler_counts", "tile_timers", "shred_events", "txn_start",
-    "txn_end", "tower", "slot", "leader_slot",
-    "epoch", "tile_stats", "txn_waterfall"
+    "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats",
+    "txn_waterfall", "timeline_day", "replay_txn", "fec_events",
+    "replay_txn_batch"
   };
   static fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
   static ulong built_for = 0UL; /* store_bytes the table was built for (0 = unbuilt) */
@@ -229,13 +259,15 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
       ulong val_sz = ts ? fd_ulong_max( rec_sz, 1UL ) : rec_sz;
       ulong max_records = 0UL;
       if( !ts ) {
-        if( fd_gui_hist_keyshape( i )==FD_GUI_HIST_KEYSHAPE_EPOCH ) max_records = epoch_n;
-        else if( i==FD_GUI_HIST_LEADER_SLOT )                       max_records = epoch_n * FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH;
-        else                                                        max_records = epoch_n * MAX_SLOTS_PER_EPOCH;
+        int shape = fd_gui_hist_keyshape( i );
+        if(      shape==FD_GUI_HIST_KEYSHAPE_EPOCH ) max_records = epoch_n;
+        else if( i==FD_GUI_HIST_LEADER_SLOT        ) max_records = epoch_n * FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH;
+        else                                         max_records = epoch_n * MAX_SLOTS_PER_EPOCH;
       }
 
       descs[ i ].name        = names[ i ];
       descs[ i ].kind        = ts ? FD_GUI_STORE_KIND_TS : FD_GUI_STORE_KIND_KV;
+      descs[ i ].flags       = fd_gui_hist_dbi_flags( i );
       descs[ i ].key_off     = 0UL; /* the key is the leading field(s) of the value */
       descs[ i ].key_sz      = key_sz;
       descs[ i ].key_hash    = ts ? NULL : fd_gui_hist_key_hash( i );
@@ -281,6 +313,8 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
 
 struct fd_gui_hist_private {
   ulong magic;          /* ==FD_GUI_HIST_MAGIC after fd_gui_hist_new */
+  long  last_ts[ FD_GUI_HIST_CNT ];
+  int   has_last_ts[ FD_GUI_HIST_CNT ];
 
   struct {
     int   armed;        /* 1 once over the high-water mark, until under low  */
@@ -288,8 +322,8 @@ struct fd_gui_hist_private {
     ulong epoch;        /* epoch being evicted                              */
     ulong start_slot;   /* first slot of the epoch (inclusive)              */
     ulong end_slot;     /* last slot of the epoch (inclusive)               */
-    ulong window_hi;    /* last TS window of the epoch (inclusive)  */
-    int   have_ts;      /* 1 if the epoch has any TS to evict       */
+    ulong window_hi;    /* last TS window of the epoch (inclusive)         */
+    int   have_ts;      /* 1 if the epoch has any TS to evict              */
     int   cur_dbi;      /* DB the current phase is mid-scan on              */
   } evict;
 
@@ -434,22 +468,32 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
   ulong rec_sz = fd_gui_hist_rec_sz( dbi );
   if( FD_UNLIKELY( !rec_sz ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d has no record type", dbi )); return -1; }
 
-  /* Clamp the record's timestamp to a bounded skew around `now` and
-     write the clamped value back into the record. */
-  long clamped_ts = fd_long_max( now-FD_GUI_HIST_TS_SKEW_NS, fd_long_min( ts_ns, now+FD_GUI_HIST_TS_SKEW_NS ) );
-
+  ulong flags = fd_gui_hist_dbi_flags( dbi );
+  long stored_ts = (flags & FD_GUI_STORE_FLAG_TS_MONOTONIC) ? ts_ns : fd_gui_hist_ts_clamp( now, ts_ns );
+  fd_gui_hist_t * hist = fd_gui_hist( gui );
+  if( FD_UNLIKELY( (flags & FD_GUI_STORE_FLAG_TS_MONOTONIC) && hist->has_last_ts[ dbi ] && stored_ts<hist->last_ts[ dbi ] ) ) {
+    FD_LOG_WARNING(( "fd_gui_hist_ts_append: monotonic dbi %d timestamp regressed from %ld to %ld", dbi, hist->last_ts[ dbi ], stored_ts ));
+    return -1;
+  }
+  ulong ts_off = fd_gui_hist_dbi_ts_off( dbi );
+  void const * append_val = val;
   uchar buf[ FD_GUI_HIST_TS_SZ_MAX ];
-  if( FD_UNLIKELY( rec_sz>sizeof(buf) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d record too large (%lu)", dbi, rec_sz )); return -1; }
-  fd_memcpy( buf, val, rec_sz );
-  *(long *)( buf + fd_gui_hist_dbi_ts_off( dbi ) ) = clamped_ts;
+  if( FD_UNLIKELY( *(long const *)( (uchar const *)val + ts_off )!=stored_ts ) ) {
+    if( FD_UNLIKELY( rec_sz>sizeof(buf) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d record too large to rewrite timestamp (%lu)", dbi, rec_sz )); return -1; }
+    fd_memcpy( buf, val, rec_sz );
+    *(long *)( buf + ts_off ) = stored_ts;
+    append_val = buf;
+  }
 
   /* Reserve space ahead of the append. */
   int forced_eviction = fd_gui_hist_reserve( gui, dbi );
   int rc;
   for(;;) {
-    rc = fd_gui_store_ts_append( db, (ulong)dbi, buf );
+    rc = fd_gui_store_ts_append( db, (ulong)dbi, append_val );
     if( FD_LIKELY( rc==FD_GUI_STORE_SUCCESS ) ) {
-      if( FD_UNLIKELY( forced_eviction ) ) fd_gui_hist( gui )->metrics.reserves[ dbi ]++;
+      hist->last_ts[ dbi ]     = stored_ts;
+      hist->has_last_ts[ dbi ] = 1;
+      if( FD_UNLIKELY( forced_eviction ) ) hist->metrics.reserves[ dbi ]++;
       return 0;
     }
     if( FD_LIKELY( rc!=FD_GUI_STORE_MAP_FULL ) ) break;
@@ -500,6 +544,31 @@ fd_gui_hist_range_begin( fd_gui_t *                   gui,
   iter->rec_sz      = fd_gui_hist_rec_sz( dbi );
   iter->_filter     = filter;
   iter->_filter_ctx = filter_ctx;
+
+  /* A request may span far more than the direct window index covers, at
+     which point fd_gui_store_ts_scan_begin degrades to a full ring scan.
+     Clamp the requested window to what the ring can actually hold, so a
+     wholly stale or wholly future request returns empty instead of
+     walking every record inside the tile's run loop.
+
+     Every TS record is skew-clamped at append time, so the ring's
+     contents are within 2*SKEW of its append-order endpoints. */
+
+  ulong first_window;
+  ulong last_window;
+  if( FD_UNLIKELY( !fd_gui_store_ts_live_window_bounds( db, (ulong)dbi, &first_window, &last_window ) ) ) return 0; /* empty ring */
+
+  ulong skew_window = (fd_gui_hist_dbi_flags( dbi ) & FD_GUI_STORE_FLAG_TS_MONOTONIC)
+                    ? 0UL
+                    : (ulong)((2L*FD_GUI_HIST_TS_SKEW_NS + res_ns-1L) / res_ns);
+  ulong live_lo = fd_ulong_min( first_window, last_window );
+  ulong live_hi = fd_ulong_max( first_window, last_window );
+  live_lo = live_lo>skew_window            ? live_lo-skew_window : 0UL;
+  live_hi = live_hi>ULONG_MAX-skew_window  ? ULONG_MAX           : live_hi+skew_window;
+
+  window_lo = fd_ulong_max( window_lo, live_lo );
+  window_hi = fd_ulong_min( window_hi, live_hi );
+  if( FD_UNLIKELY( window_lo>window_hi ) ) return 0; /* request does not overlap the ring */
 
   fd_gui_store_ts_scan_begin( db, &iter->_it, (ulong)dbi, window_lo, window_hi, NULL, NULL );
   fd_gui_hist_iter_load( iter );

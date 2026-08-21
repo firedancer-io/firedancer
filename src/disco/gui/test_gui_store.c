@@ -51,7 +51,7 @@ static fd_gui_store_desc_t const descs[] = {
   { .name="ent8",  .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL,  .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp,  .val_sz=sizeof(ent8_val_t),  .val_align=8UL, .max_records=1UL<<20 },
   { .name="ent16", .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=16UL, .key_hash=ent_key_hash, .key_cmp=ent16_key_cmp, .val_sz=sizeof(ent16_val_t), .val_align=8UL, .max_records=1UL<<20 },
   { .name="entbig",.kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL,  .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp,  .val_sz=256UL,              .val_align=8UL, .max_records=1UL<<20 },
-  { .name="ts",    .kind=FD_GUI_STORE_KIND_TS,                                                                             .val_sz=sizeof(ts_val_t),   .val_align=8UL, .ts_off=0UL, .granularity=1UL },
+  { .name="ts",    .kind=FD_GUI_STORE_KIND_TS, .flags=FD_GUI_STORE_FLAG_TS_MONOTONIC,                                      .val_sz=sizeof(ts_val_t),   .val_align=8UL, .ts_off=0UL, .granularity=1UL },
 };
 
 static char *
@@ -330,6 +330,15 @@ test_ts_index_footprint( void ) {
   ulong ts_fp = fd_gui_store_footprint( 256UL<<20, 1UL, &ts_desc );
   FD_TEST( ts_fp && ts_fp<(48UL<<20) );
 
+  fd_gui_store_desc_t bad_flag = ts_desc;
+  bad_flag.flags = 2UL;
+  FD_TEST( !fd_gui_store_footprint( 256UL<<20, 1UL, &bad_flag ) );
+
+  bad_flag       = ts_desc;
+  bad_flag.kind  = FD_GUI_STORE_KIND_KV;
+  bad_flag.flags = FD_GUI_STORE_FLAG_TS_MONOTONIC;
+  FD_TEST( !fd_gui_store_footprint( 256UL<<20, 1UL, &bad_flag ) );
+
   fd_gui_store_desc_t const mixed_descs[] = {
     ts_desc,
     { .name="kv", .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL, .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp, .val_sz=sizeof(ent8_val_t), .val_align=alignof(ent8_val_t), .max_records=1UL },
@@ -412,6 +421,19 @@ test_ts_append_scan( void ) {
   FD_TEST( fd_gui_store_ts_scan_done( it ) );
   fd_gui_store_ts_scan_end( it );
 
+  /* Append ordering is enforced by the history layer, not the store. */
+  ts_val_t regressed = { .ts = (long)(high_window-1UL), .seq = seq++ };
+  FD_TEST( fd_gui_store_ts_append( db, DB_TS, &regressed )==FD_GUI_STORE_SUCCESS );
+  fd_gui_store_ts_scan_begin( db, it, DB_TS, high_window-1UL, high_window-1UL, NULL, NULL );
+  FD_TEST( !fd_gui_store_ts_scan_done( it ) );
+  FD_TEST( ((ts_val_t const *)it->rec)->seq==regressed.seq );
+  fd_gui_store_ts_scan_end( it );
+
+  ulong budget = ULONG_MAX;
+  int drained = 0;
+  FD_TEST( fd_gui_store_ts_evict( db, DB_TS, ULONG_MAX, &budget, &drained )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( drained );
+
   db_close( db );
   cleanup( path );
   FD_LOG_NOTICE(( "test_ts_append_scan: ok" ));
@@ -474,9 +496,9 @@ test_map_full( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
   /* A single-region store: 256-byte entity inserts eventually overflow the
      one available region, and the upsert must surface the distinct
-     FD_GUI_STORE_MAP_FULL code (Layer 1 does NOT evict).  One 36 MiB region
-     holds ~135K of these records. */
-  fd_gui_store_t * db = db_open( path, (36UL<<20) + (1UL<<20) ); /* ~1 region + overhead */
+     FD_GUI_STORE_MAP_FULL code (Layer 1 does NOT evict). */
+  ulong const size = fd_gui_store_min_overhead_bytes();
+  fd_gui_store_t * db = db_open( path, size );
 
   int saw_map_full = 0;
   for( ulong i=0UL; i<1000000UL && !saw_map_full; i++ ) {
@@ -494,7 +516,7 @@ test_map_full( void ) {
 static void
 test_space_accounting( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  ulong size = 128UL<<20; /* 128 MiB (>= a few 36 MiB regions) */
+  ulong size = 128UL<<20; /* 128 MiB (>= two regions) */
   fd_gui_store_t * db = db_open( path, size );
 
   FD_TEST( fd_gui_store_size( db )==size );
@@ -519,22 +541,19 @@ test_space_accounting( void ) {
 }
 
 /* test_region_grow_reclaim drives the region allocator across several
-   regions: a 256 MiB store fits several 36 MiB regions, and 256-byte ENTBIG
-   records (one region holds ~135K of them) force multiple region claims as we
-   insert.  Eviction then advances the watermark past whole regions, which
-   must release them back to the pool (used_bytes shrinks) and let later
-   inserts re-claim the freed space without exceeding the ceiling. */
+   regions: 256-byte ENTBIG records force multiple region claims as we insert.
+   Eviction then advances the watermark past whole regions, which must release
+   them back to the pool (used_bytes shrinks) and let later inserts re-claim
+   the freed space without exceeding the ceiling. */
 static void
 test_region_grow_reclaim( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  ulong size = 256UL<<20; /* 256 MiB -> several 36 MiB regions */
+  ulong size = 256UL<<20; /* 256 MiB -> several regions */
   fd_gui_store_t * db = db_open( path, size );
 
   ulong open_used = fd_gui_store_used_bytes( db );
 
-  /* Insert enough 256-byte records to claim more than one region.  One 36
-     MiB region holds region_sz/stride ~= 135K records; insert 400K to force
-     at least three region claims. */
+  /* Insert enough 256-byte records to force at least three region claims. */
   ulong const N = 400000UL;
   for( ulong i=0UL; i<N; i++ ) {
     FD_TEST( entbig_put( db, i, (uchar)i )==FD_GUI_STORE_SUCCESS );
@@ -543,7 +562,7 @@ test_region_grow_reclaim( void ) {
   ulong grown_used = fd_gui_store_used_bytes( db );
   FD_TEST( grown_used>open_used );          /* claimed regions */
   FD_TEST( grown_used<=size );              /* never exceeds ceiling */
-  FD_TEST( grown_used-open_used >= (36UL<<20) ); /* at least one region */
+  FD_TEST( grown_used-open_used >= FD_GUI_STORE_REGION_SZ ); /* at least one region */
 
   /* All inserted records still readable. */
   for( ulong i=0UL; i<N; i+=4096UL ) {
