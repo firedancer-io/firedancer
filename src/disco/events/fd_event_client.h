@@ -3,11 +3,8 @@
 
 #include "fd_circq.h"
 #include "../keyguard/fd_keyguard_client.h"
+#include "../../ballet/x509/fd_x509_ca_store.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
-
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h>
-#endif
 
 #define FD_EVENT_CLIENT_STATE_DISCONNECTED    (0)
 #define FD_EVENT_CLIENT_STATE_CONNECTING      (1)
@@ -43,22 +40,22 @@ FD_FN_CONST ulong
 fd_event_client_footprint( ulong buf_max );
 
 void *
-fd_event_client_new( void *                 shmem,
-                     fd_keyguard_client_t * keyguard_client,
-                     fd_rng_t *             rng,
-                     fd_circq_t *           circq,
-                     int                    so_sndbuf,
-                     char const *           endpoint,
-                     uchar const *          identity_pubkey,
-                     char const *           client_version,
-                     char const *           commit_hash,
-                     char const *           action,
-                     ulong                  instance_id,
-                     ulong                  boot_id,
-                     ulong                  machine_id,
-                     ulong                  buf_max,
-                     int                    use_tls,
-                     void *                 ssl_ctx );
+fd_event_client_new( void *                     shmem,
+                     fd_keyguard_client_t *     keyguard_client,
+                     fd_rng_t *                 rng,
+                     fd_circq_t *               circq,
+                     int                        so_sndbuf,
+                     char const *               endpoint,
+                     uchar const *              identity_pubkey,
+                     char const *               client_version,
+                     char const *               commit_hash,
+                     char const *               action,
+                     ulong                      instance_id,
+                     ulong                      boot_id,
+                     ulong                      machine_id,
+                     ulong                      buf_max,
+                     int                        use_tls,
+                     fd_x509_ca_store_t const * ca_store );
 
 fd_event_client_t *
 fd_event_client_join( void * shec );

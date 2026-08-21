@@ -103,6 +103,8 @@ struct fd_http_resolver_private {
 
   fd_tls_t                         tls;
 
+  fd_x509_ca_store_t               ca_store;
+
   ulong                            magic; /* ==FD_HTTP_RESOLVER_MAGIC */
 };
 
@@ -134,6 +136,7 @@ void *
 fd_http_resolver_new( void *                           shmem,
                       ulong                            peers_cnt,
                       int                              incremental_snapshot_fetch,
+                      int                              load_ca_store,
                       fd_http_resolver_on_resolve_fn_t on_resolve_cb,
                       void *                           cb_arg ) {
   if( FD_UNLIKELY( !shmem ) ) {
@@ -197,6 +200,15 @@ fd_http_resolver_new( void *                           shmem,
     tls->alpn_sz = sizeof(alpn);
 
     tls->quic = 0;
+  }
+
+  resolver->ca_store.cnt = 0UL;
+  if( load_ca_store ) {
+    if( FD_UNLIKELY( fd_x509_ca_store_load_system( &resolver->ca_store )<0L ) ) {
+      FD_LOG_ERR(( "No CA certificate bundle found, cannot verify HTTPS snapshot "
+                   "server certificates.  Install the system CA certificates, or "
+                   "use http:// [snapshots.sources.servers] entries." ));
+    }
   }
 
   FD_COMPILER_MFENCE();
@@ -318,7 +330,8 @@ peer_connect( fd_http_resolver_t *  resolver,
   resolver->fds_len++;
 
   if( FD_UNLIKELY( peer->is_https ) ) {
-    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname, &resolver->tls );
+    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname, &resolver->tls,
+                             &resolver->ca_store );
   } else {
     fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname );
   }
@@ -336,7 +349,8 @@ peer_connect( fd_http_resolver_t *  resolver,
     resolver->fds_idx[ resolver->fds_len ] = peer_pool_idx( resolver->pool, peer );
     resolver->fds_len++;
     if( FD_UNLIKELY( peer->is_https ) ) {
-      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname, &resolver->tls );
+      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname, &resolver->tls,
+                               &resolver->ca_store );
     } else {
       fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname );
     }

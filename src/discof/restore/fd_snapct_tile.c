@@ -227,6 +227,11 @@ download_enabled( fd_topo_tile_t const * tile ) {
   return gossip_enabled( tile ) || tile->snapct.sources.servers_cnt>0UL;
 }
 
+FD_FN_CONST static inline ulong
+loose_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  return 0UL;
+}
 
 #define ADNS_REQS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX+FD_TOPO_GOSSIP_ENTRYPOINTS_MAX)
 
@@ -277,6 +282,7 @@ metrics_write( fd_snapct_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPCT, INCREMENTAL_RETRY,   ctx->metrics.incremental.num_retries );
 
   FD_MGAUGE_SET( SNAPCT, PREDICTED_SLOT,                ctx->predicted_incremental.slot );
+
 
   FD_MGAUGE_SET( SNAPCT, STATE, (ulong)ctx->state );
 }
@@ -1914,9 +1920,19 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->selector_seed,  sizeof(ctx->selector_seed)  ) );
   FD_TEST( fd_rng_secure( &ctx->blacklist_seed, sizeof(ctx->blacklist_seed) ) );
 
+  /* The resolver only needs a trust store if some server is https. */
+  int any_https = 0;
+  for( ulong i=0UL; i<tile->snapct.sources.servers_cnt; i++ ) {
+    char   hostname[ FD_FQDN_BUF_MAX ];
+    ushort port;
+    int    is_https;
+    fd_dns_peer_parse( tile->snapct.sources.servers[ i ], "snapshots.sources.servers", hostname, &port, &is_https );
+    any_https |= is_https;
+  }
+
   ctx->ssping = NULL;
   if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, ctx->ssping_seed, on_ping, ctx ) );
-  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, on_resolve, ctx ) );
+  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, any_https, on_resolve, ctx ) );
   else                                                ctx->ssresolver = NULL;
 
   ctx->netdb_fds->etc_hosts       = -1;
@@ -2197,6 +2213,7 @@ fd_topo_run_tile_t fd_tile_snapct = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,

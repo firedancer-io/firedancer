@@ -132,6 +132,10 @@ privileged_init( fd_topo_t const *      topo,
     }
   }
 
+  /* Load CA trust store while we still have filesystem access
+     (before seccomp sandbox locks down). */
+  fd_sshttp_load_ca_store( ctx->sshttp );
+
   /* Create a temporary file descriptor for our socket file descriptor.
      It is closed later in unprivileged init so that the sandbox sees
      an existent file descriptor. */

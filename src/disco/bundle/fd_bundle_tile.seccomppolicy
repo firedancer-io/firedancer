@@ -27,7 +27,7 @@ recvmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
-# OpenSSL: SSLKEYLOGFILE
+# HTTPS client: SSLKEYLOGFILE
 writev: (and (eq (arg 0) keylog_fd)
              (eq (arg 2) 2))
 
@@ -41,7 +41,11 @@ sendmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
 # bundle: Write to TCP connection (HTTPS)
 #
 # resolv: Send DNS queries via UDP or TCP
-sendto: (eq (arg 3) "MSG_NOSIGNAL")
+sendto: (or (eq (arg 3) "MSG_NOSIGNAL|MSG_DONTWAIT")
+            (eq (arg 3) "MSG_NOSIGNAL"))
+
+# bundle: Read from TCP connection (HTTPS)
+recvfrom: (eq (arg 3) "MSG_NOSIGNAL|MSG_DONTWAIT")
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
@@ -103,20 +107,7 @@ getsockopt: (and (eq (arg 1) SOL_SOCKET)
 # resolv: check if DNS queries use IPv6
 getsockname
 
-# openssl: RAND_bytes requires getpid
-#
-# QUIC uses OpenSSL RAND_bytes to generate randomness, which it uses for
-# picking connection IDs.  The OpenSSL implementation calls getpid() as
-# an implementation detail, they save the PID in a global and reseed the
-# RNG if the PID ever changes (the process was forked).  We don't need
-# this logic since our process can't fork.
-getpid
-
-# openssl: RAND_bytes requires getrandom
-#
-# QUIC uses OpenSSL RAND_bytes to generate randomness, which it uses for
-# picking connection IDs.  The OpenSSL implementation calls getrandom
-# internally for periodically reseeding the RNG.
+# HTTPS client: secure random bytes for TLS handshake
 getrandom
 
 # resolv: Read DNS config

@@ -719,7 +719,6 @@ EXAMPLES
     <int value="2" name="Transport" label="Transport error" />
     <int value="3" name="Timeout" label="I/O timeout" />
     <int value="4" name="NoFeeInfo" label="Bundle dropped due to missing fee info" />
-    <int value="5" name="SslAlloc" label="OpenSSL alloc fail" />
 </enum>
 
 <tile name="bundle">
@@ -1642,12 +1641,10 @@ EXAMPLES
     <gauge name="IncrementalSizeBytes" summary="Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" />
     <gauge name="IncrementalRetry" summary="Retries of the incremental snapshot download so far because the peer was too slow" />
     <gauge name="PredictedSlot" summary="Predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted" />
-    <counter name="SslAllocFailed" summary="SSL allocation errors encountered" />
 </tile>
 
 <tile name="snapld">
     <gauge name="State" summary="0=idle, 1=processing, 2=finishing, 3=error, 4=shutdown" />
-    <counter name="SslAllocFailed" summary="SSL allocation errors encountered" />
 </tile>
 
 <tile name="snapdc">

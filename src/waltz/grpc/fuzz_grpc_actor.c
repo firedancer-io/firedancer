@@ -12,7 +12,7 @@
 
 #define FUZZ_MAX_OPS           (128UL)
 #define FUZZ_GRPC_BUF_MAX      (4096UL)
-#define FUZZ_CLIENT_MEM_SZ     (131072UL)
+#define FUZZ_CLIENT_MEM_SZ     (262144UL)
 #define FUZZ_SERVER_BUFSZ      (4096UL)
 #define FUZZ_SERVER_SCRATCH_SZ (4096UL)
 
@@ -378,7 +378,6 @@ fuzz_client_reset( ulong seed ) {
   fd_grpc_client_set_authority( g_client, "localhost", 9UL, 443U );
   fd_grpc_client_set_version( g_client, "fuzz", 4UL );
 
-  g_client->ssl_hs_done = 1;
   g_client->h2_hs_done  = 1;
   g_client->conn->flags = 0U;
   g_client->conn->self_settings.max_concurrent_streams = FD_GRPC_CLIENT_MAX_STREAMS;

@@ -4,6 +4,7 @@
 #include "../../../flamenco/fd_flamenco_base.h"
 #include "../../../util/net/fd_net_headers.h"
 #include "../../../waltz/tls/fd_tls.h"
+#include "../../../ballet/x509/fd_x509_ca_store.h"
 
 #define FD_SSRESOLVE_MAGIC (0xF17EDA2CE55E510) /* FIREDANCER HTTP RESOLVE V0 */
 #define FD_SSRESOLVE_ALIGN (8UL)
@@ -41,12 +42,13 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    char const *     hostname );
 
 void
-fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
-                         fd_ip4_port_t    addr,
-                         int              sockfd,
-                         int              full,
-                         char const *     hostname,
-                         fd_tls_t const * tls );
+fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
+                         fd_ip4_port_t              addr,
+                         int                        sockfd,
+                         int                        full,
+                         char const *               hostname,
+                         fd_tls_t const *           tls,
+                         fd_x509_ca_store_t const * ca_store );
 
 #define FD_SSRESOLVE_ADVANCE_ERROR   (-1) /* fatal error */
 #define FD_SSRESOLVE_ADVANCE_AGAIN   ( 0) /* try again */

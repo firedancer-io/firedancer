@@ -514,7 +514,6 @@ FD_UNIT_TEST( bundle_client_reset ) {
   FD_TEST( state->rtt->is_rtt_valid==0 );
   FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );
   FD_TEST( state->auther.needs_poll==0 );
-  FD_TEST( state->grpc_client->ssl_hs_done==0 );
   FD_TEST( state->grpc_client->h2_hs_done==1 );
   FD_TEST( state->grpc_client->stream_cnt==2 );
 
@@ -532,7 +531,6 @@ FD_UNIT_TEST( bundle_client_reset ) {
   FD_TEST( state->rtt->is_rtt_valid==0 );
   FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
   FD_TEST( state->auther.needs_poll==1 );
-  FD_TEST( state->grpc_client->ssl_hs_done==0 );
   FD_TEST( state->grpc_client->h2_hs_done==0 );
   FD_TEST( state->grpc_client->stream_cnt==0 );
 

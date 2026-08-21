@@ -94,7 +94,6 @@
 | <span class="metrics-name">snapct_&#8203;incremental_&#8203;size_&#8203;bytes</span> | gauge | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapct_&#8203;incremental_&#8203;retry</span> | gauge | Retries of the incremental snapshot download so far because the peer was too slow |
 | <span class="metrics-name">snapct_&#8203;predicted_&#8203;slot</span> | gauge | Predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapct_&#8203;ssl_&#8203;alloc_&#8203;failed</span> | counter | SSL allocation errors encountered |
 
 </div>
 
@@ -105,7 +104,6 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">snapld_&#8203;state</span> | gauge | 0=idle, 1=processing, 2=finishing, 3=error, 4=shutdown |
-| <span class="metrics-name">snapld_&#8203;ssl_&#8203;alloc_&#8203;failed</span> | counter | SSL allocation errors encountered |
 
 </div>
 
@@ -370,7 +368,6 @@
 | <span class="metrics-name">bundle_&#8203;conn_&#8203;error</span><br/>{bundle_&#8203;error="<span class="metrics-enum">transport</span>"} | counter | gRPC errors encountered (Transport error) |
 | <span class="metrics-name">bundle_&#8203;conn_&#8203;error</span><br/>{bundle_&#8203;error="<span class="metrics-enum">timeout</span>"} | counter | gRPC errors encountered (I/O timeout) |
 | <span class="metrics-name">bundle_&#8203;conn_&#8203;error</span><br/>{bundle_&#8203;error="<span class="metrics-enum">no_&#8203;fee_&#8203;info</span>"} | counter | gRPC errors encountered (Bundle dropped due to missing fee info) |
-| <span class="metrics-name">bundle_&#8203;conn_&#8203;error</span><br/>{bundle_&#8203;error="<span class="metrics-enum">ssl_&#8203;alloc</span>"} | counter | gRPC errors encountered (OpenSSL alloc fail) |
 | <span class="metrics-name">bundle_&#8203;heap_&#8203;size_&#8203;bytes</span> | gauge | Workspace heap size |
 | <span class="metrics-name">bundle_&#8203;heap_&#8203;free_&#8203;bytes</span> | gauge | Approximate free space in workspace |
 | <span class="metrics-name">bundle_&#8203;shredstream_&#8203;heartbeat_&#8203;sent</span> | counter | ShredStream heartbeats successfully sent |

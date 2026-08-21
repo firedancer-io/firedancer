@@ -13,11 +13,9 @@
 #include "../../util/log/fd_log.h"
 #include "../keyguard/fd_keyguard.h"
 
-#if FD_HAS_OPENSSL
-#include "../../waltz/openssl/fd_openssl.h"
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#endif
+#include "../../waltz/tlsrec/fd_tlsrec.h"
+#include "../../ballet/x509/fd_x509_verify.h"
+#include "../../ballet/ed25519/fd_x25519.h"
 
 #include <netinet/tcp.h>
 #include <unistd.h>
@@ -97,10 +95,9 @@ struct fd_event_client {
   int sockfd;
 
   int    use_tls;
-#if FD_HAS_OPENSSL
-  SSL_CTX * ssl_ctx;
-  SSL     * ssl;
-#endif
+  fd_tls_t         tls[1];
+  fd_tlsrec_conn_t tls_conn[1];
+  fd_x509_ca_store_t const * ca_store;
 
   /* wallclock deadline for auth handshake, LONG_MAX if not
      authenticating. */
@@ -125,6 +122,56 @@ struct fd_event_client {
   fd_event_client_metrics_t metrics;
 };
 
+static void *
+tls_rand( void * ctx,
+          void * buf,
+          ulong  bufsz ) {
+  (void)ctx;
+  return fd_rng_secure( buf, bufsz );
+}
+
+static int
+tls_cert_verify( void *        ctx,
+                 uchar const * cert_chain,
+                 ulong         cert_chain_sz,
+                 void const *  handshake ) {
+  (void)handshake;
+  fd_event_client_t * client = ctx;
+
+  int err = fd_x509_verify_tls_cert_msg( cert_chain, cert_chain_sz, client->ca_store,
+                                         client->server_fqdn, client->server_fqdn_len );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "certificate verification failed (%d) for %.*s",
+                     err, (int)client->server_fqdn_len, client->server_fqdn ));
+  }
+  return err;
+}
+
+static void
+tls_init( fd_event_client_t *        client,
+          fd_x509_ca_store_t const * ca_store ) {
+  fd_tls_t * tls = fd_tls_join( fd_tls_new( client->tls ) );
+  FD_TEST( tls );
+
+  tls->rand.rand_fn = tls_rand;
+
+  /* Ephemeral X25519 key share */
+  FD_TEST( fd_rng_secure( tls->key_share_private, 32UL ) );
+  fd_x25519_public( tls->key_share_public, tls->key_share_private );
+
+  static uchar const alpn[] = { 2, 'h', '2' };
+  fd_memcpy( tls->alpn, alpn, sizeof(alpn) );
+  tls->alpn_sz = sizeof(alpn);
+
+  ulong sni_len = fd_ulong_min( client->server_fqdn_len, sizeof(tls->server_name)-1UL );
+  fd_memcpy( tls->server_name, client->server_fqdn, sni_len );
+  tls->server_name_len = (ushort)sni_len;
+
+  client->ca_store     = ca_store;
+  tls->cert_verify_fn  = tls_cert_verify;
+  tls->cert_verify_ctx = client;
+}
+
 FD_FN_CONST ulong
 fd_event_client_align( void ) {
   return alignof( fd_event_client_t );
@@ -140,22 +187,22 @@ fd_event_client_footprint( ulong buf_max ) {
 }
 
 void *
-fd_event_client_new( void *                 shmem,
-                     fd_keyguard_client_t * keyguard_client,
-                     fd_rng_t *             rng,
-                     fd_circq_t *           circq,
-                     int                    so_sndbuf,
-                     char const *           _url,
-                     uchar const *          identity_pubkey,
-                     char const *           client_version,
-                     char const *           commit_hash,
-                     char const *           action,
-                     ulong                  instance_id,
-                     ulong                  boot_id,
-                     ulong                  machine_id,
-                     ulong                  buf_max,
-                     int                    use_tls,
-                     void *                 ssl_ctx ) {
+fd_event_client_new( void *                     shmem,
+                     fd_keyguard_client_t *     keyguard_client,
+                     fd_rng_t *                 rng,
+                     fd_circq_t *               circq,
+                     int                        so_sndbuf,
+                     char const *               _url,
+                     uchar const *              identity_pubkey,
+                     char const *               client_version,
+                     char const *               commit_hash,
+                     char const *               action,
+                     ulong                      instance_id,
+                     ulong                      boot_id,
+                     ulong                      machine_id,
+                     ulong                      buf_max,
+                     int                        use_tls,
+                     fd_x509_ca_store_t const * ca_store ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -204,16 +251,11 @@ fd_event_client_new( void *                 shmem,
   client->so_sndbuf = so_sndbuf;
   client->sockfd = -1;
   client->use_tls = use_tls;
-#if FD_HAS_OPENSSL
-  client->ssl_ctx = (SSL_CTX *)ssl_ctx;
-  client->ssl = NULL;
-#else
-  (void)ssl_ctx;
-  if( FD_UNLIKELY( use_tls ) ) {
-    FD_LOG_ERR(( "TLS requested for event service but this build does not include OpenSSL. "
-                 "To install OpenSSL, re-run ./deps.sh and do a clean rebuild." ));
+  client->ca_store = NULL;
+  if( use_tls ) {
+    if( FD_UNLIKELY( !ca_store ) ) FD_LOG_ERR(( "NULL ca_store, but [tiles.event.url] requires TLS" ));
+    tls_init( client, ca_store );
   }
-#endif
   client->auth_deadline = LONG_MAX;
   client->auth_send_pending = 0;
   client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
@@ -305,12 +347,6 @@ disconnect( fd_event_client_t * client,
             int                 reason,
             int                 err,
             int                 _backoff ) {
-#if FD_HAS_OPENSSL
-  if( FD_UNLIKELY( client->ssl ) ) {
-    SSL_free( client->ssl );
-    client->ssl = NULL;
-  }
-#endif
   if( FD_LIKELY( -1!=client->sockfd ) ) {
     if( FD_UNLIKELY( -1==close( client->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     client->sockfd = -1;
@@ -432,43 +468,9 @@ reconnect( fd_event_client_t * client,
     return;
   }
 
-# if FD_HAS_OPENSSL
   if( client->use_tls ) {
-    BIO * bio = fd_openssl_bio_new_socket( client->sockfd, BIO_NOCLOSE );
-    if( FD_UNLIKELY( !bio ) ) {
-      FD_LOG_WARNING(( "fd_openssl_bio_new_socket failed" ));
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-
-    SSL * ssl = SSL_new( client->ssl_ctx );
-    if( FD_UNLIKELY( !ssl ) ) {
-      FD_LOG_WARNING(( "SSL_new failed" ));
-      BIO_free( bio );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-
-    SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
-    SSL_set_connect_state( ssl );
-
-    /* SNI and hostname verification */
-    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, client->server_fqdn ) ) ) {
-      FD_LOG_WARNING(( "SSL_set_tlsext_host_name failed" ));
-      SSL_free( ssl );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-    if( FD_UNLIKELY( !SSL_set1_host( ssl, client->server_fqdn ) ) ) {
-      FD_LOG_WARNING(( "SSL_set1_host failed" ));
-      SSL_free( ssl );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-
-    client->ssl = ssl;
+    fd_tlsrec_conn_init( client->tls_conn, client->tls, 0 );
   }
-# endif /* FD_HAS_OPENSSL */
 
   fd_grpc_client_reset( client->grpc_client );
 
@@ -831,11 +833,9 @@ fd_event_client_poll( fd_event_client_t * client,
   }
   if( FD_LIKELY( client->state!=FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) {
     int rxtx_err;
-#   if FD_HAS_OPENSSL
     if( client->use_tls )
-      rxtx_err = fd_grpc_client_rxtx_ossl( client->grpc_client, client->ssl, charge_busy );
+      rxtx_err = fd_grpc_client_rxtx_tls( client->grpc_client, client->tls_conn, client->sockfd, charge_busy );
     else
-#   endif
       rxtx_err = fd_grpc_client_rxtx_socket( client->grpc_client, client->sockfd, charge_busy );
     if( FD_UNLIKELY( -1==rxtx_err ) ) {
       disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
