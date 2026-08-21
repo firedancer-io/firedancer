@@ -1263,6 +1263,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     sched->txn_in_flight_last_tick = now;
 
     sched->txn_info_pool[ out->txn_exec->txn_idx ].tick_exec_disp = now;
+    sched->txn_info_pool[ out->txn_exec->txn_idx ].exec_tile_idx  = exec_tile_idx0;
 
     sched->txn_exec_ready_bitset[ 0 ] = fd_ulong_clear_bit( exec_ready_bitset0, (int)exec_tile_idx0);
     sched->tile_to_bank_idx[ exec_tile_idx0 ] = bank_idx;
@@ -2569,12 +2570,28 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_info_pool[ txn_idx ].flags = 0UL;
   sched->txn_info_pool[ txn_idx ].received_ns = block->fec_completed_ns;
   sched->txn_info_pool[ txn_idx ].txn_err = 0;
+  sched->txn_info_pool[ txn_idx ].runtime_is_committable = 0;
+  sched->txn_info_pool[ txn_idx ].runtime_is_fees_only   = 0;
+  sched->txn_info_pool[ txn_idx ].runtime_is_simple_vote = 0;
   sched->txn_info_pool[ txn_idx ].tick_parsed = fd_tickcount();
   sched->txn_info_pool[ txn_idx ].tick_sigverify_disp = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_sigverify_done = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_exec_disp = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_exec_done = LONG_MAX;
+  sched->txn_info_pool[ txn_idx ].tick_load_start = LONG_MAX;
+  sched->txn_info_pool[ txn_idx ].tick_check_start = LONG_MAX;
+  sched->txn_info_pool[ txn_idx ].tick_exec_start = LONG_MAX;
+  sched->txn_info_pool[ txn_idx ].tick_commit_start = LONG_MAX;
+  sched->txn_info_pool[ txn_idx ].tick_commit_end = LONG_MAX;
+  sched->txn_info_pool[ txn_idx ].slot = block->slot;
   sched->txn_info_pool[ txn_idx ].index_in_slot  = block->txn_parsed_cnt;
+  sched->txn_info_pool[ txn_idx ].exec_tile_idx           = ULONG_MAX;
+  sched->txn_info_pool[ txn_idx ].sigverify_exec_tile_idx = ULONG_MAX;
+  sched->txn_info_pool[ txn_idx ].compute_units_consumed = 0U;
+  sched->txn_info_pool[ txn_idx ].max_compute_units = ULONG_MAX;
+  sched->txn_info_pool[ txn_idx ].transaction_fee = 0UL;
+  sched->txn_info_pool[ txn_idx ].priority_fee = 0UL;
+  sched->txn_info_pool[ txn_idx ].tips = 0UL;
   block->txn_idx[ block->txn_parsed_cnt ] = (uint)txn_idx;
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
@@ -2599,6 +2616,7 @@ dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx
   out->txn_sigverify->bank_idx = bank_idx;
   out->txn_sigverify->txn_idx  = block->txn_idx[ block->txn_sigverify_done_cnt+block->txn_sigverify_in_flight_cnt ];
   out->txn_sigverify->exec_idx = (ulong)exec_tile_idx;
+  sched->txn_info_pool[ out->txn_sigverify->txn_idx ].sigverify_exec_tile_idx = (ulong)exec_tile_idx;
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
   sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
   block->txn_sigverify_in_flight_cnt++;

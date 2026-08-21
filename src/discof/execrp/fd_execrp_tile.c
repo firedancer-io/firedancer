@@ -9,6 +9,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_executor.h"
+#include "../../flamenco/runtime/fd_cost_tracker.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
@@ -171,13 +172,29 @@ metrics_write( fd_execrp_tile_t * ctx ) {
 
 static void
 publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
-                           fd_stem_context_t * stem ) {
+                           fd_stem_context_t * stem,
+                           int                 runtime_is_committable,
+                           int                 runtime_is_fees_only,
+                           long                tick_commit_end,
+                           uint                compute_units_consumed ) {
   fd_execrp_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
   msg->bank_idx                  = ctx->bank->idx;
   msg->txn_exec->txn_idx         = ctx->txn_idx;
   msg->txn_exec->is_committable  = ctx->txn_out.err.is_committable;
   msg->txn_exec->is_fees_only    = ctx->txn_out.err.is_fees_only;
   msg->txn_exec->txn_err         = ctx->txn_out.err.txn_err;
+  msg->txn_exec->runtime_is_committable = runtime_is_committable;
+  msg->txn_exec->runtime_is_fees_only   = runtime_is_fees_only;
+  msg->txn_exec->runtime_is_simple_vote = ctx->txn_out.details.is_simple_vote;
+  msg->txn_exec->tick_load_start        = ctx->txn_out.details.load_start_ticks;
+  msg->txn_exec->tick_check_start       = ctx->txn_out.details.check_start_ticks;
+  msg->txn_exec->tick_exec_start        = ctx->txn_out.details.exec_start_ticks;
+  msg->txn_exec->tick_commit_start      = ctx->txn_out.details.commit_start_ticks;
+  msg->txn_exec->tick_commit_end        = tick_commit_end;
+  msg->txn_exec->compute_units_consumed = compute_units_consumed;
+  msg->txn_exec->transaction_fee        = ctx->txn_out.details.execution_fee;
+  msg->txn_exec->priority_fee           = ctx->txn_out.details.priority_fee;
+  msg->txn_exec->tips                   = ctx->txn_out.details.tips;
   msg->txn_exec->slot            = ctx->slot;
   msg->txn_exec->bank_seq        = ctx->bank->bank_seq;
   msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
@@ -274,6 +291,12 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
+        int  runtime_is_committable = ctx->txn_out.err.is_committable;
+        int  runtime_is_fees_only   = ctx->txn_out.err.is_fees_only;
+        uint compute_units_consumed = runtime_is_committable
+                                      ? fd_cost_tracker_transaction_cost_sum( &ctx->txn_out.details.txn_cost )
+                                      : 0U;
+
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
@@ -288,7 +311,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->txn_idx = msg->txn_idx;
         ctx->dispatch_time_comp = tspub;
         ctx->slot = ctx->bank->f.slot;
-        publish_txn_finalized_msg( ctx, stem );
+        publish_txn_finalized_msg( ctx, stem, runtime_is_committable, runtime_is_fees_only,
+                                  txn_end_ticks, compute_units_consumed );
 
         /* Update metrics */
         ulong load_start_ticks_dt  = fd_ulong_if( ctx->txn_out.details.check_start_ticks==LONG_MAX  || ctx->txn_out.details.load_start_ticks==LONG_MAX,   0UL, (ulong)( ctx->txn_out.details.check_start_ticks  - ctx->txn_out.details.load_start_ticks ) );

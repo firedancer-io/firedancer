@@ -185,11 +185,27 @@ struct fd_replay_txn_executed {
   int is_committable;
   int is_fees_only;
   int txn_err;
+  int runtime_is_committable;
+  int runtime_is_fees_only;
+  int runtime_is_simple_vote;
   long  tick_parsed;
   long  tick_sigverify_disp;
   long  tick_sigverify_done;
-  long  tick_exec_disp;
   long  tick_exec_done;
+  long  tick_load_start;
+  long  tick_check_start;
+  long  tick_exec_start;
+  long  tick_commit_start;
+  long  tick_commit_end;
+  ulong slot;
+  ulong index_in_slot;
+  ulong exec_tile_idx;
+  ulong sigverify_exec_tile_idx;
+  uint  compute_units_consumed;
+  ulong max_compute_units;
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
 };
 typedef struct fd_replay_txn_executed fd_replay_txn_executed_t;
 

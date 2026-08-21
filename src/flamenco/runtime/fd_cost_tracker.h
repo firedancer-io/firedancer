@@ -170,6 +170,11 @@ fd_cost_tracker_new( void * shmem,
 fd_cost_tracker_t *
 fd_cost_tracker_join( void * shct );
 
+/* Returns the consensus cost represented by txn_cost. */
+
+FD_FN_PURE uint
+fd_cost_tracker_transaction_cost_sum( fd_transaction_cost_t const * txn_cost );
+
 void
 fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
                       fd_features_t const *    features,

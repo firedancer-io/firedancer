@@ -804,6 +804,23 @@ fd_gui_store_ts_oldest_window( fd_gui_store_t * db,
   return 1;
 }
 
+int
+fd_gui_store_ts_live_window_bounds( fd_gui_store_t * db,
+                                    ulong            ring_idx,
+                                    ulong *          out_first_window,
+                                    ulong *          out_last_window ) {
+  if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) return 0;
+  fd_gui_store_ring_t const * p = &db->super->ring[ ring_idx ];
+  if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) return 0;
+  if( FD_UNLIKELY( p->evict_cur>=p->head_cur ) )     return 0;
+
+  uchar const * first = (uchar const *)fd_gui_store_slot( db, ring_idx, p, p->evict_cur    );
+  uchar const * last  = (uchar const *)fd_gui_store_slot( db, ring_idx, p, p->head_cur-1UL );
+  *out_first_window = fd_gui_store_ts_window( p, first );
+  *out_last_window  = fd_gui_store_ts_window( p, last  );
+  return 1;
+}
+
 static void
 fd_gui_store_ts_scan_bound( fd_gui_store_t * db,
                             ulong            ring_idx,

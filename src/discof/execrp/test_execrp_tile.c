@@ -493,6 +493,18 @@ FD_UNIT_TEST( execrp_simple_ok ) {
   FD_TEST( env->execrp->txn_out.err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
   FD_TEST( out_msg->txn_exec->is_committable );
   FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( out_msg->txn_exec->runtime_is_committable );
+  FD_TEST( !out_msg->txn_exec->runtime_is_fees_only );
+  FD_TEST( !out_msg->txn_exec->runtime_is_simple_vote );
+  FD_TEST( out_msg->txn_exec->tick_load_start   !=LONG_MAX );
+  FD_TEST( out_msg->txn_exec->tick_check_start  !=LONG_MAX );
+  FD_TEST( out_msg->txn_exec->tick_exec_start   !=LONG_MAX );
+  FD_TEST( out_msg->txn_exec->tick_commit_start !=LONG_MAX );
+  FD_TEST( out_msg->txn_exec->tick_commit_end>=out_msg->txn_exec->tick_commit_start );
+  FD_TEST( out_msg->txn_exec->compute_units_consumed>0U );
+  FD_TEST( out_msg->txn_exec->transaction_fee==fee );
+  FD_TEST( !out_msg->txn_exec->priority_fee );
+  FD_TEST( !out_msg->txn_exec->tips );
   FD_TEST( test_read_lamports( env, &fee_payer )==payer_start-fee-transfer );
   FD_TEST( test_read_lamports( env, &recipient )==recipient_start+transfer );
 
@@ -516,6 +528,12 @@ FD_UNIT_TEST( execrp_simple_fee_payer_fail ) {
   FD_TEST( env->execrp->txn_out.err.txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
   FD_TEST( !out_msg->txn_exec->is_committable );
   FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  FD_TEST( !out_msg->txn_exec->runtime_is_committable );
+  FD_TEST( !out_msg->txn_exec->runtime_is_fees_only );
+  FD_TEST( out_msg->txn_exec->tick_load_start !=LONG_MAX );
+  FD_TEST( out_msg->txn_exec->tick_commit_start==LONG_MAX );
+  FD_TEST( out_msg->txn_exec->tick_commit_end  !=LONG_MAX );
+  FD_TEST( !out_msg->txn_exec->compute_units_consumed );
   FD_TEST( test_read_lamports( env, &data_acct )==data_acct_start );
 
   test_env_destroy( env );
@@ -580,7 +598,41 @@ FD_UNIT_TEST( execrp_simple_fees_only ) {
   FD_TEST( out_msg->txn_exec->is_committable );
   FD_TEST( out_msg->txn_exec->is_fees_only );
   FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND );
+  FD_TEST( out_msg->txn_exec->runtime_is_committable );
+  FD_TEST( out_msg->txn_exec->runtime_is_fees_only );
+  FD_TEST( out_msg->txn_exec->tick_exec_start   ==LONG_MAX );
+  FD_TEST( out_msg->txn_exec->tick_commit_start !=LONG_MAX );
+  FD_TEST( out_msg->txn_exec->tick_commit_end>=out_msg->txn_exec->tick_commit_start );
+  FD_TEST( out_msg->txn_exec->compute_units_consumed>0U );
+  FD_TEST( out_msg->txn_exec->transaction_fee==fee );
   FD_TEST( test_read_lamports( env, &fee_payer )==payer_start-fee );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execrp_cost_rejection_telemetry ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer = { .ul = { 0x8181UL } };
+  fd_pubkey_t data_acct = { .ul = { 0x8282UL } };
+  test_fund_account( env, &fee_payer, 1000000UL );
+  test_fund_account( env, &data_acct, 1UL );
+
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
+  cost_tracker->block_cost_limit = 0UL;
+
+  fd_txn_p_t txn[1];
+  test_build_empty_txn( txn, bank, fee_payer, data_acct, 81UL, 0 );
+  fd_execrp_task_done_msg_t const * out_msg = test_execrp_run( env, txn, 22UL );
+
+  FD_TEST( !out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT );
+  FD_TEST( out_msg->txn_exec->runtime_is_committable );
+  FD_TEST( !out_msg->txn_exec->runtime_is_fees_only );
+  FD_TEST( out_msg->txn_exec->compute_units_consumed>0U );
+  FD_TEST( out_msg->txn_exec->tick_commit_start!=LONG_MAX );
+  FD_TEST( out_msg->txn_exec->tick_commit_end>=out_msg->txn_exec->tick_commit_start );
 
   test_env_destroy( env );
 }

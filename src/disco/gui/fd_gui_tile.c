@@ -59,8 +59,29 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 65536
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
+/* Conservative JSON sizing for the bounded timeline query rows.  The HTTP
+   server temporarily keeps both the raw and compressed frame in the outgoing
+   ring.  At >=128 KiB, zstd's compression bound is raw_sz+(raw_sz>>8). */
+#define FD_GUI_TIMELINE_TXN_JSON_ROW_MAX   (480UL)
+#define FD_GUI_TIMELINE_SHRED_JSON_ROW_MAX (56UL)
+#define FD_GUI_TIMELINE_JSON_FIXED_MAX     (4096UL)
+#define FD_GUI_TIMELINE_RAW_RESPONSE_MAX   (32UL<<20)
+
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_TIMESTAMPS_MAX*FD_GUI_TIMELINE_TXN_JSON_ROW_MAX  +FD_GUI_TIMELINE_JSON_FIXED_MAX<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_timestamps_query_fits_raw_bound );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_BATCH_TIMESTAMPS_MAX*FD_GUI_TIMELINE_TXN_JSON_ROW_MAX+FD_GUI_TIMELINE_JSON_FIXED_MAX<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_batch_timestamps_query_fits_raw_bound );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_META_MAX      *FD_GUI_TIMELINE_TXN_JSON_ROW_MAX  +FD_GUI_TIMELINE_JSON_FIXED_MAX<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_meta_query_fits_raw_bound       );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX         *FD_GUI_TIMELINE_SHRED_JSON_ROW_MAX+FD_GUI_TIMELINE_JSON_FIXED_MAX<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_query_fits_raw_bound         );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8))<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ, query_and_compression_fit_send_buffer );
+
+FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_CNT==FD_GUI_HIST_CNT, gui_db_metric_count );
+
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
+  if( FD_UNLIKELY( tile->gui.send_buffer_size_mb<(FD_GUI_HTTP_MIN_SEND_BUFFER_SZ>>20) ) )
+    FD_LOG_ERR(( "[tiles.gui.send_buffer_size_mb] must be at least %lu MiB", FD_GUI_HTTP_MIN_SEND_BUFFER_SZ>>20 ));
+  if( FD_UNLIKELY( tile->gui.send_buffer_size_mb>(ULONG_MAX>>20) ) )
+    FD_LOG_ERR(( "[tiles.gui.send_buffer_size_mb] is too large" ));
+
   return (fd_http_server_params_t) {
     .max_connection_cnt    = tile->gui.max_http_connections,
     .max_ws_connection_cnt = tile->gui.max_websocket_connections,
@@ -279,6 +300,14 @@ before_frag( fd_gui_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
+
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
+    return sig!=REPLAY_SIG_SLOT_COMPLETED &&
+           sig!=REPLAY_SIG_BECAME_LEADER  &&
+           sig!=REPLAY_SIG_ROOT_ADVANCED  &&
+           sig!=REPLAY_SIG_OC_ADVANCED    &&
+           sig!=REPLAY_SIG_TXN_EXECUTED;
+  }
   return 0;
 }
 
@@ -303,13 +332,6 @@ during_frag( fd_gui_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {
     sz = sig;
-  }
-
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
-    if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED &&
-                   sig!=REPLAY_SIG_BECAME_LEADER  &&
-                   sig!=REPLAY_SIG_ROOT_ADVANCED  &&
-                   sig!=REPLAY_SIG_OC_ADVANCED ) ) return;
   }
 
   if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
@@ -407,6 +429,10 @@ after_frag( fd_gui_ctx_t *      ctx,
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_OC_ADVANCED ) ) {
         fd_replay_oc_advanced_t const * oc = (fd_replay_oc_advanced_t const *)src;
         fd_gui_handle_oc_advanced( ctx->gui, oc->slot, oc->bank_seq, fd_clock_tile_now( ctx->clock ) );
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
+        if( FD_UNLIKELY( sz!=sizeof(fd_replay_txn_executed_t) ) )
+          FD_LOG_ERR(( "replay txn executed message has unexpected size %lu (expected %lu)", sz, sizeof(fd_replay_txn_executed_t) ));
+        fd_gui_handle_replay_txn( ctx->gui, (fd_replay_txn_executed_t const *)src, fd_clock_tile_now( ctx->clock ) );
       } else {
         return;
       }
@@ -437,15 +463,32 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_SHRED_OUT: {
-      long tsorig_nanos = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+      long tickcount    = fd_tickcount();
+      long tsorig_nanos = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, tickcount ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+      long tspub_nanos  = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub,  tickcount ) - ctx->ref_tickcount) / ctx->tick_per_ns);
       uint sig_src      = fd_shred_sig_src( sig );
       if( FD_LIKELY( sig_src==SHRED_SIG_SRC_TURBINE || sig_src==SHRED_SIG_SRC_REPAIR || sig_src==SHRED_SIG_SRC_BAD_REPAIR ) ) {
         fd_shred_base_t const * msg = (fd_shred_base_t const *)fd_type_pun_const( src );
         ulong slot      = msg->shred.slot;
         ulong shred_idx = msg->shred.idx;
+        ulong fec_set_idx = msg->shred.fec_set_idx;
         int is_turbine  = sig_src==SHRED_SIG_SRC_TURBINE;
         /* tsorig is the timestamp when the shred was received by the shred tile */
-        fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+        fd_gui_handle_shred( ctx->gui, slot, shred_idx, fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+      }
+      int sig_res = fd_shred_sig_res( sig );
+      if( FD_LIKELY( (sig_res==SHRED_SIG_RESULT_OKAY || sig_res==SHRED_SIG_RESULT_COMPLETES) &&
+                     (sig_src==SHRED_SIG_SRC_TURBINE || sig_src==SHRED_SIG_SRC_REPAIR || sig_src==SHRED_SIG_SRC_RECONSTRUCTED) ) ) {
+        fd_shred_base_t const * msg = (fd_shred_base_t const *)fd_type_pun_const( src );
+        fd_gui_timeline_handle_shred( ctx->gui, msg->shred.slot, sig_src );
+      }
+      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
+        fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );
+        fd_gui_timeline_handle_fec( ctx->gui, complete_msg->last_shred_hdr.slot,
+                                    sig==SHRED_SIG_FEC_COMPLETE_LEADER, tspub_nanos,
+                                    complete_msg->turbine_shred_cnt,
+                                    complete_msg->repair_shred_cnt,
+                                    complete_msg->reconstructed_shred_cnt );
       }
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );
@@ -798,16 +841,17 @@ unprivileged_init( fd_topo_t const *      topo,
     accdb_shmem = fd_accdb_shmem_join( accdb_shmem_raw );
     FD_TEST( accdb_shmem );
   }
-  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
+
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
+  FD_TEST( alloc );
+  cJSON_alloc_install( alloc );
+
+  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, alloc, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
   FD_TEST( ctx->db );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
-
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
-  FD_TEST( alloc );
-  cJSON_alloc_install( alloc );
 
   ctx->next_poll_deadline = fd_tickcount();
 

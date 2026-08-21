@@ -301,8 +301,8 @@ calculate_non_vote_transaction_cost( fd_bank_t *          bank,
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L26-L42 */
-static inline uint
-transaction_cost_sum( fd_transaction_cost_t const * txn_cost ) {
+FD_FN_PURE uint
+fd_cost_tracker_transaction_cost_sum( fd_transaction_cost_t const * txn_cost ) {
   switch( txn_cost->type ) {
     case FD_TXN_COST_TYPE_SIMPLE_VOTE: {
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L38 */
@@ -346,7 +346,7 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
            fd_transaction_cost_t const * tx_cost ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L281 */
-  uint cost = transaction_cost_sum( tx_cost );
+  uint cost = fd_cost_tracker_transaction_cost_sum( tx_cost );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L283-L288 */
   if( FD_UNLIKELY( txn_out->details.is_simple_vote && !cost_tracker->remove_simple_vote_from_cost_model ) ) {
@@ -484,7 +484,7 @@ fd_cost_tracker_try_add_cost( fd_cost_tracker_t * cost_tracker,
 
   /* Note: We purposely omit signature counts updates since they're not relevant to cost calculations right now. */
   cost_tracker->allocated_accounts_data_size += get_allocated_accounts_data_size( &txn_out->details.txn_cost );
-  add_transaction_execution_cost( cost_tracker, txn_out, transaction_cost_sum( &txn_out->details.txn_cost ) );
+  add_transaction_execution_cost( cost_tracker, txn_out, fd_cost_tracker_transaction_cost_sum( &txn_out->details.txn_cost ) );
 
   fd_rwlock_unwrite( &cost_tracker_outer->lock );
   return FD_COST_TRACKER_SUCCESS;

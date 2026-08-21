@@ -775,8 +775,10 @@ during_frag( fd_shred_ctx_t * ctx,
             FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, chained_merkle_root ) );
             memcpy( ctx->out_merkle_roots[pend_idx].hash, chained_merkle_root, 32UL );
 
-            out->data_shred_rcvd   = 0U;
-            out->parity_shred_rcvd = 0U;
+            out->data_shred_rcvd    = 0U;
+            out->parity_shred_rcvd  = 0U;
+            out->turbine_shred_cnt  = 0U;
+            out->repair_shred_cnt   = 0U;
 
             ctx->send_fec_set_idx[ ctx->send_fec_set_cnt ] = ctx->shredder_fec_set_idx;
             ctx->send_fec_set_cnt += 1UL;
@@ -1039,8 +1041,12 @@ after_frag( fd_shred_ctx_t *    ctx,
       from_repair = nonce_okay;
     }
 
+    uint shred_source = fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR
+                      ? fd_uint_if( from_repair, FD_FEC_RESOLVER_SHRED_SRC_REPAIR, FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR )
+                      : FD_FEC_RESOLVER_SHRED_SRC_TURBINE;
+
     long add_shred_timing  = -fd_tickcount();
-    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, max_shred_idx, from_repair, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec );
+    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, max_shred_idx, shred_source, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec );
     add_shred_timing      +=  fd_tickcount();
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
@@ -1225,6 +1231,18 @@ after_frag( fd_shred_ctx_t *    ctx,
       complete_msg->last_shred_hdr = *last;
       memcpy( &complete_msg->merkle_root, ctx->out_merkle_roots[fset_k].hash, sizeof(fd_hash_t) );
       complete_msg->chained_merkle_root = *(fd_hash_t *)fd_type_pun((uchar *)last + fd_shred_chain_off( last->variant ));
+      if( FD_LIKELY( sig==SHRED_SIG_FEC_COMPLETE ) ) {
+        uint received_shred_cnt = (uint)(fd_uint_popcnt( set->data_shred_rcvd ) + fd_uint_popcnt( set->parity_shred_rcvd ));
+        FD_TEST( received_shred_cnt==FD_FEC_SHRED_CNT );
+        FD_TEST( set->turbine_shred_cnt+set->repair_shred_cnt==received_shred_cnt );
+        complete_msg->turbine_shred_cnt       = set->turbine_shred_cnt;
+        complete_msg->repair_shred_cnt        = set->repair_shred_cnt;
+        complete_msg->reconstructed_shred_cnt = 2U*(uint)FD_FEC_SHRED_CNT-received_shred_cnt;
+      } else {
+        complete_msg->turbine_shred_cnt       = 0U;
+        complete_msg->repair_shred_cnt        = 0U;
+        complete_msg->reconstructed_shred_cnt = 0U;
+      }
 
       fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sizeof(fd_fec_complete_t), 0UL, ctx->tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_complete_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
