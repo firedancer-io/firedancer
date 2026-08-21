@@ -181,7 +181,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
     ctx->banks[ j ].slot = FETCH_TYPE( ulong );
     ctx->banks[ j ].bank_idx = j;
   }
-  ctx->has_genesis_hash = FETCH_TYPE( uchar ) % 2;
+  ctx->has_genesis_hash   = FETCH_TYPE( uchar ) % 2;
+  ctx->has_epoch_schedule = FETCH_TYPE( uchar ) % 2;
 
   fd_http_server_request_t req[ 1 ];
   req->ctx = ctx;
