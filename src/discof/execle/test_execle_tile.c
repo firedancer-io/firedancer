@@ -884,6 +884,51 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail ) {
   test_env_destroy( env );
 }
 
+/* Test for relax_fee_payer_constraint feature: we want to drop no-op
+   transactions in the leader pipeline, as they do not charge any fees
+   and so it is not profitable to include them. */
+FD_UNIT_TEST( execle_simple_fee_payer_fail_relaxed ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, relax_fee_payer_constraint, 0UL );
+
+  fd_pubkey_t missing_fee_payer = { .ul = { 0x3333UL } };
+  fd_pubkey_t data_acct         = { .ul = { 0x4444UL } };
+  ulong const data_acct_start = 777UL;
+  test_fund_account( env, &data_acct, data_acct_start );
+
+  fd_txn_p_t txn[1];
+  test_build_empty_txn( txn, bank, missing_fee_payer, data_acct, 12UL, 0 );
+  test_execle_run( env, txn, 1UL, 4U, 18UL, 0 );
+
+  test_assert_nonbundle_out( env, 1UL, 4U );
+  fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta( 0UL )->chunk );
+  FD_TEST( env->execle->txn_out[0].err.is_noop );
+
+  /* The execle tile should have set is_committable to false */
+  FD_TEST( !env->execle->txn_out[0].err.is_committable );
+  FD_TEST( !env->execle->txn_out[0].err.is_fees_only );
+  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  FD_TEST( !(out_txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) );
+  FD_TEST( !(out_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) );
+  FD_TEST( (out_txn->flags & FD_TXN_P_FLAGS_RESULT_MASK)==((uint)(-FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND)<<24) );
+
+  /* The transaction was dropped, so nothing was charged
+     and everything is rebated. */
+  FD_TEST( test_read_lamports( env, &data_acct )==data_acct_start );
+  FD_TEST( !bank->f.txn_count       );
+  FD_TEST( !bank->f.signature_count );
+  FD_TEST( fd_bank_cost_tracker_query( bank )->block_cost==0UL );
+  FD_TEST( out_txn->execle_cu.actual_consumed_cus==0U );
+  FD_TEST( out_txn->execle_cu.rebated_cus==
+           txn->pack_cu.non_execution_cus + txn->pack_cu.requested_exec_plus_acct_data_cus );
+
+  FD_TEST( env->execle->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]==1UL );
+  FD_TEST( env->execle->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_ACCOUNT_NOT_FOUND_IDX ]==1UL );
+
+  test_env_destroy( env );
+}
+
 FD_UNIT_TEST( execle_simple_error ) {
   /* System transfer fails during execution */
   test_env_t * env = test_env_create();

@@ -294,6 +294,12 @@ handle_microblock( fd_execle_tile_t *  ctx,
     /* Stash the result in the flags value so that pack can inspect it. */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
 
+    /* Drop no-op transactions, we don't want to include these as they
+       charge no fees. */
+    if( FD_UNLIKELY( txn_out->err.is_noop ) ) {
+      txn_out->err.is_committable = 0;
+    }
+
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
       fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );

@@ -68,6 +68,9 @@ struct fd_execrp_txn_exec_done_msg {
        if( is_fees_only ) {
          instructions will not be executed
          txn_err will be non-zero and will be one of the account loader errors
+       } else if( is_noop ) {
+         instructions will not be executed and no fees charged
+         txn_err will be non-zero and will be a fee payer validation error
        } else {
          instructions will execute
          if( txn_err is non-zero ) {
@@ -83,6 +86,7 @@ struct fd_execrp_txn_exec_done_msg {
   */
   int is_committable;
   int is_fees_only;
+  int is_noop;
   int txn_err;
 
   /* used by monitoring tools */

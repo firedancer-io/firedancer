@@ -967,7 +967,30 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
   err = fd_executor_validate_transaction_fee_payer( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_out->err.is_committable = 0;
+    /* As of the relax_fee_payer_constraint feature, a transaction with
+       an invalid fee payer can be included in the block. The
+       transaction has no effect on account state and charges no fees.
+       These are called "no-op" transactions. They consume block space
+       (charging the requested CUs) and their loaded accounts data size
+       is charged at their loaded accounts data size limit.
+
+       Firedancer does not produce blocks containing no-op transactions
+       but we need to be able to replay blocks containing these.
+
+       The exception is durable nonce transactions - durable nonce
+       transactions with invalid fee payers are not allowed in a block,
+       and if a block contains any such transactions it is invalid.
+
+       https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/svm/src/transaction_processor.rs#L741-L770 */
+    if( FD_FEATURE_ACTIVE_BANK( bank, relax_fee_payer_constraint ) &&
+        txn_out->accounts.nonce_idx_in_txn==ULONG_MAX ) {
+      txn_out->err.is_committable = 1;
+      txn_out->err.is_noop        = 1;
+      txn_out->err.is_fees_only   = 0;
+    } else {
+      txn_out->err.is_committable = 0;
+      txn_out->err.is_noop        = 0;
+    }
     return err;
   }
 
@@ -1150,7 +1173,9 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, txn_out->details.blockhash.uc, txn_out->details.blake_txn_msg_hash.uc );
   }
 
-  if( FD_UNLIKELY( txn_out->err.txn_err ) ) {
+  /* No-op transactions have no effect on the state so we should skip
+     these rollbacks. */
+  if( FD_UNLIKELY( txn_out->err.txn_err && !txn_out->err.is_noop ) ) {
     /* With nonce account rollbacks, there are three cases:
 
        1. No nonce account in the transaction
@@ -1297,6 +1322,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;
+  txn_out->err.is_noop        = 0;
   txn_out->err.txn_err        = FD_RUNTIME_EXECUTE_SUCCESS;
   txn_out->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
@@ -1326,14 +1352,21 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
     }
   }
 
-  /* Transaction sanitization.  If a transaction can't be committed or is
-     fees-only, we return early. */
+  /* Transaction sanitization.  If a transaction can't be committed, is
+     fees-only, or a no-op, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
   ulong cu_before = txn_out->details.compute_budget.compute_meter;
 
   /* Execute the transaction if eligible to do so. */
   if( FD_LIKELY( txn_out->err.is_committable ) ) {
-    if( FD_LIKELY( !txn_out->err.is_fees_only ) ) {
+    if( FD_UNLIKELY( txn_out->err.is_noop ) ) {
+      /* No-op transactions charge the requested CUs and loaded
+         account data size limit.
+         https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/svm/src/transaction_processor.rs#L757-L767
+         https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/svm/src/transaction_processing_result.rs#L92-L106 */
+      txn_out->details.compute_budget.compute_meter = 0UL;
+      txn_out->details.loaded_accounts_data_size    = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
+    } else if( FD_LIKELY( !txn_out->err.is_fees_only ) ) {
       txn_out->details.exec_start_ticks = fd_tickcount();
       txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
     }

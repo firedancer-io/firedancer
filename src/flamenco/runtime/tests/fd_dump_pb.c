@@ -1219,7 +1219,7 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
   txn_result->rollback_accounts = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t), sizeof(fd_exec_test_acct_state_t) * 2UL );
   if( FD_UNLIKELY( _l > out_end ) ) abort();
 
-  if( txn_out->err.is_fees_only || exec_res!=FD_RUNTIME_EXECUTE_SUCCESS ) {
+  if( ( txn_out->err.is_fees_only || exec_res!=FD_RUNTIME_EXECUTE_SUCCESS ) && !txn_out->err.is_noop ) {
     /* If the transaction errored, capture the rollback accounts (fee payer and nonce). */
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
       write_account_to_result1(
@@ -1260,7 +1260,7 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
     }
   }
 
-  if( !txn_out->err.is_fees_only ) {
+  if( !txn_out->err.is_fees_only && !txn_out->err.is_noop ) {
     /* Executed: writable accounts. */
     for( ulong j=0UL; j<txn_out->accounts.cnt; j++ ) {
       if( !fd_runtime_account_is_writable_idx( txn_in, txn_out, (ushort)j ) ) {
