@@ -26,11 +26,10 @@ typedef struct fd_gui fd_gui_t;
 
 #define FD_GUI_HIST_MAGIC (0xf17e6d09147802UL)
 
-/* FD_GUI_HIST_TS_SKEW_NS bounds how far a TS record's timestamp may
-   deviate from the trusted wallclock `now` at append time (in either
-   direction).  fd_gui_hist_ts_append clamps ts_ns into [now-skew, now+skew]
-   before flooring it to a window.  This bounds the out-of-orderness of
-   the append stream which ensures the underlying ring buffer can efficiently evict old entries. */
+/* FD_GUI_HIST_TS_SKEW_NS bounds how far a non-monotonic TS record's
+   timestamp may deviate from the trusted wallclock `now` at append time
+   (in either direction).  Monotonic rings preserve their source
+   timestamps verbatim. */
 
 #define FD_GUI_HIST_TS_SKEW_NS (10L*FD_GUI_HIST_RES_1S_NS) /* +/- 10 s */
 #define FD_GUI_HIST_RES_1S_NS (1000000000L)
@@ -46,10 +45,9 @@ typedef struct fd_gui fd_gui_t;
    epochs at both ends of the horizon. */
 
 #define FD_GUI_HIST_MAX_EPOCHS ((FD_GUI_STORE_TS_IDX_DEPTH*(ulong)FD_GUI_HIST_RES_1S_NS)/(MAX_SLOTS_PER_EPOCH*((FD_SLOT_PARAMS_200MS).ns_per_slot))+2UL)
-
 #define FD_GUI_HIST_SCHEDULER_COUNTS (0)  /* (ts, type)            */
 #define FD_GUI_HIST_TILE_TIMERS      (1)  /* (ts, type)            */
-#define FD_GUI_HIST_SHRED_EVENTS     (2)  /* (ts, type, slot)      */
+#define FD_GUI_HIST_SHRED_EVENTS     (2)
 #define FD_GUI_HIST_TXN_START        (3)  /* (ts, type, bank, txn) */
 #define FD_GUI_HIST_TXN_END          (4)  /* (ts, type, bank, txn) */
 #define FD_GUI_HIST_TOWER            (5)  /* (ts, type)            */
@@ -58,7 +56,10 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_EPOCH            (8)  /* (epoch)               */
 #define FD_GUI_HIST_TILE_STATS       (9)  /* (ts, type)            */
 #define FD_GUI_HIST_TXN_WATERFALL    (10) /* (ts, type)            */
-#define FD_GUI_HIST_CNT              (11)
+#define FD_GUI_HIST_TIMELINE_DAY     (11) /* (exclusive day-end ts) */
+#define FD_GUI_HIST_REPLAY_TXN       (12) /* (completion ts, slot, txn) */
+#define FD_GUI_HIST_REPLAY_TXN_BATCH (13) /* (completion ts, slot, batch) */
+#define FD_GUI_HIST_CNT              (14)
 
 struct fd_gui_hist_metrics {
   /* Writes that hit MAP_FULL and were dropped. */
@@ -71,7 +72,6 @@ typedef struct fd_gui_hist_metrics fd_gui_hist_metrics_t;
 struct fd_gui_hist_slot_key        { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_leader_slot_key { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_epoch_key       { ulong epoch; };
-
 typedef struct fd_gui_hist_slot_key        fd_gui_hist_slot_key_t;
 typedef struct fd_gui_hist_leader_slot_key fd_gui_hist_leader_slot_key_t;
 typedef struct fd_gui_hist_epoch_key       fd_gui_hist_epoch_key_t;
@@ -117,6 +117,21 @@ struct fd_gui_hist_iter {
 typedef struct fd_gui_hist_iter fd_gui_hist_iter_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_gui_hist_ts_clamp applies the bounded-skew timestamp policy that
+   every time-series ring uses (except those flagged as "monotonic",
+   meaning the caller guarantees their timestamps will not be inserted
+   out of order). This prevents a highly out-of-order insertion from
+   blocking the eviction pipeline. */
+
+
+static inline long
+fd_gui_hist_ts_clamp( long now,
+                      long ts_ns ) {
+  long lo = now<LONG_MIN+FD_GUI_HIST_TS_SKEW_NS ? LONG_MIN : now-FD_GUI_HIST_TS_SKEW_NS;
+  long hi = now>LONG_MAX-FD_GUI_HIST_TS_SKEW_NS ? LONG_MAX : now+FD_GUI_HIST_TS_SKEW_NS;
+  return fd_long_max( lo, fd_long_min( ts_ns, hi ) );
+}
 
 FD_FN_CONST ulong
 fd_gui_hist_align( void );
@@ -172,6 +187,12 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
                        long         now,
                        long         ts_ns,
                        void const * val );
+
+int
+fd_gui_hist_ts_bounds( fd_gui_t * gui,
+                       int        dbi,
+                       long *     start_ns,
+                       long *     end_ns );
 
 int
 fd_gui_hist_range_begin( fd_gui_t *                   gui,
