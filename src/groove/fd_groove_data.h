@@ -342,8 +342,7 @@ fd_groove_data_szc( ulong footprint ) {
 
   /* Fixed count loop without early exit to make it easy for compiler to
      unroll and nominally eliminate all branches for fast, highly
-     deterministic performance with no consumption of BTB resources.
-     FIXME: check the compiler is doing the right thing here. */
+     deterministic performance with no consumption of BTB resources. */
 
   for( ulong r=0UL; r<5UL; r++ ) { /* Assumes SZC_CNT<=32 */
 
