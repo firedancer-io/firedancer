@@ -672,6 +672,12 @@ fd_gui_printf_epoch( fd_gui_t * gui,
       else                                                jsonp_null( gui->http, "end_time_nanos" );
       jsonp_ulong( gui->http, "start_slot",              FD_LIKELY( meta ) ? meta->start_slot : 0UL );
       jsonp_ulong( gui->http, "end_slot",                FD_LIKELY( meta ) ? meta->start_slot+meta->slot_cnt-1UL : 0UL );
+      jsonp_open_object( gui->http, "epoch_schedule" );
+        jsonp_ulong( gui->http, "slots_per_epoch",    FD_LIKELY( meta ) ? meta->epoch_schedule.slots_per_epoch    : 0UL );
+        jsonp_ulong( gui->http, "first_normal_epoch", FD_LIKELY( meta ) ? meta->epoch_schedule.first_normal_epoch : 0UL );
+        jsonp_ulong( gui->http, "first_normal_slot",  FD_LIKELY( meta ) ? meta->epoch_schedule.first_normal_slot  : 0UL );
+        jsonp_bool(  gui->http, "warmup",             FD_LIKELY( meta ) ? meta->epoch_schedule.warmup             : 0   );
+      jsonp_close_object( gui->http );
       jsonp_ulong( gui->http, "target_slot_duration_nanos", FD_LIKELY( meta ) ? (ulong)meta->target_slot_duration_ns : LONG_MAX );
       jsonp_ulong_as_str( gui->http, "excluded_stake_lamports", 0UL );
       ulong pub_cnt    = FD_LIKELY( meta ) ? meta->pub_cnt : 0UL;
