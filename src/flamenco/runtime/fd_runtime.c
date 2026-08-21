@@ -442,6 +442,7 @@ fd_feature_activate( fd_bank_t *             bank,
     feature.activation_slot = bank->f.slot;
     FD_STORE( fd_feature_t, acc.data, feature );
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+    if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_feature( addr->uc );
   }
 }
 
@@ -678,6 +679,8 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
      vote_states_prev_prev (stakes for T-2). */
 
   fd_runtime_update_leaders( bank, runtime_stack );
+
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_emit( bank );
 
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(( "starting epoch %s%lu%s at slot %lu %s(took %.6f seconds)%s", fd_log_style_bold(), bank->f.epoch, fd_log_style_normal(), bank->f.slot, fd_log_style_dim(), (double)(end - start) / 1e9, fd_log_style_normal() ));
@@ -1067,7 +1070,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
                        fd_txn_out_t *      txn_out,
-                       int                 report_transaction_diffs ) {
+                       int                 report_runtime_diffs ) {
   FD_TEST( txn_out->err.is_committable );
 
   txn_out->details.commit_start_ticks = fd_tickcount();
@@ -1094,7 +1097,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
-        fd_stakes_update_stake_delegation( pubkey, account, bank );
+        fd_stakes_update_stake_delegation( pubkey, account, bank, report_runtime_diffs ? txn_in : NULL );
       }
 
       if( txn_out->accounts.vote_update[i] ) {
@@ -1189,7 +1192,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     }
   }
 
-  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+  if( FD_UNLIKELY( report_runtime_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
@@ -1204,11 +1207,11 @@ fd_runtime_cancel_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
                        fd_txn_out_t *      txn_out,
-                       int                 report_transaction_diffs ) {
+                       int                 report_runtime_diffs ) {
   FD_TEST( !txn_out->err.is_committable );
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
-  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+  if( FD_UNLIKELY( report_runtime_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   fd_accdb_release_ab( runtime->accdb,
                        txn_out->accounts.cnt, runtime->accounts.account,
@@ -1411,7 +1414,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
                                    fd_accdb_t *         accdb,
                                    fd_genesis_t const * genesis,
                                    uchar const *        genesis_blob,
-                                   fd_hash_t const *    genesis_hash ) {
+                                   fd_hash_t const *    genesis_hash,
+                                   int                  report_runtime_diffs ) {
 
   bank->f.parent_slot = ULONG_MAX;
   bank->f.poh = *genesis_hash;
@@ -1511,6 +1515,17 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
           account->lamports,
           (uint)account->data_len,
           FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
+      if( FD_UNLIKELY( report_runtime_diffs ) ) {
+        fd_event_runtime_stake_delegation_bootup_emit(
+            bank->f.slot,
+            bank->f.epoch,
+            account->pubkey.uc,
+            stake_state->stake.stake.delegation.voter_pubkey.uc,
+            stake_state->stake.stake.delegation.stake,
+            stake_state->stake.stake.delegation.activation_epoch,
+            stake_state->stake.stake.delegation.deactivation_epoch,
+            stake_state->stake.stake.credits_observed );
+      }
 
     } else if( !memcmp( account->owner.uc, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
       fd_feature_snoop_account( feature_snoop, &account->pubkey, account->lamports,
@@ -1618,7 +1633,8 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
                          fd_lthash_value_t const * genesis_lthash,
                          fd_genesis_t const *      genesis,
                          uchar const *             genesis_blob,
-                         fd_runtime_stack_t *      runtime_stack ) {
+                         fd_runtime_stack_t *      runtime_stack,
+                         int                       report_runtime_diffs ) {
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   *lthash = *genesis_lthash;
   fd_bank_lthash_end_locking_modify( bank );
@@ -1628,7 +1644,7 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
      setting some fields, and notably setting up the vote and stake
      caches which are used for leader scheduling/rewards. */
 
-  fd_runtime_init_bank_from_genesis( banks, bank, runtime_stack, accdb, genesis, genesis_blob, genesis_hash );
+  fd_runtime_init_bank_from_genesis( banks, bank, runtime_stack, accdb, genesis, genesis_blob, genesis_hash, report_runtime_diffs );
 
   /* Write the native programs to the accounts db. */
 

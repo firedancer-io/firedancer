@@ -1210,7 +1210,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
     fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
 
-    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
 
     fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
     fd_stake_delegation_t const * updated_delegation = find_visible_stake_delegation( frontier, &stake_acct );
@@ -1257,7 +1257,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
     fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
 
-    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
 
     fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
     fd_stake_delegation_t const * updated_delegation = find_visible_stake_delegation( frontier, &stake_acct );
@@ -1289,7 +1289,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
     FD_TEST( !fd_stake_delegation_root_query( root, &stake_acct ) );
 
-    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
 
     fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
     FD_TEST( frontier );

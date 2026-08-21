@@ -1,4 +1,5 @@
 #include "fd_bank.h"
+#include "../events/fd_event_runtime.h"
 #include "fd_runtime_const.h"
 #include "../rewards/fd_stake_rewards.h"
 #include "sysvar/fd_sysvar_cache.h"
@@ -471,6 +472,7 @@ fd_banks_new( void * shmem,
     bank->vote_stakes_fork_id   = ULONG_MAX;
   }
 
+  banks_data->report_runtime_diffs = 0;
   banks_data->max_total_banks    = max_total_banks;
   banks_data->max_fork_width     = max_fork_width;
   banks_data->max_stake_accounts = max_stake_accounts;
@@ -609,6 +611,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->sibling_idx = null_idx;
 
   fd_memset( &bank->f, 0, sizeof(bank->f) );
+  fd_memset( bank->event_slot_diffs, 0, FD_BANK_EVENT_SLOT_DIFFS_FOOTPRINT );
   bank->stake_rewards_fork_id             = UCHAR_MAX;
   bank->epoch_credits_fork_id             = 0;
   fd_banks_epoch_credits_acquire( banks, bank->epoch_credits_fork_id );
@@ -700,9 +703,16 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
    delegations for the entire direct ancestry from the bank to the
    root into a full fd_stake_delegations_t object. */
 
+int
+fd_bank_report_runtime_diffs( fd_bank_t const * bank ) {
+  fd_banks_t const * banks_data = fd_type_pun_const( (uchar const *)bank - bank->banks_data_offset );
+  return banks_data->report_runtime_diffs;
+}
+
 static inline void
-fd_bank_apply_deltas( fd_banks_t * banks,
-                      fd_bank_t *  bank ) {
+fd_bank_apply_deltas( fd_banks_t *                         banks,
+                      fd_bank_t *                          bank,
+                      fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats ) {
 
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
 
@@ -743,7 +753,7 @@ fd_bank_apply_deltas( fd_banks_t * banks,
   /* stake_history may be NULL */
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
-    fd_stake_delegations_apply_fork_delta( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), stake_delegations, idx );
+    fd_stake_delegations_apply_fork_delta( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), stake_delegations, idx, stake_delegations_delta_stats );
   }
 }
 
@@ -844,11 +854,17 @@ fd_banks_advance_root( fd_banks_t * banks,
 
   fd_bank_t * new_root = fd_banks_pool_ele( bank_pool, root_bank_idx );
 
-  fd_bank_apply_deltas( banks, new_root );
+  fd_stake_delegations_delta_stats_t stake_delegations_delta_stats = {0};
+  fd_bank_apply_deltas( banks, new_root, &stake_delegations_delta_stats );
 
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
   fd_stake_delegations_evict_fork( stake_delegations, new_root->stake_delegations_fork_id );
   new_root->stake_delegations_fork_id = USHORT_MAX;
+
+  if( FD_UNLIKELY( banks->report_runtime_diffs ) ) {
+    fd_event_runtime_rooted_emit( new_root, old_root->f.slot, stake_delegations,
+                                  &stake_delegations_delta_stats );
+  }
 
   /* Now that the deltas have been applied, we can remove all nodes
      that are not direct descendants of the new root. */
@@ -1051,6 +1067,7 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->state       = FD_BANK_STATE_INIT;
   child_bank->refcnt      = 0UL;
   child_bank->is_leader   = is_leader;
+  fd_memset( child_bank->event_slot_diffs, 0, FD_BANK_EVENT_SLOT_DIFFS_FOOTPRINT );
   child_bank->f.block_id  = (fd_hash_t){0};
 
   child_bank->collector_overrides_fork_id = USHORT_MAX;
@@ -1333,6 +1350,7 @@ fd_banks_clear_bank( fd_banks_t * banks,
                      fd_bank_t *  bank ) {
 
   fd_memset( &bank->f, 0, sizeof(bank->f) );
+  fd_memset( bank->event_slot_diffs, 0, FD_BANK_EVENT_SLOT_DIFFS_FOOTPRINT );
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   fd_banks_vote_stakes_evict_bank_fork( banks, bank );

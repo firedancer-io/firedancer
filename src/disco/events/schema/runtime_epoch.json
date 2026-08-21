@@ -1,0 +1,68 @@
+{
+    "name": "runtime_epoch",
+    "id": 14,
+    "description": "One row per epoch boundary with all the epoch-level diffs and results",
+    "fields": {
+        "bank_seq":                 { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
+        "slot":                     { "type": "UInt64", "compression": "Delta, ZSTD", "description": "First slot of the new epoch" },
+        "parent_slot":              { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Parent slot on this fork (the last replayed slot of the previous epoch)" },
+        "epoch":                    { "type": "UInt64", "compression": "Delta, ZSTD", "description": "The new epoch being entered; the boundary snapshot captures stakes as of the end of epoch - 1" },
+        "total_effective_stake":    { "type": "UInt64",                               "description": "Effective stake across all delegations, recomputed with warmup/cooldown math at this boundary" },
+        "total_activating_stake":   { "type": "UInt64",                               "description": "Stake activating during the new epoch, recomputed at this boundary" },
+        "total_deactivating_stake": { "type": "UInt64",                               "description": "Stake deactivating during the new epoch, recomputed at this boundary" },
+        "total_epoch_stake":        { "type": "UInt64",                               "description": "Total stake delegated to the valid vote accounts snapshotted at this boundary" },
+        "num_staked_vote_accounts": { "type": "UInt64",                               "description": "Vote accounts seen while accumulating delegations at this boundary" },
+        "num_vote_accounts":        { "type": "UInt64",                               "description": "Vote accounts in the final boundary snapshot" },
+        "num_top_votes_eligible":   { "type": "UInt64",                               "description": "Vote accounts that passed the validator-admission-ticket filters and were offered to the top-votes set" },
+        "top_votes_min_stake":      { "type": "UInt64",                               "description": "Smallest stake in the final boundary snapshot - the effective admission threshold" },
+        "stake_history_sysvar": {
+            "type": "Array",
+            "max_len": 1,
+            "description": "Decoded StakeHistory sysvar entry appended at this boundary",
+            "element": {
+                "type": "Tuple",
+                "description": "Decoded StakeHistory sysvar entry appended at this boundary",
+                "fields": {
+                    "epoch":        { "type": "UInt64", "description": "Epoch that just completed" },
+                    "effective":    { "type": "UInt64", "description": "Effective stake recorded for the completed epoch" },
+                    "activating":   { "type": "UInt64", "description": "Activating stake recorded for the completed epoch" },
+                    "deactivating": { "type": "UInt64", "description": "Deactivating stake recorded for the completed epoch" }
+                }
+            }
+        },
+        "epoch_schedule_sysvar": {
+            "type": "Array",
+            "max_len": 1,
+            "description": "Decoded EpochSchedule sysvar",
+            "element": {
+                "type": "Tuple",
+                "description": "Decoded EpochSchedule sysvar",
+                "fields": {
+                    "slots_per_epoch":             { "type": "UInt64", "description": "Slots per epoch" },
+                    "leader_schedule_slot_offset": { "type": "UInt64", "description": "Slots before an epoch's start at which its leader schedule is computed" },
+                    "warmup":                      { "type": "Bool",   "description": "True if epochs ramp up from a shorter initial length, false otherwise" },
+                    "first_normal_epoch":          { "type": "UInt64", "description": "First epoch of full slots per epoch length" },
+                    "first_normal_slot":           { "type": "UInt64", "description": "First slot of first normal epoch" }
+                }
+            }
+        },
+        "feature_activations": { "type": "Array", "max_len": 16, "element": { "type": "Pubkey", "description": "Feature account pubkey" }, "description": "Feature ids newly activated at this boundary" },
+        "epoch_rewards_sysvar": {
+            "type": "Array",
+            "max_len": 1,
+            "description": "Decoded EpochRewards sysvar as initialized at this boundary",
+            "element": {
+                "type": "Tuple",
+                "description": "Decoded EpochRewards sysvar as initialized at this boundary",
+                "fields": {
+                    "total_rewards":                      { "type": "UInt64",  "description": "Total lamports minted for this epoch's rewards (vote + stake)" },
+                    "distributed":                        { "type": "UInt64",  "description": "Lamports already distributed when the sysvar was initialized" },
+                    "distribution_starting_block_height": { "type": "UInt64",  "description": "Block height at which the stake rewards distribution starts" },
+                    "num_partitions":                     { "type": "UInt64",  "description": "Number of stake reward partitions" },
+                    "total_points":                       { "type": "UInt128", "description": "Total reward points (sum of credits earned times stake across all delegations)" },
+                    "parent_blockhash":                   { "type": "Hash",    "description": "Parent blockhash seeding the partition hasher" }
+                }
+            }
+        }
+    }
+}
