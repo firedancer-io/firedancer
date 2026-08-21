@@ -1749,13 +1749,15 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+    if( FD_LIKELY( !ctx->halt_signing ) ) FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+    ctx->halt_signing = 1;
+    if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
+
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
     FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
-    fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->halt_signing               = 1;
     ctx->identity_keyswitch->result = ctx->out_seq;
+    fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
 

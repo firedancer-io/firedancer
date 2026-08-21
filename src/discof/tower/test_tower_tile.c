@@ -163,6 +163,48 @@ test_publish_slot_done_identity_mismatch( void ) {
 }
 
 static void
+test_identity_switch_waits_for_publishes( void ) {
+  static fd_tower_tile_t ctx[1];
+  static fd_keyswitch_t  identity_keyswitch[1];
+  static fd_keyswitch_t  auth_vtr_keyswitch[1];
+  static uchar           publishes_mem[ 65536 ] __attribute__((aligned(128)));
+
+  fd_pubkey_t old_identity = { .ul = { 0x11UL } };
+  fd_pubkey_t new_identity = { .ul = { 0x22UL } };
+
+  memset( ctx,                0, sizeof(*ctx) );
+  memset( identity_keyswitch, 0, sizeof(*identity_keyswitch) );
+  memset( auth_vtr_keyswitch, 0, sizeof(*auth_vtr_keyswitch) );
+  memset( publishes_mem,      0, sizeof(publishes_mem) );
+
+  ctx->identity_key       [0] = old_identity;
+  ctx->identity_keyswitch     = identity_keyswitch;
+  ctx->auth_vtr_keyswitch     = auth_vtr_keyswitch;
+  ctx->publishes               = publishes_join( publishes_new( publishes_mem, 2UL ) );
+  ctx->out_seq                 = 42UL;
+  identity_keyswitch->result   = ULONG_MAX;
+  memcpy( identity_keyswitch->bytes, &new_identity, sizeof(new_identity) );
+  fd_keyswitch_state( identity_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+
+  publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_DONE } );
+  during_housekeeping( ctx );
+
+  FD_TEST( ctx->halt_signing );
+  FD_TEST( fd_keyswitch_state_query( identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  FD_TEST( fd_pubkey_eq( ctx->identity_key, &old_identity ) );
+  FD_TEST( identity_keyswitch->result==ULONG_MAX );
+
+  publishes_pop_head_nocopy( ctx->publishes );
+  during_housekeeping( ctx );
+
+  FD_TEST( fd_keyswitch_state_query( identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( fd_pubkey_eq( ctx->identity_key, &new_identity ) );
+  FD_TEST( identity_keyswitch->result==42UL );
+
+  FD_LOG_NOTICE(( "pass: test_identity_switch_waits_for_publishes" ));
+}
+
+static void
 test_count_vote_txn( void ) {
 
   /* Set up a minimal fd_tower_tile_t with just what count_vote_txn needs
@@ -887,6 +929,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   test_publish_slot_done_identity_mismatch();
+  test_identity_switch_waits_for_publishes();
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();
 
