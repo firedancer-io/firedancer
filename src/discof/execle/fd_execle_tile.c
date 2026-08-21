@@ -53,6 +53,7 @@ struct fd_execle_tile {
   fd_execle_out_t out_pack[1];
 
   ulong rebates_for_slot;
+  ulong rebate_tsorig;
   int enable_rebates;
   ulong rebate_seed;
   fd_pack_rebate_sum_t rebater[ 1 ];
@@ -160,8 +161,19 @@ after_credit( fd_execle_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  (void)stem; (void)opt_poll_in; (void)charge_busy;
   fd_startup_gate_idle( ctx->startup_gate );
+
+  if( FD_UNLIKELY( !ctx->enable_rebates ) ) return;
+
+  ulong written_sz = fd_pack_rebate_sum_report( ctx->rebater, fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk ) );
+  if( FD_UNLIKELY( !written_sz ) ) return;
+
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->out_pack->idx, ctx->rebates_for_slot, ctx->out_pack->chunk, written_sz, 0UL, ctx->rebate_tsorig, tspub );
+  ctx->out_pack->chunk = fd_dcache_compact_next( ctx->out_pack->chunk, written_sz, ctx->out_pack->chunk0, ctx->out_pack->wmark );
+
+  *opt_poll_in = 0;
+  *charge_busy = 1;
 }
 
 static int
@@ -710,16 +722,7 @@ after_frag( fd_execle_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->_is_bundle ) ) handle_bundle( ctx, seq, sig, sz, tspub, stem );
   else                                 handle_microblock( ctx, seq, sig, sz, tspub, stem );
 
-  /* TODO: Use fancier logic to coalesce rebates e.g. and move this to
-     after_credit */
-  if( FD_LIKELY( ctx->enable_rebates ) ) {
-    ulong written_sz = 0UL;
-    while( 0UL!=(written_sz=fd_pack_rebate_sum_report( ctx->rebater, fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk ) )) ) {
-      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_stem_publish( stem, ctx->out_pack->idx, slot, ctx->out_pack->chunk, written_sz, 0UL, tsorig, tspub );
-      ctx->out_pack->chunk = fd_dcache_compact_next( ctx->out_pack->chunk, written_sz, ctx->out_pack->chunk0, ctx->out_pack->wmark );
-    }
-  }
+  ctx->rebate_tsorig = tsorig;
 }
 
 static inline fd_execle_out_t

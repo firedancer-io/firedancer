@@ -50,7 +50,7 @@ fd_pack_rebate_sum_new( void * mem,
 }
 
 
-#define HEADROOM (FD_PACK_REBATE_SUM_CAPACITY-MAX_TXN_PER_MICROBLOCK*FD_TXN_ACCT_ADDR_MAX)
+#define HEADROOM (FD_PACK_REBATE_SUM_CAPACITY-FD_PACK_REBATE_MAX_ENTRIES)
 
 ulong
 fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
@@ -127,10 +127,9 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
   }
 
   /* We want to make sure that we have enough capacity to insert
-     MAX_TXN_PER_MICROBLOCK*FD_TXN_ACCT_ADDR_MAX addresses without
-     hitting FD_PACK_REBATE_SUM_CAPACITY.  Thus, if x is the current
-     value of writer_cnt, we need to call report at least y times to
-     ensure
+     FD_PACK_REBATE_MAX_ENTRIES addresses without hitting
+     FD_PACK_REBATE_SUM_CAPACITY.  Thus, if x is the current value of
+     writer_cnt, we need to call report at least y times to ensure
                         x-y*FD_PACK_REBATE_MAX_ENTRIES <= HEADROOM
                                y >= (x-HEADROOM)/FD_PACK_REBATE_MAX_ENTRIES
      but y is an integer, so
