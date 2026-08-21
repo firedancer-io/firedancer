@@ -59,12 +59,28 @@ typedef struct fd_txn_p fd_txn_p_t;
 
 #define TXN(txn_p) ((fd_txn_t *)( (txn_p)->_ ))
 
-/* fd_txn_e_t: An fd_txn_p_t with expanded address lookup tables */
+/* fd_txn_e_t: An fd_txn_p_t with expanded address lookup tables.
+   Legacy and V0 payloads are at most FD_TXN_MTU_V0 and V1 does not support
+   ALTs, so the ALT addresses can share the otherwise unused V1 payload
+   tail.  Start at the next cache line because pack copies the first
+   1280 payload bytes with aligned AVX-512 stores. */
+#define FD_TXN_E_ALT_ACCTS_OFF (1280UL)
+
 struct __attribute__((aligned(64))) fd_txn_e {
-   fd_txn_p_t     txnp[1];
-   fd_acct_addr_t alt_accts[FD_TXN_ACCT_ADDR_MAX]; /* The used account is in the fd_txn_t*/
+  union {
+    fd_txn_p_t txnp[1];
+    struct {
+      uchar          _payload_prefix[ FD_TXN_E_ALT_ACCTS_OFF ];
+      fd_acct_addr_t alt_accts[ FD_TXN_ACCT_ADDR_MAX ]; /* The used account count is in the fd_txn_t */
+    };
+  };
 };
 
 typedef struct fd_txn_e fd_txn_e_t;
+
+FD_STATIC_ASSERT( FD_TXN_E_ALT_ACCTS_OFF==FD_ULONG_ALIGN_UP( FD_TXN_MTU_V0, 64UL ), fd_txn_e_alt_accts_off );
+FD_STATIC_ASSERT( __builtin_offsetof(fd_txn_e_t, alt_accts)==FD_TXN_E_ALT_ACCTS_OFF, fd_txn_e_alt_accts_off );
+FD_STATIC_ASSERT( FD_TXN_E_ALT_ACCTS_OFF+FD_TXN_ACCT_ADDR_MAX*sizeof(fd_acct_addr_t)<=FD_TPU_MTU, fd_txn_e_alt_accts );
+FD_STATIC_ASSERT( sizeof(fd_txn_e_t)==sizeof(fd_txn_p_t),                          fd_txn_e_footprint );
 
 #endif /* HEADER_fd_src_disco_fd_txn_p_h */

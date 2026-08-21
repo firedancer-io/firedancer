@@ -118,8 +118,8 @@ test_env_create( void ) {
   env->tile_mem = tile_mem;
   topo->objs[ topo_tile->tile_obj_id ].offset = fd_wksp_gaddr_fast( env->mini->wksp, tile_mem );
 
-  fd_topo_link_t * pack_execle = fd_topob_link( topo, "pack_execle", "execle", 4UL, MAX_MICROBLOCK_SZ, 1UL );
-  fd_topo_link_t * execle_poh  = fd_topob_link( topo, "execle_poh",  "execle", 4UL, MAX_MICROBLOCK_SZ, 1UL );
+  fd_topo_link_t * pack_execle = fd_topob_link( topo, "pack_execle", "execle", 4UL, FD_PACK_EXECLE_MTU, 1UL );
+  fd_topo_link_t * execle_poh  = fd_topob_link( topo, "execle_poh",  "execle", 4UL, FD_EXECLE_POH_MTU,  1UL );
   fd_topo_link_t * execle_pack = fd_topob_link( topo, "execle_pack", "execle", 4UL, MAX_MICROBLOCK_SZ, 1UL );
   test_topo_link_init( env, topo, pack_execle );
   test_topo_link_init( env, topo, execle_poh  );

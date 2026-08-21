@@ -9,6 +9,16 @@
    by PoH later. */
 #define MAX_MICROBLOCK_SZ USHORT_MAX
 
+/* Maximum transaction count in a pack->execle fragment.  Pack emits
+   one transaction per normal microblock, but a bundle can contain up
+   to five transactions.  Keep this independent of fd_txn_e_t's
+   footprint so layout changes do not silently change link capacities. */
+#define MAX_TXN_PER_MICROBLOCK (5UL)
+
+/* Execle splits bundles before publishing to PoH, so PoH publishes at
+   most one transaction in each microblock sent to shred. */
+#define FD_POH_SHRED_TXN_MAX (1UL)
+
 struct fd_entry_batch_meta {
   /* How many skipped slots we are building on top of.  If there were no
      skipped slots, (aka: this is slot 10, and the reset slot is slot 9,
@@ -49,19 +59,17 @@ struct fd_entry_batch_header {
   /* The proof of history stamped hash of the entry batch. */
   uchar hash[32UL];
 
-   /* Number of hashes in the entry batch.  Will be 0 for a tick,
-      and (0, MAX_TXN_PER_MICROBLOCK] for a microblock. */
+  /* Number of transactions in the entry batch.  Will be 0 for a tick,
+     and (0, FD_POH_SHRED_TXN_MAX] for a produced microblock. */
   ulong txn_cnt;
 };
 typedef struct fd_entry_batch_header fd_entry_batch_header_t;
-
-#define MAX_TXN_PER_MICROBLOCK ((MAX_MICROBLOCK_SZ-sizeof(fd_entry_batch_meta_t))/sizeof(fd_txn_e_t))
 
 /* FD_POH_SHRED_MTU is the size of the raw transaction portion of the
    largest microblock the pack tile will produce, plus the 48B of
    microblock header (hash and 2 ulongs) plus the fd_entry_batch_meta_t
    metadata. */
-#define FD_POH_SHRED_MTU (sizeof(fd_entry_batch_meta_t) + sizeof(fd_entry_batch_header_t) + FD_TPU_MTU * MAX_TXN_PER_MICROBLOCK)
+#define FD_POH_SHRED_MTU (sizeof(fd_entry_batch_meta_t) + sizeof(fd_entry_batch_header_t) + FD_TPU_MTU * FD_POH_SHRED_TXN_MAX)
 
 FD_STATIC_ASSERT( FD_POH_SHRED_MTU<=USHORT_MAX, poh_shred_mtu );
 

@@ -696,6 +696,7 @@ publish_microblock( fd_poh_t *          poh,
                     ulong               hashcnt_delta,
                     ulong               txn_cnt,
                     fd_txn_p_t const *  txns ) {
+  FD_TEST( txn_cnt<=FD_POH_SHRED_TXN_MAX );
   uchar * dst = (uchar *)fd_chunk_to_laddr( poh->shred_out->mem, poh->shred_out->chunk );
   FD_TEST( slot>=poh->reset_slot );
   fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;

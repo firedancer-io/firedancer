@@ -63,6 +63,8 @@ const float VOTE_FRACTION = 0.75f; /* TODO: Is this the right value? */
 #define EFFECTIVE_TXN_PER_MICROBLOCK MAX_TXN_PER_MICROBLOCK
 #endif
 
+FD_STATIC_ASSERT( EFFECTIVE_TXN_PER_MICROBLOCK<=FD_EXECLE_POH_TXN_MAX, execle_poh_txn_max );
+
 #if !SMALL_MICROBLOCKS
 /* There's overhead associated with each microblock the execle tile
    tries to execute it, so the optimal strategy is not to produce a
@@ -870,9 +872,9 @@ after_credit( fd_pack_ctx_t *     ctx,
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
       trailer->is_bundle = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
 
-      /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_e_t
+      /* When sending FD_PACK_EXECLE_TXN_MAX transactions as fd_txn_e_t
          to execle, there must be room for the trailer at the end. */
-      FD_STATIC_ASSERT( MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t)<=MAX_MICROBLOCK_SZ, pack_execle_mtu );
+      FD_STATIC_ASSERT( FD_PACK_EXECLE_MTU<=MAX_MICROBLOCK_SZ, pack_execle_mtu );
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
       ctx->execle_expect[ i ] = fd_stem_publish( stem, execle_out->out_idx, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );

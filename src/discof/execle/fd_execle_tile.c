@@ -42,6 +42,7 @@ struct fd_execle_tile {
   ulong _txn_idx;
   int _is_bundle;
   fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
+  fd_txn_p_t     _bundle_txns[MAX_TXN_PER_MICROBLOCK];
 
   ulong * busy_fseq;
 
@@ -193,24 +194,33 @@ during_frag( fd_execle_tile_t * ctx,
   (void)in_idx; (void)seq; (void)sig; (void)ctl;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->pack_in_mem, chunk );
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
 
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
+  fd_microblock_execle_trailer_t const * trailer = (fd_microblock_execle_trailer_t const *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
+
   /* Pack sends fd_txn_e_t (with ALT accounts), but PoH expects fd_txn_p_t.
      We copy the fd_txn_p_t portion to the PoH output buffer, and copy the
-     ALT accounts to the tile context for rebates. */
-  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
+     ALT accounts to the tile context for rebates.  Bundles need separate
+     staging because the execle->PoH link only has room for one transaction
+     and execle publishes each bundle transaction in a separate fragment. */
+  FD_TEST( txn_cnt<=MAX_TXN_PER_MICROBLOCK );
   fd_txn_e_t const * src_txn_e = (fd_txn_e_t const *)src;
-  fd_txn_p_t       * dst_txn_p = (fd_txn_p_t       *)dst;
+  fd_txn_p_t * dst_txn_p;
+  if( FD_UNLIKELY( trailer->is_bundle ) ) {
+    dst_txn_p = ctx->_bundle_txns;
+  } else {
+    FD_TEST( txn_cnt<=FD_EXECLE_POH_TXN_MAX );
+    dst_txn_p = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
+  }
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_memcpy( dst_txn_p + i, src_txn_e[i].txnp, sizeof(fd_txn_p_t) );
     ulong alt_cnt = fd_ulong_min( (ulong)TXN(src_txn_e[i].txnp)->addr_table_adtl_cnt, FD_TXN_ACCT_ADDR_MAX );
     fd_memcpy( ctx->_alt_accts[i], src_txn_e[i].alt_accts, alt_cnt * sizeof(fd_acct_addr_t) );
   }
 
-  fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
   ctx->_bank_idx  = trailer->bank_idx;
   ctx->_pack_idx  = trailer->pack_idx;
   ctx->_txn_idx   = trailer->pack_txn_idx;
@@ -443,10 +453,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
   trailer->pack_txn_idx = ctx->_txn_idx;
   trailer->tips         = ctx->txn_out[ 0 ].details.tips;
 
-  /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_p_t to PoH,
-     there's always extra bytes at the end to stash the trailer. */
-  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
-  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_execle_trailer_t), poh_shred_mtu );
+  FD_STATIC_ASSERT( FD_EXECLE_POH_MTU<=MAX_MICROBLOCK_SZ, execle_poh_mtu );
 
   ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx );
 
@@ -468,7 +475,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   long const bundle_start_ticks     = fd_tickcount();
   long const microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, bundle_start_ticks );
 
-  fd_txn_p_t * txns = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
+  fd_txn_p_t * txns = ctx->_bundle_txns;
 
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
@@ -652,19 +659,11 @@ handle_bundle( fd_execle_tile_t *  ctx,
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
 
-  /* We need to publish each transaction separately into its own
-     microblock, so make a temporary copy on the stack so we can move
-     all the data around. */
-  fd_txn_p_t bundle_txn_temp[ 5UL ];
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
-    bundle_txn_temp[ i ] = txns[ i ];
-  }
-
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
 
     uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
-    fd_memcpy( dst, bundle_txn_temp+i, sizeof(fd_txn_p_t) );
+    fd_memcpy( dst, txns+i, sizeof(fd_txn_p_t) );
 
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
