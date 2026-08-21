@@ -220,6 +220,71 @@ test_wrong_owner_skipped( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_wrong_owner_skipped: PASSED" ));
 }
 
+/* Test: restore overwrites the in-memory feature set with the current
+   account state. */
+
+static void
+test_restore_uses_final_account_state( fd_svm_mini_t * mini ) {
+  fd_feature_id_t const * feat = find_non_cleaned_up_feature();
+  FD_TEST( feat );
+
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch       = TEST_SLOTS_PER_EPOCH;
+  params->init_feature_accounts = 0;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  fd_features_disable_all( &root_bank->f.features );
+
+  fd_feature_t active = { .is_active = 1, .activation_slot = 1UL };
+  create_feature_account( mini, &feat->id, &active, sizeof(fd_feature_t) );
+
+  fd_features_restore( &root_bank->f.features, mini->runtime->accdb, root_bank->accdb_fork_id, root_bank->f.slot, &root_bank->f.epoch_schedule );
+  FD_TEST( get_feature_slot( root_bank, feat )==1UL );
+
+  create_feature_account_wrong_owner( mini, &feat->id, &active, sizeof(fd_feature_t) );
+
+  fd_features_restore( &root_bank->f.features, mini->runtime->accdb, root_bank->accdb_fork_id, root_bank->f.slot, &root_bank->f.epoch_schedule );
+  FD_TEST( get_feature_slot( root_bank, feat )==FD_FEATURE_DISABLED );
+
+  FD_LOG_NOTICE(( "test_restore_uses_final_account_state: PASSED" ));
+}
+
+/* Test: chunked restore covers balanced, contiguous ranges and produces
+   the same result as full restore. */
+
+static void
+test_restore_chunks( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch       = TEST_SLOTS_PER_EPOCH;
+  params->init_feature_accounts = 0;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  fd_features_t full[1];
+  fd_features_t chunked[1];
+  fd_features_restore( full, mini->runtime->accdb, root_bank->accdb_fork_id, root_bank->f.slot, &root_bank->f.epoch_schedule );
+  for( ulong feature_idx=0UL; feature_idx<FD_FEATURE_ID_CNT; feature_idx++ ) chunked->f[ feature_idx ] = 42UL;
+
+  ulong const chunk_cnt = 7UL;
+  for( ulong chunk_idx=0UL; chunk_idx<chunk_cnt; chunk_idx++ ) {
+    fd_features_t before = *chunked;
+    fd_features_restore_chunk( chunked, mini->runtime->accdb, root_bank->accdb_fork_id, root_bank->f.slot, &root_bank->f.epoch_schedule, chunk_idx, chunk_cnt );
+
+    ulong begin = chunk_idx     * FD_FEATURE_ID_CNT / chunk_cnt;
+    ulong end   = (chunk_idx+1) * FD_FEATURE_ID_CNT / chunk_cnt;
+    for( ulong feature_idx=0UL; feature_idx<FD_FEATURE_ID_CNT; feature_idx++ ) {
+      if( feature_idx>=begin && feature_idx<end ) FD_TEST( chunked->f[ feature_idx ]==full->f[ feature_idx ] );
+      else                                        FD_TEST( chunked->f[ feature_idx ]==before.f[ feature_idx ] );
+    }
+  }
+  FD_TEST( !memcmp( full, chunked, sizeof(fd_features_t) ) );
+
+  FD_LOG_NOTICE(( "test_restore_chunks: PASSED" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_svm_mini_limits_t limits[1];
@@ -230,6 +295,8 @@ main( int argc, char ** argv ) {
   test_too_small_account_skipped( mini );
   test_already_active_recognized( mini );
   test_wrong_owner_skipped( mini );
+  test_restore_uses_final_account_state( mini );
+  test_restore_chunks( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

@@ -21,7 +21,6 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
-#include "../features/fd_feature_snoop.h"
 
 #include "program/fd_precompiles.h"
 #include "program/vote/fd_vote_state_versioned.h"
@@ -500,7 +499,7 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
   /* Activate new features
       https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391 */
   fd_features_activate( bank, accdb, capture_ctx );
-  fd_features_restore( bank, accdb );
+  fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, bank->f.slot, &bank->f.epoch_schedule );
 
   /* SIMD-0194: deprecate_rent_exemption_threshold
       https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
@@ -801,7 +800,7 @@ fd_features_prepopulate_upcoming( fd_bank_t *  bank,
   ulong next_epoch = fd_slot_to_epoch( epoch_schedule, slot+1UL, NULL );
   if( FD_LIKELY( curr_epoch==next_epoch ) ) return;
 
-  fd_features_restore( bank, accdb );
+  fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, slot, epoch_schedule );
 }
 
 void
@@ -1481,22 +1480,17 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
   ulong capitalization = 0UL;
 
-  fd_feature_snoop_t feature_snoop[1];
-  fd_memset( feature_snoop, 0, sizeof(feature_snoop) );
-
   for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, genesis_blob, account, i );
 
     capitalization = fd_ulong_sat_add( capitalization, account->lamports );
 
-    uchar const * acc_data = account->data;
-
     if( !memcmp( account->owner.uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
          stake delegations cache.  Like Agave, membership is decided by
          the variant alone: a delegation of zero is still a delegation. */
-      fd_stake_state_t const * stake_state = fd_stake_state_view( acc_data, account->data_len );
+      fd_stake_state_t const * stake_state = fd_stake_state_view( account->data, account->data_len );
       if( FD_UNLIKELY( !stake_state ) ) { FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 ); FD_LOG_ERR(( "invalid stake account %s", stake_b58 )); }
       if( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) continue;
 
@@ -1511,14 +1505,10 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
           account->lamports,
           (uint)account->data_len,
           FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
-
-    } else if( !memcmp( account->owner.uc, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_feature_snoop_account( feature_snoop, &account->pubkey, account->lamports,
-                                 account->owner.uc, acc_data, account->data_len );
     }
   }
 
-  fd_feature_snoop_finalize( &bank->f.features, bank->f.slot, &bank->f.epoch_schedule, feature_snoop );
+  fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, bank->f.slot, &bank->f.epoch_schedule );
 
   /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6101-L6109 */
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, double_disinflation_rate ) ) ) {
