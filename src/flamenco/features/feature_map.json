@@ -289,5 +289,6 @@
   {"name":"relax_post_exec_min_balance_check","pubkey":"BY4JhHLahVzS9ynfDz4exzGPbVXhFmJvEyMWsXbDBqME"},
   {"name":"upgrade_bpf_stake_program_to_v5_1","pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr"},
   {"name":"custom_commission_collector","pubkey":"3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf"},
-  {"name":"enable_tx_v1","pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"}
+  {"name":"enable_tx_v1","pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"},
+  {"name":"double_disinflation_rate","pubkey":"55oikhjJ2LUi1xdgJ17ueRyHFURZEw32asT3iAKfh7gg"}
 ]
