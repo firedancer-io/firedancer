@@ -393,8 +393,10 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snapmk_out"    );
     fd_topob_wksp( topo, "snaprd"        );
     fd_topob_wksp( topo, "snaprd_out"    );
-    if( snapsv_tile_cnt ) fd_topob_wksp( topo, "snapsv" );
-    fd_topob_wksp( topo, "snapsv_out" );
+    if( snapsv_tile_cnt ) {
+      fd_topob_wksp( topo, "snapsv"     );
+      fd_topob_wksp( topo, "snapsv_out" );
+    }
   }
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
