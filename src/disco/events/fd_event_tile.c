@@ -47,6 +47,32 @@ FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_BUF_MAX+5UL+9UL*( (FD_EVENT_BLOCK_COM
    OpenSSL loose) fits in one gigantic page. */
 #define EVENT_CIRCQ_SZ ((1UL<<30UL)-(224UL<<20UL))
 
+/* The worst-case size of a Txn event:
+   - Fixed overhead:
+     - nonce                                    15
+     - event_id                                 15
+     - link_seq                                 15
+     - timestamp                                15
+     - Event protobuf submessage opener         10
+     - Txn protobuf submessage opener           10
+     - source_ip                                14
+     - source_port                              10
+     - protocol                                 10
+     - bundle_id                                15
+     - bundle_txn_count                         10
+     - bundle_commission                        10
+     - bundle_commission_pubkey                 42
+     - payload tag                               5
+     - payload length prefix                     5
+     - PB_ENCODER_SLACK                         32
+    Total:                                     233
+
+   So the worst-case size is 233 + FD_TPU_MTU.
+
+   TODO: this needs to be auto-generated as this is fragile,
+   have the schema generator spit out max sizes for messages. */
+#define EVENT_TXN_BUF_MAX (FD_TPU_MTU+233UL)
+
 #define IN_KIND_SHRED  (0)
 #define IN_KIND_DEDUP  (1)
 #define IN_KIND_SIGN   (2)
@@ -293,8 +319,7 @@ after_frag( fd_event_tile_t *   ctx,
     }
     case IN_KIND_DEDUP:
       FD_TEST( sz<=FD_TPU_PARSED_MTU );
-      /* See comment above about buffer size. */
-      uchar * buffer = fd_circq_push_back( ctx->circq, 1UL, 4096UL );
+      uchar * buffer = fd_circq_push_back( ctx->circq, 1UL, EVENT_TXN_BUF_MAX );
       FD_TEST( buffer );
 
       fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
@@ -316,7 +341,7 @@ after_frag( fd_event_tile_t *   ctx,
         fd_clock_tile_tickcount_decomp( ctx->clock, tspub ) );
 
       fd_pb_encoder_t encoder[1];
-      fd_pb_encoder_init( encoder, buffer, 4096UL );
+      fd_pb_encoder_init( encoder, buffer, EVENT_TXN_BUF_MAX );
 
       FD_TEST( ctx->circq->cursor_push_seq );
       fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
