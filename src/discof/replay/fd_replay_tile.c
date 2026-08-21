@@ -872,11 +872,29 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   txn_executed->txn_err = txn_info->txn_err;
   txn_executed->is_committable = !!(txn_info->flags&FD_SCHED_TXN_IS_COMMITTABLE);
   txn_executed->is_fees_only = !!(txn_info->flags&FD_SCHED_TXN_IS_FEES_ONLY);
+  txn_executed->is_simple_vote = txn_info->is_simple_vote;
   txn_executed->tick_parsed = txn_info->tick_parsed;
   txn_executed->tick_sigverify_disp = txn_info->tick_sigverify_disp;
   txn_executed->tick_sigverify_done = txn_info->tick_sigverify_done;
   txn_executed->tick_exec_disp = txn_info->tick_exec_disp;
   txn_executed->tick_exec_done = txn_info->tick_exec_done;
+
+  txn_executed->tick_load_start = txn_info->tick_load_start;
+  txn_executed->tick_check_start = txn_info->tick_check_start;
+  txn_executed->tick_exec_start = txn_info->tick_exec_start;
+  txn_executed->tick_commit_start = txn_info->tick_commit_start;
+  txn_executed->tick_commit_end = txn_info->tick_commit_end;
+
+  txn_executed->slot = txn_info->slot;
+  txn_executed->bank_seq = txn_info->bank_seq;
+  txn_executed->index_in_slot = txn_info->index_in_slot;
+  txn_executed->exec_tile_idx = txn_info->exec_tile_idx;
+  txn_executed->sigverify_exec_tile_idx = txn_info->sigverify_exec_tile_idx;
+  txn_executed->compute_units_consumed = txn_info->compute_units_consumed;
+  txn_executed->max_compute_units = txn_info->max_compute_units;
+  txn_executed->transaction_fee = txn_info->transaction_fee;
+  txn_executed->priority_fee = txn_info->priority_fee;
+  txn_executed->tips = txn_info->tips;
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_TXN_EXECUTED, ctx->replay_out->chunk, sizeof(*txn_executed), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*txn_executed), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
@@ -2828,6 +2846,23 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       FD_TEST( res==0 );
       fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
       txn_info->flags |= FD_SCHED_TXN_EXEC_DONE;
+      txn_info->is_simple_vote = msg->txn_exec->is_simple_vote;
+      txn_info->bank_seq = msg->txn_exec->bank_seq;
+
+      txn_info->tick_load_start        = msg->txn_exec->tick_load_start;
+      txn_info->tick_check_start       = msg->txn_exec->tick_check_start;
+      txn_info->tick_exec_start        = msg->txn_exec->tick_exec_start;
+      txn_info->tick_commit_start      = msg->txn_exec->tick_commit_start;
+      txn_info->tick_commit_end        = msg->txn_exec->tick_commit_end;
+
+      txn_info->compute_units_consumed = msg->txn_exec->compute_units_consumed;
+      if( FD_LIKELY( bank->cost_tracker_pool_idx!=ULONG_MAX ) ) {
+        fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
+        txn_info->max_compute_units = cost_tracker->block_cost_limit ? cost_tracker->block_cost_limit : ULONG_MAX;
+      }
+      txn_info->transaction_fee        = msg->txn_exec->transaction_fee;
+      txn_info->priority_fee           = msg->txn_exec->priority_fee;
+      txn_info->tips                   = msg->txn_exec->tips;
       if( FD_LIKELY( !(txn_info->flags&FD_SCHED_TXN_SIGVERIFY_DONE)||!txn_info->txn_err ) ) { /* Set execution status if sigverify hasn't happened yet or if sigverify was a success. */
         txn_info->txn_err = msg->txn_exec->txn_err;
         txn_info->flags  |= fd_ulong_if( msg->txn_exec->is_committable, FD_SCHED_TXN_IS_COMMITTABLE, 0UL );

@@ -84,6 +84,19 @@ struct fd_execrp_txn_exec_done_msg {
   int is_committable;
   int is_fees_only;
   int txn_err;
+  int is_simple_vote;
+
+  /* LONG_MAX if stage was not reached */
+  long tick_load_start;
+  long tick_check_start;
+  long tick_exec_start;
+  long tick_commit_start;
+  long tick_commit_end;
+
+  uint  compute_units_consumed; /* possibly zero if is_committable is zero */
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
 
   /* used by monitoring tools */
   ulong  slot;
