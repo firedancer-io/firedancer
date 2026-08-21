@@ -5,12 +5,28 @@ S2N_BIGNUM_ASMS:=\
   x86/curve25519/curve25519_x25519_alt \
   x86/curve25519/curve25519_x25519base \
   x86/curve25519/curve25519_x25519base_alt \
+  x86/fastmul/bignum_emontredc_8n \
+  x86/fastmul/bignum_kmul_16_32 \
+  x86/fastmul/bignum_kmul_32_64 \
+  x86/fastmul/bignum_ksqr_16_32 \
+  x86/fastmul/bignum_ksqr_32_64 \
   x86/fastmul/bignum_mul_4_8 \
   x86/fastmul/bignum_mul_4_8_alt \
+  x86/fastmul/bignum_mul_8_16 \
+  x86/fastmul/bignum_sqr_8_16 \
+  x86/generic/bignum_amontifier \
+  x86/generic/bignum_amontmul \
+  x86/generic/bignum_amontsqr \
+  x86/generic/bignum_bitsize \
   x86/generic/bignum_demont \
+  x86/generic/bignum_modexp \
   x86/generic/bignum_modinv \
   x86/generic/bignum_montmul \
+  x86/generic/bignum_mul \
+  x86/generic/bignum_optsub \
+  x86/generic/bignum_sqr \
   x86/generic/bignum_sub \
+  x86/generic/word_negmodinv \
   x86/p256/bignum_add_p256 \
   x86/p256/bignum_demont_p256 \
   x86/p256/bignum_demont_p256_alt \
@@ -57,7 +73,12 @@ S2N_BIGNUM_ASMS:=\
   arm/curve25519/curve25519_x25519_byte_alt \
   arm/curve25519/curve25519_x25519base_byte_alt \
   arm/fastmul/bignum_mul_4_8_alt \
+  arm/generic/bignum_amontifier \
+  arm/generic/bignum_amontmul \
+  arm/generic/bignum_amontsqr \
+  arm/generic/bignum_bitsize \
   arm/generic/bignum_demont \
+  arm/generic/bignum_modexp \
   arm/generic/bignum_modinv \
   arm/generic/bignum_montmul \
   arm/generic/bignum_sub \
