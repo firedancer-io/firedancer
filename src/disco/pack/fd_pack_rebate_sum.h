@@ -3,7 +3,6 @@
 
 #include "../fd_disco_base.h"
 #include "fd_microblock.h"
-#include "../../flamenco/runtime/fd_runtime_const.h"
 
 /* Pack schedules transactions assuming they consume all the CUs they
    request in order to accommodate the worst case.  However,
@@ -59,7 +58,7 @@ typedef struct fd_pack_rebate fd_pack_rebate_t;
 
 /* At most one bundle's worth of writable accounts can be added between
    reports. */
-#define FD_PACK_REBATE_MAX_ENTRIES (MAX_TXN_PER_MICROBLOCK*FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION)
+#define FD_PACK_REBATE_MAX_ENTRIES (MAX_TXN_PER_MICROBLOCK*MAX_TX_ACCOUNT_LOCKS)
 
 #define FD_PACK_REBATE_MIN_SZ (sizeof(fd_pack_rebate_t)-sizeof(fd_pack_rebate_entry_t))
 #define FD_PACK_REBATE_MAX_SZ (sizeof(fd_pack_rebate_t)+(FD_PACK_REBATE_MAX_ENTRIES-1UL)*sizeof(fd_pack_rebate_entry_t))
