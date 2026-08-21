@@ -190,6 +190,7 @@ struct fd_replay_txn_executed {
   fd_txn_p_t txn[ 1 ];
   int is_committable;
   int is_fees_only;
+  int is_noop;
   int txn_err;
   int is_simple_vote;
 

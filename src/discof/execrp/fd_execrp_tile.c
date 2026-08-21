@@ -185,6 +185,7 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->txn_idx         = ctx->txn_idx;
   msg->txn_exec->is_committable  = ctx->txn_out.err.is_committable;
   msg->txn_exec->is_fees_only    = ctx->txn_out.err.is_fees_only;
+  msg->txn_exec->is_noop         = ctx->txn_out.err.is_noop;
   msg->txn_exec->txn_err         = ctx->txn_out.err.txn_err;
   msg->txn_exec->is_simple_vote  = ctx->txn_out.details.is_simple_vote;
 
