@@ -4,14 +4,16 @@
 
 #include <stdlib.h>
 
-#define MAXV 64UL
+#define VAT_MAX 64UL /* smaller for tests */
 
-static ag_bls_sec_t      g_sk  [ MAXV ];
-static ag_validator_info_t g_info[ MAXV ];
+static ag_slot_state_t slot_state_mem;
+
+static ag_bls_sec_t        g_sk  [ VAT_MAX ];
+static ag_validator_info_t g_info[ VAT_MAX ];
 
 static void
 generate_validators( ulong n ) {
-  FD_TEST( n<=MAXV );
+  FD_TEST( n<=VAT_MAX );
   for( ulong i=0UL; i<n; i++ ) {
     fd_memset( g_sk[i], (int)(i*7UL+1UL), AG_BLS_SEC_SZ );
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
@@ -42,11 +44,9 @@ random_hash( void ) {
 }
 
 static ag_slot_state_t *
-make_state( fd_wksp_t *             wksp,
-            ulong                   slot,
+make_state( ulong                   slot,
             ag_epoch_info_t const * ei ) {
-  ag_slot_state_t * slot_state = fd_wksp_alloc_laddr( wksp, alignof(ag_slot_state_t), sizeof(ag_slot_state_t), 1UL );
-  FD_TEST( slot_state );
+  ag_slot_state_t * slot_state = &slot_state_mem;
   ag_slot_state_init( slot_state, slot, ei, 0UL );
   return slot_state;
 }
@@ -67,13 +67,13 @@ add_vote_helper( ag_slot_state_t *       ss,
 /* src/consensus/pool/slot_state.rs::add_cert */
 
 static void
-test_add_cert( fd_wksp_t * wksp ) {
+test_add_cert( void ) {
   ulong n = 11UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
 
   ag_notar_vote_t nv[ 11 ];
   for( ulong i=0UL; i<n; i++ ) ag_notar_vote_new( &nv[i], slot, &hash, g_sk[i], (ushort)i , TEST_SHRED_VERSION );
@@ -84,20 +84,19 @@ test_add_cert( fd_wksp_t * wksp ) {
   ag_slot_state_add_cert( ss, &c );
   FD_TEST( ss->certificates.notar.slot==slot );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::add_vote */
 
 static void
-test_add_vote( fd_wksp_t * wksp ) {
+test_add_vote( void ) {
   ulong n = 11UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   for( ulong i=0UL; i<n; i++ ) {
@@ -108,20 +107,19 @@ test_add_vote( fd_wksp_t * wksp ) {
     FD_TEST(  ag_slot_state_stake( ss->voted_stakes.notar, ss->voted_stakes.notar_cnt, &hash )==i+1UL );
   }
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::safe_to_notar */
 
 static void
-test_safe_to_notar( fd_wksp_t * wksp ) {
+test_safe_to_notar( void ) {
   ulong n = 3UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   ag_slot_state_notify_parent_known( ss, &hash );
@@ -142,20 +140,19 @@ test_safe_to_notar( fd_wksp_t * wksp ) {
   FD_TEST( t.o.pool_events[0].safe_to_notar.slot==slot );
   FD_TEST( !memcmp( t.o.pool_events[0].safe_to_notar.hash.uc, hash.uc, sizeof(fd_hash_t) ) );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::slashable_skip_and_notarize */
 
 static void
-test_slashable_skip_and_notarize( fd_wksp_t * wksp ) {
+test_slashable_skip_and_notarize( void ) {
   ulong n = 6UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   ag_vote_t s1; ag_vote_new_skip( &s1, slot, g_sk[1], 1UL , TEST_SHRED_VERSION );
@@ -168,21 +165,20 @@ test_slashable_skip_and_notarize( fd_wksp_t * wksp ) {
   ag_vote_t skip_vote; ag_vote_new_skip( &skip_vote, slot, g_sk[2], 2UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &skip_vote )==AG_SLASHABLE_SKIP_AND_NOTARIZE );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::slashable_notar_different_hash */
 
 static void
-test_slashable_notar_different_hash( fd_wksp_t * wksp ) {
+test_slashable_notar_different_hash( void ) {
   ulong n = 6UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash_a = random_hash();
   fd_hash_t hash_b = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   ag_vote_t notar_a; ag_vote_new_notar( &notar_a, slot, &hash_a, g_sk[1], 1UL , TEST_SHRED_VERSION );
@@ -193,19 +189,18 @@ test_slashable_notar_different_hash( fd_wksp_t * wksp ) {
 
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &notar_a )==AG_SLASHABLE_NONE );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::slashable_skip_and_finalize */
 
 static void
-test_slashable_skip_and_finalize( fd_wksp_t * wksp ) {
+test_slashable_skip_and_finalize( void ) {
   ulong n = 6UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   ag_vote_t f1; ag_vote_new_final( &f1, slot, g_sk[1], 1UL , TEST_SHRED_VERSION );
@@ -225,20 +220,19 @@ test_slashable_skip_and_finalize( fd_wksp_t * wksp ) {
   ag_vote_t f3; ag_vote_new_final( &f3, slot, g_sk[3], 3UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &f3 )==AG_SLASHABLE_SKIP_AND_FINALIZE );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::slashable_notar_fallback_and_finalize */
 
 static void
-test_slashable_notar_fallback_and_finalize( fd_wksp_t * wksp ) {
+test_slashable_notar_fallback_and_finalize( void ) {
   ulong n = 6UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   ag_vote_t f1; ag_vote_new_final( &f1, slot, g_sk[1], 1UL , TEST_SHRED_VERSION );
@@ -251,20 +245,19 @@ test_slashable_notar_fallback_and_finalize( fd_wksp_t * wksp ) {
   ag_vote_t f2; ag_vote_new_final( &f2, slot, g_sk[2], 2UL , TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &f2 )==AG_SLASHABLE_NOTAR_FALLBACK_AND_FINALIZE );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::slashable_offence_none */
 
 static void
-test_slashable_offence_none( fd_wksp_t * wksp ) {
+test_slashable_offence_none( void ) {
   ulong n = 6UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
   ulong v = 1UL;
 
@@ -278,21 +271,20 @@ test_slashable_offence_none( fd_wksp_t * wksp ) {
   add_vote_helper( ss, &notar_vote, ei, &t );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &final_vote )==AG_SLASHABLE_NONE );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::should_ignore_duplicate_votes */
 
 static void
-test_should_ignore_duplicate_votes( fd_wksp_t * wksp ) {
+test_should_ignore_duplicate_votes( void ) {
   ulong n = 6UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash       = random_hash();
   fd_hash_t other_hash = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   ag_vote_t v1n; ag_vote_new_notar( &v1n, slot, &hash, g_sk[1], 1UL , TEST_SHRED_VERSION );
@@ -319,19 +311,18 @@ test_should_ignore_duplicate_votes( fd_wksp_t * wksp ) {
   ag_vote_t v4nf_other; ag_vote_new_notar_fallback( &v4nf_other, slot, &other_hash, g_sk[4], 4UL , TEST_SHRED_VERSION );
   FD_TEST( !ag_slot_state_should_ignore_vote( ss, &v4nf_other ) );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::count_finalize_creates_cert_at_quorum */
 
 static void
-test_count_finalize_creates_cert_at_quorum( fd_wksp_t * wksp ) {
+test_count_finalize_creates_cert_at_quorum( void ) {
   ulong n = 6UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   for( ulong i=1UL; i<=3UL; i++ ) {
@@ -352,20 +343,19 @@ test_count_finalize_creates_cert_at_quorum( fd_wksp_t * wksp ) {
   add_vote_helper( ss, &fv5, ei, &t );
   FD_TEST( t.o.certs_cnt==0UL );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::count_notar_fallback_creates_cert_at_quorum */
 
 static void
-test_count_notar_fallback_creates_cert_at_quorum( fd_wksp_t * wksp ) {
+test_count_notar_fallback_creates_cert_at_quorum( void ) {
   ulong n = 6UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   for( ulong i=1UL; i<=2UL; i++ ) {
@@ -392,19 +382,18 @@ test_count_notar_fallback_creates_cert_at_quorum( fd_wksp_t * wksp ) {
   add_vote_helper( ss, &nf5, ei, &t );
   FD_TEST( t.o.certs_cnt==0UL );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::skip_skip_fallback_conflict */
 
 static void
-test_skip_skip_fallback_conflict( fd_wksp_t * wksp ) {
+test_skip_skip_fallback_conflict( void ) {
   ulong n = 3UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
   ulong v = 0UL;
 
@@ -428,21 +417,20 @@ test_skip_skip_fallback_conflict( fd_wksp_t * wksp ) {
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &skip_fallback ) );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &skip )==AG_SLASHABLE_NONE );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/slot_state.rs::notar_notar_fallback_conflict */
 
 static void
-test_notar_notar_fallback_conflict( fd_wksp_t * wksp ) {
+test_notar_notar_fallback_conflict( void ) {
   ulong n = 3UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
   fd_hash_t hash       = random_hash();
   fd_hash_t other_hash = random_hash();
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
   ulong v = 0UL;
 
@@ -469,7 +457,6 @@ test_notar_notar_fallback_conflict( fd_wksp_t * wksp ) {
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &notar_fallback ) );
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &notar )==AG_SLASHABLE_NONE );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
@@ -514,12 +501,12 @@ assert_tally( ag_hashstake_t const * ele,
 /* src/consensus/pool/sorted_vec.rs::map_get_or_insert_with, ::map_stays_sorted_when_spilling */
 
 static void
-test_notar_stake_order( fd_wksp_t * wksp ) {
+test_notar_stake_order( void ) {
   ulong n = 12UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   fd_hash_t a = random_hash(), b = random_hash(), c = random_hash(), d = random_hash();
@@ -552,19 +539,18 @@ test_notar_stake_order( fd_wksp_t * wksp ) {
   FD_TEST( rank<=n );
   assert_tally( tally, ss->voted_stakes.notar_cnt, (fd_hash_t[]){ d, c, b, a }, (ulong[]){ 4UL, 3UL, 2UL, 1UL }, 4UL );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
 /* src/consensus/pool/sorted_vec.rs::map_get_or_insert_with, ::map_stays_sorted_when_spilling */
 
 static void
-test_notar_fallback_stake_order( fd_wksp_t * wksp ) {
+test_notar_fallback_stake_order( void ) {
   ulong n = 12UL;
   generate_validators( n );
   void * em; ag_epoch_info_t * ei = make_epoch( n, &em );
   ulong slot = 1UL;
-  ag_slot_state_t * ss = make_state( wksp, slot, ei );
+  ag_slot_state_t * ss = make_state( slot, ei );
   out_t t;
 
   fd_hash_t own[ AG_NOTAR_FALLBACK_VOTE_MAX ];
@@ -590,7 +576,6 @@ test_notar_fallback_stake_order( fd_wksp_t * wksp ) {
   assert_tally( ss->voted_stakes.notar_fallback, ss->voted_stakes.notar_fallback_cnt,
                 (fd_hash_t[]){ own[2], own[1], own[0] }, (ulong[]){ 3UL, 2UL, 1UL }, 3UL );
 
-  fd_wksp_free_laddr( ss );
   free( em );
 }
 
@@ -599,31 +584,24 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong       page_cnt = 8192UL;
-  char *      page_sz  = "normal";
-  ulong       numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ),
-                                                page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-  FD_TEST( wksp );
+  test_add_cert();
+  test_add_vote();
+  test_safe_to_notar();
+  test_slashable_skip_and_notarize();
+  test_slashable_notar_different_hash();
+  test_slashable_skip_and_finalize();
+  test_slashable_notar_fallback_and_finalize();
+  test_slashable_offence_none();
+  test_should_ignore_duplicate_votes();
+  test_count_finalize_creates_cert_at_quorum();
+  test_count_notar_fallback_creates_cert_at_quorum();
+  test_skip_skip_fallback_conflict();
+  test_notar_notar_fallback_conflict();
 
-  test_add_cert                                   ( wksp );
-  test_add_vote                                   ( wksp );
-  test_safe_to_notar                              ( wksp );
-  test_slashable_skip_and_notarize                ( wksp );
-  test_slashable_notar_different_hash             ( wksp );
-  test_slashable_skip_and_finalize                ( wksp );
-  test_slashable_notar_fallback_and_finalize      ( wksp );
-  test_slashable_offence_none                     ( wksp );
-  test_should_ignore_duplicate_votes              ( wksp );
-  test_count_finalize_creates_cert_at_quorum      ( wksp );
-  test_count_notar_fallback_creates_cert_at_quorum( wksp );
-  test_skip_skip_fallback_conflict                ( wksp );
-  test_notar_notar_fallback_conflict              ( wksp );
+  test_set_insert_contains_iter();
 
-  test_set_insert_contains_iter                   ();
-
-  test_notar_stake_order                          ( wksp );
-  test_notar_fallback_stake_order                 ( wksp );
+  test_notar_stake_order();
+  test_notar_fallback_stake_order();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
