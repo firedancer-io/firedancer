@@ -291,8 +291,15 @@ fini( config_t const * config,
   }
 
   FD_LOG_NOTICE(( "%sRUN: `rmdir %s`%s", fd_log_style_dim(), config->hugetlbfs.mount_path , fd_log_style_normal() ));
-  if( FD_UNLIKELY( rmdir( config->hugetlbfs.mount_path ) && errno!=ENOENT ) )
-    FD_LOG_ERR(( "error removing hugetlbfs directory at `%s` (%i-%s)", config->hugetlbfs.mount_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( rmdir( config->hugetlbfs.mount_path )==-1 && errno!=ENOENT ) ) {
+    int err = errno;
+    if( FD_UNLIKELY( err==ENOTEMPTY || err==EEXIST ) )
+      FD_LOG_ERR(( "error removing non-empty hugetlbfs directory at `%s` (%i-%s). This is often due to stale artifacts "
+                   "from previous secondary validator runs. If you are comfortable deleting them, run `sudo firedancer ps --clean`.",
+                   config->hugetlbfs.mount_path, err, fd_io_strerror( err ) ));
+    else
+      FD_LOG_ERR(( "error removing hugetlbfs directory at `%s` (%i-%s)", config->hugetlbfs.mount_path, err, fd_io_strerror( err ) ));
+  }
 
   return 1;
 }
