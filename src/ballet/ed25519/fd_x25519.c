@@ -49,24 +49,24 @@ fd_x25519_montgomery_ladder( fd_f25519_t *       x2,
     fd_f25519_swap_if( z2, z3, swap );
     swap = b;
 
-    fd_f25519_sub_nr( tmp0, x3,   z3   );
-    fd_f25519_sub_nr( tmp1, x2,   z2   );
-    fd_f25519_add_nr( x2,   x2,   z2   );
-    fd_f25519_add_nr( z2,   x3,   z3   );
+    fd_f25519_sub( tmp0, x3,   z3   );
+    fd_f25519_sub( tmp1, x2,   z2   );
+    fd_f25519_add( x2,   x2,   z2   );
+    fd_f25519_add( z2,   x3,   z3   );
 
     fd_f25519_mul2( z3,   tmp0, x2,
                     z2,   z2,   tmp1 );
     fd_f25519_sqr2( tmp0, tmp1,
                     tmp1, x2         );
-    fd_f25519_add_nr( x3,   z3,   z2 );
-    fd_f25519_sub_nr( z2,   z3,   z2 );
+    fd_f25519_add( x3,   z3,   z2 );
+    fd_f25519_sub( z2,   z3,   z2 );
     fd_f25519_mul(  x2,   tmp1, tmp0 );
     fd_f25519_sqr(  z2,   z2         );
-    fd_f25519_sub_nr( tmp1, tmp1, tmp0 );
+    fd_f25519_sub( tmp1, tmp1, tmp0 );
 
     fd_f25519_mul_121666( z3, tmp1 );
 
-    fd_f25519_add_nr( tmp0, tmp0, z3   );
+    fd_f25519_add( tmp0, tmp0, z3   );
     fd_f25519_sqr ( x3,   x3         );
     fd_f25519_mul2( z3,   x1,   z2,
                     z2,   tmp1, tmp0 );
