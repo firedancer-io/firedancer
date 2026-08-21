@@ -34,7 +34,7 @@ struct fd_gui_store_ring {
 };
 typedef struct fd_gui_store_ring fd_gui_store_ring_t;
 
-#define FD_GUI_STORE_SUPER_MAGIC (0xf17e6d0c0117db05UL) /* fd_gui_store regions, versioned */
+#define FD_GUI_STORE_SUPER_MAGIC (0xf17e6d0c0117db06UL) /* fd_gui_store regions, versioned */
 
 struct fd_gui_store_super {
   ulong            magic;
@@ -800,15 +800,19 @@ fd_gui_store_ts_append( fd_gui_store_t * db,
 }
 
 int
-fd_gui_store_ts_oldest_window( fd_gui_store_t * db,
-                               ulong            ring_idx,
-                               ulong *          out_window ) {
+fd_gui_store_ts_live_timestamp_bounds( fd_gui_store_t * db,
+                                       ulong            ring_idx,
+                                       long *           out_first_timestamp,
+                                       long *           out_last_timestamp ) {
   if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) return 0;
   fd_gui_store_ring_t const * p = &db->super->ring[ ring_idx ];
   if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) return 0;
   if( FD_UNLIKELY( p->evict_cur>=p->head_cur ) )     return 0; /* empty */
-  uchar const * slot = (uchar const *)fd_gui_store_slot( db, ring_idx, p, p->evict_cur );
-  *out_window = fd_gui_store_ts_window( p, slot );
+
+  uchar const * first = (uchar const *)fd_gui_store_slot( db, ring_idx, p, p->evict_cur    );
+  uchar const * last  = (uchar const *)fd_gui_store_slot( db, ring_idx, p, p->head_cur-1UL );
+  *out_first_timestamp = *(long const *)( first + p->ts_off );
+  *out_last_timestamp  = *(long const *)( last  + p->ts_off );
   return 1;
 }
 
