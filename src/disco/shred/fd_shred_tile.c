@@ -907,7 +907,7 @@ send_shred( fd_shred_ctx_t                 * ctx,
 
   ulong end_offset = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
   ulong i;
-  for( i=64UL; end_offset-i<64UL; i+=64UL ) {
+  for( i=64UL; end_offset-i>=64UL; i+=64UL ) {
 #  if FD_HAS_AVX512
     _mm512_stream_si512( (void *)(packet+i     ), _mm512_loadu_si512( (void const *)(src+i     ) ) );
 #  else
