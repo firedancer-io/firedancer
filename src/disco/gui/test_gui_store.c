@@ -294,6 +294,27 @@ test_entity_evict( void ) {
   FD_LOG_NOTICE(( "test_entity_evict: ok" ));
 }
 
+/* ---- footprint tests -------------------------------------------------- */
+
+static void
+test_kv_index_footprint( void ) {
+  fd_gui_store_desc_t const kv_desc = {
+    .name        = "kv",
+    .kind        = FD_GUI_STORE_KIND_KV,
+    .key_off     = 0UL,
+    .key_sz      = sizeof(ulong),
+    .key_hash    = ent_key_hash,
+    .key_cmp     = ent8_key_cmp,
+    .val_sz      = sizeof(ent8_val_t),
+    .val_align   = alignof(ent8_val_t),
+    .max_records = 1UL<<20,
+  };
+  ulong fp = fd_gui_store_footprint( 256UL<<20, 1UL, &kv_desc );
+  FD_TEST( fp && fp<(40UL<<20) );
+
+  FD_LOG_NOTICE(( "test_kv_index_footprint: ok" ));
+}
+
 /* ---- time-series DB tests --------------------------------------------- */
 
 static void
@@ -569,6 +590,7 @@ main( int     argc,
   test_entity_get_any();
   test_entity_iter();
   test_entity_evict();
+  test_kv_index_footprint();
   test_ts_index_footprint();
   test_ts_append_scan();
   test_ts_filter_and_evict();

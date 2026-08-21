@@ -50,10 +50,13 @@ struct fd_gui_store_kv_idx_node {
   ulong key;       /* MAP_KEY: ring->key_hash of the record's key */
   ulong cur;       /* generation cursor of the ring slot */
   ulong next;      /* MAP_NEXT (chain link) */
-  ulong prev;      /* MAP_PREV (random-access removal of a specific node) */
-  ulong pool_next; /* POOL_NEXT (free list) */
+  union {
+    ulong prev;      /* MAP_PREV while acquired */
+    ulong pool_next; /* POOL_NEXT while free    */
+  };
 };
 typedef struct fd_gui_store_kv_idx_node fd_gui_store_kv_idx_node_t;
+FD_STATIC_ASSERT( sizeof(fd_gui_store_kv_idx_node_t)==32UL, fd_gui_store_kv_idx_node );
 
 #define MAP_NAME              fd_gui_store_kv_idx
 #define MAP_KEY               key
