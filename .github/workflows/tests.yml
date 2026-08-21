@@ -20,6 +20,7 @@ jobs:
         test-case:
           - linux_gcc_x86_64
           - linux_clang_icelake
+          - linux_clang_icelake_ubsan
           - native
         # Attach additional params to machine types
         include:
@@ -35,11 +36,20 @@ jobs:
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
             label: icelake
-            extras: "asan ubsan rpath handholding"
+            extras: "asan rpath handholding"
             deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: clang
             compiler-version: 19.1.7
+            run-unit-tests: true
+          - test-case: linux_clang_icelake_ubsan
+            machine: linux_clang_icelake
+            label: icelake
+            extras: "ubsan rpath handholding"
+            deps-extras: "+dev"
+            targets: "all integration-test fdctl firedancer"
+            compiler: clang
+            compiler-version: 21.1.8
             run-unit-tests: true
           - test-case: native
             machine: native
@@ -59,6 +69,7 @@ jobs:
       EXTRAS: ${{ matrix.extras || '' }}
       CC: ${{ matrix.compiler }}
       CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+      UBSAN_OPTIONS: ${{ matrix.test-case == 'linux_clang_icelake_ubsan' && 'halt_on_error=1:print_stacktrace=1' || '' }}
     steps:
       - name: cleanup
         if: always()
@@ -87,6 +98,16 @@ jobs:
       - name: clean targets
         run: |
           make clean --silent >/dev/null
+
+      - name: verify pointer-overflow instrumentation
+        if: ${{ matrix.test-case == 'linux_clang_icelake_ubsan' }}
+        run: |
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          clang -O0 -fwrapv -fsanitize=pointer-overflow contrib/test/ubsan_pointer_overflow.c -o "${RUNNER_TEMP}/ubsan_pointer_overflow"
+          if "${RUNNER_TEMP}/ubsan_pointer_overflow"; then
+            echo "pointer-overflow sanitizer probe unexpectedly passed" >&2
+            exit 1
+          fi
 
       - uses: ./.github/actions/submodule
         with:
