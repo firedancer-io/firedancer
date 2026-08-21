@@ -1,5 +1,6 @@
 #include "fd_ssmanifest_writer.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../choreo/votor/ag_bls.h"
 
 #define STATE_BLOCKHASH_QUEUE        1
 #define STATE_HASHES                 2
