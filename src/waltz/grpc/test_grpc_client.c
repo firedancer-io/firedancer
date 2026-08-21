@@ -32,7 +32,6 @@ static fd_grpc_client_t * client;
 
 static void
 test_grpc_client_mock_conn( fd_grpc_client_t * client ) {
-  client->ssl_hs_done = 1;
   client->h2_hs_done  = 1;
   client->conn->flags = 0;
 }

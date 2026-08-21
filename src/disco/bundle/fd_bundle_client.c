@@ -10,7 +10,6 @@
 #include "../fd_txn_m.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
-#include "../../waltz/openssl/fd_openssl.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../third_party/nanopb/pb_decode.h"
 #include "../../util/net/fd_ip4.h"
@@ -51,13 +50,6 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   ctx->bundle_subscription_wait = 0;
 
   fd_memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
-
-# if FD_HAS_OPENSSL
-  if( FD_UNLIKELY( ctx->ssl ) ) {
-    SSL_free( ctx->ssl );
-    ctx->ssl = NULL;
-  }
-# endif
 
   fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
 
@@ -130,10 +122,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     FD_LOG_ERR(( "fcntl(tcp_sock,F_SETFL,O_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  char const * scheme = "http";
-# if FD_HAS_OPENSSL
-  if( ctx->is_ssl ) scheme = "https";
-# endif
+  char const * scheme = ctx->is_ssl ? "https" : "http";
 
   FD_LOG_INFO(( "Connecting to %s://" FD_IP4_ADDR_FMT ":%hu (%.*s)",
                 scheme,
@@ -153,34 +142,15 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     }
   }
 
-# if FD_HAS_OPENSSL
   if( ctx->is_ssl ) {
-    BIO * bio = fd_openssl_bio_new_socket( ctx->tcp_sock, BIO_NOCLOSE );
-    if( FD_UNLIKELY( !bio ) ) {
-      FD_LOG_ERR(( "fd_openssl_bio_new_socket failed" ));
+    fd_tls_t * tls = ctx->tls;
+    ulong sni_len = strlen( ctx->server_sni );
+    if( sni_len < sizeof(tls->server_name) ) {
+      fd_memcpy( tls->server_name, ctx->server_sni, sni_len );
+      tls->server_name_len = (ushort)sni_len;
     }
-
-    SSL * ssl = SSL_new( ctx->ssl_ctx );
-    if( FD_UNLIKELY( !ssl ) ) {
-      FD_LOG_ERR(( "SSL_new failed" ));
-    }
-
-    SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
-    SSL_set_connect_state( ssl );
-
-    /* Indicate to endpoint which server name we want */
-    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, ctx->server_sni ) ) ) {
-      FD_LOG_ERR(( "SSL_set_tlsext_host_name failed" ));
-    }
-
-    /* Enable hostname verification */
-    if( FD_UNLIKELY( !SSL_set1_host( ssl, ctx->server_sni ) ) ) {
-      FD_LOG_ERR(( "SSL_set1_host failed" ));
-    }
-
-    ctx->ssl = ssl;
+    fd_tlsrec_conn_init( ctx->tls_conn, tls, 0 );
   }
-# endif /* FD_HAS_OPENSSL */
 
   fd_grpc_client_reset( ctx->grpc_client );
   fd_keepalive_init( ctx->keepalive, ctx->rng, ctx->keepalive_interval, ctx->keepalive_interval, fd_bundle_now( ctx ) );
@@ -189,11 +159,9 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 static int
 fd_bundle_client_drive_io( fd_bundle_tile_t * ctx,
                            int *              charge_busy ) {
-# if FD_HAS_OPENSSL
   if( ctx->is_ssl ) {
-    return fd_grpc_client_rxtx_ossl( ctx->grpc_client, ctx->ssl, charge_busy );
+    return fd_grpc_client_rxtx_tls( ctx->grpc_client, ctx->tls_conn, ctx->tcp_sock, charge_busy );
   }
-# endif /* FD_HAS_OPENSSL */
 
   return fd_grpc_client_rxtx_socket( ctx->grpc_client, ctx->tcp_sock, charge_busy );
 }

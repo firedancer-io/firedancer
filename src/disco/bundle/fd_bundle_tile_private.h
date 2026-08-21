@@ -54,9 +54,8 @@ fd_bundle_drain_continue( fd_bundle_pending_txn_t * txns,
   return drain_cnt<burst && pending_txn_peek_head( txns )->sig==0UL;
 }
 
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h> /* SSL_CTX */
-#endif
+#include "../../waltz/tlsrec/fd_tlsrec.h"
+#include "../../ballet/x509/fd_x509_ca_store.h"
 
 struct fd_bundle_out_ctx {
   ulong       idx;
@@ -101,12 +100,11 @@ struct fd_bundle_tile {
 
   uint is_ssl : 1;
   int  keylog_fd;
-# if FD_HAS_OPENSSL
-  /* OpenSSL */
-  SSL_CTX *    ssl_ctx;
-  SSL *        ssl;
-  fd_alloc_t * ssl_alloc;
-# endif /* FD_HAS_OPENSSL */
+
+  /* Native TLS */
+  fd_tls_t           tls[1];
+  fd_tlsrec_conn_t   tls_conn[1];
+  fd_x509_ca_store_t ca_store[1];
 
   /* Config */
   char   server_fqdn[ 256 ]; /* cstr */

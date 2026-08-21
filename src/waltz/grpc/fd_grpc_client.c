@@ -2,14 +2,10 @@
 #include "fd_grpc_client_private.h"
 #include "../../third_party/nanopb/pb_encode.h" /* pb_msgdesc_t */
 #include <sys/socket.h>
+#include <poll.h>
 #include "../h2/fd_h2_rbuf_sock.h"
+#include "../tlsrec/fd_tlsrec.h"
 #include "fd_grpc_codec.h"
-#if FD_HAS_OPENSSL
-#include "../openssl/fd_openssl.h"
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include "../h2/fd_h2_rbuf_ossl.h"
-#endif
 
 static int
 fd_grpc_client_request_continue( fd_grpc_client_t * client );
@@ -223,9 +219,10 @@ fd_grpc_client_reset( fd_grpc_client_t * client ) {
   fd_h2_conn_init_client( client->conn );
   client->conn->ctx      = client;
   client->h2_hs_done     = 0;
-  client->ssl_hs_done    = 0;
   client->window_update_pending = 0;
   client->request_stream = NULL;
+  client->tls_tx_off     = 0UL;
+  client->tls_tx_sz      = 0UL;
   *client->request_tx_op = (fd_h2_tx_op_t){0};
 
   /* Disable RX flow control */
@@ -307,69 +304,21 @@ fd_grpc_client_service_streams( fd_grpc_client_t * client,
   }
 }
 
-#if FD_HAS_OPENSSL
+#if FD_H2_HAS_SOCKETS
 
 static int
-fd_ossl_log_error( char const * str,
-                   ulong        len,
-                   void *       ctx ) {
-  (void)ctx;
-  if( len>0 && str[ len-1 ]=='\n' ) len--;
-  FD_LOG_INFO(( "%.*s", (int)len, str ));
-  return 0;
+fd_grpc_client_tls_flush( fd_grpc_client_t * client,
+                          int                sock_fd ) {
+  while( client->tls_tx_off<client->tls_tx_sz ) {
+    long sent = send( sock_fd, client->tls_tx_buf+client->tls_tx_off,
+                      client->tls_tx_sz-client->tls_tx_off, MSG_NOSIGNAL|MSG_DONTWAIT );
+    if( FD_UNLIKELY( sent<0 ) ) return (errno==EAGAIN || errno==EWOULDBLOCK) ? 0 : -1;
+    client->tls_tx_off += (ulong)sent;
+  }
+  client->tls_tx_off = 0UL;
+  client->tls_tx_sz  = 0UL;
+  return 1;
 }
-
-int
-fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
-                          SSL *              ssl,
-                          int *              charge_busy ) {
-  if( FD_UNLIKELY( !client->ssl_hs_done ) ) {
-    int res = SSL_do_handshake( ssl );
-    if( res<=0 ) {
-      int error = SSL_get_error( ssl, res );
-      if( FD_LIKELY( error==SSL_ERROR_WANT_READ || error==SSL_ERROR_WANT_WRITE ) ) return 0;
-      FD_LOG_INFO(( "SSL_do_handshake failed (%i-%s)", error, fd_openssl_ssl_strerror( error ) ));
-      long verify_result = SSL_get_verify_result( ssl );
-      if( error == SSL_ERROR_SSL && verify_result != X509_V_OK ) {
-        FD_LOG_WARNING(( "Certificate verification failed: %s", X509_verify_cert_error_string( verify_result ) ));
-      }
-      ERR_print_errors_cb( fd_ossl_log_error, NULL );
-      return -1;
-    } else {
-      client->ssl_hs_done = 1;
-    }
-  }
-
-  fd_h2_conn_t * conn = client->conn;
-  int ssl_err = 0;
-  ulong read_sz = fd_h2_rbuf_ssl_read( client->frame_rx, ssl, &ssl_err );
-  if( FD_UNLIKELY( ssl_err && ssl_err!=SSL_ERROR_WANT_READ ) ) {
-    if( ssl_err==SSL_ERROR_ZERO_RETURN ) {
-      FD_LOG_WARNING(( "gRPC server closed connection" ));
-      return -1;
-    }
-    FD_LOG_WARNING(( "SSL_read_ex failed (%i-%s)", ssl_err, fd_openssl_ssl_strerror( ssl_err ) ));
-    ERR_print_errors_cb( fd_ossl_log_error, NULL );
-    return -1;
-  }
-  if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
-  fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
-  if( FD_UNLIKELY( client->window_update_pending ) ) {
-    client->window_update_pending = 0;
-    fd_grpc_client_request_continue( client );
-  }
-  fd_grpc_client_service_streams( client, fd_log_wallclock() );
-  ulong write_sz = fd_h2_rbuf_ssl_write( client->frame_tx, ssl );
-  client->metrics->stream_chunks_rx_bytes += read_sz;
-  client->metrics->stream_chunks_tx_bytes += write_sz;
-
-  if( read_sz!=0 || write_sz!=0 ) *charge_busy = 1;
-  return 0;
-}
-
-#endif /* FD_HAS_OPENSSL */
-
-#if FD_H2_HAS_SOCKETS
 
 int
 fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
@@ -417,6 +366,106 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
   }
 
   return tx_err==EAGAIN ? 1 : 0;
+}
+
+int
+fd_grpc_client_rxtx_tls( fd_grpc_client_t * client,
+                          fd_tlsrec_conn_t * tls_conn,
+                          int                sock_fd,
+                          int *              charge_busy ) {
+  fd_h2_conn_t * conn = client->conn;
+
+  int flush = fd_grpc_client_tls_flush( client, sock_fd );
+  if( FD_UNLIKELY( flush<0 ) ) return -1;
+  if( FD_UNLIKELY( !flush ) ) return 0;
+
+  uchar tcp_rx_buf[ 16384 ];
+  long tcp_rx_sz = recv( sock_fd, tcp_rx_buf, sizeof(tcp_rx_buf), MSG_NOSIGNAL|MSG_DONTWAIT );
+  if( FD_UNLIKELY( tcp_rx_sz<0 ) ) {
+    if( errno==EAGAIN || errno==EWOULDBLOCK ) tcp_rx_sz = 0;
+    else {
+      FD_LOG_INFO(( "recv failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      return -1;
+    }
+  }
+  if( FD_UNLIKELY( tcp_rx_sz==0 && !fd_h2_rbuf_used_sz( client->frame_tx ) ) ) {
+    struct pollfd pfd = { .fd = sock_fd, .events = POLLIN };
+    int pr = fd_syscall_poll( &pfd, 1, 0 );
+    if( pr>0 && (pfd.revents & POLLHUP) && !(pfd.revents & POLLIN) ) {
+      FD_LOG_INFO(( "Disconnected: peer closed connection" ));
+      return -1;
+    }
+  }
+
+  uchar app_rx_buf[ 16384 ];
+  ulong app_rx_sz = sizeof(app_rx_buf);
+  ulong tcp_tx_sz = sizeof(client->tls_tx_buf);
+
+  fd_tlsrec_slice_t tcp_rx_slice[1];
+  fd_tlsrec_slice_init( tcp_rx_slice, tcp_rx_buf, (ulong)tcp_rx_sz );
+
+  int tls_err = fd_tlsrec_conn_rx( tls_conn, tcp_rx_slice, client->tls_tx_buf, &tcp_tx_sz, app_rx_buf, &app_rx_sz );
+
+  client->tls_tx_sz = tcp_tx_sz;
+  if( FD_LIKELY( tcp_tx_sz ) ) {
+    if( FD_UNLIKELY( fd_grpc_client_tls_flush( client, sock_fd )<0 ) ) return -1;
+    *charge_busy = 1;
+  }
+
+  if( FD_UNLIKELY( tls_err ) ) {
+    if( !fd_tlsrec_conn_is_ready( tls_conn ) && !fd_tlsrec_conn_is_failed( tls_conn ) ) {
+      return 0;
+    }
+    FD_LOG_INFO(( "TLS error: %s", fd_tlsrec_strerror( tls_err ) ));
+    return -1;
+  }
+
+  if( FD_UNLIKELY( !fd_tlsrec_conn_is_ready( tls_conn ) ) ) {
+    if( FD_UNLIKELY( fd_tlsrec_conn_is_failed( tls_conn ) ) ) {
+      FD_LOG_WARNING(( "TLS handshake failed" ));
+      return -1;
+    }
+    return 0;
+  }
+
+  if( FD_LIKELY( app_rx_sz>0 ) ) {
+    ulong free = fd_h2_rbuf_free_sz( client->frame_rx );
+    ulong push_sz = fd_ulong_min( app_rx_sz, free );
+    if( FD_LIKELY( push_sz>0 ) ) {
+      fd_h2_rbuf_push( client->frame_rx, app_rx_buf, push_sz );
+    }
+    client->metrics->stream_chunks_rx_bytes += push_sz;
+    *charge_busy = 1;
+  }
+
+  if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
+  fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
+  fd_grpc_client_service_streams( client, fd_log_wallclock() );
+
+  ulong tx_used = fd_h2_rbuf_used_sz( client->frame_tx );
+  if( FD_LIKELY( tx_used ) ) {
+    uchar plaintext[ 16384 ];
+    ulong pop_sz = fd_ulong_min( tx_used, sizeof(plaintext) );
+    fd_h2_rbuf_pop_copy( client->frame_tx, plaintext, pop_sz );
+
+    ulong encrypted_sz = sizeof(client->tls_tx_buf);
+    fd_tlsrec_slice_t app_tx_slice[1];
+    fd_tlsrec_slice_init( app_tx_slice, plaintext, pop_sz );
+
+    int tx_err = fd_tlsrec_conn_tx( tls_conn, client->tls_tx_buf, &encrypted_sz, app_tx_slice );
+    if( FD_UNLIKELY( tx_err ) ) {
+      FD_LOG_WARNING(( "fd_tlsrec_conn_tx failed: %s", fd_tlsrec_strerror( tx_err ) ));
+      return -1;
+    }
+
+    client->tls_tx_sz = encrypted_sz;
+    if( FD_UNLIKELY( fd_grpc_client_tls_flush( client, sock_fd )<0 ) ) return -1;
+
+    client->metrics->stream_chunks_tx_bytes += pop_sz;
+    *charge_busy = 1;
+  }
+
+  return 0;
 }
 
 #endif /* FD_H2_HAS_SOCKETS */
