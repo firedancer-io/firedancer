@@ -82,9 +82,36 @@ fd_hpack_rd_init( fd_hpack_rd_t * rd,
   while( FD_LIKELY( rd->src < rd->src_end ) ) {
     uint b0 = rd->src[0];
     if( FD_UNLIKELY( (b0&0xe0)==0x20 ) ) {
-      ulong max_sz = fd_hpack_rd_varint( rd, b0, 0x1f );
-      if( FD_UNLIKELY( max_sz!=0UL ) ) break; /* FIXME hacky */
+      /* Consume the prefix byte before calling fd_hpack_rd_varint:
+         the function reads continuation bytes from rd->src, so if we
+         leave rd->src pointing at the prefix byte, varint re-reads
+         the prefix as the first continuation byte for multi-byte
+         encodings (e.g. input 0x3f 0x00 = DT size update value 31
+         decoded as max_sz=94 with rd->src misaligned by 1 byte for
+         all subsequent parsing). */
+      uchar const * prefix_pos = rd->src;
       rd->src++;
+      ulong max_sz = fd_hpack_rd_varint( rd, b0, 0x1f );
+      if( FD_UNLIKELY( max_sz==ULONG_MAX ) ) {
+        /* fd_hpack_rd_init has no error return.  Restore rd->src to
+           the prefix byte so the first fd_hpack_rd_next call consumes
+           that byte as its first instruction byte.  The prefix's
+           top three bits (0x20) match no indexed-header / literal-
+           header encoding in fd_hpack_rd_next_raw, so the function
+           falls through to its "Unknown HPACK instruction" return
+           and surfaces FD_H2_ERR_COMPRESSION.  Note that the
+           DT-size-update loop at the end of fd_hpack_rd_next_raw is
+           not what surfaces the error — it only peeks at rd->src
+           AFTER the first byte has been consumed by *(rd->src++),
+           so it never re-examines the prefix byte.  Without this
+           restore, rd->src would land mid-varint at a continuation
+           byte (e.g. 0x81), which fd_hpack_rd_next_raw would mis-
+           parse as a valid indexed header (0x81 -> static-table
+           entry 1 = :authority). */
+        rd->src = prefix_pos;
+        break;
+      }
+      if( FD_UNLIKELY( max_sz!=0UL ) ) break; /* FIXME hacky */
     } else {
       break;
     }
@@ -185,9 +212,12 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
   while( FD_LIKELY( rd->src < end ) ) {
     b0 = rd->src[0];
     if( FD_UNLIKELY( (b0&0xe0)==0x20 ) ) {
-      ulong max_sz = fd_hpack_rd_varint( rd, b0, 0x1f );
-      if( FD_UNLIKELY( max_sz!=0UL ) ) return FD_H2_ERR_COMPRESSION;
+      /* Consume the prefix byte before calling fd_hpack_rd_varint —
+         see comment on the matching loop in fd_hpack_rd_init. */
       rd->src++;
+      ulong max_sz = fd_hpack_rd_varint( rd, b0, 0x1f );
+      if( FD_UNLIKELY( max_sz==ULONG_MAX ) ) return FD_H2_ERR_COMPRESSION;
+      if( FD_UNLIKELY( max_sz!=0UL       ) ) return FD_H2_ERR_COMPRESSION;
     } else {
       break;
     }
