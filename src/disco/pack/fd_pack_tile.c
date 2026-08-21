@@ -611,10 +611,9 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   long now = fd_tickcount();
 
-  int pacing_execle_cnt = (int)fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now );
-
   ulong execle_cnt = ctx->execle_cnt;
 
+  int pacing_execle_cnt = (int)fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now ), execle_cnt );
 
   /* If any execle are busy, check one of the busy ones see if it is
      still busy. */
