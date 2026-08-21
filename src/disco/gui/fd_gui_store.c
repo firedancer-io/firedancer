@@ -10,11 +10,12 @@
 #define FD_GUI_STORE_PAGE_SZ (4096UL)
 
 struct fd_gui_store_ts_idx_ent {
-  ulong window;     /* bucket window (==ULONG_MAX if empty) */
-  ulong first_cur;  /* lowest cursor tagged with this window */
-  ulong last_cur;   /* highest cursor tagged with this window */
+  ulong first_cur; /* lowest cursor tagged with this window (ULONG_MAX if empty) */
+  uint  window;    /* low 32 bits of the bucket window */
+  uint  span;      /* last_cur-first_cur */
 };
 typedef struct fd_gui_store_ts_idx_ent fd_gui_store_ts_idx_ent_t;
+FD_STATIC_ASSERT( sizeof(fd_gui_store_ts_idx_ent_t)==16UL, fd_gui_store_ts_idx_ent );
 
 struct fd_gui_store_ring {
   ulong stride;          /* align_up( hdr + val_sz, val_align ) */
@@ -94,7 +95,7 @@ struct fd_gui_store_private {
   fd_gui_store_kv_idx_node_t * kv_pool;      /* shared KV index node pool (RAM) */
   ulong ( * kv_key_hash[ FD_GUI_STORE_MAX_RINGS ] )( void const * key );              /* RAM: per-KV-ring key hash */
   int   ( * kv_key_cmp [ FD_GUI_STORE_MAX_RINGS ] )( void const * a, void const * b ); /* RAM: per-KV-ring key compare */
-  fd_gui_store_ts_idx_ent_t *  ts_idx;       /* TS window index (RAM): ring_cnt rows of DEPTH entries */
+  fd_gui_store_ts_idx_ent_t *  ts_idx[ FD_GUI_STORE_MAX_RINGS ]; /* per-TS-ring window index (RAM); NULL for KV rings */
   ulong *                      freelist;     /* region free list (RAM) */
   fd_gui_store_ring_rt_t *     ring_rt;      /* per-ring region ownership (RAM): ring_cnt rows */
   ulong *                      region_ids;   /* per-ring region-id rings (RAM): ring_cnt rows of region_cnt ulongs */
@@ -106,7 +107,7 @@ struct fd_gui_store_private {
    circular array. */
 static inline fd_gui_store_ts_idx_ent_t *
 fd_gui_store_ts_idx_row( fd_gui_store_t * db, ulong ring_idx ) {
-  return db->ts_idx + ring_idx*FD_GUI_STORE_TS_IDX_DEPTH;
+  return db->ts_idx[ ring_idx ];
 }
 
 /* fd_gui_store_region_ring returns `ring_idx` ring's region_id. */
@@ -190,10 +191,12 @@ fd_gui_store_footprint( ulong                       size_bytes,
     l = FD_LAYOUT_APPEND( l, fd_gui_store_kv_idx_align(),     fd_gui_store_kv_idx_footprint( chain_cnt ) );
   }
   l = FD_LAYOUT_APPEND( l, fd_gui_store_kv_pool_align(),      fd_gui_store_kv_pool_footprint( pool_max ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_ts_idx_ent_t), fd_ulong_max( ring_cnt, 1UL )*FD_GUI_STORE_TS_IDX_DEPTH*sizeof(fd_gui_store_ts_idx_ent_t) );
+  ulong ts_idx_cnt = 0UL;
+  for( ulong i=0UL; i<ring_cnt; i++ ) ts_idx_cnt += descs[ i ].kind==FD_GUI_STORE_KIND_TS;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_ts_idx_ent_t), ts_idx_cnt*FD_GUI_STORE_TS_IDX_DEPTH*sizeof(fd_gui_store_ts_idx_ent_t) );
   l = FD_LAYOUT_APPEND( l, fd_gui_store_freelist_align(),      fd_gui_store_freelist_footprint( region_cnt ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_ring_rt_t),    fd_ulong_max( ring_cnt, 1UL )*sizeof(fd_gui_store_ring_rt_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),                 fd_ulong_max( ring_cnt, 1UL )*region_cnt*sizeof(ulong) );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                     fd_ulong_max( ring_cnt, 1UL )*region_cnt*sizeof(ulong) );
   return FD_LAYOUT_FINI( l, fd_gui_store_align() );
 }
 
@@ -242,6 +245,8 @@ fd_gui_store_new( void *                      mem,
   ulong pool_max = 0UL;
   for( ulong i=0UL; i<ring_cnt; i++ ) pool_max += fd_gui_store_kv_idx_max( &descs[ i ] );
   pool_max = fd_ulong_max( pool_max, 1UL );
+  ulong ts_idx_cnt = 0UL;
+  for( ulong i=0UL; i<ring_cnt; i++ ) ts_idx_cnt += descs[ i ].kind==FD_GUI_STORE_KIND_TS;
 
   fd_memset( mem, 0, sizeof(fd_gui_store_t) );
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -254,7 +259,7 @@ fd_gui_store_new( void *                      mem,
     kv_idx_mem[ i ]    = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_kv_idx_align(), fd_gui_store_kv_idx_footprint( kv_idx_chains[ i ] ) );
   }
   void *        kv_pool_mem= FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_kv_pool_align(), fd_gui_store_kv_pool_footprint( pool_max ) );
-  fd_gui_store_ts_idx_ent_t * ts_idx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_ts_idx_ent_t), ring_cnt*FD_GUI_STORE_TS_IDX_DEPTH*sizeof(fd_gui_store_ts_idx_ent_t) );
+  fd_gui_store_ts_idx_ent_t * ts_idx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_ts_idx_ent_t), ts_idx_cnt*FD_GUI_STORE_TS_IDX_DEPTH*sizeof(fd_gui_store_ts_idx_ent_t) );
   void *        freelist_mem= FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_freelist_align(), fd_gui_store_freelist_footprint( region_cnt ) );
   fd_gui_store_ring_rt_t * ring_rt_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_ring_rt_t), ring_cnt*sizeof(fd_gui_store_ring_rt_t) );
   ulong *       region_ids_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), ring_cnt*region_cnt*sizeof(ulong) );
@@ -264,11 +269,15 @@ fd_gui_store_new( void *                      mem,
   db->mapped     = NULL;
   db->ring_cnt   = ring_cnt;
   db->size       = size_bytes;
-  db->ts_idx     = ts_idx_mem;
   db->ring_rt    = ring_rt_mem;
   db->region_ids = region_ids_mem;
   db->region_cnt = region_cnt;
-  for( ulong i=0UL; i<ring_cnt*FD_GUI_STORE_TS_IDX_DEPTH; i++ ) ts_idx_mem[ i ].window = ULONG_MAX;
+  ulong ts_idx_row = 0UL;
+  for( ulong i=0UL; i<ring_cnt; i++ ) {
+    if( descs[ i ].kind==FD_GUI_STORE_KIND_TS ) db->ts_idx[ i ] = ts_idx_mem + ts_idx_row++*FD_GUI_STORE_TS_IDX_DEPTH;
+  }
+  FD_TEST( ts_idx_row==ts_idx_cnt );
+  for( ulong i=0UL; i<ts_idx_cnt*FD_GUI_STORE_TS_IDX_DEPTH; i++ ) ts_idx_mem[ i ].first_cur = ULONG_MAX;
   for( ulong i=0UL; i<ring_cnt; i++ ) { ring_rt_mem[ i ].reg_base = 0UL; ring_rt_mem[ i ].reg_cnt = 0UL; }
 
   /* Shared node pool + one ulong-keyed index per KV ring. */
@@ -762,18 +771,19 @@ fd_gui_store_ts_append( fd_gui_store_t * db,
      value is stored verbatim with no store-added header. */
   ulong   window = fd_gui_store_ts_window( p, val );
   ulong   cur    = p->head_cur;
+
   uchar * slot   = fd_gui_store_slot( db, ring_idx, p, cur );
   fd_memcpy( slot, val, p->val_sz );
   p->head_cur = cur + 1UL;
   db->metrics->ts_appends[ ring_idx ]++;
 
   fd_gui_store_ts_idx_ent_t * e = &fd_gui_store_ts_idx_row( db, ring_idx )[ window % FD_GUI_STORE_TS_IDX_DEPTH ];
-  if( e->window==window ) {
-    e->last_cur = cur; /* same window: extend the extent */
+  if( e->first_cur!=ULONG_MAX && e->window==(uint)window ) {
+    e->span = (uint)fd_ulong_min( cur-e->first_cur, (ulong)UINT_MAX ); /* same window: extend the extent */
   } else {
-    e->window    = window; /* fresh / overwritten window */
+    e->window    = (uint)window; /* fresh / overwritten window */
     e->first_cur = cur;
-    e->last_cur  = cur;
+    e->span      = 0U;
   }
   return FD_GUI_STORE_SUCCESS;
 }
@@ -807,13 +817,23 @@ fd_gui_store_ts_scan_bound( fd_gui_store_t * db,
   if( FD_LIKELY( window_hi-window_lo<FD_GUI_STORE_TS_IDX_DEPTH ) ) {
     for( ulong bucket=window_lo; bucket<=window_hi; bucket++ ) {
       fd_gui_store_ts_idx_ent_t const * e = &row[ bucket % FD_GUI_STORE_TS_IDX_DEPTH ];
-      if( e->window!=bucket )        continue; /* empty slot, or aliased by another bucket */
-      if( e->last_cur<p->evict_cur ) continue; /* fully evicted bucket */
+      if( e->first_cur==ULONG_MAX || e->window!=(uint)bucket ) continue; /* empty slot, or aliased by another bucket */
+      if( FD_UNLIKELY( e->span==UINT_MAX ) ) {
+        *lo_cur = p->evict_cur;
+        *hi_cur = p->head_cur;
+        return;
+      }
+      ulong last_cur = e->first_cur + (ulong)e->span;
+      if( last_cur<p->evict_cur ) continue; /* fully evicted bucket */
       any = 1;
       lo  = fd_ulong_min( lo, e->first_cur );
-      hi  = fd_ulong_max( hi, e->last_cur + 1UL );
+      hi  = fd_ulong_max( hi, last_cur + 1UL );
     }
-    if( !any ) { *lo_cur = p->head_cur; *hi_cur = p->head_cur; return; } /* empty */
+    if( !any ) { /* empty */
+      *lo_cur = p->head_cur;
+      *hi_cur = p->head_cur;
+      return;
+    }
     *lo_cur = fd_ulong_max( lo, p->evict_cur );
     *hi_cur = fd_ulong_min( hi, p->head_cur );
   } else {

@@ -297,6 +297,40 @@ test_entity_evict( void ) {
 /* ---- time-series DB tests --------------------------------------------- */
 
 static void
+test_ts_index_footprint( void ) {
+  fd_gui_store_desc_t const ts_desc = {
+    .name        = "ts",
+    .kind        = FD_GUI_STORE_KIND_TS,
+    .val_sz      = sizeof(ts_val_t),
+    .val_align   = alignof(ts_val_t),
+    .ts_off      = 0UL,
+    .granularity = 1UL,
+  };
+  ulong ts_fp = fd_gui_store_footprint( 256UL<<20, 1UL, &ts_desc );
+  FD_TEST( ts_fp && ts_fp<(48UL<<20) );
+
+  fd_gui_store_desc_t const mixed_descs[] = {
+    ts_desc,
+    { .name="kv", .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL, .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp, .val_sz=sizeof(ent8_val_t), .val_align=alignof(ent8_val_t), .max_records=1UL },
+  };
+  ulong mixed_fp = fd_gui_store_footprint( 256UL<<20, 2UL, mixed_descs );
+  FD_TEST( mixed_fp && mixed_fp-ts_fp<(1UL<<20) );
+
+  fd_gui_store_desc_t const kv_desc = mixed_descs[ 1 ];
+  ulong kv_fp = fd_gui_store_footprint( 256UL<<20, 1UL, &kv_desc );
+  FD_TEST( kv_fp && kv_fp<(1UL<<20) );
+  char path[ 128 ]; mk_path( path, sizeof(path) );
+  void * mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( kv_fp, fd_gui_store_align() ) );
+  FD_TEST( mem );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, 256UL<<20, 1UL, TEST_SEED, &kv_desc ) );
+  FD_TEST( db );
+  db_close( db );
+  cleanup( path );
+
+  FD_LOG_NOTICE(( "test_ts_index_footprint: ok" ));
+}
+
+static void
 test_ts_append_scan( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
   fd_gui_store_t * db = db_open( path, 256UL<<20 );
@@ -335,6 +369,27 @@ test_ts_append_scan( void ) {
   }
   fd_gui_store_ts_scan_end( it );
   FD_TEST( cnt==2UL );
+
+  /* The compact index keeps a modulo-2^32 window tag.  Scans above that
+     boundary must still find the correct records. */
+  ulong low_window = 7UL;
+  ts_val_t low = { .ts = (long)low_window, .seq = seq++ };
+  FD_TEST( fd_gui_store_ts_append( db, DB_TS, &low )==FD_GUI_STORE_SUCCESS );
+  ulong high_window = (1UL<<32) + low_window;
+  ts_val_t high = { .ts = (long)high_window, .seq = seq++ };
+  FD_TEST( fd_gui_store_ts_append( db, DB_TS, &high )==FD_GUI_STORE_SUCCESS );
+  fd_gui_store_ts_scan_begin( db, it, DB_TS, high_window, high_window, NULL, NULL );
+  FD_TEST( !fd_gui_store_ts_scan_done( it ) );
+  FD_TEST( it->window==high_window && ((ts_val_t const *)it->rec)->seq==high.seq );
+  fd_gui_store_ts_scan_next( it );
+  FD_TEST( fd_gui_store_ts_scan_done( it ) );
+  fd_gui_store_ts_scan_end( it );
+  fd_gui_store_ts_scan_begin( db, it, DB_TS, low_window, low_window, NULL, NULL );
+  FD_TEST( !fd_gui_store_ts_scan_done( it ) );
+  FD_TEST( it->window==low_window && ((ts_val_t const *)it->rec)->seq==low.seq );
+  fd_gui_store_ts_scan_next( it );
+  FD_TEST( fd_gui_store_ts_scan_done( it ) );
+  fd_gui_store_ts_scan_end( it );
 
   db_close( db );
   cleanup( path );
@@ -514,6 +569,7 @@ main( int     argc,
   test_entity_get_any();
   test_entity_iter();
   test_entity_evict();
+  test_ts_index_footprint();
   test_ts_append_scan();
   test_ts_filter_and_evict();
   test_map_full();
