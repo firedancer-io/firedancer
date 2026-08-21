@@ -198,6 +198,54 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 /* #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START (5UL) // UNUSED */
 #define FD_GUI_SLOT_SHRED_SHRED_PUBLISHED         (6UL)
 
+#define FD_GUI_TXN_BATCH_MAX_TXN (32UL)
+FD_STATIC_ASSERT( FD_GUI_TXN_BATCH_MAX_TXN<=UCHAR_MAX, txn_batch_count_fits );
+FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT<=UINT_MAX, txn_batch_member_idx_fits );
+
+/* Stored timeline-day bucket layout. */
+#define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (7UL)
+#define FD_GUI_TIMELINE_DAY_NS                 (86400000000000L)
+
+#define FD_GUI_TIMELINE_250MS_CNT (345600UL)
+#define FD_GUI_TIMELINE_2S_CNT    ( 43200UL)
+#define FD_GUI_TIMELINE_15S_CNT   (  5760UL)
+#define FD_GUI_TIMELINE_2M_CNT    (   720UL)
+#define FD_GUI_TIMELINE_15M_CNT   (    96UL)
+#define FD_GUI_TIMELINE_2H_CNT    (    12UL)
+#define FD_GUI_TIMELINE_12H_CNT   (     2UL)
+
+#define FD_GUI_TIMELINE_250MS_OFF  (0UL)
+#define FD_GUI_TIMELINE_2S_OFF     (FD_GUI_TIMELINE_250MS_OFF+FD_GUI_TIMELINE_250MS_CNT)
+#define FD_GUI_TIMELINE_15S_OFF    (FD_GUI_TIMELINE_2S_OFF   +FD_GUI_TIMELINE_2S_CNT   )
+#define FD_GUI_TIMELINE_2M_OFF     (FD_GUI_TIMELINE_15S_OFF  +FD_GUI_TIMELINE_15S_CNT  )
+#define FD_GUI_TIMELINE_15M_OFF    (FD_GUI_TIMELINE_2M_OFF   +FD_GUI_TIMELINE_2M_CNT   )
+#define FD_GUI_TIMELINE_2H_OFF     (FD_GUI_TIMELINE_15M_OFF  +FD_GUI_TIMELINE_15M_CNT  )
+#define FD_GUI_TIMELINE_12H_OFF    (FD_GUI_TIMELINE_2H_OFF   +FD_GUI_TIMELINE_2H_CNT   )
+#define FD_GUI_TIMELINE_BUCKET_CNT (FD_GUI_TIMELINE_12H_OFF  +FD_GUI_TIMELINE_12H_CNT  )
+
+struct fd_gui_timeline_day {
+  ulong day; /* days since the UNIX epoch */
+  /* Inclusive range of slots with aggregate activity in each bucket, or
+     ULONG_MAX when empty. */
+  ulong start_slot     [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong end_slot       [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong turbine        [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong repair         [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong reconstructed  [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong published      [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong compute_units  [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong max_compute    [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong txn_fees       [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong prio_fees      [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong tips           [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong nonvote_success[ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong nonvote_failed [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong vote_success   [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  ulong vote_failed    [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  uint  skipped        [ FD_GUI_TIMELINE_BUCKET_CNT ];
+};
+typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
+
 struct fd_gui_tile_timers {
   long   sample_time_nanos; /* wallclock ns this sample was taken; identical across the per-tile records. */
   ulong  tile_idx;          /* global tile index into topo->tiles. */
@@ -325,14 +373,14 @@ struct fd_gui_turbine_slot {
 
 typedef struct fd_gui_turbine_slot fd_gui_turbine_slot_t;
 
-struct __attribute__((packed)) fd_gui_slot_history_shred_event {
+struct __attribute__((packed)) fd_gui_slot_history_tvu_event {
   long   timestamp;
   uint   slot;
-  ushort shred_idx;
+  ushort idx;
   uchar  event;
 };
 
-typedef struct fd_gui_slot_history_shred_event fd_gui_slot_history_shred_event_t;
+typedef struct fd_gui_slot_history_tvu_event fd_gui_slot_history_tvu_event_t;
 
 struct __attribute__((packed)) fd_gui_slot {
   ulong     slot;             /* this record's slot number. */
@@ -487,6 +535,64 @@ struct __attribute__((packed)) fd_gui_store_txn_end {
   uchar flags;                  /* ENDED | LANDED_IN_BLOCK */
 };
 typedef struct fd_gui_store_txn_end fd_gui_store_txn_end_t;
+
+/* A fully joined replay transaction.  completion_time_ns is the later
+   of sigverify_end_ns and commit_end_ns and is the time-series index
+   for this record. */
+
+struct fd_gui_store_replay_txn {
+  long  completion_time_ns;
+  ulong slot;
+  ulong txn_idx;
+  ulong txn_exec_idx;
+  ulong txn_sigverify_exec_idx;
+  uchar signature[ FD_TXN_SIGNATURE_SZ ];
+
+  long sigverify_start_ns;
+  long sigverify_end_ns;
+  long load_start_ns;
+  long check_start_ns;
+  long exec_start_ns;
+  long commit_start_ns;
+  long commit_end_ns;
+
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
+  uint  compute_units_requested; /* 0 means unavailable */
+  uint  compute_units_consumed;
+  uint  error_code;
+  uchar is_committable;
+  uchar is_fees_only;
+  uchar is_simple_vote;
+};
+typedef struct fd_gui_store_replay_txn fd_gui_store_replay_txn_t;
+
+/* Used to store a visually compressed batch of chronologically
+   clustered transactions in a slot as a single "meta-transaction". */
+struct fd_gui_store_replay_txn_batch {
+  long  completion_time_ns;
+  ulong slot;
+  ulong batch_idx;
+  ulong txn_idx;
+  ulong txn_exec_idx;
+  ulong txn_sigverify_exec_idx;
+
+  long sigverify_start_ns;
+  long sigverify_end_ns;
+  long load_start_ns;
+  long check_start_ns;
+  long exec_start_ns;
+  long commit_start_ns;
+  long commit_end_ns;
+
+  uint  error_code;
+  uchar exec_txn_cnt;
+  uchar sigverify_txn_cnt;
+  uint  exec_txn_idx     [ FD_GUI_TXN_BATCH_MAX_TXN ];
+  uint  sigverify_txn_idx[ FD_GUI_TXN_BATCH_MAX_TXN ];
+};
+typedef struct fd_gui_store_replay_txn_batch fd_gui_store_replay_txn_batch_t;
 
 struct fd_gui_slot_txn_join {
   fd_gui_store_txn_start_t const * start;
