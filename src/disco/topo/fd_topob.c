@@ -418,6 +418,7 @@ static char const * ALWAYS[] = {
   "benchg",
   "benchs",
   "net",
+  "mlx5",
   "sock",
   "quic",
   "bundle",

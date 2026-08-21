@@ -43,6 +43,7 @@ typedef struct {
   ulong                       prev_net0_rx_bytes;
 
   int                         is_xdp;
+  int                         is_mlx5;
 
   /* Return values from last render */
   ulong                       last_total_crds;

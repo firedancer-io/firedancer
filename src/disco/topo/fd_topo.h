@@ -102,7 +102,7 @@ typedef struct {
 } fd_topo_ip_port_t;
 
 struct fd_topo_net_tile {
-  ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
+  ulong umem_dcache_obj_id;  /* dcache for network UMEM frames */
   uint  bind_address;
 
   ushort shred_listen_port;
@@ -202,6 +202,21 @@ struct fd_topo_tile {
 
       int xsk_core_dump;
     } xdp;
+
+    struct {
+      fd_topo_net_tile_t net;
+
+      char  if_name[ 16 ];
+      uint  rx_queue_size;
+      uint  tx_queue_size;
+      uint  batch_size;
+
+      ulong netdev_tbl_obj_id;
+      ulong route_max;
+      ulong route_peer_max;
+      ulong route_peer_seed;
+      ulong neigh4_obj_id;
+    } mlx5;
 
     struct {
       fd_topo_net_tile_t net;

@@ -1,4 +1,5 @@
 #include "gossip_diag.h"
+#include "../../../../disco/net/fd_net_tile.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -306,9 +307,10 @@ fd_gossip_diag_init( fd_gossip_diag_ctx_t * ctx,
                      fd_topo_t *            topo,
                      config_t *             config ) {
   memset( ctx, 0, sizeof(*ctx) );
-  ctx->topo   = topo;
-  ctx->config = config;
-  ctx->is_xdp = ( 0==strcmp( config->net.provider, "xdp" ) );
+  ctx->topo    = topo;
+  ctx->config  = config;
+  ctx->is_xdp  = ( 0==strcmp( config->net.provider, "xdp" ) );
+  ctx->is_mlx5 = ( 0==strcmp( config->net.provider, "mlx5" ) );
 
   /* Find gossip tile */
   ulong gossip_tile_idx = fd_topo_find_tile( topo, "gossip", 0UL );
@@ -338,8 +340,9 @@ fd_gossip_diag_init( fd_gossip_diag_ctx_t * ctx,
   ctx->net_tile_cnt = config->layout.net_tile_count;
   ctx->net_metrics  = aligned_alloc( 8UL, ctx->net_tile_cnt * sizeof(volatile ulong const *) );
   FD_TEST( ctx->net_metrics );
+  char const * net_tile_name = fd_net_tile_name( config->net.provider );
   for( ulong i=0UL; i<ctx->net_tile_cnt; i++ ) {
-    ulong net_tile_idx = fd_topo_find_tile( topo, ctx->is_xdp ? "net" : "sock", i );
+    ulong net_tile_idx = fd_topo_find_tile( topo, net_tile_name, i );
     if( FD_UNLIKELY( net_tile_idx==ULONG_MAX ) ) {
       FD_LOG_WARNING(( "Net tile %lu not found", i ));
       return -1;
@@ -403,6 +406,12 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
               fmt_count( buf4, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_RX_BACKPRESSURE ) ] ) );
       ctx->prev_net_rx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_RX_BYTES ) ];
       ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_TX_BYTES ) ];
+    } else if( FD_LIKELY( ctx->is_mlx5 ) ) {
+      printf( " Net %lu RX bw %s, TX bw %s\n", i,
+              fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ] - ctx->prev_net_rx_bytes[ i ] ),
+              fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ] - ctx->prev_net_tx_bytes[ i ] ) );
+      ctx->prev_net_rx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ];
+      ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ];
     } else {
       printf( " Net %lu RX bw %s, TX bw %s\n", i,
               fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, SOCK, PKT_RX_BYTES ) ] - ctx->prev_net_rx_bytes[ i ] ),

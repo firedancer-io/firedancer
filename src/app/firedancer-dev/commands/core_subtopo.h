@@ -19,10 +19,11 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
 
   static char* const tiles_to_add[] = {
     "metric",
-    "net",
     "sign",
   };
-  for( int i=0; i<3; ++i) FD_TEST( fd_topo_find_tile( topo, tiles_to_add[i], 0UL ) == ULONG_MAX );
+  for( int i=0; i<2; ++i) FD_TEST( fd_topo_find_tile( topo, tiles_to_add[i], 0UL ) == ULONG_MAX );
+  char const * net_tile_name = fd_net_tile_name( config->net.provider );
+  FD_TEST( fd_topo_find_tile( topo, net_tile_name, 0UL )==ULONG_MAX );
 
   ulong net_tile_cnt  = config->layout.net_tile_count;
   ulong sign_tile_cnt = config->firedancer.layout.sign_tile_count;
@@ -37,8 +38,7 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
   int xsk_core_dump = config->development.core_dump_level >= FD_TOPO_CORE_DUMP_LEVEL_REGULAR ? 1 : 0;
   fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, xsk_core_dump,tile_to_cpu );
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-    ulong net_tile_id = fd_topo_find_tile( topo, "net", i );
-    if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", i );
+    ulong net_tile_id = fd_topo_find_tile( topo, net_tile_name, i );
     if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
     fd_topo_tile_t * net_tile = &topo->tiles[ net_tile_id ];
     net_tile->net.gossip_listen_port = config->gossip.port;
