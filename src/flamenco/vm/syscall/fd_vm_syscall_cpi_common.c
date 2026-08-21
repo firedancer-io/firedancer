@@ -65,7 +65,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
   out_instr->stack_height = (uchar)( vm->instr_ctx->runtime->instr.stack_sz+1 );
   out_instr->data_sz      = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
   out_instr->acct_cnt     = (ushort)VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr );
-  memcpy( out_instr->data, cpi_instr_data, out_instr->data_sz );
+  fd_memcpy( out_instr->data, cpi_instr_data, out_instr->data_sz );
 
   /* Find the index of the CPI instruction's program account in the transaction */
   ulong program_id_idx = fd_runtime_find_index_of_account( vm->instr_ctx->txn_out, program_id );
