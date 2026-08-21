@@ -29,9 +29,17 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static void const * fd_ext_blockstore;
+/* The blockstore also requires two pieces of long-lasting memory so we don't have to alloc and dealloc as much in the rust code */
+static void const * fd_ext_pinnable_slice;
+static void const * fd_ext_write_batch;
 
 void
-fd_ext_store_initialize( void const * blockstore ) {
+fd_ext_store_initialize( void const * blockstore,
+                         void const * pinnable_slice,
+                         void const * write_batch ) {
+  fd_ext_pinnable_slice = pinnable_slice;
+  fd_ext_write_batch = write_batch;
+  FD_COMPILER_MFENCE();
   fd_ext_blockstore = blockstore;
   FD_COMPILER_MFENCE();
 }
@@ -62,7 +70,9 @@ fd_ext_blockstore_insert_shreds( void const *  blockstore,
                                  uchar const * shred_bytes,
                                  ulong         shred_sz,
                                  ulong         stride,
-                                 int           is_trusted );
+                                 int           is_trusted,
+                                 void const *  pinnable_slice,
+                                 void const *  write_batch );
 
 static inline void
 after_frag( fd_store_ctx_t *    ctx,
@@ -88,8 +98,8 @@ after_frag( fd_store_ctx_t *    ctx,
   ulong est_txn_cnt = sig>>32UL;
 
   /* No error code because this cannot fail. */
-  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->data_shreds->b,   FD_SHRED_MIN_SZ, FD_SHRED_MIN_SZ, trusted );
-  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->parity_shreds->b, FD_SHRED_MAX_SZ, FD_SHRED_MAX_SZ, trusted );
+  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->data_shreds->b,   FD_SHRED_MIN_SZ, FD_SHRED_MIN_SZ, trusted, fd_ext_pinnable_slice, fd_ext_write_batch );
+  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->parity_shreds->b, FD_SHRED_MAX_SZ, FD_SHRED_MAX_SZ, trusted, fd_ext_pinnable_slice, fd_ext_write_batch );
 
   FD_MCNT_INC( STORE, TXN_INSERTED, est_txn_cnt );
 
