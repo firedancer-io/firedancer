@@ -1,6 +1,7 @@
 #include "../replay/fd_replay_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../genesis/fd_genesi_tile.h"
+#include "../../disco/shred/fd_shred_tile.h"
 
 #include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../ballet/base64/fd_base64.h"
@@ -46,6 +47,7 @@
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
 #define IN_KIND_TOWER       (3)
+#define IN_KIND_SHRED       (4)
 
 /* From bzip2 docs:
       To guarantee that the compressed data will fit in its buffer,
@@ -265,6 +267,10 @@ struct fd_rpc_tile {
   fd_accdb_t * accdb;
 
   ulong cluster_confirmed_slot;
+
+  /* Highest slot relayed to turbine (Agave MaxSlots::retransmit) */
+  ulong max_retransmit_slot;
+  ulong shred_slot; /* copied in during_frag, shred_out is unreliable */
 
   ulong processed_idx;
   ulong confirmed_idx;
@@ -528,7 +534,32 @@ before_frag( fd_rpc_tile_t *   ctx,
            sig!=FD_GOSSIP_UPDATE_TAG_VOTE;
   }
 
+  if( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) {
+    /* Keep only turbine shreds the shred tile relayed */
+    uint src = fd_shred_sig_src( sig );
+    int  res = fd_shred_sig_res( sig );
+    return !( src==SHRED_SIG_SRC_TURBINE && ( res==SHRED_SIG_RESULT_OKAY || res==SHRED_SIG_RESULT_COMPLETES ) );
+  }
+
   return 0;
+}
+
+static inline void
+during_frag( fd_rpc_tile_t * ctx,
+             ulong           in_idx,
+             ulong           seq FD_PARAM_UNUSED,
+             ulong           sig FD_PARAM_UNUSED,
+             ulong           chunk,
+             ulong           sz,
+             ulong           ctl FD_PARAM_UNUSED ) {
+  if( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) return;
+
+  /* Unreliable link: copy the slot before the overrun check */
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  }
+  fd_shred_base_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+  ctx->shred_slot = msg->shred.slot;
 }
 
 static int
@@ -822,6 +853,20 @@ returnable_frag( fd_rpc_tile_t *     ctx,
   }
 
   return 0;
+}
+
+static inline void
+after_frag( fd_rpc_tile_t *     ctx,
+            ulong               in_idx,
+            ulong               seq    FD_PARAM_UNUSED,
+            ulong               sig    FD_PARAM_UNUSED,
+            ulong               sz     FD_PARAM_UNUSED,
+            ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
+  /* Unreliable inputs are handled here, after the overrun check */
+  if( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) return;
+  ctx->max_retransmit_slot = fd_ulong_max( ctx->max_retransmit_slot, ctx->shred_slot );
 }
 
 /* Silence warnings due gcc not recognizing nan-infinity-disabled
@@ -1794,7 +1839,19 @@ getLatestBlockhash( fd_rpc_tile_t * ctx,
 }
 
 UNIMPLEMENTED(getLeaderSchedule) // TODO: Used by solana-exporter
-UNIMPLEMENTED(getMaxRetransmitSlot)
+static fd_http_server_response_t
+getMaxRetransmitSlot( fd_rpc_tile_t * ctx,
+                      cJSON const *   id,
+                      cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MAX_RETRANSMIT_SLOT, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
+
+  CSTR_JSON( id, id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->max_retransmit_slot, id_cstr );
+}
+
 UNIMPLEMENTED(getMaxShredInsertSlot)
 
 static fd_http_server_response_t
@@ -2515,6 +2572,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->idle_cnt           = 0UL;
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
+  ctx->max_retransmit_slot    = 0UL;
+  ctx->shred_slot             = 0UL;
   ctx->genesis_max_message_size = tile->rpc.genesis_max_message_size;
   ctx->genesis_tar_max_sz = fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size );
   ctx->genesis_tar_bz_max_sz = fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size );
@@ -2545,6 +2604,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
@@ -2632,7 +2692,9 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
