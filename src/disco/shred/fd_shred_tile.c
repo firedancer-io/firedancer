@@ -36,15 +36,20 @@
    the blockstore and on the network, which is why one tile handles
    both.
 
-   We segment the memory for the two types of shreds into two halves of
-   a dcache because they follow somewhat different flow control
-   patterns. For flow control, the normal guarantee we want to provide
-   is that the dcache entry is not overwritten unless the mcache entry
-   has also been overwritten.  The normal way to do this when using both
-   cyclically and with a 1-to-1 mapping is to make the dcache at least
-   `burst` entries bigger than the mcache.
+   Frankendancer's output path publishes full FEC sets into the
+   shred_store dcache.  It segments the memory for the two types of
+   shreds into two halves of a dcache because they follow somewhat
+   different flow control patterns.  Firedancer instead copies completed
+   FEC data into fd_store before publishing and does not use this dcache
+   layout.
 
-   In this tile, we use one output mcache (of depth d) with one output
+   For Frankendancer flow control, the normal guarantee we want to
+   provide is that the dcache entry is not overwritten unless the mcache
+   entry has also been overwritten.  The normal way to do this when
+   using both cyclically and with a 1-to-1 mapping is to make the dcache
+   at least `burst` entries bigger than the mcache.
+
+   Frankendancer uses one output mcache (of depth d) with one output
    dcache (which is logically partitioned into two) for the two sources
    of data.  The worst case for flow control is when we're only sending
    with one of the dcache partitions at a time though, so we can
@@ -68,12 +73,19 @@
    functionality, so we set partial_depth=1.
 
    Adding these up and plugging in the current value of
-   BATCH_FEC_SETS_MAX, we get 2*d+6+fec_resolver_depth FEC sets.  The
-   topology code doesn't allow specifying mcache depth and dcache depth
-   independently.  That means we have to lie about the MTU and burst.
-   We say the MTU is double what it actually is, and then the burst is
-   4+fec_resolver_depth/2.  That means we get
-   2*d+2*(4+fec_resolver_depth/2) >= 2*d+6+fec_resolver_depth FEC sets.
+   BATCH_FEC_SETS_MAX, the zero-copy path needs
+   2*d+6+fec_resolver_depth FEC sets.  The topology code doesn't allow
+   specifying mcache depth and dcache depth independently.  That means
+   we have to lie about the MTU and burst.  We say the MTU is double what
+   it actually is, and then the burst is 4+fec_resolver_depth/2.  That
+   means we get 2*d+2*(4+fec_resolver_depth/2) >=
+   2*d+6+fec_resolver_depth FEC sets.
+
+   Firedancer copies completed FEC data into fd_store and compact output
+   dcaches before returning from the shred tile.  No full FEC set pointer
+   escapes, so its retained_set_depth is zero and it needs only
+   6+fec_resolver_depth sets.  Frankendancer publishes full FEC sets
+   zero-copy and configures retained_set_depth=d.
 
    A note on parallelization.  From the network, shreds are distributed
    to tiles based on a validator-specific seeded hash of (slot, FEC set
@@ -334,7 +346,8 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
 
-  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, tile->shred.depth+1UL,
+  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL,
+                                                            tile->shred.fec_set_retention_depth + 1UL,
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
@@ -1349,10 +1362,11 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !tile->out_cnt ) )
     FD_LOG_ERR(( "shred tile has no primary output link" ));
 
-  ulong shred_store_mcache_depth = tile->shred.depth;
-  if( topo->links[ tile->out_link_id[ 0 ] ].depth != shred_store_mcache_depth )
-    FD_LOG_ERR(( "shred tile out depths are not equal %lu %lu",
-                 topo->links[ tile->out_link_id[ 0 ] ].depth, shred_store_mcache_depth ));
+  ulong shred_store_mcache_depth = topo->links[ tile->out_link_id[ 0 ] ].depth;
+  if( FD_UNLIKELY( !strcmp( topo->links[ tile->out_link_id[ 0 ] ].name, "shred_store" ) &&
+                   tile->shred.fec_set_retention_depth<shred_store_mcache_depth ) )
+    FD_LOG_ERR(( "zero-copy FEC set retention depth %lu is smaller than output depth %lu",
+                 tile->shred.fec_set_retention_depth, shred_store_mcache_depth ));
 
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( scratch!=NULL );
@@ -1365,13 +1379,16 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->batch_cnt       = 0UL;
   ctx->slot            = ULONG_MAX;
 
+  ulong shredder_fec_set_cnt    = tile->shred.fec_set_retention_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
+  ulong resolver_complete_depth = tile->shred.fec_set_retention_depth + 1UL;
+
   /* If the default partial_depth is ever changed, correspondingly
      change the size of the fd_fec_intra_pool in fd_fec_repair. */
-  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, shred_store_mcache_depth + 1UL,
+  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, resolver_complete_depth,
                                                             128UL * tile->shred.fec_resolver_depth );
   /* See long comment at the top of this file for the computation of
      fec_set_cnt. */
-  ulong fec_set_cnt            = 2UL*shred_store_mcache_depth + tile->shred.fec_resolver_depth + FD_SHRED_BATCH_FEC_SETS_MAX + 2UL;
+  ulong fec_set_cnt            = shredder_fec_set_cnt + tile->shred.fec_resolver_depth + 1UL + resolver_complete_depth;
   ulong fec_sets_required_sz   = fec_set_cnt*sizeof(fd_fec_set_t);
 
   void * fec_sets_shmem = NULL;
@@ -1457,12 +1474,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->larger_shred_limits_per_block = tile->shred.larger_shred_limits_per_block;
   ulong shred_limit                  = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
   ctx->shred_limit                   = shred_limit;
-  fd_fec_set_t * resolver_sets       = fec_sets + shred_store_mcache_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
+  fd_fec_set_t * resolver_sets       = fec_sets + shredder_fec_set_cnt;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
                                                                         fd_shred_signer, ctx->keyguard_client,
                                                                         tile->shred.fec_resolver_depth, 1UL,
-                                                                        shred_store_mcache_depth+1UL,
+                                                                        resolver_complete_depth,
                                                                         128UL * tile->shred.fec_resolver_depth, resolver_sets,
                                                                         ctx->resolver_seed ) ) );
 
@@ -1564,7 +1581,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->poh_in_expect_seq = 0UL;
 
   ctx->shredder_fec_set_idx = 0UL;
-  ctx->shredder_max_fec_set_idx = shred_store_mcache_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
+  ctx->shredder_max_fec_set_idx = shredder_fec_set_cnt;
 
   ctx->chained_merkle_root = NULL;
   memset( ctx->out_merkle_roots, 0, sizeof(ctx->out_merkle_roots) );

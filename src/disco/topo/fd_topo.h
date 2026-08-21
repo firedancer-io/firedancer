@@ -355,7 +355,7 @@ struct fd_topo_tile {
     } poh;
 
     struct {
-      ulong             depth;
+      ulong             fec_set_retention_depth;
       ulong             fec_resolver_depth;
       char              identity_key_path[ PATH_MAX ];
       ushort            shred_listen_port;

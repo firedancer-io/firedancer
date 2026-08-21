@@ -517,7 +517,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
     fd_cstr_ncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
 
-    tile->shred.depth                         = config->topo.links[ tile->out_link_id[ 0 ] ].depth;
+    tile->shred.fec_set_retention_depth       = config->topo.links[ tile->out_link_id[ 0 ] ].depth;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;

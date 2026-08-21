@@ -78,13 +78,13 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
-/* FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN is the protocol level hardcoded
-   limit on the total account data growth (sum of resize deltas) across a
-   single transaction.  Defined here (alongside FD_RUNTIME_ACC_SZ_MAX) so
-   low-level size bounds can reference it; fd_borrowed_account.h's
-   MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN and fd_vm_private.h's
-   FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION are kept equal to this via
-   static asserts in those headers. */
+/* FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN is the protocol level
+   hardcoded limit on the total account data growth (sum of resize
+   deltas) across a single transaction.  Defined here (alongside
+   FD_RUNTIME_ACC_SZ_MAX) so low-level size bounds can reference it;
+   fd_borrowed_account.h's MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN and
+   fd_vm_private.h's FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION are kept
+   equal to this via static asserts in those headers. */
 
 #define FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN (2UL*FD_RUNTIME_ACC_SZ_MAX) /* 20MiB */
 
@@ -143,8 +143,8 @@ FD_PROTOTYPES_BEGIN
    there for the derivation.  Briefly: per-account fixed overhead
    (metadata + per-account resize headroom + alignment) for up to 64
    unique accounts, plus the total account-data body bounded once by the
-   per-transaction loaded-data cap (64 MiB) plus the per-transaction data
-   growth cap (20 MiB), plus instruction/program-id/pointer-array
+   per-transaction loaded-data cap (64 MiB) plus the per-transaction
+   data growth cap (20 MiB), plus instruction/program-id/pointer-array
    trailers.  This is far tighter than the previous 64 * 10MiB worst
    case, which assumed all 64 accounts could simultaneously be at the
    per-account max size (the loaded-data + growth caps make that
@@ -155,12 +155,13 @@ FD_PROTOTYPES_BEGIN
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L37-L38 */
 #define FD_RUNTIME_EBPF_HOST_ALIGN  (16UL)
 
-/* FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT is the per-unique-account
-   serialization overhead EXCLUDING the account's data body: the fixed
-   metadata fields, plus the realloc headroom (MAX_PERMITTED_DATA_INCREASE)
-   and the worst-case per-account alignment padding (FD_BPF_ALIGN_OF_U128).
-   The account data body itself is bounded separately, at the region level,
-   by the per-transaction loaded-accounts-data cap (see below). */
+/* FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT is the
+   per-unique-account serialization overhead EXCLUDING the account's
+   data body: the fixed metadata fields, plus the realloc headroom
+   (MAX_PERMITTED_DATA_INCREASE) and the worst-case per-account
+   alignment padding (FD_BPF_ALIGN_OF_U128).  The account data body
+   itself is bounded separately, at the region level, by the
+   per-transaction loaded-accounts-data cap (see below). */
 #define FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT                                                                                                        \
                                               (1UL                         /* dup byte          */                                                        + \
                                                sizeof(uchar)               /* is_signer         */                                                        + \
