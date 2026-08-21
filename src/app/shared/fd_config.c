@@ -437,6 +437,10 @@ fd_config_fill( fd_config_t * config,
     FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
   }
 
+  if( FD_UNLIKELY( config->is_firedancer && (!config->firedancer.runtime.restart.restart_slot)!=(!config->firedancer.runtime.restart.restart_attempt) ) ) {
+    FD_LOG_ERR(( "Invalid [runtime.restart] configuration. If restart_slot is set, restart_attempt should be greater than zero." ));
+  }
+
 }
 
 #define CFG_HAS_NON_EMPTY( key ) do {                  \

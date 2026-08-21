@@ -104,6 +104,9 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.program_cache.heap_size_mib                 );
   CFG_POP      ( ulong,  runtime.program_cache.mean_cache_entry_size         );
 
+  CFG_POP      ( ulong,  runtime.restart.restart_slot                        );
+  CFG_POP      ( ulong,  runtime.restart.restart_attempt                     );
+
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
 
   CFG_POP      ( uint,   snapshots.sources.max_local_full_effective_age      );

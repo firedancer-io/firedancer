@@ -42,12 +42,16 @@ fd_ssload_recover_validate( fd_snapshot_manifest_t const * manifest,
    unconditionally reset before repopulation.  Returns 0 on success,
    -1 on failure.  On failure, bank and associated structures may be
    left partially mutated; caller must treat this as unrecoverable.
-   blockhash_seed seeds the internal blockhash hash map. */
+   blockhash_seed seeds the internal blockhash hash map.
+
+   restart_slot and restart_attempt insert a hard fork (0->no-op). */
 int
 fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
                          fd_banks_t *             banks,
                          fd_bank_t *              bank,
-                         ulong                    blockhash_seed );
+                         ulong                    blockhash_seed,
+                         ulong                    restart_slot,
+                         ulong                    restart_attempt );
 
 /* fd_ssload_recover validates the manifest and applies it to bank.
    Equivalent to fd_ssload_recover_validate followed by
@@ -56,12 +60,15 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
    left unmodified.  If failure occurs after mutation begins, bank and
    associated structures may be left partially mutated.  Caller must
    treat such failures as unrecoverable (e.g. abort or discard the
-   bank).  blockhash_seed seeds the internal blockhash hash map. */
+   bank).  blockhash_seed seeds the internal blockhash hash map.
+   restart_slot and restart_attempt are as in fd_ssload_recover_apply. */
 int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
-                   ulong                    blockhash_seed );
+                   ulong                    blockhash_seed,
+                   ulong                    restart_slot,
+                   ulong                    restart_attempt );
 
 FD_PROTOTYPES_END
 
