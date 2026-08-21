@@ -33,10 +33,6 @@ include config/extra/with-blst.mk
 include config/extra/with-zstd.mk
 include config/extra/with-lz4.mk
 
-ifneq ($(CROSS),1)
-include config/extra/with-openssl.mk
-endif
-
 FD_ARCH_SUPPORTS_SANDBOX:=1
 
 CPPFLAGS+=-DFD_HAS_ARM=1
