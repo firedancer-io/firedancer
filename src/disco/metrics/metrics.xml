@@ -2152,6 +2152,9 @@ EXAMPLES
     <int value="10" name="txn_waterfall"    label="txn_waterfall" />
     <int value="11" name="timeline_day"      label="timeline_day" />
     <int value="12" name="replay_txn"        label="replay_txn" />
+    <int value="13" name="replay_txn_batch"  label="replay_txn_batch" />
+    <int value="14" name="fec_events"        label="fec_events" />
+    <int value="15" name="fec_completions"   label="fec_completions" />
 </enum>
 
 <tile name="event">

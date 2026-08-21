@@ -7,6 +7,8 @@
 
 /* Every record type must fit in one store region (header + record). */
 FD_STATIC_ASSERT( sizeof(fd_gui_shred_batch_t     )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_completion_batch_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_txn_batch_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_timers_hist_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_scheduler_counts_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_stats_t      )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
@@ -46,6 +48,9 @@ fd_gui_hist_dbi_ts_off( int dbi ) {
     case FD_GUI_HIST_TXN_START:        return offsetof( fd_gui_store_txn_start_t,  insert_time_ns      );
     case FD_GUI_HIST_TXN_END:          return offsetof( fd_gui_store_txn_end_t,    insert_time_ns      );
     case FD_GUI_HIST_REPLAY_TXN:       return offsetof( fd_gui_store_replay_txn_t, insert_time_ns      );
+    case FD_GUI_HIST_REPLAY_TXN_BATCH: return offsetof( fd_gui_store_replay_txn_batch_t, insert_time_ns );
+    case FD_GUI_HIST_FEC_EVENTS:       return offsetof( fd_gui_shred_batch_t, insert_time_ns );
+    case FD_GUI_HIST_FEC_COMPLETIONS: return offsetof( fd_gui_fec_completion_batch_t, insert_time_ns );
     case FD_GUI_HIST_TIMELINE_DAY:     return offsetof( fd_gui_timeline_day_t,     insert_time_ns      );
     default:                           return 0UL;
   }
@@ -65,9 +70,12 @@ fd_gui_hist_keyshape( int dbi ) {
     case FD_GUI_HIST_TXN_WATERFALL:
     case FD_GUI_HIST_TOWER:
     case FD_GUI_HIST_SHRED_EVENTS:
+    case FD_GUI_HIST_FEC_EVENTS:
+    case FD_GUI_HIST_FEC_COMPLETIONS:
     case FD_GUI_HIST_TXN_START:
     case FD_GUI_HIST_TXN_END:          return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_REPLAY_TXN:
+    case FD_GUI_HIST_REPLAY_TXN_BATCH:
     case FD_GUI_HIST_TIMELINE_DAY:     return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_SLOT:
     case FD_GUI_HIST_LEADER_SLOT:      return FD_GUI_HIST_KEYSHAPE_SLOT_BANK;
@@ -143,6 +151,9 @@ fd_gui_hist_rec_sz( int dbi ) {
     case FD_GUI_HIST_TXN_START:        return sizeof(fd_gui_store_txn_start_t);
     case FD_GUI_HIST_TXN_END:          return sizeof(fd_gui_store_txn_end_t);
     case FD_GUI_HIST_REPLAY_TXN:       return sizeof(fd_gui_store_replay_txn_t);
+    case FD_GUI_HIST_REPLAY_TXN_BATCH: return sizeof(fd_gui_store_replay_txn_batch_t);
+    case FD_GUI_HIST_FEC_EVENTS:       return sizeof(fd_gui_shred_batch_t);
+    case FD_GUI_HIST_FEC_COMPLETIONS: return sizeof(fd_gui_fec_completion_batch_t);
     case FD_GUI_HIST_SLOT:             return sizeof(fd_gui_slot_t);
     case FD_GUI_HIST_LEADER_SLOT:      return sizeof(fd_gui_leader_slot_t);
     case FD_GUI_HIST_EPOCH:            return sizeof(fd_gui_epoch_t);
@@ -207,7 +218,7 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
   static char const * const names[ FD_GUI_HIST_CNT ] = {
     "scheduler_counts", "tile_timers", "shred_events", "txn_start",
     "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats",
-    "txn_waterfall", "timeline_day", "replay_txn"
+    "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "fec_completions"
   };
   static fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
   static ulong built_for = 0UL; /* store_bytes the table was built for (0 = unbuilt) */

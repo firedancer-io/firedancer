@@ -65,8 +65,20 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 65536
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
+#define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (32UL<<20)
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_META_MAX*480UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_response_bound );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_TIMESTAMPS_MAX*480UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_ts_response_bound );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_BATCH_TIMESTAMPS_MAX*480UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, batch_response_bound );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SLOT_MAX*128UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, slot_response_bound );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*512UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_response_bound );
+FD_STATIC_ASSERT( 2UL*FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8)<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ, compressed_response_bound );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_CNT==FD_GUI_HIST_CNT, gui_db_metric_count );
+
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
+  if( tile->gui.send_buffer_size_mb<(FD_GUI_HTTP_MIN_SEND_BUFFER_SZ>>20) || tile->gui.send_buffer_size_mb>(ULONG_MAX>>20) )
+    FD_LOG_ERR(( "[tiles.gui.send_buffer_size_mb] must be at least %lu MiB and fit in ulong bytes", FD_GUI_HTTP_MIN_SEND_BUFFER_SZ>>20 ));
   return (fd_http_server_params_t) {
     .max_connection_cnt    = tile->gui.max_http_connections,
     .max_ws_connection_cnt = tile->gui.max_websocket_connections,
@@ -330,7 +342,8 @@ during_frag( fd_gui_ctx_t * ctx,
     if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED &&
                    sig!=REPLAY_SIG_BECAME_LEADER  &&
                    sig!=REPLAY_SIG_ROOT_ADVANCED  &&
-                   sig!=REPLAY_SIG_OC_ADVANCED ) ) return;
+                   sig!=REPLAY_SIG_OC_ADVANCED &&
+                   sig!=REPLAY_SIG_TXN_EXECUTED ) ) return;
   }
 
   if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
@@ -461,6 +474,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_OC_ADVANCED ) ) {
         fd_replay_oc_advanced_t const * oc = (fd_replay_oc_advanced_t const *)src;
         fd_gui_handle_oc_advanced( ctx->gui, oc->slot, oc->bank_seq, fd_clock_tile_now( ctx->clock ) );
+      } else if( sig==REPLAY_SIG_TXN_EXECUTED ) {
+        if( sz!=sizeof(fd_replay_txn_executed_t) ) FD_LOG_ERR(( "invalid replay transaction message size %lu", sz ));
+        fd_gui_handle_replay_txn( ctx->gui, (fd_replay_txn_executed_t const *)src, fd_clock_tile_now( ctx->clock ) );
       } else {
         return;
       }
@@ -499,7 +515,13 @@ after_frag( fd_gui_ctx_t *      ctx,
         ulong shred_idx = msg->shred.idx;
         int is_turbine  = sig_src==SHRED_SIG_SRC_TURBINE;
         /* tsorig is the timestamp when the shred was received by the shred tile */
-        fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+        fd_gui_handle_shred( ctx->gui, slot, shred_idx, msg->shred.fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+      }
+      if( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) {
+        fd_fec_complete_t const * msg=(fd_fec_complete_t const *)src;
+        fd_gui_timeline_handle_fec( ctx->gui, msg->last_shred_hdr.slot, sig==SHRED_SIG_FEC_COMPLETE_LEADER,
+          fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub ), msg->turbine_shred_cnt, msg->repair_shred_cnt,
+          msg->reconstructed_shred_cnt, fd_clock_tile_now( ctx->clock ) );
       }
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );

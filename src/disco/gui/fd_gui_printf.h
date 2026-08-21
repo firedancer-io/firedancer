@@ -105,7 +105,19 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
                                          ulong                id,
                                          fd_gui_slot_t const * slot );
 
-void
+int
+fd_gui_printf_timeline_query_slots( fd_gui_t * gui, long start_ns, long end_ns, ulong id );
+int
+fd_gui_printf_timeline_query_fec_events( fd_gui_t * gui, char const * topic, long start_ns, long end_ns, ulong id );
+int
+fd_gui_printf_timeline_query_txns( fd_gui_t * gui, char const * topic, char const * key, long start_ns, long end_ns, ulong id );
+int
+fd_gui_printf_timeline_query_txn_batches( fd_gui_t * gui, char const * topic, char const * key, long start_ns, long end_ns, ulong id );
+int
+fd_gui_printf_timeline_query_agg( fd_gui_t * gui, char const * key, char const * granularity,
+                                  ulong granularity_idx, long reference_ts_ns, ulong bucket_cnt, ulong id );
+
+int
 fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
                                      char const * topic,
                                      long         start_ns,
