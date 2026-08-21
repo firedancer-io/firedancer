@@ -3,7 +3,7 @@
 
 #include "../fd_disco_base.h"
 #include "fd_microblock.h"
-
+#include "../../flamenco/runtime/fd_runtime_const.h"
 
 /* Pack schedules transactions assuming they consume all the CUs they
    request in order to accommodate the worst case.  However,
@@ -11,8 +11,8 @@
    bank tiles notify pack of how many CUs can be rebated, pack can use
    that information to schedule additional transactions.
 
-   fd_pack_rebate_sum_t digests microblocks and produces 0-3
-   fd_pack_rebate_t messages which summarizes what rebates are needed.
+   fd_pack_rebate_sum_t digests microblocks and produces
+   fd_pack_rebate_t messages summarizing what rebates are needed.
    From the bank tiles's perspective, fd_pack_rebate_t is an opaque
    type, but pack reads its internals. */
 
@@ -57,15 +57,14 @@ struct fd_pack_rebate {
 };
 typedef struct fd_pack_rebate fd_pack_rebate_t;
 
-/* Entries per report capped so a max-size report is exactly 65408
-   bytes (64 KiB - 128, one dcache slot), which keeps a deep
-   execle_pack link under a gigantic page boundary. */
-#define FD_PACK_REBATE_MAX_ENTRIES (1634UL)
+/* At most one bundle's worth of writable accounts can be added between
+   reports. */
+#define FD_PACK_REBATE_MAX_ENTRIES (MAX_TXN_PER_MICROBLOCK*FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION)
 
 #define FD_PACK_REBATE_MIN_SZ (sizeof(fd_pack_rebate_t)-sizeof(fd_pack_rebate_entry_t))
 #define FD_PACK_REBATE_MAX_SZ (sizeof(fd_pack_rebate_t)+(FD_PACK_REBATE_MAX_ENTRIES-1UL)*sizeof(fd_pack_rebate_entry_t))
 
-FD_STATIC_ASSERT( sizeof(fd_pack_rebate_t)+(FD_PACK_REBATE_MAX_ENTRIES-1UL)*sizeof(fd_pack_rebate_entry_t)==65408UL, rebate_depth );
+FD_STATIC_ASSERT( FD_PACK_REBATE_MAX_SZ<USHORT_MAX, rebate_depth );
 
 
 FD_FN_PURE static inline ulong fd_pack_rebate_sum_align    ( void ) { return alignof(fd_pack_rebate_sum_t); }
