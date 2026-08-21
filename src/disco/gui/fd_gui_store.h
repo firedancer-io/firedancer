@@ -95,7 +95,7 @@ typedef struct fd_gui_store_private fd_gui_store_t;
    region size.  Callers that know their record types at compile time
    should static-assert sizeof(their largest record) <=
    FD_GUI_STORE_MAX_REC_SZ. */
-#define FD_GUI_STORE_REGION_SZ  (36UL<<20)
+#define FD_GUI_STORE_REGION_SZ  (48UL<<20)
 #define FD_GUI_STORE_MAX_REC_SZ (FD_GUI_STORE_REGION_SZ)
 
 /* FD_GUI_STORE_MAX_RINGS is the maximum number of named rings a store
@@ -354,14 +354,14 @@ fd_gui_store_ts_scan_next( fd_gui_store_ts_iter_t * iter );
 void
 fd_gui_store_ts_scan_end( fd_gui_store_ts_iter_t * iter );
 
-/* fd_gui_store_ts_oldest_window returns, in *out_window, the time
-   window for the oldest record in TS ring `ring_idx`.  Returns 1 if the
-   ring holds any record, 0 if it is empty or not a TS ring. */
-
+/* fd_gui_store_ts_live_timestamp_bounds returns the timestamps for the
+   oldest/newest records in TS ring `ring_idx`. Returns 1 if the
+   ring holds any record, 0 if it is empty or not a TS ring.*/
 int
-fd_gui_store_ts_oldest_window( fd_gui_store_t * db,
-                               ulong            ring_idx,
-                               ulong *          out_window );
+fd_gui_store_ts_live_timestamp_bounds( fd_gui_store_t * db,
+                                       ulong            ring_idx,
+                                       long *           out_first_timestamp,
+                                       long *           out_last_timestamp );
 
 /* ---- TS ring: eviction ---------------------------------------------- */
 

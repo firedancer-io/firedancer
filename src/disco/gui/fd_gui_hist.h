@@ -26,13 +26,6 @@ typedef struct fd_gui fd_gui_t;
 
 #define FD_GUI_HIST_MAGIC (0xf17e6d09147802UL)
 
-/* FD_GUI_HIST_TS_SKEW_NS bounds how far a TS record's timestamp may
-   deviate from the trusted wallclock `now` at append time (in either
-   direction).  fd_gui_hist_ts_append clamps ts_ns into [now-skew, now+skew]
-   before flooring it to a window.  This bounds the out-of-orderness of
-   the append stream which ensures the underlying ring buffer can efficiently evict old entries. */
-
-#define FD_GUI_HIST_TS_SKEW_NS (10L*FD_GUI_HIST_RES_1S_NS) /* +/- 10 s */
 #define FD_GUI_HIST_RES_1S_NS (1000000000L)
 
 /* FD_GUI_HIST_MIN_EPOCHS is the minimum number of epochs the store must
@@ -46,10 +39,9 @@ typedef struct fd_gui fd_gui_t;
    epochs at both ends of the horizon. */
 
 #define FD_GUI_HIST_MAX_EPOCHS ((FD_GUI_STORE_TS_IDX_DEPTH*(ulong)FD_GUI_HIST_RES_1S_NS)/(MAX_SLOTS_PER_EPOCH*((FD_SLOT_PARAMS_200MS).ns_per_slot))+2UL)
-
 #define FD_GUI_HIST_SCHEDULER_COUNTS (0)  /* (ts, type)            */
 #define FD_GUI_HIST_TILE_TIMERS      (1)  /* (ts, type)            */
-#define FD_GUI_HIST_SHRED_EVENTS     (2)  /* (ts, type, slot)      */
+#define FD_GUI_HIST_SHRED_EVENTS     (2)
 #define FD_GUI_HIST_TXN_START        (3)  /* (ts, type, bank, txn) */
 #define FD_GUI_HIST_TXN_END          (4)  /* (ts, type, bank, txn) */
 #define FD_GUI_HIST_TOWER            (5)  /* (ts, type)            */
@@ -58,7 +50,10 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_EPOCH            (8)  /* (epoch)               */
 #define FD_GUI_HIST_TILE_STATS       (9)  /* (ts, type)            */
 #define FD_GUI_HIST_TXN_WATERFALL    (10) /* (ts, type)            */
-#define FD_GUI_HIST_CNT              (11)
+#define FD_GUI_HIST_TIMELINE_DAY     (11)
+#define FD_GUI_HIST_REPLAY_TXN       (12)
+#define FD_GUI_HIST_REPLAY_TXN_BATCH (13)
+#define FD_GUI_HIST_CNT              (14)
 
 struct fd_gui_hist_metrics {
   /* Writes that hit MAP_FULL and were dropped. */
@@ -71,7 +66,6 @@ typedef struct fd_gui_hist_metrics fd_gui_hist_metrics_t;
 struct fd_gui_hist_slot_key        { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_leader_slot_key { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_epoch_key       { ulong epoch; };
-
 typedef struct fd_gui_hist_slot_key        fd_gui_hist_slot_key_t;
 typedef struct fd_gui_hist_leader_slot_key fd_gui_hist_leader_slot_key_t;
 typedef struct fd_gui_hist_epoch_key       fd_gui_hist_epoch_key_t;
@@ -159,18 +153,9 @@ fd_gui_hist_metrics( fd_gui_t const * gui );
 
 /* ---- TS read/write -------------------------------------------------- */
 
-/* fd_gui_hist_ts_append appends one record `val` into time-series
-   database `dbi`, tagged with wallclock timestamp `ts_ns`.  `now` is
-   the current wallclock at append time.
-
-   Will evict old entries to make room if necessary.  Returns 0 on
-   success, -1 on failure (e.g. a misconfigured DB size). */
-
 int
 fd_gui_hist_ts_append( fd_gui_t *   gui,
                        int          dbi,
-                       long         now,
-                       long         ts_ns,
                        void const * val );
 
 int
