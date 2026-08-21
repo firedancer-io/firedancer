@@ -625,6 +625,91 @@ compress: (void)0;
 }
 
 void
+fd_blake3_avx512_xof2048( uchar const * restrict root_msg,
+                          uint                   last_block_sz,
+                          ulong                  ctr0,
+                          uint                   last_block_flags,
+                          void *       restrict hash,
+                          uchar const * restrict root_cv_pre ) {
+  wwu_t const iv0 = wwu_bcast( FD_BLAKE3_IV[0] );
+  wwu_t const iv1 = wwu_bcast( FD_BLAKE3_IV[1] );
+  wwu_t const iv2 = wwu_bcast( FD_BLAKE3_IV[2] );
+  wwu_t const iv3 = wwu_bcast( FD_BLAKE3_IV[3] );
+
+  wwu_t const h0 = wwu_bcast( FD_LOAD( uint, root_cv_pre       ) );
+  wwu_t const h1 = wwu_bcast( FD_LOAD( uint, root_cv_pre+ 4UL  ) );
+  wwu_t const h2 = wwu_bcast( FD_LOAD( uint, root_cv_pre+ 8UL  ) );
+  wwu_t const h3 = wwu_bcast( FD_LOAD( uint, root_cv_pre+12UL  ) );
+  wwu_t const h4 = wwu_bcast( FD_LOAD( uint, root_cv_pre+16UL  ) );
+  wwu_t const h5 = wwu_bcast( FD_LOAD( uint, root_cv_pre+20UL  ) );
+  wwu_t const h6 = wwu_bcast( FD_LOAD( uint, root_cv_pre+24UL  ) );
+  wwu_t const h7 = wwu_bcast( FD_LOAD( uint, root_cv_pre+28UL  ) );
+
+  wwu_t m[16] = {
+    wwu_bcast( FD_LOAD( uint, root_msg       ) ), wwu_bcast( FD_LOAD( uint, root_msg+ 4UL ) ),
+    wwu_bcast( FD_LOAD( uint, root_msg+ 8UL  ) ), wwu_bcast( FD_LOAD( uint, root_msg+12UL ) ),
+    wwu_bcast( FD_LOAD( uint, root_msg+16UL  ) ), wwu_bcast( FD_LOAD( uint, root_msg+20UL ) ),
+    wwu_bcast( FD_LOAD( uint, root_msg+24UL  ) ), wwu_bcast( FD_LOAD( uint, root_msg+28UL ) ),
+    wwu_bcast( FD_LOAD( uint, root_msg+32UL  ) ), wwu_bcast( FD_LOAD( uint, root_msg+36UL ) ),
+    wwu_bcast( FD_LOAD( uint, root_msg+40UL  ) ), wwu_bcast( FD_LOAD( uint, root_msg+44UL ) ),
+    wwu_bcast( FD_LOAD( uint, root_msg+48UL  ) ), wwu_bcast( FD_LOAD( uint, root_msg+52UL ) ),
+    wwu_bcast( FD_LOAD( uint, root_msg+56UL  ) ), wwu_bcast( FD_LOAD( uint, root_msg+60UL ) )
+  };
+
+  wwu_t const ctr_add = wwu( 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+                             0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf );
+  wwu_t const sz      = wwu_bcast( last_block_sz );
+  wwu_t const flags   = wwu_bcast( last_block_flags );
+
+  for( ulong i=0UL; i<32UL; i+=16UL ) {
+    ulong ctr = ctr0 + i;
+    wwu_t ctr_lo    = wwu_add( wwu_bcast( ctr ), ctr_add );
+    int   ctr_carry = wwi_gt ( wwu_xor( ctr_add, wwu_bcast( 0x80000000 ) ),
+                               wwu_xor( ctr_lo,  wwu_bcast( 0x80000000 ) ) );
+    wwu_t ctr_hi    = wwu_add_if( ctr_carry, wwu_bcast( ctr>>32 ), wwu_one(), wwu_bcast( ctr>>32 ) );
+
+    wwu_t v[16] = {
+      h0,     h1,     h2, h3,
+      h4,     h5,     h6, h7,
+      iv0,    iv1,    iv2, iv3,
+      ctr_lo, ctr_hi, sz,  flags
+    };
+
+    round_fn16( v, m, 0 );
+    round_fn16( v, m, 1 );
+    round_fn16( v, m, 2 );
+    round_fn16( v, m, 3 );
+    round_fn16( v, m, 4 );
+    round_fn16( v, m, 5 );
+    round_fn16( v, m, 6 );
+
+    wwu_t o0; wwu_t o1; wwu_t o2; wwu_t o3; wwu_t o4; wwu_t o5; wwu_t o6; wwu_t o7;
+    wwu_t o8; wwu_t o9; wwu_t oA; wwu_t oB; wwu_t oC; wwu_t oD; wwu_t oE; wwu_t oF;
+
+    wwu_transpose_16x16( wwu_xor( v[0x0], v[0x8] ), wwu_xor( v[0x1], v[0x9] ),
+                         wwu_xor( v[0x2], v[0xa] ), wwu_xor( v[0x3], v[0xb] ),
+                         wwu_xor( v[0x4], v[0xc] ), wwu_xor( v[0x5], v[0xd] ),
+                         wwu_xor( v[0x6], v[0xe] ), wwu_xor( v[0x7], v[0xf] ),
+                         wwu_xor( v[0x8], h0     ), wwu_xor( v[0x9], h1     ),
+                         wwu_xor( v[0xa], h2     ), wwu_xor( v[0xb], h3     ),
+                         wwu_xor( v[0xc], h4     ), wwu_xor( v[0xd], h5     ),
+                         wwu_xor( v[0xe], h6     ), wwu_xor( v[0xf], h7     ),
+                         o0, o1, o2, o3, o4, o5, o6, o7,
+                         o8, o9, oA, oB, oC, oD, oE, oF );
+
+    uchar * out = (uchar *)hash + (i*64UL);
+    wwu_stu( out + (0x0UL*64UL), o0 ); wwu_stu( out + (0x1UL*64UL), o1 );
+    wwu_stu( out + (0x2UL*64UL), o2 ); wwu_stu( out + (0x3UL*64UL), o3 );
+    wwu_stu( out + (0x4UL*64UL), o4 ); wwu_stu( out + (0x5UL*64UL), o5 );
+    wwu_stu( out + (0x6UL*64UL), o6 ); wwu_stu( out + (0x7UL*64UL), o7 );
+    wwu_stu( out + (0x8UL*64UL), o8 ); wwu_stu( out + (0x9UL*64UL), o9 );
+    wwu_stu( out + (0xaUL*64UL), oA ); wwu_stu( out + (0xbUL*64UL), oB );
+    wwu_stu( out + (0xcUL*64UL), oC ); wwu_stu( out + (0xdUL*64UL), oD );
+    wwu_stu( out + (0xeUL*64UL), oE ); wwu_stu( out + (0xfUL*64UL), oF );
+  }
+}
+
+void
 fd_blake3_avx512_compress16_fast( uchar const * restrict msg,
                                   uchar       * restrict out,
                                   ulong                  counter,
