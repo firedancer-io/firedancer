@@ -387,6 +387,8 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
       ulong memset_sz = fd_ulong_sat_sub( new_region_sz, vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len );
       fd_memset( vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data+vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len, 0, memset_sz );
       vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len = new_region_sz;
+      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/transaction.rs#L546 */
+      vm->acc_region_metas[ region->acc_region_meta_idx ].acc->touched = 1;
       region->region_sz = (uint)new_region_sz;
     }
   }
@@ -434,6 +436,13 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
 
   if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
     return sentinel; /* Illegal write */
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/transaction.rs#L546 */
+  if( FD_UNLIKELY( write && vm->acc_region_metas &&
+                   vm->input_mem_regions[ region_idx ].acc_region_meta_idx!=ULONG_MAX ) ) {
+    fd_acc_t * touched_acc = vm->acc_region_metas[ vm->input_mem_regions[ region_idx ].acc_region_meta_idx ].acc;
+    if( FD_LIKELY( touched_acc ) ) touched_acc->touched = 1;
   }
 
   ulong start_region_idx = region_idx;
