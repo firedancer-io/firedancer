@@ -114,7 +114,7 @@ main( int     argc,
   union{ fd_pack_rebate_t rebate[1]; uchar footprint[USHORT_MAX]; } report;
 
   fd_txn_p_t microblock[MAX_TXN_PER_MICROBLOCK];
-  fd_acct_addr_t alt[MAX_TXN_PER_MICROBLOCK][128];
+  fd_acct_addr_t alt[MAX_TXN_PER_MICROBLOCK][MAX_TX_ACCOUNT_LOCKS];
   fd_acct_addr_t const * _alt[ MAX_TXN_PER_MICROBLOCK ];
   for( ulong i=0UL; i<MAX_TXN_PER_MICROBLOCK; i++ ) _alt[i] = alt[i];
 
@@ -210,24 +210,30 @@ main( int     argc,
   FD_TEST( SZ(0UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->ib_result            ==-1  );
 
-  for( ulong i=0UL; i<MAX_TXN_PER_MICROBLOCK*128UL*32UL; i++ ) alt[i>>12][(i>>5)&0x7F].b[i&0x1F] = (uchar)fd_ulong_hash( i );
   for( ulong i=0UL; i<MAX_TXN_PER_MICROBLOCK; i++ ) {
     fd_txn_t * txn = TXN(microblock+i);
-    txn->acct_addr_cnt         = 0;
-    txn->signature_cnt         = 0;
-    txn->readonly_signed_cnt   = 0;
-    txn->readonly_unsigned_cnt = 0;
-    txn->acct_addr_off         = 0;
-    txn->addr_table_adtl_cnt   = 128;
-    txn->addr_table_adtl_writable_cnt = 128;
-    txn->addr_table_lookup_cnt = 1;
-    microblock[i].payload_sz   = 111UL;
-    microblock[i].flags        = SANITIZE | EXECUTE;
+    txn->acct_addr_cnt                  = 0;
+    txn->signature_cnt                  = 0;
+    txn->readonly_signed_cnt            = 0;
+    txn->readonly_unsigned_cnt          = 0;
+    txn->acct_addr_off                  = 0;
+    txn->addr_table_adtl_cnt            = (uchar)MAX_TX_ACCOUNT_LOCKS;
+    txn->addr_table_adtl_writable_cnt   = (uchar)MAX_TX_ACCOUNT_LOCKS;
+    txn->addr_table_lookup_cnt          = 1;
+    microblock[i].payload_sz            = 111UL;
+    microblock[i].flags                 = SANITIZE | EXECUTE;
     microblock[i].execle_cu.rebated_cus = 100U;
   }
-  FD_TEST(                              0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, MAX_TXN_PER_MICROBLOCK ) );
-  FD_TEST( SZ(MAX_TXN_PER_MICROBLOCK*128UL)==fd_pack_rebate_sum_report ( sum, report.rebate                            ) );
-  FD_TEST(                              0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 0UL                    ) );
+  ulong const alt_byte_cnt = sizeof(alt);
+  for( ulong batch=0UL; batch<2UL; batch++ ) {
+    for( ulong i=0UL; i<alt_byte_cnt; i++ )
+      ((uchar *)alt)[i] = (uchar)fd_ulong_hash( batch*alt_byte_cnt+i );
+    FD_TEST( 0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, MAX_TXN_PER_MICROBLOCK ) );
+  }
+  FD_TEST( SZ(FD_PACK_REBATE_MAX_ENTRIES)==fd_pack_rebate_sum_report ( sum, report.rebate         ) );
+  FD_TEST( SZ(FD_PACK_REBATE_MAX_ENTRIES)==fd_pack_rebate_sum_report ( sum, report.rebate         ) );
+  FD_TEST(                            0UL==fd_pack_rebate_sum_report ( sum, report.rebate         ) );
+  FD_TEST(                            0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 0UL ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
