@@ -323,6 +323,10 @@ handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
     stake_map_ele_insert( ctx->stake.map, entry, ctx->stake.pool );
   }
   ctx->stake.count = stake_pool_used( ctx->stake.pool );
+
+  /* A stake update can cause gossip to discard CRDS values that were
+     accepted under the previous stake table. */
+  *ctx->tcache.sync = fd_tcache_reset( ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt );
 }
 
 static int
