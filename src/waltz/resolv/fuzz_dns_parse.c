@@ -28,7 +28,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
   uint8_t rrtype = (data[ 0 ] & 1u) ? RR_A : RR_AAAA;
 
   struct address addrs[ MAXADDRS ] = {0};
-  char           canon[ 256 ]      = {0};
+  char           canon[ FD_FQDN_BUF_MAX ] = {0};
   struct dpc_ctx ctx = {
       .addrs = addrs,
       .canon = canon,

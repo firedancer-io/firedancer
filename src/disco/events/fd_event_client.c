@@ -106,7 +106,7 @@ struct fd_event_client {
      authenticating. */
   long auth_deadline;
 
-  char   server_fqdn[ 256 ]; /* cstr */
+  char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
   ulong  server_fqdn_len;
   uint   server_ip4_addr;
   ushort server_tcp_port;
@@ -180,7 +180,7 @@ fd_event_client_new( void *                 shmem,
                                           "[tiles.event.url]" ) ) ) {
     FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
   }
-  if( FD_UNLIKELY( url->host_len > 255 ) ) {
+  if( FD_UNLIKELY( url->host_len>=FD_FQDN_BUF_MAX ) ) {
     FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
   }
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( client->server_fqdn ), url->host, url->host_len ) );

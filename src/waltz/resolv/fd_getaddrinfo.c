@@ -39,7 +39,7 @@ fd_getaddrinfo( char const * restrict          host,
   }
 
   struct address addrs[ MAXADDRS ];
-  char canon[ 256 ];
+  char canon[ FD_FQDN_BUF_MAX ];
   int const naddrs = fd_lookup_name( addrs, canon, host, family, flags );
   if( naddrs < 0 ) return naddrs;
 

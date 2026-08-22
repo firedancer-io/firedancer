@@ -21,7 +21,7 @@
 static int
 is_valid_hostname( char const * host ) {
   uchar const * s;
-  if( strnlen( host, 255 )-1 >= 254 ) return 0;
+  if( strnlen( host, FD_FQDN_BUF_MAX-1UL )-1UL>=FD_FQDN_BUF_MAX-2UL ) return 0;
   for( s=(void *)host; *s>=0x80 || *s=='.' || *s=='-' || fd_isalnum( *s ); s++ );
   return !*s;
 }
@@ -56,7 +56,7 @@ name_from_numeric( struct address buf[ static 1 ],
 
 static int
 name_from_hosts( struct address buf[ static MAXADDRS ],
-                 char           canon[ static 256 ],
+                 char           canon[ static FD_FQDN_BUF_MAX ],
                  char const *   name,
                  int            family ) {
   ulong l = strlen( name );
@@ -132,7 +132,7 @@ dns_parse_callback( void *       c,
                     int          len,
                     void const * packet,
                     int          plen ) {
-  char tmp[256];
+  char tmp[ FD_FQDN_BUF_MAX ];
   int family = AF_UNSPEC;
   struct dpc_ctx *ctx = c;
   if( rr == RR_CNAME ) {
@@ -161,7 +161,7 @@ dns_parse_callback( void *       c,
 
 static int
 name_from_dns( struct address          buf[ static MAXADDRS ],
-               char                    canon[ static 256 ],
+               char                    canon[ static FD_FQDN_BUF_MAX ],
                char const *            name,
                int                     family,
                fd_resolvconf_t const * conf ) {
@@ -212,7 +212,7 @@ name_from_dns( struct address          buf[ static MAXADDRS ],
 
 static int
 name_from_dns_search( struct address buf[ static MAXADDRS ],
-                      char           canon[ static 256 ],
+                      char           canon[ static FD_FQDN_BUF_MAX ],
                       char const *   name,
                       int            family ) {
   fd_resolvconf_t conf;
@@ -229,7 +229,7 @@ name_from_dns_search( struct address buf[ static MAXADDRS ],
   if( !l || name[l-1]=='.' ) return FD_EAI_NONAME;
 
   /* This can never happen; the caller already checked length. */
-  if( l >= 256 ) return FD_EAI_NONAME;
+  if( l>=FD_FQDN_BUF_MAX ) return FD_EAI_NONAME;
 
   /* Name with search domain appended is setup in canon[]. This both
    * provides the desired default canonical name (if the requested
@@ -246,11 +246,11 @@ int
 fd_dns_ip4_local( char const * name,
                   uint *       addrs,
                   ulong        addr_max ) {
-  ulong l = strnlen( name, 255 );
-  if( FD_UNLIKELY( l-1UL>=254UL ) ) return FD_EAI_NONAME;
+  ulong l = strnlen( name, FD_FQDN_BUF_MAX-1UL );
+  if( FD_UNLIKELY( l-1UL>=FD_FQDN_BUF_MAX-2UL ) ) return FD_EAI_NONAME;
 
   struct address buf[ MAXADDRS ];
-  char           canon[ 256 ];
+  char           canon[ FD_FQDN_BUF_MAX ];
   int cnt = name_from_numeric( buf, name, AF_INET );
   if( !cnt ) cnt = name_from_hosts( buf, canon, name, AF_INET );
   if( cnt<=0 ) return cnt;
@@ -283,7 +283,7 @@ fd_dns_ip4_answer( uchar const * answer,
   if( FD_UNLIKELY( (answer[ 3 ]&15)!=0 ) ) return FD_EAI_FAIL;
 
   struct address buf[ MAXADDRS ];
-  char           canon[ 256 ] = {0};
+  char           canon[ FD_FQDN_BUF_MAX ] = {0};
   struct dpc_ctx ctx = { .addrs = buf, .canon = canon, .rrtype = RR_A };
   int parse_err = fd_dns_parse( answer, (int)fd_ulong_min( answer_sz, ABUF_SIZE ), dns_parse_callback, &ctx );
   /* A malformed/truncated packet with no usable leading records is
@@ -402,7 +402,7 @@ addrcmp( void const * _a,
 
 int
 fd_lookup_name( struct address buf[ static MAXADDRS ],
-                char           canon[ static 256 ],
+                char           canon[ static FD_FQDN_BUF_MAX ],
                 char const *   name,
                 int            family,
                 int            flags ) {
@@ -411,8 +411,8 @@ fd_lookup_name( struct address buf[ static MAXADDRS ],
   *canon = 0;
   if( name ) {
     /* reject empty name and check len so it fits into temp bufs */
-    size_t l = strnlen( name, 255 );
-    if( l-1 >= 254 )
+    size_t l = strnlen( name, FD_FQDN_BUF_MAX-1UL );
+    if( l-1UL>=FD_FQDN_BUF_MAX-2UL )
       return FD_EAI_NONAME;
     memcpy( canon, name, l+1 );
   }

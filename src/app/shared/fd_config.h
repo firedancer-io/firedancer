@@ -3,6 +3,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../waltz/http/fd_url.h"
 
 #include <net/if.h>
 
@@ -127,7 +128,7 @@ struct fd_configf {
   } runtime;
 
   struct {
-    char host[ 256 ];
+    char host[ FD_FQDN_BUF_MAX ];
   } gossip;
 
   struct {
@@ -148,7 +149,7 @@ struct fd_configf {
       } gossip;
 
       ulong servers_cnt;
-      char  servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ 128 ];
+      char  servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ FD_URL_MAX ];
     } sources;
 
     int  incremental_snapshots;
@@ -318,7 +319,7 @@ struct fd_config {
 
   struct {
     ulong         entrypoints_cnt;
-    char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ 262 ];
+    char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
     ushort        port;
   } gossip;
 
@@ -455,8 +456,8 @@ struct fd_config {
 
     struct {
       int  enabled;
-      char url[ 256 ];
-      char tls_domain_name[ 256 ];
+      char url[ FD_URL_MAX ];
+      char tls_domain_name[ FD_SNI_BUF_MAX ];
       char tip_distribution_program_addr[ FD_BASE58_ENCODED_32_SZ ];
       char tip_payment_program_addr[ FD_BASE58_ENCODED_32_SZ ];
       char tip_distribution_authority[ FD_BASE58_ENCODED_32_SZ ];
@@ -493,7 +494,7 @@ struct fd_config {
     } metric;
 
     struct {
-      char url[ 256 ];
+      char url[ FD_URL_MAX ];
     } event;
 
     struct {

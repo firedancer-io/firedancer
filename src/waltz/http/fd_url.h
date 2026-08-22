@@ -6,6 +6,7 @@
    This API is by no means compliant.  Works only for basic strings.  */
 
 #include "../../util/fd_util_base.h"
+#include "../fd_fqdn.h"
 
 /* fd_url_t holds a bunch of pointers into an URL string. */
 
@@ -14,7 +15,7 @@ struct fd_url {
   ulong        scheme_len;
 
   char const * host;
-  ulong        host_len; /* <=255 */
+  ulong        host_len; /* <FD_FQDN_BUF_MAX */
 
   char const * port;
   ulong        port_len;
@@ -29,6 +30,12 @@ typedef struct fd_url fd_url_t;
 #define FD_URL_ERR_SCHEME      1
 #define FD_URL_ERR_HOST_OVERSZ 2
 #define FD_URL_ERR_USERINFO    3
+
+/* Storage required for an HTTP(S) origin containing a maximum-sized
+   host and an explicit five-digit port, including the terminating NUL.
+   Paths, queries, and fragments are not included. */
+#define FD_URL_FORMAT_OVERHEAD (14UL)
+#define FD_URL_MAX             (FD_FQDN_BUF_MAX+FD_URL_FORMAT_OVERHEAD)
 
 FD_PROTOTYPES_BEGIN
 
@@ -56,7 +63,7 @@ fd_url_parse_cstr( fd_url_t *   url,
      - If the URL omits an explicit port we default to 443/80 and then flip
        `is_ssl` based on the scheme so downstream sockets know whether
        to open TLS.
-     - Host names larger than 255 bytes are rejected
+     - Hosts containing FD_FQDN_BUF_MAX bytes or more are rejected
    The function does not enforce the host being non-empty; that is left to
    the caller because some control paths treat an empty host differently
    (e.g. surfacing a custom error message).

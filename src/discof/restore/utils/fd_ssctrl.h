@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_restore_utils_fd_ssctrl_h
 
 #include "../../../util/net/fd_net_headers.h"
+#include "../../../waltz/fd_fqdn.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 
 /* The snapshot tiles have a somewhat involved state machine, which is
@@ -126,7 +127,7 @@ typedef struct fd_ssctrl_init {
   ulong         slot; /* slot advertised by the snapshot peer */
   fd_ip4_port_t addr;
   uchar         snapshot_hash[ FD_HASH_FOOTPRINT ]; /* advertised snapshot hash from snapshot file name */
-  char          hostname[ 256UL ];
+  char          hostname[ FD_FQDN_BUF_MAX ];
   char          path[ PATH_MAX ];
   ulong         path_len;
   int           is_https;

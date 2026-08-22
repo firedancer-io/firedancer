@@ -4,6 +4,7 @@
 #include "../stem/fd_stem.h"
 #include "../../tango/fd_tango.h"
 #include "../../waltz/xdp/fd_xdp1.h"
+#include "../../waltz/http/fd_url.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/net/fd_net_headers.h"
@@ -228,7 +229,7 @@ struct fd_topo_tile {
       char identity_key_path[ PATH_MAX ];
 
       ulong entrypoints_cnt;
-      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
 
       long boot_timestamp_nanos;
 
@@ -237,7 +238,7 @@ struct fd_topo_tile {
       ushort shred_version;
       int allow_private_address;
 
-      char          gossip_host[ 256 ];
+      char          gossip_host[ FD_FQDN_BUF_MAX ];
       fd_ip4_port_t gossip_addr;
       fd_ip4_port_t src_addr;
     } gossvf;
@@ -246,11 +247,11 @@ struct fd_topo_tile {
       char identity_key_path[ PATH_MAX ];
 
       ulong entrypoints_cnt;
-      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
 
       long boot_timestamp_nanos;
 
-      char   gossip_host[ 256 ];
+      char   gossip_host[ FD_FQDN_BUF_MAX ];
       uint   net_ip_addr; /* net.ip_addr fallback when gossip_host empty */
       uint   ip_addr;
       uint   bind_ip_addr;
@@ -295,9 +296,9 @@ struct fd_topo_tile {
     } dedup;
 
     struct {
-      char  url[ 256 ];
+      char  url[ FD_URL_MAX ];
       ulong url_len;
-      char  sni[ 256 ];
+      char  sni[ FD_SNI_BUF_MAX ];
       ulong sni_len;
       char  identity_key_path[ PATH_MAX ];
       char  key_log_path[ PATH_MAX ];
@@ -309,7 +310,7 @@ struct fd_topo_tile {
     } bundle;
 
     struct {
-      char   url[ 256 ];
+      char   url[ FD_URL_MAX ];
       char   identity_key_path[ PATH_MAX ];
       char   action[ 16 ];
       uchar  genesis_hash[ 32 ];
@@ -424,7 +425,7 @@ struct fd_topo_tile {
       int  delay_startup;
 
       int    snapshot_server_enabled;
-      char   snapshot_server_host[ 256 ];
+      char   snapshot_server_host[ FD_FQDN_BUF_MAX ];
       ushort snapshot_server_port;
     } rpc;
 
@@ -617,7 +618,7 @@ struct fd_topo_tile {
       char snapshots_path[ PATH_MAX ];
 
       ulong entrypoints_cnt;
-      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
 
       struct {
         uint max_local_full_effective_age;
@@ -632,7 +633,7 @@ struct fd_topo_tile {
         } gossip;
 
         ulong         servers_cnt;
-        char          servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ 128 ];
+        char          servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ FD_URL_MAX ];
       } sources;
 
       int  incremental_snapshots;
@@ -667,7 +668,7 @@ struct fd_topo_tile {
 
       ushort expected_shred_version;
       ulong entrypoints_cnt;
-      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
     } ipecho;
 
     struct {
@@ -684,7 +685,7 @@ struct fd_topo_tile {
 
       ushort expected_shred_version;
       ulong entrypoints_cnt;
-      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
 
       int has_expected_genesis_hash;
       uchar expected_genesis_hash[ 32UL ];
