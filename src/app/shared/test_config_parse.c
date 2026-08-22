@@ -8,6 +8,14 @@ static char const cfg_str_1[] =
   "[gossip]\n"
   "  entrypoints = [\"208.91.106.45:8080\"]";
 
+static char const cfg_str_oversized_array[] =
+  "[ledger]\n"
+  "  account_indexes = [\"01234567890123456789012345678901\"]";
+
+static char const cfg_str_invalid_aliased_array[] =
+  "[consensus]\n"
+  "  authorized_voter_paths = [1]";
+
 static char const cfg_str_2[] =
   "wumbo = \"mini\"";
 
@@ -83,6 +91,18 @@ main( int     argc,
   FD_TEST( config->firedancer.snapshots.sources.servers_cnt==1UL );
   FD_TEST( !strcmp( config->firedancer.snapshots.sources.servers[0], endpoint ) );
   FD_TEST( !strcmp( config->tiles.bundle.url, endpoint ) );
+
+  /* Reject invalid direct and aliased array elements. */
+
+  memset( config, 0, sizeof(config_t) );
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_oversized_array, sizeof(cfg_str_oversized_array)-1UL, pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+  FD_TEST( !fd_config_extract_pod( pod, config ) );
+
+  memset( config, 0, sizeof(config_t) );
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_invalid_aliased_array, sizeof(cfg_str_invalid_aliased_array)-1UL, pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+  FD_TEST( !fd_config_extract_pod( pod, config ) );
 
   /* Reject unrecognized config keys */
 
