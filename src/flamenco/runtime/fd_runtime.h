@@ -71,6 +71,14 @@
    txn_out (not committable) --> fd_runtime_cancel_txn()
 */
 
+struct fd_runtime_bpf_loader_syscalls {
+  ulong              magic;
+  ulong              slot_key;
+  ulong              rebuild_cnt;
+  fd_sbpf_syscalls_t map[ FD_SBPF_SYSCALLS_SLOT_CNT ];
+};
+typedef struct fd_runtime_bpf_loader_syscalls fd_runtime_bpf_loader_syscalls_t;
+
 struct fd_runtime {
   fd_accdb_t *     accdb;
   fd_txncache_t *  status_cache;
@@ -138,9 +146,10 @@ struct fd_runtime {
   } bpf_loader_serialization;
 
   struct {
-    uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
-    uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
-    uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+    uchar                            rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
+    uchar                            sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
+    uchar                            programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+    fd_runtime_bpf_loader_syscalls_t syscalls;
   } bpf_loader_program;
 
   union {
@@ -330,6 +339,20 @@ struct fd_txn_out {
 typedef struct fd_txn_out fd_txn_out_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_runtime_bpf_loader_syscalls_init invalidates a runtime-local
+   execution syscall cache.  fd_runtime_bpf_loader_syscalls_get returns
+   the syscall map for bank, rebuilding it only when the effective
+   feature-gated syscall set changes.  A runtime is single-worker state;
+   callers must not change bank's feature set while a VM using the
+   returned map is live. */
+
+void
+fd_runtime_bpf_loader_syscalls_init( fd_runtime_bpf_loader_syscalls_t * syscalls );
+
+fd_sbpf_syscalls_t *
+fd_runtime_bpf_loader_syscalls_get( fd_runtime_bpf_loader_syscalls_t * syscalls,
+                                    fd_bank_t const *                  bank );
 
 /* fd_runtime_block_execute_prepare kicks off the execution of a block.
    After this function is called, transactions can be executed and

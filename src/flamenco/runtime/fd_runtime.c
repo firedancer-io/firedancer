@@ -28,6 +28,33 @@
 
 FD_STATIC_ASSERT( MAX_STAKE_WEIGHTS==FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, vat_stake_weights );
 
+#define FD_RUNTIME_BPF_SYSCALLS_MAGIC (0xF17EDA2CE5B5C001UL)
+
+void
+fd_runtime_bpf_loader_syscalls_init( fd_runtime_bpf_loader_syscalls_t * syscalls ) {
+  syscalls->magic       = FD_RUNTIME_BPF_SYSCALLS_MAGIC;
+  syscalls->slot_key    = ULONG_MAX;
+  syscalls->rebuild_cnt = 0UL;
+}
+
+fd_sbpf_syscalls_t *
+fd_runtime_bpf_loader_syscalls_get( fd_runtime_bpf_loader_syscalls_t * syscalls,
+                                    fd_bank_t const *                  bank ) {
+  if( FD_UNLIKELY( (!syscalls) | (!bank) ) ) return NULL;
+  if( FD_UNLIKELY( syscalls->magic!=FD_RUNTIME_BPF_SYSCALLS_MAGIC ) ) fd_runtime_bpf_loader_syscalls_init( syscalls );
+
+  ulong slot_key = fd_vm_syscall_slot_key( bank->f.slot, &bank->f.features, 0 );
+  fd_sbpf_syscalls_t * map = fd_sbpf_syscalls_join( syscalls->map );
+
+  if( FD_UNLIKELY( slot_key!=syscalls->slot_key ) ) {
+    if( FD_UNLIKELY( fd_vm_syscall_register_slot( map, bank->f.slot, &bank->f.features, 0 ) ) ) return NULL;
+    syscalls->slot_key = slot_key;
+    syscalls->rebuild_cnt++;
+  }
+
+  return map;
+}
+
 /*
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1254-L1258
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1749

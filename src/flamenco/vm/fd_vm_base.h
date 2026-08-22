@@ -758,6 +758,17 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
                         char const *           name,
                         fd_sbpf_syscall_func_t func );
 
+/* fd_vm_syscall_slot_key returns an opaque key identifying the exact
+   feature-gated syscall set selected for slot and is_deploy.  Equal
+   keys select the same set.  The return value is never ULONG_MAX.
+   Callers may use this to cache a syscall map across slots where the
+   effective feature set does not change. */
+
+FD_FN_PURE ulong
+fd_vm_syscall_slot_key( ulong                 slot,
+                        fd_features_t const * features,
+                        uchar                 is_deploy );
+
 /* fd_vm_syscall_register_slot unmaps all syscalls in the current map
    (also ending any interest in the corresponding name cstr) and
    registers all syscalls appropriate for the slot.  Returns
