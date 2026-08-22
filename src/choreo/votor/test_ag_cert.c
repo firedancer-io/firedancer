@@ -1,5 +1,7 @@
 #include "ag_cert_serde.h"
 
+#include "../../third_party/blst/bindings/blst.h"
+
 #define TEST_SHRED_VERSION ((ushort)514)
 #include <stdlib.h>
 
@@ -17,7 +19,7 @@ create_signers( ulong n ) {
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( g_info[i].bls_key, g_sk[i] );
+    ag_bls_sec_to_pub( g_sk[i], g_info[i].bls_key );
   }
 }
 
@@ -384,17 +386,105 @@ test_sig_validity( void ) {
   free( em );
 }
 
+/* agave votor/src/aggregate_accumulator.rs:124-125
+
+   "Individually valid votes can still be chosen such that their signatures
+   cancel to the identity within one partition, making any certificate
+   containing that partition invalid.  Treat an identity partition as absent
+   and do not count its stake."  Ranks 9 and 10 hold negated keys -- proof of
+   possession does not prevent that -- so their two fallback signatures over
+   the same payload sum to the point at infinity.  The research reference has
+   no such check, so there is no test of it to mirror. */
+
+static void
+negate_sec( ag_bls_sec_t       out,
+            ag_bls_sec_t const in ) {
+  blst_scalar s[1];
+  blst_fr     f[1];
+  blst_scalar_from_lendian( s, in );
+  blst_fr_from_scalar( f, s );
+  blst_fr_cneg( f, f, 1 );
+  blst_scalar_from_fr( s, f );
+  memcpy( out, s->b, AG_BLS_SEC_SZ );
+}
+
+/* the bitmap version byte of a serialized notar-fallback cert: 0 is base2
+   (one partition), 1 is base3 (two).  The bitmap follows the head, whose
+   size includes the block hash. */
+
+static uchar
+bitmap_version( ag_cert_t const * c ) {
+  uchar buf[ 512 ];
+  FD_TEST( ag_cert_ser( c, TEST_SHRED_VERSION, buf, sizeof(buf), NULL )==0 );
+  return buf[ sizeof(ag_cert_serde_t) ];
+}
+
+static void
+test_identity_partition( void ) {
+  ulong n = 11UL;
+  create_signers( n );
+  negate_sec( g_sk[10], g_sk[9] );
+  ag_bls_sec_to_pub( g_sk[10], g_info[10].bls_key );
+  void * em; ag_epoch_info_t * e = make_epoch( n, &em );
+  ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
+
+  ag_notar_vote_t          nv [ 11 ];
+  ag_notar_fallback_vote_t fv [ 11 ];
+  ag_skip_vote_t           sv [ 11 ];
+  ag_skip_fallback_vote_t  sfv[ 11 ];
+  ag_cert_t c; c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
+
+  /* control: ranks 8 and 9 do not cancel, so both partitions survive */
+  mk_notar( nv, 1UL, h, 0UL, 7UL );
+  mk_nf   ( fv, 1UL, h, 8UL, 2UL );
+  c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 7UL, fv, 2UL, e );
+  FD_TEST( cert_stake( &c )==9UL );
+  FD_TEST( cert_is_signer( &c, 8UL ) && cert_is_signer( &c, 9UL ) );
+  FD_TEST( bitmap_version( &c )==1 );
+  FD_TEST( cert_verify( &c, e ) );
+
+  /* ranks 9 and 10 cancel: the fallback partition is absent, its stake is not
+     counted, and the cert degrades to the single partition form */
+  mk_nf( fv, 1UL, h, 9UL, 2UL );
+  c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 7UL, fv, 2UL, e );
+  FD_TEST( ag_bls_agg_signer_cnt( &c.inner.notar_fallback.agg_sig_notar_fallback )==0UL );
+  FD_TEST( !cert_is_signer( &c, 9UL ) && !cert_is_signer( &c, 10UL ) );
+  FD_TEST( cert_stake( &c )==7UL );
+  FD_TEST( bitmap_version( &c )==0 );
+  FD_TEST( cert_verify( &c, e ) ); /* the 7 surviving notar votes still clear 60% */
+
+  /* same in a skip cert's fallback partition */
+  mk_skip( sv,  1UL, 0UL, 7UL );
+  mk_sf  ( sfv, 1UL, 9UL, 2UL );
+  c.kind = AG_CERT_TYPE_SKIP;
+  c.inner.skip = ag_skip_cert_construct( sv, 7UL, sfv, 2UL, e );
+  FD_TEST( ag_bls_agg_signer_cnt( &c.inner.skip.agg_sig_skip_fallback )==0UL );
+  FD_TEST( !cert_is_signer( &c, 9UL ) && !cert_is_signer( &c, 10UL ) );
+  FD_TEST( cert_stake( &c )==7UL );
+  FD_TEST( cert_verify( &c, e ) );
+
+  /* without the dropped partition the remaining stake can fall short, which is
+     what stops ag_slot_state.c from emitting the cert at all */
+  mk_notar( nv, 1UL, h, 0UL, 6UL );
+  c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
+  c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 6UL, fv, 2UL, e );
+  FD_TEST( cert_stake( &c )==6UL );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  free( em );
+}
+
 static ulong
-put_aggregate( uchar * p, ulong nbits, ulong signer_cnt ) {
+put_aggregate( uchar * p, ulong bits, ulong signer_cnt ) {
   memset( p, 0, AG_BLS_SIG_COMPRESSED_SZ );
   p[0] = 0xc0;
-  ulong payload = (nbits+7UL)/8UL;
+  ulong payload = (bits+7UL)/8UL;
   ulong bm_cnt  = 3UL+payload;
   p[ AG_BLS_SIG_COMPRESSED_SZ     ] = (uchar)( bm_cnt     & 0xffUL );
   p[ AG_BLS_SIG_COMPRESSED_SZ+1UL ] = (uchar)( (bm_cnt>>8) & 0xffUL );
   uchar * b = p+AG_BLS_SIG_COMPRESSED_SZ+2UL;
   b[0] = 0;
-  b[1] = (uchar)( nbits & 0xffUL ); b[2] = (uchar)( nbits>>8 );
+  b[1] = (uchar)( bits & 0xffUL ); b[2] = (uchar)( bits>>8 );
   memset( b+3UL, 0, payload );
   for( ulong i=0UL; i<signer_cnt; i++ ) b[ 3UL+(i>>3) ] = (uchar)( b[ 3UL+(i>>3) ] | (1U<<(i&7UL)) );
   return AG_BLS_SIG_COMPRESSED_SZ+2UL+bm_cnt;
@@ -459,6 +549,7 @@ main( int     argc,
   test_failure_cases();
   test_thresholds();
   test_sig_validity();
+  test_identity_partition();
 
   test_footer_de();
   FD_LOG_NOTICE(( "pass" ));

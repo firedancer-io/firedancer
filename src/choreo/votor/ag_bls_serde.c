@@ -7,14 +7,15 @@ ag_bls_ser( ag_bls_agg_t const * agg,
             uchar *              buf,
             ulong                buf_max,
             ulong *              buf_sz ) {
-  ulong word_cnt = AG_BLS_WORDS_FOR_BITS( agg->nbits );
-  ulong sz       = AG_BLS_SERIALIZED_SZ( agg->nbits );
+  ulong bits     = fd_ulong_min( AG_BLS_SIGNERS_MAX, signer_set_last( agg->bitmask )+1UL );
+  ulong word_cnt = AG_BLS_WORDS_FOR_BITS( bits );
+  ulong sz       = AG_BLS_SERIALIZED_SZ( bits );
   if( FD_UNLIKELY( buf_max<sz ) ) return -1;
 
   ag_bls_serde_t * out = (ag_bls_serde_t *)buf;
 
   fd_memcpy( out->signature, agg->sig, AG_BLS_SIG_SZ );
-  out->bit_cnt  = agg->nbits;
+  out->bit_cnt  = bits;
   out->word_cnt = word_cnt;
 
   uchar * p = (uchar *)( out+1 );
@@ -36,27 +37,26 @@ ag_bls_de( ag_bls_agg_t * agg,
   ulong                  bit_cnt  = serde->bit_cnt;
   ulong                  word_cnt = serde->word_cnt;
 
-  if( FD_UNLIKELY( word_cnt>AG_BLS_WORDS_FOR_BITS( AG_BLS_MAX_SIGNERS ) ) ) return 0UL;
-  if( FD_UNLIKELY( bit_cnt >AG_BLS_MAX_SIGNERS                          ) ) return 0UL;
-  if( FD_UNLIKELY( bit_cnt >word_cnt*64UL                               ) ) return 0UL;
-  if( FD_UNLIKELY( buf_max <sizeof(ag_bls_serde_t)+word_cnt*8UL         ) ) return 0UL;
+  if( FD_UNLIKELY( word_cnt>signer_set_word_cnt                 ) ) return 0UL;
+  if( FD_UNLIKELY( bit_cnt >AG_BLS_SIGNERS_MAX                  ) ) return 0UL;
+  if( FD_UNLIKELY( bit_cnt >word_cnt*64UL                       ) ) return 0UL;
+  if( FD_UNLIKELY( buf_max <sizeof(ag_bls_serde_t)+word_cnt*8UL ) ) return 0UL;
 
   fd_memcpy( agg->sig, serde->signature, AG_BLS_SIG_SZ );
-  voter_set_null( agg->bitmask );
-  agg->nbits = bit_cnt;
+  signer_set_null( agg->bitmask );
 
   uchar const * p = (uchar const *)( serde+1 );
   for( ulong w=0UL; w<word_cnt; w++ ) {
-    agg->bitmask[w] = (voter_set_t)FD_LOAD( ulong, p ); p += 8UL;
+    agg->bitmask[w] = (signer_set_t)FD_LOAD( ulong, p ); p += 8UL;
   }
 
   /* aggsig.rs read_bitvec ends with `bitmask.truncate(num_bits)`; drop any
      bit the sender set above the declared count so the set stays valid and
-     signer_cnt/signers() cannot report a rank >= nbits. */
+     signer_cnt/signers() cannot report a rank >= bits. */
   ulong tail = bit_cnt & 63UL;
   ulong last = bit_cnt >> 6;
-  if( tail ) agg->bitmask[ last ] &= (voter_set_t)( (1UL<<tail)-1UL );
-  for( ulong w=(tail ? last+1UL : last); w<word_cnt; w++ ) agg->bitmask[ w ] = (voter_set_t)0UL;
+  if( tail ) agg->bitmask[ last ] &= (signer_set_t)( (1UL<<tail)-1UL );
+  for( ulong w=(tail ? last+1UL : last); w<word_cnt; w++ ) agg->bitmask[ w ] = (signer_set_t)0UL;
 
   return sizeof(ag_bls_serde_t) + word_cnt*8UL;
 }

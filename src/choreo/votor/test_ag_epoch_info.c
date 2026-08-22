@@ -11,7 +11,7 @@ make_epoch( ulong   n,
     v[i].id    = i;
     v[i].stake = 1UL;
     ag_bls_sec_t sk; fd_memset( sk, (int)(i+1UL), AG_BLS_SEC_SZ );
-    ag_bls_sec_to_pub( v[i].bls_key, sk );
+    ag_bls_sec_to_pub( sk, v[i].bls_key );
   }
   ag_epoch_info_t * ei = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
   FD_TEST( ei );

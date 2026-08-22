@@ -7,7 +7,7 @@
 static void
 test_basic( void ) {
   ag_bls_sec_t sk; fd_memset( sk, 9, AG_BLS_SEC_SZ );
-  ag_bls_pub_t pk; ag_bls_sec_to_pub( pk, sk );
+  ag_bls_pub_t pk; ag_bls_sec_to_pub( sk, pk );
   ag_block_hash_t h; memset( h, 0, sizeof(ag_block_hash_t) );
 
   ag_vote_t v;
@@ -102,17 +102,17 @@ check_wire( ag_vote_t const * v, ag_bls_pub_t const pk ) {
   uchar        payload[ AG_VOTE_PAYLOAD_MAX ];
   ulong        payload_sz = ag_vote_payload_bytes_to_sign( payload, v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION );
   ag_bls_sig_t sig; fd_memcpy( sig, wire_sig, AG_BLS_SIG_SZ );
-  FD_TEST( ag_bls_sig_verify_bytes( sig, pk, payload, payload_sz ) );
+  FD_TEST( ag_bls_sig_verify( sig, pk, payload, payload_sz ) );
 
   payload[ 1 ] ^= 0xFFu;
-  FD_TEST( !ag_bls_sig_verify_bytes( sig, pk, payload, payload_sz ) );
+  FD_TEST( !ag_bls_sig_verify( sig, pk, payload, payload_sz ) );
 }
 
 static void
 test_serialize( void ) {
   uchar        ikm[ 64 ]; for( ulong i=0UL; i<64UL; i++ ) ikm[i] = (uchar)(i+1u);
   ag_bls_sec_t sk; ag_bls_sec_derive( sk, ikm, sizeof(ikm) );
-  ag_bls_pub_t pk; ag_bls_sec_to_pub( pk, sk );
+  ag_bls_pub_t pk; ag_bls_sec_to_pub( sk, pk );
   ag_block_hash_t h; for( ulong i=0UL; i<32UL; i++ ) h[i] = (uchar)(0xA0u+i);
 
   ag_vote_t v;

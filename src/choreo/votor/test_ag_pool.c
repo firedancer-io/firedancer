@@ -129,7 +129,7 @@ create_validators( void ) {
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( g_info[i].bls_key, g_sk[i] );
+    ag_bls_sec_to_pub( g_sk[i], g_info[i].bls_key );
   }
 }
 
@@ -785,7 +785,7 @@ test_standstill_recovery( void ) {
   }
 
   for( ulong i=0UL; i<certs_cnt; i++ ) {
-    uchar buf[ sizeof(ag_cert_serde_t) + sizeof(ag_cert_bitmap_serde_t) + (AG_BLS_MAX_SIGNERS+4UL)/5UL + 2UL ];
+    uchar buf[ sizeof(ag_cert_serde_t) + sizeof(ag_cert_bitmap_serde_t) + (AG_BLS_SIGNERS_MAX+4UL)/5UL + 2UL ];
     ulong sz;
     FD_TEST( ag_cert_ser( &certs[i], TEST_SHRED_VERSION, buf, sizeof(buf), &sz )==0 );
     ag_cert_t rt; ulong consumed;
