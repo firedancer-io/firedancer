@@ -39,7 +39,8 @@
         return NULL;                                                   \
       }                                                                \
       fd_pod_info_t sub_info = fd_pod_iter_info( iter );               \
-      fdctl_cfg_get_##type( &config->cfg_path[j], sizeof(config->cfg_path[j]), &sub_info, key ); \
+      if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path[j], sizeof(config->cfg_path[j]), &sub_info, key ) ) ) \
+        return NULL;                                                    \
       j++;                                                             \
     }                                                                  \
     config->cfg_path ## _cnt = j;                                      \
