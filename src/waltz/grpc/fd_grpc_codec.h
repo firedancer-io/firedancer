@@ -46,7 +46,7 @@ typedef struct fd_grpc_hdr fd_grpc_hdr_t;
 
 struct fd_grpc_req_hdrs {
   char const * host; /* excluding port */
-  ulong        host_len; /* <=255 */
+  ulong        host_len;
   ushort       port;
   char const * path;
   ulong        path_len;

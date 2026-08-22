@@ -11,6 +11,7 @@
    bundle tiles. */
 
 #include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
+#include "../../waltz/fd_fqdn.h"           /* FD_FQDN_BUF_MAX */
 
 #include <netdb.h> /* struct addrinfo */
 
@@ -65,7 +66,7 @@ fd_dns_resolve_peers( char const *    peers,
 void
 fd_dns_peer_parse( char const * peer,
                    char const * config_str,
-                   char         hostname[ static 256UL ],
+                   char         hostname[ static FD_FQDN_BUF_MAX ],
                    ushort *     port,
                    int *        is_https );
 

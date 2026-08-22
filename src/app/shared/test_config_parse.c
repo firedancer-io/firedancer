@@ -58,6 +58,32 @@ main( int     argc,
   FD_TEST( config->gossip.entrypoints_cnt == 1 );
   FD_TEST( 0==strcmp( config->gossip.entrypoints[0], "208.91.106.45:8080" ) );
 
+  /* Maximum-sized URL values survive config extraction. */
+
+  char endpoint[ FD_URL_MAX ];
+  fd_memcpy( endpoint, "https://", 8UL );
+  fd_memset( endpoint+8UL, 'a', FD_FQDN_BUF_MAX-1UL );
+  fd_memcpy( endpoint+8UL+FD_FQDN_BUF_MAX-1UL, ":65535", 6UL );
+  endpoint[ FD_URL_MAX-1UL ] = '\0';
+
+  char  cfg_str_limits[ 4096 ];
+  ulong cfg_str_limits_sz;
+  FD_TEST( fd_cstr_printf_check( cfg_str_limits, sizeof(cfg_str_limits), &cfg_str_limits_sz,
+                                "[snapshots.sources]\n"
+                                "servers = [\"%s\"]\n"
+                                "[tiles.bundle]\n"
+                                "url = \"%s\"\n",
+                                endpoint, endpoint ) );
+
+  memset( config, 0, sizeof(config_t) );
+  config->is_firedancer = 1;
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_limits, cfg_str_limits_sz, pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+  FD_TEST( fd_config_extract_pod( pod, config )==config );
+  FD_TEST( config->firedancer.snapshots.sources.servers_cnt==1UL );
+  FD_TEST( !strcmp( config->firedancer.snapshots.sources.servers[0], endpoint ) );
+  FD_TEST( !strcmp( config->tiles.bundle.url, endpoint ) );
+
   /* Reject unrecognized config keys */
 
   memset( config, 0, sizeof(config_t) );

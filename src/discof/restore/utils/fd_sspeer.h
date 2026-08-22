@@ -3,13 +3,14 @@
 
 #include "../../../util/fd_util_base.h"
 #include "../../../util/net/fd_net_headers.h"
+#include "../../../waltz/fd_fqdn.h"
 #include "../../../flamenco/fd_flamenco_base.h"
 
 struct fd_sspeer_key {
   union {
     fd_pubkey_t pubkey[ 1 ];        /* gossip peers: key by pubkey. */
     struct {                        /* HTTP server peers: key by hostname + addr. */
-      char          hostname[ 256 ];
+      char          hostname[ FD_FQDN_BUF_MAX ];
       fd_ip4_port_t resolved_addr;  /* disambiguates multiple IPs for same hostname. */
     } url;
   };

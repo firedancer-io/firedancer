@@ -56,7 +56,7 @@ fd_url_parse_cstr( fd_url_t *   const url,
     }
   }
 
-  if( FD_UNLIKELY( host_len>255 ) ) {
+  if( FD_UNLIKELY( host_len>=FD_FQDN_BUF_MAX ) ) {
     *opt_err = FD_URL_ERR_HOST_OVERSZ;
     return NULL;
   }

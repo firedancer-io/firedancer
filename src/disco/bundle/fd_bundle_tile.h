@@ -11,6 +11,7 @@
    - Does busy polling (no power saving features) */
 
 #include "../topo/fd_topo.h"
+#include "../../waltz/http/fd_url.h"
 
 struct fd_bundle_tile;
 typedef struct fd_bundle_tile fd_bundle_tile_t;
@@ -22,7 +23,7 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 
 struct fd_bundle_block_engine_update {
   char name[ 16 ];
-  char url[ 256 ];
+  char url[ FD_URL_MAX ];
   char ip_cstr[ 40 ]; /* IPv4 or IPv6 cstr */
 };
 typedef struct fd_bundle_block_engine_update fd_bundle_block_engine_update_t;

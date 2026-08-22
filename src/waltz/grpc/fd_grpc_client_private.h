@@ -105,9 +105,9 @@ struct fd_grpc_client_private {
   fd_h2_rbuf_t frame_tx[1]; /* unencrypted HTTP/2 TX frame buffer */
 
   /* HTTP/2 authority */
-  char   host[ 256 ];
+  char   host[ FD_FQDN_BUF_MAX ];
   ushort port; /* <=65535 */
-  uchar  host_len; /* <=255 */
+  uchar  host_len; /* <FD_FQDN_BUF_MAX */
 
   /* TLS connection */
   uint  ssl_hs_done : 1;

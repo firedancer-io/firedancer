@@ -8,6 +8,7 @@
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../waltz/grpc/fd_grpc_client.h"
+#include "../../waltz/http/fd_url.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/fd_rtt_est.h"
 #include "../../util/alloc/fd_alloc.h"
@@ -109,9 +110,9 @@ struct fd_bundle_tile {
 # endif /* FD_HAS_OPENSSL */
 
   /* Config */
-  char   server_fqdn[ 256 ]; /* cstr */
+  char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
   ulong  server_fqdn_len;
-  char   server_sni[ 256 ]; /* cstr */
+  char   server_sni[ FD_SNI_BUF_MAX ]; /* cstr */
   ulong  server_sni_len;
   ushort server_tcp_port;
 

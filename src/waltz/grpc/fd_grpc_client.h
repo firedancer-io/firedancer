@@ -5,6 +5,7 @@
    streaming gRPC requests over HTTP/2+TLS. */
 
 #include "fd_grpc_codec.h"
+#include "../fd_fqdn.h"
 #include "../../third_party/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
 #if FD_HAS_OPENSSL
 #include <openssl/types.h> /* SSL */
@@ -198,8 +199,8 @@ fd_grpc_client_set_version( fd_grpc_client_t * client,
                             ulong              version_len );
 
 /* fd_grpc_client_set_authority sets the authority header to the
-   specified hostname and port number.  host_len should be <= 255,
-   otherwise host is truncated. */
+   specified hostname and port number.  host_len should be less than
+   FD_FQDN_BUF_MAX, otherwise host is truncated. */
 
 void
 fd_grpc_client_set_authority( fd_grpc_client_t * client,

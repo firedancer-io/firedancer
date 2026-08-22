@@ -21,6 +21,7 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
+#include "../../waltz/http/fd_url.h"
 
 #include <stddef.h>
 #include <sys/socket.h>
@@ -308,7 +309,7 @@ struct fd_rpc_tile {
 
   /* Redirect to snapshot server */
   int    snapshot_server_enabled;
-  char   snapshot_server_url[ 288UL ];
+  char   snapshot_server_url[ FD_URL_MAX ];
 };
 
 typedef struct fd_rpc_tile fd_rpc_tile_t;

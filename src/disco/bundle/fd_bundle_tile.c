@@ -175,12 +175,12 @@ fd_bundle_tile_publish_block_engine_update(
 
   strncpy( update->name, "jito", sizeof(update->name) );
 
-  /* Deliberately silently truncates */
-  snprintf( update->url, sizeof(update->url), "%s://%.*s:%u",
-            ctx->is_ssl ? "https" : "http",
-            (int)ctx->server_fqdn_len,
-            ctx->server_fqdn,
-            ctx->server_tcp_port );
+  FD_TEST( fd_cstr_printf_check( update->url, sizeof(update->url), NULL,
+                                "%s://%.*s:%u",
+                                ctx->is_ssl ? "https" : "http",
+                                (int)ctx->server_fqdn_len,
+                                ctx->server_fqdn,
+                                ctx->server_tcp_port ) );
 
   /* Format IPv4 string */
   snprintf( update->ip_cstr, sizeof(update->ip_cstr),
@@ -332,7 +332,7 @@ fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
                                           "[tiles.bundle.url]" ) ) ) {
     FD_LOG_ERR(( "Could not parse [tiles.bundle.url]" ));
   }
-  if( FD_UNLIKELY( url->host_len > 255 ) ) {
+  if( FD_UNLIKELY( url->host_len>=FD_FQDN_BUF_MAX ) ) {
     FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
   }
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_fqdn ), url->host, url->host_len ) );

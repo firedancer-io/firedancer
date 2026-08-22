@@ -20,6 +20,7 @@
 #include "../../util/fd_util_base.h"
 #include "../../util/hist/fd_histf.h"
 #include "../../waltz/http/fd_http_server.h"
+#include "../../waltz/http/fd_url.h"
 #include "../../flamenco/accdb/fd_accdb_cache.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 
@@ -883,7 +884,7 @@ struct fd_gui {
   struct {
     int has_block_engine;
     char name[ 16 ];
-    char url[ 256 ];
+    char url[ FD_URL_MAX ];
     char ip_cstr[ 40 ]; /* IPv4 or IPv6 cstr */
     int status;
   } block_engine;
