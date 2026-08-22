@@ -1,4 +1,5 @@
 #include "fd_resolv.h"
+#include "../fd_fqdn.h"
 #include "../../util/log/fd_log.h" /* fd_tickcount() support */
 #include <string.h>
 
@@ -13,7 +14,7 @@ fd_res_mkquery( int           op,
                 int           type,
                 uchar *       buf,
                 int           buflen ) {
-  size_t l = strnlen( dname, 255 );
+  size_t l = strnlen( dname, FD_FQDN_BUF_MAX-1UL );
 
   if( l && dname[l-1]=='.' ) l--;
   if( l && dname[l-1]=='.' ) return -1;

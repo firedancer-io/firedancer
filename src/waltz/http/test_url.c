@@ -138,6 +138,34 @@ test_url_parse( void ) {
     FD_TEST( !memcmp( url.port, "8080", 4 ) );
   }
 
+  { /* Maximum-sized endpoint */
+    char endpoint[ FD_URL_MAX ];
+    fd_memcpy( endpoint, "https://", 8UL );
+    fd_memset( endpoint+8UL, 'a', FD_FQDN_BUF_MAX-1UL );
+    fd_memcpy( endpoint+8UL+FD_FQDN_BUF_MAX-1UL, ":65535", 6UL );
+    endpoint[ FD_URL_MAX-1UL ] = '\0';
+
+    fd_url_t url;
+    ushort port;
+    _Bool  is_ssl;
+    FD_TEST( !fd_url_parse_endpoint( &url, endpoint, FD_URL_MAX-1UL, &port, &is_ssl, "test URL" ) );
+    FD_TEST( url.host_len==FD_FQDN_BUF_MAX-1UL );
+    FD_TEST( port==USHORT_MAX && is_ssl );
+  }
+
+  { /* Host one byte over the supported maximum */
+    char endpoint[ FD_URL_MAX+1UL ];
+    fd_memcpy( endpoint, "https://", 8UL );
+    fd_memset( endpoint+8UL, 'a', FD_FQDN_BUF_MAX );
+    fd_memcpy( endpoint+8UL+FD_FQDN_BUF_MAX, ":65535", 6UL );
+    endpoint[ FD_URL_MAX ] = '\0';
+
+    fd_url_t url;
+    int err;
+    FD_TEST( !fd_url_parse_cstr( &url, endpoint, FD_URL_MAX, &err ) );
+    FD_TEST( err==FD_URL_ERR_HOST_OVERSZ );
+  }
+
   { /* Invalid scheme */
     fd_url_t url;
     int err;

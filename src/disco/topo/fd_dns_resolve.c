@@ -69,7 +69,7 @@ fd_dns_resolve_addresses( char const *            address,
 void
 fd_dns_peer_parse( char const * peer,
                    char const * config_str,
-                   char         hostname[ static 256UL ],
+                   char         hostname[ static FD_FQDN_BUF_MAX ],
                    ushort *     port,
                    int *        is_https ) {
 
@@ -96,7 +96,7 @@ fd_dns_peer_parse( char const * peer,
   if( FD_UNLIKELY( !fqdn_len ) ) {
     FD_LOG_ERR(( "invalid [%s] entry \"%s\": no hostname", config_str, host_port ));
   }
-  if( FD_UNLIKELY( fqdn_len>255 ) ) {
+  if( FD_UNLIKELY( fqdn_len>=FD_FQDN_BUF_MAX ) ) {
     FD_LOG_ERR(( "invalid [%s] entry \"%s\": hostname too long", config_str, host_port ));
   }
   fd_memcpy( hostname, host_port, fqdn_len );
@@ -125,7 +125,7 @@ fd_dns_resolve_peers( char const *    peers,
   if( FD_UNLIKELY( peer_cnt>FD_DNS_RESOLVE_PEERS_MAX ) ) FD_LOG_ERR(( "too many [%s] entries (%lu)", config_str, peer_cnt ));
   if( FD_UNLIKELY( !peer_cnt ) ) return;
 
-  char hostname[ FD_DNS_RESOLVE_PEERS_MAX ][ 256UL ];
+  char hostname[ FD_DNS_RESOLVE_PEERS_MAX ][ FD_FQDN_BUF_MAX ];
   for( ulong i=0UL; i<peer_cnt; i++ ) {
     fd_dns_peer_parse( peers+i*peer_stride, config_str, hostname[ i ], &out[ i ].port, NULL );
   }

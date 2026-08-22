@@ -18,6 +18,7 @@
 #include "../../util/hist/fd_histf.h"
 #include "../../util/math/fd_stat.h" /* fd_sort_up_ulong_* */
 #include "../../waltz/http/fd_http_server.h"
+#include "../../waltz/http/fd_url.h"
 
 #include <math.h> /* exp */
 
@@ -791,7 +792,7 @@ struct fd_guih {
   struct {
     int has_block_engine;
     char name[ 16 ];
-    char url[ 256 ];
+    char url[ FD_URL_MAX ];
     char ip_cstr[ 40 ]; /* IPv4 or IPv6 cstr */
     int status;
   } block_engine;

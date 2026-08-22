@@ -28,7 +28,7 @@ LLVMFuzzerInitialize( int *argc,
 int
 LLVMFuzzerTestOneInput( uchar const *data,
                         ulong        size ) {
-  char tmp[256] = {0};
+  char tmp[ FD_FQDN_BUF_MAX ] = {0};
 
   /* Need at least two bytes for the offset plus one byte of data */
   if( FD_UNLIKELY( size<3 )) {

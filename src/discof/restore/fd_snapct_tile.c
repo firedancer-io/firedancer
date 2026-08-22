@@ -108,14 +108,14 @@ struct fd_snapct_tile {
 
   fd_adns_t * adns;
   struct {
-    char   hostname[ 256UL ];
+    char   hostname[ FD_FQDN_BUF_MAX ];
     ushort port; /* net order */
     int    is_https;
     int    resolved;
     long   retry_nanos; /* re-queue due time, 0 while in flight */
   } dns_servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ];
   struct {
-    char   hostname[ 256UL ];
+    char   hostname[ FD_FQDN_BUF_MAX ];
     ushort port;
     int    resolved;
     long   retry_nanos;
@@ -124,7 +124,7 @@ struct fd_snapct_tile {
   ulong resolved_servers_cnt;
   struct {
     fd_ip4_port_t addr;
-    char          hostname[ 256UL ];
+    char          hostname[ FD_FQDN_BUF_MAX ];
     int           is_https;
   } resolved_servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED ];
 

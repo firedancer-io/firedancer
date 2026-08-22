@@ -9,6 +9,7 @@
 
 #include "fd_grpc_codec.h"
 #include "../h2/fd_h2_rbuf.h"
+#include "../fd_fqdn.h"
 
 int
 LLVMFuzzerInitialize( int *argc,
@@ -38,7 +39,7 @@ expect_hdr( fd_hpack_rd_t *hpack_rd, fd_h2_hdr_t *hdr, uchar **scratch,
 int
 LLVMFuzzerTestOneInput( uchar const *data,
                         ulong size ) {
-  char host[256], path[256], bearer_auth[256], version[256];
+  char host[FD_FQDN_BUF_MAX], path[256], bearer_auth[256], version[256];
   char host_port[512], user_agent[512];
   ulong minimum_len = sizeof( ushort )+ // port
                       sizeof( char )+ // https

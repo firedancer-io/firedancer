@@ -6,6 +6,7 @@
 #include <features.h>
 #include <netinet/in.h>
 #include "fd_netdb.h"
+#include "../fd_fqdn.h"
 
 struct aibuf {
   fd_addrinfo_t ai;
@@ -41,7 +42,7 @@ typedef struct fd_resolvconf fd_resolvconf_t;
 
 __attribute__((__visibility__("hidden"))) int
 fd_lookup_name( struct address buf[ static MAXADDRS ],
-                char           canon[ static 256 ],
+                char           canon[ static FD_FQDN_BUF_MAX ],
                 const char *   name,
                 int            family,
                 int            flags );

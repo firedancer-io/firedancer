@@ -14,6 +14,7 @@
    (before the sandbox). */
 
 #include "../../util/fd_util_base.h"
+#include "../fd_fqdn.h"
 
 #define FD_ADNS_MAGIC (0xF17EDA2CEADD5000) /* FIREDANCE ADNS V0 */
 
@@ -59,9 +60,9 @@ fd_adns_leave( fd_adns_t * adns );
 void *
 fd_adns_delete( void * shadns );
 
-/* Queue name (cstr, <=255 chars) for resolution.  req_id is an opaque
-   cookie returned with the result.  Returns 0 on success, -1 if the
-   request table is full. */
+/* Queue name (cstr fitting in FD_FQDN_BUF_MAX bytes) for resolution.
+   req_id is an opaque cookie returned with the result.  Returns 0 on
+   success, -1 if the request table is full. */
 
 int
 fd_adns_resolve( fd_adns_t *  adns,

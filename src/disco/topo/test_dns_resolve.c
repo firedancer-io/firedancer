@@ -15,7 +15,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   ulong peer_cnt = fd_ulong_min( (ulong)( argc-1 ), FD_DNS_RESOLVE_PEERS_MAX );
-  static char peers[ FD_DNS_RESOLVE_PEERS_MAX ][ 262UL ];
+  static char peers[ FD_DNS_RESOLVE_PEERS_MAX ][ FD_HOSTPORT_BUF_MAX ];
   for( ulong i=0UL; i<peer_cnt; i++ ) fd_cstr_ncpy( peers[ i ], argv[ 1+i ], sizeof(peers[ i ]) );
 
   fd_ip4_port_t out[ FD_DNS_RESOLVE_PEERS_MAX ];
