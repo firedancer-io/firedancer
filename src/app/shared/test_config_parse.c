@@ -8,6 +8,10 @@ static char const cfg_str_1[] =
   "[gossip]\n"
   "  entrypoints = [\"208.91.106.45:8080\"]";
 
+static char const cfg_str_oversized_array[] =
+  "[ledger]\n"
+  "  account_indexes = [\"01234567890123456789012345678901\"]";
+
 static char const cfg_str_2[] =
   "wumbo = \"mini\"";
 
@@ -57,6 +61,13 @@ main( int     argc,
 
   FD_TEST( config->gossip.entrypoints_cnt == 1 );
   FD_TEST( 0==strcmp( config->gossip.entrypoints[0], "208.91.106.45:8080" ) );
+
+  /* Reject a 32-byte value from an array with 31-byte cstr capacity. */
+
+  memset( config, 0, sizeof(config_t) );
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_oversized_array, sizeof(cfg_str_oversized_array)-1UL, pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+  FD_TEST( !fd_config_extract_pod( pod, config ) );
 
   /* Reject unrecognized config keys */
 
