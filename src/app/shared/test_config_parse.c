@@ -91,6 +91,46 @@ main( int     argc,
   FD_TEST( fd_toml_parse( cfg_str_2, sizeof(cfg_str_2)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( !fd_config_extract_pod( pod, config ) );
 
+  /* Reject configs where any element of an array fails validation. A single
+     invalid element rejects the whole key rather than being skipped while
+     still counted in the extracted array. */
+
+  static char const cfg_str_6[] =
+    "[gossip]\n"
+    "  entrypoints = [\"208.91.106.45:8080\", 123]";
+
+  memset( config, 0, sizeof(config_t) );
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_6, sizeof(cfg_str_6)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( !fd_config_extract_pod( pod, config ) );
+
+  /* An entrypoint longer than its fixed destination slot is likewise rejected */
+
+  char long_entrypoint[ FD_HOSTPORT_BUF_MAX+16UL ];
+  fd_memset( long_entrypoint, 'a', sizeof(long_entrypoint)-1UL );
+  long_entrypoint[ sizeof(long_entrypoint)-1UL ] = '\0';
+
+  char  cfg_str_long_ep[ 1024 ];
+  ulong cfg_str_long_ep_sz;
+  FD_TEST( fd_cstr_printf_check( cfg_str_long_ep, sizeof(cfg_str_long_ep), &cfg_str_long_ep_sz,
+                                 "[gossip]\nentrypoints = [\"%s\"]", long_entrypoint ) );
+
+  memset( config, 0, sizeof(config_t) );
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_long_ep, cfg_str_long_ep_sz, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( !fd_config_extract_pod( pod, config ) );
+
+  /* Same rejection for CFG_POP1_ARRAY keys */
+
+  static char const cfg_str_7[] =
+    "[consensus]\n"
+    "  authorized_voter_paths = [\"/ok.json\", false]";
+
+  memset( config, 0, sizeof(config_t) );
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_7, sizeof(cfg_str_7)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( !fd_config_extract_pod( pod, config ) );
+
   /* The default config must parse fine */
 
   memset( config, 0, sizeof(config_t) );
