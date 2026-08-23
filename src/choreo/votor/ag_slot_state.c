@@ -277,7 +277,7 @@ count_notar_stake( ag_slot_state_t *     slot_state,
       ulong nf_cnt = gather_nf_votes   ( slot_state, block_hash );
       ag_cert_t cert; cert.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
       cert.inner.notar_fallback = ag_notar_fallback_cert_construct( gather_notar, n_cnt, gather_nf, nf_cnt, epoch_info );
-      out_push_cert( &outputs, &cert );
+      if( FD_LIKELY( ag_epoch_info_is_quorum( epoch_info, cert.inner.notar_fallback.stake ) ) ) out_push_cert( &outputs, &cert );
     } else {
       log_own_agg_complete( slot_state, AG_CERT_TYPE_NOTAR_FALLBACK, nf_stake + notar_stake );
     }
@@ -323,7 +323,7 @@ count_notar_fallback_stake( ag_slot_state_t *     slot_state,
       ulong nf_cnt = gather_nf_votes   ( slot_state, block_hash );
       ag_cert_t cert; cert.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
       cert.inner.notar_fallback = ag_notar_fallback_cert_construct( gather_notar, n_cnt, gather_nf, nf_cnt, epoch_info );
-      out_push_cert( &outputs, &cert );
+      if( FD_LIKELY( ag_epoch_info_is_quorum( epoch_info, cert.inner.notar_fallback.stake ) ) ) out_push_cert( &outputs, &cert );
     } else {
       log_own_agg_complete( slot_state, AG_CERT_TYPE_NOTAR_FALLBACK, nf_stake + notar_stake );
     }
@@ -370,7 +370,7 @@ count_skip_stake( ag_slot_state_t * slot_state,
       }
       ag_cert_t cert; cert.kind = AG_CERT_TYPE_SKIP;
       cert.inner.skip = ag_skip_cert_construct( gather_skip, skip_cnt, gather_sf, sf_cnt, epoch_info );
-      out_push_cert( &outputs, &cert );
+      if( FD_LIKELY( ag_epoch_info_is_quorum( epoch_info, cert.inner.skip.stake ) ) ) out_push_cert( &outputs, &cert );
     } else {
       log_own_agg_complete( slot_state, AG_CERT_TYPE_SKIP, total_skip_stake );
     }

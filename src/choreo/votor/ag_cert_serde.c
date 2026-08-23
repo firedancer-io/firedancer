@@ -11,20 +11,29 @@ FD_STATIC_ASSERT( sizeof(ag_cert_block_final_serde_t    )==8UL+sizeof(ag_block_h
 #define BASE2_BITMAP (0)
 #define BASE3_BITMAP (1)
 
+/* One past the highest signer, or zero when nobody signed.  Agave trims
+   the rank bitvec to exactly this width when it builds a certificate, and
+   to the wider of the two partitions for base3. */
+
+static ulong
+bit_cnt( ag_bls_agg_t const * agg ) {
+  return fd_ulong_min( AG_BLS_SIGNERS_MAX, signer_set_last( agg->bitmask )+1UL );
+}
+
 static ulong
 base2_bitmap_ser( uchar *              out,
                   ag_bls_agg_t const * agg ) {
   ag_cert_bitmap_serde_t * bm      = (ag_cert_bitmap_serde_t *)out;
-  ulong                    nbits   = agg->nbits;
-  ulong                    payload = (nbits+7UL)/8UL;
+  ulong                    bits    = bit_cnt( agg );
+  ulong                    payload = (bits+7UL)/8UL;
 
   bm->version = (uchar)BASE2_BITMAP;
-  bm->bit_cnt = (ushort)nbits;
+  bm->bit_cnt = (ushort)bits;
 
   uchar * p = (uchar *)( bm+1 );
   fd_memset( p, 0, payload );
-  for( ulong i=0UL; i<nbits; i++ ) {
-    if( voter_set_test( agg->bitmask, i ) ) p[ i>>3 ] |= (uchar)( 1U << (i&7U) );
+  for( ulong i=0UL; i<bits; i++ ) {
+    if( signer_set_test( agg->bitmask, i ) ) p[ i>>3 ] |= (uchar)( 1U << (i&7U) );
   }
   return sizeof(ag_cert_bitmap_serde_t) + payload;
 }
@@ -34,21 +43,21 @@ base3_bitmap_ser( uchar *              out,
                   ag_bls_agg_t const * base,
                   ag_bls_agg_t const * fb ) {
   ag_cert_bitmap_serde_t * bm      = (ag_cert_bitmap_serde_t *)out;
-  ulong                    nbits   = base->nbits;
-  ulong                    nchunks = (nbits+4UL)/5UL;
+  ulong                    bits    = fd_ulong_max( bit_cnt( base ), bit_cnt( fb ) );
+  ulong                    nchunks = (bits+4UL)/5UL;
 
   bm->version = (uchar)BASE3_BITMAP;
-  bm->bit_cnt = (ushort)nbits;
+  bm->bit_cnt = (ushort)bits;
 
   uchar * p = (uchar *)( bm+1 );
   for( ulong chunk=0UL; chunk<nchunks; chunk++ ) {
     ulong start = chunk*5UL;
-    ulong end   = fd_ulong_min( start+5UL, nbits );
+    ulong end   = fd_ulong_min( start+5UL, bits );
     uint  block = 0U;
     uint  place = 1U;
     for( ulong i=start; i<end; i++ ) {
-      uint digit = voter_set_test( base->bitmask, i ) ? 1U
-                 : voter_set_test( fb->bitmask,   i ) ? 2U : 0U;
+      uint digit = signer_set_test( base->bitmask, i ) ? 1U
+                 : signer_set_test( fb->bitmask,   i ) ? 2U : 0U;
       block += digit*place;
       place *= 3U;
     }
@@ -70,17 +79,17 @@ base2_bitmap_de( ag_bls_agg_t * agg,
   if( FD_UNLIKELY( b_sz<sizeof(ag_cert_bitmap_serde_t) ) ) return AG_CERT_DE_ERR_TRUNCATED;
 
   ag_cert_bitmap_serde_t const * bm      = (ag_cert_bitmap_serde_t const *)b;
-  ulong                          nbits   = (ulong)bm->bit_cnt;
+  ulong                          bits    = (ulong)bm->bit_cnt;
   ulong                          payload = b_sz - sizeof(ag_cert_bitmap_serde_t);
-  if( FD_UNLIKELY( bm->version!=BASE2_BITMAP     ) ) return AG_CERT_DE_ERR_MALFORMED;
-  if( FD_UNLIKELY( nbits>AG_BLS_MAX_SIGNERS   ) ) return AG_CERT_DE_ERR_MALFORMED;
-  if( FD_UNLIKELY( payload!=(nbits+7UL)/8UL      ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( bm->version!=BASE2_BITMAP ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( bits>AG_BLS_SIGNERS_MAX   ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( payload!=(bits+7UL)/8UL   ) ) return AG_CERT_DE_ERR_MALFORMED;
 
-  ag_bls_agg_init( agg, nbits );
+  ag_bls_agg_zero( agg );
 
   uchar const * p = (uchar const *)( bm+1 );
-  for( ulong i=0UL; i<nbits; i++ ) {
-    if( (p[ i>>3 ] >> (i&7U)) & 1U ) voter_set_insert( agg->bitmask, i );
+  for( ulong i=0UL; i<bits; i++ ) {
+    if( (p[ i>>3 ] >> (i&7U)) & 1U ) signer_set_insert( agg->bitmask, i );
   }
   return AG_CERT_DE_SUCCESS;
 }
@@ -93,25 +102,25 @@ base3_bitmap_de( ag_bls_agg_t * base,
   if( FD_UNLIKELY( b_sz<sizeof(ag_cert_bitmap_serde_t) ) ) return AG_CERT_DE_ERR_TRUNCATED;
 
   ag_cert_bitmap_serde_t const * bm      = (ag_cert_bitmap_serde_t const *)b;
-  ulong                          nbits   = (ulong)bm->bit_cnt;
+  ulong                          bits    = (ulong)bm->bit_cnt;
   ulong                          payload = b_sz - sizeof(ag_cert_bitmap_serde_t);
-  ulong                          nchunks = (nbits+4UL)/5UL;
-  if( FD_UNLIKELY( bm->version!=BASE3_BITMAP   ) ) return AG_CERT_DE_ERR_MALFORMED;
-  if( FD_UNLIKELY( nbits>AG_BLS_MAX_SIGNERS ) ) return AG_CERT_DE_ERR_MALFORMED;
-  if( FD_UNLIKELY( payload!=nchunks            ) ) return AG_CERT_DE_ERR_MALFORMED;
+  ulong                          nchunks = (bits+4UL)/5UL;
+  if( FD_UNLIKELY( bm->version!=BASE3_BITMAP ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( bits>AG_BLS_SIGNERS_MAX   ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( payload!=nchunks          ) ) return AG_CERT_DE_ERR_MALFORMED;
 
-  ag_bls_agg_init( base, nbits );
-  ag_bls_agg_init( fb,   nbits );
+  ag_bls_agg_zero( base );
+  ag_bls_agg_zero( fb   );
 
   uchar const * p = (uchar const *)( bm+1 );
   for( ulong chunk=0UL; chunk<nchunks; chunk++ ) {
     uint  block = (uint)p[ chunk ];
     ulong start = chunk*5UL;
-    ulong end   = fd_ulong_min( start+5UL, nbits );
+    ulong end   = fd_ulong_min( start+5UL, bits );
     for( ulong i=start; i<end; i++ ) {
       uint digit = block % 3U; block /= 3U;
-      if(      digit==1U ) voter_set_insert( base->bitmask, i );
-      else if( digit==2U ) voter_set_insert( fb->bitmask,   i );
+      if(      digit==1U ) signer_set_insert( base->bitmask, i );
+      else if( digit==2U ) signer_set_insert( fb->bitmask,   i );
     }
   }
   return AG_CERT_DE_SUCCESS;
@@ -174,7 +183,8 @@ ag_cert_ser( ag_cert_t const * self,
 
   if( fb && !ag_bls_agg_signer_cnt( fb ) ) fb = NULL;
 
-  ulong bm_sz   = sizeof(ag_cert_bitmap_serde_t) + ( fb ? (base->nbits+4UL)/5UL : (base->nbits+7UL)/8UL );
+  ulong bits    = fb ? fd_ulong_max( bit_cnt( base ), bit_cnt( fb ) ) : bit_cnt( base );
+  ulong bm_sz   = sizeof(ag_cert_bitmap_serde_t) + ( fb ? (bits+4UL)/5UL : (bits+7UL)/8UL );
   ulong head_sz = sizeof(ag_cert_serde_t) - ( hash ? 0UL : sizeof(ag_block_hash_t) );
   ulong sz      = head_sz + bm_sz + sizeof(ushort);
   if( FD_UNLIKELY( buf_max<sz ) ) return -1;
@@ -266,7 +276,7 @@ ag_cert_de( ag_cert_t *   cert,
     cert->inner.notar_fallback.slot = slot;
     memcpy( cert->inner.notar_fallback.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( bm_cnt<1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_init( f, b->nbits ); }
+    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_zero( f ); }
     else                      { if( FD_UNLIKELY( err = base3_bitmap_de( b, f, bm, bm_cnt ) ) ) return err; }
     fd_memcpy( b->sig, sig, AG_BLS_SIG_SZ );
     break;
@@ -276,7 +286,7 @@ ag_cert_de( ag_cert_t *   cert,
     ag_bls_agg_t * f = &cert->inner.skip.agg_sig_skip_fallback;
     cert->inner.skip.slot = slot;
     if( FD_UNLIKELY( bm_cnt<1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_init( f, b->nbits ); }
+    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_zero( f ); }
     else                      { if( FD_UNLIKELY( err = base3_bitmap_de( b, f, bm, bm_cnt ) ) ) return err; }
     fd_memcpy( b->sig, sig, AG_BLS_SIG_SZ );
     break;

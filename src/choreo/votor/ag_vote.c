@@ -26,7 +26,7 @@ sign_payload( ag_bls_sig_t          sig,
               ushort                shred_version ) {
   uchar buf[ AG_VOTE_PAYLOAD_MAX ];
   ulong sz = ag_vote_payload_bytes_to_sign( buf, kind, slot, h, shred_version );
-  ag_bls_sec_sign_bytes( sig, sk, buf, sz );
+  ag_bls_sec_sign( sk, sig, buf, sz );
 }
 
 static int
@@ -38,7 +38,7 @@ verify_payload( ag_bls_sig_t const    sig,
                 ushort                shred_version ) {
   uchar buf[ AG_VOTE_PAYLOAD_MAX ];
   ulong sz = ag_vote_payload_bytes_to_sign( buf, kind, slot, h, shred_version );
-  return ag_bls_sig_verify_bytes( sig, pk, buf, sz );
+  return ag_bls_sig_verify( sig, pk, buf, sz );
 }
 
 void
