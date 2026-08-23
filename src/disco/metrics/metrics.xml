@@ -464,7 +464,7 @@ EXAMPLES
     <counter name="PktRx" summary="Number of packets successfully published to output links." />
     <counter name="PktRxBytes" summary="Number of bytes in packets successfully published to output links (including Ethernet header)." />
     <counter name="RxOutOfBuffer" summary="Number of packets dropped by the NIC because this QP's receive queue had no posted buffer." />
-    <counter name="PktRxMalformed" summary="Number of packets dropped because the Ethernet, IPv4, or UDP header was malformed." />
+    <counter name="PktRxMalformed" summary="Number of packets dropped because they exceeded the receive buffer or had malformed Ethernet, IPv4, or UDP headers." />
     <counter name="PktRxRouteFail" summary="Number of packets dropped because the destination UDP port could not be routed to an output link." />
     <counter name="GrePktRx" summary="Number of GRE packets successfully decapsulated and published." />
     <counter name="GrePktRxInvalid" summary="Number of GRE packets dropped because the tunnel peer or headers were invalid." />
@@ -479,6 +479,7 @@ EXAMPLES
     <counter name="PktTxNoNeighbor" summary="Number of transmit jobs dropped because the next-hop neighbor was unresolved." />
     <counter name="GrePktTxSubmitted" summary="Number of GRE transmit jobs submitted to the NIC." />
     <counter name="GrePktTxNoRoute" summary="Number of GRE transmit jobs dropped because the inner or outer route was incomplete." />
+    <counter name="GrePktTxOversize" summary="Number of GRE transmit jobs dropped because the encapsulated packet exceeded the route MTU." />
     <gauge name="TxBufferBusy" summary="Number of TX buffers pending or submitted to the NIC." />
     <gauge name="TxBufferIdle" summary="Number of TX buffers available for a new transmit job." />
 </tile>

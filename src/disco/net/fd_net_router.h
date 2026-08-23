@@ -47,6 +47,7 @@ typedef struct fd_net_router fd_net_router_t;
 
 struct fd_net_tx_route {
   uchar mac_addrs[12];
+  ushort mtu;
   uint  src_ip;
   uint  if_idx;
   uint  use_loopback;
@@ -101,6 +102,7 @@ fd_net_tx_route( fd_net_router_t * ctx,
   }
 
   ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address, ip4_src );
+  out->mtu    = netdev->mtu;
   out->src_ip = ip4_src;
   out->if_idx = if_idx;
 
