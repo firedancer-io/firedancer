@@ -48,8 +48,8 @@ setup_mlx5_tile( fd_topo_t *             topo,
   fd_cstr_ncpy( tile->mlx5.if_name, net_cfg->interface, IF_NAMESIZE );
 
   tile->mlx5.net.bind_address = net_cfg->bind_address_parsed;
-  tile->mlx5.rx_queue_size    = net_cfg->mlx5.mlx5_rx_queue_size;
-  tile->mlx5.tx_queue_size    = net_cfg->mlx5.mlx5_tx_queue_size;
+  tile->mlx5.rx_queue_size    = net_cfg->mlx5.rx_queue_size;
+  tile->mlx5.tx_queue_size    = net_cfg->mlx5.tx_queue_size;
   tile->mlx5.batch_size       = FD_MLX5_BATCH_SIZE;
 
   tile->net.umem_dcache_obj_id = umem_obj->id;

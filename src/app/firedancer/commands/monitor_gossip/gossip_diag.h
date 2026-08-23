@@ -20,6 +20,12 @@ typedef struct {
   volatile ulong **    net_links;
 } fd_gossip_diag_gossvf_t;
 
+typedef enum {
+  FD_GOSSIP_DIAG_NET_XDP,
+  FD_GOSSIP_DIAG_NET_MLX5,
+  FD_GOSSIP_DIAG_NET_SOCKET
+} fd_gossip_diag_net_t;
+
 /* fd_gossip_diag_ctx_t holds all state needed by the gossip
    diagnostic display loop.  Members are populated by
    fd_gossip_diag_init and then used by fd_gossip_diag_render. */
@@ -42,8 +48,7 @@ typedef struct {
   volatile ulong *            net0_link;
   ulong                       prev_net0_rx_bytes;
 
-  int                         is_xdp;
-  int                         is_mlx5;
+  fd_gossip_diag_net_t        net_provider;
 
   /* Return values from last render */
   ulong                       last_total_crds;

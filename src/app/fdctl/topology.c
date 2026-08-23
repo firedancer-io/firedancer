@@ -421,7 +421,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
   int plugins_enabled = config->tiles.gui.enabled;
 
-  if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
+  if( FD_UNLIKELY( !strcmp( tile->name, "net"  ) ||
+                   !strcmp( tile->name, "sock" ) ||
+                   !strcmp( tile->name, "mlx5" ) ) ) {
 
     tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
     tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;

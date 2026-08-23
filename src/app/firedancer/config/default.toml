@@ -1082,15 +1082,7 @@ telemetry = true
 # queues we have available.
 [net]
     # The provider determines how Firedancer sends and receives
-    # packets.  Possible values for the option are:
-    #
-    #  "mlx5"
-    #   Use Linux uverbs to create mlx5 hardware resources, then drive
-    #   the hardware queues directly through a kernel-bypass data path.
-    #   This does not depend on libibverbs or libmlx5. Testing has shown
-    #   significantly higher packet rates than XDP. The mlx5 provider
-    #   requires Linux 5.8 or newer and a Mellanox ConnectX NIC of
-    #   version 4 or later, as these are mlx5 based.
+    # network packets.  Possible values for the option are:
     #
     #  "xdp" (default)
     #   Use Linux express data path APIs for high performance
@@ -1104,6 +1096,12 @@ telemetry = true
     #   best-effort basis.  The socket option is provided as a fallback
     #   for hosts which do not support XDP, and to support experimental
     #   features that are not yet implemented in the XDP stack.
+    #
+    #  "mlx5"
+    #   Very fast userspace networking for Mellanox ConnectX-4 and newer
+    #   NICs.  Requires Linux 5.8 or newer and uses a kernel-bypass
+    #   packet data path.  Bonding is supported when every bond member
+    #   is a port on the same NIC.
     provider = "xdp"
 
     # Which interface to bind to for network traffic.  Currently,
@@ -1128,19 +1126,6 @@ telemetry = true
     # excessive latency.
     ingress_buffer_size = 16384
 
-    # mlx5 networking provider configuration.  Only active if
-    # [net.provider] is set to "mlx5".
-    [net.mlx5]
-        # mlx5 uses metadata queues shared between the NIC
-        # hardware and Firedancer userspace to relay events about
-        # incoming and outgoing packets.  This setting defines the
-        # number of entries in these metadata queues, which has to
-        # be a power of two.
-        #
-        # Smaller values use less memory.  Larger values reduce packet
-        # loss caused by excessive scheduling or inter-CPU latency.
-        mlx5_rx_queue_size = 32768
-        mlx5_tx_queue_size = 32768
 
     # This section contains XDP-specific network configuration.
     # Only active if [net.provider] is set to "xdp".
@@ -1311,6 +1296,17 @@ telemetry = true
         # Sets the socket receive buffer size via SO_SNDBUF.  Raises
         # net.core.wmem_max accordingly
         send_buffer_size = 134217728
+
+    # This section contains Mellanox specific network configuration.
+    # Only active if [net.provider] is set to "mlx5".
+    [net.mlx5]
+        # Controls the depths of receive (RX) and transmit (TX) queues.
+        # Queue depth values must be a power of two.
+        #
+        # Smaller values use less memory.  Larger values reduce packet
+        # loss caused by excessive scheduling or inter-CPU latency.
+        rx_queue_size = 32768
+        tx_queue_size = 32768
 
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on

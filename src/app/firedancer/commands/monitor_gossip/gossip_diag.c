@@ -307,10 +307,11 @@ fd_gossip_diag_init( fd_gossip_diag_ctx_t * ctx,
                      fd_topo_t *            topo,
                      config_t *             config ) {
   memset( ctx, 0, sizeof(*ctx) );
-  ctx->topo    = topo;
-  ctx->config  = config;
-  ctx->is_xdp  = ( 0==strcmp( config->net.provider, "xdp" ) );
-  ctx->is_mlx5 = ( 0==strcmp( config->net.provider, "mlx5" ) );
+  ctx->topo   = topo;
+  ctx->config = config;
+  if(      !strcmp( config->net.provider, "xdp"  ) ) ctx->net_provider = FD_GOSSIP_DIAG_NET_XDP;
+  else if( !strcmp( config->net.provider, "mlx5" ) ) ctx->net_provider = FD_GOSSIP_DIAG_NET_MLX5;
+  else                                               ctx->net_provider = FD_GOSSIP_DIAG_NET_SOCKET;
 
   /* Find gossip tile */
   ulong gossip_tile_idx = fd_topo_find_tile( topo, "gossip", 0UL );
@@ -398,7 +399,7 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
   printf( " Total ping tracked: %lu\n", gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_ADDED ) ] );
 
   for( ulong i=0UL; i<ctx->net_tile_cnt; i++ ) {
-    if( FD_LIKELY( ctx->is_xdp ) ) {
+    if( FD_LIKELY( ctx->net_provider==FD_GOSSIP_DIAG_NET_XDP ) ) {
       printf( " Net %lu RX bw %s, TX bw %s .. %s %s\n", i,
               fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_RX_BYTES ) ] - ctx->prev_net_rx_bytes[ i ] ),
               fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_TX_BYTES ) ] - ctx->prev_net_tx_bytes[ i ] ),
@@ -406,7 +407,7 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
               fmt_count( buf4, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_RX_BACKPRESSURE ) ] ) );
       ctx->prev_net_rx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_RX_BYTES ) ];
       ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_TX_BYTES ) ];
-    } else if( FD_LIKELY( ctx->is_mlx5 ) ) {
+    } else if( FD_LIKELY( ctx->net_provider==FD_GOSSIP_DIAG_NET_MLX5 ) ) {
       printf( " Net %lu RX bw %s, TX bw %s\n", i,
               fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ] - ctx->prev_net_rx_bytes[ i ] ),
               fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ] - ctx->prev_net_tx_bytes[ i ] ) );
