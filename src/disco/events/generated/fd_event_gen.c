@@ -450,6 +450,72 @@ fd_event_block_completed_serialize( fd_circq_t *                       circq,
 }
 
 void
+fd_event_snapshot_created_serialize( fd_circq_t *                        circq,
+                                     fd_event_client_t *                 client,
+                                     long                                timestamp_nanos,
+                                     ulong                               link_seq,
+                                     fd_event_snapshot_created_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_SNAPSHOT_CREATED_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_SNAPSHOT_CREATED_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_SNAPSHOT_CREATED_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  FD_TEST( msg->filename_len<=128UL );
+  FD_TEST( msg->bank_accounts_lthash_len<=2048UL );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 11U ); /* SnapshotCreated */
+  if( msg->result ) ok &= !!fd_pb_push_int32 ( encoder, 1U, msg->result );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  if( msg->base_slot ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->base_slot );
+  if( msg->filename_len ) ok &= !!fd_pb_push_bytes ( encoder, 4U, msg->filename, msg->filename_len );
+  ok &= !!fd_pb_push_bytes ( encoder, 5U, msg->hash, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 6U, msg->bank_hash, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->block_id, 32UL );
+  if( msg->bank_accounts_lthash_len ) ok &= !!fd_pb_push_bytes ( encoder, 8U, msg->bank_accounts_lthash, msg->bank_accounts_lthash_len );
+  if( msg->epoch ) ok &= !!fd_pb_push_uint64( encoder, 9U, (ulong)msg->epoch );
+  if( msg->block_height ) ok &= !!fd_pb_push_uint64( encoder, 10U, (ulong)msg->block_height );
+  if( msg->capitalization ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->capitalization );
+  if( msg->transaction_count ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->transaction_count );
+  if( msg->account_count ) ok &= !!fd_pb_push_uint64( encoder, 13U, (ulong)msg->account_count );
+  if( msg->tombstone_count ) ok &= !!fd_pb_push_uint64( encoder, 14U, (ulong)msg->tombstone_count );
+  if( msg->cached_accounts_count ) ok &= !!fd_pb_push_uint64( encoder, 15U, (ulong)msg->cached_accounts_count );
+  if( msg->disk_accounts_count ) ok &= !!fd_pb_push_uint64( encoder, 16U, (ulong)msg->disk_accounts_count );
+  if( msg->manifest_size ) ok &= !!fd_pb_push_uint64( encoder, 17U, (ulong)msg->manifest_size );
+  if( msg->accounts_size ) ok &= !!fd_pb_push_uint64( encoder, 18U, (ulong)msg->accounts_size );
+  if( msg->status_cache_size ) ok &= !!fd_pb_push_uint64( encoder, 19U, (ulong)msg->status_cache_size );
+  if( msg->compressed_size ) ok &= !!fd_pb_push_uint64( encoder, 20U, (ulong)msg->compressed_size );
+  if( msg->uncompressed_size ) ok &= !!fd_pb_push_uint64( encoder, 21U, (ulong)msg->uncompressed_size );
+  if( msg->zstd_data_frame_count ) ok &= !!fd_pb_push_uint64( encoder, 22U, (ulong)msg->zstd_data_frame_count );
+  if( msg->zstd_padding_size ) ok &= !!fd_pb_push_uint64( encoder, 23U, (ulong)msg->zstd_padding_size );
+  if( msg->zstd_window_size ) ok &= !!fd_pb_push_uint64( encoder, 24U, (ulong)msg->zstd_window_size );
+  if( msg->zstd_strategy ) ok &= !!fd_pb_push_int32 ( encoder, 25U, msg->zstd_strategy );
+  if( msg->duration_compress_nanos ) ok &= !!fd_pb_push_uint64( encoder, 26U, (ulong)msg->duration_compress_nanos );
+  if( msg->duration_io_blocked_nanos ) ok &= !!fd_pb_push_uint64( encoder, 27U, (ulong)msg->duration_io_blocked_nanos );
+  if( msg->start_time ) ok &= !!fd_pb_push_uint64( encoder, 28U, (ulong)msg->start_time );
+  if( msg->accounts_start_time ) ok &= !!fd_pb_push_uint64( encoder, 29U, (ulong)msg->accounts_start_time );
+  if( msg->end_time ) ok &= !!fd_pb_push_uint64( encoder, 30U, (ulong)msg->end_time );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -490,6 +556,10 @@ fd_event_serialize_by_type( ulong               type,
     fd_event_block_completed_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;
   }
+  case 11UL:
+    FD_TEST( ev_sz==sizeof(fd_event_snapshot_created_t) );
+    fd_event_snapshot_created_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_snapshot_created_t const *)ev );
+    break;
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }
 }

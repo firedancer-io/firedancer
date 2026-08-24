@@ -28,8 +28,6 @@
 #include <unistd.h>
 #include <errno.h>
 
-#define FD_ZSTD_LEVEL 1
-
 /* Compression buffer params */
 #define RAW_BUF_SZ    (32UL<<20) /* FIXME make this configurable */
 #define COMP_BOUND    ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
@@ -40,6 +38,7 @@ struct fd_snapzp {
   fd_backup_cache_t  acc_cache[1];
 
   fd_backup_overrun_t * overrun;
+  fd_backup_stats_t *   stats;
   fd_accdb_t *       accdb;
   fd_accdb_fork_id_t fork_id;
 
@@ -55,6 +54,15 @@ struct fd_snapzp {
   ulong kind_id;  /* index of this tile kind */
   ulong frame_id; /* sequence number for tar file names */
   ulong snapshot_slot;
+  ulong snapshot_account_cnt;
+  ulong snapshot_account_sz;
+  ulong snapshot_tombstone_cnt;
+  ulong snapshot_cached_account_cnt;
+  ulong snapshot_disk_account_cnt;
+  ulong snapshot_zstd_padding_sz;
+  ulong snapshot_uncompressed_sz;
+  ulong snapshot_compress_ticks0;
+  ulong snapshot_io_blocked_ticks0;
 
   /* input link */
   void *  snapmk_zp_mem;
@@ -108,7 +116,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
+  l = FD_LAYOUT_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   return FD_LAYOUT_FINI( l, FD_SHMEM_HUGE_PAGE_SZ );
 }
 
@@ -134,17 +142,17 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_snapzp_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
   void *        _accdb   = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots ) );
-  void *        _zstd    = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
+  void *        _zstd    = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   memset( ctx, 0, sizeof(fd_snapzp_t) );  /* 64 MiB-ish memset */
   ctx->snap_fd_cnt = tile->snapzp.snap_fd_cnt;
   ctx->snap_fd     = -1;
 
-  ctx->zst = ZSTD_initStaticCStream( _zstd, ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
+  ctx->zst = ZSTD_initStaticCStream( _zstd, ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   FD_TEST( ctx->zst );
   ulong zst_err;
-  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_compressionLevel, FD_ZSTD_LEVEL );
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_compressionLevel, FD_BACKUP_ZSTD_LEVEL );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
     FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_compressionLevel) failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
@@ -204,7 +212,10 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->accdb );
   FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq ) );
   ctx->overrun = fd_backup_overrun( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
+  ctx->stats   = fd_backup_stats  ( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
   FD_TEST( ctx->overrun );
+  FD_TEST( ctx->stats   );
+  FD_STATIC_ASSERT( SNAPZP_TILE_MAX==FD_BACKUP_STATS_MAX, backup_stats_max );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapzp.zp_fseq_id ) ); FD_TEST( zp_fseq );
   ctx->file_off = fd_fseq_app_laddr( zp_fseq );
@@ -276,6 +287,26 @@ msg_start( fd_snapzp_t *                 ctx,
     FD_LOG_ERR(( "ZSTD_CCtx_reset failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
   ctx->frame_id      = 0UL;
+  ctx->snapshot_account_cnt = 0UL;
+  ctx->snapshot_account_sz  = 0UL;
+  ctx->snapshot_tombstone_cnt = 0UL;
+  ctx->snapshot_cached_account_cnt = 0UL;
+  ctx->snapshot_disk_account_cnt = 0UL;
+  ctx->snapshot_zstd_padding_sz = 0UL;
+  ctx->snapshot_uncompressed_sz = 0UL;
+  ctx->snapshot_compress_ticks0 = ctx->metrics.compress_ticks;
+  ctx->snapshot_io_blocked_ticks0 = ctx->metrics.io_blocked_ticks;
+  fd_backup_worker_stats_t * stats = &ctx->stats->worker[ ctx->kind_id ];
+  __atomic_store_n( &stats->account_cnt,         0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->account_sz,          0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->tombstone_cnt,       0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->cached_account_cnt,  0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->disk_account_cnt,    0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->zstd_data_frame_cnt, 0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->zstd_padding_sz,     0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->compress_ticks,      0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->io_blocked_ticks,    0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->uncompressed_sz,     0UL, __ATOMIC_RELEASE );
   memset( &ctx->disk, 0, sizeof(ctx->disk) );
   ctx->raw_buf.pos   = 0UL;
   ctx->raw_buf.size  = 0UL;
@@ -319,6 +350,7 @@ zip_flush( fd_snapzp_t * ctx ) {
     fd_memset( ctx->raw + content_usz, 0, content_asz - content_usz );
     ctx->raw_buf.size = content_asz;
   }
+  ctx->snapshot_uncompressed_sz += sizeof(fd_tar_meta_t) + content_asz;
 
   /* Finish content compression frame */
   ulong raw_pos = ctx->raw_buf.pos;
@@ -372,6 +404,7 @@ zip_flush( fd_snapzp_t * ctx ) {
     FD_STORE( uint, tail,   ZSTD_MAGIC_SKIPPABLE_START );
     FD_STORE( uint, tail+4, (uint)( pad_sz-8 ) );
     fd_memset( tail+8, 0, pad_sz-8 );
+    ctx->snapshot_zstd_padding_sz += pad_sz;
   }
 
   /* Allocate file range to write into */
@@ -452,6 +485,7 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
       in_epoch = 1;
     }
 
+    ulong prev_sz = buf->size;
     int err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, ctx->raw, &buf->size, RAW_BUF_SZ );
     if( FD_UNLIKELY( err==FD_BACKUP_CACHE_ERR_SPACE ) ) {
       FD_COMPILER_MFENCE();
@@ -460,6 +494,7 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
       FD_COMPILER_MFENCE();
       FD_VOLATILE( *idx->epoch_slot ) = FD_VOLATILE_CONST( *idx->epoch );
       FD_HW_MFENCE();
+      prev_sz = buf->size;
       err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, ctx->raw, &buf->size, RAW_BUF_SZ );
       FD_CHECK_ERR( err!=FD_BACKUP_CACHE_ERR_SPACE, "Zstandard buffer too small" );
     }
@@ -472,6 +507,9 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
       continue;
     }
     FD_CHECK_ERR( err==FD_BACKUP_CACHE_SUCCESS, "unexpected cache error code" );
+    ctx->snapshot_account_cnt++;
+    ctx->snapshot_account_sz += buf->size - prev_sz;
+    ctx->snapshot_cached_account_cnt++;
     ctx->metrics.accounts_compressed++;
   }
 
@@ -502,9 +540,9 @@ msg_acc_delta( fd_snapzp_t *                 ctx,
     ulong lamports   = 0UL;
     ulong data_len   = 0UL;
     int   executable = 0;
-    fd_accdb_read_one_nocache( ctx->accdb, ctx->fork_id, batch->pubkey[ i ].uc,
-                               &lamports, &executable, hdr->owner.uc,
-                               ctx->raw + start + sizeof(snap_acc_hdr_t), &data_len );
+    int source = fd_accdb_read_one_nocache( ctx->accdb, ctx->fork_id, batch->pubkey[ i ].uc,
+                                            &lamports, &executable, hdr->owner.uc,
+                                            ctx->raw + start + sizeof(snap_acc_hdr_t), &data_len );
     FD_CHECK_CRIT( data_len<=FD_RUNTIME_ACC_SZ_MAX, "accdb returned oversized account" );
     hdr->lamports   = lamports;
     hdr->executable = (uchar)!!executable;
@@ -513,6 +551,11 @@ msg_acc_delta( fd_snapzp_t *                 ctx,
     ulong data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
     if( data_pad ) fd_memset( ctx->raw + start + sizeof(snap_acc_hdr_t) + data_len, 0, data_pad );
     ctx->raw_buf.size = start + sizeof(snap_acc_hdr_t) + data_len + data_pad;
+    ctx->snapshot_account_cnt++;
+    ctx->snapshot_account_sz += sizeof(snap_acc_hdr_t) + data_len + data_pad;
+    ctx->snapshot_tombstone_cnt      += source==FD_ACCDB_READ_ONE_NOCACHE_MISS;
+    ctx->snapshot_cached_account_cnt += source==FD_ACCDB_READ_ONE_NOCACHE_CACHE;
+    ctx->snapshot_disk_account_cnt   += source==FD_ACCDB_READ_ONE_NOCACHE_DISK;
     ctx->metrics.accounts_compressed++;
   }
 }
@@ -653,6 +696,9 @@ msg_acc_disk( fd_snapzp_t * ctx,
       fd_memset( ctx->raw + ctx->raw_buf.size, 0, ctx->disk.data_pad );
       ctx->raw_buf.size += ctx->disk.data_pad;
     }
+    ctx->snapshot_account_cnt++;
+    ctx->snapshot_account_sz += sizeof(snap_acc_hdr_t) + fd_ulong_align_up( (ulong)FD_ACCDB_SIZE_DATA( ctx->disk.size ), 8UL );
+    ctx->snapshot_disk_account_cnt++;
     ctx->metrics.accounts_compressed++;
     memset( &ctx->disk, 0, sizeof(ctx->disk) );
   }
@@ -735,6 +781,9 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
       fd_memset( ctx->raw + ctx->raw_buf.size, 0, data_pad );
       ctx->raw_buf.size += data_pad;
     }
+    ctx->snapshot_account_cnt++;
+    ctx->snapshot_account_sz += rec_sz;
+    ctx->snapshot_disk_account_cnt++;
     ctx->metrics.accounts_compressed++;
   }
 }
@@ -792,6 +841,17 @@ returnable_frag( fd_snapzp_t *       ctx,
     break;
   case FD_BACKUP_ORIG_FLUSH:
     zip_flush( ctx );
+    fd_backup_worker_stats_t * stats = &ctx->stats->worker[ ctx->kind_id ];
+    __atomic_store_n( &stats->account_cnt,         ctx->snapshot_account_cnt,        __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->account_sz,          ctx->snapshot_account_sz,         __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->tombstone_cnt,       ctx->snapshot_tombstone_cnt,      __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->cached_account_cnt,  ctx->snapshot_cached_account_cnt, __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->disk_account_cnt,    ctx->snapshot_disk_account_cnt,   __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->zstd_data_frame_cnt, 2UL*ctx->frame_id,                __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->zstd_padding_sz,     ctx->snapshot_zstd_padding_sz,    __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->compress_ticks,      ctx->metrics.compress_ticks-ctx->snapshot_compress_ticks0,     __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->io_blocked_ticks,    ctx->metrics.io_blocked_ticks-ctx->snapshot_io_blocked_ticks0, __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->uncompressed_sz,     ctx->snapshot_uncompressed_sz,    __ATOMIC_RELEASE );
     break;
   case FD_BACKUP_ORIG_DONE:
     msg_done( ctx );

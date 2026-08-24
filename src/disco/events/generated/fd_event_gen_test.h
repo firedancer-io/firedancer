@@ -269,6 +269,46 @@ fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
 static void
 fd_event_block_completed_fill_max_v( void * msg ) { fd_event_block_completed_fill_max( (fd_event_block_completed_t *)msg ); }
 
+static inline void
+fd_event_snapshot_created_fill_max( fd_event_snapshot_created_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->result = INT_MAX;
+  msg->slot = ULONG_MAX;
+  msg->base_slot = ULONG_MAX;
+  fd_memset( msg->filename, 0xFF, 128UL );
+  msg->filename_len = 128UL;
+  fd_memset( msg->hash, 0xFF, 32UL );
+  fd_memset( msg->bank_hash, 0xFF, 32UL );
+  fd_memset( msg->block_id, 0xFF, 32UL );
+  fd_memset( msg->bank_accounts_lthash, 0xFF, 2048UL );
+  msg->bank_accounts_lthash_len = 2048UL;
+  msg->epoch = ULONG_MAX;
+  msg->block_height = ULONG_MAX;
+  msg->capitalization = ULONG_MAX;
+  msg->transaction_count = ULONG_MAX;
+  msg->account_count = ULONG_MAX;
+  msg->tombstone_count = ULONG_MAX;
+  msg->cached_accounts_count = ULONG_MAX;
+  msg->disk_accounts_count = ULONG_MAX;
+  msg->manifest_size = ULONG_MAX;
+  msg->accounts_size = ULONG_MAX;
+  msg->status_cache_size = ULONG_MAX;
+  msg->compressed_size = ULONG_MAX;
+  msg->uncompressed_size = ULONG_MAX;
+  msg->zstd_data_frame_count = ULONG_MAX;
+  msg->zstd_padding_size = ULONG_MAX;
+  msg->zstd_window_size = ULONG_MAX;
+  msg->zstd_strategy = INT_MAX;
+  msg->duration_compress_nanos = ULONG_MAX;
+  msg->duration_io_blocked_nanos = ULONG_MAX;
+  msg->start_time = ULONG_MAX;
+  msg->accounts_start_time = ULONG_MAX;
+  msg->end_time = ULONG_MAX;
+}
+
+static void
+fd_event_snapshot_created_fill_max_v( void * msg ) { fd_event_snapshot_created_fill_max( (fd_event_snapshot_created_t *)msg ); }
+
 typedef struct {
   ulong        type;    /* event schema id */
   ulong        buf_max; /* modeled encode bound */
@@ -285,9 +325,10 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 7UL, FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX, sizeof(fd_event_block_equivocated_t), "block_equivocated", fd_event_block_equivocated_fill_max_v },
   { 8UL, FD_EVENT_RUNTIME_TXN_BUF_MAX, sizeof(fd_event_runtime_txn_t), "runtime_txn", fd_event_runtime_txn_fill_max_v },
   { 9UL, FD_EVENT_BLOCK_COMPLETED_BUF_MAX, sizeof(fd_event_block_completed_t), "block_completed", fd_event_block_completed_fill_max_v },
+  { 11UL, FD_EVENT_SNAPSHOT_CREATED_BUF_MAX, sizeof(fd_event_snapshot_created_t), "snapshot_created", fd_event_snapshot_created_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (7UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (8UL)
 
 FD_PROTOTYPES_END
 
