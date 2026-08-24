@@ -4,12 +4,11 @@ BUILDDIR:=$(BUILDDIR1)
 endif
 
 VERBOSE?=0
-OPT?=opt
 SHELL:=bash
-CPPFLAGS:=-isystem ./$(OPT)/include
+CPPFLAGS:=
 RUSTFLAGS:=-C force-frame-pointers=yes
 CFLAGS=-std=c17 -fwrapv
-LDFLAGS:=-lm -ldl -L./$(OPT)/lib
+LDFLAGS:=-lm -ldl
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
 AR:=ar

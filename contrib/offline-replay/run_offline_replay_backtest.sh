@@ -310,9 +310,7 @@ build_firedancer() {
     PKG_CONFIG_PATH=/usr/lib64/pkgconfig:$PKG_CONFIG_PATH
 
     make distclean && make clean
-    ./deps.sh nuke
     git submodule update --init --recursive --force
-    echo "y" | FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh
     EXTRAS=offline-replay make -j
 }
 
