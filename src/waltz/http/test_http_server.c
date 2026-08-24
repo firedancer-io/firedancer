@@ -432,6 +432,14 @@ test_exact_max_request_len_fragmented( void ) {
   };
   FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
 
+  request_cnt = 0UL;
+
+  /* A POST whose head and body together occupy exactly max_request_len
+     bytes, delivered in two writes. The first server read carries the
+     complete head plus four body bytes; the parser records the head and
+     waits for the rest. The second read fills the buffer exactly, so the
+     follow-up parse must not let the partial-head fast path skip past the
+     known terminator. */
   char req[ 1025 ];
   ulong pos = 0UL;
   struct { char const * s; } parts[] = {
@@ -453,15 +461,14 @@ test_exact_max_request_len_fragmented( void ) {
   req[ pos ] = '\0';
   FD_TEST( pos==params.max_request_len );
 
-  /* First read: the complete head plus more than three body bytes. */
-  ulong first_read_len = 100UL;
+  ulong const first_read_len = params.max_request_len - 4UL; /* head (1016) + 4 body bytes */
   send_all( client_fd, req, first_read_len );
-  fd_http_server_poll( http, 1, ULONG_MAX );
-  FD_TEST( request_cnt==0UL ); /* body still pending */
+  fd_http_server_poll( http, 1, ULONG_MAX ); /* accepts the connection */
+  fd_http_server_poll( http, 1, ULONG_MAX ); /* first read: head parsed, body pending */
+  FD_TEST( request_cnt==0UL );
   FD_TEST( state.close_cnt==0UL );
 
-  /* Second read completes the body and fills the buffer exactly. */
-  send_all( client_fd, req+first_read_len, pos-first_read_len );
+  send_all( client_fd, req+first_read_len, 4UL );
   for( ulong i=0UL; i<200UL && request_cnt<1UL; i++ ) {
     fd_http_server_poll( http, 1, ULONG_MAX );
   }
