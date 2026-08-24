@@ -596,7 +596,8 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
   vote_states_prev holds the stakes at T-1
   vote_states_prev_prev holds the stakes at T-2
  */
-/* process for the start of a new epoch */
+/* process for the start of a new epoch
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L1811-L1899 */
 static void
 fd_runtime_process_new_epoch( fd_banks_t *         banks,
                               fd_bank_t *          bank,
@@ -604,7 +605,8 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
                               fd_capture_ctx_t *   capture_ctx,
                               ulong                parent_epoch,
                               fd_runtime_stack_t * runtime_stack ) {
-  long start = fd_log_wallclock();
+  long  start                      = fd_log_wallclock();
+  ulong epoch_start_capitalization = bank->f.capitalization;
 
   fd_compute_and_apply_new_feature_activations( bank, accdb, runtime_stack, capture_ctx );
 
@@ -656,7 +658,8 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
                                 capture_ctx,
                                 stake_delegations,
                                 parent_blockhash,
-                                parent_epoch );
+                                parent_epoch,
+                                epoch_start_capitalization );
 
   /* Update stake history balance and capitalization only after epoch
      reward partitions have been calculated. */
@@ -1550,7 +1553,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
       fd_accdb_unread_one( accdb, &ro );
     }
 
-    fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, &new_rate_activation_epoch );
+    fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, ULONG_MAX, &new_rate_activation_epoch );
   }
 
   /* At genesis (epoch 0) there is no previous epoch, so the t-2 set

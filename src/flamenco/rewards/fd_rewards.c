@@ -1,5 +1,7 @@
 #include "fd_rewards.h"
 #include "fd_stake_rewards.h"
+#include "fd_reward_epoch_delegated_stakes.h"
+#include "fd_epoch_inflation_account.h"
 
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -527,6 +529,29 @@ fd_vote_commission_split( ushort                  commission,
   #undef MAX_BPS
 }
 
+/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/inflation_rewards/mod.rs#L412-L440 */
+static void
+fd_vote_commission_split_preserve_lamports( ushort                  commission,
+                                            ulong                   on,
+                                            fd_commission_split_t * result ) {
+  ushort commission_split = fd_ushort_min( commission, 10000U );
+  switch( commission_split ) {
+  case 0U:
+    *result = (fd_commission_split_t){ .voter_portion=0UL, .staker_portion=on, .is_split=0U };
+    break;
+  case 10000U:
+    *result = (fd_commission_split_t){ .voter_portion=on, .staker_portion=0UL, .is_split=0U };
+    break;
+  default:
+    result->staker_portion = (ulong)( (uint128)on *
+                                      (uint128)(10000U-commission_split) /
+                                      (uint128)10000U );
+    result->voter_portion  = on-result->staker_portion;
+    result->is_split       = 1U;
+    break;
+  }
+}
+
 /* Validates an external SIMD-0232 inflation commission collector
    after all rewards routed to it have been added.  Returns 0 to
    deposit, 1 to burn.  The vote account itself is always valid and
@@ -577,13 +602,15 @@ fd_rewards_inflation_collector( fd_bank_t *         bank,
                                 NULL );
 }
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
+/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/inflation_rewards/mod.rs#L204-L371 */
 static int
 redeem_rewards( fd_stake_delegation_t const *   stake,
                 ulong                           vote_state_idx,
                 ulong                           rewarded_epoch,
                 ulong                           total_rewards,
                 uint128                         total_points,
+                int                             alpenglow_enabled,
                 fd_runtime_stack_t *            runtime_stack,
                 fd_calculated_stake_points_t *  stake_points_result,
                 fd_calculated_stake_rewards_t * result ) {
@@ -605,17 +632,24 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
     result->new_credits_observed = stake_points_result->new_credits_observed;
     return 0;
   }
-  if( stake_points_result->points.ud==0 || total_points==0 ) {
+  if( stake_points_result->points.ud==0 || (!alpenglow_enabled && total_points==0) ) {
+    if( alpenglow_enabled && stake_points_result->new_credits_observed!=stake->credits_observed ) {
+      result->staker_rewards       = 0UL;
+      result->voter_rewards        = 0UL;
+      result->new_credits_observed = stake_points_result->new_credits_observed;
+      return 0;
+    }
     return 1;
   }
 
-  uint128 rewards_u128;
-  if( FD_UNLIKELY( __builtin_mul_overflow( stake_points_result->points.ud, (uint128)(total_rewards), &rewards_u128 ) ) ) {
-    FD_LOG_ERR(( "Rewards intermediate calculation should fit within u128" ));
+  uint128 rewards_u128 = stake_points_result->points.ud;
+  if( !alpenglow_enabled ) {
+    if( FD_UNLIKELY( __builtin_mul_overflow( rewards_u128, (uint128)(total_rewards), &rewards_u128 ) ) ) {
+      FD_LOG_ERR(( "Rewards intermediate calculation should fit within u128" ));
+    }
+    FD_TEST( total_points );
+    rewards_u128 /= (uint128)total_points;
   }
-
-  FD_TEST( total_points );
-  rewards_u128 /=  (uint128) total_points;
 
   if( FD_UNLIKELY( rewards_u128>(uint128)ULONG_MAX ) ) {
     FD_LOG_ERR(( "Rewards should fit within u64" ));
@@ -623,12 +657,24 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
 
   ulong rewards = (ulong)rewards_u128;
   if( rewards == 0 ) {
+    if( alpenglow_enabled && stake_points_result->new_credits_observed!=stake->credits_observed ) {
+      result->staker_rewards       = 0UL;
+      result->voter_rewards        = 0UL;
+      result->new_credits_observed = stake_points_result->new_credits_observed;
+      return 0;
+    }
     return 1;
   }
 
   fd_commission_split_t split_result;
-  fd_vote_commission_split( runtime_stack->stakes.vote_ele[ vote_state_idx ].commission, rewards, &split_result );
-  if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
+  if( alpenglow_enabled ) {
+    fd_vote_commission_split_preserve_lamports( runtime_stack->stakes.vote_ele[ vote_state_idx ].commission,
+                                                rewards,
+                                                &split_result );
+  } else {
+    fd_vote_commission_split( runtime_stack->stakes.vote_ele[ vote_state_idx ].commission, rewards, &split_result );
+  }
+  if( !alpenglow_enabled && split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
     return 1;
   }
 
@@ -796,6 +842,101 @@ calculate_stake_points_fast( fd_epoch_credits_t *           epoch_credits,
   calculate_stake_points_and_credits( epoch_credits, stake_history, stake, new_rate_activation_epoch, use_fixed_point_stake_math, result );
 }
 
+/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/inflation_rewards/points.rs#L236-L312 */
+static void
+calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
+                            fd_stake_history_t const *    stake_history,
+                            fd_stake_delegation_t const * stake,
+                            ulong *                       new_rate_activation_epoch,
+                            int                           use_fixed_point_stake_math,
+                            ulong                         rewarded_epoch,
+                            ulong                         validator_reward_epoch_stake,
+                            fd_calculated_stake_points_t * result ) {
+  ulong credits_in_stake = stake->credits_observed;
+  ulong cnt              = epoch_credits->cnt;
+  ulong base             = epoch_credits->base_credits;
+  ulong credits_in_vote  = cnt ? base+epoch_credits->credits_delta[ cnt-1UL ] : 0UL;
+
+  *result = (fd_calculated_stake_points_t) {
+    .new_credits_observed = credits_in_stake,
+  };
+
+  if( FD_UNLIKELY( credits_in_vote<credits_in_stake ) ) {
+    result->new_credits_observed                     = credits_in_vote;
+    result->force_credits_update_with_skipped_reward = 1;
+    return;
+  }
+  if( FD_UNLIKELY( credits_in_vote==credits_in_stake || !cnt ) ) return;
+
+  ulong idx = cnt-1UL;
+  if( FD_UNLIKELY( (ulong)epoch_credits->epoch[ idx ]!=rewarded_epoch ) ) return;
+
+  ulong initial_epoch_credits = base+epoch_credits->prev_credits_delta[ idx ];
+  ulong earned_credits;
+  if( credits_in_stake<initial_epoch_credits ) {
+    earned_credits = credits_in_vote-initial_epoch_credits;
+  } else {
+    earned_credits = credits_in_vote-credits_in_stake;
+  }
+  result->new_credits_observed = credits_in_vote;
+  if( FD_UNLIKELY( !earned_credits ) ) return;
+
+  ulong effective_stake = fd_stakes_activating_and_deactivating(
+      stake,
+      rewarded_epoch,
+      stake_history,
+      new_rate_activation_epoch,
+      use_fixed_point_stake_math ).effective;
+  if( FD_UNLIKELY( !effective_stake ) ) return;
+
+  if( FD_UNLIKELY( !validator_reward_epoch_stake ) ) {
+    result->force_credits_update_with_skipped_reward = 1;
+    return;
+  }
+
+  result->points.ud = (uint128)earned_credits *
+                      (uint128)effective_stake /
+                      (uint128)validator_reward_epoch_stake;
+}
+
+static inline void
+calculate_stake_points_for_reward( fd_bank_t *                    bank,
+                                   fd_runtime_stack_t *           runtime_stack,
+                                   fd_epoch_credits_t *           epoch_credits,
+                                   fd_stake_history_t const *     stake_history,
+                                   fd_stake_delegation_t const *  stake,
+                                   ulong *                        new_rate_activation_epoch,
+                                   int                            use_fixed_point_stake_math,
+                                   ulong                          rewarded_epoch,
+                                   ulong                          tower_fast_path_epoch,
+                                   fd_calculated_stake_points_t * result ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+    ulong                    validator_reward_epoch_stake = 0UL;
+    fd_stake_accum_t const * accumulated                  = fd_stake_accum_map_ele_query_const(
+        runtime_stack->stakes.stake_accum_map,
+        &stake->vote_account,
+        NULL,
+        runtime_stack->stakes.stake_accum );
+    if( accumulated ) validator_reward_epoch_stake = accumulated->reward_stake;
+    calculate_alpenglow_points( epoch_credits,
+                                stake_history,
+                                stake,
+                                new_rate_activation_epoch,
+                                use_fixed_point_stake_math,
+                                rewarded_epoch,
+                                validator_reward_epoch_stake,
+                                result );
+  } else {
+    calculate_stake_points_fast( epoch_credits,
+                                 stake_history,
+                                 stake,
+                                 new_rate_activation_epoch,
+                                 use_fixed_point_stake_math,
+                                 tower_fast_path_epoch,
+                                 result );
+  }
+}
+
 /* Calculates epoch reward points from stake/vote accounts.
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L445 */
 static uint128
@@ -843,15 +984,20 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
     fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
-    calculate_stake_points_fast( epoch_credits,
-                                 stake_history,
-                                 stake_delegation,
-                                 &bank->f.warmup_cooldown_rate_epoch,
-                                 FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                 rewarded_epoch,
-                                 stake_points_result );
+    calculate_stake_points_for_reward( bank,
+                                       runtime_stack,
+                                       epoch_credits,
+                                       stake_history,
+                                       stake_delegation,
+                                       &bank->f.warmup_cooldown_rate_epoch,
+                                       FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                       rewarded_epoch,
+                                       rewarded_epoch,
+                                       stake_points_result );
 
-    total_points += stake_points_result->points.ud;
+    if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+      total_points += stake_points_result->points.ud;
+    }
   }
 
   return total_points;
@@ -992,13 +1138,16 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       /* We have not cached the stake points yet if we are recalculating
          stake rewards so we need to recalculate them.  ULONG_MAX
          disables the tag fast path. */
-      calculate_stake_points_fast( epoch_credits,
-                                   stake_history,
-                                   stake_delegation,
-                                   &bank->f.warmup_cooldown_rate_epoch,
-                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                   ULONG_MAX,
-                                   stake_points_result_ );
+      calculate_stake_points_for_reward( bank,
+                                         runtime_stack,
+                                         epoch_credits,
+                                         stake_history,
+                                         stake_delegation,
+                                         &bank->f.warmup_cooldown_rate_epoch,
+                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                         rewarded_epoch,
+                                         ULONG_MAX,
+                                         stake_points_result_ );
       stake_points_result = stake_points_result_;
     }
 
@@ -1011,6 +1160,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         rewarded_epoch,
         total_rewards,
         total_points,
+        FD_FEATURE_ACTIVE_BANK( bank, alpenglow ),
         runtime_stack,
         stake_points_result,
         calculated_stake_rewards );
@@ -1121,13 +1271,16 @@ setup_stake_partitions( fd_bank_t *                    bank,
       fd_epoch_credits_t * epoch_credits = &epoch_credits_arr[ idx ];
 
       fd_calculated_stake_points_t stake_points_result[1];
-      calculate_stake_points_fast( epoch_credits,
-                                   stake_history,
-                                   stake_delegation,
-                                   &bank->f.warmup_cooldown_rate_epoch,
-                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                   ULONG_MAX,
-                                   stake_points_result );
+      calculate_stake_points_for_reward( bank,
+                                         runtime_stack,
+                                         epoch_credits,
+                                         stake_history,
+                                         stake_delegation,
+                                         &bank->f.warmup_cooldown_rate_epoch,
+                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                         rewarded_epoch,
+                                         ULONG_MAX,
+                                         stake_points_result );
 
       /* redeem_rewards is actually just responsible for calculating the
          vote and stake rewards for each stake account.  It does not do
@@ -1138,6 +1291,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
           rewarded_epoch,
           total_rewards,
           total_points,
+          FD_FEATURE_ACTIVE_BANK( bank, alpenglow ),
           runtime_stack,
           stake_points_result,
           calculated_stake_rewards );
@@ -1207,8 +1361,11 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       rewarded_epoch,
       runtime_stack );
 
-  /* If there are no points, then we set the rewards to 0. */
-  *rewards_out = total_points>0UL ? *rewards_out: 0UL;
+  /* Tower requires a non-zero global points denominator.  Alpenglow
+     stake rewards are already denominated in lamports per validator. */
+  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) && !total_points ) {
+    *rewards_out = 0UL;
+  }
 
   if( FD_UNLIKELY( capture_ctx && capture_ctx->capture_solcap ) ) {
     ulong epoch = bank->f.epoch;
@@ -1269,7 +1426,8 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
 /* Calculate rewards from previous epoch to prepare for partitioned distribution.
 
-   https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L277 */
+   https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L277
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L470-L495 */
 static void
 calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                     fd_accdb_t *                           accdb,
@@ -1284,6 +1442,9 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                               bank->f.capitalization,
                                               prev_epoch,
                                               &rewards );
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+    rewards.validator_rewards = fd_epoch_inflation_rewards_for_epoch( bank, accdb, prev_epoch );
+  }
 
   ulong total_rewards = rewards.validator_rewards;
 
@@ -1307,8 +1468,9 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
 }
 
 /* Calculate rewards from previous epoch and distribute vote rewards
-   https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L148 */
-static void
+   https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L148
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L234-L296 */
+static ulong
 calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    bank,
                                                fd_accdb_t *                   accdb,
                                                fd_runtime_stack_t *           runtime_stack,
@@ -1337,7 +1499,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
      burned and incinerated amounts: the epoch rewards sysvar counts
      them as distributed.
      https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L186-L217 */
-  ulong distributed_rewards = 0UL;
+  ulong distributed_rewards   = 0UL;
+  ulong credited_vote_rewards = 0UL;
   if( FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector ) ) {
     /* Aggregate rewards per collector before validation: several small
        rewards may collectively make a new collector rent-exempt.
@@ -1406,6 +1569,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
       /* Credit rewards to the collector (creating a new system account
          if it does not exist). */
       fd_accdb_svm_credit( bank, accdb, capture_ctx, &collector_reward->pubkey, rewards );
+      if( FD_LIKELY( !fd_pubkey_eq( &collector_reward->pubkey, &fd_sysvar_incinerator_id ) ) ) {
+        credited_vote_rewards = fd_ulong_sat_add( credited_vote_rewards, rewards );
+      }
     }
   } else {
     for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
@@ -1423,7 +1589,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
       /* Credit rewards to vote account (creating a new system account if
          it does not exist) */
       fd_accdb_svm_credit( bank, accdb, capture_ctx, &ele->pubkey, rewards );
-      distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+      distributed_rewards   = fd_ulong_sat_add( distributed_rewards, rewards );
+      credited_vote_rewards = fd_ulong_sat_add( credited_vote_rewards, rewards );
     }
   }
 
@@ -1439,6 +1606,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   runtime_stack->stakes.distributed_rewards = distributed_rewards;
   runtime_stack->stakes.total_rewards       = rewards_calc_result->validator_rewards;
   runtime_stack->stakes.total_points.ud     = rewards_calc_result->validator_points;
+  return fd_ulong_sat_add( credited_vote_rewards, total_stake_rewards );
 }
 
 /* Note: modifies delegation in-place, adjusting it for rent-exempt
@@ -1702,6 +1870,7 @@ fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
 /* Partitioned epoch rewards entry-point.
 
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L102
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L1748-L1899
 */
 void
 fd_begin_partitioned_rewards( fd_bank_t *                    bank,
@@ -1710,9 +1879,18 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_capture_ctx_t *             capture_ctx,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
-                              ulong                          parent_epoch ) {
+                              ulong                          parent_epoch,
+                              ulong                          parent_capitalization ) {
 
-  calculate_rewards_and_distribute_vote_rewards(
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+    fd_reward_epoch_stakes_set( bank,
+                                accdb,
+                                capture_ctx,
+                                parent_epoch,
+                                runtime_stack );
+  }
+
+  ulong capitalization_rewards = calculate_rewards_and_distribute_vote_rewards(
       bank,
       accdb,
       runtime_stack,
@@ -1744,6 +1922,14 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       runtime_stack->stakes.total_rewards,
       runtime_stack->stakes.total_points.ud,
       parent_blockhash );
+
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+    ulong capitalization;
+    FD_TEST( !__builtin_uaddl_overflow( parent_capitalization, capitalization_rewards, &capitalization ) );
+    fd_prev_epoch_inflation_rewards_t rewards[1];
+    calculate_previous_epoch_inflation_rewards( bank, capitalization, bank->f.epoch, rewards );
+    fd_epoch_inflation_account_update( bank, accdb, capture_ctx, rewards->validator_rewards );
+  }
 }
 
 /*
@@ -1760,7 +1946,8 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
     to resolve them, every other caller reuses the ones the epoch
     boundary resolved.
 
-    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521 */
+    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521
+    https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1038-L1095 */
 static void
 recalculate_partitioned_rewards( fd_banks_t *              banks,
                                  fd_bank_t *               bank,
@@ -1878,6 +2065,10 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
 
   ulong const epoch          = bank->f.epoch;
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
+
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+    fd_reward_epoch_stakes_restore( bank, accdb, rewarded_epoch, runtime_stack );
+  }
 
   uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history[1];

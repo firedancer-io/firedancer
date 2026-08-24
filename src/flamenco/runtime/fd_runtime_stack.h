@@ -50,7 +50,8 @@ typedef struct fd_vote_rewards fd_vote_rewards_t;
 
 struct fd_stake_accum {
   fd_pubkey_t pubkey;
-  ulong       stake;
+  ulong       stake;        /* effective stake in the current epoch */
+  ulong       reward_stake; /* effective stake in the rewarded epoch */
   uint        next;
 };
 typedef struct fd_stake_accum fd_stake_accum_t;
