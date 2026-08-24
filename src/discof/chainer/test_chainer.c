@@ -163,7 +163,6 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( root==slotv_at( chainer, 10UL, 0UL ) );
   FD_TEST( fd_hash_eq( &root->block_id, &bid0 ) );
   FD_TEST( root->connected );
-  FD_TEST( !root->in_treap && !root->in_orphan ); /* the root needs no repair */
   FD_TEST( root->complete_idx==0U && root->buffered_idx==0U && root->delivered_idx==0U );
 
   fd_hash_t r0 = mkhash( 1UL );
@@ -187,8 +186,6 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( s11->parent_slot==10UL );
   FD_TEST( fd_hash_eq( &s11->parent_block_id, &bid0 ) );
   FD_TEST( s11->connected );                  /* parent is the root */
-  FD_TEST( !s11->in_orphan );                 /* parent present -> ancestry known */
-  FD_TEST( s11->in_treap );                   /* still has shreds to request */
   FD_TEST( s11->buffered_fec_idx==UINT_MAX ); /* no FEC completion yet */
   FD_TEST( s11->delivered_idx   ==UINT_MAX );
   /* the FEC is born on the first shred now, but is not completed until
@@ -209,7 +206,6 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( f0->complete && !f0->slot_complete );
   FD_TEST( s11->buffered_fec_idx==31U );
   FD_TEST( s11->delivered_idx   ==31U ); /* delivered: parent (the root) is delivered */
-  FD_TEST( s11->in_treap );              /* tip still unknown -> more to request */
   FD_TEST( fd_hash_check_zero( &s11->block_id ) );
 
   /* second and last FEC set */
@@ -221,7 +217,6 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( s11->buffered_fec_idx==63U );
   FD_TEST( s11->delivered_idx   ==63U );
   FD_TEST( fd_chainer_slotv_shred_cnt( chainer, s11 )==64UL );
-  FD_TEST( !s11->in_treap ); /* whole block -> off the repair worklist */
   FD_TEST( fd_chainer_highest_repaired_slot( chainer )==11UL );
 
   fd_fec_t * f1 = fec_at( chainer, 11UL, 32U, 0UL );
@@ -347,7 +342,6 @@ test_shared_prefix( fd_wksp_t * wksp ) {
   FD_TEST( v1f2->slot_complete );          /* last set of the cert's fec_set_cnt */
   FD_TEST( v1->buffered_fec_idx==63U );    /* an incomplete FEC must not extend the prefix */
   FD_TEST( v1->delivered_idx   ==63U );    /* nor be delivered */
-  FD_TEST( v1->in_treap );                 /* new incomplete FEC -> requestable work */
   FD_TEST( !fd_chainer_shred_test( chainer, v1, 64U  ) );
 
   /* repair fills the diverging set.  Only version 1 records it, and
@@ -410,7 +404,6 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   FD_TEST( v1->delivered_idx   ==UINT_MAX );
   FD_TEST( v1->parent_slot     ==AG_UNKNOWN_SLOT );
   FD_TEST( !v1->connected );
-  FD_TEST( v1->in_treap && v1->in_orphan ); /* needs shreds and ancestry */
   FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v1 )==0UL );
   FD_TEST( !fec_at( chainer, 31UL, 0U, 1UL ) );
 
@@ -606,7 +599,7 @@ test_publish( fd_wksp_t * wksp ) {
   FD_TEST( !fec_at( chainer, 61UL, 32U, 0UL ) );
 
   fd_slotv_t * s62 = slotv_at( chainer, 62UL, 0UL );
-  FD_TEST( s62 && s62->connected && !s62->in_treap && !s62->in_orphan );
+  FD_TEST( s62 && s62->connected );
   /* the rooted slot's FEC data is never needed again, so publish releases
      it and clears the slotv's fec[] */
   FD_TEST( !fec_at( chainer, 62UL, 0U,  0UL ) );
@@ -777,17 +770,6 @@ test_versions_full( fd_wksp_t * wksp ) {
     FD_TEST( fd_chainer_slot_version_query( chainer, 81UL, &bid )==slotv ); /* dense scan finds it */
   }
 
-  /* KNOWN-FATAL, DELIBERATELY NOT EXERCISED: asking for a fifth version
-
-       fd_chainer_notar_fallback( chainer, 81UL, mkhash( 299UL ) );
-
-     walks all FD_CHAINER_SLOT_VER_MAX versions without finding a free
-     one and FD_LOG_CRITs ("more than 4 versions for slot 81"), aborting
-     the process.  A test that intentionally crashes is not useful here,
-     so the case is only documented.  fd_chainer_verified_parent_fec_count
-     has the same fatal path when a getParentAndFecCount response names a
-     parent block for a slot that already has four versions. */
-
   FD_TEST( !fd_chainer_verify( chainer ) );
   teardown( chainer );
   FD_LOG_NOTICE(( "pass: all %d versions of a slot", FD_CHAINER_SLOT_VER_MAX ));
@@ -855,7 +837,7 @@ test_verify_detects( fd_wksp_t * wksp ) {
   FD_TEST( !feed_fec( chainer, 111UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL  ) );
 
   fd_slotv_t * s = slotv_at( chainer, 111UL, 0UL );
-  FD_TEST( s->complete_idx==63U && !s->in_treap && !s->in_orphan );
+  FD_TEST( s->complete_idx==63U );
 
   /* header */
 
@@ -865,12 +847,6 @@ test_verify_detects( fd_wksp_t * wksp ) {
 
   s->buffered_idx  = 64U; FD_TEST( fd_chainer_verify( chainer ) ); s->buffered_idx  = 63U;
   s->delivered_idx = 95U; FD_TEST( fd_chainer_verify( chainer ) ); s->delivered_idx = 63U;
-  FD_TEST( !fd_chainer_verify( chainer ) );
-
-  /* treap flags vs. treap membership */
-
-  s->in_treap  = 1; FD_TEST( fd_chainer_verify( chainer ) ); s->in_treap  = 0;
-  s->in_orphan = 1; FD_TEST( fd_chainer_verify( chainer ) ); s->in_orphan = 0;
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   /* nothing may live below the root */

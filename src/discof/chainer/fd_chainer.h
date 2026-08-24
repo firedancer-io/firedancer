@@ -129,34 +129,7 @@ struct fd_slotv {
   uchar           connected;         /* ancestor chain reaches the root */
   uint            delivered_idx;     /* last shred idx of highest fec_set_idx contiguously delivered to replay, UINT_MAX = none */
 
-  /* repair scheduling.  An slotv sits in the repair treap (ordered by
-     slot; same-slot versions in insertion order) while it has
-     un-requested work.  The walk issues each missing idx once,
-     advancing highest_requested, and pops the slotv when it reaches
-     complete_idx; the chainer re-adds it when new work appears.
-
-     TODO move this to an external worklist structure */
   uint            highest_requested; /* highest idx we've issued a repair request for, UINT_MAX = none */
-  uchar           in_treap;          /* 1 if currently in the repair (shred-fill) treap */
-  uchar           in_orphan;         /* 1 if currently in the orphan (ancestry discovery) treap */
-  struct {
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong next;
-    ulong prev;
-    ulong prio;
-  } repair;
-  /* second, independent set of treap links so an slotv can be in the
-     shred-fill treap and the orphan treap at the same time */
-  struct {
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong next;
-    ulong prev;
-    ulong prio;
-  } orphan;
 };
 typedef struct fd_slotv fd_slotv_t;
 
@@ -170,41 +143,6 @@ typedef struct fd_slotv fd_slotv_t;
 #define MAP_MULTI 1 /* several versions of a slot share the slot key */
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1 /* remove a specific version, not an arbitrary slot match */
 #include "../../util/tmpl/fd_map_chain.c"
-
-/* Repair worklist: slotvs ordered by slot, iterated min-first so repair
-   proceeds from the root forward. */
-#define TREAP_NAME               fd_slotv_repair
-#define TREAP_T                  fd_slotv_t
-#define TREAP_QUERY_T            ulong
-#define TREAP_CMP(q,e)           ( ((q)>(e)->slot) - ((q)<(e)->slot) )
-#define TREAP_LT(e0,e1)          ( (e0)->slot < (e1)->slot )
-#define TREAP_IDX_T              ulong
-#define TREAP_OPTIMIZE_ITERATION 1
-#define TREAP_PARENT             repair.parent
-#define TREAP_LEFT               repair.left
-#define TREAP_RIGHT              repair.right
-#define TREAP_NEXT               repair.next
-#define TREAP_PREV               repair.prev
-#define TREAP_PRIO               repair.prio
-#include "../../util/tmpl/fd_treap.c"
-
-/* Orphan worklist: slotvs whose immediate parent is not yet present, or
-   parent_slot is not known.  An slotv leaves this treap once its parent slotv exists. */
-#define TREAP_NAME               fd_slotv_orphan
-#define TREAP_T                  fd_slotv_t
-#define TREAP_QUERY_T            ulong
-#define TREAP_CMP(q,e)           ( ((q)>(e)->slot) - ((q)<(e)->slot) )
-#define TREAP_LT(e0,e1)          ( (e0)->slot < (e1)->slot )
-#define TREAP_IDX_T              ulong
-#define TREAP_OPTIMIZE_ITERATION 1
-#define TREAP_PARENT             orphan.parent
-#define TREAP_LEFT               orphan.left
-#define TREAP_RIGHT              orphan.right
-#define TREAP_NEXT               orphan.next
-#define TREAP_PREV               orphan.prev
-#define TREAP_PRIO               orphan.prio
-#include "../../util/tmpl/fd_treap.c"
-
 
 #define DEQUE_NAME             bfs
 #define DEQUE_T                ulong
@@ -222,13 +160,11 @@ struct fd_chainer {
   ulong highest_repaired; /* max slot ever marked fully_delivered (contiguous-from-root repaired tip) */
   ulong wksp_gaddr;       /* wksp gaddr of fd_chainer in the backing wksp, non-zero gaddr */
 
-  fd_fec_t     * fec_pool;   /* wksp gaddr of fd_fec_pool */
-  fd_fec_map_t * fec_map;    /* wksp gaddr of fd_fec_map (flat, keyed by (slot,fec_set_idx,version)) */
+  fd_fec_t     * fec_pool;
+  fd_fec_map_t * fec_map;
 
-  fd_slotv_t     * slotv_pool;   /* wksp gaddr of fd_slotv_pool */
-  fd_slotv_map_t * slotv_map;    /* wksp gaddr of fd_slotv_map */
-  fd_slotv_repair_t * repair_treap; /* wksp gaddr of fd_slotv_repair (shred-fill worklist) */
-  fd_slotv_orphan_t * orphan_treap; /* wksp gaddr of fd_slotv_orphan (ancestry worklist) */
+  fd_slotv_t     * slotv_pool;
+  fd_slotv_map_t * slotv_map;
 
   ulong * bfs;          /* bfs queue */
   ulong * out_queue;    /* delivered FEC pool idxs awaiting publish to replay */
@@ -257,16 +193,12 @@ fd_chainer_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_chainer_t),   sizeof(fd_chainer_t)                        ),
       fd_fec_pool_align(),     fd_fec_pool_footprint    ( fec_max )        ),
       fd_fec_map_align(),      fd_fec_map_footprint     ( fec_chain_cnt )  ),
       fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( ele_max )        ),
       fd_slotv_map_align(),    fd_slotv_map_footprint   ( slot_chain_cnt ) ),
-      fd_slotv_repair_align(), fd_slotv_repair_footprint( ele_max )        ),
-      fd_slotv_orphan_align(), fd_slotv_orphan_footprint( ele_max )        ),
       bfs_align(),             bfs_footprint            ( ele_max )        ),
       out_queue_align(),       out_queue_footprint      ( fec_max )        ),
     fd_chainer_align() );
@@ -424,30 +356,22 @@ fd_chainer_slot_query( fd_chainer_t * chainer, ulong slot ) {
 
 static inline void
 fd_chainer_repair_add( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
-  if( FD_UNLIKELY( slotv->in_treap ) ) return;
-  fd_slotv_repair_ele_insert( chainer->repair_treap, slotv, chainer->slotv_pool );
-  slotv->in_treap = 1;
+  (void)chainer; (void)slotv;
 }
 
 static inline void
 fd_chainer_repair_remove( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
-  if( FD_UNLIKELY( !slotv->in_treap ) ) return;
-  fd_slotv_repair_ele_remove( chainer->repair_treap, slotv, chainer->slotv_pool );
-  slotv->in_treap = 0;
+  (void)chainer; (void)slotv;
 }
 
 static inline void
 fd_chainer_orphan_add( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
-  if( FD_UNLIKELY( slotv->in_orphan ) ) return;
-  fd_slotv_orphan_ele_insert( chainer->orphan_treap, slotv, chainer->slotv_pool );
-  slotv->in_orphan = 1;
+  (void)chainer; (void)slotv;
 }
 
 static inline void
 fd_chainer_orphan_remove( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
-  if( FD_UNLIKELY( !slotv->in_orphan ) ) return;
-  fd_slotv_orphan_ele_remove( chainer->orphan_treap, slotv, chainer->slotv_pool );
-  slotv->in_orphan = 0;
+  (void)chainer; (void)slotv;
 }
 
 void
