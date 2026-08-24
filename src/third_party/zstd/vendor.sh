@@ -24,7 +24,9 @@ cp "$tmp/zstd/lib/common/"*.c "$tmp/zstd/lib/common/"*.h lib/common/
 cp "$tmp/zstd/lib/compress/"*.c "$tmp/zstd/lib/compress/"*.h lib/compress/
 cp "$tmp/zstd/lib/decompress/"*.c "$tmp/zstd/lib/decompress/"*.h \
    "$tmp/zstd/lib/decompress/huf_decompress_amd64.S" lib/decompress/
-# single-threaded build: zstdmt is never compiled (see Local.mk)
-rm lib/compress/zstdmt_compress.c
+# only using single threaded logic
+rm lib/compress/zstdmt_compress.c lib/compress/zstdmt_compress.h \
+   lib/common/pool.c lib/common/pool.h \
+   lib/common/threading.c lib/common/threading.h
 
 echo "[+] Vendored zstd files from $ZSTD_TAG"

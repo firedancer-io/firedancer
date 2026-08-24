@@ -5,8 +5,8 @@ Files are copied exactly from tag v1.5.7, with no Firedancer
 specific modifications.  Do not edit vendored files locally; update
 by re-running `vendor.sh` against a new pinned tag.
 
-Compiled single-threaded (no ZSTD_MULTITHREAD; pool/threading reduce
-to stubs, zstdmt_compress.c is not imported).  dictBuilder is not
+Compiled single-threaded (no ZSTD_MULTITHREAD; the pool/threading and
+zstdmt sources are not imported).  dictBuilder is not
 imported; first-party code uses no ZDICT API.  Consumers use
 ZSTD_STATIC_LINKING_ONLY static-allocation APIs, which upstream marks
 unstable -- version bumps must re-audit those call sites (fd_zstd.c,
