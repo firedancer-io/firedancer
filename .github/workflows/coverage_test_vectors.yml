@@ -47,10 +47,6 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha || 'main' }}
           submodules: recursive
 
-      - uses: ./.github/actions/deps
-        with:
-          compiler: clang
-          compiler-version: 15.0.6
       - uses: ./.github/actions/cpusonline
       - uses: ./.github/actions/hugepages
 

@@ -15,9 +15,7 @@ endif
 FD_HAS_X86:=1
 FD_ARCH_SUPPORTS_SANDBOX:=1
 
-ifndef FD_NODEPS
 include config/extra/with-s2nbignum.mk
 include config/extra/with-blst.mk
 include config/extra/with-zstd.mk
 include config/extra/with-lz4.mk
-endif
