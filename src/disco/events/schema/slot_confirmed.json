@@ -9,7 +9,7 @@
         "stake":       { "type": "UInt64",                               "description": "Stake in lamports voted for this exact block when the row was emitted. Only the row that triggered a propagated/duplicate/optimistic/super confirmation crossed the level's threshold; ancestors confirmed transitively report their own smaller tally. processed rows carry 0: no replay votes exist yet at the block's own completion. rooted rows carry replay-observed vote stake for the block plus descendants, no threshold. 0 if unavailable." },
         "total_stake": { "type": "UInt64",                               "description": "Total cluster stake in lamports for the epoch the tally was made in (captured at replay completion for processed and rooted rows). 0 if unavailable." },
         "valid":       { "type": "Bool",                                 "description": "Whether the block is eligible for fork choice. An equivocating block becomes eligible again once duplicate confirmed. Always true on forward and ignored rows; validity is not assessed for blocks consensus is not tracking." },
-        "level":       {
+        "level": {
             "type": "LowCardinality(String)",
             "description": "Commitment level reached, weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a terminal outcome, not a level. A block never named directly by any vote emits no propagated/duplicate/optimistic/super rows even when confirmed transitively through a descendant, and the transitive walk stops at it, so voted ancestors above it can miss those rows too; all still emit processed and rooted rows.",
             "variants": {

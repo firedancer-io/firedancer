@@ -330,6 +330,14 @@ struct fd_topo_tile {
       char   action[ 16 ];
       uchar  genesis_hash[ 32 ];
       ushort shred_version;
+
+      char   accounts_path [ PATH_MAX ];
+      char   snapshots_path[ PATH_MAX ];
+      char   log_path      [ PATH_MAX ];
+      char   shredb_path   [ PATH_MAX ];
+      char   guidb_path    [ PATH_MAX ];
+      char   net_interface [ 16 ];
+      long   boot_timestamp_nanos;
     } event;
 
     struct {
@@ -811,6 +819,13 @@ struct fd_topo {
 
   ulong          max_page_size; /* 2^21 or 2^30 */
   ulong          gigantic_page_threshold; /* see [hugetlbfs.gigantic_page_threshold_mib]*/
+
+  /* Rendered configuration documents for the boot telemetry event,
+     filled by the app during topology construction. */
+  ulong          resolved_config_json_len;
+  char           resolved_config_json[ 262144UL ];
+  ulong          user_config_json_len;
+  char           user_config_json[ 131072UL ];
 
   ulong          layout_hash;
 };

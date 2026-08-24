@@ -275,6 +275,9 @@ struct fd_config {
   int is_firedancer;
   int is_dev;
   int has_user_config;
+
+  ulong user_config_len;
+  char  user_config[ 131072 ];
   union {
     fd_configh_t frankendancer;
     fd_configf_t firedancer;

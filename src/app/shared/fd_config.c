@@ -680,6 +680,15 @@ fd_config_load( int           is_firedancer,
   if( FD_LIKELY( user_config ) ) {
     fd_config_load_buf( config, user_config, user_config_sz, user_config_path );
     fd_config_validate( config );
+    if( FD_UNLIKELY( user_config_sz>sizeof(config->user_config)-1UL ) ) {
+      if( FD_UNLIKELY( config->telemetry && config->tiles.event.url[ 0 ] ) ) {
+        FD_LOG_ERR(( "config file (%s) is too large (%lu bytes, max %lu) to report in telemetry", user_config_path, user_config_sz, sizeof(config->user_config)-1UL ));
+      }
+    } else {
+      fd_memcpy( config->user_config, user_config, user_config_sz );
+      config->user_config[ user_config_sz ] = '\0';
+      config->user_config_len = user_config_sz;
+    }
   }
 
   fd_config_fill( config, is_local_cluster, dev );

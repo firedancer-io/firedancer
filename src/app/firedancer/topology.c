@@ -1,4 +1,5 @@
 #include "topology.h"
+#include "../shared/fd_config_json.h"
 
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/replay/fd_execrp.h"
@@ -1261,6 +1262,11 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
 
+  if( FD_LIKELY( telemetry_enabled ) ) {
+    topo->resolved_config_json_len = fd_config_to_json( config, topo->resolved_config_json, sizeof(topo->resolved_config_json) );
+    topo->user_config_json_len     = fd_config_user_toml_to_json( config, topo->user_config_json, sizeof(topo->user_config_json) );
+  }
+
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
   fd_topob_finish( topo, CALLBACKS );
   config->topo = *topo;
@@ -1291,6 +1297,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->event.identity_key_path, config->paths.identity_key, sizeof(tile->event.identity_key_path) );
     fd_cstr_ncpy( tile->event.url, config->tiles.event.url, sizeof(tile->event.url) );
     fd_cstr_ncpy( tile->event.action, config->action, sizeof(tile->event.action) );
+    FD_TEST( fd_cstr_printf_check( tile->event.accounts_path,  sizeof(tile->event.accounts_path),  NULL, "%s", config->paths.accounts  ) );
+    FD_TEST( fd_cstr_printf_check( tile->event.snapshots_path, sizeof(tile->event.snapshots_path), NULL, "%s", config->paths.snapshots ) );
+    FD_TEST( fd_cstr_printf_check( tile->event.log_path,       sizeof(tile->event.log_path),       NULL, "%s", config->log.path        ) );
+    FD_TEST( fd_cstr_printf_check( tile->event.shredb_path,    sizeof(tile->event.shredb_path),    NULL, "%s", config->paths.shredb    ) );
+    FD_TEST( fd_cstr_printf_check( tile->event.guidb_path,     sizeof(tile->event.guidb_path),     NULL, "%s", config->paths.guidb     ) );
+    FD_TEST( fd_cstr_printf_check( tile->event.net_interface,  sizeof(tile->event.net_interface),  NULL, "%s", config->net.interface   ) );
+    tile->event.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "net"   ) ||
                           !strcmp( tile->name, "sock"  ) ||

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_circq.h"
 #include "fd_event_client.h"
+#include "fd_boot_report.h"
 
 #include "../fd_txn_m.h"
 #include "../fd_clock_tile.h"
@@ -42,6 +43,7 @@
    with room for the gRPC framing: the 5-byte gRPC length prefix plus a
    9-byte HTTP/2 DATA frame header per 16 KiB frame. */
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_BUF_MAX+5UL+9UL*( (FD_EVENT_BLOCK_COMPLETED_BUF_MAX+5UL+16383UL)/16384UL )<=GRPC_BUF_MAX, event_fits_grpc_tx_buf );
+FD_STATIC_ASSERT( FD_EVENT_BOOT_BUF_MAX+5UL+9UL*( (FD_EVENT_BOOT_BUF_MAX+5UL+16383UL)/16384UL )<=GRPC_BUF_MAX, boot_event_fits_grpc_tx_buf );
 
 /* Sized so the event workspace (circq + ~144 MiB client/ctx + 64 MiB
    OpenSSL loose) fits in one gigantic page. */
@@ -136,6 +138,8 @@ struct fd_event_tile {
   fd_netdb_fds_t netdb_fds[1];
 
   fd_clock_tile_t clock[1];
+
+  fd_boot_report_t boot_report[1];
 
   ulong in_cnt;
   int in_kind[ 64UL ];
@@ -440,6 +444,8 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "fd_netdb_open_fds failed" ));
   }
 
+  fd_boot_report_collect( ctx->boot_report, topo, tile );
+
   /* Detect TLS from the URL scheme */
   fd_url_t url[ 1UL ];
   ushort   port;
@@ -589,6 +595,8 @@ unprivileged_init( fd_topo_t const *      topo,
     polled_in_idx++;
   }
   ctx->in_cnt = polled_in_idx;
+
+  fd_boot_report_publish( ctx->boot_report, topo, ctx->circq, ctx->client );
 
   if( FD_UNLIKELY( !have_genesi ) ) {
     fd_genesis_meta_t meta[1]; fd_memset( meta, 0, sizeof(meta) );
