@@ -1,13 +1,10 @@
 ifdef FD_HAS_ZSTD
 
-# pool/threading compile to stubs without ZSTD_MULTITHREAD.
 ZSTD_OBJS:=\
   common/debug \
   common/entropy_common \
   common/error_private \
   common/fse_decompress \
-  common/pool \
-  common/threading \
   common/xxhash \
   common/zstd_common \
   compress/fse_compress \
