@@ -29,10 +29,8 @@ compile_commands.json
 # Rust
 **/Cargo.lock
 
-# Dependencies
+# Cross-compile sysroot
 opt/
-opt-msan/
-deps-bundle.tar.zst
 
 # Nix
 /result

@@ -53,8 +53,8 @@ Firedancer is able to stand alone, this will no longer be required.
 
 :::
 
-Other dependencies of the Firedancer build can be installed with a
-convenience script. First, clone the source code with:
+System packages can be installed with the `deps.sh` convenience script.
+First, clone the source code with:
 
 ```sh [bash]
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
@@ -62,10 +62,8 @@ $ cd firedancer
 $ git checkout __FD_LATEST_VERSION__ # Or the latest Frankendancer release
 ```
 
-Then you can run the `deps.sh` script to install system packages and
-compile library dependencies. System packages will be installed via the
-package manager on your system, while library dependencies will be
-compiled and output placed under `./opt`.
+Then you can run the `deps.sh` script to install system packages.
+These will be installed via the package manager on your system.
 
 ```sh [bash]
 $ ./deps.sh
