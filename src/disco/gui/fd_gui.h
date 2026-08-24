@@ -6,6 +6,7 @@
 #include "fd_gui_ema.h"
 
 #include "../topo/fd_topo.h"
+#include "../diag/fd_diag_tile.h"
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../../disco/tiles.h"
@@ -871,6 +872,11 @@ struct fd_gui {
 
   fd_gui_summary_t summary;
 
+  struct {
+    int                        valid;
+    fd_diag_system_resources_t resources;
+  } system;
+
   /* Scratch record for the synthesized skipped slots returned by
      fd_gui_slot_get_canon_safe. */
   fd_gui_slot_t skipped_scratch[ 1 ];
@@ -978,6 +984,11 @@ fd_gui_join( void * shmem );
 void
 fd_gui_set_identity( fd_gui_t *    gui,
                      uchar const * identity_pubkey );
+
+void
+fd_gui_handle_diag_snapshot( fd_gui_t *    gui,
+                             void const *  data,
+                             ulong         data_sz );
 
 void
 fd_gui_ws_open( fd_gui_t *  gui,

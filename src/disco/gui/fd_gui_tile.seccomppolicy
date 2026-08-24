@@ -6,7 +6,7 @@
 #                kernel sockets, so this is the socket file descriptor.
 #
 # db_fd: The gui database file is grown lazily as regions are claimed at
-#        runtime with ftruncate(2).
+#        runtime with fallocate(2).
 uint logfile_fd, uint gui_socket_fd, uint db_fd
 
 # logging: all log messages are written to a file and/or pipe
@@ -90,8 +90,10 @@ ppoll
 #
 # The gui database is a single file mapped into the gui tile's address
 # space in privileged_init.  db_fd is kept open (registered in
-# populate_allowed_fds) and can be used to resize the mapped file at
-# runtime with ftruncate(2).
+# populate_allowed_fds) and can be used to allocate and extend the mapped
+# file at runtime with fallocate(2).
 #
-# arg 0 is the file descriptor to resize.
-ftruncate: (eq (arg 0) db_fd)
+# arg 0 is the file descriptor to resize and arg 1 must be mode zero so
+# ranges cannot be punched, collapsed, or otherwise modified.
+fallocate: (and (eq (arg 0) db_fd)
+                (eq (arg 1) 0))

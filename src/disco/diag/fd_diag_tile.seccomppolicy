@@ -39,6 +39,13 @@ lseek: (and (not (or (eq (arg 0) 2)
 read: (not (or (eq (arg 0) 2)
                (eq (arg 0) logfile_fd)))
 
+# system summary: retained data descriptors are constrained by the
+# sandbox descriptor allowlist.  The logfile is included for st_size.
+fstat: (not (eq (arg 0) 2))
+
+# system summary: sample live disk capacity and free space
+fstatfs: (not (eq (arg 0) 2))
+
 # metrics: reduce CPU usage by sleeping
 clock_nanosleep: (and (eq (arg 0) CLOCK_REALTIME)
                       (eq (arg 1) 0)
