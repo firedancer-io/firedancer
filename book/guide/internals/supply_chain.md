@@ -39,7 +39,6 @@ manager (dnf or apt) when running `./deps.sh check`. These include:
 - GNU Make
 - C compiler: GCC or Clang
 - GNU coreutils
-- GNU diffutils
 
 ## Vendored
 

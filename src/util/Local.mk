@@ -27,10 +27,9 @@ define FD_VERSION_GENERATED_H
 #define FD_VERSION_MINOR $(FD_VERSION_MINOR)
 #define FD_VERSION_PATCH $(FD_VERSION_PATCH)
 endef
-$(file >src/util/fd_version_generated1.h,$(FD_VERSION_GENERATED_H))
-ifneq ($(shell cmp -s src/util/fd_version_generated.h src/util/fd_version_generated1.h && echo "same"),same)
-src/util/fd_version_generated.h: src/util/fd_version_generated1.h
-	cp -f src/util/fd_version_generated1.h $@
+# $(file <...) requires GNU Make 4.2
+ifneq ($(if $(wildcard src/util/fd_version_generated.h),$(file <src/util/fd_version_generated.h)),$(FD_VERSION_GENERATED_H))
+$(file >src/util/fd_version_generated.h,$(FD_VERSION_GENERATED_H))
 endif
 $(OBJDIR)/info: src/util/fd_version_generated.h
 $(OBJDIR)/obj/util/fd_version.o:     src/util/fd_version_generated.h

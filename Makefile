@@ -46,6 +46,8 @@
 
 ### Bootstrap the Makefile environment
 
+include config/make_version.mk
+
 # Remove pollution from unwanted default Make variables, such as $(CC)
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
