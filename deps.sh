@@ -125,8 +125,6 @@ fetch () {
   git submodule update --init
 
   mkdir -pv "$PREFIX/git"
-
-  checkout_repo openssl https://github.com/openssl/openssl "openssl-3.6.2"
 }
 
 check_fedora_pkgs () {
@@ -343,89 +341,6 @@ check () {
   fi
 }
 
-install_openssl () {
-  cd "$PREFIX/git/openssl"
-
-  echo "[+] Configuring OpenSSL"
-
-  local CONFIG_OPTS=(
-    -fPIC
-    --prefix="$PREFIX"
-    --libdir=lib
-    threads
-    no-engine
-    no-static-engine
-    no-weak-ssl-ciphers
-    no-autoload-config
-    no-tls1
-    no-tls1-method
-    no-tls1_1
-    no-tls1_1-method
-    no-tls1_2
-    no-tls1_2-method
-    enable-tls1_3
-    no-shared
-    no-legacy
-    no-tests
-    no-ui-console
-    no-sctp
-    no-ssl3
-    no-aria
-    no-argon2
-    no-bf
-    no-blake2
-    no-camellia
-    no-cast
-    no-cmac
-    no-cmp
-    no-cms
-    no-comp
-    no-ct
-    no-des
-    no-dsa
-    no-dtls
-    no-dtls1-method
-    no-dtls1_2-method
-    no-fips
-    no-gost
-    no-idea
-    no-ktls
-    no-md4
-    no-nextprotoneg
-    no-ocb
-    no-ocsp
-    no-rc2
-    no-rc4
-    no-rc5
-    no-rmd160
-    no-scrypt
-    no-seed
-    no-siphash
-    no-siv
-    no-sm3
-    no-sm4
-    no-srp
-    no-srtp
-    no-ts
-    no-whirlpool
-  )
-
-  if [[ $MSAN == 1 ]]; then
-    CONFIG_OPTS+=( enable-msan no-asm )
-  fi
-
-  CFLAGS="$EXTRA_CFLAGS" CXXFLAGS="$EXTRA_CXXFLAGS" ./config "${CONFIG_OPTS[@]}"
-  echo "[+] Configured OpenSSL"
-
-  echo "[+] Building OpenSSL"
-  "${MAKE[@]}" build_libs
-  echo "[+] Successfully built OpenSSL"
-
-  echo "[+] Installing OpenSSL to $PREFIX"
-  "${MAKE[@]}" install_dev
-  echo "[+] Successfully installed OpenSSL"
-}
-
 install () {
   CC="$(command -v $_CC)"
   cc="$CC"
@@ -438,8 +353,6 @@ install () {
   export cxx
 
   mkdir -p "$PREFIX/include" "$PREFIX/lib"
-
-  ( install_openssl )
 
   # Merge lib64 with lib
   if [[ -d "$PREFIX/lib64" ]]; then
