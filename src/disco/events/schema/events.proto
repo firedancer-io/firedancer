@@ -188,6 +188,172 @@ enum BlockCompletedPackEndReason {
   BLOCK_COMPLETED_PACK_END_REASON_ABANDONED = 4;  // Production was abandoned mid-slot by a reset onto another fork; only on abandoned leader blocks (abandoned_reason reset). Pack ends the block early and its summary rides on the terminating message, so microblock_count, pack costs, pack timings, and bundle_txn_count reflect what was produced before the abandonment.
 }
 
+// Which system C library the validator is running against.
+enum BootLibcKind {
+  BOOT_LIBC_KIND_UNSPECIFIED = 0;
+  BOOT_LIBC_KIND_GLIBC = 1;  // glibc
+  BOOT_LIBC_KIND_MUSL = 2;  // musl
+  BOOT_LIBC_KIND_UNKNOWN = 3;  // unknown
+}
+
+// The named hardware target the binary was compiled for, which fixes the minimum processor it can run on. Distinct from the live processor it is currently running on.
+enum BootBuildMachineTarget {
+  BOOT_BUILD_MACHINE_TARGET_UNSPECIFIED = 0;
+  BOOT_BUILD_MACHINE_TARGET_NATIVE = 1;  // native
+  BOOT_BUILD_MACHINE_TARGET_LINUX_GCC_X86_64 = 2;  // linux_gcc_x86_64
+  BOOT_BUILD_MACHINE_TARGET_LINUX_GCC_ZEN2 = 3;  // linux_gcc_zen2
+  BOOT_BUILD_MACHINE_TARGET_LINUX_GCC_ZEN3 = 4;  // linux_gcc_zen3
+  BOOT_BUILD_MACHINE_TARGET_LINUX_GCC_ZEN4 = 5;  // linux_gcc_zen4
+  BOOT_BUILD_MACHINE_TARGET_LINUX_GCC_ZEN5 = 6;  // linux_gcc_zen5
+  BOOT_BUILD_MACHINE_TARGET_LINUX_GCC_ICELAKE = 7;  // linux_gcc_icelake
+  BOOT_BUILD_MACHINE_TARGET_LINUX_CLANG_X86_64 = 8;  // linux_clang_x86_64
+  BOOT_BUILD_MACHINE_TARGET_LINUX_CLANG_HASWELL = 9;  // linux_clang_haswell
+  BOOT_BUILD_MACHINE_TARGET_LINUX_CLANG_ICELAKE = 10;  // linux_clang_icelake
+  BOOT_BUILD_MACHINE_TARGET_LINUX_CLANG_ZEN2 = 11;  // linux_clang_zen2
+  BOOT_BUILD_MACHINE_TARGET_LINUX_CLANG_ZEN3 = 12;  // linux_clang_zen3
+  BOOT_BUILD_MACHINE_TARGET_LINUX_CLANG_ZEN4 = 13;  // linux_clang_zen4
+  BOOT_BUILD_MACHINE_TARGET_LINUX_CLANG_ZEN5 = 14;  // linux_clang_zen5
+  BOOT_BUILD_MACHINE_TARGET_OTHER = 15;  // other
+}
+
+// Which compiler family produced the binary.
+enum BootCompiler {
+  BOOT_COMPILER_UNSPECIFIED = 0;
+  BOOT_COMPILER_GCC = 1;  // Built with gcc.
+  BOOT_COMPILER_CLANG = 2;  // Built with clang.
+}
+
+// Processor architecture of the host.
+enum BootCpuArch {
+  BOOT_CPU_ARCH_UNSPECIFIED = 0;
+  BOOT_CPU_ARCH_X86_64 = 1;  // x86-64
+  BOOT_CPU_ARCH_ARM = 2;  // ARM
+  BOOT_CPU_ARCH_UNKNOWN = 3;  // Unlisted or undeterminable.
+}
+
+// The maker of the processor.
+enum BootCpuVendor {
+  BOOT_CPU_VENDOR_UNSPECIFIED = 0;
+  BOOT_CPU_VENDOR_INTEL = 1;  // Intel
+  BOOT_CPU_VENDOR_AMD = 2;  // AMD
+  BOOT_CPU_VENDOR_UNKNOWN = 3;  // Unlisted or undeterminable.
+}
+
+// The active frequency-scaling policy, which determines how aggressively the chip clocks up.
+enum BootCpufreqGovernor {
+  BOOT_CPUFREQ_GOVERNOR_UNSPECIFIED = 0;
+  BOOT_CPUFREQ_GOVERNOR_PERFORMANCE = 1;  // performance
+  BOOT_CPUFREQ_GOVERNOR_POWERSAVE = 2;  // powersave
+  BOOT_CPUFREQ_GOVERNOR_ONDEMAND = 3;  // ondemand
+  BOOT_CPUFREQ_GOVERNOR_CONSERVATIVE = 4;  // conservative
+  BOOT_CPUFREQ_GOVERNOR_SCHEDUTIL = 5;  // schedutil
+  BOOT_CPUFREQ_GOVERNOR_USERSPACE = 6;  // userspace
+  BOOT_CPUFREQ_GOVERNOR_UNKNOWN = 7;  // unknown
+}
+
+// The kernel driver controlling processor frequency scaling.
+enum BootCpufreqDriver {
+  BOOT_CPUFREQ_DRIVER_UNSPECIFIED = 0;
+  BOOT_CPUFREQ_DRIVER_INTEL_PSTATE = 1;  // intel_pstate
+  BOOT_CPUFREQ_DRIVER_INTEL_CPUFREQ = 2;  // intel_cpufreq
+  BOOT_CPUFREQ_DRIVER_ACPI_CPUFREQ = 3;  // acpi-cpufreq
+  BOOT_CPUFREQ_DRIVER_AMD_PSTATE = 4;  // amd-pstate
+  BOOT_CPUFREQ_DRIVER_AMD_PSTATE_EPP = 5;  // amd-pstate-epp
+  BOOT_CPUFREQ_DRIVER_CPPC_CPUFREQ = 6;  // cppc_cpufreq
+  BOOT_CPUFREQ_DRIVER_UNKNOWN = 7;  // unknown
+}
+
+// Energy-performance preference in force on the frequency driver; a balance profile under governor performance silently caps sustained clocks.
+enum BootCpuEnergyPerfPreference {
+  BOOT_CPU_ENERGY_PERF_PREFERENCE_UNSPECIFIED = 0;
+  BOOT_CPU_ENERGY_PERF_PREFERENCE_PERFORMANCE = 1;  // Maximum performance bias.
+  BOOT_CPU_ENERGY_PERF_PREFERENCE_BALANCE_PERFORMANCE = 2;  // Default bias favoring performance.
+  BOOT_CPU_ENERGY_PERF_PREFERENCE_BALANCE_POWER = 3;  // Bias favoring power saving.
+  BOOT_CPU_ENERGY_PERF_PREFERENCE_POWER = 4;  // Maximum power saving.
+  BOOT_CPU_ENERGY_PERF_PREFERENCE_DEFAULT = 5;  // Driver default.
+  BOOT_CPU_ENERGY_PERF_PREFERENCE_UNKNOWN = 6;  // Not exposed by the driver.
+}
+
+// The kernel driver managing processor idle low-power states.
+enum BootCpuIdleDriver {
+  BOOT_CPU_IDLE_DRIVER_UNSPECIFIED = 0;
+  BOOT_CPU_IDLE_DRIVER_INTEL_IDLE = 1;  // intel_idle
+  BOOT_CPU_IDLE_DRIVER_ACPI_IDLE = 2;  // acpi_idle
+  BOOT_CPU_IDLE_DRIVER_NONE = 3;  // none
+  BOOT_CPU_IDLE_DRIVER_UNKNOWN = 4;  // unknown
+}
+
+// Bonding mode of the validator's bonded device, if bonded; kernel-bypass support and hashing behavior differ by mode.
+enum BootBondMode {
+  BOOT_BOND_MODE_UNSPECIFIED = 0;
+  BOOT_BOND_MODE_NONE = 1;  // Not bonded.
+  BOOT_BOND_MODE_ACTIVE_BACKUP = 2;  // Failover bonding.
+  BOOT_BOND_MODE_LACP = 3;  // Link aggregation (802.3ad).
+  BOOT_BOND_MODE_BALANCE_XOR = 4;  // Hash-balanced bonding.
+  BOOT_BOND_MODE_OTHER = 5;  // Another mode.
+}
+
+// Physical chassis form factor of the host.
+enum BootDmiChassisType {
+  BOOT_DMI_CHASSIS_TYPE_UNSPECIFIED = 0;
+  BOOT_DMI_CHASSIS_TYPE_UNKNOWN = 1;  // Unlisted or undeterminable.
+  BOOT_DMI_CHASSIS_TYPE_DESKTOP = 2;  // desktop
+  BOOT_DMI_CHASSIS_TYPE_LAPTOP = 3;  // laptop
+  BOOT_DMI_CHASSIS_TYPE_NOTEBOOK = 4;  // notebook
+  BOOT_DMI_CHASSIS_TYPE_TOWER = 5;  // tower
+  BOOT_DMI_CHASSIS_TYPE_RACK_MOUNT = 6;  // rack_mount
+  BOOT_DMI_CHASSIS_TYPE_BLADE = 7;  // blade
+  BOOT_DMI_CHASSIS_TYPE_BLADE_ENCLOSURE = 8;  // blade_enclosure
+  BOOT_DMI_CHASSIS_TYPE_MINI_PC = 9;  // mini_pc
+  BOOT_DMI_CHASSIS_TYPE_STICK_PC = 10;  // stick_pc
+  BOOT_DMI_CHASSIS_TYPE_EMBEDDED = 11;  // embedded
+  BOOT_DMI_CHASSIS_TYPE_SEALED_CASE_PC = 12;  // sealed_case_pc
+  BOOT_DMI_CHASSIS_TYPE_CONVERTIBLE = 13;  // convertible
+  BOOT_DMI_CHASSIS_TYPE_DETACHABLE = 14;  // detachable
+  BOOT_DMI_CHASSIS_TYPE_VIRTUAL = 15;  // virtual
+  BOOT_DMI_CHASSIS_TYPE_CLOUD = 16;  // cloud
+}
+
+// Input-output memory management unit state, which gates kernel-bypass zero-copy behavior and per-packet translation cost.
+enum BootIommuMode {
+  BOOT_IOMMU_MODE_UNSPECIFIED = 0;
+  BOOT_IOMMU_MODE_OFF = 1;  // No IOMMU active.
+  BOOT_IOMMU_MODE_PASSTHROUGH = 2;  // Active in passthrough; no per-packet translation.
+  BOOT_IOMMU_MODE_TRANSLATED = 3;  // Active with translation; adds per-packet cost.
+  BOOT_IOMMU_MODE_UNKNOWN = 4;  // Not determinable.
+}
+
+// Identity of the virtualization platform when virtualized, or none for bare metal.
+enum BootHypervisorVendor {
+  BOOT_HYPERVISOR_VENDOR_UNSPECIFIED = 0;
+  BOOT_HYPERVISOR_VENDOR_NONE = 1;  // none
+  BOOT_HYPERVISOR_VENDOR_KVM = 2;  // kvm
+  BOOT_HYPERVISOR_VENDOR_QEMU = 3;  // qemu
+  BOOT_HYPERVISOR_VENDOR_VMWARE = 4;  // vmware
+  BOOT_HYPERVISOR_VENDOR_MICROSOFT_HYPERV = 5;  // microsoft_hyperv
+  BOOT_HYPERVISOR_VENDOR_XEN = 6;  // xen
+  BOOT_HYPERVISOR_VENDOR_AMAZON_NITRO = 7;  // amazon_nitro
+  BOOT_HYPERVISOR_VENDOR_KVM_GCE = 8;  // kvm_gce
+  BOOT_HYPERVISOR_VENDOR_BHYVE = 9;  // bhyve
+  BOOT_HYPERVISOR_VENDOR_PARALLELS = 10;  // parallels
+  BOOT_HYPERVISOR_VENDOR_VIRTUALBOX = 11;  // virtualbox
+  BOOT_HYPERVISOR_VENDOR_BOCHS = 12;  // bochs
+  BOOT_HYPERVISOR_VENDOR_UNKNOWN = 13;  // unknown
+}
+
+// Whether the validator runs inside a container and which runtime, useful for distinguishing bare-metal from containerized deployments.
+enum BootContainerType {
+  BOOT_CONTAINER_TYPE_UNSPECIFIED = 0;
+  BOOT_CONTAINER_TYPE_NONE = 1;  // none
+  BOOT_CONTAINER_TYPE_DOCKER = 2;  // docker
+  BOOT_CONTAINER_TYPE_PODMAN = 3;  // podman
+  BOOT_CONTAINER_TYPE_CONTAINERD = 4;  // containerd
+  BOOT_CONTAINER_TYPE_CRI_O = 5;  // cri-o
+  BOOT_CONTAINER_TYPE_LXC = 6;  // lxc
+  BOOT_CONTAINER_TYPE_SYSTEMD_NSPAWN = 7;  // systemd-nspawn
+  BOOT_CONTAINER_TYPE_UNKNOWN = 8;  // Unlisted or undeterminable.
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -240,6 +406,150 @@ message BlockCompletedTxnTiming {
   uint64 sigverify_done_time = 6;
   // When the transaction was mixed into the PoH stream, fixing its position in the block; transactions of one microblock share the stamp. 0 for blocks this validator did not produce.
   uint64 poh_mixed_time = 7;
+}
+
+// One mounted filesystem.
+message BootFilesystems {
+  // Index into block_devices of the backing device; 255 when not a local block device.
+  uint32 device_idx = 1;
+  // Filesystem type, such as ext4, xfs, or tmpfs.
+  bytes fs_type = 2;
+  // Mount options in effect. Option values that can carry paths, addresses, or usernames are redacted.
+  bytes mount_options = 3;
+  // Total capacity in bytes.
+  uint64 capacity_bytes = 4;
+  // Free space in bytes at boot.
+  uint64 free_bytes = 5;
+}
+
+// One software storage array.
+message BootMdraidArrays {
+  // Array name.
+  bytes name = 1;
+  // Redundancy level of the array.
+  string level = 2;
+  // Number of devices in the array.
+  uint32 device_count = 3;
+  // Whether the array is degraded.
+  bool degraded = 4;
+}
+
+// One non-volatile express storage device.
+message BootNvmeDevices {
+  // Index of this drive in block_devices, which carries its model and identity.
+  uint32 device_idx = 1;
+  // Firmware revision of the device.
+  bytes firmware_rev = 2;
+  // Drive critical warning flags from the health log; any nonzero bit means the drive is degraded.
+  uint32 critical_warning = 3;
+  // Remaining spare capacity percentage; below threshold predicts imminent read-only fallback.
+  uint32 available_spare_pct = 4;
+  // Endurance used percentage; values near or past 100 mark worn media.
+  uint32 percentage_used = 5;
+  // Media and data integrity error count; nonzero flags drives silently retrying reads.
+  uint64 media_errors = 6;
+  // Memory locality domain of the drive. 255 when not applicable.
+  uint32 numa_node = 7;
+  // Size of the device namespace in bytes.
+  uint64 namespace_size_bytes = 8;
+}
+
+// One block storage device.
+message BootBlockDevices {
+  // Kernel name of the device.
+  bytes name = 1;
+  // Model string of the device.
+  bytes model = 2;
+  // Capacity of the device in bytes.
+  uint64 capacity_bytes = 3;
+  // Whether the device is a spinning disk rather than solid-state.
+  bool rotational = 4;
+  // Transport type such as the non-volatile express bus, serial bus, attached storage, or virtual.
+  string transport = 5;
+  // Active input/output scheduler for the device.
+  string scheduler = 6;
+}
+
+// One physical network interface and its hardware and link properties.
+message BootNicDevices {
+  // Interface name.
+  bytes name = 1;
+  // Kernel device driver module backing the interface.
+  bytes driver = 2;
+  // Version string reported by the interface driver.
+  bytes driver_version = 3;
+  // Firmware version running on the interface hardware.
+  bytes firmware_version = 4;
+  // Negotiated PCIe link width; less than the maximum means the card trained down and lost bandwidth.
+  uint32 pcie_current_link_width = 5;
+  // Maximum PCIe link width the device supports.
+  uint32 pcie_max_link_width = 6;
+  // Negotiated PCIe link speed, such as 16.0 GT/s.
+  bytes pcie_current_link_speed = 7;
+  // Maximum PCIe link speed the device supports.
+  bytes pcie_max_link_speed = 8;
+  // Hardware bus location of the card, typically its peripheral bus address.
+  bytes bus_info = 9;
+  // Peripheral bus device identifier of the card.
+  uint32 pci_device_id = 10;
+  // Peripheral bus vendor identifier of the card.
+  uint32 pci_vendor_id = 11;
+  // Peripheral bus subsystem vendor identifier of the card.
+  uint32 pci_subsystem_vendor_id = 12;
+  // Peripheral bus subsystem device identifier of the card.
+  uint32 pci_subsystem_device_id = 13;
+  // Memory locality domain the card is attached to; all-ones when not applicable.
+  uint64 numa_node = 14;
+  // Largest packet size the interface will send without fragmentation.
+  uint64 mtu = 15;
+  // Negotiated link speed in megabits per second.
+  uint64 link_speed_mbps = 16;
+  // Whether the interface currently detects a physical link.
+  bool carrier = 17;
+  // Whether the interface accepts all packets on the wire rather than only those addressed to it.
+  bool promiscuous = 18;
+  // Hardware queue channels currently configured.
+  uint32 channels_current = 19;
+  // Maximum hardware queue channels the device supports.
+  uint32 channels_max = 20;
+  // Number of descriptor slots in the hardware receive ring buffer.
+  uint64 rx_ring_size = 21;
+  // Number of descriptor slots in the hardware transmit ring buffer.
+  uint64 tx_ring_size = 22;
+  // Maximum receive ring buffer size the hardware supports.
+  uint64 rx_ring_max = 23;
+  // Maximum transmit ring buffer size the hardware supports.
+  uint64 tx_ring_max = 24;
+  // Kernel network device features currently enabled on the interface, under their kernel names, such as rx-checksum or rx-gro; rx-lro appearing here is harmful to latency-sensitive traffic.
+  repeated string offloads = 25;
+  // Whether receive-side hashing over UDP ports was successfully enabled, required to spread flows across queues.
+  bool rss_flow_hash_udp4 = 26;
+  // Receive interrupt coalescing delay in microseconds.
+  uint64 coalesce_rx_usecs = 27;
+  // Whether receive interrupt coalescing is tuned dynamically based on load.
+  bool coalesce_adaptive_rx = 28;
+  // Hashing function the card uses to distribute incoming packets across queues.
+  string rss_hash_func = 29;
+  // Number of active hardware flow-steering rules installed on the card.
+  uint64 ntuple_rule_count = 30;
+  // Whether the interface is a bonded aggregate of multiple physical members.
+  bool is_bond_master = 31;
+}
+
+// One populated memory module.
+message BootDmiDimms {
+  // Module capacity in bytes.
+  uint64 size_bytes = 1;
+  // Memory technology, such as DDR4 or DDR5.
+  bytes mem_type = 2;
+  // Configured operating speed in mega-transfers per second.
+  uint64 speed_mts = 3;
+  // Maximum rated speed in mega-transfers per second.
+  uint64 rated_speed_mts = 4;
+  // Module manufacturer name.
+  bytes manufacturer = 5;
+  // Module part number: the exact vendor SKU including speed grade and revision.
+  bytes part_number = 6;
 }
 
 // The validator received a verified, deduplicated transaction
@@ -632,6 +942,160 @@ message BlockCompleted {
   repeated BlockCompletedTxnTiming txn_timing = 74;
 }
 
+// Reported once when the validator process starts. A wide fingerprint of the host, operating system, kernel, hardware, network, build, and validator configuration at launch.
+message Boot {
+  // Kernel release string, such as 6.1.0-1202605170043.el9.x86_64.
+  bytes kernel_release = 1;
+  // Full kernel build version string including build date and preemption model.
+  bytes kernel_version = 2;
+  // Processor vulnerabilities for which a kernel mitigation is active; mitigations in force split performance cohorts on otherwise identical hardware. Empty when every mitigation is disabled or the hardware is unaffected.
+  repeated string mitigations = 3;
+  // Short distribution identifier such as ubuntu, rhel, debian, or centos.
+  bytes distro_id = 4;
+  // Distribution version number, such as 22.04 or 9.4.
+  bytes distro_version_id = 5;
+  // Family of distributions this one derives from, such as debian or rhel.
+  bytes distro_id_like = 6;
+  // Which system C library the validator is running against.
+  BootLibcKind libc_kind = 7;
+  // Version of the system C runtime library, such as 2.34.
+  bytes libc_version = 8;
+  // The named hardware target the binary was compiled for, which fixes the minimum processor it can run on. Distinct from the live processor it is currently running on.
+  BootBuildMachineTarget build_machine_target = 9;
+  // The list of optional build features requested when the binary was compiled, such as sanitizers or coverage. Empty for a normal production build.
+  bytes build_extras = 10;
+  // Whether tracked files in the source tree had uncommitted changes when the binary was built, meaning the commit hash alone does not fully describe the code. Untracked files do not count.
+  bool build_git_dirty = 11;
+  // Which compiler family produced the binary.
+  BootCompiler compiler = 12;
+  // The exact version of the compiler that produced the binary.
+  bytes compiler_version = 13;
+  // When the binary was compiled; distinguishes rebuilds of the same commit, which build_git_dirty makes common on development builds.
+  uint64 build_timestamp = 14;
+  // Instruction set extensions the binary was compiled to use, such as avx512 or gfni; fixes the minimum processor the binary can run on and which accelerated code paths are compiled in.
+  repeated string build_features = 15;
+  // Processor architecture of the host.
+  BootCpuArch cpu_arch = 16;
+  // The maker of the processor.
+  BootCpuVendor cpu_vendor = 17;
+  // The full marketing name of the processor.
+  bytes cpu_model_name = 18;
+  // The processor family number identifying the broad generation of the chip.
+  uint32 cpu_family = 19;
+  // The numeric model identifier within the family, distinguishing specific chip designs.
+  uint32 cpu_model_id = 20;
+  // The silicon revision number of the processor, indicating minor hardware fixes within a model.
+  uint32 cpu_stepping = 21;
+  // The currently loaded microcode firmware revision of the processor, important because microcode updates change performance and security behavior.
+  uint64 cpu_microcode_version = 22;
+  // The total number of logical processors the operating system sees, counting each hardware thread separately.
+  uint32 cpu_logical_count = 23;
+  // The number of physical cores across all processor sockets, ignoring hardware threads.
+  uint32 cpu_physical_core_count = 24;
+  // The number of physical processor packages installed in the machine.
+  uint32 cpu_socket_count = 25;
+  // Whether simultaneous multithreading (hyperthreading) is currently enabled on the host.
+  bool smt_active = 26;
+  // The active frequency-scaling policy, which determines how aggressively the chip clocks up.
+  BootCpufreqGovernor cpufreq_governor = 27;
+  // The kernel driver controlling processor frequency scaling.
+  BootCpufreqDriver cpufreq_driver = 28;
+  // Energy-performance preference in force on the frequency driver; a balance profile under governor performance silently caps sustained clocks.
+  BootCpuEnergyPerfPreference cpu_energy_perf_preference = 29;
+  // The kernel driver managing processor idle low-power states.
+  BootCpuIdleDriver cpu_idle_driver = 30;
+  // Name of the deepest processor idle state currently enabled; deeper states add wake-up latency on pinned cores.
+  bytes cpu_max_enabled_cstate = 31;
+  // Total usable physical memory detected by the kernel at boot, in bytes.
+  uint64 host_memory_bytes = 32;
+  // Estimate of memory available for starting new applications without swapping at boot, in bytes.
+  uint64 host_memory_available_bytes = 33;
+  // For each logical processor, the memory locality domain it belongs to; joins tile placements against the locality of network and storage devices to find cross-domain pinning.
+  repeated uint32 numa_cpu_to_node = 34;
+  // Logical processors isolated from the kernel scheduler at boot; tiles pinned to isolated processors run without competition from system tasks, and an empty set on a host that pins tiles means every tile shares its core with the rest of the system.
+  repeated uint32 isolated_cpus = 35;
+  // Per-module memory inventory: mismatched speeds clock the whole bus down, and a module differing after a swap explains a machine that got slower after maintenance.
+  repeated BootDmiDimms dmi_dimms = 36;
+  // Inventory of physical network interfaces, each with its identity, driver, hardware location, link characteristics, queue configuration, and offload settings.
+  repeated BootNicDevices nic_devices = 37;
+  // Names of the physical member interfaces that make up the validator's bonded device.
+  repeated bytes nic_bond_slaves = 38;
+  // Bonding mode of the validator's bonded device, if bonded; kernel-bypass support and hashing behavior differ by mode.
+  BootBondMode bond_mode = 39;
+  // Index into nic_devices of the interface bound for the kernel-bypass path, the bond master entry when bonded; 255 when the bound interface is not in the inventory.
+  uint32 bound_nic_idx = 40;
+  // Whether the kernel just-in-time compiler for packet programs is enabled, which is needed for efficient kernel-bypass networking.
+  uint32 net_bpf_jit_enable = 41;
+  // System manufacturer of the physical machine, or the virtualization vendor when virtualized.
+  bytes dmi_sys_vendor = 42;
+  // Model or product name of the system, or a cloud instance product string.
+  bytes dmi_product_name = 43;
+  // Version string of the installed system firmware.
+  bytes dmi_bios_version = 44;
+  // Release date of the installed system firmware.
+  bytes dmi_bios_date = 45;
+  // Manufacturer of the motherboard.
+  bytes dmi_board_vendor = 46;
+  // Model or part name of the motherboard.
+  bytes dmi_board_name = 47;
+  // Physical chassis form factor of the host.
+  BootDmiChassisType dmi_chassis_type = 48;
+  // Input-output memory management unit state, which gates kernel-bypass zero-copy behavior and per-packet translation cost.
+  BootIommuMode iommu_mode = 49;
+  // Identity of the virtualization platform when virtualized, or none for bare metal.
+  BootHypervisorVendor hypervisor_vendor = 50;
+  // Whether the validator runs inside a container and which runtime, useful for distinguishing bare-metal from containerized deployments.
+  BootContainerType container_type = 51;
+  // Whether the validator is running inside a managed orchestration pod.
+  bool kubernetes_pod = 52;
+  // Hard memory limit imposed by the control group, 0 when unlimited; the ceiling the kernel kills at.
+  uint64 cgroup_memory_limit_bytes = 53;
+  // Memory throttle threshold imposed by the control group, 0 when unset; exceeding it forces reclaim stalls long before the hard limit kills.
+  uint64 cgroup_memory_high_bytes = 54;
+  // Swap limit imposed by the control group, 0 when swap is denied to the process even though the host has swap, UInt64 max when unlimited or no limit file exists.
+  uint64 cgroup_swap_limit_bytes = 55;
+  // Processor quota imposed by the control group in millicores, 0 when unlimited; a quota below the tile count strangles the validator.
+  uint32 cgroup_cpu_quota_millicores = 56;
+  // Inventory of storage devices, each with its identity, capacity, media type, transport, and configured input/output scheduler.
+  repeated BootBlockDevices block_devices = 57;
+  // Per non-volatile express device information.
+  repeated BootNvmeDevices nvme_devices = 58;
+  // Per-array software storage summary.
+  repeated BootMdraidArrays mdraid_arrays = 59;
+  // Filesystems the validator's directories live on, one entry per distinct mount; the directory index fields below point into this array.
+  repeated BootFilesystems filesystems = 60;
+  // Index into filesystems of the mount holding the accounts database; the database grows until write failures stall replay. 255 when unset or unresolved.
+  uint32 accounts_fs_idx = 61;
+  // Index into filesystems of the mount holding the snapshots directory; download plus unpack needs roughly twice the snapshot size, and running out mid-download is a leading boot failure. 255 when unset or unresolved.
+  uint32 snapshots_fs_idx = 62;
+  // Index into filesystems of the mount holding the log file, usually the root partition rather than the data disks. 255 when unset or unresolved.
+  uint32 log_fs_idx = 63;
+  // Index into filesystems of the mount holding the shred database. 255 when unset or unresolved.
+  uint32 shredb_fs_idx = 64;
+  // Index into filesystems of the mount holding the GUI database. 255 when unset or unresolved.
+  uint32 guidb_fs_idx = 65;
+  // The full resolved validator configuration serialized as text, capturing every effective setting after defaults, overrides, and system-derived values are merged. Filesystem paths, the user and host names, bind, listen, and advertised addresses, external service URLs, and gossip entrypoints are redacted.
+  bytes resolved_config_json = 66;
+  // The operator's own configuration file parsed and serialized as text: only the settings they explicitly override, before defaults are merged. Values whose keys suggest paths, addresses, hosts, users, servers, or secrets are redacted.
+  bytes user_config_json = 67;
+  // The full runtime topology serialized as text, capturing the complete wiring of the validator: a tiles list with each tile's kind, core assignment or floating flag, consumed and produced link lists, event link, and memory-object count; a links list, referenced from the tile link lists by position, with each link's kind, depth, message size and burst; and a workspaces list with each workspace's locality domain, page size, page count and footprint. This is the authoritative wiring fingerprint (memory-object assignments are summarized as a count); the scalar fields are derived summaries. Tile locality follows from the core assignment joined against numa_cpu_to_node.
+  bytes topology_json = 68;
+  // Total number of tiles in the running topology.
+  uint32 tile_count = 69;
+  // Total memory the validator locks at boot: workspaces, tile stacks, and private pages.
+  uint64 memory_total = 70;
+  // Gigantic pages the topology requires across all memory locality domains.
+  uint64 memory_gigantic_pages = 71;
+  // Huge pages the topology reserves in the hugetlbfs across all memory locality domains. Tile stack pages are reserved on every domain, since stack placement is only decided when a tile starts, so they are counted once per domain.
+  uint64 memory_huge_pages = 72;
+  // Normal pages the topology requires.
+  uint64 memory_normal_pages = 73;
+  // Wall-clock time at which the validator process itself was started.
+  uint64 process_start_time = 74;
+  // A numeric identifier summarizing the exact set of protocol features this build understands, used to detect when nodes disagree on consensus rules.
+  uint32 feature_set_id = 75;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -644,5 +1108,6 @@ message Event {
     BlockEquivocated block_equivocated = 7;
     RuntimeTxn runtime_txn = 8;
     BlockCompleted block_completed = 9;
+    Boot boot = 10;
   }
 }

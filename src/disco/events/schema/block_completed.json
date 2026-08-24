@@ -28,41 +28,41 @@
         "parent_block_id":                           { "type": "Hash",                                              "description": "Block id of the parent this block chained from, recovered from the reception chain; disambiguates the parent version when the parent slot equivocated. 0 if the reception chain could not be walked to the parent: reassembly no longer tracked the block, or an abandoned leader block that shredded nothing; parent_slot can still be known on such rows." },
         "bank_hash":                                 { "type": "Hash",                                              "description": "Bank hash computed by replaying the block; the state commitment consensus votes on. Rows sharing slot and block_id but differing here indicate state divergence. 0 if the block never froze (dead or abandoned)." },
         "dead":                                      { "type": "Bool",                                              "description": "Whether the block was ruled invalid. Blocks merely given up on are not dead; see abandoned_reason. State accumulated before the ruling is still reported, so execution fields may be partially filled." },
-        "dead_reason":                               {
+        "dead_reason": {
             "type": "LowCardinality(String)",
             "description": "Why the block was ruled invalid; not_dead otherwise. Blocks this validator produced are never dead: they do not go through replay's block checks. A block invalid for several independent reasons records the first one detected locally, which can differ across validators for the same block.",
             "variants": {
-                "not_dead":                       { "description": "Not ruled invalid." },
-                "parent_dead":                    { "description": "The block went down with its lineage: an ancestor was ruled invalid, so this block cannot be replayed." },
-                "unparseable_content":            { "description": "Bytes at the head of the stream failed to parse as any structure (transaction, microblock header, or count) within the largest size a valid block allows: malformed content." },
-                "short_block":                    { "description": "Block bytes ended short of the microblocks and transactions declared." },
-                "trailing_entry":                 { "description": "Block did not end on a tick; a transaction entry trailed the final tick. Checked before tick-count verification, so a block Agave rules TooFewTicks can report trailing_entry here." },
-                "too_many_microblocks":           { "description": "More microblocks than a valid block can hold." },
-                "tick_hashes_overflow":           { "description": "More hashes since the last tick than hashes per tick allows, detected at tick verification." },
-                "tick_hashes_overflow_ingest":    { "description": "A microblock header declared more hashes than fit before the next tick, detected at FEC ingest." },
-                "inconsistent_tick_hashes":       { "description": "A tick's hash count differs from the block's preceding ticks, detected at FEC ingest." },
-                "zero_hash_tick":                 { "description": "A tick advanced zero hashes, detected at tick verification because proof-of-history parameters were unknown when the tick parsed." },
-                "zero_hash_tick_ingest":          { "description": "A tick advanced zero hashes, detected at FEC ingest." },
-                "zero_microblocks":               { "description": "A batch header declared zero microblocks." },
-                "too_many_txns":                  { "description": "More transactions than a valid block can hold." },
-                "too_many_ticks":                 { "description": "More ticks than allowed." },
-                "wrong_hashes_per_tick":          { "description": "Tick hash count did not advance the expected hashes per tick." },
-                "too_few_ticks":                  { "description": "Fewer ticks than required." },
-                "tick_hash_mismatch":             { "description": "Proof-of-history hash of a tick did not verify." },
-                "entry_hash_mismatch":            { "description": "Proof-of-history hash of a transaction entry did not verify, detected when the entry's hashing task completed." },
-                "entry_hash_mismatch_ingest":     { "description": "Proof-of-history hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions." },
-                "sigverify_failed":               { "description": "A transaction failed signature verification." },
-                "txn_failed_to_load":             { "description": "A transaction failed a pre-execution check: already processed, expired or unknown recent blockhash, address lookup table resolution failure, account lock limit, compute budget error, unsupported transaction version or sanitization failure, or fee-payer validation failure." },
-                "block_cost_limit":               { "description": "A transaction pushed the block over its compute limit." },
-                "account_cost_limit":             { "description": "A transaction pushed one account over its per-block compute limit." },
-                "vote_cost_limit":                { "description": "A vote transaction pushed the block over its vote compute limit." },
-                "account_data_limit":             { "description": "A transaction pushed the block over its account data size limit." },
-                "duplicate_account":              { "description": "A transaction referenced the same account more than once." }
+                "not_dead":                    { "description": "Not ruled invalid." },
+                "parent_dead":                 { "description": "The block went down with its lineage: an ancestor was ruled invalid, so this block cannot be replayed." },
+                "unparseable_content":         { "description": "Bytes at the head of the stream failed to parse as any structure (transaction, microblock header, or count) within the largest size a valid block allows: malformed content." },
+                "short_block":                 { "description": "Block bytes ended short of the microblocks and transactions declared." },
+                "trailing_entry":              { "description": "Block did not end on a tick; a transaction entry trailed the final tick. Checked before tick-count verification, so a block Agave rules TooFewTicks can report trailing_entry here." },
+                "too_many_microblocks":        { "description": "More microblocks than a valid block can hold." },
+                "tick_hashes_overflow":        { "description": "More hashes since the last tick than hashes per tick allows, detected at tick verification." },
+                "tick_hashes_overflow_ingest": { "description": "A microblock header declared more hashes than fit before the next tick, detected at FEC ingest." },
+                "inconsistent_tick_hashes":    { "description": "A tick's hash count differs from the block's preceding ticks, detected at FEC ingest." },
+                "zero_hash_tick":              { "description": "A tick advanced zero hashes, detected at tick verification because proof-of-history parameters were unknown when the tick parsed." },
+                "zero_hash_tick_ingest":       { "description": "A tick advanced zero hashes, detected at FEC ingest." },
+                "zero_microblocks":            { "description": "A batch header declared zero microblocks." },
+                "too_many_txns":               { "description": "More transactions than a valid block can hold." },
+                "too_many_ticks":              { "description": "More ticks than allowed." },
+                "wrong_hashes_per_tick":       { "description": "Tick hash count did not advance the expected hashes per tick." },
+                "too_few_ticks":               { "description": "Fewer ticks than required." },
+                "tick_hash_mismatch":          { "description": "Proof-of-history hash of a tick did not verify." },
+                "entry_hash_mismatch":         { "description": "Proof-of-history hash of a transaction entry did not verify, detected when the entry's hashing task completed." },
+                "entry_hash_mismatch_ingest":  { "description": "Proof-of-history hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions." },
+                "sigverify_failed":            { "description": "A transaction failed signature verification." },
+                "txn_failed_to_load":          { "description": "A transaction failed a pre-execution check: already processed, expired or unknown recent blockhash, address lookup table resolution failure, account lock limit, compute budget error, unsupported transaction version or sanitization failure, or fee-payer validation failure." },
+                "block_cost_limit":            { "description": "A transaction pushed the block over its compute limit." },
+                "account_cost_limit":          { "description": "A transaction pushed one account over its per-block compute limit." },
+                "vote_cost_limit":             { "description": "A vote transaction pushed the block over its vote compute limit." },
+                "account_data_limit":          { "description": "A transaction pushed the block over its account data size limit." },
+                "duplicate_account":           { "description": "A transaction referenced the same account more than once." }
             }
         },
         "dead_time":                                 { "type": "DateTime64(9)",                                     "description": "When the block was ruled invalid; 0 if not dead." },
         "abandoned":                                 { "type": "Bool",                                              "description": "Whether this validator gave up on the block before it completed. Independent of dead: an abandoned block was not invalid. Equivalent to abandoned_reason != not_abandoned. State accumulated before abandonment is still reported, so execution fields may be partially filled." },
-        "abandoned_reason":                          {
+        "abandoned_reason": {
             "type": "LowCardinality(String)",
             "description": "Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead.",
             "variants": {
@@ -114,7 +114,7 @@
         "pack_block_cost":                           { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Compute units pack reserved while building the block, votes included. Reservations are refunded as transactions finish, so this can exceed cost_tracker_block_cost (the charged amount) by refunds unsettled at slot end. 0 for blocks this validator did not produce." },
         "pack_vote_cost":                            { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Vote compute units pack reserved while building the block, less refunds settled by slot end. Pack's vote costing is not feature-gated by remove_simple_vote_from_cost_model, so this stays populated on leader rows. 0 for blocks this validator did not produce." },
         "pack_data_bytes":                           { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Bytes pack's cost model reserved for block content: transaction payloads plus a 48-byte header per microblock, net of rebates settled by slot end. Excludes tick entries; can exceed the block's actual content by rebates unsettled at slot end. A size, not a compute measure. 0 for blocks this validator did not produce." },
-        "pack_end_reason":                           {
+        "pack_end_reason": {
             "type": "LowCardinality(String)",
             "description": "Why block production stopped; not_leader for blocks this validator did not produce.",
             "variants": {
@@ -125,22 +125,22 @@
             }
         },
         "bundle_txn_count":                          { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Bundled transactions pack scheduled during production, counted whether or not the bundle survived to the block (aborted bundles are skipped at PoH mixin). 0 for blocks this validator did not produce." },
-        "txn_timing":                                {
+        "txn_timing": {
             "type": "Array",
-            "dynamic": true,
             "description": "Per-transaction timestamps, one entry per transaction in block order. Replayed blocks: stamped by the replay scheduler. Leader blocks: stamped by the production pipeline. Columns exclusive to the other path are 0. Empty on dead and abandoned replay rows; an abandoned leader block reports the transactions mixed into the block before production was abandoned. Otherwise best-effort: empty when no capture slot was free (more than 16 blocks replaying at once) or the production timing table was unavailable. Empty does not mean the block had no transactions.",
             "max_len": 98039,
+            "dynamic": true,
             "element": {
                 "type": "Tuple",
                 "description": "Timestamps for one transaction. A zero timestamp means the stage did not occur on this path, was never reached, or its stamp was unavailable.",
                 "fields": {
-                    "received_time":             { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "Earliest time attributable to the transaction. Replayed blocks: network arrival of the shred completing the FEC set carrying the transaction; gap to parsed_time is the internal latency to parse. Leader blocks: entry into this validator — TPU network arrival, block engine receipt (bundles), gossip receipt (votes), or creation time (self-originated)." },
-                    "parsed_time":               { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When the scheduler parsed the transaction out of received data, including address lookup table resolution. Gap from received_time covers the pipeline hop, in-order delivery waits, and parse position within the FEC set. 0 for leader blocks." },
-                    "dispatched_time":           { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "Replayed blocks: when the scheduler handed the transaction to an execution tile. Leader blocks: when an execution tile began executing it; transactions of one bundle share the stamp." },
-                    "replayed_time":             { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When execution finished and results were committed to the block's state, on whichever path executed it." },
-                    "sigverify_dispatched_time": { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When the scheduler dispatched signature verification, which runs in parallel with execution. 0 for leader blocks (verified upstream of pack)." },
-                    "sigverify_done_time":       { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When the signature verification result returned to the scheduler. 0 for leader blocks." },
-                    "poh_mixed_time":            { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When the transaction was mixed into the PoH stream, fixing its position in the block; transactions of one microblock share the stamp. 0 for blocks this validator did not produce." }
+                    "received_time":             { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "Earliest time attributable to the transaction. Replayed blocks: network arrival of the shred completing the FEC set carrying the transaction; gap to parsed_time is the internal latency to parse. Leader blocks: entry into this validator — TPU network arrival, block engine receipt (bundles), gossip receipt (votes), or creation time (self-originated)." },
+                    "parsed_time":               { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the scheduler parsed the transaction out of received data, including address lookup table resolution. Gap from received_time covers the pipeline hop, in-order delivery waits, and parse position within the FEC set. 0 for leader blocks." },
+                    "dispatched_time":           { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "Replayed blocks: when the scheduler handed the transaction to an execution tile. Leader blocks: when an execution tile began executing it; transactions of one bundle share the stamp." },
+                    "replayed_time":             { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When execution finished and results were committed to the block's state, on whichever path executed it." },
+                    "sigverify_dispatched_time": { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the scheduler dispatched signature verification, which runs in parallel with execution. 0 for leader blocks (verified upstream of pack)." },
+                    "sigverify_done_time":       { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the signature verification result returned to the scheduler. 0 for leader blocks." },
+                    "poh_mixed_time":            { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the transaction was mixed into the PoH stream, fixing its position in the block; transactions of one microblock share the stamp. 0 for blocks this validator did not produce." }
                 }
             }
         }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -140,6 +141,16 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
         if f["type"] not in allowed:
             raise ValueError(f"Compression {compression!r} not applicable to column type {f['type']}")
 
+    # Variant keys become protobuf enum identifiers and, on the server,
+    # upper-camel-cased Rust identifiers; restrict them so they can never
+    # collide with either grammar or the server's reserved __unknown
+    # sentinel (whose identifier is deliberately un-camel-caseable).
+    for k in f.get("variants", {}):
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", k):
+            raise ValueError(f"Invalid variant key {k!r}: must match [a-z][a-z0-9_]*")
+        if k == "unspecified":
+            raise ValueError("Variant key 'unspecified' is reserved: the generator emits <ENUM>_UNSPECIFIED = 0")
+
     return Field(
         chtype=ClickHouseType.from_str(f["type"]),
         description=f["description"],
@@ -152,7 +163,6 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
 
 def parse_schema(path: Path, shared_types: Dict[str, dict]) -> Schema:
     data = json.loads(path.read_text())
-
     fields = {k: parse_field(v, shared_types) for k, v in data["fields"].items()}
     return Schema(data["name"], data["id"], data["description"], fields)
 

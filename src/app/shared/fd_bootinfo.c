@@ -122,10 +122,22 @@ fd_bootinfo_write( config_t const * config ) {
 
   /* Publish the resolved config blob first so a reader that sees the
      descriptor can always recover it.  Contains paths and settings, no
-     key material. */
+     key material.  Sanitize raw user config. */
+  config_t * mut = (config_t *)config;
+  static char saved_toml[ sizeof(config->user_config) ];
+  ulong saved_toml_len = config->user_config_len;
+  fd_memcpy( saved_toml, mut->user_config, sizeof(saved_toml) );
+  fd_memset( mut->user_config, 0, sizeof(mut->user_config) );
+  mut->user_config_len = 0UL;
+
   char blob_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( blob_path, sizeof(blob_path), NULL, "%s/%s.config", config->hugetlbfs.mount_path, config->name ) );
-  if( FD_UNLIKELY( -1==write_file_atomic( blob_path, config, sizeof(config_t), S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH ) ) ) {
+  int blob_err = write_file_atomic( blob_path, config, sizeof(config_t), S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH );
+
+  fd_memcpy( mut->user_config, saved_toml, sizeof(saved_toml) );
+  mut->user_config_len = saved_toml_len;
+
+  if( FD_UNLIKELY( -1==blob_err ) ) {
     FD_LOG_WARNING(( "write(%s) failed (%i-%s), attaching to this validator will require --config", blob_path, errno, fd_io_strerror( errno ) ));
   } else {
     FD_TEST( fd_cstr_printf_check( info.config_file, sizeof(info.config_file), NULL, "%s.config", config->name ) );

@@ -4,12 +4,14 @@ ifdef FD_HAS_LINUX
 $(call make-lib,fdctl_shared)
 
 $(call add-objs,fd_bootinfo,fdctl_shared)
-$(call add-objs,fd_config fd_config_parse fd_config_auto,fdctl_shared)
+$(call add-objs,fd_config fd_config_parse fd_config_auto fd_config_json,fdctl_shared)
 $(call add-objs,fd_obj_callbacks,fdctl_shared)
 $(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fdctl_shared fdctl_platform fd_disco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_config_parse)
 $(call make-unit-test,test_config_auto,test_config_auto,fd_fdctl fdctl_shared fdctl_platform fd_disco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_config_auto)
+$(call make-unit-test,test_config_json,test_config_json,fd_fdctl fdctl_shared fdctl_platform fd_disco fd_ballet fd_tango fd_util)
+$(call run-unit-test,test_config_json)
 $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fdctl_shared fdctl_platform fd_disco fd_ballet fd_tango fd_util)
 
 $(call add-objs,boot/fd_boot,fdctl_shared)

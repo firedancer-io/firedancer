@@ -17,6 +17,7 @@
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/commands/watch/watch.h"
 #include "../../shared/fd_config.h" /* config_t */
+#include "../../shared/fd_config_json.h"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../disco/gui/fd_gui_config_parse.h"
@@ -176,6 +177,9 @@ backtest_topo( config_t * config ) {
     }
     fd_memcpy( event_tile->event.genesis_hash, genesis_hash, 32UL );
     event_tile->event.shred_version = shred_version;
+
+    topo->resolved_config_json_len = fd_config_to_json( config, topo->resolved_config_json, sizeof(topo->resolved_config_json) );
+    topo->user_config_json_len     = fd_config_user_toml_to_json( config, topo->user_config_json, sizeof(topo->user_config_json) );
 
     fd_topob_link( topo, "event_sign", "event_sign", 128UL, 317UL, 1UL );
     fd_topob_link( topo, "sign_event", "sign_event", 128UL, 64UL,  1UL );

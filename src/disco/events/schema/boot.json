@@ -1,0 +1,410 @@
+{
+    "name": "boot",
+    "id": 10,
+    "description": "Reported once when the validator process starts. A wide fingerprint of the host, operating system, kernel, hardware, network, build, and validator configuration at launch.",
+    "fields": {
+        "kernel_release":              { "type": "String",        "description": "Kernel release string, such as 6.1.0-1202605170043.el9.x86_64.", "max_len": 65 },
+        "kernel_version":              { "type": "String",        "description": "Full kernel build version string including build date and preemption model.", "max_len": 129 },
+        "mitigations": {
+            "type": "Array",
+            "description": "Processor vulnerabilities for which a kernel mitigation is active; mitigations in force split performance cohorts on otherwise identical hardware. Empty when every mitigation is disabled or the hardware is unaffected.",
+            "max_len": 32,
+            "element": { "type": "LowCardinality(String)", "description": "Name of one vulnerability with an active mitigation, such as spectre_v2." }
+        },
+        "distro_id":                   { "type": "String",        "description": "Short distribution identifier such as ubuntu, rhel, debian, or centos.", "max_len": 64 },
+        "distro_version_id":           { "type": "String",        "description": "Distribution version number, such as 22.04 or 9.4.", "max_len": 64 },
+        "distro_id_like":              { "type": "String",        "description": "Family of distributions this one derives from, such as debian or rhel.", "max_len": 128 },
+        "libc_kind": {
+            "type": "LowCardinality(String)",
+            "description": "Which system C library the validator is running against.",
+            "variants": {
+                "glibc":   { "description": "glibc" },
+                "musl":    { "description": "musl" },
+                "unknown": { "description": "unknown" }
+            }
+        },
+        "libc_version":                { "type": "String",        "description": "Version of the system C runtime library, such as 2.34.", "max_len": 32 },
+        "build_machine_target": {
+            "type": "LowCardinality(String)",
+            "description": "The named hardware target the binary was compiled for, which fixes the minimum processor it can run on. Distinct from the live processor it is currently running on.",
+            "variants": {
+                "native":              { "description": "native" },
+                "linux_gcc_x86_64":    { "description": "linux_gcc_x86_64" },
+                "linux_gcc_zen2":      { "description": "linux_gcc_zen2" },
+                "linux_gcc_zen3":      { "description": "linux_gcc_zen3" },
+                "linux_gcc_zen4":      { "description": "linux_gcc_zen4" },
+                "linux_gcc_zen5":      { "description": "linux_gcc_zen5" },
+                "linux_gcc_icelake":   { "description": "linux_gcc_icelake" },
+                "linux_clang_x86_64":  { "description": "linux_clang_x86_64" },
+                "linux_clang_haswell": { "description": "linux_clang_haswell" },
+                "linux_clang_icelake": { "description": "linux_clang_icelake" },
+                "linux_clang_zen2":    { "description": "linux_clang_zen2" },
+                "linux_clang_zen3":    { "description": "linux_clang_zen3" },
+                "linux_clang_zen4":    { "description": "linux_clang_zen4" },
+                "linux_clang_zen5":    { "description": "linux_clang_zen5" },
+                "other":               { "description": "other" }
+            }
+        },
+        "build_extras":                { "type": "String",        "description": "The list of optional build features requested when the binary was compiled, such as sanitizers or coverage. Empty for a normal production build.", "max_len": 128 },
+        "build_git_dirty":             { "type": "Bool",          "description": "Whether tracked files in the source tree had uncommitted changes when the binary was built, meaning the commit hash alone does not fully describe the code. Untracked files do not count." },
+        "compiler": {
+            "type": "LowCardinality(String)",
+            "description": "Which compiler family produced the binary.",
+            "variants": {
+                "gcc":   { "description": "Built with gcc." },
+                "clang": { "description": "Built with clang." }
+            }
+        },
+        "compiler_version":            { "type": "String",        "description": "The exact version of the compiler that produced the binary.", "max_len": 128 },
+        "build_timestamp":             { "type": "DateTime64(9)", "description": "When the binary was compiled; distinguishes rebuilds of the same commit, which build_git_dirty makes common on development builds." },
+        "build_features": {
+            "type": "Array",
+            "description": "Instruction set extensions the binary was compiled to use, such as avx512 or gfni; fixes the minimum processor the binary can run on and which accelerated code paths are compiled in.",
+            "max_len": 16,
+            "element": { "type": "LowCardinality(String)", "description": "One instruction set extension enabled at build time." }
+        },
+
+
+        "cpu_arch": {
+            "type": "LowCardinality(String)",
+            "description": "Processor architecture of the host.",
+            "variants": {
+                "x86_64":  { "description": "x86-64" },
+                "arm":     { "description": "ARM" },
+                "unknown": { "description": "Unlisted or undeterminable." }
+            }
+        },
+        "cpu_vendor": {
+            "type": "LowCardinality(String)",
+            "description": "The maker of the processor.",
+            "variants": {
+                "intel":   { "description": "Intel" },
+                "amd":     { "description": "AMD" },
+                "unknown": { "description": "Unlisted or undeterminable." }
+            }
+        },
+        "cpu_model_name":              { "type": "String",        "description": "The full marketing name of the processor.", "max_len": 96 },
+        "cpu_family":                  { "type": "UInt16",        "description": "The processor family number identifying the broad generation of the chip." },
+        "cpu_model_id":                { "type": "UInt16",        "description": "The numeric model identifier within the family, distinguishing specific chip designs." },
+        "cpu_stepping":                { "type": "UInt8",         "description": "The silicon revision number of the processor, indicating minor hardware fixes within a model." },
+        "cpu_microcode_version":       { "type": "UInt64",        "description": "The currently loaded microcode firmware revision of the processor, important because microcode updates change performance and security behavior." },
+        "cpu_logical_count":           { "type": "UInt16",        "description": "The total number of logical processors the operating system sees, counting each hardware thread separately." },
+        "cpu_physical_core_count":     { "type": "UInt16",        "description": "The number of physical cores across all processor sockets, ignoring hardware threads." },
+        "cpu_socket_count":            { "type": "UInt8",         "description": "The number of physical processor packages installed in the machine." },
+        "smt_active":                  { "type": "Bool",          "description": "Whether simultaneous multithreading (hyperthreading) is currently enabled on the host." },
+        "cpufreq_governor": {
+            "type": "LowCardinality(String)",
+            "description": "The active frequency-scaling policy, which determines how aggressively the chip clocks up.",
+            "variants": {
+                "performance":  { "description": "performance" },
+                "powersave":    { "description": "powersave" },
+                "ondemand":     { "description": "ondemand" },
+                "conservative": { "description": "conservative" },
+                "schedutil":    { "description": "schedutil" },
+                "userspace":    { "description": "userspace" },
+                "unknown":      { "description": "unknown" }
+            }
+        },
+        "cpufreq_driver": {
+            "type": "LowCardinality(String)",
+            "description": "The kernel driver controlling processor frequency scaling.",
+            "variants": {
+                "intel_pstate":   { "description": "intel_pstate" },
+                "intel_cpufreq":  { "description": "intel_cpufreq" },
+                "acpi_cpufreq":   { "description": "acpi-cpufreq" },
+                "amd_pstate":     { "description": "amd-pstate" },
+                "amd_pstate_epp": { "description": "amd-pstate-epp" },
+                "cppc_cpufreq":   { "description": "cppc_cpufreq" },
+                "unknown":        { "description": "unknown" }
+            }
+        },
+        "cpu_energy_perf_preference": {
+            "type": "LowCardinality(String)",
+            "description": "Energy-performance preference in force on the frequency driver; a balance profile under governor performance silently caps sustained clocks.",
+            "variants": {
+                "performance":         { "description": "Maximum performance bias." },
+                "balance_performance": { "description": "Default bias favoring performance." },
+                "balance_power":       { "description": "Bias favoring power saving." },
+                "power":               { "description": "Maximum power saving." },
+                "default":             { "description": "Driver default." },
+                "unknown":             { "description": "Not exposed by the driver." }
+            }
+        },
+        "cpu_idle_driver": {
+            "type": "LowCardinality(String)",
+            "description": "The kernel driver managing processor idle low-power states.",
+            "variants": {
+                "intel_idle": { "description": "intel_idle" },
+                "acpi_idle":  { "description": "acpi_idle" },
+                "none":       { "description": "none" },
+                "unknown":    { "description": "unknown" }
+            }
+        },
+        "cpu_max_enabled_cstate":      { "type": "String",        "description": "Name of the deepest processor idle state currently enabled; deeper states add wake-up latency on pinned cores.", "max_len": 16 },
+
+
+        "host_memory_bytes":           { "type": "UInt64",        "description": "Total usable physical memory detected by the kernel at boot, in bytes." },
+        "host_memory_available_bytes": { "type": "UInt64",        "description": "Estimate of memory available for starting new applications without swapping at boot, in bytes." },
+        "numa_cpu_to_node": {
+            "type": "Array",
+            "description": "For each logical processor, the memory locality domain it belongs to; joins tile placements against the locality of network and storage devices to find cross-domain pinning.",
+            "max_len": 1024,
+            "element": { "type": "UInt8", "description": "Locality domain of one logical processor." }
+        },
+        "isolated_cpus": {
+            "type": "Array",
+            "description": "Logical processors isolated from the kernel scheduler at boot; tiles pinned to isolated processors run without competition from system tasks, and an empty set on a host that pins tiles means every tile shares its core with the rest of the system.",
+            "max_len": 1024,
+            "element": { "type": "UInt16", "description": "Index of one isolated logical processor." }
+        },
+        "dmi_dimms": {
+            "type": "Array",
+            "description": "Per-module memory inventory: mismatched speeds clock the whole bus down, and a module differing after a swap explains a machine that got slower after maintenance.",
+            "max_len": 64,
+            "element": {
+                "type": "Tuple",
+                "description": "One populated memory module.",
+                "fields": {
+                    "size_bytes":      { "type": "UInt64", "description": "Module capacity in bytes." },
+                    "mem_type":        { "type": "String", "description": "Memory technology, such as DDR4 or DDR5.", "max_len": 8 },
+                    "speed_mts":       { "type": "UInt64", "description": "Configured operating speed in mega-transfers per second." },
+                    "rated_speed_mts": { "type": "UInt64", "description": "Maximum rated speed in mega-transfers per second." },
+                    "manufacturer":    { "type": "String", "description": "Module manufacturer name.", "max_len": 32 },
+                    "part_number":     { "type": "String", "description": "Module part number: the exact vendor SKU including speed grade and revision.", "max_len": 32 }
+                }
+            }
+        },
+
+
+        "nic_devices": {
+            "type": "Array",
+            "description": "Inventory of physical network interfaces, each with its identity, driver, hardware location, link characteristics, queue configuration, and offload settings.",
+            "max_len": 16,
+            "element": {
+                "type": "Tuple",
+                "description": "One physical network interface and its hardware and link properties.",
+                "fields": {
+                    "name":                    { "type": "String",                 "description": "Interface name.", "max_len": 16 },
+                    "driver":                  { "type": "String",                 "description": "Kernel device driver module backing the interface.", "max_len": 32 },
+                    "driver_version":          { "type": "String",                 "description": "Version string reported by the interface driver.", "max_len": 64 },
+                    "firmware_version":        { "type": "String",                 "description": "Firmware version running on the interface hardware.", "max_len": 64 },
+                    "pcie_current_link_width": { "type": "UInt8",                  "description": "Negotiated PCIe link width; less than the maximum means the card trained down and lost bandwidth." },
+                    "pcie_max_link_width":     { "type": "UInt8",                  "description": "Maximum PCIe link width the device supports." },
+                    "pcie_current_link_speed": { "type": "String",                 "description": "Negotiated PCIe link speed, such as 16.0 GT/s.", "max_len": 16 },
+                    "pcie_max_link_speed":     { "type": "String",                 "description": "Maximum PCIe link speed the device supports.", "max_len": 16 },
+                    "bus_info":                { "type": "String",                 "description": "Hardware bus location of the card, typically its peripheral bus address.", "max_len": 32 },
+                    "pci_device_id":           { "type": "UInt16",                 "description": "Peripheral bus device identifier of the card." },
+                    "pci_vendor_id":           { "type": "UInt16",                 "description": "Peripheral bus vendor identifier of the card." },
+                    "pci_subsystem_vendor_id": { "type": "UInt16",                 "description": "Peripheral bus subsystem vendor identifier of the card." },
+                    "pci_subsystem_device_id": { "type": "UInt16",                 "description": "Peripheral bus subsystem device identifier of the card." },
+                    "numa_node":               { "type": "UInt64",                 "description": "Memory locality domain the card is attached to; all-ones when not applicable." },
+                    "mtu":                     { "type": "UInt64",                 "description": "Largest packet size the interface will send without fragmentation." },
+                    "link_speed_mbps":         { "type": "UInt64",                 "description": "Negotiated link speed in megabits per second." },
+                    "carrier":                 { "type": "Bool",                   "description": "Whether the interface currently detects a physical link." },
+                    "promiscuous":             { "type": "Bool",                   "description": "Whether the interface accepts all packets on the wire rather than only those addressed to it." },
+                    "channels_current":        { "type": "UInt16",                 "description": "Hardware queue channels currently configured." },
+                    "channels_max":            { "type": "UInt16",                 "description": "Maximum hardware queue channels the device supports." },
+                    "rx_ring_size":            { "type": "UInt64",                 "description": "Number of descriptor slots in the hardware receive ring buffer." },
+                    "tx_ring_size":            { "type": "UInt64",                 "description": "Number of descriptor slots in the hardware transmit ring buffer." },
+                    "rx_ring_max":             { "type": "UInt64",                 "description": "Maximum receive ring buffer size the hardware supports." },
+                    "tx_ring_max":             { "type": "UInt64",                 "description": "Maximum transmit ring buffer size the hardware supports." },
+                    "offloads": {
+                        "type": "Array",
+                        "description": "Kernel network device features currently enabled on the interface, under their kernel names, such as rx-checksum or rx-gro; rx-lro appearing here is harmful to latency-sensitive traffic.",
+                        "max_len": 64,
+                        "element": { "type": "LowCardinality(String)", "description": "Kernel name of one enabled device feature." }
+                    },
+                    "rss_flow_hash_udp4":      { "type": "Bool",                   "description": "Whether receive-side hashing over UDP ports was successfully enabled, required to spread flows across queues." },
+                    "coalesce_rx_usecs":       { "type": "UInt64",                 "description": "Receive interrupt coalescing delay in microseconds." },
+                    "coalesce_adaptive_rx":    { "type": "Bool",                   "description": "Whether receive interrupt coalescing is tuned dynamically based on load." },
+                    "rss_hash_func":           { "type": "LowCardinality(String)", "description": "Hashing function the card uses to distribute incoming packets across queues." },
+                    "ntuple_rule_count":       { "type": "UInt64",                 "description": "Number of active hardware flow-steering rules installed on the card." },
+                    "is_bond_master":          { "type": "Bool",                   "description": "Whether the interface is a bonded aggregate of multiple physical members." }
+                }
+            }
+        },
+        "nic_bond_slaves": {
+            "type": "Array",
+            "description": "Names of the physical member interfaces that make up the validator's bonded device.",
+            "max_len": 16,
+            "element": { "type": "String", "description": "A bonded member interface name.", "max_len": 16 }
+        },
+        "bond_mode": {
+            "type": "LowCardinality(String)",
+            "description": "Bonding mode of the validator's bonded device, if bonded; kernel-bypass support and hashing behavior differ by mode.",
+            "variants": {
+                "none":          { "description": "Not bonded." },
+                "active_backup": { "description": "Failover bonding." },
+                "lacp":          { "description": "Link aggregation (802.3ad)." },
+                "balance_xor":   { "description": "Hash-balanced bonding." },
+                "other":         { "description": "Another mode." }
+            }
+        },
+        "bound_nic_idx":               { "type": "UInt8",         "description": "Index into nic_devices of the interface bound for the kernel-bypass path, the bond master entry when bonded; 255 when the bound interface is not in the inventory." },
+        "net_bpf_jit_enable":          { "type": "UInt8",         "description": "Whether the kernel just-in-time compiler for packet programs is enabled, which is needed for efficient kernel-bypass networking." },
+
+
+        "dmi_sys_vendor":              { "type": "String",        "description": "System manufacturer of the physical machine, or the virtualization vendor when virtualized.", "max_len": 64 },
+        "dmi_product_name":            { "type": "String",        "description": "Model or product name of the system, or a cloud instance product string.", "max_len": 64 },
+        "dmi_bios_version":            { "type": "String",        "description": "Version string of the installed system firmware.", "max_len": 64 },
+        "dmi_bios_date":               { "type": "String",        "description": "Release date of the installed system firmware.", "max_len": 16 },
+        "dmi_board_vendor":            { "type": "String",        "description": "Manufacturer of the motherboard.", "max_len": 64 },
+        "dmi_board_name":              { "type": "String",        "description": "Model or part name of the motherboard.", "max_len": 64 },
+        "dmi_chassis_type": {
+            "type": "LowCardinality(String)",
+            "description": "Physical chassis form factor of the host.",
+            "variants": {
+                "unknown":         { "description": "Unlisted or undeterminable." },
+                "desktop":         { "description": "desktop" },
+                "laptop":          { "description": "laptop" },
+                "notebook":        { "description": "notebook" },
+                "tower":           { "description": "tower" },
+                "rack_mount":      { "description": "rack_mount" },
+                "blade":           { "description": "blade" },
+                "blade_enclosure": { "description": "blade_enclosure" },
+                "mini_pc":         { "description": "mini_pc" },
+                "stick_pc":        { "description": "stick_pc" },
+                "embedded":        { "description": "embedded" },
+                "sealed_case_pc":  { "description": "sealed_case_pc" },
+                "convertible":     { "description": "convertible" },
+                "detachable":      { "description": "detachable" },
+                "virtual":         { "description": "virtual" },
+                "cloud":           { "description": "cloud" }
+            }
+        },
+        "iommu_mode": {
+            "type": "LowCardinality(String)",
+            "description": "Input-output memory management unit state, which gates kernel-bypass zero-copy behavior and per-packet translation cost.",
+            "variants": {
+                "off":         { "description": "No IOMMU active." },
+                "passthrough": { "description": "Active in passthrough; no per-packet translation." },
+                "translated":  { "description": "Active with translation; adds per-packet cost." },
+                "unknown":     { "description": "Not determinable." }
+            }
+        },
+        "hypervisor_vendor": {
+            "type": "LowCardinality(String)",
+            "description": "Identity of the virtualization platform when virtualized, or none for bare metal.",
+            "variants": {
+                "none":             { "description": "none" },
+                "kvm":              { "description": "kvm" },
+                "qemu":             { "description": "qemu" },
+                "vmware":           { "description": "vmware" },
+                "microsoft_hyperv": { "description": "microsoft_hyperv" },
+                "xen":              { "description": "xen" },
+                "amazon_nitro":     { "description": "amazon_nitro" },
+                "kvm_gce":          { "description": "kvm_gce" },
+                "bhyve":            { "description": "bhyve" },
+                "parallels":        { "description": "parallels" },
+                "virtualbox":       { "description": "virtualbox" },
+                "bochs":            { "description": "bochs" },
+                "unknown":          { "description": "unknown" }
+            }
+        },
+        "container_type": {
+            "type": "LowCardinality(String)",
+            "description": "Whether the validator runs inside a container and which runtime, useful for distinguishing bare-metal from containerized deployments.",
+            "variants": {
+                "none":           { "description": "none" },
+                "docker":         { "description": "docker" },
+                "podman":         { "description": "podman" },
+                "containerd":     { "description": "containerd" },
+                "cri_o":          { "description": "cri-o" },
+                "lxc":            { "description": "lxc" },
+                "systemd_nspawn": { "description": "systemd-nspawn" },
+                "unknown":        { "description": "Unlisted or undeterminable." }
+            }
+        },
+        "kubernetes_pod":              { "type": "Bool",          "description": "Whether the validator is running inside a managed orchestration pod." },
+        "cgroup_memory_limit_bytes":   { "type": "UInt64",        "description": "Hard memory limit imposed by the control group, 0 when unlimited; the ceiling the kernel kills at." },
+        "cgroup_memory_high_bytes":    { "type": "UInt64",        "description": "Memory throttle threshold imposed by the control group, 0 when unset; exceeding it forces reclaim stalls long before the hard limit kills." },
+        "cgroup_swap_limit_bytes":     { "type": "UInt64",        "description": "Swap limit imposed by the control group, 0 when swap is denied to the process even though the host has swap, UInt64 max when unlimited or no limit file exists." },
+        "cgroup_cpu_quota_millicores": { "type": "UInt32",        "description": "Processor quota imposed by the control group in millicores, 0 when unlimited; a quota below the tile count strangles the validator." },
+
+
+        "block_devices": {
+            "type": "Array",
+            "description": "Inventory of storage devices, each with its identity, capacity, media type, transport, and configured input/output scheduler.",
+            "max_len": 24,
+            "element": {
+                "type": "Tuple",
+                "description": "One block storage device.",
+                "fields": {
+                    "name":           { "type": "String",                 "description": "Kernel name of the device.", "max_len": 64 },
+                    "model":          { "type": "String",                 "description": "Model string of the device.", "max_len": 48 },
+                    "capacity_bytes": { "type": "UInt64",                 "description": "Capacity of the device in bytes." },
+                    "rotational":     { "type": "Bool",                   "description": "Whether the device is a spinning disk rather than solid-state." },
+                    "transport":      { "type": "LowCardinality(String)", "description": "Transport type such as the non-volatile express bus, serial bus, attached storage, or virtual." },
+                    "scheduler":      { "type": "LowCardinality(String)", "description": "Active input/output scheduler for the device." }
+                }
+            }
+        },
+        "nvme_devices": {
+            "type": "Array",
+            "description": "Per non-volatile express device information.",
+            "max_len": 16,
+            "element": {
+                "type": "Tuple",
+                "description": "One non-volatile express storage device.",
+                "fields": {
+                    "device_idx":           { "type": "UInt8",  "description": "Index of this drive in block_devices, which carries its model and identity." },
+                    "firmware_rev":         { "type": "String", "description": "Firmware revision of the device.", "max_len": 32 },
+                    "critical_warning":     { "type": "UInt8",  "description": "Drive critical warning flags from the health log; any nonzero bit means the drive is degraded." },
+                    "available_spare_pct":  { "type": "UInt8",  "description": "Remaining spare capacity percentage; below threshold predicts imminent read-only fallback." },
+                    "percentage_used":      { "type": "UInt8",  "description": "Endurance used percentage; values near or past 100 mark worn media." },
+                    "media_errors":         { "type": "UInt64", "description": "Media and data integrity error count; nonzero flags drives silently retrying reads." },
+                    "numa_node":            { "type": "UInt8",  "description": "Memory locality domain of the drive. 255 when not applicable." },
+                    "namespace_size_bytes": { "type": "UInt64", "description": "Size of the device namespace in bytes." }
+                }
+            }
+        },
+        "mdraid_arrays": {
+            "type": "Array",
+            "description": "Per-array software storage summary.",
+            "max_len": 16,
+            "element": {
+                "type": "Tuple",
+                "description": "One software storage array.",
+                "fields": {
+                    "name":         { "type": "String",                 "description": "Array name.", "max_len": 32 },
+                    "level":        { "type": "LowCardinality(String)", "description": "Redundancy level of the array." },
+                    "device_count": { "type": "UInt8",                  "description": "Number of devices in the array." },
+                    "degraded":     { "type": "Bool",                   "description": "Whether the array is degraded." }
+                }
+            }
+        },
+        "filesystems": {
+            "type": "Array",
+            "description": "Filesystems the validator's directories live on, one entry per distinct mount; the directory index fields below point into this array.",
+            "max_len": 8,
+            "element": {
+                "type": "Tuple",
+                "description": "One mounted filesystem.",
+                "fields": {
+                    "device_idx":     { "type": "UInt8",  "description": "Index into block_devices of the backing device; 255 when not a local block device." },
+                    "fs_type":        { "type": "String", "description": "Filesystem type, such as ext4, xfs, or tmpfs.", "max_len": 16 },
+                    "mount_options":  { "type": "String", "description": "Mount options in effect. Option values that can carry paths, addresses, or usernames are redacted.", "max_len": 256 },
+                    "capacity_bytes": { "type": "UInt64", "description": "Total capacity in bytes." },
+                    "free_bytes":     { "type": "UInt64", "description": "Free space in bytes at boot." }
+                }
+            }
+        },
+        "accounts_fs_idx":             { "type": "UInt8",         "description": "Index into filesystems of the mount holding the accounts database; the database grows until write failures stall replay. 255 when unset or unresolved." },
+        "snapshots_fs_idx":            { "type": "UInt8",         "description": "Index into filesystems of the mount holding the snapshots directory; download plus unpack needs roughly twice the snapshot size, and running out mid-download is a leading boot failure. 255 when unset or unresolved." },
+        "log_fs_idx":                  { "type": "UInt8",         "description": "Index into filesystems of the mount holding the log file, usually the root partition rather than the data disks. 255 when unset or unresolved." },
+        "shredb_fs_idx":               { "type": "UInt8",         "description": "Index into filesystems of the mount holding the shred database. 255 when unset or unresolved." },
+        "guidb_fs_idx":                { "type": "UInt8",         "description": "Index into filesystems of the mount holding the GUI database. 255 when unset or unresolved." },
+
+
+        "resolved_config_json":        { "type": "String",        "description": "The full resolved validator configuration serialized as text, capturing every effective setting after defaults, overrides, and system-derived values are merged. Filesystem paths, the user and host names, bind, listen, and advertised addresses, external service URLs, and gossip entrypoints are redacted.", "max_len": 262144 },
+        "user_config_json":            { "type": "String",        "description": "The operator's own configuration file parsed and serialized as text: only the settings they explicitly override, before defaults are merged. Values whose keys suggest paths, addresses, hosts, users, servers, or secrets are redacted.", "max_len": 131072 },
+        "topology_json":               { "type": "String",        "description": "The full runtime topology serialized as text, capturing the complete wiring of the validator: a tiles list with each tile's kind, core assignment or floating flag, consumed and produced link lists, event link, and memory-object count; a links list, referenced from the tile link lists by position, with each link's kind, depth, message size and burst; and a workspaces list with each workspace's locality domain, page size, page count and footprint. This is the authoritative wiring fingerprint (memory-object assignments are summarized as a count); the scalar fields are derived summaries. Tile locality follows from the core assignment joined against numa_cpu_to_node.", "max_len": 262144 },
+        "tile_count":                  { "type": "UInt16",        "description": "Total number of tiles in the running topology." },
+        "memory_total":                { "type": "UInt64",        "description": "Total memory the validator locks at boot: workspaces, tile stacks, and private pages." },
+        "memory_gigantic_pages":       { "type": "UInt64",        "description": "Gigantic pages the topology requires across all memory locality domains." },
+        "memory_huge_pages":           { "type": "UInt64",        "description": "Huge pages the topology reserves in the hugetlbfs across all memory locality domains. Tile stack pages are reserved on every domain, since stack placement is only decided when a tile starts, so they are counted once per domain." },
+        "memory_normal_pages":         { "type": "UInt64",        "description": "Normal pages the topology requires." },
+        "process_start_time":          { "type": "DateTime64(9)", "description": "Wall-clock time at which the validator process itself was started." },
+        "feature_set_id":              { "type": "UInt32",        "description": "A numeric identifier summarizing the exact set of protocol features this build understands, used to detect when nodes disagree on consensus rules." }
+    }
+}

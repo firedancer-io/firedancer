@@ -214,7 +214,8 @@ $(1): $(OBJDIR)/$(5)/$(1)
 $(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
 	@echo -e "LD\t$$(notdir $$@) ($(5))"
 	$(Q)$(MKDIR) $$(dir $$@) && \
-$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@
+$(if $(filter bin,$(5)),{ echo 'char const fd_bin_build_info[] ='; echo "  \"# date     $$$$(date +'%Y-%m-%d %H:%M:%S %z')\\n\""; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $$@.buildinfo.c && $$(CC) -c -o $$@.buildinfo.o $$@.buildinfo.c && ) \
+$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
 
