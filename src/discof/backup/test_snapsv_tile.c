@@ -915,6 +915,74 @@ FD_UNIT_TEST( snap_body_deleted_midway ) {
   snapsv_env_destroy( env );
 }
 
+/* shoveling_conn returns the conn that is currently streaming a
+   snapshot body, or NULL if there is none. */
+
+static snapsv_conn_t *
+shoveling_conn( fd_snapsv_t * ctx ) {
+  for( ulong i=0UL; i<ctx->conn_max; i++ ) {
+    if( ctx->conn0[ i ].state==CONN_STATE_RES_SHOVEL ) return &ctx->conn0[ i ];
+  }
+  return NULL;
+}
+
+/* A snapshot read that is already submitted when the snapshot is
+   deleted may land after snapmk recycled the file.  Those bytes must
+   not reach the client. */
+
+FD_UNIT_TEST( snap_body_deleted_read_inflight ) {
+  char name[ FD_SNAP_NAME_MAX ];
+  snapsv_env_t * env = snap_env( name, 1 );
+  fd_snapsv_t * ctx = env->ctx;
+
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", name );
+
+  fake_client_t fake;
+  fake_client_req( &fake, req );
+  uint iter = 0U;
+  for( ; iter<64U && fake.res_sz<=4096U; iter++ ) snapsv_step( env, &fake, iter );
+  FD_TEST( fake.res_sz>4096U );
+
+  /* stop with a read SQE submitted but not yet executed by the fake */
+  snapsv_conn_t * conn = shoveling_conn( ctx );
+  FD_TEST( conn );
+  int charge_busy = 0;
+  for( uint end=iter+64U; iter<end; iter++ ) {
+    after_credit_pre( ctx, env->stem, &charge_busy, (long)iter*STEP_NANOS );
+    if( conn->disk_inflight ) break;
+    fake_client_drive( &fake, ctx->ring->sq, ctx->ring->cq );
+    after_credit_post( ctx, env->stem, &charge_busy, (long)iter*STEP_NANOS );
+  }
+  FD_TEST( conn->disk_inflight );
+
+  /* delete the snapshot and rewrite the file underneath the in-flight
+     read, the way snapmk recycles a pool slot */
+  static uchar snap_file_orig[ SNAP_FILE_SZ ];
+  memcpy( snap_file_orig, snap_file, SNAP_FILE_SZ );
+  snapsv_env_del_snap( env, 100UL, ULONG_MAX );
+  memset( snap_file, 0xa5, SNAP_FILE_SZ );
+
+  fake_client_drive( &fake, ctx->ring->sq, ctx->ring->cq );
+  after_credit_post( ctx, env->stem, &charge_busy, (long)iter*STEP_NANOS );
+  for( uint end=iter+256U; iter<end; iter++ ) snapsv_step( env, &fake, iter );
+
+  static char res[ SNAP_RES_MAX ];
+  ulong res_len = sizeof(res);
+  fake_client_res( &fake, res, &res_len );
+
+  ulong        body_len;
+  char const * body = res_body( res, res_len, &body_len );
+  FD_TEST( body_len && body_len<SNAP_FILE_SZ );
+  FD_TEST( !memcmp( body, snap_file_orig, body_len ) );
+
+  memcpy( snap_file, snap_file_orig, SNAP_FILE_SZ );
+
+  FD_TEST( !ctx->conn_cnt );
+  FD_TEST( ctx->iobuf_free_cnt==2U*CONN_MAX );
+  snapsv_env_destroy( env );
+}
+
 struct snapsv_event {
   fd_snapsv_msg_snap_t msg;
   int                  som;
