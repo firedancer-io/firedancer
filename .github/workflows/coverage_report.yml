@@ -21,7 +21,6 @@ jobs:
 
       - uses: ./.github/actions/submodule-init
 
-      - uses: ./.github/actions/deps
       - uses: ./.github/actions/cpusonline
       - uses: ./.github/actions/hugepages
         with:
