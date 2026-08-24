@@ -355,6 +355,27 @@ enum BootContainerType {
   BOOT_CONTAINER_TYPE_UNKNOWN = 8;  // Unlisted or undeterminable.
 }
 
+// Snapshot production result.
+enum SnapshotCreatedResult {
+  SNAPSHOT_CREATED_RESULT_UNSPECIFIED = 0;
+  SNAPSHOT_CREATED_RESULT_SUCCESS = 1;  // The snapshot was produced and published to the local snapshot directory.
+  SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS = 2;  // The incremental snapshot could not be produced because more accounts changed than snapshots.max_incremental_snapshot_accounts permits.
+}
+
+// Zstandard compression strategy.
+enum SnapshotCreatedZstdStrategy {
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_UNSPECIFIED = 0;
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_FAST = 1;  // Zstandard fast strategy.
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_DFAST = 2;  // Zstandard double-fast strategy.
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_GREEDY = 3;  // Zstandard greedy strategy.
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_LAZY = 4;  // Zstandard lazy strategy.
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_LAZY2 = 5;  // Zstandard lazy2 strategy.
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_BTLAZY2 = 6;  // Zstandard binary-tree lazy2 strategy.
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_BTOPT = 7;  // Zstandard binary-tree optimal strategy.
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_BTULTRA = 8;  // Zstandard binary-tree ultra strategy.
+  SNAPSHOT_CREATED_ZSTD_STRATEGY_BTULTRA2 = 9;  // Zstandard binary-tree ultra2 strategy.
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -1097,6 +1118,70 @@ message Boot {
   uint32 feature_set_id = 75;
 }
 
+// The result of a snapshot production attempt.
+message SnapshotCreated {
+  // Snapshot production result.
+  SnapshotCreatedResult result = 1;
+  // The snapshot slot. The snapshot contains the chain state after replaying this slot.
+  uint64 slot = 2;
+  // For an incremental snapshot, the slot of the full snapshot it's based on. 0 for a full snapshot.
+  uint64 base_slot = 3;
+  // Final snapshot filename.
+  bytes filename = 4;
+  // Raw 32-byte snapshot hash (currently blake3_256(accounts_lthash)).
+  bytes hash = 5;
+  // Bank hash of the snapshot slot.
+  bytes bank_hash = 6;
+  // Block identifier (FEC set tree root) of the bank at the snapshot slot.
+  bytes block_id = 7;
+  // Raw 2048-byte accounts LtHash from the bank.
+  bytes bank_accounts_lthash = 8;
+  // Epoch number of snapshot slot.
+  uint64 epoch = 9;
+  // Block height at the snapshot slot (as seen in manifest).
+  uint64 block_height = 10;
+  // Total capitalization in lamports (as seen in manifest).
+  uint64 capitalization = 11;
+  // Cumulative number of historical transactions (as seen in manifest, unverified).
+  uint64 transaction_count = 12;
+  // Number of account records written to the snapshot. Full snapshots contain all live accounts; incremental snapshots contain accounts changed since base_slot.
+  uint64 account_count = 13;
+  // Number of zero-lamport account records written to the snapshot.
+  uint64 tombstone_count = 14;
+  // Number of non-tombstone account records read from the accounts database cache.
+  uint64 cached_accounts_count = 15;
+  // Number of non-tombstone account records read from accounts database disk storage.
+  uint64 disk_accounts_count = 16;
+  // Uncompressed serialized manifest payload size in bytes, excluding its TAR header and padding.
+  uint64 manifest_size = 17;
+  // Total uncompressed size in bytes of account records, including each record header and record alignment padding but excluding TAR headers and TAR padding.
+  uint64 accounts_size = 18;
+  // Uncompressed serialized status-cache payload size in bytes, excluding its TAR header and padding.
+  uint64 status_cache_size = 19;
+  // Final compressed snapshot file size in bytes, including archive data and skippable alignment frames.
+  uint64 compressed_size = 20;
+  // Total number of bytes produced by decompressing all Zstandard frames, including TAR headers and TAR padding but excluding skippable alignment frames.
+  uint64 uncompressed_size = 21;
+  // Number of Zstandard data frames in the snapshot file. Excludes skippable frames used for alignment padding.
+  uint64 zstd_data_frame_count = 22;
+  // Total compressed-file bytes occupied by Zstandard skippable frames used for alignment padding, including their 8-byte frame headers.
+  uint64 zstd_padding_size = 23;
+  // Zstandard compression window size in bytes.
+  uint64 zstd_window_size = 24;
+  // Zstandard compression strategy.
+  SnapshotCreatedZstdStrategy zstd_strategy = 25;
+  // Aggregate CPU time spent in Zstandard compression calls across snapshot producer threads, in nanoseconds.
+  uint64 duration_compress_nanos = 26;
+  // Aggregate time snapshot producer threads spent blocked on snapshot file writes, in nanoseconds.
+  uint64 duration_io_blocked_nanos = 27;
+  // Wall-clock time at which snapshot production began, in nanoseconds since the Unix epoch.
+  uint64 start_time = 28;
+  // Wall-clock time at which writing snapshot account records began, in nanoseconds since the Unix epoch.
+  uint64 accounts_start_time = 29;
+  // Wall-clock time at which snapshot production ended, in nanoseconds since the Unix epoch.
+  uint64 end_time = 30;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -1110,5 +1195,6 @@ message Event {
     RuntimeTxn runtime_txn = 8;
     BlockCompleted block_completed = 9;
     Boot boot = 10;
+    SnapshotCreated snapshot_created = 11;
   }
 }

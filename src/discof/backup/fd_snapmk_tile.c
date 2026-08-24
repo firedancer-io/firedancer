@@ -67,6 +67,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../../tango/fseq/fd_fseq.h"
 
 #include <time.h> /* CLOCK_REALTIME */
@@ -154,8 +155,18 @@ struct fd_snapmk {
   fd_txncache_writer_t   txncache_writer[1];
 
   ulong manifest_pad;
+  ulong manifest_sz;
   ulong status_cache_pad;
+  ulong status_cache_sz;
+  ulong zstd_data_frame_cnt;
+  ulong zstd_padding_sz;
+  ulong uncompressed_sz;
   long  start_time;
+  long  accounts_start_time;
+  long  end_time;
+  uchar snap_hash[ 32 ];
+  ulong snapshot_compress_ticks0;
+  ulong snapshot_io_blocked_ticks0;
   ulong last_snapshot_create_slot;
 
   int   incremental;
@@ -189,6 +200,7 @@ struct fd_snapmk {
   ushort                in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   fd_backup_overrun_t * overrun;
+  fd_backup_stats_t *   stats;
   fd_snapmk_accparse_t  accparse[1];
 
   /* disk batch staging (FD_BACKUP_ORIG_ACC_DISK_BATCH).  A batch is
@@ -345,8 +357,10 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _backup   = fd_topo_obj_laddr( topo, tile->snapmk.visited_set_obj_id );
   ctx->visited_set = fd_backup_set    ( _backup );
   ctx->overrun     = fd_backup_overrun( _backup );
+  ctx->stats       = fd_backup_stats  ( _backup );
   FD_TEST( ctx->visited_set );
   FD_TEST( ctx->overrun     );
+  FD_TEST( ctx->stats       );
 
   ulong banks_obj_id = tile->snapmk.banks_obj_id;
   FD_TEST( banks_obj_id!=ULONG_MAX );
@@ -524,6 +538,7 @@ zip_flush( fd_snapmk_t *     ctx,
     FD_LOG_ERR(( "ZSTD_compressStream2 failed: %s", ZSTD_getErrorName( ret ) ));
   }
   ctx->metrics.bytes_compressed += ctx->raw_buf.pos - raw_pos;
+  ctx->uncompressed_sz          += ctx->raw_buf.pos - raw_pos;
   ctx->metrics.compress_ticks   += (ulong)( t1-t0 );
 
   /* Move uncompressed bytes to left */
@@ -559,6 +574,7 @@ zip_flush( fd_snapmk_t *     ctx,
   ctx->pool_sz[ ctx->snap_idx ] += comp_wr_;
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
+  ctx->zstd_data_frame_cnt += directive==ZSTD_e_end;
 }
 
 /* zip_align aligns the Zstandard compressed stream by 512 bytes using
@@ -597,6 +613,7 @@ zip_align( fd_snapmk_t * ctx ) {
     ctx->metrics.bytes_written    += pad_sz;
     ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
     ctx->pool_sz[ ctx->snap_idx ] += pad_sz;
+    ctx->zstd_padding_sz          += pad_sz;
   }
   atomic_store_explicit( ctx->file_off_p, aoff, memory_order_release );
 }
@@ -609,6 +626,7 @@ snapmk_status_cache_prepare( fd_snapmk_t * ctx ) {
   ulong slot = ctx->bank->f.slot;
   fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, slot );
   ulong bin_sz = fd_txncache_writer_serialized_sz( ctx->txncache, slot );
+  ctx->status_cache_sz = bin_sz;
 
   zip_reset( ctx );
   fd_tar_meta_t meta;
@@ -702,9 +720,10 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
 
   ctx->snap_fd = -1;
 
+  ctx->end_time = fd_log_wallclock();
   FD_LOG_INFO(( "%s snapshot created in %.3f seconds (%s/%s, %.3f GB)",
                 ctx->incremental ? "incremental" : "full",
-                (double)( fd_log_wallclock() - ctx->start_time )/1e9,
+                (double)( ctx->end_time - ctx->start_time )/1e9,
                 ctx->snap_dir, ctx->final_name,
                 (double)file_sz/1e9 ));
 
@@ -1026,14 +1045,14 @@ snapmk_tar_headers( fd_snapmk_t * ctx ) {
   memcpy( p, &meta, sizeof(fd_tar_meta_t) );
   p += sizeof(fd_tar_meta_t);
 
-  ulong manifest_sz = fd_snap_manifest_serialized_sz( ctx->bank );
-  fd_backup_tar_file_hdr( &meta, manifest_sz );
+  ctx->manifest_sz = fd_snap_manifest_serialized_sz( ctx->bank );
+  fd_backup_tar_file_hdr( &meta, ctx->manifest_sz );
   fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/%lu", slot, slot );
   fd_tar_meta_set_chksum( &meta );
   memcpy( p, &meta, sizeof(fd_tar_meta_t) );
   p += sizeof(fd_tar_meta_t);
   ctx->raw_buf.size = (ulong)( p - ctx->raw );
-  ctx->manifest_pad = fd_ulong_align_up( manifest_sz, 512UL ) - manifest_sz;
+  ctx->manifest_pad = fd_ulong_align_up( ctx->manifest_sz, 512UL ) - ctx->manifest_sz;
 
   zip_flush( ctx, ZSTD_e_end );
 }
@@ -1064,6 +1083,7 @@ snapmk_manifest_chunk( fd_snapmk_t * ctx ) {
   }
   zip_flush( ctx, ZSTD_e_end );
   zip_align( ctx );
+  ctx->accounts_start_time = fd_log_wallclock();
   return 0;
 }
 
@@ -1199,6 +1219,52 @@ snapmk_msg_publish( fd_snapmk_t *       ctx,
   fd_stem_publish( stem, ctx->out.out_idx, msg_type, chunk, sz, 0UL, 0UL, tspub );
   ctx->out.chunk = fd_dcache_compact_next( chunk, sz, ctx->out.chunk0, ctx->out.wmark );
   snapmk_out_wake( ctx, stem );
+}
+
+static int
+snapshot_zstd_strategy( ZSTD_strategy strategy ) {
+  switch( strategy ) {
+  case ZSTD_fast:     return FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_FAST;
+  case ZSTD_dfast:    return FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_DFAST;
+  case ZSTD_greedy:   return FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_GREEDY;
+  case ZSTD_lazy:     return FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_LAZY;
+  case ZSTD_lazy2:    return FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_LAZY2;
+  case ZSTD_btlazy2:  return FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTLAZY2;
+  case ZSTD_btopt:    return FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTOPT;
+  case ZSTD_btultra:  return FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTULTRA;
+  case ZSTD_btultra2: return FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTULTRA2;
+  default: FD_LOG_CRIT(( "unexpected Zstandard strategy %i", (int)strategy ));
+  }
+}
+
+static void
+snapshot_event_init( fd_snapmk_t const *          ctx,
+                     int                          result,
+                     fd_event_snapshot_created_t * ev ) {
+  *ev = (fd_event_snapshot_created_t) {
+    .result            = result,
+    .slot              = ctx->bank->f.slot,
+    .base_slot         = ctx->incremental ? ctx->base_slot : 0UL,
+    .epoch             = ctx->bank->f.epoch,
+    .block_height      = ctx->bank->f.block_height,
+    .capitalization    = ctx->bank->f.capitalization,
+    .transaction_count = ctx->bank->f.parent_txn_count + ctx->bank->f.txn_count,
+    .start_time          = (ulong)ctx->start_time,
+    .accounts_start_time = (ulong)ctx->accounts_start_time,
+    .end_time            = (ulong)ctx->end_time
+  };
+  if( FD_LIKELY( result==FD_EVENT_SNAPSHOT_CREATED_RESULT_SUCCESS ) ) {
+    ev->filename_len = fd_cstr_nlen( ctx->final_name, sizeof(ctx->final_name) );
+    fd_memcpy( ev->filename, ctx->final_name, ev->filename_len );
+  }
+  fd_memcpy( ev->hash,                 ctx->snap_hash,             sizeof(ev->hash)                 );
+  fd_memcpy( ev->bank_hash,            ctx->bank->f.bank_hash.uc, sizeof(ev->bank_hash)            );
+  fd_memcpy( ev->block_id,             ctx->bank->f.block_id.uc,  sizeof(ev->block_id)             );
+  fd_memcpy( ev->bank_accounts_lthash, ctx->bank->f.lthash.bytes, sizeof(ev->bank_accounts_lthash) );
+  ev->bank_accounts_lthash_len = sizeof(ev->bank_accounts_lthash);
+  ZSTD_compressionParameters zstd_params = ZSTD_getCParams( FD_BACKUP_ZSTD_LEVEL, ZSTD_CONTENTSIZE_UNKNOWN, 0UL );
+  ev->zstd_window_size = 1UL << zstd_params.windowLog;
+  ev->zstd_strategy    = snapshot_zstd_strategy( zstd_params.strategy );
 }
 
 /* after_credit runs every run loop iteration, provided that all out
@@ -1358,18 +1424,64 @@ after_credit( fd_snapmk_t *       ctx,
         .pool_idx  = ctx->snap_idx
       };
       fd_cstr_ncpy( msg->name, ctx->final_name, sizeof(msg->name) );
+
+      ulong account_count = 0UL;
+      ulong accounts_size = 0UL;
+      ulong tombstone_count = 0UL;
+      ulong cached_accounts_count = 0UL;
+      ulong disk_accounts_count = 0UL;
+      ulong zstd_data_frame_count = ctx->zstd_data_frame_cnt;
+      ulong zstd_padding_size = ctx->zstd_padding_sz;
+      ulong uncompressed_size = ctx->uncompressed_sz;
+      ulong compress_ticks = ctx->metrics.compress_ticks - ctx->snapshot_compress_ticks0;
+      ulong io_blocked_ticks = ctx->metrics.io_blocked_ticks - ctx->snapshot_io_blocked_ticks0;
+      for( ulong i=0UL; i<ctx->zp_cnt; i++ ) {
+        fd_backup_worker_stats_t const * stats = &ctx->stats->worker[ i ];
+        uncompressed_size     += __atomic_load_n( &stats->uncompressed_sz,     __ATOMIC_ACQUIRE );
+        account_count         += __atomic_load_n( &stats->account_cnt,         __ATOMIC_RELAXED );
+        accounts_size         += __atomic_load_n( &stats->account_sz,          __ATOMIC_RELAXED );
+        tombstone_count       += __atomic_load_n( &stats->tombstone_cnt,       __ATOMIC_RELAXED );
+        cached_accounts_count += __atomic_load_n( &stats->cached_account_cnt,  __ATOMIC_RELAXED );
+        disk_accounts_count   += __atomic_load_n( &stats->disk_account_cnt,    __ATOMIC_RELAXED );
+        zstd_data_frame_count += __atomic_load_n( &stats->zstd_data_frame_cnt, __ATOMIC_RELAXED );
+        zstd_padding_size     += __atomic_load_n( &stats->zstd_padding_sz,     __ATOMIC_RELAXED );
+        compress_ticks        += __atomic_load_n( &stats->compress_ticks,      __ATOMIC_RELAXED );
+        io_blocked_ticks      += __atomic_load_n( &stats->io_blocked_ticks,    __ATOMIC_RELAXED );
+      }
+      FD_TEST( account_count==tombstone_count+cached_accounts_count+disk_accounts_count );
+      fd_event_snapshot_created_t ev[1];
+      snapshot_event_init( ctx, FD_EVENT_SNAPSHOT_CREATED_RESULT_SUCCESS, ev );
+      ev->account_count         = account_count;
+      ev->tombstone_count       = tombstone_count;
+      ev->cached_accounts_count = cached_accounts_count;
+      ev->disk_accounts_count   = disk_accounts_count;
+      ev->manifest_size         = ctx->manifest_sz;
+      ev->accounts_size         = accounts_size;
+      ev->status_cache_size     = ctx->status_cache_sz;
+      ev->compressed_size       = ctx->final_sz;
+      ev->uncompressed_size     = uncompressed_size;
+      ev->zstd_data_frame_count = zstd_data_frame_count;
+      ev->zstd_padding_size     = zstd_padding_size;
+      ev->duration_compress_nanos   = fd_metrics_convert_ticks_to_nanoseconds( compress_ticks   );
+      ev->duration_io_blocked_nanos = fd_metrics_convert_ticks_to_nanoseconds( io_blocked_ticks );
+
       snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_CREATED );
+      fd_event_report_snapshot_created( ev );
+
       ctx->state = SNAPMK_STATE_SLEEP;
       ctx->snap_idx = UINT_MAX;
     }
     break;
   }
   case SNAPMK_STATE_FAIL: {
+    fd_event_snapshot_created_t ev[1];
+    snapshot_event_init( ctx, FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS, ev );
     snapmk_msg_alloc( ctx )->failed = (fd_snapmk_msg_failed_t) {
       .slot      = ctx->bank->f.slot,
       .base_slot = ctx->base_slot
     };
     snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_FAILED );
+    fd_event_report_snapshot_created( ev );
     ctx->snap_idx = UINT_MAX;
     ctx->state    = SNAPMK_STATE_SLEEP;
     *charge_busy  = 1;
@@ -1526,6 +1638,10 @@ snap_start( fd_snapmk_t *                  ctx,
     ctx->base_slot = ULONG_MAX;
   }
   ctx->incremental = incremental;
+  ctx->start_time          = fd_log_wallclock();
+  ctx->accounts_start_time = 0L;
+  ctx->end_time            = 0L;
+  fd_blake3_hash( ctx->bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, ctx->snap_hash );
 
   /* wait for accdb root to match published root */
   fd_accdb_fork_id_t root_fork_id = bank->accdb_fork_id;
@@ -1542,6 +1658,7 @@ snap_start( fd_snapmk_t *                  ctx,
   if( FD_UNLIKELY( sync_ack==FD_ACCDB_SNAPSHOT_SYNC_FAIL ) ) {
     FD_LOG_WARNING(( "cannot create incremental snapshot, too many accounts changed (increase [snapshots.max_incremental_snapshot_accounts])" ));
     snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_FAIL, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+    ctx->end_time = fd_log_wallclock();
     ctx->state = SNAPMK_STATE_FAIL;
     return -1;
   }
@@ -1553,10 +1670,8 @@ snap_start( fd_snapmk_t *                  ctx,
   fd_snap_pool_recover( ctx->snap_dir_fd, ctx->snap_dir, ctx->pool, ctx->snap_max );
 
   /* final name of snap (during compression has a "partial" name) */
-  uchar snap_hash[ 32 ];
-  fd_blake3_hash( ctx->bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, snap_hash );
   char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( snap_hash, NULL, encoded_hash );
+  fd_base58_encode_32( ctx->snap_hash, NULL, encoded_hash );
   if( FD_UNLIKELY( incremental ) ) {
     FD_TEST( fd_cstr_printf_check( ctx->final_name, FD_SNAP_NAME_MAX, NULL,
              "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->base_slot, ctx->bank->f.slot, encoded_hash ) );
@@ -1596,6 +1711,11 @@ snap_start( fd_snapmk_t *                  ctx,
   ctx->raw_buf.pos   = 0UL;
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
+  ctx->zstd_data_frame_cnt = 0UL;
+  ctx->zstd_padding_sz = 0UL;
+  ctx->uncompressed_sz = 0UL;
+  ctx->snapshot_compress_ticks0 = ctx->metrics.compress_ticks;
+  ctx->snapshot_io_blocked_ticks0 = ctx->metrics.io_blocked_ticks;
   ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
     FD_LOG_ERR(( "ZSTD_CCtx_reset failed: %s", ZSTD_getErrorName( zst_err ) ));
@@ -1625,7 +1745,6 @@ snap_start( fd_snapmk_t *                  ctx,
   ctx->zp_ready           = 0UL;
   ctx->disk_out_idx       = -1;
   ctx->disk_batch_pending = 0;
-  ctx->start_time         = fd_log_wallclock();
   if( FD_UNLIKELY( incremental ) ) {
     ctx->metrics.snapshots_created_incremental++;
     ctx->metrics.last_snapshot_slot_started_incremental = ctx->bank->f.slot;
@@ -1928,6 +2047,11 @@ snapmk_run( fd_topo_t *      topo,
              rng, stem_scratch, ctx );
 }
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_snapshot_created_t);
+}
+
 fd_topo_run_tile_t fd_tile_snapmk = {
   .name                     = "snapmk",
   .populate_allowed_fds     = populate_allowed_fds,
@@ -1937,5 +2061,6 @@ fd_topo_run_tile_t fd_tile_snapmk = {
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = snapmk_run,
+  .max_event_sz             = max_event_sz,
   .allow_renameat           = 1
 };

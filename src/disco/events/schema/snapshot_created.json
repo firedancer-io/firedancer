@@ -1,0 +1,58 @@
+{
+    "name": "snapshot_created",
+    "id": 11,
+    "description": "The result of a snapshot production attempt.",
+    "fields": {
+        "result": {
+            "type": "LowCardinality(String)",
+            "description": "Snapshot production result.",
+            "variants": {
+                "success":                       { "description": "The snapshot was produced and published to the local snapshot directory." },
+                "too_many_incremental_accounts": { "description": "The incremental snapshot could not be produced because more accounts changed than snapshots.max_incremental_snapshot_accounts permits." }
+            }
+        },
+        "slot":                      { "type": "UInt64",        "compression": "DoubleDelta, ZSTD", "description": "The snapshot slot. The snapshot contains the chain state after replaying this slot." },
+        "base_slot":                 { "type": "UInt64",        "compression": "DoubleDelta, ZSTD", "description": "For an incremental snapshot, the slot of the full snapshot it's based on. 0 for a full snapshot." },
+        "filename":                  { "type": "String",                                            "description": "Final snapshot filename.", "max_len": 128 },
+        "hash":                      { "type": "Hash",                                              "description": "Raw 32-byte snapshot hash (currently blake3_256(accounts_lthash))." },
+        "bank_hash":                 { "type": "Hash",                                              "description": "Bank hash of the snapshot slot." },
+        "block_id":                  { "type": "Hash",                                              "description": "Block identifier (FEC set tree root) of the bank at the snapshot slot." },
+        "bank_accounts_lthash":      { "type": "Bytes",                                             "description": "Raw 2048-byte accounts LtHash from the bank.", "max_len": 2048 },
+        "epoch":                     { "type": "UInt64",        "compression": "DoubleDelta, ZSTD", "description": "Epoch number of snapshot slot." },
+        "block_height":              { "type": "UInt64",        "compression": "DoubleDelta, ZSTD", "description": "Block height at the snapshot slot (as seen in manifest)." },
+        "capitalization":            { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Total capitalization in lamports (as seen in manifest)." },
+        "transaction_count":         { "type": "UInt64",        "compression": "DoubleDelta, ZSTD", "description": "Cumulative number of historical transactions (as seen in manifest, unverified)." },
+        "account_count":             { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Number of account records written to the snapshot. Full snapshots contain all live accounts; incremental snapshots contain accounts changed since base_slot." },
+        "tombstone_count":           { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Number of zero-lamport account records written to the snapshot." },
+        "cached_accounts_count":     { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Number of non-tombstone account records read from the accounts database cache." },
+        "disk_accounts_count":       { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Number of non-tombstone account records read from accounts database disk storage." },
+        "manifest_size":             { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Uncompressed serialized manifest payload size in bytes, excluding its TAR header and padding." },
+        "accounts_size":             { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Total uncompressed size in bytes of account records, including each record header and record alignment padding but excluding TAR headers and TAR padding." },
+        "status_cache_size":         { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Uncompressed serialized status-cache payload size in bytes, excluding its TAR header and padding." },
+        "compressed_size":           { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Final compressed snapshot file size in bytes, including archive data and skippable alignment frames." },
+        "uncompressed_size":         { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Total number of bytes produced by decompressing all Zstandard frames, including TAR headers and TAR padding but excluding skippable alignment frames." },
+        "zstd_data_frame_count":     { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Number of Zstandard data frames in the snapshot file. Excludes skippable frames used for alignment padding." },
+        "zstd_padding_size":         { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Total compressed-file bytes occupied by Zstandard skippable frames used for alignment padding, including their 8-byte frame headers." },
+        "zstd_window_size":          { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Zstandard compression window size in bytes." },
+        "zstd_strategy": {
+            "type": "LowCardinality(String)",
+            "description": "Zstandard compression strategy.",
+            "variants": {
+                "fast":     { "description": "Zstandard fast strategy." },
+                "dfast":    { "description": "Zstandard double-fast strategy." },
+                "greedy":   { "description": "Zstandard greedy strategy." },
+                "lazy":     { "description": "Zstandard lazy strategy." },
+                "lazy2":    { "description": "Zstandard lazy2 strategy." },
+                "btlazy2":  { "description": "Zstandard binary-tree lazy2 strategy." },
+                "btopt":    { "description": "Zstandard binary-tree optimal strategy." },
+                "btultra":  { "description": "Zstandard binary-tree ultra strategy." },
+                "btultra2": { "description": "Zstandard binary-tree ultra2 strategy." }
+            }
+        },
+        "duration_compress_nanos":   { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Aggregate CPU time spent in Zstandard compression calls across snapshot producer threads, in nanoseconds." },
+        "duration_io_blocked_nanos": { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Aggregate time snapshot producer threads spent blocked on snapshot file writes, in nanoseconds." },
+        "start_time":                { "type": "DateTime64(9)",                                     "description": "Wall-clock time at which snapshot production began, in nanoseconds since the Unix epoch." },
+        "accounts_start_time":       { "type": "DateTime64(9)",                                     "description": "Wall-clock time at which writing snapshot account records began, in nanoseconds since the Unix epoch." },
+        "end_time":                  { "type": "DateTime64(9)",                                     "description": "Wall-clock time at which snapshot production ended, in nanoseconds since the Unix epoch." }
+    }
+}

@@ -3484,7 +3484,7 @@ fd_accdb_unwrite_one( fd_accdb_t * accdb,
   fd_accdb_release( accdb, 1UL, acc );
 }
 
-void
+int
 fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            fd_accdb_fork_id_t fork_id,
                            uchar const *      pubkey,
@@ -3530,7 +3530,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
     *out_lamports = 0UL;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-    return;
+    return FD_ACCDB_READ_ONE_NOCACHE_MISS;
   }
 
   /// STEP 2.
@@ -3550,7 +3550,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
     *out_lamports = 0UL;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-    return;
+    return FD_ACCDB_READ_ONE_NOCACHE_MISS;
   }
 
   /// STEP 3.
@@ -3598,7 +3598,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
       accdb->metrics->bytes_copied += data_len;
       FD_COMPILER_MFENCE();
       FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-      return;
+      return FD_ACCDB_READ_ONE_NOCACHE_CACHE;
     }
   }
 
@@ -3658,6 +3658,7 @@ miss:;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+  return FD_ACCDB_READ_ONE_NOCACHE_DISK;
 }
 
 int

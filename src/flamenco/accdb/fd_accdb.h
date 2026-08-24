@@ -468,9 +468,17 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
    out_executable, out_owner, out_data, and out_data_len are all filled
    in.
 
+   Returns FD_ACCDB_READ_ONE_NOCACHE_MISS when the account does not
+   exist, FD_ACCDB_READ_ONE_NOCACHE_CACHE when read from cache, or
+   FD_ACCDB_READ_ONE_NOCACHE_DISK when read from disk.
+
    The function takes no reference; nothing needs to be released. */
 
-void
+#define FD_ACCDB_READ_ONE_NOCACHE_MISS  (0)
+#define FD_ACCDB_READ_ONE_NOCACHE_CACHE (1)
+#define FD_ACCDB_READ_ONE_NOCACHE_DISK  (2)
+
+int
 fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            fd_accdb_fork_id_t fork_id,
                            uchar const *      pubkey,
