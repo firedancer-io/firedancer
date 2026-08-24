@@ -107,6 +107,27 @@
 
 #include "../../util/fd_util_base.h"
 
+#ifndef XDP_USE_NEED_WAKEUP
+#define XDP_USE_NEED_WAKEUP (1<<3)
+#endif
+
+#ifndef XDP_RING_NEED_WAKEUP
+#define XDP_RING_NEED_WAKEUP (1u<<0)
+#endif
+
+struct fd_xdp_ring_offset {
+  ulong producer;
+  ulong consumer;
+  ulong desc;
+  ulong flags;
+};
+typedef struct fd_xdp_ring_offset fd_xdp_ring_offset_t;
+
+struct fd_xdp_mmap_offsets {
+  fd_xdp_ring_offset_t rx, tx, fr, cr;
+};
+typedef struct fd_xdp_mmap_offsets fd_xdp_mmap_offsets_t;
+
 /* FD_XSK_UMEM_ALIGN: byte alignment of UMEM area within fd_xsk_t.
    This requirement is set by the kernel as of Linux 4.18. */
 #define FD_XSK_UMEM_ALIGN (4096UL)
@@ -242,7 +263,7 @@ struct fd_xsk {
 
   /* Kernel descriptor of XSK rings in local address space
      returned by getsockopt(SOL_XDP, XDP_MMAP_OFFSETS) */
-  struct xdp_mmap_offsets offsets;
+  fd_xdp_mmap_offsets_t offsets;
 
   /* AF_XDP socket file descriptor */
   int xsk_fd;
