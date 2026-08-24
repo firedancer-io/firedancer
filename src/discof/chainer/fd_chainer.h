@@ -4,15 +4,18 @@
 /* Fec chainer is an API for reassembling shreds and FECs into slots.
    It maintains 2 levels of granularity:
 
-   FECs, and SLOTVs (short for "slot versions"). SLOTVs are keyed by
-   (slot, v) where v is the version number.  FECs are keyed by position
-   alone (slot, fec_set_idx) and carry the set of slot versions that
-   include it.
+   FECs, and SLOTVs (short for "slot versions").  SLOTVs are keyed by
+   slot in a MAP_MULTI: the several versions of a slot chain off the
+   same slot key and are distinguished by their block_id.  FECs are
+   keyed by their unique merkle root, and can be shared by multiple
+   slotvs.
 
-   Version 0 is reserved for the turbine version of the slot, and
-   notar-fallback versions are assigned from 1 up. Version numbers are
-   therefore NOT densely packed: a slot we only know about from a
-   notar-fallback cert has a v1 and no v0 until a real shred arrives.
+   The block_id for the turbine version is all-zero until finalization,
+   after which point it will be impossible to distinguish from other
+   versions. Thus, it is marked with a `turbine` flag (prevents extra
+   trailing turbine shreds from creating unbounded slotv contexts).
+   notar-fallback / SafeToNotar versions carry a real block_id from
+   their cert.
 
    Under alpenglow, we can simplify equivocation handling. As turbine
    shreds arrive, each (slot, fec_set_idx) only accepts shreds of the
@@ -20,22 +23,18 @@
 
    When a notar-fallback cert or a SafeToNotar is received for a
    block_id of a slot we don't have yet, we can add additional versions.
-   Protocol dictates up to 3 SafeToNotars can occur and up to 3
-   notar-fallbacks can arrive per slot. So we need to track up to 7
-   versions per slot.
-   Note for the turbine slotv (v0) - it accepts THE FIRST seen of any
-   shred or FEC set. this can be populated by regular turbine shreds or
-   by alpenglow blockid repair results.
+   No correct node ever stores more than 7 distinct blocks per slot
+   (Corollary 50).
 
    A cert or SafeToNotar should trigger getParentandFecCount requests.
-   The response should trigger getFecRoot requests.  The v>=1 version of
-   a FEC set only exists once a getFecRoot response creates the sentinel
-   with that root. Equivocating FEC shreds are accepted iff the sentinel
-   already exists.  If the sentinel does not exist, the FEC shreds are
-   dropped. This way -- turbine shreds are accepted without concern for
-   whether the FEC sets belong to the "same slot", but votor-driven
-   events guarantee repair of shreds that verifiably belong to the same
-   slot.
+   The response should trigger getSliceHash (2.8, Definition 19)
+   requests. Extra versionsof a FEC set only exists once a getFecRoot
+   response creates the sentinel with that root. Equivocating FEC shreds
+   are accepted iff the sentinel already exists.  If the sentinel does
+   not exist, the FEC shreds are dropped. This way -- turbine shreds are
+   accepted without concern for whether the FEC sets belong to the "same
+   slot", but votor-driven events guarantee repair of shreds that
+   verifiably belong to the same slot.
 
    Note that in the uncommon but not impossible case where we may be
    taking a long to complete a block, we may receive a votor event for
@@ -48,23 +47,18 @@
    re-requesting the shreds.  This case should be rare enough that the
    redundancy is worth the simplicity.
 
-   Why again did we flatten the FEC map??? instead of doing 7 copies?
-   dbl check...
-
    *Parent Discovery*
 
    The trickiness with chaining is that there's 3 different sources of
    parent information. Shreds contain parent_off field, which may or may
    not be removed in the future. The block header contains the initial
    replay parent_slot, and there can be an updateParent marker anywhere
-   in the middle of the block. The parent_offs of the shreds do not
-   change after a parentUpdate.
+   in the middle of the block.
 
    In the case where we are disconnected momentarily, or we are catching
    up, we won't ever receive shreds for the original parent slot, only
-   for the updated parent slot. So if we take at face value the
-   parent_off described by the shreds (or the initial block header), we
-   will end up stalled.  TODO continue here...
+   for the updated parent slot. We currently assume parent_off will
+   update with the parentUpdate marker.
 */
 
 #include "../../disco/fd_disco_base.h"
@@ -72,38 +66,28 @@
 
 #define FD_CHAINER_MAGIC (0xf17eda2ce7c4a112UL) /* firedancer chainer v1 */
 
-#define FD_CHAINER_SLOT_VER_MAX 7 /* up to 3 notar-fallbacks per slot + 3 SafeToNotars per slot + 1 turbine version */
+#define FD_CHAINER_SLOT_VER_MAX 7 /* see Corollary 50 */
 
-/* slot:47 | fec_set_idx:15 */
-#define FD_CHAINER_FEC_KEY( slot, fec_set_idx ) \
-  ( ((ulong)(slot))<<17 | ((ulong)(fec_set_idx)) )
-#define FD_CHAINER_FEC_SLOT( key ) ( (ulong)(key) >> 17 )
-#define FD_CHAINER_FEC_IDX( key )  ( (uint)( (key) & 0x1FFFFUL ) )
-
-#define SET_NAME fd_slotv_set
-#define SET_MAX  FD_CHAINER_SLOT_VER_MAX
+#define SET_NAME fd_fec_idxs
+#define SET_MAX  FD_FEC_SHRED_CNT
 #include "../../util/tmpl/fd_set.c"
-struct fd_fec {
-  ulong     key;       /* (slot, fec_set_idx) position, MAP_MULTI key */
-  ulong     next;      /* reserved by pool and map_chain */
-  ulong     prev;      /* reserved by map_chain (doubly-linked chains) */
-  ulong     slot_next; /* next FEC of the same slot, in no particular
-                          order (fd_fec_pool idx, idx_null terminates).
-                          The list is per-slot rather than per-version: a
-                          FEC may be shared by several versions but has only
-                          this one link, so the head lives on version 0's
-                          slotv.  Lets publish release a slot's FECs in
-                          O(k) instead of probing every position. */
-  fd_hash_t merkle_root; /* unique FEC set identifier */
 
-  fd_slotv_set_t versions[fd_slotv_set_word_cnt]; /* set of the slot versions that have
-                                                     this root at this position. */
+struct fd_fec {
+  fd_hash_t merkle_root; /* key */
+  ulong     next;        /* reserved by pool and map_chain */
+  ulong     prev;        /* reserved by map_chain (doubly-linked chains) */
+
+  ulong     slot;        /* slot this FEC belongs to */
+  uint      fec_set_idx; /* position within the slot (multiple of FD_FEC_SHRED_CNT) */
+  fd_fec_idxs_t data_idxs[fd_fec_idxs_word_cnt];
+  uchar     complete;      /* 1 once fd_chainer_fec_complete has run for this
+                              FEC, i.e. the set is reconstructable and may
+                              be delivered.  A FEC created on first shred
+                              (or from a getSliceHash cert, awaiting shreds)
+                              is complete==0 until then; delivery and the
+                              contiguous-FEC prefix gate on this. */
   uchar     slot_complete;
   uchar     data_complete;
-  uchar     sentinel;      /* 1 if this is a sentinel FEC, i.e. we know
-                              this FEC is canonically part of a
-                              notar-fallback slot, but we haven't
-                              actually completed it yet. */
 };
 typedef struct fd_fec fd_fec_t;
 
@@ -113,31 +97,26 @@ typedef struct fd_fec fd_fec_t;
 
 #define MAP_NAME  fd_fec_map
 #define MAP_ELE_T fd_fec_t
-#define MAP_KEY   key
-#define MAP_MULTI 1 /* up to FD_CHAINER_SLOT_VER_MAX distinct roots may share a (slot, fec_set_idx) */
-#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1 /* publish must remove a specific element, not an arbitrary key match */
+#define MAP_KEY   merkle_root
+#define MAP_KEY_T fd_hash_t
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0)->uc, (k1)->uc, sizeof(fd_hash_t) ))
+#define MAP_KEY_HASH(key,seed) ( (seed) ^ fd_ulong_load_8( (key)->uc ) )
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
-
-#define SET_NAME fd_shred_idxs
-#define SET_MAX  FD_SHRED_BLK_MAX
-#include "../../util/tmpl/fd_set.c"
-
-#define FD_CHAINER_SLOTV_KEY( slot, version ) \
-  ( ((ulong)(slot))<<17 | (ushort)(version) )
-#define FD_CHAINER_SLOTV_SLOT( key )    ( (ulong)(key) >> 17 )
-#define FD_CHAINER_SLOTV_VERSION( key ) ( (ulong)(key) & 0x7UL )
 
 #define AG_UNKNOWN_SLOT ULONG_MAX
 struct fd_slotv {
-  ulong           key; /* (slot:47, v) where v<7 */
+  ulong           slot; /* MAP_MULTI key */
   ulong           next; /* reserved by pool and map_chain */
+  ulong           prev; /* reserved by map_chain */
+
+  uchar           turbine; /* 1 for the slotv created through turbine */
   fd_hash_t       block_id;
-  fd_shred_idxs_t shred_idxs[fd_shred_idxs_word_cnt];
+  uint            fec[FD_FEC_BLK_MAX]; /* fec[k] = fd_fec_pool idx of the FEC this
+                                          version owns. TODO assert pool_idx < UINT_MAX */
   uint            complete_idx;
   uint            buffered_idx;     /* idx of highest buffered shred */
   uint            buffered_fec_idx; /* last shred idx of highest buffered FEC set we have received completion for */
-  ulong           fec_head;         /* head of this slot's FEC list (fd_fec_pool idx).
-                                       Only maintained on version 0. List follows slot_next pointer. */
 
   ulong           parent_slot;       /* AG_UNKNOWN_SLOT if unknown */
   fd_hash_t       parent_block_id;   /* block_id of the parent slot */
@@ -151,10 +130,12 @@ struct fd_slotv {
   uint            delivered_idx;     /* last shred idx of highest fec_set_idx contiguously delivered to replay, UINT_MAX = none */
 
   /* repair scheduling.  An slotv sits in the repair treap (ordered by
-     key = slot then version) while it has un-requested work.  The walk
-     issues each missing idx once, advancing highest_requested, and pops
-     the slotv when it reaches complete_idx; the chainer re-adds it when
-     new work appears. */
+     slot; same-slot versions in insertion order) while it has
+     un-requested work.  The walk issues each missing idx once,
+     advancing highest_requested, and pops the slotv when it reaches
+     complete_idx; the chainer re-adds it when new work appears.
+
+     TODO move this to an external worklist structure */
   uint            highest_requested; /* highest idx we've issued a repair request for, UINT_MAX = none */
   uchar           in_treap;          /* 1 if currently in the repair (shred-fill) treap */
   uchar           in_orphan;         /* 1 if currently in the orphan (ancestry discovery) treap */
@@ -185,16 +166,18 @@ typedef struct fd_slotv fd_slotv_t;
 
 #define MAP_NAME  fd_slotv_map
 #define MAP_ELE_T fd_slotv_t
-#define MAP_KEY   key
+#define MAP_KEY   slot
+#define MAP_MULTI 1 /* several versions of a slot share the slot key */
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1 /* remove a specific version, not an arbitrary slot match */
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* Repair worklist: slotvs ordered by key (slot, then version), iterated
-   min-first so repair proceeds from the root forward. */
+/* Repair worklist: slotvs ordered by slot, iterated min-first so repair
+   proceeds from the root forward. */
 #define TREAP_NAME               fd_slotv_repair
 #define TREAP_T                  fd_slotv_t
 #define TREAP_QUERY_T            ulong
-#define TREAP_CMP(q,e)           ( ((q)>(e)->key) - ((q)<(e)->key) )
-#define TREAP_LT(e0,e1)          ( (e0)->key < (e1)->key )
+#define TREAP_CMP(q,e)           ( ((q)>(e)->slot) - ((q)<(e)->slot) )
+#define TREAP_LT(e0,e1)          ( (e0)->slot < (e1)->slot )
 #define TREAP_IDX_T              ulong
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_PARENT             repair.parent
@@ -206,14 +189,12 @@ typedef struct fd_slotv fd_slotv_t;
 #include "../../util/tmpl/fd_treap.c"
 
 /* Orphan worklist: slotvs whose immediate parent is not yet present, or
-   parent_slot is not known. Same ordering (slot, then version),
-   min-first, so we discover ancestry from the bottom (closest to root)
-   up.  An slotv leaves this treap once its parent slotv exists. */
+   parent_slot is not known.  An slotv leaves this treap once its parent slotv exists. */
 #define TREAP_NAME               fd_slotv_orphan
 #define TREAP_T                  fd_slotv_t
 #define TREAP_QUERY_T            ulong
-#define TREAP_CMP(q,e)           ( ((q)>(e)->key) - ((q)<(e)->key) )
-#define TREAP_LT(e0,e1)          ( (e0)->key < (e1)->key )
+#define TREAP_CMP(q,e)           ( ((q)>(e)->slot) - ((q)<(e)->slot) )
+#define TREAP_LT(e0,e1)          ( (e0)->slot < (e1)->slot )
 #define TREAP_IDX_T              ulong
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_PARENT             orphan.parent
@@ -241,16 +222,16 @@ struct fd_chainer {
   ulong highest_repaired; /* max slot ever marked fully_delivered (contiguous-from-root repaired tip) */
   ulong wksp_gaddr;       /* wksp gaddr of fd_chainer in the backing wksp, non-zero gaddr */
 
-  ulong fec_pool_gaddr;   /* wksp gaddr of fd_fec_pool */
-  ulong fec_map_gaddr;    /* wksp gaddr of fd_fec_map (flat, keyed by (slot,fec_set_idx,version)) */
+  fd_fec_t     * fec_pool;   /* wksp gaddr of fd_fec_pool */
+  fd_fec_map_t * fec_map;    /* wksp gaddr of fd_fec_map (flat, keyed by (slot,fec_set_idx,version)) */
 
-  ulong slotv_pool_gaddr;   /* wksp gaddr of fd_slotv_pool */
-  ulong slotv_map_gaddr;    /* wksp gaddr of fd_slotv_map */
-  ulong repair_treap_gaddr; /* wksp gaddr of fd_slotv_repair (shred-fill worklist) */
-  ulong orphan_treap_gaddr; /* wksp gaddr of fd_slotv_orphan (ancestry worklist) */
+  fd_slotv_t     * slotv_pool;   /* wksp gaddr of fd_slotv_pool */
+  fd_slotv_map_t * slotv_map;    /* wksp gaddr of fd_slotv_map */
+  fd_slotv_repair_t * repair_treap; /* wksp gaddr of fd_slotv_repair (shred-fill worklist) */
+  fd_slotv_orphan_t * orphan_treap; /* wksp gaddr of fd_slotv_orphan (ancestry worklist) */
 
-  ulong bfs_gaddr;          /* bfs queue for delivery */
-  ulong out_queue_gaddr;    /* delivered FEC pool idxs awaiting publish to replay */
+  ulong * bfs;          /* bfs queue */
+  ulong * out_queue;    /* delivered FEC pool idxs awaiting publish to replay */
 
   ulong magic; /* ==FD_CHAINER_MAGIC */
 };
@@ -311,46 +292,6 @@ fd_chainer_highest_repaired_slot( fd_chainer_t const * chainer ) {
   return chainer->highest_repaired;
 }
 
-FD_FN_PURE static inline fd_fec_t *
-fd_chainer_fec_pool( fd_chainer_t * chainer ) {
-  return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->fec_pool_gaddr );
-}
-
-FD_FN_PURE static inline fd_fec_map_t *
-fd_chainer_fec_map( fd_chainer_t * chainer ) {
-  return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->fec_map_gaddr );
-}
-
-FD_FN_PURE static inline fd_slotv_t *
-fd_chainer_slotv_pool( fd_chainer_t * chainer ) {
-  return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->slotv_pool_gaddr );
-}
-
-FD_FN_PURE static inline fd_slotv_map_t *
-fd_chainer_slotv_map( fd_chainer_t * chainer ) {
-  return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->slotv_map_gaddr );
-}
-
-FD_FN_PURE static inline fd_slotv_repair_t *
-fd_chainer_repair_treap( fd_chainer_t * chainer ) {
-  return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->repair_treap_gaddr );
-}
-
-FD_FN_PURE static inline fd_slotv_orphan_t *
-fd_chainer_orphan_treap( fd_chainer_t * chainer ) {
-  return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->orphan_treap_gaddr );
-}
-
-FD_FN_PURE static inline ulong *
-fd_chainer_bfs( fd_chainer_t * chainer ) {
-  return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->bfs_gaddr );
-}
-
-FD_FN_PURE static inline ulong *
-fd_chainer_out_queue( fd_chainer_t * chainer ) {
-  return fd_wksp_laddr_fast( fd_chainer_wksp( chainer ), chainer->out_queue_gaddr );
-}
-
 int
 fd_chainer_verify( fd_chainer_t const * chainer );
 
@@ -373,12 +314,12 @@ fd_chainer_shred_insert( fd_chainer_t *    chainer,
 
 /* 0 if the FEC was accepted, 1 if rejected */
 int
-fd_chainer_fec_insert( fd_chainer_t * chainer,
-                       ulong          slot,
-                       uint           fec_set_idx,
-                       int            slot_complete,
-                       int            data_complete,
-                       fd_hash_t    * mr );
+fd_chainer_fec_complete( fd_chainer_t * chainer,
+                         ulong          slot,
+                         uint           fec_set_idx,
+                         int            slot_complete,
+                         int            data_complete,
+                         fd_hash_t    * mr );
 
 
 void
@@ -414,13 +355,30 @@ fd_chainer_shred_for_block_id_verify( fd_chainer_t *    chainer,
                                       fd_hash_t const * block_id,
                                       fd_hash_t const * mr );
 
-/* fd_chainer_fec_query returns a pointer to the FEC entry
-   for (slot, fec_set_idx, version) if it exists, NULL otherwise. */
+/* fd_chainer_fec_query returns the FEC that the version of slot identified
+   by block_id owns at fec_set_idx, or NULL. */
 fd_fec_t *
-fd_chainer_fec_query( fd_chainer_t * chainer,
-                      ulong          slot,
-                      uint           fec_set_idx,
-                      ulong          version );
+fd_chainer_fec_query( fd_chainer_t *    chainer,
+                      ulong             slot,
+                      uint              fec_set_idx,
+                      fd_hash_t const * block_id );
+
+/* fd_chainer_shred_test returns 1 if slotv has data shred shred_idx --
+   i.e. it owns the FEC at shred_idx's position and that FEC's presence
+   bitmap has the shred.  The per-shred bitmap lives on the (shared) FEC,
+   so this indexes slotv->fec[] then tests fd_fec.data_idxs. */
+
+int
+fd_chainer_shred_test( fd_chainer_t *     chainer,
+                       fd_slotv_t const * slotv,
+                       uint               shred_idx );
+
+/* fd_chainer_slotv_shred_cnt returns the number of data shreds slotv
+   has, summed over the FECs it owns. */
+
+ulong
+fd_chainer_slotv_shred_cnt( fd_chainer_t *     chainer,
+                            fd_slotv_t const * slotv );
 
 /* fd_chainer_publish advances the root to slot.  block_id identifies
    which version of slot is being rooted; every other version of it is
@@ -436,26 +394,26 @@ static inline fd_slotv_t *
 fd_chainer_slot_version_query( fd_chainer_t *    chainer,
                                ulong             slot,
                                fd_hash_t const * block_id ) {
-  fd_slotv_t * slotv_pool = fd_chainer_slotv_pool( chainer );
-  fd_slotv_map_t * slotv_map = fd_chainer_slotv_map( chainer );
-  /* versions are not dense */
-  for( uint version = 0; version < FD_CHAINER_SLOT_VER_MAX; version++ ) {
-    ulong slotv_key = FD_CHAINER_SLOTV_KEY( slot, version );
-    fd_slotv_t * slotv = fd_slotv_map_ele_query( slotv_map, &slotv_key, NULL, slotv_pool );
-    if( FD_UNLIKELY( slotv && fd_hash_eq( &slotv->block_id, block_id ) ) ) return slotv;
+  fd_slotv_t     * slotv_pool = chainer->slotv_pool;
+  fd_slotv_map_t * slotv_map  = chainer->slotv_map;
+  for( ulong idx = fd_slotv_map_idx_query_const( slotv_map, &slot, ULONG_MAX, slotv_pool );
+             idx != ULONG_MAX;
+             idx = fd_slotv_map_idx_next_const( idx, ULONG_MAX, slotv_pool ) ) {
+    fd_slotv_t * slotv = fd_slotv_pool_ele( slotv_pool, idx );
+    if( FD_UNLIKELY( fd_hash_eq( &slotv->block_id, block_id ) ) ) return slotv;
   }
   return NULL;
 }
 
-/* fd_chainer_slot_query returns 1 if any version of slot exists in the
-   chainer, 0 otherwise */
+/* fd_chainer_slot_query returns any version of slot, or NULL if the slot
+   has no versions in the chainer. */
 
 static inline fd_slotv_t *
 fd_chainer_slot_query( fd_chainer_t * chainer, ulong slot ) {
-  fd_slotv_t     * slotv_pool = fd_chainer_slotv_pool( chainer );
-  fd_slotv_map_t * slotv_map  = fd_chainer_slotv_map ( chainer );
-  ulong key = FD_CHAINER_SLOTV_KEY( slot, 0 );
-  return fd_slotv_map_ele_query( slotv_map, &key, NULL, slotv_pool );
+  fd_slotv_t     * slotv_pool = chainer->slotv_pool;
+  fd_slotv_map_t * slotv_map  = chainer->slotv_map;
+  ulong idx = fd_slotv_map_idx_query_const( slotv_map, &slot, ULONG_MAX, slotv_pool );
+  return idx==ULONG_MAX ? NULL : fd_slotv_pool_ele( slotv_pool, idx );
 }
 
 /* fd_chainer_{repair,orphan}_{add,remove} add/removes an slotv from the
@@ -467,28 +425,28 @@ fd_chainer_slot_query( fd_chainer_t * chainer, ulong slot ) {
 static inline void
 fd_chainer_repair_add( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
   if( FD_UNLIKELY( slotv->in_treap ) ) return;
-  fd_slotv_repair_ele_insert( fd_chainer_repair_treap( chainer ), slotv, fd_chainer_slotv_pool( chainer ) );
+  fd_slotv_repair_ele_insert( chainer->repair_treap, slotv, chainer->slotv_pool );
   slotv->in_treap = 1;
 }
 
 static inline void
 fd_chainer_repair_remove( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
   if( FD_UNLIKELY( !slotv->in_treap ) ) return;
-  fd_slotv_repair_ele_remove( fd_chainer_repair_treap( chainer ), slotv, fd_chainer_slotv_pool( chainer ) );
+  fd_slotv_repair_ele_remove( chainer->repair_treap, slotv, chainer->slotv_pool );
   slotv->in_treap = 0;
 }
 
 static inline void
 fd_chainer_orphan_add( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
   if( FD_UNLIKELY( slotv->in_orphan ) ) return;
-  fd_slotv_orphan_ele_insert( fd_chainer_orphan_treap( chainer ), slotv, fd_chainer_slotv_pool( chainer ) );
+  fd_slotv_orphan_ele_insert( chainer->orphan_treap, slotv, chainer->slotv_pool );
   slotv->in_orphan = 1;
 }
 
 static inline void
 fd_chainer_orphan_remove( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
   if( FD_UNLIKELY( !slotv->in_orphan ) ) return;
-  fd_slotv_orphan_ele_remove( fd_chainer_orphan_treap( chainer ), slotv, fd_chainer_slotv_pool( chainer ) );
+  fd_slotv_orphan_ele_remove( chainer->orphan_treap, slotv, chainer->slotv_pool );
   slotv->in_orphan = 0;
 }
 
