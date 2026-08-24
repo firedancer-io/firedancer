@@ -5,12 +5,10 @@
    programs.  These programs undergo special treatment during cost
    tracking and transaction execution.
 
-   The current set of precompiles requires external cryptography code
-   in Firedancer (installed via ./deps.sh), namely s2n-bignum.  In some
-   testing scenarios, the developer may not have this dependency
-   installed because it won't be used.  To avoid link errors in such a
-   situation, precompiles are resolved at runtime (as opposed to
-   compile-time). */
+   The current set of precompiles requires s2n-bignum (vendored in
+   src/third_party/s2n-bignum), which some machine configs don't build.
+   To avoid link errors in such a situation, precompiles are resolved at
+   runtime (as opposed to compile-time). */
 
 #include "../fd_executor.h"
 
