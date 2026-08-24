@@ -32,8 +32,6 @@ fd_chainer_new( void * shmem, ulong ele_max, ulong seed ) {
   void * fec_map      = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_map_align(),      fd_fec_map_footprint     ( fec_chain_cnt  ) );
   void * slotv_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( ele_max        ) );
   void * slotv_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( slot_chain_cnt ) );
-  void * repair_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_repair_align(), fd_slotv_repair_footprint( ele_max )        );
-  void * orphan_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_orphan_align(), fd_slotv_orphan_footprint( ele_max )        );
   void * bfs          = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( ele_max )        );
   void * out_queue    = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),       out_queue_footprint      ( fec_max )        );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_chainer_align() ) == (ulong)shmem + footprint );
@@ -45,13 +43,8 @@ fd_chainer_new( void * shmem, ulong ele_max, ulong seed ) {
   chainer->fec_map      = fd_fec_map_join     ( fd_fec_map_new     ( fec_map,      fec_chain_cnt,  seed ) );
   chainer->slotv_pool   = fd_slotv_pool_join  ( fd_slotv_pool_new  ( slotv_pool,   ele_max              ) );
   chainer->slotv_map    = fd_slotv_map_join   ( fd_slotv_map_new   ( slotv_map,    slot_chain_cnt, seed ) );
-  chainer->repair_treap = fd_slotv_repair_join( fd_slotv_repair_new( repair_treap, ele_max              ) );
-  chainer->orphan_treap = fd_slotv_orphan_join( fd_slotv_orphan_new( orphan_treap, ele_max              ) );
   chainer->bfs          = bfs_join            ( bfs_new            ( bfs,          ele_max              ) );
   chainer->out_queue    = out_queue_join      ( out_queue_new      ( out_queue,    fec_max              ) );
-
-  fd_slotv_repair_seed( chainer->slotv_pool, ele_max, seed        );
-  fd_slotv_orphan_seed( chainer->slotv_pool, ele_max, seed ^ 0x9eUL );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( chainer->magic ) = FD_CHAINER_MAGIC;
@@ -97,8 +90,6 @@ acquire_slotv( fd_chainer_t * chainer, ulong slot ) {
   slotv->delivered_idx     = UINT_MAX;
   slotv->connected         = 0;
   slotv->highest_requested = UINT_MAX;
-  slotv->in_treap          = 0;
-  slotv->in_orphan         = 0;
 
   fd_memset( &slotv->block_id,        0, sizeof(fd_hash_t) );
   fd_memset( &slotv->parent_block_id, 0, sizeof(fd_hash_t) );
@@ -262,15 +253,11 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
 
   fd_slotv_t        const * slotv_pool = chainer_->slotv_pool;
   fd_slotv_map_t    const * slotv_map  = chainer_->slotv_map;
-  fd_slotv_repair_t const * rtreap     = chainer_->repair_treap;
-  fd_slotv_orphan_t const * otreap     = chainer_->orphan_treap;
   fd_fec_t          const * fec_pool   = chainer_->fec_pool;
   fd_fec_map_t      const * fec_map    = chainer_->fec_map;
 
   if( FD_UNLIKELY( fd_slotv_map_verify( slotv_map, fd_slotv_pool_max( slotv_pool ), slotv_pool )==-1 ) ) FAIL( "slotv map corrupted" );
   if( FD_UNLIKELY( fd_fec_map_verify  ( fec_map,   fd_fec_pool_max  ( fec_pool   ), fec_pool   )==-1 ) ) FAIL( "fec map corrupted"   );
-  if( FD_UNLIKELY( fd_slotv_repair_verify( rtreap, slotv_pool )==-1 ) ) FAIL( "repair treap corrupted" );
-  if( FD_UNLIKELY( fd_slotv_orphan_verify( otreap, slotv_pool )==-1 ) ) FAIL( "orphan treap corrupted" );
 
   /* The root, if set, must have at least one connected version -- it is
      by definition the start of every ancestry chain.  Uniquely among
@@ -293,9 +280,6 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
     if( FD_UNLIKELY( !root_present   ) ) FAIL( "root has no slotv" );
     if( FD_UNLIKELY( !root_connected ) ) FAIL( "no root slotv is connected" );
   }
-
-  ulong in_treap_cnt  = 0UL;
-  ulong in_orphan_cnt = 0UL;
 
   for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( slotv_map, slotv_pool );
                                !fd_slotv_map_iter_done( it, slotv_map, slotv_pool );
@@ -328,20 +312,7 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
     if( FD_UNLIKELY( slotv->buffered_fec_idx!=UINT_MAX &&
                      ( slotv->buffered_idx==UINT_MAX ||
                        slotv->buffered_idx<slotv->buffered_fec_idx ) ) ) FAIL( "buffered_fec_idx runs ahead of buffered_idx" );
-
-    /* Treaps are now keyed by slot (non-unique), so a key query can't
-       confirm this exact element's membership -- rely on the in_treap
-       flag plus the map-vs-treap element-count checks below. */
-
-    in_treap_cnt  += !!slotv->in_treap;
-    in_orphan_cnt += !!slotv->in_orphan;
   }
-
-  /* No treap may hold an slotv that is not in the map (a stale treap
-     link into a released pool element). */
-
-  if( FD_UNLIKELY( in_treap_cnt !=fd_slotv_repair_ele_cnt( rtreap ) ) ) FAIL( "repair treap holds slotvs that are not in the map" );
-  if( FD_UNLIKELY( in_orphan_cnt!=fd_slotv_orphan_ele_cnt( otreap ) ) ) FAIL( "orphan treap holds slotvs that are not in the map" );
 
   for( fd_fec_map_iter_t it = fd_fec_map_iter_init( fec_map, fec_pool );
                              !fd_fec_map_iter_done( it, fec_map, fec_pool );
@@ -798,17 +769,17 @@ void
 fd_chainer_print( fd_chainer_t * chainer ) {
   if( FD_UNLIKELY( chainer->root==ULONG_MAX ) ) return;
 
-  fd_slotv_t        * slotv_pool = chainer->slotv_pool;
-  fd_slotv_orphan_t * otreap     = chainer->orphan_treap;
+  fd_slotv_t     * slotv_pool = chainer->slotv_pool;
+  fd_slotv_map_t * slotv_map  = chainer->slotv_map;
 
   printf( "\n[Chainer] root: %lu, highest repaired: %lu\n", chainer->root, chainer->highest_repaired );
-  printf( "[Orphan treap] slot vversion <- parent (buffered/complete)\n" );
+  printf( "[slotvs] slot <- parent (buffered/complete)\n" );
 
   ulong cnt = 0UL;
-  for( fd_slotv_orphan_fwd_iter_t oit = fd_slotv_orphan_fwd_iter_init( otreap, slotv_pool );
-                                       !fd_slotv_orphan_fwd_iter_done( oit );
-                                  oit = fd_slotv_orphan_fwd_iter_next( oit, slotv_pool ) ) {
-    fd_slotv_t * o = fd_slotv_orphan_fwd_iter_ele( oit, slotv_pool );
+  for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( slotv_map, slotv_pool );
+                               !fd_slotv_map_iter_done( it, slotv_map, slotv_pool );
+                           it = fd_slotv_map_iter_next( it, slotv_map, slotv_pool ) ) {
+    fd_slotv_t * o = fd_slotv_map_iter_ele( it, slotv_map, slotv_pool );
 
     ulong slot = o->slot;
 
@@ -818,6 +789,6 @@ fd_chainer_print( fd_chainer_t * chainer ) {
     else                                                 printf( "%lu (%u/%u)<- %lu\n ", slot, o->buffered_idx+1U, o->complete_idx+1U, o->parent_slot );
     cnt++;
   }
-  printf( "(%lu orphans, %lu total slotvs)\n", cnt, fd_slotv_pool_max( slotv_pool ) - fd_slotv_pool_free( slotv_pool ) );
+  printf( "(%lu total slotvs)\n", cnt );
   fflush( stdout ); /* Ensure slotv map printf output is flushed */
 }
