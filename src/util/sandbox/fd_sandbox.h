@@ -7,6 +7,10 @@
 
 #include <linux/filter.h> /* FIXME: HMMMM */
 
+/* Maximum number of open file descriptors that may be retained when
+   entering the sandbox. */
+#define FD_SANDBOX_ALLOWED_FD_CNT_MAX (1024UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_sandbox_requires_cap_sys_admin checks if the current environment

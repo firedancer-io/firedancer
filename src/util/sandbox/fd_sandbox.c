@@ -134,8 +134,8 @@ fd_sandbox_private_explicit_clear_environment_variables( void ) {
 void
 fd_sandbox_private_check_exact_file_descriptors( ulong       allowed_file_descriptor_cnt,
                                                  int const * allowed_file_descriptor ) {
-  if( allowed_file_descriptor_cnt>256UL ) FD_LOG_ERR(( "allowed_file_descriptors_cnt must not be more than 256" ));
-  int seen_fds[ 256 ] = {0};
+  if( FD_UNLIKELY( allowed_file_descriptor_cnt>FD_SANDBOX_ALLOWED_FD_CNT_MAX ) ) FD_LOG_ERR(( "allowed_file_descriptor_cnt must not exceed %lu", FD_SANDBOX_ALLOWED_FD_CNT_MAX ));
+  int seen_fds[ FD_SANDBOX_ALLOWED_FD_CNT_MAX ] = {0};
 
   for( ulong i=0UL; i<allowed_file_descriptor_cnt; i++ ) {
     if( allowed_file_descriptor[ i ]<0 || allowed_file_descriptor[ i ]==INT_MAX )

@@ -40,12 +40,13 @@ fd_sandbox_private_explicit_clear_environment_variables( void );
    spawned the Firedancer process with unexpected file descriptors still
    open.
 
-   allowed_file_descriptors_cnt must be less than 256, and the
-   allowed_file_descriptor list must not have any duplicate entries or
-   else the process will be exited with an error. */
+   allowed_file_descriptors_cnt must not exceed
+   FD_SANDBOX_ALLOWED_FD_CNT_MAX, and the allowed_file_descriptor list
+   must not have any duplicate entries or else the process will be
+   exited with an error. */
 
 void
-fd_sandbox_private_check_exact_file_descriptors( ulong       allowed_file_descriptor_cnt /* Must be in [0, 256] */,
+fd_sandbox_private_check_exact_file_descriptors( ulong       allowed_file_descriptor_cnt /* Must be in [0, FD_SANDBOX_ALLOWED_FD_CNT_MAX] */,
                                                  int const * allowed_file_descriptor );  /* Assumed to have allowed_file_descriptor_cnt entries */
 
 /* Sets the real, effective, and saved set-user-ID of the calling
