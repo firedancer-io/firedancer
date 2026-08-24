@@ -497,10 +497,6 @@ read_conn_http( fd_http_server_t * http,
   /* New data was read... process it */
   http->metrics.bytes_read += (ulong)sz;
   conn->request_bytes_read += (ulong)sz;
-  if( FD_UNLIKELY( conn->request_bytes_read==http->max_request_len ) ) {
-    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
-    return;
-  }
 
   char const * method;
   ulong method_len;
@@ -516,7 +512,15 @@ read_conn_http( fd_http_server_t * http,
                                   &minor_version,
                                   headers, &num_headers,
                                   conn->request_bytes_read - (ulong)sz );
-  if( FD_UNLIKELY( -2==result ) ) return; /* Request still partial, wait for more data */
+  if( FD_UNLIKELY( -2==result ) ) { /* Request still partial, wait for more data */
+    /* A full buffer that still does not parse means the head alone exceeds
+       max_request_len. Requests that do parse are allowed to occupy the
+       whole buffer: a POST with total_len==max_request_len is valid. */
+    if( FD_UNLIKELY( conn->request_bytes_read==http->max_request_len ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+    }
+    return;
+  }
   else if( FD_UNLIKELY( -1==result ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
     return;

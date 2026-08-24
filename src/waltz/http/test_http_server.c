@@ -305,6 +305,78 @@ test_content_length_overflow_close( void ) {
 }
 
 static void
+test_exact_max_request_len_accepted( void ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 0UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1024UL,
+  };
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request    = request_count,
+    .close      = close_capture,
+    .ws_open    = NULL,
+    .ws_close   = NULL,
+    .ws_message = NULL,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  ushort server_port = ntohs( server_addr.sin_port );
+
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = htons( server_port ),
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  /* A POST whose head and body together occupy exactly max_request_len
+     bytes. The body bound admits it (total_len<=max_request_len), so it
+     must be parsed and dispatched rather than closed as oversized. */
+  char tail[] = " HTTP/1.1\r\nHost: localhost\r\nContent-Length: 8\r\n\r\nxxxxxxxx";
+  ulong tail_len = strlen( tail );
+  ulong pad_digits = params.max_request_len - 6UL - 1UL - tail_len; /* "POST /" + digits + tail */
+  FD_TEST( pad_digits>0UL && pad_digits<1000UL );
+
+  char req[ 1025 ];
+  ulong pos = 0UL;
+  fd_memcpy( req+pos, "POST /", 6UL ); pos += 6UL;
+  memset( req+pos, '0', pad_digits );  pos += pad_digits;
+  fd_memcpy( req+pos, tail, tail_len ); pos += tail_len;
+  req[ pos ] = '\0';
+  FD_TEST( pos==params.max_request_len );
+  send_all( client_fd, req, pos );
+
+  for( ulong i=0UL; i<200UL && request_cnt<1UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+  }
+
+  FD_TEST( request_cnt==1UL );
+  FD_TEST( state.close_cnt==0UL );
+
+  close( client_fd );
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+static void
 test_poll_conn_max( void ) {
   fd_http_server_params_t params = {
     .max_connection_cnt    = 2UL,
@@ -879,6 +951,7 @@ main( int     argc,
 
   test_oring();
   test_content_length_overflow_close();
+  test_exact_max_request_len_accepted();
   test_poll_conn_max();
   test_treap_seed();
   test_poll_interest();
