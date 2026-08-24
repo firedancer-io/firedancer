@@ -7,8 +7,14 @@
 
 static inline ulong
 fd_xxh3_mul128_fold64( ulong lhs, ulong rhs ) {
+#if defined(FD_USING_GCC) && defined(__BMI2__)
+  ulong lo, hi;
+  __asm__( "mulx %3,%0,%1" : "=r"(lo), "=r"(hi) : "d"(lhs), "rm"(rhs) );
+  return lo ^ hi;
+#else
   uint128 product = (uint128)lhs * (uint128)rhs;
   return (ulong)product ^ (ulong)( product>>64 );
+#endif
 }
 
 static inline ulong
