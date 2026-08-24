@@ -1911,6 +1911,12 @@ once they are confirmed (the prior epoch has fully rooted).
     "end_time_nanos": "1719910299914232",
     "start_slot": 274752000,
     "end_slot": 275183999,
+    "epoch_schedule": {
+        "slots_per_epoch": 432000,
+        "first_normal_epoch": 0,
+        "first_normal_slot": 0,
+        "warmup": false
+    },
     "target_slot_duration_nanos": 400000000,
     "excluded_stake_lamports": "0",
     "staked_pubkeys": [
@@ -1946,11 +1952,38 @@ once they are confirmed (the prior epoch has fully rooted).
 | end_time_nanos | `string` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
+| epoch_schedule | `EpochScheduleConfig\|null` | The cluster's epoch schedule parameters, which can be used to map any slot to its epoch. Always `null` on Frankendancer |
 | target_slot_duration_nanos | `number` | The cluster-wide target slot duration, in nanoseconds, for the epoch. This is typically `400000000` (400ms) on most clusters unless a `reduce_slot_time` feature gate is in effect |
 | excluded_stake_lamports | `string` | Always zero. Firedancer tracks the complete validator-admission-ticket stake set.
 | staked_pubkeys | `string[]` | All validator identity keys in the validator-admission-ticket stake set for this epoch, capped at 2,000 entries |
 | staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
 | leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divided by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
+
+**`EpochScheduleConfig`**
+| Field      | Type    | Description
+|------------|---------|------------
+| slots_per_epoch | `number` | The number of slots in every epoch at or after `first_normal_epoch` |
+| first_normal_epoch | `number` | The first epoch whose length is `slots_per_epoch` |
+| first_normal_slot | `number` | The first slot in `first_normal_epoch` |
+| warmup | `boolean` | Whether epochs before `first_normal_epoch` use the protocol's warmup schedule, starting at 32 slots and doubling in length each epoch |
+
+##### Mapping a slot to an epoch
+
+When `epoch_schedule` is not `null`, use the following exact integer
+formula for any non-negative integer `slot`. `floor_log2` is the floor
+of the base-2 logarithm and `div` is integer division.
+`MINIMUM_SLOTS_PER_EPOCH` is the Solana protocol constant `32`.
+
+```text
+if slot < first_normal_slot:
+    epoch = floor_log2(slot + MINIMUM_SLOTS_PER_EPOCH)
+          - floor_log2(MINIMUM_SLOTS_PER_EPOCH)
+else:
+    epoch = first_normal_epoch
+          + ((slot - first_normal_slot) div slots_per_epoch)
+```
+
+When `warmup` is false every slot uses the second branch. Warmup epochs are used on testnet.
 
 On establishing a connection two epochs are sent to the client. The
 current epoch that the cluster is in, and the next epoch. From then on,
