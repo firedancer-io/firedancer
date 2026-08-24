@@ -4,6 +4,7 @@
 #include "../runtime/fd_runtime_const.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../util/bits/fd_bits.h"
+#include "../../util/fd_hash32.h"
 #include "../../util/log/fd_log.h"
 
 #define FD_VOTE_STAKES_MAGIC          (0xF17EDA2CE7601E70UL) /* FIREDANCER VOTE STAKES V0 */
@@ -40,7 +41,7 @@ typedef struct vacc vacc_t;
 #define MAP_ELE_T              vacc_t
 #define MAP_KEY                pubkey
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( key->uc, seed ))
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 

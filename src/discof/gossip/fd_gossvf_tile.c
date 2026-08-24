@@ -9,6 +9,7 @@
 #include "../../flamenco/gossip/fd_ping_tracker.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../util/fd_hash32.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "generated/fd_gossvf_tile_seccomp.h"
 
@@ -83,7 +84,7 @@ typedef struct stake stake_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key)->uc, sizeof(fd_pubkey_t) )
+#define MAP_KEY_HASH(key,seed) fd_hash32( (key)->uc, (seed) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME  ping_pool
@@ -99,7 +100,7 @@ typedef struct stake stake_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key)->uc, sizeof(fd_pubkey_t) )
+#define MAP_KEY_HASH(key,seed) fd_hash32( (key)->uc, (seed) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME  stake_pool
@@ -115,7 +116,7 @@ typedef struct stake stake_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key)->uc, sizeof(fd_pubkey_t) )
+#define MAP_KEY_HASH(key,seed) fd_hash32( (key)->uc, (seed) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 

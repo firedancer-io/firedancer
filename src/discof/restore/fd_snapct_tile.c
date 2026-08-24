@@ -15,6 +15,7 @@
 #include "../../waltz/openssl/fd_openssl_tile.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/resolv/fd_adns.h"
+#include "../../util/fd_hash32.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -65,7 +66,7 @@ typedef struct gossip_ci_entry gossip_ci_entry_t;
 #define MAP_KEY_T              fd_pubkey_t
 #define MAP_NEXT               map_next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) fd_hash( seed, key, sizeof(fd_pubkey_t) )
+#define MAP_KEY_HASH(key,seed) fd_hash32( key->uc, seed )
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* Standalone blacklist keyed on fd_sspeer_key_t (peer identity).

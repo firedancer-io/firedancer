@@ -7,6 +7,7 @@
 #include "../features/fd_features.h"
 #include "../vm/fd_vm_base.h"
 #include "program/fd_system_program.h"
+#include "../../util/fd_hash32.h"
 
 struct account_cost {
   fd_pubkey_t account;
@@ -24,7 +25,7 @@ typedef struct account_cost account_cost_t;
 #define MAP_ELE_T              account_cost_t
 #define MAP_KEY                account
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( key->uc, seed ))
 #define MAP_NEXT               map.next
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"

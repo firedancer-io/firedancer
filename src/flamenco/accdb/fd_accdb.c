@@ -2,6 +2,7 @@
 #include "fd_accdb.h"
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_private.h"
+#include "../../util/fd_hash32.h"
 
 #if FD_TMPL_USE_HANDHOLDING
 #include "../../ballet/txn/fd_txn.h"
@@ -491,7 +492,7 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
 static inline uint
 delta_chain( fd_accdb_shmem_t const * accdb,
              uchar const              pubkey[ 32 ] ) {
-  uint hash = (uint)fd_accdb_hash( pubkey, accdb->delta.seed );
+  uint hash = (uint)fd_hash32( pubkey, accdb->delta.seed );
   return hash & accdb->delta.chain_mask;
 }
 
@@ -1913,7 +1914,7 @@ background_compact( fd_accdb_t * accdb,
      offset matches the record we are compacting. */
   fd_accdb_accmeta_t * accmeta = NULL;
   ulong source_packed = 0UL;
-  uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ fd_accdb_hash( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ] );
+  uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ] );
   while( acc_idx!=UINT_MAX ) {
     fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ acc_idx ];
     uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
@@ -2202,7 +2203,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
      fd_accdb_release before the head-pointer store.  Multiple
      concurrent releases serialize on the CAS of the chain head. */
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
-    acc_map_idxs[ i ] = fd_accdb_hash( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+    acc_map_idxs[ i ] = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
     uint acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idxs[ i ] ] );
     while( acc!=UINT_MAX ) {
       fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
@@ -3499,7 +3500,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   //    for the detailed safety argument under concurrent prepend.
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
   fd_accdb_accmeta_t const * accmeta = NULL;
   while( acc_idx!=UINT_MAX ) {
@@ -3661,7 +3662,7 @@ fd_accdb_exists( fd_accdb_t *       accdb,
 
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
@@ -3697,7 +3698,7 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
 
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
@@ -3745,7 +3746,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
 
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
@@ -3944,7 +3945,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
     fork_gen = fork->shmem->generation;
   }
 
-  ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
 
   *out_replaced_lamports = 0UL;
 
@@ -4079,7 +4080,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   int                  skip[ 8 ];
 
   for( ulong i=0UL; i<cnt; i++ ) {
-    hashes[ i ]          = fd_accdb_hash( pubkeys[ i ], seed ) & chain_msk;
+    hashes[ i ]          = fd_hash32( pubkeys[ i ], seed ) & chain_msk;
     existing[ i ]        = NULL;
     cross_existing[ i ]  = NULL;
     skip[ i ]            = 0;

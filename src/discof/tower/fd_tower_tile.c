@@ -25,6 +25,7 @@
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../util/pod/fd_pod.h"
+#include "../../util/fd_hash32.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -212,7 +213,7 @@ typedef struct epoch_vtr epoch_vtr_t;
 #define MAP_KEY                vote_acc
 #define MAP_KEY_T              fd_pubkey_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_pubkey_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_pubkey_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 

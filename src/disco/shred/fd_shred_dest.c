@@ -1,5 +1,5 @@
 #include "fd_shred_dest.h"
-#include "../../flamenco/accdb/fd_accdb.h"
+#include "../../util/fd_hash32.h"
 
 struct pubkey_to_idx {
   fd_pubkey_t key;
@@ -17,7 +17,7 @@ static const fd_pubkey_t null_pubkey = {{ 0 }};
 #define MAP_MEMOIZE           0
 #define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(k,s)     ((MAP_HASH_T)fd_accdb_hash( (k).key, (s) ))
+#define MAP_KEY_HASH(k,s)     ((MAP_HASH_T)fd_hash32( (k).key, (s) ))
 
 #include "../../util/tmpl/fd_map_dynamic.c"
 

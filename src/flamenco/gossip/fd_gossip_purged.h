@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_purged_h
 
 #include "../fd_flamenco_base.h"
+#include "../../util/fd_hash32.h"
 
 /* fd_gossip_purged implements the "purged" side-table of the CRDS.
    When a CRDS entry is overridden by a newer value, fails to insert
@@ -121,7 +122,7 @@ FD_STATIC_ASSERT( sizeof(fd_crds_purged_t)==128UL, purged_entry_footprint );
 #define MAP_PREV               nci_map.prev
 #define MAP_NEXT               nci_map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key)->uc, sizeof(fd_pubkey_t) )
+#define MAP_KEY_HASH(key,seed) fd_hash32( (key)->uc, (seed) )
 #define MAP_MULTI              1
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"

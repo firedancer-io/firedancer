@@ -10,6 +10,7 @@
 #include "../program/fd_precompiles.h"
 #include "../../../third_party/nanopb/pb_encode.h"
 #include "../fd_runtime_stack.h"
+#include "../../../util/fd_hash32.h"
 
 #include <stdio.h> /* fopen */
 #include <unistd.h> /* access */
@@ -31,7 +32,7 @@ typedef struct fd_dump_account_key fd_dump_account_t;
 #define MAP_KEY_EQUAL(k0,k1)  fd_pubkey_eq( &(k0), &(k1) )
 #define MAP_KEY_EQUAL_IS_SLOW (0)
 #define MAP_MEMOIZE           (0)
-#define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, (key).uc, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key)     ((uint)fd_hash32( (key).uc, 0UL ))
 #include "../../../util/tmpl/fd_map.c"
 
 struct fd_dump_account_key_set {

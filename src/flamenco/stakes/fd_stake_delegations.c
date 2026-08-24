@@ -1,6 +1,7 @@
 #include "fd_stake_delegations.h"
 #include "fd_stakes.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../../util/fd_hash32.h"
 
 #define POOL_NAME  root_pool
 #define POOL_T     fd_stake_delegation_t
@@ -14,7 +15,7 @@
 #define MAP_ELE_T              fd_stake_delegation_t
 #define MAP_KEY                stake_account
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
-#define MAP_KEY_HASH(key,seed) (fd_accdb_hash( key->uc, seed ))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( key->uc, seed ))
 #define MAP_NEXT               next_
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
@@ -24,7 +25,7 @@
 #define MAP_ELE_T              fd_stake_delegation_t
 #define MAP_KEY                stake_account
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
-#define MAP_KEY_HASH(key,seed) (fd_accdb_hash( key->uc, seed ))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( key->uc, seed ))
 #define MAP_NEXT               next_
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
@@ -56,7 +57,7 @@ typedef struct fork_pool_ele fork_pool_ele_t;
 #define MAP_ELE_T              fd_stake_delegation_ref_t
 #define MAP_KEY                stake_account
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
-#define MAP_KEY_HASH(key,seed) (fd_accdb_hash( key->uc, seed ))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( key->uc, seed ))
 #define MAP_NEXT               next_
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"

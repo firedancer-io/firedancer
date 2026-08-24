@@ -1,5 +1,6 @@
 #include "fd_collector_overrides.h"
 #include "../fd_rwlock.h"
+#include "../../util/fd_hash32.h"
 
 struct override_ele {
   fd_pubkey_t pubkey;
@@ -29,7 +30,7 @@ typedef struct override_ele override_ele_t;
 #define MAP_ELE_T                          override_ele_t
 #define MAP_KEY                            pubkey
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
-#define MAP_KEY_HASH(key,seed)             (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed)             (fd_hash32( key->uc, seed ))
 #define MAP_PREV                           prev_multi
 #define MAP_NEXT                           next_multi
 #define MAP_IDX_T                          uint
