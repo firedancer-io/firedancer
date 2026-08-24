@@ -348,17 +348,26 @@ test_exact_max_request_len_accepted( void ) {
 
   /* A POST whose head and body together occupy exactly max_request_len
      bytes. The body bound admits it (total_len<=max_request_len), so it
-     must be parsed and dispatched rather than closed as oversized. */
-  char tail[] = " HTTP/1.1\r\nHost: localhost\r\nContent-Length: 8\r\n\r\nxxxxxxxx";
-  ulong tail_len = strlen( tail );
-  ulong pad_digits = params.max_request_len - 6UL - 1UL - tail_len; /* "POST /" + digits + tail */
-  FD_TEST( pad_digits>0UL && pad_digits<1000UL );
-
+     must be parsed and dispatched rather than closed as oversized. The
+     path stays short (the server caps it at 127 bytes); an ordinary
+     header carries the padding instead. */
   char req[ 1025 ];
   ulong pos = 0UL;
-  fd_memcpy( req+pos, "POST /", 6UL ); pos += 6UL;
-  memset( req+pos, '0', pad_digits );  pos += pad_digits;
-  fd_memcpy( req+pos, tail, tail_len ); pos += tail_len;
+  struct { char const * s; } parts[] = {
+    { "POST /p HTTP/1.1\r\n" },
+    { "Host: localhost\r\n" },
+    { "Content-Length: 8\r\n" },
+    { "X-Pad: " },
+  };
+  for( ulong i=0UL; i<sizeof(parts)/sizeof(parts[0]); i++ ) {
+    ulong len = strlen( parts[i].s );
+    fd_memcpy( req+pos, parts[i].s, len );
+    pos += len;
+  }
+  memset( req+pos, '0', 951UL );
+  pos += 951UL;
+  fd_memcpy( req+pos, "\r\n\r\nxxxxxxxx", 13UL );
+  pos += 13UL;
   req[ pos ] = '\0';
   FD_TEST( pos==params.max_request_len );
   send_all( client_fd, req, pos );
