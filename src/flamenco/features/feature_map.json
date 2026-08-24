@@ -290,5 +290,6 @@
   {"name":"upgrade_bpf_stake_program_to_v5_1","pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr"},
   {"name":"custom_commission_collector","pubkey":"3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf"},
   {"name":"enable_tx_v1","pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"},
-  {"name":"double_disinflation_rate","pubkey":"55oikhjJ2LUi1xdgJ17ueRyHFURZEw32asT3iAKfh7gg"}
+  {"name":"double_disinflation_rate","pubkey":"55oikhjJ2LUi1xdgJ17ueRyHFURZEw32asT3iAKfh7gg"},
+  {"name":"alpenglow","pubkey":"A1PeNGc3D8SQmKwdYf4qj1XG7XgWVSuFQaiJSCQj775h"}
 ]
