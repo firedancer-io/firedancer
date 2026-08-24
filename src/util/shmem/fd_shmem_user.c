@@ -82,46 +82,78 @@ fd_shmem_private_map_query_by_addr( fd_shmem_join_info_t * map,
  * we have successfully "grabbed" the region. We can then call `mmap` with
  * MAP_FIXED over the region and be certain no corruption occurs. If the
  * return value of `mmap` does not return the passed address this means that
- * the passed region is already atleast partially mapped and we cannot grab it.
+ * the passed region is already at least partially mapped and we cannot grab it.
+ *
+ * Returns 0 on success, EEXIST if the region was already mapped (`mmap` does
+ * not itself return EEXIST here, so there is no ambiguity), or a strerror
+ * friendly error code otherwise.
  */
-static void *
+static int
 fd_shmem_private_grab_region( ulong addr,
                               ulong size,
                               int   prot ) {
   void * mmap_ret = mmap( (void*)addr, size, prot, MAP_ANON|MAP_PRIVATE, -1, 0 );
-  if( FD_UNLIKELY( mmap_ret == MAP_FAILED ) ) return mmap_ret;
+  if( FD_UNLIKELY( mmap_ret==MAP_FAILED ) ) return errno ? errno : EINVAL;
 
   if( FD_UNLIKELY( (ulong)mmap_ret != addr ) ) {
-    if( munmap( mmap_ret, size ) ) {
+    if( FD_UNLIKELY( munmap( mmap_ret, size ) ) ) {
       FD_LOG_ERR(( "failed to unmap temporary mapping, munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    return MAP_FAILED;
+    return EEXIST;
   }
 
-  return mmap_ret;
+  return 0;
 }
 
-void *
-fd_shmem_private_map_rand( ulong size,
-                           ulong align,
-                           int   prot ) {
-  ulong ret_addr = 0;
+/* Arbitrarily generous number of random addresses tried before returning
+   ENOMEM and number of getrandom retries before returning EAGAIN. */
+#define FD_SHMEM_PRIVATE_MAP_RAND_MAX  (1000UL)
+#define FD_SHMEM_PRIVATE_GETRANDOM_MAX   (64UL)
 
-  /* Failure is unlikely, 1000 iterations should guarantee success */
-  for( ulong i = 0; i < 1000; i++ ) {
-    long n = getrandom( &ret_addr, sizeof(ret_addr), 0 );
-    if( FD_UNLIKELY( n!=sizeof(ret_addr) ) ) FD_LOG_ERR(( "could not generate random address, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+int
+fd_shmem_private_map_rand( ulong  size,
+                           ulong  align,
+                           int    mode,
+                           void * mem ) {
+  int   rw       = (mode==FD_SHMEM_JOIN_MODE_READ_WRITE);
+  int   prot     = PROT_READ | ( rw ? PROT_WRITE : 0 );
+  ulong ret_addr = 0UL;
+
+  /* Failure is unlikely, FD_SHMEM_PRIVATE_MAP_RAND_MAX iterations should
+     guarantee success */
+  for( ulong i=0UL; i<FD_SHMEM_PRIVATE_MAP_RAND_MAX; i++ ) {
+    long n = -1L;
+    for( ulong j=0UL; j<FD_SHMEM_PRIVATE_GETRANDOM_MAX; j++ ) {
+      n = getrandom( &ret_addr, sizeof(ret_addr), 0 );
+      if( FD_LIKELY( -1L!=n || errno!=EINTR ) ) break;
+    }
+    if( FD_UNLIKELY( n!=sizeof(ret_addr) ) ) {
+      int err = ( errno==EINTR ) ? EAGAIN : ( errno ? errno : EINVAL );
+      FD_LOG_WARNING(( "could not generate random address, getrandom() failed (%i-%s)", err, fd_io_strerror( err ) ));
+      return err;
+    }
 
     /* Assume 47-bit virtual addressing */
     ret_addr &= 0x00007FFFFFFFFFFFUL;
     ret_addr  = fd_ulong_align_up( ret_addr, align );
 
-    if( fd_shmem_private_grab_region( ret_addr, size, prot )!=MAP_FAILED ) {
-      return (void *)ret_addr;
+    int err = fd_shmem_private_grab_region( ret_addr, size, prot );
+    if( FD_LIKELY( !err ) ) {
+      *(void **)mem = (void *)ret_addr;
+      return 0;
+    }
+
+    if( FD_UNLIKELY( err!=EEXIST ) ) {
+      FD_LOG_WARNING(( "unable to reserve a %lu byte region (align %lu, prot %i), mmap() failed (%i-%s)",
+                       size, align, prot, err, fd_io_strerror( err ) ));
+      return err;
     }
   }
 
-  FD_LOG_ERR(( "unable to find random address for memory map after 1000 attempts" ));
+  FD_LOG_WARNING(( "unable to find a free %lu byte region (align %lu, prot %i) after %lu random attempts, "
+                   "the address space is likely too full or too fragmented",
+                   size, align, prot, FD_SHMEM_PRIVATE_MAP_RAND_MAX ));
+  return ENOMEM;
 }
 
 static fd_shmem_join_info_t fd_shmem_private_map[ FD_SHMEM_PRIVATE_MAP_SLOT_CNT ]; /* Empty on thread group start */
@@ -198,15 +230,25 @@ fd_shmem_join( char const *               name,
   }
 
   /* Generate a random address that we are guaranteed to be able to map */
-  void * const map_addr = fd_shmem_private_map_rand( sz, page_sz, PROT_READ );
-  if( FD_UNLIKELY( map_addr==MAP_FAILED ) ) FD_LOG_ERR(( "fd_shmem_private_map_rand failed" ));
+  void * map_addr;
+  int    map_err = fd_shmem_private_map_rand( sz, page_sz, FD_SHMEM_JOIN_MODE_READ_ONLY, &map_addr );
+  if( FD_UNLIKELY( map_err ) ) {
+    if( FD_UNLIKELY( close( fd ) ) ) {
+      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
+    }
+    FD_SHMEM_UNLOCK;
+    FD_LOG_WARNING(( "unable to reserve a random address to map region \"%s\" (%lu KiB) (%i-%s)",
+                     name, sz>>10, map_err, fd_io_strerror( map_err ) ));
+    return NULL;
+  }
 
   /* Note that MAP_HUGETLB and MAP_HUGE_* are implied by the mount point */
   void * shmem = mmap( map_addr, sz, PROT_READ|( rw?PROT_WRITE:0 ) , MAP_SHARED|MAP_FIXED, fd, (off_t)0 );
 
   int mmap_errno = errno;
-  if( FD_UNLIKELY( close( fd ) ) )
+  if( FD_UNLIKELY( close( fd ) ) ) {
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
+  }
 
   /* Validate the mapping */
 
