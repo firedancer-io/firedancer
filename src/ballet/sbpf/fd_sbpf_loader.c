@@ -1593,6 +1593,16 @@ fd_sbpf_lenient_relocs_fast_ok( fd_sbpf_elf_t const *      elf,
   return 1;
 }
 
+static int
+fd_sbpf_lenient_text_fast_ok( fd_sbpf_elf_t const *      elf,
+                              ulong                      rodata_sz,
+                              fd_sbpf_elf_info_t const * info ) {
+  if( FD_UNLIKELY( info->shndx_text<0 ) ) return 0;
+  fd_elf64_shdr const * shdrs   = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const * sh_text = &shdrs[ info->shndx_text ];
+  return fd_ulong_sat_add( sh_text->sh_offset, sh_text->sh_size )<=rodata_sz;
+}
+
 /* First part of Agave's load_with_lenient_parser(). We split up this
    function into two parts so we know how much memory we need to
    allocate for the loading step. Returns an ElfError on failure and 0
@@ -1638,7 +1648,9 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
      read-only layout is computed without error, (b) every read-only section's
      address equals its file offset (invalid_offsets==0), so the sections can
      be assembled in place, and (c) every dynamic relocation lies fully within
-     the read-only image (fd_sbpf_lenient_relocs_fast_ok).  When eligible,
+     the read-only image (fd_sbpf_lenient_relocs_fast_ok), and (d) the text
+     section's file extent lies within the read-only image
+     (fd_sbpf_lenient_text_fast_ok).  When eligible,
      load_buf_sz is the exact image size; otherwise it is bin_sz, which
      fd_sbpf_loader_is_legacy_lenient reports so the loader takes the scratch
      path over the full ELF. */
@@ -1646,7 +1658,8 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
   uchar invalid_offsets = 0;
   int   fast = ( fd_sbpf_lenient_ro_layout( bin, bin_sz, config, &highest_addr, &invalid_offsets, NULL, NULL )==FD_SBPF_ELF_SUCCESS ) &&
                ( invalid_offsets==0 ) &&
-               fd_sbpf_lenient_relocs_fast_ok( (fd_sbpf_elf_t const *)bin, highest_addr, info );
+               fd_sbpf_lenient_relocs_fast_ok( (fd_sbpf_elf_t const *)bin, highest_addr, info ) &&
+               fd_sbpf_lenient_text_fast_ok( (fd_sbpf_elf_t const *)bin, highest_addr, info );
   info->load_buf_sz = fast ? highest_addr : bin_sz;
 
   return FD_SBPF_ELF_SUCCESS;
