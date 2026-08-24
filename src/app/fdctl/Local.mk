@@ -5,12 +5,9 @@ define FDCTL_VERSION2_H
 #define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)
 #define FDCTL_VERSION_CSTR "$(FIREDANCER_VERSION_CSTR)"
 endef
-$(file >src/app/fdctl/version2.h,$(FDCTL_VERSION2_H))
-
 # Update version.h only if version changed or doesn't exist
-ifneq ($(shell cmp -s src/app/fdctl/version.h src/app/fdctl/version2.h && echo "same"),same)
-src/app/fdctl/version.h: src/app/fdctl/version2.h
-	cp -f src/app/fdctl/version2.h $@
+ifneq ($(if $(wildcard src/app/fdctl/version.h),$(file <src/app/fdctl/version.h)),$(FDCTL_VERSION2_H))
+$(file >src/app/fdctl/version.h,$(FDCTL_VERSION2_H))
 endif
 
 $(OBJDIR)/info: src/app/fdctl/version.h

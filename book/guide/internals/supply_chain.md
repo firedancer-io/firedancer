@@ -44,8 +44,6 @@ manager (dnf or apt) when running `./deps.sh check`. These include:
 - C/C++ compiler: GCC or Clang
 - pkgconf
 - GNU coreutils
-- GNU diffutils
-- GNU patch
 - Perl (for building OpenSSL)
 
 ## Vendored
