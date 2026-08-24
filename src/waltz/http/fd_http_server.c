@@ -463,6 +463,7 @@ accept_conns( fd_http_server_t * http ) {
     http->pollfds[ conn_id ].events = POLLIN;
     http->conns[ conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
     http->conns[ conn_id ].request_bytes_read     = 0UL;
+    http->conns[ conn_id ].request_head_len       = 0UL;
     http->conns[ conn_id ].response_bytes_written = 0UL;
 
     if( FD_UNLIKELY( http->callbacks.open ) ) {
@@ -505,13 +506,19 @@ read_conn_http( fd_http_server_t * http,
   int minor_version;
   struct phr_header headers[ 32 ];
   ulong num_headers = 32UL;
+  /* If the head already parsed on an earlier read (the body was pending),
+     the parser's partial-head fast path would search for the terminator
+     beyond its known position and wrongly report the request incomplete.
+     Reparse from scratch so the headers regenerate for this invocation. */
+  ulong last_len = conn->request_head_len ? 0UL : conn->request_bytes_read - (ulong)sz;
   int result = phr_parse_request( conn->request_bytes,
                                   conn->request_bytes_read,
                                   &method, &method_len,
                                   &path, &path_len,
                                   &minor_version,
                                   headers, &num_headers,
-                                  conn->request_bytes_read - (ulong)sz );
+                                  last_len );
+  if( FD_UNLIKELY( result>0 ) ) conn->request_head_len = (ulong)result;
   if( FD_UNLIKELY( -2==result ) ) { /* Request still partial, wait for more data */
     /* A full buffer that still does not parse means the head alone exceeds
        max_request_len. Requests that do parse are allowed to occupy the

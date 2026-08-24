@@ -31,6 +31,10 @@ struct fd_http_server_connection {
 
   char * request_bytes;
   ulong  request_bytes_read;
+  /* Length of the parsed request head once phr_parse_request has succeeded.
+     A pending body may require more reads; the parser's partial-head fast
+     path must not reapply past the known terminator. */
+  ulong  request_head_len;
 
   fd_http_server_response_t response;
   ulong response_bytes_written;
