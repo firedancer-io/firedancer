@@ -224,6 +224,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.vote_state = is_voting ? FD_GUI_VOTE_STATE_VOTING : FD_GUI_VOTE_STATE_NON_VOTING;
 
   gui->summary.sock_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "sock"   );
+  gui->summary.mlx5_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "mlx5"   );
   gui->summary.net_tile_cnt    = fd_topo_tile_name_cnt( gui->topo, "net"    );
   gui->summary.quic_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "quic"   );
   gui->summary.verify_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "verify" );
@@ -716,13 +717,32 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
 }
 
 static void
+fd_gui_network_stats_snap_egress( fd_topo_t const *        topo,
+                                  char const *             tile_name,
+                                  fd_gui_network_stats_t * cur ) {
+  ulong tile_cnt = fd_topo_tile_name_cnt( topo, tile_name );
+  for( ulong i=0UL; i<tile_cnt; i++ ) {
+    ulong tile_idx = fd_topo_find_tile( topo, tile_name, i );
+    if( FD_UNLIKELY( tile_idx==ULONG_MAX ) ) continue;
+    fd_topo_tile_t const * tile = &topo->tiles[ tile_idx ];
+    for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+      ulong bytes = fd_metrics_link_in( tile->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
+      char const * link_name = topo->links[ tile->in_link_id[ j ] ].name;
+      if( FD_UNLIKELY( !strcmp( link_name, "shred_net"  ) ) ) cur->out.turbine += bytes;
+      if( FD_UNLIKELY( !strcmp( link_name, "repair_net" ) ) ) cur->out.repair  += bytes;
+      if( FD_UNLIKELY( !strcmp( link_name, "rserve_net" ) ) ) cur->out.rserve  += bytes;
+      if( FD_UNLIKELY( !strcmp( link_name, "txsend_net" ) ) ) cur->out.tpu     += bytes;
+    }
+  }
+}
+
+static void
 fd_gui_network_stats_snap( fd_gui_t *               gui,
                            fd_gui_network_stats_t * cur ) {
   fd_topo_t const * topo = gui->topo;
   ulong gossvf_tile_cnt = fd_topo_tile_name_cnt( topo, "gossvf" );
   ulong gossip_tile_cnt = fd_topo_tile_name_cnt( topo, "gossip" );
   ulong shred_tile_cnt  = fd_topo_tile_name_cnt( topo, "shred" );
-  ulong net_tile_cnt    = fd_topo_tile_name_cnt( topo, "net" );
   ulong quic_tile_cnt   = fd_topo_tile_name_cnt( topo, "quic" );
 
   cur->in.gossip   = fd_gui_metrics_gossip_total_ingress_bytes( topo, gossvf_tile_cnt );
@@ -733,27 +753,8 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
   cur->out.repair  = 0UL;
   cur->out.rserve  = 0UL;
   cur->out.tpu     = 0UL;
-  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-    ulong net_tile_idx = fd_topo_find_tile( topo, "net", i );
-    if( FD_UNLIKELY( net_tile_idx==ULONG_MAX ) ) continue;
-    fd_topo_tile_t const * net = &topo->tiles[ net_tile_idx ];
-    for( ulong j=0UL; j<net->in_cnt; j++ ) {
-      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "shred_net" ) ) ) {
-          cur->out.turbine += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
-      }
-
-      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "repair_net" ) ) ) {
-          cur->out.repair += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
-      }
-      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "rserve_net" ) ) ) {
-          cur->out.rserve += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
-      }
-
-      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "send_net" ) ) ) {
-          cur->out.tpu += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
-      }
-    }
-  }
+  fd_gui_network_stats_snap_egress( topo, "net",  cur );
+  fd_gui_network_stats_snap_egress( topo, "mlx5", cur );
 
   cur->in.repair = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_REPAIR_RX_BYTES ) );
   ulong repair_tile_idx = fd_topo_find_tile( topo, "repair", 0UL );
@@ -1331,7 +1332,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_ABANDONED           ) ];
     cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERRUN             ) ];
 
-    for( ulong j=0UL; j<gui->summary.net_tile_cnt; j++ ) {
+    for( ulong j=0UL; j<gui->summary.net_tile_cnt+gui->summary.mlx5_tile_cnt; j++ ) {
       /* TODO: Not precise... net frags that were skipped might not have been destined for QUIC tile */
       /* TODO: Not precise... even if 1 frag gets skipped, it could have been for this QUIC tile */
       cur->out.quic_overrun += fd_metrics_link_in( quic->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ] / gui->summary.quic_tile_cnt;
@@ -1346,6 +1347,12 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL ) ];
     cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED ) ];
     cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_FILL_RING_EMPTY ) ];
+  }
+  for( ulong i=0UL; i<gui->summary.mlx5_tile_cnt; i++ ) {
+    fd_topo_tile_t const * mlx5 = &topo->tiles[ fd_topo_find_tile( topo, "mlx5", i ) ];
+    volatile ulong * mlx5_metrics = fd_metrics_tile( mlx5->metrics );
+
+    cur->out.net_overrun += mlx5_metrics[ MIDX( COUNTER, MLX5, RX_OUT_OF_BUFFER ) ];
   }
 
   ulong bundle_txns_received = 0UL;
@@ -1407,6 +1414,14 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
 
     stats->net_in_rx_bytes  += sock_metrics[ MIDX( COUNTER, SOCK, PKT_RX_BYTES ) ];
     stats->net_out_tx_bytes += sock_metrics[ MIDX( COUNTER, SOCK, PKT_TX_BYTES ) ];
+  }
+
+  for( ulong i=0UL; i<gui->summary.mlx5_tile_cnt; i++ ) {
+    fd_topo_tile_t const * mlx5 = &topo->tiles[ fd_topo_find_tile( topo, "mlx5", i ) ];
+    volatile ulong * mlx5_metrics = fd_metrics_tile( mlx5->metrics );
+
+    stats->net_in_rx_bytes  += mlx5_metrics[ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ];
+    stats->net_out_tx_bytes += mlx5_metrics[ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
