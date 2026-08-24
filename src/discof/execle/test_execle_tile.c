@@ -565,6 +565,17 @@ test_stem( fd_execle_tile_t * ctx,
 }
 
 static void
+test_execle_flush_rebate( test_env_t * env ) {
+  fd_stem_context_t stem[1];
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  env->execle->rebate_idle_loop_cnt = REBATE_BATCH_IDLE_LOOPS;
+  after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
+  FD_TEST( !opt_poll_in );
+  FD_TEST( charge_busy );
+}
+
+static void
 test_execle_run( test_env_t *     env,
                  fd_txn_p_t *     txns,
                  ulong            txn_cnt,
@@ -683,6 +694,172 @@ FD_UNIT_TEST( execle_seccomp ) {
 
   struct sock_filter filter[ sock_filter_policy_fd_execle_tile_instr_cnt ];
   populate_allowed_seccomp( NULL, NULL, sock_filter_policy_fd_execle_tile_instr_cnt, filter );
+}
+
+FD_UNIT_TEST( execle_rebate_deferred ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t missing_fee_payer = { .ul = { 0x1234UL } };
+  fd_pubkey_t writable_acct     = { .ul = { 0x5678UL } };
+  fd_txn_p_t txn[1];
+  test_build_empty_txn( txn, bank, missing_fee_payer, writable_acct, 1UL, 0 );
+  test_execle_run( env, txn, 1UL, 0U, 0UL, 0 );
+
+  FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==ULONG_MAX );
+
+  fd_stem_context_t stem[1];
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
+  FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==ULONG_MAX );
+  FD_TEST( opt_poll_in );
+  FD_TEST( !charge_busy );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_rebate_flushes_after_idle_loops ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t missing_fee_payer = { .ul = { 0x1234UL } };
+  fd_pubkey_t writable_acct     = { .ul = { 0x5678UL } };
+  fd_txn_p_t txn[1];
+  test_build_empty_txn( txn, bank, missing_fee_payer, writable_acct, 1UL, 0 );
+  test_execle_run( env, txn, 1UL, 0U, 0UL, 0 );
+
+  for( ulong i=0UL; i<REBATE_BATCH_IDLE_LOOPS; i++ ) {
+    fd_stem_context_t stem[1];
+    int opt_poll_in = 1;
+    int charge_busy = 0;
+    after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
+    FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==ULONG_MAX );
+    FD_TEST( opt_poll_in );
+    FD_TEST( !charge_busy );
+  }
+
+  fd_stem_context_t stem[1];
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
+  FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==0UL );
+  FD_TEST( !opt_poll_in );
+  FD_TEST( charge_busy );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_rebate_flushes_full_batch ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  fd_pubkey_t writable_acct = { .ul = { 0x9876UL } };
+
+  for( ulong i=0UL; i<REBATE_BATCH_MAX_MICROBLOCKS; i++ ) {
+    fd_pubkey_t missing_fee_payer = { .ul = { 0x1000UL+i } };
+    fd_txn_p_t txn[1];
+    test_build_empty_txn( txn, bank, missing_fee_payer, writable_acct, 10UL+i, 0 );
+    test_execle_run( env, txn, 1UL, (uint)i, i, 0 );
+
+    fd_stem_context_t stem[1];
+    int opt_poll_in = 1;
+    int charge_busy = 0;
+    after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
+
+    if( i+1UL<REBATE_BATCH_MAX_MICROBLOCKS ) {
+      FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==ULONG_MAX );
+      FD_TEST( opt_poll_in );
+      FD_TEST( !charge_busy );
+    } else {
+      FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==0UL );
+      FD_TEST( !opt_poll_in );
+      FD_TEST( charge_busy );
+    }
+  }
+
+  fd_pack_rebate_t const * rebate = fd_chunk_to_laddr( env->execle->out_pack->mem, test_out_pack_meta( 0UL )->chunk );
+  FD_TEST( rebate->total_cost_rebate==REBATE_BATCH_MAX_MICROBLOCKS*301000UL );
+  FD_TEST( rebate->writer_cnt==(uint)(REBATE_BATCH_MAX_MICROBLOCKS+1UL) );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_rebate_batch_counts_bundle_microblocks ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  fd_pubkey_t writable_acct = { .ul = { 0xaaaaUL } };
+
+  fd_txn_p_t bundle[5];
+  for( ulong i=0UL; i<5UL; i++ ) {
+    fd_pubkey_t missing_fee_payer = { .ul = { 0x2000UL+i } };
+    test_build_empty_txn( bundle+i, bank, missing_fee_payer, writable_acct, 30UL+i, 0 );
+  }
+  test_execle_run( env, bundle, 5UL, 0U, 0UL, 1 );
+
+  fd_stem_context_t stem[1];
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
+  FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==0UL );
+  FD_TEST( !opt_poll_in );
+  FD_TEST( charge_busy );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_rebate_flushes_initializer_bundle ) {
+  test_env_t * env = test_env_create();
+
+  fd_txn_p_t txn[1] = {0};
+  txn->flags = FD_TXN_P_FLAGS_BUNDLE | FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+  fd_acct_addr_t const * alt_ptr[1] = { NULL };
+  FD_TEST( !fd_pack_rebate_sum_add_txn( env->execle->rebater, txn, alt_ptr, 1UL ) );
+
+  env->execle->rebate_microblock_cnt = 1UL;
+
+  fd_stem_context_t stem[1];
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
+
+  FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==0UL );
+  FD_TEST( !opt_poll_in );
+  FD_TEST( charge_busy );
+
+  fd_pack_rebate_t const * rebate = fd_chunk_to_laddr( env->execle->out_pack->mem, test_out_pack_meta( 0UL )->chunk );
+  FD_TEST( rebate->ib_result==1 );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_rebate_slot_change_resets_batch ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  fd_pubkey_t writable_acct = { .ul = { 0xabcdUL } };
+
+  fd_pubkey_t first_fee_payer = { .ul = { 0x1111UL } };
+  fd_txn_p_t first_txn[1];
+  test_build_empty_txn( first_txn, bank, first_fee_payer, writable_acct, 20UL, 0 );
+  test_execle_run( env, first_txn, 1UL, 0U, 0UL, 0 );
+
+  env->execle->rebate_microblock_cnt = REBATE_BATCH_MAX_MICROBLOCKS-1UL;
+
+  bank->f.slot++;
+  fd_pubkey_t second_fee_payer = { .ul = { 0x2222UL } };
+  fd_txn_p_t second_txn[1];
+  test_build_empty_txn( second_txn, bank, second_fee_payer, writable_acct, 21UL, 0 );
+  test_execle_run( env, second_txn, 1UL, 1U, 1UL, 0 );
+
+  fd_stem_context_t stem[1];
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
+
+  FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==ULONG_MAX );
+  FD_TEST( opt_poll_in );
+  FD_TEST( !charge_busy );
+
+  test_env_destroy( env );
 }
 
 FD_UNIT_TEST( execle_vote ) {
@@ -1104,6 +1281,7 @@ FD_UNIT_TEST( execle_bundle_fail ) {
   FD_TEST( (out_txn0->flags & FD_TXN_P_FLAGS_RESULT_MASK)==((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24) );
   FD_TEST( (out_txn1->flags & FD_TXN_P_FLAGS_RESULT_MASK)==((uint)(-FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR)<<24) );
 
+  test_execle_flush_rebate( env );
   fd_frag_meta_t const * rebate_meta = test_out_pack_meta( 0UL );
   FD_TEST( fd_frag_meta_seq_query( rebate_meta )==0UL );
   FD_TEST( rebate_meta->sig==bank->f.slot );
@@ -1215,6 +1393,7 @@ FD_UNIT_TEST( execle_bundle_peer_fail ) {
   FD_TEST( out_txn1->flags & FD_TXN_P_FLAGS_BUNDLE );
   FD_TEST( out_txn2->flags & FD_TXN_P_FLAGS_BUNDLE );
 
+  test_execle_flush_rebate( env );
   fd_frag_meta_t const * rebate_meta = test_out_pack_meta( 0UL );
   FD_TEST( fd_frag_meta_seq_query( rebate_meta )==0UL );
   FD_TEST( rebate_meta->sig==bank->f.slot );
