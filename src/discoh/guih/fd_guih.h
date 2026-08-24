@@ -694,6 +694,7 @@ struct fd_guih {
     ulong estimated_slot_duration_nanos;
 
     ulong sock_tile_cnt;
+    ulong mlx5_tile_cnt;
     ulong net_tile_cnt;
     ulong quic_tile_cnt;
     ulong verify_tile_cnt;
