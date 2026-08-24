@@ -685,7 +685,7 @@ fd_bls12_381_proof_of_possession_verify( uchar const msg[],
                                          uchar const public_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] ) {
   (void)msg; (void)msg_sz; (void)proof; (void)public_key;
   FD_LOG_ERR(( "This build does not include BLST, which is required to run a validator.\n"
-               "To install BLST, re-run ./deps.sh, make distclean, and make -j" ));
+               "Rebuild with a MACHINE config that enables config/extra/with-blst.mk" ));
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/mod.rs#L1059-L1108 */
