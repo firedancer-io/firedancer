@@ -62,7 +62,8 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_capture_ctx_t *             capture_ctx,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
-                              ulong                          parent_epoch );
+                              ulong                          parent_epoch,
+                              ulong                          parent_capitalization );
 
 /* fd_rewards_recalculate_partitioned_rewards restores epoch bank stake
    and account reward calculations.  Does not update accounts.  Called

@@ -5,6 +5,7 @@
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/fd_accdb_svm.h"
 #include "../../util/bits/fd_sat.h"
 
 /**********************************************************************/
@@ -519,6 +520,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
+                          ulong                          rewarded_epoch,
                           ulong *                        new_rate_activation_epoch ) {
   fd_bank_epoch_credits_new_fork( bank );
 
@@ -532,7 +534,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   ulong total_deactivating         = 0UL;
   ulong staked_accounts            = 0UL;
   int   use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
-  int   alpenglow_enabled          = 0; // TODO add feature
+  int   alpenglow_enabled          = FD_FEATURE_ACTIVE_BANK( bank, alpenglow );
+  int   accumulate_reward_stakes   = alpenglow_enabled && rewarded_epoch!=ULONG_MAX;
 
   fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
@@ -554,23 +557,35 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     } else {
       new_acc = fd_stakes_activating_and_deactivating( stake_delegation, epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math );
     }
+
+    ulong reward_stake = 0UL;
+    if( FD_UNLIKELY( accumulate_reward_stakes ) ) {
+      if( FD_LIKELY( st==FD_STAKE_DELEGATION_STATE_WARMED ) ) {
+        reward_stake = stake_delegation->stake;
+      } else if( st!=FD_STAKE_DELEGATION_STATE_COOLED ) {
+        reward_stake = fd_stakes_activating_and_deactivating( stake_delegation, rewarded_epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+      }
+    }
+
     total_stake        += new_acc.effective;
     total_activating   += new_acc.activating;
     total_deactivating += new_acc.deactivating;
-    if( FD_UNLIKELY( !new_acc.effective ) ) continue;
+    if( FD_UNLIKELY( !new_acc.effective && !reward_stake ) ) continue;
 
     fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, &stake_delegation->vote_account, NULL, stake_accum_pool );
     if( FD_UNLIKELY( !stake_accum ) ) {
       if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_staked_vote_accounts ) ) {
         FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
       }
-      stake_accum = &runtime_stack->stakes.stake_accum[ staked_accounts ];
-      stake_accum->pubkey = stake_delegation->vote_account;
-      stake_accum->stake  = new_acc.effective;
+      stake_accum               = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+      stake_accum->pubkey       = stake_delegation->vote_account;
+      stake_accum->stake        = new_acc.effective;
+      stake_accum->reward_stake = reward_stake;
       fd_stake_accum_map_ele_insert( stake_accum_map, stake_accum, stake_accum_pool );
       staked_accounts++;
     } else {
       stake_accum->stake += new_acc.effective;
+      FD_TEST( !__builtin_uaddl_overflow( stake_accum->reward_stake, reward_stake, &stake_accum->reward_stake ) );
     }
   }
 
@@ -716,6 +731,36 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L2644-L2695 */
+static void
+fd_stakes_burn_vat( fd_bank_t *         bank,
+                    fd_accdb_t *        accdb,
+                    fd_capture_ctx_t *  capture_ctx ) {
+  if( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) return;
+
+  fd_vote_stakes_t * vote_stakes    = fd_bank_vote_stakes( bank );
+  ulong              fork_id        = bank->vote_stakes_fork_id;
+  ulong              burn_per_epoch = fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch;
+  ulong              total_vat      = 0UL;
+
+  uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, iter_mem );
+       !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
+       fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
+    fd_pubkey_t vote_pubkey;
+    fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &vote_pubkey, NULL, NULL, NULL, NULL );
+
+    fd_accdb_svm_update_t update[1];
+    fd_acc_t              acc = fd_accdb_svm_open_rw( bank, accdb, update, &vote_pubkey, 0 );
+    FD_TEST( acc.lamports>=burn_per_epoch );
+    total_vat    += burn_per_epoch;
+    acc.lamports -= burn_per_epoch;
+    fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+  }
+
+  fd_accdb_svm_credit( bank, accdb, capture_ctx, &fd_sysvar_incinerator_id, total_vat );
+}
+
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
@@ -800,8 +845,10 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   }
 
   /* Now increment the epoch and recompute the stakes for the vote
-     accounts for the new epoch value. */
+     accounts for the new epoch value.  The rewarded epoch trails the
+     current epoch by 1 except for the first epoch (genesis) case. */
 
+  ulong rewarded_epoch = bank->f.epoch;
   bank->f.epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
 
   fd_refresh_vote_accounts( bank,
@@ -809,7 +856,9 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                             runtime_stack,
                             stake_delegations,
                             stake_history,
+                            rewarded_epoch,
                             new_rate_activation_epoch );
+  fd_stakes_burn_vat( bank, accdb, capture_ctx );
 }
 
 

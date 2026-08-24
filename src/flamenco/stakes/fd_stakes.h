@@ -82,12 +82,15 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_stake_delegations_t *       stake_delegations,
                           ulong *                        new_rate_activation_epoch );
 
+/* rewarded_epoch selects the epoch whose effective delegated stakes
+   should be accumulated for rewards.  ULONG_MAX disables this work. */
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_accdb_t *                   accdb,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
+                          ulong                          rewarded_epoch,
                           ulong *                        new_rate_activation_epoch );
 
 /* fd_stakes_update_delegation is used to maintain the in-memory cache
