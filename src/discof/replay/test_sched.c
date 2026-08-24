@@ -5,6 +5,7 @@
 #include "fd_execrp.h"
 #include "fd_sched.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../flamenco/txn/fd_txn_generate.h"
 
 #define TEST_EXEC_CNT         4UL
 #define TEST_ROOT_SLOT        1000UL
@@ -12,7 +13,9 @@
 
 static void
 test_sched_footprint( void ) {
-  FD_TEST( fd_sched_footprint( 512UL, 4UL )==12485376UL );
+  /* Retain the per-block saving from compact shred lengths under the
+     default scheduler sizing. */
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL )==1114166656UL );
 }
 
 static void
@@ -60,6 +63,183 @@ encode_tick_block( uchar *           encoded,
   }
 
   *encoded_sz = cursor;
+}
+
+static ulong
+build_shred_test_txn( uchar * payload ) {
+  fd_pubkey_t payer[ 1 ];
+  fd_pubkey_t program[ 1 ];
+  fd_memset( payer->uc,   0x11, sizeof(fd_pubkey_t) );
+  fd_memset( program->uc, 0x22, sizeof(fd_pubkey_t) );
+
+  fd_txn_accounts_t accounts = {
+    .signature_cnt         = 1U,
+    .readonly_signed_cnt   = 0U,
+    .readonly_unsigned_cnt = 1U,
+    .acct_cnt              = 2U,
+    .signers_w             = payer,
+    .signers_r             = NULL,
+    .non_signers_w         = NULL,
+    .non_signers_r         = program,
+  };
+
+  uchar meta[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  fd_memset( meta, 0, sizeof(meta) );
+  fd_txn_base_generate( meta, payload, 1UL, &accounts, NULL );
+
+  uchar instr_acct = 0U;
+  uchar instr_data = 0x5aU;
+  return fd_txn_add_instr( meta, payload, 1U, &instr_acct, 1UL, &instr_data, 1UL );
+}
+
+static void
+run_interleaved_fec_residual_case( void ) {
+  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL );
+  void * mem = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[ 1 ]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 4UL, TEST_EXEC_CNT, 0 ) );
+  FD_TEST( sched );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  uchar txn_payload[ FD_TXN_MTU ];
+  ulong txn_sz = build_shred_test_txn( txn_payload );
+  uint signature_tag[ 2 ] = { 0x12345678U, 0x9abcdef0U };
+
+  uchar encoded[ 2 ][ 8192 ];
+  ulong encoded_sz[ 2 ];
+  ulong split_off[ 2 ];
+  fd_hash_t start_poh[ 2 ];
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_hash_t tx_mblk_hash[ 1 ];
+    fd_hash_t tick_hash[ 1 ];
+    hash_from_seed( start_poh+i, 0x459db07a9f2c0321UL+i );
+    hash_from_seed( tx_mblk_hash, 0x9e33470a182d6cbfUL+i );
+    repeat_hash( tick_hash, tx_mblk_hash, 1UL );
+
+    ulong cursor = 0UL;
+    FD_STORE( ulong, encoded[ i ]+cursor, 2UL );
+    cursor += sizeof(ulong);
+    fd_microblock_hdr_t tx_hdr = {
+      .hash_cnt = 1UL,
+      .txn_cnt  = 1UL,
+    };
+    fd_memcpy( tx_hdr.hash, tx_mblk_hash->hash, sizeof(fd_hash_t) );
+    fd_memcpy( encoded[ i ]+cursor, &tx_hdr, sizeof(tx_hdr) );
+    cursor += sizeof(tx_hdr);
+
+    uchar tagged_txn[ FD_TXN_MTU ];
+    fd_memcpy( tagged_txn, txn_payload, txn_sz );
+    FD_STORE( uint, tagged_txn+1UL, signature_tag[ i ] );
+    split_off[ i ] = cursor+txn_sz/2UL;
+    fd_memcpy( encoded[ i ]+cursor, tagged_txn, txn_sz );
+    cursor += txn_sz;
+
+    fd_microblock_hdr_t tick_hdr = {
+      .hash_cnt = 1UL,
+      .txn_cnt  = 0UL,
+    };
+    fd_memcpy( tick_hdr.hash, tick_hash->hash, sizeof(fd_hash_t) );
+    fd_memcpy( encoded[ i ]+cursor, &tick_hdr, sizeof(tick_hdr) );
+    cursor += sizeof(tick_hdr);
+    encoded_sz[ i ] = cursor;
+  }
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    store_fec->data_sz         = split_off[ i ];
+    store_fec->shred_offs[ 0 ] = (uint)split_off[ i ];
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx          = 2UL+i,
+      .parent_bank_idx   = 1UL,
+      .slot              = TEST_ROOT_SLOT+1UL,
+      .parent_slot       = TEST_ROOT_SLOT,
+      .fec               = store_fec,
+      .data              = encoded[ i ],
+      .shred_cnt         = 1U,
+      .is_first_in_block = 1U,
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    fd_sched_set_poh_params( sched, 2UL+i, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, 2UL, start_poh+i );
+  }
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    store_fec->data_sz         = encoded_sz[ i ]-split_off[ i ];
+    ulong txn_rem = txn_sz-txn_sz/2UL;
+    if( !i ) {
+      store_fec->shred_offs[ 0 ] = (uint)(txn_rem/2UL);
+      store_fec->shred_offs[ 1 ] = (uint)txn_rem;
+      store_fec->shred_offs[ 2 ] = (uint)store_fec->data_sz;
+    } else {
+      store_fec->shred_offs[ 0 ] = (uint)store_fec->data_sz;
+    }
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx         = 2UL+i,
+      .parent_bank_idx  = 1UL,
+      .slot             = TEST_ROOT_SLOT+1UL,
+      .parent_slot      = TEST_ROOT_SLOT,
+      .fec              = store_fec,
+      .data             = encoded[ i ]+split_off[ i ],
+      .shred_cnt        = (uint)(i ? 1UL : 3UL),
+      .is_last_in_batch = 1U,
+      .is_last_in_block = 1U,
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  }
+
+  ulong txn_exec_cnt = 0UL;
+  for( ulong step=0UL; step<100UL; step++ ) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+
+    fd_sched_task_t task[ 1 ];
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    switch( task->task_type ) {
+      case FD_SCHED_TT_BLOCK_START:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_BLOCK_END:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_EXEC: {
+        fd_txn_p_t * txn = fd_sched_get_txn( sched, task->txn_exec->txn_idx );
+        FD_TEST( task->txn_exec->bank_idx==2UL || task->txn_exec->bank_idx==3UL );
+        FD_TEST( FD_LOAD( uint, txn->payload+1UL )==signature_tag[ task->txn_exec->bank_idx-2UL ] );
+        FD_TEST( txn->start_shred_idx==0U );
+        FD_TEST( txn->end_shred_idx==fd_ushort_if( task->txn_exec->bank_idx==2UL, 2U, 1U ) );
+        txn_exec_cnt++;
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+        break;
+      }
+      case FD_SCHED_TT_TXN_SIGVERIFY:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_POH_HASH: {
+        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+        msg->mblk_idx = task->poh_hash->mblk_idx;
+        msg->hashcnt  = task->poh_hash->hashcnt;
+        repeat_hash( msg->hash, task->poh_hash->hash, task->poh_hash->hashcnt );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+        break;
+      }
+      default:
+        FD_LOG_ERR(( "unexpected task type %lu in interleaved FEC test", task->task_type ));
+    }
+  }
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+
+  FD_TEST( txn_exec_cnt==2UL );
+  FD_TEST( fd_sched_is_drained( sched ) );
+
+  fd_sched_delete( fd_sched_leave( sched ) );
+  free( mem );
 }
 
 static void
@@ -466,6 +646,7 @@ main( int     argc,
   test_sched_footprint();
   run_lane_policy_case();
   run_bad_tick_cases();
+  run_interleaved_fec_residual_case();
   run_abandon_flavor_case();
   run_root_notify_flavor_case();
   run_late_ancestor_discard_case();
