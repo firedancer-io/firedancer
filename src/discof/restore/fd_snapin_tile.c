@@ -488,7 +488,6 @@ transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
-  clear_control_barrier( ctx );
   fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
@@ -1629,16 +1628,15 @@ handle_control_barrier( fd_snapin_tile_t *  ctx,
                         ulong               sz ) {
   /* Error control frags must be immediately handled. */
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_ERROR ) ) {
-    clear_control_barrier( ctx );
     handle_control_frag( ctx, stem, in_idx, sig, chunk, sz );
     return;
   }
 
-  if( FD_UNLIKELY( ctx->pending_control==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( sig!=ctx->pending_control ) ) {
+    FD_TEST( ctx->pending_control==ULONG_MAX || sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
+    clear_control_barrier( ctx );
     ctx->pending_control = sig;
   }
-  
-  FD_TEST( sig==ctx->pending_control );
 
   /* Only process the control frag when all upstream tiles have sent
      the same control message. */

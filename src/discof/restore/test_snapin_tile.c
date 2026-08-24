@@ -413,8 +413,8 @@ test_error_interrupts_incremental_init( void ) {
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
   FD_TEST( !ctx->init_completed );
-  FD_TEST( ctx->pending_control==ULONG_MAX );
-  FD_TEST( !ctx->control_seen[0] );
+  FD_TEST( ctx->pending_control==FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
+  FD_TEST( ctx->control_seen[0] );
   FD_TEST( !ctx->control_seen[1] );
   FD_TEST( test_pub_cnt==1UL );
   FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
@@ -432,6 +432,85 @@ test_error_interrupts_incremental_init( void ) {
   FD_TEST( !test_accdb_attach_cnt );
   FD_TEST( !test_accdb_purge_cnt );
   FD_TEST( !test_accdb_revert_cnt );
+}
+
+static void
+test_partial_fail_survives_error( void ) {
+  fd_snapin_tile_t ctx[1];
+  sync_ctx_init( ctx, 4UL, FD_SNAPSHOT_STATE_PROCESSING );
+  test_pub_cnt = 0UL;
+
+  FD_TEST( !before_frag( ctx, 2UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL ) );
+  send_control( ctx, 2UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( ctx->pending_control==FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( ctx->control_seen[2] );
+
+  FD_TEST( !before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR ) );
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+  FD_TEST( ctx->pending_control==FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( ctx->control_seen[2] );
+
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  send_control( ctx, 3UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+  FD_TEST( ctx->pending_control==ULONG_MAX );
+  FD_TEST( test_pub_cnt==2UL );
+  FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
+  FD_TEST( test_pub_sig[1]==FD_SNAPSHOT_MSG_CTRL_FAIL );
+
+  sync_ctx_init( ctx, 4UL, FD_SNAPSHOT_STATE_PROCESSING );
+  test_pub_cnt = 0UL;
+  send_control( ctx, 2UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  transition_malformed( ctx, (fd_stem_context_t *)1UL );
+  FD_TEST( ctx->pending_control==FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( ctx->control_seen[2] );
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  send_control( ctx, 3UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+  FD_TEST( ctx->pending_control==ULONG_MAX );
+}
+
+static void
+test_fail_supersedes_pending_controls( void ) {
+  struct {
+    ulong sig;
+    int   state;
+  } const cases[] = {
+    { FD_SNAPSHOT_MSG_META,           FD_SNAPSHOT_STATE_PROCESSING },
+    { FD_SNAPSHOT_MSG_CTRL_INIT_FULL, FD_SNAPSHOT_STATE_IDLE       },
+    { FD_SNAPSHOT_MSG_CTRL_INIT_INCR, FD_SNAPSHOT_STATE_IDLE       },
+    { FD_SNAPSHOT_MSG_CTRL_FINI,      FD_SNAPSHOT_STATE_PROCESSING },
+    { FD_SNAPSHOT_MSG_CTRL_NEXT,      FD_SNAPSHOT_STATE_FINISHING  },
+    { FD_SNAPSHOT_MSG_CTRL_DONE,      FD_SNAPSHOT_STATE_FINISHING  },
+  };
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    fd_snapin_tile_t ctx[1];
+    sync_ctx_init( ctx, 4UL, cases[i].state );
+    test_pub_cnt = 0UL;
+
+    FD_TEST( !before_frag( ctx, 0UL, 0UL, cases[i].sig ) );
+    send_control( ctx, 0UL, cases[i].sig );
+    FD_TEST( ctx->pending_control==cases[i].sig );
+    FD_TEST( ctx->control_seen[0] );
+
+    FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL ) );
+    send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+    FD_TEST( ctx->pending_control==FD_SNAPSHOT_MSG_CTRL_FAIL );
+    FD_TEST( !ctx->control_seen[0] );
+    FD_TEST( ctx->control_seen[1] );
+
+    send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+    send_control( ctx, 2UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+    send_control( ctx, 3UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
+    FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+    FD_TEST( ctx->pending_control==ULONG_MAX );
+    FD_TEST( test_pub_cnt==1UL );
+    FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_FAIL );
+  }
 }
 
 static void
@@ -916,6 +995,8 @@ main( int     argc,
   test_pending_control_allows_lagging_data();
   test_pending_control_keeps_frame_order();
   test_error_interrupts_incremental_init();
+  test_partial_fail_survives_error();
+  test_fail_supersedes_pending_controls();
   test_initialized_incremental_fail_rolls_back();
   test_error_fail_and_retry();
   test_frame_ordering();

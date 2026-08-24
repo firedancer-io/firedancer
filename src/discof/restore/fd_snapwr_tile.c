@@ -117,7 +117,6 @@ transition_malformed( fd_snapwr_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
-  clear_control_barrier( ctx );
   fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
@@ -442,12 +441,14 @@ handle_control_barrier( fd_snapwr_tile_t *  ctx,
                         ulong               sig ) {
   /* Error control frags must be immediately handled. */
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_ERROR ) ) {
-    clear_control_barrier( ctx );
     handle_control_frag( ctx, stem, sig );
     return;
   }
 
-  if( FD_UNLIKELY( ctx->pending_control==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( sig!=ctx->pending_control ) ) {
+    FD_TEST( ctx->pending_control==ULONG_MAX || sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
+    clear_control_barrier( ctx );
+
     /* Record the new attempt type on the first INIT copy so FAIL can
        roll back correctly if ERROR interrupts a pending INIT message */
     if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL || sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
@@ -456,8 +457,6 @@ handle_control_barrier( fd_snapwr_tile_t *  ctx,
 
     ctx->pending_control = sig;
   }
-
-  FD_TEST( sig==ctx->pending_control );
 
   /* Only process the control frag when all upstream tiles have sent
      the same control message. */
