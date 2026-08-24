@@ -71,6 +71,30 @@ following stages to each configure command:
     device.
  - `ethtool-offloads` Modify offload feature flags on the network device.
  - `ethtool-loopback` Disables UDP segmentation on the loopback device.
+ - `sysfs-poll` Configures preferred busy polling on the network device,
+    if enabled in the configuration TOML file.
+ - `irq-affinity` Prevents the kernel from routing IRQs to CPU cores
+    used by Firedancer.
+ - `irq-balance` Prevents the irqbalance daemon from routing IRQs to
+    CPU cores used by Firedancer.
+ - `kworkers` Prevents unbound kernel workqueue workers from running on
+    CPU cores used by Firedancer.
+ - `cpuset` Creates an isolated cgroup cpuset partition over the CPU
+    cores used by Firedancer.
+ - `nohz-full` Checks the kernel `nohz_full=` boot parameter covers the
+    CPU cores used by Firedancer. Check only, prints a suggestion.
+ - `rcu-nocbs` Checks the kernel `rcu_nocbs=` boot parameter covers the
+    CPU cores used by Firedancer. Check only, prints a suggestion.
+ - `watchdog` Disables the kernel lockup detectors, whose per-CPU
+    timers and NMIs periodically interrupt CPU cores used by Firedancer.
+ - `snapshots` Creates the directory that snapshots are downloaded to.
+ - `console` Quiets periodic kernel console rendering work that runs on
+    the CPU that generated it.
+
+Not every stage is available in every binary: `hyperthreads` exists
+only in `fdctl`, while `irq-affinity`, `irq-balance`, `kworkers`,
+`cpuset`, `nohz-full`, `rcu-nocbs`, `watchdog`, `console`, and
+`snapshots` exist only in the `firedancer` binary.
 
 | Arguments         | Description |
 |-------------------|-------------|
@@ -104,6 +128,14 @@ and configure the number of combined channels on the network device.
 | `root`          | disable network device offloads with `ethtool --offload IFACE FEATURE off`. Only applies for the `ethtool-offloads` stage |
 | `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
+| `root`          | modify bond network device configuration with sysfs. Only applies for the `bonding` stage |
+| `CAP_NET_ADMIN` | configure preferred busy polling via `/sys/class/net/*/{napi_defer_hard_irqs, gro_flush_timeout}`. Only applies for the `sysfs-poll` stage |
+| `root`          | modify `/proc/irq/*/smp_affinity`. Only applies for the `irq-affinity` stage |
+| `root`          | connect to `/run/irqbalance/<sock>`. Only applies for the `irq-balance` stage |
+| `root`          | modify `/sys/devices/virtual/workqueue/cpumask`. Only applies for the `kworkers` stage |
+| `root`          | create and configure the cgroup under `/sys/fs/cgroup`. Only applies for the `cpuset` stage |
+| `CAP_SYS_ADMIN` | modify `/proc/sys/kernel/watchdog`. Only applies for the `watchdog` stage |
+| `root`          | modify `/proc/sys/kernel/printk` and `/sys/class/graphics/fbcon/cursor_blink`. Only applies for the `console` stage |
 
 :::
 
@@ -118,16 +150,25 @@ diagnostics to `stderr`.
 
 ### `configure fini <stage>...`
 Remove any Firedancer specific operating system configuration still
-lingering. This only unmounts the `hugetlbfs` stages and returns the
-reserved huge and gigantic pages to the kernel pool. It will not reduce
-sysctls that were earlier increased, or change the network channel count
-back as we no longer know what the original value was.
+lingering. Not every stage is reversible: `fini` will not reduce
+sysctls that were earlier increased, or change the network channel
+count back, as we no longer know what the original value was. For the
+stages that restore a kernel default (`kworkers`, `watchdog`,
+`console`), any operator customization that existed before `init` is
+not restored.
 
 ::: details Capabilities
 
-| Capability | Reason |
-|------------|--------|
-| `root`     | remove directories from `/mnt`, unmount hugetlbfs. Only applies for the `hugetlbfs` stage |
+| Capability      | Reason |
+|-----------------|--------|
+| `root`          | remove directories from `/mnt`, unmount hugetlbfs. Only applies for the `hugetlbfs` stage |
+| `CAP_NET_ADMIN` | restore preferred busy polling defaults via `/sys/class/net/*/{napi_defer_hard_irqs, gro_flush_timeout}`. Only applies for the `sysfs-poll` stage |
+| `root`          | modify `/proc/irq/*/smp_affinity`. Only applies for the `irq-affinity` stage |
+| `root`          | connect to `/run/irqbalance/<sock>`. Only applies for the `irq-balance` stage |
+| `root`          | modify `/sys/devices/virtual/workqueue/cpumask`. Only applies for the `kworkers` stage |
+| `root`          | remove the cgroup under `/sys/fs/cgroup`. Only applies for the `cpuset` stage |
+| `CAP_SYS_ADMIN` | modify `/proc/sys/kernel/watchdog`. Only applies for the `watchdog` stage |
+| `root`          | modify `/proc/sys/kernel/printk` and `/sys/class/graphics/fbcon/cursor_blink`. Only applies for the `console` stage |
 
 :::
 

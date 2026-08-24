@@ -259,6 +259,8 @@ from tile CPUs.
 maintenance) away from tile CPUs.
  * **cpuset** places tile CPUs in an isolated cgroup partition so no
 other process can be scheduled onto them at all.
+ * **watchdog** disables the kernel lockup detectors, whose per-CPU
+timers and NMIs periodically interrupt every core.
  * **console** quiets periodic kernel console rendering (cursor blink,
 warning-level message drawing), which runs on the CPU that generated
 it and so cannot be steered away by the stages above.
