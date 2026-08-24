@@ -1112,15 +1112,21 @@ shovel_comp_disk( fd_snapsv_t *       ctx,
                  "unexpected shovel disk completion" );
   conn->disk_inflight = 0U;
 
+  /* snapshot file recycled between submission and completion? */
+  if( FD_UNLIKELY( !conn_snap_entry( conn ) ) ) {
+    conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
+    conn->closing        = 1U;
+    shovel( ctx, stem, conn_idx, now );
+    return;
+  }
+
   ulong rem     = conn->snap.req_off1 - conn->snap.req_cur;
   ulong read_sz = fd_ulong_min( ctx->iobuf_sz, rem );
   if( FD_UNLIKELY( res<=0 || (ulong)res>read_sz ) ) {
     if( res<0 ) {
       FD_LOG_WARNING(( "snapshot read failed (%i-%s)", -res, fd_io_strerror( -res ) ));
     } else if( !res ) {
-      if( FD_UNLIKELY( conn_snap_entry( conn ) ) ) {
-        FD_LOG_WARNING(( "snapshot file ended early" ));
-      }
+      FD_LOG_WARNING(( "snapshot file ended early" ));
     } else {
       FD_LOG_WARNING(( "snapshot read returned too many bytes (%i>%lu)", res, read_sz ));
     }
