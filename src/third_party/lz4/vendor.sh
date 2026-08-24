@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# Re-imports the lz4 subset used by Firedancer: the core block API
+# (lz4.c) used by fd_checkpt/fd_wksp/vinyl.  Only lib/ is
+# BSD-2-licensed; programs/ is GPL and must never be imported.
+
 set -euo pipefail
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"
@@ -14,7 +18,6 @@ git clone --depth=1 --branch "$LZ4_TAG" "$LZ4_URL" "$tmp/lz4"
 
 cp "$tmp/lz4/lib/LICENSE" LICENSE
 mkdir -p lib
-cp "$tmp/lz4/lib/lz4.c" "$tmp/lz4/lib/lz4.h" \
-   "$tmp/lz4/lib/lz4hc.c" "$tmp/lz4/lib/lz4hc.h" lib/
+cp "$tmp/lz4/lib/lz4.c" "$tmp/lz4/lib/lz4.h" lib/
 
 echo "[+] Vendored lz4 files from $LZ4_TAG"

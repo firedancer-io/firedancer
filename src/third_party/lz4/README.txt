@@ -7,9 +7,8 @@ imported).  No Firedancer specific modifications.  Do not edit
 vendored files locally; update by re-running `vendor.sh` against a
 new pinned tag.
 
-lz4.c/lz4.h (core block API) cover all first-party use (fd_checkpt,
-fd_restore, fd_wksp, vinyl).  lz4hc exists only to satisfy
-librocksdb.a's LZ4_compress_HC* references in dev-mode builds.
+Only lz4.c/lz4.h (core block API) are imported; they cover all
+first-party use (fd_checkpt, fd_restore, fd_wksp, vinyl).
 
 For licensing information, see LICENSE in this directory and NOTICE
 in the root of this repo.
