@@ -21,6 +21,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../disco/events/generated/fd_event_gen.h"
+#include "../../util/fd_hash32.h"
 #include <stdio.h>
 
 struct fd_replay_in_link {
@@ -119,7 +120,7 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 #define MAP_KEY                latest_mr
 #define MAP_NEXT               next_
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );

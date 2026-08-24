@@ -8,6 +8,7 @@
 #include <math.h> /* for sqrt */
 #include <stddef.h> /* for offsetof */
 #include "../metrics/fd_metrics.h"
+#include "../../util/fd_hash32.h"
 
 #define FD_PACK_USE_NON_TEMPORAL_MEMCPY 1
 
@@ -358,16 +359,58 @@ noncemap_key_eq_internal( fd_txn_e_t const * k0,
   return 1;
 }
 
+#if FD_HAS_INT128
+
+/* unrolled xxHash3 */
+
 static inline ulong
 noncemap_key_hash_internal( ulong              seed,
                             fd_txn_e_t const * k ) {
-  /* TODO: This takes >100 cycles! */
   noncemap_extract_t e[1];
   noncemap_extract( k, e );
-  return fd_hash( seed,              e->recent_blockhash, 32UL ) ^
-         fd_hash( seed+ 864394383UL, e->nonce_acct,       32UL ) ^
-         fd_hash( seed+3818662446UL, e->nonce_auth,       32UL );
+
+  ulong k0 = FD_LOAD( ulong, e->recent_blockhash+ 0 );
+  ulong k1 = FD_LOAD( ulong, e->recent_blockhash+ 8 );
+  ulong k2 = FD_LOAD( ulong, e->recent_blockhash+16 );
+  ulong k3 = FD_LOAD( ulong, e->recent_blockhash+24 );
+  ulong k4 = FD_LOAD( ulong, e->nonce_acct->b   + 0 );
+  ulong k5 = FD_LOAD( ulong, e->nonce_acct->b   + 8 );
+  ulong k6 = FD_LOAD( ulong, e->nonce_acct->b   +16 );
+  ulong k7 = FD_LOAD( ulong, e->nonce_acct->b   +24 );
+  ulong k8 = FD_LOAD( ulong, e->nonce_auth->b   + 0 );
+  ulong k9 = FD_LOAD( ulong, e->nonce_auth->b   + 8 );
+  ulong ka = FD_LOAD( ulong, e->nonce_auth->b   +16 );
+  ulong kb = FD_LOAD( ulong, e->nonce_auth->b   +24 );
+
+  ulong acc = 96 * 0x9E3779B185EBCA87ULL;
+  acc += fd_xxh3_mix16b( k4, k5, 0xcb00c391bb52283cUL, 0xa32e531b8b65d088UL, seed );
+  acc += fd_xxh3_mix16b( k6, k7, 0x4ef90da297486471UL, 0xd8acdea946ef1938UL, seed );
+  acc += fd_xxh3_mix16b( k2, k3, 0x78e5c0cc4ee679cbUL, 0x2172ffcc7dd05a82UL, seed );
+  acc += fd_xxh3_mix16b( k8, k9, 0x8e2443f7744608b8UL, 0x4c263a81e69035e0UL, seed );
+  acc += fd_xxh3_mix16b( k0, k1, 0xbe4ba423396cfeb8UL, 0x1cad21f72c81017cUL, seed );
+  acc += fd_xxh3_mix16b( ka, kb, 0xdb979083e96dd4deUL, 0x1f67b3b7a4a44072UL, seed );
+  acc = acc ^ (acc >> 37);
+  acc *= 0x165667919E3779F9ULL;
+  acc = acc ^ (acc >> 32);
+  return acc;
 }
+
+#else
+
+static inline ulong
+noncemap_key_hash_internal( ulong              seed,
+                            fd_txn_e_t const * k ) {
+  noncemap_extract_t e[1];
+  noncemap_extract( k, e );
+
+  uchar buf[ 96 ];
+  memcpy( buf,    e->recent_blockhash, 32UL );
+  memcpy( buf+32, e->nonce_acct->b,     32UL );
+  memcpy( buf+64, e->nonce_auth->b,     32UL );
+  return fd_hash( seed, buf, 96UL );
+}
+
+#endif
 
 #define MAP_NAME               noncemap
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1

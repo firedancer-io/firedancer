@@ -1,4 +1,5 @@
 #include "fd_rdisp.h"
+#include "../../util/fd_hash32.h"
 #include <math.h> /* for the EMA */
 
 /* The conflict graph that this file builds is not a general DAG, but
@@ -331,7 +332,7 @@ FD_STATIC_ASSERT( sizeof(acct_info_t)==64UL, acct_info_t );
 #define MAP_ELE_T         acct_info_t
 #define MAP_IDX_T         uint
 #define MAP_KEY_T         fd_acct_addr_t
-#define MAP_KEY_HASH(k,s) fd_hash( (s), (k)->b, 32UL )
+#define MAP_KEY_HASH(k,s) fd_hash32( (k)->b, (s) )
 #define MAP_KEY_EQ(k0,k1) (!memcmp( (k0)->b, (k1)->b, 32UL ))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"

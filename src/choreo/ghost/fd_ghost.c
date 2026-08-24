@@ -10,7 +10,7 @@
 #define MAP_KEY                id
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 

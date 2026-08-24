@@ -1,5 +1,6 @@
 #include "fd_pack_rebate_sum.h"
 #include "fd_pack.h"
+#include "../../util/fd_hash32.h"
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
 #endif
@@ -19,7 +20,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)   (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW  1
 #define MAP_MEMOIZE            0
-#define MAP_KEY_HASH(key,seed) ((uint)fd_hash( (seed), (key).b, 32UL ))
+#define MAP_KEY_HASH(key,seed) ((uint)fd_hash32( (key).b, (seed) ))
 #define MAP_MOVE(d,s)          (__extension__({ FD_LOG_CRIT(( "Tried to move a map value" )); (d)=(s); }))
 
 #include "../../util/tmpl/fd_map_dynamic.c"

@@ -4,6 +4,7 @@
 #include "utils/fd_ssparse.h"
 #include "utils/fd_ssmanifest_parser.h"
 #include "utils/fd_slot_delta_parser.h"
+#include "../../util/fd_hash32.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -51,7 +52,7 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 #define MAP_KEY_T                          fd_hash_t
 #define MAP_ELE_T                          fd_blockhash_entry_t
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed)             (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed)             (fd_hash32( (key)->uc, (seed) ))
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
