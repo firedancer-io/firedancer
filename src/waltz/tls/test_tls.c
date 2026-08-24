@@ -470,6 +470,180 @@ test_tls_truncated_cert_handshake( fd_rng_t * rng ) {
   fd_tls_delete( fd_tls_leave( client ) );
 }
 
+/* A malicious server may respond with a certificate_type extension that
+   the client never offered.  Historically the client accepted this,
+   which let the server steer it into the raw public key client auth
+   path and thus into an unconditional signing request. */
+
+static void
+test_tls_client_unsolicited_cert_type( fd_rng_t * rng ) {
+
+  static uchar const ee_srv_rpk[] = {
+    FD_TLS_MSG_ENCRYPTED_EXTENSIONS,
+    0x00, 0x00, 0x07,        /* msg sz */
+    0x00, 0x05,              /* extension list sz */
+    0x00, FD_TLS_EXT_SERVER_CERT_TYPE,
+    0x00, 0x01,              /* ext sz */
+    FD_TLS_CERTTYPE_RAW_PUBKEY,
+  };
+
+  static uchar const ee_cli_rpk[] = {
+    FD_TLS_MSG_ENCRYPTED_EXTENSIONS,
+    0x00, 0x00, 0x07,        /* msg sz */
+    0x00, 0x05,              /* extension list sz */
+    0x00, FD_TLS_EXT_CLIENT_CERT_TYPE,
+    0x00, 0x01,              /* ext sz */
+    FD_TLS_CERTTYPE_RAW_PUBKEY,
+  };
+
+  uchar const * const records[2] = { ee_srv_rpk, ee_cli_rpk };
+  ulong         const record_sz  = sizeof(ee_srv_rpk);
+  FD_TEST( sizeof(ee_srv_rpk)==sizeof(ee_cli_rpk) );
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+    fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+    prepare_tls_pair( rng, client, server );
+
+    /* The client offers no certificate_type extension (the default) */
+    FD_TEST( !client->server_cert_types.present );
+    FD_TEST( !client->client_cert_types.present );
+
+    fd_tls_estate_cli_t cli_hs[1];
+    FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+    cli_hs->base.state = FD_TLS_HS_WAIT_EE;
+    cli_hs->cs         = fd_tls_cs_lookup( FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 );
+    FD_TEST( cli_hs->cs );
+    cli_hs->cs->hash_vt.init( &cli_hs->transcript );
+
+    long res = fd_tls_client_handshake( client, cli_hs, records[i], record_sz, FD_TLS_LEVEL_HANDSHAKE );
+    FD_TEST( res == -(long)FD_TLS_ALERT_UNSUPPORTED_EXTENSION );
+    FD_TEST( cli_hs->base.reason == FD_TLS_REASON_CERT_TYPE );
+    FD_TEST( !cli_hs->server_cert_rpk );
+    FD_TEST( !cli_hs->client_cert_rpk );
+
+    fd_tls_estate_cli_delete( cli_hs );
+    fd_tls_delete( fd_tls_leave( server ) );
+    fd_tls_delete( fd_tls_leave( client ) );
+  }
+}
+
+/* A client that cannot present a certificate must reject the server's
+   CertificateRequest, rather than walking into the signing path. */
+
+static void
+test_tls_client_refuses_cert_req( fd_rng_t * rng ) {
+
+  static uchar const cert_req[] = {
+    FD_TLS_MSG_CERTIFICATE_REQUEST,
+    0x00, 0x00, 0x03,        /* msg sz */
+    0x00,                    /* certificate_request_context */
+    0x00, 0x00,              /* extensions length prefix */
+  };
+
+  /* No certificate installed */
+  {
+    fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+    fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+    prepare_tls_pair( rng, client, server );
+    client->cert_x509_sz = 0UL;
+
+    fd_tls_estate_cli_t cli_hs[1];
+    FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+    cli_hs->base.state = FD_TLS_HS_WAIT_CERT_CR;
+
+    long res = fd_tls_client_handshake( client, cli_hs, cert_req, sizeof(cert_req), FD_TLS_LEVEL_HANDSHAKE );
+    FD_TEST( res == -(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE );
+    FD_TEST( cli_hs->base.reason == FD_TLS_REASON_NO_X509 );
+    FD_TEST( !cli_hs->client_cert );
+
+    fd_tls_estate_cli_delete( cli_hs );
+    fd_tls_delete( fd_tls_leave( server ) );
+    fd_tls_delete( fd_tls_leave( client ) );
+  }
+
+  /* Certificate installed, but no signer */
+  {
+    fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+    fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+    prepare_tls_pair( rng, client, server );
+    client->sign.sign_fn = NULL;
+
+    fd_tls_estate_cli_t cli_hs[1];
+    FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+    cli_hs->base.state = FD_TLS_HS_WAIT_CERT_CR;
+
+    long res = fd_tls_client_handshake( client, cli_hs, cert_req, sizeof(cert_req), FD_TLS_LEVEL_HANDSHAKE );
+    FD_TEST( res == -(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE );
+    FD_TEST( cli_hs->base.reason == FD_TLS_REASON_NO_SIGNER );
+    FD_TEST( !cli_hs->client_cert );
+
+    fd_tls_estate_cli_delete( cli_hs );
+    fd_tls_delete( fd_tls_leave( server ) );
+    fd_tls_delete( fd_tls_leave( client ) );
+  }
+}
+
+/* Positive control: a client that does offer raw public key client auth
+   still negotiates it and signs. */
+
+static ulong test_tls_sign_cnt;
+
+static void
+test_tls_counting_sign( void *        ctx,
+                        uchar         sig[ static 64 ],
+                        uchar const   payload[ static 130 ] ) {
+  test_tls_sign_cnt++;
+  fd_tls_test_sign_sign( ctx, sig, payload );
+}
+
+static void
+test_tls_client_rpk_auth( fd_rng_t * rng ) {
+
+  fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  prepare_tls_pair( rng, client, server );
+
+  client->server_cert_types = (fd_tls_ext_cert_type_list_t){ .present=1, .raw_pubkey=1 };
+  client->client_cert_types = (fd_tls_ext_cert_type_list_t){ .present=1, .raw_pubkey=1 };
+  client->sign.sign_fn      = test_tls_counting_sign;
+  test_tls_sign_cnt         = 0UL;
+
+  fd_tls_estate_srv_t srv_hs[1]; FD_TEST( fd_tls_estate_srv_new( srv_hs ) );
+  test_server_hs = srv_hs;
+
+  fd_tls_estate_cli_t cli_hs[1];
+  FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+  fd_memcpy( cli_hs->server_pubkey, server->cert_public_key, 32UL );
+
+  test_record_reset( &test_client_out );
+  test_record_reset( &test_server_out );
+
+  /* ClientHello */
+  FD_TEST( fd_tls_client_handshake( client, cli_hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL )>=0L );
+  /* ServerHello, EncryptedExtensions, CertificateRequest, ... */
+  test_tls_server_respond( server, srv_hs );
+  /* Certificate, CertificateVerify, Finished */
+  test_tls_client_respond( client, cli_hs );
+
+  /* Raw public keys were negotiated in both directions, and the client
+     signed its CertificateVerify. */
+  FD_TEST( srv_hs->server_cert_rpk );
+  FD_TEST( srv_hs->client_cert_rpk );
+  FD_TEST( cli_hs->server_cert_rpk );
+  FD_TEST( cli_hs->client_cert_rpk );
+  FD_TEST( cli_hs->client_cert );
+  FD_TEST( test_tls_sign_cnt==1UL );
+
+  test_server_hs = NULL;
+  test_record_reset( &test_client_out );
+  test_record_reset( &test_server_out );
+  fd_tls_estate_srv_delete( srv_hs );
+  fd_tls_estate_cli_delete( cli_hs );
+  fd_tls_delete( fd_tls_leave( server ) );
+  fd_tls_delete( fd_tls_leave( client ) );
+}
+
 int
 main( int     argc,
       char ** argv) {
@@ -482,6 +656,9 @@ main( int     argc,
   test_tls_server_wrong_ciphersuite( rng );
   test_tls_truncated_cert_extract();
   test_tls_truncated_cert_handshake( rng );
+  test_tls_client_unsolicited_cert_type( rng );
+  test_tls_client_refuses_cert_req( rng );
+  test_tls_client_rpk_auth( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));

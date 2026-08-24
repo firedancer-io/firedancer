@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_tls_fd_tls_h
 
 #include "fd_tls_estate.h"
+#include "fd_tls_proto.h"
 #include "../../ballet/hmac/fd_hmac.h"
 
 /* fd_tls implements a subset of the TLS v1.3 (RFC 8446) handshake
@@ -170,7 +171,11 @@ fd_tls_rand( fd_tls_rand_t const * rand,
    buffer containing the TLS 1.3 CertificateVerify payload.
 
    This function must not fail.  Lifetime of the payload buffer ends at
-   return. */
+   return.
+
+   May be NULL for clients that never present a client certificate.  In
+   that case, fd_tls rejects a server's CertificateRequest instead of
+   requesting a signature.  Servers must always install a signer. */
 
 typedef void
 (* fd_tls_sign_fn_t)( void *        ctx,
@@ -304,6 +309,9 @@ struct fd_tls {
   uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];
   ulong cert_x509_sz;
 
+  fd_tls_ext_cert_type_list_t server_cert_types;
+  fd_tls_ext_cert_type_list_t client_cert_types;
+
   /* ALPN protocol identifier.  Written by fd_tls_server_set_alpn.
      Format: <1 byte length prefix> <ASCII chars>.
      Is not NUL delimited. */
@@ -340,6 +348,7 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_NO_X509         (10)  /* no X.509 cert installed */
 #define FD_TLS_REASON_WRONG_PUBKEY    (11)  /* peer cert has different pubkey than expected */
 #define FD_TLS_REASON_ED25519_FAIL    (12)  /* Ed25519 signature validation failed */
+#define FD_TLS_REASON_NO_SIGNER       (13)  /* client auth requested, but no signer installed */
 
 #define FD_TLS_REASON_CH_EXPECTED    (101)  /* wanted ClientHello, got another msg type */
 #define FD_TLS_REASON_CH_PARSE       (103)  /* failed to parse ClientHello */

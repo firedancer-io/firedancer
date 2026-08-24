@@ -1284,6 +1284,8 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
       .signature_algorithms = { .ed25519=1, .ecdsa_secp256r1_sha256=1 },
       .cipher_suites        = { .aes_128_gcm_sha256=1 },
       .key_share            = { .has_x25519=1 },
+      .server_cert_types    = client->server_cert_types,
+      .client_cert_types    = client->client_cert_types,
       .session_id = {
         .buf   = session_id_sz ? session_id_buf : NULL,
         .bufsz = session_id_sz,
@@ -1537,6 +1539,8 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
   case FD_TLS_CERTTYPE_X509:
     break;  /* ok */
   case FD_TLS_CERTTYPE_RAW_PUBKEY:
+    if( FD_UNLIKELY( !client->server_cert_types.raw_pubkey ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_EXTENSION, FD_TLS_REASON_CERT_TYPE );
     handshake->server_cert_rpk = 1;
     break;
   default:
@@ -1549,6 +1553,8 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
     handshake->client_cert_nox509 = 0;
     break;
   case FD_TLS_CERTTYPE_RAW_PUBKEY:
+    if( FD_UNLIKELY( !client->client_cert_types.raw_pubkey ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_EXTENSION, FD_TLS_REASON_CERT_TYPE );
     handshake->client_cert_rpk = 1;
     break;
   default:
@@ -1580,15 +1586,6 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
   }
   if( client->quic && client->alpn_sz && !ee->alpn.bufsz )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_NO_ALPN );
-
-  /* Fail if server requested an X.509 client cert, but we can only
-     serve a raw public key. */
-
-  if( FD_UNLIKELY( ( !!handshake->client_cert            )
-                 & (  !handshake->client_cert_rpk        )
-                 & ( ( !client->cert_x509_sz           )
-                   | ( !!handshake->client_cert_nox509 ) ) ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_NO_X509 );
 
   /* Finish up ********************************************************/
 
@@ -1674,6 +1671,11 @@ fd_tls_client_hs_wait_cert_cr( fd_tls_t const *      const client,
 
     switch( msg_hdr.type ) {
     case FD_TLS_MSG_CERTIFICATE_REQUEST:
+      if( FD_UNLIKELY( !( ( !!handshake->client_cert_rpk )
+                        | ( ( !handshake->client_cert_nox509 ) & ( !!client->cert_x509_sz ) ) ) ) )
+        return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_NO_X509 );
+      if( FD_UNLIKELY( !client->sign.sign_fn ) )
+        return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_NO_SIGNER );
       decode_res = fd_tls_client_handle_cert_req ( handshake, wire, msg_sz );
       next_state = FD_TLS_HS_WAIT_CERT;
       break;
@@ -1929,8 +1931,6 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
       FD_TEST( sz>=0L );
       cert_msg_sz = (ulong)sz;
     } else {
-      /* TODO: Unreachable:  We should have verified whether we have
-         an appropriate certificate in wait_cert_cr. */
       return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_CERT_TYPE );
     }
 
