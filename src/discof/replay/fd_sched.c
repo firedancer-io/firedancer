@@ -4,7 +4,6 @@
 #include "fd_sched.h"
 #include "fd_block_marker.h"
 #include "fd_execrp.h" /* for poh hash value */
-#include "../../util/math/fd_stat.h" /* for sorted search */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
@@ -94,6 +93,8 @@ struct fd_sched_block {
   uint                poh_hash_cmp_done_cnt; /* poh_hashing_done_cnt==poh_hash_cmp_done_cnt+len(mixin_in_progress) */
   uint                txn_done_cnt; /* A transaction is considered done when all types of tasks associated with it are done. */
   uint                shred_cnt;
+  uint                shred_scan_idx; /* First shred boundary not before shred_scan_off. */
+  uint                shred_scan_off; /* Block byte offset at the start of shred_scan_idx. */
   uint                mblk_cnt;          /* Total number of microblocks, including ticks and non ticks.
                                             mblk_cnt==len(unhashed)+len(hashing_in_progress)+hashing_in_flight_cnt+len(mixin_in_progress)+hash_cmp_done_cnt */
   uint                mblk_tick_cnt;     /* Total number of tick microblocks. */
@@ -207,7 +208,7 @@ struct fd_sched_block {
                                                              was ruled invalid (set-once via record_dead_reason), NONE otherwise. */
   uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
                                                              parseable after the next FEC set is ingested. */
-  uint                shred_blk_offs[ FD_SHRED_BLK_MAX ]; /* The byte offsets into block data of ingested shreds */
+  ushort              shred_sz[ FD_SHRED_BLK_MAX ];       /* Payload size of each ingested data shred. */
 
   /* Alpenglow block footer, deserialized out of the marker batch at
      parse time.  footer_present is set if the block carries a footer
@@ -220,7 +221,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==72UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==207136UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==141632UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -343,6 +344,10 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 
 static void
 dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out );
+
+static uint
+shred_split( fd_sched_block_t * block,
+             uint               query );
 
 static void
 dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out );
@@ -647,6 +652,23 @@ handle_bad_block( fd_sched_t * sched, fd_sched_block_t * block, int dead_reason 
   subtree_abandon( sched, block );
   sched->metrics->block_bad_cnt++;
   check_or_set_active_block( sched );
+}
+
+/* Returns the number of shred boundaries strictly before query.
+   Transaction offsets are visited in nondecreasing order, so each
+   shred length is scanned at most once per block. */
+static uint
+shred_split( fd_sched_block_t * block,
+             uint               query ) {
+  FD_TEST( block->shred_scan_idx<=block->shred_cnt );
+  FD_TEST( block->shred_scan_off<=query );
+  while( block->shred_scan_idx<block->shred_cnt ) {
+    uint next_off = block->shred_scan_off + (uint)block->shred_sz[ block->shred_scan_idx ];
+    if( next_off>=query ) break;
+    block->shred_scan_off = next_off;
+    block->shred_scan_idx++;
+  }
+  return block->shred_scan_idx;
 }
 
 
@@ -1082,20 +1104,25 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   block->fec_eob = fec->is_last_in_batch;
   block->fec_eos = fec->is_last_in_block;
 
-  ulong block_sz = block->shred_cnt>0 ? block->shred_blk_offs[ block->shred_cnt-1 ] : 0UL;
+  uint prev_shred_off = 0U;
   for( ulong i=0; i<fec->shred_cnt; i++ ) {
+    FD_TEST( block->shred_cnt<FD_SHRED_BLK_MAX );
+    uint shred_off;
     if( FD_LIKELY( i<32UL ) ) {
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->shred_offs[ i ];
+      shred_off = fec->fec->shred_offs[ i ];
     } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
       /* We don't track shred boundaries after 32 shreds, assume they're
          sized uniformly */
       ulong num_overflow_shreds = fec->shred_cnt-32UL;
       ulong overflow_idx        = i-32UL;
       ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->shred_offs[ 31 ];
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->shred_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
+      shred_off = fec->fec->shred_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
     } else {
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + (uint)fec->fec->data_sz;
+      shred_off = (uint)fec->fec->data_sz;
     }
+    FD_TEST( shred_off>=prev_shred_off && shred_off-prev_shred_off<=USHORT_MAX );
+    block->shred_sz[ block->shred_cnt++ ] = (ushort)(shred_off-prev_shred_off);
+    prev_shred_off = shred_off;
   }
 
   block->fec_completed_ns = fec->completed_ns;
@@ -2040,6 +2067,8 @@ add_block( fd_sched_t * sched,
   block->poh_hash_cmp_done_cnt       = 0U;
   block->txn_done_cnt                = 0U;
   block->shred_cnt                   = 0U;
+  block->shred_scan_idx              = 0U;
+  block->shred_scan_off              = 0U;
   block->mblk_cnt                    = 0U;
   block->mblk_freed_cnt              = 0U;
   block->mblk_tick_cnt               = 0U;
@@ -2662,9 +2691,9 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   fd_txn_p_t * txn_p = sched->txn_pool + txn_idx;
   txn_p->payload_sz  = pay_sz;
 
-  txn_p->start_shred_idx = (ushort)fd_sort_up_uint_split( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff );
+  txn_p->start_shred_idx = (ushort)shred_split( block, block->fec_buf_boff+block->fec_buf_soff );
   txn_p->start_shred_idx = fd_ushort_if( txn_p->start_shred_idx>0U, (ushort)(txn_p->start_shred_idx-1U), txn_p->start_shred_idx );
-  txn_p->end_shred_idx = (ushort)fd_sort_up_uint_split( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz );
+  txn_p->end_shred_idx = (ushort)shred_split( block, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz );
 
   fd_memcpy( txn_p->payload, payload, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,     txn_sz );
