@@ -94,6 +94,7 @@ typedef struct fd_sched_fec fd_sched_fec_t;
 struct fd_sched_txn_info {
    ulong flags;
    int   txn_err;
+   uint  next_idx;
    long  received_ns;
    long  tick_parsed;
    long  tick_sigverify_disp;

@@ -53,13 +53,14 @@ FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
 struct fd_sched_mblk {
   ulong start_txn_idx; /* inclusive parse idx */
   ulong end_txn_idx;   /* non-inclusive parse idx */
-  ulong curr_txn_idx;  /* next txn to mixin, parse idx */
+  ulong curr_txn_idx;  /* next txn to mixin, parse idx in block */
   ulong hashcnt;       /* number of pure hashes, excluding final mixin */
   ulong curr_hashcnt;
   fd_hash_t end_hash[ 1 ];
   fd_hash_t curr_hash[ 1 ];
   uint curr_sig_cnt;
   uint next;
+  uint mixin_txn_idx; /* rdisp pool idx of the next txn to mixin */
   int is_tick;
 };
 typedef struct fd_sched_mblk fd_sched_mblk_t;
@@ -104,7 +105,9 @@ struct fd_sched_block {
   ulong               txn_pool_max_popcnt;   /* Peak transaction pool occupancy during the time this block was replaying. */
   ulong               mblk_pool_max_popcnt;  /* Peak mblk pool occupancy. */
   ulong               block_pool_max_popcnt; /* Peak block pool occupancy. */
-  uint                txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* rdisp pool index, indexed by parse order */
+  uint                txn_idx_tail;           /* Most recently parsed rdisp pool index. */
+  uint                txn_sigverify_next_idx; /* Next rdisp pool index to dispatch for sigverify, or 0 if caught up. */
+  uint                parse_mblk_idx;         /* mblk pool index currently receiving parsed transactions. */
 
   /* PoH verify. */
   fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
@@ -215,7 +218,9 @@ struct fd_sched_block {
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==599296UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
+FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==72UL, fd_sched_txn_info );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==207136UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -1488,6 +1493,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         /* Release the txn_idx if all tasks on it are done.  This is
            guaranteed to only happen once per transaction because
            whichever one completed first would not release. */
+        if( FD_UNLIKELY( block->txn_idx_tail==(uint)txn_idx ) ) block->txn_idx_tail = 0U;
         fd_rdisp_complete_txn( sched->rdisp, txn_idx, 1 );
         sched->txn_pool_free_cnt++;
         block->txn_done_cnt++;
@@ -1510,6 +1516,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         /* Release the txn_idx if all tasks on it are done.  This is
            guaranteed to only happen once per transaction because
            whichever one completed first would not release. */
+        if( FD_UNLIKELY( block->txn_idx_tail==(uint)txn_idx ) ) block->txn_idx_tail = 0U;
         fd_rdisp_complete_txn( sched->rdisp, txn_idx, 1 );
         sched->txn_pool_free_cnt++;
         block->txn_done_cnt++;
@@ -2042,6 +2049,9 @@ add_block( fd_sched_t * sched,
   block->txn_pool_max_popcnt         = sched->depth - sched->txn_pool_free_cnt - 1UL;
   block->mblk_pool_max_popcnt        = sched->depth - sched->mblk_pool_free_cnt;
   block->block_pool_max_popcnt       = sched->block_pool_popcnt;
+  block->txn_idx_tail                = 0U;
+  block->txn_sigverify_next_idx      = 0U;
+  block->parse_mblk_idx              = UINT_MAX;
 
   mblk_slist_remove_all( block->mblks_unhashed, sched->mblk_pool );
   mblk_slist_remove_all( block->mblks_hashing_in_progress, sched->mblk_pool );
@@ -2338,9 +2348,11 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       mblk->hashcnt       = fd_ulong_sat_sub( hdr->hash_cnt, fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL ) ); /* For pure hashing, implement saturating sub for non-tick microblocks. */
       mblk->curr_hashcnt  = 0UL;
       mblk->curr_sig_cnt  = 0U;
+      mblk->mixin_txn_idx = 0U;
       mblk->is_tick       = !hdr->txn_cnt;
       memcpy( mblk->end_hash, hdr->hash, sizeof(fd_hash_t) );
       memcpy( mblk->curr_hash, block->poh_hash, sizeof(fd_hash_t) );
+      block->parse_mblk_idx = mblk_idx;
 
       /* Update block tracking. */
       block->hashcnt += mblk->hashcnt+fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL );
@@ -2618,6 +2630,33 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   ulong bank_idx = (ulong)(block-sched->block_pool);
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
   FD_TEST( txn_idx && txn_idx<sched->depth );
+
+  /* This transaction either needs to be consumed by sigverify or PoH.
+     If either of the two are caught up, mark it for consumption.
+     Otherwise, link it to the tail of the chain. */
+
+  ulong sigverify_dispatched_cnt = (ulong)block->txn_sigverify_done_cnt + (ulong)block->txn_sigverify_in_flight_cnt;
+  int   sigverify_caught_up      = sigverify_dispatched_cnt==block->txn_parsed_cnt;
+  int   poh_caught_up            = 1;
+#if !FD_SCHED_SKIP_POH
+  fd_sched_mblk_t * parse_mblk = sched->mblk_pool + block->parse_mblk_idx;
+  poh_caught_up = parse_mblk->curr_txn_idx==block->txn_parsed_cnt;
+#endif
+
+  sched->txn_info_pool[ txn_idx ].next_idx = 0U;
+  /* Link to the previous transaction. */
+  if( FD_LIKELY( block->txn_idx_tail ) ) {
+    FD_TEST( block->txn_idx_tail<sched->depth );
+    sched->txn_info_pool[ block->txn_idx_tail ].next_idx = (uint)txn_idx;
+  }
+  /* If either consumer is caught up, update next pointer to the new
+     transaction. */
+  if( FD_LIKELY( sigverify_caught_up ) ) block->txn_sigverify_next_idx = (uint)txn_idx;
+#if !FD_SCHED_SKIP_POH
+  if( FD_LIKELY( poh_caught_up ) ) parse_mblk->mixin_txn_idx = (uint)txn_idx;
+#endif
+  block->txn_idx_tail = (uint)txn_idx;
+
   sched->metrics->txn_parsed_cnt++;
   sched->txn_pool_free_cnt--;
   fd_txn_p_t * txn_p = sched->txn_pool + txn_idx;
@@ -2641,7 +2680,6 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_info_pool[ txn_idx ].tick_exec_disp = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_exec_done = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].index_in_slot  = block->txn_parsed_cnt;
-  block->txn_idx[ block->txn_parsed_cnt ] = (uint)txn_idx;
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
 #if FD_SCHED_SKIP_SIGVERIFY
@@ -2661,13 +2699,16 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 static void
 dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out ) {
   /* Dispatch transactions for sigverify in parse order. */
+  uint txn_idx = block->txn_sigverify_next_idx;
+  FD_TEST( txn_idx && txn_idx<sched->depth );
   out->task_type = FD_SCHED_TT_TXN_SIGVERIFY;
   out->txn_sigverify->bank_idx = bank_idx;
-  out->txn_sigverify->txn_idx  = block->txn_idx[ block->txn_sigverify_done_cnt+block->txn_sigverify_in_flight_cnt ];
+  out->txn_sigverify->txn_idx  = txn_idx;
   out->txn_sigverify->exec_idx = (ulong)exec_tile_idx;
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
   sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
   block->txn_sigverify_in_flight_cnt++;
+  block->txn_sigverify_next_idx = sched->txn_info_pool[ txn_idx ].next_idx;
   if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
 }
 
@@ -2788,7 +2829,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   /* Now mixin. */
   if( FD_LIKELY( mblk->curr_txn_idx==mblk->start_txn_idx ) ) block->bmtree = fd_bmtree_commit_init( block->bmtree_mem, 32UL, 1UL, 0UL ); /* Optimize for single-transaction microblocks, which are the majority. */
 
-  ulong txn_gidx = block->txn_idx[ mblk->curr_txn_idx ];
+  ulong txn_gidx = mblk->mixin_txn_idx;
+  uint next_txn_pool_idx = sched->txn_info_pool[ txn_gidx ].next_idx;
   fd_txn_p_t * _txn = sched->txn_pool+txn_gidx;
   fd_txn_t * txn = TXN(_txn);
   for( ulong j=0; j<txn->signature_cnt; j++ ) {
@@ -2802,6 +2844,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   txn_bitset_insert( sched->poh_mixin_done_set, txn_gidx );
   sched->metrics->txn_mixin_done_cnt++;
   if( txn_bitset_test( sched->exec_done_set, txn_gidx ) && txn_bitset_test( sched->sigverify_done_set, txn_gidx ) ) {
+    if( FD_UNLIKELY( block->txn_idx_tail==(uint)txn_gidx ) ) block->txn_idx_tail = 0U;
     fd_rdisp_complete_txn( sched->rdisp, txn_gidx, 1 );
     sched->txn_pool_free_cnt++;
     block->txn_done_cnt++;
@@ -2809,6 +2852,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   }
 
   mblk->curr_txn_idx++;
+  mblk->mixin_txn_idx = next_txn_pool_idx;
   int rv = 2;
   if( FD_LIKELY( mblk->curr_txn_idx==mblk->end_txn_idx ) ) {
     /* Ready to compute the final hash for this microblock. */
@@ -3084,6 +3128,7 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
     if( abandon ) {
       block->in_rdisp = 0;
       fd_rdisp_abandon_block( sched->rdisp, (ulong)(block-sched->block_pool) );
+      block->txn_idx_tail = 0U;
       sched->txn_pool_free_cnt += block->txn_parsed_cnt-block->txn_done_cnt; /* in_flight_cnt==0 */
 
       sched->metrics->block_abandoned_cnt++;
