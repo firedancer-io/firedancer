@@ -13,12 +13,12 @@ make_epoch( ulong   n,
     ag_bls_sec_t sk; fd_memset( sk, (int)(i+1UL), AG_BLS_SEC_SZ );
     ag_bls_sec_to_pub( sk, v[i].bls_key );
   }
-  ag_epoch_info_t * ei = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
-  FD_TEST( ei );
-  ag_epoch_info( ei, v, n );
+  ag_epoch_info_t * epoch_info = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
+  FD_TEST( epoch_info );
+  ag_epoch_info( epoch_info, v, n );
   free( v );
-  *out_mem = ei;
-  return ei;
+  *out_mem = epoch_info;
+  return epoch_info;
 }
 
 /* src/consensus/epoch_info.rs::quorums */

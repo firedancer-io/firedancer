@@ -26,11 +26,11 @@ create_signers( ulong n ) {
 static ag_epoch_info_t *
 make_epoch( ulong   n,
             void ** out_mem ) {
-  ag_epoch_info_t * ei = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
-  FD_TEST( ei );
-  *out_mem = ei;
-  ag_epoch_info( ei, g_info, n );
-  return ei;
+  ag_epoch_info_t * epoch_info = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
+  FD_TEST( epoch_info );
+  *out_mem = epoch_info;
+  ag_epoch_info( epoch_info, g_info, n );
+  return epoch_info;
 }
 
 static void
@@ -74,10 +74,10 @@ mk_final( ag_final_vote_t * o,
 static ulong
 cert_stake( ag_cert_t const * c ) {
   switch( c->kind ) {
-  case AG_CERT_TYPE_NOTAR:          return c->inner.notar.stake;
-  case AG_CERT_TYPE_FAST_FINAL:     return c->inner.fast_final.stake;
-  case AG_CERT_TYPE_FINAL:          return c->inner.final.stake;
-  case AG_CERT_TYPE_NOTAR_FALLBACK: return c->inner.notar_fallback.stake;
+  case AG_CERT_KIND_NOTAR:          return c->inner.notar.stake;
+  case AG_CERT_KIND_FAST_FINAL:     return c->inner.fast_final.stake;
+  case AG_CERT_KIND_FINAL:          return c->inner.final.stake;
+  case AG_CERT_KIND_NOTAR_FALLBACK: return c->inner.notar_fallback.stake;
   default:                          return c->inner.skip.stake;
   }
 }
@@ -86,10 +86,10 @@ static int
 cert_is_signer( ag_cert_t const * c,
                 ulong             v ) {
   switch( c->kind ) {
-  case AG_CERT_TYPE_NOTAR:      return ag_bls_agg_is_signer( &c->inner.notar.agg_sig,      v );
-  case AG_CERT_TYPE_FAST_FINAL: return ag_bls_agg_is_signer( &c->inner.fast_final.agg_sig, v );
-  case AG_CERT_TYPE_FINAL:      return ag_bls_agg_is_signer( &c->inner.final.agg_sig,      v );
-  case AG_CERT_TYPE_NOTAR_FALLBACK: {
+  case AG_CERT_KIND_NOTAR:      return ag_bls_agg_is_signer( &c->inner.notar.agg_sig,      v );
+  case AG_CERT_KIND_FAST_FINAL: return ag_bls_agg_is_signer( &c->inner.fast_final.agg_sig, v );
+  case AG_CERT_KIND_FINAL:      return ag_bls_agg_is_signer( &c->inner.final.agg_sig,      v );
+  case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_notar_fallback_cert_t const * n = &c->inner.notar_fallback;
     return ag_bls_agg_is_signer( &n->agg_sig_notar, v ) || ag_bls_agg_is_signer( &n->agg_sig_notar_fallback, v );
   }
@@ -102,22 +102,16 @@ cert_is_signer( ag_cert_t const * c,
 
 static int
 cert_verify( ag_cert_t const *       c,
-             ag_epoch_info_t const * ei ) {
-  switch( c->kind ) {
-  case AG_CERT_TYPE_NOTAR:          return ag_notar_cert_verify         ( &c->inner.notar,          ei, TEST_SHRED_VERSION );
-  case AG_CERT_TYPE_FAST_FINAL:     return ag_fast_final_cert_verify    ( &c->inner.fast_final,     ei, TEST_SHRED_VERSION );
-  case AG_CERT_TYPE_FINAL:          return ag_final_cert_verify         ( &c->inner.final,          ei, TEST_SHRED_VERSION );
-  case AG_CERT_TYPE_NOTAR_FALLBACK: return ag_notar_fallback_cert_verify( &c->inner.notar_fallback, ei, TEST_SHRED_VERSION );
-  default:                          return ag_skip_cert_verify          ( &c->inner.skip,           ei, TEST_SHRED_VERSION );
-  }
+             ag_epoch_info_t const * epoch_info ) {
+  return ag_cert_verify( c, epoch_info, TEST_SHRED_VERSION );
 }
 
 static void
 check_full_cert( ag_cert_t const * c,
                  ulong             n ) {
   void *            mem = NULL;
-  ag_epoch_info_t * ei  = make_epoch( n, &mem );
-  FD_TEST( cert_verify( c, ei ) );
+  ag_epoch_info_t * epoch_info = make_epoch( n, &mem );
+  FD_TEST( cert_verify( c, epoch_info ) );
   free( mem );
   FD_TEST( cert_stake( c )==n );
   for( ulong i=0UL; i<n; i++ ) FD_TEST( cert_is_signer( c, g_info[i].id ) );
@@ -139,29 +133,29 @@ test_create( void ) {
   ag_cert_t c;
 
   mk_notar( nv, 0UL, h, 0UL, n );
-  c.kind = AG_CERT_TYPE_NOTAR;
+  c.kind = AG_CERT_KIND_NOTAR;
   c.inner.notar = ag_notar_cert_construct( nv, n, e );
   check_full_cert( &c, n );
   FD_TEST( ag_cert_block_hash( &c ) && !memcmp( ag_cert_block_hash(&c), h, sizeof(ag_block_hash_t) ) );
 
   mk_nf( fv, 0UL, h, 0UL, n );
-  c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
+  c.kind = AG_CERT_KIND_NOTAR_FALLBACK;
   c.inner.notar_fallback = ag_notar_fallback_cert_construct( NULL, 0UL, fv, n, e );
   check_full_cert( &c, n );
 
   mk_skip( sv, 0UL, 0UL, n );
-  c.kind = AG_CERT_TYPE_SKIP;
+  c.kind = AG_CERT_KIND_SKIP;
   c.inner.skip = ag_skip_cert_construct( sv, n, NULL, 0UL, e );
   check_full_cert( &c, n );
   FD_TEST( ag_cert_block_hash( &c )==NULL );
 
   mk_notar( nv, 0UL, h, 0UL, n );
-  c.kind = AG_CERT_TYPE_FAST_FINAL;
+  c.kind = AG_CERT_KIND_FAST_FINAL;
   c.inner.fast_final = ag_fast_final_cert_construct( nv, n, e );
   check_full_cert( &c, n );
 
   mk_final( ev, 0UL, 0UL, n );
-  c.kind = AG_CERT_TYPE_FINAL;
+  c.kind = AG_CERT_KIND_FINAL;
   c.inner.final = ag_final_cert_construct( ev, n, e );
   check_full_cert( &c, n );
   FD_TEST( ag_cert_block_hash( &c )==NULL );
@@ -179,13 +173,13 @@ test_mixed( void ) {
 
   ag_notar_vote_t          nv[1]; mk_notar( nv, 0UL, h, 0UL, 1UL );
   ag_notar_fallback_vote_t fv[1]; mk_nf   ( fv, 0UL, h, 1UL, 1UL );
-  ag_cert_t c; c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
+  ag_cert_t c; c.kind = AG_CERT_KIND_NOTAR_FALLBACK;
   c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 1UL, fv, 1UL, e );
   check_full_cert( &c, 2UL );
 
   ag_skip_vote_t          sv[1]; mk_skip( sv, 0UL, 0UL, 1UL );
   ag_skip_fallback_vote_t fv2[1]; mk_sf ( fv2, 0UL, 1UL, 1UL );
-  c.kind = AG_CERT_TYPE_SKIP;
+  c.kind = AG_CERT_KIND_SKIP;
   c.inner.skip = ag_skip_cert_construct( sv, 1UL, fv2, 1UL, e );
   check_full_cert( &c, 2UL );
 
@@ -223,7 +217,7 @@ test_failure_cases( void ) {
 
   /* notar: slot mismatch, then block hash mismatch */
   mk_notar( nv, slot, h, 0UL, signers );
-  c.kind = AG_CERT_TYPE_NOTAR; c.inner.notar = ag_notar_cert_construct( nv, signers, e );
+  c.kind = AG_CERT_KIND_NOTAR; c.inner.notar = ag_notar_cert_construct( nv, signers, e );
   FD_TEST( cert_verify( &c, e ) );
   bad = c; bad.inner.notar.slot = slot+1UL;   FD_TEST( !cert_verify( &bad, e ) );
   bad = c; memcpy( bad.inner.notar.block_hash, other, sizeof(ag_block_hash_t) ); FD_TEST( !cert_verify( &bad, e ) );
@@ -231,7 +225,7 @@ test_failure_cases( void ) {
   /* notar-fallback: slot mismatch, then block hash mismatch */
   mk_notar( nv, slot, h, 0UL,      5UL );
   mk_nf   ( fv, slot, h, 5UL,      4UL );
-  c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
+  c.kind = AG_CERT_KIND_NOTAR_FALLBACK;
   c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 5UL, fv, 4UL, e );
   FD_TEST( cert_verify( &c, e ) );
   bad = c; bad.inner.notar_fallback.slot = slot+1UL;   FD_TEST( !cert_verify( &bad, e ) );
@@ -240,21 +234,21 @@ test_failure_cases( void ) {
   /* skip: slot mismatch (skip certs carry no block hash) */
   mk_skip( sv,  slot, 0UL, 5UL );
   mk_sf  ( sfv, slot, 5UL, 4UL );
-  c.kind = AG_CERT_TYPE_SKIP;
+  c.kind = AG_CERT_KIND_SKIP;
   c.inner.skip = ag_skip_cert_construct( sv, 5UL, sfv, 4UL, e );
   FD_TEST( cert_verify( &c, e ) );
   bad = c; bad.inner.skip.slot = slot+1UL; FD_TEST( !cert_verify( &bad, e ) );
 
   /* fast-final: slot mismatch, then block hash mismatch */
   mk_notar( nv, slot, h, 0UL, signers );
-  c.kind = AG_CERT_TYPE_FAST_FINAL; c.inner.fast_final = ag_fast_final_cert_construct( nv, signers, e );
+  c.kind = AG_CERT_KIND_FAST_FINAL; c.inner.fast_final = ag_fast_final_cert_construct( nv, signers, e );
   FD_TEST( cert_verify( &c, e ) );
   bad = c; bad.inner.fast_final.slot = slot+1UL;   FD_TEST( !cert_verify( &bad, e ) );
   bad = c; memcpy( bad.inner.fast_final.block_hash, other, sizeof(ag_block_hash_t) ); FD_TEST( !cert_verify( &bad, e ) );
 
   /* final: slot mismatch (final certs carry no block hash) */
   mk_final( ev, slot, 0UL, signers );
-  c.kind = AG_CERT_TYPE_FINAL; c.inner.final = ag_final_cert_construct( ev, signers, e );
+  c.kind = AG_CERT_KIND_FINAL; c.inner.final = ag_final_cert_construct( ev, signers, e );
   FD_TEST( cert_verify( &c, e ) );
   bad = c; bad.inner.final.slot = slot+1UL; FD_TEST( !cert_verify( &bad, e ) );
 
@@ -278,7 +272,7 @@ test_thresholds( void ) {
   ag_cert_t c;
 
   mk_notar( nv, 1UL, h, 0UL, 7UL );
-  c.kind = AG_CERT_TYPE_NOTAR; c.inner.notar = ag_notar_cert_construct( nv, 7UL, e );
+  c.kind = AG_CERT_KIND_NOTAR; c.inner.notar = ag_notar_cert_construct( nv, 7UL, e );
   FD_TEST(  cert_verify( &c, e ) );
   mk_notar( nv, 1UL, h, 0UL, 6UL );
   c.inner.notar = ag_notar_cert_construct( nv, 6UL, e );
@@ -286,7 +280,7 @@ test_thresholds( void ) {
 
   mk_notar( nv, 1UL, h, 0UL, 4UL );
   mk_nf   ( fv, 1UL, h, 4UL, 3UL );
-  c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
+  c.kind = AG_CERT_KIND_NOTAR_FALLBACK;
   c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 4UL, fv, 3UL, e );
   FD_TEST(  cert_verify( &c, e ) );
   mk_notar( nv, 1UL, h, 0UL, 3UL );
@@ -295,21 +289,21 @@ test_thresholds( void ) {
   FD_TEST( !cert_verify( &c, e ) );
 
   mk_skip( sv, 1UL, 0UL, 7UL );
-  c.kind = AG_CERT_TYPE_SKIP; c.inner.skip = ag_skip_cert_construct( sv, 7UL, NULL, 0UL, e );
+  c.kind = AG_CERT_KIND_SKIP; c.inner.skip = ag_skip_cert_construct( sv, 7UL, NULL, 0UL, e );
   FD_TEST(  cert_verify( &c, e ) );
   mk_skip( sv, 1UL, 0UL, 6UL );
   c.inner.skip = ag_skip_cert_construct( sv, 6UL, NULL, 0UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
   mk_final( ev, 1UL, 0UL, 7UL );
-  c.kind = AG_CERT_TYPE_FINAL; c.inner.final = ag_final_cert_construct( ev, 7UL, e );
+  c.kind = AG_CERT_KIND_FINAL; c.inner.final = ag_final_cert_construct( ev, 7UL, e );
   FD_TEST(  cert_verify( &c, e ) );
   mk_final( ev, 1UL, 0UL, 6UL );
   c.inner.final = ag_final_cert_construct( ev, 6UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
   mk_notar( nv, 1UL, h, 0UL, 9UL );
-  c.kind = AG_CERT_TYPE_FAST_FINAL; c.inner.fast_final = ag_fast_final_cert_construct( nv, 9UL, e );
+  c.kind = AG_CERT_KIND_FAST_FINAL; c.inner.fast_final = ag_fast_final_cert_construct( nv, 9UL, e );
   FD_TEST(  cert_verify( &c, e ) );
   mk_notar( nv, 1UL, h, 0UL, 8UL );
   c.inner.fast_final = ag_fast_final_cert_construct( nv, 8UL, e );
@@ -343,7 +337,7 @@ test_sig_validity( void ) {
 
   /* notar */
   mk_notar( nv, slot, h, 0UL, 9UL );
-  c.kind = AG_CERT_TYPE_NOTAR; c.inner.notar = ag_notar_cert_construct( nv, 9UL, e );
+  c.kind = AG_CERT_KIND_NOTAR; c.inner.notar = ag_notar_cert_construct( nv, 9UL, e );
   FD_TEST( cert_verify( &c, e ) );
   ag_notar_vote_new( &nv[0], slot, h, g_sk[1], 0, TEST_SHRED_VERSION ); /* wrong key for rank 0 */
   c.inner.notar = ag_notar_cert_construct( nv, 9UL, e );
@@ -352,7 +346,7 @@ test_sig_validity( void ) {
   /* notar-fallback */
   mk_notar( nv, slot, h, 0UL, 5UL );
   mk_nf   ( fv, slot, h, 5UL, 4UL );
-  c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
+  c.kind = AG_CERT_KIND_NOTAR_FALLBACK;
   c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 5UL, fv, 4UL, e );
   FD_TEST( cert_verify( &c, e ) );
   ag_notar_vote_new( &nv[0], slot, h, g_sk[1], 0, TEST_SHRED_VERSION );
@@ -361,7 +355,7 @@ test_sig_validity( void ) {
 
   /* skip */
   mk_skip( sv, slot, 0UL, 9UL );
-  c.kind = AG_CERT_TYPE_SKIP; c.inner.skip = ag_skip_cert_construct( sv, 9UL, NULL, 0UL, e );
+  c.kind = AG_CERT_KIND_SKIP; c.inner.skip = ag_skip_cert_construct( sv, 9UL, NULL, 0UL, e );
   FD_TEST( cert_verify( &c, e ) );
   ag_skip_vote_new( &sv[0], slot, g_sk[1], 0, TEST_SHRED_VERSION );
   c.inner.skip = ag_skip_cert_construct( sv, 9UL, NULL, 0UL, e );
@@ -369,7 +363,7 @@ test_sig_validity( void ) {
 
   /* final */
   mk_final( ev, slot, 0UL, 9UL );
-  c.kind = AG_CERT_TYPE_FINAL; c.inner.final = ag_final_cert_construct( ev, 9UL, e );
+  c.kind = AG_CERT_KIND_FINAL; c.inner.final = ag_final_cert_construct( ev, 9UL, e );
   FD_TEST( cert_verify( &c, e ) );
   ag_final_vote_new( &ev[0], slot, g_sk[1], 0, TEST_SHRED_VERSION );
   c.inner.final = ag_final_cert_construct( ev, 9UL, e );
@@ -377,7 +371,7 @@ test_sig_validity( void ) {
 
   /* fast-final */
   mk_notar( nv, slot, h, 0UL, 9UL );
-  c.kind = AG_CERT_TYPE_FAST_FINAL; c.inner.fast_final = ag_fast_final_cert_construct( nv, 9UL, e );
+  c.kind = AG_CERT_KIND_FAST_FINAL; c.inner.fast_final = ag_fast_final_cert_construct( nv, 9UL, e );
   FD_TEST( cert_verify( &c, e ) );
   ag_notar_vote_new( &nv[0], slot, h, g_sk[1], 0, TEST_SHRED_VERSION );
   c.inner.fast_final = ag_fast_final_cert_construct( nv, 9UL, e );
@@ -432,7 +426,7 @@ test_identity_partition( void ) {
   ag_notar_fallback_vote_t fv [ 11 ];
   ag_skip_vote_t           sv [ 11 ];
   ag_skip_fallback_vote_t  sfv[ 11 ];
-  ag_cert_t c; c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
+  ag_cert_t c; c.kind = AG_CERT_KIND_NOTAR_FALLBACK;
 
   /* control: ranks 8 and 9 do not cancel, so both partitions survive */
   mk_notar( nv, 1UL, h, 0UL, 7UL );
@@ -456,7 +450,7 @@ test_identity_partition( void ) {
   /* same in a skip cert's fallback partition */
   mk_skip( sv,  1UL, 0UL, 7UL );
   mk_sf  ( sfv, 1UL, 9UL, 2UL );
-  c.kind = AG_CERT_TYPE_SKIP;
+  c.kind = AG_CERT_KIND_SKIP;
   c.inner.skip = ag_skip_cert_construct( sv, 7UL, sfv, 2UL, e );
   FD_TEST( ag_bls_agg_signer_cnt( &c.inner.skip.agg_sig_skip_fallback )==0UL );
   FD_TEST( !cert_is_signer( &c, 9UL ) && !cert_is_signer( &c, 10UL ) );
@@ -466,7 +460,7 @@ test_identity_partition( void ) {
   /* without the dropped partition the remaining stake can fall short, which is
      what stops ag_slot_state.c from emitting the cert at all */
   mk_notar( nv, 1UL, h, 0UL, 6UL );
-  c.kind = AG_CERT_TYPE_NOTAR_FALLBACK;
+  c.kind = AG_CERT_KIND_NOTAR_FALLBACK;
   c.inner.notar_fallback = ag_notar_fallback_cert_construct( nv, 6UL, fv, 2UL, e );
   FD_TEST( cert_stake( &c )==6UL );
   FD_TEST( !cert_verify( &c, e ) );
@@ -513,10 +507,10 @@ test_footer_de( void ) {
   FD_TEST( final.slot==7UL );
   FD_TEST( notar.slot==7UL );
   FD_TEST( !memcmp( notar.block_hash, h, sizeof(ag_block_hash_t) ) );
-  c.kind = AG_CERT_TYPE_FINAL; c.inner.final = final;
+  c.kind = AG_CERT_KIND_FINAL; c.inner.final = final;
   for( ulong i=0UL; i<7UL; i++ ) FD_TEST( cert_is_signer( &c, i ) );
   FD_TEST( !cert_is_signer( &c, 7UL ) );
-  c.kind = AG_CERT_TYPE_NOTAR; c.inner.notar = notar;
+  c.kind = AG_CERT_KIND_NOTAR; c.inner.notar = notar;
   for( ulong i=0UL; i<7UL; i++ ) FD_TEST( cert_is_signer( &c, i ) );
 
   buf[ off ] = 0xaa;
@@ -532,7 +526,7 @@ test_footer_de( void ) {
   FD_TEST( consumed==off2 );
   FD_TEST( fast_final.slot==7UL );
   FD_TEST( !memcmp( fast_final.block_hash, h, sizeof(ag_block_hash_t) ) );
-  c.kind = AG_CERT_TYPE_FAST_FINAL; c.inner.fast_final = fast_final;
+  c.kind = AG_CERT_KIND_FAST_FINAL; c.inner.fast_final = fast_final;
   for( ulong i=0UL; i<9UL; i++ ) FD_TEST( cert_is_signer( &c, i ) );
   FD_TEST( !cert_is_signer( &c, 9UL ) );
 

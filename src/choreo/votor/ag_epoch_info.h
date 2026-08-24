@@ -36,9 +36,9 @@ ag_epoch_info_validators( ag_epoch_info_t const * self ) {
 
 FD_FN_PURE static inline ag_validator_info_t const *
 ag_epoch_info_validator( ag_epoch_info_t const * self,
-                         ulong                   id ) {
-  FD_TEST( id<self->validator_cnt );
-  return ag_epoch_info_validators( self ) + id;
+                         ulong                   rank ) {
+  FD_TEST( rank<self->validator_cnt );
+  return ag_epoch_info_validators( self ) + rank;
 }
 
 FD_FN_PURE static inline ag_validator_info_t const *
@@ -57,24 +57,8 @@ FD_FN_PURE int ag_epoch_info_is_weak_quorum   ( ag_epoch_info_t const * self, ul
 FD_FN_PURE int ag_epoch_info_is_quorum        ( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_strong_quorum ( ag_epoch_info_t const * self, ulong stake );
 
-/* ag_epoch_info_init formats mem as an ag_epoch_info_t holding the
-   canonical Alpenglow validator ranking derived from the epoch info
-   msg's staked VAT voters.  init drops entries with a missing or
-   undecodable compressed BLS voting pubkey, drop ALL copies of a
-   duplicated BLS key or identity pubkey, then order survivors by stake,
-   tie-broken by compressed BLS pubkey asc.
-
-   See Agave BLSPubkeyToRankMap https://github.com/anza-xyz/agave/blob/19e021d626df202b0ec11b4b39c76c3cfe9b90e4/runtime/src/epoch_stakes.rs#L87
-
-   Zero-stake, vote account balance, and top-2000 VAT admission are
-   already enforced by the producer (fd_stakes_activate_epoch) and are
-   not re-checked here.
-
-   Returns mem on success.  Returns NULL, leaving mem untouched, if mem
-   is no validator survives the filters. */
-
 ag_epoch_info_t *
-ag_epoch_info_init( ag_epoch_info_t              * ei_mem,
+ag_epoch_info_rank( ag_epoch_info_t              * epoch_info_mem,
                     fd_vote_stake_weight_t const * stakes,
                     ulong                          stake_cnt );
 

@@ -13,7 +13,7 @@ test_basic( void ) {
   ag_vote_t v;
 
   ag_vote_new_notar( &v, 0UL, h, sk, 0UL, TEST_SHRED_VERSION );
-  FD_TEST( v.kind==AG_VOTE_TYPE_NOTAR );
+  FD_TEST( v.kind==AG_VOTE_KIND_NOTAR );
   FD_TEST( ag_vote_slot( &v )==0UL );
   FD_TEST( ag_vote_signer( &v )==0UL );
   FD_TEST( ag_vote_block_hash( &v ) && !memcmp( ag_vote_block_hash(&v), h, sizeof(ag_block_hash_t) ) );
@@ -21,21 +21,21 @@ test_basic( void ) {
   FD_TEST( !ag_vote_check_sig( &v, pk, (ushort)(TEST_SHRED_VERSION+1) ) );
 
   ag_vote_new_notar_fallback( &v, 1UL, h, sk, 2UL, TEST_SHRED_VERSION );
-  FD_TEST( v.kind==AG_VOTE_TYPE_NOTAR_FALLBACK );
+  FD_TEST( v.kind==AG_VOTE_KIND_NOTAR_FALLBACK );
   FD_TEST( ag_vote_block_hash( &v )!=NULL );
   FD_TEST( ag_vote_check_sig( &v, pk, TEST_SHRED_VERSION ) );
 
   ag_vote_new_skip( &v, 3UL, sk, 0UL, TEST_SHRED_VERSION );
-  FD_TEST( v.kind==AG_VOTE_TYPE_SKIP );
+  FD_TEST( v.kind==AG_VOTE_KIND_SKIP );
   FD_TEST( ag_vote_block_hash( &v )==NULL );
   FD_TEST( ag_vote_check_sig( &v, pk, TEST_SHRED_VERSION ) );
 
   ag_vote_new_skip_fallback( &v, 3UL, sk, 0UL, TEST_SHRED_VERSION );
-  FD_TEST( v.kind==AG_VOTE_TYPE_SKIP_FALLBACK );
+  FD_TEST( v.kind==AG_VOTE_KIND_SKIP_FALLBACK );
   FD_TEST( ag_vote_block_hash( &v )==NULL );
 
   ag_vote_new_final( &v, 4UL, sk, 0UL, TEST_SHRED_VERSION );
-  FD_TEST( v.kind==AG_VOTE_TYPE_FINAL );
+  FD_TEST( v.kind==AG_VOTE_KIND_FINAL );
   FD_TEST( ag_vote_block_hash( &v )==NULL );
   FD_TEST( ag_vote_slot( &v )==4UL );
 }
@@ -45,21 +45,21 @@ test_payload_distinct( void ) {
   ag_block_hash_t h; memset( h, 0x11, sizeof(ag_block_hash_t) );
   uchar a[ AG_VOTE_PAYLOAD_MAX ], b[ AG_VOTE_PAYLOAD_MAX ];
 
-  ulong sa = ag_vote_payload_bytes_to_sign( a, AG_VOTE_TYPE_NOTAR,          7UL, h, TEST_SHRED_VERSION );
-  ulong sb = ag_vote_payload_bytes_to_sign( b, AG_VOTE_TYPE_NOTAR_FALLBACK, 7UL, h, TEST_SHRED_VERSION );
+  ulong sa = ag_vote_payload_bytes_to_sign( a, AG_VOTE_KIND_NOTAR,          7UL, h, TEST_SHRED_VERSION );
+  ulong sb = ag_vote_payload_bytes_to_sign( b, AG_VOTE_KIND_NOTAR_FALLBACK, 7UL, h, TEST_SHRED_VERSION );
   FD_TEST( sa==sb );
   FD_TEST( memcmp( a, b, sa )!=0 );
 
-  ulong sn = ag_vote_payload_bytes_to_sign( a, AG_VOTE_TYPE_NOTAR, 7UL, h, TEST_SHRED_VERSION );
-  ulong sk = ag_vote_payload_bytes_to_sign( b, AG_VOTE_TYPE_SKIP,  7UL, NULL, TEST_SHRED_VERSION );
+  ulong sn = ag_vote_payload_bytes_to_sign( a, AG_VOTE_KIND_NOTAR, 7UL, h, TEST_SHRED_VERSION );
+  ulong sk = ag_vote_payload_bytes_to_sign( b, AG_VOTE_KIND_SKIP,  7UL, NULL, TEST_SHRED_VERSION );
   FD_TEST( sn==1UL+8UL+sizeof(ag_block_hash_t)+2UL );
   FD_TEST( sk==1UL+8UL+2UL );
-  FD_TEST( a[0]==(uchar)(AG_VOTE_TYPE_NOTAR+1U) );
-  FD_TEST( b[0]==(uchar)(AG_VOTE_TYPE_SKIP+1U)  );
+  FD_TEST( a[0]==(uchar)(AG_VOTE_KIND_NOTAR+1U) );
+  FD_TEST( b[0]==(uchar)(AG_VOTE_KIND_SKIP+1U)  );
   FD_TEST( FD_LOAD( ushort, a+sn-2UL )==TEST_SHRED_VERSION );
 
-  ulong s0 = ag_vote_payload_bytes_to_sign( a, AG_VOTE_TYPE_SKIP, 7UL, NULL, TEST_SHRED_VERSION );
-  ulong s1 = ag_vote_payload_bytes_to_sign( b, AG_VOTE_TYPE_SKIP, 8UL, NULL, TEST_SHRED_VERSION );
+  ulong s0 = ag_vote_payload_bytes_to_sign( a, AG_VOTE_KIND_SKIP, 7UL, NULL, TEST_SHRED_VERSION );
+  ulong s1 = ag_vote_payload_bytes_to_sign( b, AG_VOTE_KIND_SKIP, 8UL, NULL, TEST_SHRED_VERSION );
   FD_TEST( s0==s1 );
   FD_TEST( memcmp( a, b, s0 )!=0 );
 }

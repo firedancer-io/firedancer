@@ -89,7 +89,6 @@ struct __attribute__((aligned(128UL))) ag_slot_state {
   ag_hash_set_t pending_safe_to_notar;
   ag_hash_set_t sent_safe_to_notar;
   int           sent_safe_to_skip;
-  uint          own_agg_logged;
 
   ulong slot;
   ulong own_rank;
@@ -101,7 +100,7 @@ typedef struct ag_slot_state ag_slot_state_t;
 FD_PROTOTYPES_BEGIN
 
 void
-ag_slot_state_init( ag_slot_state_t *       self,
+ag_slot_state_zero( ag_slot_state_t *       self,
                     ulong                   slot,
                     ag_epoch_info_t const * epoch_info,
                     ulong                   own_rank );

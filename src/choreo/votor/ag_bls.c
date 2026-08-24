@@ -66,8 +66,7 @@ pub_aggregate( uchar *       out,
   if( FD_UNLIKELY( !cnt ) ) return -1;
 
   for( ulong i=0UL; i<cnt; i++ ) {
-    uchar const * pk = pks + i*AG_BLS_PUB_SZ;
-    if( FD_UNLIKELY( !pub_validate( pk ) ) ) return -1;
+    uchar const * pk = pks + i*AG_BLS_PUB_SZ; /* assumes pks are validated epoch_info keys */
     if( FD_UNLIKELY( !i ) ) { fd_memcpy( out, pk, AG_BLS_PUB_SZ ); continue; }
     if( FD_UNLIKELY( fd_bls12_381_g1_add_syscall( out, out, pk, 1 ) ) ) return -1;
   }

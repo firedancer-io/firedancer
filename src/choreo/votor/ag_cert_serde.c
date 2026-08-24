@@ -157,23 +157,23 @@ ag_cert_ser( ag_cert_t const * self,
   uchar const *        hash = NULL;
   ulong                slot;
   switch( self->kind ) {
-  case AG_CERT_TYPE_FINAL:
+  case AG_CERT_KIND_FINAL:
     slot = self->inner.final.slot;          base = &self->inner.final.agg_sig;
     break;
-  case AG_CERT_TYPE_FAST_FINAL:
+  case AG_CERT_KIND_FAST_FINAL:
     slot = self->inner.fast_final.slot;     base = &self->inner.fast_final.agg_sig;
     hash = self->inner.fast_final.block_hash;
     break;
-  case AG_CERT_TYPE_NOTAR:
+  case AG_CERT_KIND_NOTAR:
     slot = self->inner.notar.slot;          base = &self->inner.notar.agg_sig;
     hash = self->inner.notar.block_hash;
     break;
-  case AG_CERT_TYPE_NOTAR_FALLBACK:
+  case AG_CERT_KIND_NOTAR_FALLBACK:
     slot = self->inner.notar_fallback.slot; base = &self->inner.notar_fallback.agg_sig_notar;
     fb   = &self->inner.notar_fallback.agg_sig_notar_fallback;
     hash = self->inner.notar_fallback.block_hash;
     break;
-  case AG_CERT_TYPE_SKIP:
+  case AG_CERT_KIND_SKIP:
     slot = self->inner.skip.slot;           base = &self->inner.skip.agg_sig_skip;
     fb   = &self->inner.skip.agg_sig_skip_fallback;
     break;
@@ -227,16 +227,16 @@ ag_cert_de( ag_cert_t *   cert,
 
   fd_memset( cert, 0, sizeof(ag_cert_t) );
   switch( cert_->kind ) {
-  case  7: cert->kind = AG_CERT_TYPE_FINAL;          break;
-  case  8: cert->kind = AG_CERT_TYPE_FAST_FINAL;     break;
-  case  9: cert->kind = AG_CERT_TYPE_NOTAR;          break;
-  case 10: cert->kind = AG_CERT_TYPE_NOTAR_FALLBACK; break;
-  case 11: cert->kind = AG_CERT_TYPE_SKIP;           break;
+  case  7: cert->kind = AG_CERT_KIND_FINAL;          break;
+  case  8: cert->kind = AG_CERT_KIND_FAST_FINAL;     break;
+  case  9: cert->kind = AG_CERT_KIND_NOTAR;          break;
+  case 10: cert->kind = AG_CERT_KIND_NOTAR_FALLBACK; break;
+  case 11: cert->kind = AG_CERT_KIND_SKIP;           break;
   case 12: return AG_CERT_DE_ERR_UNSUPPORTED;
   default: return AG_CERT_DE_ERR_MALFORMED;
   }
 
-  int   has_block_id = cert->kind==AG_CERT_TYPE_FAST_FINAL || cert->kind==AG_CERT_TYPE_NOTAR || cert->kind==AG_CERT_TYPE_NOTAR_FALLBACK;
+  int   has_block_id = cert->kind==AG_CERT_KIND_FAST_FINAL || cert->kind==AG_CERT_KIND_NOTAR || cert->kind==AG_CERT_KIND_NOTAR_FALLBACK;
   ulong head_sz      = sizeof(ag_cert_serde_t) - ( has_block_id ? 0UL : sizeof(ag_block_hash_t) );
   if( FD_UNLIKELY( buf_max<head_sz ) ) return AG_CERT_DE_ERR_TRUNCATED;
 
@@ -253,24 +253,24 @@ ag_cert_de( ag_cert_t *   cert,
 
   int err;
   switch( cert->kind ) {
-  case AG_CERT_TYPE_FINAL:
+  case AG_CERT_KIND_FINAL:
     cert->inner.final.slot = slot;
     if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.final.agg_sig, bm, bm_cnt ) ) ) return err;
     fd_memcpy( cert->inner.final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
-  case AG_CERT_TYPE_FAST_FINAL:
+  case AG_CERT_KIND_FAST_FINAL:
     cert->inner.fast_final.slot = slot;
     memcpy( cert->inner.fast_final.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.fast_final.agg_sig, bm, bm_cnt ) ) ) return err;
     fd_memcpy( cert->inner.fast_final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
-  case AG_CERT_TYPE_NOTAR:
+  case AG_CERT_KIND_NOTAR:
     cert->inner.notar.slot = slot;
     memcpy( cert->inner.notar.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.notar.agg_sig, bm, bm_cnt ) ) ) return err;
     fd_memcpy( cert->inner.notar.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
-  case AG_CERT_TYPE_NOTAR_FALLBACK: {
+  case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_bls_agg_t * b = &cert->inner.notar_fallback.agg_sig_notar;
     ag_bls_agg_t * f = &cert->inner.notar_fallback.agg_sig_notar_fallback;
     cert->inner.notar_fallback.slot = slot;
@@ -281,7 +281,7 @@ ag_cert_de( ag_cert_t *   cert,
     fd_memcpy( b->sig, sig, AG_BLS_SIG_SZ );
     break;
   }
-  case AG_CERT_TYPE_SKIP: {
+  case AG_CERT_KIND_SKIP: {
     ag_bls_agg_t * b = &cert->inner.skip.agg_sig_skip;
     ag_bls_agg_t * f = &cert->inner.skip.agg_sig_skip_fallback;
     cert->inner.skip.slot = slot;
