@@ -66,12 +66,6 @@ jobs:
 
       - uses: ./.github/actions/submodule-init
 
-      - uses: ./.github/actions/deps
-        with:
-          compiler: ${{ matrix.compiler }}
-          compiler-version: ${{ matrix.compiler-version }}
-        if: ${{ !contains(matrix.extras, 'no-deps') }}
-
       - uses: ./.github/actions/hugepages
         if: ${{ matrix.run-unit-tests || matrix.run-integration-tests }}
 
