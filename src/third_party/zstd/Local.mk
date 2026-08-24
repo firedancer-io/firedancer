@@ -26,11 +26,7 @@ ZSTD_OBJS:=\
   decompress/huf_decompress \
   decompress/zstd_ddict \
   decompress/zstd_decompress \
-  decompress/zstd_decompress_block \
-  dictBuilder/cover \
-  dictBuilder/divsufsort \
-  dictBuilder/fastcover \
-  dictBuilder/zdict
+  decompress/zstd_decompress_block
 
 ZSTD_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS))) -DZSTD_TRACE=0 -DDEBUGLEVEL=0 -DZSTD_LEGACY_SUPPORT=0 -DZSTD_ASAN_DONT_POISON_WORKSPACE=1 -DZSTD_MSAN_DONT_POISON_WORKSPACE=1
 
