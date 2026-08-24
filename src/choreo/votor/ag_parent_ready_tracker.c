@@ -52,7 +52,7 @@ ag_parent_ready_tracker_new( void * shmem,
   void *                      state_map  = FD_SCRATCH_ALLOC_APPEND( l, ag_parent_ready_state_map_align(),  ag_parent_ready_state_map_footprint ( chain_cnt )           );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, ag_parent_ready_tracker_align() ) == (ulong)shmem + footprint );
 
-  tracker->root        = 0UL;
+  tracker->root        = ULONG_MAX;
   tracker->states.pool = ag_parent_ready_state_pool_join( ag_parent_ready_state_pool_new( state_pool, slot_max        ) );
   tracker->states.map  = ag_parent_ready_state_map_join ( ag_parent_ready_state_map_new ( state_map,  chain_cnt, seed ) );
 

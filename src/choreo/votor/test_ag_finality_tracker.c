@@ -49,6 +49,8 @@ setup_tracker( void ) {
   ulong slot_max = 256UL;
   FD_TEST( ag_finality_tracker_footprint( slot_max )<=sizeof(scratch) );
   ag_finality_tracker_t * t = ag_finality_tracker_join( ag_finality_tracker_new( scratch, slot_max, 42UL ) );
+  t->highest_finalized_slot = 0UL;
+  t->first_unpruned_slot    = 0UL;
   FD_TEST( t );
   return t;
 }

@@ -132,6 +132,7 @@
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../replay/fd_replay_tile.h"
 #include "../tower/fd_tower_tile.h"
+#include "../votor/fd_votor_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -154,6 +155,7 @@
 #define IN_KIND_GOSSIP  (6)
 #define IN_KIND_GENESIS (7)
 #define IN_KIND_REPLAY  (8)
+#define IN_KIND_VOTOR   (9)
 
 #define MAX_IN_LINKS    (32)
 #define MAX_SHRED_TILE_CNT ( 16UL )
@@ -1058,6 +1060,13 @@ after_frag( ctx_t *             ctx,
       after_tower( ctx, sig, fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
       break;
     }
+    case IN_KIND_VOTOR: {
+      if( FD_LIKELY( sig==FD_VOTOR_SIG_ROOTED ) ) {
+        fd_votor_rooted_t const * msg = (fd_votor_rooted_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+        if( FD_LIKELY( msg->slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->slot );
+      }
+      break;
+    }
     case IN_KIND_SHRED: {
 
       /* There are 3 message types from shred:
@@ -1446,6 +1455,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
     else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
     else if( 0==strcmp( link->name, "replay_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
+    else if( 0==strcmp( link->name, "votor_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_VOTOR;
     else FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
 
     ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;

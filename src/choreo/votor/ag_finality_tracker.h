@@ -40,7 +40,71 @@ struct ag_finalization_event {
 };
 typedef struct ag_finalization_event ag_finalization_event_t;
 
-struct ag_finality_tracker;
+struct status_ele {
+  ulong                    slot;
+  ag_finalization_status_t status;
+  ulong                    next;
+};
+typedef struct status_ele status_ele_t;
+
+#define POOL_NAME status_pool
+#define POOL_T    status_ele_t
+#define POOL_NEXT next
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               status_map
+#define MAP_ELE_T              status_ele_t
+#define MAP_KEY                slot
+#define MAP_KEY_T              ulong
+#define MAP_KEY_EQ(k0,k1)      ((*(k0))==(*(k1)))
+#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( (*(key)) ^ (seed) ))
+#define MAP_NEXT               next
+#include "../../util/tmpl/fd_map_chain.c"
+
+struct parent_ele {
+  ag_block_id_t block_id;
+  ag_block_id_t parent_block_id;
+  ulong         next;
+};
+typedef struct parent_ele parent_ele_t;
+
+#define POOL_NAME parent_pool
+#define POOL_T    parent_ele_t
+#define POOL_NEXT next
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               parent_map
+#define MAP_ELE_T              parent_ele_t
+#define MAP_KEY                block_id
+#define MAP_KEY_T              ag_block_id_t
+#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
+#define MAP_NEXT               next
+#include "../../util/tmpl/fd_map_chain.c"
+
+struct status {
+  status_ele_t * pool;
+  status_map_t * map;
+};
+typedef struct status status_t;
+
+struct parents {
+  parent_ele_t * pool;
+  parent_map_t * map;
+};
+typedef struct parents parents_t;
+
+struct ag_finality_tracker {
+  status_t  status;
+  parents_t parents;
+  ulong     highest_finalized_slot;
+  ulong     first_unpruned_slot;
+
+  struct {
+    ag_block_id_t * implicitly_finalized;
+    ulong *         implicitly_skipped;
+  } scratch;
+};
 typedef struct ag_finality_tracker ag_finality_tracker_t;
 
 FD_PROTOTYPES_BEGIN

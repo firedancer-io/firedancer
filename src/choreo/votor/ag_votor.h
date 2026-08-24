@@ -16,13 +16,32 @@ FD_FN_CONST ulong
 ag_votor_footprint( ulong slot_max );
 
 void *
-ag_votor_new( void *             mem,
-              ulong              slot_max,
-              ulong              seed,
-              ushort             own_rank,
-              ag_bls_sec_t const voting_key,
-              ushort             shred_version,
-              long               now );
+ag_votor_new( void * mem,
+              ulong  slot_max,
+              ulong  seed );
+
+void
+ag_votor_advance_epoch( ag_votor_t * self,
+                        ulong        epoch_rank,
+                        ulong        epoch_slot );
+
+void
+ag_votor_set_bls_key( ag_votor_t *       self,
+                      ag_bls_sec_t const bls_key );
+
+void
+ag_votor_set_shred_version( ag_votor_t * self,
+                            ushort       shred_version );
+
+/* init before any event is handled or polled; genesis is slot 0 */
+
+void
+ag_votor_init( ag_votor_t * self,
+               ulong        slot,
+               long         now );
+
+void
+ag_votor_fini( ag_votor_t * self );
 
 ag_votor_t *
 ag_votor_join( void * mem );

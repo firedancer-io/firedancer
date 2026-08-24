@@ -14,6 +14,7 @@
 #include "../poh/fd_poh.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
+#include "../votor/fd_votor_tile.h"
 #include "../resolv/fd_resolv_tile.h"
 #include "../restore/utils/fd_ssload.h"
 
@@ -218,7 +219,7 @@ ag_epoch_vtrs_update( fd_replay_tile_t *          ctx,
   /* Don't let a stale (older) re-publish evict a newer epoch sharing this
     ring slot.  Refresh (==) and normal advance (older occupant) proceed. */
   if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) return;
-  if( FD_UNLIKELY( !ag_epoch_info_init( s->info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt ) ) ) {
+  if( FD_UNLIKELY( !ag_epoch_info_rank( s->info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt ) ) ) {
     FD_LOG_CRIT(( "epoch %lu info failed", msg->epoch ));
   }
   s->epoch = msg->epoch;
@@ -640,6 +641,11 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
                         ulong               priority_fees_pre_settle ) {
 
   ulong slot = bank->f.slot;
+
+  /* Under Alpenglow nothing supplies a reset block, so shim the slot we
+     just replayed in for it to keep the reset slot metric live. */
+
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) ctx->reset_slot = slot;
 
   if( FD_UNLIKELY( is_initial ) ) bank->block_completed_nanos = fd_clock_tile_now( ctx->clock );
 
@@ -3407,6 +3413,15 @@ returnable_frag( fd_replay_tile_t *  ctx,
           .root_slot       = ULONG_MAX
         };
         process_tower_slot_done( ctx, stem, &ignored, seq );
+      }
+      break;
+    }
+    case IN_KIND_VOTOR: {
+      if( FD_LIKELY( sig==FD_VOTOR_SIG_ROOTED ) ) {
+        fd_votor_rooted_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        FD_TEST( msg->slot>ctx->consensus_root_slot );
+        ctx->consensus_root_slot = msg->slot;
+        ctx->consensus_root      = msg->block_id;
       }
       break;
     }

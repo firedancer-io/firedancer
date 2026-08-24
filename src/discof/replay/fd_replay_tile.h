@@ -222,6 +222,7 @@ typedef struct fd_replay_snap_start fd_replay_snap_start_t;
 
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
+  fd_replay_slot_dead_t       slot_dead;
   fd_replay_root_advanced_t   root_advanced;
   fd_replay_oc_advanced_t     oc_advanced;
   fd_poh_reset_t              reset;

@@ -1,10 +1,10 @@
 #include "ag_votor.h"
 
-#define QUEUE_NAME vote_channel
+#define QUEUE_NAME vote_events
 #define QUEUE_T    ag_event_vote_t
 #include "../../util/tmpl/fd_queue_dynamic.c"
 
-#define QUEUE_NAME cert_channel
+#define QUEUE_NAME cert_events
 #define QUEUE_T    ag_event_cert_t
 #include "../../util/tmpl/fd_queue_dynamic.c"
 
@@ -72,26 +72,25 @@ typedef struct slot_states slot_states_t;
 #include "../../util/tmpl/fd_sort.c"
 
 struct __attribute__((aligned(128UL))) ag_votor {
-  slot_states_t *   slot_states;
+  long   now;
+  ulong  seq;
+  ulong  root;
+  ulong  slot_max;
+  ushort shred_version;
+
+  slot_states_t * slot_states;
+  ulong           highest_final_cert_slot;
+
+  ulong        curr_epoch_rank;
+  ulong        curr_epoch_slot;
+  ulong        next_epoch_rank;
+  ulong        next_epoch_slot;
+  ag_bls_sec_t bls_sec;
+
+  ag_event_vote_t * vote_events;
+  ag_event_cert_t * cert_events;
   pending_dlist_t * pending_dlist;
   timeout_dlist_t * timeout_dlist;
-
-  ulong highest_final_cert_slot;
-
-  ulong root;
-
-  long now;
-
-  ushort       own_rank;
-  ag_bls_sec_t voting_key;
-  ushort       shred_version;
-
-  ag_event_vote_t * vote_channel;
-  ag_event_cert_t * cert_channel;
-
-  ulong seq; /* total order over the vote and cert streams */
-
-  ulong slot_max;
 
   struct {
     ulong * slots;
@@ -152,7 +151,7 @@ ulong
 ag_votor_footprint( ulong slot_max ) {
   if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW ) ) return 0UL;
 
-  ulong channel_max = 2UL*slot_max;
+  ulong events_max = 2UL*slot_max;
 
   ulong slot_state_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
 
@@ -173,20 +172,16 @@ ag_votor_footprint( ulong slot_max ) {
       slot_state_map_align(),   slot_state_map_footprint ( slot_state_chain_cnt ) ),
       pending_dlist_align(),    pending_dlist_footprint()                         ),
       timeout_dlist_align(),    timeout_dlist_footprint()                         ),
-      vote_channel_align(),     vote_channel_footprint( channel_max )             ),
-      cert_channel_align(),     cert_channel_footprint( channel_max )             ),
+      vote_events_align(),     vote_events_footprint( events_max )             ),
+      cert_events_align(),     cert_events_footprint( events_max )             ),
       alignof(ulong),           sizeof(ulong)*slot_max                            ),
     ag_votor_align() );
 }
 
 void *
-ag_votor_new( void *             mem,
-              ulong              slot_max,
-              ulong              seed,
-              ushort             own_rank,
-              ag_bls_sec_t const voting_key,
-              ushort             shred_version,
-              long               now ) {
+ag_votor_new( void * mem,
+              ulong  slot_max,
+              ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -200,13 +195,9 @@ ag_votor_new( void *             mem,
     FD_LOG_WARNING(( "bad slot_max (%lu)", slot_max ));
     return NULL;
   }
-  if( FD_UNLIKELY( !voting_key ) ) {
-    FD_LOG_WARNING(( "NULL voting_key" ));
-    return NULL;
-  }
   fd_memset( mem, 0, footprint );
 
-  ulong channel_max          = 2UL*slot_max;
+  ulong events_max          = 2UL*slot_max;
   ulong slot_state_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -216,8 +207,8 @@ ag_votor_new( void *             mem,
   void *       slot_state_map   = FD_SCRATCH_ALLOC_APPEND( l, slot_state_map_align(),   slot_state_map_footprint ( slot_state_chain_cnt ) );
   void *       pending_dlist    = FD_SCRATCH_ALLOC_APPEND( l, pending_dlist_align(),    pending_dlist_footprint()                         );
   void *       timeout_dlist    = FD_SCRATCH_ALLOC_APPEND( l, timeout_dlist_align(),    timeout_dlist_footprint()                         );
-  void *       vote_channel     = FD_SCRATCH_ALLOC_APPEND( l, vote_channel_align(),     vote_channel_footprint( channel_max )             );
-  void *       cert_channel     = FD_SCRATCH_ALLOC_APPEND( l, cert_channel_align(),     cert_channel_footprint( channel_max )             );
+  void *       vote_events     = FD_SCRATCH_ALLOC_APPEND( l, vote_events_align(),     vote_events_footprint( events_max )             );
+  void *       cert_events     = FD_SCRATCH_ALLOC_APPEND( l, cert_events_align(),     cert_events_footprint( events_max )             );
   void *       slot_scratch     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           sizeof(ulong)*slot_max                            );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, ag_votor_align() ) == (ulong)mem + footprint );
 
@@ -228,35 +219,87 @@ ag_votor_new( void *             mem,
   votor->pending_dlist = pending_dlist_join( pending_dlist_new( pending_dlist ) );
   votor->timeout_dlist = timeout_dlist_join( timeout_dlist_new( timeout_dlist ) );
 
-  votor->highest_final_cert_slot = 0UL;
-  votor->root                    = 0UL;
+  ag_votor_fini( votor );
 
-  votor->own_rank      = own_rank;
-  fd_memcpy( votor->voting_key, voting_key, AG_BLS_SEC_SZ );
-  votor->shred_version = shred_version;
+  votor->curr_epoch_rank = 0UL;
+  votor->curr_epoch_slot = ULONG_MAX;
+  votor->next_epoch_rank = 0UL;
+  votor->next_epoch_slot = ULONG_MAX;
 
-  votor->vote_channel = vote_channel_join( vote_channel_new( vote_channel, channel_max ) );
-  votor->cert_channel = cert_channel_join( cert_channel_new( cert_channel, channel_max ) );
+
+  votor->vote_events = vote_events_join( vote_events_new( vote_events, events_max ) );
+  votor->cert_events = cert_events_join( cert_events_new( cert_events, events_max ) );
 
   votor->seq = 0UL;
 
   votor->slot_max = slot_max;
 
-  votor->now = now;
 
   votor->scratch.slots = (ulong *)slot_scratch;
 
-  slot_state_ele_t * genesis       = state_mut( votor, 0UL );
-  genesis->voted                   = 1;
-  genesis->voted_notar             = 1;
-  genesis->block_notarized         = 1;
-  genesis->parents_ready[ 0 ].slot = 0UL;
-  genesis->parents_ready_cnt       = 1UL;
-  genesis->retired                 = 1;
-
-  set_timeouts( votor, 0UL );
-
   return mem;
+}
+
+static ushort
+own_rank( ag_votor_t const * self,
+          ulong              slot ) {
+  return (ushort)fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, self->curr_epoch_rank );
+}
+
+void
+ag_votor_advance_epoch( ag_votor_t * self,
+                        ulong        epoch_rank,
+                        ulong        epoch_slot ) {
+  if( FD_UNLIKELY( self->curr_epoch_slot==ULONG_MAX ) ) {
+    self->curr_epoch_rank = epoch_rank;
+    self->curr_epoch_slot = epoch_slot;
+  } else if( FD_UNLIKELY( self->next_epoch_slot==ULONG_MAX ) ) {
+    self->next_epoch_rank = epoch_rank;
+    self->next_epoch_slot = epoch_slot;
+  } else {
+    self->curr_epoch_rank = self->next_epoch_rank;
+    self->curr_epoch_slot = self->next_epoch_slot;
+    self->next_epoch_rank = epoch_rank;
+    self->next_epoch_slot = epoch_slot;
+  }
+}
+
+void
+ag_votor_set_bls_key( ag_votor_t *       self,
+                      ag_bls_sec_t const bls_key ) {
+  FD_TEST( bls_key );
+  fd_memcpy( self->bls_sec, bls_key, AG_BLS_SEC_SZ );
+}
+
+void
+ag_votor_set_shred_version( ag_votor_t * self,
+                            ushort       shred_version ) {
+  self->shred_version = shred_version;
+}
+
+void
+ag_votor_init( ag_votor_t * self,
+               ulong        slot,
+               long         now ) {
+  self->now                     = now;
+  self->root                    = slot;
+  self->highest_final_cert_slot = slot;
+
+  slot_state_ele_t * state       = state_mut( self, slot );
+  state->voted                   = 1;
+  state->voted_notar             = 1;
+  state->block_notarized         = 1;
+  state->parents_ready[ 0 ].slot = slot;
+  state->parents_ready_cnt       = 1UL;
+  state->retired                 = 1;
+
+  set_timeouts( self, ag_first_slot_in_window( slot ) );
+}
+
+void
+ag_votor_fini( ag_votor_t * self ) {
+  self->root                    = ULONG_MAX;
+  self->highest_final_cert_slot = ULONG_MAX;
 }
 
 ag_votor_t *
@@ -358,9 +401,9 @@ try_final( ag_votor_t *          self,
   int voted_notar = state && state->voted_notar     && !memcmp( state->voted_notar_hash,     hash, sizeof(ag_block_hash_t) );
   int not_bad     = !( state && state->bad_window );
   if( FD_LIKELY( notarized && voted_notar && not_bad ) ) {
-    ag_vote_t vote; ag_vote_new_final( &vote, slot, self->voting_key, self->own_rank, self->shred_version );
-    FD_TEST( !vote_channel_full( self->vote_channel ) );
-    vote_channel_push( self->vote_channel, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
+    ag_vote_t vote; ag_vote_new_final( &vote, slot, self->bls_sec, own_rank( self, slot ), self->shred_version );
+    FD_TEST( !vote_events_full( self->vote_events ) );
+    vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
     state_mut( self, slot )->retired = 1;
   }
 }
@@ -392,9 +435,9 @@ try_notar( ag_votor_t *            self,
     if( FD_UNLIKELY( memcmp( parent_state->voted_notar_hash, parent.hash, sizeof(ag_block_hash_t) )!=0 ) ) return 0;
   }
 
-  ag_vote_t vote; ag_vote_new_notar( &vote, slot, hash, self->voting_key, self->own_rank, self->shred_version );
-  FD_TEST( !vote_channel_full( self->vote_channel ) );
-  vote_channel_push( self->vote_channel, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
+  ag_vote_t vote; ag_vote_new_notar( &vote, slot, hash, self->bls_sec, own_rank( self, slot ), self->shred_version );
+  FD_TEST( !vote_events_full( self->vote_events ) );
+  vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
 
   slot_state_ele_t * state = state_mut( self, slot );
   if( FD_UNLIKELY( state->pending_block ) ) pending_dlist_ele_remove( self->pending_dlist, state, self->slot_states->pool );
@@ -420,9 +463,9 @@ try_skip_window( ag_votor_t * self,
     state->voted             = 1;
     state->bad_window        = 1;
 
-    ag_vote_t vote; ag_vote_new_skip( &vote, s, self->voting_key, self->own_rank, self->shred_version );
-    FD_TEST( !vote_channel_full( self->vote_channel ) );
-    vote_channel_push( self->vote_channel, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
+    ag_vote_t vote; ag_vote_new_skip( &vote, s, self->bls_sec, own_rank( self, s ), self->shred_version );
+    FD_TEST( !vote_events_full( self->vote_events ) );
+    vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
   }
 }
 
@@ -468,7 +511,7 @@ handle_cert_created( ag_votor_t *      self,
 
   switch( cert->kind ) {
 
-  case AG_CERT_TYPE_NOTAR: {
+  case AG_CERT_KIND_NOTAR: {
     uchar const * hash = ag_cert_block_hash( cert );
 
     slot_state_ele_t * state = state_mut( self, slot );
@@ -479,24 +522,24 @@ handle_cert_created( ag_votor_t *      self,
     break;
   }
 
-  case AG_CERT_TYPE_FINAL:
-  case AG_CERT_TYPE_FAST_FINAL:
+  case AG_CERT_KIND_FINAL:
+  case AG_CERT_KIND_FAST_FINAL:
     set_timeouts( self, ag_first_slot_in_window( slot ) );
 
     self->highest_final_cert_slot = fd_ulong_max( self->highest_final_cert_slot, slot );
     prune( self );
     break;
 
-  case AG_CERT_TYPE_SKIP:
-  case AG_CERT_TYPE_NOTAR_FALLBACK:
+  case AG_CERT_KIND_SKIP:
+  case AG_CERT_KIND_NOTAR_FALLBACK:
     break;
 
   default:
     FD_LOG_ERR(( "invalid cert kind %u", cert->kind ));
   }
 
-  FD_TEST( !cert_channel_full( self->cert_channel ) );
-  cert_channel_push( self->cert_channel, (ag_event_cert_t){ .seq = self->seq++, .ts = self->now, .cert = *cert } );
+  FD_TEST( !cert_events_full( self->cert_events ) );
+  cert_events_push( self->cert_events, (ag_event_cert_t){ .seq = self->seq++, .ts = self->now, .cert = *cert } );
 }
 
 void
@@ -532,9 +575,9 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
     ulong         slot = event->safe_to_notar.slot;
     uchar const * hash = event->safe_to_notar.hash;
 
-    ag_vote_t vote; ag_vote_new_notar_fallback( &vote, slot, hash, self->voting_key, self->own_rank, self->shred_version );
-    FD_TEST( !vote_channel_full( self->vote_channel ) );
-    vote_channel_push( self->vote_channel, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
+    ag_vote_t vote; ag_vote_new_notar_fallback( &vote, slot, hash, self->bls_sec, own_rank( self, slot ), self->shred_version );
+    FD_TEST( !vote_events_full( self->vote_events ) );
+    vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
     try_skip_window( self, slot );
     state_mut( self, slot )->bad_window = 1;
     break;
@@ -543,9 +586,9 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
   case AG_EVENT_POOL_SAFE_TO_SKIP: {
     ulong slot = event->safe_to_skip;
 
-    ag_vote_t vote; ag_vote_new_skip_fallback( &vote, slot, self->voting_key, self->own_rank, self->shred_version );
-    FD_TEST( !vote_channel_full( self->vote_channel ) );
-    vote_channel_push( self->vote_channel, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
+    ag_vote_t vote; ag_vote_new_skip_fallback( &vote, slot, self->bls_sec, own_rank( self, slot ), self->shred_version );
+    FD_TEST( !vote_events_full( self->vote_events ) );
+    vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
     try_skip_window( self, slot );
     state_mut( self, slot )->bad_window = 1;
     break;
@@ -557,10 +600,10 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
 
   case AG_EVENT_POOL_STANDSTILL: {
     ag_standstill_t const * standstill = &event->standstill;
-    FD_TEST( cert_channel_avail( self->cert_channel )>=standstill->cert_cnt );
-    for( ulong i=0UL; i<standstill->cert_cnt; i++ ) cert_channel_push( self->cert_channel, (ag_event_cert_t){ .seq = self->seq++, .ts = self->now, .cert = standstill->certs[i] } );
-    FD_TEST( vote_channel_avail( self->vote_channel )>=standstill->vote_cnt );
-    for( ulong i=0UL; i<standstill->vote_cnt; i++ ) vote_channel_push( self->vote_channel, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = standstill->votes[i] } );
+    FD_TEST( cert_events_avail( self->cert_events )>=standstill->cert_cnt );
+    for( ulong i=0UL; i<standstill->cert_cnt; i++ ) cert_events_push( self->cert_events, (ag_event_cert_t){ .seq = self->seq++, .ts = self->now, .cert = standstill->certs[i] } );
+    FD_TEST( vote_events_avail( self->vote_events )>=standstill->vote_cnt );
+    for( ulong i=0UL; i<standstill->vote_cnt; i++ ) vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = standstill->votes[i] } );
     break;
   }
 
@@ -673,15 +716,15 @@ ag_votor_poll_timeout_event( ag_votor_t *         self,
 int
 ag_votor_poll_vote_event( ag_votor_t *      self,
                           ag_event_vote_t * event ) {
-  if( FD_LIKELY( vote_channel_empty( self->vote_channel ) ) ) return 0;
-  *event = vote_channel_pop( self->vote_channel );
+  if( FD_LIKELY( vote_events_empty( self->vote_events ) ) ) return 0;
+  *event = vote_events_pop( self->vote_events );
   return 1;
 }
 
 int
 ag_votor_poll_cert_event( ag_votor_t *      self,
                           ag_event_cert_t * event ) {
-  if( FD_LIKELY( cert_channel_empty( self->cert_channel ) ) ) return 0;
-  *event = cert_channel_pop( self->cert_channel );
+  if( FD_LIKELY( cert_events_empty( self->cert_events ) ) ) return 0;
+  *event = cert_events_pop( self->cert_events );
   return 1;
 }
