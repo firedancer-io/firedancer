@@ -463,8 +463,13 @@ test_exact_max_request_len_fragmented( void ) {
 
   ulong const first_read_len = params.max_request_len - 4UL; /* head (1016) + 4 body bytes */
   send_all( client_fd, req, first_read_len );
-  fd_http_server_poll( http, 1, ULONG_MAX ); /* accepts the connection */
-  fd_http_server_poll( http, 1, ULONG_MAX ); /* first read: head parsed, body pending */
+  /* A TCP send does not bound the server's read. Drive polls until this
+     read has actually parsed the head, otherwise the follow-up parse would
+     not exercise the recorded-head path. */
+  for( ulong i=0UL; i<200UL && http->conns[0].request_head_len==0UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+  }
+  FD_TEST( http->conns[0].request_head_len==1016UL );
   FD_TEST( request_cnt==0UL );
   FD_TEST( state.close_cnt==0UL );
 
@@ -475,6 +480,80 @@ test_exact_max_request_len_fragmented( void ) {
 
   FD_TEST( request_cnt==1UL );
   FD_TEST( state.close_cnt==0UL );
+
+  close( client_fd );
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+static void
+test_oversized_head_closes( void ) {
+  /* A buffer that fills without the head ever completing must close with
+     LARGE_REQUEST via the full-buffer branch, not stall forever. */
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 0UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1024UL,
+  };
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request    = request_count,
+    .close      = close_capture,
+    .ws_open    = NULL,
+    .ws_close   = NULL,
+    .ws_message = NULL,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  ushort server_port = ntohs( server_addr.sin_port );
+
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = htons( server_port ),
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  request_cnt = 0UL;
+
+  /* Header lines only, no terminating blank line anywhere in the first
+     max_request_len bytes: the head can never complete. */
+  char req[ 2049 ];
+  ulong pos = 0UL;
+  fd_memcpy( req+pos, "POST /p HTTP/1.1\r\nHost: localhost\r\n", 35UL ); pos += 35UL;
+  while( pos<2048UL ) {
+    ulong line_len = strlen( "X-Pad: 00000000000000000000\r\n" );
+    if( pos+line_len>2048UL ) break;
+    fd_memcpy( req+pos, "X-Pad: 00000000000000000000\r\n", line_len );
+    pos += line_len;
+  }
+  FD_TEST( pos>params.max_request_len );
+
+  send_all( client_fd, req, pos );
+  for( ulong i=0UL; i<200UL && state.close_cnt==0UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+  }
+
+  FD_TEST( state.close_cnt==1UL );
+  FD_TEST( state.last_reason==FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+  FD_TEST( request_cnt==0UL );
 
   close( client_fd );
   close( fd_http_server_fd( http ) );
@@ -1059,6 +1138,7 @@ main( int     argc,
   test_content_length_overflow_close();
   test_exact_max_request_len_accepted();
   test_exact_max_request_len_fragmented();
+  test_oversized_head_closes();
   test_poll_conn_max();
   test_treap_seed();
   test_poll_interest();
