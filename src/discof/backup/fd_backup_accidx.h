@@ -9,6 +9,7 @@
    or UINT_MAX for "end of chain". */
 
 #include "../../flamenco/accdb/fd_accdb_private.h"
+#include "../../util/fd_hash32.h"
 
 struct fd_backup_accidx {
   uint const *               acc_map;      /* map chains */
@@ -33,7 +34,7 @@ FD_PROTOTYPES_BEGIN
 FD_FN_PURE static inline ulong
 fd_backup_accidx_chain( fd_backup_accidx_t const * idx,
                         uchar const                pubkey[ static 32 ] ) {
-  return fd_accdb_hash( pubkey, idx->seed ) & idx->chain_mask;
+  return fd_hash32( pubkey, idx->seed ) & idx->chain_mask;
 }
 
 /* fd_backup_accidx_valid returns 1 if ele addresses an acc_pool element,

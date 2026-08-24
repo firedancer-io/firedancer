@@ -24,6 +24,7 @@
 #include "../../waltz/http/fd_http_server.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../topo/fd_topo.h"
+#include "../../util/fd_hash32.h"
 
 #if FD_HAS_ZSTD
 #define FD_GUI_GEOIP_ZSTD_COMPRESSION_LEVEL 19
@@ -256,7 +257,7 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_IDX_T ulong
 #define MAP_NEXT  map.next
 #define MAP_PREV  map.prev
-#define MAP_KEY_HASH(k,s) (fd_hash( (s), (k)->uc, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(k,s) (fd_hash32( (k)->uc, (s) ))
 #define MAP_KEY_EQ(k0,k1) (!memcmp((k0)->uc, (k1)->uc, 32UL))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
@@ -268,7 +269,7 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_IDX_T ulong
 #define MAP_NEXT  pubkey_map.next
 #define MAP_PREV  pubkey_map.prev
-#define MAP_KEY_HASH(k,s) (fd_hash( (s), (k)->uc, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(k,s) (fd_hash32( (k)->uc, (s) ))
 #define MAP_KEY_EQ(k0,k1) (!memcmp((k0)->uc, (k1)->uc, 32UL))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"

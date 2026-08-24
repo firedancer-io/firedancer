@@ -2,7 +2,7 @@
 
 #include "fd_active_set.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../accdb/fd_accdb.h" /* for fd_accdb_hash, which we use for CRDS eviction */
+#include "../../util/fd_hash32.h" /* for fd_hash32, which we use for CRDS eviction */
 
 #include <string.h>
 
@@ -292,7 +292,7 @@ lookup_hash( fd_crds_key_t const * key,
   default:
     break;
   }
-  return fd_accdb_hash( key->pubkey, seed^hash_fn );
+  return fd_hash32( key->pubkey, seed^hash_fn );
 }
 
 static inline int

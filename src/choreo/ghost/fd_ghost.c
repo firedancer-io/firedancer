@@ -1,4 +1,5 @@
 #include "fd_ghost.h"
+#include "../../util/fd_hash32.h"
 
 #define POOL_NAME blk_pool
 #define POOL_T    fd_ghost_blk_t
@@ -22,7 +23,7 @@
 #define MAP_KEY                            addr
 #define MAP_KEY_T                          fd_pubkey_t
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0),(k1), sizeof(fd_pubkey_t)))
-#define MAP_KEY_HASH(key,seed)             (fd_hash((seed),(key),sizeof(fd_pubkey_t)))
+#define MAP_KEY_HASH(key,seed)             (fd_hash32( (key)->uc, (seed) ))
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1

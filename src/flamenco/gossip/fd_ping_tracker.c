@@ -1,4 +1,5 @@
 #include "fd_ping_tracker.h"
+#include "../../util/fd_hash32.h"
 
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../util/log/fd_log.h"
@@ -90,7 +91,7 @@ typedef struct fd_ping_peer fd_ping_peer_t;
 #define MAP_IDX_T ulong
 #define MAP_NEXT  map_next
 #define MAP_PREV  map_prev
-#define MAP_KEY_HASH(k,s) fd_hash( (s), (k)->b, sizeof((k)->b) )
+#define MAP_KEY_HASH(k,s) fd_hash32( (k)->b, (s) )
 #define MAP_KEY_EQ(k0,k1) (!memcmp((k0)->b, (k1)->b, 32UL))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"

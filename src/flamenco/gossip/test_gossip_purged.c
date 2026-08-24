@@ -29,8 +29,8 @@ main( int     argc,
 
   ulong hash0 = nci_origin_map_key_hash( &key0, seed );
   ulong hash1 = nci_origin_map_key_hash( &key1, seed );
-  FD_TEST( hash0==fd_hash( seed, key0.uc, sizeof(fd_pubkey_t) ) );
-  FD_TEST( hash1==fd_hash( seed, key1.uc, sizeof(fd_pubkey_t) ) );
+  FD_TEST( hash0==fd_hash32( key0.uc, seed ) );
+  FD_TEST( hash1==fd_hash32( key1.uc, seed ) );
   FD_TEST( hash0!=hash1 );
 
   uchar iter_mem[16UL] __attribute__((aligned(8)));
