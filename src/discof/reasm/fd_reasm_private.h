@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_reasm_fd_reasm_private_h
 
 #include "fd_reasm.h"
+#include "../../util/fd_hash32.h"
 
 #define POOL_NAME              pool
 #define POOL_T                 fd_reasm_fec_t
@@ -11,28 +12,28 @@
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define MAP_NAME               frontier
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define MAP_NAME               orphaned
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define MAP_NAME               subtrees
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME             subtreel

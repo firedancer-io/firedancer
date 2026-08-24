@@ -252,8 +252,8 @@ FD_UNIT_TEST( resolv_stash_map_hashes_full_key ) {
   ulong hash0 = map_chain_key_hash( &key0_ptr, TEST_HASH_SEED );
   ulong hash1 = map_chain_key_hash( &key1_ptr, TEST_HASH_SEED );
 
-  FD_TEST( hash0==fd_hash( TEST_HASH_SEED, key0.b, sizeof(key0.b) ) );
-  FD_TEST( hash1==fd_hash( TEST_HASH_SEED, key1.b, sizeof(key1.b) ) );
+  FD_TEST( hash0==fd_hash32( key0.b, TEST_HASH_SEED ) );
+  FD_TEST( hash1==fd_hash32( key1.b, TEST_HASH_SEED ) );
   FD_TEST( hash0!=hash1 );
 }
 

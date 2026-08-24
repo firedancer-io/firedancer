@@ -1,5 +1,6 @@
 #include "fd_pack_rebate_sum.h"
 #include "fd_pack.h"
+#include "../../util/fd_hash32.h"
 
 #define VOTE     FD_TXN_P_FLAGS_IS_SIMPLE_VOTE
 #define BUNDLE   FD_TXN_P_FLAGS_BUNDLE
@@ -73,7 +74,7 @@ test_fixed_seed_collisions_are_distributed( fd_pack_rebate_sum_t * sum ) {
       ulong word = fd_ulong_hash( nonce+128UL*j );
       fd_memcpy( candidate.b+8UL*j, &word, sizeof(word) );
     }
-    if( FD_UNLIKELY( !(fd_hash( 132132UL, candidate.b, sizeof(candidate.b) ) & 8191U) ) )
+    if( FD_UNLIKELY( !(fd_hash32( candidate.b, 132132UL ) & 8191U) ) )
       accts[ acct_cnt++ ] = candidate;
   }
 
