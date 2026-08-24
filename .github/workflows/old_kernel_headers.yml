@@ -1,0 +1,27 @@
+name: Old Kernel Headers
+on:
+  pull_request:
+concurrency:
+  group: old-kernel-headers_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    continue-on-error: true
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install old kernel headers
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          curl -sSfL --retry 3 -o "$tmp/libc-dev.deb" \
+            "https://archive.debian.org/debian/pool/main/l/linux/linux-libc-dev_4.19.249-2_amd64.deb"
+          ( cd "$tmp" && ar x libc-dev.deb && tar -xf data.tar.* )
+          rm -rf kernel-headers && mkdir kernel-headers
+          mv "$tmp/usr/include" kernel-headers/include
+          mv kernel-headers/include/x86_64-linux-gnu/asm kernel-headers/include/asm
+
+      - name: make check
+        run: make check -j EXTRA_CPPFLAGS="-isystem $PWD/kernel-headers/include"
