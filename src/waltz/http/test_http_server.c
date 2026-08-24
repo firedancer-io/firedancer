@@ -366,8 +366,9 @@ test_exact_max_request_len_accepted( void ) {
   }
   memset( req+pos, '0', 951UL );
   pos += 951UL;
-  fd_memcpy( req+pos, "\r\n\r\nxxxxxxxx", 13UL );
-  pos += 13UL;
+  char const tail[] = "\r\n\r\nxxxxxxxx"; /* 12 request bytes */
+  fd_memcpy( req+pos, tail, sizeof(tail)-1UL );
+  pos += sizeof(tail)-1UL;
   req[ pos ] = '\0';
   FD_TEST( pos==params.max_request_len );
   send_all( client_fd, req, pos );
