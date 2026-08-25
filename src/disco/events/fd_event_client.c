@@ -139,7 +139,8 @@ tls_cert_verify( void *        ctx,
   fd_event_client_t * client = ctx;
 
   int err = fd_x509_verify_tls_cert_msg( cert_chain, cert_chain_sz, client->ca_store,
-                                         client->server_fqdn, client->server_fqdn_len );
+                                         client->server_fqdn, client->server_fqdn_len,
+                                         fd_x509_unix_now_seconds() );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "certificate verification failed (%d) for %.*s",
                      err, (int)client->server_fqdn_len, client->server_fqdn ));

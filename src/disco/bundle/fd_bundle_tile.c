@@ -369,7 +369,8 @@ fd_bundle_tls_cert_verify( void *        _ctx,
   fd_bundle_tile_t * ctx = _ctx;
 
   int err = fd_x509_verify_tls_cert_msg( cert_chain, cert_chain_sz, ctx->ca_store,
-                                         ctx->server_sni, ctx->server_sni_len );
+                                         ctx->server_sni, ctx->server_sni_len,
+                                         fd_x509_unix_now_seconds() );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "certificate verification failed (%i) for %s", err, ctx->server_sni ));
   }

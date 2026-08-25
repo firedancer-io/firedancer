@@ -344,9 +344,9 @@ test_read_raw( void ) {
 
 static int
 parse_time( uchar const * buf, ulong buf_sz,
-            uchar const ** t_ptr, ulong * t_len ) {
+            uchar * t_tag, uchar const ** t_ptr, ulong * t_len ) {
   FD_DER_CURSOR_FROM_BUF( c, buf, buf_sz );
-  FD_DER_READ_TIME( c, *t_ptr, *t_len );
+  FD_DER_READ_TIME( c, *t_tag, *t_ptr, *t_len );
   return 0;
 }
 
@@ -358,8 +358,9 @@ test_read_time( void ) {
   {
     uchar buf[] = { 0x17, 0x0D, '2', '5', '0', '1', '0', '1',
                     '0', '0', '0', '0', '0', '0', 'Z' };
-    uchar const * t; ulong t_len;
-    FD_TEST( parse_time( buf, sizeof(buf), &t, &t_len ) == 0 );
+    uchar tag; uchar const * t; ulong t_len;
+    FD_TEST( parse_time( buf, sizeof(buf), &tag, &t, &t_len ) == 0 );
+    FD_TEST( tag == FD_DER_TAG_UTC_TIME );
     FD_TEST( t_len == 13 );
   }
 
@@ -367,16 +368,17 @@ test_read_time( void ) {
   {
     uchar buf[] = { 0x18, 0x0F, '2', '0', '2', '5', '0', '1', '0', '1',
                     '0', '0', '0', '0', '0', '0', 'Z' };
-    uchar const * t; ulong t_len;
-    FD_TEST( parse_time( buf, sizeof(buf), &t, &t_len ) == 0 );
+    uchar tag; uchar const * t; ulong t_len;
+    FD_TEST( parse_time( buf, sizeof(buf), &tag, &t, &t_len ) == 0 );
+    FD_TEST( tag == FD_DER_TAG_GENERALIZED_TIME );
     FD_TEST( t_len == 15 );
   }
 
   /* Wrong tag (INTEGER instead of time) */
   {
     uchar buf[] = { 0x02, 0x01, 0x00 };
-    uchar const * t; ulong t_len;
-    FD_TEST( parse_time( buf, sizeof(buf), &t, &t_len ) == -1 );
+    uchar tag; uchar const * t; ulong t_len;
+    FD_TEST( parse_time( buf, sizeof(buf), &tag, &t, &t_len ) == -1 );
   }
 }
 

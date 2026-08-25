@@ -1,5 +1,8 @@
 #include "fd_x509_mock.h"
+#include "fd_x509.h"
+#include "fd_der.h"
 #include "../../util/fd_util.h"
+#include <string.h>
 
 int
 main( int     argc,
@@ -93,6 +96,46 @@ main( int     argc,
   }
 
   fd_rng_delete( fd_rng_leave( rng ) );
+
+  /* fd_x509_time_parse */
+  {
+    static struct { uchar tag; char const * s; long expected; } const cases[] = {
+      /* UTCTime, valid */
+      { FD_DER_TAG_UTC_TIME, "700101000000Z",           0L },
+      { FD_DER_TAG_UTC_TIME, "380119031407Z",  2147483647L }, /* 32 bit boundary */
+      { FD_DER_TAG_UTC_TIME, "000229000000Z",   951782400L }, /* 2000 is a leap year */
+      { FD_DER_TAG_UTC_TIME, "490101000000Z",  2493072000L }, /* pivots to 2049 */
+      { FD_DER_TAG_UTC_TIME, "500101000000Z",  -631152000L }, /* pivots to 1950 */
+      /* GeneralizedTime, valid */
+      { FD_DER_TAG_GENERALIZED_TIME, "19700101000000Z",          0L },
+      { FD_DER_TAG_GENERALIZED_TIME, "40960101000000Z", 67090118400L },
+      /* Rejected */
+      { FD_DER_TAG_UTC_TIME, "750101000000",  FD_X509_TIME_INVALID }, /* no Z */
+      { FD_DER_TAG_UTC_TIME, "750101000000+0100", FD_X509_TIME_INVALID },
+      { FD_DER_TAG_UTC_TIME, "7501010000000.5Z", FD_X509_TIME_INVALID },
+      { FD_DER_TAG_UTC_TIME, "9901010000Z",   FD_X509_TIME_INVALID }, /* short */
+      { FD_DER_TAG_UTC_TIME, "7501010000X0Z", FD_X509_TIME_INVALID }, /* non digit */
+      { FD_DER_TAG_UTC_TIME, "750001000000Z", FD_X509_TIME_INVALID }, /* month 00 */
+      { FD_DER_TAG_UTC_TIME, "751301000000Z", FD_X509_TIME_INVALID }, /* month 13 */
+      { FD_DER_TAG_UTC_TIME, "750100000000Z", FD_X509_TIME_INVALID }, /* day 00 */
+      { FD_DER_TAG_UTC_TIME, "750132000000Z", FD_X509_TIME_INVALID }, /* day 32 */
+      { FD_DER_TAG_UTC_TIME, "990229000000Z", FD_X509_TIME_INVALID }, /* 1999 not leap */
+      { FD_DER_TAG_UTC_TIME, "750101240000Z", FD_X509_TIME_INVALID }, /* hour 24 */
+      { FD_DER_TAG_UTC_TIME, "750101006000Z", FD_X509_TIME_INVALID }, /* minute 60 */
+      { FD_DER_TAG_UTC_TIME, "750101000060Z", FD_X509_TIME_INVALID }, /* leap second */
+      { FD_DER_TAG_GENERALIZED_TIME, "700101000000Z", FD_X509_TIME_INVALID }, /* short */
+      { FD_DER_TAG_SEQUENCE, "19700101000000Z", FD_X509_TIME_INVALID },       /* bad tag */
+    };
+
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      long got = fd_x509_time_parse( cases[i].tag, (uchar const *)cases[i].s, strlen( cases[i].s ) );
+      if( FD_UNLIKELY( got!=cases[i].expected ) ) {
+        FD_LOG_ERR(( "fd_x509_time_parse(%s): got %ld, expected %ld", cases[i].s, got, cases[i].expected ));
+      }
+    }
+
+    FD_LOG_INFO(( "OK: fd_x509_time_parse" ));
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

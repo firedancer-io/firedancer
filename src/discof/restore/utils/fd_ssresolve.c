@@ -161,7 +161,8 @@ fd_ssresolve_cert_verify_cb( void *        ctx,
   if( FD_UNLIKELY( !ssresolve->ca_store ) ) return -1; /* no trust store, fail closed */
 
   int err = fd_x509_verify_tls_cert_msg( cert_chain, cert_chain_sz, ssresolve->ca_store,
-                                         ssresolve->hostname, strlen( ssresolve->hostname ) );
+                                         ssresolve->hostname, strlen( ssresolve->hostname ),
+                                         fd_x509_unix_now_seconds() );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "certificate verification failed (%i) for %s", err, ssresolve->hostname ));
   }

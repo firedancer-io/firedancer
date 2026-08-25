@@ -39,7 +39,8 @@ fd_sshttp_cert_verify_cb( void *        ctx,
 
   ulong hostname_len = http->hostname ? strlen( http->hostname ) : 0UL;
   int err = fd_x509_verify_tls_cert_msg( cert_chain, cert_chain_sz, &http->ca_store,
-                                         http->hostname, hostname_len );
+                                         http->hostname, hostname_len,
+                                         fd_x509_unix_now_seconds() );
   if( FD_UNLIKELY( err ) )
     FD_LOG_WARNING(( "certificate verification failed (%d) for %s", err, http->hostname ));
   return err;
