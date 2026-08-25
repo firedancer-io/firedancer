@@ -2,6 +2,7 @@
    fd_aes_gcm_{aesni,avx10}.S */
 
 #include "fd_aes_gcm.h"
+#include "../../util/sanitize/fd_msan.h"
 
 #if FD_HAS_AESNI
 
@@ -143,6 +144,7 @@ fd_aes_gcm_encrypt_aesni( fd_aes_gcm_aesni_t * aes_gcm,
   aes_gcm_enc_update_aesni( aes_gcm, le_ctr, ghash_acc, p, c, (int)sz );
   aes_gcm_enc_final_aesni ( aes_gcm, le_ctr, ghash_acc, aad_sz, sz );
   memcpy( tag, ghash_acc, 16 );
+  fd_msan_unpoison( c, sz );
 }
 
 int
@@ -157,6 +159,7 @@ fd_aes_gcm_decrypt_aesni( fd_aes_gcm_aesni_t * aes_gcm,
   uchar ghash_acc[16] = {0};
   aes_gcm_aad_update_aesni( aes_gcm, ghash_acc, aad, (int)aad_sz );
   aes_gcm_dec_update_aesni( aes_gcm, le_ctr, ghash_acc, c, p, (int)sz );
+  fd_msan_unpoison( p, sz );
   return aes_gcm_dec_final_aesni( aes_gcm, le_ctr, ghash_acc, aad_sz, sz, tag, 16 );
 }
 
@@ -228,6 +231,7 @@ fd_aes_gcm_encrypt_avx2( fd_aes_gcm_aesni_t * aes_gcm,
   aes_gcm_enc_update_aesni_avx( aes_gcm, le_ctr, ghash_acc, p, c, (int)sz );
   aes_gcm_enc_final_aesni_avx ( aes_gcm, le_ctr, ghash_acc, aad_sz, sz );
   memcpy( tag, ghash_acc, 16 );
+  fd_msan_unpoison( c, sz );
 }
 
 int
@@ -242,6 +246,7 @@ fd_aes_gcm_decrypt_avx2( fd_aes_gcm_aesni_t * aes_gcm,
   uchar ghash_acc[16] = {0};
   aes_gcm_aad_update_aesni_avx( aes_gcm, ghash_acc, aad, (int)aad_sz );
   aes_gcm_dec_update_aesni_avx( aes_gcm, le_ctr, ghash_acc, c, p, (int)sz );
+  fd_msan_unpoison( p, sz );
   return aes_gcm_dec_final_aesni_avx( aes_gcm, le_ctr, ghash_acc, aad_sz, sz, tag, 16 );
 }
 
@@ -322,6 +327,7 @@ fd_aes_gcm_encrypt_avx10_512( fd_aes_gcm_avx10_t * aes_gcm,
   aes_gcm_enc_update_vaes_avx10_512( aes_gcm, le_ctr, ghash_acc, p, c, (int)sz );
   aes_gcm_enc_final_vaes_avx10     ( aes_gcm, le_ctr, ghash_acc, aad_sz, sz );
   memcpy( tag, ghash_acc, 16 );
+  fd_msan_unpoison( c, sz );
 }
 
 int
@@ -336,6 +342,7 @@ fd_aes_gcm_decrypt_avx10_512( fd_aes_gcm_avx10_t * aes_gcm,
   uchar ghash_acc[16] = {0};
   aes_gcm_aad_update_vaes_avx10      ( aes_gcm, ghash_acc, aad, (int)aad_sz );
   aes_gcm_dec_update_vaes_avx10_512  ( aes_gcm, le_ctr, ghash_acc, c, p, (int)sz );
+  fd_msan_unpoison( p, sz );
   return aes_gcm_dec_final_vaes_avx10( aes_gcm, le_ctr, ghash_acc, aad_sz, sz, tag, 16 );
 }
 
