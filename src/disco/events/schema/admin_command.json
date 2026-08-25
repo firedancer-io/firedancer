@@ -1,0 +1,37 @@
+{
+    "name": "admin_command",
+    "id": 12,
+    "description": "An admin command completed. Emitted once for every command processed by the running validator, whether it succeeded or failed.",
+    "fields": {
+        "type": {
+            "type": "LowCardinality(String)",
+            "description": "The admin command that was processed.",
+            "variants": {
+                "set_identity":                 { "description": "Change the running validator identity." },
+                "get_identity":                 { "description": "Read the running validator identity." },
+                "add_authorized_voter":         { "description": "Add an authorized voter key." },
+                "remove_all_authorized_voters": { "description": "Remove every authorized voter key." },
+                "snapshot_create":              { "description": "Request creation of a snapshot." }
+            }
+        },
+        "result": {
+            "type": "LowCardinality(String)",
+            "description": "The result of processing the admin command.",
+            "variants": {
+                "success":              { "description": "The command completed successfully." },
+                "unknown_command":      { "description": "The running validator does not recognize this command." },
+                "abi_version_mismatch": { "description": "The request used an unsupported admin command ABI version." },
+                "abi_size_mismatch":    { "description": "The request size did not match the admin command ABI." },
+                "unsupported":          { "description": "The command is not supported by this validator configuration." },
+                "custom":               { "description": "The command returned a command-specific result described by custom_result." }
+            }
+        },
+        "custom_result":       { "type": "String",        "description": "The command-specific result when result is custom.", "max_len": 64 },
+        "start_time":          { "type": "DateTime64(9)", "description": "Wall-clock nanosecond unix timestamp at which the command started getting processed." },
+        "end_time":            { "type": "DateTime64(9)", "description": "Wall-clock nanosecond unix timestamp at which the command completed." },
+        "payload_version":     { "type": "UInt64",        "description": "Payload version requested by the command. Valid only when has_payload_version is true." },
+        "has_payload_version": { "type": "Bool",          "description": "Whether the command payload was large enough to contain payload_version." },
+        "payload_size":        { "type": "UInt64",        "description": "Size of the received command payload in bytes." },
+        "args_json":           { "type": "String",        "description": "Command-specific public values serialized as JSON. Unavailable values are omitted. Private key material is never included.", "max_len": 256 }
+    }
+}

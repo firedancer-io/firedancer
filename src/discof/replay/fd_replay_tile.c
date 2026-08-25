@@ -3478,7 +3478,7 @@ admin_snap_create( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( !ctx->snapmk.supported ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but current config cannot create snapshots. increase [layout.snapzp_tile_count]?" ));
-    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED );
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_UNSUPPORTED );
     return;
   }
 

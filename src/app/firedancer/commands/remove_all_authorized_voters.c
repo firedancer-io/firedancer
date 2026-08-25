@@ -37,13 +37,15 @@ remove_all_authorized_voters_cmd_fn( args_t *   args,
       FD_LOG_NOTICE(( "All authorized voters removed" ));
       break;
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
-    case FD_REMOVE_ALL_AUTH_VOTERS_RESULT_PAYLOAD_TOO_SMALL:
-    case FD_REMOVE_ALL_AUTH_VOTERS_RESULT_UNSUPPORTED_PAYLOAD_VERSION:
-    case FD_REMOVE_ALL_AUTH_VOTERS_RESULT_UNEXPECTED_PAYLOAD_SIZE:
+    case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
+    case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
       FD_LOG_ERR(( "Failed to remove authorized voter keys: the command was not able to "
                    "successfully communicate with the running Firedancer process. It "
                    "is possible that you are running the command from an older or "
                    "newer version of Firedancer that is no longer compatible." ));
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:
+      FD_LOG_ERR(( "Failed to remove authorized voter keys: the command is not supported "
+                   "by the running Firedancer configuration." ));
     default:
       FD_LOG_ERR(( "Unexpected remove-all-authorized-voters result %lu.  This can be a result "
                    "of a version mismatch between the command and the running Firedancer "

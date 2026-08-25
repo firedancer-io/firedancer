@@ -516,6 +516,51 @@ fd_event_snapshot_created_serialize( fd_circq_t *                        circq,
 }
 
 void
+fd_event_admin_command_serialize( fd_circq_t *                     circq,
+                                  fd_event_client_t *              client,
+                                  long                             timestamp_nanos,
+                                  ulong                            link_seq,
+                                  fd_event_admin_command_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_ADMIN_COMMAND_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_ADMIN_COMMAND_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_ADMIN_COMMAND_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  FD_TEST( msg->custom_result_len<=64UL );
+  FD_TEST( msg->args_json_len<=256UL );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 12U ); /* AdminCommand */
+  if( msg->type ) ok &= !!fd_pb_push_int32 ( encoder, 1U, msg->type );
+  if( msg->result ) ok &= !!fd_pb_push_int32 ( encoder, 2U, msg->result );
+  if( msg->custom_result_len ) ok &= !!fd_pb_push_bytes ( encoder, 3U, msg->custom_result, msg->custom_result_len );
+  if( msg->start_time ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->start_time );
+  if( msg->end_time ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)msg->end_time );
+  if( msg->payload_version ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->payload_version );
+  if( msg->has_payload_version ) ok &= !!fd_pb_push_bool  ( encoder, 7U, msg->has_payload_version );
+  if( msg->payload_size ) ok &= !!fd_pb_push_uint64( encoder, 8U, (ulong)msg->payload_size );
+  if( msg->args_json_len ) ok &= !!fd_pb_push_bytes ( encoder, 9U, msg->args_json, msg->args_json_len );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -559,6 +604,10 @@ fd_event_serialize_by_type( ulong               type,
   case 11UL:
     FD_TEST( ev_sz==sizeof(fd_event_snapshot_created_t) );
     fd_event_snapshot_created_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_snapshot_created_t const *)ev );
+    break;
+  case 12UL:
+    FD_TEST( ev_sz==sizeof(fd_event_admin_command_t) );
+    fd_event_admin_command_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_admin_command_t const *)ev );
     break;
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }

@@ -496,9 +496,44 @@ typedef struct fd_event_snapshot_created fd_event_snapshot_created_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SNAPSHOT_CREATED_BUF_MAX (2799UL)
 
+/* The admin command that was processed. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_SET_IDENTITY                 (1) /* Change the running validator identity. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_GET_IDENTITY                 (2) /* Read the running validator identity. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER         (3) /* Add an authorized voter key. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_REMOVE_ALL_AUTHORIZED_VOTERS (4) /* Remove every authorized voter key. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE              (5) /* Request creation of a snapshot. */
+
+/* The result of processing the admin command. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS              (1) /* The command completed successfully. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND      (2) /* The running validator does not recognize this command. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH (3) /* The request used an unsupported admin command ABI version. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH    (4) /* The request size did not match the admin command ABI. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED          (5) /* The command is not supported by this validator configuration. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM               (6) /* The command returned a command-specific result described by custom_result. */
+
+/* An admin command completed. Emitted once for every command processed by the running validator, whether it succeeded or failed. */
+struct fd_event_admin_command {
+  int   type;                  /* The admin command that was processed. */
+  int   result;                /* The result of processing the admin command. */
+  uchar custom_result[ 64UL ]; /* The command-specific result when result is custom. */
+  ulong custom_result_len;     /* Length of custom_result (<= 64) */
+  ulong start_time;            /* Wall-clock nanosecond unix timestamp at which the command started getting processed. */
+  ulong end_time;              /* Wall-clock nanosecond unix timestamp at which the command completed. */
+  ulong payload_version;       /* Payload version requested by the command. Valid only when has_payload_version is true. */
+  int   has_payload_version;   /* Whether the command payload was large enough to contain payload_version. */
+  ulong payload_size;          /* Size of the received command payload in bytes. */
+  uchar args_json[ 256UL ];    /* Command-specific public values serialized as JSON. Unavailable values are omitted. Private key material is never included. */
+  ulong args_json_len;         /* Length of args_json (<= 256) */
+};
+typedef struct fd_event_admin_command fd_event_admin_command_t;
+
+/* Worst-case encoded size of a admin_command event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_ADMIN_COMMAND_BUF_MAX (538UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; }))
+#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -582,6 +617,16 @@ fd_event_snapshot_created_serialize( fd_circq_t *                        circq,
                                      ulong                               link_seq,
                                      fd_event_snapshot_created_t const * msg );
 
+/* Serialize a admin_command event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_admin_command_serialize( fd_circq_t *                     circq,
+                                  fd_event_client_t *              client,
+                                  long                             timestamp_nanos,
+                                  ulong                            link_seq,
+                                  fd_event_admin_command_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -654,6 +699,13 @@ fd_event_report_block_completed( fd_event_block_completed_t const * msg ) {
 static inline void
 fd_event_report_snapshot_created( fd_event_snapshot_created_t const * msg ) {
   fd_event_report_( 11UL, msg, sizeof(fd_event_snapshot_created_t) );
+}
+
+/* Report a admin_command event (AdminCommand, id 12) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_admin_command( fd_event_admin_command_t const * msg ) {
+  fd_event_report_( 12UL, msg, sizeof(fd_event_admin_command_t) );
 }
 
 FD_PROTOTYPES_END

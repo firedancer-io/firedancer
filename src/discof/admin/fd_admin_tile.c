@@ -1,7 +1,7 @@
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../ballet/ed25519/fd_ed25519.h"
 
 #include "fd_adminctl.h"
 #include "generated/fd_admin_tile_seccomp.h"
@@ -16,11 +16,52 @@ struct fd_admin_tile_ctx {
   ulong             sign_av_keyswitch_cnt;
   fd_sha512_t       sha512[ 1 ];
 
-  ulong replay_out_idx;        /* admin_replay stem out index */
-  ulong snap_create_slot_idx;  /* adminctl slot of snapshot-create command */
+  ulong replay_out_idx;           /* admin_replay stem out index */
+  ulong snap_create_slot_idx;     /* adminctl slot of snapshot-create command */
+  ulong snap_create_target_slot;  /* requested slot retained until Replay responds */
+  ulong snap_create_start_time;   /* command start retained until Replay responds */
 };
 
 typedef struct fd_admin_tile_ctx fd_admin_tile_ctx_t;
+
+static inline fd_event_admin_command_t
+prepare_admin_command( int          type,
+                       void const * payload,
+                       ulong        payload_sz ) {
+  fd_event_admin_command_t event = {
+    .type                = type,
+    .args_json           = { '{', '}' },
+    .args_json_len       = 2UL,
+    .start_time          = (ulong)fd_log_wallclock(),
+    .payload_size        = payload_sz,
+    .has_payload_version = 0,
+  };
+  if( FD_LIKELY( payload_sz>=sizeof(ulong) ) ) {
+    event.payload_version     = FD_LOAD( ulong, payload );
+    event.has_payload_version = 1;
+  }
+  return event;
+}
+
+static inline void
+report_admin_command( fd_event_admin_command_t * event,
+                      int                        result ) {
+  FD_TEST( result>=0 && result<=FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM );
+  event->result   = result;
+  event->end_time = (ulong)fd_log_wallclock();
+  fd_event_report_admin_command( event );
+}
+
+static inline void
+report_admin_command_custom_result( fd_event_admin_command_t * event,
+                                    char const *               custom_result ) {
+  FD_TEST( fd_cstr_printf_check( (char *)event->custom_result,
+                                 sizeof(event->custom_result),
+                                 &event->custom_result_len,
+                                 "%s",
+                                 custom_result ) );
+  report_admin_command( event, FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM );
+}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -550,23 +591,29 @@ set_identity( fd_admin_tile_ctx_t * ctx,
               ulong                 data_sz ) {
 
   fd_adminctl_t * adminctl = ctx->adminctl;
+  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_SET_IDENTITY, data, data_sz );
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, old_identity );
+  FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"old_identity\":\"%s\"}", old_identity ) );
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl set-identity payload too small: %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_SET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
   ulong version = FD_LOAD( ulong, data );
   if( FD_UNLIKELY( version!=FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION ) ) {
     FD_LOG_WARNING(( "unsupported adminctl set-identity payload version %lu", version ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_SET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
     return;
   }
 
   if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_set_identity_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl set-identity payload_sz %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_SET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
@@ -576,6 +623,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   fd_ed25519_public_from_private( public_key, req->keypair, ctx->sha512 );
   if( FD_UNLIKELY( memcmp( public_key, req->keypair+32UL, 32UL ) ) ) {
     FD_LOG_WARNING(( "set-identity failed: public key in key file does not match private key" ));
+    report_admin_command_custom_result( &event, "keypair_mismatch" );
     fd_adminctl_complete( adminctl, slot_idx, FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH );
     return;
   }
@@ -589,6 +637,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
 
   memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );
 
+  report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
@@ -599,23 +648,29 @@ get_identity( fd_admin_tile_ctx_t * ctx,
               ulong                 data_sz ) {
 
   fd_adminctl_t * adminctl = ctx->adminctl;
+  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_GET_IDENTITY, data, data_sz );
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, identity );
+  FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"identity\":\"%s\"}", identity ) );
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl get-identity payload too small: %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_GET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
   ulong version = FD_LOAD( ulong, data );
   if( FD_UNLIKELY( version!=FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION ) ) {
     FD_LOG_WARNING(( "unsupported adminctl get-identity payload version %lu", version ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_GET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
     return;
   }
 
   if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_get_identity_req_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl get-identity payload_sz %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_GET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
@@ -626,6 +681,7 @@ get_identity( fd_admin_tile_ctx_t * ctx,
   resp.version = FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION;
   memcpy( resp.identity_pubkey, ctx->identity_pubkey, 32UL );
 
+  report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
   fd_adminctl_complete_response( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS, &resp, sizeof(resp) );
 }
 
@@ -791,9 +847,11 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
                       ulong                     data_sz ) {
 
   fd_adminctl_t * adminctl = ctx->adminctl;
+  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER, data, data_sz );
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl add-authorized-voter payload too small: %lu", data_sz ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
@@ -801,28 +859,34 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
   ulong version = FD_LOAD( ulong, data );
   if( FD_UNLIKELY( version!=FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION ) ) {
     FD_LOG_WARNING(( "unsupported adminctl add-authorized-voter payload version %lu", version ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
     return;
   }
 
   if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_add_auth_voter_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl add-authorized-voter payload_sz %lu", data_sz ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
+  fd_adminctl_add_auth_voter_t * req = fd_type_pun( data );
+  FD_BASE58_ENCODE_32_BYTES( req->keypair+32UL, authorized_voter );
+  FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"authorized_voter\":\"%s\"}", authorized_voter ) );
+
   if( FD_UNLIKELY( !ctx->tower_av_keyswitch ) ) {
     FD_LOG_WARNING(( "add-authorized-voter is not supported under Alpenglow." ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
     return;
   }
-
-  fd_adminctl_add_auth_voter_t * req = fd_type_pun( data );
 
   uchar public_key[ 32UL ];
   fd_ed25519_public_from_private( public_key, req->keypair, ctx->sha512 );
   if( FD_UNLIKELY( memcmp( public_key, req->keypair+32UL, 32UL ) ) ) {
     FD_LOG_WARNING(( "add-authorized-voter failed: public key in key file does not match private key" ));
+    report_admin_command_custom_result( &event, "keypair_mismatch" );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADD_AUTHORIZED_VOTER_RESULT_KEYPAIR_MISMATCH );
     return;
   }
@@ -834,6 +898,19 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
     if( FD_UNLIKELY( state==FD_ADD_AUTH_VOTER_STATE_UNLOCKED ) ) break;
   }
 
+  switch( result ) {
+    case FD_ADMINCTL_RESULT_SUCCESS:
+      report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
+      break;
+    case FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS:
+      report_admin_command_custom_result( &event, "max_authorized_voters" );
+      break;
+    case FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER:
+      report_admin_command_custom_result( &event, "duplicate_authorized_voter" );
+      break;
+    default:
+      FD_LOG_ERR(( "unexpected add-authorized-voter result %lu", result ));
+  }
   fd_adminctl_complete( adminctl, slot_idx, result );
 }
 
@@ -845,28 +922,34 @@ snapshot_create( fd_admin_tile_ctx_t * ctx,
                  ulong                 payload_sz ) {
 
   fd_adminctl_t * adminctl = ctx->adminctl;
+  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE, payload, payload_sz );
 
   if( FD_UNLIKELY( payload_sz!=sizeof(fd_adminctl_snap_create_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl snapshot-create payload_sz %lu", payload_sz ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
   fd_adminctl_snap_create_t const * req = fd_type_pun_const( payload );
   if( FD_UNLIKELY( req->version!=FD_ADMINCTL_SNAP_CREATE_PAYLOAD_VERSION ) ) {
     FD_LOG_WARNING(( "unsupported adminctl snapshot-create payload version %lu", req->version ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
     return;
   }
   ulong target_slot = req->slot;
+  FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"target_slot\":%lu}", target_slot ) );
 
   if( FD_UNLIKELY( ctx->replay_out_idx==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but admin tile has no replay command link" ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
     return;
   }
 
   if( FD_UNLIKELY( ctx->snap_create_slot_idx!=ULONG_MAX ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but another snapshot-create command is pending replay response" ));
+    report_admin_command_custom_result( &event, "busy" );
     fd_adminctl_complete( adminctl, slot_idx, FD_SNAPSHOT_CREATE_RESULT_BUSY );
     return;
   }
@@ -874,7 +957,9 @@ snapshot_create( fd_admin_tile_ctx_t * ctx,
   ulong ctl   = fd_frag_meta_ctl( FD_ADMINCTL_CMD_SNAP_CREATE, 0, 0, 0 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->replay_out_idx, target_slot, 0UL, 0UL, ctl, 0UL, tspub );
-  ctx->snap_create_slot_idx = slot_idx;
+  ctx->snap_create_slot_idx    = slot_idx;
+  ctx->snap_create_target_slot = target_slot;
+  ctx->snap_create_start_time  = event.start_time;
 }
 
 static void
@@ -882,16 +967,41 @@ snapshot_create_response( fd_admin_tile_ctx_t * ctx,
                           ulong                 sig,
                           ulong                 ctl ) {
 
-
-  ulong result = FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_RESPONSE;
-  if( FD_LIKELY( fd_frag_meta_ctl_orig( ctl )==FD_ADMINCTL_CMD_SNAP_CREATE ) ) {
-    result = sig;
-  } else {
+  if( FD_UNLIKELY( fd_frag_meta_ctl_orig( ctl )!=FD_ADMINCTL_CMD_SNAP_CREATE ) ) {
     FD_LOG_ERR(( "unexpected replay admin response orig %lu", fd_frag_meta_ctl_orig( ctl ) ));
   }
 
-  fd_adminctl_complete( ctx->adminctl, ctx->snap_create_slot_idx, result );
-  ctx->snap_create_slot_idx = ULONG_MAX;
+  fd_event_admin_command_t event = {
+    .type                = FD_EVENT_ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE,
+    .start_time          = ctx->snap_create_start_time,
+    .payload_version     = FD_ADMINCTL_SNAP_CREATE_PAYLOAD_VERSION,
+    .has_payload_version = 1,
+    .payload_size        = sizeof(fd_adminctl_snap_create_t),
+  };
+  FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"target_slot\":%lu}", ctx->snap_create_target_slot ) );
+  switch( sig ) {
+    case FD_ADMINCTL_RESULT_SUCCESS:
+      report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
+      break;
+    case FD_SNAPSHOT_CREATE_RESULT_BUSY:
+      report_admin_command_custom_result( &event, "busy" );
+      break;
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:
+      report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
+      break;
+    case FD_SNAPSHOT_CREATE_RESULT_NOT_READY:
+      report_admin_command_custom_result( &event, "not_ready" );
+      break;
+    case FD_SNAPSHOT_CREATE_RESULT_SLOT_IN_PAST:
+      report_admin_command_custom_result( &event, "slot_in_past" );
+      break;
+    default:
+      FD_LOG_ERR(( "unexpected snapshot-create result %lu", sig ));
+  }
+  fd_adminctl_complete( ctx->adminctl, ctx->snap_create_slot_idx, sig );
+  ctx->snap_create_slot_idx    = ULONG_MAX;
+  ctx->snap_create_target_slot = 0UL;
+  ctx->snap_create_start_time  = 0UL;
 }
 
 /* Removing all authorized voters from the validator is the inverse of
@@ -1072,29 +1182,34 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
                               ulong                 data_sz ) {
 
   fd_adminctl_t * adminctl = ctx->adminctl;
+  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_REMOVE_ALL_AUTHORIZED_VOTERS, data, data_sz );
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl remove-all-authorized-voters payload too small: %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_REMOVE_ALL_AUTH_VOTERS_RESULT_PAYLOAD_TOO_SMALL );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
   ulong version = FD_LOAD( ulong, data );
   if( FD_UNLIKELY( version!=FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION ) ) {
     FD_LOG_WARNING(( "unsupported adminctl remove-all-authorized-voters payload version %lu", version ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_REMOVE_ALL_AUTH_VOTERS_RESULT_UNSUPPORTED_PAYLOAD_VERSION );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
     return;
   }
 
   if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_remove_all_auth_voters_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl remove-all-authorized-voters payload_sz %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_REMOVE_ALL_AUTH_VOTERS_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
   if( FD_UNLIKELY( !ctx->tower_av_keyswitch ) ) {
     FD_LOG_WARNING(( "remove-all-authorized-voters is not supported under Alpenglow." ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
     return;
   }
 
@@ -1104,6 +1219,7 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
     if( FD_UNLIKELY( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED ) ) break;
   }
 
+  report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
@@ -1200,8 +1316,14 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_admin_command_t);
+}
+
 fd_topo_run_tile_t fd_tile_admin = {
   .name                     = "admin",
+  .max_event_sz             = max_event_sz,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
