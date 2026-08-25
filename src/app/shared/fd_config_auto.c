@@ -1,6 +1,8 @@
 #include "fd_config_auto.h"
 #include "../../disco/net/fd_linux_bond.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/netlink/fd_netlink_tile.h"
+#include "../../waltz/mib/fd_netdev_netlink.h"
 
 #include <stdlib.h> /* strtoul */
 #include <limits.h>
@@ -8,9 +10,10 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/utsname.h>
+#include <linux/if_arp.h>
 
 #define PROVIDER_CNT       ( 1UL)
-#define FEAT_CNT_MAX       ( 8UL)
+#define FEAT_CNT_MAX       (16UL)
 #define NET_DRIVER_CNT_MAX (16UL)
 
 struct fd_auto_info {
@@ -23,6 +26,7 @@ struct fd_auto_info {
   int  is_virtual_if;
   int  is_bonded_if;
   uint bonded_if_slave_count;
+  int  is_using_gre;
 };
 typedef struct fd_auto_info fd_auto_info_t;
 
@@ -39,9 +43,13 @@ typedef struct fd_auto_driver_rq fd_auto_driver_rq_t;
 
 struct fd_auto_feat {
   char const *         name;
+  /* supported_drivers is for unconditional driver requirements.
+     For conditional driver requirements leave this empty and call
+     fd_auto_check_driver() inside the check() callback
+     (like xdp_rss_queue_mode_check() does). */
   fd_auto_driver_rq_t  supported_drivers[ NET_DRIVER_CNT_MAX ];
 
-  /* Checks if networking feature is auto and sets the default */
+  /* is_feat_auto() checks if feature is auto and sets the default */
   int  (*is_feat_auto)( fd_config_t          * config );
   int  (*check       )( fd_config_t    const * config,
                         fd_auto_info_t const * info   );
@@ -61,6 +69,34 @@ struct fd_auto_provider {
 };
 typedef struct fd_auto_provider fd_auto_provider_t;
 
+static int
+fd_auto_check_driver( fd_auto_info_t      const * info,
+                      fd_auto_driver_rq_t const * supported_drivers ) {
+  /* Check for driver requirements. */
+  if( !supported_drivers[0].name ) return 1;
+
+  for( ulong i=0UL; i<NET_DRIVER_CNT_MAX; i++ ) {
+    fd_auto_driver_rq_t const * req = &supported_drivers[ i ];
+    if( !req->name ) return 0;
+
+    if( 0==strcmp( info->driver, req->name ) ) {
+      /* Check system linux version is within bounds of min and max
+         of what this driver req requires. */
+      if( req->max_linux_major > 0UL ) {
+        if( info->linux_major>req->max_linux_major ||
+          ( info->linux_major==req->max_linux_major &&
+            info->linux_minor>req->max_linux_minor ) ) continue;
+      }
+
+      if( info->linux_major>req->min_linux_major ||
+        ( info->linux_major==req->min_linux_major &&
+          info->linux_minor>=req->min_linux_minor ) ) return 1;
+    }
+  }
+
+  return 0;
+}
+
 /* XDP checks/apply */
 
 static int
@@ -68,6 +104,51 @@ check_xdp_auto( fd_config_t    const * config,
                 fd_auto_info_t const * info FD_PARAM_UNUSED ) {
   if( strcmp( config->net.provider, "xdp" ) ) return 0;
   return 1;
+}
+
+static int
+is_xdp_listen_gre_auto( fd_config_t * config ) {
+  if( 2!=config->net.xdp.listen_gre ) return 0;
+  /* Set to default */
+  config->net.xdp.listen_gre = 0;
+  return 1;
+}
+
+static int
+xdp_listen_gre_check( fd_config_t    const * config FD_PARAM_UNUSED,
+                      fd_auto_info_t const * info ) {
+  return info->is_using_gre;
+}
+
+static void
+xdp_listen_gre_apply( fd_config_t * config ) {
+  config->net.xdp.listen_gre = 1;
+}
+
+static int
+is_xdp_rss_queue_mode_auto( fd_config_t * config ) {
+  if( strcmp( config->net.xdp.rss_queue_mode, "auto" ) ) return 0;
+  /* Set to default */
+  fd_memcpy( config->net.xdp.rss_queue_mode, "simple", 7 );
+  return 1;
+}
+
+static int
+xdp_rss_queue_mode_check( fd_config_t    const * config,
+                          fd_auto_info_t const * info ) {
+  if( 1==config->net.xdp.listen_gre ) {
+    static fd_auto_driver_rq_t const gre_rss_drivers[ NET_DRIVER_CNT_MAX ] = {
+      { "mlx5_core", 0, 0, 0, 0 }
+    };
+
+    if( 0==fd_auto_check_driver( info, gre_rss_drivers ) ) return 0;
+  }
+  return 1;
+}
+
+static void
+xdp_rss_queue_mode_apply( fd_config_t * config ) {
+  fd_memcpy( config->net.xdp.rss_queue_mode, "auto", 5 );
 }
 
 static int
@@ -146,7 +227,7 @@ is_xdp_zc_auto( fd_config_t * config ) {
 }
 
 static int
-xdp_zc_check( fd_config_t    const * config FD_PARAM_UNUSED,
+xdp_zc_check( fd_config_t    const * config,
               fd_auto_info_t const * info   FD_PARAM_UNUSED ) {
   if( strcmp( config->net.xdp.xdp_mode, "drv") ) return 0;
   return 1;
@@ -164,6 +245,18 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
     .name  = "XDP",
     .check = check_xdp_auto,
     .feats = {
+      {
+        .name              = "Listen GRE",
+        .is_feat_auto      = is_xdp_listen_gre_auto,
+        .check             = xdp_listen_gre_check,
+        .apply             = xdp_listen_gre_apply
+      },
+      {
+        .name              = "RSS Queue Mode",
+        .is_feat_auto      = is_xdp_rss_queue_mode_auto,
+        .check             = xdp_rss_queue_mode_check,
+        .apply             = xdp_rss_queue_mode_apply
+      },
       {
         .name              = "Native Bond",
         .supported_drivers = { { "mlx5_core", 5, 15, 0, 0} },
@@ -250,9 +343,48 @@ scrape_driver( char       * driver,
   fd_cstr_ncpy( driver, base ? base+1 : target, NAME_SZ );
 }
 
+static int
+scrape_is_using_gre( void ) {
+  fd_netlink_t netlink[1];
+  if( FD_UNLIKELY( !fd_netlink_init( netlink, 42U ) ) ) return 1;
+
+  ulong  netdev_tbl_footprint = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
+  void * netdev_tbl_mem       = aligned_alloc( FD_NETDEV_TBL_ALIGN, netdev_tbl_footprint );
+  if( FD_UNLIKELY( !netdev_tbl_mem ) ) {
+    fd_netlink_fini( netlink );
+    FD_LOG_WARNING(( "failed to allocate network interface table for GRE auto detection" ));
+    return 1;
+  }
+
+  fd_netdev_tbl_join_t netdev_tbl[1];
+  FD_TEST( fd_netdev_tbl_new( netdev_tbl_mem, NETDEV_MAX, BOND_MASTER_MAX ) );
+  FD_TEST( fd_netdev_tbl_join( netdev_tbl, netdev_tbl_mem ) );
+
+  int err = fd_netdev_netlink_load_table( netdev_tbl, netlink );
+  fd_netlink_fini( netlink );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "failed to load network interfaces for GRE auto detection (%i-%s)",
+                     err, fd_io_strerror( err ) ));
+    free( netdev_tbl_mem );
+    return 1;
+  }
+
+  int is_using_gre = 0;
+  for( ushort i=0U; i<netdev_tbl->hdr->dev_cnt; i++ ) {
+    if( netdev_tbl->dev_tbl[ i ].dev_type==ARPHRD_IPGRE ) {
+      is_using_gre = 1;
+      break;
+    }
+  }
+  free( netdev_tbl_mem );
+  return is_using_gre;
+}
+
 static void
 scrape_networking( fd_auto_info_t * info,
                    char const     * if_name ) {
+  info->is_using_gre = scrape_is_using_gre();
+
   /* Check for virtual interface */
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/device", if_name ) );
@@ -293,35 +425,6 @@ fd_auto_scrape_info( fd_config_t const * config ) {
   scrape_networking( &info, config->net.interface );
 
   return info;
-}
-
-static int
-fd_auto_check_driver( fd_auto_info_t      const * info,
-                      fd_auto_driver_rq_t const * supported_drivers ) {
-  /* Check for driver requirements. */
-  if( !supported_drivers[0].name ) return 1;
-
-  for( ulong i=0UL; i<NET_DRIVER_CNT_MAX; i++ ) {
-    fd_auto_driver_rq_t const * req = &supported_drivers[ i ];
-    if( !req->name ) return 0;
-
-    if( 0==strcmp( info->driver, req->name ) ) {
-      /* Check system linux version is within bounds of min and max
-         of what this driver req requires. */
-      if( req->max_linux_major > 0UL ) {
-        if( info->linux_major>req->max_linux_major ||
-          ( info->linux_major==req->max_linux_major &&
-            info->linux_minor>req->max_linux_minor ) ) continue;
-      }
-
-
-      if( info->linux_major>req->min_linux_major ||
-        ( info->linux_major==req->min_linux_major &&
-          info->linux_minor>=req->min_linux_minor ) ) return 1;
-    }
-  }
-
-  return 0;
 }
 
 /* fd_auto_net resolves any "auto" fields in the networking
@@ -369,14 +472,17 @@ fd_config_auto( fd_config_t * config ) {
   fd_auto_net( config, &info );
 
   fd_cstr_printf( config->auto_config_log, sizeof(config->auto_config_log), NULL,
-      "network auto configure system info: provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d (driver=%s kernel=%lu.%lu virtual_if=%d bonded_if=%d slaves=%u, net_tile_cnt=%u)",
+      "network auto configure system info: provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d listen_gre=%d rss_queue_mode=%s (driver=%s kernel=%lu.%lu gre=%d virtual_if=%d bonded_if=%d slaves=%u, net_tile_cnt=%u)",
       config->net.provider,
       config->net.xdp.xdp_mode,
       config->net.xdp.poll_mode,
       config->net.xdp.xdp_zero_copy,
       config->net.xdp.native_bond,
+      config->net.xdp.listen_gre,
+      config->net.xdp.rss_queue_mode,
       info.driver[0] ? info.driver : "unknown",
       info.linux_major, info.linux_minor,
+      info.is_using_gre,
       info.is_virtual_if,
       info.is_bonded_if,
       info.bonded_if_slave_count,

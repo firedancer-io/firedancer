@@ -172,10 +172,14 @@ init_device( char const *        device,
     int gre_ntuple_error = 0;
     if( listen_gre ) gre_ntuple_error = fd_ethtool_ioctl_ntuple_set_gre( &ioc, rule_idx++, 0U );
     if( FD_UNLIKELY( gre_ntuple_error ) ) {
-      FD_LOG_ERR(( "error configuring network device (%s), failed to install ntuple rule "
-                   "to route GRE packets to Firedancer.  If you require GRE-wrapped "
-                   "traffic (e.g. with DoubleZero), set `net.xdp.rss_queue_mode=\"simple\"`.  "
-                   "Otherwise, set `net.xdp.listen_gre=false`.", device ));
+      if( strict ) {
+        FD_LOG_ERR(( "error configuring network device (%s), failed to install ntuple rule "
+                     "to route GRE packets to Firedancer.  If you require GRE-wrapped "
+                     "traffic (e.g. with DoubleZero), set `net.xdp.rss_queue_mode=\"simple\"`.  "
+                     "Otherwise, set `net.xdp.listen_gre=false`.", device ));
+      } else {
+        return 1;
+      }
     }
   }
 
