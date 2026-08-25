@@ -309,6 +309,25 @@ fd_event_snapshot_created_fill_max( fd_event_snapshot_created_t * msg ) {
 static void
 fd_event_snapshot_created_fill_max_v( void * msg ) { fd_event_snapshot_created_fill_max( (fd_event_snapshot_created_t *)msg ); }
 
+static inline void
+fd_event_admin_command_fill_max( fd_event_admin_command_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->type = INT_MAX;
+  msg->result = INT_MAX;
+  fd_memset( msg->custom_result, 0xFF, 64UL );
+  msg->custom_result_len = 64UL;
+  msg->start_time = ULONG_MAX;
+  msg->end_time = ULONG_MAX;
+  msg->payload_version = ULONG_MAX;
+  msg->has_payload_version = 1;
+  msg->payload_size = ULONG_MAX;
+  fd_memset( msg->args_json, 0xFF, 256UL );
+  msg->args_json_len = 256UL;
+}
+
+static void
+fd_event_admin_command_fill_max_v( void * msg ) { fd_event_admin_command_fill_max( (fd_event_admin_command_t *)msg ); }
+
 typedef struct {
   ulong        type;    /* event schema id */
   ulong        buf_max; /* modeled encode bound */
@@ -326,9 +345,10 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 8UL, FD_EVENT_RUNTIME_TXN_BUF_MAX, sizeof(fd_event_runtime_txn_t), "runtime_txn", fd_event_runtime_txn_fill_max_v },
   { 9UL, FD_EVENT_BLOCK_COMPLETED_BUF_MAX, sizeof(fd_event_block_completed_t), "block_completed", fd_event_block_completed_fill_max_v },
   { 11UL, FD_EVENT_SNAPSHOT_CREATED_BUF_MAX, sizeof(fd_event_snapshot_created_t), "snapshot_created", fd_event_snapshot_created_fill_max_v },
+  { 12UL, FD_EVENT_ADMIN_COMMAND_BUF_MAX, sizeof(fd_event_admin_command_t), "admin_command", fd_event_admin_command_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (8UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (9UL)
 
 FD_PROTOTYPES_END
 

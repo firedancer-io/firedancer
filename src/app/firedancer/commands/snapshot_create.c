@@ -55,7 +55,9 @@ snapshot_create_cmd_fn( args_t *   args,
   /* Send snapshot create command */
   ulong result = send_snapshot_create_cmd( topo, args->snapshot_create.slot );
   if( FD_UNLIKELY( result ) ) {
-    if( FD_LIKELY( result==FD_SNAPSHOT_CREATE_RESULT_BUSY && !args->snapshot_create.slot ) ) {
+    if( FD_UNLIKELY( result==FD_ADMINCTL_RESULT_UNSUPPORTED ) ) {
+      FD_LOG_ERR(( "snapshot creation is not supported by the running Firedancer configuration" ));
+    } else if( FD_LIKELY( result==FD_SNAPSHOT_CREATE_RESULT_BUSY && !args->snapshot_create.slot ) ) {
       FD_LOG_NOTICE(( "snapshot creation already in progress, attaching ..." ));
     } else {
       FD_LOG_ERR(( "failed to request snapshot creation (%lu)", result ));

@@ -94,9 +94,8 @@ set_identity( args_t *   args,
       FD_LOG_NOTICE(( "validator identity key switched to %s%s%s", fd_log_style_bold(), identity_key_base58, fd_log_style_normal() ));
       break;
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
-    case FD_SET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL:
-    case FD_SET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION:
-    case FD_SET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE:
+    case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
+    case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
     case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:
       FD_LOG_ERR(( "Failed to set identity: the command was not able to successfully communicate "
                    "with the running Firedancer process. It is possible that you are running the "

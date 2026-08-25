@@ -85,6 +85,9 @@ add_authorized_voter( args_t *   args,
                    "successfully communicate with the running Firedancer process. It "
                    "is possible that you are running the command from an older or "
                    "newer version of Firedancer that is no longer compatible." ));
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:
+      FD_LOG_ERR(( "Failed to add authorized voter key: the command is not supported "
+                   "by the running Firedancer configuration." ));
     case FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS:
       FD_LOG_ERR(( "Failed to add authorized voter key: maximum number of authorized voters "
                    "supported by the validator has been reached" ));

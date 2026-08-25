@@ -376,6 +376,27 @@ enum SnapshotCreatedZstdStrategy {
   SNAPSHOT_CREATED_ZSTD_STRATEGY_BTULTRA2 = 9;  // Zstandard binary-tree ultra2 strategy.
 }
 
+// The admin command that was processed.
+enum AdminCommandType {
+  ADMIN_COMMAND_TYPE_UNSPECIFIED = 0;
+  ADMIN_COMMAND_TYPE_SET_IDENTITY = 1;  // Change the running validator identity.
+  ADMIN_COMMAND_TYPE_GET_IDENTITY = 2;  // Read the running validator identity.
+  ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER = 3;  // Add an authorized voter key.
+  ADMIN_COMMAND_TYPE_REMOVE_ALL_AUTHORIZED_VOTERS = 4;  // Remove every authorized voter key.
+  ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE = 5;  // Request creation of a snapshot.
+}
+
+// The result of processing the admin command.
+enum AdminCommandResult {
+  ADMIN_COMMAND_RESULT_UNSPECIFIED = 0;
+  ADMIN_COMMAND_RESULT_SUCCESS = 1;  // The command completed successfully.
+  ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND = 2;  // The running validator does not recognize this command.
+  ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH = 3;  // The request used an unsupported admin command ABI version.
+  ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH = 4;  // The request size did not match the admin command ABI.
+  ADMIN_COMMAND_RESULT_UNSUPPORTED = 5;  // The command is not supported by this validator configuration.
+  ADMIN_COMMAND_RESULT_CUSTOM = 6;  // The command returned a command-specific result described by custom_result.
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -1182,6 +1203,28 @@ message SnapshotCreated {
   uint64 end_time = 30;
 }
 
+// An admin command completed. Emitted once for every command processed by the running validator, whether it succeeded or failed.
+message AdminCommand {
+  // The admin command that was processed.
+  AdminCommandType type = 1;
+  // The result of processing the admin command.
+  AdminCommandResult result = 2;
+  // The command-specific result when result is custom.
+  bytes custom_result = 3;
+  // Wall-clock nanosecond unix timestamp at which the command started getting processed.
+  uint64 start_time = 4;
+  // Wall-clock nanosecond unix timestamp at which the command completed.
+  uint64 end_time = 5;
+  // Payload version requested by the command. Valid only when has_payload_version is true.
+  uint64 payload_version = 6;
+  // Whether the command payload was large enough to contain payload_version.
+  bool has_payload_version = 7;
+  // Size of the received command payload in bytes.
+  uint64 payload_size = 8;
+  // Command-specific public values serialized as JSON. Unavailable values are omitted. Private key material is never included.
+  bytes args_json = 9;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -1196,5 +1239,6 @@ message Event {
     BlockCompleted block_completed = 9;
     Boot boot = 10;
     SnapshotCreated snapshot_created = 11;
+    AdminCommand admin_command = 12;
   }
 }
