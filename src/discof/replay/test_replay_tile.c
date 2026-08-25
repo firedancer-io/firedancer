@@ -547,6 +547,10 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   root->parent_accdb_fork_id = root->accdb_fork_id;
   root->f.slot = 100UL;
   ctx->restart_slot = root->f.slot;
+  /* A restart at the snapshot slot requires the cluster's bank hash, as
+     the bank hash of that slot was derived rather than replayed. */
+  ctx->wfs_enabled        = 1;
+  ctx->expected_bank_hash = root->f.bank_hash;
   ctx->has_expected_genesis_timestamp = 1;
   mock_accdb_fork_id_next = 0U;
   static ulong test_metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
@@ -562,6 +566,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( mock_last_restart_slot_update_cnt==1UL );
   root->f.slot = 0UL;
   ctx->restart_slot = 0UL;
+  ctx->wfs_enabled  = 0;
   root->refcnt = 0UL;
 
   fd_bank_t * child = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );

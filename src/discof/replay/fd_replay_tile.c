@@ -1223,7 +1223,18 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     }
 
     ulong snapshot_slot = bank->f.slot;
-    if( FD_UNLIKELY( ctx->restart_slot==snapshot_slot && ctx->restart_slot ) ) {
+
+    /* ssload derived the bank hash of the snapshot slot from the hard
+       fork instead of the runtime folding it in during replay.  Nothing
+       else checks a derived hash, so require the cluster's. */
+    int restart_derived_bank_hash = ctx->restart_slot && ctx->restart_slot==snapshot_slot;
+    if( FD_UNLIKELY( restart_derived_bank_hash ) ) {
+      if( FD_UNLIKELY( !ctx->wfs_enabled ) ) {
+        FD_LOG_ERR(( "[runtime.restart.restart_slot] is %lu, the slot this validator boots from, so the bank hash of "
+                     "that slot was derived from the scheduled hard fork rather than replayed.  Set "
+                     "[consensus.wait_for_supermajority_with_bank_hash] to the bank hash the cluster published for "
+                     "the restart slot, so that the derived bank hash is verified against it.", snapshot_slot ));
+      }
       fd_sysvar_last_restart_slot_update( bank, ctx->accdb, ctx->capture_ctx );
     }
 
@@ -1232,8 +1243,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
       FD_BASE58_ENCODE_32_BYTES( bank_hash.uc,                 actual_bank_hash_cstr );
       FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] expected_bank_hash=%s does not match snapshot slot"
-                   "=%lu bank_hash=%s. If you are loading a snapshot from the network, check that the slot matches the "
-                   "cluster restart slot. ", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
+                   "=%lu bank_hash=%s.%s If you are loading a snapshot from the network, check that the slot matches the "
+                   "cluster restart slot. ", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr,
+                   restart_derived_bank_hash ?
+                     " That bank hash was derived from the hard fork scheduled at [runtime.restart], so check that "
+                     "[runtime.restart.restart_attempt] is the attempt the cluster restarted with." : "" ));
     }
     if( FD_UNLIKELY( ctx->wfs_enabled ) ) {
       FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
