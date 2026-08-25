@@ -213,6 +213,7 @@ gossip_cmd_fn( args_t *   args,
 
   int const is_xdp = ( 0==strcmp( config->net.provider, "xdp" ) );
   if( is_xdp ) fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+  else if( 0==strcmp( config->net.provider, "mlx5" ) ) fd_topo_install_mlx5( &config->topo );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 

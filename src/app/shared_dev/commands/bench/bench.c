@@ -198,6 +198,8 @@ bench_cmd_fn( args_t *   args,
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+  } else if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+    fd_topo_install_mlx5( &config->topo );
   }
 
   initialize_accdb_fd( config );

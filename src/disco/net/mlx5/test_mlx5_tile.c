@@ -7,6 +7,7 @@
 #include "fd_mlx5_tile.c"
 #include "../fd_net_tile.h"
 #include "../../../disco/topo/fd_topob.h"
+#include "../../../app/shared/fd_config.h" /* FIXME layering violation */
 
 #include <errno.h>
 #include <signal.h>
@@ -114,8 +115,8 @@ test_hardware( char const * rdma_name,
   FD_TEST( rx_cq_entries[ 0U ].op_own==(uchar)(FD_MLX5_CQE_OP_INVALID<<4) );
   FD_TEST( tx_cq_entries[ 0U ].op_own==(uchar)(FD_MLX5_CQE_OP_INVALID<<4) );
 
-  FD_TEST( !fd_uverbs_create_udp_flow( &tile->uverbs, &tile->qp, 0U, 65535U ) );
-  FD_TEST( !fd_uverbs_create_gre_udp_flow( &tile->uverbs, &tile->qp,
+  FD_TEST( !fd_uverbs_create_udp_flow( &tile->uverbs, tile->qp.handle, 0U, 65535U ) );
+  FD_TEST( !fd_uverbs_create_gre_udp_flow( &tile->uverbs, tile->qp.handle,
                                            FD_IP4_ADDR( 192,0,2,1 ), 65535U ) );
 
   ulong out_of_buffer;
@@ -178,6 +179,65 @@ test_rx_routes( void ) {
   FD_TEST( proto==DST_PROTO_SEND );
   FD_TEST( !fd_mlx5_tile_rx_dst_port_lookup( tile, 9999U, 64UL, &out_idx, &proto ) );
 }
+
+/* test_rss_topology checks the shape of an mlx5 topology: every tile knows
+   how many tiles there are, and when receive side scaling is in play they
+   all reach the one handshake object they exchange uverbs handles
+   through. */
+static void
+test_rss_topology( ulong net_tile_cnt ) {
+  static fd_topo_t topo[1];
+  FD_TEST( fd_topob_new( topo, "test_mlx5_rss_topo" ) );
+  fd_topob_wksp( topo, "metric_in" );
+
+  fd_config_net_t net_cfg[1];
+  fd_memset( net_cfg, 0, sizeof(net_cfg) );
+  fd_cstr_ncpy( net_cfg->provider,  "mlx5", sizeof(net_cfg->provider)  );
+  fd_cstr_ncpy( net_cfg->interface, "eth0", sizeof(net_cfg->interface) );
+  net_cfg->mlx5.rx_queue_size = 1024U;
+  net_cfg->mlx5.tx_queue_size = 1024U;
+
+  ulong tile_to_cpu[ FD_TILE_MAX ];
+  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) tile_to_cpu[ i ] = ULONG_MAX;
+
+  fd_topos_net_tiles( topo, net_tile_cnt, net_cfg, 64UL, 64UL, 64UL, 0, tile_to_cpu );
+  FD_TEST( fd_topo_tile_name_cnt( topo, "mlx5" )==net_tile_cnt );
+
+  uint rss_seed = 0U;
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    ulong tile_idx = fd_topo_find_tile( topo, "mlx5", i );
+    FD_TEST( tile_idx!=ULONG_MAX );
+    fd_topo_tile_t const * mlx5_tile = &topo->tiles[ tile_idx ];
+
+    /* One tile handles its own device and needs no handshake. */
+    if( net_tile_cnt<=1UL ) {
+      FD_TEST( !mlx5_tile->mlx5.rss_seed );
+      continue;
+    }
+
+    FD_TEST( mlx5_tile->mlx5.rss_seed );
+    if( !i ) rss_seed = mlx5_tile->mlx5.rss_seed;
+    else     FD_TEST( mlx5_tile->mlx5.rss_seed==rss_seed );
+
+    /* Each tile must declare read-write use of every peer's tile object,
+       which is how it reads the peer's published uverbs handles. */
+    for( ulong j=0UL; j<net_tile_cnt; j++ ) {
+      if( i==j ) continue;
+      ulong peer_idx = fd_topo_find_tile( topo, "mlx5", j );
+      FD_TEST( peer_idx!=ULONG_MAX );
+      ulong peer_obj_id = topo->tiles[ peer_idx ].tile_obj_id;
+
+      int uses_peer = 0;
+      for( ulong k=0UL; k<mlx5_tile->uses_obj_cnt; k++ ) {
+        if( mlx5_tile->uses_obj_id[ k ]!=peer_obj_id ) continue;
+        FD_TEST( mlx5_tile->uses_obj_mode[ k ]==FD_SHMEM_JOIN_MODE_READ_WRITE );
+        uses_peer = 1;
+      }
+      FD_TEST( uses_peer );
+    }
+  }
+}
+
 #define SHRED_PORT ((ushort)4242)
 
 #define IF_IDX_LO   1U
@@ -429,6 +489,9 @@ main( int     argc,
   fd_boot( &argc, &argv );
   test_queue_footprint();
   test_rx_routes();
+  test_rss_topology( 1UL );
+  test_rss_topology( 2UL );
+  test_rss_topology( 5UL );
   test_rx_cqe_normal();
   test_tx_wqe();
   test_tx_cqe_normal();
@@ -489,6 +552,7 @@ main( int     argc,
   FD_TEST( tile );
   memset( tile, 0, sizeof(fd_mlx5_tile_t) );
   tile->batch_size    = batch_size;
+  tile->tile_cnt      = 1U;
   topo->objs[ topo_tile->tile_obj_id ].offset = (ulong)tile - (ulong)wksp;
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->tile_obj_id )==tile );
   FD_TEST( rx_link->mcache );
@@ -973,6 +1037,27 @@ main( int     argc,
   /* TX packet targeting default gateway */
   memset( &tile->tx_route, 0, sizeof(tile->tx_route) );
   tx_sig = fd_disco_netmux_sig( 0U, 0, FD_IP4_ADDR( 1,1,1,1 ), DST_PROTO_OUTGOING, 0UL );
+  FD_TEST( 0==before_frag( tile, 0UL, tx_seq, tx_sig ) );
+
+  /* Every mlx5 tile is subscribed to every TX link, so exactly one of them
+     must claim each outgoing packet. */
+  for( uint claim_tile_cnt=1U; claim_tile_cnt<=8U; claim_tile_cnt++ ) {
+    tile->tile_cnt = claim_tile_cnt;
+    for( ushort claim_port=1; claim_port<=32; claim_port++ ) {
+      ulong const claim_sig = fd_disco_netmux_sig( neigh2_ip4_addr, claim_port, neigh2_ip4_addr,
+                                                   DST_PROTO_OUTGOING, 0UL );
+      uint claim_cnt = 0U;
+      for( uint claim_tile_id=0U; claim_tile_id<claim_tile_cnt; claim_tile_id++ ) {
+        tile->tile_id = claim_tile_id;
+        memset( &tile->tx_route, 0, sizeof(tile->tx_route) );
+        claim_cnt += (uint)( 0==before_frag( tile, 0UL, tx_seq, claim_sig ) );
+      }
+      FD_TEST( claim_cnt==1U );
+    }
+  }
+  tile->tile_cnt = 1U;
+  tile->tile_id  = 0U;
+  memset( &tile->tx_route, 0, sizeof(tile->tx_route) );
   FD_TEST( 0==before_frag( tile, 0UL, tx_seq, tx_sig ) );
 
   /* TX packet with no free buffer */

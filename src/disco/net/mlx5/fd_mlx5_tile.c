@@ -144,6 +144,18 @@ struct fd_mlx5_tile {
 
   uint batch_size; /* used for both SQ/RQ and TX/RX CQ batching */
 
+  uint tile_id;
+  uint tile_cnt;
+
+  struct {
+    uint           seed;
+    fd_mlx5_caps_t caps;      /* published by mlx5:0 */
+    uint           pd_handle; /* published by mlx5:0 */
+    uint           pd_ready;
+    uint           wq_handle;
+    uint           wq_ready;
+  } rss;
+
   /* RQ batching */
   uint rq_pending_chunk[ FD_MLX5_BATCH_SIZE ];
   uint rq_pending_cnt;
@@ -797,6 +809,9 @@ before_frag( fd_mlx5_tile_t * ctx,
   ulong dst_proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( dst_proto!=DST_PROTO_OUTGOING ) ) return 1;
 
+  uint const tx_hash = (uint)fd_disco_netmux_sig_hash( sig );
+  if( FD_UNLIKELY( tx_hash%ctx->tile_cnt!=ctx->tile_id ) ) return 1;
+
   uint dst_ip = fd_disco_netmux_sig_ip( sig );
   if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, dst_ip, &ctx->tx_route ) ) ) return 1;
   if( FD_UNLIKELY( ctx->tx_route.use_gre ) ) {
@@ -1036,27 +1051,10 @@ fd_mlx5_tile_gre_tunnels_refresh( fd_mlx5_tile_t * ctx ) {
 }
 
 static inline void
-during_housekeeping( fd_mlx5_tile_t * ctx ) {
-  /* Refresh the mlx5 out_of_buffer QP counter periodically */
-  long const now_ticks = fd_tickcount();
-  if( FD_UNLIKELY( now_ticks>ctx->next_stats_refresh_ticks ) ) {
-    ctx->next_stats_refresh_ticks = now_ticks+ctx->stats_interval_ticks;
-
-    ulong rx_out_of_buffer_cnt;
-    if( FD_UNLIKELY( fd_mlx5_netlink_rdma_qp_counter_read( &ctx->netlink_rdma, &rx_out_of_buffer_cnt ) ) ) {
-      FD_LOG_ERR(( "reading mlx5 QP counters failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    }
-
-    ulong const rx_out_of_buffer_delta = rx_out_of_buffer_cnt>=ctx->rx_out_of_buffer_prev_cnt
-                                         ? rx_out_of_buffer_cnt-ctx->rx_out_of_buffer_prev_cnt
-                                         : rx_out_of_buffer_cnt;
-
-    ctx->metrics.rx_out_of_buffer_cnt += rx_out_of_buffer_delta;
-    ctx->rx_out_of_buffer_prev_cnt     = rx_out_of_buffer_cnt;
-  }
-
-  /* Drain pending uverbs async events. */
+fd_mlx5_tile_drain_async_events( fd_mlx5_tile_t * ctx ) {
   int const async_event_fd = ctx->uverbs.async_fd;
+  if( FD_UNLIKELY( async_event_fd<0 ) ) return;
+
   for(;;) {
     struct ib_uverbs_async_event_desc async_event;
     ssize_t async_event_read_sz;
@@ -1081,6 +1079,29 @@ during_housekeeping( fd_mlx5_tile_t * ctx ) {
     }
     FD_LOG_INFO(( "mlx5 async event %u on element %lu", async_event_type, async_event_element ));
   }
+}
+
+static inline void
+during_housekeeping( fd_mlx5_tile_t * ctx ) {
+  long const now_ticks = fd_tickcount();
+  if( FD_UNLIKELY( ctx->netlink_rdma.fd>=0 && now_ticks>ctx->next_stats_refresh_ticks ) ) {
+    ctx->next_stats_refresh_ticks = now_ticks+ctx->stats_interval_ticks;
+
+    ulong rx_out_of_buffer_cnt;
+    if( FD_UNLIKELY( fd_mlx5_netlink_rdma_qp_counter_read( &ctx->netlink_rdma, &rx_out_of_buffer_cnt ) ) ) {
+      FD_LOG_ERR(( "reading mlx5 QP counters failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
+    ulong const rx_out_of_buffer_delta =
+        rx_out_of_buffer_cnt >= ctx->rx_out_of_buffer_prev_cnt ?
+        rx_out_of_buffer_cnt -  ctx->rx_out_of_buffer_prev_cnt :
+        rx_out_of_buffer_cnt;
+
+    ctx->metrics.rx_out_of_buffer_cnt += rx_out_of_buffer_delta;
+    ctx->rx_out_of_buffer_prev_cnt     = rx_out_of_buffer_cnt;
+  }
+
+  fd_mlx5_tile_drain_async_events( ctx );
 
   /* Refresh the netdev snapshot when its shared state is stable */
   if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->router.netdev_shared.hdr->seqlock ) ) ) {
@@ -1135,112 +1156,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   layout = FD_LAYOUT_APPEND( layout, fd_fib4_align(),         fd_fib4_footprint( tile->mlx5.route_max, tile->mlx5.route_peer_max ) );
 
   return FD_LAYOUT_FINI( layout, scratch_align() );
-}
-
-static int
-fd_mlx5_tile_rdma_port_contains_if( char const * rdma_name,
-                                    uint         port,
-                                    char const * if_name ) {
-  char netdev_dir_path[ PATH_MAX ];
-  int path_sz = snprintf( netdev_dir_path, sizeof(netdev_dir_path),
-                          "/sys/class/infiniband/%s/ports/%u/gid_attrs/ndevs", rdma_name, port );
-  if( FD_UNLIKELY( path_sz<=0 || (ulong)path_sz>=sizeof(netdev_dir_path) ) ) return 0;
-
-  DIR * netdev_dir = opendir( netdev_dir_path );
-  if( FD_UNLIKELY( !netdev_dir ) ) return 0;
-
-  struct dirent * netdev_entry;
-  int netdev_found = 0;
-  while( !netdev_found && (netdev_entry=readdir( netdev_dir )) ) {
-    if( netdev_entry->d_name[0]=='.' ) continue;
-    char netdev_name_path[ PATH_MAX ];
-    int netdev_name_path_sz = snprintf( netdev_name_path, sizeof(netdev_name_path),
-                                        "%s/%s", netdev_dir_path, netdev_entry->d_name );
-    if( FD_UNLIKELY( netdev_name_path_sz<=0 || (ulong)netdev_name_path_sz>=sizeof(netdev_name_path) ) ) continue;
-    int netdev_fd = open( netdev_name_path, O_RDONLY );
-    if( FD_UNLIKELY( netdev_fd<0 ) ) continue;
-
-    char netdev_name[ IF_NAMESIZE+1 ];
-    ssize_t read_sz = read( netdev_fd, netdev_name, IF_NAMESIZE );
-    close( netdev_fd );
-
-    if( FD_UNLIKELY( read_sz<=0 ) ) continue;
-    while( read_sz>0 && (netdev_name[read_sz-1]=='\n' || netdev_name[read_sz-1]=='\r') ) read_sz--;
-    netdev_name[read_sz] = '\0';
-    netdev_found = !strcmp( netdev_name, if_name );
-  }
-  closedir( netdev_dir );
-  return netdev_found;
-}
-
-static int
-fd_mlx5_tile_rdma_port_matches_if( char const * rdma_name,
-                                   uint         port,
-                                   char const * if_name ) {
-  if( fd_mlx5_tile_rdma_port_contains_if( rdma_name, port, if_name ) ) return 1;
-  if( !fd_bonding_is_master( if_name ) ) return 0;
-
-  fd_bonding_slave_iter_t   iter_mem[1];
-  fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_mem, if_name );
-  while( !fd_bonding_slave_iter_done( iter ) ) {
-    char const * slave_if_name = fd_bonding_slave_iter_ele( iter );
-    if( fd_mlx5_tile_rdma_port_contains_if( rdma_name, port, slave_if_name ) ) return 1;
-    fd_bonding_slave_iter_next( iter );
-  }
-
-  return 0;
-}
-
-/* fd_mlx5_tile_rdma_dev_find maps the configured network interface or
-   one of its bond slaves to Linux's RDMA device and numbered port. */
-static void
-fd_mlx5_tile_rdma_dev_find( char                   rdma_device_name[ FD_MLX5_RDMA_NAME_MAX ],
-                            uint *                 rdma_port_num,
-                            fd_topo_tile_t const * tile ) {
-  char const * interface_name = tile->mlx5.if_name;
-  DIR * infiniband_dir = opendir( "/sys/class/infiniband" );
-  if( FD_UNLIKELY( !infiniband_dir ) ) {
-    FD_LOG_ERR(( "opendir(/sys/class/infiniband) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
-  rdma_device_name[0] = '\0';
-  *rdma_port_num = 0U;
-
-  struct dirent * device_entry;
-  while( (device_entry=readdir( infiniband_dir )) ) {
-    if( device_entry->d_name[0]=='.' ) continue;
-
-    char device_ports_path[ PATH_MAX ];
-    int const device_ports_path_sz = snprintf( device_ports_path, sizeof(device_ports_path),
-                                               "/sys/class/infiniband/%s/ports", device_entry->d_name );
-    if( FD_UNLIKELY( device_ports_path_sz<=0 || (ulong)device_ports_path_sz>=sizeof(device_ports_path) ) ) continue;
-    DIR * ports_dir = opendir( device_ports_path );
-    if( FD_UNLIKELY( !ports_dir ) ) continue;
-
-    struct dirent * port_entry;
-    while( (port_entry=readdir( ports_dir )) ) {
-      char * port_end;
-      ulong const port_num = strtoul( port_entry->d_name, &port_end, 10 );
-      if( !port_num || *port_end || port_num>(ulong)UCHAR_MAX ) continue;
-
-      if( !fd_mlx5_tile_rdma_port_matches_if( device_entry->d_name, (uint)port_num, interface_name ) ) continue;
-
-      if( FD_UNLIKELY( rdma_device_name[0] ) ) {
-        FD_LOG_ERR(( "multiple RDMA ports match interface `%s` (`%s` port %u and `%s` port %lu)",
-                     interface_name, rdma_device_name, *rdma_port_num, device_entry->d_name, port_num ));
-      }
-      fd_cstr_ncpy( rdma_device_name, device_entry->d_name, FD_MLX5_RDMA_NAME_MAX );
-      *rdma_port_num = (uint)port_num;
-    }
-    closedir( ports_dir );
-  }
-
-  if( FD_UNLIKELY( closedir( infiniband_dir ) ) ) {
-    FD_LOG_ERR(( "closedir(/sys/class/infiniband) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  if( FD_UNLIKELY( !rdma_device_name[0] ) ) {
-    FD_LOG_ERR(( "RDMA device port for interface `%s` not found", interface_name ));
-  }
 }
 
 /* fd_mlx5_tile_rx_dst_port_add maps an IPv4 UDP destination port to the
@@ -1299,6 +1214,114 @@ fd_mlx5_tile_rx_dst_ports_init( fd_mlx5_tile_t *       ctx,
   }
 }
 
+struct fd_mlx5_tile_steer {
+  uint udp_qp_handle;
+  uint gre_qp_handle;
+  uint counter_qpn;
+};
+typedef struct fd_mlx5_tile_steer fd_mlx5_tile_steer_t;
+
+static fd_mlx5_tile_t *
+fd_mlx5_tile_peer( fd_topo_t const * topo,
+                   ulong             kind_id ) {
+  ulong tile_idx = fd_topo_find_tile( topo, "mlx5", kind_id );
+  if( FD_UNLIKELY( tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile mlx5:%lu not found", kind_id ));
+  return fd_topo_obj_laddr( topo, topo->tiles[ tile_idx ].tile_obj_id );
+}
+
+/* fd_mlx5_tile_rss_wait waits for a remote mlx5 tile's flow steering
+   config to be configured. */
+
+static void
+fd_mlx5_tile_rss_wait( uint volatile const * ready,
+                       uint                  seed,
+                       char const *          what,
+                       ulong                 which ) {
+  long const deadline = fd_log_wallclock()+(long)FD_MLX5_RSS_TIMEOUT_NS;
+  while( FD_VOLATILE_CONST( *ready )!=seed ) {
+    if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
+      FD_LOG_ERR(( "timed out waiting for mlx5:%lu to publish %s", which, what ));
+    }
+    FD_YIELD();
+  }
+  FD_COMPILER_MFENCE();
+}
+
+static void
+fd_mlx5_tile_rss_init( fd_mlx5_tile_t *       ctx,
+                       fd_topo_t const *      topo,
+                       void *                 packet_memory,
+                       ulong                  packet_memory_sz,
+                       uint                   rdma_port_num,
+                       fd_mlx5_tile_steer_t * steer ) {
+  ulong const tile_id  = ctx->tile_id;
+  ulong const tile_cnt = ctx->tile_cnt;
+  uint  const seed     = ctx->rss.seed;
+  if( FD_UNLIKELY( !seed ) ) FD_LOG_ERR(( "mlx5 receive side scaling seed is unset (topology bug)" ));
+
+  if( FD_UNLIKELY( !fd_uverbs_join( &ctx->uverbs, FD_TOPO_MLX5_CMD_FD, rdma_port_num ) ) ) {
+    FD_LOG_ERR(( "adopting the shared mlx5 command fd failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  fd_mlx5_tile_t * leader = fd_mlx5_tile_peer( topo, 0UL );
+  fd_mlx5_caps_t   caps[1];
+  if( FD_LIKELY( !tile_id ) ) {
+    if( FD_UNLIKELY( fd_uverbs_open_shared( &ctx->uverbs, caps, &ctx->rss.pd_handle ) ) ) {
+      FD_LOG_ERR(( "opening the shared mlx5 context failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    ctx->rss.caps = *caps;
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( ctx->rss.pd_ready ) = seed;
+    FD_COMPILER_MFENCE();
+  } else {
+    fd_mlx5_tile_rss_wait( &leader->rss.pd_ready, seed, "the shared protection domain", 0UL );
+    *caps = leader->rss.caps;
+  }
+
+  if( FD_UNLIKELY( fd_uverbs_init_rss_tile( &ctx->uverbs, caps, leader->rss.pd_handle,
+                                            &ctx->qp,
+                                            packet_memory, packet_memory_sz,
+                                            &ctx->rss.wq_handle ) ) ) {
+    FD_LOG_ERR(( "direct mlx5 setup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( ctx->rss.wq_ready ) = seed;
+  FD_COMPILER_MFENCE();
+
+  *steer = (fd_mlx5_tile_steer_t){0};
+  if( FD_UNLIKELY( tile_id ) ) return;
+
+  uint wq_handle[ FD_MLX5_TILE_MAX ];
+  wq_handle[ 0 ] = ctx->rss.wq_handle;
+  for( ulong i=1UL; i<tile_cnt; i++ ) {
+    fd_mlx5_tile_t const * peer = fd_mlx5_tile_peer( topo, i );
+    fd_mlx5_tile_rss_wait( &peer->rss.wq_ready, seed, "its receive work queue", i );
+    wq_handle[ i ] = peer->rss.wq_handle;
+  }
+
+  uint rqt_handle;
+  if( FD_UNLIKELY( fd_uverbs_create_rqt( &ctx->uverbs, wq_handle, (uint)tile_cnt, &rqt_handle ) ) ) {
+    FD_LOG_ERR(( "creating the mlx5 receive queue indirection table failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+  }
+
+  uint qpn; /* unused */
+  if( FD_UNLIKELY( fd_uverbs_create_rss_qp(
+      &ctx->uverbs, ctx->rss.pd_handle, rqt_handle, 0,
+      &steer->udp_qp_handle, &qpn ) ) ) {
+    FD_LOG_ERR(( "creating the mlx5 RSS queue pair failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( fd_uverbs_create_rss_qp(
+      &ctx->uverbs, ctx->rss.pd_handle, rqt_handle, 1,
+      &steer->gre_qp_handle, &qpn ) ) ) {
+    FD_LOG_WARNING(( "creating the mlx5 inner hash RSS queue pair failed (%i-%s); "
+                     "all GRE traffic will arrive on tile mlx5:0",
+                     errno, fd_io_strerror( errno ) ));
+    steer->gre_qp_handle = steer->udp_qp_handle;
+  }
+}
+
 FD_FN_UNUSED static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -1337,35 +1360,51 @@ privileged_init( fd_topo_t const *      topo,
   ctx->pkt_buf_chunk0    = (uint)pkt_buf_chunk0;
   ctx->pkt_buf_wmark     = (uint)pkt_buf_wmark;
 
-  if( FD_UNLIKELY( tile->kind_id!=0 ) ) {
-    /* FIXME support receive side scaling */
-    FD_LOG_ERR(( "Sorry, net.provider='mlx5' currently only supports layout.net_tile_count=1" ));
-  }
+  ctx->tile_id         = (uint)tile->kind_id;
+  ctx->tile_cnt        = (uint)fd_topo_tile_name_cnt( topo, "mlx5" );
+  ctx->rss.seed        = tile->mlx5.rss_seed;
+  ctx->netlink_rdma.fd = -1;
 
   /* Open the device and create its uverbs resources */
   char rdma_device_name[ FD_MLX5_RDMA_NAME_MAX ];
   uint rdma_port_num;
-  fd_mlx5_tile_rdma_dev_find( rdma_device_name, &rdma_port_num, tile );
+  fd_mlx5_rdma_dev_find( rdma_device_name, &rdma_port_num, tile->mlx5.if_name );
   FD_LOG_INFO(( "Opening direct mlx5 device `%s` port %u", rdma_device_name, rdma_port_num ));
-  if( FD_UNLIKELY( !fd_uverbs_init( &ctx->uverbs, &ctx->rx_cq, &ctx->tx_cq, &ctx->qp,
-                                    rdma_device_name, rdma_port_num, packet_dcache, frame_region_sz ) ) ) {
-    FD_LOG_ERR(( "direct mlx5 setup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  fd_mlx5_tile_steer_t steer[1];
+  if( FD_LIKELY( ctx->tile_cnt==1U ) ) {
+    if( FD_UNLIKELY( !fd_uverbs_init( &ctx->uverbs, &ctx->rx_cq, &ctx->tx_cq, &ctx->qp,
+                                      rdma_device_name, rdma_port_num, packet_dcache, frame_region_sz ) ) ) {
+      FD_LOG_ERR(( "direct mlx5 setup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    *steer = (fd_mlx5_tile_steer_t){
+      .udp_qp_handle = ctx->qp.handle,
+      .gre_qp_handle = ctx->qp.handle,
+      .counter_qpn   = ctx->qp.qpn
+    };
+  } else {
+    fd_mlx5_tile_rss_init( ctx, topo, packet_dcache, frame_region_sz, rdma_port_num, steer );
   }
-  if( FD_UNLIKELY( !fd_mlx5_netlink_rdma_init( &ctx->netlink_rdma, rdma_device_name,
-                                               rdma_port_num, ctx->qp.qpn ) ) ) {
-    FD_LOG_ERR(( "initializing mlx5 QP counters failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  if( FD_UNLIKELY( fd_mlx5_netlink_rdma_qp_counter_read( &ctx->netlink_rdma,
-                                                         &ctx->rx_out_of_buffer_prev_cnt ) ) ) {
-    FD_LOG_ERR(( "reading mlx5 QP counters failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  if( FD_LIKELY( steer->counter_qpn ) ) {
+    if( FD_UNLIKELY( !fd_mlx5_netlink_rdma_init( &ctx->netlink_rdma, rdma_device_name,
+                                                 rdma_port_num, steer->counter_qpn ) ) ) {
+      FD_LOG_ERR(( "initializing mlx5 QP counters failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( fd_mlx5_netlink_rdma_qp_counter_read( &ctx->netlink_rdma,
+                                                           &ctx->rx_out_of_buffer_prev_cnt ) ) ) {
+      FD_LOG_ERR(( "reading mlx5 QP counters failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   /* Configure asynchronous device events */
-  int const async_event_fd    = ctx->uverbs.async_fd;
-  int const async_event_flags = fcntl( async_event_fd, F_GETFL );
-  if( FD_UNLIKELY( async_event_flags<0 ||
-                   fcntl( async_event_fd, F_SETFL, async_event_flags|O_NONBLOCK )<0 ) ) {
-    FD_LOG_ERR(( "making mlx5 async fd non-blocking failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  int const async_event_fd = ctx->uverbs.async_fd;
+  if( FD_LIKELY( async_event_fd>=0 ) ) {
+    int const async_event_flags = fcntl( async_event_fd, F_GETFL );
+    if( FD_UNLIKELY( async_event_flags<0 ||
+                     fcntl( async_event_fd, F_SETFL, async_event_flags|O_NONBLOCK )<0 ) ) {
+      FD_LOG_ERR(( "making mlx5 async fd non-blocking failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   /* Resolve the netdev and install RX flow steering */
@@ -1378,22 +1417,28 @@ privileged_init( fd_topo_t const *      topo,
   ctx->router.default_address = fd_mlx5_tile_if_ip4_addr( tile->mlx5.if_name );
 
   fd_mlx5_tile_rx_dst_ports_init( ctx, topo, tile );
+
+  /* Only mlx5:0 installs RSS and flow steering */
+  if( FD_UNLIKELY( !steer->udp_qp_handle ) ) return;
   for( ulong flow_idx=0UL; flow_idx<ctx->dst_port_cnt; flow_idx++ ) {
-    if( FD_UNLIKELY( fd_uverbs_create_udp_flow( &ctx->uverbs, &ctx->qp,
-                                                tile->mlx5.net.bind_address,
-                                                ctx->dst_ports[ flow_idx ] ) ) ) {
+    if( FD_UNLIKELY( fd_uverbs_create_udp_flow(
+        &ctx->uverbs, steer->udp_qp_handle,
+        tile->mlx5.net.bind_address,
+        ctx->dst_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    if( FD_UNLIKELY( fd_uverbs_create_gre_udp_flow( &ctx->uverbs, &ctx->qp,
-                                                    tile->mlx5.net.bind_address,
-                                                    ctx->dst_ports[ flow_idx ] ) ) ) {
+    if( FD_UNLIKELY( fd_uverbs_create_gre_udp_flow(
+        &ctx->uverbs, steer->gre_qp_handle,
+        tile->mlx5.net.bind_address,
+        ctx->dst_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_gre_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     FD_LOG_DEBUG(( "Created flow rule for ip4.dst_ip=" FD_IP4_ADDR_FMT " udp.dst_port:%hu",
                    FD_IP4_ADDR_FMT_ARGS( tile->mlx5.net.bind_address ),
                    ctx->dst_ports[ flow_idx ] ));
   }
-  FD_LOG_INFO(( "Installed %u direct mlx5 flow rules", 2U*ctx->dst_port_cnt ));
+  FD_LOG_INFO(( "Installed %u direct mlx5 flow rules across %u tiles",
+                2U*ctx->dst_port_cnt, ctx->tile_cnt ));
 }
 
 FD_FN_UNUSED static void
@@ -1539,8 +1584,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2;
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   out_fds[ out_cnt++ ] = ctx->uverbs.cmd_fd;
-  out_fds[ out_cnt++ ] = ctx->uverbs.async_fd;
-  out_fds[ out_cnt++ ] = ctx->netlink_rdma.fd;
+  if( FD_LIKELY( ctx->uverbs.async_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->uverbs.async_fd;
+  if( FD_LIKELY( ctx->netlink_rdma.fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->netlink_rdma.fd;
   return out_cnt;
 }
 

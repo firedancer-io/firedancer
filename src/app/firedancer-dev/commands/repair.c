@@ -843,6 +843,8 @@ repair_cmd_fn_catchup( args_t *   args,
   configure_cmd_fn( &configure_args, config );
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+  } else if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+    fd_topo_install_mlx5( &config->topo );
   }
   run_firedancer_init( config, 1, 0 );
 
@@ -973,6 +975,7 @@ repair_cmd_fn_eqvoc( args_t *   args,
   for( ulong i=0UL; STAGES[ i ]; i++ ) configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
   if( 0==strcmp( config->net.provider, "xdp" ) ) fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+  else if( 0==strcmp( config->net.provider, "mlx5" ) ) fd_topo_install_mlx5( &config->topo );
 
   run_firedancer_init( config, 1, 0 );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );

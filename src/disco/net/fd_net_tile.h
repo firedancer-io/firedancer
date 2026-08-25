@@ -160,6 +160,18 @@ fd_topo_install_xdp( fd_topo_t const * topo,
 
 #define FD_TOPO_XDP_FDS_MAX (FD_NET_BOND_SLAVE_MAX+1)
 
+/* FD_TOPO_MLX5_CMD_FD is the fixed file descriptor number of the
+   Mellanox uverbs command fd shared across mlx tiles. */
+
+#define FD_TOPO_MLX5_CMD_FD (123480)
+
+/* fd_topo_install_mlx5 opens the uverbs command device at
+   FD_TOPO_MLX5_CMD_FD if the topology uses more than one mlx5 tile.
+   No-op otherwise. */
+
+void
+fd_topo_install_mlx5( fd_topo_t const * topo );
+
 /* fd_topo_install_xdp_simple is a convenience wrapper of the above. */
 
 FD_FN_UNUSED static void

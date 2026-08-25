@@ -7,10 +7,13 @@
 #include "../../app/shared/fd_config.h" /* FIXME layering violation */
 #include "../../util/pod/fd_pod_format.h"
 #include "fd_linux_bond.h"
+#include "mlx5/fd_mlx5_private.h"
 #include "../../waltz/ip/fd_iproute.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <net/if.h>
+#include <sys/random.h>
 #include <unistd.h>
 
 char const *
@@ -238,10 +241,38 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topob_tile_out( topo, "netlnk", 0UL, "iproute_out", 0UL );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
 
-    if( FD_UNLIKELY( net_tile_cnt!=1UL ) ) {
-      FD_LOG_ERR(( "net.provider=\"mlx5\" requires layout.net_tile_count=1" ));
+    if( FD_UNLIKELY( net_tile_cnt>FD_MLX5_TILE_MAX ) ) {
+      FD_LOG_ERR(( "net.provider=\"mlx5\" supports at most %lu net tiles, but [layout.net_tile_count] is %lu",
+                   FD_MLX5_TILE_MAX, net_tile_cnt ));
     }
-    setup_mlx5_tile( topo, 0UL, netlink_tile, tile_to_cpu, net_cfg, netlnk_max_routes, netlnk_max_peer_routes );
+    for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+      setup_mlx5_tile( topo, i, netlink_tile, tile_to_cpu, net_cfg,
+                       netlnk_max_routes, netlnk_max_peer_routes );
+    }
+
+    if( net_tile_cnt>1UL ) {
+      uint rss_seed;
+      do {
+        FD_TEST( sizeof(rss_seed)==getrandom( &rss_seed, sizeof(rss_seed), 0 ) );
+      } while( FD_UNLIKELY( !rss_seed ) );
+
+      for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+        ulong tile_id = fd_topo_find_tile( topo, "mlx5", i );
+        FD_TEST( tile_id!=ULONG_MAX );
+        topo->tiles[ tile_id ].mlx5.rss_seed = rss_seed;
+      }
+      for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+        ulong tile_id = fd_topo_find_tile( topo, "mlx5", i );
+        for( ulong j=0UL; j<net_tile_cnt; j++ ) {
+          if( i==j ) continue;
+          ulong peer_id = fd_topo_find_tile( topo, "mlx5", j );
+          fd_topob_tile_uses(
+              topo, &topo->tiles[ tile_id ],
+              &topo->objs[ topo->tiles[ peer_id ].tile_obj_id ],
+              FD_SHMEM_JOIN_MODE_READ_WRITE );
+        }
+      }
+    }
 
   } else {
     FD_LOG_ERR(( "invalid `net.provider`" ));
@@ -352,6 +383,32 @@ fd_topos_xdp_setup_mem( fd_topo_t *      topo,
   fd_pod_insertf_ulong( topo->props, cum_frame_cnt, "obj.%lu.depth", umem_obj_id );
   fd_pod_insertf_ulong( topo->props, 2UL,           "obj.%lu.burst", umem_obj_id ); /* 4096 byte padding */
   fd_pod_insertf_ulong( topo->props, 2048UL,        "obj.%lu.mtu",   umem_obj_id );
+}
+
+void
+fd_topo_install_mlx5( fd_topo_t const * topo ) {
+  if( fd_topo_tile_name_cnt( topo, "mlx5" )<=1UL ) return;
+  if( fcntl( FD_TOPO_MLX5_CMD_FD, F_GETFD )>=0 ) return; /* idempotent */
+
+  ulong mlx5_tile_idx = fd_topo_find_tile( topo, "mlx5", 0UL );
+  FD_TEST( mlx5_tile_idx!=ULONG_MAX );
+  char const * if_name = topo->tiles[ mlx5_tile_idx ].mlx5.if_name;
+
+  char rdma_name[ FD_MLX5_RDMA_NAME_MAX ];
+  uint port_num;
+  fd_mlx5_rdma_dev_find( rdma_name, &port_num, if_name );
+
+  int cmd_fd = fd_uverbs_open_cmd_fd( rdma_name );
+  if( FD_UNLIKELY( cmd_fd<0 ) ) {
+    FD_LOG_ERR(( "opening the uverbs device of `%s` (RDMA device `%s`) failed (%i-%s)",
+                 if_name, rdma_name, errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==dup2( cmd_fd, FD_TOPO_MLX5_CMD_FD ) ) ) {
+    FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==close( cmd_fd ) ) ) {
+    FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 void

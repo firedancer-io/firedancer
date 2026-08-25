@@ -1,4 +1,5 @@
 #include "fd_mlx5_private.h"
+#include "../fd_linux_bond.h"
 #include "../../../util/log/fd_log.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
@@ -13,6 +14,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <net/if.h>
 #include <unistd.h>
 
 #include <linux/netlink.h>
@@ -121,20 +123,29 @@
 #define FD_MLX5_QP_ATTR_STATE (1U)    /* IB_QP_STATE */
 #define FD_MLX5_QP_ATTR_PORT  (1U<<5) /* IB_QP_PORT */
 
+#define FD_MLX5_WQS_RDY       (1U)    /* IB_WQS_RDY */
+#define FD_MLX5_WQ_ATTR_STATE (1U)    /* IB_WQ_STATE */
+
+#define FD_MLX5_RSS_HASH_FIELDS \
+  ( MLX5_RX_HASH_SRC_IPV4     | \
+    MLX5_RX_HASH_DST_IPV4     | \
+    MLX5_RX_HASH_SRC_PORT_UDP | \
+    MLX5_RX_HASH_DST_PORT_UDP )
+
+/* common Toeplitz hash key */
+static uchar const fd_mlx5_rss_key[ FD_MLX5_RSS_KEY_SZ ] = {
+  0x6d, 0x5a, 0x56, 0xda, 0x25, 0x5b, 0x0e, 0xc2,
+  0x41, 0x67, 0x25, 0x3d, 0x43, 0xa3, 0x8f, 0xb0,
+  0xd0, 0xca, 0x2b, 0xcb, 0xae, 0x7b, 0x30, 0xb4,
+  0x77, 0xcb, 0x2d, 0xa3, 0x80, 0x30, 0xf2, 0x0c,
+  0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa
+};
+
 struct fd_mlx5_pd {
   fd_uverbs_ctx_t * ctx;    /* uverbs context */
   uint              handle; /* protection domain handle */
 };
 typedef struct fd_mlx5_pd fd_mlx5_pd_t;
-
-struct fd_mlx5_caps {
-  ulong max_mr_size;
-  uint  max_send_wqe; /* max_send_wqebb, SQ WQE capacity */
-  uint  max_recv_wr;
-  uint  max_cqe;
-  uchar eth_min_inline_hdr_sz;
-};
-typedef struct fd_mlx5_caps fd_mlx5_caps_t;
 
 /* fd_uverbs_* types define Linux uverbs requests and responses */
 struct fd_uverbs_ex_hdr {
@@ -306,6 +317,60 @@ struct fd_uverbs_modify_qp_req {
 typedef struct fd_uverbs_modify_qp_req fd_uverbs_modify_qp_req_t;
 FD_STATIC_ASSERT( sizeof(fd_uverbs_modify_qp_req_t)==120UL, uverbs_modify_qp_req_sz );
 
+struct fd_uverbs_create_wq_req {
+  fd_uverbs_ex_hdr_t            hdr;
+  struct ib_uverbs_ex_create_wq core;
+  struct mlx5_ib_create_wq      mlx5;
+};
+typedef struct fd_uverbs_create_wq_req fd_uverbs_create_wq_req_t;
+FD_STATIC_ASSERT( sizeof(fd_uverbs_create_wq_req_t)==112UL, uverbs_create_wq_req_sz );
+
+struct fd_uverbs_create_wq_resp {
+  struct ib_uverbs_ex_create_wq_resp core;
+  struct mlx5_ib_create_wq_resp      mlx5;
+};
+typedef struct fd_uverbs_create_wq_resp fd_uverbs_create_wq_resp_t;
+FD_STATIC_ASSERT( sizeof(fd_uverbs_create_wq_resp_t)==32UL, uverbs_create_wq_resp_sz );
+
+struct fd_uverbs_modify_wq_req {
+  fd_uverbs_ex_hdr_t            hdr;
+  struct ib_uverbs_ex_modify_wq core;
+  struct mlx5_ib_modify_wq      mlx5;
+};
+typedef struct fd_uverbs_modify_wq_req fd_uverbs_modify_wq_req_t;
+FD_STATIC_ASSERT( sizeof(fd_uverbs_modify_wq_req_t)==56UL, uverbs_modify_wq_req_sz );
+
+struct fd_uverbs_create_rqt_req {
+  fd_uverbs_ex_hdr_t hdr;
+  uint               comp_mask;
+  uint               log_ind_tbl_size;
+  uint               wq_handle[ FD_MLX5_RQT_SZ ];
+};
+typedef struct fd_uverbs_create_rqt_req fd_uverbs_create_rqt_req_t;
+FD_STATIC_ASSERT( sizeof(fd_uverbs_create_rqt_req_t)==544UL, uverbs_create_rqt_req_sz );
+
+struct fd_uverbs_create_rqt_resp {
+  struct ib_uverbs_ex_create_rwq_ind_table_resp core;
+  struct mlx5_ib_create_rwq_ind_tbl_resp        mlx5;
+};
+typedef struct fd_uverbs_create_rqt_resp fd_uverbs_create_rqt_resp_t;
+FD_STATIC_ASSERT( sizeof(fd_uverbs_create_rqt_resp_t)==24UL, uverbs_create_rqt_resp_sz );
+
+struct fd_uverbs_create_rss_qp_req {
+  fd_uverbs_ex_hdr_t            hdr;
+  struct ib_uverbs_ex_create_qp core;
+  struct mlx5_ib_create_qp_rss  mlx5;
+};
+typedef struct fd_uverbs_create_rss_qp_req fd_uverbs_create_rss_qp_req_t;
+FD_STATIC_ASSERT( sizeof(fd_uverbs_create_rss_qp_req_t)==240UL, uverbs_create_rss_qp_req_sz );
+
+struct fd_uverbs_create_rss_qp_resp {
+  struct ib_uverbs_ex_create_qp_resp core;
+  struct mlx5_ib_create_qp_resp      mlx5;
+};
+typedef struct fd_uverbs_create_rss_qp_resp fd_uverbs_create_rss_qp_resp_t;
+FD_STATIC_ASSERT( sizeof(fd_uverbs_create_rss_qp_resp_t)==80UL, uverbs_create_rss_qp_resp_sz );
+
 struct fd_uverbs_create_udp_flow_req {
   fd_uverbs_ex_hdr_t                 hdr;
   uint                               comp_mask;
@@ -440,6 +505,99 @@ fd_mlx5_check_driver( char const * rdma_name ) {
     return -1;
   }
   return 0;
+}
+
+/* fd_mlx5_rdma_port_contains_if reports whether an RDMA device port is
+   backed by the given network interface. */
+static int
+fd_mlx5_rdma_port_contains_if( char const * rdma_name,
+                               uint         port_num,
+                               char const * if_name ) {
+  char dir_path[ FD_RDMA_PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( dir_path, sizeof(dir_path), NULL,
+                                 "/sys/class/infiniband/%s/ports/%u/gid_attrs/ndevs",
+                                 rdma_name, port_num ) );
+
+  DIR * netdev_dir = opendir( dir_path );
+  if( FD_UNLIKELY( !netdev_dir ) ) return 0;
+
+  int             netdev_found = 0;
+  struct dirent * netdev_entry;
+  while( !netdev_found && (netdev_entry=readdir( netdev_dir )) ) {
+    if( netdev_entry->d_name[0]=='.' ) continue;
+
+    char path[ FD_RDMA_PATH_MAX ];
+    char netdev_name[ IF_NAMESIZE+2UL ];
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/%s", dir_path, netdev_entry->d_name ) );
+    if( FD_UNLIKELY( fd_rdma_read_text( path, netdev_name, sizeof(netdev_name) ) ) ) continue;
+    netdev_found = !strcmp( netdev_name, if_name );
+  }
+  if( FD_UNLIKELY( closedir( netdev_dir ) ) ) return 0;
+  return netdev_found;
+}
+
+static int
+fd_mlx5_rdma_port_matches_if( char const * rdma_name,
+                              uint         port_num,
+                              char const * if_name ) {
+  if( fd_mlx5_rdma_port_contains_if( rdma_name, port_num, if_name ) ) return 1;
+  if( !fd_bonding_is_master( if_name ) ) return 0;
+
+  fd_bonding_slave_iter_t   iter_mem[1];
+  fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_mem, if_name );
+  while( !fd_bonding_slave_iter_done( iter ) ) {
+    if( fd_mlx5_rdma_port_contains_if( rdma_name, port_num, fd_bonding_slave_iter_ele( iter ) ) ) return 1;
+    fd_bonding_slave_iter_next( iter );
+  }
+  return 0;
+}
+
+void
+fd_mlx5_rdma_dev_find( char         rdma_name[ FD_MLX5_RDMA_NAME_MAX ],
+                       uint *       port_num,
+                       char const * if_name ) {
+  DIR * infiniband_dir = opendir( "/sys/class/infiniband" );
+  if( FD_UNLIKELY( !infiniband_dir ) ) {
+    FD_LOG_ERR(( "opendir(/sys/class/infiniband) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  rdma_name[0] = '\0';
+  *port_num = 0U;
+
+  struct dirent * device_entry;
+  while( (device_entry=readdir( infiniband_dir )) ) {
+    if( device_entry->d_name[0]=='.' ) continue;
+
+    char device_ports_path[ FD_RDMA_PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( device_ports_path, sizeof(device_ports_path), NULL,
+                                   "/sys/class/infiniband/%s/ports", device_entry->d_name ) );
+    DIR * ports_dir = opendir( device_ports_path );
+    if( FD_UNLIKELY( !ports_dir ) ) continue;
+
+    struct dirent * port_entry;
+    while( (port_entry=readdir( ports_dir )) ) {
+      char * port_end;
+      ulong const port = strtoul( port_entry->d_name, &port_end, 10 );
+      if( !port || *port_end || port>(ulong)UCHAR_MAX ) continue;
+
+      if( !fd_mlx5_rdma_port_matches_if( device_entry->d_name, (uint)port, if_name ) ) continue;
+
+      if( FD_UNLIKELY( rdma_name[0] ) ) {
+        FD_LOG_ERR(( "multiple RDMA ports match interface `%s` (`%s` port %u and `%s` port %lu)",
+                     if_name, rdma_name, *port_num, device_entry->d_name, port ));
+      }
+      fd_cstr_ncpy( rdma_name, device_entry->d_name, FD_MLX5_RDMA_NAME_MAX );
+      *port_num = (uint)port;
+    }
+    closedir( ports_dir );
+  }
+
+  if( FD_UNLIKELY( closedir( infiniband_dir ) ) ) {
+    FD_LOG_ERR(( "closedir(/sys/class/infiniband) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( !rdma_name[0] ) ) {
+    FD_LOG_ERR(( "RDMA device port for interface `%s` not found", if_name ));
+  }
 }
 
 /* fd_uverbs_* helpers build and submit Linux uverbs commands */
@@ -680,39 +838,80 @@ fd_uverbs_query_port( fd_uverbs_ctx_t * ctx ) {
   return 0;
 }
 
+int
+fd_uverbs_open_cmd_fd( char const * rdma_name ) {
+  char uverbs_name[ FD_UVERBS_NAME_MAX ];
+  if( FD_UNLIKELY( fd_uverbs_resolve( uverbs_name, rdma_name ) ) ) return -1;
+
+  char path[ FD_RDMA_PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/dev/infiniband/%s", uverbs_name ) );
+
+  int cmd_fd = open( path, O_RDWR ); /* not close-on-exec */
+  if( FD_UNLIKELY( cmd_fd<0 ) ) return -1;
+
+  struct stat cmd_fd_stat;
+  int err = 0;
+  if( FD_UNLIKELY( fstat( cmd_fd, &cmd_fd_stat ) ) ) err = errno;
+  else if( FD_UNLIKELY( !S_ISCHR( cmd_fd_stat.st_mode ) ) ) err = ENODEV;
+  if( FD_UNLIKELY( err ) ) {
+    close( cmd_fd );
+    errno = err;
+    return -1;
+  }
+  return cmd_fd;
+}
+
+fd_uverbs_ctx_t *
+fd_uverbs_join( fd_uverbs_ctx_t * uverbs,
+                int               cmd_fd,
+                uint              port_num ) {
+  if( FD_UNLIKELY( !uverbs || cmd_fd<0 || !port_num || port_num>(uint)UCHAR_MAX ) ) {
+    errno = EINVAL;
+    return NULL;
+  }
+  if( FD_UNLIKELY( fcntl( cmd_fd, F_GETFD )<0 ) ) {
+    errno = EBADF;
+    return NULL;
+  }
+  fd_memset( uverbs, 0, sizeof(*uverbs) );
+  uverbs->cmd_fd   = cmd_fd;
+  uverbs->async_fd = -1;
+  uverbs->port_num = port_num;
+  return uverbs;
+}
+
 static fd_uverbs_ctx_t *
 fd_uverbs_open_context( fd_uverbs_ctx_t * ctx,
                         fd_mlx5_caps_t *  caps,
                         char const *      rdma_name,
                         uint              port_num ) {
-  fd_memset( ctx, 0, sizeof(*ctx) );
   fd_memset( caps, 0, sizeof(*caps) );
-  ctx->cmd_fd   = -1;
-  ctx->async_fd = -1;
-  if( FD_UNLIKELY( !port_num || port_num>(uint)UCHAR_MAX ) ) {
-    errno = EINVAL;
-    return NULL;
-  }
-  ctx->port_num = port_num;
 
-  char uverbs_name[ FD_UVERBS_NAME_MAX ];
-  if( FD_UNLIKELY( fd_uverbs_resolve( uverbs_name, rdma_name ) ) ) return NULL;
+  int cmd_fd = fd_uverbs_open_cmd_fd( rdma_name );
+  if( FD_UNLIKELY( cmd_fd<0 ) ) return NULL;
 
-  char path[ FD_RDMA_PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/dev/infiniband/%s", uverbs_name ) );
-  ctx->cmd_fd = open( path, O_RDWR | O_CLOEXEC );
-  if( FD_UNLIKELY( ctx->cmd_fd<0 ) ) return NULL;
-
-  struct stat cmd_fd_stat;
-  if( FD_UNLIKELY( fstat( ctx->cmd_fd, &cmd_fd_stat ) ) ) return NULL;
-  if( FD_UNLIKELY( !S_ISCHR( cmd_fd_stat.st_mode ) ) ) {
-    errno = ENODEV;
+  if( FD_UNLIKELY( !fd_uverbs_join( ctx, cmd_fd, port_num ) ) ) {
+    int err = errno;
+    close( cmd_fd );
+    errno = err;
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_uverbs_get_context( ctx, caps )  ||
-                   fd_uverbs_query_device( ctx, caps ) ||
-                   fd_uverbs_query_port( ctx ) ) ) return NULL;
+  int cmd_fd_flags = fcntl( cmd_fd, F_GETFD );
+  if( FD_UNLIKELY(
+      cmd_fd_flags<0                                    ||
+      fcntl( cmd_fd, F_SETFD, cmd_fd_flags|FD_CLOEXEC ) ||
+      fd_uverbs_get_context( ctx, caps )                ||
+      fd_uverbs_query_device( ctx, caps )               ||
+      fd_uverbs_query_port( ctx ) ) ) {
+    int err = errno;
+    if( ctx->async_fd>=0 ) close( ctx->async_fd ); /* opened by get_context */
+    close( cmd_fd );
+    ctx->cmd_fd   = -1;
+    ctx->async_fd = -1;
+    errno = err;
+    return NULL;
+  }
   return ctx;
 }
 
@@ -968,12 +1167,18 @@ fd_uverbs_create_qp( fd_uverbs_ctx_t * uverbs,
                      fd_mlx5_pd_t *    pd,
                      uint              rx_cq_handle,
                      uint              tx_cq_handle,
-                     uint              uar_page_id ) {
-  if( FD_UNLIKELY( !uverbs || !qp || !qp->rx_cq || !qp->tx_cq || !qp->rq || !qp->sq ||
+                     uint              uar_page_id,
+                     int               send_only ) {
+  if( FD_UNLIKELY( !uverbs || !qp || !qp->tx_cq || !qp->sq ||
                    !qp->control || !pd || pd->ctx!=uverbs ) ) {
     errno = EINVAL;
     return NULL;
   }
+  if( FD_UNLIKELY( !send_only && (!qp->rx_cq || !qp->rq) ) ) {
+    errno = EINVAL;
+    return NULL;
+  }
+  uint const rq_depth = send_only ? 0U : qp->rx_depth;
 
   fd_uverbs_create_qp_req_t  req [1];
   fd_uverbs_create_qp_resp_t resp[1];
@@ -986,14 +1191,14 @@ fd_uverbs_create_qp( fd_uverbs_ctx_t * uverbs,
   req->send_cq_handle    = tx_cq_handle;
   req->recv_cq_handle    = rx_cq_handle;
   req->max_send_wr       = qp->tx_depth;
-  req->max_recv_wr       = qp->rx_depth;
+  req->max_recv_wr       = rq_depth;
   req->max_send_sge      = 1U;
-  req->max_recv_sge      = 1U;
+  req->max_recv_sge      = send_only ? 0U : 1U;
   req->qp_type           = IB_UVERBS_QPT_RAW_PACKET;
-  req->mlx5.buf_addr     = (ulong)qp->rq;
+  req->mlx5.buf_addr     = send_only ? (ulong)qp->sq : (ulong)qp->rq;
   req->mlx5.db_addr      = (ulong)qp->control;
   req->mlx5.sq_wqe_count = qp->tx_depth;
-  req->mlx5.rq_wqe_count = qp->rx_depth;
+  req->mlx5.rq_wqe_count = rq_depth;
   req->mlx5.rq_wqe_shift = (uint)fd_ulong_find_lsb( sizeof(fd_mlx5_rx_wqe_t) );
   req->mlx5.flags        = MLX5_QP_FLAG_UAR_PAGE_INDEX;
   req->mlx5.uidx         = 0U;
@@ -1006,10 +1211,10 @@ fd_uverbs_create_qp( fd_uverbs_ctx_t * uverbs,
   }
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
 
-  if( FD_UNLIKELY( resp->core.max_send_wr <qp->tx_depth ||
-                   resp->core.max_recv_wr <qp->rx_depth ||
-                   resp->core.max_send_sge<1U           ||
-                   resp->core.max_recv_sge<1U           ||
+  if( FD_UNLIKELY( resp->core.max_send_wr <qp->tx_depth        ||
+                   resp->core.max_recv_wr <rq_depth            ||
+                   resp->core.max_send_sge<1U                  ||
+                   resp->core.max_recv_sge<(send_only ? 0U:1U) ||
                    resp->core.qpn>0xffffffU ) ) {
     FD_LOG_WARNING(( "invalid mlx5 QP response (max send WRs %u, max receive WRs %u, max send SGEs %u, "
                      "max receive SGEs %u, QPN %u)",
@@ -1031,6 +1236,150 @@ fd_uverbs_start_qp( fd_uverbs_ctx_t * uverbs,
                    fd_uverbs_modify_qp( uverbs, qp, FD_MLX5_QPS_RTR  ) ||
                    fd_uverbs_modify_qp( uverbs, qp, FD_MLX5_QPS_RTS  ) ) ) return NULL;
   return qp;
+}
+
+static int
+fd_uverbs_create_wq( fd_uverbs_ctx_t *    uverbs,
+                     uint                 pd_handle,
+                     uint                 rx_cq_handle,
+                     fd_mlx5_qp_t const * qp,
+                     uint *               wq_handle ) {
+  fd_uverbs_create_wq_req_t  req [1];
+  fd_uverbs_create_wq_resp_t resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
+
+  ulong const core_req_sz = offsetof( fd_uverbs_create_wq_req_t, mlx5 );
+  if( FD_UNLIKELY( fd_uverbs_init_ex_hdr(
+      &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_WQ,
+      core_req_sz, sizeof(*req), resp,
+      sizeof(resp->core), sizeof(*resp) ) ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+  req->core.user_handle  = (ulong)qp;
+  req->core.pd_handle    = pd_handle;
+  req->core.cq_handle    = rx_cq_handle;
+  req->core.wq_type      = IB_UVERBS_WQT_RQ;
+  req->core.max_wr       = qp->rx_depth;
+  req->core.max_sge      = 1U;
+  req->mlx5.buf_addr     = (ulong)qp->rq;
+  req->mlx5.db_addr      = (ulong)qp->control;
+  req->mlx5.rq_wqe_count = qp->rx_depth;
+  req->mlx5.rq_wqe_shift = (uint)fd_ulong_find_lsb( sizeof(fd_mlx5_rx_wqe_t) );
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return -1;
+
+  if( FD_UNLIKELY( resp->core.max_wr<qp->rx_depth || resp->core.max_sge<1U ) ) {
+    FD_LOG_WARNING(( "invalid mlx5 WQ response (max WRs %u, requested %u, max SGEs %u)",
+                     resp->core.max_wr, qp->rx_depth, resp->core.max_sge ));
+    errno = EPROTO;
+    return -1;
+  }
+
+  *wq_handle = resp->core.wq_handle;
+  return 0;
+}
+
+static int
+fd_uverbs_start_wq( fd_uverbs_ctx_t * uverbs,
+                    uint              wq_handle ) {
+  fd_uverbs_modify_wq_req_t req[1];
+  fd_memset( req, 0, sizeof(req) );
+
+  ulong const core_req_sz = offsetof( fd_uverbs_modify_wq_req_t, mlx5 );
+  if( FD_UNLIKELY( fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_MODIFY_WQ,
+                                          core_req_sz, sizeof(*req), NULL, 0UL, 0UL ) ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+  req->core.attr_mask = FD_MLX5_WQ_ATTR_STATE;
+  req->core.wq_handle = wq_handle;
+  req->core.wq_state  = FD_MLX5_WQS_RDY;
+  return fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) );
+}
+
+int
+fd_uverbs_create_rqt( fd_uverbs_ctx_t * uverbs,
+                      uint const *      wq_handle,
+                      uint              wq_cnt,
+                      uint *            rqt_handle ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !wq_handle || !wq_cnt ||
+                   wq_cnt>FD_MLX5_RQT_SZ || !rqt_handle ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  fd_uverbs_create_rqt_req_t  req [1];
+  fd_uverbs_create_rqt_resp_t resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
+
+  if( FD_UNLIKELY( fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_RWQ_IND_TBL,
+                                          sizeof(*req), sizeof(*req), resp,
+                                          sizeof(resp->core), sizeof(*resp) ) ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+  req->log_ind_tbl_size = FD_MLX5_RQT_LG_SZ;
+  for( ulong i=0UL; i<FD_MLX5_RQT_SZ; i++ ) req->wq_handle[ i ] = wq_handle[ i%wq_cnt ];
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return -1;
+
+  *rqt_handle = resp->core.ind_tbl_handle;
+  return 0;
+}
+
+int
+fd_uverbs_create_rss_qp( fd_uverbs_ctx_t * uverbs,
+                         uint              pd_handle,
+                         uint              rqt_handle,
+                         int               inner,
+                         uint *            qp_handle,
+                         uint *            qpn ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !qp_handle || !qpn ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  fd_uverbs_create_rss_qp_req_t  req [1];
+  fd_uverbs_create_rss_qp_resp_t resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
+
+  ulong const core_req_sz = offsetof( fd_uverbs_create_rss_qp_req_t, mlx5 );
+  if( FD_UNLIKELY( fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_QP,
+                                          core_req_sz, sizeof(*req), resp,
+                                          sizeof(resp->core), sizeof(*resp) ) ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  /* An RSS QP carries neither a send nor a receive queue of its own.  It
+     exists to name the indirection table in a flow rule, so every queue
+     size stays zero and Linux skips the completion queue lookups. */
+  req->core.pd_handle          = pd_handle;
+  req->core.qp_type            = IB_UVERBS_QPT_RAW_PACKET;
+  req->core.comp_mask          = IB_UVERBS_CREATE_QP_MASK_IND_TABLE;
+  req->core.rwq_ind_tbl_handle = rqt_handle;
+
+  req->mlx5.rx_hash_function   = MLX5_RX_HASH_FUNC_TOEPLITZ;
+  req->mlx5.rx_key_len         = (uchar)FD_MLX5_RSS_KEY_SZ;
+  fd_memcpy( req->mlx5.rx_hash_key, fd_mlx5_rss_key, FD_MLX5_RSS_KEY_SZ );
+  req->mlx5.rx_hash_fields_mask = FD_MLX5_RSS_HASH_FIELDS;
+  if( inner ) {
+    req->mlx5.rx_hash_fields_mask |= MLX5_RX_HASH_INNER;
+    req->mlx5.flags                = MLX5_QP_FLAG_TUNNEL_OFFLOADS;
+  }
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return -1;
+
+  if( FD_UNLIKELY( resp->core.base.qpn>0xffffffU ) ) {
+    FD_LOG_WARNING(( "invalid mlx5 RSS QP response (QPN %u)", resp->core.base.qpn ));
+    errno = EPROTO;
+    return -1;
+  }
+
+  *qp_handle = resp->core.base.qp_handle;
+  *qpn       = resp->core.base.qpn;
+  return 0;
 }
 
 static int
@@ -1069,20 +1418,21 @@ fd_uverbs_init_udp_flow_req( fd_uverbs_create_udp_flow_req_t *   req,
 }
 
 int
-fd_uverbs_create_udp_flow( fd_uverbs_ctx_t *    uverbs,
-                           fd_mlx5_qp_t const * qp,
-                           uint                 dst_ip,
-                           ushort               dst_port ) {
-  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !qp || !dst_port ) ) {
+fd_uverbs_create_udp_flow( fd_uverbs_ctx_t * uverbs,
+                           uint              qp_handle,
+                           uint              dst_ip,
+                           ushort            dst_port ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !dst_port ) ) {
     errno = EINVAL;
     return -1;
   }
 
   fd_uverbs_create_udp_flow_req_t   req [1];
   struct ib_uverbs_create_flow_resp resp[1];
-  if( FD_UNLIKELY( fd_uverbs_init_udp_flow_req( req, resp, qp->handle,
-                                                uverbs->port_num, dst_ip,
-                                                dst_port ) ) ) {
+  if( FD_UNLIKELY( fd_uverbs_init_udp_flow_req(
+        req, resp, qp_handle,
+        uverbs->port_num, dst_ip,
+        dst_port ) ) ) {
     errno = EINVAL;
     return -1;
   }
@@ -1145,20 +1495,21 @@ fd_uverbs_init_gre_flow_req( fd_uverbs_create_gre_flow_req_t *   req,
 }
 
 int
-fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *    uverbs,
-                               fd_mlx5_qp_t const * qp,
-                               uint                 inner_dst_ip,
-                               ushort               inner_dst_port ) {
-  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !qp || !inner_dst_port ) ) {
+fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t * uverbs,
+                               uint              qp_handle,
+                               uint              inner_dst_ip,
+                               ushort            inner_dst_port ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !inner_dst_port ) ) {
     errno = EINVAL;
     return -1;
   }
 
   fd_uverbs_create_gre_flow_req_t   req [1];
   struct ib_uverbs_create_flow_resp resp[1];
-  if( FD_UNLIKELY( fd_uverbs_init_gre_flow_req( req, resp, qp->handle,
-                                                uverbs->port_num, inner_dst_ip,
-                                                inner_dst_port ) ) ) {
+  if( FD_UNLIKELY( fd_uverbs_init_gre_flow_req(
+        req, resp, qp_handle,
+        uverbs->port_num, inner_dst_ip,
+        inner_dst_port ) ) ) {
     errno = EINVAL;
     return -1;
   }
@@ -1201,10 +1552,90 @@ fd_uverbs_init( fd_uverbs_ctx_t * uverbs,
                    !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tx_cq, uar_page_id, caps->max_cqe ) ||
                    !fd_uverbs_alloc_pd( pd, uverbs ) ||
                    !fd_uverbs_register_mr( &qp->lkey, pd, packet_memory, packet_memory_sz, caps->max_mr_size ) ||
-                   !fd_uverbs_create_qp( uverbs, qp, pd, rx_cq_handle, tx_cq_handle, uar_page_id ) ||
+                   !fd_uverbs_create_qp( uverbs, qp, pd, rx_cq_handle, tx_cq_handle, uar_page_id, 0 ) ||
                    !fd_uverbs_start_qp( uverbs, qp ) ) ) return NULL;
   qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;
   return qp;
+}
+
+int
+fd_uverbs_open_shared( fd_uverbs_ctx_t * uverbs,
+                       fd_mlx5_caps_t *  caps,
+                       uint *            pd_handle ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !caps || !pd_handle ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+  fd_memset( caps, 0, sizeof(*caps) );
+
+  if( FD_UNLIKELY(
+      fd_uverbs_get_context( uverbs, caps )  ||
+      fd_uverbs_query_device( uverbs, caps ) ||
+      fd_uverbs_query_port( uverbs ) ) ) return -1;
+
+  fd_mlx5_pd_t pd[1];
+  if( FD_UNLIKELY( !fd_uverbs_alloc_pd( pd, uverbs ) ) ) return -1;
+  *pd_handle = pd->handle;
+  return 0;
+}
+
+int
+fd_uverbs_init_rss_tile( fd_uverbs_ctx_t *      uverbs,
+                         fd_mlx5_caps_t const * caps,
+                         uint                   pd_handle,
+                         fd_mlx5_qp_t *         qp,
+                         void *                 packet_memory,
+                         ulong                  packet_memory_sz,
+                         uint *                 wq_handle ) {
+  if( FD_UNLIKELY(
+      !uverbs || !caps || !qp || !wq_handle ||
+      !qp->rx_cq || !qp->tx_cq ||
+      uverbs->cmd_fd<0 ||
+      qp->rx_depth!=qp->rx_cq->depth ||
+      qp->tx_depth!=qp->tx_cq->depth ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+  if( FD_UNLIKELY(
+      !fd_uint_is_pow2( qp->rx_depth ) ||
+      !fd_uint_is_pow2( qp->tx_depth ) ||
+      qp->rx_depth    > caps->max_recv_wr  ||
+      qp->tx_depth    > caps->max_send_wqe ||
+      qp->rx_depth-1U > caps->max_cqe      ||
+      qp->tx_depth-1U > caps->max_cqe
+  ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  fd_mlx5_pd_t pd[1] = {{ .ctx = uverbs, .handle = pd_handle }};
+
+  uint uar_page_id;
+  uint rx_cq_handle;
+  uint tx_cq_handle;
+  qp->sq_doorbell = fd_uverbs_map_uar( uverbs, &uar_page_id );
+  if( FD_UNLIKELY(
+      !qp->sq_doorbell ||
+      !fd_uverbs_create_cq( &rx_cq_handle, uverbs, qp->rx_cq, uar_page_id, caps->max_cqe ) ||
+      !fd_uverbs_create_cq( &tx_cq_handle, uverbs, qp->tx_cq, uar_page_id, caps->max_cqe ) ||
+      !fd_uverbs_register_mr( &qp->lkey, pd, packet_memory, packet_memory_sz, caps->max_mr_size ) ) ) {
+    return -1;
+  }
+
+  if( FD_UNLIKELY(
+      fd_uverbs_create_wq( uverbs, pd_handle, rx_cq_handle, qp, wq_handle ) ||
+      fd_uverbs_start_wq( uverbs, *wq_handle ) ) ) {
+    return -1;
+  }
+
+  if( FD_UNLIKELY(
+      !fd_uverbs_create_qp( uverbs, qp, pd, tx_cq_handle, tx_cq_handle, uar_page_id, 1 ) ||
+      !fd_uverbs_start_qp( uverbs, qp ) ) ) {
+    return -1;
+  }
+
+  qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;
+  return 0;
 }
 
 #define FD_MLX5_NL_RECV_BUF_SZ (8192UL)

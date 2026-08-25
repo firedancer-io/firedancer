@@ -362,6 +362,11 @@ main_pid_namespace( void * _args ) {
     fd_topo_install_xdp( &config->topo, xdp_fds, &xdp_fds_cnt, config->net.bind_address_parsed, 0 );
   }
 
+  int need_mlx5_cmd_fd =
+      0==strcmp( config->net.provider, "mlx5" ) &&
+      fd_topo_tile_name_cnt( &config->topo, "mlx5" )>1UL;
+  if( need_mlx5_cmd_fd ) fd_topo_install_mlx5( &config->topo );
+
   initialize_accdb_fd( config );
   ulong snap_max                = 0UL;
   int   snapshot_upload_enabled = 0;
@@ -392,6 +397,13 @@ main_pid_namespace( void * _args ) {
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
+        }
+      }
+
+      if( need_mlx5_cmd_fd ) {
+        int cloexec = !!strcmp( tile->name, "mlx5" );
+        if( FD_UNLIKELY( -1==fcntl( FD_TOPO_MLX5_CMD_FD, F_SETFD, cloexec ? FD_CLOEXEC : 0 ) ) ) {
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
       }
 
@@ -476,6 +488,9 @@ main_pid_namespace( void * _args ) {
       if( FD_UNLIKELY( close( xdp_fds[i].xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( close( xdp_fds[i].prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
+  }
+  if( need_mlx5_cmd_fd ) {
+    if( FD_UNLIKELY( close( FD_TOPO_MLX5_CMD_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   if( FD_LIKELY( config->is_firedancer ) ) {
