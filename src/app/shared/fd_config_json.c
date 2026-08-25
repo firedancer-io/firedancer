@@ -158,6 +158,7 @@ static char const * const jw_reported_keys[] = {
   "net.xdp.xdp_zero_copy",
   "net.xdp.poll_mode",
   "net.xdp.rss_queue_mode",
+  "net.xdp.listen_gre",
   "net.xdp.native_bond",
   "tiles.bundle.tls_domain_name",
   "tiles.bundle.tip_distribution_program_addr",

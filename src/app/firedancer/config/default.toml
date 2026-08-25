@@ -1246,29 +1246,28 @@ telemetry = true
         #   UDP dst port.  Packets are load balanced across the
         #   dedicated queues based on lowest bits of source address.
         #   This mode may not work with some network device setups,
-        #   particularly when using more than one net tile.
+        #   particularly when using more than one net tile. This
+        #   option should not be selected if using GRE.
         #
         # "auto" (default)
-        #   Attempts to run in "dedicated" mode but automatically falls
-        #   back to "simple" mode if necessary.
+        #   Automatically decides whether to attempt to use "dedicated"
+        #   mode or "simple" depending on your system and whether you
+        #   have an UP GRE interface.
         rss_queue_mode = "auto"
 
         # Some specialized networking setups, including DoubleZero,
-        # deliver packets to the validator in a GRE tunnel.  By default,
-        # when using rss_queue_mode="dedicated", Firedancer ignores all
-        # GRE-wrapped traffic.  Setting this option to true causes
-        # Firedancer to install an ethtool 'ntuple' rule routing GRE
-        # traffic to a Firedancer net tile, enabling Firedancer to see
-        # GRE-wrapped traffic.
+        # deliver packets to the validator in a GRE tunnel.
         #
-        # Unfortunately, few NICs are compatible with this class of
-        # rule, but ConnectX NICs (mlx5) are known to support the
-        # option.  If your NIC does not support the rule and you must
-        # use GRE tunnels, set rss_queue_mode = "simple".  If
-        # rss_queue_mode is simple, this option is ignored, and
-        # Firedancer automatically listens to GRE-wrapped traffic when a
-        # GRE tunnel interface is configured.
-        listen_gre = false
+        # If rss_queue_mode is "simple", this option is ignored, and
+        # Firedancer automatically listens to GRE-wrapped traffic when
+        # a GRE tunnel interface is configured.
+        #
+        # If this option is set to "auto", GRE support will only be
+        # ensured when an UP GRE interface is detected.
+        #
+        # Its possible values are:
+        #  "true", "false" or "auto" (default)
+        listen_gre = "auto"
 
         # Enable native network bonding support.
         #
