@@ -7,11 +7,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Accdb records runtime-generated account stores in addition to
-   transaction writable accounts.  Keep the existing production
-   capacity until those stores have an independently proven bound. */
-#define FD_TOPO_ACCDB_MAX_ACCOUNT_WRITES_PER_SLOT (367535UL)
-
 /* fd_topo_initialize constructs a full validator config according to
    the given topology.  Populates config->topo. */
 
