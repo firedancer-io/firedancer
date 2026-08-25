@@ -20,6 +20,22 @@ send_contact_info( fd_snapct_tile_t *           ctx,
 }
 
 static void
+send_contact_info_with_rpc( fd_snapct_tile_t *           ctx,
+                            fd_gossip_update_message_t * msg,
+                            ulong                        idx,
+                            fd_pubkey_t const *          pubkey,
+                            fd_ip4_port_t                rpc_addr ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
+  fd_memcpy( msg->origin, pubkey->uc, sizeof(fd_pubkey_t) );
+  msg->contact_info->idx = idx;
+  msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].is_ipv6 = 0;
+  msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].ip4     = rpc_addr.addr;
+  msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].port    = rpc_addr.port;
+  gossip_frag( ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO, 0UL );
+}
+
+static void
 send_contact_info_remove( fd_snapct_tile_t *           ctx,
                           fd_gossip_update_message_t * msg,
                           ulong                        idx,
@@ -111,6 +127,42 @@ setup_blacklist_snapct( void *              scratch,
   FD_TEST( ctx->selector );
   FD_TEST( ctx->blacklist_pool );
   FD_TEST( ctx->blacklist_map );
+
+  *ctx_out = ctx;
+}
+
+static void
+setup_full_snapct( void *                       scratch,
+                   fd_ssping_t *                ssping,
+                   fd_snapct_tile_t **          ctx_out,
+                   fd_gossip_update_message_t * msg ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_snapct_tile_t *  ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t)                                                   );
+  memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  gossip_ci_entry_t * ci_table = FD_SCRATCH_ALLOC_APPEND( l, alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX                                 );
+  void *              ci_map   = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
+  void *              sel      = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX )                            );
+  void *              bl_pool  = FD_SCRATCH_ALLOC_APPEND( l, blacklist_pool_align(),     blacklist_pool_footprint( TOTAL_PEERS_MAX )                                );
+  void *              bl_map   = FD_SCRATCH_ALLOC_APPEND( l, blacklist_map_align(),      blacklist_map_footprint( blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ) )  );
+
+  fd_memset( ci_table, 0, sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX );
+  ctx->gossip.ci_table = ci_table;
+  ctx->gossip.ci_map   = gossip_ci_map_join( gossip_ci_map_new( ci_map, gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ), TEST_GOSSIP_CI_SEED ) );
+  FD_TEST( ctx->gossip.ci_map );
+
+  ctx->ssping         = ssping;
+  ctx->selector       = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->blacklist_pool = blacklist_pool_join( blacklist_pool_new( bl_pool, TOTAL_PEERS_MAX ) );
+  ctx->blacklist_map  = blacklist_map_join( blacklist_map_new( bl_map, blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ), TEST_BLACKLIST_SEED ) );
+  FD_TEST( ctx->selector );
+  FD_TEST( ctx->blacklist_pool );
+  FD_TEST( ctx->blacklist_map );
+
+  ctx->gossip_in_mem = msg;
+  ctx->gossip_enabled = 1;
+  ctx->config.sources.gossip.allow_any      = 1;
+  ctx->config.sources.gossip.allow_list_cnt = 0UL;
+  ctx->config.sources.gossip.block_list_cnt = 0UL;
 
   *ctx_out = ctx;
 }
@@ -503,6 +555,82 @@ test_blacklist_pool_exhaustion( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+static void
+test_contact_info_public_rpc_address( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_snapct_tile_t * ctx;
+  setup_full_snapct( scratch, ssping, &ctx, msg );
+
+  ulong const idx = 3UL;
+  fd_pubkey_t  peer = test_pubkey( 0x55 );
+  fd_ip4_port_t pub = test_addr( 0x08080808 /* 8.8.8.8 */, 8899 );
+
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, pub );
+
+  FD_TEST( ctx->gossip.ci_table[ idx ].allowed );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==pub.l );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  /* Clean up ssping state so the shared instance can be reused. */
+  fd_ssping_remove( ctx->ssping, pub );
+
+  free( scratch );
+}
+
+static void
+test_contact_info_invalid_rpc_address_cleared( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_snapct_tile_t * ctx;
+  setup_full_snapct( scratch, ssping, &ctx, msg );
+
+  ulong const idx = 4UL;
+  fd_pubkey_t   peer    = test_pubkey( 0x66 );
+  fd_ip4_port_t private = test_addr( 0x0A000001 /* 10.0.0.1 */, 8899 );
+
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, private );
+
+  /* The peer is allowed, but its address should have been normalized
+     to zero by the sanitizer. */
+  FD_TEST( ctx->gossip.ci_table[ idx ].allowed );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==0UL );
+  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  free( scratch );
+}
+
+static void
+test_contact_info_public_to_invalid_update( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_snapct_tile_t * ctx;
+  setup_full_snapct( scratch, ssping, &ctx, msg );
+
+  ulong const idx = 5UL;
+  fd_pubkey_t   peer = test_pubkey( 0x77 );
+  fd_ip4_port_t pub  = test_addr( 0x01020304 /* 1.2.3.4 */, 8899 );
+
+  /* First gossip refresh: public address is accepted. */
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, pub );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==pub.l );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  /* Second gossip refresh: peer now advertises a private address. */
+  fd_ip4_port_t private = test_addr( 0xC0A80001 /* 192.168.0.1 */, 8899 );
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, private );
+
+  /* The address should be zeroed and the peer removed from the
+     selector.  ssping should have removed the old public address. */
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==0UL );
+  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -527,6 +655,10 @@ main( int     argc,
   FD_TEST( _ssping_mem );
   fd_ssping_t * ssping = fd_ssping_join( fd_ssping_new( _ssping_mem, ssping_max, TEST_SSPING_SEED, on_ping_stub, NULL ) );
   FD_TEST( ssping );
+
+  test_contact_info_public_rpc_address( ssping );
+  test_contact_info_invalid_rpc_address_cleared( ssping );
+  test_contact_info_public_to_invalid_update( ssping );
 
   test_blacklist_peer_basic( ssping );
   test_blacklist_peer_dedup( ssping );

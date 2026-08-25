@@ -1439,6 +1439,17 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       fd_ip4_port_t new_addr;
       new_addr.addr = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].is_ipv6 ? 0 : msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].ip4;
       new_addr.port = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].port;
+      /* Sanitize non-public/multicast/broadcast addresses to zero so
+         they are never stored in entry->rpc_addr or handed to
+         downstream code paths (e.g. on_snapshot_hash).  Normalizing
+         before comparing against cur_addr avoids repeated selector
+         removals and log warnings on every gossip refresh. */
+      uint unfiltered_addr = new_addr.addr;
+      if( FD_UNLIKELY( !fd_ip4_addr_is_public( new_addr.addr ) ||
+                        fd_ip4_addr_is_mcast( new_addr.addr )  ||
+                        fd_ip4_addr_is_bcast( new_addr.addr ) ) ) {
+        new_addr.l = 0;
+      }
 
       if( FD_UNLIKELY( new_addr.l!=cur_addr.l ) ) {
         fd_sspeer_key_t entry_key = {0};
@@ -1458,6 +1469,9 @@ gossip_frag( fd_snapct_tile_t *  ctx,
             }
           }
         } else {
+          if( FD_UNLIKELY( !!unfiltered_addr ) ) {
+            FD_LOG_WARNING(( "filtered non-public RPC address " FD_IP4_ADDR_FMT " from gossip peer", FD_IP4_ADDR_FMT_ARGS( unfiltered_addr ) ));
+          }
           fd_sspeer_selector_remove( ctx->selector, &entry_key );
         }
         if( FD_LIKELY( !!cur_addr.l ) ) {

@@ -54,6 +54,11 @@ test_ip4_addr_is_public( void ) {
   // Loopback address should also return 0
   FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(127,   0,   0,   1) ) == 0 );
 
+  // "This network" 0.0.0.0/8 (RFC 791) should return 0
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(  0,   0,   0,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(  0,   0,   0,   1) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(  0, 255, 255, 255) ) == 0 );
+
   // More private addresses tests
   FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR( 10,   0,   0,   0) ) == 0 );
   FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR( 10, 255, 255, 255) ) == 0 );
@@ -61,6 +66,70 @@ test_ip4_addr_is_public( void ) {
   FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(172,  31, 255, 255) ) == 0 );
   FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192, 168,   0,   0) ) == 0 );
   FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192, 168, 255, 255) ) == 0 );
+
+  // Link-local addresses (169.254.0.0/16) should return 0
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(169, 254,   0,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(169, 254,   1,   1) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(169, 254, 255, 255) ) == 0 );
+
+  // CGNAT addresses (100.64.0.0/10) should return 0
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(100,  64,   0,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(100, 100, 100, 100) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(100, 127, 255, 255) ) == 0 );
+
+  // Boundary: just outside CGNAT should return 1
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(100, 128,   0,   0) ) == 1 );
+
+  // Boundary: just outside link-local should return 1
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(169, 253, 255, 255) ) == 1 );
+
+  // Reserved 240.0.0.0 – 255.255.255.254 should return 0
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(240,   0,   0,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(250,   1,   2,   3) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(255, 255, 255, 254) ) == 0 );
+
+  // Broadcast is not caught by fd_ip4_addr_is_public (use fd_ip4_addr_is_bcast)
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(255, 255, 255, 255) ) == 1 );
+
+  // Boundary: just below reserved should return 1
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(239, 255, 255, 255) ) == 1 );
+
+  // Boundary: just above "this network" should return 1
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(  1,   0,   0,   0) ) == 1 );
+
+  // Documentation addresses (RFC 5737) should return 0
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,   0,   2,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,   0,   2, 255) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(198,  51, 100,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(198,  51, 100, 255) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(203,   0, 113,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(203,   0, 113, 255) ) == 0 );
+
+  // Benchmarking addresses (RFC 2544) should return 0
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(198,  18,   0,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(198,  19, 255, 255) ) == 0 );
+
+  // Boundary: just outside documentation/benchmarking should return 1
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,   0,   3,   0) ) == 1 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(198,  20,   0,   0) ) == 1 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(203,   0, 114,   0) ) == 1 );
+
+  // IETF Protocol Assignments (192.0.0.0/24, RFC 6890) should return 0
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,   0,   0,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,   0,   0, 128) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,   0,   0, 255) ) == 0 );
+
+  // Boundary: just outside IETF Protocol Assignments should return 1
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,   0,   1,   0) ) == 1 );
+
+  // 6to4 Relay Anycast (192.88.99.0/24, RFC 7526) should return 0
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,  88,  99,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,  88,  99,   1) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,  88,  99, 255) ) == 0 );
+
+  // Boundary: just outside 6to4 Relay Anycast should return 1
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,  88,  98, 255) ) == 1 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192,  88, 100,   0) ) == 1 );
 }
 
 
