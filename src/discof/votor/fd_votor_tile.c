@@ -292,7 +292,7 @@ quic_datagram_rx( fd_quic_conn_t * conn,
     ushort rank = peer_rank( conn, epoch_info );
     if( FD_UNLIKELY( rank>=epoch_info->validator_cnt ) ) return; /* not an authenticated validator this epoch */
     ag_vote_set_rank( &ctx->scratch.vote, rank );
-    // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, epoch_info->validators[ rank ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
+    // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, &epoch_info->validators[ rank ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
     return;
   }

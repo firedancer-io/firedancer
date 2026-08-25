@@ -8,20 +8,16 @@
 
 #define AG_BLS_VERIFY_MAX (2UL)
 
-#define AG_BLS_GT_SZ      (48UL*12UL)
-
-FD_STATIC_ASSERT( AG_BLS_VERIFY_MAX+1UL<=FD_BLS12_381_PAIRING_BATCH_SZ, pairing_batch );
-
 void
 ag_bls_sec_to_pub( ag_bls_sec_t const sk,
-                   ag_bls_pub_t       pk ) {
+                   ag_bls_pub_t *     pk ) {
   blst_scalar    scalar[1];
   blst_p1        p[1];
   blst_p1_affine a[1];
   blst_scalar_from_lendian( scalar, sk );
   blst_sk_to_pk_in_g1( p, scalar );
   blst_p1_to_affine( a, p );
-  blst_p1_affine_serialize( pk, a );
+  blst_p1_affine_serialize( pk->bytes, a );
 }
 
 void
@@ -50,96 +46,111 @@ ag_bls_sec_derive( ag_bls_sec_t  sk,
   fd_memcpy( sk, scalar->b, AG_BLS_SEC_SZ );
 }
 
-static int
-pub_validate( uchar const * pk ) {
-  if( FD_UNLIKELY( !fd_bls12_381_g1_validate_syscall( pk, 1 ) ) ) return 0;
+/* ag_bls_pub_t values have already passed the subgroup check at their
+   construction boundary. */
 
-  blst_p1_affine a[1];
-  if( FD_UNLIKELY( blst_p1_deserialize( a, pk )!=BLST_SUCCESS ) ) return 0;
-  return !blst_p1_affine_is_inf( a );
+static int
+pub_deserialize( blst_p1_affine * out,
+                 ag_bls_pub_t const * in ) {
+  return blst_p1_deserialize( out, in->bytes )==BLST_SUCCESS &&
+         !blst_p1_affine_is_inf( out );
 }
 
 static int
-pub_aggregate( uchar *       out,
-               uchar const * pks,
-               ulong         cnt ) {
-  if( FD_UNLIKELY( !cnt ) ) return -1;
-
-  for( ulong i=0UL; i<cnt; i++ ) {
-    uchar const * pk = pks + i*AG_BLS_PUB_SZ; /* assumes pks are validated epoch_info keys */
-    if( FD_UNLIKELY( !i ) ) { fd_memcpy( out, pk, AG_BLS_PUB_SZ ); continue; }
-    if( FD_UNLIKELY( fd_bls12_381_g1_add_syscall( out, out, pk, 1 ) ) ) return -1;
+pub_from_bytes( blst_p1_affine * out,
+                uchar const *    in,
+                ulong            in_sz ) {
+  BLST_ERROR err;
+  switch( in_sz ) {
+  case AG_BLS_PUB_COMPRESSED_SZ: err = blst_p1_uncompress ( out, in ); break;
+  case AG_BLS_PUB_SZ:            
+    if( FD_UNLIKELY( in[0]&0xA0U ) ) return 0;  
+    err = blst_p1_deserialize( out, in ); 
+    break;
+  default: return 0;
   }
+  return err==BLST_SUCCESS &&
+         !blst_p1_affine_is_inf( out ) &&
+         blst_p1_affine_in_g1( out );
+}
+
+static int
+pub_aggregate( blst_p1_affine *    out,
+               ag_bls_pub_t const * pks,
+               signer_set_t const * signers,
+               ulong                pk_cnt ) {
+  if( FD_UNLIKELY( !pk_cnt || pk_cnt>AG_BLS_SIGNERS_MAX ) ) return -1;
+
+  static FD_TL blst_p1_affine         affine[ AG_BLS_SIGNERS_MAX ];
+  static FD_TL blst_p1_affine const * points[ AG_BLS_SIGNERS_MAX ];
+  ulong point_cnt = 0UL;
+  for( ulong i=0UL; i<pk_cnt; i++ ) {
+    if( signers && !signer_set_test( signers, i ) ) continue;
+    if( FD_UNLIKELY( !pub_deserialize( affine+point_cnt, pks+i ) ) ) return -1;
+    points[ point_cnt ] = affine+point_cnt;
+    point_cnt++;
+  }
+  if( FD_UNLIKELY( !point_cnt ) ) return -1;
+
+  blst_p1 sum[1];
+  blst_p1s_add( sum, points, point_cnt );
+  blst_p1_to_affine( out, sum );
+  if( FD_UNLIKELY( blst_p1_affine_is_inf( out ) ) ) return -1;
   return 0;
 }
 
 int
-ag_bls_pub_try_from_bytes( ag_bls_pub_t  out,
-                           uchar const * in,
-                           ulong         in_sz ) {
-  uchar affine[ AG_BLS_PUB_SZ ];
-  switch( in_sz ) {
-  case AG_BLS_PUB_COMPRESSED_SZ:
-    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( affine, in, 1 ) ) ) return -1;
-    break;
-  case AG_BLS_PUB_SZ:
-    fd_memcpy( affine, in, AG_BLS_PUB_SZ );
-    break;
-  default:
-    return -1;
-  }
-  if( FD_UNLIKELY( !pub_validate( affine ) ) ) return -1;
-  fd_memcpy( out, affine, AG_BLS_PUB_SZ );
+ag_bls_pub_try_from_bytes( ag_bls_pub_t * out,
+                           uchar const *  in,
+                           ulong          in_sz ) {
+  blst_p1_affine pub[1];
+  if( FD_UNLIKELY( !pub_from_bytes( pub, in, in_sz ) ) ) return -1;
+  blst_p1_affine_serialize( out->bytes, pub );
   return 0;
 }
 
-static void
-hash_to_g2( uchar *       out,
-            uchar const * msg,
-            ulong         msg_sz ) {
-  blst_p2        h[1];
-  blst_p2_affine a[1];
-  blst_hash_to_g2( h, msg, msg_sz, (uchar const *)AG_BLS_DST, AG_BLS_DST_SZ, NULL, 0UL );
-  blst_p2_to_affine( a, h );
-  blst_p2_affine_serialize( out, a );
-}
-
 static int
-verify_pairs( uchar const * const * pks,
-              uchar const * const * msgs,
-              ulong const *         msg_szs,
-              ulong                 cnt,
-              uchar const *         sig ) {
+verify_affine_pairs( blst_p1_affine const * a,
+                     uchar const * const *  msgs,
+                     ulong const *          msg_szs,
+                     ulong                  cnt,
+                     uchar const *          sig ) {
   if( FD_UNLIKELY( !cnt || cnt>AG_BLS_VERIFY_MAX ) ) return 0;
 
-  uchar a[ (AG_BLS_VERIFY_MAX+1UL)*AG_BLS_PUB_SZ ];
-  uchar b[ (AG_BLS_VERIFY_MAX+1UL)*AG_BLS_SIG_SZ ];
-
+  blst_p2        h[ AG_BLS_VERIFY_MAX ];
+  blst_p2_affine b[ AG_BLS_VERIFY_MAX ];
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( FD_UNLIKELY( !pub_validate( pks[ i ] ) ) ) return 0;
-    fd_memcpy        ( a + i*AG_BLS_PUB_SZ, pks [ i ], AG_BLS_PUB_SZ );
-    hash_to_g2( b + i*AG_BLS_SIG_SZ, msgs[ i ], msg_szs[ i ]  );
+    blst_hash_to_g2( h+i, msgs[i], msg_szs[i], (uchar const *)AG_BLS_DST, AG_BLS_DST_SZ, NULL, 0UL );
+    blst_p2_to_affine( b+i, h+i );
   }
-  blst_p1_affine_serialize( a + cnt*AG_BLS_PUB_SZ, &BLS12_381_NEG_G1 );
-  fd_memcpy               ( b + cnt*AG_BLS_SIG_SZ, sig, AG_BLS_SIG_SZ );
 
-  uchar r [ AG_BLS_GT_SZ ];
-  uchar id[ AG_BLS_GT_SZ ];
-  if( FD_UNLIKELY( fd_bls12_381_pairing_syscall( r,  a, b, cnt+1UL, 1 ) ) ) return 0;
-  if( FD_UNLIKELY( fd_bls12_381_pairing_syscall( id, a, b, 0UL,     1 ) ) ) return 0;
+  blst_p2_affine signature[1];
+  if( FD_UNLIKELY( sig[0]&0xA0U ) ) return 0;
+  if( FD_UNLIKELY( blst_p2_deserialize( signature, sig )!=BLST_SUCCESS ) ) return 0;
+  if( FD_UNLIKELY( !blst_p2_affine_in_g2( signature )                  ) ) return 0;
+  if( FD_UNLIKELY( blst_p2_affine_is_inf( signature )                  ) ) return 0;
 
-  return fd_memeq( r, id, AG_BLS_GT_SZ );
+  blst_p1_affine const * aptr[ AG_BLS_VERIFY_MAX+1UL ];
+  blst_p2_affine const * bptr[ AG_BLS_VERIFY_MAX+1UL ];
+  for( ulong i=0UL; i<cnt; i++ ) { aptr[i] = a+i; bptr[i] = b+i; }
+  aptr[cnt] = &BLS12_381_NEG_G1;
+  bptr[cnt] = signature;
+
+  blst_fp12 r[1];
+  blst_miller_loop_n( r, bptr, aptr, cnt+1UL );
+  return !!blst_fp12_finalverify( r, blst_fp12_one() );
 }
 
 int
 ag_bls_sig_verify( ag_bls_sig_t const self,
-                   ag_bls_pub_t const pk,
+                   ag_bls_pub_t const * pk,
                    uchar const *      msg,
                    ulong              msg_sz ) {
-  uchar const * pks    [1] = { pk  };
+  blst_p1_affine pub[1];
+  if( FD_UNLIKELY( !pub_deserialize( pub, pk ) ) ) return 0;
   uchar const * msgs   [1] = { msg    };
   ulong         msg_szs[1] = { msg_sz };
-  return verify_pairs( pks, msgs, msg_szs, 1UL, self );
+  return verify_affine_pairs( pub, msgs, msg_szs, 1UL, self );
 }
 
 void
@@ -190,54 +201,34 @@ int
 ag_bls_agg_verify( ag_bls_agg_t const * self,
                    uchar const *        msg,
                    ulong                msg_sz,
-                   uchar const *        pk0,
-                   ulong                pk_stride,
+                   ag_bls_pub_t const * pks,
                    ulong                pk_cnt ) {
   if( FD_UNLIKELY( fd_ulong_min( AG_BLS_SIGNERS_MAX, signer_set_last( self->bitmask )+1UL )>pk_cnt ) ) return 0;
-  if( FD_UNLIKELY( !pk0                                                                            ) ) return 0;
+  if( FD_UNLIKELY( !pks                                                                            ) ) return 0;
 
-  static FD_TL uchar gathered[ AG_BLS_SIGNERS_MAX * AG_BLS_PUB_SZ ];
-  ulong k = 0UL;
-  for( ulong i=0UL; i<pk_cnt; i++ ) {
-    if( FD_LIKELY( signer_set_test( self->bitmask, i ) ) ) {
-      fd_memcpy( gathered + k*AG_BLS_PUB_SZ, pk0 + i*pk_stride, AG_BLS_PUB_SZ );
-      k++;
-    }
-  }
-  if( FD_UNLIKELY( k==0UL ) ) return 0;
+  blst_p1_affine apk[1];
+  if( FD_UNLIKELY( pub_aggregate( apk, pks, self->bitmask, pk_cnt ) ) ) return 0;
 
-  uchar apk[ AG_BLS_PUB_SZ ];
-  if( FD_UNLIKELY( pub_aggregate( apk, gathered, k ) ) ) return 0;
-
-  uchar const * pks    [1] = { apk    };
   uchar const * msgs   [1] = { msg    };
   ulong         msg_szs[1] = { msg_sz };
-  return verify_pairs( pks, msgs, msg_szs, 1UL, self->sig );
+  return verify_affine_pairs( apk, msgs, msg_szs, 1UL, self->sig );
 }
 
 int
 ag_bls_agg_verify_without_bitmask( ag_bls_agg_t const * self,
                                    uchar const *        msg,
                                    ulong                msg_sz,
-                                   uchar const *        pk0,
-                                   ulong                pk_stride,
+                                   ag_bls_pub_t const * pks,
                                    ulong                pk_cnt ) {
   if( FD_UNLIKELY( ag_bls_agg_signer_cnt( self )!=pk_cnt ) ) return 0;
-  if( FD_UNLIKELY( !pk0 || !pk_cnt                          ) ) return 0;
+  if( FD_UNLIKELY( !pks || !pk_cnt                          ) ) return 0;
 
-  static FD_TL uchar gathered[ AG_BLS_SIGNERS_MAX * AG_BLS_PUB_SZ ];
-  if( FD_UNLIKELY( pk_cnt>AG_BLS_SIGNERS_MAX ) ) return 0;
-  for( ulong i=0UL; i<pk_cnt; i++ ) {
-    fd_memcpy( gathered + i*AG_BLS_PUB_SZ, pk0 + i*pk_stride, AG_BLS_PUB_SZ );
-  }
+  blst_p1_affine apk[1];
+  if( FD_UNLIKELY( pub_aggregate( apk, pks, NULL, pk_cnt ) ) ) return 0;
 
-  uchar apk[ AG_BLS_PUB_SZ ];
-  if( FD_UNLIKELY( pub_aggregate( apk, gathered, pk_cnt ) ) ) return 0;
-
-  uchar const * pks    [1] = { apk    };
   uchar const * msgs   [1] = { msg    };
   ulong         msg_szs[1] = { msg_sz };
-  return verify_pairs( pks, msgs, msg_szs, 1UL, self->sig );
+  return verify_affine_pairs( apk, msgs, msg_szs, 1UL, self->sig );
 }
 
 int
@@ -247,35 +238,28 @@ ag_bls_agg_verify_merged( ag_bls_agg_t const * agg_base,
                          ag_bls_agg_t const * agg_fb,
                          uchar const *        msg_fb,
                          ulong                msg_fb_sz,
-                         uchar const *        pk0,
-                         ulong                pk_stride,
+                         ag_bls_pub_t const * pks,
                          ulong                pk_cnt ) {
   if( FD_UNLIKELY( fd_ulong_min( AG_BLS_SIGNERS_MAX, signer_set_last( agg_base->bitmask )+1UL )>pk_cnt ) ) return 0;
   if( FD_UNLIKELY( fd_ulong_min( AG_BLS_SIGNERS_MAX, signer_set_last( agg_fb->bitmask   )+1UL )>pk_cnt ) ) return 0;
-  if( FD_UNLIKELY( !pk0                                                                                ) ) return 0;
+  if( FD_UNLIKELY( !pks                                                                                ) ) return 0;
 
-  static FD_TL uchar gathered[ AG_BLS_SIGNERS_MAX * AG_BLS_PUB_SZ ];
-  uchar apk[ 2*AG_BLS_PUB_SZ ];
-
+  blst_p1_affine apk[2];
   signer_set_t const * masks[2] = { agg_base->bitmask, agg_fb->bitmask };
   ulong cnt[2] = { 0UL, 0UL };
   for( ulong g=0UL; g<2UL; g++ ) {
-    ulong k = 0UL;
-    for( ulong i=0UL; i<pk_cnt; i++ ) {
-      if( signer_set_test( masks[g], i ) ) { fd_memcpy( gathered + k*AG_BLS_PUB_SZ, pk0 + i*pk_stride, AG_BLS_PUB_SZ ); k++; }
-    }
-    cnt[g] = k;
-    if( k && FD_UNLIKELY( pub_aggregate( apk + g*AG_BLS_PUB_SZ, gathered, k ) ) ) return 0;
+    cnt[g] = signer_set_cnt( masks[g] );
+    if( cnt[g] && FD_UNLIKELY( pub_aggregate( apk+g, pks, masks[g], pk_cnt ) ) ) return 0;
   }
 
   if( FD_UNLIKELY( cnt[0]==0UL && cnt[1]==0UL ) ) return 0;
 
-  uchar const * pks    [ AG_BLS_VERIFY_MAX ];
+  blst_p1_affine packed_apk[ AG_BLS_VERIFY_MAX ];
   uchar const * msgs   [ AG_BLS_VERIFY_MAX ];
   ulong         msg_szs[ AG_BLS_VERIFY_MAX ];
   ulong         n = 0UL;
-  if( cnt[0] ) { pks[n] = apk;               msgs[n] = msg_base; msg_szs[n] = msg_base_sz; n++; }
-  if( cnt[1] ) { pks[n] = apk+AG_BLS_PUB_SZ; msgs[n] = msg_fb;   msg_szs[n] = msg_fb_sz;   n++; }
+  if( cnt[0] ) { packed_apk[n] = apk[0]; msgs[n] = msg_base; msg_szs[n] = msg_base_sz; n++; }
+  if( cnt[1] ) { packed_apk[n] = apk[1]; msgs[n] = msg_fb;   msg_szs[n] = msg_fb_sz;   n++; }
 
-  return verify_pairs( pks, msgs, msg_szs, n, agg_base->sig );
+  return verify_affine_pairs( packed_apk, msgs, msg_szs, n, agg_base->sig );
 }
