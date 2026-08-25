@@ -50,25 +50,7 @@ pair_verify( fd_bls_pub_t const * pub,
              uchar const *        msg_fb,
              ulong                msg_fb_sz,
              fd_bls_sig_t const * sig ) {
-  if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p1_is_inf( pub_fb ) || blst_p2_is_inf( sig ) ) ) return 0; /* the miller loop is wrong on an infinity operand */
-
-  blst_p1_affine a[3];
-  blst_p2_affine b[3];
-  blst_p2        h[1];
-  blst_p1_to_affine( a, pub );
-  blst_hash_to_g2( h, msg, msg_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
-  blst_p2_to_affine( b, h );
-  blst_p1_to_affine( a+1, pub_fb );
-  blst_hash_to_g2( h, msg_fb, msg_fb_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
-  blst_p2_to_affine( b+1, h );
-  a[2] = BLS12_381_NEG_G1;
-  blst_p2_to_affine( b+2, sig );
-
-  blst_p1_affine const * aptr[3] = { a, a+1, a+2 };
-  blst_p2_affine const * bptr[3] = { b, b+1, b+2 };
-  blst_fp12 r[1];
-  blst_miller_loop_n( r, bptr, aptr, 3UL );
-  return !!blst_fp12_finalverify( r, blst_fp12_one() );
+  return fd_bls_agg_verify_pair( msg, msg_sz, pub, msg_fb, msg_fb_sz, pub_fb, sig );
 }
 
 static int

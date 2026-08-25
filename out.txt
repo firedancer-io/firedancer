@@ -1,0 +1,1472 @@
+/tmp/tmp.5ak9MIce4Q/
+├── DEBIAN
+│   ├── control
+│   ├── md5sums
+│   ├── postinst
+│   ├── preinst
+│   └── prerm
+├── opt
+│   └── AMDuProf_5.3-521
+│       ├── bin
+│       │   ├── AMDCpuTopology
+│       │   ├── AMDCsvToFilesystem.py
+│       │   ├── AMDPcmSetCapability.sh
+│       │   ├── AMDPerf
+│       │   │   ├── AMDuProfSys
+│       │   │   ├── AMDuProfSys-bin
+│       │   │   ├── data
+│       │   │   │   ├── 0x17_0x3
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x17_0x6
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x19_0x0
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x19_0x1
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── kpi_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   ├── raw_config.raw
+│       │   │   │   │   ├── umc_config.yaml
+│       │   │   │   │   ├── umc_event.json
+│       │   │   │   │   └── umc_metrics.json
+│       │   │   │   ├── 0x19_0x1_0x8
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── kpi_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   ├── raw_config.raw
+│       │   │   │   │   ├── umc_config.yaml
+│       │   │   │   │   ├── umc_event.json
+│       │   │   │   │   └── umc_metrics.json
+│       │   │   │   ├── 0x19_0x2
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x19_0x4
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x19_0x6
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x19_0x7
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x19_0x9
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── hsmp_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x19_0xa
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── kpi_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   ├── raw_config.raw
+│       │   │   │   │   ├── umc_config.yaml
+│       │   │   │   │   ├── umc_event.json
+│       │   │   │   │   └── umc_metrics.json
+│       │   │   │   ├── 0x19_0xa_0x8
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── kpi_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   ├── raw_config.raw
+│       │   │   │   │   ├── umc_config.yaml
+│       │   │   │   │   ├── umc_event.json
+│       │   │   │   │   └── umc_metrics.json
+│       │   │   │   ├── 0x1a_0x0
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   ├── raw_config.raw
+│       │   │   │   │   ├── umc_config.yaml
+│       │   │   │   │   ├── umc_event.json
+│       │   │   │   │   └── umc_metrics.json
+│       │   │   │   ├── 0x1a_0x1
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── df_config.yaml
+│       │   │   │   │   ├── df_event.json
+│       │   │   │   │   ├── df_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   ├── raw_config.raw
+│       │   │   │   │   ├── umc_config.yaml
+│       │   │   │   │   ├── umc_event.json
+│       │   │   │   │   └── umc_metrics.json
+│       │   │   │   ├── 0x1a_0x2
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x1a_0x4
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x1a_0x6
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── 0x1a_0x7
+│       │   │   │   │   ├── core_config.yaml
+│       │   │   │   │   ├── core_event.json
+│       │   │   │   │   ├── core_metrics.json
+│       │   │   │   │   ├── default_metrics.json
+│       │   │   │   │   ├── l3_config.yaml
+│       │   │   │   │   ├── l3_event.json
+│       │   │   │   │   ├── l3_metrics.json
+│       │   │   │   │   └── raw_config.raw
+│       │   │   │   ├── fixed_metrics.json
+│       │   │   │   └── hsmp_metrics.json
+│       │   │   └── metadata
+│       │   │       ├── __init__.py
+│       │   │       ├── version.py
+│       │   │       └── version.txt
+│       │   ├── AMDPowerProfilerDriver.sh
+│       │   ├── AMDPowerProfilerDriverSource.tar.gz
+│       │   ├── AMDPowerProfilerVersion
+│       │   ├── amdprofilericon.desktop
+│       │   ├── AMDProfilerService
+│       │   ├── AMDProfilerService-bin
+│       │   ├── AMDReportGenerator
+│       │   ├── AMDSystemCheck
+│       │   │   └── AMDSystemCheck
+│       │   ├── AMDTPyParser.py
+│       │   ├── AMDTPyParserV2.py
+│       │   ├── AMDTPyTracer.py
+│       │   ├── AMDuProf
+│       │   ├── AMDuProf-bin
+│       │   ├── AMDuProfCLI
+│       │   ├── AMDuProfCLI-bin
+│       │   ├── AMDuProfModelling.py
+│       │   ├── AMDuProfPcm
+│       │   ├── AMDuProfSetBpfCapability.sh
+│       │   ├── AMDuProfSetup.sh
+│       │   ├── AMDuProfSys -> AMDPerf/AMDuProfSys
+│       │   ├── bpf
+│       │   │   ├── AMDTSysCallList.json
+│       │   │   ├── src
+│       │   │   │   ├── bpftracer.bpf.c
+│       │   │   │   ├── bpftracer_core.h
+│       │   │   │   └── bpftracer.h
+│       │   │   └── vmlinux
+│       │   ├── bpftracer
+│       │   ├── Data
+│       │   │   ├── Config
+│       │   │   │   ├── 0x17_0x0.conf
+│       │   │   │   ├── 0x17_0x3.conf
+│       │   │   │   ├── 0x17_0x6.conf
+│       │   │   │   ├── 0x19_0x0.conf
+│       │   │   │   ├── 0x19_0x1.conf
+│       │   │   │   ├── 0x19_0x2.conf
+│       │   │   │   ├── 0x19_0x4.conf
+│       │   │   │   ├── 0x19_0x6.conf
+│       │   │   │   ├── 0x19_0x7.conf
+│       │   │   │   ├── 0x19_0x9.conf
+│       │   │   │   ├── 0x19_0xa.conf
+│       │   │   │   ├── 0x1a_0x0.conf
+│       │   │   │   ├── 0x1a_0x1.conf
+│       │   │   │   ├── 0x1a_0x2.conf
+│       │   │   │   ├── 0x1a_0x4.conf
+│       │   │   │   ├── 0x1a_0x7.conf
+│       │   │   │   ├── PreDefinedMetricReport.json
+│       │   │   │   ├── RL_0x17_0x3.conf
+│       │   │   │   ├── RL_0x19_0x0.conf
+│       │   │   │   ├── RL_0x19_0x1.conf
+│       │   │   │   ├── RL_0x19_0xa.conf
+│       │   │   │   ├── RL_0x1a_0x0.conf
+│       │   │   │   ├── RL_0x1a_0x1.conf
+│       │   │   │   ├── roofline.conf
+│       │   │   │   └── Version.txt
+│       │   │   ├── Events
+│       │   │   │   ├── 0x17_0x0.xml
+│       │   │   │   ├── 0x17_0x1.xml
+│       │   │   │   ├── 0x17_0x2.xml
+│       │   │   │   ├── 0x17_0x3.xml
+│       │   │   │   ├── 0x17_0x6.xml
+│       │   │   │   ├── 0x17_0x7.xml
+│       │   │   │   ├── 0x17_0xa.xml
+│       │   │   │   ├── 0x19_0x0.xml
+│       │   │   │   ├── 0x19_0x1.xml
+│       │   │   │   ├── 0x19_0x2.xml
+│       │   │   │   ├── 0x19_0x3.xml
+│       │   │   │   ├── 0x19_0x4.xml
+│       │   │   │   ├── 0x19_0x5.xml
+│       │   │   │   ├── 0x19_0x6.xml
+│       │   │   │   ├── 0x19_0x7.xml
+│       │   │   │   ├── 0x19_0x9.xml
+│       │   │   │   ├── 0x19_0xa.xml
+│       │   │   │   ├── 0x1a_0x0.xml
+│       │   │   │   ├── 0x1a_0x1.xml
+│       │   │   │   ├── 0x1a_0x2.xml
+│       │   │   │   ├── 0x1a_0x4.xml
+│       │   │   │   ├── 0x1a_0x6.xml
+│       │   │   │   └── 0x1a_0x7.xml
+│       │   │   ├── Filters
+│       │   │   │   └── functions.json
+│       │   │   ├── fonts
+│       │   │   │   ├── MaterialIcons-Regular.ttf
+│       │   │   │   ├── OpenSans-BoldItalic.ttf
+│       │   │   │   ├── OpenSans-Bold.ttf
+│       │   │   │   ├── OpenSansCondensed-Bold.ttf
+│       │   │   │   ├── OpenSansCondensed-LightItalic.ttf
+│       │   │   │   ├── OpenSansCondensed-Light.ttf
+│       │   │   │   ├── OpenSans-ExtraBoldItalic.ttf
+│       │   │   │   ├── OpenSans-ExtraBold.ttf
+│       │   │   │   ├── OpenSans-Italic.ttf
+│       │   │   │   ├── OpenSans-LightItalic.ttf
+│       │   │   │   ├── OpenSans-Light.ttf
+│       │   │   │   ├── OpenSans-Regular.ttf
+│       │   │   │   ├── OpenSans-SemiBoldItalic.ttf
+│       │   │   │   └── OpenSans-SemiBold.ttf
+│       │   │   ├── Metadata
+│       │   │   │   └── Gpu
+│       │   │   │       └── GpuHwBlockLimit.json
+│       │   │   ├── Metrics
+│       │   │   │   ├── gfx908
+│       │   │   │   │   ├── 0200_system-speed-of-light.yaml
+│       │   │   │   │   ├── 0300_mem_chart.yaml
+│       │   │   │   │   ├── 0500_command-processor.yaml
+│       │   │   │   │   ├── 0600_shader-processor-input.yaml
+│       │   │   │   │   ├── 0700_wavefront-launch.yaml
+│       │   │   │   │   ├── 1000_compute-unit-instruction-mix.yaml
+│       │   │   │   │   ├── 1100_compute-unit-compute-pipeline.yaml
+│       │   │   │   │   ├── 1200_lds.yaml
+│       │   │   │   │   ├── 1300_instruction-cache.yaml
+│       │   │   │   │   ├── 1400_constant-cache.yaml
+│       │   │   │   │   ├── 1500_TA_and_TD.yaml
+│       │   │   │   │   ├── 1600_L1_cache.yaml
+│       │   │   │   │   ├── 1700_L2_cache.yaml
+│       │   │   │   │   └── 1800_L2_cache_per_channel.yaml
+│       │   │   │   ├── gfx90a
+│       │   │   │   │   ├── 0200_system-speed-of-light.yaml
+│       │   │   │   │   ├── 0300_mem_chart.yaml
+│       │   │   │   │   ├── 0500_command-processor.yaml
+│       │   │   │   │   ├── 0600_shader-processor-input.yaml
+│       │   │   │   │   ├── 0700_wavefront-launch.yaml
+│       │   │   │   │   ├── 1000_compute-unit-instruction-mix.yaml
+│       │   │   │   │   ├── 1100_compute-unit-compute-pipeline.yaml
+│       │   │   │   │   ├── 1200_lds.yaml
+│       │   │   │   │   ├── 1300_instruction-cache.yaml
+│       │   │   │   │   ├── 1400_constant-cache.yaml
+│       │   │   │   │   ├── 1500_TA_and_TD.yaml
+│       │   │   │   │   ├── 1600_L1_cache.yaml
+│       │   │   │   │   ├── 1700_L2_cache.yaml
+│       │   │   │   │   └── 1800_L2_cache_per_channel.yaml
+│       │   │   │   ├── gfx940
+│       │   │   │   │   ├── 0200_system-speed-of-light.yaml
+│       │   │   │   │   ├── 0300_mem_chart.yaml
+│       │   │   │   │   ├── 0500_command-processor.yaml
+│       │   │   │   │   ├── 0600_shader-processor-input.yaml
+│       │   │   │   │   ├── 0700_wavefront-launch.yaml
+│       │   │   │   │   ├── 1000_compute-unit-instruction-mix.yaml
+│       │   │   │   │   ├── 1100_compute-unit-compute-pipeline.yaml
+│       │   │   │   │   ├── 1200_lds.yaml
+│       │   │   │   │   ├── 1300_instruction-cache.yaml
+│       │   │   │   │   ├── 1400_constant-cache.yaml
+│       │   │   │   │   ├── 1500_TA_and_TD.yaml
+│       │   │   │   │   ├── 1600_L1_cache.yaml
+│       │   │   │   │   ├── 1700_L2_cache.yaml
+│       │   │   │   │   └── 1800_L2_cache_per_channel.yaml
+│       │   │   │   ├── gfx941
+│       │   │   │   │   ├── 0200_system-speed-of-light.yaml
+│       │   │   │   │   ├── 0300_mem_chart.yaml
+│       │   │   │   │   ├── 0500_command-processor.yaml
+│       │   │   │   │   ├── 0600_shader-processor-input.yaml
+│       │   │   │   │   ├── 0700_wavefront-launch.yaml
+│       │   │   │   │   ├── 1000_compute-unit-instruction-mix.yaml
+│       │   │   │   │   ├── 1100_compute-unit-compute-pipeline.yaml
+│       │   │   │   │   ├── 1200_lds.yaml
+│       │   │   │   │   ├── 1300_instruction-cache.yaml
+│       │   │   │   │   ├── 1400_constant-cache.yaml
+│       │   │   │   │   ├── 1500_TA_and_TD.yaml
+│       │   │   │   │   ├── 1600_L1_cache.yaml
+│       │   │   │   │   ├── 1700_L2_cache.yaml
+│       │   │   │   │   └── 1800_L2_cache_per_channel.yaml
+│       │   │   │   ├── gfx942
+│       │   │   │   │   ├── 0200_system-speed-of-light.yaml
+│       │   │   │   │   ├── 0300_mem_chart.yaml
+│       │   │   │   │   ├── 0500_command-processor.yaml
+│       │   │   │   │   ├── 0600_shader-processor-input.yaml
+│       │   │   │   │   ├── 0700_wavefront-launch.yaml
+│       │   │   │   │   ├── 1000_compute-unit-instruction-mix.yaml
+│       │   │   │   │   ├── 1100_compute-unit-compute-pipeline.yaml
+│       │   │   │   │   ├── 1200_lds.yaml
+│       │   │   │   │   ├── 1300_instruction-cache.yaml
+│       │   │   │   │   ├── 1400_constant-cache.yaml
+│       │   │   │   │   ├── 1500_TA_and_TD.yaml
+│       │   │   │   │   ├── 1600_L1_cache.yaml
+│       │   │   │   │   ├── 1700_L2_cache.yaml
+│       │   │   │   │   └── 1800_L2_cache_per_channel.yaml
+│       │   │   │   └── Metric.json
+│       │   │   ├── Profiles
+│       │   │   │   ├── 0x17_0x0
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   └── memory.xml
+│       │   │   │   ├── 0x17_0x1
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   └── memory.xml
+│       │   │   │   ├── 0x17_0x2
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   └── memory.xml
+│       │   │   │   ├── 0x17_0x3
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   └── memory.xml
+│       │   │   │   ├── 0x17_0x6
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   └── memory.xml
+│       │   │   │   ├── 0x17_0x7
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   └── memory.xml
+│       │   │   │   ├── 0x17_0xa
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   └── memory.xml
+│       │   │   │   ├── 0x19_0x0
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x19_0x1
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x19_0x2
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x19_0x3
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x19_0x4
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x19_0x5
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x19_0x6
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x19_0x7
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x19_0x9
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x19_0xa
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x1a_0x0
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x1a_0x1
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x1a_0x2
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x1a_0x4
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x1a_0x6
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── 0x1a_0x7
+│       │   │   │   │   ├── assess_ext.xml
+│       │   │   │   │   ├── assess.xml
+│       │   │   │   │   ├── branch.xml
+│       │   │   │   │   ├── cpi.xml
+│       │   │   │   │   ├── data_access.xml
+│       │   │   │   │   ├── ibs.xml
+│       │   │   │   │   ├── inst_access.xml
+│       │   │   │   │   ├── memory.xml
+│       │   │   │   │   ├── overview.xml
+│       │   │   │   │   └── threading.xml
+│       │   │   │   ├── FreeBSD
+│       │   │   │   │   ├── 0x17_0x0
+│       │   │   │   │   │   ├── assess.xml
+│       │   │   │   │   │   ├── branch.xml
+│       │   │   │   │   │   ├── data_access.xml
+│       │   │   │   │   │   └── inst_access.xml
+│       │   │   │   │   ├── 0x17_0x1
+│       │   │   │   │   │   ├── assess.xml
+│       │   │   │   │   │   ├── branch.xml
+│       │   │   │   │   │   ├── data_access.xml
+│       │   │   │   │   │   └── inst_access.xml
+│       │   │   │   │   ├── 0x17_0x2
+│       │   │   │   │   │   ├── assess.xml
+│       │   │   │   │   │   ├── branch.xml
+│       │   │   │   │   │   ├── data_access.xml
+│       │   │   │   │   │   └── inst_access.xml
+│       │   │   │   │   ├── 0x17_0x3
+│       │   │   │   │   │   ├── assess.xml
+│       │   │   │   │   │   ├── branch.xml
+│       │   │   │   │   │   ├── data_access.xml
+│       │   │   │   │   │   └── inst_access.xml
+│       │   │   │   │   └── 0x17_0x7
+│       │   │   │   │       ├── assess.xml
+│       │   │   │   │       ├── branch.xml
+│       │   │   │   │       ├── data_access.xml
+│       │   │   │   │       └── inst_access.xml
+│       │   │   │   ├── Gpu
+│       │   │   │   │   └── GpuProfileConfig.json
+│       │   │   │   ├── hotspots.xml
+│       │   │   │   └── tbp.xml
+│       │   │   ├── report
+│       │   │   │   ├── echarts.js
+│       │   │   │   ├── html-interactive-report.j2
+│       │   │   │   ├── html-paginated-report.j2
+│       │   │   │   ├── interactive-script.js
+│       │   │   │   ├── interactive-style.css
+│       │   │   │   └── paginated-style.css
+│       │   │   └── Views
+│       │   │       ├── 0x17_0x0
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_ls_dc.json
+│       │   │       │   ├── ibs_op_ls_dtlb.json
+│       │   │       │   ├── ibs_op_ls_expert.json
+│       │   │       │   ├── ibs_op_ls.json
+│       │   │       │   ├── ibs_op_ls_memacc.json
+│       │   │       │   ├── ibs_op_ls_page.json
+│       │   │       │   ├── ibs_op_nb_access.json
+│       │   │       │   ├── ibs_op_nb_cache.json
+│       │   │       │   ├── ibs_op_nb_service.json
+│       │   │       │   ├── ibs_op_overall.json
+│       │   │       │   ├── ibs_op_return.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x17_0x1
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_ls_dc.json
+│       │   │       │   ├── ibs_op_ls_dtlb.json
+│       │   │       │   ├── ibs_op_ls_expert.json
+│       │   │       │   ├── ibs_op_ls.json
+│       │   │       │   ├── ibs_op_ls_memacc.json
+│       │   │       │   ├── ibs_op_ls_page.json
+│       │   │       │   ├── ibs_op_nb_access.json
+│       │   │       │   ├── ibs_op_nb_cache.json
+│       │   │       │   ├── ibs_op_nb_service.json
+│       │   │       │   ├── ibs_op_overall.json
+│       │   │       │   ├── ibs_op_return.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x17_0x2
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_ls_dc.json
+│       │   │       │   ├── ibs_op_ls_dtlb.json
+│       │   │       │   ├── ibs_op_ls_expert.json
+│       │   │       │   ├── ibs_op_ls.json
+│       │   │       │   ├── ibs_op_ls_memacc.json
+│       │   │       │   ├── ibs_op_ls_page.json
+│       │   │       │   ├── ibs_op_nb_access.json
+│       │   │       │   ├── ibs_op_nb_cache.json
+│       │   │       │   ├── ibs_op_nb_service.json
+│       │   │       │   ├── ibs_op_overall.json
+│       │   │       │   ├── ibs_op_return.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x17_0x3
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_ls_dc.json
+│       │   │       │   ├── ibs_op_ls_dtlb.json
+│       │   │       │   ├── ibs_op_ls_expert.json
+│       │   │       │   ├── ibs_op_ls.json
+│       │   │       │   ├── ibs_op_ls_memacc.json
+│       │   │       │   ├── ibs_op_ls_page.json
+│       │   │       │   ├── ibs_op_nb_access.json
+│       │   │       │   ├── ibs_op_nb_cache.json
+│       │   │       │   ├── ibs_op_nb_service.json
+│       │   │       │   ├── ibs_op_overall.json
+│       │   │       │   ├── ibs_op_return.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x17_0x6
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_ls_dc.json
+│       │   │       │   ├── ibs_op_ls_dtlb.json
+│       │   │       │   ├── ibs_op_ls_expert.json
+│       │   │       │   ├── ibs_op_ls.json
+│       │   │       │   ├── ibs_op_ls_memacc.json
+│       │   │       │   ├── ibs_op_ls_page.json
+│       │   │       │   ├── ibs_op_nb_access.json
+│       │   │       │   ├── ibs_op_nb_cache.json
+│       │   │       │   ├── ibs_op_nb_service.json
+│       │   │       │   ├── ibs_op_overall.json
+│       │   │       │   ├── ibs_op_return.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x17_0x7
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_ls_dc.json
+│       │   │       │   ├── ibs_op_ls_dtlb.json
+│       │   │       │   ├── ibs_op_ls_expert.json
+│       │   │       │   ├── ibs_op_ls.json
+│       │   │       │   ├── ibs_op_ls_memacc.json
+│       │   │       │   ├── ibs_op_ls_page.json
+│       │   │       │   ├── ibs_op_nb_access.json
+│       │   │       │   ├── ibs_op_nb_cache.json
+│       │   │       │   ├── ibs_op_nb_service.json
+│       │   │       │   ├── ibs_op_overall.json
+│       │   │       │   ├── ibs_op_return.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x17_0xa
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_ls_dc.json
+│       │   │       │   ├── ibs_op_ls_dtlb.json
+│       │   │       │   ├── ibs_op_ls_expert.json
+│       │   │       │   ├── ibs_op_ls.json
+│       │   │       │   ├── ibs_op_ls_memacc.json
+│       │   │       │   ├── ibs_op_ls_page.json
+│       │   │       │   ├── ibs_op_nb_access.json
+│       │   │       │   ├── ibs_op_nb_cache.json
+│       │   │       │   ├── ibs_op_nb_service.json
+│       │   │       │   ├── ibs_op_overall.json
+│       │   │       │   ├── ibs_op_return.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0x0
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld_ext.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0x1
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_front_bottle.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_backend_bottle.json
+│       │   │       │   ├── ibs_op_bad_speculation.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld_ext.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0x2
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0x3
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld_ext.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0x4
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0x5
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0x6
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0x7
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0x9
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_front_bottle.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_backend_bottle.json
+│       │   │       │   ├── ibs_op_bad_speculation.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld_ext.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x19_0xa
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_front_bottle.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_backend_bottle.json
+│       │   │       │   ├── ibs_op_bad_speculation.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld_ext.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x1a_0x0
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_front_bottle.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_backend_bottle.json
+│       │   │       │   ├── ibs_op_bad_speculation.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld_ext.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x1a_0x1
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_front_bottle.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_backend_bottle.json
+│       │   │       │   ├── ibs_op_bad_speculation.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld_ext.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x1a_0x2
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x1a_0x4
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x1a_0x6
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── 0x1a_0x7
+│       │   │       │   ├── branch.json
+│       │   │       │   ├── br_assess.json
+│       │   │       │   ├── dc_assess.json
+│       │   │       │   ├── dc_focus.json
+│       │   │       │   ├── dtlb_focus.json
+│       │   │       │   ├── ibs_fetch_ic.json
+│       │   │       │   ├── ibs_fetch_itlb.json
+│       │   │       │   ├── ibs_fetch_overall.json
+│       │   │       │   ├── ibs_fetch_page.json
+│       │   │       │   ├── ibs_op_branch.json
+│       │   │       │   ├── ibs_op_br_overview.json
+│       │   │       │   ├── ibs_op_ld.json
+│       │   │       │   ├── ibs_op_ld_lat.json
+│       │   │       │   ├── ibs_op_ls_overview.json
+│       │   │       │   ├── ibs_op_overview.json
+│       │   │       │   ├── ic_focus.json
+│       │   │       │   ├── ipc_assess.json
+│       │   │       │   ├── itlb_focus.json
+│       │   │       │   ├── memory.json
+│       │   │       │   ├── misalign_assess.json
+│       │   │       │   ├── return_focus.json
+│       │   │       │   ├── taken_focus.json
+│       │   │       │   ├── triage_assess_ext.json
+│       │   │       │   └── triage_assess.json
+│       │   │       ├── order.json
+│       │   │       └── timer.json
+│       │   ├── Help
+│       │   │   ├── man1
+│       │   │   │   ├── AMDProfilerService.1.gz
+│       │   │   │   ├── AMDuProfCLI-collect.1.gz
+│       │   │   │   ├── AMDuProfCLI-compare.1.gz
+│       │   │   │   ├── AMDuProfCLI-info.1.gz
+│       │   │   │   ├── AMDuProfCLI-profile.1.gz
+│       │   │   │   ├── AMDuProfCLI-report.1.gz
+│       │   │   │   ├── AMDuProfCLI-timechart.1.gz
+│       │   │   │   └── AMDuProfCLI-translate.1.gz
+│       │   │   └── text
+│       │   │       ├── AMDProfilerService_Help.txt
+│       │   │       ├── AMDuProf_Collect_Help.txt
+│       │   │       ├── AMDuProf_Compare_Help.txt
+│       │   │       ├── AMDuProf_Info_Help.txt
+│       │   │       ├── AMDuProf_Profile_Help.txt
+│       │   │       ├── AMDuProf_Report_Help.txt
+│       │   │       ├── AMDuProf_Timechart_Help.txt
+│       │   │       └── AMDuProf_Translate_Help.txt
+│       │   ├── libAMDAgentUtils.so
+│       │   ├── libAMDApplicationFramework.so
+│       │   ├── libAMDApplicationViews.so
+│       │   ├── libAMDBackendUtils.so
+│       │   ├── libAMDBaseUtils.so
+│       │   ├── libAMDCountModeProfileAPI.so
+│       │   ├── libAMDCountModeProfilingTranslation.so
+│       │   ├── libAMDCpuCallstackSampling.so
+│       │   ├── libAMDCpuMetadata.so
+│       │   ├── libAMDCpuPerfEventUtils.so
+│       │   ├── libAMDCpuProfilingControl.so
+│       │   ├── libAMDCpuProfilingRawData.so
+│       │   ├── libAMDCpuProfilingTranslation.so
+│       │   ├── libAMDCpuTracingTranslation.so
+│       │   ├── libAMDExecutableFormat.so
+│       │   ├── libAMDGpuUtils.so
+│       │   ├── libAMDInstrumentationDataCollector.so
+│       │   ├── libAMDPcmSharedUtils.so
+│       │   ├── libAMDPowerProfileAPI.so
+│       │   ├── libAMDProfileCommon.so
+│       │   ├── libAMDProfileDataAccessor.so
+│       │   ├── libAMDProfilerDAL.so
+│       │   ├── libAMDProfilingAgentsData.so
+│       │   ├── libAMDProfilingDataWriter.so
+│       │   ├── libAMDSharedUtils.so
+│       │   ├── libAMDSysUtils.so
+│       │   ├── libAMDTaskInfo.so
+│       │   ├── libAMDTBpfUtils.so
+│       │   ├── libAMDThreadProfileAPI.so
+│       │   ├── libAMDTranslateUtils.so
+│       │   ├── libAMDTRestApiUtils.so
+│       │   ├── libarchive.so -> libarchive.so.13.8.5
+│       │   ├── libarchive.so.13 -> libarchive.so.13.8.5
+│       │   ├── libarchive.so.13.8.5
+│       │   ├── libclang.so
+│       │   ├── libCXLBaseTools.so
+│       │   ├── libCXLOSWrappers.so
+│       │   ├── libduckdb.so
+│       │   ├── libduckdb.so.1.4
+│       │   ├── libduckdb.so.1.4.0
+│       │   ├── libdwarf.so
+│       │   ├── libicudata.so -> libicudata.so.56.1
+│       │   ├── libicudata.so.56 -> libicudata.so.56.1
+│       │   ├── libicudata.so.56.1
+│       │   ├── libicui18n.so -> libicui18n.so.56.1
+│       │   ├── libicui18n.so.56 -> libicui18n.so.56.1
+│       │   ├── libicui18n.so.56.1
+│       │   ├── libicuuc.so -> libicuuc.so.56.1
+│       │   ├── libicuuc.so.56 -> libicuuc.so.56.1
+│       │   ├── libicuuc.so.56.1
+│       │   ├── libQt5Core.so -> libQt5Core.so.5.15.16
+│       │   ├── libQt5Core.so.5 -> libQt5Core.so.5.15.16
+│       │   ├── libQt5Core.so.5.15.16
+│       │   ├── libQt5DBus.so -> libQt5DBus.so.5.15.16
+│       │   ├── libQt5DBus.so.5 -> libQt5DBus.so.5.15.16
+│       │   ├── libQt5DBus.so.5.15.16
+│       │   ├── libQt5Gui.so -> libQt5Gui.so.5.15.16
+│       │   ├── libQt5Gui.so.5 -> libQt5Gui.so.5.15.16
+│       │   ├── libQt5Gui.so.5.15.16
+│       │   ├── libQt5PrintSupport.so -> libQt5PrintSupport.so.5.15.16
+│       │   ├── libQt5PrintSupport.so.5 -> libQt5PrintSupport.so.5.15.16
+│       │   ├── libQt5PrintSupport.so.5.15.16
+│       │   ├── libQt5Widgets.so -> libQt5Widgets.so.5.15.16
+│       │   ├── libQt5Widgets.so.5 -> libQt5Widgets.so.5.15.16
+│       │   ├── libQt5Widgets.so.5.15.16
+│       │   ├── libQt5X11Extras.so -> libQt5X11Extras.so.5.15.16
+│       │   ├── libQt5X11Extras.so.5 -> libQt5X11Extras.so.5.15.16
+│       │   ├── libQt5X11Extras.so.5.15.16
+│       │   ├── libQt5XcbQpa.so -> libQt5XcbQpa.so.5.15.16
+│       │   ├── libQt5XcbQpa.so.5 -> libQt5XcbQpa.so.5.15.16
+│       │   ├── libQt5XcbQpa.so.5.15.16
+│       │   ├── platforms
+│       │   │   └── libqxcb.so
+│       │   ├── plugins
+│       │   │   └── xcbglintegrations
+│       │   │       ├── libqxcb-egl-integration.so
+│       │   │       └── libqxcb-glx-integration.so
+│       │   ├── ProfileAgents
+│       │   │   └── x64
+│       │   │       ├── amd-attach-agent.jar
+│       │   │       ├── libAMDGpuAgent.so
+│       │   │       ├── libAMDGpuRocmAgent.so
+│       │   │       ├── libAMDGpuRocProfilerAgent.so
+│       │   │       ├── libAMDJvmtiAgent.so
+│       │   │       ├── libAMDMpichAgent.so
+│       │   │       ├── libAMDOmplibAgent.so
+│       │   │       ├── libAMDOmptAgent.so
+│       │   │       ├── libAMDOpenMpiAgent.so
+│       │   │       ├── libAMDTPythonAgent310.so
+│       │   │       ├── libAMDTPythonAgent311.so
+│       │   │       ├── libAMDTPythonAgent312.so
+│       │   │       ├── libAMDTPythonAgent313.so
+│       │   │       ├── libAMDUserModeSamplingAgent.so
+│       │   │       └── libAMDUserModeTracingAgent.so
+│       │   └── uprof.conf
+│       ├── Examples
+│       │   ├── AMDTClassicMatMul
+│       │   │   ├── AMDTClassicMatMul.cpp
+│       │   │   ├── bin
+│       │   │   │   └── AMDTClassicMatMul-bin
+│       │   │   ├── Makefile
+│       │   │   └── README.txt
+│       │   ├── ClassicCpuProfileCtrl
+│       │   │   ├── ClassicCpuProfileCtrl.cpp
+│       │   │   └── Makefile
+│       │   ├── ClassicDomainTaskAPI
+│       │   │   ├── ClassicDomainTaskAPI.cpp
+│       │   │   ├── Makefile
+│       │   │   └── python
+│       │   │       └── ClassicDomainTaskApi.py
+│       │   ├── CollatzSequence_C-OMP
+│       │   │   ├── collatz-sequence-omp.c
+│       │   │   ├── collatz-sequence-omp-dyn20.c
+│       │   │   ├── collatz-sequence-omp-dyn.c
+│       │   │   └── Makefile
+│       │   └── CollectAllCounters
+│       │       ├── CollectAllCounters.cpp
+│       │       └── Makefile
+│       ├── Help
+│       │   └── AMDPowerProfilerAPI.pdf
+│       ├── include
+│       │   ├── AMDProfileController.h
+│       │   ├── AMDTDefinitions.h
+│       │   ├── AMDTPowerProfileApi.h
+│       │   └── AMDTPowerProfileDataTypes.h
+│       ├── Legal
+│       │   ├── AMDuProfEndUserLicenseAgreement.htm
+│       │   ├── APACHE-LICENSE-2.0.txt
+│       │   ├── capstone-LICENSE.TXT
+│       │   ├── cpp-httplib-LICENSE.txt
+│       │   ├── json-LICENSE.MIT.txt
+│       │   ├── libc++abi.txt
+│       │   ├── LibDwarf.txt
+│       │   ├── libelf.txt
+│       │   ├── NOTICE (uProf 5.3).txt
+│       │   ├── OFL.txt
+│       │   ├── OTF2-Copying.txt
+│       │   ├── QHotkey-LICENSE.txt
+│       │   ├── Qt-LICENSE.txt
+│       │   ├── Readme.txt
+│       │   ├── smhasher-README.md.txt
+│       │   └── zlibdoc.txt
+│       ├── lib
+│       │   └── x64
+│       │       ├── libAMDProfileController.a
+│       │       ├── python
+│       │       │   └── amd_instrument.py
+│       │       └── shared
+│       │           └── libAMDProfileController.so
+│       └── Resources
+│           └── AMDLogoBlack.png
+└── usr
+    └── share
+        └── doc
+            └── amduprof
+                └── changelog.gz
+
+126 directories, 1344 files

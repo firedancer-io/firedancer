@@ -2,6 +2,22 @@
 
 #include "../../third_party/blst/bindings/blst.h"
 
+static inline void
+fd_bls_g1_from_blst( fd_bls_g1_t *        out,
+                     blst_p1_affine const * in ) {
+  blst_uint64_from_fp( out->x, &in->x );
+  blst_uint64_from_fp( out->y, &in->y );
+}
+
+static inline void
+fd_bls_g2_from_blst( fd_bls_g2_t *        out,
+                     blst_p2_affine const * in ) {
+  blst_uint64_from_fp( out->x[0], &in->x.fp[0] );
+  blst_uint64_from_fp( out->x[1], &in->x.fp[1] );
+  blst_uint64_from_fp( out->y[0], &in->y.fp[0] );
+  blst_uint64_from_fp( out->y[1], &in->y.fp[1] );
+}
+
 void
 fd_bls_sec_to_pub( fd_bls_sec_t const * sk,
                    fd_bls_pub_t *       pk ) {
@@ -95,27 +111,60 @@ fd_bls_agg_construct( fd_bls_agg_t *       agg,
   return agg;
 }
 
+static int
+fd_bls_agg_verify_impl( uchar const *        msg,
+                        ulong                msg_sz,
+                        fd_bls_pub_t const * pub,
+                        uchar const *        msg_fb,
+                        ulong                msg_fb_sz,
+                        fd_bls_pub_t const * pub_fb,
+                        fd_bls_sig_t const * sig ) {
+  ulong cnt = 1UL + !!pub_fb;
+  if( FD_UNLIKELY( blst_p1_is_inf( pub ) ||
+                   (pub_fb && blst_p1_is_inf( pub_fb )) ||
+                   blst_p2_is_inf( sig ) ) ) return 0; /* the Miller loop is wrong on an infinity operand */
+
+  blst_p1_affine a[3];
+  blst_p2_affine b[3];
+  blst_p2        h[1];
+  blst_p1_to_affine( a, pub );
+  blst_hash_to_g2( h, msg, msg_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
+  blst_p2_to_affine( b, h );
+  if( FD_UNLIKELY( pub_fb ) ) {
+    blst_p1_to_affine( a+1, pub_fb );
+    blst_hash_to_g2( h, msg_fb, msg_fb_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
+    blst_p2_to_affine( b+1, h );
+  }
+  a[cnt] = BLS12_381_NEG_G1;
+  blst_p2_to_affine( b+cnt, sig );
+
+  fd_bls_g1_t pair_p[3];
+  fd_bls_g2_t pair_q[3];
+  for( ulong i=0UL; i<=cnt; i++ ) {
+    fd_bls_g1_from_blst( pair_p+i, a+i );
+    fd_bls_g2_from_blst( pair_q+i, b+i );
+  }
+  return fd_bls_pairing_finalverify( pair_p, pair_q, cnt+1UL )==1;
+}
+
 int
 fd_bls_agg_verify( uchar const *        msg,
                    ulong                msg_sz,
                    fd_bls_pub_t const * pub,
                    fd_bls_sig_t const * sig ) {
-  if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p2_is_inf( sig ) ) ) return 0; /* the miller loop is wrong on an infinity operand */
+  return fd_bls_agg_verify_impl( msg, msg_sz, pub, NULL, 0UL, NULL, sig );
+}
 
-  blst_p1_affine a[2];
-  blst_p2_affine b[2];
-  blst_p2        h[1];
-  blst_p1_to_affine( a, pub );
-  blst_hash_to_g2( h, msg, msg_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
-  blst_p2_to_affine( b, h );
-  a[1] = BLS12_381_NEG_G1;
-  blst_p2_to_affine( b+1, sig );
-
-  blst_p1_affine const * aptr[2] = { a, a+1 };
-  blst_p2_affine const * bptr[2] = { b, b+1 };
-  blst_fp12 r[1];
-  blst_miller_loop_n( r, bptr, aptr, 2UL );
-  return !!blst_fp12_finalverify( r, blst_fp12_one() );
+int
+fd_bls_agg_verify_pair( uchar const *        msg,
+                        ulong                msg_sz,
+                        fd_bls_pub_t const * pub,
+                        uchar const *        msg_fb,
+                        ulong                msg_fb_sz,
+                        fd_bls_pub_t const * pub_fb,
+                        fd_bls_sig_t const * sig ) {
+  if( FD_UNLIKELY( !msg_fb || !pub_fb ) ) return 0;
+  return fd_bls_agg_verify_impl( msg, msg_sz, pub, msg_fb, msg_fb_sz, pub_fb, sig );
 }
 
 fd_bls_set_t *
@@ -186,3 +235,9 @@ fd_bls_agg_verify_subtract( fd_bls_agg_t *       agg,
   if( FD_UNLIKELY( blst_p1_is_inf( &agg->pub ) ) ) return -1;
   return 0;
 }
+
+#if FD_HAS_AVX512
+#include "avx512/fd_bls.c"
+#else
+#include "ref/fd_bls.c"
+#endif
