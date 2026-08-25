@@ -3,12 +3,12 @@
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <stdarg.h>
 #include <stddef.h>
-#include <stdio.h>
+#include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -358,51 +358,26 @@ FD_STATIC_ASSERT( sizeof(fd_uverbs_create_gre_flow_req_t)==200UL, uverbs_create_
 
 /* fd_rdma_* helpers discover and inspect the selected Linux RDMA device */
 static int
-fd_rdma_path( char *       path,
-              ulong        path_sz,
-              char const * fmt,
-              ... ) {
-  va_list ap;
-  va_start( ap, fmt );
-  int path_len = vsnprintf( path, path_sz, fmt, ap );
-  va_end( ap );
-  if( FD_UNLIKELY( path_len<0 || (ulong)path_len>=path_sz ) ) {
-    errno = ENAMETOOLONG;
-    return -1;
-  }
-  return 0;
-}
-
-static int
 fd_rdma_read_text( char const * path,
                    char *       buf,
                    ulong        buf_sz ) {
-  if( FD_UNLIKELY( buf_sz<2UL ) ) {
-    errno = EINVAL;
-    return -1;
-  }
+  FD_TEST( buf_sz>1UL );
 
   int text_fd = open( path, O_RDONLY | O_CLOEXEC );
   if( FD_UNLIKELY( text_fd<0 ) ) return -1;
 
-  int     err     = 0;
-  ssize_t read_sz = read( text_fd, buf, buf_sz-1UL );
-  if( FD_UNLIKELY( read_sz<0 ) ) err = errno;
-  else if( FD_UNLIKELY( (ulong)read_sz==buf_sz-1UL ) ) {
-    char extra;
-    ssize_t extra_sz = read( text_fd, &extra, 1UL );
-    if( FD_UNLIKELY( extra_sz<0 ) ) err = errno;
-    else if( FD_UNLIKELY( extra_sz ) ) err = EOVERFLOW;
-  }
-  if( FD_UNLIKELY( close( text_fd ) && !err ) ) err = errno;
+  long read_sz = read( text_fd, buf, buf_sz );
+  int  err     = 0;
+  if( FD_UNLIKELY( read_sz<0L ) )                  err = errno;
+  else if( FD_UNLIKELY( (ulong)read_sz==buf_sz ) ) err = EOVERFLOW;
+  if( FD_UNLIKELY( close( text_fd ) && !err ) )    err = errno;
   if( FD_UNLIKELY( err ) ) {
     errno = err;
     return -1;
   }
 
   ulong text_sz = (ulong)read_sz;
-  while( text_sz && (buf[ text_sz-1UL ]=='\n' || buf[ text_sz-1UL ]=='\r' ||
-                     buf[ text_sz-1UL ]==' '  || buf[ text_sz-1UL ]=='\t') ) text_sz--;
+  while( text_sz && fd_isspace( (int)(uchar)buf[ text_sz-1UL ] ) ) text_sz--;
   if( FD_UNLIKELY( !text_sz ) ) {
     errno = EPROTO;
     return -1;
@@ -417,16 +392,13 @@ fd_rdma_read_uint( char const * path,
   char buf[ 32 ];
   if( FD_UNLIKELY( fd_rdma_read_text( path, buf, sizeof(buf) ) ) ) return -1;
 
-  uint parsed_value = 0U;
-  for( char const * digit_cur=buf; *digit_cur; digit_cur++ ) {
-    uint digit = (uint)(uchar)*digit_cur - (uint)'0';
-    if( FD_UNLIKELY( digit>9U || parsed_value>(UINT_MAX-digit)/10U ) ) {
-      errno = EPROTO;
-      return -1;
-    }
-    parsed_value = 10U*parsed_value + digit;
+  char * end;
+  ulong parsed_value = strtoul( buf, &end, 10 );
+  if( FD_UNLIKELY( *end || parsed_value>UINT_MAX ) ) {
+    errno = EPROTO;
+    return -1;
   }
-  *value = parsed_value;
+  *value = (uint)parsed_value;
   return 0;
 }
 
@@ -449,8 +421,8 @@ fd_rdma_name_valid( char const * name,
 static int
 fd_mlx5_check_driver( char const * rdma_name ) {
   char path[ FD_RDMA_PATH_MAX ];
-  if( FD_UNLIKELY( fd_rdma_path( path, sizeof(path),
-                                 "/sys/class/infiniband/%s/device/driver", rdma_name ) ) ) return -1;
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL,
+                                 "/sys/class/infiniband/%s/device/driver", rdma_name ) );
 
   char target[ FD_RDMA_PATH_MAX ];
   ssize_t target_sz = readlink( path, target, sizeof(target)-1UL );
@@ -505,9 +477,9 @@ fd_uverbs_resolve( char         uverbs_name[ FD_UVERBS_NAME_MAX ],
 
     char path[ FD_RDMA_PATH_MAX ];
     char entry_rdma_name[ FD_MLX5_RDMA_NAME_MAX ];
-    if( FD_UNLIKELY( fd_rdma_path( path, sizeof(path),
-                                   "/sys/class/infiniband_verbs/%s/ibdev", uverbs_entry->d_name ) ||
-                     fd_rdma_read_text( path, entry_rdma_name, sizeof(entry_rdma_name) ) ) ) {
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL,
+                                   "/sys/class/infiniband_verbs/%s/ibdev", uverbs_entry->d_name ) );
+    if( FD_UNLIKELY( fd_rdma_read_text( path, entry_rdma_name, sizeof(entry_rdma_name) ) ) ) {
       err = errno;
       break;
     }
@@ -528,8 +500,8 @@ fd_uverbs_resolve( char         uverbs_name[ FD_UVERBS_NAME_MAX ],
   uint core_abi;
   uint provider_abi;
   if( FD_UNLIKELY( fd_rdma_read_uint( "/sys/class/infiniband_verbs/abi_version", &core_abi ) ) ) return -1;
-  if( FD_UNLIKELY( fd_rdma_path( path, sizeof(path),
-                                 "/sys/class/infiniband_verbs/%s/abi_version", matched_uverbs_name ) ) ) return -1;
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL,
+                                 "/sys/class/infiniband_verbs/%s/abi_version", matched_uverbs_name ) );
   if( FD_UNLIKELY( fd_rdma_read_uint( path, &provider_abi ) ) ) return -1;
   if( FD_UNLIKELY( core_abi!=IB_USER_VERBS_ABI_VERSION ||
                    provider_abi!=MLX5_IB_UVERBS_ABI_VERSION ) ) {
@@ -727,7 +699,7 @@ fd_uverbs_open_context( fd_uverbs_ctx_t * ctx,
   if( FD_UNLIKELY( fd_uverbs_resolve( uverbs_name, rdma_name ) ) ) return NULL;
 
   char path[ FD_RDMA_PATH_MAX ];
-  if( FD_UNLIKELY( fd_rdma_path( path, sizeof(path), "/dev/infiniband/%s", uverbs_name ) ) ) return NULL;
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/dev/infiniband/%s", uverbs_name ) );
   ctx->cmd_fd = open( path, O_RDWR | O_CLOEXEC );
   if( FD_UNLIKELY( ctx->cmd_fd<0 ) ) return NULL;
 
