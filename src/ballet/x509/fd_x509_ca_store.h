@@ -35,8 +35,9 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_x509_ca_store_load clears store, then loads supported CA certificates
    from the PEM bundle at pem_path.  Malformed, unsupported, non-CA, and
-   unusable entries are skipped.  Bundles exceeding FD_X509_CA_STORE_MAX are
-   truncated.
+   unusable entries are skipped, as are CA certs whose extKeyUsage does
+   not permit TLS server authentication (the store's only use).  Bundles
+   exceeding FD_X509_CA_STORE_MAX are truncated.
 
    Returns the number of loaded trust anchors, or -1 for a file-level error.
    store and pem_path must be non-NULL. */
