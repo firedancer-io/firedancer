@@ -32,6 +32,7 @@
 #include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../discof/votor/fd_votor_notif.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 
@@ -54,6 +55,7 @@
 #define IN_KIND_SNAPIN_MANIF  (18UL) /* firedancer only */
 #define IN_KIND_SNAPSV_OUT    (19UL) /* firedancer only */
 #define IN_KIND_DIAG          (20UL) /* firedancer only */
+#define IN_KIND_VOTOR_NOTIF   (21UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -192,7 +194,7 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_gui_set_identity( ctx->gui, ctx->keyswitch->bytes );
-    fd_gui_peers_handle_identity_change( ctx->peers );
+    if( FD_LIKELY( !ctx->gui->summary.is_alpenglow ) ) fd_gui_peers_handle_identity_change( ctx->peers );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
@@ -395,7 +397,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         int txn_succeeded = msg->txn_exec->is_committable && !msg->txn_exec->is_fees_only && !msg->txn_exec->txn_err;
         if( FD_UNLIKELY( msg->txn_exec->vote.slot!=ULONG_MAX && txn_succeeded ) ) {
           int vote_acct_is_us = !ctx->gui->summary.has_vote_key || !memcmp( ctx->gui->summary.vote_key->uc, msg->txn_exec->vote.vote_acct->uc, sizeof(fd_pubkey_t) );
-          int is_us = vote_acct_is_us && !memcmp( ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) );
+          int is_us = !ctx->gui->summary.is_alpenglow && vote_acct_is_us && !memcmp( ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) );
           fd_gui_peers_handle_vote( ctx->peers,
                                     msg->txn_exec->vote.vote_acct,
                                     msg->txn_exec->vote.slot,
@@ -408,6 +410,12 @@ after_frag( fd_gui_ctx_t *      ctx,
         }
       }
 
+      break;
+    }
+    case IN_KIND_VOTOR_NOTIF: {
+      if( FD_UNLIKELY( sig!=FD_VOTOR_NOTIF_FINALIZED_SLOT || sz!=sizeof(fd_votor_notif_t) ) ) return;
+      fd_votor_notif_t const * notif = (fd_votor_notif_t const *)src;
+      fd_gui_handle_finalized_slot( ctx->gui, notif->finalized_slot );
       break;
     }
     case IN_KIND_REPLAY_OUT: {
@@ -826,7 +834,7 @@ unprivileged_init( fd_topo_t const *      topo,
     accdb_shmem = fd_accdb_shmem_join( accdb_shmem_raw );
     FD_TEST( accdb_shmem );
   }
-  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
+  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, tile->gui.is_alpenglow, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
   FD_TEST( ctx->db );
 
@@ -869,6 +877,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "execrp_replay" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else if( FD_LIKELY( !strcmp( link->name, "diag_gui"       ) ) ) ctx->in_kind[ i ] = IN_KIND_DIAG;
+    else if( FD_LIKELY( !strcmp( link->name, "votor_notif"    ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR_NOTIF;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "execle_poh" ) ) ) {

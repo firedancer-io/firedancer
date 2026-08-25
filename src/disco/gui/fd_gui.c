@@ -89,6 +89,7 @@ fd_gui_new( void *                   shmem,
             int                      has_vote_key,
             uchar const *            vote_key,
             int                      is_full_client,
+            int                      is_alpenglow,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,
@@ -181,6 +182,7 @@ fd_gui_new( void *                   shmem,
   }
 
   gui->summary.is_full_client                = is_full_client;
+  gui->summary.is_alpenglow                  = is_alpenglow;
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
   fd_cstr_ncpy( gui->summary.accounts_database_path, accounts_database_path, sizeof(gui->summary.accounts_database_path) );
@@ -237,6 +239,7 @@ fd_gui_new( void *                   shmem,
   fd_gui_build_tile_order( gui );
 
   gui->summary.slot_rooted                   = ULONG_MAX;
+  gui->summary.slot_finalized                = ULONG_MAX;
   gui->summary.slot_optimistically_confirmed = ULONG_MAX;
   gui->summary.slot_estimated                = ULONG_MAX;
   gui->summary.slot_caught_up                = ULONG_MAX;
@@ -244,6 +247,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.slot_turbine                  = ULONG_MAX;
   gui->summary.slot_reset                    = ULONG_MAX;
   gui->summary.slot_storage                  = ULONG_MAX;
+  gui->summary.slot_voted                    = ULONG_MAX;
   gui->summary.active_fork_cnt               = 1UL;
 
   memset( gui->summary.skip_rate, 0, sizeof(gui->summary.skip_rate) );
@@ -419,10 +423,17 @@ fd_gui_set_identity( fd_gui_t *    gui,
   if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
   gui->landed_vote_cnt = 0UL;
 
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) gui->summary.slot_voted = ULONG_MAX;
+
   fd_gui_printf_identity_key( gui );
   fd_http_server_ws_broadcast( gui->http );
-  fd_gui_printf_vote_distance( gui );
-  fd_http_server_ws_broadcast( gui->http );
+  if( FD_LIKELY( !gui->summary.is_alpenglow ) ) {
+    fd_gui_printf_vote_distance( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  } else {
+    fd_gui_printf_vote_slot( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
   fd_gui_printf_vote_state( gui );
   fd_http_server_ws_broadcast( gui->http );
   fd_gui_printf_late_votes_history( gui );
@@ -472,6 +483,9 @@ void
 fd_gui_ws_open( fd_gui_t * gui,
                 ulong      ws_conn_id,
                 long now ) {
+  fd_gui_printf_is_alpenglow( gui );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+
   void (* printers[] )( fd_gui_t * gui ) = {
     fd_gui_printf_boot_progress,
     fd_gui_printf_version,
@@ -508,7 +522,18 @@ fd_gui_ws_open( fd_gui_t * gui,
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
   for( ulong i=0UL; i<printers_len; i++ ) {
+    if( FD_UNLIKELY( gui->summary.is_alpenglow &&
+                     (printers[ i ]==fd_gui_printf_vote_distance || printers[ i ]==fd_gui_printf_optimistically_confirmed_slot) ) ) continue;
     printers[ i ]( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
+
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
+    if( FD_LIKELY( gui->summary.slot_finalized!=ULONG_MAX ) ) {
+      fd_gui_printf_finalized_slot( gui );
+      FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    }
+    fd_gui_printf_vote_slot( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
@@ -2580,11 +2605,24 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
 }
 
 void
+fd_gui_handle_finalized_slot( fd_gui_t * gui,
+                              ulong      slot ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
+  if( FD_LIKELY( gui->summary.slot_finalized!=ULONG_MAX && slot<=gui->summary.slot_finalized ) ) return;
+
+  gui->summary.slot_finalized = slot;
+  fd_gui_printf_finalized_slot( gui );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+void
 fd_gui_handle_oc_advanced( fd_gui_t * gui,
                            ulong      _slot,
                            ulong      bank_seq,
                            long       now ) {
   (void)now;
+
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) return;
 
   fd_gui_slot_t * live_slot = fd_gui_slot_get( gui, _slot, bank_seq );
   if( FD_UNLIKELY( !live_slot ) ) return;
@@ -2959,6 +2997,8 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
                              fd_replay_slot_completed_t const * slot_completed,
                              ulong                              vote_slot,
                              long                               now ) {
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) vote_slot = slot_completed->vote_slot;
+
   if( FD_LIKELY( gui->summary.slot_storage!=slot_completed->storage_slot ) ) {
     gui->summary.slot_storage = slot_completed->storage_slot;
     fd_gui_printf_storage_slot( gui );
@@ -3058,6 +3098,31 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
 
     fd_gui_printf_slot_caught_up( gui );
     fd_http_server_ws_broadcast( gui->http );
+  }
+
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
+    /* Experimental Alpenglow replay currently completes blocks in its
+       provisional selected-fork order, so the newest completion is the
+       best available canonical frontier for GUI summary state. */
+    if( FD_UNLIKELY( gui->summary.slot_voted!=vote_slot ) ) {
+      gui->summary.slot_voted = vote_slot;
+      fd_gui_printf_vote_slot( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+
+    handle_tower_slot( gui, slot_completed->slot, slot_completed->bank_seq, now );
+
+    if( FD_UNLIKELY( gui->summary.slot_reset!=slot_completed->slot ) ) {
+      gui->summary.slot_reset = slot_completed->slot;
+      fd_gui_printf_reset_slot( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+
+    if( FD_UNLIKELY( gui->summary.slot_estimated!=slot_completed->slot ) ) {
+      gui->summary.slot_estimated = slot_completed->slot;
+      fd_gui_printf_estimated_slot( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
   }
 }
 
