@@ -230,7 +230,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   fd_shred_completed_fec_t * completed =
     fd_spad_alloc( runner->spad, alignof(fd_shred_completed_fec_t), sizeof(fd_shred_completed_fec_t)*max_fec_results );
   ulong completed_cnt = 0UL;
-  ulong next_bank_idx = 1UL; /* 0 is the reasm/sched root, so start at 1 */
+  uint next_bank_idx = 1U; /* 0 is the reasm/sched root, so start at 1 */
 
   /* Parse each shred, feed resolver, and only continue when an FEC
      completes. */
@@ -390,12 +390,12 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
          was already recorded by the time we read it here. */
       fd_reasm_fec_t * parent = fd_reasm_parent( reasm, popped );
       FD_TEST( parent );
-      ulong parent_bank_idx = parent->bank_idx;
+      uint parent_bank_idx = parent->bank_idx;
 
       /* If the FEC set starts a new slot (no bank yet), use a fresh
          bank index; otherwise reuse the parent's.  Record it on the
          node so this slot's later FECs inherit it. */
-      ulong bank_idx = ( popped->fec_set_idx==0U ) ? next_bank_idx++ : parent_bank_idx;
+      uint bank_idx = ( popped->fec_set_idx==0U ) ? next_bank_idx++ : parent_bank_idx;
       popped->bank_idx = bank_idx;
 
       fd_store_fec_t store_fec[1] = {0};

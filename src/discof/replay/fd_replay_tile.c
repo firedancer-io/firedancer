@@ -1638,7 +1638,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
   fd_reasm_fec_t * fec       = fd_reasm_init( ctx->reasm, &initial_block_id, 0 /* genesis slot */ );
-  fec->bank_idx              = bank->idx;
+  fec->bank_idx              = (uint)bank->idx;
   fec->bank_seq              = bank->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
 
@@ -1787,7 +1787,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_root_advanced( ctx, stem, bank );
 
     fd_reasm_fec_t * fec = fd_reasm_init( ctx->reasm, &manifest_block_id, snapshot_slot );
-    fec->bank_idx        = bank->idx;
+    fec->bank_idx        = (uint)bank->idx;
     fec->bank_seq        = bank->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
 
@@ -1940,7 +1940,7 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
   for( ulong i=0UL; i<dead_idxs_cnt; i++ ) {
     fd_block_id_ele_t * ele = &ctx->block_id_arr[ dead_idxs[ i ] ];
     fd_reasm_fec_t *    fec = fd_reasm_query( ctx->reasm, &ele->latest_mr );
-    if( FD_LIKELY( fec ) ) { fec->bank_dead = abandoned ? 2UL : 1UL; fec->dead_reported = 1; }
+    if( FD_LIKELY( fec ) ) { fec->bank_dead = (uchar)(abandoned ? 2U : 1U); fec->dead_reported = 1; }
     timing_slot_release( ctx, dead_idxs[ i ] );
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, dead_idxs[ i ] );
     int dr = abandoned                 ? FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD
@@ -2026,7 +2026,7 @@ can_process_fec( fd_replay_tile_t * ctx,
 
   /* If the FEC we are building off of is for a prunable bank, we must
      wait to process the FEC until the bank has been evicted. */
-  fd_bank_t * parent_fec_bank = parent->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
+  fd_bank_t * parent_fec_bank = parent->bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
   if( FD_UNLIKELY( parent_fec_bank && parent_fec_bank->bank_seq==parent->bank_seq && parent_fec_bank->state==FD_BANK_STATE_PRUNABLE ) ) {
     FD_LOG_DEBUG(( "waiting to process FEC set (slot=%lu, fec_set_idx=%u) because parent bank is being pruned", fec->slot, fec->fec_set_idx ));
     return 0;
@@ -2145,7 +2145,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
       ctx->leader_stats.first_fec_returned_nanos = now;
     }
 
-    reasm_fec->bank_idx = bank->idx;
+    reasm_fec->bank_idx = (uint)bank->idx;
     reasm_fec->bank_seq = bank->bank_seq;
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
@@ -2162,7 +2162,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
     reasm_fec->bank_seq = parent_bank->bank_seq;
 
-    FD_TEST( reasm_fec->bank_idx!=ULONG_MAX );
+    FD_TEST( reasm_fec->bank_idx!=UINT_MAX );
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
@@ -2179,7 +2179,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     /* If we are re-replaying a block, we want to remove the first
        version of the block that we have presumably evicted. */
     if( FD_UNLIKELY( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr ) ) ) {
-      FD_LOG_DEBUG(( "finished re-replaying evicted bank (slot=%lu, bank_idx=%lu)", reasm_fec->slot, reasm_fec->bank_idx ));
+      FD_LOG_DEBUG(( "finished re-replaying evicted bank (slot=%lu, bank_idx=%u)", reasm_fec->slot, reasm_fec->bank_idx ));
     }
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
@@ -2253,7 +2253,7 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
   fd_bank_t *      base_bank = NULL;
   fd_reasm_fec_t * base_fec  = NULL;
   for( fd_reasm_fec_t * curr = reasm_fec;; ) {
-    fd_bank_t *         curr_bank    = curr->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, curr->bank_idx );
+    fd_bank_t *         curr_bank    = curr->bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, curr->bank_idx );
     fd_block_id_ele_t * block_id_ele = curr_bank ? &ctx->block_id_arr[ curr_bank->idx ] : NULL;
     if( FD_LIKELY( curr_bank &&
                    curr_bank->bank_seq==curr->bank_seq &&
@@ -2274,7 +2274,7 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( base_bank->state==FD_BANK_STATE_DEAD ) ) {
-    ulong bank_dead = fd_ulong_if( base_fec->bank_dead==2UL, 2UL, 1UL );
+    uchar bank_dead = fd_uchar_if( base_fec->bank_dead==2U, 2U, 1U );
     for( ulong i=0UL; i<path_cnt; i++ ) {
       path[ i ]->bank_dead     = bank_dead;
       path[ i ]->dead_reported = 0UL; /* new version: no row yet */
@@ -2282,7 +2282,7 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
     reasm_fec->bank_dead = bank_dead;
     if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
       publish_slot_dead( ctx, stem, reasm_fec->slot, &reasm_fec->key );
-      int abandoned = bank_dead==2UL;
+      int abandoned = bank_dead==2U;
       report_block_incomplete( ctx, reasm_fec->slot, &reasm_fec->key, NULL,
                                abandoned ? FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD    : FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_PARENT_DEAD,
                                abandoned ? FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
@@ -2315,7 +2315,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
        abandoned lineage).  If a dead slot is completed, we publish the
        slot as dead.  Don't insert FECs for dead slots. */
     reasm_fec->bank_dead     = parent->bank_dead;
-    reasm_fec->dead_reported = ( parent->slot==reasm_fec->slot && reasm_fec->xid_next==ULONG_MAX )
+    reasm_fec->dead_reported = ( parent->slot==reasm_fec->slot && reasm_fec->xid_next==UINT_MAX )
                              ? parent->dead_reported : 0UL;
     if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
       publish_slot_dead( ctx, stem, reasm_fec->slot, &reasm_fec->key );
@@ -2343,7 +2343,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
      either due to the parent bank being evicted, or in reasm, the
      parent is marked eqvoc (and not replayed), but the child gets
      confirmed and delivered. */
-  fd_bank_t * parent_fec_bank = parent->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
+  fd_bank_t * parent_fec_bank = parent->bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
   int parent_bank_invalid = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
 
   /* If the upcoming FEC is either the start of an equivocating chain,

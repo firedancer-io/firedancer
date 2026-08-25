@@ -180,8 +180,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 
 #include "fd_replay_tile.c"
 
-FD_STATIC_ASSERT( alignof(fd_reasm_fec_t)==128UL, reasm_fec_alignment );
-
 /* ---- Test setup ---- */
 
 static fd_frag_meta_t * test_stem_mcaches[ TEST_OUT_CNT ];
@@ -382,7 +380,7 @@ init_root_fec( fd_replay_tile_t * ctx,
 
   fd_bank_t * root_bank = fd_banks_root( ctx->banks );
   FD_TEST( root_bank );
-  f_root->bank_idx = root_bank->idx;
+  f_root->bank_idx = (uint)root_bank->idx;
   f_root->bank_seq = root_bank->bank_seq;
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ root_bank->idx ];
@@ -1277,7 +1275,7 @@ test_banks_evict_backfill( fd_wksp_t * wksp ) {
   /* 9. Verify: slot 2 has not been backfilled yet. */
 
   FD_TEST( f2_0->bank_idx==slot2_bank_idx );
-  FD_TEST( f2_32->bank_idx==ULONG_MAX );
+  FD_TEST( f2_32->bank_idx==UINT_MAX );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==4UL );
 
   /* 10. A future FEC chaining off slot 2 drives the next round of
@@ -1294,7 +1292,7 @@ test_banks_evict_backfill( fd_wksp_t * wksp ) {
   FD_TEST( new_slot2_bank_idx!=slot2_bank_idx );
   FD_TEST( new_slot2_bank_idx!=new_slot1_bank_idx );
   FD_TEST( f2_0->bank_idx==new_slot2_bank_idx );
-  FD_TEST( f3_0->bank_idx==ULONG_MAX );
+  FD_TEST( f3_0->bank_idx==UINT_MAX );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==5UL );
 
   FD_LOG_NOTICE(( "pass: test_banks_evict_backfill" ));
@@ -1334,10 +1332,10 @@ test_backfill_partial_sched_capacity( fd_wksp_t * wksp ) {
   backfill_fec_sets( ctx, test_stem, f1_96 );
 
   FD_TEST( mock_sched_fec_ingest_cnt==sched_ingest_cnt+2UL );
-  FD_TEST( f1_0->bank_idx!=ULONG_MAX );
+  FD_TEST( f1_0->bank_idx!=UINT_MAX );
   FD_TEST( f1_32->bank_idx==f1_0->bank_idx );
-  FD_TEST( f1_64->bank_idx==ULONG_MAX );
-  FD_TEST( f1_96->bank_idx==ULONG_MAX );
+  FD_TEST( f1_64->bank_idx==UINT_MAX );
+  FD_TEST( f1_96->bank_idx==UINT_MAX );
 
   FD_LOG_NOTICE(( "pass: test_backfill_partial_sched_capacity" ));
 }
@@ -1345,10 +1343,10 @@ test_backfill_partial_sched_capacity( fd_wksp_t * wksp ) {
 /* Partial execution eviction: slot 1 has 4 FECs (0, 32, 64, 96) with 96
    NOT slot_complete.  We pop and process only the first 2 (FEC 0 and
    32), which sets bank_idx=1 on those FECs.  FECs 64 and 96 remain
-   unprocessed with bank_idx=ULONG_MAX.  Then we evict the frontier leaf
+   unprocessed with bank_idx=UINT_MAX.  Then we evict the frontier leaf
    (FEC 96).  fd_reasm_remove walks UP from the leaf checking that each
    node shares the same bank_idx as the tail.  When it reaches FEC 32
-   (bank_idx=1) while tail has bank_idx=ULONG_MAX, make sure fd_reasm.c
+   (bank_idx=1) while tail has bank_idx=UINT_MAX, make sure fd_reasm.c
    wouldn't crash. */
 
 static void
@@ -1390,7 +1388,7 @@ test_partial_exec_evict( fd_wksp_t * wksp ) {
 
   /* 3. Pop and process only the first 2 FECs.  After this, FEC 0 and
      32 have bank_idx=1.  FECs 64 and 96 remain in the delivery queue
-     with bank_idx=ULONG_MAX. */
+     with bank_idx=UINT_MAX. */
 
   fd_reasm_fec_t * fec = drive_one_fec( ctx, 1UL, 0U );
 
@@ -1400,25 +1398,25 @@ test_partial_exec_evict( fd_wksp_t * wksp ) {
 
   /* Verify FECs 64 and 96 have NOT been processed. */
 
-  FD_TEST( f1_64->bank_idx==ULONG_MAX );
-  FD_TEST( f1_96->bank_idx==ULONG_MAX );
+  FD_TEST( f1_64->bank_idx==UINT_MAX );
+  FD_TEST( f1_96->bank_idx==UINT_MAX );
 
   /* 4. Evict the frontier leaf (FEC 96).  This is the node the eviction
      policy would select: it is an unconfirmed, !slot_complete frontier
      leaf.  fd_reasm_remove walks up from FEC 96 toward fec_set_idx==0.
      The walk hits FEC 32 (bank_idx=1) while tail (FEC 96) has
-     bank_idx=ULONG_MAX. */
+     bank_idx=UINT_MAX. */
 
   fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_96, NULL );
   FD_TEST( evicted );
 
   /* Release evicted chain back to pool. */
 
-  ulong evict_order[ 4 ] = { partial_bank_idx, partial_bank_idx, ULONG_MAX, ULONG_MAX };
-  uint  evict_idx        = 0;
+  uint evict_order[ 4 ] = { (uint)partial_bank_idx, (uint)partial_bank_idx, UINT_MAX, UINT_MAX };
+  uint evict_idx        = 0;
 
   while( evicted ) {
-    FD_LOG_NOTICE(( "evicting FEC slot %lu, fec idx %u, bank idx %lu", evicted->slot, evicted->fec_set_idx, evicted->bank_idx ));
+    FD_LOG_NOTICE(( "evicting FEC slot %lu, fec idx %u, bank idx %u", evicted->slot, evicted->fec_set_idx, evicted->bank_idx ));
     FD_TEST( evict_order[ evict_idx ] == evicted->bank_idx && evicted->fec_set_idx == 32*evict_idx );
     fd_reasm_fec_t * next = fd_reasm_child( reasm, evicted );
     fd_reasm_pool_release( reasm, evicted );
@@ -1636,7 +1634,7 @@ test_banks_full_prune_leaf( fd_wksp_t * wksp ) {
 
    Pop now delivers FEC 32_B first.  process_fec_set does
    fd_banks_bank_query(parent->bank_idx) where parent is FEC 0_B whose
-   bank_idx is ULONG_MAX → segfault. */
+   bank_idx is UINT_MAX → segfault. */
 
 static void
 test_eqvoc_child_confirm( fd_wksp_t * wksp ) {
@@ -1691,7 +1689,7 @@ test_eqvoc_child_confirm( fd_wksp_t * wksp ) {
      Then pop delivers slot 3 FEC 0. */
 
   fec = drive_one_fec( ctx, 3UL, 0U );
-  FD_TEST( fec->bank_idx!=ULONG_MAX );
+  FD_TEST( fec->bank_idx!=UINT_MAX );
 
   /* FEC 0_B is now dangling: not in the queue, not marked popped. */
   FD_TEST( !f1_0_b->in_out );
@@ -1745,7 +1743,7 @@ test_eqvoc_child_confirm( fd_wksp_t * wksp ) {
      32_B queued instead of popping it and failing partway through
      backfill. */
 
-  FD_TEST( f1_0_b->bank_idx==ULONG_MAX );
+  FD_TEST( f1_0_b->bank_idx==UINT_MAX );
 
   ulong saved_fork_width = ctx->banks->curr_fork_width;
   ctx->banks->curr_fork_width = ctx->banks->max_fork_width;
@@ -1846,16 +1844,16 @@ test_double_confirm_backfill( fd_wksp_t * wksp ) {
   ulong banks_used_before = fd_banks_pool_used_cnt( ctx->banks );
 
   fd_reasm_fec_t * fec = drive_one_fec( ctx, 2UL, 32U );
-  FD_TEST( fec->bank_idx==ULONG_MAX );
+  FD_TEST( fec->bank_idx==UINT_MAX );
 
   /* After backfill: version B FEC 0 has a valid bank but still
      popped=0, in_out=0 — backfill doesn't touch those flags. */
 
-  FD_TEST( f1_0_b->bank_idx!=ULONG_MAX );
+  FD_TEST( f1_0_b->bank_idx!=UINT_MAX );
   FD_TEST( !f1_0_b->popped );
   FD_TEST( !f1_0_b->in_out );
-  FD_TEST( f2_0->bank_idx==ULONG_MAX );
-  FD_TEST( f2_32->bank_idx==ULONG_MAX );
+  FD_TEST( f2_0->bank_idx==UINT_MAX );
+  FD_TEST( f2_32->bank_idx==UINT_MAX );
 
   ulong sched_cnt_after_backfill = mock_sched_fec_ingest_cnt;
   ulong banks_used_after_backfill = fd_banks_pool_used_cnt( ctx->banks );

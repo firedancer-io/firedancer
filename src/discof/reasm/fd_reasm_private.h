@@ -6,11 +6,13 @@
 
 #define POOL_NAME              pool
 #define POOL_T                 fd_reasm_fec_t
+#define POOL_IDX_T             uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               ancestry
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
+#define MAP_IDX_T              uint
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
@@ -18,6 +20,7 @@
 #define MAP_NAME               frontier
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
+#define MAP_IDX_T              uint
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
@@ -25,6 +28,7 @@
 #define MAP_NAME               orphaned
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
+#define MAP_IDX_T              uint
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
@@ -32,18 +36,21 @@
 #define MAP_NAME               subtrees
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
+#define MAP_IDX_T              uint
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME             subtreel
 #define DLIST_ELE_T            fd_reasm_fec_t
+#define DLIST_IDX_T            uint
 #define DLIST_PREV             subtreel.prev
 #define DLIST_NEXT             subtreel.next
 #include "../../util/tmpl/fd_dlist.c"
 
 #define DLIST_NAME             out
 #define DLIST_ELE_T            fd_reasm_fec_t
+#define DLIST_IDX_T            uint
 #define DLIST_PREV             out.prev
 #define DLIST_NEXT             out.next
 #include "../../util/tmpl/fd_dlist.c"
