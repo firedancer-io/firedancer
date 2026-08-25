@@ -18,8 +18,8 @@ def main():
 
     branch_version_minor = int(git_branch.split('.')[1])
     if branch_version_minor != version_minor:
-        print('Error: branch name does not match the minor version in version.mk')
-        exit(1)
+        print(f'Updating minor version in version.mk from {version_minor} to {branch_version_minor}')
+        version_minor = branch_version_minor
 
     version_patch += 1
     if version_patch >= 100:
