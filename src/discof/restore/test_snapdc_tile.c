@@ -129,7 +129,7 @@ test_env_new( ulong tile_idx,
   env->ctx->out.chunk   = 0UL;
   env->ctx->out.mtu     = FD_SNAPSHOT_DATA_MTU;
   FD_TEST( env->ctx->zstd );
-  FD_TEST( tile_count && tile_count<=FD_SNAPDC_TILE_MAX );
+  FD_TEST( tile_count && tile_count<=FD_TOPO_MAX_TILE_IN_LINKS );
   FD_TEST( tile_idx<tile_count );
 
   capture_reset( env );
@@ -444,7 +444,7 @@ test_raw_tile_zero( void ) {
   uchar raw[257];
   for( ulong i=0UL; i<sizeof(raw); i++ ) raw[i] = (uchar)(i*29UL);
 
-  for( ulong tile_count=1UL; tile_count<=FD_SNAPDC_TILE_MAX; tile_count++ ) {
+  for( ulong tile_count=1UL; tile_count<=FD_TOPO_MAX_TILE_IN_LINKS; tile_count++ ) {
     ulong compressed_sum   = 0UL;
     ulong decompressed_sum = 0UL;
     for( ulong tile_idx=0UL; tile_idx<tile_count; tile_idx++ ) {

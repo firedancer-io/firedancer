@@ -101,7 +101,7 @@ struct fd_snapin_tile {
   ulong lane_cnt;
   ulong expected_frame;
   ulong pending_control;    /* control message expected from snapdc tiles */
-  uchar control_seen[ FD_SNAPDC_TILE_MAX ];
+  uchar control_seen[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   ulong seed;
   long boot_timestamp;
@@ -200,7 +200,7 @@ struct fd_snapin_tile {
     ulong       wmark;
     ulong       mtu;
     ulong       pos;
-  } in[ FD_SNAPDC_TILE_MAX ];
+  } in[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   fd_snapin_out_link_t ct_out;
   fd_snapin_out_link_t manifest_out;
@@ -1773,9 +1773,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
-  if( FD_UNLIKELY( !tile->in_cnt || tile->in_cnt>FD_SNAPDC_TILE_MAX ) ) {
-    FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1..%lu", tile->in_cnt, FD_SNAPDC_TILE_MAX ));
-  }
+  FD_TEST( tile->in_cnt );
 
   ctx->ct_out =       out1( topo, tile, "snapin_ct" );
   ctx->manifest_out = out1( topo, tile, "snapin_manif" );

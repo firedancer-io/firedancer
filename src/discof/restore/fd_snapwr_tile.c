@@ -35,7 +35,7 @@ struct fd_snapwr_tile {
   ulong lane_cnt;
   ulong expected_frame;
   ulong pending_control; /* control message expected from snapdc tiles */
-  uchar control_seen[ FD_SNAPDC_TILE_MAX ];
+  uchar control_seen[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   ulong partition_sz;
 
@@ -56,7 +56,7 @@ struct fd_snapwr_tile {
     ulong       wmark;
     ulong       mtu;
     ulong       pos;
-  } in[ FD_SNAPDC_TILE_MAX ];
+  } in[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   fd_snapwr_out_t ct_out;
 
@@ -572,9 +572,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  if( FD_UNLIKELY( !tile->in_cnt || tile->in_cnt>FD_SNAPDC_TILE_MAX ) ) {
-    FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1..%lu", tile->in_cnt, FD_SNAPDC_TILE_MAX ));
-  }
+  FD_TEST( tile->in_cnt );
 
   ctx->ct_out = out1( topo, tile, "snapwr_ct" );
   if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapwr_ct`" ));

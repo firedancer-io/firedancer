@@ -312,11 +312,11 @@ test_fast_lane_control_pipeline( void ) {
 static void
 data_ctx_init( fd_snapin_tile_t * ctx,
                ulong              lane_cnt,
-               uchar              lane_data[ FD_SNAPDC_TILE_MAX ][ 64UL ] );
+               uchar              lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] );
 
 static void
 test_pending_control_allows_lagging_data( void ) {
-  uchar lane_data[ FD_SNAPDC_TILE_MAX ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapin_tile_t ctx[1];
   data_ctx_init( ctx, 2UL, lane_data );
   ctx->expected_frame = 1UL;
@@ -352,7 +352,7 @@ test_pending_control_allows_lagging_data( void ) {
 
 static void
 test_pending_control_keeps_frame_order( void ) {
-  uchar lane_data[ FD_SNAPDC_TILE_MAX ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapin_tile_t ctx[1];
   data_ctx_init( ctx, 3UL, lane_data );
   ctx->expected_frame = 1UL;
@@ -577,7 +577,7 @@ test_error_fail_and_retry( void ) {
 static void
 data_ctx_init( fd_snapin_tile_t * ctx,
                ulong              lane_cnt,
-               uchar              lane_data[ FD_SNAPDC_TILE_MAX ][ 64UL ] ) {
+               uchar              lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] ) {
   sync_ctx_init( ctx, lane_cnt, FD_SNAPSHOT_STATE_PROCESSING );
   fd_ssparse_init( ctx->ssparse );
   for( ulong lane=0UL; lane<lane_cnt; lane++ ) {
@@ -603,7 +603,7 @@ send_data( fd_snapin_tile_t * ctx,
 static void
 test_frame_ordering( void ) {
   ulong const lane_cnts[] = { 1UL, 2UL, 4UL };
-  uchar lane_data[ FD_SNAPDC_TILE_MAX ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   for( ulong n_idx=0UL; n_idx<sizeof(lane_cnts)/sizeof(lane_cnts[0]); n_idx++ ) {
     ulong lane_cnt = lane_cnts[ n_idx ];
     fd_snapin_tile_t ctx[1];
@@ -622,7 +622,7 @@ test_frame_ordering( void ) {
 
 static void
 test_frame_owner_and_raw_lane( void ) {
-  uchar lane_data[ FD_SNAPDC_TILE_MAX ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapin_tile_t ctx[1];
 
   data_ctx_init( ctx, 4UL, lane_data );
@@ -637,7 +637,7 @@ test_frame_owner_and_raw_lane( void ) {
 
 static void
 test_partial_and_zero_byte_eom( void ) {
-  uchar lane_data[ FD_SNAPDC_TILE_MAX ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapin_tile_t ctx[1];
   data_ctx_init( ctx, 2UL, lane_data );
   fd_memcpy( lane_data[0], "abcd", 4UL );
@@ -722,7 +722,7 @@ test_init_resets_lane_state( void ) {
 
 static void
 test_nonempty_raw_data( void ) {
-  uchar lane_data[ FD_SNAPDC_TILE_MAX ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapin_tile_t ctx[1];
   data_ctx_init( ctx, 2UL, lane_data );
   lane_data[0][0]     = 0U;

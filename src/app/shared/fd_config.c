@@ -10,7 +10,6 @@
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
-#include "../../discof/restore/utils/fd_ssctrl.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -466,9 +465,7 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.snapzp_tile_count );
   CFG_HAS_NON_ZERO( layout.snapsv_tile_count );
   CFG_HAS_NON_ZERO( layout.snapsv_io_worker_count );
-  if( FD_UNLIKELY( !config->layout.snapdc_tile_count || config->layout.snapdc_tile_count>FD_SNAPDC_TILE_MAX ) ) {
-    FD_LOG_ERR(( "`layout.snapdc_tile_count` must be in [1,%lu]", FD_SNAPDC_TILE_MAX ));
-  }
+  CFG_HAS_NON_ZERO( layout.snapdc_tile_count );
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }

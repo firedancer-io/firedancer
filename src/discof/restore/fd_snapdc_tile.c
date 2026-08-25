@@ -440,7 +440,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->state      = FD_SNAPSHOT_STATE_IDLE;
   ctx->tile_idx   = tile->kind_id;
   ctx->tile_count = fd_topo_tile_name_cnt( topo, NAME );
-  FD_TEST( ctx->tile_count && ctx->tile_count<=FD_SNAPDC_TILE_MAX );
+  FD_TEST( ctx->tile_count );
   FD_TEST( ctx->tile_idx<ctx->tile_count );
 
   ctx->zstd = ZSTD_initStaticDStream( _zstd, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );

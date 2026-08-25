@@ -472,7 +472,7 @@ snapshot_load_cmd_fn( args_t *   args,
   ulong volatile * const snapld_metrics = fd_metrics_tile( snapld_tile->metrics );
   ulong volatile * const snapin_metrics = fd_metrics_tile( snapin_tile->metrics );
   ulong volatile * const snapwr_metrics = fd_metrics_tile( snapwr_tile->metrics );
-  ulong volatile *       snapdc_metrics[ FD_SNAPDC_TILE_MAX ];
+  ulong volatile *       snapdc_metrics[ FD_TOPO_MAX_TILE_IN_LINKS ];
   for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
     fd_topo_tile_t * snapdc_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapdc", i ) ];
     snapdc_metrics[ i ] = fd_metrics_tile( snapdc_tile->metrics );
@@ -481,7 +481,7 @@ snapshot_load_cmd_fn( args_t *   args,
   ulong total_off_old    = 0UL;
   ulong decomp_off_old   = 0UL;
   ulong snapld_wait_old  = 0UL;
-  ulong snapdc_wait_old[ FD_SNAPDC_TILE_MAX ] = {0};
+  ulong snapdc_wait_old[ FD_TOPO_MAX_TILE_IN_LINKS ] = {0};
   ulong snapin_wait_old  = 0UL;
   ulong snapwr_wait_old  = 0UL;
   ulong acc_cnt_old      = 0UL;
@@ -525,7 +525,7 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong total_off    = snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] +
                          snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ];
     ulong decomp_off   = 0UL;
-    ulong snapdc_wait[ FD_SNAPDC_TILE_MAX ];
+    ulong snapdc_wait[ FD_TOPO_MAX_TILE_IN_LINKS ];
     for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
       decomp_off += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ] +
                     snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
@@ -569,7 +569,7 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED    ) ];
 
     if( watch ) {
-      double snapdc_busy[ FD_SNAPDC_TILE_MAX ];
+      double snapdc_busy[ FD_TOPO_MAX_TILE_IN_LINKS ];
       double snapdc_busy_avg = 0.0;
       for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
         snapdc_busy[ i ] = clamp_pct( 100.0-( ( (double)( snapdc_wait[ i ]-snapdc_wait_old[ i ] )*ns_per_tick )/1e7 ) );
