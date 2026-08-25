@@ -19,7 +19,7 @@ create_signers( ulong n ) {
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( g_sk[i], g_info[i].bls_key );
+    ag_bls_sec_to_pub( g_sk[i], &g_info[i].bls_key );
   }
 }
 
@@ -418,7 +418,7 @@ test_identity_partition( void ) {
   ulong n = 11UL;
   create_signers( n );
   negate_sec( g_sk[10], g_sk[9] );
-  ag_bls_sec_to_pub( g_sk[10], g_info[10].bls_key );
+  ag_bls_sec_to_pub( g_sk[10], &g_info[10].bls_key );
   void * em; ag_epoch_info_t * e = make_epoch( n, &em );
   ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
 

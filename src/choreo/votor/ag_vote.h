@@ -85,7 +85,7 @@ ag_notar_vote_new( ag_notar_vote_t *     out,
                    ushort                shred_version );
 int
 ag_notar_vote_check_sig( ag_notar_vote_t const * self,
-                         ag_bls_pub_t const      pk,
+                         ag_bls_pub_t const *    pk,
                          ushort                  shred_version );
 void
 ag_notar_fallback_vote_new( ag_notar_fallback_vote_t * out,
@@ -96,7 +96,7 @@ ag_notar_fallback_vote_new( ag_notar_fallback_vote_t * out,
                             ushort                     shred_version );
 int
 ag_notar_fallback_vote_check_sig( ag_notar_fallback_vote_t const * self,
-                                  ag_bls_pub_t const               pk,
+                                  ag_bls_pub_t const *             pk,
                                   ushort                           shred_version );
 void
 ag_skip_vote_new( ag_skip_vote_t *   out,
@@ -106,7 +106,7 @@ ag_skip_vote_new( ag_skip_vote_t *   out,
                   ushort             shred_version );
 int
 ag_skip_vote_check_sig( ag_skip_vote_t const * self,
-                        ag_bls_pub_t const     pk,
+                        ag_bls_pub_t const *   pk,
                         ushort                 shred_version );
 void
 ag_skip_fallback_vote_new( ag_skip_fallback_vote_t * out,
@@ -116,7 +116,7 @@ ag_skip_fallback_vote_new( ag_skip_fallback_vote_t * out,
                            ushort                    shred_version );
 int
 ag_skip_fallback_vote_check_sig( ag_skip_fallback_vote_t const * self,
-                                 ag_bls_pub_t const              pk,
+                                 ag_bls_pub_t const *            pk,
                                  ushort                          shred_version );
 void
 ag_final_vote_new( ag_final_vote_t *  out,
@@ -126,7 +126,7 @@ ag_final_vote_new( ag_final_vote_t *  out,
                    ushort             shred_version );
 int
 ag_final_vote_check_sig( ag_final_vote_t const * self,
-                         ag_bls_pub_t const      pk,
+                         ag_bls_pub_t const *    pk,
                          ushort                  shred_version );
 
 /* ag_vote_new_signed builds a vote of the given kind and signs it with
@@ -177,9 +177,9 @@ ag_vote_new_final( ag_vote_t *        out,
                    ushort             shred_version );
 
 int
-ag_vote_check_sig( ag_vote_t const *  self,
-                   ag_bls_pub_t const pk,
-                   ushort             shred_version );
+ag_vote_check_sig( ag_vote_t const *    self,
+                   ag_bls_pub_t const * pk,
+                   ushort               shred_version );
 
 FD_FN_PURE static inline ulong
 ag_vote_slot( ag_vote_t const * self ) {

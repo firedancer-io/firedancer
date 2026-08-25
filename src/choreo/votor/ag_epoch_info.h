@@ -18,7 +18,7 @@ struct ag_epoch_info {
   ulong               validator_cnt;
   ulong               total_stake;
   ag_validator_info_t validators[ AG_VAT_MAX ]; /* indexed by rank; validator_cnt live */
-  ag_bls_pub_t        pubkeys   [ AG_VAT_MAX ]; /* same validators list, pubkeys continguous for easy cert verification. TODO keep/remove? */
+  ag_bls_pub_t        pubkeys[ AG_VAT_MAX ]; /* validated keys, indexed by rank */
 };
 typedef struct ag_epoch_info ag_epoch_info_t;
 

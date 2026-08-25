@@ -19,7 +19,7 @@ generate_validators( ulong n ) {
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( g_sk[i], g_info[i].bls_key );
+    ag_bls_sec_to_pub( g_sk[i], &g_info[i].bls_key );
   }
 }
 

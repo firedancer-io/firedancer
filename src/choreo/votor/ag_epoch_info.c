@@ -8,6 +8,7 @@ ag_epoch_info( ag_epoch_info_t *           self,
   for( ulong i=0UL; i<validator_cnt; i++ ) {
     FD_TEST( validators[i].id==i );
     self->validators[i] = validators[i];
+    self->pubkeys[i] = validators[i].bls_key;
     self->total_stake += validators[i].stake;
   }
   self->validator_cnt = validator_cnt;
@@ -40,10 +41,6 @@ FD_FN_PURE int
 ag_epoch_info_is_strong_quorum( ag_epoch_info_t const * self, ulong stake ) {
   return fraction_is_met( stake, self->total_stake, AG_STRONG_QUORUM_THRESHOLD_NUMER, AG_QUORUM_THRESHOLD_DENOM );
 }
-
-#if FD_HAS_BLST
-#include "../../ballet/bls/fd_bls12_381.h"
-#endif
 
 struct epoch_info_rank { ulong stake; uchar const * bls; uchar const * id; ulong src; ulong drop; ag_bls_pub_t pk; };
 typedef struct epoch_info_rank epoch_info_rank_t;
@@ -78,10 +75,10 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
     if( FD_UNLIKELY( !stakes[i].stake ) ) continue; /* re-check nonzero stake, in case stakes came verbatim from a snapshot */
     uchar const * bls = stakes[i].bls_key;
 #if FD_HAS_BLST
-    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( rank[m].pk, bls, 1 ) ) ) continue; /* no / invalid BLS key */
+    if( FD_UNLIKELY( ag_bls_pub_try_from_bytes( &rank[m].pk, bls, AG_BLS_PUB_COMPRESSED_SZ ) ) ) continue; /* no / invalid BLS key */
 #else
     memset( &rank[m].pk, 0, sizeof(ag_bls_pub_t) );
-    fd_memcpy( rank[m].pk, bls, AG_BLS_PUB_COMPRESSED_SZ ); /* stub builds do not verify signatures */
+    fd_memcpy( rank[m].pk.bytes, bls, AG_BLS_PUB_COMPRESSED_SZ ); /* stub builds do not verify signatures */
 #endif
     rank[m].stake = stakes[i].stake;
     rank[m].bls   = bls;
@@ -127,8 +124,8 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
     vi->stake = stakes[src].stake;
     fd_memcpy( vi->id_key,   stakes[src].id_key.uc,   sizeof(ag_id_key_t)   );
     fd_memcpy( vi->vote_key, stakes[src].vote_key.uc, sizeof(ag_vote_key_t) );
-    fd_memcpy( vi->bls_key,  rank[r].pk,              sizeof(ag_bls_pub_t)  );
-    fd_memcpy( epoch_info->pubkeys[ r ], rank[r].pk,          sizeof(ag_bls_pub_t)  );
+    vi->bls_key            = rank[r].pk;
+    epoch_info->pubkeys[r] = rank[r].pk;
     total += vi->stake;
   }
   epoch_info->validator_cnt = k;

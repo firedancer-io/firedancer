@@ -34,7 +34,7 @@ verify_payload( ag_bls_sig_t const    sig,
                 uint                  kind,
                 ulong                 slot,
                 ag_block_hash_t const h,
-                ag_bls_pub_t const    pk,
+                ag_bls_pub_t const *  pk,
                 ushort                shred_version ) {
   uchar buf[ AG_VOTE_PAYLOAD_MAX ];
   ulong sz = ag_vote_payload_bytes_to_sign( buf, kind, slot, h, shred_version );
@@ -55,7 +55,7 @@ ag_notar_vote_new( ag_notar_vote_t *     out,
 
 int
 ag_notar_vote_check_sig( ag_notar_vote_t const * self,
-                         ag_bls_pub_t const      pk,
+                         ag_bls_pub_t const *    pk,
                          ushort                  shred_version ) {
   return verify_payload( self->sig, AG_VOTE_KIND_NOTAR, self->slot, self->block_hash, pk, shred_version );
 }
@@ -74,7 +74,7 @@ ag_notar_fallback_vote_new( ag_notar_fallback_vote_t * out,
 
 int
 ag_notar_fallback_vote_check_sig( ag_notar_fallback_vote_t const * self,
-                                  ag_bls_pub_t const               pk,
+                                  ag_bls_pub_t const *             pk,
                                   ushort                           shred_version ) {
   return verify_payload( self->sig, AG_VOTE_KIND_NOTAR_FALLBACK, self->slot, self->block_hash, pk, shred_version );
 }
@@ -91,7 +91,7 @@ ag_skip_vote_new( ag_skip_vote_t *   out,
 
 int
 ag_skip_vote_check_sig( ag_skip_vote_t const * self,
-                        ag_bls_pub_t const     pk,
+                        ag_bls_pub_t const *   pk,
                         ushort                 shred_version ) {
   return verify_payload( self->sig, AG_VOTE_KIND_SKIP, self->slot, NULL, pk, shred_version );
 }
@@ -108,7 +108,7 @@ ag_skip_fallback_vote_new( ag_skip_fallback_vote_t * out,
 
 int
 ag_skip_fallback_vote_check_sig( ag_skip_fallback_vote_t const * self,
-                                 ag_bls_pub_t const              pk,
+                                 ag_bls_pub_t const *            pk,
                                  ushort                          shred_version ) {
   return verify_payload( self->sig, AG_VOTE_KIND_SKIP_FALLBACK, self->slot, NULL, pk, shred_version );
 }
@@ -125,7 +125,7 @@ ag_final_vote_new( ag_final_vote_t *  out,
 
 int
 ag_final_vote_check_sig( ag_final_vote_t const * self,
-                         ag_bls_pub_t const      pk,
+                         ag_bls_pub_t const *    pk,
                          ushort                  shred_version ) {
   return verify_payload( self->sig, AG_VOTE_KIND_FINAL, self->slot, NULL, pk, shred_version );
 }
@@ -223,9 +223,9 @@ ag_vote_new_signed( ag_vote_t *           out,
 }
 
 int
-ag_vote_check_sig( ag_vote_t const *  self,
-                   ag_bls_pub_t const pk,
-                   ushort             shred_version ) {
+ag_vote_check_sig( ag_vote_t const *    self,
+                   ag_bls_pub_t const * pk,
+                   ushort               shred_version ) {
   switch( self->kind ) {
   case AG_VOTE_KIND_NOTAR:          return ag_notar_vote_check_sig         ( &self->inner.notar,          pk, shred_version );
   case AG_VOTE_KIND_NOTAR_FALLBACK: return ag_notar_fallback_vote_check_sig( &self->inner.notar_fallback, pk, shred_version );

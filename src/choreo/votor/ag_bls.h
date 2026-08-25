@@ -15,8 +15,14 @@
 #include "../../util/tmpl/fd_set.c"
 
 typedef uchar ag_bls_sec_t[ AG_BLS_SEC_SZ ];
-typedef uchar ag_bls_pub_t[ AG_BLS_PUB_SZ ];
+/* ag_bls_pub_t contains the canonical uncompressed encoding of a
+   validated, non-identity public key.  Construct it with
+   ag_bls_pub_try_from_bytes or ag_bls_sec_to_pub. */
+struct ag_bls_pub { uchar bytes[ AG_BLS_PUB_SZ ]; };
+typedef struct ag_bls_pub ag_bls_pub_t;
 typedef uchar ag_bls_sig_t[ AG_BLS_SIG_SZ ];
+
+FD_STATIC_ASSERT( sizeof(ag_bls_pub_t)==AG_BLS_PUB_SZ, ag_bls_pub_sz );
 
 struct ag_bls_agg {
   ag_bls_sig_t sig;
@@ -41,7 +47,7 @@ FD_PROTOTYPES_BEGIN
 
 void
 ag_bls_sec_to_pub( ag_bls_sec_t const sec,
-                   ag_bls_pub_t       pub );
+                   ag_bls_pub_t *     pub );
 
 /* solana_bls_signatures::SecretKey::derive */
 
@@ -61,17 +67,17 @@ ag_bls_sec_sign( ag_bls_sec_t const sec,
 /* PublicKey::try_from_bytes */
 
 int
-ag_bls_pub_try_from_bytes( ag_bls_pub_t  out,
-                           uchar const * in,
-                           ulong         in_sz );
+ag_bls_pub_try_from_bytes( ag_bls_pub_t * out,
+                           uchar const *  in,
+                           ulong          in_sz );
 
 /* IndividualSignature::verify_bytes */
 
 int
-ag_bls_sig_verify( ag_bls_sig_t const sig,
-                   ag_bls_pub_t const pub,
-                   uchar const *      msg,
-                   ulong              msg_sz );
+ag_bls_sig_verify( ag_bls_sig_t const   sig,
+                   ag_bls_pub_t const * pub,
+                   uchar const *        msg,
+                   ulong                msg_sz );
 
 /* AggregateSignature::new */
 
@@ -102,8 +108,7 @@ int
 ag_bls_agg_verify( ag_bls_agg_t const * self,
                    uchar const *        msg,
                    ulong                msg_sz,
-                   uchar const *        pk0,
-                   ulong                pk_stride,
+                   ag_bls_pub_t const * pks,
                    ulong                pk_cnt );
 
 /* AggregateSignature::verify_without_bitmask */
@@ -112,8 +117,7 @@ int
 ag_bls_agg_verify_without_bitmask( ag_bls_agg_t const * self,
                                    uchar const *        msg,
                                    ulong                msg_sz,
-                                   uchar const *        pk0,
-                                   ulong                pk_stride,
+                                   ag_bls_pub_t const * pks,
                                    ulong                pk_cnt );
 
 /* agave verify_base3 */
@@ -125,8 +129,7 @@ ag_bls_agg_verify_merged( ag_bls_agg_t const * agg_base,
                          ag_bls_agg_t const * agg_fb,
                          uchar const *        msg_fb,
                          ulong                msg_fb_sz,
-                         uchar const *        pk0,
-                         ulong                pk_stride,
+                         ag_bls_pub_t const * pks,
                          ulong                pk_cnt );
 
 /* AggregateSignature::is_signer */
