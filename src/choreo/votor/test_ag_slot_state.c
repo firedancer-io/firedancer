@@ -586,7 +586,7 @@ test_identity_partition( void ) {
   ulong n = 11UL;
   generate_validators( n );
   fd_bls_pub_t neg; FD_TEST( !fd_bls_pub_de( &neg, g_info[3].bls_key, sizeof(ag_bls_key_t) ) );
-  blst_fp_cneg( &neg.y, &neg.y, 1 ); blst_p1_affine_compress( g_info[4].bls_key, &neg );
+  fd_bls_pub_neg( &neg, &neg ); fd_bls_pub_compress( &neg, g_info[4].bls_key );
   void * em; ag_epoch_info_t * epoch_info = make_epoch( n, &em );
   ulong slot = 5UL;
   ag_block_hash_t hash; random_hash( hash );
@@ -594,7 +594,7 @@ test_identity_partition( void ) {
 
   ag_slot_state_t * ss = make_state( slot, epoch_info );
   ag_vote_t v3 = ag_vote_construct_notar( sec_sign_fn, &g_sk[3], test_bls_public_key, slot, hash, 3UL, TEST_SHRED_VERSION );
-  ag_vote_t v4 = ag_vote_construct_notar( sec_sign_fn, &g_sk[3], test_bls_public_key, slot, hash, 4UL, TEST_SHRED_VERSION ); blst_fp2_cneg( &v4.notar.sig.y, &v4.notar.sig.y, 1 );
+  ag_vote_t v4 = ag_vote_construct_notar( sec_sign_fn, &g_sk[3], test_bls_public_key, slot, hash, 4UL, TEST_SHRED_VERSION ); fd_bls_sig_neg( &v4.notar.sig, &v4.notar.sig );
   add_vote_helper( ss, &v3, epoch_info, &t ); FD_TEST( t.ok && t.o.certs_cnt==0UL );
   add_vote_helper( ss, &v4, epoch_info, &t ); FD_TEST( t.ok && t.o.certs_cnt==0UL );
   fd_bls_agg_t notar[1];

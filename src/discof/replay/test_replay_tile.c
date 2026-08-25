@@ -1876,7 +1876,7 @@ test_bls_pubkey( uchar out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
   fd_bls_sec_derive( &sec, ikm, sizeof(ikm) );
   fd_bls_pub_t pub;
   fd_bls_sec_to_pub( &sec, &pub );
-  blst_p1_affine_compress( out, &pub );
+  fd_bls_pub_compress( &pub, out );
 }
 
 static ushort
@@ -2324,7 +2324,7 @@ cert_test_sign( fd_block_footer_cert_t * cert,
   ulong sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, bid->uc, CERT_TEST_SV, msg );
   fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
   fd_bls_sig_t sig[1]; fd_bls_sec_sign( &sum, msg, sz, sig );
-  blst_p2_from_affine( &agg->sig, sig );
+  agg->sig = *sig;
   for( ulong r=0UL; r<CERT_TEST_VAL_CNT; r++ ) fd_bls_set_insert( agg->set, r );
   FD_TEST( fd_block_footer_cert_from_agg( cert, slot, bid->uc, agg ) );
 }

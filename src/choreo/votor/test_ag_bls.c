@@ -196,13 +196,9 @@ test_roundtrip( void ) {
     sk[i].b[0] = (uchar)( i+1UL );
     fd_bls_sec_to_pub( &sk[i], pk+i );
     fd_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
-    blst_p2 one; blst_p2_from_affine( &one, sig+i );
-    blst_p1 own; blst_p1_from_affine( &own, pk+i );
-    blst_p1 oth; blst_p1_from_affine( &oth, pk+(i+1UL)%N );
-
-    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, &own, &one ) );
-    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, &oth, &one ) );
-    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    &own, &one ) );
+    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, pk+i,             sig+i ) );
+    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, pk+(i+1UL)%N,      sig+i ) );
+    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    pk+i,             sig+i ) );
   }
 
   FD_LOG_NOTICE(( "blst sig round trip pass" ));
@@ -225,9 +221,7 @@ test_derive( void ) {
   uchar const * msg = (uchar const *)"derived key vote";
   ulong         msg_sz = 16UL;
   fd_bls_sig_t  sig; fd_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
-  blst_p2       one; blst_p2_from_affine( &one, &sig );
-  blst_p1       pub; blst_p1_from_affine( &pub, &pk );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pub, &one ) );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pk, &sig ) );
 
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
@@ -251,8 +245,8 @@ test_ref_api( void ) {
   }
 
   /* PublicKey::try_from_bytes -- compressed and affine both round trip */
-  uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_affine_compress ( comp, pk );
-  uchar aff [ FD_BLS_PUB_SZ ];            blst_p1_affine_serialize( aff,  pk );
+  uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ]; fd_bls_pub_compress( pk, comp );
+  uchar aff [ FD_BLS_PUB_SZ ];            fd_bls_pub_ser   ( pk, aff );
   fd_bls_pub_t from_comp, from_aff;
   FD_TEST( !fd_bls_pub_de( &from_comp, comp,        sizeof(comp)     ) );
   FD_TEST( !fd_bls_pub_de( &from_aff,  aff,         FD_BLS_PUB_SZ    ) );
@@ -276,22 +270,18 @@ test_pub_sum( void ) {
     fd_bls_sec_to_pub( &sk, key+i );
   }
   fd_bls_set_t set[ fd_bls_set_word_cnt ];
-  blst_p1 full[1], bad[1];
-  fd_bls_pub_sum( full, key, N, fd_bls_set_range( set, 0UL, N ), NULL );
-  fd_bls_pub_sum( bad,  key, N, fd_bls_set_range( set, 1UL, N ), NULL );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 1234U, 0UL ) );
   for( ulong cnt=0UL; cnt<=N; cnt++ ) {
     fd_bls_set_null( set );
     while( fd_bls_set_cnt( set )<cnt ) fd_bls_set_insert( set, fd_rng_ulong_roll( rng, N ) );
-    blst_p1 exp[1], got[1], neg[1];
-    fd_memset( exp, 0, sizeof(blst_p1) );
-    for( ulong i=0UL; i<N; i++ ) if( fd_bls_set_test( set, i ) ) blst_p1_add_or_double_affine( exp, exp, key+i );
-    fd_bls_pub_sum( got, key, N, set, full );
-    FD_TEST( blst_p1_is_equal( got, exp ) );
-    FD_TEST( !!blst_p1_is_inf( got )==!cnt );
-    fd_bls_pub_sum( neg, key, N, set, bad );
-    FD_TEST( blst_p1_is_equal( neg, exp )==( 2UL*cnt<=N ) ); /* only the subtract path reads full */
+    fd_bls_pub_t exp[1], got[1];
+    fd_memset( exp, 0, sizeof(exp) );
+    for( ulong i=0UL; i<N; i++ ) if( fd_bls_set_test( set, i ) ) fd_bls_pub_add( exp, exp, key+i );
+    fd_memset( got, 0, sizeof(got) ); /* a fresh sum starts at the point at infinity */
+    fd_bls_pub_sum( got, key, set );
+    FD_TEST( fd_bls_pub_eq( got, exp ) );
+    FD_TEST( !!fd_bls_pub_is_inf( got )==!cnt );
   }
   fd_rng_delete( fd_rng_leave( rng ) );
 
@@ -356,10 +346,10 @@ test_bisect( void ) {
      point at infinity, so the top level fails without implicating a
      half, and both signers must still be found */
   sig[0] = good[1];
-  sig[1] = good[1]; blst_fp2_cneg( &sig[1].y, &sig[1].y, 1 );
+  sig[1] = good[1]; fd_bls_sig_neg( &sig[1], &sig[1] );
   fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
   fd_bls_agg_construct( agg, pk, sig, fd_bls_set_range( set, 0UL, 2UL ) );
-  FD_TEST( blst_p2_is_inf( &agg->sig ) );
+  FD_TEST( fd_bls_sig_is_inf( &agg->sig ) );
   fd_bls_agg_verify_bisect( agg, msg, msg_sz, pk, sig, got );
   FD_TEST( fd_bls_set_eq( got, set ) );
 

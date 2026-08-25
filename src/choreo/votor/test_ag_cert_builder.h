@@ -15,7 +15,7 @@ bls_key_from_sec( ag_bls_key_t         out,
                   fd_bls_sec_t const * sec ) {
   fd_bls_pub_t pub[1];
   fd_bls_sec_to_pub( sec, pub );
-  blst_p1_affine_compress( out, pub );
+  fd_bls_pub_compress( pub, out );
 }
 
 /* epoch_info_build fills epoch_info from an already ranked validator
@@ -55,12 +55,12 @@ agg_add( fd_bls_agg_t *       agg,
          ulong                rank,
          fd_bls_sig_t const * sig ) {
   fd_bls_set_insert( agg->set, rank );
-  blst_p2_add_or_double_affine( &agg->sig, &agg->sig, sig );
+  fd_bls_sig_add( &agg->sig, &agg->sig, sig );
 }
 
 static inline int
 agg_is_identity( fd_bls_agg_t const * agg ) {
-  return !!blst_p2_is_inf( &agg->sig );
+  return !!fd_bls_sig_is_inf( &agg->sig );
 }
 
 static inline ag_cert_t

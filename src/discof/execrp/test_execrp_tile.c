@@ -497,7 +497,7 @@ FD_UNIT_TEST( execrp_cert_verify ) {
     fd_bls_sec_t sk; fd_bls_sec_derive( &sk, ikm, sizeof(ikm) );
     blst_sk_add_n_check( &sum, &sum, &sk );
     fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( &sk, pub );
-    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; blst_p1_affine_compress( bls, pub );
+    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; fd_bls_pub_compress( pub, bls );
     fd_pubkey_t vote = { .ul = { 0x7000UL+i } };
     fd_pubkey_t node = { .ul = { 0x8000UL+i } };
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote, &node, 1000UL, 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
@@ -510,7 +510,7 @@ FD_UNIT_TEST( execrp_cert_verify ) {
   ulong sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, 1UL, bid.uc, sv, msg );
   fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
   fd_bls_sig_t sig[1]; fd_bls_sec_sign( &sum, msg, sz, sig );
-  blst_p2_from_affine( &agg->sig, sig );
+  agg->sig = *sig;
   for( ulong r=0UL; r<CERT_VAL_CNT; r++ ) fd_bls_set_insert( agg->set, r );
   fd_block_footer_cert_t good[1];
   FD_TEST( fd_block_footer_cert_from_agg( good, 1UL, bid.uc, agg ) );

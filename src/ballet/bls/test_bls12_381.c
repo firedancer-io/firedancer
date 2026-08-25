@@ -416,6 +416,9 @@ test_g1_mul( FD_FN_UNUSED fd_rng_t * rng ) {
         FD_LOG_ERR(( "FAIL: fd_bls12_381_g1_mul_syscall big_endian=1 %lu, %s", i, "res != exp" ));
       }
     }
+
+    fd_hex_decode( a, "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 32UL );
+    FD_TEST( fd_bls12_381_g1_mul_syscall( r, a, b, 1 /*BE*/ )==-1 );
   }
   {
     const char * tests[] = {
@@ -451,6 +454,11 @@ test_g1_mul( FD_FN_UNUSED fd_rng_t * rng ) {
         FD_LOG_ERR(( "FAIL: fd_bls12_381_g1_mul_syscall big_endian=0 %lu, %s", i, "res != exp" ));
       }
     }
+
+    fd_hex_decode( a, "01000000fffffffffe5bfeff02a4bd5305d8a10908d83933487d9d2953a7ed73", 32UL );
+    FD_TEST( fd_bls12_381_g1_mul_syscall( r, a, b, 0 /*LE*/ )==-1 );
+    memset( a, 0, 32UL );
+    a[0] = 1U;
   }
   {
     ulong iter = 100UL;

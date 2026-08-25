@@ -49,7 +49,6 @@ struct validator_set {
   ulong          epoch;
   ulong          validator_cnt;          /* 0 if not built */
   ulong          total_stake;
-  blst_p1        key_sum;                /* sum of all keys, infinity for a t-1 set */
   fd_bls_pub_t   bls_keys[ AG_VAT_MAX ]; /* indexed by rank */
   ulong          stakes  [ AG_VAT_MAX ]; /* indexed by rank */
 };
@@ -57,8 +56,8 @@ typedef struct validator_set validator_set_t;
 
 /* validator_set_for_slot makes set hold the validators of slot's epoch,
    rebuilding it only when the epoch differs from the one it holds.  A
-   set built from the t-1 tier is never reused and gets no key sum: t-1
-   is fork specific, so two banks in the same epoch can hold different
+   set built from the t-1 tier is never reused: t-1 is fork
+   specific, so two banks in the same epoch can hold different
    t-1 sets.  Returns 1 on success, 0 if the fork cannot address the
    epoch or the bank holds no ranked validators for it. */
 
@@ -89,7 +88,7 @@ validator_set_for_slot( validator_set_t * set,
     if( FD_UNLIKELY( ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
     FD_TEST( ele->rank<AG_VAT_MAX );
 
-    if( FD_UNLIKELY( blst_p1_deserialize( set->bls_keys+ele->rank, ele->bls_key_uncompressed )!=BLST_SUCCESS ) ) {
+    if( FD_UNLIKELY( fd_bls_pub_de( set->bls_keys+ele->rank, ele->bls_key_uncompressed, FD_BLS_PUB_SZ ) ) ) {
       FD_LOG_WARNING(( "slot %lu: rank %u of epoch %lu has a malformed BLS key", bank->f.slot, ele->rank, epoch ));
       return 0;
     }
@@ -101,10 +100,6 @@ validator_set_for_slot( validator_set_t * set,
   if( FD_UNLIKELY( !cnt || cnt!=max_rank+1UL ) ) {
     FD_LOG_WARNING(( "slot %lu: epoch %lu has %lu ranked validators, highest rank %lu", bank->f.slot, epoch, cnt, max_rank ));
     return 0;
-  }
-  memset( &set->key_sum, 0, sizeof(blst_p1) ); /* point at infinity */
-  if( FD_LIKELY( iter_kind!=FD_VOTE_STAKES_ITER_T_1 ) ) {
-    for( ulong rank=0UL; rank<cnt; rank++ ) blst_p1_add_or_double_affine( &set->key_sum, &set->key_sum, set->bls_keys+rank );
   }
   set->epoch         = iter_kind==FD_VOTE_STAKES_ITER_T_1 ? ULONG_MAX : epoch;
   set->validator_cnt = cnt;
@@ -154,21 +149,20 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
   for( ulong rank=fd_bls_set_const_iter_init( cert->signer_set ); !fd_bls_set_const_iter_done( rank ); rank=fd_bls_set_const_iter_next( cert->signer_set, rank ) ) {
     stake += set->stakes[ rank ];
   }
-  blst_p1 pub[1];
-  fd_bls_pub_sum( pub, set->bls_keys, set->validator_cnt, cert->signer_set, set->epoch!=ULONG_MAX ? &set->key_sum : NULL );
+  fd_bls_pub_t pub[1];
+  fd_memset( pub, 0, sizeof(fd_bls_pub_t) ); /* a fresh sum starts at the point at infinity */
+  fd_bls_pub_sum( pub, set->bls_keys, cert->signer_set );
   if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)AG_QUORUM_THRESHOLD_DENOM<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has %lu of %lu stake, below %lu/%lu",
                      bank_slot, cert_slot, stake, set->total_stake, quorum_numer, AG_QUORUM_THRESHOLD_DENOM ));
     return -1;
   }
 
-  fd_bls_sig_t sig_affine[1];
-  blst_p2      sig[1];
-  if( FD_UNLIKELY( blst_p2_uncompress( sig_affine, cert->sig )!=BLST_SUCCESS || !blst_p2_affine_in_g2( sig_affine ) ) ) {
+  fd_bls_sig_t sig[1];
+  if( FD_UNLIKELY( fd_bls_sig_de_compressed( sig, cert->sig ) ) ) { /* uncompress + g2 subgroup check */
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has a malformed signature", bank_slot, cert_slot ));
     return -1;
   }
-  blst_p2_from_affine( sig, sig_affine );
 
   blst_p2_affine h[1];
   if( hm ) {

@@ -506,7 +506,7 @@ test_reward_late_skip_unverified( void ) {
   for( ulong rank = fd_bls_set_const_iter_init( base.set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( base.set, rank ) ) {
-    blst_p1_add_or_double_affine( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
+    fd_bls_pub_add( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
   }
   fd_bls_agg_t extra = { 0 };
   for( ulong rank = fd_bls_set_const_iter_init( state->votes.skip_agg.set );
@@ -514,13 +514,13 @@ test_reward_late_skip_unverified( void ) {
              rank = fd_bls_set_const_iter_next( state->votes.skip_agg.set, rank ) ) {
     if( FD_UNLIKELY( fd_bls_set_test( base.set, rank ) ) ) continue;
     fd_bls_set_insert( extra.set, rank );
-    blst_p1_add_or_double_affine( &extra.pub, &extra.pub, g_epoch_info->pubkeys       +rank );
-    blst_p2_add_or_double_affine( &extra.sig, &extra.sig, skip_sig+rank );
+    fd_bls_pub_add( &extra.pub, &extra.pub, g_epoch_info->pubkeys       +rank );
+    fd_bls_sig_add( &extra.sig, &extra.sig, skip_sig+rank );
   }
   FD_TEST( fd_bls_set_cnt( extra.set )==1UL && fd_bls_set_test( extra.set, 8UL ) );
   fd_bls_agg_t agg = base;
-  blst_p1_add_or_double( &agg.pub, &agg.pub, &extra.pub );
-  blst_p2_add_or_double( &agg.sig, &agg.sig, &extra.sig );
+  fd_bls_pub_add( &agg.pub, &agg.pub, &extra.pub );
+  fd_bls_sig_add( &agg.sig, &agg.sig, &extra.sig );
   fd_bls_set_union( agg.set, agg.set, extra.set );
   FD_TEST( fd_bls_set_cnt( agg.set )==8UL );
   FD_TEST( !fd_bls_agg_verify( msg, msg_sz, &agg.pub, &agg.sig ) );
@@ -530,10 +530,10 @@ test_reward_late_skip_unverified( void ) {
   for( ulong rank = fd_bls_set_const_iter_init( bad );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( bad, rank ) ) {
-    fd_bls_pub_t neg_pub = g_epoch_info->pubkeys       [ rank ]; blst_fp_cneg( &neg_pub.y, &neg_pub.y, 1 );
-    blst_p2      neg_sig; blst_p2_from_affine( &neg_sig, skip_sig+rank ); blst_p2_cneg( &neg_sig, 1 );
-    blst_p1_add_or_double_affine( &agg.pub, &agg.pub, &neg_pub );
-    blst_p2_add_or_double( &agg.sig, &agg.sig, &neg_sig );
+    fd_bls_pub_t neg_pub; fd_bls_pub_neg( &neg_pub, g_epoch_info->pubkeys+rank );
+    fd_bls_sig_t neg_sig; fd_bls_sig_neg( &neg_sig, skip_sig+rank );
+    fd_bls_pub_add( &agg.pub, &agg.pub, &neg_pub );
+    fd_bls_sig_add( &agg.sig, &agg.sig, &neg_sig );
     fd_bls_set_remove( agg.set, rank );
   }
   FD_TEST( fd_bls_agg_verify( msg, msg_sz, &agg.pub, &agg.sig ) );
@@ -591,7 +591,7 @@ test_reward_wire_cert_base( void ) {
   for( ulong rank = fd_bls_set_const_iter_init( base.set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( base.set, rank ) ) {
-    blst_p1_add_or_double_affine( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
+    fd_bls_pub_add( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
   }
   FD_TEST( !fd_bls_agg_verify( msg, msg_sz, &base.pub, &base.sig ) );
 
@@ -602,12 +602,12 @@ test_reward_wire_cert_base( void ) {
              rank = fd_bls_set_const_iter_next( state->votes.skip_agg.set, rank ) ) {
     if( FD_UNLIKELY( fd_bls_set_test( base.set, rank ) ) ) continue;
     fd_bls_set_insert( extra.set, rank );
-    blst_p1_add_or_double_affine( &extra.pub, &extra.pub, g_epoch_info->pubkeys       +rank );
-    blst_p2_add_or_double_affine( &extra.sig, &extra.sig, skip_sig+rank );
+    fd_bls_pub_add( &extra.pub, &extra.pub, g_epoch_info->pubkeys       +rank );
+    fd_bls_sig_add( &extra.sig, &extra.sig, skip_sig+rank );
   }
   fd_bls_agg_t agg = base;
-  blst_p1_add_or_double( &agg.pub, &agg.pub, &extra.pub );
-  blst_p2_add_or_double( &agg.sig, &agg.sig, &extra.sig );
+  fd_bls_pub_add( &agg.pub, &agg.pub, &extra.pub );
+  fd_bls_sig_add( &agg.sig, &agg.sig, &extra.sig );
   fd_bls_set_union( agg.set, agg.set, extra.set );
   FD_TEST( fd_bls_set_cnt( agg.set )==5UL );
   FD_TEST( fd_bls_agg_verify( msg, msg_sz, &agg.pub, &agg.sig ) );
@@ -627,7 +627,7 @@ test_reward_wire_cert_base( void ) {
   for( ulong rank = fd_bls_set_const_iter_init( base.set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( base.set, rank ) ) {
-    blst_p1_add_or_double_affine( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
+    fd_bls_pub_add( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
   }
   msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot+1UL, hash, TEST_SHRED_VERSION, msg );
   FD_TEST( fd_bls_set_cnt( base.set )==7UL );
@@ -1042,8 +1042,8 @@ test_vote_subgroup_after_duplicate( void ) {
   ulong          one[6] = { 1UL }, four[6] = { 4UL };
   blst_fp        fp1[1];
   blst_fp2       b[1], t[1];
-  fd_bls_sig_t   torsion[1];
-  memset( torsion, 0, sizeof(fd_bls_sig_t) );
+  blst_p2_affine torsion[1];
+  memset( torsion, 0, sizeof(torsion) );
   blst_fp_from_uint64( fp1, one );
   blst_fp_from_uint64( &b->fp[0], four ); b->fp[1] = b->fp[0];
   do {
@@ -1054,7 +1054,7 @@ test_vote_subgroup_after_duplicate( void ) {
 
   ag_vote_t good = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], test_bls_public_key, slot, gh, 0, TEST_SHRED_VERSION );
   ag_vote_t evil = good;
-  evil.notar.sig = *torsion;
+  blst_p2_from_affine( &evil.notar.sig, torsion );
 
   FD_TEST( ag_pool_add_vote( pool, &evil, bad, &quorum_reached )==AG_POOL_SUCCESS );
   FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 0UL ) );

@@ -100,7 +100,7 @@ char *
 ag_vote_to_cstr( ag_vote_t const * self,
                  char              cstr[ static AG_VOTE_CSTR_MAX ] ) {
   static char const * kind_cstr[] = { "Notar", "Final", "Skip", "NotarFallback", "SkipFallback" };
-  uchar         sig[ FD_BLS_SIG_COMPRESSED_SZ ]; blst_p2_affine_compress( sig, ag_vote_sig( self ) );
+  uchar         sig[ FD_BLS_SIG_COMPRESSED_SZ ]; fd_bls_sig_compress( ag_vote_sig( self ), sig );
   uchar const * block_hash = ag_vote_block_hash( self );
   char *        p          = cstr;
   p = fd_cstr_append_printf( p, "%s { slot: %lu", kind_cstr[ self->kind ], ag_vote_slot( self ) );
