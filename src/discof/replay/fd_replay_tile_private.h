@@ -163,6 +163,12 @@ struct fd_replay_tile {
      Note: reasm is not used in alpenglow mode. instead frags are delivered
      replay order directly from repair. */
   int is_alpenglow;
+  /* tower_attached is 1 if a tower_out producer is linked into this
+     tile.  Absent in alpenglow mode (votor replaces tower), but present
+     in offline replay topologies where the backtest tile mocks tower
+     regardless of alpenglow.  Gates the per-slot bank reference taken
+     on behalf of the tower consumer. */
+  int tower_attached;
   /* ranked per-epoch validator sets for cert verification. temp done
      in replay tile, may be moved to an external verify tile later. */
   fd_replay_epoch_vtrs_t epoch_vtrs[ FD_REPLAY_VTR_EPOCH_WINDOW ];

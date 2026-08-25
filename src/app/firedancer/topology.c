@@ -1792,7 +1792,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     if( FD_UNLIKELY( 0==strlen( tile->backtest.ledger_path ) ) ) {
       FD_LOG_ERR(( "missing [development.ledger_input.path] config option or '--ledger' flag" ));
     }
-    tile->backtest.end_slot = config->firedancer.development.ledger_input.end_slot;
+    tile->backtest.end_slot  = config->firedancer.development.ledger_input.end_slot;
+    tile->backtest.alpenglow = config->firedancer.development.alpenglow;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "forkt" ) ) ) {
 

@@ -52,6 +52,7 @@ struct fd_backt_tile {
      frags. */
   int initialized;
   int genesis;
+  int alpenglow;
   int snapshot_done;
   uint first_fec_complete : 1;
   uint reasm_ready        : 1; /* reasm root is set, so we can start publishing FECs to replay */
@@ -380,10 +381,23 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       fd_backt_slot_info_t slot_info;
       FD_BASE58_ENCODE_32_BYTES( msg->bank_hash.uc, bh_got_b58 );
-      if( FD_UNLIKELY( !fd_backtest_src_slot_info( ctx->src, &slot_info, msg->slot ) || !slot_info.bank_hash_set ) ) {
-        FD_LOG_ERR(( "No bank hash available for slot %lu", msg->slot ));
+      if( FD_UNLIKELY( !fd_backtest_src_slot_info( ctx->src, &slot_info, msg->slot ) ) ) {
+        FD_LOG_ERR(( "No slot info available for slot %lu", msg->slot ));
       }
-      if( FD_LIKELY( !memcmp( msg->bank_hash.uc, slot_info.bank_hash.uc, 32UL ) ) ) {
+
+      /* In alpenglow, the expected bank hash is committed to by the
+         block producer in the block footer rather than stored in the
+         blockstore, so it arrives with the replay notification. */
+      fd_hash_t expected_bank_hash;
+      if( FD_UNLIKELY( ctx->alpenglow ) ) {
+        if( FD_UNLIKELY( !msg->footer_bank_hash_set ) ) FD_LOG_ERR(( "No block footer bank hash available for slot %lu", msg->slot ));
+        expected_bank_hash = msg->footer_bank_hash;
+      } else {
+        if( FD_UNLIKELY( !slot_info.bank_hash_set ) ) FD_LOG_ERR(( "No bank hash available for slot %lu", msg->slot ));
+        expected_bank_hash = slot_info.bank_hash;
+      }
+
+      if( FD_LIKELY( !memcmp( msg->bank_hash.uc, expected_bank_hash.uc, 32UL ) ) ) {
         FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%-44s (switch %.2f ms, begin %.2f ms, exec %6.2f ms, finish %.2f ms)", msg->slot, bh_got_b58,
           (double)(msg->preparation_begin_nanos-prior_completion_timestamp)/1e6,
           (double)(msg->first_transaction_scheduled_nanos-msg->preparation_begin_nanos)/1e6,
@@ -391,16 +405,20 @@ returnable_frag( fd_backt_tile_t *   ctx,
           (double)(msg->completion_time_nanos-msg->last_transaction_finished_nanos)/1e6 ));
       } else {
         /* Do not change this log as it is used in offline replay */
-        FD_BASE58_ENCODE_32_BYTES( slot_info.bank_hash.uc, bh_exp_b58 );
+        FD_BASE58_ENCODE_32_BYTES( expected_bank_hash.uc, bh_exp_b58 );
         FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
       }
-      if( slot_info.rooted ) {
+      /* Alpenglow ledgers carry no root records in the blockstore; a
+         replayed alpenglow chain is finalized, so treat every completed
+         slot as rooted. */
+      if( slot_info.rooted || ctx->alpenglow ) {
         FD_TEST( !rooted_slots_full( ctx->rooted_slots ) );
         rooted_slots_push_tail( ctx->rooted_slots, msg->slot );
       }
 
       ulong root_slot;
-      if( FD_LIKELY( msg->slot >= ctx->root_distance + *rooted_slots_peek_head_const( ctx->rooted_slots ) ) ) {
+      if( FD_LIKELY( !rooted_slots_empty( ctx->rooted_slots ) &&
+                     msg->slot >= ctx->root_distance + *rooted_slots_peek_head_const( ctx->rooted_slots ) ) ) {
         root_slot = rooted_slots_pop_head( ctx->rooted_slots );
       } else {
         root_slot = ctx->prev_root;
@@ -514,6 +532,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->first_fec_complete = 0;
   ctx->reasm_ready = 0;
   ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
+  ctx->alpenglow = tile->backtest.alpenglow;
   ctx->idle_cnt = 0UL;
 
   ctx->event_metrics = NULL;

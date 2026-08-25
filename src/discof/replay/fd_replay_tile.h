@@ -103,6 +103,8 @@ struct fd_replay_slot_completed {
   fd_hash_t block_id;        /* block id (last FEC set's merkle root) of the slot received from replay */
   fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
   fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
+  fd_hash_t footer_bank_hash; /* bank hash committed to by the block producer in the alpenglow block footer; valid iff footer_bank_hash_set */
+  int       footer_bank_hash_set;
   fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
   ulong     transaction_count;   /* since genesis */
 

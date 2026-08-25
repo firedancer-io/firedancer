@@ -113,6 +113,10 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
+    --alpenglow)
+        ALPENGLOW="true"
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -262,6 +266,7 @@ cat <<EOF > ${CONFIG_FILE}
     genesis = "$DUMP/$LEDGER/genesis.bin"
 [development]
     fixed_fec_sets = false
+    alpenglow = ${ALPENGLOW:-false}
     [development.genesis]
         validate_genesis_hash = false
     [development.ledger_input]

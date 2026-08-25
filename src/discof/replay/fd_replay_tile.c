@@ -698,6 +698,16 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
+
+  memset( &slot_info->footer_bank_hash, 0, sizeof(fd_hash_t) );
+  slot_info->footer_bank_hash_set = 0;
+  if( FD_UNLIKELY( ctx->is_alpenglow && !is_initial ) ) {
+    fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
+    if( FD_LIKELY( footer_bank_hash ) ) {
+      slot_info->footer_bank_hash     = *footer_bank_hash;
+      slot_info->footer_bank_hash_set = 1;
+    }
+  }
   slot_info->transaction_count     = bank->f.parent_txn_count + bank->f.txn_count;
 
   fd_inflation_t inflation = bank->f.inflation;
@@ -724,7 +734,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done using the bank. */
-  if( FD_LIKELY( !ctx->is_alpenglow ) ) bank->refcnt++; /* tower_tile */
+  if( FD_LIKELY( ctx->tower_attached ) ) bank->refcnt++; /* tower_tile (or the backtest tile mocking it) */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
   slot_info->bank_idx = bank->idx;
   slot_info->bank_seq = bank->bank_seq;
@@ -3819,6 +3829,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->halt_leader = 0;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
+  ctx->tower_attached = 0;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
@@ -3850,6 +3861,8 @@ unprivileged_init( fd_topo_t const *      topo,
     if( ctx->in_kind[ i ]==IN_KIND_ADMIN ) {
       FD_TEST( ( ctx->admin_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_admin", 0UL ) )!=ULONG_MAX );
     }
+
+    if( ctx->in_kind[ i ]==IN_KIND_TOWER ) ctx->tower_attached = 1;
   }
 
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );

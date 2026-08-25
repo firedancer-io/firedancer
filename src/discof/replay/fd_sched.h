@@ -477,6 +477,13 @@ fd_sched_get_txn_info( fd_sched_t * sched, ulong txn_idx );
 fd_hash_t *
 fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 
+/* fd_sched_get_footer_bank_hash returns the bank hash committed to by
+   the block producer in the alpenglow block footer marker, or NULL if
+   no footer has been parsed for the block (non-alpenglow block, footer
+   not yet ingested, or unrecognized footer version). */
+fd_hash_t const *
+fd_sched_get_footer_bank_hash( fd_sched_t * sched, ulong bank_idx );
+
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
 
