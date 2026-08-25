@@ -13,10 +13,10 @@
    - Hostname: the leaf cert's SAN must match the expected hostname
    - Every cert on the path is within its validity period
    - Leaf/issuer key usage restrictions met
+   - Intermediate CA path length constraints are respected
 
    We do NOT check:
-   - Certificate revocation (CRL / OCSP)
-   - Path length constraints */
+   - Certificate revocation (CRL / OCSP) */
 
 #include "fd_x509.h"
 #include "../../util/log/fd_log.h"
@@ -44,6 +44,7 @@
 #define FD_X509_VERIFY_ERR_EXPIRED        (11)  /* now_unix > notAfter */
 #define FD_X509_VERIFY_ERR_KEY_USAGE      (12)  /* keyUsage forbids this role */
 #define FD_X509_VERIFY_ERR_EXT_KEY_USAGE  (13)  /* extKeyUsage lacks serverAuth */
+#define FD_X509_VERIFY_ERR_PATH_LEN       (14)  /* basicConstraints path length exceeded */
 #define FD_X509_VERIFY_ERR_CERT_TOO_LARGE (15)  /* cert exceeds FD_X509_CERT_SZ_MAX */
 
 FD_PROTOTYPES_BEGIN
