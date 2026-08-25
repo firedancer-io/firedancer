@@ -10,7 +10,26 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
+#define POOL_NAME  ws_conn_pool
+#define POOL_T     struct fd_http_server_ws_connection
+#define POOL_IDX_T ushort
+#define POOL_NEXT  parent
+#include "../../util/tmpl/fd_pool.c"
+
 FD_IMPORT_BINARY( vote_tower_sync_txn, "src/discof/rpc/fixtures/vote_tower_sync.bin" );
+
+static void
+test_ws_conn_open( fd_http_server_t * http,
+                   ulong              ws_conn_id ) {
+  FD_TEST( ws_conn_id==ws_conn_pool_idx_acquire( http->ws_conns ) );
+
+  int ws_fd = open( "/dev/null", O_RDONLY );
+  FD_TEST( ws_fd!=-1 );
+  FD_TEST( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 );
+  http->pollfds[ http->max_conns+ws_conn_id ].fd     = ws_fd;
+  http->pollfds[ http->max_conns+ws_conn_id ].events = POLLIN;
+  http->metrics.ws_connection_cnt++;
+}
 
 static fd_wksp_t *
 fd_wksp_new_lazy( ulong footprint ) {
@@ -122,7 +141,7 @@ expect_ws_rpc_response( fd_rpc_tile_t * ctx,
   ulong prev_send_frame_cnt = conn->send_frame_cnt;
   ulong prev_stage_off      = ctx->http->stage_off;
 
-  ctx->http->pollfds[ ctx->http->max_conns+ws_conn_id ].fd = 0;
+  FD_TEST( ctx->http->pollfds[ ctx->http->max_conns+ws_conn_id ].fd!=-1 );
   rpc_ws_message( ws_conn_id, (uchar const *)rpc_req, strlen( rpc_req ), ctx );
 
   FD_TEST( conn->send_frame_cnt==prev_send_frame_cnt+1UL );
@@ -176,6 +195,30 @@ test_websocket_disabled( fd_rpc_tile_t * ctx ) {
   FD_TEST( http_res.status==404UL );
   FD_TEST( !http_res.upgrade_websocket );
   ctx->http->max_ws_conns = max_ws_conns;
+}
+
+static void
+test_ws_evicted_while_building_response( fd_rpc_tile_t * ctx ) {
+  fd_http_server_t * http = ctx->http;
+
+  /* Make the logical outgoing ring exactly large enough for the first
+     getClusterNodes print, including its terminating NUL.  A queued
+     one-byte frame leaves one fewer byte available, so the first print
+     wraps and evicts this connection.  The closing print then overflows
+     the ring, causing rpc_json_request to return a non-200 response after
+     the connection has already been closed. */
+  http->oring_sz = sizeof( "{\"jsonrpc\":\"2.0\",\"result\":[" );
+
+  test_ws_conn_open( http, 0UL );
+
+  fd_http_server_printf( http, "x" );
+  FD_TEST( !fd_http_server_ws_send( http, 0UL ) );
+
+  char const request[] = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getClusterNodes\"}";
+  rpc_ws_message( 0UL, (uchar const *)request, sizeof(request)-1UL, ctx );
+
+  FD_TEST( http->pollfds[ http->max_conns ].fd==-1 );
+  FD_TEST( http->metrics.ws_connection_cnt==0UL );
 }
 
 static void
@@ -342,6 +385,7 @@ main( int     argc,
   test_snapshot_redirect( ctx );
   test_websocket_disabled( ctx );
 
+  test_ws_conn_open( ctx->http, 0UL );
   expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"slotSubscribe\"}",
       "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":1}"
@@ -366,7 +410,6 @@ main( int     argc,
 
     struct fd_http_server_ws_connection * conn = &ctx->http->ws_conns[ 0 ];
     ulong prev_send_frame_cnt = conn->send_frame_cnt;
-    ctx->http->pollfds[ ctx->http->max_conns ].fd = 0;
     fd_rpc_publish_slot_event( ctx, &slot_completed );
     FD_TEST( conn->send_frame_cnt==prev_send_frame_cnt+1UL );
 
@@ -418,7 +461,6 @@ main( int     argc,
     update->vote->value->transaction_len = vote_tower_sync_txn_sz;
     memcpy( update->vote->value->transaction, vote_tower_sync_txn, vote_tower_sync_txn_sz );
 
-    ctx->http->pollfds[ ctx->http->max_conns ].fd = 0;
     FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_GOSSIP_UPDATE_TAG_VOTE, fd_laddr_to_chunk( wksp, update ), FD_GOSSIP_UPDATE_SZ_VOTE, 0UL, 0UL, 0UL, NULL ) );
     struct fd_http_server_ws_connection * conn = &ctx->http->ws_conns[ 0 ];
     FD_TEST( conn->send_frame_cnt>0UL );
@@ -439,17 +481,13 @@ main( int     argc,
       FD_LOG_ERR(( "vote notification did not match expected" ));
     }
 
+    test_ws_conn_open( ctx->http, 1UL );
     fd_rpc_ws_subscriber_vote_add( ctx, 1UL );
     FD_TEST( ctx->ws_subscribers_vote_cnt==2UL );
     FD_TEST( ctx->ws_subscribers_vote[ 0 ]==0UL );
     FD_TEST( ctx->ws_subscribers_vote[ 1 ]==1UL );
 
-    int ws0_fd = open( "/dev/null", O_RDONLY );
-    int ws1_fd = open( "/dev/null", O_RDONLY );
-    FD_TEST( ws0_fd!=-1 );
-    FD_TEST( ws1_fd!=-1 );
-    ctx->http->pollfds[ ctx->http->max_conns     ].fd = ws0_fd;
-    ctx->http->pollfds[ ctx->http->max_conns+1UL ].fd = ws1_fd;
+    int ws1_fd = ctx->http->pollfds[ ctx->http->max_conns+1UL ].fd;
 
     conn->send_frame_cnt = ctx->http->max_ws_send_frame_cnt;
     struct fd_http_server_ws_connection * conn1 = &ctx->http->ws_conns[ 1 ];
@@ -460,14 +498,14 @@ main( int     argc,
     FD_TEST( conn1->send_frame_cnt==conn1_send_frame_cnt+1UL );
     FD_TEST( ctx->http->pollfds[ ctx->http->max_conns ].fd==-1 );
     FD_TEST( ctx->http->pollfds[ ctx->http->max_conns+1UL ].fd==ws1_fd );
-    FD_TEST( !close( ws1_fd ) );
-    ctx->http->pollfds[ ctx->http->max_conns ].fd = -1;
   }
   expect_ws_rpc_response( ctx, 1UL,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"voteUnsubscribe\",\"params\":[0]}",
       "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":1}"
   );
   FD_TEST( ctx->ws_subscribers_vote_cnt==0UL );
+  fd_http_server_ws_close( ctx->http, 1UL, FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
+  FD_TEST( ctx->http->metrics.ws_connection_cnt==0UL );
 
   expect_rpc_response( ctx,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}",
@@ -592,6 +630,13 @@ main( int     argc,
     expect_rpc_response( ctx, req_buf,
         "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":1}" );
   }
+
+  /* Reset the HTTP server so the eviction regression starts with empty
+     connection and eviction data structures.  It intentionally leaves
+     the WebSocket closed, so run it last. */
+  ctx->http = fd_http_server_join( fd_http_server_new( http_mem, http_params, callbacks, ctx ) );
+  FD_TEST( ctx->http );
+  test_ws_evicted_while_building_response( ctx );
 
   /* Don't bother with cleanup since all resources are reclaimed by the
      kernel on return. */

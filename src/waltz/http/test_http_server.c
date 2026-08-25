@@ -765,6 +765,38 @@ ws_test_server_delete( fd_http_server_t * http,
   free( scratch );
 }
 
+static void
+test_ws_send_after_staging_eviction( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket send after staging eviction" ));
+
+  ws_msg_state_t state = {0};
+  uchar * scratch;
+  int client_fd;
+  fd_http_server_t * http = ws_test_server_new( &scratch, &state, &client_fd );
+
+  ws_connect( http, client_fd, &state );
+
+  http->oring_sz = 4UL;
+  fd_http_server_printf( http, "x" );
+  FD_TEST( !fd_http_server_ws_send( http, 0UL ) );
+
+  /* Wrapping the first print evicts the connection.  The second print
+     then overflows the ring, leaving both a closed connection and a
+     staging error for fd_http_server_ws_send to handle. */
+  fd_http_server_printf( http, "abc" );
+  FD_TEST( state.close_cnt==1UL );
+  FD_TEST( http->pollfds[ http->max_conns ].fd==-1 );
+  fd_http_server_printf( http, "d" );
+  FD_TEST( http->stage_err );
+
+  FD_TEST( !fd_http_server_ws_send( http, 0UL ) );
+  FD_TEST( !http->stage_err );
+  FD_TEST( !http->stage_len );
+  FD_TEST( !http->stage_comp_len );
+
+  ws_test_server_delete( http, scratch, client_fd );
+}
+
 /* test_ws_fragmented_coalesced sends a multi-fragment WebSocket message
    in a single write. */
 
@@ -882,6 +914,7 @@ main( int     argc,
   test_poll_conn_max();
   test_treap_seed();
   test_poll_interest();
+  test_ws_send_after_staging_eviction();
   test_location_raw_path();
   test_transfer_encoding_close();
   test_duplicate_content_length_different_close();

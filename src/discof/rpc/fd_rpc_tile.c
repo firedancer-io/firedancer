@@ -24,6 +24,7 @@
 #include "../../waltz/http/fd_url.h"
 
 #include <stddef.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <math.h> /* floor, isfinite */
 #include <string.h>
@@ -2381,6 +2382,9 @@ rpc_ws_message( ulong         ws_conn_id,
   fd_http_server_response_t response = rpc_json_request( ctx, data, data_len, ws_conn_id );
   dt += fd_tickcount();
   fd_histf_sample( ctx->request_duration, (ulong)dt );
+
+  /* fd_http_server_reserve may evict this connection while staging the response. */
+  if( FD_UNLIKELY( ctx->http->pollfds[ ctx->http->max_conns+ws_conn_id ].fd==-1 ) ) return;
 
   if( FD_UNLIKELY( response.status!=200UL ) ) {
     fd_http_server_ws_close( ctx->http, ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
