@@ -176,13 +176,8 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
                            long                now ) {
   uint compute_units_consumed = 0U;
   if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-    fd_transaction_cost_t const * txn_cost = &ctx->txn_out.details.txn_cost;
-    if( FD_UNLIKELY( txn_cost->type==FD_TXN_COST_TYPE_SIMPLE_VOTE ) ) {
-      compute_units_consumed = FD_SIMPLE_VOTE_USAGE_COST;
-    } else {
-      fd_usage_cost_details_t const * cost = &txn_cost->transaction;
-      compute_units_consumed = cost->signature_cost + cost->write_lock_cost + cost->data_bytes_cost + cost->programs_execution_cost + cost->loaded_accounts_data_size_cost;
-    }
+    fd_usage_cost_details_t const * cost = &ctx->txn_out.details.txn_cost.transaction;
+    compute_units_consumed = cost->signature_cost + cost->write_lock_cost + cost->data_bytes_cost + cost->programs_execution_cost + cost->loaded_accounts_data_size_cost;
   }
 
   fd_execrp_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );

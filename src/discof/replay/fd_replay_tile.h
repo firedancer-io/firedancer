@@ -153,7 +153,6 @@ struct fd_replay_slot_completed {
     ulong block_cost;
     ulong allocated_accounts_data_size;
     ulong block_cost_limit;
-    ulong vote_cost_limit;
     ulong account_cost_limit;
     ulong pool_idx;
   } cost_tracker;

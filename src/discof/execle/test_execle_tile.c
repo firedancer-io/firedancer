@@ -911,7 +911,11 @@ FD_UNIT_TEST( execle_vote ) {
   FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
   FD_TEST( out_txn->execle_cu.actual_consumed_cus + out_txn->execle_cu.rebated_cus ==
            in_txn->txnp->pack_cu.non_execution_cus + in_txn->txnp->pack_cu.requested_exec_plus_acct_data_cus );
-  FD_TEST( out_txn->execle_cu.actual_consumed_cus==(uint)FD_PACK_FIXED_SIMPLE_VOTE_COST );
+  FD_TEST( out_txn->execle_cu.actual_consumed_cus==
+           in_txn->txnp->pack_cu.non_execution_cus +
+           env->execle->txn_out[0].details.compute_budget.compute_unit_limit -
+           env->execle->txn_out[0].details.compute_budget.compute_meter +
+           env->execle->txn_out[0].details.txn_cost.transaction.loaded_accounts_data_size_cost );
 
   fd_microblock_trailer_t const * trailer = test_out_poh_trailer_nonbundle( env, 1UL );
   FD_TEST( trailer->pack_txn_idx==0UL );
@@ -945,9 +949,14 @@ FD_UNIT_TEST( execle_bundle_vote_authorize ) {
   FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
   FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
   FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
-  FD_TEST( out_txn->execle_cu.actual_consumed_cus==(uint)FD_PACK_FIXED_SIMPLE_VOTE_COST );
+  ulong actual_consumed_cus =
+      txn->pack_cu.non_execution_cus +
+      env->execle->txn_out[0].details.compute_budget.compute_unit_limit -
+      env->execle->txn_out[0].details.compute_budget.compute_meter +
+      env->execle->txn_out[0].details.txn_cost.transaction.loaded_accounts_data_size_cost;
+  FD_TEST( out_txn->execle_cu.actual_consumed_cus==actual_consumed_cus );
   FD_TEST( out_txn->execle_cu.rebated_cus==
-           txn->pack_cu.non_execution_cus + txn->pack_cu.requested_exec_plus_acct_data_cus - (uint)FD_PACK_FIXED_SIMPLE_VOTE_COST );
+           txn->pack_cu.non_execution_cus + txn->pack_cu.requested_exec_plus_acct_data_cus - actual_consumed_cus );
   FD_TEST( !env->execle->txn_out[0].err.is_fees_only );
 
   fd_microblock_trailer_t const * trailer = test_out_poh_trailer_bundle( env, 0UL );

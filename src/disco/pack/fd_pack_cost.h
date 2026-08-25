@@ -29,23 +29,10 @@
        transaction loading stage, after accounts data is loaded.
    These are all summed to determine the total transaction cost. */
 
-/* Simple votes: before the remove_simple_vote_from_cost_model
-   feature, simple votes had a fixed cost instead of going through the
-   full cost model.
-
-   To avoid feature-gating pack code, pack uses an upper bound on the
-   actual cost of simple votes which is guaranteed to be larger than the
-   cost consumed both before and after feature gate activation.  bank
-   tiles must then carefully rebate the correct amount based on whether
-   the feature is active or not.
-
-   Since this is higher than the static cost used before
-   remove_simple_vote_from_cost_model is activated, this can be
-   used both before and after the feature is activated.
-
-   Once remove_simple_vote_from_cost_model is activated, the vote cu
-   limit is no longer part of consensus, so we are free to use a
-   different simple vote classifier than Agave. */
+/* Simple votes use the full transaction cost model.  Pack recognizes
+   them so it can use a tight execution-cost upper bound and maintain a
+   separate vote reservation for scheduling.  The reservation is not a
+   runtime consensus limit. */
 
 /* To compute the built-in cost, we need to check a table. The table
    is known ahead of time though, so we can build a perfect hash
@@ -285,8 +272,8 @@ static const ulong FD_PACK_MAX_SIMPLE_VOTE_COST = ( 2UL*FD_PACK_COST_PER_SIGNATU
                                                     FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST + /* 16,384 */
                                                     FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST );       /* 265    */
 
-/* The fixed cost for simple votes before the activation of
-   remove_simple_vote_from_cost_model */
+/* Legacy Frankendancer's Agave FFI rebate path still supports
+   feature-inactive banks. */
 static const ulong FD_PACK_FIXED_SIMPLE_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE         +
                                                       2UL*FD_PACK_COST_PER_WRITABLE_ACCT +
                                                       FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS +
@@ -582,10 +569,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 
   /* <= FD_PACK_MAX_COST, so no overflow concerns */
   ulong total_cost = signature_cost + writable_cost + (ulong)(*execution_cost) + instr_data_cost + *loaded_account_data_cost;
-
-  /* Simple votes should always cost at least as much as the old fixed
-     cost model charged for them. */
-  if( FD_UNLIKELY( is_simple_vote ) ) FD_TEST( total_cost>=FD_PACK_FIXED_SIMPLE_VOTE_COST );
 
   return total_cost;
 }
