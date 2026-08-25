@@ -295,7 +295,7 @@ FD_PROTOTYPES_END
 
 /* Read a time field, either UTCTime or GeneralizedTime. */
 
-#define FD_DER_READ_TIME( c, out_ptr, out_len )                           \
+#define FD_DER_READ_TIME( c, out_tag, out_ptr, out_len )                   \
   do {                                                                    \
     int _fd_der_tag_; ulong _fd_der_len_;                                 \
     if( FD_UNLIKELY( fd_der_read_tl( &(c), &_fd_der_tag_,                 \
@@ -304,6 +304,7 @@ FD_PROTOTYPES_END
     if( FD_UNLIKELY( _fd_der_tag_ != (int)FD_DER_TAG_UTC_TIME &&          \
                      _fd_der_tag_ != (int)FD_DER_TAG_GENERALIZED_TIME ) ) \
       return -1;                                                          \
+    (out_tag) = (uchar)_fd_der_tag_;                                      \
     (out_ptr) = (c).p;                                                    \
     (out_len) = _fd_der_len_;                                             \
     (c).p += _fd_der_len_;                                                \

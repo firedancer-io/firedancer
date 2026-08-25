@@ -224,6 +224,76 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
   return 0;
 }
 
+/* dec2 reads a two digit decimal number, or -1 if either character is
+   not an ASCII digit. */
+
+static int
+dec2( uchar const * s ) {
+  if( FD_UNLIKELY( s[0]<'0' || s[0]>'9' || s[1]<'0' || s[1]>'9' ) ) return -1;
+  return (s[0]-'0')*10 + (s[1]-'0');
+}
+
+/* days_from_civil returns the number of days between 1970-01-01 and
+   y-m-d (proleptic Gregorian).  Howard Hinnant's algorithm, valid for
+   any year representable in a long. */
+
+static long
+days_from_civil( long y,
+                 long m,
+                 long d ) {
+  y -= m<=2;
+  long era = (y>=0 ? y : y-399) / 400;
+  long yoe = y - era*400;                                     /* [0, 399] */
+  long doy = (153*(m + (m>2 ? -3 : 9)) + 2)/5 + d-1;          /* [0, 365] */
+  long doe = yoe*365 + yoe/4 - yoe/100 + doy;                 /* [0, 146096] */
+  return era*146097L + doe - 719468L;
+}
+
+long
+fd_x509_time_parse( uchar         tag,
+                    uchar const * s,
+                    ulong         s_len ) {
+  long year;
+
+  if( tag==FD_DER_TAG_UTC_TIME ) {
+    if( FD_UNLIKELY( s_len!=13UL ) ) return FD_X509_TIME_INVALID;
+    int yy = dec2( s );
+    if( FD_UNLIKELY( yy<0 ) ) return FD_X509_TIME_INVALID;
+    /* RFC 5280 Section 4.1.2.5.1 */
+    year = yy>=50 ? 1900L+yy : 2000L+yy;
+    s += 2;
+  } else if( tag==FD_DER_TAG_GENERALIZED_TIME ) {
+    if( FD_UNLIKELY( s_len!=15UL ) ) return FD_X509_TIME_INVALID;
+    int hi = dec2( s );
+    int lo = dec2( s+2 );
+    if( FD_UNLIKELY( hi<0 || lo<0 ) ) return FD_X509_TIME_INVALID;
+    year = hi*100L + lo;
+    s += 4;
+  } else {
+    return FD_X509_TIME_INVALID;
+  }
+
+  int mon = dec2( s   );
+  int day = dec2( s+2 );
+  int hh  = dec2( s+4 );
+  int mm  = dec2( s+6 );
+  int ss  = dec2( s+8 );
+  if( FD_UNLIKELY( mon<0 || day<0 || hh<0 || mm<0 || ss<0 ) ) return FD_X509_TIME_INVALID;
+  if( FD_UNLIKELY( s[10]!='Z' ) ) return FD_X509_TIME_INVALID;
+
+  if( FD_UNLIKELY( mon<1 || mon>12 ) ) return FD_X509_TIME_INVALID;
+
+  static uchar const mon_days[ 12 ] = { 31,28,31,30,31,30,31,31,30,31,30,31 };
+  int leap = ( !(year%4) && (year%100) ) || !(year%400);
+  int day_max = mon_days[ mon-1 ] + ( mon==2 && leap );
+  if( FD_UNLIKELY( day<1 || day>day_max ) ) return FD_X509_TIME_INVALID;
+
+  /* Leap seconds (ss==60) are rejected: RFC 5280 does not require them */
+  if( FD_UNLIKELY( hh>23 || mm>59 || ss>59 ) ) return FD_X509_TIME_INVALID;
+
+  return days_from_civil( year, mon, day )*86400L + hh*3600L + mm*60L + ss;
+}
+
 int
 fd_x509_cert_parse( uchar const *         cert,
                     ulong                 cert_sz,
@@ -277,8 +347,10 @@ fd_x509_cert_parse( uchar const *         cert,
 
       /* validity SEQUENCE { notBefore, notAfter } */
       FD_DER_ENTER( tbs, FD_DER_TAG_SEQUENCE );
-        FD_DER_READ_TIME( tbs, out->not_before, out->not_before_len );
-        FD_DER_READ_TIME( tbs, out->not_after,  out->not_after_len );
+        FD_DER_READ_TIME( tbs, out->not_before_tag, out->not_before, out->not_before_len );
+        FD_DER_READ_TIME( tbs, out->not_after_tag,  out->not_after,  out->not_after_len  );
+        out->not_before_unix = fd_x509_time_parse( out->not_before_tag, out->not_before, out->not_before_len );
+        out->not_after_unix  = fd_x509_time_parse( out->not_after_tag,  out->not_after,  out->not_after_len  );
       FD_DER_LEAVE( tbs );
 
       /* subject Name SEQUENCE */
