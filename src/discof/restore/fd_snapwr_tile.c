@@ -460,6 +460,7 @@ handle_control_barrier( fd_snapwr_tile_t *  ctx,
 
   /* Only process the control frag when all upstream tiles have sent
      the same control message. */
+  FD_TEST( !ctx->control_seen[ in_idx ] );
   ctx->control_seen[ in_idx ] = 1U;
   if( FD_LIKELY( !all_controls_seen( ctx ) ) ) {
     return;
