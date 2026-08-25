@@ -2666,10 +2666,9 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 
   ulong sigverify_dispatched_cnt = (ulong)block->txn_sigverify_done_cnt + (ulong)block->txn_sigverify_in_flight_cnt;
   int   sigverify_caught_up      = sigverify_dispatched_cnt==block->txn_parsed_cnt;
-  int   poh_caught_up            = 1;
 #if !FD_SCHED_SKIP_POH
   fd_sched_mblk_t * parse_mblk = sched->mblk_pool + block->parse_mblk_idx;
-  poh_caught_up = parse_mblk->curr_txn_idx==block->txn_parsed_cnt;
+  int poh_caught_up = parse_mblk->curr_txn_idx==block->txn_parsed_cnt;
 #endif
 
   sched->txn_info_pool[ txn_idx ].next_idx = 0U;
