@@ -975,8 +975,7 @@ telemetry = true
     # this parallelism supported by the accounts database.
     execrp_tile_count = 10
 
-    # How many snapshot decompressor tiles to run.  These tiles do not
-    # consume CPU when idle.
+    # How many snapshot decompressor tiles to run.
     snapdc_tile_count = 1
 
     # How many snapshot compressor tiles to run.  These tiles do not
