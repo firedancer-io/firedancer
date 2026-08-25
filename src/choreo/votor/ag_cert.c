@@ -54,21 +54,19 @@ static int
 check_sig( ag_cert_t const *       self,
            ag_epoch_info_t const * epoch_info,
            ushort                  shred_version ) {
-  ag_validator_info_t const * validators    = ag_epoch_info_validators( epoch_info );
-  uchar const *               pk0           = validators->bls_key;
-  ulong                       pk_stride     = sizeof(ag_validator_info_t);
-  ulong                       validator_cnt = epoch_info->validator_cnt;
+  ag_bls_pub_t const * pks           = epoch_info->pubkeys;
+  ulong                validator_cnt = epoch_info->validator_cnt;
   uchar buf[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz;
   switch( self->kind ) {
   case AG_CERT_KIND_FINAL:
     sz = voter_signing_ser( AG_VOTE_KIND_FINAL, self->final.slot, NULL, shred_version, buf );
-    return ag_bls_agg_verify( &self->final.agg, buf, sz, pk0, pk_stride, validator_cnt );
+    return ag_bls_agg_verify( &self->final.agg, buf, sz, pks, validator_cnt );
   case AG_CERT_KIND_FAST_FINAL:
     sz = voter_signing_ser( AG_VOTE_KIND_NOTAR, self->fast_final.slot, self->fast_final.block_hash, shred_version, buf );
-    return ag_bls_agg_verify( &self->fast_final.agg, buf, sz, pk0, pk_stride, validator_cnt );
+    return ag_bls_agg_verify( &self->fast_final.agg, buf, sz, pks, validator_cnt );
   case AG_CERT_KIND_NOTAR:
     sz = voter_signing_ser( AG_VOTE_KIND_NOTAR, self->notar.slot, self->notar.block_hash, shred_version, buf );
-    return ag_bls_agg_verify( &self->notar.agg, buf, sz, pk0, pk_stride, validator_cnt );
+    return ag_bls_agg_verify( &self->notar.agg, buf, sz, pks, validator_cnt );
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_cert_notar_fallback_t const * notar_fallback = &self->notar_fallback;
     uchar buf_fallback[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz_fallback;
@@ -76,7 +74,7 @@ check_sig( ag_cert_t const *       self,
     sz_fallback = voter_signing_ser( AG_VOTE_KIND_NOTAR_FALLBACK, notar_fallback->slot, notar_fallback->block_hash, shred_version, buf_fallback );
     return ag_bls_agg_verify_merged( &notar_fallback->agg_notar,          buf,          sz,
                                      &notar_fallback->agg_notar_fallback, buf_fallback, sz_fallback,
-                                     pk0, pk_stride, validator_cnt );
+                                     pks, validator_cnt );
   }
   case AG_CERT_KIND_SKIP: {
     ag_cert_skip_t const * skip = &self->skip;
@@ -85,7 +83,7 @@ check_sig( ag_cert_t const *       self,
     sz_fallback = voter_signing_ser( AG_VOTE_KIND_SKIP_FALLBACK, skip->slot, NULL, shred_version, buf_fallback );
     return ag_bls_agg_verify_merged( &skip->agg_skip,          buf,          sz,
                                      &skip->agg_skip_fallback, buf_fallback, sz_fallback,
-                                     pk0, pk_stride, validator_cnt );
+                                     pks, validator_cnt );
   }
   default:
     __builtin_unreachable();
