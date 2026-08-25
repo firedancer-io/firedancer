@@ -917,12 +917,6 @@ dynamic_port_range = "8900-9000"
     #   best-effort basis.  The socket option is provided as a fallback
     #   for hosts which do not support XDP, and to support experimental
     #   features that are not yet implemented in the XDP stack.
-    #
-    #  "mlx5"
-    #   Very fast userspace networking for Mellanox ConnectX-4 and newer
-    #   NICs.  Requires Linux 5.8 or newer and uses a kernel-bypass
-    #   packet data path.  Bonding is supported when every bond member
-    #   is a port on the same NIC.
     provider = "xdp"
 
     # Which interface to bind to for network traffic.  Currently,
