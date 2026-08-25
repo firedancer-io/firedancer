@@ -12,11 +12,11 @@
    - The path terminates at a trust anchor in the CA store
    - Hostname: the leaf cert's SAN must match the expected hostname
    - Every cert on the path is within its validity period
+   - Leaf/issuer key usage restrictions met
 
    We do NOT check:
    - Certificate revocation (CRL / OCSP)
-   - Path length constraints
-   - Key usage */
+   - Path length constraints */
 
 #include "fd_x509.h"
 #include "../../util/log/fd_log.h"
@@ -38,6 +38,8 @@
 #define FD_X509_VERIFY_ERR_TIME_PARSE      (9)  /* malformed validity period */
 #define FD_X509_VERIFY_ERR_NOT_YET_VALID  (10)  /* now_unix < notBefore */
 #define FD_X509_VERIFY_ERR_EXPIRED        (11)  /* now_unix > notAfter */
+#define FD_X509_VERIFY_ERR_KEY_USAGE      (12)  /* keyUsage forbids this role */
+#define FD_X509_VERIFY_ERR_EXT_KEY_USAGE  (13)  /* extKeyUsage lacks serverAuth */
 
 FD_PROTOTYPES_BEGIN
 

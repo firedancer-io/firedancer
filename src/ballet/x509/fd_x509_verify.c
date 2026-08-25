@@ -81,6 +81,32 @@ fd_x509_check_validity( fd_x509_cert_info_t const * cert,
   return FD_X509_VERIFY_OK;
 }
 
+/* fd_x509_check_eku returns OK if cert may be used for TLS server
+   authentication.  An absent extKeyUsage is unconstrained. */
+
+static int
+fd_x509_check_eku( fd_x509_cert_info_t const * cert ) {
+  if( FD_UNLIKELY(
+        cert->has_ext_key_usage &&
+        !( cert->ext_key_usage & ( FD_X509_EKU_SERVER_AUTH|FD_X509_EKU_ANY ) ) ) ) {
+    return FD_X509_VERIFY_ERR_EXT_KEY_USAGE;
+  }
+  return FD_X509_VERIFY_OK;
+}
+
+/* fd_x509_check_leaf_usage enforces the TLS 1.3 server authentication
+   usage policy on the leaf.  */
+
+static int
+fd_x509_check_leaf_usage( fd_x509_cert_info_t const * leaf ) {
+  if( FD_UNLIKELY(
+      leaf->has_key_usage &&
+      !( leaf->key_usage & FD_X509_KU_DIGITAL_SIGNATURE ) ) ) {
+    return FD_X509_VERIFY_ERR_KEY_USAGE;
+  }
+  return fd_x509_check_eku( leaf );
+}
+
 /* Implemented as specified by RFC 5280 Section 6.1.3. */
 int
 fd_x509_verify_chain( uchar const * const *        chain_der,
@@ -101,13 +127,11 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
       return FD_X509_VERIFY_ERR_PARSE;
   }
 
-  /* The leaf is always on the path, and its expiry outranks the hostname
-     mismatch below.  Each remaining cert is gated where the path adopts
-     it as an issuer, so that certs the path does not reach - trailing
-     cross-signs, most commonly - cannot reject the chain. */
-
   int time_err = fd_x509_check_validity( &certs[0], unix_seconds );
   if( FD_UNLIKELY( time_err ) ) return time_err;
+
+  int usage_err = fd_x509_check_leaf_usage( &certs[0] );
+  if( FD_UNLIKELY( usage_err ) ) return usage_err;
 
   if( hostname && hostname_len ) {
     if( FD_UNLIKELY( !fd_x509_san_matches( &certs[0], hostname, hostname_len ) ) )
@@ -151,6 +175,13 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
 
     if( FD_UNLIKELY( !certs[i+1].is_ca ) )
       return FD_X509_VERIFY_ERR_CA_FLAG;
+
+    if( FD_UNLIKELY( certs[i+1].has_key_usage &&
+                     !( certs[i+1].key_usage & FD_X509_KU_KEY_CERT_SIGN ) ) )
+      return FD_X509_VERIFY_ERR_KEY_USAGE;
+
+    usage_err = fd_x509_check_eku( &certs[i+1] );
+    if( FD_UNLIKELY( usage_err ) ) return usage_err;
 
     int sig_rc = fd_x509_verify_sig( &certs[i], certs[i+1].pubkey, certs[i+1].pubkey_len, certs[i+1].key_type );
     if( sig_rc < 0 )

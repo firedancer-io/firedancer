@@ -28,6 +28,18 @@ static uchar const oid_san[] = { 0x06, 0x03, 0x55, 0x1d, 0x11 };
 /* basicConstraints: 2.5.29.19 */
 static uchar const oid_basic_constraints[] = { 0x06, 0x03, 0x55, 0x1d, 0x13 };
 
+/* OID 2.5.29.15 (keyUsage) */
+static uchar const oid_key_usage[] = { 0x06, 0x03, 0x55, 0x1d, 0x0f };
+
+/* OID 2.5.29.37 (extKeyUsage) */
+static uchar const oid_ext_key_usage[] = { 0x06, 0x03, 0x55, 0x1d, 0x25 };
+
+/* OID 1.3.6.1.5.5.7.3.1 (id-kp-serverAuth) */
+static uchar const oid_kp_server_auth[] = { 0x06, 0x08, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01 };
+
+/* OID 2.5.29.37.0 (anyExtendedKeyUsage) */
+static uchar const oid_kp_any[] = { 0x06, 0x04, 0x55, 0x1d, 0x25, 0x00 };
+
 
 static uchar
 fd_x509_parse_sig_alg( uchar const * alg, ulong alg_len ) {
@@ -135,6 +147,68 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
       FD_DER_LEAVE( val );  /* rejects unconsumed SEQUENCE content */
       /* Reject trailing bytes in the extension's OCTET STRING */
       if( FD_UNLIKELY( FD_DER_HAS_MORE( val ) ) ) return -1;
+      continue;
+    }
+
+    /* keyUsage (2.5.29.15)
+         KeyUsage ::= BIT STRING { digitalSignature(0) ... decipherOnly(8) } */
+    if( fd_der_oid_match( oid_raw, oid_raw_len,
+                          oid_key_usage, sizeof(oid_key_usage) ) ) {
+      /* RFC 5280 Section 4.2 permits at most one instance of an extension */
+      if( FD_UNLIKELY( out->has_key_usage ) ) return -1;
+
+      fd_der_cursor_t val = { .p = val_ptr, .end = val_ptr + val_len };
+      uchar const * bs; ulong bs_len;
+      FD_DER_READ( val, FD_DER_TAG_BIT_STRING, bs, bs_len );
+      /* Reject trailing bytes in the extension's OCTET STRING */
+      if( FD_UNLIKELY( FD_DER_HAS_MORE( val ) ) ) return -1;
+
+      /* Content is unused_bits || bits.  A 9 bit NamedBitList needs at
+         most two octets of bits. */
+      if( FD_UNLIKELY( bs_len<1UL || bs_len>3UL ) ) return -1;
+      uint unused = bs[0];
+      if( FD_UNLIKELY( unused>7U ) ) return -1;
+
+      if( bs_len==1UL ) {
+        /* Empty BIT STRING: every usage is denied.  bs[1] does not exist
+           here, so key_usage stays 0. */
+        if( FD_UNLIKELY( unused!=0U ) ) return -1;
+      } else {
+        /* DER zeroes the unused bits and trims trailing zero bits, so the
+           final octet has no unused bits set and is itself nonzero */
+        uchar last = bs[ bs_len-1UL ];
+        if( FD_UNLIKELY( last & (uchar)( ( 1U<<unused ) - 1U ) ) ) return -1;
+        if( FD_UNLIKELY( !last ) ) return -1;
+        out->key_usage = (ushort)( ( (uint)bs[1] << 8 ) |
+                                   ( bs_len>2UL ? (uint)bs[2] : 0U ) );
+      }
+      out->has_key_usage = 1;
+      continue;
+    }
+
+    /* extKeyUsage (2.5.29.37)
+         ExtKeyUsageSyntax ::= SEQUENCE SIZE (1..MAX) OF KeyPurposeId */
+    if( fd_der_oid_match( oid_raw, oid_raw_len,
+                          oid_ext_key_usage, sizeof(oid_ext_key_usage) ) ) {
+      if( FD_UNLIKELY( out->has_ext_key_usage ) ) return -1;
+
+      fd_der_cursor_t val = { .p = val_ptr, .end = val_ptr + val_len };
+      ulong kp_cnt = 0UL;
+      FD_DER_ENTER( val, FD_DER_TAG_SEQUENCE );
+        while( FD_DER_HAS_MORE( val ) ) {
+          uchar const * kp; ulong kp_len;
+          FD_DER_READ_RAW( val, FD_DER_TAG_OID, kp, kp_len );
+          kp_cnt++;
+          if(      fd_der_oid_match( kp, kp_len, oid_kp_server_auth, sizeof(oid_kp_server_auth) ) )
+            out->ext_key_usage = (ushort)( out->ext_key_usage | FD_X509_EKU_SERVER_AUTH );
+          else if( fd_der_oid_match( kp, kp_len, oid_kp_any, sizeof(oid_kp_any) ) )
+            out->ext_key_usage = (ushort)( out->ext_key_usage | FD_X509_EKU_ANY );
+          /* Other key purposes are ignored */
+        }
+      FD_DER_LEAVE( val );
+      if( FD_UNLIKELY( !kp_cnt ) ) return -1;  /* SIZE (1..MAX) */
+      if( FD_UNLIKELY( FD_DER_HAS_MORE( val ) ) ) return -1;
+      out->has_ext_key_usage = 1;
       continue;
     }
 

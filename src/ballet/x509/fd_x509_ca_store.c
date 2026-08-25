@@ -103,6 +103,8 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
     if( info.subject_len > FD_X509_CA_SUBJECT_MAX )          continue;
     if( info.pubkey_len > sizeof(store->entries[0].pubkey) ) continue;
     if( !info.is_ca )                                        continue;
+    if( info.has_key_usage &&
+        !( info.key_usage & FD_X509_KU_KEY_CERT_SIGN ) )     continue;
 
     if( FD_UNLIKELY( store->cnt >= FD_X509_CA_STORE_MAX ) ) {
       FD_LOG_WARNING(( "CA bundle %s holds more than %lu trust anchors; the rest were dropped",
