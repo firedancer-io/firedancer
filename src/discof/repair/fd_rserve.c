@@ -2,6 +2,35 @@
 #include "fd_repair.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
+static void
+fd_rserve_rotation_secret( uchar       out[ 32 ],
+                           uchar const master[ 32 ],
+                           ulong       idx ) {
+  uchar buf[ 40 ];
+  memcpy( buf, master, 32UL );
+  FD_STORE( ulong, buf+32UL, idx );
+  fd_sha256_hash( buf, sizeof(buf), out );
+}
+
+static void
+fd_rserve_token_compute( uchar               token[ 32 ],
+                         uchar const         secret[ 32 ],
+                         fd_pubkey_t const * from,
+                         uint                ip4,
+                         ushort              port ) {
+  memcpy( token, "SOLANA_PING_PONG", 16UL );
+
+  uchar buf[ 32UL + 32UL + 4UL + 2UL ];
+  memcpy( buf,       secret,   32UL );
+  memcpy( buf+32UL,  from->uc, 32UL );
+  FD_STORE( uint,   buf+64UL, ip4  );
+  FD_STORE( ushort, buf+68UL, port );
+
+  uchar mac[ 32 ];
+  fd_sha256_hash( buf, sizeof(buf), mac );
+  memcpy( token+16UL, mac, 16UL );
+}
+
 ulong
 fd_rserve_footprint( ulong ping_cache_entries ) {
   if( FD_UNLIKELY( !ping_cache_entries ) ) return 0UL;
@@ -19,7 +48,8 @@ fd_rserve_footprint( ulong ping_cache_entries ) {
 void *
 fd_rserve_new( void * shmem,
                ulong  ping_cache_entries,
-               ulong  seed ) {
+               ulong  seed,
+               uchar const secret[ 32 ] ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -50,12 +80,13 @@ fd_rserve_new( void * shmem,
   rserve->ping_map   = ping_map_join  ( ping_map_new  ( ping_map_mem,   ping_map_chain_cnt_est( ping_max ), seed ) );
   rserve->ping_dlist = ping_dlist_join( ping_dlist_new( ping_dlist_mem ) );
 
-  /* Initialize rotating tokens. */
-  rserve->seed      = seed;
-  rserve->token_idx = 0UL;
+  /* Initialize rotating token secrets. */
+  rserve->seed           = seed;
+  rserve->token_idx      = 0UL;
   rserve->last_rotate_ts = 0UL;
-  fd_rserve_derive_token( rserve->token_cur,  seed, 0UL );
-  fd_rserve_derive_token( rserve->token_prev, seed, 0UL );
+  memcpy( rserve->secret_master, secret, 32UL );
+  fd_rserve_rotation_secret( rserve->secret_cur, rserve->secret_master, 0UL );
+  memcpy( rserve->secret_prev, rserve->secret_cur, 32UL );
 
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_rserve_align() )==(ulong)shmem + footprint );
 
@@ -107,26 +138,50 @@ fd_rserve_delete( void * rserve ) {
   return rserve;
 }
 
-int
-fd_rserve_pong_token_verify( fd_rserve_t const * rserve,
-                             uchar const       * pong_hash ) {
-  /* The pong hash is SHA-256( "SOLANA_PING_PONG" || token ).
-     Compute the expected hash for both current and previous tokens
-     and check if either matches. */
+void
+fd_rserve_ping_token( fd_rserve_t const * rserve,
+                      uchar               token[ 32 ],
+                      fd_pubkey_t const * from,
+                      uint                ip4,
+                      ushort              port ) {
+  fd_rserve_token_compute( token, rserve->secret_cur, from, ip4, port );
+}
 
+static int
+fd_rserve_secret_pong_verify( uchar const         secret[ 32 ],
+                              uchar const       * pong_hash,
+                              fd_pubkey_t const * from,
+                              uint                ip4,
+                              ushort              port ) {
+  uchar token   [ 32 ];
   uchar preimage[ FD_REPAIR_PONG_PREIMAGE_SZ ];
   uchar expected[ 32 ];
 
-  /* Check current token. */
-  preimage_pong( (fd_hash_t const *)rserve->token_cur, preimage );
+  fd_rserve_token_compute( token, secret, from, ip4, port );
+  preimage_pong( (fd_hash_t const *)token, preimage );
   fd_sha256_hash( preimage, FD_REPAIR_PONG_PREIMAGE_SZ, expected );
-  if( FD_LIKELY( !memcmp( expected, pong_hash, 32UL ) ) ) return 1;
+  return !memcmp( expected, pong_hash, 32UL );
+}
 
-  /* Check previous token. */
-  preimage_pong( (fd_hash_t const *)rserve->token_prev, preimage );
-  fd_sha256_hash( preimage, FD_REPAIR_PONG_PREIMAGE_SZ, expected );
-  if( FD_LIKELY( !memcmp( expected, pong_hash, 32UL ) ) ) return 1;
-
+int
+fd_rserve_pong_token_verify( fd_rserve_t const * rserve,
+                             uchar const       * pong_hash,
+                             fd_pubkey_t const * from,
+                             uint                ip4,
+                             ushort              port ) {
+  if( FD_LIKELY( fd_rserve_secret_pong_verify( rserve->secret_cur,  pong_hash, from, ip4, port ) ) ) return 1;
+  if( FD_LIKELY( fd_rserve_secret_pong_verify( rserve->secret_prev, pong_hash, from, ip4, port ) ) ) return 1;
   return 0;
+}
+
+void
+fd_rserve_maybe_rotate( fd_rserve_t * rserve,
+                        ulong         now_ns ) {
+  if( FD_UNLIKELY( now_ns-rserve->last_rotate_ts > FD_RSERVE_TOKEN_ROTATE_NS ) ) {
+    rserve->last_rotate_ts = now_ns;
+    rserve->token_idx++;
+    memcpy( rserve->secret_prev, rserve->secret_cur, 32UL );
+    fd_rserve_rotation_secret( rserve->secret_cur, rserve->secret_master, rserve->token_idx );
+  }
 }
 

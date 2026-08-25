@@ -284,9 +284,6 @@ int fd_shredb_query_highest( fd_shredb_t * store,
   fd_shredb_slot_entry_t * se = fd_shredb_slot_map_query( store->slot_map, slot, NULL );
   if( FD_UNLIKELY( !se ) ) return -1;
 
-  /* Check if the highest known index meets the threshold. */
-  if( se->highest_shred_idx < min_shred_idx ) return -1;
-
   ulong key = fd_shredb_key_pack( slot, se->highest_shred_idx );
   fd_shredb_shred_entry_t const * map_entry = fd_shredb_shred_map_query( store->shred_map, key, NULL );
   FD_TEST( map_entry );
@@ -295,6 +292,10 @@ int fd_shredb_query_highest( fd_shredb_t * store,
   off_t off = (off_t)(map_entry->ring_idx * sizeof(fd_shredb_entry_t));
   long res = pread( store->fd, rd_entry, sizeof(fd_shredb_entry_t), off );
   if( FD_UNLIKELY( res!=(long)sizeof(fd_shredb_entry_t) ) ) FD_LOG_ERR(( "error reading from shredb: (%d-%s)", errno, fd_io_strerror( errno ) ));
+
+  fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( rd_entry->shred );
+  if( FD_UNLIKELY( se->highest_shred_idx < min_shred_idx &&
+                   !(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) ) ) return -1;
 
   fd_memcpy( out, rd_entry->shred, rd_entry->shred_sz );
   return rd_entry->shred_sz;

@@ -139,11 +139,12 @@ fd_shredb_query( fd_shredb_t * store,
                  uchar         out[ FD_SHRED_MAX_SZ ] );
 
 /* Given a (slot, min_shred_idx), returns the highest shred the store
-   knows of for that slot.
+   knows of for that slot.  A shred below min_shred_idx is returned if
+   it is marked as the last shred in its slot.
 
    If the store has no shreds for the given slot, or does not have a shred
-   with a high enough index, returns -1, otherwise returns the amount of
-   bytes written to out. */
+   with a high enough index nor a last-in-slot shred, returns -1, otherwise
+   returns the amount of bytes written to out. */
 int
 fd_shredb_query_highest( fd_shredb_t * store,
                          ulong         slot,

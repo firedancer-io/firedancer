@@ -36,10 +36,11 @@
    - HighestShred( slot, shred_idx )
 
      This is a request for the highest shred in the provided slot that
-     is greater than or equal to shred_idx.  Note this is not
-     necessarily the last shred in the slot, as it depends on what the
-     responding validator has available.  The responding validator will
-     return the highest shred it has that meets the condition.
+     is greater than or equal to shred_idx, or a lower shred marked as
+     the last shred in the slot.  Note this is not necessarily the last
+     shred in the slot, as it depends on what the responding validator
+     has available.  The responding validator will return the highest
+     shred it has that meets the condition.
 
    - Orphan( slot )
 

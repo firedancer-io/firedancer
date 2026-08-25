@@ -72,6 +72,7 @@ typedef struct ctx {
   ulong       net_out_chunk;
 
   ulong         seed;
+  uchar         rserve_secret[ 32 ];
   fd_rserve_t * rserve;
   fd_shredb_t * shredb;
 
@@ -165,7 +166,9 @@ send_packet( ctx_t               * ctx,
 static inline void
 handle_pong( ctx_t              * ctx,
              uchar const        * payload,
-             ulong                payload_sz ) {
+             ulong                payload_sz,
+             uint                 saddr,
+             ushort               sport ) {
   if( FD_UNLIKELY( payload_sz!=sizeof(uint)+sizeof(fd_repair_pong_t) ) ) return;
   fd_repair_msg_t const * msg = (fd_repair_msg_t const *)fd_type_pun_const( payload );
   fd_repair_pong_t const * request = &msg->pong;
@@ -182,15 +185,22 @@ handle_pong( ctx_t              * ctx,
     return;
   }
 
-  /* Verify that the pong hash corresponds to either our current or
-     previous rotating token.  This prevents replayed or stale pongs. */
-  if( FD_UNLIKELY( !fd_rserve_pong_token_verify( ctx->rserve, request->hash.uc ) ) ) {
+  /* Verify that the pong hash corresponds to the token we would have issued
+     to this (pubkey, address) under either the current or previous rotating
+     secret. */
+  if( FD_UNLIKELY( !fd_rserve_pong_token_verify( ctx->rserve, request->hash.uc, &request->from, saddr, sport ) ) ) {
     ctx->metrics->fail_invalid_token++;
     return;
   }
 
   fd_rserve_t * rserve = ctx->rserve;
-  ping_cache_entry_t * entry = ping_map_ele_query( rserve->ping_map, &request->from, NULL, rserve->ping_pool );
+  ping_cache_key_t key[1];
+  memset( key, 0, sizeof(ping_cache_key_t) );
+  key->pubkey = request->from;
+  key->ip4    = saddr;
+  key->port   = sport;
+
+  ping_cache_entry_t * entry = ping_map_ele_query( rserve->ping_map, key, NULL, rserve->ping_pool );
 
   if( FD_LIKELY( !entry ) ) {
     /* New entry, evict LRU if pool is full. */
@@ -202,7 +212,7 @@ handle_pong( ctx_t              * ctx,
       ctx->metrics->ping_cache_evictions++;
     }
     entry = ping_pool_ele_acquire( rserve->ping_pool );
-    entry->addr               = request->from;
+    entry->key                = *key;
     ping_map_ele_insert( rserve->ping_map, entry, rserve->ping_pool );
     ctx->metrics->ping_cache_entries++;
   } else {
@@ -232,7 +242,7 @@ handle_net_request( ctx_t             * ctx,
   if( FD_UNLIKELY( tag==FD_REPAIR_KIND_PONG ) ) {
     ctx->metrics->received_request_count[ request_metric_index[tag] ]++;
     ctx->metrics->received_request_bytes += payload_sz;
-    handle_pong( ctx, payload, payload_sz );
+    handle_pong( ctx, payload, payload_sz, ip4->saddr, udp->net_sport );
     return;
   }
   if( FD_UNLIKELY( tag!=FD_REPAIR_KIND_SHRED &&
@@ -295,8 +305,16 @@ handle_net_request( ctx_t             * ctx,
     return;
   }
 
-  /* Check whether we've heard a pong response from them. */
-  ping_cache_entry_t * entry = ping_map_ele_query( ctx->rserve->ping_map, &header->from, NULL, ctx->rserve->ping_pool );
+  /* Check whether we've heard a pong response from this peer at this
+     exact source address. Keying on (pubkey, address) means a peer that
+     ponged from one address cannot have repair responses redirected to
+     a spoofed source address. */
+  ping_cache_key_t key[1];
+  memset( key, 0, sizeof(ping_cache_key_t) );
+  key->pubkey = header->from;
+  key->ip4    = ip4->saddr;
+  key->port   = udp->net_sport;
+  ping_cache_entry_t * entry = ping_map_ele_query( ctx->rserve->ping_map, key, NULL, ctx->rserve->ping_pool );
   if( FD_LIKELY( entry ) ) {
     switch( tag ) {
       case FD_REPAIR_KIND_SHRED:
@@ -361,8 +379,11 @@ handle_net_request( ctx_t             * ctx,
   } else {
     ctx->metrics->fail_ping_cache_lookup++;
 
-    /* Use the current rotating token. */
-    uchar const * token = ctx->rserve->token_cur;
+    /* Derive a ping token bound to this peer's pubkey and the source
+       address the request arrived from.  The peer can only produce a
+       valid pong if it actually receives this ping at that address. */
+    uchar token[ 32UL ];
+    fd_rserve_ping_token( ctx->rserve, token, &header->from, ip4->saddr, udp->net_sport );
 
     /* Sign the token. */
     uchar signature[ 64UL ];
@@ -458,12 +479,7 @@ during_housekeeping( ctx_t * ctx ) {
 
   fd_rserve_t * rserve = ctx->rserve;
   ulong now_ns = (ulong)fd_log_wallclock();
-  if( FD_UNLIKELY( now_ns-rserve->last_rotate_ts > FD_RSERVE_TOKEN_ROTATE_NS ) ) {
-    rserve->last_rotate_ts = now_ns;
-    rserve->token_idx++;
-    memcpy( rserve->token_prev, rserve->token_cur, 32UL );
-    fd_rserve_derive_token( rserve->token_cur, rserve->seed, rserve->token_idx );
-  }
+  fd_rserve_maybe_rotate( rserve, now_ns );
 
   /* Evict expired entries from the head (oldest) of the LRU list. */
   while( !ping_dlist_is_empty( rserve->ping_dlist, rserve->ping_pool ) ) {
@@ -514,6 +530,7 @@ privileged_init( fd_topo_t      const * topo,
   ctx->shredb = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_align(), fd_shredb_footprint( size_limit ) );
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ulong) ) );
+  FD_TEST( fd_rng_secure( ctx->rserve_secret, sizeof(ctx->rserve_secret) ) );
 
   FD_LOG_INFO(( "creating shredb (size_limit=%luGiB)", size_limit ));
   ctx->shredb = fd_shredb_join( fd_shredb_new( ctx->shredb, size_limit, tile->rserve.shredb_path, ctx->seed ) );
@@ -537,7 +554,7 @@ unprivileged_init( fd_topo_t      const * topo,
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch + scratch_footprint( tile ) );
 
   (void)ctx->shredb; /* Initialized in privileged_init */
-  ctx->rserve    = fd_rserve_join   ( fd_rserve_new( ctx->rserve, ping_cache_entries, ctx->seed ) );
+  ctx->rserve    = fd_rserve_join   ( fd_rserve_new( ctx->rserve, ping_cache_entries, ctx->seed, ctx->rserve_secret ) );
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 

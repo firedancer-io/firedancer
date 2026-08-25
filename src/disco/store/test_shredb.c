@@ -225,6 +225,32 @@ test_multiple_slots( void ) {
 }
 
 static void
+test_query_highest( void ) {
+  void * mem;
+  fd_shredb_t * store = setup_store( &mem, 1UL );
+
+  uchar buf[ FD_SHRED_MAX_SZ ];
+  fd_shred_t * shred = make_shred( buf, 42UL, 3U, NULL, 0UL );
+  fd_shredb_insert( store, shred );
+
+  uchar out[ FD_SHRED_MAX_SZ ];
+  FD_TEST( fd_shredb_query_highest( store, 42UL, 3U, out )>0 );
+  FD_TEST( fd_shredb_query_highest( store, 42UL, 4U, out )==-1 );
+
+  shred = make_shred( buf, 43UL, 3U, NULL, 0UL );
+  shred->data.flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
+  fd_shredb_insert( store, shred );
+
+  FD_TEST( fd_shredb_query_highest( store, 43UL, 4U, out )>0 );
+  fd_shred_t const * result = (fd_shred_t const *)fd_type_pun_const( out );
+  FD_TEST( result->slot==43UL );
+  FD_TEST( result->idx==3U );
+  FD_TEST( result->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
+
+  teardown_store( store, mem );
+}
+
+static void
 test_many_wraps( void ) {
   FD_LOG_NOTICE(( "TEST many ring wraps" ));
 
@@ -373,6 +399,7 @@ main( int argc, char ** argv ) {
   test_query_nonexistent();
   test_multiple_shreds_same_slot();
   test_multiple_slots();
+  test_query_highest();
   test_many_wraps();
 
   bench_insert();
