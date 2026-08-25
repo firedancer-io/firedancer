@@ -1,5 +1,6 @@
 #include "fd_pcapng_private.h"
 #include "../fd_util.h"
+#include "../sanitize/fd_msan.h"
 #include <errno.h>
 #include <stdio.h>
 
@@ -65,8 +66,10 @@ fd_pcapng_read_block( FILE *                  stream,
   ulong remaining = hdr.block_sz - sizeof(fd_pcapng_block_hdr_t);
 
   /* Read rest of block */
-  if( FD_UNLIKELY( 1UL!=fread( iter->block_buf + sizeof(fd_pcapng_block_hdr_t), remaining, 1, stream ) ) )
-    return ferror( stream );
+  if( FD_UNLIKELY( 1UL!=fread( iter->block_buf + sizeof(fd_pcapng_block_hdr_t), remaining, 1, stream ) ) ) {
+    if( FD_LIKELY( feof( stream ) ) ) return EPROTO; /* truncated block */
+    else                              return ferror( stream );
+  }
 
   iter->block_buf_sz  = hdr.block_sz;
   iter->block_buf_pos = sizeof(fd_pcapng_block_hdr_t);
@@ -120,6 +123,7 @@ fd_pcapng_read_option( fd_pcapng_iter_t *   iter,
       return EPROTO;
     }
     memcpy( opt->value, iter->block_buf + iter->block_buf_pos, read_sz );
+    fd_msan_unpoison( opt->value, read_sz );
   }
 
   iter->block_buf_pos += fd_uint_align_up( opt_hdr.sz, 4U );
