@@ -1,5 +1,6 @@
 #include "fd_pcapng_private.h"
 #include "../fd_util.h"
+#include "../sanitize/fd_msan.h"
 #include <errno.h>
 #include <stdio.h>
 
@@ -122,6 +123,7 @@ fd_pcapng_read_option( fd_pcapng_iter_t *   iter,
       return EPROTO;
     }
     memcpy( opt->value, iter->block_buf + iter->block_buf_pos, read_sz );
+    fd_msan_unpoison( opt->value, read_sz );
   }
 
   iter->block_buf_pos += fd_uint_align_up( opt_hdr.sz, 4U );
