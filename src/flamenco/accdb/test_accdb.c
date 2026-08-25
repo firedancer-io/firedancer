@@ -952,26 +952,20 @@ test_mainnet_footprint( void ) {
   /* Mainnet-scale parameters:
      max_accounts                = 1.2B   (current mainnet account count)
      max_live_slots              = 4096   (generous unrooted slot window)
-     max_account_writes_per_slot = 321280 (FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT
-                                           from fd_cost_tracker.h)
-
-     Derivation: pack the block with txns each having max writable
-     accounts (64) at minimum cost per txn:
-       min_cost = FD_PACK_COST_PER_SIGNATURE + 64*FD_WRITE_LOCK_UNITS
-                = 720 + 64*300 = 19920
-       max_txns = floor(100000000 / 19920) = 5020
-       max_distinct_writable = 5020 * 64 = 321280
+     max_account_writes_per_slot = 367535 (conservative production
+                                           topology capacity, including
+                                           runtime-generated stores)
 
      partition_cnt               = 8192
      partition_sz                = 1 GiB
      cache_footprint             = 32 GiB */
   ulong max_accounts                = 1200000000UL;
   ulong max_live_slots              = 4096UL;
-  ulong max_account_writes_per_slot = 64UL * (100000000UL / (300UL*64UL + 720UL));
+  ulong max_account_writes_per_slot = 367535UL;
   ulong partition_cnt               = 8192UL;
   ulong cache_footprint             = 32UL*(1UL<<30UL);
 
-  FD_TEST( max_account_writes_per_slot==321280UL );
+  FD_TEST( max_account_writes_per_slot==367535UL );
 
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL, 0UL );
   FD_TEST( shmem_fp );
