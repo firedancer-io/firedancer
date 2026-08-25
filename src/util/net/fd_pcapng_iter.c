@@ -65,8 +65,10 @@ fd_pcapng_read_block( FILE *                  stream,
   ulong remaining = hdr.block_sz - sizeof(fd_pcapng_block_hdr_t);
 
   /* Read rest of block */
-  if( FD_UNLIKELY( 1UL!=fread( iter->block_buf + sizeof(fd_pcapng_block_hdr_t), remaining, 1, stream ) ) )
-    return ferror( stream );
+  if( FD_UNLIKELY( 1UL!=fread( iter->block_buf + sizeof(fd_pcapng_block_hdr_t), remaining, 1, stream ) ) ) {
+    if( FD_LIKELY( feof( stream ) ) ) return EPROTO; /* truncated block */
+    else                              return ferror( stream );
+  }
 
   iter->block_buf_sz  = hdr.block_sz;
   iter->block_buf_pos = sizeof(fd_pcapng_block_hdr_t);
