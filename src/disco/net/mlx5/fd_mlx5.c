@@ -357,6 +357,7 @@ FD_STATIC_ASSERT( sizeof(fd_uverbs_create_gre_flow_req_t)==200UL, uverbs_create_
 #define FD_MLX5_FLOW_SPEC_INNER (0x100U) /* IB_FLOW_SPEC_INNER */
 
 /* fd_rdma_* helpers discover and inspect the selected Linux RDMA device */
+__attribute__((format(printf,3,4)))
 static int
 fd_rdma_path( char *       path,
               ulong        path_sz,
