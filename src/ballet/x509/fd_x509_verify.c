@@ -46,6 +46,22 @@ fd_x509_verify_sig( fd_x509_cert_info_t const * cert,
   }
 }
 
+/* fd_x509_check_validity returns FD_X509_VERIFY_OK if cert is within its
+   validity period at unix_seconds, otherwise the error to report. */
+
+static int
+fd_x509_check_validity( fd_x509_cert_info_t const * cert,
+                        long                        unix_seconds ) {
+  if( FD_UNLIKELY( cert->not_before_unix==FD_X509_TIME_INVALID ||
+                   cert->not_after_unix ==FD_X509_TIME_INVALID ) )
+    return FD_X509_VERIFY_ERR_TIME_PARSE;
+  if( FD_UNLIKELY( unix_seconds < cert->not_before_unix ) )
+    return FD_X509_VERIFY_ERR_NOT_YET_VALID;
+  if( FD_UNLIKELY( unix_seconds > cert->not_after_unix ) )
+    return FD_X509_VERIFY_ERR_EXPIRED;
+  return FD_X509_VERIFY_OK;
+}
+
 /* Implemented as specified by RFC 5280 Section 6.1.3. */
 int
 fd_x509_verify_chain( uchar const * const *        chain_der,
@@ -53,7 +69,8 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
                       ulong                        chain_cnt,
                       fd_x509_ca_store_t const *   ca_store,
                       char const *                 hostname,
-                      ulong                        hostname_len ) {
+                      ulong                        hostname_len,
+                      long                         unix_seconds ) {
 
   if( FD_UNLIKELY( chain_cnt == 0 ) ) return FD_X509_VERIFY_ERR_CHAIN_BREAK;
   if( FD_UNLIKELY( chain_cnt > FD_X509_CHAIN_MAX ) ) return FD_X509_VERIFY_ERR_CHAIN_TOO_LONG;
@@ -66,6 +83,9 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
 
   if( FD_UNLIKELY( fd_x509_cert_parse( chain_der[0], chain_der_sz[0], &certs[0] ) ) )
     return FD_X509_VERIFY_ERR_PARSE;
+
+  int time_err = fd_x509_check_validity( &certs[0], unix_seconds );
+  if( FD_UNLIKELY( time_err ) ) return time_err;
 
   if( hostname && hostname_len ) {
     if( FD_UNLIKELY( !fd_x509_san_matches( &certs[0], hostname, hostname_len ) ) )
@@ -108,6 +128,9 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
                                           certs[i+1].subject, certs[i+1].subject_len ) ) )
       return FD_X509_VERIFY_ERR_CHAIN_BREAK;
 
+    time_err = fd_x509_check_validity( &certs[i+1], unix_seconds );
+    if( FD_UNLIKELY( time_err ) ) return time_err;
+
     if( FD_UNLIKELY( !certs[i+1].is_ca ) )
       return FD_X509_VERIFY_ERR_CA_FLAG;
 
@@ -126,7 +149,8 @@ fd_x509_verify_tls_cert_msg( uchar const *              cert_msg,
                              ulong                      cert_msg_sz,
                              fd_x509_ca_store_t const * ca_store,
                              char const *               hostname,
-                             ulong                      hostname_len ) {
+                             ulong                      hostname_len,
+                             long                       unix_seconds ) {
 
   uchar const * p   = cert_msg;
   uchar const * end = cert_msg + cert_msg_sz;
@@ -178,5 +202,5 @@ fd_x509_verify_tls_cert_msg( uchar const *              cert_msg,
   if( FD_UNLIKELY( !chain_cnt ) ) return FD_X509_VERIFY_ERR_PARSE;
 
   return fd_x509_verify_chain( chain_der, chain_der_sz, chain_cnt,
-                              ca_store, hostname, hostname_len );
+                              ca_store, hostname, hostname_len, unix_seconds );
 }

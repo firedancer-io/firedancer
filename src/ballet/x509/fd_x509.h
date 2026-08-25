@@ -26,6 +26,11 @@
 #define FD_X509_SIG_ECDSA_SHA384       ((uchar)2)
 #define FD_X509_SIG_UNKNOWN            ((uchar)0xFF)
 
+/* FD_X509_TIME_INVALID marks a validity timestamp that could not be
+   parsed. */
+
+#define FD_X509_TIME_INVALID (LONG_MIN)
+
 struct fd_x509_cert_info {
   /* TBSCertificate version: 0=v1, 1=v2, 2=v3 */
   uchar         version;
@@ -48,8 +53,12 @@ struct fd_x509_cert_info {
   /* Validity period */
   uchar const * not_before;
   ulong         not_before_len;
+  uchar         not_before_tag;  /* FD_DER_TAG_{UTC,GENERALIZED}_TIME */
+  long          not_before_unix; /* seconds since the Unix epoch (or FD_X509_TIME_INVALID) */
   uchar const * not_after;
   ulong         not_after_len;
+  uchar         not_after_tag;
+  long          not_after_unix; /* seconds since the Unix epoch (or FD_X509_TIME_INVALID) */
 
   /* Certificate signature */
   uchar const * sig;
@@ -129,6 +138,19 @@ fd_x509_name_equal( uchar const * a,
                     ulong         a_len,
                     uchar const * b,
                     ulong         b_len );
+
+/* fd_x509_time_parse converts an ASN.1 time value to seconds since the
+   Unix epoch.  tag is FD_DER_TAG_UTC_TIME (YYMMDDHHMMSSZ, 13 bytes) or
+   FD_DER_TAG_GENERALIZED_TIME (YYYYMMDDHHMMSSZ, 15 bytes).  [s,s+s_len)
+   is the DER content, without tag and length.
+
+   Returns seconds since the Unix epoch, or FD_X509_TIME_INVALID if the
+   value is malformed or outside the accepted profile. */
+
+long
+fd_x509_time_parse( uchar         tag,
+                    uchar const * s,
+                    ulong         s_len );
 
 /* fd_x509_san_matches tests hostname against every dNSName in info's
    subjectAltName extension.  Matching folds ASCII case and permits a

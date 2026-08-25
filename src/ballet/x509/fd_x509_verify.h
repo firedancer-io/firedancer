@@ -11,14 +11,15 @@
      basicConstraints cA=TRUE
    - The path terminates at a trust anchor in the CA store
    - Hostname: the leaf cert's SAN must match the expected hostname
+   - Every cert on the path is within its validity period
 
    We do NOT check:
-   - Expiry dates (TODO?)
    - Certificate revocation (CRL / OCSP)
    - Path length constraints
    - Key usage */
 
 #include "fd_x509.h"
+#include "../../util/log/fd_log.h"
 #include "fd_x509_ca_store.h"
 
 /* FD_X509_CERT_SZ_MAX bounds each DER-encoded certificate accepted by
@@ -38,6 +39,9 @@
 #define FD_X509_VERIFY_ERR_HOSTNAME        (6)  /* SAN doesn't match hostname */
 #define FD_X509_VERIFY_ERR_UNSUPPORTED     (7)  /* unsupported signature algorithm */
 #define FD_X509_VERIFY_ERR_CHAIN_TOO_LONG  (8)  /* chain exceeds FD_X509_CHAIN_MAX */
+#define FD_X509_VERIFY_ERR_TIME_PARSE      (9)  /* malformed validity period */
+#define FD_X509_VERIFY_ERR_NOT_YET_VALID  (10)  /* now_unix < notBefore */
+#define FD_X509_VERIFY_ERR_EXPIRED        (11)  /* now_unix > notAfter */
 #define FD_X509_VERIFY_ERR_CERT_TOO_LARGE (15)  /* cert exceeds FD_X509_CERT_SZ_MAX */
 
 FD_PROTOTYPES_BEGIN
@@ -62,7 +66,8 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
                       ulong                        chain_cnt,
                       fd_x509_ca_store_t const *   ca_store,
                       char const *                 hostname,
-                      ulong                        hostname_len );
+                      ulong                        hostname_len,
+                      long                         unix_seconds );
 
 /* fd_x509_verify_tls_cert_msg verifies the certificate chain carried in
    the body of a TLS 1.3 Certificate handshake message (RFC 8446
@@ -79,7 +84,16 @@ fd_x509_verify_tls_cert_msg( uchar const *              cert_msg,
                              ulong                      cert_msg_sz,
                              fd_x509_ca_store_t const * ca_store,
                              char const *               hostname,
-                             ulong                      hostname_len );
+                             ulong                      hostname_len,
+                             long                       unix_seconds );
+
+/* fd_x509_unix_now_seconds returns the current wallclock time in
+   seconds since the Unix epoch. */
+
+FD_FN_UNUSED static inline long
+fd_x509_unix_now_seconds( void ) {
+  return fd_log_wallclock() / 1000000000L;
+}
 
 FD_PROTOTYPES_END
 

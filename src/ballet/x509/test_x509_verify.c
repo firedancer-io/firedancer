@@ -7,6 +7,11 @@
 
 #include <string.h>
 
+/* TEST_NOW is 2020-01-01T00:00:00Z.  Tests pin the clock so that the
+   validity period checks never go stale. */
+
+#define TEST_NOW (1577836800L)
+
 /* Minimal DER writer, just enough to build test certificates.  Nested
    lengths are computed rather than hand-counted. */
 
@@ -68,6 +73,10 @@ mk_tbs( uchar *       out,
         uchar const * subject,
         ulong         subject_len,
         uchar const * pubkey,
+        char const *  not_before,
+        uchar         not_before_tag,
+        char const *  not_after,
+        uchar         not_after_tag,
         uchar const * exts,
         ulong         exts_len ) {
 
@@ -90,9 +99,9 @@ mk_tbs( uchar *       out,
   if( issuer_len ) { memcpy( tbs+t, issuer, issuer_len ); t += issuer_len; }
   else             { t += der_tlv( tbs+t, FD_DER_TAG_SEQUENCE, NULL, 0UL ); }
 
-  /* validity SEQUENCE { UTCTime, GeneralizedTime } */
-  n  = der_tlv( buf,   FD_DER_TAG_UTC_TIME,         (uchar const *)"750101000000Z",   13UL );
-  n += der_tlv( buf+n, FD_DER_TAG_GENERALIZED_TIME, (uchar const *)"40960101000000Z", 15UL );
+  /* validity SEQUENCE { notBefore, notAfter } */
+  n  = der_tlv( buf,   not_before_tag, (uchar const *)not_before, strlen( not_before ) );
+  n += der_tlv( buf+n, not_after_tag,  (uchar const *)not_after,  strlen( not_after  ) );
   t += der_tlv( tbs+t, FD_DER_TAG_SEQUENCE, buf, n );
 
   /* subject Name */
@@ -135,23 +144,30 @@ wrap_cert( uchar *       out,
   return der_tlv( out, FD_DER_TAG_SEQUENCE, buf, n );
 }
 
-/* mk_cert builds a certificate with empty issuer and subject names, an
-   all zero key and an all zero signature.  Good enough for every check
-   that runs ahead of signature verification. */
+/* mk_cert_validity builds a certificate with empty issuer and subject
+   names, an all zero key and an all zero signature.  Good enough for
+   every check that runs ahead of signature verification. */
 
 static ulong
-mk_cert( uchar *       out,
-         uchar const * exts,
-         ulong         exts_len ) {
+mk_cert_validity( uchar *       out,
+                  char const *  not_before,
+                  uchar         not_before_tag,
+                  char const *  not_after,
+                  uchar         not_after_tag,
+                  uchar const * exts,
+                  ulong         exts_len ) {
   uchar zero[ 64 ]; memset( zero, 0, sizeof(zero) );
   uchar tbs[ 1024 ];
-  ulong tbs_len = mk_tbs( tbs, NULL, 0UL, NULL, 0UL, zero, exts, exts_len );
+  ulong tbs_len = mk_tbs( tbs, NULL, 0UL, NULL, 0UL, zero,
+                          not_before, not_before_tag,
+                          not_after,  not_after_tag,
+                          exts, exts_len );
   return wrap_cert( out, tbs, tbs_len, zero );
 }
 
-/* mk_cert_signed builds a certificate carrying the given issuer and
-   subject names and public key, with a real Ed25519 signature over the
-   TBSCertificate by issuer_prvkey. */
+/* mk_cert_signed builds a certificate valid at TEST_NOW, carrying the
+   given issuer and subject names and public key, with a real Ed25519
+   signature over the TBSCertificate by issuer_prvkey. */
 
 static ulong
 mk_cert_signed( uchar *       out,
@@ -165,6 +181,8 @@ mk_cert_signed( uchar *       out,
                 ulong         exts_len ) {
   uchar tbs[ 1024 ];
   ulong tbs_len = mk_tbs( tbs, issuer, issuer_len, subject, subject_len, pubkey,
+                          "750101000000Z",   FD_DER_TAG_UTC_TIME,
+                          "40960101000000Z", FD_DER_TAG_GENERALIZED_TIME,
                           exts, exts_len );
 
   fd_sha512_t sha[1];
@@ -175,6 +193,18 @@ mk_cert_signed( uchar *       out,
   fd_ed25519_sign( sig, tbs, tbs_len, issuer_pubkey, issuer_prvkey, sha );
 
   return wrap_cert( out, tbs, tbs_len, sig );
+}
+
+/* mk_cert builds a certificate that is valid at TEST_NOW. */
+
+static ulong
+mk_cert( uchar *       out,
+         uchar const * exts,
+         ulong         exts_len ) {
+  return mk_cert_validity( out,
+                           "750101000000Z",   FD_DER_TAG_UTC_TIME,
+                           "40960101000000Z", FD_DER_TAG_GENERALIZED_TIME,
+                           exts, exts_len );
 }
 
 /* mk_ext builds an Extension SEQUENCE { OID, OCTET STRING value }.
@@ -460,12 +490,12 @@ main( int     argc,
 
     uchar const * chain_der   [ 1 ] = { leaf };
     ulong         chain_der_sz[ 1 ] = { leaf_len };
-    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, NULL, 0UL )
+    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, NULL, 0UL, TEST_NOW )
              ==FD_X509_VERIFY_OK );
 
     /* Drop the matching anchor and the same chain must fail. */
     store.cnt = 1;
-    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, NULL, 0UL )
+    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, NULL, 0UL, TEST_NOW )
              ==FD_X509_VERIFY_ERR_SIG );
 
     FD_LOG_INFO(( "OK: anchor sharing a subject with an earlier entry is tried" ));
@@ -514,14 +544,33 @@ main( int     argc,
 
     uchar const * chain_der   [ 2 ] = { leaf, cross };
     ulong         chain_der_sz[ 2 ] = { leaf_len, cross_len };
-    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL )
+    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL, TEST_NOW )
              ==FD_X509_VERIFY_OK );
 
     /* Without the anchor there is nothing to stop at, and the chain ends
        on an issuer we do not trust. */
     store.cnt = 0;
-    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL )
+    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL, TEST_NOW )
              ==FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR );
+    store.cnt = 1;
+
+    /* An expired cross-sign is off the path too, so it must not matter.
+       Servers keep sending these long after they lapse. */
+    uchar cross_exp[ 1024 ];
+    {
+      uchar tbs[ 1024 ];
+      ulong tbs_len = mk_tbs( tbs, older_name, older_name_len,
+                              root_name, root_name_len, pub_root,
+                              "750101000000Z", FD_DER_TAG_UTC_TIME,
+                              "191231235959Z", FD_DER_TAG_UTC_TIME,
+                              exts, exts_len );
+      uchar pub_old[ 32 ]; fd_ed25519_public_from_private( pub_old, prv_old, sha );
+      uchar sig[ 64 ]; fd_ed25519_sign( sig, tbs, tbs_len, pub_old, prv_old, sha );
+      chain_der   [ 1 ] = cross_exp;
+      chain_der_sz[ 1 ] = wrap_cert( cross_exp, tbs, tbs_len, sig );
+    }
+    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL, TEST_NOW )
+             ==FD_X509_VERIFY_OK );
 
     FD_LOG_INFO(( "OK: trailing cross-signature is ignored" ));
   }
@@ -530,7 +579,7 @@ main( int     argc,
   {
     fd_x509_ca_store_t store;
     memset( &store, 0, sizeof(store) );
-    int err = fd_x509_verify_chain( NULL, NULL, 0UL, &store, "example.com", 11UL );
+    int err = fd_x509_verify_chain( NULL, NULL, 0UL, &store, "example.com", 11UL, TEST_NOW );
     FD_TEST( err!=FD_X509_VERIFY_OK );
     FD_LOG_INFO(( "OK: empty chain returns error" ));
   }
@@ -543,7 +592,7 @@ main( int     argc,
     ulong         chain_der_sz[ 1 ] = { 64UL };
     fd_x509_ca_store_t store;
     memset( &store, 0, sizeof(store) );
-    int err = fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, "example.com", 11UL );
+    int err = fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, "example.com", 11UL, TEST_NOW );
     FD_TEST( err==FD_X509_VERIFY_ERR_PARSE );
     FD_LOG_INFO(( "OK: garbage cert returns ERR_PARSE" ));
   }
@@ -818,6 +867,84 @@ main( int     argc,
     FD_TEST( fd_x509_san_matches( &info, host, 254UL )==0 ); /* >253-byte name */
 
     FD_LOG_INFO(( "OK: oversized labels and names rejected" ));
+  }
+
+  /* Validity period checks.  The chain is anchored against an empty
+     store, so a cert that clears the time gate fails later with
+     NO_TRUST_ANCHOR; that is what proves the gate was cleared. */
+  {
+    fd_x509_ca_store_t store; store.cnt = 0;
+
+    static struct {
+      char const * not_before; uchar nb_tag;
+      char const * not_after;  uchar na_tag;
+      int          expected;
+      char const * desc;
+    } const cases[] = {
+      { "750101000000Z",   FD_DER_TAG_UTC_TIME,
+        "191231235959Z",   FD_DER_TAG_UTC_TIME,
+        FD_X509_VERIFY_ERR_EXPIRED,          "expired one second ago" },
+      { "200101000001Z",   FD_DER_TAG_UTC_TIME,
+        "40960101000000Z", FD_DER_TAG_GENERALIZED_TIME,
+        FD_X509_VERIFY_ERR_NOT_YET_VALID,    "valid in one second"    },
+      { "200101000000Z",   FD_DER_TAG_UTC_TIME,
+        "40960101000000Z", FD_DER_TAG_GENERALIZED_TIME,
+        FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR,  "notBefore == now"       },
+      { "750101000000Z",   FD_DER_TAG_UTC_TIME,
+        "200101000000Z",   FD_DER_TAG_UTC_TIME,
+        FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR,  "notAfter == now"        },
+      { "75010100000XZ",   FD_DER_TAG_UTC_TIME,
+        "40960101000000Z", FD_DER_TAG_GENERALIZED_TIME,
+        FD_X509_VERIFY_ERR_TIME_PARSE,       "malformed notBefore"    },
+      { "750101000000+0100", FD_DER_TAG_UTC_TIME,
+        "40960101000000Z", FD_DER_TAG_GENERALIZED_TIME,
+        FD_X509_VERIFY_ERR_TIME_PARSE,       "notBefore with offset"  },
+    };
+
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      uchar cert[ 1024 ];
+      ulong cert_len = mk_cert_validity( cert,
+                                         cases[i].not_before, cases[i].nb_tag,
+                                         cases[i].not_after,  cases[i].na_tag,
+                                         NULL, 0UL );
+      uchar const * chain_der   [ 1 ] = { cert };
+      ulong         chain_der_sz[ 1 ] = { cert_len };
+      int err = fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, NULL, 0UL, TEST_NOW );
+      if( FD_UNLIKELY( err!=cases[i].expected ) ) {
+        FD_LOG_ERR(( "case %lu (%s): got %i, expected %i", i, cases[i].desc, err, cases[i].expected ));
+      }
+    }
+
+    /* An expired intermediate must fail even behind a valid leaf */
+    {
+      uchar leaf[ 1024 ]; ulong leaf_len = mk_cert( leaf, NULL, 0UL );
+      uchar ca  [ 1024 ];
+      ulong ca_len = mk_cert_validity( ca,
+                                       "750101000000Z", FD_DER_TAG_UTC_TIME,
+                                       "191231235959Z", FD_DER_TAG_UTC_TIME,
+                                       NULL, 0UL );
+      uchar const * chain_der   [ 2 ] = { leaf, ca };
+      ulong         chain_der_sz[ 2 ] = { leaf_len, ca_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_ERR_EXPIRED );
+    }
+
+    /* Expiry is checked before the hostname, so it wins */
+    {
+      uchar gn[ 32 ]; ulong gn_len = der_tlv( gn, FD_DER_TAG_CONTEXT_PRIM(2), (uchar const *)"example.com", 11UL );
+      uchar exts[ 128 ]; ulong exts_len = mk_san( exts, gn, gn_len );
+      uchar cert[ 1024 ];
+      ulong cert_len = mk_cert_validity( cert,
+                                         "750101000000Z", FD_DER_TAG_UTC_TIME,
+                                         "191231235959Z", FD_DER_TAG_UTC_TIME,
+                                         exts, exts_len );
+      uchar const * chain_der   [ 1 ] = { cert };
+      ulong         chain_der_sz[ 1 ] = { cert_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, "other.com", 9UL, TEST_NOW )
+               ==FD_X509_VERIFY_ERR_EXPIRED );
+    }
+
+    FD_LOG_INFO(( "OK: validity period checks" ));
   }
 
   FD_LOG_NOTICE(( "pass" ));
