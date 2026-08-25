@@ -43,13 +43,16 @@ The bundle protocol uses gRPC over HTTP/2.
 
 The bundle tile uses regular TCP sockets (does not use Firedancer XDP).
 
-HTTPS (TLS 1.3) is supported using OpenSSL.
-
 ### TLS CA certificates
 
-When using to secure gRPC (HTTPS), the bundle tile verifies the server
-certificate against CA certificates in `/etc/ssl/certs`. The CA cert path
-is hardcoded.
+When using TLS to secure gRPC (HTTPS), the bundle tile verifies the
+server certificate against the host's system CA trust store.  See [HTTPS
+client](../https-client.md).  Verification can be disabled with:
+
+```toml
+[tiles.bundle]
+    tls_cert_verify = false
+```
 
 ### Packet capture
 
