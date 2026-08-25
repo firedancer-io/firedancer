@@ -23,6 +23,20 @@
 #define FD_IP4_OPT_EOL ((uchar)0)   /* This is the end of the options list */
 
 /* All of the below are in network byte order */
+
+/* RFC 791 - "This network" */
+#define IP4_THIS_NET_START_NET       FD_IP4_ADDR(  0,   0,   0,   0)
+#define IP4_THIS_NET_END_NET         FD_IP4_ADDR(  0, 255, 255, 255)
+
+/* RFC 1112 - Reserved/future use */
+#define IP4_RESERVED_START_NET       FD_IP4_ADDR(240,   0,   0,   0)
+#define IP4_RESERVED_END_NET         FD_IP4_ADDR(255, 255, 255, 254)
+
+/* RFC 1122 - Loopback */
+#define IP4_LOOPBACK_START_NET       FD_IP4_ADDR(127,   0,   0,   0)
+#define IP4_LOOPBACK_END_NET         FD_IP4_ADDR(127, 255, 255, 255)
+
+/* RFC 1918 - Private-use */
 #define IP4_PRIVATE_RANGE1_START_NET FD_IP4_ADDR( 10,   0,   0,   0)
 #define IP4_PRIVATE_RANGE1_END_NET   FD_IP4_ADDR( 10, 255, 255, 255)
 #define IP4_PRIVATE_RANGE2_START_NET FD_IP4_ADDR(172,  16,   0,   0)
@@ -30,8 +44,36 @@
 #define IP4_PRIVATE_RANGE3_START_NET FD_IP4_ADDR(192, 168,   0,   0)
 #define IP4_PRIVATE_RANGE3_END_NET   FD_IP4_ADDR(192, 168, 255, 255)
 
-#define IP4_LOOPBACK_START_NET       FD_IP4_ADDR(127,   0,   0,   0)
-#define IP4_LOOPBACK_END_NET         FD_IP4_ADDR(127, 255, 255, 255)
+/* RFC 2544 - Benchmarking */
+#define IP4_BENCH_START_NET          FD_IP4_ADDR(198,  18,   0,   0)
+#define IP4_BENCH_END_NET            FD_IP4_ADDR(198,  19, 255, 255)
+
+/* RFC 3927 - Link-local */
+#define IP4_LINK_LOCAL_START_NET     FD_IP4_ADDR(169, 254,   0,   0)
+#define IP4_LINK_LOCAL_END_NET       FD_IP4_ADDR(169, 254, 255, 255)
+
+/* RFC 5737 - Documentation */
+#define IP4_TEST_NET_1_START_NET     FD_IP4_ADDR(192,   0,   2,   0)
+#define IP4_TEST_NET_1_END_NET       FD_IP4_ADDR(192,   0,   2, 255)
+#define IP4_TEST_NET_2_START_NET     FD_IP4_ADDR(198,  51, 100,   0)
+#define IP4_TEST_NET_2_END_NET       FD_IP4_ADDR(198,  51, 100, 255)
+#define IP4_TEST_NET_3_START_NET     FD_IP4_ADDR(203,   0, 113,   0)
+#define IP4_TEST_NET_3_END_NET       FD_IP4_ADDR(203,   0, 113, 255)
+
+/* RFC 6598 - Shared address (CGNAT) */
+#define IP4_CGNAT_START_NET          FD_IP4_ADDR(100,  64,   0,   0)
+#define IP4_CGNAT_END_NET            FD_IP4_ADDR(100, 127, 255, 255)
+
+/* RFC 6890 - IETF protocol assignments
+   Note: 192.0.0.9 (PCP anycast, RFC 7723) and 192.0.0.10 (TURN anycast,
+   RFC 8155) are globally reachable but intentionally not carved out; no
+   validator will serve snapshots or publish gossip from these addresses. */
+#define IP4_PROTO_ASSIGN_START_NET   FD_IP4_ADDR(192,   0,   0,   0)
+#define IP4_PROTO_ASSIGN_END_NET     FD_IP4_ADDR(192,   0,   0, 255)
+
+/* RFC 7526 - 6to4 relay anycast (deprecated) */
+#define IP4_6TO4_RELAY_START_NET     FD_IP4_ADDR(192,  88,  99,   0)
+#define IP4_6TO4_RELAY_END_NET       FD_IP4_ADDR(192,  88,  99, 255)
 
 union fd_ip4_hdr {
   struct {
@@ -205,9 +247,19 @@ fd_cstr_to_ip4_addr( char const * s,
 FD_FN_CONST static inline int
 fd_ip4_addr_is_public( uint addr ) {
   uint addr_host = fd_uint_bswap( addr );
-  return !((addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE1_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE1_END_NET )) ||
+  return !((addr_host >= fd_uint_bswap( IP4_THIS_NET_START_NET       ) && addr_host <= fd_uint_bswap( IP4_THIS_NET_END_NET       )) ||
+           (addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE1_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE1_END_NET )) ||
            (addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE2_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE2_END_NET )) ||
            (addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE3_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE3_END_NET )) ||
+           (addr_host >= fd_uint_bswap( IP4_LINK_LOCAL_START_NET     ) && addr_host <= fd_uint_bswap( IP4_LINK_LOCAL_END_NET     )) ||
+           (addr_host >= fd_uint_bswap( IP4_CGNAT_START_NET          ) && addr_host <= fd_uint_bswap( IP4_CGNAT_END_NET          )) ||
+           (addr_host >= fd_uint_bswap( IP4_RESERVED_START_NET       ) && addr_host <= fd_uint_bswap( IP4_RESERVED_END_NET       )) ||
+           (addr_host >= fd_uint_bswap( IP4_TEST_NET_1_START_NET     ) && addr_host <= fd_uint_bswap( IP4_TEST_NET_1_END_NET     )) ||
+           (addr_host >= fd_uint_bswap( IP4_TEST_NET_2_START_NET     ) && addr_host <= fd_uint_bswap( IP4_TEST_NET_2_END_NET     )) ||
+           (addr_host >= fd_uint_bswap( IP4_TEST_NET_3_START_NET     ) && addr_host <= fd_uint_bswap( IP4_TEST_NET_3_END_NET     )) ||
+           (addr_host >= fd_uint_bswap( IP4_BENCH_START_NET          ) && addr_host <= fd_uint_bswap( IP4_BENCH_END_NET          )) ||
+           (addr_host >= fd_uint_bswap( IP4_PROTO_ASSIGN_START_NET   ) && addr_host <= fd_uint_bswap( IP4_PROTO_ASSIGN_END_NET   )) ||
+           (addr_host >= fd_uint_bswap( IP4_6TO4_RELAY_START_NET     ) && addr_host <= fd_uint_bswap( IP4_6TO4_RELAY_END_NET     )) ||
            fd_ip4_addr_is_loopback( addr ));
 }
 
