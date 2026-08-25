@@ -153,6 +153,7 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
   parsed[0] = 1;
   used[0]   = 1;
 
+  ulong non_self_issued_ca_cnt = 0UL;
   for( ulong depth = 0UL; depth < chain_cnt; depth++ ) {
     fd_x509_cert_info_t const * cur = &path[ depth ];
 
@@ -201,6 +202,12 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
       int err = fd_x509_check_validity( cand, unix_seconds );
       if( !err && !cand->is_ca ) err = FD_X509_VERIFY_ERR_CA_FLAG;
 
+      /* pathLenConstraint counts non-self-issued intermediate CA certs
+         between this issuer and the leaf.  The leaf itself never counts. */
+      if( !err && cand->has_path_len_constraint &&
+          non_self_issued_ca_cnt>cand->path_len_constraint )
+        err = FD_X509_VERIFY_ERR_PATH_LEN;
+
       if( !err && cand->has_key_usage && !( cand->key_usage & FD_X509_KU_KEY_CERT_SIGN ) )
         err = FD_X509_VERIFY_ERR_KEY_USAGE;
 
@@ -224,6 +231,11 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
 
     used[ pick ]    = 1;
     path[ depth+1 ] = certs[ pick ];
+
+    /* A self-issued rollover CA does not consume path length budget. */
+    if( !fd_x509_name_equal( certs[pick].issuer,  certs[pick].issuer_len,
+                             certs[pick].subject, certs[pick].subject_len ) )
+      non_self_issued_ca_cnt++;
   }
 
   return FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR;  /* not reached */
