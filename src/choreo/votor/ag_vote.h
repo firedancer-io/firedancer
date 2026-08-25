@@ -4,11 +4,11 @@
 #include "ag_votor_base.h"
 #include "ag_bls.h"
 
-#define AG_VOTE_TYPE_NOTAR           (0U)
-#define AG_VOTE_TYPE_FINAL           (1U)
-#define AG_VOTE_TYPE_SKIP            (2U)
-#define AG_VOTE_TYPE_NOTAR_FALLBACK  (3U)
-#define AG_VOTE_TYPE_SKIP_FALLBACK   (4U)
+#define AG_VOTE_KIND_NOTAR           (0U)
+#define AG_VOTE_KIND_FINAL           (1U)
+#define AG_VOTE_KIND_SKIP            (2U)
+#define AG_VOTE_KIND_NOTAR_FALLBACK  (3U)
+#define AG_VOTE_KIND_SKIP_FALLBACK   (4U)
 
 struct __attribute__((packed)) ag_notar_vote {
   ulong           slot;
@@ -184,10 +184,10 @@ ag_vote_check_sig( ag_vote_t const *  self,
 FD_FN_PURE static inline ulong
 ag_vote_slot( ag_vote_t const * self ) {
   switch( self->kind ) {
-  case AG_VOTE_TYPE_NOTAR:          return self->inner.notar.slot;
-  case AG_VOTE_TYPE_NOTAR_FALLBACK: return self->inner.notar_fallback.slot;
-  case AG_VOTE_TYPE_SKIP:           return self->inner.skip.slot;
-  case AG_VOTE_TYPE_SKIP_FALLBACK:  return self->inner.skip_fallback.slot;
+  case AG_VOTE_KIND_NOTAR:          return self->inner.notar.slot;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->inner.notar_fallback.slot;
+  case AG_VOTE_KIND_SKIP:           return self->inner.skip.slot;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->inner.skip_fallback.slot;
   default:                          return self->inner.final.slot;
   }
 }
@@ -195,10 +195,10 @@ ag_vote_slot( ag_vote_t const * self ) {
 FD_FN_PURE static inline ushort
 ag_vote_signer( ag_vote_t const * self ) {
   switch( self->kind ) {
-  case AG_VOTE_TYPE_NOTAR:          return self->inner.notar.signer;
-  case AG_VOTE_TYPE_NOTAR_FALLBACK: return self->inner.notar_fallback.signer;
-  case AG_VOTE_TYPE_SKIP:           return self->inner.skip.signer;
-  case AG_VOTE_TYPE_SKIP_FALLBACK:  return self->inner.skip_fallback.signer;
+  case AG_VOTE_KIND_NOTAR:          return self->inner.notar.signer;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->inner.notar_fallback.signer;
+  case AG_VOTE_KIND_SKIP:           return self->inner.skip.signer;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->inner.skip_fallback.signer;
   default:                          return self->inner.final.signer;
   }
 }
@@ -206,10 +206,10 @@ ag_vote_signer( ag_vote_t const * self ) {
 static inline void
 ag_vote_set_signer( ag_vote_t * self, ushort signer ) {
   switch( self->kind ) {
-  case AG_VOTE_TYPE_NOTAR:          self->inner.notar.signer          = signer; break;
-  case AG_VOTE_TYPE_NOTAR_FALLBACK: self->inner.notar_fallback.signer = signer; break;
-  case AG_VOTE_TYPE_SKIP:           self->inner.skip.signer           = signer; break;
-  case AG_VOTE_TYPE_SKIP_FALLBACK:  self->inner.skip_fallback.signer  = signer; break;
+  case AG_VOTE_KIND_NOTAR:          self->inner.notar.signer          = signer; break;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: self->inner.notar_fallback.signer = signer; break;
+  case AG_VOTE_KIND_SKIP:           self->inner.skip.signer           = signer; break;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  self->inner.skip_fallback.signer  = signer; break;
   default:                          self->inner.final.signer          = signer; break;
   }
 }
@@ -222,8 +222,8 @@ ag_vote_set_signer( ag_vote_t * self, ushort signer ) {
 FD_FN_PURE static inline uchar const *
 ag_vote_block_hash( ag_vote_t const * self ) {
   switch( self->kind ) {
-  case AG_VOTE_TYPE_NOTAR:          return self->inner.notar.block_hash;
-  case AG_VOTE_TYPE_NOTAR_FALLBACK: return self->inner.notar_fallback.block_hash;
+  case AG_VOTE_KIND_NOTAR:          return self->inner.notar.block_hash;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->inner.notar_fallback.block_hash;
   default:                          return NULL;
   }
 }

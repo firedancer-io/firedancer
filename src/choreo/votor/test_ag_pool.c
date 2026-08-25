@@ -76,15 +76,15 @@ is_parent_ready( ag_pool_t *           pool,
 static int
 votor_event_pop( ag_pool_t *       pool,
                  ag_event_pool_t * out ) {
-  if( FD_UNLIKELY( pool_channel_empty( pool->pool_events ) ) ) return 0;
-  *out = pool_channel_pop( pool->pool_events );
+  if( FD_UNLIKELY( pool_events_empty( pool->pool_events ) ) ) return 0;
+  *out = pool_events_pop( pool->pool_events );
   return 1;
 }
 
 static void
-drain_channels( ag_pool_t * pool ) {
-  pool_channel_remove_all  ( pool->pool_events   );
-  repair_channel_remove_all( pool->repair_events );
+drain_events( ag_pool_t * pool ) {
+  pool_events_remove_all  ( pool->pool_events   );
+  repair_events_remove_all( pool->repair_events );
 }
 
 #define SLOTS_PER_WINDOW AG_SLOTS_PER_WINDOW
@@ -139,7 +139,7 @@ static ulong
 take_events( ag_pool_t * pool ) {
   ulong cnt = 0UL;
   while( cnt<TEST_SLOT_MAX && votor_event_pop( pool, &g_event[ cnt ] ) ) cnt++;
-  FD_TEST( pool_channel_empty( pool->pool_events ) );
+  FD_TEST( pool_events_empty( pool->pool_events ) );
   return cnt;
 }
 
@@ -161,9 +161,9 @@ make_epoch_info( ulong                       idx,
                  ag_validator_info_t const * info,
                  ulong                       cnt ) {
   FD_TEST( idx<EPOCH_INFO_MAX );
-  ag_epoch_info_t * ei = &epoch_info_mem[ idx ];
-  ag_epoch_info( ei, info, cnt );
-  return ei;
+  ag_epoch_info_t * epoch_info = &epoch_info_mem[ idx ];
+  ag_epoch_info( epoch_info, info, cnt );
+  return epoch_info;
 }
 
 static ag_epoch_info_t * g_epoch_info = NULL;
@@ -175,6 +175,7 @@ setup_pool( void ) {
   FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
   ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
   FD_TEST( pool );
+  ag_pool_init( pool, 0UL );
 
   g_epoch_info = make_epoch_info( 0UL, g_info, NV );
   ag_pool_advance_epoch( pool, g_epoch_info, 0UL, 0UL );
@@ -201,7 +202,7 @@ add_notar_votes( ag_pool_t *           pool,
   for( ulong v=lo; v<hi; v++ ) {
     ag_vote_t vote; ag_vote_new_notar( &vote, slot, hash, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
     FD_TEST( ag_pool_add_vote( pool, &vote )==AG_POOL_SUCCESS );
-    drain_channels( pool );
+    drain_events( pool );
   }
 }
 
@@ -214,7 +215,7 @@ add_notar_fallback_votes( ag_pool_t *           pool,
   for( ulong v=lo; v<hi; v++ ) {
     ag_vote_t vote; ag_vote_new_notar_fallback( &vote, slot, hash, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
     FD_TEST( ag_pool_add_vote( pool, &vote )==AG_POOL_SUCCESS );
-    drain_channels( pool );
+    drain_events( pool );
   }
 }
 
@@ -226,7 +227,7 @@ add_skip_votes( ag_pool_t * pool,
   for( ulong v=lo; v<hi; v++ ) {
     ag_vote_t vote; ag_vote_new_skip( &vote, slot, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
     FD_TEST( ag_pool_add_vote( pool, &vote )==AG_POOL_SUCCESS );
-    drain_channels( pool );
+    drain_events( pool );
   }
 }
 
@@ -238,7 +239,7 @@ add_final_votes( ag_pool_t * pool,
   for( ulong v=lo; v<hi; v++ ) {
     ag_vote_t vote; ag_vote_new_final( &vote, slot, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
     FD_TEST( ag_pool_add_vote( pool, &vote )==AG_POOL_SUCCESS );
-    drain_channels( pool );
+    drain_events( pool );
   }
 }
 
@@ -250,10 +251,10 @@ notar_cert( ag_pool_t *           pool,
   FD_TEST( signers<=NV );
   ag_notar_vote_t nv[ NV ];
   for( ulong v=0UL; v<signers; v++ ) ag_notar_vote_new( &nv[v], slot, hash, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-  ag_cert_t c; c.kind = AG_CERT_TYPE_NOTAR;
+  ag_cert_t c; c.kind = AG_CERT_KIND_NOTAR;
   c.inner.notar = ag_notar_cert_construct( nv, signers, g_epoch_info );
   FD_TEST( ag_pool_add_cert( pool, &c )==AG_POOL_SUCCESS );
-  drain_channels( pool );
+  drain_events( pool );
 }
 
 static int
@@ -276,10 +277,10 @@ fast_finalize( ag_pool_t *           pool,
                ag_block_hash_t const hash ) {
   ag_notar_vote_t nv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) ag_notar_vote_new( &nv[v], slot, hash, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-  ag_cert_t c; c.kind = AG_CERT_TYPE_FAST_FINAL;
+  ag_cert_t c; c.kind = AG_CERT_KIND_FAST_FINAL;
   c.inner.fast_final = ag_fast_final_cert_construct( nv, NV, g_epoch_info );
   FD_TEST( ag_pool_add_cert( pool, &c )==AG_POOL_SUCCESS );
-  drain_channels( pool );
+  drain_events( pool );
 }
 
 /* src/consensus/pool.rs::notarize_block */
@@ -357,6 +358,31 @@ test_finalize_block( void ) {
   add_final_votes( pool, slot3, 0UL, 6UL );
   FD_TEST( !has_final_cert( pool, slot3 ) );
   FD_TEST( ag_pool_finalized_slot( pool )==slot2 );
+
+  teardown_pool( pool );
+}
+
+static void
+test_finalized_block_hash( void ) {
+  ag_pool_t *     pool = setup_pool();
+  ag_block_hash_t hash;
+
+  FD_TEST( !ag_pool_finalized_block_hash( pool, ag_pool_finalized_slot( pool ), hash ) ); /* nothing finalized */
+
+  ag_block_hash_t hash1; random_hash( hash1 );
+  add_notar_votes( pool, 1UL, hash1, 0UL, 7UL );
+  add_final_votes( pool, 1UL, 0UL, 7UL );
+  FD_TEST( ag_pool_finalized_slot( pool )==1UL );
+  FD_TEST( ag_pool_finalized_block_hash( pool, ag_pool_finalized_slot( pool ), hash ) );
+  FD_TEST( !memcmp( hash, hash1, sizeof(ag_block_hash_t) ) );
+
+  /* the hash tracks the finalized slot as it advances */
+
+  ag_block_hash_t hash2; random_hash( hash2 );
+  add_notar_votes( pool, 2UL, hash2, 0UL, 11UL ); /* fast finalize */
+  FD_TEST( ag_pool_finalized_slot( pool )==2UL );
+  FD_TEST( ag_pool_finalized_block_hash( pool, ag_pool_finalized_slot( pool ), hash ) );
+  FD_TEST( !memcmp( hash, hash2, sizeof(ag_block_hash_t) ) );
 
   teardown_pool( pool );
 }
@@ -466,7 +492,7 @@ test_branch_certified_late_cert( void ) {
   ag_block_hash_t hash1; random_hash( hash1 );
   ag_notar_vote_t nv[7];
   for( ulong v=0UL; v<7UL; v++ ) ag_notar_vote_new( &nv[v], slot1, hash1, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-  ag_cert_t c; c.kind = AG_CERT_TYPE_NOTAR;
+  ag_cert_t c; c.kind = AG_CERT_KIND_NOTAR;
   c.inner.notar = ag_notar_cert_construct( nv, 7UL, g_epoch_info );
   FD_TEST( ag_pool_add_cert( pool, &c )==AG_POOL_SUCCESS );
 
@@ -620,14 +646,14 @@ test_duplicate_certs( void ) {
   ag_block_hash_t hash; random_hash( hash );
   ag_notar_vote_t nv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) ag_notar_vote_new( &nv[v], first_slot, hash, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-  ag_cert_t notar; notar.kind = AG_CERT_TYPE_NOTAR;
+  ag_cert_t notar; notar.kind = AG_CERT_KIND_NOTAR;
   notar.inner.notar = ag_notar_cert_construct( nv, NV, g_epoch_info );
   FD_TEST( ag_pool_add_cert( pool, &notar )==AG_POOL_SUCCESS );
 
   ulong second_slot = 2UL;
   ag_skip_vote_t sv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) ag_skip_vote_new( &sv[v], second_slot, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-  ag_cert_t skip; skip.kind = AG_CERT_TYPE_SKIP;
+  ag_cert_t skip; skip.kind = AG_CERT_KIND_SKIP;
   skip.inner.skip = ag_skip_cert_construct( sv, NV, NULL, 0UL, g_epoch_info );
   FD_TEST( ag_pool_add_cert( pool, &skip )==AG_POOL_SUCCESS );
 
@@ -676,17 +702,17 @@ test_out_of_bounds_certs( void ) {
   for( ulong s=1UL; s<=slot; s++ ) {
     ag_notar_vote_t nv[ NV ];
     for( ulong v=0UL; v<NV; v++ ) ag_notar_vote_new( &nv[v], s, gh, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-    ag_cert_t c; c.kind = AG_CERT_TYPE_FAST_FINAL;
+    ag_cert_t c; c.kind = AG_CERT_KIND_FAST_FINAL;
     c.inner.fast_final = ag_fast_final_cert_construct( nv, NV, g_epoch_info );
     FD_TEST( ag_pool_add_cert( pool, &c )==AG_POOL_SUCCESS );
-    drain_channels( pool );
+    drain_events( pool );
   }
   FD_TEST( pool_first_unpruned_slot( pool )==slot );
 
   for( ulong s=0UL; s<3UL*SLOTS_PER_WINDOW-1UL; s++ ) {
     ag_skip_vote_t sv[ NV ];
     for( ulong v=0UL; v<NV; v++ ) ag_skip_vote_new( &sv[v], s, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-    ag_cert_t c; c.kind = AG_CERT_TYPE_SKIP;
+    ag_cert_t c; c.kind = AG_CERT_KIND_SKIP;
     c.inner.skip = ag_skip_cert_construct( sv, NV, NULL, 0UL, g_epoch_info );
     FD_TEST( ag_pool_add_cert( pool, &c )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
   }
@@ -694,7 +720,7 @@ test_out_of_bounds_certs( void ) {
   ulong future = 3UL*SLOTS_PER_EPOCH;
   ag_skip_vote_t sv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) ag_skip_vote_new( &sv[v], future, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
-  ag_cert_t c; c.kind = AG_CERT_TYPE_SKIP;
+  ag_cert_t c; c.kind = AG_CERT_KIND_SKIP;
   c.inner.skip = ag_skip_cert_construct( sv, NV, NULL, 0UL, g_epoch_info );
   FD_TEST( ag_pool_add_cert( pool, &c )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
 
@@ -771,16 +797,16 @@ test_standstill_recovery( void ) {
 
   FD_TEST( certs_cnt==2UL );
   for( ulong i=0UL; i<certs_cnt; i++ ) {
-    if( certs[i].kind==AG_CERT_TYPE_FAST_FINAL )  FD_TEST( ag_cert_slot( &certs[i] )==slot1 );
-    else if( certs[i].kind==AG_CERT_TYPE_FINAL )  FD_TEST( ag_cert_slot( &certs[i] )==slot2 );
+    if( certs[i].kind==AG_CERT_KIND_FAST_FINAL )  FD_TEST( ag_cert_slot( &certs[i] )==slot1 );
+    else if( certs[i].kind==AG_CERT_KIND_FINAL )  FD_TEST( ag_cert_slot( &certs[i] )==slot2 );
     else FD_TEST( 0 );
   }
 
   FD_TEST( votes_cnt==2UL );
   for( ulong i=0UL; i<votes_cnt; i++ ) {
     FD_TEST( ag_vote_signer( &votes[i] )==0UL );
-    if( votes[i].kind==AG_VOTE_TYPE_FINAL )      FD_TEST( ag_vote_slot( &votes[i] )==slot2 );
-    else if( votes[i].kind==AG_VOTE_TYPE_NOTAR ) FD_TEST( ag_vote_slot( &votes[i] )==slot3 );
+    if( votes[i].kind==AG_VOTE_KIND_FINAL )      FD_TEST( ag_vote_slot( &votes[i] )==slot2 );
+    else if( votes[i].kind==AG_VOTE_KIND_NOTAR ) FD_TEST( ag_vote_slot( &votes[i] )==slot3 );
     else FD_TEST( 0 );
   }
 
@@ -813,7 +839,7 @@ test_parent_ready_upon_finalization( void ) {
   ag_block_id_t block1 = random_block_id( slot1 );
   ag_block_id_t block2 = random_block_id( slot1+1UL );
 
-  drain_channels( pool );
+  drain_events( pool );
 
   for( ulong v=0UL; v<11UL; v++ ) {
     ag_vote_t vote; ag_vote_new_notar( &vote, block2.slot, block2.hash, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
@@ -829,7 +855,7 @@ test_parent_ready_upon_finalization( void ) {
   FD_TEST( cert_created==3UL );
   FD_TEST( parent_ready_cnt==0UL );
 
-  drain_channels( pool );
+  drain_events( pool );
   ag_pool_add_block( pool, &block2, &block1 );
   ag_pool_add_block( pool, &block1, &block0 );
 
@@ -863,7 +889,7 @@ test_safe_to_notar_notar_cert_only( void ) {
   ag_block_id_t child  = ag_block_id( slot2, hash2 );
   ag_block_id_t parent = ag_block_id( slot1, hash1 );
   ag_pool_add_block( pool, &child, &parent );
-  drain_channels( pool );
+  drain_events( pool );
 
   ag_vote_t skip; ag_vote_new_skip( &skip, slot2, g_sk[0], 0, TEST_SHRED_VERSION );
   FD_TEST( ag_pool_add_vote( pool, &skip )==AG_POOL_SUCCESS );
@@ -893,7 +919,7 @@ test_safe_to_notar_fast_final_cert_only( void ) {
   ag_block_id_t child  = ag_block_id( slot2, hash2 );
   ag_block_id_t parent = ag_block_id( slot1, hash1 );
   ag_pool_add_block( pool, &child, &parent );
-  drain_channels( pool );
+  drain_events( pool );
 
   ag_vote_t skip; ag_vote_new_skip( &skip, slot2, g_sk[0], 0, TEST_SHRED_VERSION );
   FD_TEST( ag_pool_add_vote( pool, &skip )==AG_POOL_SUCCESS );
@@ -953,7 +979,7 @@ test_safe_to_notar_not_queued_for_parent_cert( void ) {
   ag_vote_t skip; ag_vote_new_skip( &skip, slot2, g_sk[0], 0, TEST_SHRED_VERSION );
   FD_TEST( ag_pool_add_vote( pool, &skip )==AG_POOL_SUCCESS );
   add_notar_votes( pool, slot2, hash_a, 1UL, 6UL );
-  drain_channels( pool );
+  drain_events( pool );
 
   ag_block_id_t parent  = ag_block_id( slot1, hash1  );
   ag_block_id_t child_a = ag_block_id( slot2, hash_a );
@@ -990,7 +1016,7 @@ test_hash_capacity( void ) {
     random_hash( hash[i] );
     ag_vote_t v; ag_vote_new_notar( &v, slot, hash[i], g_sk[i], (ushort)i, TEST_SHRED_VERSION );
     FD_TEST( ag_pool_add_vote( pool, &v )==AG_POOL_SUCCESS );
-    drain_channels( pool );
+    drain_events( pool );
   }
 
   ag_block_hash_t nf[ AG_NOTAR_FALLBACK_VOTE_MAX ];
@@ -998,7 +1024,7 @@ test_hash_capacity( void ) {
     random_hash( nf[i] );
     ag_vote_t v; ag_vote_new_notar_fallback( &v, slot, nf[i], g_sk[0], (ushort)0, TEST_SHRED_VERSION );
     FD_TEST( ag_pool_add_vote( pool, &v )==AG_POOL_SUCCESS );
-    drain_channels( pool );
+    drain_events( pool );
   }
 
   ag_block_hash_t past; random_hash( past );
@@ -1043,7 +1069,7 @@ test_wait_for_parent_ready( void ) {
   ag_block_id_t block1 = random_block_id( slot1 );
   ag_block_id_t block2 = random_block_id( slot1+1UL );
 
-  drain_channels( pool );
+  drain_events( pool );
 
   ag_block_id_t parent;
   parent = ag_pool_wait_for_parent_ready( pool, slot1 );
@@ -1053,7 +1079,7 @@ test_wait_for_parent_ready( void ) {
     ag_vote_t vote; ag_vote_new_notar( &vote, block2.slot, block2.hash, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
     FD_TEST( ag_pool_add_vote( pool, &vote )==AG_POOL_SUCCESS );
   }
-  drain_channels( pool );
+  drain_events( pool );
   ag_pool_add_block( pool, &block2, &block1 );
   ag_pool_add_block( pool, &block1, &block0 );
 
@@ -1091,6 +1117,7 @@ setup_two_epoch_pool( ag_epoch_info_t ** out_a,
   FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
   ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
   FD_TEST( pool );
+  ag_pool_init( pool, 0UL );
 
   ag_validator_info_t heavy[ NV ];
   for( ulong i=0UL; i<NV; i++ ) {
@@ -1210,6 +1237,7 @@ main( int     argc,
   test_skip_block();
   test_finalize_block();
   test_fast_finalize_block();
+  test_finalized_block_hash();
   test_simple_branch_certified();
   test_branch_certified_notar_fallback();
   test_branch_certified_out_of_order();

@@ -41,6 +41,15 @@ ag_pool_leave( ag_pool_t const * pool );
 void *
 ag_pool_delete( void * mem );
 
+/* init before any cert, vote or block is added; genesis is slot 0 */
+
+void
+ag_pool_init( ag_pool_t * self,
+              ulong       slot );
+
+void
+ag_pool_fini( ag_pool_t * self );
+
 void
 ag_pool_advance_epoch( ag_pool_t *             self,
                        ag_epoch_info_t const * epoch_info,
@@ -65,6 +74,11 @@ ag_pool_recover_from_standstill( ag_pool_t * self );
 
 FD_FN_PURE ulong
 ag_pool_finalized_slot( ag_pool_t const * self );
+
+int
+ag_pool_finalized_block_hash( ag_pool_t const * self,
+                              ulong             slot,
+                              ag_block_hash_t   out_hash );
 
 ag_block_id_t const *
 ag_pool_parents_ready( ag_pool_t * self,

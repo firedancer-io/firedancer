@@ -119,8 +119,12 @@ static ag_votor_t *
 setup_votor( long now ) {
   create_validators();
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
-  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL, (ushort)0, g_sk[0], TEST_SHRED_VERSION, now ) );
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
+  ag_votor_init            ( votor, 0UL, now );
+  ag_votor_advance_epoch    ( votor, 0UL, 0UL );
+  ag_votor_set_bls_key      ( votor, g_sk[0] );
+  ag_votor_set_shred_version( votor, TEST_SHRED_VERSION );
 
   g_epoch_info = &epoch_info_mem;
   ag_epoch_info( g_epoch_info, g_info, NV );
@@ -150,7 +154,7 @@ send_block_and_expect_notar( ag_votor_t *          votor,
   ag_votor_handle_replay_event( votor, &block );
 
   ag_vote_t msg = recv( votor );
-  FD_TEST( msg.kind==AG_VOTE_TYPE_NOTAR );
+  FD_TEST( msg.kind==AG_VOTE_KIND_NOTAR );
   FD_TEST( ag_vote_slot( &msg )==slot );
   return msg;
 }
@@ -168,7 +172,7 @@ test_timeouts( void ) {
   ulong skipped_cnt = 0UL;
   for( ulong s=1UL; s<AG_SLOTS_PER_WINDOW; s++ ) {
     ag_vote_t msg = recv( votor );
-    FD_TEST( msg.kind==AG_VOTE_TYPE_SKIP );
+    FD_TEST( msg.kind==AG_VOTE_KIND_SKIP );
     skipped_slots[ skipped_cnt++ ] = ag_vote_slot( &msg );
   }
   FD_TEST( skipped_cnt==AG_SLOTS_PER_WINDOW-1UL );
@@ -190,13 +194,13 @@ test_notar_and_final( void ) {
   ag_vote_t vote = send_block_and_expect_notar( votor, slot, &parent );
 
   /* vote finalize after seeing branch-certified */
-  ag_cert_t cert; cert.kind = AG_CERT_TYPE_NOTAR;
+  ag_cert_t cert; cert.kind = AG_CERT_KIND_NOTAR;
   cert.inner.notar = ag_notar_cert_construct( &vote.inner.notar, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
 
   ag_vote_t msg = recv( votor );
-  FD_TEST( msg.kind==AG_VOTE_TYPE_FINAL );
+  FD_TEST( msg.kind==AG_VOTE_KIND_FINAL );
   FD_TEST( ag_vote_slot( &msg )==slot );
 
   teardown_votor( votor );
@@ -235,7 +239,7 @@ test_notar_out_of_order( void ) {
   /* should now see notar votes */
   for( ulong i=0UL; i<2UL; i++ ) {
     ag_vote_t msg = recv( votor );
-    FD_TEST( msg.kind==AG_VOTE_TYPE_NOTAR );
+    FD_TEST( msg.kind==AG_VOTE_KIND_NOTAR );
     ulong slot = ag_vote_slot( &msg );
     FD_TEST( slot==slot1 || slot==slot2 );
   }
@@ -278,8 +282,8 @@ test_pending_block_not_notarized_after_skip( void ) {
   ag_vote_t msg;
   while( try_recv( votor, &msg ) ) {
     if( ag_vote_slot( &msg )!=slot   ) continue;
-    if( msg.kind==AG_VOTE_TYPE_SKIP  ) voted_skip  = 1;
-    if( msg.kind==AG_VOTE_TYPE_NOTAR ) voted_notar = 1;
+    if( msg.kind==AG_VOTE_KIND_SKIP  ) voted_skip  = 1;
+    if( msg.kind==AG_VOTE_KIND_NOTAR ) voted_notar = 1;
   }
 
   /* must not notarize slot, which we already voted skip for */
@@ -300,7 +304,7 @@ test_safe_to_notar( void ) {
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
   for( ulong s=1UL; s<AG_SLOTS_PER_WINDOW; s++ ) {
     ag_vote_t msg = recv( votor );
-    FD_TEST( msg.kind==AG_VOTE_TYPE_SKIP );
+    FD_TEST( msg.kind==AG_VOTE_KIND_SKIP );
   }
 
   /* vote notar-fallback after safe-to-notar */
@@ -309,7 +313,7 @@ test_safe_to_notar( void ) {
   ag_votor_handle_pool_event( votor, &event, 0L );
 
   ag_vote_t msg = recv( votor );
-  FD_TEST( msg.kind==AG_VOTE_TYPE_NOTAR_FALLBACK );
+  FD_TEST( msg.kind==AG_VOTE_KIND_NOTAR_FALLBACK );
   FD_TEST( ag_vote_slot( &msg )==block.slot );
   FD_TEST( !memcmp( ag_vote_block_hash( &msg ), block.hash, sizeof(ag_block_hash_t) ) );
 
@@ -332,7 +336,7 @@ test_safe_to_skip( void ) {
   ag_votor_handle_pool_event( votor, &event, 0L );
 
   ag_vote_t msg = recv( votor );
-  FD_TEST( msg.kind==AG_VOTE_TYPE_SKIP_FALLBACK );
+  FD_TEST( msg.kind==AG_VOTE_KIND_SKIP_FALLBACK );
   FD_TEST( ag_vote_slot( &msg )==slot );
 
   teardown_votor( votor );
@@ -363,7 +367,7 @@ test_prunes_to_finalized_window( void ) {
   /* finalizing a mid-window slot should drop only the slots before its
      window */
   ag_final_vote_t fv; ag_final_vote_new( &fv, finalized, g_sk[1], (ushort)1, TEST_SHRED_VERSION );
-  ag_cert_t cert; cert.kind = AG_CERT_TYPE_FINAL;
+  ag_cert_t cert; cert.kind = AG_CERT_KIND_FINAL;
   cert.inner.final = ag_final_cert_construct( &fv, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
