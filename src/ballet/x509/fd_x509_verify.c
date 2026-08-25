@@ -138,6 +138,7 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
       return FD_X509_VERIFY_ERR_HOSTNAME;
   }
 
+  ulong non_self_issued_ca_cnt = 0UL;
   for( ulong i = 0; i < chain_cnt; i++ ) {
 
     /* A trust anchor for this cert's issuer completes the path.  Peers
@@ -176,6 +177,12 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
     if( FD_UNLIKELY( !certs[i+1].is_ca ) )
       return FD_X509_VERIFY_ERR_CA_FLAG;
 
+    /* pathLenConstraint counts non-self-issued intermediate CA certs
+       between this issuer and the leaf.  The leaf itself never counts. */
+    if( FD_UNLIKELY( certs[i+1].has_path_len_constraint &&
+                     non_self_issued_ca_cnt>certs[i+1].path_len_constraint ) )
+      return FD_X509_VERIFY_ERR_PATH_LEN;
+
     if( FD_UNLIKELY( certs[i+1].has_key_usage &&
                      !( certs[i+1].key_usage & FD_X509_KU_KEY_CERT_SIGN ) ) )
       return FD_X509_VERIFY_ERR_KEY_USAGE;
@@ -188,6 +195,11 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
       return FD_X509_VERIFY_ERR_SIG;
     if( sig_rc > 0 )
       return FD_X509_VERIFY_ERR_UNSUPPORTED;
+
+    /* A self-issued rollover CA does not consume path length budget. */
+    if( certs[i+1].issuer_len!=certs[i+1].subject_len ||
+        memcmp( certs[i+1].issuer, certs[i+1].subject, certs[i+1].issuer_len ) )
+      non_self_issued_ca_cnt++;
   }
 
   return FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR;  /* not reached */

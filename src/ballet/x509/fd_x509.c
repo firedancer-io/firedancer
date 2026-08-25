@@ -107,6 +107,30 @@ fd_x509_parse_spki( fd_der_cursor_t * c,
 }
 
 static int
+fd_x509_parse_path_len( uchar const * p,
+                        ulong         len,
+                        ulong *       out ) {
+  /* INTEGER is signed.  pathLenConstraint is non-negative, and DER
+     requires the shortest possible two's-complement encoding. */
+  if( FD_UNLIKELY( !len || (p[0] & 0x80U) ) ) return -1;
+  if( FD_UNLIKELY( len>1UL && p[0]==0x00 && !(p[1] & 0x80U) ) ) return -1;
+
+  /* Values larger than ulong are valid ASN.1 (MAX is unbounded).  Such a
+     value cannot constrain a path capped at FD_X509_CHAIN_MAX, so saturate
+     it instead of rejecting an otherwise valid certificate. */
+  ulong path_len = 0UL;
+  for( ulong i=0UL; i<len; i++ ) {
+    if( FD_UNLIKELY( path_len>(~0UL >> 8) ) ) {
+      path_len = ~0UL;
+      break;
+    }
+    path_len = (path_len << 8) | (ulong)p[i];
+  }
+  *out = path_len;
+  return 0;
+}
+
+static int
 fd_x509_parse_extensions( fd_der_cursor_t *     c,
                           fd_x509_cert_info_t * out ) {
 
@@ -140,6 +164,9 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
            pathLenConstraint INTEGER (0..MAX) OPTIONAL } */
     if( fd_der_oid_match( oid_raw, oid_raw_len,
                           oid_basic_constraints, sizeof(oid_basic_constraints) ) ) {
+      /* RFC 5280 Section 4.2 permits at most one instance of an extension. */
+      if( FD_UNLIKELY( out->has_basic_constraints ) ) return -1;
+
       fd_der_cursor_t val = { .p = val_ptr, .end = val_ptr + val_len };
       FD_DER_ENTER( val, FD_DER_TAG_SEQUENCE );
         int bc_tag; FD_DER_PEEK_TAG_OR( val, bc_tag, 0 );
@@ -151,10 +178,18 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
           if( FD_UNLIKELY( ca_ptr[0]!=0x00 && ca_ptr[0]!=0xFF ) ) return -1;
           out->is_ca = ca_ptr[0]==0xFF;
         }
-        FD_DER_SKIP_IF( val, FD_DER_TAG_INTEGER );  /* pathLenConstraint */
+        int path_len_tag; FD_DER_PEEK_TAG_OR( val, path_len_tag, 0 );
+        if( path_len_tag == (int)FD_DER_TAG_INTEGER ) {
+          uchar const * path_len_ptr; ulong path_len_len;
+          FD_DER_READ( val, FD_DER_TAG_INTEGER, path_len_ptr, path_len_len );
+          if( FD_UNLIKELY( fd_x509_parse_path_len( path_len_ptr, path_len_len,
+                                                   &out->path_len_constraint ) ) ) return -1;
+          out->has_path_len_constraint = 1;
+        }
       FD_DER_LEAVE( val );  /* rejects unconsumed SEQUENCE content */
       /* Reject trailing bytes in the extension's OCTET STRING */
       if( FD_UNLIKELY( FD_DER_HAS_MORE( val ) ) ) return -1;
+      out->has_basic_constraints = 1;
       continue;
     }
 
