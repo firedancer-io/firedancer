@@ -26,6 +26,23 @@
 #define FD_X509_SIG_ECDSA_SHA384       ((uchar)2)
 #define FD_X509_SIG_UNKNOWN            ((uchar)0xFF)
 
+/* keyUsage bits (RFC 5280 Section 4.2.1.3), big endian */
+
+#define FD_X509_KU_DIGITAL_SIGNATURE ((ushort)0x8000)  /* bit 0 */
+#define FD_X509_KU_NON_REPUDIATION   ((ushort)0x4000)  /* bit 1 */
+#define FD_X509_KU_KEY_ENCIPHERMENT  ((ushort)0x2000)  /* bit 2 */
+#define FD_X509_KU_DATA_ENCIPHERMENT ((ushort)0x1000)  /* bit 3 */
+#define FD_X509_KU_KEY_AGREEMENT     ((ushort)0x0800)  /* bit 4 */
+#define FD_X509_KU_KEY_CERT_SIGN     ((ushort)0x0400)  /* bit 5 */
+#define FD_X509_KU_CRL_SIGN          ((ushort)0x0200)  /* bit 6 */
+#define FD_X509_KU_ENCIPHER_ONLY     ((ushort)0x0100)  /* bit 7 */
+#define FD_X509_KU_DECIPHER_ONLY     ((ushort)0x0080)  /* bit 8 */
+
+/* extKeyUsage purposes (RFC 5280 Section 4.2.1.12) */
+
+#define FD_X509_EKU_SERVER_AUTH      ((ushort)0x0001)  /* 1.3.6.1.5.5.7.3.1 */
+#define FD_X509_EKU_ANY              ((ushort)0x0002)  /* 2.5.29.37.0 */
+
 /* FD_X509_TIME_INVALID marks a validity timestamp that could not be
    parsed. */
 
@@ -67,6 +84,14 @@ struct fd_x509_cert_info {
 
   /* Basic Constraints (RFC 5280 Section 4.2.1.9) */
   int           is_ca;     /* 1 if basicConstraints cA=TRUE */
+
+  /* Key Usage (RFC 5280 Section 4.2.1.3) */
+  ushort        key_usage;          /* FD_X509_KU_* bits, 0 if absent */
+  uchar         has_key_usage;
+
+  /* Extended Key Usage (RFC 5280 Section 4.2.1.12) */
+  ushort        ext_key_usage;      /* FD_X509_EKU_* bits, 0 if absent */
+  uchar         has_ext_key_usage;
 
   /* Subject Alternative Name GeneralNames content */
   uchar const * san_general_names;

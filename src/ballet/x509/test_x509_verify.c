@@ -249,6 +249,8 @@ mk_name( uchar *      out,
 
 static uchar const oid_san_tlv[] = { 0x06, 0x03, 0x55, 0x1d, 0x11 };
 static uchar const oid_bc_tlv [] = { 0x06, 0x03, 0x55, 0x1d, 0x13 };
+static uchar const oid_ku_tlv [] = { 0x06, 0x03, 0x55, 0x1d, 0x0f };
+static uchar const oid_eku_tlv[] = { 0x06, 0x03, 0x55, 0x1d, 0x25 };
 
 static ulong
 mk_san( uchar *       out,
@@ -726,7 +728,8 @@ main( int     argc,
     FD_LOG_INFO(( "OK: truncated GeneralName fails parse" ));
   }
 
-  /* Test 20: Well-formed unknown extension after the SAN still parses */
+  /* Test 20: A keyUsage extension after the SAN still parses, and the SAN
+     is still reachable behind it */
   {
     uchar exts[ 256 ]; ulong exts_len = mk_san( exts, gn_example, sizeof(gn_example) );
     static uchar const oid_key_usage[] = { 0x06, 0x03, 0x55, 0x1d, 0x0f };
@@ -737,7 +740,9 @@ main( int     argc,
     fd_x509_cert_info_t info;
     FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
     FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
-    FD_LOG_INFO(( "OK: unknown extension after SAN still parses" ));
+    FD_TEST( info.has_key_usage==1 );
+    FD_TEST( info.key_usage==(FD_X509_KU_DIGITAL_SIGNATURE|FD_X509_KU_KEY_ENCIPHERMENT) );
+    FD_LOG_INFO(( "OK: keyUsage extension after SAN still parses" ));
   }
 
   /* Test 21: cA=TRUE followed by a malformed extension must not be
@@ -945,6 +950,349 @@ main( int     argc,
     }
 
     FD_LOG_INFO(( "OK: validity period checks" ));
+  }
+
+
+  /* Test 22: keyUsage BIT STRING parsing.  The extnValue is the whole
+     BIT STRING TLV, so these vectors exercise the tag, the unused-bits
+     octet and DER NamedBitList minimality. */
+  {
+    static struct {
+      char const * desc;
+      uchar        val[ 8 ];
+      ulong        val_len;
+      int          ok;
+      ushort       ku;
+    } const cases[] = {
+      { "digitalSignature|keyEncipherment", { 0x03,0x02,0x05,0xA0           }, 4UL, 1, 0xA000 },
+      { "keyCertSign|cRLSign",              { 0x03,0x02,0x01,0x06           }, 4UL, 1, 0x0600 },
+      { "digitalSignature only",            { 0x03,0x02,0x07,0x80           }, 4UL, 1, 0x8000 },
+      { "decipherOnly needs a 2nd octet",   { 0x03,0x03,0x07,0x80,0x80      }, 5UL, 1, 0x8080 },
+      { "empty BIT STRING",                 { 0x03,0x01,0x00                }, 3UL, 0, 0      },
+      { "empty BIT STRING, unused!=0",      { 0x03,0x01,0x05                }, 3UL, 0, 0      },
+      { "unused bits > 7",                  { 0x03,0x02,0x08,0x80           }, 4UL, 0, 0      },
+      { "unused bits not zeroed",           { 0x03,0x02,0x05,0xA1           }, 4UL, 0, 0      },
+      { "non-minimal NamedBitList",         { 0x03,0x03,0x00,0xA0,0x00      }, 5UL, 0, 0      },
+      { "missing unused-bits octet",        { 0x03,0x00                     }, 2UL, 0, 0      },
+      { "more than two octets of bits",     { 0x03,0x04,0x00,0x80,0x00,0x01 }, 6UL, 0, 0      },
+      { "OCTET STRING, not BIT STRING",     { 0x04,0x02,0x05,0xA0           }, 4UL, 0, 0      },
+      { "trailing bytes in extnValue",      { 0x03,0x02,0x05,0xA0,0x05,0x00 }, 6UL, 0, 0      },
+    };
+
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      uchar exts[ 256 ];
+      ulong exts_len = mk_ext( exts, oid_ku_tlv, sizeof(oid_ku_tlv),
+                               cases[i].val, cases[i].val_len );
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      int rc = fd_x509_cert_parse( cert, cert_len, &info );
+      if( cases[i].ok ) {
+        FD_TEST( rc==0 );
+        FD_TEST( info.has_key_usage==1 );
+        FD_TEST( info.key_usage==cases[i].ku );
+      } else {
+        FD_TEST( rc!=0 );
+      }
+    }
+
+    /* Absent keyUsage is unconstrained */
+    {
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, NULL, 0UL );
+      fd_x509_cert_info_t info;
+      FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+      FD_TEST( info.has_key_usage==0 );
+      FD_TEST( info.key_usage==0 );
+    }
+
+    /* RFC 5280 Section 4.2 permits at most one instance of an extension */
+    {
+      static uchar const ku_val[] = { 0x03, 0x02, 0x07, 0x80 };
+      uchar exts[ 256 ];
+      ulong exts_len  = mk_ext( exts, oid_ku_tlv, sizeof(oid_ku_tlv), ku_val, sizeof(ku_val) );
+            exts_len += mk_ext( exts+exts_len, oid_ku_tlv, sizeof(oid_ku_tlv), ku_val, sizeof(ku_val) );
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    }
+
+    FD_LOG_INFO(( "OK: keyUsage parsing" ));
+  }
+
+  /* Test 23: extKeyUsage parsing.  Unrecognized key purposes are ignored,
+     but the extension must still be a well-formed SEQUENCE OF OID. */
+  {
+    static struct {
+      char const * desc;
+      uchar        val[ 24 ];
+      ulong        val_len;
+      int          ok;
+      ushort       eku;
+    } const cases[] = {
+      { "serverAuth",
+        { 0x30,0x0A, 0x06,0x08,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x01 }, 12UL, 1,
+        FD_X509_EKU_SERVER_AUTH },
+      { "anyExtendedKeyUsage",
+        { 0x30,0x06, 0x06,0x04,0x55,0x1d,0x25,0x00 }, 8UL, 1, FD_X509_EKU_ANY },
+      { "clientAuth only",
+        { 0x30,0x0A, 0x06,0x08,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x02 }, 12UL, 1, 0 },
+      { "serverAuth and clientAuth",
+        { 0x30,0x14, 0x06,0x08,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x01,
+                     0x06,0x08,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x02 }, 22UL, 1,
+        FD_X509_EKU_SERVER_AUTH },
+      { "OCSPSigning only",
+        { 0x30,0x0A, 0x06,0x08,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x09 }, 12UL, 1, 0 },
+      { "empty SEQUENCE violates SIZE (1..MAX)",
+        { 0x30,0x00 }, 2UL, 0, 0 },
+      { "KeyPurposeId is not an OID",
+        { 0x30,0x03, 0x02,0x01,0x01 }, 5UL, 0, 0 },
+      { "truncated OID",
+        { 0x30,0x03, 0x06,0x08,0x2b }, 5UL, 0, 0 },
+      { "empty OID",
+        { 0x30,0x02, 0x06,0x00 }, 4UL, 0, 0 },
+      { "unterminated OID subidentifier",
+        { 0x30,0x03, 0x06,0x01,0x80 }, 5UL, 0, 0 },
+      { "non-minimal OID subidentifier",
+        { 0x30,0x0B, 0x06,0x09,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x80,0x02 }, 13UL, 0, 0 },
+      { "trailing bytes after the SEQUENCE",
+        { 0x30,0x06, 0x06,0x04,0x55,0x1d,0x25,0x00, 0x05,0x00 }, 10UL, 0, 0 },
+    };
+
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      uchar exts[ 256 ];
+      ulong exts_len = mk_ext( exts, oid_eku_tlv, sizeof(oid_eku_tlv),
+                               cases[i].val, cases[i].val_len );
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      int rc = fd_x509_cert_parse( cert, cert_len, &info );
+      if( cases[i].ok ) {
+        FD_TEST( rc==0 );
+        FD_TEST( info.has_ext_key_usage==1 );
+        FD_TEST( info.ext_key_usage==cases[i].eku );
+      } else {
+        FD_TEST( rc!=0 );
+      }
+    }
+
+    /* A non-minimal extKeyUsage extnID must not become an ignored unknown
+       non-critical extension. */
+    {
+      static uchar const nonminimal_eku_oid[] = { 0x06,0x04,0x55,0x1d,0x80,0x25 };
+      static uchar const client_auth[] = {
+        0x30,0x0A, 0x06,0x08,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x02 };
+      uchar exts[ 256 ];
+      ulong exts_len = mk_ext( exts, nonminimal_eku_oid, sizeof(nonminimal_eku_oid),
+                               client_auth, sizeof(client_auth) );
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    }
+
+    {
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, NULL, 0UL );
+      fd_x509_cert_info_t info;
+      FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+      FD_TEST( info.has_ext_key_usage==0 );
+      FD_TEST( info.ext_key_usage==0 );
+    }
+
+    {
+      static uchar const eku_val[] = { 0x30,0x06, 0x06,0x04,0x55,0x1d,0x25,0x00 };
+      uchar exts[ 256 ];
+      ulong exts_len  = mk_ext( exts, oid_eku_tlv, sizeof(oid_eku_tlv), eku_val, sizeof(eku_val) );
+            exts_len += mk_ext( exts+exts_len, oid_eku_tlv, sizeof(oid_eku_tlv), eku_val, sizeof(eku_val) );
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    }
+
+    FD_LOG_INFO(( "OK: extKeyUsage parsing" ));
+  }
+
+  /* Test 24: key usage policy over a real chain */
+  {
+    static uchar const ku_dsig    [] = { 0x03,0x02,0x07,0x80 };  /* digitalSignature */
+    static uchar const ku_kenc    [] = { 0x03,0x02,0x05,0x20 };  /* keyEncipherment  */
+    static uchar const ku_empty   [] = { 0x03,0x01,0x00      };  /* denies all       */
+    static uchar const ku_certsign[] = { 0x03,0x02,0x01,0x06 };  /* keyCertSign|cRLSign */
+
+    static uchar const eku_server[] = { 0x30,0x0A, 0x06,0x08,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x01 };
+    static uchar const eku_client[] = { 0x30,0x0A, 0x06,0x08,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x02 };
+    static uchar const eku_any   [] = { 0x30,0x06, 0x06,0x04,0x55,0x1d,0x25,0x00 };
+    static uchar const eku_client_any[] = {
+      0x30,0x10, 0x06,0x08,0x2b,0x06,0x01,0x05,0x05,0x07,0x03,0x02,
+                 0x06,0x04,0x55,0x1d,0x25,0x00 };
+
+    uchar root_name [ 64 ]; ulong root_name_len  = mk_name( root_name,  "KU Root"  );
+    uchar inter_name[ 64 ]; ulong inter_name_len = mk_name( inter_name, "KU Inter" );
+    uchar leaf_name [ 64 ]; ulong leaf_name_len  = mk_name( leaf_name,  "KU Leaf"  );
+
+    uchar prv_root [ 32 ]; memset( prv_root,  0xE5, sizeof(prv_root)  );
+    uchar prv_inter[ 32 ]; memset( prv_inter, 0xF7, sizeof(prv_inter) );
+    uchar leaf_pub [ 32 ]; memset( leaf_pub,  0x66, sizeof(leaf_pub)  );
+
+    fd_sha512_t sha[1];
+    uchar pub_root [ 32 ]; fd_ed25519_public_from_private( pub_root,  prv_root,  sha );
+    uchar pub_inter[ 32 ]; fd_ed25519_public_from_private( pub_inter, prv_inter, sha );
+
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    store.cnt = 1;
+    memcpy( store.entries[0].subject, root_name, root_name_len );
+    store.entries[0].subject_len = root_name_len;
+    memcpy( store.entries[0].pubkey, pub_root, 32UL );
+    store.entries[0].pubkey_len = 32UL;
+    store.entries[0].key_type   = FD_X509_KEY_ED25519;
+
+    /* Leaf policy: the leaf is signed straight by the root */
+    static struct {
+      char const *  desc;
+      uchar const * ku;  ulong ku_len;
+      uchar const * eku; ulong eku_len;
+      int           expected;
+    } const leaf_cases[] = {
+      { "no keyUsage, no extKeyUsage",  NULL,0UL,                      NULL,0UL,                              FD_X509_VERIFY_OK                   },
+      { "digitalSignature",             ku_dsig,sizeof(ku_dsig),       NULL,0UL,                              FD_X509_VERIFY_OK                   },
+      { "keyEncipherment only",         ku_kenc,sizeof(ku_kenc),       NULL,0UL,                              FD_X509_VERIFY_ERR_KEY_USAGE        },
+      { "empty keyUsage is malformed",  ku_empty,sizeof(ku_empty),     NULL,0UL,                              FD_X509_VERIFY_ERR_PARSE            },
+      { "serverAuth",                   NULL,0UL,                      eku_server,sizeof(eku_server),         FD_X509_VERIFY_OK                   },
+      { "clientAuth only",              NULL,0UL,                      eku_client,sizeof(eku_client),         FD_X509_VERIFY_ERR_EXT_KEY_USAGE    },
+      { "anyExtendedKeyUsage",          NULL,0UL,                      eku_any,sizeof(eku_any),               FD_X509_VERIFY_OK                   },
+      { "clientAuth plus anyEKU",       NULL,0UL,                      eku_client_any,sizeof(eku_client_any), FD_X509_VERIFY_OK                   },
+      { "digitalSignature+serverAuth",  ku_dsig,sizeof(ku_dsig),       eku_server,sizeof(eku_server),         FD_X509_VERIFY_OK                   },
+      /* keyUsage is checked first, so it is what the operator sees */
+      { "both wrong reports keyUsage",  ku_kenc,sizeof(ku_kenc),       eku_client,sizeof(eku_client),         FD_X509_VERIFY_ERR_KEY_USAGE        },
+    };
+
+    for( ulong i=0UL; i<sizeof(leaf_cases)/sizeof(leaf_cases[0]); i++ ) {
+      uchar exts[ 256 ]; ulong exts_len = 0UL;
+      if( leaf_cases[i].ku )
+        exts_len += mk_ext( exts+exts_len, oid_ku_tlv, sizeof(oid_ku_tlv),
+                            leaf_cases[i].ku, leaf_cases[i].ku_len );
+      if( leaf_cases[i].eku )
+        exts_len += mk_ext( exts+exts_len, oid_eku_tlv, sizeof(oid_eku_tlv),
+                            leaf_cases[i].eku, leaf_cases[i].eku_len );
+
+      uchar leaf[ 1024 ];
+      ulong leaf_len = mk_cert_signed( leaf, root_name, root_name_len,
+                                       leaf_name, leaf_name_len,
+                                       leaf_pub, prv_root,
+                                       exts_len ? exts : NULL, exts_len );
+      uchar const * chain_der   [ 1 ] = { leaf };
+      ulong         chain_der_sz[ 1 ] = { leaf_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, NULL, 0UL, TEST_NOW )
+               ==leaf_cases[i].expected );
+    }
+
+    /* Issuer policy: leaf <- intermediate <- root */
+    static struct {
+      char const *  desc;
+      uchar const * ku;  ulong ku_len;
+      uchar const * eku; ulong eku_len;
+      int           ca;
+      int           expected;
+    } const inter_cases[] = {
+      { "cA with keyCertSign",     ku_certsign,sizeof(ku_certsign), NULL,0UL,                      1, FD_X509_VERIFY_OK                },
+      { "cA, keyUsage absent",     NULL,0UL,                        NULL,0UL,                      1, FD_X509_VERIFY_OK                },
+      { "cA without keyCertSign",  ku_dsig,sizeof(ku_dsig),         NULL,0UL,                      1, FD_X509_VERIFY_ERR_KEY_USAGE     },
+      { "cA with serverAuth",      ku_certsign,sizeof(ku_certsign), eku_server,sizeof(eku_server), 1, FD_X509_VERIFY_OK                },
+      { "cA with clientAuth only", ku_certsign,sizeof(ku_certsign), eku_client,sizeof(eku_client), 1, FD_X509_VERIFY_ERR_EXT_KEY_USAGE },
+      /* the cA flag is the more common misconfiguration, so it reports first */
+      { "keyCertSign but no cA",   ku_certsign,sizeof(ku_certsign), NULL,0UL,                      0, FD_X509_VERIFY_ERR_CA_FLAG       },
+    };
+
+    for( ulong i=0UL; i<sizeof(inter_cases)/sizeof(inter_cases[0]); i++ ) {
+      uchar exts[ 256 ]; ulong exts_len = 0UL;
+      if( inter_cases[i].ca )
+        exts_len += mk_ext( exts+exts_len, oid_bc_tlv, sizeof(oid_bc_tlv),
+                            bc_ca_true_val, sizeof(bc_ca_true_val) );
+      if( inter_cases[i].ku )
+        exts_len += mk_ext( exts+exts_len, oid_ku_tlv, sizeof(oid_ku_tlv),
+                            inter_cases[i].ku, inter_cases[i].ku_len );
+      if( inter_cases[i].eku )
+        exts_len += mk_ext( exts+exts_len, oid_eku_tlv, sizeof(oid_eku_tlv),
+                            inter_cases[i].eku, inter_cases[i].eku_len );
+
+      uchar leaf[ 1024 ];
+      ulong leaf_len = mk_cert_signed( leaf, inter_name, inter_name_len,
+                                       leaf_name, leaf_name_len,
+                                       leaf_pub, prv_inter, NULL, 0UL );
+      uchar inter[ 1024 ];
+      ulong inter_len = mk_cert_signed( inter, root_name, root_name_len,
+                                        inter_name, inter_name_len,
+                                        pub_inter, prv_root,
+                                        exts_len ? exts : NULL, exts_len );
+
+      uchar const * chain_der   [ 2 ] = { leaf, inter };
+      ulong         chain_der_sz[ 2 ] = { leaf_len, inter_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL, TEST_NOW )
+               ==inter_cases[i].expected );
+    }
+
+    /* Key usage is intrinsic to the cert, so it outranks the hostname */
+    {
+      uchar gn[ 32 ]; ulong gn_len = der_tlv( gn, FD_DER_TAG_CONTEXT_PRIM(2),
+                                              (uchar const *)"example.com", 11UL );
+      uchar exts[ 256 ];
+      ulong exts_len  = mk_san( exts, gn, gn_len );
+            exts_len += mk_ext( exts+exts_len, oid_ku_tlv, sizeof(oid_ku_tlv),
+                                ku_kenc, sizeof(ku_kenc) );
+      uchar leaf[ 1024 ];
+      ulong leaf_len = mk_cert_signed( leaf, root_name, root_name_len,
+                                       leaf_name, leaf_name_len,
+                                       leaf_pub, prv_root, exts, exts_len );
+      uchar const * chain_der   [ 1 ] = { leaf };
+      ulong         chain_der_sz[ 1 ] = { leaf_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, "other.com", 9UL, TEST_NOW )
+               ==FD_X509_VERIFY_ERR_KEY_USAGE );
+    }
+
+    /* Expiry is checked before key usage, so it wins */
+    {
+      uchar exts[ 256 ];
+      ulong exts_len = mk_ext( exts, oid_ku_tlv, sizeof(oid_ku_tlv),
+                               ku_kenc, sizeof(ku_kenc) );
+      uchar leaf[ 1024 ];
+      ulong leaf_len = mk_cert_validity( leaf,
+                                         "750101000000Z", FD_DER_TAG_UTC_TIME,
+                                         "191231235959Z", FD_DER_TAG_UTC_TIME,
+                                         exts, exts_len );
+      uchar const * chain_der   [ 1 ] = { leaf };
+      ulong         chain_der_sz[ 1 ] = { leaf_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_ERR_EXPIRED );
+    }
+
+    /* A trailing cross-sign the path never adopts must not be usage
+       checked, however badly it is profiled */
+    {
+      uchar older_name[ 64 ]; ulong older_name_len = mk_name( older_name, "KU Old Root" );
+      uchar prv_old[ 32 ]; memset( prv_old, 0xD4, sizeof(prv_old) );
+
+      uchar leaf[ 1024 ];
+      ulong leaf_len = mk_cert_signed( leaf, root_name, root_name_len,
+                                       leaf_name, leaf_name_len,
+                                       leaf_pub, prv_root, NULL, 0UL );
+
+      uchar exts[ 256 ];
+      ulong exts_len  = mk_ext( exts, oid_bc_tlv, sizeof(oid_bc_tlv),
+                                bc_ca_true_val, sizeof(bc_ca_true_val) );
+            exts_len += mk_ext( exts+exts_len, oid_ku_tlv, sizeof(oid_ku_tlv),
+                                ku_kenc, sizeof(ku_kenc) );
+            exts_len += mk_ext( exts+exts_len, oid_eku_tlv, sizeof(oid_eku_tlv),
+                                eku_client, sizeof(eku_client) );
+
+      uchar cross[ 1024 ];
+      ulong cross_len = mk_cert_signed( cross, older_name, older_name_len,
+                                        root_name, root_name_len,
+                                        pub_root, prv_old, exts, exts_len );
+
+      uchar const * chain_der   [ 2 ] = { leaf, cross };
+      ulong         chain_der_sz[ 2 ] = { leaf_len, cross_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_OK );
+    }
+
+    FD_LOG_INFO(( "OK: key usage policy" ));
   }
 
   FD_LOG_NOTICE(( "pass" ));
