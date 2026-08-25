@@ -1,4 +1,5 @@
 #include "fd_reedsol_private.h"
+#include "../../util/sanitize/fd_msan.h"
 
 /* Include the constants in one central spot */
 
@@ -14,9 +15,10 @@ void
 fd_reedsol_encode_fini( fd_reedsol_t * rs ) {
 
 # if FD_REEDSOL_ARITH_IMPL==3
-  if( FD_LIKELY( (rs->data_shred_cnt==32UL) & (rs->parity_shred_cnt==32UL ) ) )
+  if( FD_LIKELY( (rs->data_shred_cnt==32UL) & (rs->parity_shred_cnt==32UL ) ) ) {
     fd_reedsol_private_encode_32_32( rs->shred_sz, rs->encode.data_shred, rs->encode.parity_shred, rs->scratch );
-  else
+    for( ulong i=0UL; i<rs->parity_shred_cnt; i++ ) fd_msan_unpoison( rs->encode.parity_shred[ i ], rs->shred_sz );
+  } else
 # endif
   if( FD_UNLIKELY( rs->data_shred_cnt<=16UL ) )
     fd_reedsol_private_encode_16 ( rs->shred_sz, rs->encode.data_shred, rs->data_shred_cnt, rs->encode.parity_shred, rs->parity_shred_cnt );
