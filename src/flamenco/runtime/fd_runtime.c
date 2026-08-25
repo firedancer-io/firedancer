@@ -1672,7 +1672,7 @@ fd_runtime_apply_footer( fd_bank_t *               bank,
      footer's producer timestamp (Agave Bank::update_clock_from_footer).
      The clock must be applied before the reward certs. */
 
-  long unix_timestamp = (long)( producer_time_nanos/1000000000UL );
+  long unix_timestamp = (long)(producer_time_nanos/1000000000UL);
 
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock_ );
@@ -1700,8 +1700,8 @@ fd_runtime_apply_footer( fd_bank_t *               bank,
                       data, sizeof(data), fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, sizeof(data) ), 0 );
 
   return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs,
-                                  producer_time_nanos,
-                                  epoch_info_fn, epoch_info_ctx );
+                                 producer_time_nanos,
+                                 epoch_info_fn, epoch_info_ctx );
 }
 
 void

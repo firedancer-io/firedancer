@@ -22,23 +22,11 @@
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT (4)
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT (5)
 
-/* Bound the number of distinct writable accounts that can enter the
-   cost tracker in a 100M CU block.  A transaction with w writable
-   accounts costs at least 720+300*w CUs and carries at most 64 writable
-   accounts.  Thus W writables need at least ceil(W/64) transactions:
-
-     300*W + 720*ceil(W/64) <= 100000000
-
-   The largest solution is 321282: 5020 full 64-account transactions
-   plus one 2-account transaction cost 99999720 CUs.  A 321283rd
-   writable would cost 100000020 CUs. */
-
-#define FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT (321282UL)
-FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT +
-                  FD_PACK_COST_PER_SIGNATURE*((FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT+63UL)/64UL)<=100000000UL,
+FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT +
+                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+63UL)/64UL)<=87500000UL,
                   max_writable_accounts_per_slot_fits );
-FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*(FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT+1UL) +
-                  FD_PACK_COST_PER_SIGNATURE*((FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT+64UL)/64UL)>100000000UL,
+FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*(FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+1UL) +
+                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+64UL)/64UL)>87500000UL,
                   max_writable_accounts_per_slot_is_tight );
 
 /* TODO: Extremely gross.  Used because these are in a pool which needs
@@ -54,7 +42,7 @@ FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*(FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER
       128UL /* alignof(fd_cost_tracker_t) */,  128UL /* sizeof(fd_cost_tracker_t) */          ),    \
       128UL /* alignof(cost_tracker_out_t )*/, 128UL /* sizeof(cost_tracker_out_t ) */        ),    \
       8UL   /* alignof(account_cost_map_t) */, FD_COST_TRACKER_CHAIN_CNT_EST*4UL /*sizeof(uint)*/ +24UL /* sizeof(account_cost_map_t) */ ), \
-      4UL   /* alignof(account_cost_t) */,     FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT*40UL /*sizeof(account_cost_t)*/ ), \
+      4UL   /* alignof(account_cost_t) */,     FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT*40UL /*sizeof(account_cost_t)*/ ), \
       128UL ) )                                               \
 
 #define FD_COST_TRACKER_MAGIC (0xF17EDA2CE7C05170UL) /* FIREDANCER COST V0 */

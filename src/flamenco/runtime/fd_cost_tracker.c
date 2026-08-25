@@ -52,7 +52,7 @@ fd_cost_tracker_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l,  fd_cost_tracker_align(),  sizeof(cost_tracker_outer_t) );
   l = FD_LAYOUT_APPEND( l,  account_cost_map_align(), account_cost_map_footprint( map_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l,  alignof(account_cost_t),  FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT*sizeof(account_cost_t) );
+  l = FD_LAYOUT_APPEND( l,  alignof(account_cost_t),  FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT*sizeof(account_cost_t) );
   return FD_LAYOUT_FINI( l, fd_cost_tracker_align() );
 }
 
@@ -75,7 +75,7 @@ fd_cost_tracker_new( void * shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   cost_tracker_outer_t * cost_tracker = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_align(),  sizeof(cost_tracker_outer_t) );
   void * _map                         = FD_SCRATCH_ALLOC_APPEND( l, account_cost_map_align(), account_cost_map_footprint( map_chain_cnt ) );
-  void * _accounts                    = FD_SCRATCH_ALLOC_APPEND( l, alignof(account_cost_t),  FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT*sizeof(account_cost_t) );
+  void * _accounts                    = FD_SCRATCH_ALLOC_APPEND( l, alignof(account_cost_t),  FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT*sizeof(account_cost_t) );
 
   account_cost_map_t * map = account_cost_map_join( account_cost_map_new( _map, map_chain_cnt, seed ) );
   FD_TEST( map );
@@ -380,7 +380,7 @@ add_transaction_execution_cost( fd_cost_tracker_t * _cost_tracker,
 
     account_cost_t * account_cost = account_cost_map_ele_query( map, writable_acc, NULL, pool );
     if( FD_UNLIKELY( !account_cost ) ) {
-      FD_TEST( cost_tracker->accounts_used<FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
+      FD_TEST( cost_tracker->accounts_used<FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT );
 
       account_cost = pool+cost_tracker->accounts_used;
       cost_tracker->accounts_used++;
