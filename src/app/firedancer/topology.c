@@ -1168,7 +1168,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
       config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots,
-      FD_TOPO_ACCDB_MAX_ACCOUNT_WRITES_PER_SLOT,
+      FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT,
       8192UL,
       partition_sz,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
