@@ -36,7 +36,7 @@
       FD_TEST( WEXITSTATUS( wstatus )==code );            \
     } else {                                              \
       do { child; } while ( 0 );                          \
-      exit( EXIT_SUCCESS );                               \
+      _exit( EXIT_SUCCESS );                              \
     }                                                     \
 } while( 0 )
 
@@ -52,7 +52,7 @@
       FD_TEST( WTERMSIG( wstatus )==code );               \
     } else {                                              \
       do { child; } while ( 0 );                          \
-      exit( EXIT_SUCCESS );                               \
+      _exit( EXIT_SUCCESS );                              \
     }                                                     \
 } while( 0 )
 
@@ -108,12 +108,22 @@ test_check_file_descriptors_inner( void ) {
   TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( 4UL, allow_fds ), 1 );
   TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( 5UL, allow_fds2 ), 0 );
 
-  int too_many_fds[ 257 ];
-  for( int i=0UL; i<257; i++) too_many_fds[ i ] = i;
-  for( int i=5UL; i<256; i++) FD_TEST(-1!=dup2( 3, i ));
-  TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( 256UL, too_many_fds ), 0 );
-  FD_TEST( -1!=dup2( 3, 256 ) );
-  TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( 257UL, too_many_fds ), 1 );
+  struct rlimit nofile_limit;
+  FD_TEST( !getrlimit( RLIMIT_NOFILE, &nofile_limit ) );
+  ulong required_nofile_limit = FD_SANDBOX_ALLOWED_FD_CNT_MAX+2UL;
+  if( FD_UNLIKELY( nofile_limit.rlim_max<(rlim_t)required_nofile_limit ) ) {
+    FD_LOG_WARNING(( "Maximum allowed file descriptor test skipped - RLIMIT_NOFILE hard limit is %lu", (ulong)nofile_limit.rlim_max ));
+    return;
+  }
+  nofile_limit.rlim_cur = (rlim_t)required_nofile_limit;
+  FD_TEST( !setrlimit( RLIMIT_NOFILE, &nofile_limit ) );
+
+  int many_fds[ FD_SANDBOX_ALLOWED_FD_CNT_MAX+1UL ];
+  for( ulong i=0UL; i<FD_SANDBOX_ALLOWED_FD_CNT_MAX+1UL; i++ ) many_fds[ i ] = (int)i;
+  for( int i=5; i<(int)FD_SANDBOX_ALLOWED_FD_CNT_MAX; i++ ) FD_TEST( -1!=dup2( 3, i ) );
+  TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( FD_SANDBOX_ALLOWED_FD_CNT_MAX, many_fds ), 0 );
+  FD_TEST( -1!=dup2( 3, (int)FD_SANDBOX_ALLOWED_FD_CNT_MAX ) );
+  TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( FD_SANDBOX_ALLOWED_FD_CNT_MAX+1UL, many_fds ), 1 );
 }
 
 void
@@ -152,6 +162,10 @@ test_deny_namespaces_inner( void ) {
     FD_TEST( *endptr=='\n' );
     FD_TEST( value>1UL );
   }
+
+  /* Match fd_sandbox_private_enter_no_seccomp: create the parent mount
+     namespace before reserving the second namespace for pivot_root. */
+  FD_TEST( !unshare( CLONE_NEWNS ) );
 
   fd_sandbox_private_deny_namespaces();
 
@@ -420,33 +434,27 @@ test_resource_limits( void ) {
 #define SYS_landlock_create_ruleset 444
 #endif
 
-struct landlock_ruleset_attr {
-    __u64 handled_access_fs;
-};
+#define LANDLOCK_CREATE_RULESET_VERSION (1U << 0)
 
 void
 test_landlock_inner( void ) {
-  struct landlock_ruleset_attr attr = {
-    .handled_access_fs = 0, /* No access to anything. */
-  };
-
-  int landlock_fd = (int)syscall( SYS_landlock_create_ruleset, &attr, 8, 0 );
-  if( FD_UNLIKELY( landlock_fd==-1 && errno==ENOSYS ) ) {
+  long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
+  if( FD_UNLIKELY( abi==-1L && (errno==ENOSYS || errno==EOPNOTSUPP) ) ) {
     FD_LOG_WARNING(( "Test skipped - landlock not supported" ));
     return;
   }
-  FD_TEST( landlock_fd>=0 );
-  FD_TEST( !close( landlock_fd ) );
+  FD_TEST( abi>=1L );
 
   int dirfd = open( "/", O_RDONLY );
   FD_TEST( dirfd>=0 );
   FD_TEST( !close( dirfd ) );
 
+  FD_TEST( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
   fd_sandbox_private_landlock_restrict_self( 0, 0 );
 
   int fd = open( "/", O_RDONLY );
   FD_LOG_WARNING(( "%d %d %s", fd, errno, fd_io_strerror( errno ) ));
-  FD_TEST( -1==fd && errno==EPERM );
+  FD_TEST( -1==fd && errno==EACCES );
 }
 
 void
@@ -478,7 +486,7 @@ test_seccomp( void ) {
     child;                                                                                              \
   } while(0), code )
 
-  TEST_FORK_SECCOMP_EXIT_CODE( FD_LOG_DEBUG(( "Allowed!" )), 0 );
+  TEST_FORK_SECCOMP_EXIT_CODE( FD_TEST( 0L==write( 2, NULL, 0UL ) ), 0 );
   TEST_FORK_SECCOMP_EXIT_CODE( fsync( 3 ), 0 );
   TEST_FORK_SECCOMP_SIGNAL( getpid(), SIGSYS );
   TEST_FORK_SECCOMP_SIGNAL( fsync( 2 ), SIGSYS );
