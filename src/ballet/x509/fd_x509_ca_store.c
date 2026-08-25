@@ -114,6 +114,11 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
     else if( info.subject_len > FD_X509_CA_SUBJECT_MAX )          reason = "subject too long";
     else if( info.pubkey_len > sizeof(store->entries[0].pubkey) ) reason = "public key too long";
     else if( !info.is_ca )                                        reason = "not a CA";
+    else if( info.has_key_usage &&
+             !( info.key_usage & FD_X509_KU_KEY_CERT_SIGN ) )     reason = "keyUsage lacks keyCertSign";
+    else if( info.has_ext_key_usage &&
+             !( info.ext_key_usage &
+                ( FD_X509_EKU_SERVER_AUTH|FD_X509_EKU_ANY ) ) )  reason = "extKeyUsage lacks serverAuth";
     if( reason ) {
       FD_LOG_INFO(( "ignoring CA cert at %s offset %ld: %s",
                     pem_path, (long)(begin-(char const *)file_buf), reason ));
