@@ -230,19 +230,30 @@ mk_ext( uchar *       out,
 static uchar const oid_cn_tlv[] = { 0x06, 0x03, 0x55, 0x04, 0x03 };
 
 static ulong
-mk_name( uchar *      out,
-         char const * cn ) {
-  ulong cn_len = strlen( cn );
-  FD_TEST( cn_len<=64UL );
+mk_name_oid_tag( uchar *       out,
+                 uchar const * oid,
+                 ulong         oid_len,
+                 char const *  value,
+                 uchar         tag ) {
+  ulong value_len = strlen( value );
+  FD_TEST( oid_len  <=16UL );
+  FD_TEST( value_len<=64UL );
 
   uchar atv[ 128 ];
-  memcpy( atv, oid_cn_tlv, sizeof(oid_cn_tlv) );
-  ulong a = sizeof(oid_cn_tlv);
-  a += der_tlv( atv+a, FD_DER_TAG_UTF8_STRING, (uchar const *)cn, cn_len );
+  memcpy( atv, oid, oid_len );
+  ulong a = oid_len;
+  a += der_tlv( atv+a, tag, (uchar const *)value, value_len );
 
   uchar rdn[ 160 ]; ulong r = der_tlv( rdn, FD_DER_TAG_SEQUENCE, atv, a );
   uchar set[ 192 ]; ulong n = der_tlv( set, FD_DER_TAG_SET,      rdn, r );
   return der_tlv( out, FD_DER_TAG_SEQUENCE, set, n );
+}
+
+static ulong
+mk_name( uchar *      out,
+         char const * cn ) {
+  return mk_name_oid_tag( out, oid_cn_tlv, sizeof(oid_cn_tlv),
+                          cn, FD_DER_TAG_UTF8_STRING );
 }
 
 /* mk_san builds a subjectAltName extension from a raw GeneralName blob. */
@@ -764,23 +775,36 @@ main( int     argc,
   {
     /* Each case is the raw extnValue (a BasicConstraints SEQUENCE, possibly
        with trailing bytes inside the OCTET STRING). */
-    static struct { uchar val[ 8 ]; ulong val_len; int ok; int is_ca; } const cases[] = {
+    static struct {
+      uchar val[ 12 ]; ulong val_len;
+      int ok; int is_ca; int has_path_len; ulong path_len;
+    } const cases[] = {
       /* cA=TRUE followed by a truncated INTEGER tag */
-      { { 0x30, 0x05, 0x01, 0x01, 0xFF, 0x02 },             6UL, 0, 0 },
+      { { 0x30, 0x05, 0x01, 0x01, 0xFF, 0x02 },             6UL, 0, 0, 0, 0UL },
       /* cA=TRUE with a trailing byte after the SEQUENCE */
-      { { 0x30, 0x03, 0x01, 0x01, 0xFF, 0x00 },             6UL, 0, 0 },
+      { { 0x30, 0x03, 0x01, 0x01, 0xFF, 0x00 },             6UL, 0, 0, 0, 0UL },
       /* cA=TRUE, pathLenConstraint=0 */
-      { { 0x30, 0x06, 0x01, 0x01, 0xFF, 0x02, 0x01, 0x00 }, 8UL, 1, 1 },
+      { { 0x30, 0x06, 0x01, 0x01, 0xFF, 0x02, 0x01, 0x00 }, 8UL, 1, 1, 1, 0UL },
+      /* cA=TRUE, pathLenConstraint=128 (positive sign padding) */
+      { { 0x30, 0x07, 0x01, 0x01, 0xFF, 0x02, 0x02, 0x00, 0x80 }, 9UL, 1, 1, 1, 128UL },
       /* cA=TRUE */
-      { { 0x30, 0x03, 0x01, 0x01, 0xFF },                   5UL, 1, 1 },
+      { { 0x30, 0x03, 0x01, 0x01, 0xFF },                   5UL, 1, 1, 0, 0UL },
       /* cA=FALSE */
-      { { 0x30, 0x03, 0x01, 0x01, 0x00 },                   5UL, 0, 0 },
+      { { 0x30, 0x03, 0x01, 0x01, 0x00 },                   5UL, 0, 0, 0, 0UL },
       /* cA absent (DEFAULT FALSE) */
-      { { 0x30, 0x00 },                                     2UL, 1, 0 },
+      { { 0x30, 0x00 },                                     2UL, 1, 0, 0, 0UL },
+      /* pathLenConstraint is forbidden when cA is absent */
+      { { 0x30, 0x03, 0x02, 0x01, 0x00 },                   5UL, 0, 0, 0, 0UL },
       /* two byte BOOLEAN */
-      { { 0x30, 0x04, 0x01, 0x02, 0xFF, 0xFF },             6UL, 0, 0 },
+      { { 0x30, 0x04, 0x01, 0x02, 0xFF, 0xFF },             6UL, 0, 0, 0, 0UL },
       /* non-DER BOOLEAN TRUE */
-      { { 0x30, 0x03, 0x01, 0x01, 0x01 },                   5UL, 0, 0 },
+      { { 0x30, 0x03, 0x01, 0x01, 0x01 },                   5UL, 0, 0, 0, 0UL },
+      /* pathLenConstraint must not be negative */
+      { { 0x30, 0x06, 0x01, 0x01, 0xFF, 0x02, 0x01, 0xFF }, 8UL, 0, 0, 0, 0UL },
+      /* INTEGER content must not be empty */
+      { { 0x30, 0x05, 0x01, 0x01, 0xFF, 0x02, 0x00 },       7UL, 0, 0, 0, 0UL },
+      /* DER forbids redundant positive sign padding */
+      { { 0x30, 0x07, 0x01, 0x01, 0xFF, 0x02, 0x02, 0x00, 0x00 }, 9UL, 0, 0, 0, 0UL },
     };
     for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
       uchar exts[ 256 ];
@@ -793,11 +817,25 @@ main( int     argc,
       if( cases[i].ok ) {
         FD_TEST( err==0 );
         FD_TEST( info.is_ca==cases[i].is_ca );
+        FD_TEST( info.has_basic_constraints==1 );
+        FD_TEST( info.has_path_len_constraint==cases[i].has_path_len );
+        FD_TEST( info.path_len_constraint==cases[i].path_len );
         FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
       } else {
         FD_TEST( err!=0 );
       }
     }
+
+    /* A certificate must not contain basicConstraints twice. */
+    uchar exts[ 256 ];
+    ulong exts_len  = mk_ext( exts, oid_bc_tlv, sizeof(oid_bc_tlv),
+                              bc_ca_true_val, sizeof(bc_ca_true_val) );
+          exts_len += mk_ext( exts+exts_len, oid_bc_tlv, sizeof(oid_bc_tlv),
+                              bc_ca_true_val, sizeof(bc_ca_true_val) );
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+
     FD_LOG_INFO(( "OK: basicConstraints parsed strictly" ));
   }
 
@@ -1293,6 +1331,126 @@ main( int     argc,
     }
 
     FD_LOG_INFO(( "OK: key usage policy" ));
+  }
+
+  /* Test 25: basicConstraints pathLenConstraint limits the number of
+     non-self-issued intermediate CAs below the constrained issuer. */
+  {
+    static uchar const bc_path_0[] = { 0x30,0x06, 0x01,0x01,0xFF, 0x02,0x01,0x00 };
+    static uchar const bc_path_1[] = { 0x30,0x06, 0x01,0x01,0xFF, 0x02,0x01,0x01 };
+
+    uchar root_name [ 64 ]; ulong root_name_len  = mk_name( root_name,  "Path Root"  );
+    uchar upper_name[ 64 ]; ulong upper_name_len = mk_name( upper_name, "Path Upper" );
+    uchar lower_name[ 64 ]; ulong lower_name_len = mk_name( lower_name, "Path Lower" );
+    uchar leaf_name [ 64 ]; ulong leaf_name_len  = mk_name( leaf_name,  "Path Leaf"  );
+
+    uchar prv_root [ 32 ]; memset( prv_root,  0x17, sizeof(prv_root)  );
+    uchar prv_upper[ 32 ]; memset( prv_upper, 0x28, sizeof(prv_upper) );
+    uchar prv_lower[ 32 ]; memset( prv_lower, 0x39, sizeof(prv_lower) );
+    uchar leaf_pub [ 32 ]; memset( leaf_pub,  0x4A, sizeof(leaf_pub)  );
+
+    fd_sha512_t sha[1];
+    uchar pub_root [ 32 ]; fd_ed25519_public_from_private( pub_root,  prv_root,  sha );
+    uchar pub_upper[ 32 ]; fd_ed25519_public_from_private( pub_upper, prv_upper, sha );
+    uchar pub_lower[ 32 ]; fd_ed25519_public_from_private( pub_lower, prv_lower, sha );
+
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    store.cnt = 1;
+    memcpy( store.entries[0].subject, root_name, root_name_len );
+    store.entries[0].subject_len = root_name_len;
+    memcpy( store.entries[0].pubkey, pub_root, 32UL );
+    store.entries[0].pubkey_len = 32UL;
+    store.entries[0].key_type   = FD_X509_KEY_ED25519;
+
+    uchar ca_ext[ 64 ];
+    ulong ca_ext_len = mk_ext( ca_ext, oid_bc_tlv, sizeof(oid_bc_tlv),
+                               bc_ca_true_val, sizeof(bc_ca_true_val) );
+
+    uchar leaf[ 1024 ];
+    ulong leaf_len = mk_cert_signed( leaf, lower_name, lower_name_len,
+                                     leaf_name, leaf_name_len,
+                                     leaf_pub, prv_lower, NULL, 0UL );
+    uchar lower[ 1024 ];
+    ulong lower_len = mk_cert_signed( lower, upper_name, upper_name_len,
+                                      lower_name, lower_name_len,
+                                      pub_lower, prv_upper, ca_ext, ca_ext_len );
+
+    static struct {
+      uchar const * constraint; ulong constraint_len; int expected;
+    } const cases[] = {
+      { bc_path_0, sizeof(bc_path_0), FD_X509_VERIFY_ERR_PATH_LEN },
+      { bc_path_1, sizeof(bc_path_1), FD_X509_VERIFY_OK           },
+    };
+
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      uchar upper_ext[ 64 ];
+      ulong upper_ext_len = mk_ext( upper_ext, oid_bc_tlv, sizeof(oid_bc_tlv),
+                                    cases[i].constraint, cases[i].constraint_len );
+      uchar upper[ 1024 ];
+      ulong upper_len = mk_cert_signed( upper, root_name, root_name_len,
+                                        upper_name, upper_name_len,
+                                        pub_upper, prv_root, upper_ext, upper_ext_len );
+
+      uchar const * chain_der   [ 3 ] = { leaf, lower, upper };
+      ulong         chain_der_sz[ 3 ] = { leaf_len, lower_len, upper_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 3UL,
+                                     &store, NULL, 0UL, TEST_NOW )==cases[i].expected );
+    }
+
+    /* A self-issued rollover CA is explicitly excluded from the count. */
+    uchar rollover_leaf[ 1024 ];
+    ulong rollover_leaf_len = mk_cert_signed( rollover_leaf, upper_name, upper_name_len,
+                                              leaf_name, leaf_name_len,
+                                              leaf_pub, prv_lower, NULL, 0UL );
+    uchar rollover[ 1024 ];
+    ulong rollover_len = mk_cert_signed( rollover, upper_name, upper_name_len,
+                                         upper_name, upper_name_len,
+                                         pub_lower, prv_upper, ca_ext, ca_ext_len );
+    uchar upper_ext[ 64 ];
+    ulong upper_ext_len = mk_ext( upper_ext, oid_bc_tlv, sizeof(oid_bc_tlv),
+                                  bc_path_0, sizeof(bc_path_0) );
+    uchar upper[ 1024 ];
+    ulong upper_len = mk_cert_signed( upper, root_name, root_name_len,
+                                      upper_name, upper_name_len,
+                                      pub_upper, prv_root, upper_ext, upper_ext_len );
+
+    uchar const * rollover_chain   [ 3 ] = { rollover_leaf, rollover, upper };
+    ulong         rollover_chain_sz[ 3 ] = { rollover_leaf_len, rollover_len, upper_len };
+    FD_TEST( fd_x509_verify_chain( rollover_chain, rollover_chain_sz, 3UL,
+                                   &store, NULL, 0UL, TEST_NOW )==FD_X509_VERIFY_OK );
+
+    /* A DirectoryString private attribute may be case-exact and must not make
+       a subordinate CA look self-issued. */
+    static uchar const oid_private_tlv[] = { 0x06,0x08, 0x2b,0x06,0x01,0x04,0x01,0x83,0xb2,0x03 };
+    uchar private_lower[ 64 ]; ulong private_lower_len =
+      mk_name_oid_tag( private_lower, oid_private_tlv, sizeof(oid_private_tlv),
+                       "rolea", FD_DER_TAG_UTF8_STRING );
+    uchar private_upper[ 64 ]; ulong private_upper_len =
+      mk_name_oid_tag( private_upper, oid_private_tlv, sizeof(oid_private_tlv),
+                       "RoleA", FD_DER_TAG_UTF8_STRING );
+    FD_TEST( !fd_x509_name_equal( private_lower, private_lower_len,
+                                  private_upper, private_upper_len ) );
+
+    uchar private_leaf[ 1024 ];
+    ulong private_leaf_len = mk_cert_signed( private_leaf, private_upper, private_upper_len,
+                                             leaf_name, leaf_name_len,
+                                             leaf_pub, prv_lower, NULL, 0UL );
+    uchar private_ca[ 1024 ];
+    ulong private_ca_len = mk_cert_signed( private_ca, private_lower, private_lower_len,
+                                           private_upper, private_upper_len,
+                                           pub_lower, prv_upper, ca_ext, ca_ext_len );
+    uchar constrained_ca[ 1024 ];
+    ulong constrained_ca_len = mk_cert_signed( constrained_ca, root_name, root_name_len,
+                                               private_lower, private_lower_len,
+                                               pub_upper, prv_root, upper_ext, upper_ext_len );
+
+    uchar const * private_chain   [ 3 ] = { private_leaf, private_ca, constrained_ca };
+    ulong         private_chain_sz[ 3 ] = { private_leaf_len, private_ca_len, constrained_ca_len };
+    FD_TEST( fd_x509_verify_chain( private_chain, private_chain_sz, 3UL,
+                                   &store, NULL, 0UL, TEST_NOW )==FD_X509_VERIFY_ERR_PATH_LEN );
+
+    FD_LOG_INFO(( "OK: basicConstraints path length policy" ));
   }
 
   FD_LOG_NOTICE(( "pass" ));

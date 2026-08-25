@@ -83,7 +83,10 @@ struct fd_x509_cert_info {
   uchar         sig_alg;   /* FD_X509_SIG_{...} */
 
   /* Basic Constraints (RFC 5280 Section 4.2.1.9) */
-  int           is_ca;     /* 1 if basicConstraints cA=TRUE */
+  ulong         path_len_constraint;     /* valid if has_path_len_constraint */
+  int           is_ca;                    /* 1 if basicConstraints cA=TRUE */
+  uchar         has_basic_constraints;
+  uchar         has_path_len_constraint;
 
   /* Key Usage (RFC 5280 Section 4.2.1.3) */
   ushort        key_usage;          /* FD_X509_KU_* bits, 0 if absent */
