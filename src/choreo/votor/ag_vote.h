@@ -138,9 +138,9 @@ ag_vote_construct_skip_fallback( ulong              slot,
                                  ushort             shred_version );
 
 int
-ag_vote_verify( ag_vote_t const *  self,
-                ag_bls_pub_t const pub,
-                ushort             shred_version );
+ag_vote_verify( ag_vote_t const *    self,
+                ag_bls_pub_t const * pub,
+                ushort               shred_version );
 
 FD_PROTOTYPES_END
 
