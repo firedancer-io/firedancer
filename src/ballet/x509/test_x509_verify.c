@@ -201,6 +201,23 @@ mk_ext( uchar *       out,
   return der_tlv( out, FD_DER_TAG_SEQUENCE, buf, n );
 }
 
+/* mk_ext_critical builds an Extension with an explicit critical BOOLEAN. */
+
+static ulong
+mk_ext_critical( uchar *       out,
+                 uchar const * oid,
+                 ulong         oid_len,
+                 uchar         critical,
+                 uchar const * val,
+                 ulong         val_len ) {
+  uchar buf[ 512 ];
+  ulong n = 0UL;
+  memcpy( buf, oid, oid_len ); n += oid_len;
+  n += der_tlv( buf+n, FD_DER_TAG_BOOLEAN, &critical, 1UL );
+  n += der_tlv( buf+n, FD_DER_TAG_OCTET_STRING, val, val_len );
+  return der_tlv( out, FD_DER_TAG_SEQUENCE, buf, n );
+}
+
 /* mk_name builds a Name holding a single commonName RDN, and returns the
    length of the encoded Name.  That encoding is what both the chain and
    the CA store match on, byte for byte. */
@@ -637,6 +654,47 @@ main( int     argc,
     fd_x509_cert_info_t info;
     FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
     FD_LOG_INFO(( "OK: cA=TRUE with malformed extension tail fails parse" ));
+  }
+
+  /* Test 21a: Unknown critical extensions must fail certificate parsing.
+     nameConstraints is intentionally unsupported by this parser. */
+  {
+    static uchar const oid_name_constraints[] = { 0x06, 0x03, 0x55, 0x1d, 0x1e };
+    static uchar const empty_sequence[]       = { 0x30, 0x00 };
+
+    uchar exts[ 256 ];
+    uchar cert[ 1024 ];
+    fd_x509_cert_info_t info;
+
+    /* An unknown non-critical extension may be ignored. */
+    ulong exts_len = mk_ext( exts, oid_name_constraints, sizeof(oid_name_constraints),
+                             empty_sequence, sizeof(empty_sequence) );
+    ulong cert_len = mk_cert( cert, exts, exts_len );
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+
+    /* Explicit FALSE is also non-critical. */
+    exts_len = mk_ext_critical( exts, oid_name_constraints, sizeof(oid_name_constraints),
+                                0x00, empty_sequence, sizeof(empty_sequence) );
+    cert_len = mk_cert( cert, exts, exts_len );
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+
+    /* A critical unsupported nameConstraints extension must be rejected. */
+    exts_len = mk_ext_critical( exts, oid_name_constraints, sizeof(oid_name_constraints),
+                                0xFF, empty_sequence, sizeof(empty_sequence) );
+    cert_len = mk_cert( cert, exts, exts_len );
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+
+    /* Critical extensions implemented by this parser remain accepted. */
+    uchar san_val[ 64 ];
+    ulong san_val_len = der_tlv( san_val, FD_DER_TAG_SEQUENCE,
+                                 gn_example, sizeof(gn_example) );
+    exts_len = mk_ext_critical( exts, oid_san_tlv, sizeof(oid_san_tlv),
+                                0xFF, san_val, san_val_len );
+    cert_len = mk_cert( cert, exts, exts_len );
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
+
+    FD_LOG_INFO(( "OK: unsupported critical extensions fail parse" ));
   }
 
   /* Test 21b: basicConstraints value must be a well-formed BasicConstraints */

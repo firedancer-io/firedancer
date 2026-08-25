@@ -120,7 +120,15 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
     uchar const * oid_raw; ulong oid_raw_len;
     FD_DER_READ_RAW( ext, FD_DER_TAG_OID, oid_raw, oid_raw_len );
 
-    FD_DER_SKIP_IF( ext, FD_DER_TAG_BOOLEAN );
+    int critical = 0;
+    if( ext.p<ext.end && *ext.p==FD_DER_TAG_BOOLEAN ) {
+      uchar const * critical_ptr; ulong critical_len;
+      FD_DER_READ( ext, FD_DER_TAG_BOOLEAN, critical_ptr, critical_len );
+      /* DER encodes BOOLEAN as one byte, with TRUE encoded as 0xFF. */
+      if( FD_UNLIKELY( critical_len!=1UL ) ) return -1;
+      if( FD_UNLIKELY( critical_ptr[0]!=0x00 && critical_ptr[0]!=0xFF ) ) return -1;
+      critical = critical_ptr[0]==0xFF;
+    }
 
     /* OCTET STRING wrapping the extension value */
     uchar const * val_ptr; ulong val_len;
@@ -240,6 +248,7 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
     }
 
     /* Unknown extension */
+    if( FD_UNLIKELY( critical ) ) return -1;
   }
 
   return 0;
