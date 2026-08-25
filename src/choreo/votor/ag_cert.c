@@ -27,37 +27,38 @@ check_threshold( ag_cert_t const *       self,
 static int
 check_sig( ag_cert_t const *       self,
            ag_epoch_info_t const * epoch_info,
-           ushort                  shred_version ) {
-  ag_bls_pub_t const * pks           = epoch_info->pubkeys;
-  ulong                validator_cnt = epoch_info->validator_cnt;
+           ushort                  shred_version,
+           ag_bls_hash_cache_t *   hash_cache ) {
+  ag_bls_pub_native_t const * pks           = epoch_info->pubkeys;
+  ulong                       validator_cnt = epoch_info->validator_cnt;
   uchar buf[ AG_VOTE_PAYLOAD_MAX ]; ulong sz;
   switch( self->kind ) {
   case AG_CERT_KIND_NOTAR:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_KIND_NOTAR, self->inner.notar.slot, self->inner.notar.block_hash, shred_version );
-    return ag_bls_agg_verify( &self->inner.notar.agg_sig, buf, sz, pks, validator_cnt );
+    return ag_bls_agg_verify_native_hash_cached( &self->inner.notar.agg_sig, buf, sz, pks, &epoch_info->pubkey_cache, validator_cnt, hash_cache );
   case AG_CERT_KIND_FAST_FINAL:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_KIND_NOTAR, self->inner.fast_final.slot, self->inner.fast_final.block_hash, shred_version );
-    return ag_bls_agg_verify( &self->inner.fast_final.agg_sig, buf, sz, pks, validator_cnt );
+    return ag_bls_agg_verify_native_hash_cached( &self->inner.fast_final.agg_sig, buf, sz, pks, &epoch_info->pubkey_cache, validator_cnt, hash_cache );
   case AG_CERT_KIND_FINAL:
     sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_KIND_FINAL, self->inner.final.slot, NULL, shred_version );
-    return ag_bls_agg_verify( &self->inner.final.agg_sig, buf, sz, pks, validator_cnt );
+    return ag_bls_agg_verify_native_hash_cached( &self->inner.final.agg_sig, buf, sz, pks, &epoch_info->pubkey_cache, validator_cnt, hash_cache );
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_notar_fallback_cert_t const * n = &self->inner.notar_fallback;
     uchar buf_fb[ AG_VOTE_PAYLOAD_MAX ]; ulong sz_fb;
     sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_KIND_NOTAR,          n->slot, n->block_hash, shred_version );
     sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_KIND_NOTAR_FALLBACK, n->slot, n->block_hash, shred_version );
-    return ag_bls_agg_verify_merged( &n->agg_sig_notar,          buf,    sz,
-                                     &n->agg_sig_notar_fallback, buf_fb, sz_fb,
-                                     pks, validator_cnt );
+    return ag_bls_agg_verify_merged_native_hash_cached( &n->agg_sig_notar,          buf,    sz,
+                                                        &n->agg_sig_notar_fallback, buf_fb, sz_fb,
+                                                        pks, &epoch_info->pubkey_cache, validator_cnt, hash_cache );
   }
   case AG_CERT_KIND_SKIP: {
     ag_skip_cert_t const * s = &self->inner.skip;
     uchar buf_fb[ AG_VOTE_PAYLOAD_MAX ]; ulong sz_fb;
     sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_KIND_SKIP,          s->slot, NULL, shred_version );
     sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_KIND_SKIP_FALLBACK, s->slot, NULL, shred_version );
-    return ag_bls_agg_verify_merged( &s->agg_sig_skip,          buf,    sz,
-                                     &s->agg_sig_skip_fallback, buf_fb, sz_fb,
-                                     pks, validator_cnt );
+    return ag_bls_agg_verify_merged_native_hash_cached( &s->agg_sig_skip,          buf,    sz,
+                                                        &s->agg_sig_skip_fallback, buf_fb, sz_fb,
+                                                        pks, &epoch_info->pubkey_cache, validator_cnt, hash_cache );
   }
   default: __builtin_unreachable();
   }
@@ -67,7 +68,15 @@ int
 ag_cert_verify( ag_cert_t const *       self,
                 ag_epoch_info_t const * epoch_info,
                 ushort                  shred_version ) {
-  return check_threshold( self, epoch_info ) && check_sig( self, epoch_info, shred_version );
+  return check_threshold( self, epoch_info ) && check_sig( self, epoch_info, shred_version, NULL );
+}
+
+int
+ag_cert_verify_hash_cached( ag_cert_t const *       self,
+                            ag_epoch_info_t const * epoch_info,
+                            ushort                  shred_version,
+                            ag_bls_hash_cache_t *   hash_cache ) {
+  return check_threshold( self, epoch_info ) && check_sig( self, epoch_info, shred_version, hash_cache );
 }
 
 ag_notar_cert_t
@@ -220,4 +229,3 @@ ag_skip_cert_construct( ag_skip_vote_t const *          skip_votes,
   ag_bls_agg_merge( &cert.agg_sig_skip, &cert.agg_sig_skip_fallback );
   return cert;
 }
-

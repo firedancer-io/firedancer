@@ -2,6 +2,9 @@
 #define HEADER_fd_src_choreo_votor_ag_bls_h
 
 #include "../../util/fd_util.h"
+#if FD_HAS_AVX512
+#include "../../ballet/bls/fd_vroom.h"
+#endif
 
 #define AG_BLS_SEC_SZ            (32UL)
 #define AG_BLS_PUB_SZ            (96UL)
@@ -9,6 +12,10 @@
 #define AG_BLS_SIG_SZ            (192UL)
 #define AG_BLS_SIG_COMPRESSED_SZ (96UL)
 #define AG_BLS_SIGNERS_MAX       (2048UL)
+#define AG_BLS_PUB_BLOCK_SZ      (64UL)
+#define AG_BLS_PUB_BLOCK_CNT     (AG_BLS_SIGNERS_MAX/AG_BLS_PUB_BLOCK_SZ)
+#define AG_BLS_HASH_CACHE_CNT    (16UL)
+#define AG_BLS_HASH_MSG_MAX      (64UL)
 
 #define SET_NAME signer_set
 #define SET_MAX  AG_BLS_SIGNERS_MAX
@@ -23,6 +30,61 @@ typedef struct ag_bls_pub ag_bls_pub_t;
 typedef uchar ag_bls_sig_t[ AG_BLS_SIG_SZ ];
 
 FD_STATIC_ASSERT( sizeof(ag_bls_pub_t)==AG_BLS_PUB_SZ, ag_bls_pub_sz );
+
+/* Opaque host-native blst_p1_affine.  Unlike ag_bls_pub_t, this is not a
+   wire format and must never be serialized or persisted. */
+union ag_bls_pub_native {
+  ulong align;
+  uchar opaque[ AG_BLS_PUB_SZ ];
+};
+typedef union ag_bls_pub_native ag_bls_pub_native_t;
+
+/* Epoch-local aggregation cache.  All points use the same validated,
+   host-native affine representation as ag_bls_pub_native_t.  block[i] is
+   the sum of public keys in bitmask word i; total is the sum of every live
+   public key.  This is derived state and must never be serialized. */
+struct ag_bls_pub_cache {
+  ag_bls_pub_native_t block[ AG_BLS_PUB_BLOCK_CNT ];
+  ag_bls_pub_native_t total;
+};
+typedef struct ag_bls_pub_cache ag_bls_pub_cache_t;
+
+/* A caller-owned cache for the native affine hash-to-G2 result.  Vote
+   payloads are at most 43 bytes and many validators sign exactly the same
+   payload, so vote and certificate verification share the expensive
+   deterministic hash-to-curve operation.  On AVX-512 hosts, each cached hash
+   also retains its derived Miller lines. */
+union ag_bls_hash_native {
+  ulong align;
+  uchar opaque[ AG_BLS_SIG_SZ ];
+};
+typedef union ag_bls_hash_native ag_bls_hash_native_t;
+
+struct ag_bls_hash_cache_entry {
+  int                  valid;
+  ulong                tag;
+  ulong                msg_sz;
+  uchar                msg[ AG_BLS_HASH_MSG_MAX ];
+  ag_bls_hash_native_t point;
+};
+typedef struct ag_bls_hash_cache_entry ag_bls_hash_cache_entry_t;
+
+#if FD_HAS_AVX512
+struct ag_bls_prepared_cache_entry {
+  int                    valid;
+  fd_vroom_g2_prepared_t point;
+};
+typedef struct ag_bls_prepared_cache_entry ag_bls_prepared_cache_entry_t;
+#endif
+
+struct ag_bls_hash_cache {
+  ulong                     next;
+  ag_bls_hash_cache_entry_t entry[ AG_BLS_HASH_CACHE_CNT ];
+#if FD_HAS_AVX512
+  ag_bls_prepared_cache_entry_t prepared[ AG_BLS_HASH_CACHE_CNT ];
+#endif
+};
+typedef struct ag_bls_hash_cache ag_bls_hash_cache_t;
 
 struct ag_bls_agg {
   ag_bls_sig_t sig;
@@ -71,6 +133,20 @@ ag_bls_pub_try_from_bytes( ag_bls_pub_t * out,
                            uchar const *  in,
                            ulong          in_sz );
 
+int
+ag_bls_pub_native_from_bytes( ag_bls_pub_native_t * out,
+                              ag_bls_pub_t const *   in );
+
+void
+ag_bls_pub_native_aggregate( ag_bls_pub_native_t *       out,
+                             ag_bls_pub_native_t const * pks,
+                             ulong                       cnt );
+
+void
+ag_bls_pub_cache_init( ag_bls_pub_cache_t *        cache,
+                       ag_bls_pub_native_t const * pks,
+                       ulong                       pk_cnt );
+
 /* IndividualSignature::verify_bytes */
 
 int
@@ -78,6 +154,16 @@ ag_bls_sig_verify( ag_bls_sig_t const   sig,
                    ag_bls_pub_t const * pub,
                    uchar const *        msg,
                    ulong                msg_sz );
+
+void
+ag_bls_hash_cache_init( ag_bls_hash_cache_t * cache );
+
+int
+ag_bls_sig_verify_hash_cached( ag_bls_sig_t const   sig,
+                               ag_bls_pub_t const * pub,
+                               uchar const *        msg,
+                               ulong                msg_sz,
+                               ag_bls_hash_cache_t * hash_cache );
 
 /* AggregateSignature::new */
 
@@ -111,6 +197,30 @@ ag_bls_agg_verify( ag_bls_agg_t const * self,
                    ag_bls_pub_t const * pks,
                    ulong                pk_cnt );
 
+int
+ag_bls_agg_verify_native( ag_bls_agg_t const *        self,
+                          uchar const *               msg,
+                          ulong                       msg_sz,
+                          ag_bls_pub_native_t const * pks,
+                          ulong                       pk_cnt );
+
+int
+ag_bls_agg_verify_native_cached( ag_bls_agg_t const *        self,
+                                 uchar const *               msg,
+                                 ulong                       msg_sz,
+                                 ag_bls_pub_native_t const * pks,
+                                 ag_bls_pub_cache_t const *  cache,
+                                 ulong                       pk_cnt );
+
+int
+ag_bls_agg_verify_native_hash_cached( ag_bls_agg_t const *        self,
+                                      uchar const *               msg,
+                                      ulong                       msg_sz,
+                                      ag_bls_pub_native_t const * pks,
+                                      ag_bls_pub_cache_t const *  cache,
+                                      ulong                       pk_cnt,
+                                      ag_bls_hash_cache_t *       hash_cache );
+
 /* AggregateSignature::verify_without_bitmask */
 
 int
@@ -131,6 +241,39 @@ ag_bls_agg_verify_merged( ag_bls_agg_t const * agg_base,
                          ulong                msg_fb_sz,
                          ag_bls_pub_t const * pks,
                          ulong                pk_cnt );
+
+int
+ag_bls_agg_verify_merged_native( ag_bls_agg_t const *        agg_base,
+                                 uchar const *               msg_base,
+                                 ulong                       msg_base_sz,
+                                 ag_bls_agg_t const *        agg_fb,
+                                 uchar const *               msg_fb,
+                                 ulong                       msg_fb_sz,
+                                 ag_bls_pub_native_t const * pks,
+                                 ulong                       pk_cnt );
+
+int
+ag_bls_agg_verify_merged_native_cached( ag_bls_agg_t const *        agg_base,
+                                        uchar const *               msg_base,
+                                        ulong                       msg_base_sz,
+                                        ag_bls_agg_t const *        agg_fb,
+                                        uchar const *               msg_fb,
+                                        ulong                       msg_fb_sz,
+                                        ag_bls_pub_native_t const * pks,
+                                        ag_bls_pub_cache_t const *  cache,
+                                        ulong                       pk_cnt );
+
+int
+ag_bls_agg_verify_merged_native_hash_cached( ag_bls_agg_t const *        agg_base,
+                                             uchar const *               msg_base,
+                                             ulong                       msg_base_sz,
+                                             ag_bls_agg_t const *        agg_fb,
+                                             uchar const *               msg_fb,
+                                             ulong                       msg_fb_sz,
+                                             ag_bls_pub_native_t const * pks,
+                                             ag_bls_pub_cache_t const *  cache,
+                                             ulong                       pk_cnt,
+                                             ag_bls_hash_cache_t *       hash_cache );
 
 /* AggregateSignature::is_signer */
 

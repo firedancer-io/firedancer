@@ -181,6 +181,12 @@ ag_vote_check_sig( ag_vote_t const *    self,
                    ag_bls_pub_t const * pk,
                    ushort               shred_version );
 
+int
+ag_vote_check_sig_hash_cached( ag_vote_t const *    self,
+                               ag_bls_pub_t const * pk,
+                               ushort               shred_version,
+                               ag_bls_hash_cache_t * hash_cache );
+
 FD_FN_PURE static inline ulong
 ag_vote_slot( ag_vote_t const * self ) {
   switch( self->kind ) {

@@ -8,10 +8,11 @@ ag_epoch_info( ag_epoch_info_t *           self,
   for( ulong i=0UL; i<validator_cnt; i++ ) {
     FD_TEST( validators[i].id==i );
     self->validators[i] = validators[i];
-    self->pubkeys[i] = validators[i].bls_key;
+    FD_TEST( !ag_bls_pub_native_from_bytes( self->pubkeys+i, &validators[i].bls_key ) );
     self->total_stake += validators[i].stake;
   }
   self->validator_cnt = validator_cnt;
+  ag_bls_pub_cache_init( &self->pubkey_cache, self->pubkeys, validator_cnt );
 }
 
 FD_FN_CONST static int
@@ -125,10 +126,11 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
     fd_memcpy( vi->id_key,   stakes[src].id_key.uc,   sizeof(ag_id_key_t)   );
     fd_memcpy( vi->vote_key, stakes[src].vote_key.uc, sizeof(ag_vote_key_t) );
     vi->bls_key            = rank[r].pk;
-    epoch_info->pubkeys[r] = rank[r].pk;
+    FD_TEST( !ag_bls_pub_native_from_bytes( epoch_info->pubkeys+r, &rank[r].pk ) );
     total += vi->stake;
   }
   epoch_info->validator_cnt = k;
   epoch_info->total_stake   = total;
+  ag_bls_pub_cache_init( &epoch_info->pubkey_cache, epoch_info->pubkeys, k );
   return mem;
 }

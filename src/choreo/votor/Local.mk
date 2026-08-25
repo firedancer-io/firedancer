@@ -4,6 +4,7 @@ $(call add-hdrs,ag_votor_base.h ag_bls.h ag_bls_serde.h ag_vote.h ag_vote_serde.
 $(call add-objs,ag_bls ag_bls_serde ag_vote ag_vote_serde ag_epoch_info ag_cert ag_cert_serde ag_pool ag_slot_state ag_finality_tracker ag_parent_ready_tracker ag_votor,fd_choreo)
 
 ifdef FD_HAS_HOSTED
+$(call make-bin,bench_ag_cert,bench_ag_cert,fd_choreo fd_ballet fd_util)
 $(call make-unit-test,test_ag_votor_base,test_ag_votor_base,fd_util)
 $(call make-unit-test,test_ag_bls,test_ag_bls,fd_choreo fd_ballet fd_util)
 $(call make-unit-test,test_ag_vote,test_ag_vote,fd_choreo fd_ballet fd_util)

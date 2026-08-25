@@ -106,6 +106,7 @@ struct fd_votor_tile {
   ushort            next_epoch_rank;
   ag_pool_t *       pool;
   ag_votor_t *      votor;
+  ag_bls_hash_cache_t hash_cache;
   replayed_t *      replayed;
   ag_block_id_t *   rooted;
   publish_t *       publishes;
@@ -310,7 +311,8 @@ quic_datagram_rx( fd_quic_conn_t * conn,
     ushort signer = peer_rank( conn, epoch_info );
     if( FD_UNLIKELY( signer>=epoch_info->validator_cnt ) ) return; /* not an authenticated validator this epoch */
     ag_vote_set_signer( &ctx->scratch.vote, signer );
-    // if( FD_UNLIKELY( !ag_vote_check_sig( &ctx->scratch.vote, &epoch_info->validators[ signer ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
+    if( FD_UNLIKELY( !ag_vote_check_sig_hash_cached( &ctx->scratch.vote, &epoch_info->validators[ signer ].bls_key,
+                                                     ctx->shred_version, &ctx->hash_cache ) ) ) return;
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
     return;
   }
@@ -323,7 +325,8 @@ quic_datagram_rx( fd_quic_conn_t * conn,
     if( FD_UNLIKELY( ag_cert_de( &ctx->scratch.cert, ctx->shred_version, data, data_sz, NULL ) ) ) return;
     ag_epoch_info_t const * epoch_info = fd_ptr_if( ag_cert_slot( &ctx->scratch.cert )>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
     if( FD_UNLIKELY( !epoch_info ) ) return;
-    // if( FD_UNLIKELY( !ag_cert_verify( &ctx->scratch.cert, epoch_info, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive, 35x duplicate certs each cost a pairing */
+    if( FD_UNLIKELY( !ag_cert_verify_hash_cached( &ctx->scratch.cert, epoch_info, ctx->shred_version,
+                                                  &ctx->hash_cache ) ) ) return;
     ag_pool_add_cert( ctx->pool, &ctx->scratch.cert );
     return;
   }
@@ -589,6 +592,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->shred_version = (ushort)0;
+  ag_bls_hash_cache_init( &ctx->hash_cache );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
 

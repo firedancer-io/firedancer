@@ -19,6 +19,11 @@ test_basic( void ) {
   FD_TEST( ag_vote_block_hash( &v ) && !memcmp( ag_vote_block_hash(&v), h, sizeof(ag_block_hash_t) ) );
   FD_TEST( ag_vote_check_sig( &v, &pk, TEST_SHRED_VERSION ) );
   FD_TEST( !ag_vote_check_sig( &v, &pk, (ushort)(TEST_SHRED_VERSION+1) ) );
+  ag_bls_hash_cache_t hash_cache[1];
+  ag_bls_hash_cache_init( hash_cache );
+  FD_TEST( ag_vote_check_sig_hash_cached( &v, &pk, TEST_SHRED_VERSION, hash_cache ) );
+  FD_TEST( ag_vote_check_sig_hash_cached( &v, &pk, TEST_SHRED_VERSION, hash_cache ) );
+  FD_TEST( !ag_vote_check_sig_hash_cached( &v, &pk, (ushort)(TEST_SHRED_VERSION+1), hash_cache ) );
 
   ag_vote_new_notar_fallback( &v, 1UL, h, sk, 2UL, TEST_SHRED_VERSION );
   FD_TEST( v.kind==AG_VOTE_KIND_NOTAR_FALLBACK );

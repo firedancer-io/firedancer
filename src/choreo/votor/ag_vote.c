@@ -41,6 +41,19 @@ verify_payload( ag_bls_sig_t const    sig,
   return ag_bls_sig_verify( sig, pk, buf, sz );
 }
 
+static int
+verify_payload_hash_cached( ag_bls_sig_t const    sig,
+                            uint                  kind,
+                            ulong                 slot,
+                            ag_block_hash_t const h,
+                            ag_bls_pub_t const *  pk,
+                            ushort                shred_version,
+                            ag_bls_hash_cache_t * hash_cache ) {
+  uchar buf[ AG_VOTE_PAYLOAD_MAX ];
+  ulong sz = ag_vote_payload_bytes_to_sign( buf, kind, slot, h, shred_version );
+  return ag_bls_sig_verify_hash_cached( sig, pk, buf, sz, hash_cache );
+}
+
 void
 ag_notar_vote_new( ag_notar_vote_t *     out,
                    ulong                 slot,
@@ -232,5 +245,30 @@ ag_vote_check_sig( ag_vote_t const *    self,
   case AG_VOTE_KIND_SKIP:           return ag_skip_vote_check_sig          ( &self->inner.skip,           pk, shred_version );
   case AG_VOTE_KIND_SKIP_FALLBACK:  return ag_skip_fallback_vote_check_sig ( &self->inner.skip_fallback,  pk, shred_version );
   default:                          return ag_final_vote_check_sig         ( &self->inner.final,          pk, shred_version );
+  }
+}
+
+int
+ag_vote_check_sig_hash_cached( ag_vote_t const *    self,
+                               ag_bls_pub_t const * pk,
+                               ushort               shred_version,
+                               ag_bls_hash_cache_t * hash_cache ) {
+  switch( self->kind ) {
+  case AG_VOTE_KIND_NOTAR:
+    return verify_payload_hash_cached( self->inner.notar.sig, AG_VOTE_KIND_NOTAR, self->inner.notar.slot,
+                                       self->inner.notar.block_hash, pk, shred_version, hash_cache );
+  case AG_VOTE_KIND_NOTAR_FALLBACK:
+    return verify_payload_hash_cached( self->inner.notar_fallback.sig, AG_VOTE_KIND_NOTAR_FALLBACK,
+                                       self->inner.notar_fallback.slot, self->inner.notar_fallback.block_hash,
+                                       pk, shred_version, hash_cache );
+  case AG_VOTE_KIND_SKIP:
+    return verify_payload_hash_cached( self->inner.skip.sig, AG_VOTE_KIND_SKIP, self->inner.skip.slot,
+                                       NULL, pk, shred_version, hash_cache );
+  case AG_VOTE_KIND_SKIP_FALLBACK:
+    return verify_payload_hash_cached( self->inner.skip_fallback.sig, AG_VOTE_KIND_SKIP_FALLBACK,
+                                       self->inner.skip_fallback.slot, NULL, pk, shred_version, hash_cache );
+  default:
+    return verify_payload_hash_cached( self->inner.final.sig, AG_VOTE_KIND_FINAL, self->inner.final.slot,
+                                       NULL, pk, shred_version, hash_cache );
   }
 }

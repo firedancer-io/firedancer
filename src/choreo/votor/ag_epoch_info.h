@@ -18,7 +18,8 @@ struct ag_epoch_info {
   ulong               validator_cnt;
   ulong               total_stake;
   ag_validator_info_t validators[ AG_VAT_MAX ]; /* indexed by rank; validator_cnt live */
-  ag_bls_pub_t        pubkeys[ AG_VAT_MAX ]; /* validated keys, indexed by rank */
+  ag_bls_pub_native_t pubkeys[ AG_VAT_MAX ]; /* validated host-native keys, indexed by rank */
+  ag_bls_pub_cache_t  pubkey_cache; /* native block and total sums; derived once per epoch */
 };
 typedef struct ag_epoch_info ag_epoch_info_t;
 

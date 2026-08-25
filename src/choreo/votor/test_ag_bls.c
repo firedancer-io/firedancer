@@ -203,6 +203,64 @@ test_derive( void ) {
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
 
+/* Native epoch cache: exercise the total fast path, complement aggregation,
+   a full first 64-key word plus a partial tail, and sparse direct summation. */
+
+static void
+test_native_cache( void ) {
+  uchar const msg[] = "native aggregation cache";
+  ulong const N = 80UL;
+  ag_bls_pub_t        pk    [80];
+  ag_bls_pub_native_t native[80];
+  ag_bls_sig_t        sig   [80];
+  for( ulong i=0UL; i<N; i++ ) {
+    ag_bls_sec_t sk;
+    fd_memset( sk, 0, sizeof(sk) );
+    sk[0] = (uchar)(i+1UL);
+    ag_bls_sec_to_pub( sk, pk+i );
+    ag_bls_sec_sign( sk, sig[i], msg, sizeof(msg)-1UL );
+    FD_TEST( !ag_bls_pub_native_from_bytes( native+i, pk+i ) );
+  }
+
+  ag_bls_pub_cache_t cache[1];
+  ag_bls_pub_cache_init( cache, native, N );
+
+  ag_bls_agg_t all[1];
+  ag_bls_agg_zero( all );
+  for( ulong i=0UL; i<N; i++ ) ag_bls_agg_add( all, i, sig[i] );
+  FD_TEST( ag_bls_agg_verify_native       ( all, msg, sizeof(msg)-1UL, native, N ) );
+  FD_TEST( ag_bls_agg_verify_native_cached( all, msg, sizeof(msg)-1UL, native, cache, N ) );
+
+  ag_bls_hash_cache_t hash_cache[1];
+  ag_bls_hash_cache_init( hash_cache );
+  FD_TEST( ag_bls_sig_verify_hash_cached( sig[0], pk, msg, sizeof(msg)-1UL, hash_cache ) );
+  FD_TEST( ag_bls_sig_verify_hash_cached( sig[0], pk, msg, sizeof(msg)-1UL, hash_cache ) ); /* hit */
+  uchar wrong_msg[ sizeof(msg)-1UL ];
+  fd_memcpy( wrong_msg, msg, sizeof(wrong_msg) );
+  wrong_msg[0] ^= (uchar)1;
+  FD_TEST( !ag_bls_sig_verify_hash_cached( sig[0], pk, wrong_msg, sizeof(wrong_msg), hash_cache ) );
+  FD_TEST( ag_bls_agg_verify_native_hash_cached( all, msg, sizeof(msg)-1UL, native, cache, N, hash_cache ) );
+
+  ag_bls_agg_t dense[1];
+  ag_bls_agg_zero( dense );
+  for( ulong i=0UL; i<N; i++ )
+    if( i!=1UL && i!=66UL && i!=79UL ) ag_bls_agg_add( dense, i, sig[i] );
+  FD_TEST( ag_bls_agg_verify_native       ( dense, msg, sizeof(msg)-1UL, native, N ) );
+  FD_TEST( ag_bls_agg_verify_native_cached( dense, msg, sizeof(msg)-1UL, native, cache, N ) );
+
+  ulong const sparse_idx[4] = { 0UL, 63UL, 64UL, 79UL };
+  ag_bls_agg_t sparse[1];
+  ag_bls_agg_zero( sparse );
+  for( ulong i=0UL; i<4UL; i++ ) ag_bls_agg_add( sparse, sparse_idx[i], sig[sparse_idx[i]] );
+  FD_TEST( ag_bls_agg_verify_native       ( sparse, msg, sizeof(msg)-1UL, native, N ) );
+  FD_TEST( ag_bls_agg_verify_native_cached( sparse, msg, sizeof(msg)-1UL, native, cache, N ) );
+
+  ag_bls_agg_t bad = *dense;
+  signer_set_remove( bad.bitmask, 5UL );
+  FD_TEST( !ag_bls_agg_verify_native_cached( &bad, msg, sizeof(msg)-1UL, native, cache, N ) );
+  FD_TEST( !ag_bls_agg_verify_native_cached( all, msg, sizeof(msg)-1UL, native, cache, N-1UL ) );
+}
+
 /* src/crypto/aggsig.rs::verify_without_bitmask, ::signers, PublicKey::try_from_bytes */
 
 static void
@@ -293,6 +351,7 @@ main( int     argc,
   test_serde();
   test_roundtrip();
   test_derive();
+  test_native_cache();
   test_ref_api();
 
   FD_LOG_NOTICE(( "pass" ));

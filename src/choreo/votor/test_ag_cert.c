@@ -103,7 +103,13 @@ cert_is_signer( ag_cert_t const * c,
 static int
 cert_verify( ag_cert_t const *       c,
              ag_epoch_info_t const * epoch_info ) {
-  return ag_cert_verify( c, epoch_info, TEST_SHRED_VERSION );
+  ag_bls_hash_cache_t hash_cache[1];
+  ag_bls_hash_cache_init( hash_cache );
+  int cold  = ag_cert_verify( c, epoch_info, TEST_SHRED_VERSION );
+  int first = ag_cert_verify_hash_cached( c, epoch_info, TEST_SHRED_VERSION, hash_cache );
+  int hit   = ag_cert_verify_hash_cached( c, epoch_info, TEST_SHRED_VERSION, hash_cache );
+  FD_TEST( cold==first && first==hit );
+  return cold;
 }
 
 static void

@@ -107,6 +107,16 @@ ag_cert_verify( ag_cert_t const *       cert,
                 ag_epoch_info_t const * epoch_info,
                 ushort                  shred_version );
 
+/* ag_cert_verify_hash_cached is equivalent to ag_cert_verify but reuses
+   hash-to-G2 results in a caller-owned cache.  The cache is derived state;
+   initialize it once with ag_bls_hash_cache_init and never serialize it. */
+
+int
+ag_cert_verify_hash_cached( ag_cert_t const *       cert,
+                            ag_epoch_info_t const * epoch_info,
+                            ushort                  shred_version,
+                            ag_bls_hash_cache_t *   hash_cache );
+
 /* Misc helpers. */
 
 FD_FN_PURE static inline ulong
