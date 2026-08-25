@@ -1432,14 +1432,6 @@ fd_http_server_ws_send( fd_http_server_t * http,
   int compressed = conn->compress_websocket;
   if( FD_LIKELY( compressed ) ) compressed = fd_http_ws_compress_maybe( http );
 
-
-  if( FD_UNLIKELY( http->stage_err ) ) {
-    http->stage_err = 0;
-    http->stage_len = 0;
-    http->stage_comp_len = 0;
-    return -1;
-  }
-
   /* It is possible that ws_conn_id has already been closed by
      fd_http_server_reserve during staging.  If the staging buffer is
      full, the incoming frame is added to the beginning of the buffer,
@@ -1447,9 +1439,17 @@ fd_http_server_ws_send( fd_http_server_t * http,
      are closed.  There is a small chance that ws_conn_id is one of
      those connections, and has therefore already been closed. */
   if( FD_LIKELY( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 ) ) {
+    http->stage_err = 0;
     http->stage_len = 0;
     http->stage_comp_len = 0;
     return 0;
+  }
+
+  if( FD_UNLIKELY( http->stage_err ) ) {
+    http->stage_err = 0;
+    http->stage_len = 0;
+    http->stage_comp_len = 0;
+    return -1;
   }
 
   if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
