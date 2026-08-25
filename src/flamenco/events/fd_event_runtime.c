@@ -60,16 +60,14 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.tips            = txn_out->details.tips;
   ev.signature_count = txn_out->details.signature_count;
 
-  /* Cost-tracker (non-vote only) */
-  if( txn_out->details.txn_cost.type==FD_TXN_COST_TYPE_TRANSACTION ) {
-    fd_usage_cost_details_t const * c = &txn_out->details.txn_cost.transaction;
-    ev.cost_signature                    = c->signature_cost;
-    ev.cost_write_lock                   = c->write_lock_cost;
-    ev.cost_data_bytes                   = c->data_bytes_cost;
-    ev.cost_programs_execution           = c->programs_execution_cost;
-    ev.cost_loaded_accounts_data_size    = c->loaded_accounts_data_size_cost;
-    ev.cost_allocated_accounts_data_size = c->allocated_accounts_data_size;
-  }
+  /* Cost tracker */
+  fd_usage_cost_details_t const * c = &txn_out->details.txn_cost.transaction;
+  ev.cost_signature                    = c->signature_cost;
+  ev.cost_write_lock                   = c->write_lock_cost;
+  ev.cost_data_bytes                   = c->data_bytes_cost;
+  ev.cost_programs_execution           = c->programs_execution_cost;
+  ev.cost_loaded_accounts_data_size    = c->loaded_accounts_data_size_cost;
+  ev.cost_allocated_accounts_data_size = c->allocated_accounts_data_size;
 
   /* account_diffs: walk per-txn writable accounts, compare prior vs current */
   ulong diff_cnt = 0UL;

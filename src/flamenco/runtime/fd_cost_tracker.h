@@ -13,64 +13,33 @@
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */
 
-#define FD_WRITE_LOCK_UNITS       (      300U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20 */
-#define FD_MAX_VOTE_UNITS         ( 36000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38 */
-#define FD_SIMPLE_VOTE_USAGE_COST (     3428U) /* https://github.com/anza-xyz/agave/blob/v3.1.8/cost-model/src/transaction_cost.rs#L21 */
+#define FD_WRITE_LOCK_UNITS (300U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20 */
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L18-L33 */
 #define FD_COST_TRACKER_SUCCESS                                     (0)
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT          (1)
-#define FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT           (2)
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT        (3)
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT (4)
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT (5)
 
-/* A reasonably tight bound of the number of writable accounts per slot
-   can be derived from worst-case CU limits.  For the cost tracker,
-   there are two main codepaths:
-   - Simple vote transactions: legacy transactions that invoke the vote
-     program.  These can have unused writable accounts.
-   - Everything else: these transactions are charged based on CUs per
-     signature and write lock.
+/* Bound the number of distinct writable accounts that can enter the
+   cost tracker in a 100M CU block.  A transaction with w writable
+   accounts costs at least 720+300*w CUs and carries at most 64 writable
+   accounts.  Thus W writables need at least ceil(W/64) transactions:
 
-   For the simple vote transactions, the worst-case transaction has 35
-   writable accounts.  These transactions can not use ALTs and are
-   subject to fitting within the transaction size limit (1232B).
+     300*W + 720*ceil(W/64) <= 100000000
 
-   36000000 vote CUs per slot
-   3428 CUs per simple vote transaction
-   35 writable accounts per simple vote transaction
-   Therefore, the number of simple vote transactions per slot is:
-   (36000000 / 3428) = 10501 vote txns per slot
-   Therefore, the number of writable accounts per slot is:
-   (10501 * 35) = 367535 writable accounts per slot
+   The largest solution is 321282: 5020 full 64-account transactions
+   plus one 2-account transaction cost 99999720 CUs.  A 321283rd
+   writable would cost 100000020 CUs. */
 
-   Now consider the general case.  This means we should try to pack as
-   many writable accounts as possible into each transaction.  Each
-   transaction requires at least one signature.  We will assume that all
-   of these accounts have no account data.
-
-   64 - Max number of accounts per transaction.  In this case we will
-   assume that all of these accounts are writable and have no data.
-   100000000 - CUs per slot
-   720 - Cost of a signature
-   300 - Cost of a writable account write lock
-
-   We can have (100000000 / (720 + 64 * 300)) = 5020 transactions per
-   slot with maximum writable account utilization.
-
-   So, 5020 transactions per slot * 64 accounts per transaction =
-   321280 writable accounts per slot.
-
-   We should use the bound derived from simple vote transactions.
-
-   TODO: After remove_simple_vote_from_cost_model is activated, the
-   smaller bound can be used. */
-
-#define FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT               (FD_MAX_VOTE_UNITS / FD_SIMPLE_VOTE_USAGE_COST)
-#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS (35UL) /* see FD_TXN_ACCT_ADDR_MAX */
-#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT      (FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS)
-FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrect FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT" );
+#define FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT (321282UL)
+FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT +
+                  FD_PACK_COST_PER_SIGNATURE*((FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT+63UL)/64UL)<=100000000UL,
+                  max_writable_accounts_per_slot_fits );
+FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*(FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT+1UL) +
+                  FD_PACK_COST_PER_SIGNATURE*((FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT+64UL)/64UL)>100000000UL,
+                  max_writable_accounts_per_slot_is_tight );
 
 /* TODO: Extremely gross.  Used because these are in a pool which needs
    to be compile time sized T. */
@@ -85,7 +54,7 @@ FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrec
       128UL /* alignof(fd_cost_tracker_t) */,  128UL /* sizeof(fd_cost_tracker_t) */          ),    \
       128UL /* alignof(cost_tracker_out_t )*/, 128UL /* sizeof(cost_tracker_out_t ) */        ),    \
       8UL   /* alignof(account_cost_map_t) */, FD_COST_TRACKER_CHAIN_CNT_EST*4UL /*sizeof(uint)*/ +24UL /* sizeof(account_cost_map_t) */ ), \
-      4UL   /* alignof(account_cost_t) */,     FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT*40UL /*sizeof(account_cost_t)*/ ), \
+      4UL   /* alignof(account_cost_t) */,     FD_COST_TRACKER_MAX_WRITABLE_ACCOUNTS_PER_SLOT*40UL /*sizeof(account_cost_t)*/ ), \
       128UL ) )                                               \
 
 #define FD_COST_TRACKER_MAGIC (0xF17EDA2CE7C05170UL) /* FIREDANCER COST V0 */
@@ -94,16 +63,13 @@ FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrec
 
 struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
   ulong block_cost;
-  ulong vote_cost;
   ulong allocated_accounts_data_size;
 
   ulong block_cost_limit;
-  ulong vote_cost_limit;
   ulong account_cost_limit;
   ulong data_size_limit;
 
   int larger_max_cost_per_block;
-  int remove_simple_vote_from_cost_model;
 };
 
 typedef struct fd_cost_tracker fd_cost_tracker_t;
@@ -120,19 +86,11 @@ struct fd_usage_cost_details {
 };
 typedef struct fd_usage_cost_details fd_usage_cost_details_t;
 
-/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L20-L23 */
-
 struct fd_transaction_cost {
-  uint type; /* FD_TXN_COST_TYPE_* */
-  union {
-    fd_usage_cost_details_t transaction;
-  };
+  fd_usage_cost_details_t transaction;
 };
 
 typedef struct fd_transaction_cost fd_transaction_cost_t;
-
-#define FD_TXN_COST_TYPE_SIMPLE_VOTE 0U
-#define FD_TXN_COST_TYPE_TRANSACTION 1U
 
 FD_PROTOTYPES_BEGIN
 
@@ -143,8 +101,6 @@ fd_cost_tracker_err_to_runtime_err( int err ) {
       return FD_RUNTIME_EXECUTE_SUCCESS;
     case FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT:
       return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT;
-    case FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT:
-      return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_VOTE_COST_LIMIT;
     case FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT:
       return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT;
     case FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT:

@@ -382,11 +382,11 @@ handle_microblock( fd_execle_tile_t *  ctx,
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
       FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
-                    "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
-                    "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
-                    signature_b58, err, cost_tracker->block_cost, cost_tracker->vote_cost,
+                    "(res=%d) [block_cost=%lu, allocated_accounts_data_size=%lu, "
+                    "block_cost_limit=%lu, account_cost_limit=%lu]",
+                    signature_b58, err, cost_tracker->block_cost,
                     cost_tracker->allocated_accounts_data_size,
-                    cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
+                    cost_tracker->block_cost_limit,
                     cost_tracker->account_cost_limit ));
     }
 
@@ -403,24 +403,14 @@ handle_microblock( fd_execle_tile_t *  ctx,
       fd_cost_tracker_t const * _ct = fd_bank_cost_tracker_query( bank );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would fit "
-                   "[is_simple_vote=%i, is_fees_only=%i, block_cost=%lu, vote_cost=%lu, block_cost_limit=%lu, "
-                   "vote_cost_limit=%lu, account_cost_limit=%lu]",
+                   "[is_simple_vote=%i, is_fees_only=%i, block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",
                    _signature_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus,
                    fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ),
-                   txn_out->err.is_fees_only, _ct->block_cost, _ct->vote_cost, _ct->block_cost_limit,
-                   _ct->vote_cost_limit, _ct->account_cost_limit ));
+                   txn_out->err.is_fees_only, _ct->block_cost, _ct->block_cost_limit, _ct->account_cost_limit ));
     }
 
-    int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
-    if( FD_UNLIKELY( is_simple_vote && !FD_FEATURE_ACTIVE_BANK( bank, remove_simple_vote_from_cost_model ) ) ) {
-      /* TODO: remove this once remove_simple_vote_from_cost_model is
-         activated */
-      txn->execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
-      txn->execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
-    } else {
-      txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
-      txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
-    }
+    txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
+    txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
     /* Use ALT accounts copied in during_frag for rebates.
        These were resolved by resolv_tile and are needed because the LUT
@@ -560,14 +550,11 @@ handle_bundle( fd_execle_tile_t *  ctx,
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
         FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
-                      "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
-                      "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu, "
-                      "remove_simple_vote_from_cost_model=%i]",
-                      signature_b58, err, cost_tracker->block_cost, cost_tracker->vote_cost,
+                      "(res=%d) [block_cost=%lu, allocated_accounts_data_size=%lu, "
+                      "block_cost_limit=%lu, account_cost_limit=%lu]",
+                      signature_b58, err, cost_tracker->block_cost,
                       cost_tracker->allocated_accounts_data_size,
-                      cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
-                      cost_tracker->account_cost_limit,
-                      cost_tracker->remove_simple_vote_from_cost_model ));
+                      cost_tracker->block_cost_limit, cost_tracker->account_cost_limit ));
       }
 
       uint actual_execution_cus              = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
@@ -575,27 +562,17 @@ handle_bundle( fd_execle_tile_t *  ctx,
       uint non_execution_cus                 = txns[ i ].pack_cu.non_execution_cus;
       uint requested_exec_plus_acct_data_cus = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
 
-      int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload );
-      if( FD_UNLIKELY( is_simple_vote && !FD_FEATURE_ACTIVE_BANK( bank, remove_simple_vote_from_cost_model ) ) ) {
-        /* TODO: remove this once remove_simple_vote_from_cost_model is
-           activated */
-        txns[ i ].execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
-        txns[ i ].execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
-      } else {
-        if( FD_UNLIKELY( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
-          FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
-          fd_cost_tracker_t const * _ct = fd_bank_cost_tracker_query( bank );
-          FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
-          FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would "
-                       "fit [block_cost=%lu, vote_cost=%lu, block_cost_limit=%lu, vote_cost_limit=%lu,"
-                       "account_cost_limit=%lu]",
-                       signature_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus,
-                       _ct->block_cost, _ct->vote_cost, _ct->block_cost_limit, _ct->vote_cost_limit,
-                       _ct->account_cost_limit ));
-        }
-        txns[ i ].execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
-        txns[ i ].execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+      if( FD_UNLIKELY( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
+        FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
+        fd_cost_tracker_t const * _ct = fd_bank_cost_tracker_query( bank );
+        FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
+        FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would "
+                     "fit [block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",
+                     signature_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus,
+                     _ct->block_cost, _ct->block_cost_limit, _ct->account_cost_limit ));
       }
+      txns[ i ].execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
+      txns[ i ].execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
       txns[ i ].flags                        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       tips[ i ]                               = txn_out->details.tips;

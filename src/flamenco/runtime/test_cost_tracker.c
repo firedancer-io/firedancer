@@ -16,7 +16,6 @@ test_cost_tracker_init_reconciliation( fd_cost_tracker_t * ct ) {
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
   FD_TEST( ct->block_cost_limit  ==60000000UL  );
   FD_TEST( ct->account_cost_limit==24000000UL  );
-  FD_TEST( ct->vote_cost_limit   ==36000000UL  );
   FD_TEST( ct->data_size_limit   ==100000000UL );
 
   /* 400ms + raise_block_limits_to_100m: table scaled by 100/60 ->

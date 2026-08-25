@@ -359,7 +359,6 @@ cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
       slot_info->cost_tracker.block_cost                   = cost_tracker->block_cost;
       slot_info->cost_tracker.allocated_accounts_data_size = cost_tracker->allocated_accounts_data_size;
       slot_info->cost_tracker.block_cost_limit             = cost_tracker->block_cost_limit;
-      slot_info->cost_tracker.vote_cost_limit              = cost_tracker->vote_cost_limit;
       slot_info->cost_tracker.account_cost_limit           = cost_tracker->account_cost_limit;
     }
   } else {
@@ -487,7 +486,6 @@ block_completed_event_fill_bank( fd_replay_tile_t *           ctx,
     ev->cost_tracker_block_cost                   = ct->block_cost;
     ev->cost_tracker_allocated_accounts_data_size = ct->allocated_accounts_data_size;
     ev->cost_tracker_block_cost_limit             = ct->block_cost_limit;
-    ev->cost_tracker_vote_cost_limit              = ct->vote_cost_limit;
     ev->cost_tracker_account_cost_limit           = ct->account_cost_limit;
   }
 
@@ -581,7 +579,6 @@ report_block_completed( fd_replay_tile_t *                 ctx,
     ev->cost_tracker_block_cost                   = slot_info->cost_tracker.block_cost;
     ev->cost_tracker_allocated_accounts_data_size = slot_info->cost_tracker.allocated_accounts_data_size;
     ev->cost_tracker_block_cost_limit             = slot_info->cost_tracker.block_cost_limit;
-    ev->cost_tracker_vote_cost_limit              = slot_info->cost_tracker.vote_cost_limit;
     ev->cost_tracker_account_cost_limit           = slot_info->cost_tracker.account_cost_limit;
   }
   ev->cost_tracker_pool_idx = slot_info->cost_tracker.pool_idx;
@@ -1443,7 +1440,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
 
   msg->limits.slot_max_cost                     = ctx->larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : cost_tracker->block_cost_limit;
-  msg->limits.slot_max_vote_cost                = cost_tracker->vote_cost_limit;
+  msg->limits.slot_max_vote_cost                = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND;
   msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
   msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
   msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
