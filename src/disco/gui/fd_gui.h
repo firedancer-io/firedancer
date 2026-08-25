@@ -734,6 +734,7 @@ struct fd_gui_summary {
   char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
   int          is_full_client;
+  int          is_alpenglow;
   char const * version;
   char const * cluster;
   char         accounts_database_path[ PATH_MAX ];
@@ -770,6 +771,7 @@ struct fd_gui_summary {
   ulong shred_tile_cnt;
 
   ulong slot_rooted;
+  ulong slot_finalized;
   ulong slot_optimistically_confirmed;
   ulong slot_estimated;
   ulong slot_caught_up;
@@ -779,6 +781,7 @@ struct fd_gui_summary {
   ulong slot_storage;
   ulong slot_tower;
   ulong slot_tower_bank_seq; /* tracks canonical fork frontier */
+  ulong slot_voted;
   ulong active_fork_cnt;
 
   struct {
@@ -966,6 +969,7 @@ fd_gui_new( void *                   shmem,
             int                      has_vote_key,
             uchar const *            vote_key,
             int                      is_full_client,
+            int                      is_alpenglow,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,
@@ -1138,6 +1142,10 @@ fd_gui_handle_oc_advanced( fd_gui_t * gui,
                            ulong      slot,
                            ulong      bank_seq,
                            long       now );
+
+void
+fd_gui_handle_finalized_slot( fd_gui_t * gui,
+                              ulong      slot );
 
 /* fd_gui_slot_get_canon_safe resolves slot number `_slot` on the
    canonical fork and returns a renderable record. */

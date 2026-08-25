@@ -159,6 +159,15 @@ struct fd_votor_tile {
   ulong  votor_out_wmark;
   ulong  votor_out_chunk;
 
+  ulong  votor_notif_out_idx; /* ULONG_MAX when the GUI is disabled */
+  void * votor_notif_out_mem;
+  ulong  votor_notif_out_chunk0;
+  ulong  votor_notif_out_wmark;
+  ulong  votor_notif_out_chunk;
+
+  ulong finalized_slot;
+  int   finalized_slot_pending;
+
   fd_stem_context_t * stem;
 
   /* Scratch */
@@ -178,6 +187,17 @@ struct fd_votor_tile {
   } scratch;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
+
+static inline void
+stage_finalized_slot( fd_votor_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->votor_notif_out_idx==ULONG_MAX || ctx->rooted_block_id.slot==ULONG_MAX ) ) return;
+
+  ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
+  if( FD_LIKELY( ctx->finalized_slot!=ULONG_MAX && finalized_slot<=ctx->finalized_slot ) ) return;
+
+  ctx->finalized_slot         = finalized_slot;
+  ctx->finalized_slot_pending = 1;
+}
 
 static void
 index_id_to_rank( id_to_rank_t *          id_to_rank,
@@ -426,6 +446,17 @@ after_credit( fd_votor_tile_t *   ctx,
     return;
   }
 
+  if( FD_UNLIKELY( ctx->finalized_slot_pending ) ) {
+    fd_votor_notif_t * notif = fd_chunk_to_laddr( ctx->votor_notif_out_mem, ctx->votor_notif_out_chunk );
+    notif->finalized_slot = ctx->finalized_slot;
+    fd_stem_publish( stem, ctx->votor_notif_out_idx, FD_VOTOR_NOTIF_FINALIZED_SLOT, ctx->votor_notif_out_chunk, sizeof(fd_votor_notif_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->votor_notif_out_chunk = fd_dcache_compact_next( ctx->votor_notif_out_chunk, sizeof(fd_votor_notif_t), ctx->votor_notif_out_chunk0, ctx->votor_notif_out_wmark );
+    ctx->finalized_slot_pending = 0;
+    *opt_poll_in                 = 0;
+    *charge_busy                 = 1;
+    return;
+  }
+
   ctx->stem = stem;
 
   long now     = fd_log_wallclock();
@@ -492,6 +523,8 @@ after_credit( fd_votor_tile_t *   ctx,
     }
     *charge_busy = 1;
   }
+
+  stage_finalized_slot( ctx );
 }
 
 static int
@@ -666,6 +699,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->id_to_rank = id_to_rank_join( id_to_rank_new( id_to_rank ) );
   FD_TEST( ctx->id_to_rank );
 
+  ctx->finalized_slot         = ULONG_MAX;
+  ctx->finalized_slot_pending = 0;
+
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -701,6 +737,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
+
+  ctx->votor_notif_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_notif", 0UL );
+  if( FD_LIKELY( ctx->votor_notif_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * votor_notif_out = &topo->links[ tile->out_link_id[ ctx->votor_notif_out_idx ] ];
+    ctx->votor_notif_out_mem    = topo->workspaces[ topo->objs[ votor_notif_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->votor_notif_out_chunk0 = fd_dcache_compact_chunk0( ctx->votor_notif_out_mem, votor_notif_out->dcache );
+    ctx->votor_notif_out_wmark  = fd_dcache_compact_wmark ( ctx->votor_notif_out_mem, votor_notif_out->dcache, votor_notif_out->mtu );
+    ctx->votor_notif_out_chunk  = ctx->votor_notif_out_chunk0;
+  }
 
   ctx->quic = fd_quic_join( fd_quic_new( quic, &quic_limits ) );
   FD_TEST( ctx->quic );

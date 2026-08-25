@@ -195,6 +195,13 @@ fd_gui_printf_version( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_is_alpenglow( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui->http, "summary", "is_alpenglow" );
+    jsonp_bool( gui->http, "value", gui->summary.is_alpenglow );
+  jsonp_close_envelope( gui->http );
+}
+
+void
 fd_gui_printf_cluster( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "cluster" );
     jsonp_string( gui->http, "value", gui->summary.cluster );
@@ -258,6 +265,14 @@ fd_gui_peers_printf_vote_slot( fd_gui_peers_ctx_t * peers ) {
     if( FD_LIKELY( peers->slot_voted!=ULONG_MAX  ) ) jsonp_ulong( peers->http, "value", peers->slot_voted );
     else                                             jsonp_null ( peers->http, "value" );
   jsonp_close_envelope( peers->http );
+}
+
+void
+fd_gui_printf_vote_slot( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui->http, "summary", "vote_slot" );
+    if( FD_LIKELY( gui->summary.slot_voted!=ULONG_MAX ) ) jsonp_ulong( gui->http, "value", gui->summary.slot_voted );
+    else                                                  jsonp_null ( gui->http, "value" );
+  jsonp_close_envelope( gui->http );
 }
 
 void
@@ -634,6 +649,14 @@ void
 fd_gui_printf_root_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "root_slot" );
     jsonp_ulong( gui->http, "value", fd_ulong_if( gui->summary.slot_rooted!=ULONG_MAX, gui->summary.slot_rooted, 0UL ) );
+  jsonp_close_envelope( gui->http );
+}
+
+void
+fd_gui_printf_finalized_slot( fd_gui_t * gui ) {
+  FD_TEST( gui->summary.slot_finalized!=ULONG_MAX );
+  jsonp_open_envelope( gui->http, "summary", "finalized_slot" );
+    jsonp_ulong( gui->http, "value", gui->summary.slot_finalized );
   jsonp_close_envelope( gui->http );
 }
 

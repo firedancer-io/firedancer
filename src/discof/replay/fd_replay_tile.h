@@ -137,6 +137,7 @@ struct fd_replay_slot_completed {
 
   int is_leader; /* whether we were leader for this slot */
   ulong identity_balance;
+  ulong vote_slot; /* Alpenglow: latest target slot in the fork-local vote account (ULONG_MAX if unknown) */
 
   /* since slot start, default ULONG_MAX */
   ulong vote_success;

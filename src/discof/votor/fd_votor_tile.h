@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_votor_fd_votor_tile_h
 
 #include "fd_votor_rooted.h"
+#include "fd_votor_notif.h"
 #include "../../disco/topo/fd_topo.h"
 
 #define FD_VOTOR_SIG_REPAIR_BLOCK_ID (1)

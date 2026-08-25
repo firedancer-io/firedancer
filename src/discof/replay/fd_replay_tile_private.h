@@ -459,6 +459,8 @@ struct fd_replay_tile {
   fd_pubkey_t      identity_pubkey[1];
   ulong            identity_idx;
   int              identity_dirty;
+  int              has_vote_account;
+  fd_pubkey_t      vote_account[1];
 
   fd_node_info_box_t * node_info; /* shared */
 

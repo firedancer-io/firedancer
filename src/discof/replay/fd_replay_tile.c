@@ -635,6 +635,49 @@ report_block_completed( fd_replay_tile_t *                 ctx,
   fd_event_report_block_completed( ev );
 }
 
+/* Alpenglow rewards update the vote account in the replay bank.  Read
+   that fork-local state after block execution so the GUI does not infer
+   participation from transaction traffic. */
+
+static ulong
+alpenglow_vote_slot( fd_replay_tile_t * ctx,
+                     fd_bank_t const *  bank ) {
+  if( FD_LIKELY( !ctx->is_alpenglow || !ctx->has_vote_account ) ) return ULONG_MAX;
+
+  ulong    vote_slot = ULONG_MAX;
+  fd_acc_t acc       = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
+  if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) goto done;
+
+  fd_vote_state_versioned_t vote_state[1];
+  if( FD_UNLIKELY( fd_vsv_deserialize( &acc, vote_state ) ) ) goto done;
+
+  fd_pubkey_t const *        node_pubkey = NULL;
+  fd_landed_vote_t const *   votes       = NULL;
+  switch( vote_state->kind ) {
+    case fd_vote_state_versioned_enum_v1_14_11:
+      node_pubkey = &vote_state->v1_14_11.node_pubkey;
+      votes       = vote_state->v1_14_11.votes;
+      break;
+    case fd_vote_state_versioned_enum_v3:
+      node_pubkey = &vote_state->v3.node_pubkey;
+      votes       = vote_state->v3.votes;
+      break;
+    case fd_vote_state_versioned_enum_v4:
+      node_pubkey = &vote_state->v4.node_pubkey;
+      votes       = vote_state->v4.votes;
+      break;
+    default:
+      goto done;
+  }
+
+  if( FD_UNLIKELY( !fd_pubkey_eq( node_pubkey, ctx->identity_pubkey ) || deq_fd_landed_vote_t_empty( votes ) ) ) goto done;
+  vote_slot = deq_fd_landed_vote_t_peek_tail_const( votes )->lockout.slot;
+
+done:
+  fd_accdb_unread_one( ctx->accdb, &acc );
+  return vote_slot;
+}
+
 static void
 publish_slot_completed( fd_replay_tile_t *  ctx,
                         fd_stem_context_t * stem,
@@ -727,6 +770,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->first_transaction_scheduled_nanos = bank->first_transaction_scheduled_nanos;
   slot_info->last_transaction_finished_nanos   = bank->last_transaction_finished_nanos;
   slot_info->completion_time_nanos             = fd_clock_tile_now( ctx->clock );
+  slot_info->vote_slot                         = alpenglow_vote_slot( ctx, bank );
   if( !slot_info->first_transaction_scheduled_nanos ) { /* edge case: empty slot */
     slot_info->first_transaction_scheduled_nanos = slot_info->last_transaction_finished_nanos;
   }
@@ -3690,6 +3734,14 @@ privileged_init( fd_topo_t const *      topo,
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
   ctx->identity_idx         = 0UL;
   ctx->identity_dirty       = 0;
+
+  ctx->has_vote_account = !!tile->replay.vote_account_path[0];
+  if( FD_LIKELY( ctx->has_vote_account ) ) {
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.vote_account_path, ctx->vote_account->uc ) ) ) {
+      uchar const * vote_key = fd_keyload_load( tile->replay.vote_account_path, /* pubkey only: */ 1 );
+      fd_memcpy( ctx->vote_account->uc, vote_key, sizeof(fd_pubkey_t) );
+    }
+  }
 
   ctx->bundle.enabled = tile->replay.bundle.enabled;
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
