@@ -49,7 +49,6 @@ struct replayed {
   ag_block_id_t block_id;
   ag_block_id_t parent_block_id;
 };
-
 typedef struct replayed replayed_t;
 
 #define MAP_NAME               replayed
@@ -63,9 +62,6 @@ typedef struct replayed replayed_t;
 #define MAP_KEY_HASH(key,seed) ((uint)fd_hash( (seed), &(key), sizeof(ag_block_id_t) ))
 #define MAP_MEMOIZE            0
 #include "../../util/tmpl/fd_map_dynamic.c"
-
-/* Newly rooted blocks, deepest on top so popping walks back up in slot
-   order.  The GUI consumes every intermediate root. */
 
 #define STACK_NAME rooted
 #define STACK_T    ag_block_id_t
@@ -84,9 +80,6 @@ typedef struct publish publish_t;
 
 struct fd_votor_tile {
 
-  /* Lifecycle */
-
-
   /* Metadata */
 
   uchar const * identity_keypair;
@@ -100,10 +93,10 @@ struct fd_votor_tile {
   ag_block_id_t     rooted_block_id;
   ag_epoch_info_t * curr_epoch_info;
   ulong             curr_epoch_slot;
-  ushort            curr_epoch_rank; /* USHORT_MAX when we hold no stake this epoch */
+  ushort            curr_epoch_rank; /* USHORT_MAX if unstaked */
   ag_epoch_info_t * next_epoch_info;
   ulong             next_epoch_slot;
-  ushort            next_epoch_rank;
+  ushort            next_epoch_rank; /* USHORT_MAX if unstaked */
   ag_pool_t *       pool;
   ag_votor_t *      votor;
   replayed_t *      replayed;
@@ -111,11 +104,6 @@ struct fd_votor_tile {
   publish_t *       publishes;
 
   /* Networking */
-
-  /* A vote carries no validator index, so the signer is the
-     authenticated QUIC peer.  tls_hs is freed once the handshake is
-     acked, so the identity is captured while the connection is
-     establishing and the connection holds a pointer to it. */
 
   ag_id_key_t        peer[ QUIC_CONN_MAX ];
   fd_net_rx_bounds_t net_in_bounds[ 32 ];
@@ -290,11 +278,6 @@ quic_datagram_rx( fd_quic_conn_t * conn,
   fd_votor_tile_t * ctx = _ctx;
   if( FD_UNLIKELY( data_sz<2UL ) ) return;
 
-  /* ag_vote_serde_t and ag_cert_serde_t open with the same two byte
-     prefix: data[0] is the VersionedWireConsensusMessage version tag,
-     which ag_vote_de / ag_cert_de check, and data[1] is the
-     WireConsensusMessageKind tag, which selects between them. */
-
   uchar kind = data[ 1 ];
 
   switch( kind ) {
@@ -377,7 +360,9 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  if( FD_UNLIKELY( ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event ) ) ) *charge_busy = 1;
+  if( FD_UNLIKELY( ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event ) ) ) {
+    *charge_busy = 1;
+  }
 
   if( FD_UNLIKELY( ag_votor_poll_timeout_event( ctx->votor, now, &ctx->scratch.timeout_event ) ) ) {
     ag_votor_handle_timeout_event( ctx->votor, &ctx->scratch.timeout_event );
@@ -392,10 +377,8 @@ after_credit( fd_votor_tile_t *   ctx,
   }
 
   if( FD_UNLIKELY( ag_votor_poll_cert_event( ctx->votor, &ctx->scratch.cert_event ) ) ) {
-    *charge_busy = 1;
     ag_pool_add_cert( ctx->pool, &ctx->scratch.cert_event.cert );
-    if( FD_LIKELY( ( ctx->scratch.cert_event.cert.kind==AG_CERT_KIND_FINAL || ctx->scratch.cert_event.cert.kind==AG_CERT_KIND_FAST_FINAL ) &&
-                   publishes_empty( ctx->publishes ) ) ) { /* else we would stage the same blocks twice */
+    if( FD_LIKELY( ctx->scratch.cert_event.cert.kind==AG_CERT_KIND_FINAL || ctx->scratch.cert_event.cert.kind==AG_CERT_KIND_FAST_FINAL ) ) {
 
       /* FIXME replay reports the last FEC set's merkle root, not the
          double merkle root a cert identifies a block by, so the two
@@ -406,7 +389,10 @@ after_credit( fd_votor_tile_t *   ctx,
       replayed_t *  replayed          = NULL;
 
       while( FD_LIKELY( ancestor_block_id.slot>ctx->rooted_block_id.slot && ( replayed = replayed_query( ctx->replayed, ancestor_block_id, NULL ) ) ) ) {
-        if( FD_LIKELY( ancestor_block_id.slot<=finalized_slot ) ) { FD_TEST( !rooted_full( ctx->rooted ) ); rooted_push( ctx->rooted, ancestor_block_id ); }
+        if( FD_LIKELY( ancestor_block_id.slot<=finalized_slot ) ) {
+          FD_TEST( !rooted_full( ctx->rooted ) );
+          rooted_push( ctx->rooted, ancestor_block_id );
+        }
         ancestor_block_id = replayed->parent_block_id;
       }
 
@@ -426,6 +412,7 @@ after_credit( fd_votor_tile_t *   ctx,
         ctx->rooted_block_id = rooted_block_id;
       }
     }
+    *charge_busy = 1;
   }
 }
 

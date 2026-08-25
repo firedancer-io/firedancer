@@ -327,13 +327,12 @@ ag_finality_tracker_add_parent( ag_finality_tracker_t * self,
 
   switch( se->status.kind ) {
     case AG_FINALIZATION_STATUS_FINALIZED:
-    case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-      if( 0==memcmp( block->hash, status_hash( &se->status ), sizeof(ag_block_hash_t) ) ) {
-        ag_block_id_t p = *parent;
-        handle_implicitly_finalized( self, block->slot, &p, &event );
-        prune( self );
-      }
+    case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED: {
+      ag_block_id_t p = *parent; /* FIXME add block hash check */
+      handle_implicitly_finalized( self, block->slot, &p, &event );
+      prune( self );
       return event;
+    }
     case AG_FINALIZATION_STATUS_NOTARIZED:
     case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:
     case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
