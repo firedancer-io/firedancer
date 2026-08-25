@@ -2006,6 +2006,7 @@ fd_ssmanifest_parser_join( void * shmem ) {
 void
 fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
                            fd_snapshot_manifest_t * manifest ) {
+  parser->epoch_idx   = ULONG_MAX;
   parser->state       = STATE_BLOCKHASH_QUEUE_LAST_HASH_INDEX;
   parser->off         = 0UL;
   parser->dst         = state_dst( parser );
