@@ -767,6 +767,22 @@ static unsigned char utf16_literal_to_utf8(const unsigned char * const input_poi
         codepoint = first_code;
     }
 
+    /* cJSON exposes decoded strings as NUL-terminated C strings without a
+     * decoded length.  Preserve an embedded U+0000 as the two printable
+     * bytes "\\0" so it cannot truncate the value observed by callers. */
+    if (codepoint == 0)
+    {
+        if (memcmp(first_sequence + 2, "0000", 4) != 0)
+        {
+            goto fail;
+        }
+        (*output_pointer)[0] = '\\';
+        (*output_pointer)[1] = '0';
+        *output_pointer += 2;
+
+        return sequence_length;
+    }
+
     /* encode as UTF-8
      * takes at maximum 4 bytes to encode:
      * 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
@@ -841,6 +857,7 @@ static cJSON_bool parse_string(cJSON * const item, parse_buffer * const input_bu
     {
         /* calculate approximate size of the output (overestimate) */
         size_t allocation_length = 0;
+        size_t raw_nul_count = 0;
         size_t skipped_bytes = 0;
         while (((size_t)(input_end - input_buffer->content) < input_buffer->length) && (*input_end != '\"'))
         {
@@ -855,6 +872,10 @@ static cJSON_bool parse_string(cJSON * const item, parse_buffer * const input_bu
                 skipped_bytes++;
                 input_end++;
             }
+            else if (input_end[0] == '\0')
+            {
+                raw_nul_count++;
+            }
             input_end++;
         }
         if (((size_t)(input_end - input_buffer->content) >= input_buffer->length) || (*input_end != '\"'))
@@ -863,7 +884,7 @@ static cJSON_bool parse_string(cJSON * const item, parse_buffer * const input_bu
         }
 
         /* This is at most how much we need for the output */
-        allocation_length = (size_t) (input_end - buffer_at_offset(input_buffer)) - skipped_bytes;
+        allocation_length = (size_t) (input_end - buffer_at_offset(input_buffer)) - skipped_bytes + raw_nul_count;
         output = (unsigned char*)input_buffer->hooks.allocate(allocation_length + sizeof(""));
         if (output == NULL)
         {
@@ -877,7 +898,16 @@ static cJSON_bool parse_string(cJSON * const item, parse_buffer * const input_bu
     {
         if (*input_pointer != '\\')
         {
-            *output_pointer++ = *input_pointer++;
+            if (*input_pointer == '\0')
+            {
+                *output_pointer++ = '\\';
+                *output_pointer++ = '0';
+                input_pointer++;
+            }
+            else
+            {
+                *output_pointer++ = *input_pointer++;
+            }
         }
         /* escape sequence */
         else
