@@ -17,15 +17,10 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-372721907-v4.3.0-bet
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-331691646-v4.2.0-beta.1-vat -m 2000000 -e 331691647
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-336218682-v4.2.0-beta.1-vat -m 2000000 -e 336218683
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340269866-v4.2.0-beta.1-vat -m 2000000 -e 340269872
-# Disabled, as it had increase_tx_account_lock_limit enabled which is no longer supported
-# src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v4.1.0-beta.1 -m 2000000 -e 390056406
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-v4.2.0-beta.1-vat -m 10000000 -e 254462598
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000-v4.2.0-beta.1-vat -m 2000000 -e 346556337
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-380592002-v4.2.0-beta.1-vat -m 2000000 -e 380592006
-# [replaced by genesis-vat: genesis hash is content-derived, cannot be VAT-upgraded in place] src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v4.0.0 -m 3000 -e 1352 -g
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-vat-v4.2.0-beta.1-vat -m 3000 -e 1352 -g
-# Disabled, as it had increase_tx_account_lock_limit enabled which is no longer supported
-# src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842-v4.1.0-beta.1 -m 2000000 -e 422969848
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458-v4.2.0-beta.1-vat -m 2000000 -e 385786452
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.2.0-beta.1-vat -m 3000 -e 1000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347-v4.2.0-beta.1-vat -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64
@@ -35,8 +30,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary-v4.2.0-beta.1-vat -m 2000000 -e 391824016
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.2.0-beta.1-vat -m 10000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation-v4.2.0-beta.1-vat -m 20000 -e 540
-# src/flamenco/runtime/tests/run_ledger_backtest.sh -l custom-collector-simd0232-multinode-v4.2.0-beta.2 -m 1000000 -e 1900 -i shredcap
-# src/flamenco/runtime/tests/run_ledger_backtest.sh -l custom-collector-simd0232-boot1204-v4.2.0-beta.2 -m 1000000 -e 1900 -i shredcap
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry-v4.2.0-beta.1-vat -m 10000 -e 135
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_boundary-v4.2.0-beta.1-vat -m 10000 -e 950
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_snapshot-v4.2.0-beta.1-vat -m 10000 -e 950

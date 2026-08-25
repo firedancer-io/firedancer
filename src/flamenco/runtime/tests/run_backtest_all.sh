@@ -8,7 +8,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257067457-v4.2.0-be
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257068890-v4.2.0-beta.1-vat -m 2000000 -e 257068895
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257181622-v4.2.0-beta.1-vat -m 2000000 -e 257181624
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-v4.2.0-beta.1-vat -m 10000000 -e 254462598
-# [skipped: un-creatable under v4.1: ALT durable-nonce rejected by require_static_nonce_account] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-262654839-v4.0.0 -m 10000000 -e 262654840
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257037451-v4.2.0-beta.1-vat -m 2000000 -e 257037454
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257035225-v4.2.0-beta.1-vat -m 2000000 -e 257035233
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257465453-v4.2.0-beta.1-vat -m 10000000 -e 257465454
@@ -77,17 +76,13 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-380592002-v4.2.0-bet
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-336218682-v4.2.0-beta.1-vat -m 2000000 -e 336218683
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340269866-v4.2.0-beta.1-vat -m 2000000 -e 340269872
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340272018-v4.2.0-beta.1-vat -m 2000000 -e 340272023
-# src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v4.1.0-beta.1 -m 2000000 -e 390056406
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000-v4.2.0-beta.1-vat -m 2000000 -e 346556337
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346179946-v4.2.0-beta.1-vat -m 90000000 -e 346179950
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-bpf-loader-v4.2.0-beta.1-vat -m 1000 -e 108
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary-v4.2.0-beta.1-vat -m 1000 -e 2325
-# [replaced by genesis-vat: genesis hash is content-derived, cannot be VAT-upgraded in place] src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v4.0.0 -m 3000 -e 1352 -g
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-vat-v4.2.0-beta.1-vat -m 3000 -e 1352 -g
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-stake-v4.2.0-beta.1-vat -m 3000 -e 541
-# src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-413869565-v4.1.0-beta.1 -m 100000000 -e 413869600
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-v4.2.0-beta.1-vat -m 2000000 -e 376969880
-# src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842-v4.1.0-beta.1 -m 2000000 -e 422969848
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347-v4.2.0-beta.1-vat -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384395810-v4.2.0-beta.1-vat -m 2000000 -e 384395820
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458-v4.2.0-beta.1-vat -m 2000000 -e 385786452
@@ -100,20 +95,10 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry-v4.2.
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot_block_id_some-v4.2.0-beta.1-vat -m 1000 -e 110
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot_block_id_none-v4.2.0-beta.1-vat -m 1000 -e 110
 
-# Direct mapping has 3 different interplaying feature gates:
-# syscall_parameter_address_restrictions, virtual_address_space_adjustments and account_data_direct_mapping
-# account_data_direct_mapping is dependent on virtual_address_space_adjustments,
-# which is in turn dependent on syscall_parameter_address_restrictions.
-# [skipped: direct-mapping (-o); not rewritten to v4.1.0-beta.1] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz
-# [skipped: direct-mapping (-o); not rewritten to v4.1.0-beta.1] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-4 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
-# [skipped: direct-mapping (-o); not rewritten to v4.1.0-beta.1] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-5 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF
-# [skipped: direct-mapping (-o); not rewritten to v4.1.0-beta.1] src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-362107883-direct-mapping-3 -m 2000000 -e 362219427 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
-
 # Local cluster ledgers testing specific feature gates
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-deprecate-rent-exemption-threshold-v4.2.0-beta.1-vat -m 1000 -e 260
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax-intrabatch-account-locks-v4.2.0-beta.1-vat -m 1000 -e 240
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.2.0-beta.1-vat -m 3000 -e 1000
-# [skipped: fails under v4.1: slashing Core-BPF migration build-hash mismatch] src/flamenco/runtime/tests/run_ledger_backtest.sh -l enshrine_slashing_program -m 1000 -e 260
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l create_account_allow_prefund-v4.2.0-beta.1-vat -m 1000 -e 520
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_programdata_account_check_migration-v4.2.0-beta.1-vat -m 1000 -e 260
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l replace_spl_token_with_p_token-v4.2.0-beta.1-vat -m 1000 -e 720
@@ -126,8 +111,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_t
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-7-v4.2.0-beta.1-vat -m 20000 -e 1596
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-8-v4.2.0-beta.1-vat -m 20000 -e 1596
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation-v4.2.0-beta.1-vat -m 20000 -e 540
-# src/flamenco/runtime/tests/run_ledger_backtest.sh -l custom-collector-simd0232-multinode-v4.2.0-beta.2 -m 1000000 -e 1900 -i shredcap
-# src/flamenco/runtime/tests/run_ledger_backtest.sh -l custom-collector-simd0232-boot1204-v4.2.0-beta.2 -m 1000000 -e 1900 -i shredcap
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_bls12_381_syscall-v4.2.0-beta.1-vat -m 1000 -e 379
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l bls_pubkey_management_in_vote_account_rekey-v4.2.0-beta.1-vat -m 1000 -e 329
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m-v4.2.0-beta.1-vat -m 10000 -e 603
