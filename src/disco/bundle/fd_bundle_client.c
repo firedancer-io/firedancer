@@ -610,7 +610,15 @@ fd_bundle_client_visit_pb_bundle_uuid(
 
   ctx->metrics.bundle_received_cnt++;
 
-  if( FD_UNLIKELY( !pb_decode( istream, &bundle_BundleUuid_msg, &bundle ) ) ) {
+  ulong queue_cnt_pre = pending_txn_cnt( ctx->pending_txns );
+  int decode_ok = pb_decode( istream, &bundle_BundleUuid_msg, &bundle );
+
+  ulong txn_cnt = pending_txn_cnt( ctx->pending_txns ) - queue_cnt_pre;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    pending_txn_peek_index( ctx->pending_txns, queue_cnt_pre+i )->bundle_txn_cnt = txn_cnt;
+  }
+
+  if( FD_UNLIKELY( !decode_ok ) ) {
     ctx->metrics.decode_fail_cnt++;
     FD_LOG_WARNING(( "Protobuf decode of (bundle.BundleUuid) failed (internal error): %s", istream->errmsg ));
     return false;

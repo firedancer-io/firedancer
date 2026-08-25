@@ -1220,6 +1220,52 @@ FD_UNIT_TEST( bundle_publish_all_or_nothing ) {
   test_bundle_env_destroy( env );
 }
 
+/* A bundle server can declare more packets than it makes publishable by
+   padding a bundle with empty entries.  Published txns must advertise
+   the number of fragments actually emitted, not the declared count. */
+
+FD_UNIT_TEST( bundle_padded_with_empty_packets ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail = 1;
+
+  uchar const b0[] = { 0x20 };
+  uchar const b1[] = { 0x21 };
+  test_packet_desc_t bundle_packets[] = {
+    { .payload=b0,   .payload_sz=0UL },
+    { .payload=b0,   .payload_sz=sizeof(b0) },
+    { .payload=b0,   .payload_sz=0UL },
+    { .payload=b1,   .payload_sz=sizeof(b1) },
+    { .payload=b0,   .payload_sz=0UL },
+  };
+  test_bundle_desc_t bundles[] = {
+    { .packets=bundle_packets, .packet_cnt=5UL, .uuid={8,8,8}, .uuid_sz=3UL },
+  };
+  uchar bundle_buf[ 512 ];
+  ulong bundle_sz = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), bundles, 1UL );
+
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      bundle_buf, bundle_sz,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+
+  /* Preflight counted all 5, but only 2 are publishable */
+  FD_TEST( state->bundle_txn_cnt==5UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
+
+  FD_TEST( publish_after_credit( state )==2UL );
+  FD_TEST( published_txn_cnt( env )==2UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+
+  uchar const zero_pubkey[ 32 ] = {0};
+  expect_published_txn( env, 0UL, 1UL, b0, sizeof(b0), 1UL, 2UL, 0U, zero_pubkey );
+  expect_published_txn( env, 1UL, 1UL, b1, sizeof(b1), 1UL, 2UL, 0U, zero_pubkey );
+
+  test_bundle_env_destroy( env );
+}
+
 /* Verify queue boundary behavior with mixed packets and bundles. */
 
 FD_UNIT_TEST( mixed_queue_boundary_behavior ) {
