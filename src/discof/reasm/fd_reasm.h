@@ -142,7 +142,7 @@
 
 typedef struct fd_reasm fd_reasm_t; /* forward decl */
 
-struct __attribute__((aligned(128UL))) fd_reasm_fec {
+struct fd_reasm_fec {
 
   /* Keys */
 
@@ -151,16 +151,16 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
 
   /* Pointers */
 
-  ulong next;    /* reserved for internal use by fd_pool, fd_map_chain */
-  ulong parent;  /* pool idx of the parent */
-  ulong child;   /* pool idx of the left-child */
-  ulong sibling; /* pool idx of the right-sibling */
+  uint next;    /* reserved for internal use by fd_pool, fd_map_chain */
+  uint parent;  /* pool idx of the parent */
+  uint child;   /* pool idx of the left-child */
+  uint sibling; /* pool idx of the right-sibling */
 
   /* When it's in the subtrees map, it's also in the subtreel dlist,
      which uses these two pointers. */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } subtreel;
 
   /* dlist threaded through elements if they are in the out queue.
@@ -169,40 +169,40 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
      If an element exists in the out dlist, in_out must be 1 (and the
      vice versa). */
   struct {
-   ulong prev;
-   ulong next;
+   uint prev;
+   uint next;
   } out;
 
   /* Data (set on insert) */
 
   ulong  slot;          /* slot of the FEC set */
+  uint   xid_next;      /* pool idx of next FEC with same (slot, fec_set_idx). UINT_MAX if no next.
+                           Maintain the order of most recent to least recent. */
   uint   fec_set_idx;   /* index of first shred in the FEC set */
   ushort parent_off;    /* offset for the parent slot of the FEC set */
   ushort data_cnt;      /* number of data shreds in the FEC set */
-  int    data_complete; /* whether this FEC completes an entry batch */
-  int    slot_complete; /* whether this FEC completes the slot */
-  int    is_leader;     /* whether this FEC was produced by us as leader */
-  int    eqvoc;         /* whether this FEC equivocates */
-  int    confirmed;     /* whether this FEC has been confirmed */
-  int    popped;        /* whether this FEC has been previously delivered by fd_reasm_pop */
-  int    in_out;        /* whether this FEC is currently present in the out dlist */
-
-  ulong  xid_next;     /* pool idx of next FEC with same (slot, fec_set_idx). ULONG_MAX if no next. Maintain the order of most recent to least recent. */
+  uchar  data_complete; /* whether this FEC completes an entry batch */
+  uchar  slot_complete; /* whether this FEC completes the slot */
+  uchar  is_leader;     /* whether this FEC was produced by us as leader */
+  uchar  eqvoc;         /* whether this FEC equivocates */
+  uchar  confirmed;     /* whether this FEC has been confirmed */
+  uchar  popped;        /* whether this FEC has been previously delivered by fd_reasm_pop */
+  uchar  in_out;        /* whether this FEC is currently present in the out dlist */
 
   /* Data (set by caller) */
 
-  ulong bank_dead;     /* 0: live; 1: dead lineage; 2: abandoned lineage (set by replay) */
+  uchar bank_dead;     /* 0: live; 1: dead lineage; 2: abandoned lineage (set by replay) */
   ulong dead_reported; /* dead telemetry row already emitted for this block */
-  ulong bank_idx;
   ulong bank_seq;
-  ulong parent_bank_idx;
+  uint  bank_idx;
+  uint  parent_bank_idx;
 
   /* Replay needs the completion timestamp for every FEC.  Detailed
      block-level reception stats are stored separately per slot. */
   ulong fec_completed_ts_nanos;
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
-FD_STATIC_ASSERT( sizeof(fd_reasm_fec_t)==256UL, fd_reasm_fec_footprint );
+FD_STATIC_ASSERT( sizeof(fd_reasm_fec_t)==160UL, fd_reasm_fec_footprint );
 
 FD_PROTOTYPES_BEGIN
 

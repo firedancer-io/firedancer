@@ -1077,7 +1077,7 @@ test_remove_bank_eviction( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * fec_to_evict = fd_reasm_query( reasm, mr1_32 );
   FD_TEST( fec_to_evict );
-  FD_TEST( fec_to_evict->child != ULONG_MAX );                  /* NOT a leaf  */
+  FD_TEST( fec_to_evict->child != pool_idx_null( reasm_pool( reasm ) ) ); /* NOT a leaf */
 
   fd_reasm_fec_t * evicted_head = fd_reasm_remove( reasm, fec_to_evict, NULL );
   FD_TEST( evicted_head );

@@ -61,7 +61,7 @@ typedef struct {
 
 typedef struct {
   fuzz_node_t node[ FUZZ_NODE_MAX ];
-  ulong       pop_cnt;
+  uint        pop_cnt;
   ulong       remove_cnt;
   ulong       eviction_cnt;
 } fuzz_model_t;
