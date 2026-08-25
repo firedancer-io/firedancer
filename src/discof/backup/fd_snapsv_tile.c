@@ -2198,6 +2198,7 @@ metrics_write( fd_snapsv_t * ctx ) {
 }
 
 #define STEM_BURST 1UL
+#define STEM_LAZY  ((long)1e6) /* 1 ms */
 #define STEM_CALLBACK_CONTEXT_TYPE        fd_snapsv_t
 #define STEM_CALLBACK_CONTEXT_ALIGN       alignof(fd_snapsv_t)
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
