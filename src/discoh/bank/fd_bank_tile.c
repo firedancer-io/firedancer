@@ -13,6 +13,12 @@
 #define FD_BANK_TRANSACTION_LANDED    1
 #define FD_BANK_TRANSACTION_EXECUTED  2
 
+#define REBATE_BATCH_IDLE_LOOPS      (128UL)
+#define REBATE_BATCH_MAX_MICROBLOCKS (4UL)
+
+FD_STATIC_ASSERT( REBATE_BATCH_MAX_MICROBLOCKS*FD_PACK_REBATE_MAX_ENTRIES<=FD_PACK_REBATE_SUM_CAPACITY,
+                  rebate_batch_fits_rebater );
+
 typedef struct {
   ulong kind_id;
 
@@ -45,6 +51,10 @@ typedef struct {
   ulong       rebate_wmark;
   ulong       rebate_chunk;
   ulong       rebates_for_slot;
+  ulong       rebate_tsorig;
+  ulong       rebate_microblock_cnt;
+  ulong       rebate_idle_loop_cnt;
+  int         rebate_draining;
   ulong       rebate_seed;
   fd_pack_rebate_sum_t rebater[ 1 ];
 
@@ -88,6 +98,37 @@ metrics_write( fd_bank_ctx_t * ctx ) {
   txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_V_SUCCESS_IDX ] = ctx->metrics.success;
   txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_V_FAILED_IDX  ] = ctx->metrics.exec_failed;
   FD_MCNT_ENUM_COPY( BANK, TXN_EXECUTED, txn_executed );
+}
+
+static inline void
+after_credit( fd_bank_ctx_t *     ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  if( FD_UNLIKELY( !ctx->rebate_microblock_cnt ) ) return;
+
+  if( FD_LIKELY( !ctx->rebate_draining ) ) {
+    if( FD_LIKELY( ctx->rebate_microblock_cnt<REBATE_BATCH_MAX_MICROBLOCKS &&
+                   ctx->rebate_idle_loop_cnt<REBATE_BATCH_IDLE_LOOPS &&
+                   !ctx->rebater->ib_result ) ) {
+      ctx->rebate_idle_loop_cnt++;
+      return;
+    }
+    ctx->rebate_draining = 1;
+  }
+
+  ulong written_sz = fd_pack_rebate_sum_report( ctx->rebater, fd_chunk_to_laddr( ctx->rebate_mem, ctx->rebate_chunk ) );
+  if( FD_UNLIKELY( written_sz ) ) {
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, 1UL, ctx->rebates_for_slot, ctx->rebate_chunk, written_sz, 0UL, ctx->rebate_tsorig, tspub );
+    ctx->rebate_chunk = fd_dcache_compact_next( ctx->rebate_chunk, written_sz, ctx->rebate_chunk0, ctx->rebate_wmark );
+    *opt_poll_in = 0;
+    *charge_busy = 1;
+  } else {
+    ctx->rebate_microblock_cnt = 0UL;
+    ctx->rebate_idle_loop_cnt  = 0UL;
+    ctx->rebate_draining       = 0;
+  }
 }
 
 static int
@@ -573,20 +614,20 @@ after_frag( fd_bank_ctx_t *     ctx,
     /* If pack has already moved on to a new slot, the rebates are no
        longer useful. */
     fd_pack_rebate_sum_clear( ctx->rebater );
-    ctx->rebates_for_slot = slot;
+    ctx->rebate_microblock_cnt = 0UL;
+    ctx->rebate_idle_loop_cnt  = 0UL;
+    ctx->rebate_draining       = 0;
+    ctx->rebates_for_slot      = slot;
   }
+  if( FD_UNLIKELY( !ctx->rebate_microblock_cnt ) ) {
+    ctx->rebate_tsorig = tsorig;
+  }
+  ctx->rebate_idle_loop_cnt = 0UL;
 
   if( FD_UNLIKELY( ctx->_is_bundle ) ) handle_bundle( ctx, seq, sig, sz, tspub, stem );
   else                                 handle_microblock( ctx, seq, sig, sz, tspub, stem );
-
-  /* TODO: Use fancier logic to coalesce rebates e.g. and move this to
-     after_credit */
-  ulong written_sz = 0UL;
-  while( 0UL!=(written_sz=fd_pack_rebate_sum_report( ctx->rebater, fd_chunk_to_laddr( ctx->rebate_mem, ctx->rebate_chunk ) )) ) {
-    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, 1UL, slot, ctx->rebate_chunk, written_sz, 0UL, tsorig, tspub );
-    ctx->rebate_chunk = fd_dcache_compact_next( ctx->rebate_chunk, written_sz, ctx->rebate_chunk0, ctx->rebate_wmark );
-  }
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
+  ctx->rebate_microblock_cnt += fd_ulong_if( ctx->_is_bundle, txn_cnt, 1UL );
 }
 
 static void
@@ -621,7 +662,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->bmtree = NONNULL( bmtree );
 
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater, ctx->rebate_seed ) ) );
-  ctx->rebates_for_slot  = 0UL;
+  ctx->rebates_for_slot      = 0UL;
+  ctx->rebate_microblock_cnt = 0UL;
+  ctx->rebate_idle_loop_cnt  = 0UL;
+  ctx->rebate_draining       = 0;
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
@@ -660,6 +704,7 @@ unprivileged_init( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bank_ctx_t)
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT  after_credit
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag

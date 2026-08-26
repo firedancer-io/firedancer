@@ -224,7 +224,8 @@ before_frag( fd_resolv_ctx_t * ctx,
              ulong             sig ) {
   fd_startup_gate_busy( ctx->startup_gate );
 
-  if( FD_UNLIKELY( ctx->in[in_idx].kind==IN_KIND_REPLAY ) ) return 0;
+  if( FD_UNLIKELY( ctx->in[in_idx].kind==IN_KIND_REPLAY ) )
+    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_ROOT_ADVANCED;
 
   /* Bundle transactions (sig==1) must arrive at pack in order.  Route
      all bundle traffic to resolv:0. */

@@ -276,7 +276,7 @@ fd_keyguard_authorize_repair( fd_keyguard_authority_t const * authority,
   uchar const * sender       = data+4;
 
   if( discriminant< 8 ) return 0; /* window_index is min ID */
-  if( discriminant>11 ) return 0; /* ancestor_hashes is max ID */
+  if( discriminant>14 ) return 0; /* shred_for_block_id is max ID */
 
   if( 0!=memcmp( authority->identity_pubkey, sender, 32 ) ) return 0;
 

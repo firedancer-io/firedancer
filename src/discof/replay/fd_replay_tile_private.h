@@ -141,12 +141,6 @@ struct fd_replay_tile {
   int   wfs_enabled;
   int   wfs_complete;
 
-  /* is_alpenglow is 1 if the validator is booted in alpenglow mode.
-
-     Note: reasm is not used in alpenglow mode. instead frags are delivered
-     replay order directly from repair. */
-  int is_alpenglow;
-
   fd_hash_t expected_bank_hash;
 
   ulong            blockhash_seed;

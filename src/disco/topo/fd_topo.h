@@ -570,6 +570,15 @@ struct fd_topo_tile {
     } repair;
 
     struct {
+      ushort  repair_client_listen_port;
+      char    identity_key_path[ PATH_MAX ];
+      ulong   slot_max;
+
+      ulong   repair_sign_depth;
+      ulong   repair_sign_cnt;
+    } rotor;
+
+    struct {
       ushort repair_serve_listen_port;
       char   identity_key_path[ PATH_MAX ];
       char   shredb_path[ PATH_MAX ];

@@ -197,20 +197,25 @@ dev_cmd_fn( args_t *   args,
       pid_t exited_pid = wait4( -1, &wstatus, (int)__WALL, NULL );
       if( FD_UNLIKELY( exited_pid == -1 ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+      int watch_eof = exited_pid==watch_pid && WIFEXITED( wstatus ) && !WEXITSTATUS( wstatus );
+      if( FD_UNLIKELY( watch_eof ) ) {
+        exited_pid = wait4( firedancer_pid, &wstatus, (int)__WALL, NULL );
+        if( FD_UNLIKELY( exited_pid == -1 ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+
       char * exited_child = exited_pid == firedancer_pid ? "firedancer" : exited_pid == watch_pid ? "watch" : "unknown";
       int exit_code = 0;
       if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-        FD_LOG_ERR(( "%s%s%s exited unexpectedly with signal %d %s(%s)%s", fd_log_style_bold(), exited_child, fd_log_style_normal(), WTERMSIG( wstatus ), fd_log_style_dim(), fd_io_strsignal( WTERMSIG( wstatus ) ), fd_log_style_normal() ));
+        FD_LOG_ERR_NOEXIT(( "%s%s%s exited unexpectedly with signal %d %s(%s)%s", fd_log_style_bold(), exited_child, fd_log_style_normal(), WTERMSIG( wstatus ), fd_log_style_dim(), fd_io_strsignal( WTERMSIG( wstatus ) ), fd_log_style_normal() ));
         exit_code = WTERMSIG( wstatus );
       } else {
-        FD_LOG_ERR(( "%s%s%s exited unexpectedly with code %d", fd_log_style_bold(), exited_child, fd_log_style_normal(), WEXITSTATUS( wstatus ) ));
-        if( FD_UNLIKELY( exited_pid==watch_pid && !WEXITSTATUS( wstatus ) ) ) exit_code = EXIT_FAILURE;
-        else exit_code = WEXITSTATUS( wstatus );
+        FD_LOG_ERR_NOEXIT(( "%s%s%s exited unexpectedly with code %d", fd_log_style_bold(), exited_child, fd_log_style_normal(), WEXITSTATUS( wstatus ) ));
+        exit_code = WEXITSTATUS( wstatus );
       }
 
       if( FD_UNLIKELY( exited_pid==watch_pid ) ) {
         if( FD_UNLIKELY( kill( firedancer_pid, SIGKILL ) ) ) FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
-      } else {
+      } else if( FD_LIKELY( !watch_eof ) ) {
         if( FD_UNLIKELY( kill( watch_pid, SIGKILL ) ) ) FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
       }
       fd_sys_util_exit_group( exit_code );

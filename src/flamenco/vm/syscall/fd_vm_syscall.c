@@ -81,7 +81,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   REGISTER( "sol_secp256k1_recover",                 fd_vm_syscall_sol_secp256k1_recover );
 # else
   FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
-               "To install s2n-bignum, re-run ./deps.sh, make distclean, and make -j" ));
+               "Rebuild with a MACHINE config that enables config/extra/with-s2nbignum.mk" ));
 # endif
 
   if( enable_sha512_syscall )

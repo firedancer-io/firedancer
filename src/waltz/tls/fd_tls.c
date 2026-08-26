@@ -421,8 +421,11 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_INITIAL ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
 
+  if( FD_UNLIKELY( !server->cert_x509_sz ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_NO_X509 );
+
   /* Message buffer */
-# define MSG_BUFSZ 512UL
+# define MSG_BUFSZ FD_TLS_SERVER_CERT_MSG_SZ_MAX
   uchar msg_buf[ MSG_BUFSZ ];
 
   /* Transcript hasher */
@@ -661,22 +664,6 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
       }
     };
 
-    /* Negotiate raw public keys if available */
-
-    if( ch.server_cert_types.raw_pubkey ) {
-      handshake->server_cert_rpk = 1;
-      ee.server_cert.cert_type   = FD_TLS_CERTTYPE_RAW_PUBKEY;
-    } else if( !server->cert_x509_sz ) {
-      /* If server lacks an X.509 certificate and client does not support
-        raw public keys, abort early. */
-      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_NO_X509 );
-    }
-
-    if( ch.client_cert_types.raw_pubkey ) {
-      handshake->client_cert_rpk = 1;
-      ee.client_cert.cert_type   = FD_TLS_CERTTYPE_RAW_PUBKEY;
-    }
-
     /* Encode encrypted extensions */
 
     long encode_res = fd_tls_encode_enc_ext( &ee, wire, (ulong)(wire_end-wire) );
@@ -730,29 +717,22 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   /* Send Certificate *************************************************/
 
-  ulong cert_msg_sz;
-  if( ch.server_cert_types.raw_pubkey ) {
-    long sz = fd_tls_encode_raw_public_key( server->cert_public_key, msg_buf, MSG_BUFSZ );
-    FD_TEST( sz>=0L );
-    cert_msg_sz = (ulong)sz;
-  } else {
-    long sz = fd_tls_encode_cert_x509( server->cert_x509, server->cert_x509_sz, msg_buf, MSG_BUFSZ );
-    FD_TEST( sz>=0L );
-    cert_msg_sz = (ulong)sz;
-  }
+  long cert_msg_sz = fd_tls_encode_cert_x509( server->cert_x509, server->cert_x509_sz, msg_buf, MSG_BUFSZ );
+  if( FD_UNLIKELY( cert_msg_sz<0L ) )
+    return fd_tls_alert( &handshake->base, (uint)(-cert_msg_sz), FD_TLS_REASON_CERT_ENCODE );
 
   /* Send certificate message */
 
   if( FD_UNLIKELY( !server->sendmsg_fn(
         handshake,
-        msg_buf, cert_msg_sz,
+        msg_buf, (ulong)cert_msg_sz,
         FD_TLS_LEVEL_HANDSHAKE,
         /* flush */ 0 ) ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
 
   /* Record Certificate message in transcript hash */
 
-  fd_sha256_append( &transcript, msg_buf, cert_msg_sz );
+  fd_sha256_append( &transcript, msg_buf, (ulong)cert_msg_sz );
 
   /* Send CertificateVerify *******************************************/
 
@@ -854,11 +834,10 @@ fd_tls_handle_cert_chain( fd_tls_estate_base_t * const base,
                           uchar const *          const cert_chain,
                           ulong                  const cert_chain_sz,
                           uchar const *          const expected_pubkey,
-                          uchar *                const out_pubkey,
-                          int                    const is_rpk ) {
+                          uchar *                const out_pubkey ) {
 
   fd_tls_extract_cert_pubkey_res_t extract =
-  fd_tls_extract_cert_pubkey( cert_chain, cert_chain_sz, fd_uint_if( is_rpk, FD_TLS_CERTTYPE_RAW_PUBKEY, FD_TLS_CERTTYPE_X509 ) );
+  fd_tls_extract_cert_pubkey( cert_chain, cert_chain_sz );
 
   if( FD_UNLIKELY( !extract.pubkey ) ) {
     uint   alert  = extract.alert  ? extract.alert  : FD_TLS_ALERT_DECODE_ERROR;
@@ -981,7 +960,7 @@ fd_tls_server_hs_wait_cert( fd_tls_t const *      server,
 
     /* Decode Certificate */
 
-    decode_res = fd_tls_handle_cert_chain( &handshake->base, wire, msg_sz, NULL, handshake->client_pubkey, handshake->client_cert_rpk );
+    decode_res = fd_tls_handle_cert_chain( &handshake->base, wire, msg_sz, NULL, handshake->client_pubkey );
     if( FD_UNLIKELY( decode_res<0L ) )
       return fd_tls_alert( &handshake->base, (uint)(-decode_res), FD_TLS_REASON_CERT_PARSE );
     wire += (ulong)decode_res;
@@ -1408,28 +1387,6 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
 
   fd_sha256_append( &handshake->transcript, record, read_sz );
 
-  switch( ee->server_cert.cert_type ) {
-  case FD_TLS_CERTTYPE_X509:
-    break;  /* ok */
-  case FD_TLS_CERTTYPE_RAW_PUBKEY:
-    handshake->server_cert_rpk = 1;
-    break;
-  default:
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_TYPE );
-  }
-
-  handshake->client_cert_nox509 = 1;
-  switch( ee->client_cert.cert_type ) {
-  case FD_TLS_CERTTYPE_X509:
-    handshake->client_cert_nox509 = 0;
-    break;
-  case FD_TLS_CERTTYPE_RAW_PUBKEY:
-    handshake->client_cert_rpk = 1;
-    break;
-  default:
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_TYPE );
-  }
-
   /* QUIC mode */
 
   if( client->quic ) {
@@ -1450,15 +1407,6 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
                      0!=memcmp( ee->alpn.buf, client->alpn, client->alpn_sz ) ) )
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_ALPN_NEG );
   }
-
-  /* Fail if server requested an X.509 client cert, but we can only
-     serve a raw public key. */
-
-  if( FD_UNLIKELY( ( !!handshake->client_cert            )
-                 & (  !handshake->client_cert_rpk        )
-                 & ( ( !client->cert_x509_sz           )
-                   | ( !!handshake->client_cert_nox509 ) ) ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_NO_X509 );
 
   /* Finish up ********************************************************/
 
@@ -1491,7 +1439,7 @@ fd_tls_client_handle_cert_chain( fd_tls_estate_cli_t * const hs,
        ... disabled => update the handshake's public key value based on cert */
   uchar const * expected_pubkey = ( hs->server_pubkey_pin) ? (hs->server_pubkey) : NULL;
   uchar *       out_pubkey      = (!hs->server_pubkey_pin) ? (hs->server_pubkey) : NULL;
-  return fd_tls_handle_cert_chain( &hs->base, cert_chain, cert_chain_sz, expected_pubkey, out_pubkey, hs->server_cert_rpk );
+  return fd_tls_handle_cert_chain( &hs->base, cert_chain, cert_chain_sz, expected_pubkey, out_pubkey );
 }
 
 static long
@@ -1500,8 +1448,6 @@ fd_tls_client_hs_wait_cert_cr( fd_tls_t const *      const client,
                                uchar const *         const record,
                                ulong                 const record_sz,
                                uint                  const encryption_level ) {
-
-  (void)client;
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
@@ -1529,6 +1475,8 @@ fd_tls_client_hs_wait_cert_cr( fd_tls_t const *      const client,
 
     switch( msg_hdr.type ) {
     case FD_TLS_MSG_CERT_REQ:
+      if( FD_UNLIKELY( !client->cert_x509_sz ) )
+        return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_NO_X509 );
       decode_res = fd_tls_client_handle_cert_req ( handshake, wire, msg_sz );
       next_state = FD_TLS_HS_WAIT_CERT;
       break;
@@ -1751,37 +1699,21 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
        first place, unless post-handshake auth is used (which is not
        the case) */
 
-    ulong cert_msg_sz;
-    if( hs->client_cert_rpk ) {
-      long sz = fd_tls_encode_raw_public_key( client->cert_public_key, msg_buf, MSG_BUFSZ );
-      FD_TEST( sz>=0L );
-      cert_msg_sz = (ulong)sz;
-    } else if( client->cert_x509_sz ) {
-      /* TODO: Technically should check whether the server supports
-         X.509.  There could be servers that support neither X.509 nor
-         raw public keys. */
-
-      long sz = fd_tls_encode_cert_x509( client->cert_x509, client->cert_x509_sz, msg_buf, MSG_BUFSZ );
-      FD_TEST( sz>=0L );
-      cert_msg_sz = (ulong)sz;
-    } else {
-      /* TODO: Unreachable:  We should have verified whether we have
-         an appropriate certificate in wait_cert_cr. */
-      return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_CERT_TYPE );
-    }
+    long cert_msg_sz = fd_tls_encode_cert_x509( client->cert_x509, client->cert_x509_sz, msg_buf, MSG_BUFSZ );
+    FD_TEST( cert_msg_sz>=0L );
 
     /* Send certificate message */
 
     if( FD_UNLIKELY( !client->sendmsg_fn(
           hs,
-          msg_buf, cert_msg_sz,
+          msg_buf, (ulong)cert_msg_sz,
           FD_TLS_LEVEL_HANDSHAKE,
           /* flush */ 0 ) ) )
       return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
 
     /* Record Certificate message in transcript hash */
 
-    fd_sha256_append( &hs->transcript, msg_buf, cert_msg_sz );
+    fd_sha256_append( &hs->transcript, msg_buf, (ulong)cert_msg_sz );
 
     /* Send client CertificateVerify **********************************/
 
@@ -1943,8 +1875,6 @@ fd_tls_reason_cstr( uint reason ) {
     return "server does not support QUIC (missing QUIC transport params)";
   case FD_TLS_REASON_X509_PARSE:
     return "X.509 cert parse failed";
-  case FD_TLS_REASON_SPKI_PARSE:
-    return "Raw public key parse failed";
   case FD_TLS_REASON_CV_EXPECTED:
     return "expected CertificateVerify, but got other message type";
   case FD_TLS_REASON_CV_SIGALG:
@@ -1963,12 +1893,12 @@ fd_tls_reason_cstr( uint reason ) {
     return "failed to decode EncryptedExtensions";
   case FD_TLS_REASON_EE_ENCODE:
     return "failed to encode EncryptedExtensions";
-  case FD_TLS_REASON_CERT_TYPE:
-    return "unsupported certificate type";
   case FD_TLS_REASON_CERT_EXPECTED:
     return "expected Certificate, but got other message type";
   case FD_TLS_REASON_CERT_PARSE:
    return "failed to decode Certificate";
+  case FD_TLS_REASON_CERT_ENCODE:
+    return "failed to encode Certificate";
   case FD_TLS_REASON_FINI_EXPECTED:
     return "expected Finished, but got other message type";
   case FD_TLS_REASON_CERT_CR_EXPECTED:

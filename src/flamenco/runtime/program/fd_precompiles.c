@@ -467,7 +467,7 @@ fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
 fd_precompile_program_t const *
 fd_precompiles( void ) {
   FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
-               "To install s2n-bignum, re-run ./deps.sh, make distclean, and make -j" ));
+               "Rebuild with a MACHINE config that enables config/extra/with-s2nbignum.mk" ));
   return NULL;
 }
 
@@ -475,7 +475,7 @@ fd_exec_instr_fn_t
 fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
   (void)pubkey;
   FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
-               "To install s2n-bignum, re-run ./deps.sh, make distclean, and make -j" ));
+               "Rebuild with a MACHINE config that enables config/extra/with-s2nbignum.mk" ));
   return NULL;
 }
 
