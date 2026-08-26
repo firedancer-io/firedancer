@@ -105,6 +105,7 @@
 #define _DEFAULT_SOURCE
 #include "configure.h"
 #include "fd_cpu_isolation.h"
+#include "fd_irqbalance_client.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include <fcntl.h>
 #include <sys/types.h>
@@ -346,6 +347,8 @@ fini( config_t const * config,
   FD_CPUSET_DECL( banned );
   topo_banned_cpus( banned, &config->topo );
 
+  if( FD_UNLIKELY( fd_cpuset_is_null( banned ) ) ) return 0;
+
   update_irq_smp_affinities( banned, NULL );
   return 1;
 }
@@ -355,6 +358,11 @@ check( config_t const * config,
        int              check_type ) {
   FD_CPUSET_DECL( banned );
   topo_banned_cpus( banned, &config->topo );
+
+  if( FD_UNLIKELY( fd_cpuset_is_null( banned ) ) ) {
+    FD_CPUSET_DECL( daemon_banned );
+    if( FD_LIKELY( -1!=fd_irqbalance_ban_cpus_get( daemon_banned ) ) ) CONFIGURE_OK();
+  }
 
   FD_CPUSET_DECL( allowed );
   fd_cpuset_subtract( allowed, fd_cpu_isolation_host_cpus( allowed ), banned );
@@ -408,7 +416,7 @@ check( config_t const * config,
     FD_CPUSET_DECL( overlap );
     fd_cpuset_intersect( overlap, current, banned );
     ulong irq = strtoul( entry->d_name, NULL, 10 );
-    if( FD_UNLIKELY( !fd_cpuset_is_null( overlap ) ) ) {
+    if( FD_UNLIKELY( !fd_cpuset_is_null( overlap ) || fd_cpuset_is_null( banned ) ) ) {
       misconfigured++;
       if( FD_LIKELY( overlap_irq_sample_cnt<MISMATCH_SAMPLE_MAX ) ) overlap_irq_sample[ overlap_irq_sample_cnt++ ] = irq;
       overlap_irq_cnt++;
@@ -438,6 +446,11 @@ check( config_t const * config,
 
   if( FD_UNLIKELY( unprobeable==irq_cnt ) ) PARTIALLY_CONFIGURED( "could not read any IRQ affinity masks from /proc/irq" );
   if( FD_UNLIKELY( misconfigured ) ) {
+    if( FD_UNLIKELY( fd_cpuset_is_null( banned ) ) ) {
+      char irq_str[ MISMATCH_STR_LEN ];
+      append_ulong_list_sample( irq_str, sizeof(irq_str), overlap_irq_sample, overlap_irq_sample_cnt, overlap_irq_cnt );
+      NOT_CONFIGURED( "found IRQ affinity masks excluding host CPUs but no tiles are pinned (IRQs: %s)", irq_str );
+    }
     if( FD_LIKELY( overlap_irq_cnt ) ) {
       char irq_str[ MISMATCH_STR_LEN ];
       char tile_str[ MISMATCH_TILE_STR_LEN ];

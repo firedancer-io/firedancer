@@ -101,10 +101,13 @@ check( config_t const * config,
     }
   }
 
-  if( FD_LIKELY( !fd_cpuset_cnt( actual ) ) ) NOT_CONFIGURED( "irqbalance daemon has no banned CPUs" );
-
   FD_CPUSET_DECL( required );
   topo_banned_cpus( required, &config->topo );
+
+  if( FD_LIKELY( !fd_cpuset_cnt( actual ) ) ) {
+    if( FD_LIKELY( !fd_cpuset_cnt( required ) ) ) CONFIGURE_OK();
+    NOT_CONFIGURED( "irqbalance daemon has no banned CPUs" );
+  }
   if( FD_LIKELY( fd_cpuset_eq( actual, required ) ) ) CONFIGURE_OK();
 
   FD_CPUSET_DECL( mismatched );
