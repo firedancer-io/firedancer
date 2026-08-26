@@ -274,6 +274,13 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
+static inline ulong
+fd_gui_peers_sock_key_hash( fd_gossip_socket_t const * key,
+                            ulong                      seed ) {
+  if( FD_LIKELY( !key->is_ipv6 ) ) return fd_ulong_hash( seed ^ ((ulong)key->ip4<<16) ^ (ulong)key->port );
+  else                             return fd_ulong_hash( fd_hash( seed, key->ip6, 16UL ) ^ (ulong)key->port );
+}
+
 #define MAP_NAME  fd_gui_peers_node_sock_map
 #define MAP_ELE_T fd_gui_peers_node_t
 #define MAP_KEY_T fd_gossip_socket_t
@@ -281,7 +288,7 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_IDX_T ulong
 #define MAP_NEXT  sock_map.next
 #define MAP_PREV  sock_map.prev
-#define MAP_KEY_HASH(k,s) ( fd_hash( (s), (k), sizeof(uint) + sizeof(ushort) ) )
+#define MAP_KEY_HASH(k,s) (fd_gui_peers_sock_key_hash( (k), (s) ))
 #define MAP_KEY_EQ(k0,k1) ((k0)->is_ipv6==(k1)->is_ipv6 && (k0)->port==(k1)->port && (!((k0)->is_ipv6) ? (k0)->ip4==(k1)->ip4 : !memcmp((k0)->ip6,(k1)->ip6,16UL)) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #define MAP_MULTI 1
