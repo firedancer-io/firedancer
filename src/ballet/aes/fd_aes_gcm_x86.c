@@ -10,65 +10,113 @@
 
 FD_FN_SENSITIVE static void
 expand_aes_key( fd_aes_gcm_aesni_key_t * out,
-                uchar const *            keyp ) {
-  vb_t key = vb_ldu( keyp );
+                uchar const *            keyp,
+                ulong                    key_sz ) {
+  vb_t v0 = vb_ldu( keyp );
+  vb_t v1;
 
-  /* Expand encryption key */
-
-  vb_t v0, v1;
-  vb_t enc[11];
-# define ASSIST( out, gen ) do {                      \
-    vb_t v2 = _mm_aeskeygenassist_si128( v0, (gen) ); \
-    vb_t v3 = vu_permute2( v1, v0, 0, 0, 1, 0 );      \
-    vb_t v4 = vu_xor     ( v0, v3 );                  \
-         v1 = vu_permute2( v3, v4, 0, 3, 0, 2 );      \
-    vb_t v5 = vu_xor     ( v4, v1 );                  \
-    vb_t v6 = vu_permute ( v2,     3, 3, 3, 3 );      \
-         v0 = vu_xor     ( v5, v6 );                  \
-    (out) = v0;                                       \
+# define EXPAND_A( gen, shuffle ) do {                \
+    vb_t v2 = _mm_aeskeygenassist_si128( v1, (gen) ); \
+         v2 = _mm_shuffle_epi32( v2, (shuffle) );     \
+    vb_t v3 = _mm_slli_si128( v0, 4 );                \
+         v0 = vu_xor( v0, v3 );                       \
+         v3 = _mm_slli_si128( v3, 4 );                \
+         v0 = vu_xor( v0, v3 );                       \
+         v3 = _mm_slli_si128( v3, 4 );                \
+         v0 = vu_xor( v0, v3 );                       \
+         v0 = vu_xor( v0, v2 );                       \
   } while(0)
-  v0 = key;
-  v1 = vu_zero();
-          enc[ 0] = v0;
-  ASSIST( enc[ 1], 0x01 );
-  ASSIST( enc[ 2], 0x02 );
-  ASSIST( enc[ 3], 0x04 );
-  ASSIST( enc[ 4], 0x08 );
-  ASSIST( enc[ 5], 0x10 );
-  ASSIST( enc[ 6], 0x20 );
-  ASSIST( enc[ 7], 0x40 );
-  ASSIST( enc[ 8], 0x80 );
-  ASSIST( enc[ 9], 0x1B );
-  ASSIST( enc[10], 0x36 );
-# undef ASSIST
 
-  vb_st( out->key_enc,        enc[ 0] );
-  vb_st( out->key_enc + 0x10, enc[ 1] );
-  vb_st( out->key_enc + 0x20, enc[ 2] );
-  vb_st( out->key_enc + 0x30, enc[ 3] );
-  vb_st( out->key_enc + 0x40, enc[ 4] );
-  vb_st( out->key_enc + 0x50, enc[ 5] );
-  vb_st( out->key_enc + 0x60, enc[ 6] );
-  vb_st( out->key_enc + 0x70, enc[ 7] );
-  vb_st( out->key_enc + 0x80, enc[ 8] );
-  vb_st( out->key_enc + 0x90, enc[ 9] );
-  vb_st( out->key_enc + 0xa0, enc[10] );
+  ulong nr;
+  switch( key_sz ) {
+  case 16UL:
+    v1 = v0;
+    vb_st( out->key_enc, v0 );
+#   define EXPAND_128( off, gen ) do {   \
+      EXPAND_A( (gen), 0xff );           \
+      vb_st( out->key_enc + (off), v0 ); \
+      v1 = v0;                           \
+    } while(0)
+    EXPAND_128( 0x10, 0x01 );
+    EXPAND_128( 0x20, 0x02 );
+    EXPAND_128( 0x30, 0x04 );
+    EXPAND_128( 0x40, 0x08 );
+    EXPAND_128( 0x50, 0x10 );
+    EXPAND_128( 0x60, 0x20 );
+    EXPAND_128( 0x70, 0x40 );
+    EXPAND_128( 0x80, 0x80 );
+    EXPAND_128( 0x90, 0x1b );
+    EXPAND_128( 0xa0, 0x36 );
+#   undef EXPAND_128
+    nr = 10UL;
+    break;
+  case 24UL:
+    v1 = _mm_loadl_epi64( (__m128i const *)(keyp+16) );
+    vb_st ( out->key_enc,    v0 );
+    _mm_storel_epi64( (__m128i *)(out->key_enc+16), v1 );
+#   define EXPAND_192( off, gen ) do {                            \
+      EXPAND_A( (gen), 0x55 );                                    \
+      vb_t v2 = _mm_shuffle_epi32( v0, 0xff );                    \
+      v1 = vu_xor( v1, _mm_slli_si128( v1, 4 ) );                 \
+      v1 = vu_xor( v1, v2 );                                      \
+      vb_stu( out->key_enc + (off), v0 );                         \
+      _mm_storel_epi64( (__m128i *)(out->key_enc+(off)+16), v1 ); \
+    } while(0)
+    EXPAND_192(  24, 0x01 );
+    EXPAND_192(  48, 0x02 );
+    EXPAND_192(  72, 0x04 );
+    EXPAND_192(  96, 0x08 );
+    EXPAND_192( 120, 0x10 );
+    EXPAND_192( 144, 0x20 );
+    EXPAND_192( 168, 0x40 );
+#   undef EXPAND_192
+    EXPAND_A( 0x80, 0x55 );
+    vb_st( out->key_enc + 192, v0 );
+    nr = 12UL;
+    break;
+  case 32UL:
+    v1 = vb_ldu( keyp+16 );
+    vb_st( out->key_enc,      v0 );
+    vb_st( out->key_enc+0x10, v1 );
+#   define EXPAND_256_A( off, gen ) do {               \
+      EXPAND_A( (gen), 0xff );                         \
+      vb_st( out->key_enc + (off), v0 );               \
+    } while(0)
+#   define EXPAND_256_B( off ) do {                    \
+      vb_t v2 = _mm_aeskeygenassist_si128( v0, 0x00 ); \
+           v2 = _mm_shuffle_epi32( v2, 0xaa );         \
+      vb_t v3 = _mm_slli_si128( v1, 4 );               \
+           v1 = vu_xor( v1, v3 );                      \
+           v3 = _mm_slli_si128( v3, 4 );               \
+           v1 = vu_xor( v1, v3 );                      \
+           v3 = _mm_slli_si128( v3, 4 );               \
+           v1 = vu_xor( v1, v3 );                      \
+           v1 = vu_xor( v1, v2 );                      \
+      vb_st( out->key_enc + (off), v1 );               \
+    } while(0)
+    EXPAND_256_A( 0x20, 0x01 ); EXPAND_256_B( 0x30 );
+    EXPAND_256_A( 0x40, 0x02 ); EXPAND_256_B( 0x50 );
+    EXPAND_256_A( 0x60, 0x04 ); EXPAND_256_B( 0x70 );
+    EXPAND_256_A( 0x80, 0x08 ); EXPAND_256_B( 0x90 );
+    EXPAND_256_A( 0xa0, 0x10 ); EXPAND_256_B( 0xb0 );
+    EXPAND_256_A( 0xc0, 0x20 ); EXPAND_256_B( 0xd0 );
+    EXPAND_256_A( 0xe0, 0x40 );
+#   undef EXPAND_256_B
+#   undef EXPAND_256_A
+    nr = 14UL;
+    break;
+  default:
+    FD_LOG_CRIT(( "invalid key_sz %lu", key_sz ));
+  }
+# undef EXPAND_A
 
-  /* Derive decryption key */
-
-  vb_st( out->key_dec,                          enc[10]   );
-  vb_st( out->key_dec + 0x10, _mm_aesimc_si128( enc[ 9] ) );
-  vb_st( out->key_dec + 0x20, _mm_aesimc_si128( enc[ 8] ) );
-  vb_st( out->key_dec + 0x30, _mm_aesimc_si128( enc[ 7] ) );
-  vb_st( out->key_dec + 0x40, _mm_aesimc_si128( enc[ 6] ) );
-  vb_st( out->key_dec + 0x50, _mm_aesimc_si128( enc[ 5] ) );
-  vb_st( out->key_dec + 0x60, _mm_aesimc_si128( enc[ 4] ) );
-  vb_st( out->key_dec + 0x70, _mm_aesimc_si128( enc[ 3] ) );
-  vb_st( out->key_dec + 0x80, _mm_aesimc_si128( enc[ 2] ) );
-  vb_st( out->key_dec + 0x90, _mm_aesimc_si128( enc[ 1] ) );
-  vb_st( out->key_dec + 0xa0, _mm_aesimc_si128( enc[ 0] ) );
-
-  out->key_sz = 16;
+  vb_st( out->key_dec, vb_ld( out->key_enc + nr*16UL ) );
+  for( ulong i=1UL; i<nr; i++ ) {
+    vb_t enc_key = vb_ld( out->key_enc + i*16UL );
+    vb_st( out->key_dec + (nr-i)*16UL, _mm_aesimc_si128( enc_key ) );
+  }
+  vb_st( out->key_dec + nr*16UL, vb_ld( out->key_enc ) );
+  out->key_sz = (uint)key_sz;
 }
 
 __attribute__((sysv_abi)) extern void
@@ -113,10 +161,11 @@ aes_gcm_dec_final_aesni( fd_aes_gcm_aesni_t const * key,
                          int                        taglen );
 
 void
-fd_aes_128_gcm_init_aesni( fd_aes_gcm_aesni_t * aes_gcm,
-                           uchar const          key[ 16 ],
-                           uchar const          iv [ 12 ] ) {
-  expand_aes_key( &aes_gcm->key, key );
+fd_aes_gcm_init_aesni( fd_aes_gcm_aesni_t * aes_gcm,
+                       uchar const *        key,
+                       ulong                key_sz,
+                       uchar const          iv[ 12 ] ) {
+  expand_aes_key( &aes_gcm->key, key, key_sz );
   aes_gcm_precompute_aesni( aes_gcm );
   memcpy( aes_gcm->iv, iv, 12 );
 }
@@ -209,10 +258,11 @@ aes_gcm_dec_final_aesni_avx( fd_aes_gcm_aesni_t const * key,
                              int                        taglen );
 
 void
-fd_aes_128_gcm_init_avx2( fd_aes_gcm_aesni_t * aes_gcm,
-                          uchar const          key[ 16 ],
-                          uchar const          iv [ 12 ] ) {
-  expand_aes_key( fd_type_pun( &aes_gcm->key ), key );
+fd_aes_gcm_init_avx2( fd_aes_gcm_aesni_t * aes_gcm,
+                      uchar const *        key,
+                      ulong                key_sz,
+                      uchar const          iv[ 12 ] ) {
+  expand_aes_key( &aes_gcm->key, key, key_sz );
   aes_gcm_precompute_aesni_avx( aes_gcm );
   memcpy( aes_gcm->iv, iv, 12 );
 }
@@ -296,19 +346,11 @@ aes_gcm_dec_final_vaes_avx10( fd_aes_gcm_avx10_t const * key,
                               int                        taglen );
 
 void
-fd_aes_128_gcm_init_avx10( fd_aes_gcm_avx10_t * aes_gcm,
-                           uchar const          key[ 16 ],
-                           uchar const          iv [ 12 ] ) {
-  expand_aes_key( &aes_gcm->key, key );
-  aes_gcm_precompute_vaes_avx10_512( aes_gcm );
-  memcpy( aes_gcm->iv, iv, 12 );
-}
-
-void
-fd_aes_128_gcm_init_avx10_512( fd_aes_gcm_avx10_t * aes_gcm,
-                               uchar const          key[ 16 ],
-                               uchar const          iv [ 12 ] ) {
-  expand_aes_key( &aes_gcm->key, key );
+fd_aes_gcm_init_avx10_512( fd_aes_gcm_avx10_t * aes_gcm,
+                           uchar const *        key,
+                           ulong                key_sz,
+                           uchar const          iv[ 12 ] ) {
+  expand_aes_key( &aes_gcm->key, key, key_sz );
   aes_gcm_precompute_vaes_avx10_512( aes_gcm );
   memcpy( aes_gcm->iv, iv, 12 );
 }
