@@ -498,7 +498,9 @@ unprivileged_init( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
-#define STEM_LAZY  (50UL)
+
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_solcap_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_solcap_tile_ctx_t)
