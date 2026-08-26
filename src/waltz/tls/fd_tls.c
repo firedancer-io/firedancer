@@ -1,5 +1,4 @@
 #include "fd_tls.h"
-#include "../../util/sanitize/fd_msan.h"
 #include "fd_tls_proto.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/ed25519/fd_x25519.h"
@@ -145,9 +144,9 @@ fd_tls_hkdf_expand_label( uchar *       out,
   info_sz += 1UL;
 
   /* Label */
-  memcpy( info+info_sz, "tls13 ", 6UL );
+  fd_memcpy( info+info_sz, "tls13 ", 6UL );
   info_sz += 6UL;
-  memcpy( info+info_sz, label, label_sz );
+  fd_memcpy( info+info_sz, label, label_sz );
   info_sz += label_sz;
 
   /* Length prefix of context */
@@ -164,7 +163,6 @@ fd_tls_hkdf_expand_label( uchar *       out,
 
   /* Compute result of HKDF-Expand-Label */
   uchar hash[ 32 ];
-  fd_msan_unpoison( info, info_sz );
   fd_hmac_sha256( info, info_sz, secret, 32UL, hash );
   fd_memcpy( out, hash, out_sz );
   return out;
