@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "../../third_party/s2n-bignum/include/s2n-bignum.h"
+#include "../../util/sanitize/fd_msan.h"
 
 #ifndef __ADX__
 #define curve25519_x25519_byte      curve25519_x25519_byte_alt
@@ -17,6 +18,7 @@ uchar * FD_FN_SENSITIVE
 fd_x25519_public( uchar       self_public_key [ 32 ],
                   uchar const self_private_key[ 32 ] ) {
   curve25519_x25519base_byte( self_public_key, self_private_key );
+  fd_msan_unpoison( self_public_key, 32UL );
   return self_public_key;
 }
 
@@ -25,6 +27,7 @@ fd_x25519_exchange( uchar       shared_secret   [ 32 ],
                     uchar const self_private_key[ 32 ],
                     uchar const peer_public_key [ 32 ] ) {
   curve25519_x25519_byte( shared_secret, self_private_key, peer_public_key );
+  fd_msan_unpoison( shared_secret, 32UL );
 
   /* Reject low order points */
   if( FD_UNLIKELY( fd_x25519_is_zero_const_time( shared_secret ) ) ) {
