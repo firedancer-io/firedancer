@@ -342,11 +342,12 @@ verify_prune( fd_gossip_prune_t const * view,
   FD_STORE( ulong, sign_data+98UL+view->prunes_len*32UL,  view->wallclock );
 
   ulong sign_data_len = 106UL+view->prunes_len*32UL;
-  int err_prefix    = fd_ed25519_verify( sign_data,       sign_data_len,       view->signature, view->pubkey, sha );
-  int err_no_prefix = fd_ed25519_verify( sign_data+26UL,  sign_data_len-26UL,  view->signature, view->pubkey, sha );
+  int err = fd_ed25519_verify( sign_data, sign_data_len, view->signature, view->pubkey, sha );
+  if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) )
+    err = fd_ed25519_verify( sign_data+26UL, sign_data_len-26UL, view->signature, view->pubkey, sha );
 
-  if( FD_LIKELY( err_prefix==FD_ED25519_SUCCESS || err_no_prefix==FD_ED25519_SUCCESS ) ) return 0;
-  else                                                                                   return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_SIGNATURE_IDX;
+  if( FD_LIKELY( err==FD_ED25519_SUCCESS ) ) return 0;
+  else                                       return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_SIGNATURE_IDX;
 }
 
 static int
@@ -936,7 +937,22 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   }
 
   uchar * dst = fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
-  fd_memcpy( dst, message, sizeof(fd_gossip_message_t ) );
+
+  ulong msg_copy_sz;
+  switch( message->tag ) {
+    case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
+      msg_copy_sz = (ulong)((uchar const *)message->pull_response->values-(uchar const *)message)+message->pull_response->values_len*sizeof(fd_gossip_value_t);
+      break;
+    case FD_GOSSIP_MESSAGE_PUSH:
+      msg_copy_sz = (ulong)((uchar const *)message->push->values-(uchar const *)message)+message->push->values_len*sizeof(fd_gossip_value_t);
+      break;
+    case FD_GOSSIP_MESSAGE_PULL_REQUEST: msg_copy_sz = (ulong)((uchar const *)(message->pull_request+1)-(uchar const *)message); break;
+    case FD_GOSSIP_MESSAGE_PRUNE:        msg_copy_sz = (ulong)((uchar const *)(message->prune+1)       -(uchar const *)message); break;
+    case FD_GOSSIP_MESSAGE_PING:         msg_copy_sz = (ulong)((uchar const *)(message->ping+1)        -(uchar const *)message); break;
+    case FD_GOSSIP_MESSAGE_PONG:         msg_copy_sz = (ulong)((uchar const *)(message->pong+1)        -(uchar const *)message); break;
+    default:                             msg_copy_sz = sizeof(fd_gossip_message_t); break;
+  }
+  fd_memcpy( dst, message, msg_copy_sz );
   fd_memcpy( dst+sizeof(fd_gossip_message_t), failed, FD_GOSSIP_MESSAGE_MAX_CRDS );
   fd_memcpy( dst+sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS, payload, payload_sz );
 
