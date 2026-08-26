@@ -39,23 +39,23 @@ fd_shredb_key_shred_idx( ulong key ) {
   return (uint)fd_ulong_extract( key, 0, 15 );
 }
 
-/* per-shred entry, (slot, shred_index) -> ring_idx */
+/* Per-shred entry, indexed by its on-disk ring position. */
 struct fd_shredb_shred_entry {
   ulong key;
-  ulong ring_idx;
+  uint  next;
+  uint  prev;
 };
 typedef struct fd_shredb_shred_entry fd_shredb_shred_entry_t;
 
-#define MAP_NAME              fd_shredb_shred_map
-#define MAP_T                 fd_shredb_shred_entry_t
-#define MAP_KEY_T             ulong
-#define MAP_KEY_NULL          ULONG_MAX
-#define MAP_KEY_INVAL(k)      ((k)==ULONG_MAX)
-#define MAP_KEY_EQUAL(k0,k1)  ((k0)==(k1))
-#define MAP_KEY_HASH(k,seed)  ((uint)fd_ulong_hash( (k) ^ (seed) ))
-#define MAP_MEMOIZE           0
-#define MAP_KEY_EQUAL_IS_SLOW 0
-#include "../../util/tmpl/fd_map_dynamic.c"
+#define MAP_NAME                           fd_shredb_shred_map
+#define MAP_ELE_T                          fd_shredb_shred_entry_t
+#define MAP_KEY_T                          ulong
+#define MAP_KEY                            key
+#define MAP_IDX_T                          uint
+#define MAP_NEXT                           next
+#define MAP_PREV                           prev
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
 
 /* per-slot entry, slot -> (highest_shred_idx, cnt) */
 struct fd_shredb_slot_entry {
@@ -83,6 +83,8 @@ struct __attribute__((aligned(64))) fd_shredb_entry {
 };
 typedef struct fd_shredb_entry fd_shredb_entry_t;
 
+#define FD_SHREDB_MAX_SIZE_GIB (((ulong)UINT_MAX*sizeof(fd_shredb_entry_t))/(1UL<<30))
+
 struct fd_shredb {
   ulong  max_shreds;                  /* ring buffer capacity */
   ulong  write_head;                  /* next ring position to write */
@@ -90,11 +92,11 @@ struct fd_shredb {
   int    fd;                          /* file descriptor for the backing file */
   ulong  file_shreds;                 /* current file capacity in shred entries */
 
-  ulong * evict_keys;                 /* ring_idx -> (slot,shred_idx) */
-  ulong * evict_occupied;             /* bit ring_idx is set if entry holds data */
+  fd_shredb_shred_entry_t * shred_pool;      /* ring_idx -> map element */
+  ulong                    * evict_occupied; /* bit ring_idx is set if entry holds data */
 
-  fd_shredb_shred_entry_t * shred_map;
-  fd_shredb_slot_entry_t  * slot_map;
+  fd_shredb_shred_map_t * shred_map;
+  fd_shredb_slot_entry_t * slot_map;
 };
 typedef struct fd_shredb fd_shredb_t;
 

@@ -116,14 +116,20 @@ test_footprint( void ) {
   FD_TEST( fd_shredb_footprint( 0UL )==0UL );
   FD_TEST( fd_shredb_footprint( 1UL )>0UL );
   FD_TEST( fd_shredb_footprint( 2UL )>fd_shredb_footprint( 1UL ) );
+  /* Leave enough room for the rest of rserve in one gigantic page. */
+  FD_TEST( fd_shredb_footprint( 50UL )<(840UL<<20) );
+
+  ulong max_size_gib = ((ulong)UINT_MAX*sizeof(fd_shredb_entry_t)) / (1UL<<30);
+  FD_TEST( fd_shredb_footprint( max_size_gib     )>0UL );
+  FD_TEST( fd_shredb_footprint( max_size_gib+1UL )==0UL );
 
   ulong max_shreds = 1UL << 22;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_shredb_t),        sizeof(fd_shredb_t)                              );
-  l = FD_LAYOUT_APPEND( l, fd_shredb_shred_map_align(), fd_shredb_shred_map_footprint( 23 )               );
-  l = FD_LAYOUT_APPEND( l, fd_shredb_slot_map_align(),  fd_shredb_slot_map_footprint ( 18 )               );
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),              max_shreds * sizeof(ulong)                        );
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),              ((max_shreds + 63UL) / 64UL) * sizeof(ulong)      );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_shredb_t),             sizeof(fd_shredb_t)                              );
+  l = FD_LAYOUT_APPEND( l, fd_shredb_shred_map_align(),      fd_shredb_shred_map_footprint( 1UL << 21 )       );
+  l = FD_LAYOUT_APPEND( l, fd_shredb_slot_map_align(),       fd_shredb_slot_map_footprint ( 18 )              );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_shredb_shred_entry_t), max_shreds * sizeof(fd_shredb_shred_entry_t)     );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                   ((max_shreds + 63UL) / 64UL) * sizeof(ulong)      );
   FD_TEST( fd_shredb_footprint( 5UL )==FD_LAYOUT_FINI( l, fd_shredb_align() ) );
 }
 
@@ -137,6 +143,16 @@ test_lifecycle( void ) {
   FD_TEST( store->max_shreds > 0UL );
   FD_TEST( store->write_head == 0UL );
   FD_TEST( store->cnt == 0UL );
+
+  FD_TEST( fd_shredb_leave( store )==mem );
+  store = fd_shredb_join( mem );
+  FD_TEST( store );
+
+  uchar payload = 42U;
+  uchar out[ FD_SHRED_MAX_SZ ];
+  insert_shred( store, 1UL, 0U, &payload, 1UL );
+  FD_TEST( fd_shredb_query( store, 1UL, 0U, out )>0 );
+  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==payload );
 
   teardown_store( store, mem );
 }
@@ -246,6 +262,49 @@ test_query_highest( void ) {
   FD_TEST( result->slot==43UL );
   FD_TEST( result->idx==3U );
   FD_TEST( result->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
+
+  teardown_store( store, mem );
+}
+
+static void
+test_collision_eviction( void ) {
+  FD_LOG_NOTICE(( "TEST collision eviction" ));
+
+  void * mem;
+  fd_shredb_t * store = setup_small_store( &mem, 2UL );
+
+  /* Construct distinct keys that hash into the same chain. */
+  ulong keys[ 3 ] = {
+    fd_ulong_hash_inverse( 0x01234567deadbeefUL ) ^ TEST_SEED,
+    fd_ulong_hash_inverse( 0x89abcdefdeadbeefUL ) ^ TEST_SEED,
+    fd_ulong_hash_inverse( 0xfedcba9812345670UL ) ^ TEST_SEED,
+  };
+  FD_TEST( keys[ 0 ]!=keys[ 1 ] );
+  FD_TEST( (uint)fd_ulong_hash( keys[ 0 ] ^ TEST_SEED )==
+           (uint)fd_ulong_hash( keys[ 1 ] ^ TEST_SEED ) );
+
+  uchar payloads[ 3 ] = { 1U, 2U, 3U };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    insert_shred( store, fd_shredb_key_slot( keys[ i ] ), fd_shredb_key_shred_idx( keys[ i ] ), &payloads[ i ], 1UL );
+  }
+
+  uchar out[ FD_SHRED_MAX_SZ ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( fd_shredb_query( store, fd_shredb_key_slot( keys[ i ] ), fd_shredb_key_shred_idx( keys[ i ] ), out )>0 );
+    FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==payloads[ i ] );
+  }
+
+  insert_shred( store, fd_shredb_key_slot( keys[ 1 ] ), fd_shredb_key_shred_idx( keys[ 1 ] ), &payloads[ 0 ], 1UL );
+  FD_TEST( store->cnt==2UL );
+  FD_TEST( fd_shredb_query( store, fd_shredb_key_slot( keys[ 1 ] ), fd_shredb_key_shred_idx( keys[ 1 ] ), out )>0 );
+  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==payloads[ 1 ] );
+
+  insert_shred( store, fd_shredb_key_slot( keys[ 2 ] ), fd_shredb_key_shred_idx( keys[ 2 ] ), &payloads[ 2 ], 1UL );
+  FD_TEST( fd_shredb_query( store, fd_shredb_key_slot( keys[ 0 ] ), fd_shredb_key_shred_idx( keys[ 0 ] ), out )==-1 );
+  for( ulong i=1UL; i<3UL; i++ ) {
+    FD_TEST( fd_shredb_query( store, fd_shredb_key_slot( keys[ i ] ), fd_shredb_key_shred_idx( keys[ i ] ), out )>0 );
+    FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==payloads[ i ] );
+  }
 
   teardown_store( store, mem );
 }
@@ -400,6 +459,7 @@ main( int argc, char ** argv ) {
   test_multiple_shreds_same_slot();
   test_multiple_slots();
   test_query_highest();
+  test_collision_eviction();
   test_many_wraps();
 
   bench_insert();
