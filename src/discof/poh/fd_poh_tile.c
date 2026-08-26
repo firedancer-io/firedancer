@@ -114,6 +114,16 @@ after_credit( fd_poh_tile_t *     ctx,
     5. poh must process pack frags in order
     6. when poh sees done_packing/abandon_packing, return poh -> replay saying execle unused now */
 
+static int
+before_frag( fd_poh_tile_t * ctx,
+             ulong           in_idx,
+             ulong           seq FD_PARAM_UNUSED,
+             ulong           sig ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) )
+    return sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_BECAME_LEADER && sig!=REPLAY_SIG_WFS_DONE;
+  return 0;
+}
+
 static inline int
 returnable_frag( fd_poh_tile_t *     ctx,
                  ulong               in_idx,
@@ -351,8 +361,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_tile_t)
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 
