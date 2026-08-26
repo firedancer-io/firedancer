@@ -1,4 +1,5 @@
 #include "fd_secp256k1_private.h"
+#include "../../util/sanitize/fd_msan.h"
 
 
 /* Given the coordinate X and the odd-ness of the Y coordinate, recovers Y and
@@ -47,6 +48,7 @@ fd_secp256k1_recover( uchar        public_key[64],
 
   fd_secp256k1_fp_t r[1];
   bignum_tomont_p256k1( r->limbs, rs->limbs );
+  fd_msan_unpoison( r->limbs, 32UL );
 
   if( recovery_id & 2 ) {
     /* If rs >= p - n, return NULL. Otherwise, add the n to r.
@@ -70,6 +72,7 @@ fd_secp256k1_recover( uchar        public_key[64],
   /* The message scalar is unconditionally reduced to the scalar field.
      https://github.com/bitcoin-core/secp256k1/blob/v0.7.1/src/scalar_4x64_impl.h#L151 */
   bignum_mod_n256k1_4( msg->limbs, (ulong *)msg->limbs );
+  fd_msan_unpoison( msg->limbs, 32UL );
   fd_secp256k1_scalar_tomont( msg, msg );
 
   fd_secp256k1_scalar_t rn[1], u1[1], u2[1];
