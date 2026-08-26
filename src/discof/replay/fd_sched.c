@@ -216,12 +216,20 @@ struct fd_sched_block {
      case. */
   int               footer_present;
   fd_block_footer_t footer;
+
+  /* Alpenglow UpdateParent marker.  The leader may move the parent the
+     double merkle block id commits to without moving the shred header
+     parent, so this is the parent to bind into the block id, not
+     parent_slot. */
+  int                dm_parent_present;
+  ulong              dm_parent_slot;
+  fd_hash_t          dm_parent_block_id;
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==72UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==141632UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==141664UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -1925,6 +1933,20 @@ fd_sched_get_footer_bank_hash( fd_sched_t * sched, ulong bank_idx ) {
   return block->footer_present ? &block->footer.bank_hash : NULL;
 }
 
+int
+fd_sched_get_dm_parent( fd_sched_t * sched,
+                        ulong        bank_idx,
+                        ulong *      parent_slot,
+                        fd_hash_t *  parent_block_id ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  if( FD_LIKELY( !block->dm_parent_present ) ) return 0;
+  *parent_slot     = block->dm_parent_slot;
+  *parent_block_id = block->dm_parent_block_id;
+  return 1;
+}
+
 ulong
 fd_sched_get_footer_producer_time_nanos( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
@@ -2094,7 +2116,8 @@ add_block( fd_sched_t * sched,
   block->inconsistent_hashes_per_tick = 0;
   block->zero_hash_tick               = 0;
 
-  block->footer_present = 0;
+  block->footer_present     = 0;
+  block->dm_parent_present  = 0;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
@@ -2423,7 +2446,10 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
           block->footer         = marker->footer;
           block->footer_present = 1;
         } else if( marker->variant==UPDATE_PARENT ) {
-          FD_LOG_CRIT(( "UNHANDLED alpenglow update parent: slot %lu, new_parent_slot %lu", block->slot, marker->update_parent.new_parent_slot ));
+          block->dm_parent_present  = 1;
+          block->dm_parent_slot     = marker->update_parent.new_parent_slot;
+          block->dm_parent_block_id = marker->update_parent.new_parent_block_id;
+          FD_LOG_INFO(( "alpenglow update parent: slot %lu, new_parent_slot %lu", block->slot, marker->update_parent.new_parent_slot ));
         }
       } else if( FD_UNLIKELY( !block->mblks_rem && !sched->is_alpenglow ) ) {
         FD_LOG_INFO(( "bad block: ZERO_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks)", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));

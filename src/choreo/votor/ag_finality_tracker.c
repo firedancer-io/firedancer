@@ -25,6 +25,10 @@ status_insert( ag_finality_tracker_t *          self,
     return 1;
   }
   status_ele_t * pool = self->status.pool;
+  if( FD_UNLIKELY( !status_pool_free( pool ) ) ) {
+    FD_LOG_CRIT(( "ag_finality_tracker: status pool exhausted (slot_max exceeded) at slot %lu, first_unpruned %lu",
+                  slot, self->first_unpruned_slot ));
+  }
   ele                 = status_pool_ele_acquire( pool );
   ele->slot           = slot;
   ele->status         = *status;
@@ -90,8 +94,8 @@ check_same_hash( char const *          where,
   }
   FD_BASE58_ENCODE_32_BYTES( old_hash, old_b58 );
   FD_BASE58_ENCODE_32_BYTES( new_hash, new_b58 );
-  FD_LOG_ERR(( "consensus safety violation (%s): slot %lu old_status %d old_hash %s new_hash %s",
-               where, slot, old_status, old_b58, new_b58 ));
+  FD_LOG_CRIT(( "consensus safety violation (%s): slot %lu old_status %d old_hash %s new_hash %s",
+                where, slot, old_status, old_b58, new_b58 ));
 }
 
 static void
@@ -122,7 +126,7 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
           case AG_FINALIZATION_STATUS_FINALIZED:
           case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
           default:
-            FD_LOG_ERR(( "consensus safety violation (implicit_skip): slot %lu old_status %d", slot, old.kind ));
+            FD_LOG_CRIT(( "consensus safety violation (implicit_skip): slot %lu old_status %d", slot, old.kind ));
         }
       }
       event->implicitly_skipped[ event->implicitly_skipped_cnt++ ] = slot;
@@ -150,7 +154,7 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
           break;
         case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
         default:
-          FD_LOG_ERR(( "consensus safety violation (implicit_finalize): slot %lu old_status %d", cur.slot, old.kind ));
+          FD_LOG_CRIT(( "consensus safety violation (implicit_finalize): slot %lu old_status %d", cur.slot, old.kind ));
       }
     }
     event->implicitly_finalized[ event->implicitly_finalized_cnt++ ] = cur;
@@ -365,7 +369,7 @@ ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t * self,
         break;
       case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
       default:
-        FD_LOG_ERR(( "consensus safety violation (fast_finalize): slot %lu old_status %d", block->slot, old.kind ));
+        FD_LOG_CRIT(( "consensus safety violation (fast_finalize): slot %lu old_status %d", block->slot, old.kind ));
     }
   }
 
@@ -401,7 +405,7 @@ ag_finality_tracker_mark_notarized( ag_finality_tracker_t * self,
       return event;
     }
     default:
-      FD_LOG_ERR(( "unexpected status %d", old.kind ));
+      FD_LOG_CRIT(( "unexpected status %d", old.kind ));
   }
 }
 
@@ -431,7 +435,7 @@ ag_finality_tracker_mark_finalized( ag_finality_tracker_t * self,
       return event;
     }
     case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
-      FD_LOG_ERR(( "consensus safety violation" ));
+      FD_LOG_CRIT(( "consensus safety violation" ));
     default:
       __builtin_unreachable();
   }

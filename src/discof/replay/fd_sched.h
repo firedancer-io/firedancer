@@ -487,6 +487,17 @@ fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
 fd_hash_t const *
 fd_sched_get_footer_bank_hash( fd_sched_t * sched, ulong bank_idx );
 
+/* fd_sched_get_dm_parent returns 1 and fills parent_slot and
+   parent_block_id if the block carries an UpdateParent marker, which
+   moves the parent its double merkle block id commits to away from the
+   shred header parent.  Returns 0 otherwise. */
+
+int
+fd_sched_get_dm_parent( fd_sched_t * sched,
+                        ulong        bank_idx,
+                        ulong *      parent_slot,
+                        fd_hash_t *  parent_block_id );
+
 /* fd_sched_get_footer_producer_time_nanos returns the producer
    timestamp in the block footer, or 0 if no footer marker has been
    parsed for the block. */

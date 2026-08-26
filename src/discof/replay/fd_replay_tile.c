@@ -256,10 +256,24 @@ dmr_compute( fd_replay_tile_t * ctx,
   static FD_TL fd_hash_t fec_roots[ FD_FEC_BLK_MAX ];
   for( ulong i=0UL; i<fec_cnt; i++ ) fec_roots[ i ] = path[ fec_cnt-1UL-i ]->key;
 
+  ulong     dm_parent_slot;
+  fd_hash_t dm_parent_block_id;
+  if( FD_UNLIKELY( fd_sched_get_dm_parent( ctx->sched, bank->idx, &dm_parent_slot, &dm_parent_block_id ) ) ) {
+    fd_hash_t dmr;
+    dmr_root( &dmr, fec_roots, fec_cnt, dm_parent_slot, &dm_parent_block_id );
+    d2c_insert( ctx, &ele->latest_mr, &dmr );
+    return;
+  }
+
   fd_hash_t const * parent_dmr;
   if( FD_LIKELY( bank->parent_idx!=ULONG_MAX ) ) {
     fd_hash_t const * parent_cmr = &ctx->block_id_arr[ bank->parent_idx ].latest_mr;
     d2c_ele_t * pair = c2d_map_ele_query( ctx->d2c->cmr_map, parent_cmr, NULL, ctx->d2c->pool );
+    if( FD_UNLIKELY( !pair ) ) {
+      FD_BASE58_ENCODE_32_BYTES( parent_cmr->uc, parent_cmr_b58 );
+      FD_LOG_WARNING(( "slot %lu: no block id for parent slot %lu %s, deriving from its merkle root",
+                       bank->f.slot, bank->f.parent_slot, parent_cmr_b58 ));
+    }
     parent_dmr = FD_LIKELY( pair ) ? &pair->dmr : parent_cmr;
   } else {
     parent_dmr = &ctx->initial_block_id;
@@ -865,6 +879,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
     d2c_ele_t * pair = c2d_map_ele_query( ctx->d2c->cmr_map, &block_id_ele->latest_mr, NULL, ctx->d2c->pool );
     if( FD_LIKELY( pair ) ) slot_info->block_id = pair->dmr;
+    else if( FD_UNLIKELY( !is_initial ) ) FD_LOG_WARNING(( "slot %lu: publishing merkle root, no block id computed", slot ));
   }
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
@@ -1820,6 +1835,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   block_id_ele->slot      = 0UL;
   block_id_ele->bank_seq  = bank->bank_seq;
   bank->f.block_id        = initial_block_id;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) d2c_insert( ctx, &initial_block_id, &initial_block_id );
 
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
@@ -1938,6 +1954,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     block_id_ele->block_id_seen  = 1;
     block_id_ele->latest_fec_idx = 0U;
     bank->f.block_id             = manifest_block_id;
+    if( FD_UNLIKELY( ctx->is_alpenglow ) ) d2c_insert( ctx, &manifest_block_id, &manifest_block_id );
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
     /* We call this after fd_runtime_read_genesis, which sets up the
@@ -2542,7 +2559,14 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
   fd_hash_t const * root_cmr = &ctx->consensus_root;
   if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
     d2c_ele_t * pair = d2c_map_ele_query( ctx->d2c->dmr_map, &ctx->consensus_root, NULL, ctx->d2c->pool );
-    if( FD_UNLIKELY( !pair ) ) return 0;
+    if( FD_UNLIKELY( !pair ) ) {
+      if( FD_UNLIKELY( ctx->consensus_root_slot!=ctx->d2c_unresolved_slot ) ) {
+        ctx->d2c_unresolved_slot = ctx->consensus_root_slot;
+        FD_BASE58_ENCODE_32_BYTES( ctx->consensus_root.uc, root_b58 );
+        FD_LOG_WARNING(( "root slot %lu %s has no merkle root, cannot advance", ctx->consensus_root_slot, root_b58 ));
+      }
+      return 0;
+    }
     root_cmr = &pair->cmr;
   }
 
@@ -2623,7 +2647,14 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   fd_hash_t const * root_cmr = &ctx->consensus_root;
   if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
     d2c_ele_t * pair = d2c_map_ele_query( ctx->d2c->dmr_map, &ctx->consensus_root, NULL, ctx->d2c->pool );
-    if( FD_UNLIKELY( !pair ) ) return 0;
+    if( FD_UNLIKELY( !pair ) ) {
+      if( FD_UNLIKELY( ctx->consensus_root_slot!=ctx->d2c_unresolved_slot ) ) {
+        ctx->d2c_unresolved_slot = ctx->consensus_root_slot;
+        FD_BASE58_ENCODE_32_BYTES( ctx->consensus_root.uc, root_b58 );
+        FD_LOG_WARNING(( "root slot %lu %s has no merkle root, cannot advance", ctx->consensus_root_slot, root_b58 ));
+      }
+      return 0;
+    }
     root_cmr = &pair->cmr;
   }
 

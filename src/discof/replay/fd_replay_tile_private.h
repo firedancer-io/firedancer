@@ -373,6 +373,7 @@ struct fd_replay_tile {
   fd_block_id_map_t * block_id_map;
 
   struct d2c * d2c;
+  ulong        d2c_unresolved_slot;
   ulong        d2c_seed;
 
   /* Capture-related configs */

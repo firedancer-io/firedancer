@@ -15,7 +15,7 @@ static void
 test_sched_footprint( void ) {
   /* Retain the per-block saving from compact shred lengths under the
      default scheduler sizing. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL )==1114166656UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL )==1114232192UL );
 }
 
 static void

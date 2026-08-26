@@ -280,6 +280,10 @@ slot_state( ag_pool_t * self,
   ag_epoch_info_t const * info = fd_ptr_if  ( slot>=self->next_epoch_slot, self->next_epoch_info, self->curr_epoch_info );
   ulong                   rank = fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, self->curr_epoch_rank );
 
+  if( FD_UNLIKELY( !slot_state_pool_free( self->slot_states->pool ) ) ) {
+    FD_LOG_CRIT(( "ag_pool: slot state pool exhausted (slot_max exceeded) at slot %lu, first_unpruned %lu, finalized %lu",
+                  slot, ag_finality_tracker_first_unpruned_slot( self->finality_tracker ), ag_pool_finalized_slot( self ) ));
+  }
   ele       = slot_state_pool_ele_acquire( self->slot_states->pool );
   ele->slot = slot;
   ag_slot_state_zero( &ele->slot_state, slot, info, rank );
