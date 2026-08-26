@@ -1024,6 +1024,10 @@ int
 fd_crds_mask_iter_done( fd_crds_mask_iter_t * it, fd_crds_t const * crds ) {
   if( FD_UNLIKELY( hash_treap_idx_is_null( it->idx ) ) ) return 1;
   fd_crds_entry_t const * val = hash_treap_ele_fast_const( it->idx, crds->pool );
+  if( FD_LIKELY( !hash_treap_idx_is_null( val->hash.next ) ) ) {
+    fd_crds_entry_t const * nxt = hash_treap_ele_fast_const( val->hash.next, crds->pool );
+    __builtin_prefetch( &nxt->hash ); __builtin_prefetch( nxt->value_hash );
+  }
   return it->end_hash < val->hash.hash_prefix;
 }
 

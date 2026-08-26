@@ -306,6 +306,10 @@ fd_gossip_purged_mask_iter_done( fd_gossip_purged_mask_iter_t * it,
                                  fd_gossip_purged_t const *     purged ) {
   if( FD_UNLIKELY( purged_treap_idx_is_null( it->idx ) ) ) return 1;
   fd_crds_purged_t const * val = purged_treap_ele_fast_const( it->idx, purged->pool );
+  if( FD_LIKELY( !purged_treap_idx_is_null( val->treap.next ) ) ) {
+    char const * nxt = (char const *)purged_treap_ele_fast_const( val->treap.next, purged->pool );
+    __builtin_prefetch( nxt ); __builtin_prefetch( nxt+64 );
+  }
   return it->end_hash<val->treap.hash_prefix;
 }
 
