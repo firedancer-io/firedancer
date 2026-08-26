@@ -33,15 +33,19 @@
 
 /* AES-NI backend internals *******************************************/
 
+/* FD_AES_GCM_ALIGN: minimum alignment of fd_aes_gcm_t.
+   Large enough to satisfy alignment requirements on all architectures. */
+#define FD_AES_GCM_ALIGN (64UL)
+
 struct fd_aes_gcm_aesni_key {
   uchar key_enc[ 240 ];
   uchar key_dec[ 240 ];
-  uint  key_sz; /* 16 */
+  uint  key_sz; /* 16, 24, or 32 */
 };
 typedef struct fd_aes_gcm_aesni_key fd_aes_gcm_aesni_key_t;
 
 /* Do not change. These offsets are hardcoded in fd_aes_gcm_aesni.S. */
-struct fd_aes_gcm_aesni_state {
+struct __attribute__((aligned(FD_AES_GCM_ALIGN))) fd_aes_gcm_aesni_state {
   fd_aes_gcm_aesni_key_t key;
   uchar pad1[  12 ];
   uchar gcm [ 208 ];
@@ -53,7 +57,7 @@ typedef struct fd_aes_gcm_aesni_state fd_aes_gcm_aesni_t;
 /* AVX10 backend internals ********************************************/
 
 /* Do not change. These offsets are hardcoded in fd_aes_gcm_avx10.S. */
-struct fd_aes_gcm_avx10_state {
+struct __attribute__((aligned(FD_AES_GCM_ALIGN))) fd_aes_gcm_avx10_state {
   fd_aes_gcm_aesni_key_t key;
   uchar pad1[  28 ];
   uchar gcm [ 320 ];
@@ -77,28 +81,28 @@ typedef struct fd_aes_gcm_avx10_state fd_aes_gcm_avx10_t;
 #if FD_AES_GCM_IMPL == 0
 
   typedef fd_aes_gcm_ref_t    fd_aes_gcm_t;
-  #define fd_aes_128_gcm_init fd_aes_128_gcm_init_ref
+  #define fd_aes_gcm_init     fd_aes_gcm_init_ref
   #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_ref
   #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_ref
 
 #elif FD_AES_GCM_IMPL == 1
 
   typedef fd_aes_gcm_aesni_t  fd_aes_gcm_t;
-  #define fd_aes_128_gcm_init fd_aes_128_gcm_init_aesni
+  #define fd_aes_gcm_init     fd_aes_gcm_init_aesni
   #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_aesni
   #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_aesni
 
 #elif FD_AES_GCM_IMPL == 2
 
   typedef fd_aes_gcm_aesni_t  fd_aes_gcm_t;
-  #define fd_aes_128_gcm_init fd_aes_128_gcm_init_avx2
+  #define fd_aes_gcm_init     fd_aes_gcm_init_avx2
   #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_avx2
   #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_avx2
 
 #elif FD_AES_GCM_IMPL == 3
 
   typedef fd_aes_gcm_avx10_t  fd_aes_gcm_t;
-  #define fd_aes_128_gcm_init fd_aes_128_gcm_init_avx10_512
+  #define fd_aes_gcm_init     fd_aes_gcm_init_avx10_512
   #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_avx10_512
   #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_avx10_512
 
@@ -106,24 +110,33 @@ typedef struct fd_aes_gcm_avx10_state fd_aes_gcm_avx10_t;
 
 /* Public API *********************************************************/
 
-/* FD_AES_GCM_ALIGN: minimum alignment of fd_aes_gcm_t.
-   Large enough to satisfy alignment requirements on all architectures. */
-#define FD_AES_GCM_ALIGN (64UL)
-
 #define FD_AES_GCM_TAG_SZ (16UL)
 #define FD_AES_GCM_IV_SZ  (12UL)
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_aes_128_gcm_init initializes an fd_aes_gcm_t object for
-   encrypt or decrypt use.  aes_gcm points to unused and uninitialized
-   memory aligned to FD_AES_GCM_STATE_ALIGN with sizeof(fd_aes_gcm_t)
-   bytes available. */
+/* fd_aes_gcm_init initializes an fd_aes_gcm_t object for encrypt or
+   decrypt use.  key_sz is in bytes, 16/24/32 for AES-128/192/256 */
 
 void
+fd_aes_gcm_init( fd_aes_gcm_t * aes_gcm,
+                 uchar const *  key,
+                 ulong          key_sz,
+                 uchar const    iv[ 12 ] );
+
+static inline void
 fd_aes_128_gcm_init( fd_aes_gcm_t * aes_gcm,
                      uchar const    key[ 16 ],
-                     uchar const    iv [ 12 ] );
+                     uchar const    iv [ 12 ] ) {
+  fd_aes_gcm_init( aes_gcm, key, 16UL, iv );
+}
+
+static inline void
+fd_aes_256_gcm_init( fd_aes_gcm_t * aes_gcm,
+                     uchar const    key[ 32 ],
+                     uchar const    iv [ 12 ] ) {
+  fd_aes_gcm_init( aes_gcm, key, 32UL, iv );
+}
 
 /* fd_aes_gcm_aead_{encrypt,decrypt} implements the AES-GCM AEAD cipher
    c points to the ciphertext buffer.  p points to the plaintext buffer.
