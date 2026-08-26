@@ -1660,12 +1660,12 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
 }
 
-int
-fd_runtime_apply_footer( fd_bank_t *               bank,
-                         fd_accdb_t *              accdb,
-                         fd_capture_ctx_t *        capture_ctx,
-                         fd_footer_certs_t const * certs,
-                         ulong                     producer_time_nanos ) {
+static int
+apply_footer( fd_bank_t *               bank,
+              fd_accdb_t *              accdb,
+              fd_capture_ctx_t *        capture_ctx,
+              fd_footer_certs_t const * certs,
+              ulong                     producer_time_nanos ) {
 
   /* Rewrite the clock sysvar and the alpenclock account from the
      footer's producer timestamp (Agave Bank::update_clock_from_footer).
@@ -1702,9 +1702,14 @@ fd_runtime_apply_footer( fd_bank_t *               bank,
 }
 
 void
-fd_runtime_block_execute_finalize( fd_bank_t *        bank,
-                                   fd_accdb_t *       accdb,
-                                   fd_capture_ctx_t * capture_ctx ) {
+fd_runtime_block_execute_finalize( fd_bank_t *               bank,
+                                   fd_accdb_t *              accdb,
+                                   fd_capture_ctx_t *        capture_ctx,
+                                   fd_footer_certs_t const * certs,
+                                   ulong                     producer_time_nanos ) {
+  if( FD_UNLIKELY( certs && apply_footer( bank, accdb, capture_ctx, certs, producer_time_nanos ) ) ) {
+    FD_LOG_CRIT(( "slot %lu: footer cert processing failed; marking bank dead", bank->f.slot ));
+  }
   fd_runtime_freeze( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );
 }

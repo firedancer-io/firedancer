@@ -881,24 +881,22 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   ulong execution_fees_pre_settle = bank->f.execution_fees;
   ulong priority_fees_pre_settle  = bank->f.priority_fees;
 
-  /* Apply footer side effects before hashing. */
+  fd_footer_certs_t certs[1];
+  fd_footer_certs_t const * certs_opt = NULL;
+  ulong footer_time_nanos = 0UL;
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
-    fd_footer_certs_t certs[1];
     certs->fast_final_cert   = fd_sched_get_fast_final_cert  ( ctx->sched, bank->idx );
     certs->final_cert        = fd_sched_get_final_cert       ( ctx->sched, bank->idx );
     certs->final_notar_cert  = fd_sched_get_final_notar_cert ( ctx->sched, bank->idx );
     certs->skip_reward_cert  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
     certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
-
     // TODO missing cert verify - inline to replay or use new verify tiles
-    if( FD_UNLIKELY( fd_runtime_apply_footer( bank, ctx->accdb, ctx->capture_ctx, certs,
-                                              fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx ) ) ) ) {
-      FD_LOG_CRIT(( "slot %lu: footer cert processing failed; marking bank dead", bank->f.slot ));
-    }
+    certs_opt        = certs;
+    footer_time_nanos = fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx );
   }
 
   /* Do hashing and other end-of-block processing. */
-  fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
+  fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, certs_opt, footer_time_nanos );
 
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
     fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
@@ -1072,7 +1070,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ulong execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
   ulong priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
 
-  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx );
+  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL );
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
