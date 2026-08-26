@@ -59,6 +59,8 @@ class Tile(Enum):
     BENCHS = 106
     GUIH = 107
 
+    ROTOR = 108
+
 class MetricType(Enum):
     COUNTER = 0
     GAUGE = 1

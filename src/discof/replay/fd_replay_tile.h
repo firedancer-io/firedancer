@@ -67,6 +67,7 @@
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
+#include "../../choreo/votor/ag_cert.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)
@@ -79,6 +80,7 @@
 #define REPLAY_SIG_WFS_DONE       (8)
 #define REPLAY_SIG_DROP_BANK_REF  (9)
 #define REPLAY_SIG_SNAP_START    (10)
+#define REPLAY_SIG_FINAL_CERT    (11)
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -219,6 +221,15 @@ struct fd_replay_snap_start {
   ulong slot; /* ==base_slot implies full snapshot, else incremental */
 };
 typedef struct fd_replay_snap_start fd_replay_snap_start_t;
+
+/* fd_replay_final_cert carries the finalization cert parsed out of an
+   Alpenglow block footer. */
+struct fd_replay_final_cert {
+  ulong     slot;     /* the block whose footer carried the cert */
+  uint      cert_cnt;
+  ag_cert_t certs[ 2 ];
+};
+typedef struct fd_replay_final_cert fd_replay_final_cert_t;
 
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;

@@ -1092,15 +1092,21 @@ write_repair( config_t const * config,
               ulong const *    cur_link,
               ulong const *    prev_link ) {
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
+  char const * repair_label = "repair      ";
+  if( repair_tile_idx==ULONG_MAX ) {
+    repair_tile_idx = fd_topo_find_tile( &config->topo, "rotor", 0UL );
+    repair_label    = "rotor       ";
+  }
   if( repair_tile_idx==ULONG_MAX ) return 0U;
   ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
   ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_CURRENT ) ];
   long repair_lag = (long)repair_slot-(long)turbine_slot;
-  PRINT( ROWH( "▲", RED, "repair      " )
+  PRINT( ROWH( "▲", RED, "%s" )
          K( "rx" ) "%s"
          K( "tx" ) "%s"
          K( "repair slot" ) "%lu %s%+03ld" RESET
          K( "turbine slot" ) "%lu" CLEARLN "\n",
+    repair_label,
     DIFF_LINK_BYTES( "net_repair", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     repair_slot,
@@ -1194,6 +1200,9 @@ static uint
 write_replay( config_t const * config,
               ulong const *    cur_tile ) {
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
+  if( repair_tile_idx==ULONG_MAX ) { // alpenglow
+    repair_tile_idx = fd_topo_find_tile( &config->topo, "rotor", 0UL );
+  }
   ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
   if( replay_tile_idx==ULONG_MAX ) return 0U;
 
