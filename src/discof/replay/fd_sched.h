@@ -96,12 +96,30 @@ struct fd_sched_txn_info {
    int   txn_err;
    uint  next_idx;
    long  received_ns;
+   int   is_simple_vote;
+
+   /* LONG_MAX if stage was not reached */
    long  tick_parsed;
    long  tick_sigverify_disp;
    long  tick_sigverify_done;
    long  tick_exec_disp;
    long  tick_exec_done;
+   long  tick_load_start;
+   long  tick_check_start;
+   long  tick_exec_start;
+   long  tick_commit_start;
+   long  tick_commit_end;
+
+   ulong slot;
+   ulong bank_seq;
    ulong index_in_slot; /* 0-indexed position of this transaction within its block. */
+   ulong exec_tile_idx;
+   ulong sigverify_exec_tile_idx;
+   uint  compute_units_consumed; /* possibly zero if is_committable is zero */
+   ulong max_compute_units;
+   ulong transaction_fee;
+   ulong priority_fee;
+   ulong tips;
 };
 typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 
