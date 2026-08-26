@@ -1158,8 +1158,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( layout, scratch_align() );
 }
 
-/* fd_mlx5_tile_rx_dst_port_add maps an IPv4 UDP destination port to the
-   first output link with the requested name.  Published fragments encode
+/* fd_mlx5_tile_rx_dst_port_add maps an IPv4 UDP destination port to this
+   tile's output link with the requested name.  Published fragments encode
    dst_proto in their netmux signatures. */
 static void
 fd_mlx5_tile_rx_dst_port_add( fd_mlx5_tile_t *       ctx,
@@ -1170,7 +1170,7 @@ fd_mlx5_tile_rx_dst_port_add( fd_mlx5_tile_t *       ctx,
                               ushort                 dst_port,
                               int                    required ) {
   if( FD_UNLIKELY( !dst_port ) ) return;
-  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, out_link, 0UL );
+  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, out_link, tile->kind_id );
 
   if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
     if( FD_UNLIKELY( required ) ) {
@@ -1206,7 +1206,7 @@ fd_mlx5_tile_rx_dst_ports_init( fd_mlx5_tile_t *       ctx,
   fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_SEND,     "net_txsend", tile->mlx5.net.txsend_src_port,                1 );
 
   if( tile->mlx5.net.repair_client_listen_port ) {
-    ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "net_repair", 0UL );
+    ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "net_repair", tile->kind_id );
     if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
       FD_LOG_ERR(( "mlx5 output link `net_repair` is missing for repair pings" ));
     }
