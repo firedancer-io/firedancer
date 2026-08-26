@@ -154,6 +154,8 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   ulong head;        /* reserved by dlist. not all blks will be part of a dlist. */
   ulong tail;        /* reserved by dlist */
 
+  ulong orphan_seq; /* while an orphan subtree head: liveness token of its one live orphanq entry */
+
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
@@ -229,6 +231,27 @@ typedef struct fd_forest_blk fd_forest_blk_t;
 #define DLIST_NEXT  head
 #define DLIST_PREV  tail
 #include "../../util/tmpl/fd_dlist.c"
+
+/* Orphan subtree heads scheduled by next orphan-request deadline.
+   Entries are lazy: a head pushes one entry when it is created and one
+   each time it is rescheduled; nothing is removed when a head leaves.
+   Every push tags the entry and the block with the next value of a
+   monotonic sequence, so an entry is live iff its slot is currently a
+   subtree head whose orphan_seq matches.  At most one entry per head
+   can be live, hence live entries <= ele_max and a full prq
+   (2*ele_max) always holds a discardable entry. */
+
+struct __attribute__((aligned(32UL))) fd_forest_orphan_ent {
+  long  due;  /* when the head may next be requested */
+  ulong slot;
+  ulong seq;  /* liveness token, live iff it matches the head's orphan_seq */
+};
+typedef struct fd_forest_orphan_ent fd_forest_orphan_ent_t;
+
+#define PRQ_NAME    fd_forest_orphanq
+#define PRQ_T       fd_forest_orphan_ent_t
+#define PRQ_TIMEOUT due
+#include "../../util/tmpl/fd_prq.c"
 
 /* A reference to a forest element
 
@@ -367,6 +390,8 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
 
   ulong subtlist_gaddr; /* wksp gaddr of fd_forest_subtlist - linkedlist of subtree elements*/
+  ulong orphanq_gaddr;  /* wksp gaddr of fd_forest_orphanq - orphan heads by request deadline */
+  ulong orphan_seq_next; /* next orphanq entry liveness token */
 
   /* Request trackers */
 
@@ -421,6 +446,7 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_forest_t),       sizeof(fd_forest_t)                     ),
       fd_forest_pool_align(),     fd_forest_pool_footprint    ( ele_max ) ),
@@ -429,6 +455,7 @@ fd_forest_footprint( ulong ele_max ) {
       fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) ),
       fd_forest_orphaned_align(), fd_forest_orphaned_footprint( ele_max ) ),
       fd_forest_subtlist_align(), fd_forest_subtlist_footprint(         ) ),
+      fd_forest_orphanq_align(),  fd_forest_orphanq_footprint ( 2UL*ele_max ) ),
 
       fd_forest_requests_align(), fd_forest_requests_footprint( ele_max ) ),
       fd_forest_reqslist_align(), fd_forest_reqslist_footprint(         ) ),
@@ -560,6 +587,16 @@ fd_forest_subtlist( fd_forest_t * forest ) {
 FD_FN_PURE static inline fd_forest_subtlist_t const *
 fd_forest_subtlist_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->subtlist_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_orphan_ent_t *
+fd_forest_orphanq( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->orphanq_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_orphan_ent_t const *
+fd_forest_orphanq_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->orphanq_gaddr );
 }
 
 /* fd_forest_{orphaned, orphaned_const} returns a pointer in the caller's

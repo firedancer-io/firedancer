@@ -121,4 +121,15 @@ fd_reqlim_next( fd_reqlim_t * dedup, ulong key, long now );
 int
 fd_reqlim_query( fd_reqlim_t const * dedup, ulong key, long now );
 
+/* fd_reqlim_next_due returns the earliest timestamp at which key may be
+   sent without being deduped.  It is read-only.  If key is absent or its
+   timeout has elapsed, returns now.  Immediately after
+   fd_reqlim_next( dedup, key, now ) it returns a strictly future
+   deadline: the key is in the table, either still in its window or
+   just recorded at now (fd_reqlim_next evicts to make room, it cannot
+   fail to record). */
+
+long
+fd_reqlim_next_due( fd_reqlim_t const * dedup, ulong key, long now );
+
 #endif /* HEADER_fd_src_discof_repair_fd_reqlim_h */
