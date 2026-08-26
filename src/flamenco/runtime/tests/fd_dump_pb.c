@@ -635,14 +635,15 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   ulong  co_epoch_t_1 = parent_bank->f.epoch;
   ulong  co_epoch_t_2 = fd_ulong_sat_sub( parent_bank->f.epoch, 1UL );
 
-  for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, vote_stakes_iter_mem );
-       !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
-       fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, vote_stakes_iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake;
     fd_pubkey_t node;
     ushort      commission;
-    fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node, &stake, &commission, NULL );
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node, &stake,
+                             NULL, NULL, &commission, NULL, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t1[ va_t1_cnt++ ];
@@ -669,15 +670,15 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     }
   }
 
-  for( fd_vote_stakes_epoch_iter_t * iter = fd_vote_stakes_epoch_iter_init( vote_stakes, fork_id, parent_bank->f.epoch, vote_stakes_iter_mem );
-       !fd_vote_stakes_epoch_iter_done( vote_stakes, fork_id, parent_bank->f.epoch, iter );
-       fd_vote_stakes_epoch_iter_next( vote_stakes, fork_id, parent_bank->f.epoch, iter ) ) {
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, vote_stakes_iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake;
     fd_pubkey_t node;
     ushort      commission;
-    fd_vote_stakes_epoch_iter_ele( vote_stakes, fork_id, parent_bank->f.epoch, iter, &pubkey, &node, &stake,
-                                   NULL, NULL, &commission, NULL, NULL, NULL );
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, &pubkey, &node, &stake,
+                             NULL, NULL, &commission, NULL, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t2[ va_t2_cnt++ ];

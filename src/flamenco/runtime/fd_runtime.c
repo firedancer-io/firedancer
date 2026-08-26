@@ -1569,17 +1569,18 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   {
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
-    uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
-    for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, iter_mem );
-         !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
-         fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter_mem );
+         !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
+         fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
       fd_pubkey_t pubkey;
       fd_pubkey_t node_account;
       ulong       stake;
       ushort      commission;
       uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
 
-      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, &commission, bls_key );
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
+                               NULL, NULL, &commission, NULL, NULL, bls_key );
       fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &pubkey, &node_account, stake, commission, bls_key );
     }
     fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );

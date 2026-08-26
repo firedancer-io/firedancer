@@ -15,6 +15,15 @@ FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL,             epoch_credits_bou
 FD_STATIC_ASSERT( RANK_SET_WORDS==FD_REWARD_CERT_SET_WORDS,    rank_set_words );
 FD_STATIC_ASSERT( RANK_SET_WORDS==signer_set_word_cnt,         agg_set_words );
 
+static int
+vote_stakes_iter_kind_for_epoch( ulong fork_id,
+                                 ulong epoch ) {
+  ulong fork_epoch = (ulong)fd_vote_stakes_fork_epoch( fork_id );
+  if( FD_LIKELY( epoch==fork_epoch ) ) return FD_VOTE_STAKES_ITER_T_2;
+  if( FD_LIKELY( fork_epoch && epoch==fork_epoch-1UL ) ) return FD_VOTE_STAKES_ITER_T_3;
+  return 0;
+}
+
 /* credits_increment mirrors Agave's alpenglow increment_credits
    (vote_reward.rs): accumulate credits into the tail epoch_credits
    entry, starting a new entry on epoch changes and inserting the
@@ -278,15 +287,20 @@ fd_alpen_rewards_apply( fd_bank_t *               bank,
     long ts_ns = slot_timestamp( bank, reward_slot, footer_time_nanos );
     int have_ranked_vote = 0;
     fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
-    uchar __attribute__((aligned(FD_VOTE_STAKES_EPOCH_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_EPOCH_ITER_FOOTPRINT ];
-    for( fd_vote_stakes_epoch_iter_t * iter = fd_vote_stakes_epoch_iter_init( vote_stakes, bank->vote_stakes_fork_id, reward_epoch, iter_mem );
-         !fd_vote_stakes_epoch_iter_done( vote_stakes, bank->vote_stakes_fork_id, reward_epoch, iter );
-         fd_vote_stakes_epoch_iter_next( vote_stakes, bank->vote_stakes_fork_id, reward_epoch, iter ) ) {
+    int iter_kind = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, reward_epoch );
+    if( FD_UNLIKELY( !iter_kind ) ) {
+      FD_LOG_WARNING(( "slot %lu: reward epoch %lu is not t-2 or t-3", bank_slot, reward_epoch ));
+      return -1;
+    }
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter_mem );
+         !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter );
+         fd_vote_stakes_iter_next( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter ) ) {
       fd_pubkey_t vote_key;
       ulong       stake;
       ushort      rank;
-      fd_vote_stakes_epoch_iter_ele( vote_stakes, bank->vote_stakes_fork_id, reward_epoch, iter,
-                                     &vote_key, NULL, &stake, NULL, NULL, NULL, NULL, &rank, NULL );
+      fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter,
+                               &vote_key, NULL, &stake, NULL, NULL, NULL, NULL, &rank, NULL );
       if( FD_UNLIKELY( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
       FD_TEST( rank<AG_VAT_MAX );
       have_ranked_vote = 1;
@@ -335,14 +349,19 @@ fd_alpen_rewards_apply( fd_bank_t *               bank,
     long ts_ns = slot_timestamp( bank, final_slot, footer_time_nanos );
     int have_ranked_vote = 0;
     fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
-    uchar __attribute__((aligned(FD_VOTE_STAKES_EPOCH_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_EPOCH_ITER_FOOTPRINT ];
-    for( fd_vote_stakes_epoch_iter_t * iter = fd_vote_stakes_epoch_iter_init( vote_stakes, bank->vote_stakes_fork_id, final_epoch, iter_mem );
-         !fd_vote_stakes_epoch_iter_done( vote_stakes, bank->vote_stakes_fork_id, final_epoch, iter );
-         fd_vote_stakes_epoch_iter_next( vote_stakes, bank->vote_stakes_fork_id, final_epoch, iter ) ) {
+    int iter_kind = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, final_epoch );
+    if( FD_UNLIKELY( !iter_kind ) ) {
+      FD_LOG_WARNING(( "slot %lu: finalization epoch %lu is not t-2 or t-3", bank_slot, final_epoch ));
+      return -1;
+    }
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter_mem );
+         !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter );
+         fd_vote_stakes_iter_next( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter ) ) {
       fd_pubkey_t vote_key;
       ushort      rank;
-      fd_vote_stakes_epoch_iter_ele( vote_stakes, bank->vote_stakes_fork_id, final_epoch, iter,
-                                     &vote_key, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL );
+      fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter,
+                               &vote_key, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL );
       if( FD_UNLIKELY( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
       FD_TEST( rank<AG_VAT_MAX );
       have_ranked_vote = 1;
