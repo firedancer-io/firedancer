@@ -533,17 +533,16 @@ test_oversized_head_closes( void ) {
 
   request_cnt = 0UL;
 
-  /* Header lines only, no terminating blank line anywhere in the first
-     max_request_len bytes: the head can never complete. */
+  /* One unterminated header line: the head can never complete within
+     max_request_len bytes, and the header count stays far below the
+     parser's 32-header capacity so the failure lands on the -2 path. */
   char req[ 2049 ];
   ulong pos = 0UL;
-  fd_memcpy( req+pos, "POST /p HTTP/1.1\r\nHost: localhost\r\n", 35UL ); pos += 35UL;
-  while( pos<2048UL ) {
-    ulong line_len = strlen( "X-Pad: 00000000000000000000\r\n" );
-    if( pos+line_len>2048UL ) break;
-    fd_memcpy( req+pos, "X-Pad: 00000000000000000000\r\n", line_len );
-    pos += line_len;
-  }
+  char const * prefix = "POST /p HTTP/1.1\r\nHost: localhost\r\nX-Pad: ";
+  ulong prefix_len = strlen( prefix );
+  fd_memcpy( req+pos, prefix, prefix_len ); pos += prefix_len;
+  memset( req+pos, '0', 2048UL-pos );
+  pos = 2048UL;
   FD_TEST( pos>params.max_request_len );
 
   send_all( client_fd, req, pos );
