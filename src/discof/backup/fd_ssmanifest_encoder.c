@@ -174,7 +174,7 @@ ENCODE_FN {
       fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, enc->vote_stakes_iter_mem );
     } else if( entry_type==1U ) {
       vote_cnt = (uint)fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
-      fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, enc->vote_stakes_iter_mem );
+      fd_vote_stakes_epoch_iter_init( vote_stakes, fork_id, epoch, enc->vote_stakes_iter_mem );
     } else {
       vote_cnt = (uint)*fd_bank_epoch_credits_len( enc->bank );
     }
@@ -216,9 +216,10 @@ ENCODE_FN {
       ec_cnt = ec->cnt;
       co_epoch = bank->f.epoch;
     } else if( entry_type==1U ) {
-      fd_vote_stakes_t_2_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
-      FD_TEST( !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter ) );
-      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, &commission, NULL, NULL, bls_key );
+      fd_vote_stakes_epoch_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
+      FD_TEST( !fd_vote_stakes_epoch_iter_done( vote_stakes, fork_id, epoch, iter ) );
+      fd_vote_stakes_epoch_iter_ele( vote_stakes, fork_id, epoch, iter, &pubkey, &node_account, &stake,
+                                     NULL, NULL, &commission, NULL, NULL, bls_key );
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
       /* The bank epoch credits will have the resolved commission for
@@ -302,7 +303,7 @@ ENCODE_FN {
     if( entry_type==2U ) {
       fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, fd_type_pun( enc->vote_stakes_iter_mem ) );
     } else if( entry_type==1U ) {
-      fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, fd_type_pun( enc->vote_stakes_iter_mem ) );
+      fd_vote_stakes_epoch_iter_next( vote_stakes, fork_id, epoch, fd_type_pun( enc->vote_stakes_iter_mem ) );
     }
     if( enc->vote_idx >= enc->vote_cnt ) enc->state = STATE_EPOCH_STAKES_EPOCH;
     break;

@@ -215,6 +215,9 @@ fd_alpen_rewards_apply( fd_bank_t *               bank,
                          ulong                     footer_time_nanos,
                          fd_footer_epoch_info_fn_t epoch_info_fn,
                          void *                    epoch_info_ctx ) {
+  (void)epoch_info_fn;
+  (void)epoch_info_ctx;
+
   ulong bank_slot       = bank->f.slot;
   ulong current_epoch   = fd_slot_to_epoch( &bank->f.epoch_schedule, bank_slot, NULL );
   ulong migration_epoch = ULONG_MAX;
@@ -253,12 +256,6 @@ fd_alpen_rewards_apply( fd_bank_t *               bank,
 
     ulong reward_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, reward_slot, NULL );
 
-    ag_epoch_info_t const * info = epoch_info_fn( epoch_info_ctx, reward_epoch );
-    if( FD_UNLIKELY( !info ) ) {
-      FD_LOG_WARNING(( "slot %lu: no validator set for reward slot %lu", bank_slot, reward_slot ));
-      return -1;
-    }
-
     fd_epoch_inflation_account_state_t inflation[1];
     fd_epoch_inflation_state_t const * inflation_state = NULL;
     if( FD_LIKELY( fd_epoch_inflation_account_read( bank, accdb, inflation ) ) ) {
@@ -279,11 +276,25 @@ fd_alpen_rewards_apply( fd_bank_t *               bank,
     }
 
     long ts_ns = slot_timestamp( bank, reward_slot, footer_time_nanos );
-    for( ulong r=0UL; r<info->validator_cnt; r++ ) {
+    int have_ranked_vote = 0;
+    fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+    uchar __attribute__((aligned(FD_VOTE_STAKES_EPOCH_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_EPOCH_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_epoch_iter_t * iter = fd_vote_stakes_epoch_iter_init( vote_stakes, bank->vote_stakes_fork_id, reward_epoch, iter_mem );
+         !fd_vote_stakes_epoch_iter_done( vote_stakes, bank->vote_stakes_fork_id, reward_epoch, iter );
+         fd_vote_stakes_epoch_iter_next( vote_stakes, bank->vote_stakes_fork_id, reward_epoch, iter ) ) {
+      fd_pubkey_t vote_key;
+      ulong       stake;
+      ushort      rank;
+      fd_vote_stakes_epoch_iter_ele( vote_stakes, bank->vote_stakes_fork_id, reward_epoch, iter,
+                                     &vote_key, NULL, &stake, NULL, NULL, NULL, NULL, &rank, NULL );
+      if( FD_UNLIKELY( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
+      FD_TEST( rank<AG_VAT_MAX );
+      have_ranked_vote = 1;
+      ulong r = (ulong)rank;
       if( !( reward_set[ r>>6 ] & (1UL<<(r&63UL)) ) ) continue;
       /* per-slot, stake-fractional reward; split half validator, half
          (rounded up) leader */
-      uint128 numerator   = (uint128)max_reward*(uint128)info->validators[ r ].stake;
+      uint128 numerator   = (uint128)max_reward*(uint128)stake;
       uint128 denominator = (uint128)slots_per_epoch*(uint128)total_stake;
       ulong   reward      = denominator ? (ulong)( numerator/denominator ) : 0UL;
       ulong   validator_reward = reward/2UL;
@@ -295,7 +306,11 @@ fd_alpen_rewards_apply( fd_bank_t *               bank,
         .migration_epoch = migration_epoch,
         .current_epoch   = current_epoch,
       };
-      vote_account_modify( bank, accdb, capture_ctx, fd_type_pun_const( info->validators[ r ].vote_key ), &upd );
+      vote_account_modify( bank, accdb, capture_ctx, &vote_key, &upd );
+    }
+    if( FD_UNLIKELY( !have_ranked_vote ) ) {
+      FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu", bank_slot, reward_slot ));
+      return -1;
     }
   }
 
@@ -315,20 +330,33 @@ fd_alpen_rewards_apply( fd_bank_t *               bank,
       }
     }
 
-    ag_epoch_info_t const * info = epoch_info_fn( epoch_info_ctx, fd_slot_to_epoch( &bank->f.epoch_schedule, final_slot, NULL ) );
-    if( FD_UNLIKELY( !info ) ) {
-      FD_LOG_WARNING(( "slot %lu: no validator set for finalized slot %lu", bank_slot, final_slot ));
-      return -1;
-    }
+    ulong final_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, final_slot, NULL );
 
     long ts_ns = slot_timestamp( bank, final_slot, footer_time_nanos );
-    for( ulong r=0UL; r<info->validator_cnt; r++ ) {
+    int have_ranked_vote = 0;
+    fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+    uchar __attribute__((aligned(FD_VOTE_STAKES_EPOCH_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_EPOCH_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_epoch_iter_t * iter = fd_vote_stakes_epoch_iter_init( vote_stakes, bank->vote_stakes_fork_id, final_epoch, iter_mem );
+         !fd_vote_stakes_epoch_iter_done( vote_stakes, bank->vote_stakes_fork_id, final_epoch, iter );
+         fd_vote_stakes_epoch_iter_next( vote_stakes, bank->vote_stakes_fork_id, final_epoch, iter ) ) {
+      fd_pubkey_t vote_key;
+      ushort      rank;
+      fd_vote_stakes_epoch_iter_ele( vote_stakes, bank->vote_stakes_fork_id, final_epoch, iter,
+                                     &vote_key, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL );
+      if( FD_UNLIKELY( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
+      FD_TEST( rank<AG_VAT_MAX );
+      have_ranked_vote = 1;
+      ulong r = (ulong)rank;
       if( !( final_set[ r>>6 ] & (1UL<<(r&63UL)) ) ) continue;
       vote_update_t upd = {
         .update_root  = 1, .root_slot = final_slot,
         .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = ts_ns,
       };
-      vote_account_modify( bank, accdb, capture_ctx, fd_type_pun_const( info->validators[ r ].vote_key ), &upd );
+      vote_account_modify( bank, accdb, capture_ctx, &vote_key, &upd );
+    }
+    if( FD_UNLIKELY( !have_ranked_vote ) ) {
+      FD_LOG_WARNING(( "slot %lu: no ranked validators for finalized slot %lu", bank_slot, final_slot ));
+      return -1;
     }
   }
 

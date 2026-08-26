@@ -431,7 +431,7 @@ fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
      stake weights: they are calculated from an older snapshot of
      vote account stakes. */
   ulong weights_cnt = 0;
-  uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   if( use_t_1 ) {
     for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, iter_mem );
          !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
@@ -450,14 +450,16 @@ fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
       weights_cnt++;
     }
   } else {
-    for( fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, iter_mem );
-         !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter );
-         fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, iter ) ) {
+    ulong epoch = (ulong)fd_vote_stakes_fork_epoch( fork_id );
+    for( fd_vote_stakes_epoch_iter_t * iter = fd_vote_stakes_epoch_iter_init( vote_stakes, fork_id, epoch, iter_mem );
+         !fd_vote_stakes_epoch_iter_done( vote_stakes, fork_id, epoch, iter );
+         fd_vote_stakes_epoch_iter_next( vote_stakes, fork_id, epoch, iter ) ) {
       fd_pubkey_t pubkey;
       ulong       stake;
       fd_pubkey_t node_account;
       uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
-      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, NULL, NULL, NULL, bls_key );
+      fd_vote_stakes_epoch_iter_ele( vote_stakes, fork_id, epoch, iter, &pubkey, &node_account, &stake,
+                                     NULL, NULL, NULL, NULL, NULL, bls_key );
 
       FD_TEST( weights_cnt<MAX_STAKE_WEIGHTS );
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );

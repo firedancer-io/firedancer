@@ -556,6 +556,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
         }
       }
     }
+    fd_vote_stakes_finalize( vote_stakes, epoch );
   }
 
   /* Populate the top votes for the end of the T-3 epoch if the
@@ -564,6 +565,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
     fd_vote_stakes_snap_insert_t_3( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
   }
+  if( FD_LIKELY( epoch ) ) fd_vote_stakes_finalize( vote_stakes, epoch-1UL );
 
   bank->accdb_fork_id        = (fd_accdb_fork_id_t){ .val = manifest->accdb_fork_id };
   bank->parent_accdb_fork_id = bank->accdb_fork_id;

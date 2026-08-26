@@ -4,6 +4,7 @@
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../flamenco/stakes/fd_stake_delegations.h"
+#include "../../../ballet/hex/fd_hex.h"
 #include <limits.h>
 
 /* Shorthand for the common validate call pattern using the production
@@ -678,14 +679,31 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   manifest->epoch_stakes[2].vote_stakes[0].commission = 10U;
   manifest->epoch_stakes[2].vote_stakes[0].has_identity_bls = 1;
 
+  uchar valid_bls[2][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  fd_hex_decode( valid_bls[0], "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb", sizeof(valid_bls[0]) );
+  fd_hex_decode( valid_bls[1], "af9ff5448e60bc9a718f463ac102bd6f8772e6460c19076a6c89d5806e5a8ef44b6f3b8af09e37a4e564987a26b9deda", sizeof(valid_bls[1]) );
+
+  uchar pubkey_w[32]; fd_memset( pubkey_w, 0xEF, 32UL );
+  uchar ident_w[32];  fd_memset( ident_w,  0xE2, 32UL );
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].vote,         pubkey_w,     32UL );
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity,     ident_w,      32UL );
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity_bls, valid_bls[1], sizeof(valid_bls[1]) );
+  manifest->epoch_stakes[1].vote_stakes[0].stake            = 4000UL;
+  manifest->epoch_stakes[1].vote_stakes[0].commission       = 11U;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[1].total_stake                     = 4000UL;
+
   uchar pubkey_z[32]; fd_memset( pubkey_z, 0xEE, 32UL );
   uchar ident_z[32];  fd_memset( ident_z,  0xE1, 32UL );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].vote,     pubkey_z, 32UL );
-  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity, ident_z,  32UL );
-  manifest->epoch_stakes[0].vote_stakes[0].stake      = 3000UL;
-  manifest->epoch_stakes[0].vote_stakes[0].commission = 17U;
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].vote,         pubkey_z,     32UL );
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity,     ident_z,      32UL );
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity_bls, valid_bls[0], sizeof(valid_bls[0]) );
+  manifest->epoch_stakes[0].vote_stakes[0].stake            = 3000UL;
+  manifest->epoch_stakes[0].vote_stakes[0].commission       = 17U;
   manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[0].total_stake                     = 3000UL;
 
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
   FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
@@ -697,6 +715,22 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( fd_pubkey_eq( &node_out, (fd_pubkey_t *)ident_z ) );
   FD_TEST( stake_out==3000UL && commission_out==17U );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==3000UL );
+
+  ushort rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_EPOCH_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_EPOCH_ITER_FOOTPRINT ];
+  fd_vote_stakes_epoch_iter_t * iter = fd_vote_stakes_epoch_iter_init( vote_stakes, bank->vote_stakes_fork_id, bank->f.epoch, iter_mem );
+  FD_TEST( !fd_vote_stakes_epoch_iter_done( vote_stakes, bank->vote_stakes_fork_id, bank->f.epoch, iter ) );
+  fd_pubkey_t iter_pubkey;
+  fd_vote_stakes_epoch_iter_ele( vote_stakes, bank->vote_stakes_fork_id, bank->f.epoch, iter,
+                                 &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL );
+  FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_w ) && rank_out==0U );
+
+  rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
+  iter = fd_vote_stakes_epoch_iter_init( vote_stakes, bank->vote_stakes_fork_id, bank->f.epoch-1UL, iter_mem );
+  FD_TEST( !fd_vote_stakes_epoch_iter_done( vote_stakes, bank->vote_stakes_fork_id, bank->f.epoch-1UL, iter ) );
+  fd_vote_stakes_epoch_iter_ele( vote_stakes, bank->vote_stakes_fork_id, bank->f.epoch-1UL, iter,
+                                 &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL );
+  FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_z ) && rank_out==0U );
 
   fd_wksp_free_laddr( banks_mem );
 
