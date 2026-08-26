@@ -218,7 +218,7 @@ ENCODE_FN {
     } else if( entry_type==1U ) {
       fd_vote_stakes_t_2_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
       FD_TEST( !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter ) );
-      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, &commission, NULL, bls_key );
+      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, &commission, NULL, NULL, bls_key );
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
       /* The bank epoch credits will have the resolved commission for

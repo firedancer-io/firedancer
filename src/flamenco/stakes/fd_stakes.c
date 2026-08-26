@@ -457,7 +457,7 @@ fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
       ulong       stake;
       fd_pubkey_t node_account;
       uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
-      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, NULL, NULL, bls_key );
+      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, NULL, NULL, NULL, NULL, NULL, bls_key );
 
       FD_TEST( weights_cnt<MAX_STAKE_WEIGHTS );
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );

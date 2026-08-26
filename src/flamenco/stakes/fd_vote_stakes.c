@@ -15,6 +15,7 @@ struct vacc {
   fd_pubkey_t node_account;
   ulong       stake;
   ushort      commission;
+  ushort      alpenglow_rank;
   uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; /* zero if unregistered */
   uint        left;
   uint        right;
@@ -406,11 +407,12 @@ fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
   vacc_t *     pool = t_1_vacc_pool( vote_stakes, fork_id_width_id( fork_id ) );
   vacc_map_t * map  = t_1_vacc_map ( vote_stakes, fork_id_width_id( fork_id ) );
 
-  vacc_t * vacc      = vacc_pool_ele_acquire( pool );
-  vacc->pubkey       = *pubkey;
-  vacc->node_account = *node_account;
-  vacc->stake        = stake;
-  vacc->commission   = commission;
+  vacc_t * vacc        = vacc_pool_ele_acquire( pool );
+  vacc->pubkey         = *pubkey;
+  vacc->node_account   = *node_account;
+  vacc->stake          = stake;
+  vacc->commission     = commission;
+  vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
 }
@@ -429,11 +431,12 @@ fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
   vacc_t *     pool      = t_2_vacc_pool( vote_stakes, epoch_idx );
   vacc_map_t * map       = t_2_vacc_map ( vote_stakes, epoch_idx );
 
-  vacc_t * vacc      = vacc_pool_ele_acquire( pool );
-  vacc->pubkey       = *pubkey;
-  vacc->node_account = *node_account;
-  vacc->stake        = stake;
-  vacc->commission   = commission;
+  vacc_t * vacc        = vacc_pool_ele_acquire( pool );
+  vacc->pubkey         = *pubkey;
+  vacc->node_account   = *node_account;
+  vacc->stake          = stake;
+  vacc->commission     = commission;
+  vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
 }
@@ -454,11 +457,12 @@ fd_vote_stakes_snap_insert_t_3( fd_vote_stakes_t *  vote_stakes,
   vacc_t *     pool = t_2_vacc_pool( vote_stakes, t_3_idx );
   vacc_map_t * map  = t_2_vacc_map ( vote_stakes, t_3_idx );
 
-  vacc_t * vacc      = vacc_pool_ele_acquire( pool );
-  vacc->pubkey       = *pubkey;
-  vacc->node_account = *node_account;
-  vacc->stake        = stake;
-  vacc->commission   = commission;
+  vacc_t * vacc        = vacc_pool_ele_acquire( pool );
+  vacc->pubkey         = *pubkey;
+  vacc->node_account   = *node_account;
+  vacc->stake          = stake;
+  vacc->commission     = commission;
+  vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
   vote_stakes->t_2_epoch[ t_3_idx ] = t_3_epoch;
@@ -493,11 +497,12 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
     if( FD_UNLIKELY( stake==min_stake ) ) return;
   }
 
-  vacc_t * vacc      = vacc_pool_ele_acquire( pool );
-  vacc->pubkey       = *pubkey;
-  vacc->node_account = *node_account;
-  vacc->stake        = stake;
-  vacc->commission   = commission;
+  vacc_t * vacc        = vacc_pool_ele_acquire( pool );
+  vacc->pubkey         = *pubkey;
+  vacc->node_account   = *node_account;
+  vacc->stake          = stake;
+  vacc->commission     = commission;
+  vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
   vacc_heap_ele_insert( heap, vacc, pool );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
@@ -564,10 +569,11 @@ fd_vote_stakes_new_fork( fd_vote_stakes_t * vote_stakes,
            iter = vacc_map_iter_next( iter, t_1_map, t_1_pool ) ) {
         vacc_t const * src = vacc_map_iter_ele_const( iter, t_1_map, t_1_pool );
         vacc_t *       dst = vacc_pool_ele_acquire( t_2_pool );
-        dst->pubkey       = src->pubkey;
-        dst->node_account = src->node_account;
-        dst->stake        = src->stake;
-        dst->commission   = src->commission;
+        dst->pubkey         = src->pubkey;
+        dst->node_account   = src->node_account;
+        dst->stake          = src->stake;
+        dst->commission     = src->commission;
+        dst->alpenglow_rank = src->alpenglow_rank;
         memcpy( dst->bls_key, src->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
         FD_TEST( vacc_map_ele_insert( t_2_map, dst, t_2_pool ) );
       }
@@ -629,7 +635,7 @@ fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
        !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter );
        fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, iter ) ) {
     fd_pubkey_t pubkey;
-    fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
 
     fd_acc_t acc = fd_accdb_read_one( accdb, accdb_fork_id, pubkey.uc );
     if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
@@ -753,6 +759,8 @@ FD_STATIC_ASSERT( FD_VOTE_STAKES_T_1_ITER_FOOTPRINT == sizeof(vacc_map_iter_t), 
 FD_STATIC_ASSERT( FD_VOTE_STAKES_T_1_ITER_ALIGN == alignof(vacc_map_iter_t), t_1_iter_align );
 FD_STATIC_ASSERT( FD_VOTE_STAKES_T_2_ITER_FOOTPRINT == sizeof(vacc_map_iter_t), t_2_iter_footprint );
 FD_STATIC_ASSERT( FD_VOTE_STAKES_T_2_ITER_ALIGN == alignof(vacc_map_iter_t), t_2_iter_align );
+FD_STATIC_ASSERT( FD_VOTE_STAKES_T_3_ITER_FOOTPRINT == sizeof(vacc_map_iter_t), t_3_iter_footprint );
+FD_STATIC_ASSERT( FD_VOTE_STAKES_T_3_ITER_ALIGN == alignof(vacc_map_iter_t), t_3_iter_align );
 
 fd_vote_stakes_t_1_iter_t *
 fd_vote_stakes_t_1_iter_init( fd_vote_stakes_t const * vote_stakes,
@@ -852,6 +860,7 @@ fd_vote_stakes_t_2_iter_ele( fd_vote_stakes_t const *    vote_stakes,
                              long *                      last_vote_ts_out_opt,
                              ushort *                    commission_out_opt,
                              uchar *                     is_valid_out_opt,
+                             ushort *                    alpenglow_rank_out_opt,
                              uchar                       bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] ) {
   ulong                 epoch_idx = (ulong)fork_id_epoch( fork_id ) & 1UL;
   vacc_t *              pool      = t_2_vacc_pool( vote_stakes, epoch_idx );
@@ -867,5 +876,76 @@ fd_vote_stakes_t_2_iter_ele( fd_vote_stakes_t const *    vote_stakes,
   if( last_vote_ts_out_opt )   *last_vote_ts_out_opt   = states->states[ vacc_idx ].last_vote_ts;
   if( commission_out_opt )     *commission_out_opt     = vacc->commission;
   if( is_valid_out_opt )       *is_valid_out_opt       = states->states[ vacc_idx ].is_valid;
+  if( alpenglow_rank_out_opt ) *alpenglow_rank_out_opt = vacc->alpenglow_rank;
+  if( bls_key_out_opt )        memcpy( bls_key_out_opt, vacc->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
+}
+
+fd_vote_stakes_t_3_iter_t *
+fd_vote_stakes_t_3_iter_init( fd_vote_stakes_t const * vote_stakes,
+                              ulong                    fork_id,
+                              uchar                    iter_mem[ static FD_VOTE_STAKES_T_3_ITER_FOOTPRINT ] ) {
+  ulong epoch = (ulong)fork_id_epoch( fork_id );
+
+  vacc_map_iter_t iter = {0};
+  if( FD_LIKELY( epoch ) ) {
+    ulong t_3_epoch = epoch - 1UL;
+    ulong t_3_idx   = t_3_epoch & 1UL;
+    if( FD_LIKELY( vote_stakes->t_2_epoch[ t_3_idx ]==t_3_epoch ) ) {
+      vacc_t *     pool = t_2_vacc_pool( vote_stakes, t_3_idx );
+      vacc_map_t * map  = t_2_vacc_map ( vote_stakes, t_3_idx );
+      iter = vacc_map_iter_init( map, pool );
+    }
+  }
+  memcpy( iter_mem, &iter, sizeof(iter) );
+  return (fd_vote_stakes_t_3_iter_t *)iter_mem;
+}
+
+int
+fd_vote_stakes_t_3_iter_done( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_3_iter_t * iter ) {
+  ulong epoch = (ulong)fork_id_epoch( fork_id );
+  if( FD_UNLIKELY( !epoch ) ) return 1;
+
+  ulong t_3_epoch = epoch - 1UL;
+  ulong t_3_idx   = t_3_epoch & 1UL;
+  if( FD_UNLIKELY( vote_stakes->t_2_epoch[ t_3_idx ]!=t_3_epoch ) ) return 1;
+
+  vacc_t *     pool = t_2_vacc_pool( vote_stakes, t_3_idx );
+  vacc_map_t * map  = t_2_vacc_map ( vote_stakes, t_3_idx );
+  return vacc_map_iter_done( *(vacc_map_iter_t *)iter, map, pool );
+}
+
+void
+fd_vote_stakes_t_3_iter_next( fd_vote_stakes_t const *    vote_stakes,
+                              ulong                       fork_id,
+                              fd_vote_stakes_t_3_iter_t * iter ) {
+  ulong             t_3_idx  = ((ulong)fork_id_epoch( fork_id ) - 1UL) & 1UL;
+  vacc_t *          pool     = t_2_vacc_pool( vote_stakes, t_3_idx );
+  vacc_map_t *      map      = t_2_vacc_map ( vote_stakes, t_3_idx );
+  vacc_map_iter_t * map_iter = (vacc_map_iter_t *)iter;
+  *map_iter = vacc_map_iter_next( *map_iter, map, pool );
+}
+
+void
+fd_vote_stakes_t_3_iter_ele( fd_vote_stakes_t const *    vote_stakes,
+                             ulong                       fork_id,
+                             fd_vote_stakes_t_3_iter_t * iter,
+                             fd_pubkey_t *               pubkey_out,
+                             fd_pubkey_t *               node_account_out_opt,
+                             ulong *                     stake_out_opt,
+                             ushort *                    commission_out_opt,
+                             ushort *                    alpenglow_rank_out_opt,
+                             uchar                       bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] ) {
+  ulong          t_3_idx = ((ulong)fork_id_epoch( fork_id ) - 1UL) & 1UL;
+  vacc_t *       pool    = t_2_vacc_pool( vote_stakes, t_3_idx );
+  vacc_map_t *   map     = t_2_vacc_map ( vote_stakes, t_3_idx );
+  vacc_t const * vacc    = vacc_map_iter_ele_const( *(vacc_map_iter_t *)iter, map, pool );
+
+  *pubkey_out = vacc->pubkey;
+  if( node_account_out_opt )   *node_account_out_opt   = vacc->node_account;
+  if( stake_out_opt )          *stake_out_opt          = vacc->stake;
+  if( commission_out_opt )     *commission_out_opt     = vacc->commission;
+  if( alpenglow_rank_out_opt ) *alpenglow_rank_out_opt = vacc->alpenglow_rank;
   if( bls_key_out_opt )        memcpy( bls_key_out_opt, vacc->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
 }

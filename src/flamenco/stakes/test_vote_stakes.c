@@ -48,6 +48,38 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, child, &vote_b, NULL, NULL, &commission ) );
   FD_TEST( commission==20U );
 
+  ushort alpenglow_rank;
+  uchar  iter_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  ulong  t_2_iter_cnt = 0UL;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN))) t_2_iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, child, t_2_iter_mem );
+       !fd_vote_stakes_t_2_iter_done( vote_stakes, child, iter );
+       fd_vote_stakes_t_2_iter_next( vote_stakes, child, iter ) ) {
+    fd_pubkey_t pubkey;
+    fd_vote_stakes_t_2_iter_ele( vote_stakes, child, iter, &pubkey, NULL, &stake, NULL, NULL, NULL, NULL, &alpenglow_rank, iter_bls );
+    FD_TEST( fd_pubkey_eq( &pubkey, &vote_a ) && stake==100UL );
+    FD_TEST( alpenglow_rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
+    FD_TEST( !memcmp( iter_bls, bls_a, FD_BLS_PUBKEY_COMPRESSED_SZ ) );
+    t_2_iter_cnt++;
+  }
+  FD_TEST( t_2_iter_cnt==1UL );
+
+  ulong t_3_iter_cnt = 0UL;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_T_3_ITER_ALIGN))) t_3_iter_mem[ FD_VOTE_STAKES_T_3_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_t_3_iter_t * iter = fd_vote_stakes_t_3_iter_init( vote_stakes, child, t_3_iter_mem );
+       !fd_vote_stakes_t_3_iter_done( vote_stakes, child, iter );
+       fd_vote_stakes_t_3_iter_next( vote_stakes, child, iter ) ) {
+    fd_pubkey_t pubkey;
+    fd_pubkey_t node;
+    fd_vote_stakes_t_3_iter_ele( vote_stakes, child, iter, &pubkey, &node, &stake, &commission, &alpenglow_rank, iter_bls );
+    FD_TEST( fd_pubkey_eq( &pubkey, &vote_b ) && fd_pubkey_eq( &node, &node_b ) );
+    FD_TEST( stake==200UL && commission==20U );
+    FD_TEST( alpenglow_rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
+    FD_TEST( !memcmp( iter_bls, bls_b, FD_BLS_PUBKEY_COMPRESSED_SZ ) );
+    t_3_iter_cnt++;
+  }
+  FD_TEST( t_3_iter_cnt==1UL );
+
   fd_vote_stakes_insert( vote_stakes, child, &vote_c, &node_c, 300UL, 30U, bls_c );
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, child, &vote_c, NULL, &stake, &commission ) );
   FD_TEST( stake==300UL && commission==30U );
