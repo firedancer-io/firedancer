@@ -29,7 +29,7 @@ fd_backup_cache_join( fd_backup_cache_t * backup,
   ulong max_live_slots = accdb->max_live_slots;
   ulong max_accounts   = accdb->max_accounts;
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
+  ulong chain_cnt = accdb->chain_cnt; /* see fd_accdb_new */
 
   FD_SCRATCH_ALLOC_INIT( l, accdb );
   /*                       */FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
@@ -48,7 +48,7 @@ fd_backup_cache_join( fd_backup_cache_t * backup,
     .acc_pool     = _acc_pool_ele,
     .max_accounts = max_accounts,
     .seed         = accdb->seed,
-    .chain_mask   = (uint)( chain_cnt-1UL ),
+    .chain_mask   = chain_cnt-1UL,
     .epoch_slot   = epoch_fseq,
     .epoch        = &accdb->epoch
   };

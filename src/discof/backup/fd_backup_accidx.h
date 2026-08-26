@@ -16,7 +16,7 @@ struct fd_backup_accidx {
   fd_accdb_accmeta_t const * acc_pool;     /* map ele pool */
   ulong                      max_accounts; /* map ele pool max */
   ulong                      seed;         /* map hash function */
-  uint                       chain_mask;   /* map chain count - 1 */
+  ulong                      chain_mask;   /* map chain count - 1 (chain counts exceed 2^32 at mainnet max_accounts) */
 
   ulong *       epoch_slot; /* epoch announced by this reader */
   ulong const * epoch;      /* accdb global epoch */
