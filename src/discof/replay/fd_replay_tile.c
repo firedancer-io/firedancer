@@ -931,7 +931,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
                                               fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx ),
                                               replay_epoch_info, ctx ) ) ) {
       FD_LOG_CRIT(( "slot %lu: footer cert processing failed; marking bank dead", bank->f.slot ));
-      return;
     }
   }
 

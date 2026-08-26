@@ -22,23 +22,30 @@ fd_shredb_max_slots_for_gib( ulong max_size_gib ) {
   return fd_shredb_max_shreds_for_gib( max_size_gib ) / 32UL;
 }
 
+static inline ulong
+fd_shredb_shred_map_query( fd_shredb_t const * store,
+                           ulong                key ) {
+  return fd_shredb_shred_map_idx_query_const( store->shred_map, &key, ULONG_MAX, store->shred_pool );
+}
+
 FD_FN_CONST ulong
 fd_shredb_footprint( ulong max_size_gib ) {
   if( FD_UNLIKELY( !max_size_gib ) ) return 0UL;
+  if( FD_UNLIKELY( max_size_gib>FD_SHREDB_MAX_SIZE_GIB ) ) return 0UL;
 
   ulong max_shreds = fd_shredb_max_shreds_for_gib( max_size_gib );
   ulong max_slots  = fd_shredb_max_slots_for_gib ( max_size_gib );
 
-  int lg_shred_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( max_shreds + 1UL ) );
-  int lg_slot_cnt  = fd_ulong_find_msb( fd_ulong_pow2_up( max_slots  + 1UL ) );
+  ulong chain_cnt   = fd_shredb_shred_map_chain_cnt_est( max_shreds );
+  int   lg_slot_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( max_slots + 1UL ) );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_shredb_t),        sizeof(fd_shredb_t)                           );
-  l = FD_LAYOUT_APPEND( l, fd_shredb_shred_map_align(), fd_shredb_shred_map_footprint( lg_shred_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_shredb_slot_map_align(),  fd_shredb_slot_map_footprint ( lg_slot_cnt  ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_shredb_t),              sizeof(fd_shredb_t)                         );
+  l = FD_LAYOUT_APPEND( l, fd_shredb_shred_map_align(),       fd_shredb_shred_map_footprint( chain_cnt )  );
+  l = FD_LAYOUT_APPEND( l, fd_shredb_slot_map_align(),        fd_shredb_slot_map_footprint ( lg_slot_cnt ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_shredb_shred_entry_t),  max_shreds * sizeof(fd_shredb_shred_entry_t) );
   ulong bitset_words = (max_shreds + 63UL) / 64UL;
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),              max_shreds   * sizeof(ulong)                  ); /* evict_keys     */
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),              bitset_words * sizeof(ulong)                  ); /* evict_occupied */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                    bitset_words * sizeof(ulong)                );
   return FD_LAYOUT_FINI( l, fd_shredb_align() );
 }
 
@@ -62,6 +69,11 @@ fd_shredb_new( void       * shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( max_size_gib>FD_SHREDB_MAX_SIZE_GIB ) ) {
+    FD_LOG_ERR(( "shred database size limit is %lu GiB, but the maximum supported size is %lu GiB",
+                 max_size_gib, FD_SHREDB_MAX_SIZE_GIB ));
+  }
+
   ulong footprint = fd_shredb_footprint( max_size_gib );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "bad max_size_gib (%lu)", max_size_gib ));
@@ -71,21 +83,21 @@ fd_shredb_new( void       * shmem,
   ulong max_shreds = fd_shredb_max_shreds_for_gib( max_size_gib );
   ulong max_slots  = fd_shredb_max_slots_for_gib ( max_size_gib );
 
-  int lg_shred_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( max_shreds + 1UL ) );
-  int lg_slot_cnt  = fd_ulong_find_msb( fd_ulong_pow2_up( max_slots  + 1UL ) );
+  ulong chain_cnt   = fd_shredb_shred_map_chain_cnt_est( max_shreds );
+  int   lg_slot_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( max_slots + 1UL ) );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  /**/                   FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_t),        sizeof(fd_shredb_t)                           );
-  void * shred_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_shred_map_align(), fd_shredb_shred_map_footprint( lg_shred_cnt ) );
-  void * slot_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_slot_map_align(),  fd_shredb_slot_map_footprint ( lg_slot_cnt  ) );
-  ulong bitset_words = (max_shreds + 63UL) / 64UL;
-  void * evict_k_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),              max_shreds   * sizeof(ulong)                  );
-  void * evict_o_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),              bitset_words * sizeof(ulong)                  );
+  /**/                    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_t),             sizeof(fd_shredb_t)                         );
+  void * shred_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_shred_map_align(),      fd_shredb_shred_map_footprint( chain_cnt )  );
+  void * slot_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_slot_map_align(),       fd_shredb_slot_map_footprint ( lg_slot_cnt ) );
+  void * shred_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_shred_entry_t), max_shreds * sizeof(fd_shredb_shred_entry_t) );
+  ulong  bitset_words   = (max_shreds + 63UL) / 64UL;
+  void * evict_o_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                   bitset_words * sizeof(ulong)                );
 
   fd_shredb_t * store = (fd_shredb_t *)shmem;
-  store->shred_map      = fd_shredb_shred_map_new( shred_map_mem, lg_shred_cnt, seed );
+  store->shred_pool     = (fd_shredb_shred_entry_t *)shred_pool_mem;
+  store->shred_map      = fd_shredb_shred_map_new( shred_map_mem, chain_cnt, seed );
   store->slot_map       = fd_shredb_slot_map_new ( slot_map_mem,  lg_slot_cnt,  seed );
-  store->evict_keys     = (ulong *)evict_k_mem;
   store->evict_occupied = (ulong *)evict_o_mem;
   fd_memset( store->evict_occupied, 0, bitset_words * sizeof(ulong) );
 
@@ -127,10 +139,12 @@ fd_shredb_join( void * shstore ) {
   }
 
   fd_shredb_t * store = (fd_shredb_t *)shstore;
-  store->shred_map     = fd_shredb_shred_map_join( store->shred_map );
-  store->slot_map      = fd_shredb_slot_map_join ( store->slot_map  );
+  fd_shredb_shred_map_t * shred_map = fd_shredb_shred_map_join( store->shred_map );
+  if( FD_UNLIKELY( !shred_map ) ) return NULL;
 
-  return (fd_shredb_t *)shstore;
+  store->shred_map = shred_map;
+  store->slot_map  = fd_shredb_slot_map_join( store->slot_map );
+  return store;
 }
 
 void *
@@ -140,7 +154,10 @@ fd_shredb_leave( fd_shredb_t const * store ) {
     return NULL;
   }
 
-  return (void *)store;
+  fd_shredb_t * mutable_store = (fd_shredb_t *)store;
+  mutable_store->shred_map = fd_shredb_shred_map_leave( mutable_store->shred_map );
+  mutable_store->slot_map  = fd_shredb_slot_map_leave ( mutable_store->slot_map  );
+  return mutable_store;
 }
 
 void *
@@ -179,7 +196,7 @@ fd_shredb_slot_evict( fd_shredb_t * store,
   if( evicted_shred_idx==se->highest_shred_idx ) {
     for( uint idx = evicted_shred_idx; ; idx-- ) {
       ulong key = fd_shredb_key_pack( slot, idx );
-      if( fd_shredb_shred_map_query( store->shred_map, key, NULL ) ) {
+      if( fd_shredb_shred_map_query( store, key )!=ULONG_MAX ) {
         se->highest_shred_idx = idx;
         return;
       }
@@ -192,12 +209,12 @@ fd_shredb_slot_evict( fd_shredb_t * store,
 void
 fd_shredb_insert( fd_shredb_t      * store,
                   fd_shred_t const * shred ) {
-  ulong shred_sz  = fd_shred_sz( shred );
+  ulong shred_sz  = fd_ulong_min( fd_shred_sz( shred ), FD_SHRED_MAX_SZ );
   ulong slot      = shred->slot;
   uint  shred_idx = shred->idx;
 
   ulong key = fd_shredb_key_pack( slot, shred_idx );
-  if( fd_shredb_shred_map_query( store->shred_map, key, NULL ) ) return;
+  if( fd_shredb_shred_map_query( store, key )!=ULONG_MAX ) return;
 
   /* Grow the backing file if the write head has reached the current
      file capacity.  Double the file size each time (superlinear growth)
@@ -215,12 +232,11 @@ fd_shredb_insert( fd_shredb_t      * store,
   ulong wh_word = store->write_head / 64UL;
   ulong wh_bit  = store->write_head % 64UL;
   if( FD_LIKELY( store->evict_occupied[ wh_word ] & (1UL << wh_bit) ) ) {
-    ulong old_key  = store->evict_keys[ store->write_head ];
+    ulong old_key  = store->shred_pool[ store->write_head ].key;
     ulong old_slot = fd_shredb_key_slot( old_key );
     uint  old_idx  = fd_shredb_key_shred_idx( old_key );
 
-    fd_shredb_shred_entry_t * old = fd_shredb_shred_map_query( store->shred_map, old_key, NULL );
-    if( FD_LIKELY( old ) ) fd_shredb_shred_map_remove( store->shred_map, old );
+    fd_shredb_shred_map_idx_remove_fast( store->shred_map, store->write_head, store->shred_pool );
 
     fd_shredb_slot_evict( store, old_slot, old_idx );
     store->cnt--;
@@ -234,12 +250,10 @@ fd_shredb_insert( fd_shredb_t      * store,
   long res = pwrite( store->fd, wr_entry, sizeof(fd_shredb_entry_t), off );
   if( FD_UNLIKELY( res!=(long)sizeof(fd_shredb_entry_t) ) ) FD_LOG_ERR(( "error writing to shredb: (%d-%s)", errno, fd_io_strerror( errno ) ));
 
-  store->evict_keys    [ store->write_head ] = key;
+  store->shred_pool[ store->write_head ].key = key;
   store->evict_occupied[ wh_word ] |= (1UL << wh_bit);
 
-  fd_shredb_shred_entry_t * map_entry = fd_shredb_shred_map_insert( store->shred_map, key );
-  FD_TEST( map_entry );
-  map_entry->ring_idx = store->write_head;
+  FD_TEST( fd_shredb_shred_map_idx_insert( store->shred_map, store->write_head, store->shred_pool ) );
 
   fd_shredb_slot_entry_t * se = fd_shredb_slot_map_query( store->slot_map, slot, NULL );
   if( FD_LIKELY( se ) ) {
@@ -265,16 +279,17 @@ fd_shredb_query( fd_shredb_t * store,
   if( !fd_shredb_slot_map_query( store->slot_map, slot, NULL ) ) return -1;
 
   ulong key = fd_shredb_key_pack( slot, shred_idx );
-  fd_shredb_shred_entry_t const * map_entry = fd_shredb_shred_map_query( store->shred_map, key, NULL );
-  if( FD_UNLIKELY( !map_entry ) ) return -1; /* No such shred. */
+  ulong ring_idx = fd_shredb_shred_map_query( store, key );
+  if( FD_UNLIKELY( ring_idx==ULONG_MAX ) ) return -1; /* No such shred. */
 
   fd_shredb_entry_t rd_entry[1];
-  off_t off = (off_t)(map_entry->ring_idx * sizeof(fd_shredb_entry_t));
+  off_t off = (off_t)(ring_idx * sizeof(fd_shredb_entry_t));
   long res = pread( store->fd, rd_entry, sizeof(fd_shredb_entry_t), off );
   if( FD_UNLIKELY( res!=(long)sizeof(fd_shredb_entry_t) ) ) FD_LOG_ERR(( "error reading from shredb: (%d-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_memcpy( out, rd_entry->shred, rd_entry->shred_sz );
-  return rd_entry->shred_sz;
+  ulong shred_sz = fd_ulong_min( rd_entry->shred_sz, FD_SHRED_MAX_SZ );
+  fd_memcpy( out, rd_entry->shred, shred_sz );
+  return (int)shred_sz;
 }
 
 int fd_shredb_query_highest( fd_shredb_t * store,
@@ -285,11 +300,11 @@ int fd_shredb_query_highest( fd_shredb_t * store,
   if( FD_UNLIKELY( !se ) ) return -1;
 
   ulong key = fd_shredb_key_pack( slot, se->highest_shred_idx );
-  fd_shredb_shred_entry_t const * map_entry = fd_shredb_shred_map_query( store->shred_map, key, NULL );
-  FD_TEST( map_entry );
+  ulong ring_idx = fd_shredb_shred_map_query( store, key );
+  FD_TEST( ring_idx!=ULONG_MAX );
 
   fd_shredb_entry_t rd_entry[1];
-  off_t off = (off_t)(map_entry->ring_idx * sizeof(fd_shredb_entry_t));
+  off_t off = (off_t)(ring_idx * sizeof(fd_shredb_entry_t));
   long res = pread( store->fd, rd_entry, sizeof(fd_shredb_entry_t), off );
   if( FD_UNLIKELY( res!=(long)sizeof(fd_shredb_entry_t) ) ) FD_LOG_ERR(( "error reading from shredb: (%d-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -297,6 +312,7 @@ int fd_shredb_query_highest( fd_shredb_t * store,
   if( FD_UNLIKELY( se->highest_shred_idx < min_shred_idx &&
                    !(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) ) ) return -1;
 
-  fd_memcpy( out, rd_entry->shred, rd_entry->shred_sz );
-  return rd_entry->shred_sz;
+  ulong shred_sz = fd_ulong_min( rd_entry->shred_sz, FD_SHRED_MAX_SZ );
+  fd_memcpy( out, rd_entry->shred, shred_sz );
+  return (int)shred_sz;
 }
