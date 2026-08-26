@@ -22,6 +22,7 @@
 #include "../fd_net_router.h"
 #include "../fd_linux_bond.h"
 #include "../../topo/fd_topo.h"
+#include "../../../discof/repair/fd_repair.h"
 
 #include "../../../waltz/ip/fd_iproute.h"
 #include "../../../util/net/fd_eth.h"
@@ -562,9 +563,13 @@ fd_mlx5_tile_rx_dst_port_lookup( fd_mlx5_tile_t const * ctx,
 
   *out_idx   = ctx->dst_out_idx[ rule_idx ];
   *dst_proto = ctx->dst_protos [ rule_idx ];
-  if( FD_UNLIKELY( *dst_proto==DST_PROTO_REPAIR && frame_sz==REPAIR_PING_SZ ) ) {
-    if( FD_UNLIKELY( ctx->repair_out_idx==UCHAR_MAX ) ) return 0;
-    *out_idx = ctx->repair_out_idx;
+  if( FD_UNLIKELY( *dst_proto==DST_PROTO_REPAIR ) ) {
+    ulong const max_hdr_sz     = sizeof(fd_eth_hdr_t) + 15UL*4UL /* max IHL */ + sizeof(fd_udp_hdr_t);
+    ulong const min_payload_sz = frame_sz>max_hdr_sz ? frame_sz-max_hdr_sz : 0UL;
+    if( FD_UNLIKELY( min_payload_sz<=AG_REPAIR_RESPONSE_MAX_SZ ) ) {
+      if( FD_UNLIKELY( ctx->repair_out_idx==UCHAR_MAX ) ) return 0;
+      *out_idx = ctx->repair_out_idx;
+    }
   }
   return *out_idx<ctx->rx_out_cnt;
 }

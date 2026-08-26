@@ -12,6 +12,7 @@
 #include <linux/if_xdp.h>
 
 #include "../fd_net_common.h"
+#include "../../../discof/repair/fd_repair.h"
 #include "../../metrics/fd_metrics.h"
 #include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
 #include "../../topo/fd_topo.h"
@@ -1118,8 +1119,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
     out = ctx->gossvf_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_client_listen_port ) ) {
     proto = DST_PROTO_REPAIR;
-    if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
-    else                                      out = ctx->shred_out;
+    if( FD_UNLIKELY( udp_sz-sizeof(fd_udp_hdr_t) <= AG_REPAIR_RESPONSE_MAX_SZ ) ) out = ctx->repair_out; /* ping-pongs, blockid repair responses */
+    else                                                                          out = ctx->shred_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
     if( FD_UNLIKELY( !ctx->rserve_enabled ) ) return;
     proto = DST_PROTO_RSERVE;

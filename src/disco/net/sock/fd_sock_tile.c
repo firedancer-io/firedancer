@@ -1,6 +1,7 @@
 #define _GNU_SOURCE /* dup3 */
 #include "fd_sock_tile_private.h"
 #include "../fd_net_common.h"
+#include "../../../discof/repair/fd_repair.h"
 #include "../../topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
@@ -420,12 +421,12 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
-    /* When a message arrives on the repair intake port, it is sent
-       to the shred tile, unless it is a ping message (identified by
-       the frame size), then it is sent to the repair tile.
-       The repair tile does not own any sockets, so we look up the
-       net_repair link directly.*/
-    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && frame_sz==REPAIR_PING_SZ ) ) {
+    /* When a message arrives on the repair intake port, it is sent to
+       the shred tile, unless it is a ping message or an alpenglow
+       repair response (identified by the frame size), then it is sent
+       to the repair tile.  The repair tile does not own any sockets, so
+       we look up the net_repair link directly. */
+    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && payload_sz<=AG_REPAIR_RESPONSE_MAX_SZ ) ) {
       fd_sock_link_rx_t * repair_link = ctx->link_rx + ctx->repair_rx;
       uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
       memcpy( repair_buf, eth_hdr, frame_sz );

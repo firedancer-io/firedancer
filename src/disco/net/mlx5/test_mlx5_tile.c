@@ -162,7 +162,7 @@ test_rx_routes( void ) {
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_gossvf", 0UL ) );
   FD_TEST( proto==DST_PROTO_GOSSIP );
 
-  FD_TEST( fd_mlx5_tile_rx_dst_port_lookup( tile, 8002U, 128UL, &out_idx, &proto ) );
+  FD_TEST( fd_mlx5_tile_rx_dst_port_lookup( tile, 8002U, AG_REPAIR_RESPONSE_MAX_SZ+256UL, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_shred", 0UL ) );
   FD_TEST( proto==DST_PROTO_REPAIR );
   FD_TEST( fd_mlx5_tile_rx_dst_port_lookup( tile, 8002U, REPAIR_PING_SZ, &out_idx, &proto ) );
