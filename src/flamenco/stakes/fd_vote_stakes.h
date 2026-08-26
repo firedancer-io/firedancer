@@ -134,6 +134,16 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
                        ushort              commission,
                        uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
+/* fd_vote_stakes_finalize assigns Alpenglow ranks to the resident
+   epoch-stakes set for epoch.  Accounts with invalid BLS keys or
+   duplicate BLS/identity keys retain
+   FD_VOTE_STAKES_ALPENGLOW_RANK_NULL but remain in the set.  This is a
+   no-op if the set is not resident. */
+
+void
+fd_vote_stakes_finalize( fd_vote_stakes_t * vote_stakes,
+                         ulong              epoch );
+
 /* fd_vote_stakes_purge_fork removes a t-1 set.  This should be called
    when the banks are evicting a bank or during root advancement. */
 

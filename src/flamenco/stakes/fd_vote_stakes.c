@@ -7,6 +7,10 @@
 #include "../../util/fd_hash32.h"
 #include "../../util/log/fd_log.h"
 
+#if FD_HAS_BLST
+#include "../../ballet/bls/fd_bls12_381.h"
+#endif
+
 #define FD_VOTE_STAKES_MAGIC          (0xF17EDA2CE7601E70UL) /* FIREDANCER VOTE STAKES V0 */
 #define FD_VOTE_STAKES_MAX_FORK_WIDTH (128UL)
 
@@ -22,6 +26,28 @@ struct vacc {
   uint        next;
 };
 typedef struct vacc vacc_t;
+
+struct vacc_rank {
+  vacc_t * vacc;
+  ulong    drop;
+};
+typedef struct vacc_rank vacc_rank_t;
+
+#define SORT_NAME        vacc_rank_sort
+#define SORT_KEY_T       vacc_rank_t
+#define SORT_BEFORE(a,b) (((a).vacc->stake>(b).vacc->stake) | ((a).vacc->stake==(b).vacc->stake && \
+                           memcmp( (a).vacc->bls_key, (b).vacc->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ )<0 ))
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME        vacc_rank_bls_sort
+#define SORT_KEY_T       vacc_rank_t
+#define SORT_BEFORE(a,b) (memcmp( (a).vacc->bls_key, (b).vacc->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ )<0)
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME        vacc_rank_identity_sort
+#define SORT_KEY_T       vacc_rank_t
+#define SORT_BEFORE(a,b) (memcmp( &(a).vacc->node_account, &(b).vacc->node_account, sizeof(fd_pubkey_t) )<0)
+#include "../../util/tmpl/fd_sort.c"
 
 #define HEAP_NAME       vacc_heap
 #define HEAP_IDX_T      uint
@@ -506,6 +532,54 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
   vacc_heap_ele_insert( heap, vacc, pool );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
+}
+
+void
+fd_vote_stakes_finalize( fd_vote_stakes_t * vote_stakes,
+                         ulong              epoch ) {
+  ulong epoch_idx = epoch & 1UL;
+  if( FD_UNLIKELY( vote_stakes->t_2_epoch[ epoch_idx ]!=epoch ) ) return;
+
+  vacc_t *     pool = t_2_vacc_pool( vote_stakes, epoch_idx );
+  vacc_map_t * map  = t_2_vacc_map ( vote_stakes, epoch_idx );
+
+  vacc_rank_t rank[ FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ];
+  ulong       rank_cnt = 0UL;
+  for( vacc_map_iter_t iter = vacc_map_iter_init( map, pool );
+       !vacc_map_iter_done( iter, map, pool );
+       iter = vacc_map_iter_next( iter, map, pool ) ) {
+    vacc_t * vacc = vacc_map_iter_ele( iter, map, pool );
+    vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
+    if( FD_UNLIKELY( !vacc->stake ) ) continue;
+#if FD_HAS_BLST
+    uchar decompressed[ 96 ];
+    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( decompressed, vacc->bls_key, 1 ) ) ) continue;
+#endif
+    FD_TEST( rank_cnt<FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+    rank[ rank_cnt++ ] = (vacc_rank_t){ .vacc=vacc, .drop=0UL };
+  }
+
+  vacc_rank_bls_sort_inplace( rank, rank_cnt );
+  for( ulong i=1UL; i<rank_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( rank[i].vacc->bls_key, rank[i-1UL].vacc->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ ) ) ) {
+      rank[i].drop = rank[i-1UL].drop = 1UL;
+    }
+  }
+
+  vacc_rank_identity_sort_inplace( rank, rank_cnt );
+  for( ulong i=1UL; i<rank_cnt; i++ ) {
+    if( FD_UNLIKELY( fd_pubkey_eq( &rank[i].vacc->node_account, &rank[i-1UL].vacc->node_account ) ) ) {
+      rank[i].drop = rank[i-1UL].drop = 1UL;
+    }
+  }
+
+  ulong survivor_cnt = 0UL;
+  for( ulong i=0UL; i<rank_cnt; i++ ) {
+    if( FD_LIKELY( !rank[i].drop ) ) rank[ survivor_cnt++ ] = rank[i];
+  }
+  vacc_rank_sort_inplace( rank, survivor_cnt );
+
+  for( ulong i=0UL; i<survivor_cnt; i++ ) rank[i].vacc->alpenglow_rank = (ushort)i;
 }
 
 void
