@@ -485,6 +485,13 @@ fd_gui_peers_join( void * shmem );
 
    Note that gossip_net frags are unverified gossip messages from the
    network.  Messages that cannot be parsed are ignored. */
+/* fd_gui_peers_stats_snap fills stats with aggregates over the current
+   peer table (validator/rpc counts, active/delinquent stake). */
+
+void
+fd_gui_peers_stats_snap( fd_gui_peers_ctx_t *   peers,
+                         fd_gui_peers_stats_t * stats );
+
 void
 fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
                                     uchar const *              payload,

@@ -880,7 +880,7 @@ fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
   }
 }
 
-static void
+void
 fd_gui_peers_stats_snap( fd_gui_peers_ctx_t *   peers,
                          fd_gui_peers_stats_t * stats ) {
   memset( stats, 0, sizeof(*stats) );
@@ -1571,13 +1571,7 @@ fd_gui_peers_ws_open( fd_gui_peers_ctx_t *  peers,
   peers->client_viewports[ ws_conn_id ].sort_key = FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY;
   fd_gui_peers_ws_conn_rr_grow( peers, ws_conn_id );
 
-  /* aggregates go out first so summary cards render before the full
-     peer table is transferred and applied */
-  fd_gui_peers_stats_t stats[ 1 ];
-  fd_gui_peers_stats_snap( peers, stats );
-  fd_gui_peers_printf_stats( peers, stats );
-  FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
-
+  /* aggregates already went out early in fd_gui_ws_open */
   fd_gui_peers_printf_node_all( peers );
   FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
 

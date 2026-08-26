@@ -565,6 +565,15 @@ fd_gui_ws_open( fd_gui_t * gui,
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
+  /* Peer aggregates feed the validators card, tiny, goes out ahead of
+     every bulk frame */
+  if( FD_LIKELY( gui->peers ) ) {
+    fd_gui_peers_stats_t stats[ 1 ];
+    fd_gui_peers_stats_snap( gui->peers, stats );
+    fd_gui_peers_printf_stats( gui->peers, stats );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
+
   /* Epoch (small since leader_slots went client-side) goes out before
      the bulkier frames: the default route needs it for first render */
   if( FD_LIKELY( gui->epoch.current_epoch!=ULONG_MAX ) ) {
@@ -608,16 +617,17 @@ fd_gui_ws_open( fd_gui_t * gui,
   fd_gui_printf_live_program_cache( gui );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
 
+  /* Feeds the overview accounts card, goes ahead of the bulky shred
+     replay */
+  if( FD_LIKELY( gui->summary.accounts_stats_have_reference ) ) {
+    fd_gui_printf_accounts_stats( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
+
   /* rebroadcast 10s of historical shred data */
   long const shred_history_start = now-10L*1000L*1000L*1000L;
   if( FD_LIKELY( !fd_gui_shreds_window_is_empty( gui, shred_history_start, now ) ) ) {
     fd_gui_printf_shred_rebroadcast( gui, shred_history_start, now );
-    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
-  }
-
-  /* Bulky and only shown on the accounts route, goes last */
-  if( FD_LIKELY( gui->summary.accounts_stats_have_reference ) ) {
-    fd_gui_printf_accounts_stats( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 }
