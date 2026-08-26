@@ -2644,10 +2644,13 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     out_accs[ i ].executable = ( accmetas[ i ] && !tombstone ) ? FD_ACCDB_SIZE_EXEC( accmetas[ i ]->executable_size ) : 0;
     fd_racesan_hook( "accdb_acquire:mid_step7_meta" );
     out_accs[ i ].lamports = accmetas[ i ] ? accmetas[ i ]->lamports : 0UL;
-    if( FD_UNLIKELY( !accmetas[ i ] ) ) memset( out_accs[ i ].owner, 0, 32UL );
-    /* For accmetas[i] != NULL, the owner is copied from the cache line
-       below in step 15, after step 12 has populated it from disk for
-       cold loads. */
+    if( FD_UNLIKELY( !accmetas[ i ] ) ) {
+      memset( out_accs[ i ].owner,       0, 32UL );
+      memset( out_accs[ i ].prior_owner, 0, 32UL );
+    }
+    /* For accmetas[i] != NULL, both owners are copied from the cache
+       line below in step 15, after step 12 has populated it from disk
+       for cold loads. */
 
     out_accs[ i ].prior_lamports   = out_accs[ i ].lamports;
     out_accs[ i ].prior_data_len   = out_accs[ i ].data_len;
