@@ -367,13 +367,11 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   }
 
   case FD_KEYGUARD_ROLE_REPAIR: {
-    int ping_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&
-                    fd_keyguard_authorize_ping( authority, data, sz, sign_type );
     int pong_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PONG )) &&
                     fd_keyguard_authorize_pong( authority, data, sz, sign_type );
     int repair_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_REPAIR )) &&
                     fd_keyguard_authorize_repair( authority, data, sz, sign_type );
-    if( FD_UNLIKELY( !ping_ok && !pong_ok && !repair_ok ) ) {
+    if( FD_UNLIKELY( !pong_ok && !repair_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for repair (mask=%#lx)", payload_mask ));
       return 0;
     }
