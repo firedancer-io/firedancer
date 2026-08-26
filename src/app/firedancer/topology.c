@@ -418,7 +418,7 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_LIKELY( rserve_enabled ) ) {
     /**/               fd_topob_link( topo, "rserve_net",    "net_rserve",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
-    /**/               fd_topob_link( topo, "rserve_sign",   "rserve_sign",   128UL,                                    68UL,                          1UL );
+    /**/               fd_topob_link( topo, "rserve_sign",   "rserve_sign",   128UL,                                    32UL,                          1UL );
     /**/               fd_topob_link( topo, "sign_rserve",   "sign_rserve",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
   }
 
