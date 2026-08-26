@@ -276,7 +276,10 @@ fd_keyguard_payload_matches_repair( uchar const * data,
   uint kind = FD_LOAD( uint, data );
   if( (kind==FD_REPAIR_KIND_SHRED)
     | (kind==FD_REPAIR_KIND_HIGHEST_SHRED)
-    | (kind==FD_REPAIR_KIND_ORPHAN) )
+    | (kind==FD_REPAIR_KIND_ORPHAN)
+    | (kind==AG_REPAIR_KIND_PARENT_FEC_COUNT)
+    | (kind==AG_REPAIR_KIND_FEC_ROOT)
+    | (kind==AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID) )
     return 1;
 
   return 0;

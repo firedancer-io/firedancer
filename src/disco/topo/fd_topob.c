@@ -440,6 +440,7 @@ static char const * ALWAYS[] = {
   "gossvf", /* FIREDANCER only */
   "gossip", /* FIREDANCER only */
   "repair", /* FIREDANCER only */
+  "rotor",  /* FIREDANCER only */
   "rserve", /* FIREDANCER only */
   "replay", /* FIREDANCER only */
   "tower",  /* FIREDANCER only */
