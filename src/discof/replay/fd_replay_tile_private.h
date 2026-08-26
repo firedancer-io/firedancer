@@ -372,6 +372,9 @@ struct fd_replay_tile {
   ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
 
+  struct d2c * d2c;
+  ulong        d2c_seed;
+
   /* Capture-related configs */
   fd_capture_ctx_t *     capture_ctx;
   FILE *                 capture_file;

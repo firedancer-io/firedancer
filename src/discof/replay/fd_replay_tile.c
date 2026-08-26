@@ -21,6 +21,8 @@
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/shred/fd_fec_set.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../backup/fd_snapmk_tile.h"
@@ -113,6 +115,161 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
   return (ulong)(ele - ele_arr);
 }
 
+struct d2c_ele {
+  fd_hash_t dmr;
+  fd_hash_t cmr;
+  uint      next;
+  struct {
+    uint prev;
+    uint next;
+  } dmr_map;
+  struct {
+    uint prev;
+    uint next;
+  } cmr_map;
+  struct {
+    uint prev;
+    uint next;
+  } dlist;
+};
+typedef struct d2c_ele d2c_ele_t;
+
+#define POOL_NAME  d2c_pool
+#define POOL_LAZY  1
+#define POOL_T     d2c_ele_t
+#define POOL_IDX_T uint
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME                           d2c_map
+#define MAP_ELE_T                          d2c_ele_t
+#define MAP_KEY_T                          fd_hash_t
+#define MAP_KEY                            dmr
+#define MAP_PREV                           dmr_map.prev
+#define MAP_NEXT                           dmr_map.next
+#define MAP_IDX_T                          uint
+#define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,32UL))
+#define MAP_KEY_HASH(key,seed)             ((ulong)((key)->ul[1]^(seed)))
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define MAP_NAME                           c2d_map
+#define MAP_ELE_T                          d2c_ele_t
+#define MAP_KEY_T                          fd_hash_t
+#define MAP_KEY                            cmr
+#define MAP_PREV                           cmr_map.prev
+#define MAP_NEXT                           cmr_map.next
+#define MAP_IDX_T                          uint
+#define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,32UL))
+#define MAP_KEY_HASH(key,seed)             ((ulong)((key)->ul[1]^(seed)))
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME  d2c_dlist
+#define DLIST_ELE_T d2c_ele_t
+#define DLIST_PREV  dlist.prev
+#define DLIST_NEXT  dlist.next
+#define DLIST_IDX_T uint
+#include "../../util/tmpl/fd_dlist.c"
+
+struct d2c {
+  d2c_ele_t *   pool;
+  d2c_map_t *   dmr_map;
+  c2d_map_t *   cmr_map;
+  d2c_dlist_t * dlist;
+};
+
+#define DMR_PARENT_LEAF_SZ (44UL)
+
+static void
+dmr_root( fd_hash_t *       out,
+          fd_hash_t const * fec_roots,
+          ulong             fec_cnt,
+          ulong             parent_slot,
+          fd_hash_t const * parent_block_id ) {
+  FD_TEST( fec_cnt && fec_cnt<=FD_FEC_BLK_MAX );
+
+  uchar mem[ FD_BMTREE_COMMIT_FOOTPRINT( 0 ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  fd_bmtree_commit_t * commit = fd_bmtree_commit_init( mem, 20UL, FD_BMTREE_LONG_PREFIX_SZ, 0UL );
+
+  fd_bmtree_commit_append( commit, (fd_bmtree_node_t const *)fec_roots, fec_cnt );
+
+  uchar preimage[ DMR_PARENT_LEAF_SZ ];
+  FD_STORE( ulong, preimage,       parent_slot );
+  memcpy(          preimage+8UL,   parent_block_id->uc, sizeof(fd_hash_t) );
+  FD_STORE( uint,  preimage+40UL, (uint)fec_cnt );
+
+  fd_bmtree_node_t parent_leaf[ 1 ];
+  fd_sha256_hash( preimage, DMR_PARENT_LEAF_SZ, parent_leaf->hash );
+  fd_bmtree_commit_append( commit, parent_leaf, 1UL );
+
+  memcpy( out->uc, fd_bmtree_commit_fini( commit ), sizeof(fd_hash_t) );
+}
+
+static void
+d2c_insert( fd_replay_tile_t * ctx,
+            fd_hash_t const *  cmr,
+            fd_hash_t const *  dmr ) {
+  struct d2c * map = ctx->d2c;
+
+  d2c_ele_t * ele = c2d_map_ele_query( map->cmr_map, cmr, NULL, map->pool );
+  if( FD_UNLIKELY( ele ) ) {
+    if( FD_LIKELY( !memcmp( &ele->dmr, dmr, sizeof(fd_hash_t) ) ) ) return;
+    FD_BASE58_ENCODE_32_BYTES( ele->dmr.uc, was_b58 );
+    FD_BASE58_ENCODE_32_BYTES( dmr->uc,     now_b58 );
+    FD_LOG_ERR(( "block id changed for one block: was %s now %s", was_b58, now_b58 ));
+  }
+
+  if( FD_UNLIKELY( !d2c_pool_free( map->pool ) ) ) {
+    d2c_ele_t * evicted = d2c_dlist_ele_pop_head( map->dlist, map->pool );
+    d2c_map_ele_remove_fast( map->dmr_map, evicted, map->pool );
+    c2d_map_ele_remove_fast( map->cmr_map, evicted, map->pool );
+    d2c_pool_ele_release( map->pool, evicted );
+  }
+
+  ele      = d2c_pool_ele_acquire( map->pool );
+  ele->dmr = *dmr;
+  ele->cmr = *cmr;
+  d2c_map_ele_insert     ( map->dmr_map, ele, map->pool );
+  c2d_map_ele_insert     ( map->cmr_map, ele, map->pool );
+  d2c_dlist_ele_push_tail( map->dlist,   ele, map->pool );
+}
+
+static void
+dmr_compute( fd_replay_tile_t * ctx,
+             fd_bank_t *        bank ) {
+  fd_block_id_ele_t * ele = &ctx->block_id_arr[ bank->idx ];
+
+  fd_reasm_fec_t * path[ FD_FEC_BLK_MAX ];
+  ulong            fec_cnt = 0UL;
+  for( fd_reasm_fec_t * f = fd_reasm_query( ctx->reasm, &ele->latest_mr );
+       f && f->slot==bank->f.slot;
+       f = fd_reasm_parent( ctx->reasm, f ) ) {
+    FD_TEST( fec_cnt<FD_FEC_BLK_MAX );
+    path[ fec_cnt++ ] = f;
+  }
+  if( FD_UNLIKELY( !fec_cnt ) ) {
+    FD_LOG_WARNING(( "slot %lu: no reasm chain, cannot compute block id", bank->f.slot ));
+    return;
+  }
+  FD_TEST( fec_cnt==(ulong)ele->latest_fec_idx/FD_FEC_SHRED_CNT + 1UL );
+
+  static FD_TL fd_hash_t fec_roots[ FD_FEC_BLK_MAX ];
+  for( ulong i=0UL; i<fec_cnt; i++ ) fec_roots[ i ] = path[ fec_cnt-1UL-i ]->key;
+
+  fd_hash_t const * parent_dmr;
+  if( FD_LIKELY( bank->parent_idx!=ULONG_MAX ) ) {
+    fd_hash_t const * parent_cmr = &ctx->block_id_arr[ bank->parent_idx ].latest_mr;
+    d2c_ele_t * pair = c2d_map_ele_query( ctx->d2c->cmr_map, parent_cmr, NULL, ctx->d2c->pool );
+    parent_dmr = FD_LIKELY( pair ) ? &pair->dmr : parent_cmr;
+  } else {
+    parent_dmr = &ctx->initial_block_id;
+  }
+
+  fd_hash_t dmr;
+  dmr_root( &dmr, fec_roots, fec_cnt, bank->f.parent_slot, parent_dmr );
+  d2c_insert( ctx, &ele->latest_mr, &dmr );
+}
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -120,12 +277,18 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong chain_cnt = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
+  ulong d2c_chain_cnt = d2c_map_chain_cnt_est( tile->replay.max_live_slots );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),           sizeof(fd_replay_tile_t) );
   l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),            fd_runtime_stack_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),          sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),             fd_block_id_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, alignof(struct d2c),                sizeof(struct d2c) );
+  l = FD_LAYOUT_APPEND( l, d2c_pool_align(),                    d2c_pool_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, d2c_map_align(),                     d2c_map_footprint( d2c_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, c2d_map_align(),                     c2d_map_footprint( d2c_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, d2c_dlist_align(),                   d2c_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),                 fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                    fd_accdb_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),                    fd_reasm_footprint( tile->replay.fec_max ) );
@@ -657,6 +820,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   fd_hash_t parent_block_id = {0};
   if( FD_LIKELY( !is_initial ) ) {
     parent_block_id = ctx->block_id_arr[ bank->parent_idx ].latest_mr;
+    if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+      d2c_ele_t * pair = c2d_map_ele_query( ctx->d2c->cmr_map, &parent_block_id, NULL, ctx->d2c->pool );
+      if( FD_LIKELY( pair ) ) parent_block_id = pair->dmr;
+    }
   }
 
   fd_hash_t const * bank_hash  = &bank->f.bank_hash;
@@ -695,6 +862,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->block_height          = bank->f.block_height;
   slot_info->parent_slot           = bank->f.parent_slot;
   slot_info->block_id              = block_id_ele->latest_mr;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    d2c_ele_t * pair = c2d_map_ele_query( ctx->d2c->cmr_map, &block_id_ele->latest_mr, NULL, ctx->d2c->pool );
+    if( FD_LIKELY( pair ) ) slot_info->block_id = pair->dmr;
+  }
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
@@ -962,6 +1133,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     ctx->identity_dirty = 0;
     slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
   }
+
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) dmr_compute( ctx, bank );
 
   /* Mark the bank as frozen. */
   bank->f.block_id = ctx->block_id_arr[ bank->idx ].latest_mr;
@@ -2366,13 +2539,20 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ctx->notified_root_slot==ctx->consensus_root_slot &&
                  fd_hash_eq( &ctx->notified_root, &ctx->consensus_root ) ) ) return 0;
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
+  fd_hash_t const * root_cmr = &ctx->consensus_root;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    d2c_ele_t * pair = d2c_map_ele_query( ctx->d2c->dmr_map, &ctx->consensus_root, NULL, ctx->d2c->pool );
+    if( FD_UNLIKELY( !pair ) ) return 0;
+    root_cmr = &pair->cmr;
+  }
+
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, root_cmr, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !bank ||
                    bank->bank_seq!=block_id_ele->bank_seq ||
-                   !fd_hash_eq( &bank->f.block_id, &ctx->consensus_root ) ||
+                   !fd_hash_eq( &bank->f.block_id, root_cmr ) ||
                    bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
 
   fd_sched_root_notify( ctx->sched, bank->idx );
@@ -2440,12 +2620,19 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
+  fd_hash_t const * root_cmr = &ctx->consensus_root;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    d2c_ele_t * pair = d2c_map_ele_query( ctx->d2c->dmr_map, &ctx->consensus_root, NULL, ctx->d2c->pool );
+    if( FD_UNLIKELY( !pair ) ) return 0;
+    root_cmr = &pair->cmr;
+  }
+
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, root_cmr, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * target_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !target_bank ||
                    target_bank->bank_seq!=block_id_ele->bank_seq ||
-                   !fd_hash_eq( &target_bank->f.block_id, &ctx->consensus_root ) ||
+                   !fd_hash_eq( &target_bank->f.block_id, root_cmr ) ||
                    target_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
 
   /* If the identity vote has been seen on a bank that should be rooted,
@@ -3586,6 +3773,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->reasm_seed,         sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->vote_tracker_seed,  sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->block_id_map_seed,  sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->d2c_seed,           sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->initial_block_id,   sizeof(fd_hash_t) )     );
   FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed, sizeof(ulong) )         );
 }
@@ -3595,13 +3783,19 @@ unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  ulong chain_cnt = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
+  ulong chain_cnt     = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
+  ulong d2c_chain_cnt = d2c_map_chain_cnt_est( tile->replay.max_live_slots );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
   void * runtime_stack_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_align(),    fd_runtime_stack_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
+  void * d2c_mem            = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct d2c),         sizeof(struct d2c) );
+  void * d2c_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, d2c_pool_align(),            d2c_pool_footprint( tile->replay.max_live_slots ) );
+  void * d2c_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, d2c_map_align(),             d2c_map_footprint( d2c_chain_cnt ) );
+  void * c2d_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, c2d_map_align(),             c2d_map_footprint( d2c_chain_cnt ) );
+  void * d2c_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, d2c_dlist_align(),           d2c_dlist_footprint() );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->replay.max_live_slots ) );
   void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
@@ -3811,6 +4005,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->block_id_arr[ i ].block_id_seen = 0;
+
+  ctx->d2c          = (struct d2c *)d2c_mem;
+  ctx->d2c->pool    = d2c_pool_join ( d2c_pool_new ( d2c_pool_mem,  tile->replay.max_live_slots ) );
+  ctx->d2c->dmr_map = d2c_map_join  ( d2c_map_new  ( d2c_map_mem,   d2c_chain_cnt, ctx->d2c_seed ) );
+  ctx->d2c->cmr_map = c2d_map_join  ( c2d_map_new  ( c2d_map_mem,   d2c_chain_cnt, ctx->d2c_seed ) );
+  ctx->d2c->dlist   = d2c_dlist_join( d2c_dlist_new( d2c_dlist_mem ) );
+  FD_TEST( ctx->d2c->pool && ctx->d2c->dmr_map && ctx->d2c->cmr_map && ctx->d2c->dlist );
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
 
