@@ -11,10 +11,43 @@
 
 #include <rocksdb/c.h>
 
+/* Column families whose keys are slot-major (8 byte big-endian slot
+   prefix).  These are range-copied into the minified blockstore. */
+static char const * const slot_indexed_cf_names[] = {
+  "meta",
+  "dead_slots",
+  "duplicate_slots",
+  "erasure_meta",
+  "orphans",
+  "bank_hashes",
+  "root",
+  "index",
+  "data_shred",
+  "code_shred",
+  "rewards",
+  "blocktime",
+  "perf_samples",
+  "block_height",
+  "optimistic_slots",
+  "merkle_root_meta",
+  "alt_meta",
+  "alt_index",
+  "alt_data_shred",
+  "alt_merkle_root_meta",
+  "double_merkle_meta",
+};
+
+#define SLOT_INDEXED_CF_CNT (sizeof(slot_indexed_cf_names)/sizeof(slot_indexed_cf_names[0]))
+
+/* Column families whose keys are not slot-major.  These cannot be
+   range-copied by slot and are skipped. */
 static char const * const non_slot_indexed_cf_names[] = {
+  "default",
   "transaction_status",
   "address_signatures",
   "transaction_memos",
+  "transaction_status_index",
+  "program_costs",
 };
 
 #define NON_SLOT_INDEXED_CF_CNT (sizeof(non_slot_indexed_cf_names)/sizeof(non_slot_indexed_cf_names[0]))
@@ -96,10 +129,18 @@ parse_uint64_arg( char const * name,
 
 static int
 cf_is_slot_indexed( char const * name ) {
+  for( size_t i=0UL; i<SLOT_INDEXED_CF_CNT; i++ ) {
+    if( strcmp( name, slot_indexed_cf_names[i] )==0 ) return 1;
+  }
   for( size_t i=0UL; i<NON_SLOT_INDEXED_CF_CNT; i++ ) {
     if( strcmp( name, non_slot_indexed_cf_names[i] )==0 ) return 0;
   }
-  return 1;
+  fprintf( stderr,
+           "error: unrecognized column family \"%s\": add it to the slot-indexed or "
+           "non-slot-indexed list in blockstore_minify.c instead of assuming its key "
+           "is slot-major\n",
+           name );
+  exit( 1 );
 }
 
 static size_t
@@ -119,10 +160,17 @@ blockstore_open_read_only( struct blockstore_db * db,
 
   db->opts = rocksdb_options_create();
   if( !db->opts ) die( "rocksdb_options_create failed" );
+  /* Old minified blockstores may reference files that no longer exist for
+     column families that are never copied.  Defer the failure to iteration
+     time (caught by rocksdb_iter_get_error) instead of failing the open. */
+  rocksdb_options_set_paranoid_checks( db->opts, 0 );
 
   char * err = NULL;
   db->cf_names = rocksdb_list_column_families( db->opts, path, &db->cf_cnt, &err );
   if( err ) return err;
+
+  /* Fail fast on unrecognized column families before anything is created. */
+  for( size_t i=0UL; i<db->cf_cnt; i++ ) cf_is_slot_indexed( db->cf_names[i] );
 
   rocksdb_options_t const ** cf_options = calloc( db->cf_cnt, sizeof(*cf_options) );
   db->cf_handles = calloc( db->cf_cnt, sizeof(*db->cf_handles) );
@@ -353,7 +401,6 @@ minify( char const * rocksdb_path,
 
   fprintf( stderr, "copying RocksDB range [%" PRIu64 ", %" PRIu64 "]\n", start_slot, end_slot );
   for( size_t cf_idx=0UL; cf_idx<big_db.cf_cnt; cf_idx++ ) {
-    if( strcmp( big_db.cf_names[cf_idx], "default" )==0 ) continue;
     copy_slot_indexed_range( &big_db, &mini_db, cf_idx, start_slot, end_slot );
   }
   fputs( "copied all slot-indexed column families\n", stderr );
