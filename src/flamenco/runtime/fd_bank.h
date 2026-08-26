@@ -420,9 +420,6 @@ struct fd_banks {
   ulong epoch_credits_len_offset;
   ulong epoch_credits_refcnt_offset;
 
-  ulong snapshot_commission_t_3_offset;
-  ulong snapshot_commission_t_3_len;
-
   /* The set of epoch leaders for the current and previous epochs is
      allocated out-of-line and tracked by epoch_leaders_offset.  Only
      two need to be stored because in the worst case we will have a root
@@ -458,14 +455,8 @@ fd_bank_epoch_credits_len( fd_bank_t * bank );
 void
 fd_bank_epoch_credits_new_fork( fd_bank_t * bank );
 
-fd_stashed_commission_t *
-fd_bank_snapshot_commission_t_3( fd_bank_t * bank );
-
 fd_collector_overrides_t *
 fd_bank_collector_overrides( fd_bank_t const * bank );
-
-ulong *
-fd_bank_snapshot_commission_t_3_len( fd_bank_t * bank );
 
 fd_stake_rewards_t const *
 fd_bank_stake_rewards_query( fd_bank_t * bank );

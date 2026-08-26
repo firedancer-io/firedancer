@@ -167,12 +167,6 @@ fd_epoch_credits_fast_path_ok( fd_epoch_credits_t const * epoch_credits ) {
   return 1;
 }
 
-struct fd_stashed_commission {
-  uchar  pubkey[32];
-  ushort commission;
-};
-typedef struct fd_stashed_commission fd_stashed_commission_t;
-
 struct fd_hard_fork {
   ulong slot;
   ulong cnt; /* number of hard forks in that slot */

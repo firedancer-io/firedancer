@@ -111,11 +111,6 @@ fd_banks_epoch_credits_release( fd_banks_t * banks_data,
   (*refcnt)--;
 }
 
-static fd_stashed_commission_t *
-fd_banks_get_snapshot_commission_t_3( fd_banks_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->snapshot_commission_t_3_offset );
-}
-
 static fd_stake_rewards_t *
 fd_banks_get_stake_rewards( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->stake_rewards_offset );
@@ -156,18 +151,6 @@ fd_bank_epoch_credits_new_fork( fd_bank_t * bank ) {
   fd_banks_epoch_credits_acquire( banks_data, bank->epoch_credits_fork_id );
 
   *fd_bank_epoch_credits_len( bank ) = 0UL;
-}
-
-fd_stashed_commission_t *
-fd_bank_snapshot_commission_t_3( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return fd_banks_get_snapshot_commission_t_3( banks_data );
-}
-
-ulong *
-fd_bank_snapshot_commission_t_3_len( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return &banks_data->snapshot_commission_t_3_len;
 }
 
 fd_collector_overrides_t *
@@ -313,7 +296,6 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, max_fork_width+1UL ) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stashed_commission_t),  sizeof(fd_stashed_commission_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
@@ -367,7 +349,6 @@ fd_banks_new( void * shmem,
   void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, max_fork_width+1UL ) );
   void *       epoch_credits_len_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
   void *       epoch_credits_rc_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
-  void *       snapshot_commission_t_3 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stashed_commission_t),  sizeof(fd_stashed_commission_t) * max_vote_accounts );
   void *       collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width, max_stake_accounts, max_fallback_stake_accounts, max_vote_accounts ) ) ) {
@@ -400,8 +381,6 @@ fd_banks_new( void * shmem,
   banks_data->epoch_credits_offset           = (ulong)epoch_credits_mem - (ulong)banks_data;
   banks_data->epoch_credits_len_offset       = (ulong)epoch_credits_len_mem - (ulong)banks_data;
   banks_data->epoch_credits_refcnt_offset    = (ulong)epoch_credits_rc_mem - (ulong)banks_data;
-  banks_data->snapshot_commission_t_3_offset = (ulong)snapshot_commission_t_3 - (ulong)banks_data;
-  banks_data->snapshot_commission_t_3_len    = 0UL;
   fd_memset( epoch_credits_len_mem, 0, sizeof(ulong) * (max_fork_width+1UL) );
   fd_memset( epoch_credits_rc_mem,  0, sizeof(ulong) * (max_fork_width+1UL) );
 
@@ -520,7 +499,6 @@ fd_banks_join( void * banks_data_mem ) {
   void * epoch_credits_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, banks_data->max_fork_width+1UL ) );
   void * epoch_credits_len_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (banks_data->max_fork_width+1UL) );
   void * epoch_credits_rc_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (banks_data->max_fork_width+1UL) );
-  void * snapshot_commission   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stashed_commission_t),  sizeof(fd_stashed_commission_t) * banks_data->max_vote_accounts );
   void * collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),  fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( banks_data->max_fork_width ) ) );
   (void)epoch_credits_len_mem;
   (void)epoch_credits_rc_mem;
@@ -577,10 +555,6 @@ fd_banks_join( void * banks_data_mem ) {
 
   if( FD_UNLIKELY( epoch_credits_mem!=(void *)fd_banks_get_epoch_credits( banks_data ) ) ) {
     FD_LOG_WARNING(( "Failed to join epoch credits" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( snapshot_commission!=(void *)fd_banks_get_snapshot_commission_t_3( banks_data ) ) ) {
-    FD_LOG_WARNING(( "Failed to join snapshot commissions" ));
     return NULL;
   }
 
@@ -1338,8 +1312,6 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_banks_vote_stakes_evict_bank_fork( banks, bank );
   bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, 0UL );
 
-  banks->snapshot_commission_t_3_len = 0UL;
-
   /* We need to acquire a cost tracker element. */
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
   if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) ) {
@@ -1390,8 +1362,7 @@ fd_banks_clear( fd_banks_t * banks ) {
   fd_memset( fd_banks_get_epoch_credits_len( banks ),    0, sizeof(ulong) * epoch_credits_set_cnt );
   fd_memset( fd_banks_get_epoch_credits_refcnt( banks ), 0, sizeof(ulong) * epoch_credits_set_cnt );
 
-  banks->snapshot_commission_t_3_len = 0UL;
-  banks->root_idx                    = ULONG_MAX;
-  banks->curr_fork_width             = 0UL;
-  banks->bank_seq                    = 1UL; /* start at 1 so 0 is reserved as an invalid bank_seq sentinel */
+  banks->root_idx        = ULONG_MAX;
+  banks->curr_fork_width = 0UL;
+  banks->bank_seq        = 1UL; /* start at 1 so 0 is reserved as an invalid bank_seq sentinel */
 }

@@ -45,7 +45,6 @@ fd_ssload_recover_validate( fd_snapshot_manifest_t const * manifest,
    blockhash_seed seeds the internal blockhash hash map. */
 int
 fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
-                         fd_banks_t *             banks,
                          fd_bank_t *              bank,
                          ulong                    blockhash_seed );
 

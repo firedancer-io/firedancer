@@ -496,6 +496,26 @@ test_alpenglow_reward_uses_vote_credits( fd_svm_mini_t * mini ) {
   /* Snapshot recalculation must use the persisted denominator, not the
      current epoch's admitted stake. */
   fd_bank_t * epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( epoch_bank );
+  fd_vote_stakes_reset( vote_stakes );
+  epoch_bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, epoch_bank->f.epoch );
+  uchar no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
+  fd_vote_stakes_snap_insert_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls );
+  fd_vote_stakes_snap_insert_t_3( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL, 1234U, no_bls );
+
+  FD_FEATURE_SET_ACTIVE( &epoch_bank->f.features, delay_commission_updates, 0UL );
+  fd_stake_rewards_clear( fd_bank_stake_rewards_modify( epoch_bank ) );
+  epoch_bank->stake_rewards_fork_id = UCHAR_MAX;
+  fd_rewards_recalculate_partitioned_rewards( mini->banks,
+                                              epoch_bank,
+                                              mini->runtime->accdb,
+                                              mini->runtime_stack,
+                                              NULL );
+  FD_TEST( fd_stake_rewards_total_rewards( fd_bank_stake_rewards_modify( epoch_bank ),
+                                           epoch_bank->stake_rewards_fork_id )==876UL );
+
+  epoch_bank->f.features.delay_commission_updates = FD_FEATURE_DISABLED;
   fd_stake_rewards_clear( fd_bank_stake_rewards_modify( epoch_bank ) );
   epoch_bank->stake_rewards_fork_id = UCHAR_MAX;
   fd_rewards_recalculate_partitioned_rewards( mini->banks,

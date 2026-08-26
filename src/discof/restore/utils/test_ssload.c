@@ -614,7 +614,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   /* First apply: simulate initial full snapshot load. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
   FD_TEST( bank->accdb_fork_id.val==37U );
   FD_TEST( bank->parent_accdb_fork_id.val==37U );
   FD_TEST( bank->txncache_fork_id.val==38U );
@@ -649,7 +649,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   /* A second manifest apply must also leave snapin's cache untouched. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
   FD_TEST( bank->accdb_fork_id.val==39U );
   FD_TEST( bank->parent_accdb_fork_id.val==39U );
   FD_TEST( bank->txncache_fork_id.val==40U );
@@ -664,6 +664,39 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_x, NULL, &stake_out, NULL ) );
   FD_TEST(  fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_y, NULL, &stake_out, NULL ) );
   FD_TEST( stake_out==7000UL );
+
+  /* Manifest C: an epoch-2 snapshot with a T-3 vote stake that is not
+     present in T-1. */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->slot = 2UL*manifest->epoch_schedule_params.slots_per_epoch;
+
+  manifest->epoch_stakes[2].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].vote,     pubkey_x, 32UL );
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].identity, ident_x,  32UL );
+  manifest->epoch_stakes[2].vote_stakes[0].stake      = 5000UL;
+  manifest->epoch_stakes[2].vote_stakes[0].commission = 10U;
+  manifest->epoch_stakes[2].vote_stakes[0].has_identity_bls = 1;
+
+  uchar pubkey_z[32]; fd_memset( pubkey_z, 0xEE, 32UL );
+  uchar ident_z[32];  fd_memset( ident_z,  0xE1, 32UL );
+  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].vote,     pubkey_z, 32UL );
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity, ident_z,  32UL );
+  manifest->epoch_stakes[0].vote_stakes[0].stake      = 3000UL;
+  manifest->epoch_stakes[0].vote_stakes[0].commission = 17U;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
+
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+
+  fd_pubkey_t node_out;
+  ushort      commission_out;
+  FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_z,
+                                     &node_out, &stake_out, &commission_out ) );
+  FD_TEST( fd_pubkey_eq( &node_out, (fd_pubkey_t *)ident_z ) );
+  FD_TEST( stake_out==3000UL && commission_out==17U );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==3000UL );
 
   fd_wksp_free_laddr( banks_mem );
 

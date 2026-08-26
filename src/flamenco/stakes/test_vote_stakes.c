@@ -81,6 +81,15 @@ main( int argc, char ** argv ) {
   fd_vote_stakes_purge_fork( vote_stakes, reset_root );
 
   fd_vote_stakes_reset( vote_stakes );
+  ulong snapshot_root = fd_vote_stakes_init( vote_stakes, 2UL );
+  fd_vote_stakes_snap_insert_t_3( vote_stakes, snapshot_root, &vote_b, &node_b, 200UL, 20U, bls_b );
+  fd_pubkey_t node;
+  FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, snapshot_root, &vote_b, &node, &stake, &commission ) );
+  FD_TEST( fd_pubkey_eq( &node, &node_b ) && stake==200UL && commission==20U );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==200UL );
+  fd_vote_stakes_purge_fork( vote_stakes, snapshot_root );
+
+  fd_vote_stakes_reset( vote_stakes );
   root = fd_vote_stakes_init( vote_stakes, 0UL );
   child = fd_vote_stakes_new_fork( vote_stakes, root, 1UL );
   fd_pubkey_t tie_a = key( 10000UL );
