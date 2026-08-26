@@ -439,6 +439,32 @@ fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
 }
 
 void
+fd_vote_stakes_snap_insert_t_3( fd_vote_stakes_t *  vote_stakes,
+                                ulong               fork_id,
+                                fd_pubkey_t const * pubkey,
+                                fd_pubkey_t const * node_account,
+                                ulong               stake,
+                                ushort              commission,
+                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] ) {
+  ulong epoch = (ulong)fork_id_epoch( fork_id );
+  if( FD_UNLIKELY( !epoch || !stake ) ) return;
+
+  ulong        t_3_epoch = epoch - 1UL;
+  ulong        t_3_idx   = t_3_epoch & 1UL;
+  vacc_t *     pool = t_2_vacc_pool( vote_stakes, t_3_idx );
+  vacc_map_t * map  = t_2_vacc_map ( vote_stakes, t_3_idx );
+
+  vacc_t * vacc      = vacc_pool_ele_acquire( pool );
+  vacc->pubkey       = *pubkey;
+  vacc->node_account = *node_account;
+  vacc->stake        = stake;
+  vacc->commission   = commission;
+  memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
+  vote_stakes->t_2_epoch[ t_3_idx ] = t_3_epoch;
+}
+
+void
 fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
                        ulong               fork_id,
                        fd_pubkey_t const * pubkey,

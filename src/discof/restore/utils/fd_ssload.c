@@ -313,7 +313,6 @@ fd_ssload_recover_validate( fd_snapshot_manifest_t const * manifest,
 
 int
 fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
-                         fd_banks_t *             banks,
                          fd_bank_t *              bank,
                          ulong                    blockhash_seed ) {
 
@@ -559,23 +558,12 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     }
   }
 
-  /* Store commissions in the banks for the end of the T-3 epoch if the
+  /* Populate the top votes for the end of the T-3 epoch if the
      snapshot is in epoch T. */
-  ulong t_3_commission_len = 0UL;
-  fd_stashed_commission_t * t_3_commission = fd_bank_snapshot_commission_t_3( bank );
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
-    if( FD_UNLIKELY( !fd_vote_stakes_query_t_1( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t const *)elem->vote,
-                                                NULL, NULL, NULL ) ) ) continue;
-    if( FD_UNLIKELY( t_3_commission_len>=banks->max_vote_accounts ) ) {
-      FD_LOG_WARNING(( "T-3 commission cache exceeds max_vote_accounts %lu", banks->max_vote_accounts ));
-      return -1;
-    }
-    fd_memcpy( t_3_commission[t_3_commission_len].pubkey, elem->vote, 32UL );
-    t_3_commission[t_3_commission_len].commission = elem->commission;
-    t_3_commission_len++;
+    fd_vote_stakes_snap_insert_t_3( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
   }
-  *fd_bank_snapshot_commission_t_3_len( bank ) = t_3_commission_len;
 
   bank->accdb_fork_id        = (fd_accdb_fork_id_t){ .val = manifest->accdb_fork_id };
   bank->parent_accdb_fork_id = bank->accdb_fork_id;
@@ -595,5 +583,5 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     return -1;
   }
 
-  return fd_ssload_recover_apply( manifest, banks, bank, blockhash_seed );
+  return fd_ssload_recover_apply( manifest, bank, blockhash_seed );
 }

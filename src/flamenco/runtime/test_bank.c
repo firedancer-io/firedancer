@@ -896,7 +896,7 @@ test_bank_clear( void * mem ) {
 }
 
 static void
-test_bank_epoch_vote_data_singleton( void * mem ) {
+test_bank_epoch_credits_singleton( void * mem ) {
   fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 4UL, 2UL, 16UL, 256UL, 4UL, 0, 7777UL ) );
   FD_TEST( banks );
 
@@ -904,8 +904,6 @@ test_bank_epoch_vote_data_singleton( void * mem ) {
   FD_TEST( root );
   fd_bank_epoch_credits( root )[0].cnt = 1UL;
   *fd_bank_epoch_credits_len( root ) = 1UL;
-  fd_bank_snapshot_commission_t_3( root )[0].commission = 1111U;
-  *fd_bank_snapshot_commission_t_3_len( root ) = 1UL;
 
   fd_bank_t * child_a = fd_banks_new_bank( banks, root->idx, 0L, 0 );
   child_a = fd_banks_clone_from_parent( banks, child_a->idx );
@@ -917,19 +915,12 @@ test_bank_epoch_vote_data_singleton( void * mem ) {
 
   fd_bank_epoch_credits( child_a )[0].cnt = 2UL;
   *fd_bank_epoch_credits_len( child_a ) = 2UL;
-  fd_bank_snapshot_commission_t_3( child_a )[0].commission = 2222U;
-  *fd_bank_snapshot_commission_t_3_len( child_a ) = 2UL;
 
   FD_TEST( fd_bank_epoch_credits( root )[0].cnt==2UL );
   FD_TEST( fd_bank_epoch_credits( child_b )[0].cnt==2UL );
   FD_TEST( fd_bank_epoch_credits( child_a )[0].cnt==2UL );
   FD_TEST( *fd_bank_epoch_credits_len( root )==2UL );
   FD_TEST( *fd_bank_epoch_credits_len( child_b )==2UL );
-  FD_TEST( fd_bank_snapshot_commission_t_3( root )[0].commission==2222U );
-  FD_TEST( fd_bank_snapshot_commission_t_3( child_b )[0].commission==2222U );
-  FD_TEST( fd_bank_snapshot_commission_t_3( child_a )[0].commission==2222U );
-  FD_TEST( *fd_bank_snapshot_commission_t_3_len( root )==2UL );
-  FD_TEST( *fd_bank_snapshot_commission_t_3_len( child_b )==2UL );
 }
 
 /* fd_banks_new must reject fork widths the collector override store
@@ -1314,7 +1305,7 @@ main( int argc, char ** argv ) {
   test_bank_advance_root_preserves_inherited_stake_rewards( mem );
 
   test_bank_clear( mem );
-  test_bank_epoch_vote_data_singleton( mem );
+  test_bank_epoch_credits_singleton( mem );
 
   FD_TEST( fd_stake_rewards_footprint( 1UL, FD_STAKE_REWARDS_MAX_FORK_WIDTH )>0UL );
   FD_TEST( fd_stake_rewards_footprint( 1UL, FD_STAKE_REWARDS_MAX_FORK_WIDTH+1UL )==0UL );

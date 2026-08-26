@@ -105,6 +105,19 @@ fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
                                 ushort              commission,
                                 uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
+/* fd_vote_stakes_snap_insert_t_3 inserts a new vote account into the
+   t-3 set.  This skips over any vote account validation and should
+   only be used when loading in vote accounts from a snapshot. */
+
+void
+fd_vote_stakes_snap_insert_t_3( fd_vote_stakes_t *  vote_stakes,
+                                ulong               fork_id,
+                                fd_pubkey_t const * pubkey,
+                                fd_pubkey_t const * node_account,
+                                ulong               stake,
+                                ushort              commission,
+                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
+
 /* fd_vote_stakes_insert inserts a new vote account into the t-1 set.
    This can be called repeatedly after a boundary-crossing
    fd_vote_stakes_new_fork.  An account will only be inserted if it

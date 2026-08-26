@@ -2016,13 +2016,13 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
     /* If the snapshot was loaded while partitioned epoch rewards is
        active, then the vote rewards map must be populated with the state
        of the vote accounts as of the end of the previous epoch boundary.
-       The epoch credits for these accounts are stored in the bank along
-       with the t-3 commission.  With this, it's possible to recalculate
-       the rewards for the previous epoch boundary.  We need the
-       commission from the end of the t-3 epoch if we are calculating
-       rewards for the transition from epoch t-1 to t since there needs to
-       be a 2 epoch commission gap for the delay_commission_updates
-       feature. */
+       The epoch credits for these accounts are stored in the bank, and
+       the vote stakes retain the t-3 commission.  With this, it's
+       possible to recalculate the rewards for the previous epoch
+       boundary.  We need the commission from the end of the t-3 epoch
+       if we are calculating rewards for the transition from epoch t-1
+       to t since there needs to be a 2 epoch commission gap for the
+       delay_commission_updates feature. */
 
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
@@ -2037,6 +2037,11 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
       ushort commission_t_1 = 0;
       FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, fork_id, pubkey, NULL, NULL, &commission_t_1 ) );
 
+      /* Get the t-3 information before the t-2 fallback.  Either may be
+         absent if the vote account was created in a later epoch. */
+      ushort commission_t_3 = 0;
+      int    exists_t_3     = fd_vote_stakes_query_t_3( vote_stakes, fork_id, pubkey, NULL, NULL, &commission_t_3 );
+
       /* Now get the t-2 information (if it exists).  This is not
          guaranteed to be valid since it's possible for a vote account to
          have been created in the last epoch. */
@@ -2048,22 +2053,11 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
       vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
       vote_ele->vote_rewards = 0UL;
       if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-        vote_ele->commission = exists_t_2 ? commission_t_2 : commission_t_1;
+        vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : commission_t_1);
       } else {
         vote_ele->commission = commission_t_1;
       }
       fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
-    }
-
-    /* Copy in historical commission information if it exists. */
-    if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-      ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
-      fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
-      for( ulong i=0UL; i<commission_t_3_len; i++ ) {
-        fd_stashed_commission_t const * ele = &commission_t_3[i];
-        fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
-        if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
-      }
     }
 
     /* Publish the resolved commissions so that any later repositioning
