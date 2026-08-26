@@ -2,7 +2,6 @@
 
 #include "../../../util/bits/fd_bits.h"
 #include "../../../util/log/fd_log.h"
-#include "../../../util/sanitize/fd_msan.h"
 
 #if !FD_HAS_ZSTD
 #error "fd_zstd_frame requires Zstandard"
@@ -70,7 +69,6 @@ fd_zstd_frame_advance( fd_zstd_frame_t * frame,
           off              += copy_sz;
         }
 
-        fd_msan_unpoison( header, sizeof(ZSTD_frameHeader) );
         if( header->frameType==ZSTD_skippableFrame ) {
           frame->bytes_remaining = (ulong)header->frameContentSize;
           frame->state           = FD_ZSTD_FRAME_STATE_SKIPPABLE;
