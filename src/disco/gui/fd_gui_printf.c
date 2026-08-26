@@ -1793,9 +1793,6 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
       FD_TEST( fd_gossip_version_cstr( peer->row.contact_info.version.major, peer->row.contact_info.version.minor, peer->row.contact_info.version.patch, version, sizeof( version ) ) );
       jsonp_string( peers->http, "version", version );
       jsonp_ulong( peers->http, "client_id", peer->row.contact_info.version.client );
-      jsonp_ulong( peers->http, "feature_set", peer->row.contact_info.version.feature_set );
-      jsonp_long( peers->http, "wallclock", peer->row.wallclock_nanos );
-      jsonp_ulong( peers->http, "shred_version", peer->row.contact_info.shred_version );
       jsonp_open_object( peers->http, "sockets" );
         for( ulong j=0UL; j<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT; j++ ) {
           char const * tag;
