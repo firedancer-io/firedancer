@@ -411,6 +411,14 @@ fd_poh_advance( fd_poh_t *          poh,
     return;
   }
 
+  /* No need to hash if we are so far from a leader slot that skipping
+     all the required ticks would exceed MAX_SKIPPED_TICKS, or the u16
+     shred parent_offset (not possible to make the block anymore). */
+  if( FD_LIKELY( poh->state==STATE_FOLLOWER ) ) {
+    if( FD_LIKELY( poh->next_leader_slot==ULONG_MAX ||
+                   poh->next_leader_slot-poh->slot>fd_ulong_min( MAX_SKIPPED_TICKS, USHORT_MAX-poh->ticks_per_slot )/poh->ticks_per_slot ) ) return;
+  }
+
   /* If we have skipped ticks pending because we skipped some slots to
      become leader, register them now one at a time. */
   if( FD_UNLIKELY( fd_poh_must_publish_skipped_tick( poh ) ) ) {
