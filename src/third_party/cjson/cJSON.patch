@@ -1,0 +1,57 @@
+diff --git a/cJSON.c b/cJSON.c
+index 6e4fb0d..6be8c39 100644
+--- a/cJSON.c
++++ b/cJSON.c
+@@ -20,6 +20,13 @@
+   THE SOFTWARE.
+ */
+ 
++#pragma GCC diagnostic ignored "-Wstrict-aliasing"
++
++/* Known bug: cJSON uses NaN/infinity but we use -ffast-math */
++#pragma GCC diagnostic ignored "-Wpragmas"
++#pragma GCC diagnostic ignored "-Wunknown-warning-option"
++#pragma GCC diagnostic ignored "-Wnan-infinity-disabled"
++
+ /* cJSON */
+ /* JSON parser in C. */
+ 
+@@ -399,6 +406,8 @@ loop_end:
+         item->valueint = (int)number;
+     }
+ 
++    item->valueulong = strtoul((const char*)number_c_string, NULL, 10);
++
+     item->type = cJSON_Number;
+ 
+     input_buffer->offset += (size_t)(after_end - number_c_string);
+@@ -2793,6 +2802,7 @@ cJSON * cJSON_Duplicate_rec(const cJSON *item, size_t depth, cJSON_bool recurse)
+     newitem->type = item->type & (~cJSON_IsReference);
+     newitem->valueint = item->valueint;
+     newitem->valuedouble = item->valuedouble;
++    newitem->valueulong = item->valueulong;
+     if (item->valuestring)
+     {
+         newitem->valuestring = (char*)cJSON_strdup((unsigned char*)item->valuestring, &global_hooks);
+diff --git a/cJSON.h b/cJSON.h
+index cab5feb..fd10d0c 100644
+--- a/cJSON.h
++++ b/cJSON.h
+@@ -118,6 +118,8 @@ typedef struct cJSON
+     /* The item's number, if type==cJSON_Number */
+     double valuedouble;
+ 
++    unsigned long valueulong;
++
+     /* The item's name string, if this item is the child of, or is in the list of subitems of an object. */
+     char *string;
+ } cJSON;
+@@ -261,7 +263,7 @@ CJSON_PUBLIC(cJSON *) cJSON_Duplicate(const cJSON *item, cJSON_bool recurse);
+ CJSON_PUBLIC(cJSON_bool) cJSON_Compare(const cJSON * const a, const cJSON * const b, const cJSON_bool case_sensitive);
+ 
+ /* Minify a strings, remove blank characters(such as ' ', '\t', '\r', '\n') from strings.
+- * The input pointer json cannot point to a read-only address area, such as a string constant, 
++ * The input pointer json cannot point to a read-only address area, such as a string constant,
+  * but should point to a readable and writable address area. */
+ CJSON_PUBLIC(void) cJSON_Minify(char *json);
+ 
