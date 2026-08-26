@@ -493,6 +493,9 @@ struct fd_topo_tile {
       ulong full_snapshot_interval_slots;
       ulong incremental_snapshot_interval_slots;
 
+      ulong restart_slot;
+      ulong restart_attempt;
+
       /* not specified in TOML */
 
       long boot_timestamp_nanos;

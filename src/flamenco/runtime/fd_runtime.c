@@ -858,6 +858,13 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
       bank->f.signature_count,
       new_bank_hash );
 
+  fd_hashes_apply_hard_forks(
+      new_bank_hash,
+      bank->f.slot,
+      bank->f.parent_slot,
+      bank->f.hard_forks,
+      bank->f.hard_fork_cnt );
+
   /* Update the bank hash */
   bank->f.bank_hash = *new_bank_hash;
 

@@ -187,6 +187,7 @@ struct fd_replay_tile {
   uint has_cluster_type:1;
   uint has_genesis_timestamp:1;
   uint has_expected_genesis_timestamp:1;
+  uint hard_forks_known:1;
 
   char         genesis_path[ PATH_MAX ];
   fd_hash_t    genesis_hash[1];
@@ -195,8 +196,8 @@ struct fd_replay_tile {
   ulong        genesis_timestamp;
   ulong        expected_genesis_timestamp;
 
-  ulong          hard_fork_cnt;
-  fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
+  ulong restart_slot;
+  ulong restart_attempt;
 
   ushort expected_shred_version;
   ushort ipecho_shred_version;

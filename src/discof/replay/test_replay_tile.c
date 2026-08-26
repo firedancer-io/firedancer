@@ -22,6 +22,8 @@
 #include "../../flamenco/runtime/fd_runtime_helpers.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_last_restart_slot.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h" /* IWYU pragma: keep */
 #include "../../flamenco/rewards/fd_rewards.h" /* IWYU pragma: keep */
@@ -101,6 +103,7 @@ static ulong mock_epoch_boundary_fork_cnt;
 static ulong mock_epoch_boundary_fork_max;
 static int   mock_epoch_boundary_overflow;
 static int   mock_snapshot_boot;
+static ulong mock_last_restart_slot_update_cnt;
 
 ulong
 mock_multi_epoch_leaders_next_slot_fn( fd_multi_epoch_leaders_t const * mleaders FD_PARAM_UNUSED,
@@ -174,6 +177,10 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_vote_stakes_refresh(v,f,a,i)              do { if( !mock_snapshot_boot ) (fd_vote_stakes_refresh)(v,f,a,i); } while(0)
 #define fd_rewards_recalculate_partitioned_rewards(b,k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(b,k,a,s,c); } while(0)
 #define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
+#define fd_sysvar_last_restart_slot_update(bank,accdb,capture) do {                        \
+    if( mock_snapshot_boot ) mock_last_restart_slot_update_cnt++;                         \
+    else (fd_sysvar_last_restart_slot_update)(bank,accdb,capture);                        \
+  } while(0)
 #define fd_runtime_block_execute_prepare     mock_runtime_block_execute_prepare_fn
 
 /* ---- Include the tile under test ---- */
@@ -701,6 +708,12 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
 
   root->accdb_fork_id        = (fd_accdb_fork_id_t){ .val=37U };
   root->parent_accdb_fork_id = root->accdb_fork_id;
+  root->f.slot = 100UL;
+  ctx->restart_slot = root->f.slot;
+  /* A restart at the snapshot slot requires the cluster's bank hash, as
+     the bank hash of that slot was derived rather than replayed. */
+  ctx->wfs_enabled        = 1;
+  ctx->expected_bank_hash = root->f.bank_hash;
   ctx->has_expected_genesis_timestamp = 1;
   mock_accdb_fork_id_next = 0U;
   static ulong test_metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
@@ -713,6 +726,10 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( root->accdb_fork_id.val==37U );
   FD_TEST( root->parent_accdb_fork_id.val==37U );
   FD_TEST( mock_accdb_fork_id_next==0U );
+  FD_TEST( mock_last_restart_slot_update_cnt==1UL );
+  root->f.slot = 0UL;
+  ctx->restart_slot = 0UL;
+  ctx->wfs_enabled  = 0;
   root->refcnt = 0UL;
 
   fd_bank_t * child = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
