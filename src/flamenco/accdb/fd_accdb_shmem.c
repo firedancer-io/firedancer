@@ -88,7 +88,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   if( FD_UNLIKELY( !descends_fp                          ) ) return 0UL;
   if( FD_UNLIKELY( max_live_slots>ULONG_MAX/descends_fp  ) ) return 0UL;
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
+  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts<<2) + (max_accounts&1UL) );
 
   if( FD_UNLIKELY( chain_cnt>ULONG_MAX/sizeof(uint) ) ) return 0UL;
 
@@ -249,7 +249,7 @@ fd_accdb_shmem_new( void * shmem,
     return NULL;
   }
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
+  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts<<2) + (max_accounts&1UL) );
 
   if( FD_UNLIKELY( chain_cnt>ULONG_MAX/sizeof(uint) ) ) {
     FD_LOG_WARNING(( "chain_cnt*sizeof(uint) overflows" ));
@@ -353,6 +353,7 @@ fd_accdb_shmem_new( void * shmem,
 
   accdb->partition_lock   = 0;
   accdb->snapshot_loading = 0;
+  accdb->snapshot_writer_cnt = 0UL;
   accdb->bundle_enabled   = bundle_enabled;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->clock_hand[ c ].val = 0UL;

@@ -34,7 +34,7 @@ struct fd_accdb_txn {
     struct { uint next; } fork;
   };
 
-  uint acc_map_idx;
+  ulong acc_map_idx;
   uint acc_pool_idx;
 };
 
@@ -379,6 +379,12 @@ struct fd_accdb_shmem_private {
      one-shot sweep to enqueue any partitions that crossed the
      fragmentation threshold during the load. */
   int snapshot_loading;
+
+  /* Number of joiners that may concurrently mutate the snapshot index.
+     One writer permits the no-lock acc_pool fast path and direct batch
+     reservations.  Multiple writers use the parallel pool allocator,
+     atomic shared metrics, and conservatively retain CAS reservations. */
+  ulong snapshot_writer_cnt;
 
   /* Set at construction (fd_accdb_shmem_new) when this validator
      supports bundles.  A bundle coalesces up to

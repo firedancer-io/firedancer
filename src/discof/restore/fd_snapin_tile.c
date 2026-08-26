@@ -881,7 +881,6 @@ process_account_batch( fd_snapin_tile_t *            ctx,
   ulong                 batch_slot = result->account_batch.slot;
 
   uchar const * pubkeys    [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
-  ulong         slots      [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   ulong         lamports   [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   ulong         data_lens  [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   int           executables[ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
@@ -889,7 +888,6 @@ process_account_batch( fd_snapin_tile_t *            ctx,
   for( ulong i=0UL; i<cnt; i++ ) {
     uchar const * e = entries[ i ];
     pubkeys[ i ]     = e + 16UL;
-    slots[ i ]       = batch_slot;
     lamports[ i ]    = fd_ulong_load_8_fast( e+48UL );
     data_lens[ i ]   = fd_ulong_load_8_fast( e+8UL );
     executables[ i ] = e[ 96UL ];
@@ -919,7 +917,7 @@ process_account_batch( fd_snapin_tile_t *            ctx,
 
   ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
   fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
-  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
+  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, batch_slot, lamports, data_lens,
                                                      executables, &accounts_ignored, &accounts_replaced, &accounts_loaded,
                                                      &replaced_lamports, &ignored_lamports ) ) ) {
     return -1;
