@@ -525,9 +525,14 @@ before_frag( fd_rpc_tile_t *   ctx,
              ulong             seq FD_PARAM_UNUSED,
              ulong             sig ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT ) ) {
+    if( sig==FD_GOSSIP_UPDATE_TAG_VOTE ) return !ctx->ws_subscribers_vote_cnt;
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
-           sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE &&
-           sig!=FD_GOSSIP_UPDATE_TAG_VOTE;
+           sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+  }
+
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_OC_ADVANCED &&
+           sig!=REPLAY_SIG_ROOT_ADVANCED  && sig!=REPLAY_SIG_DROP_BANK_REF;
   }
 
   return 0;
