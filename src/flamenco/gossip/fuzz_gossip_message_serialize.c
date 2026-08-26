@@ -70,7 +70,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     FD_STORE( uint,  wrapped, FD_GOSSIP_MESSAGE_PUSH );
     memset( wrapped+4UL, 0, 32UL );
     FD_STORE( ulong, wrapped+36UL, 1UL );
-    memcpy( wrapped+hdr, ser_buf, (ulong)ser_len );
+    fd_memcpy( wrapped+hdr, ser_buf, (ulong)ser_len );
 
     fd_gossip_message_t msg2[1];
     memset( msg2, 0, sizeof(fd_gossip_message_t) );
