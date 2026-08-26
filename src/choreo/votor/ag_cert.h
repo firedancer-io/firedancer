@@ -11,15 +11,15 @@
 #define AG_CERT_KIND_SKIP           (4)
 #define AG_CERT_KIND_GENESIS        (5)
 
-struct ag_notar_cert {
+struct ag_cert_notar {
   ulong           slot;
   ag_block_hash_t block_hash;
   ag_bls_agg_t    agg_sig;
   ulong           stake;
 };
-typedef struct ag_notar_cert ag_notar_cert_t;
+typedef struct ag_cert_notar ag_cert_notar_t;
 
-struct ag_notar_fallback_cert {
+struct ag_cert_notar_fallback {
   ulong           slot;
   ag_block_hash_t block_hash;
   ag_bls_agg_t    agg_sig_notar;
@@ -27,113 +27,104 @@ struct ag_notar_fallback_cert {
   ulong           stake;
 
 };
-typedef struct ag_notar_fallback_cert ag_notar_fallback_cert_t;
+typedef struct ag_cert_notar_fallback ag_cert_notar_fallback_t;
 
-struct ag_skip_cert {
+struct ag_cert_skip {
   ulong           slot;
   ag_bls_agg_t    agg_sig_skip;
   ag_bls_agg_t    agg_sig_skip_fallback;
   ulong           stake;
 };
-typedef struct ag_skip_cert ag_skip_cert_t;
+typedef struct ag_cert_skip ag_cert_skip_t;
 
-struct ag_fast_final_cert {
+struct ag_cert_fast_final {
   ulong           slot;
   ag_block_hash_t block_hash;
   ag_bls_agg_t    agg_sig;
   ulong           stake;
 };
-typedef struct ag_fast_final_cert ag_fast_final_cert_t;
+typedef struct ag_cert_fast_final ag_cert_fast_final_t;
 
-struct ag_final_cert {
+struct ag_cert_final {
   ulong           slot;
   ag_bls_agg_t    agg_sig;
   ulong           stake;
 };
-typedef struct ag_final_cert ag_final_cert_t;
+typedef struct ag_cert_final ag_cert_final_t;
 
 struct ag_cert {
   uint kind;
   union {
-    ag_notar_cert_t          notar;
-    ag_notar_fallback_cert_t notar_fallback;
-    ag_skip_cert_t           skip;
-    ag_fast_final_cert_t     fast_final;
-    ag_final_cert_t          final;
-  } inner;
+    ag_cert_notar_t          notar;
+    ag_cert_notar_fallback_t notar_fallback;
+    ag_cert_skip_t           skip;
+    ag_cert_fast_final_t     fast_final;
+    ag_cert_final_t          final;
+  };
 };
 typedef struct ag_cert ag_cert_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* Construct certs by aggregating votes. */
-
-ag_notar_cert_t
-ag_notar_cert_construct( ag_notar_vote_t const * notar_votes,
-                         ulong                   notar_vote_cnt,
+ag_cert_t
+ag_cert_construct_notar( ag_vote_notar_t const * votes,
+                         ulong                   vote_cnt,
                          ag_epoch_info_t const * epoch_info );
 
-ag_notar_fallback_cert_t
-ag_notar_fallback_cert_construct( ag_notar_vote_t const *          notar_votes,
-                                  ulong                            notar_vote_cnt,
-                                  ag_notar_fallback_vote_t const * notar_fallback_votes,
-                                  ulong                            notar_fallback_vote_cnt,
-                                  ag_epoch_info_t const *          epoch_info );
-
-ag_skip_cert_t
-ag_skip_cert_construct( ag_skip_vote_t const *          skip_votes,
-                        ulong                           skip_vote_cnt,
-                        ag_skip_fallback_vote_t const * skip_fallback_votes,
-                        ulong                           skip_fallback_vote_cnt,
-                        ag_epoch_info_t const *         epoch_info );
-
-ag_fast_final_cert_t
-ag_fast_final_cert_construct( ag_notar_vote_t const * notar_votes,
-                              ulong                   notar_vote_cnt,
+ag_cert_t
+ag_cert_construct_fast_final( ag_vote_notar_t const * votes,
+                              ulong                   vote_cnt,
                               ag_epoch_info_t const * epoch_info );
 
-ag_final_cert_t
-ag_final_cert_construct( ag_final_vote_t const * final_votes,
-                         ulong                   final_vote_cnt,
+ag_cert_t
+ag_cert_construct_final( ag_vote_final_t const * votes,
+                         ulong                   vote_cnt,
                          ag_epoch_info_t const * epoch_info );
 
-/* ag_cert_verify checks a cert off the network: enough stake behind the
-   signer bitmask, then the aggregate signature over it.  Deviates from
-   the reference, which exposes Cert::check_threshold and Cert::check_sig
-   separately and composes them in ValidatedCert::try_new. */
+ag_cert_t
+ag_cert_construct_notar_fallback( ag_vote_notar_t const *          votes,
+                                  ulong                            vote_cnt,
+                                  ag_vote_notar_fallback_t const * fallback_votes,
+                                  ulong                            fallback_vote_cnt,
+                                  ag_epoch_info_t const *          epoch_info );
+
+ag_cert_t
+ag_cert_construct_skip( ag_vote_skip_t const *          votes,
+                        ulong                           vote_cnt,
+                        ag_vote_skip_fallback_t const * fallback_votes,
+                        ulong                           fallback_vote_cnt,
+                        ag_epoch_info_t const *         epoch_info );
 
 int
-ag_cert_verify( ag_cert_t const *       cert,
+ag_cert_verify( ag_cert_t const *       self,
                 ag_epoch_info_t const * epoch_info,
                 ushort                  shred_version );
 
-/* Misc helpers. */
-
 FD_FN_PURE static inline ulong
-ag_cert_slot( ag_cert_t const * cert ) {
-  switch( cert->kind ) {
-  case AG_CERT_KIND_NOTAR:          return cert->inner.notar.slot;
-  case AG_CERT_KIND_NOTAR_FALLBACK: return cert->inner.notar_fallback.slot;
-  case AG_CERT_KIND_SKIP:           return cert->inner.skip.slot;
-  case AG_CERT_KIND_FAST_FINAL:     return cert->inner.fast_final.slot;
-  case AG_CERT_KIND_FINAL:          return cert->inner.final.slot;
+ag_cert_slot( ag_cert_t const * self ) {
+  switch( self->kind ) {
+  case AG_CERT_KIND_NOTAR:          return self->notar.slot;
+  case AG_CERT_KIND_NOTAR_FALLBACK: return self->notar_fallback.slot;
+  case AG_CERT_KIND_SKIP:           return self->skip.slot;
+  case AG_CERT_KIND_FAST_FINAL:     return self->fast_final.slot;
+  case AG_CERT_KIND_FINAL:          return self->final.slot;
   default:                          __builtin_unreachable();
   }
 }
 
 FD_FN_PURE static inline uchar const *
-ag_cert_block_hash( ag_cert_t const * cert ) {
-  switch( cert->kind ) {
-  case AG_CERT_KIND_NOTAR:          return cert->inner.notar.block_hash;
-  case AG_CERT_KIND_NOTAR_FALLBACK: return cert->inner.notar_fallback.block_hash;
-  case AG_CERT_KIND_FAST_FINAL:     return cert->inner.fast_final.block_hash;
+ag_cert_block_hash( ag_cert_t const * self ) {
+  switch( self->kind ) {
+  case AG_CERT_KIND_NOTAR:          return self->notar.block_hash;
+  case AG_CERT_KIND_NOTAR_FALLBACK: return self->notar_fallback.block_hash;
+  case AG_CERT_KIND_FAST_FINAL:     return self->fast_final.block_hash;
   default:                          return NULL; /* skip and final carry no block hash */
   }
 }
 
 FD_FN_PURE static inline char const *
-ag_cert_str( ag_cert_t const * cert ) {
-  switch( cert->kind ) {
+ag_cert_str( ag_cert_t const * self ) {
+  switch( self->kind ) {
   case AG_CERT_KIND_FINAL:          return "Final";
   case AG_CERT_KIND_FAST_FINAL:     return "FastFinal";
   case AG_CERT_KIND_NOTAR:          return "Notar";

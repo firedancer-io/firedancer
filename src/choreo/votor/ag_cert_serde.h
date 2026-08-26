@@ -73,9 +73,9 @@ ag_cert_de( ag_cert_t *   cert,
             ulong *       buf_sz );
 
 int
-ag_cert_block_final_de( ag_fast_final_cert_t * fast_final,
-                        ag_final_cert_t *      final,
-                        ag_notar_cert_t *      notar,
+ag_cert_block_final_de( ag_cert_fast_final_t * fast_final,
+                        ag_cert_final_t *      final,
+                        ag_cert_notar_t *      notar,
                         uchar const *          buf,
                         ulong                  buf_max,
                         ulong *                buf_sz );

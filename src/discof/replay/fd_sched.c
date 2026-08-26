@@ -1949,7 +1949,7 @@ fd_sched_get_notar_reward_cert( fd_sched_t * sched, ulong bank_idx ) {
   return ( block->footer_present && block->footer.has_notar_reward_cert ) ? &block->footer.notar_reward_cert : NULL;
 }
 
-ag_fast_final_cert_t const *
+ag_cert_fast_final_t const *
 fd_sched_get_fast_final_cert( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
@@ -1957,7 +1957,7 @@ fd_sched_get_fast_final_cert( fd_sched_t * sched, ulong bank_idx ) {
   return ( block->footer_present && block->footer.has_fast_final_cert ) ? &block->footer.fast_final_cert : NULL;
 }
 
-ag_final_cert_t const *
+ag_cert_final_t const *
 fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
@@ -1965,7 +1965,7 @@ fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx ) {
   return ( block->footer_present && block->footer.has_final_cert ) ? &block->footer.final_cert : NULL;
 }
 
-ag_notar_cert_t const *
+ag_cert_notar_t const *
 fd_sched_get_final_notar_cert( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );

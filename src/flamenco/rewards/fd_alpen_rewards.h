@@ -24,9 +24,9 @@
 typedef ag_epoch_info_t const * (*fd_footer_epoch_info_fn_t)( void * ctx, ulong epoch );
 
 struct fd_footer_certs {
-  ag_fast_final_cert_t const * fast_final_cert;   /* fast BlockFinalizationCert */
-  ag_final_cert_t const *      final_cert;        /* slow BlockFinalizationCert */
-  ag_notar_cert_t const *      final_notar_cert;  /* notar aggregate accompanying final_cert */
+  ag_cert_fast_final_t const * fast_final_cert;   /* fast BlockFinalizationCert */
+  ag_cert_final_t const *      final_cert;        /* slow BlockFinalizationCert */
+  ag_cert_notar_t const *      final_notar_cert;  /* notar aggregate accompanying final_cert */
   fd_reward_cert_t const *     skip_reward_cert;  /* SkipRewardCertificate  */
   fd_reward_cert_t const *     notar_reward_cert; /* NotarRewardCertificate */
 };

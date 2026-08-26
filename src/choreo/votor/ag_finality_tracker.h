@@ -3,35 +3,14 @@
 
 #include "ag_votor_base.h"
 
+/* Finalization status of a slot, as returned by
+   ag_finality_tracker_status. */
+
 #define AG_FINALIZATION_STATUS_NOTARIZED            (0)
 #define AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR  (1)
 #define AG_FINALIZATION_STATUS_FINALIZED            (2)
 #define AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED (3)
 #define AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED   (4)
-
-              struct ag_finalization_notarized            { ag_block_hash_t hash; };
-__extension__ struct ag_finalization_final_pending_notar  {                       };
-              struct ag_finalization_finalized            { ag_block_hash_t hash; };
-              struct ag_finalization_implicitly_finalized { ag_block_hash_t hash; };
-__extension__ struct ag_finalization_implicitly_skipped   {                       };
-
-typedef struct ag_finalization_notarized            ag_finalization_notarized_t;
-typedef struct ag_finalization_final_pending_notar  ag_finalization_final_pending_notar_t;
-typedef struct ag_finalization_finalized            ag_finalization_finalized_t;
-typedef struct ag_finalization_implicitly_finalized ag_finalization_implicitly_finalized_t;
-typedef struct ag_finalization_implicitly_skipped   ag_finalization_implicitly_skipped_t;
-
-struct ag_finalization_status {
-  int kind;
-  union {
-    ag_finalization_notarized_t            notarized;
-    ag_finalization_final_pending_notar_t  final_pending_notar;
-    ag_finalization_finalized_t            finalized;
-    ag_finalization_implicitly_finalized_t implicitly_finalized;
-    ag_finalization_implicitly_skipped_t   implicitly_skipped;
-  } inner;
-};
-typedef struct ag_finalization_status ag_finalization_status_t;
 
 struct ag_finalization_event {
   ag_block_id_t   finalized;
@@ -40,81 +19,22 @@ struct ag_finalization_event {
 };
 typedef struct ag_finalization_event ag_finalization_event_t;
 
-struct status_ele {
-  ulong                    slot;
-  ag_finalization_status_t status;
-  ulong                    next;
-};
-typedef struct status_ele status_ele_t;
-
-#define POOL_NAME status_pool
-#define POOL_T    status_ele_t
-#define POOL_NEXT next
-#include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME               status_map
-#define MAP_ELE_T              status_ele_t
-#define MAP_KEY                slot
-#define MAP_KEY_T              ulong
-#define MAP_KEY_EQ(k0,k1)      ((*(k0))==(*(k1)))
-#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( (*(key)) ^ (seed) ))
-#define MAP_NEXT               next
-#include "../../util/tmpl/fd_map_chain.c"
-
-struct parent_ele {
-  ag_block_id_t block_id;
-  ag_block_id_t parent_block_id;
-  ulong         next;
-};
-typedef struct parent_ele parent_ele_t;
-
-#define POOL_NAME parent_pool
-#define POOL_T    parent_ele_t
-#define POOL_NEXT next
-#include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME               parent_map
-#define MAP_ELE_T              parent_ele_t
-#define MAP_KEY                block_id
-#define MAP_KEY_T              ag_block_id_t
-#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
-#define MAP_NEXT               next
-#include "../../util/tmpl/fd_map_chain.c"
-
-struct status {
-  status_ele_t * pool;
-  status_map_t * map;
-};
-typedef struct status status_t;
-
-struct parents {
-  parent_ele_t * pool;
-  parent_map_t * map;
-};
-typedef struct parents parents_t;
-
-struct ag_finality_tracker {
-  status_t  status;
-  parents_t parents;
-  ulong     highest_finalized_slot;
-  ulong     first_unpruned_slot;
-
-  struct {
-    ag_block_id_t * implicitly_finalized;
-    ulong *         implicitly_skipped;
-  } scratch;
-};
 typedef struct ag_finality_tracker ag_finality_tracker_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* ag_finalization_event_default returns an empty event backed by the
+   caller's storage.  implicitly_finalized and implicitly_skipped must
+   each hold at least (source_slot-first_unpruned_slot) entries, as a
+   single call can walk the whole unpruned ancestry. */
+
 FD_FN_CONST static inline ag_finalization_event_t
-ag_finalization_event_default( void ) {
+ag_finalization_event_default( ag_block_id_t * implicitly_finalized,
+                               ulong *         implicitly_skipped ) {
   ag_finalization_event_t event;
   event.finalized.slot       = ULONG_MAX;
-  event.implicitly_finalized = NULL; event.implicitly_finalized_cnt = 0UL;
-  event.implicitly_skipped   = NULL; event.implicitly_skipped_cnt   = 0UL;
+  event.implicitly_finalized = implicitly_finalized; event.implicitly_finalized_cnt = 0UL;
+  event.implicitly_skipped   = implicitly_skipped;   event.implicitly_skipped_cnt   = 0UL;
   return event;
 }
 
@@ -138,22 +58,39 @@ ag_finality_tracker_leave( ag_finality_tracker_t const * tracker );
 void *
 ag_finality_tracker_delete( void * shtracker );
 
-ag_finalization_event_t
-ag_finality_tracker_add_parent( ag_finality_tracker_t * self,
-                                ag_block_id_t const *   block,
-                                ag_block_id_t const *   parent );
+/* init before any block, cert or vote is added; genesis is slot 0 */
 
-ag_finalization_event_t
-ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t * self,
-                                         ag_block_id_t const *   block );
+void
+ag_finality_tracker_init( ag_finality_tracker_t * self,
+                          ulong                   slot );
 
-ag_finalization_event_t
-ag_finality_tracker_mark_notarized( ag_finality_tracker_t * self,
-                                    ag_block_id_t const *   block );
+void
+ag_finality_tracker_fini( ag_finality_tracker_t * self );
 
-ag_finalization_event_t
-ag_finality_tracker_mark_finalized( ag_finality_tracker_t * self,
-                                    ulong                   slot );
+/* The mark_* and add_parent entry points append newly finalized and
+   newly skipped slots to event, which the caller supplies already
+   initialized by ag_finalization_event_default. */
+
+void
+ag_finality_tracker_add_parent( ag_finality_tracker_t *   self,
+                                ag_block_id_t const *     block,
+                                ag_block_id_t const *     parent,
+                                ag_finalization_event_t * event );
+
+void
+ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t *   self,
+                                         ag_block_id_t const *     block,
+                                         ag_finalization_event_t * event );
+
+void
+ag_finality_tracker_mark_notarized( ag_finality_tracker_t *   self,
+                                    ag_block_id_t const *     block,
+                                    ag_finalization_event_t * event );
+
+void
+ag_finality_tracker_mark_finalized( ag_finality_tracker_t *   self,
+                                    ulong                     slot,
+                                    ag_finalization_event_t * event );
 
 FD_FN_PURE ulong
 ag_finality_tracker_highest_finalized_slot( ag_finality_tracker_t const * self );

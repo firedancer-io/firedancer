@@ -64,9 +64,6 @@ typedef struct replayed replayed_t;
 #define MAP_MEMOIZE            0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-/* Newly rooted blocks, deepest on top so popping walks back up in slot
-   order.  The GUI consumes every intermediate root. */
-
 #define STACK_NAME rooted
 #define STACK_T    ag_block_id_t
 #include "../../util/tmpl/fd_stack.c"
@@ -84,9 +81,6 @@ typedef struct publish publish_t;
 
 struct fd_votor_tile {
 
-  /* Lifecycle */
-
-
   /* Metadata */
 
   uchar const * identity_keypair;
@@ -96,7 +90,6 @@ struct fd_votor_tile {
 
   /* Data */
 
-  ag_block_id_t     replay_block_id;
   ag_block_id_t     rooted_block_id;
   ag_epoch_info_t * curr_epoch_info;
   ulong             curr_epoch_slot;
@@ -111,11 +104,6 @@ struct fd_votor_tile {
   publish_t *       publishes;
 
   /* Networking */
-
-  /* A vote carries no validator index, so the signer is the
-     authenticated QUIC peer.  tls_hs is freed once the handshake is
-     acked, so the identity is captured while the connection is
-     establishing and the connection holds a pointer to it. */
 
   ag_id_key_t        peer[ QUIC_CONN_MAX ];
   fd_net_rx_bounds_t net_in_bounds[ 32 ];
@@ -290,13 +278,7 @@ quic_datagram_rx( fd_quic_conn_t * conn,
   fd_votor_tile_t * ctx = _ctx;
   if( FD_UNLIKELY( data_sz<2UL ) ) return;
 
-  /* ag_vote_serde_t and ag_cert_serde_t open with the same two byte
-     prefix: data[0] is the VersionedWireConsensusMessage version tag,
-     which ag_vote_de / ag_cert_de check, and data[1] is the
-     WireConsensusMessageKind tag, which selects between them. */
-
   uchar kind = data[ 1 ];
-
   switch( kind ) {
   case DATAGRAM_KIND_NOTAR_VOTE:
   case DATAGRAM_KIND_FINALIZE_VOTE:
@@ -307,10 +289,10 @@ quic_datagram_rx( fd_quic_conn_t * conn,
     if( FD_UNLIKELY( ag_vote_de( &ctx->scratch.vote, ctx->shred_version, data, data_sz, NULL ) ) ) return;
     ag_epoch_info_t const * epoch_info = fd_ptr_if( ag_vote_slot( &ctx->scratch.vote )>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
     if( FD_UNLIKELY( !epoch_info ) ) return;
-    ushort signer = peer_rank( conn, epoch_info );
-    if( FD_UNLIKELY( signer>=epoch_info->validator_cnt ) ) return; /* not an authenticated validator this epoch */
-    ag_vote_set_signer( &ctx->scratch.vote, signer );
-    // if( FD_UNLIKELY( !ag_vote_check_sig( &ctx->scratch.vote, epoch_info->validators[ signer ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
+    ushort rank = peer_rank( conn, epoch_info );
+    if( FD_UNLIKELY( rank>=epoch_info->validator_cnt ) ) return; /* not an authenticated validator this epoch */
+    ag_vote_set_rank( &ctx->scratch.vote, rank );
+    // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, epoch_info->validators[ rank ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
     return;
   }
@@ -339,14 +321,13 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  int lg = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*AG_EQVOC_BLOCK_HASH_MAX*tile->votor.max_live_slots ) ); /* half empty, and a slot holds at most AG_EQVOC_BLOCK_HASH_MAX blocks */
-
+  int lg_blk_max = fd_ulong_find_msb( fd_ulong_pow2_up( AG_EQVOC_BLOCK_HASH_MAX*tile->votor.max_live_slots ) ) + 1;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                           );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &quic_limits )                 );
   l = FD_LAYOUT_APPEND( l, ag_pool_align(),          ag_pool_footprint( tile->votor.max_live_slots )   );
   l = FD_LAYOUT_APPEND( l, ag_votor_align(),         ag_votor_footprint( tile->votor.max_live_slots )  );
-  l = FD_LAYOUT_APPEND( l, replayed_align(),         replayed_footprint( lg )                          );
+  l = FD_LAYOUT_APPEND( l, replayed_align(),         replayed_footprint( lg_blk_max )                          );
   l = FD_LAYOUT_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots )    );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -385,34 +366,33 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  if( FD_UNLIKELY( ag_votor_poll_timeout_event( ctx->votor, now, &ctx->scratch.timeout_event ) ) ) {
+  if( FD_UNLIKELY( ag_votor_poll_timeout_event( ctx->votor, now, &ctx->scratch.timeout_event ) ) ) { /* a timeout we set on ParentReady */
     ag_votor_handle_timeout_event( ctx->votor, &ctx->scratch.timeout_event );
     *charge_busy = 1;
   }
 
-  if( FD_UNLIKELY( ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) ) ) {
+  if( FD_UNLIKELY( ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) ) ) { /* our own vote */
     ulong vote_slot = ag_vote_slot( &ctx->scratch.vote_event.vote );
     ulong rank      = fd_ulong_if( vote_slot<ctx->next_epoch_slot, ctx->curr_epoch_rank, ctx->next_epoch_rank );
-    if( FD_LIKELY( vote_slot>=ctx->curr_epoch_slot && rank!=USHORT_MAX ) ) ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote );
-    *charge_busy = 1;
+    if( FD_LIKELY( vote_slot>=ctx->curr_epoch_slot && rank!=USHORT_MAX ) ) {
+      ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote );
+      /* TODO broadcast out vote */
+      *charge_busy = 1;
+    }
   }
 
-  if( FD_UNLIKELY( ag_votor_poll_cert_event( ctx->votor, &ctx->scratch.cert_event ) ) ) {
-    *charge_busy = 1;
+  if( FD_UNLIKELY( ag_votor_poll_cert_event( ctx->votor, &ctx->scratch.cert_event ) ) ) { /* a cert we built */
     ag_pool_add_cert( ctx->pool, &ctx->scratch.cert_event.cert );
-    if( FD_LIKELY( ( ctx->scratch.cert_event.cert.kind==AG_CERT_KIND_FINAL || ctx->scratch.cert_event.cert.kind==AG_CERT_KIND_FAST_FINAL ) &&
-                   publishes_empty( ctx->publishes ) ) ) { /* else we would stage the same blocks twice */
-
-      /* FIXME replay reports the last FEC set's merkle root, not the
-         double merkle root a cert identifies a block by, so the two
-         cannot be compared and we match on slot alone */
-
-      ulong         finalized_slot    = ag_pool_finalized_slot( ctx->pool );
-      ag_block_id_t ancestor_block_id = ctx->replay_block_id;
+    uint            kind           = ctx->scratch.cert_event.cert.kind;
+    ulong           finalized_slot = ag_pool_finalized_slot( ctx->pool );
+    ag_block_hash_t finalized_hash;
+    if( FD_LIKELY( ( kind==AG_CERT_KIND_FINAL || kind==AG_CERT_KIND_FAST_FINAL ) && ag_pool_finalized_block_hash( ctx->pool, finalized_slot, finalized_hash ) ) ) {
+      ag_block_id_t ancestor_block_id = ag_block_id( finalized_slot, finalized_hash );
       replayed_t *  replayed          = NULL;
 
       while( FD_LIKELY( ancestor_block_id.slot>ctx->rooted_block_id.slot && ( replayed = replayed_query( ctx->replayed, ancestor_block_id, NULL ) ) ) ) {
-        if( FD_LIKELY( ancestor_block_id.slot<=finalized_slot ) ) { FD_TEST( !rooted_full( ctx->rooted ) ); rooted_push( ctx->rooted, ancestor_block_id ); }
+        FD_TEST( !rooted_full( ctx->rooted ) );
+        rooted_push( ctx->rooted, ancestor_block_id );
         ancestor_block_id = replayed->parent_block_id;
       }
 
@@ -432,6 +412,7 @@ after_credit( fd_votor_tile_t *   ctx,
         ctx->rooted_block_id = rooted_block_id;
       }
     }
+    *charge_busy = 1;
   }
 }
 
@@ -523,7 +504,6 @@ after_frag( fd_votor_tile_t *   ctx,
         ag_pool_init ( ctx->pool,  block_id.slot );
         ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock() );
       }
-      ctx->replay_block_id = block_id;
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id );
       ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
       memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
@@ -536,7 +516,8 @@ after_frag( fd_votor_tile_t *   ctx,
       ag_votor_handle_replay_event( ctx->votor, &dead );
       break;
     }
-    default: __builtin_unreachable();
+    default:
+      __builtin_unreachable();
     }
     break;
   }
@@ -579,17 +560,18 @@ privileged_init( fd_topo_t const *      topo,
 static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
+
+  int lg_blk_max = fd_ulong_find_msb( fd_ulong_pow2_up( AG_EQVOC_BLOCK_HASH_MAX*tile->votor.max_live_slots ) ) + 1;
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_votor_tile_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                         );
-  void *            _quic = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),          fd_quic_footprint( &quic_limits )               );
-  void *            pool  = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),          ag_pool_footprint( tile->votor.max_live_slots )  );
-  void *            votor = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),         ag_votor_footprint( tile->votor.max_live_slots ) );
-  int               lg    = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*AG_EQVOC_BLOCK_HASH_MAX*tile->votor.max_live_slots ) ); /* half empty, and a slot holds at most AG_EQVOC_BLOCK_HASH_MAX blocks */
-  void *            _rpld = FD_SCRATCH_ALLOC_APPEND( l, replayed_align(),         replayed_footprint( lg ) );
-  void *            _rtd  = FD_SCRATCH_ALLOC_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots ) );
-  void *            _pub  = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
+  fd_votor_tile_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                           );
+  void *            quic      = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),          fd_quic_footprint( &quic_limits )                 );
+  void *            pool      = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),          ag_pool_footprint( tile->votor.max_live_slots )   );
+  void *            votor     = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),         ag_votor_footprint( tile->votor.max_live_slots )  );
+  void *            replayed  = FD_SCRATCH_ALLOC_APPEND( l, replayed_align(),         replayed_footprint( lg_blk_max )                  );
+  void *            rooted    = FD_SCRATCH_ALLOC_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots )    );
+  void *            publishes = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -617,15 +599,14 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memset( ctx->peer, 0, sizeof(ctx->peer) );
 
   ctx->rooted_block_id   = (ag_block_id_t){ .slot = ULONG_MAX };
-  ctx->replay_block_id = (ag_block_id_t){ .slot = ULONG_MAX };
 
-  ctx->replayed = replayed_join( replayed_new( _rpld, lg, seed ) );
+  ctx->replayed = replayed_join( replayed_new( replayed, lg_blk_max, seed ) );
   FD_TEST( ctx->replayed );
 
-  ctx->rooted = rooted_join( rooted_new( _rtd, tile->votor.max_live_slots ) );
+  ctx->rooted = rooted_join( rooted_new( rooted, tile->votor.max_live_slots ) );
   FD_TEST( ctx->rooted );
 
-  ctx->publishes = publishes_join( publishes_new( _pub, tile->votor.max_live_slots ) );
+  ctx->publishes = publishes_join( publishes_new( publishes, tile->votor.max_live_slots ) );
   FD_TEST( ctx->publishes );
 
 
@@ -665,7 +646,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-  ctx->quic = fd_quic_join( fd_quic_new( _quic, &quic_limits ) );
+  ctx->quic = fd_quic_join( fd_quic_new( quic, &quic_limits ) );
   FD_TEST( ctx->quic );
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
