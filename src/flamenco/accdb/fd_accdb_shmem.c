@@ -333,6 +333,9 @@ fd_accdb_shmem_new( void * shmem,
 
   fd_accdb_partition_t * partition_pool = partition_pool_join( partition_pool_new( _partition_pool, partition_cnt ) );
   FD_TEST( partition_pool );
+  for( ulong i=0UL; i<partition_cnt; i++ ) {
+    partition_pool_ele( partition_pool, i )->write_offset = 0UL;
+  }
 
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     compaction_dlist_t * dlist = compaction_dlist_join( compaction_dlist_new( _compaction_dlists[ k ] ) );
@@ -548,12 +551,13 @@ fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
      layer, partition->write_offset is stale (it's only updated at
      handoff in change_partition).  The live tip lives in whead[layer].
      Surface the live value so the GUI shows real-time fill, not the
-     "0 until rolled" snapshot. */
+     "0 until rolled" snapshot.  The tip is a reservation that can
+     briefly overrun the partition, so clamp rather than show >100%. */
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     if( !FD_VOLATILE_CONST( accdb->has_partition[ k ] ) ) continue;
     accdb_offset_t whead = { .val = FD_VOLATILE_CONST( accdb->whead[ k ].val ) };
     if( packed_partition_idx( &whead )==partition_idx ) {
-      out->write_offset  = packed_partition_offset( &whead );
+      out->write_offset  = fd_ulong_min( packed_partition_offset( &whead ), accdb->partition_sz );
       out->is_write_head = 1;
       break;
     }
