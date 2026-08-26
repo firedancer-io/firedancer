@@ -77,6 +77,7 @@ typedef struct fd_shred_base fd_shred_base_t;
 struct fd_fec_evicted {
   ulong slot;
   uint  fec_set_idx;
+  fd_hash_t merkle_root;
 };
 typedef struct fd_fec_evicted fd_fec_evicted_t;
 

@@ -377,7 +377,13 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  if( FD_UNLIKELY( ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event ) ) ) *charge_busy = 1;
+  if( FD_UNLIKELY( ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event ) ) ) {
+    publish_t pub = { .sig = FD_VOTOR_SIG_REPAIR_BLOCK_ID };
+    pub.msg.repair_block.slot = ctx->scratch.repair_event.block.slot;
+    memcpy( &pub.msg.repair_block.block_id, ctx->scratch.repair_event.block.hash, sizeof(fd_hash_t) );
+    publishes_push( ctx->publishes, pub );
+    *charge_busy = 1;
+  }
 
   if( FD_UNLIKELY( ag_votor_poll_timeout_event( ctx->votor, now, &ctx->scratch.timeout_event ) ) ) {
     ag_votor_handle_timeout_event( ctx->votor, &ctx->scratch.timeout_event );

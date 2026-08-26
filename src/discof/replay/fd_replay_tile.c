@@ -265,7 +265,7 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
 
-  if( FD_UNLIKELY( ctx->is_alpenglow ) ) ag_epoch_vtrs_update( ctx, epoch_info_msg );
+  if( FD_UNLIKELY( ctx->alpenglow ) ) ag_epoch_vtrs_update( ctx, epoch_info_msg );
 }
 
 /**********************************************************************/
@@ -336,7 +336,7 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
   }
   bank->f.max_tick_height = max_tick_height;
-  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
     /* in alpenglow, we expect only one tick per block.  Instead of
        adjusting max tick height, we match agave behavior by setting
        tick height to max tick height - 1. These fields must stay in
@@ -646,7 +646,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   /* Under Alpenglow nothing supplies a reset block, so shim the slot we
      just replayed in for it to keep the reset slot metric live. */
 
-  if( FD_UNLIKELY( ctx->is_alpenglow ) ) ctx->reset_slot = slot;
+  if( FD_UNLIKELY( ctx->alpenglow ) ) ctx->reset_slot = slot;
 
   if( FD_UNLIKELY( is_initial ) ) bank->block_completed_nanos = fd_clock_tile_now( ctx->clock );
 
@@ -724,7 +724,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done using the bank. */
-  if( FD_LIKELY( !ctx->is_alpenglow ) ) bank->refcnt++; /* tower_tile */
+  if( FD_LIKELY( !ctx->alpenglow ) ) bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
   slot_info->bank_idx = bank->idx;
   slot_info->bank_seq = bank->bank_seq;
@@ -918,7 +918,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   ulong priority_fees_pre_settle  = bank->f.priority_fees;
 
   /* Apply footer side effects before hashing. */
-  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
     fd_footer_certs_t certs[1];
     certs->fast_final_cert   = fd_sched_get_fast_final_cert  ( ctx->sched, bank->idx );
     certs->final_cert        = fd_sched_get_final_cert       ( ctx->sched, bank->idx );
@@ -938,7 +938,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
 
-  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
     fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
     if( FD_UNLIKELY( memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
@@ -2225,6 +2225,26 @@ insert_fec_set( fd_replay_tile_t *  ctx,
                                                                : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
     mark_bank_dead( ctx, stem, sched_fec->bank_idx, dr, ar );
     return 1;
+  } else if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    ag_final_cert_t const *      final_cert      = fd_sched_get_final_cert( ctx->sched, sched_fec->bank_idx );
+    ag_fast_final_cert_t const * fast_final_cert = fd_sched_get_fast_final_cert( ctx->sched, sched_fec->bank_idx );
+    if( FD_UNLIKELY( final_cert || fast_final_cert ) ) {
+      // parsed the block footer, so we need to forward it to the votor / verify asap
+      fd_replay_final_cert_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+      msg->slot = bank->f.slot;
+      msg->cert_cnt = final_cert ? 2 : 1;
+      if( final_cert ) {
+        msg->certs[0].inner.final = *final_cert;
+        msg->certs[0].kind = AG_CERT_KIND_FINAL;
+        msg->certs[1].inner.notar = *fd_sched_get_final_notar_cert( ctx->sched, sched_fec->bank_idx );
+        msg->certs[1].kind = AG_CERT_KIND_NOTAR;
+      } else if( fast_final_cert ) {
+        msg->certs[0].inner.fast_final = *fast_final_cert;
+        msg->certs[0].kind = AG_CERT_KIND_FAST_FINAL;
+      }
+      //fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_FINAL_CERT, ctx->replay_out->chunk, sizeof(fd_replay_final_cert_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      //ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_final_cert_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+    }
   }
 
   } FD_STORE_SLOCK_END;
@@ -3753,11 +3773,10 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->reception_stats_cnt );
   for( ulong i=0UL; i<ctx->reception_stats_cnt; i++ ) ctx->reception_stats[ i ].slot = ULONG_MAX;
   ctx->reasm_evicted = NULL;
-  ctx->is_alpenglow             = tile->replay.alpenglow;
 
   ctx->leader_stats.slot = ULONG_MAX;
-
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ), ctx->is_alpenglow ) );
+  ctx->alpenglow         = tile->replay.alpenglow;
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ), ctx->alpenglow ) );
   FD_TEST( ctx->sched );
 
   ctx->in_cnt          = tile->in_cnt;
@@ -3769,7 +3788,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->identity_vote_rooted = 0;
 
   ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
-  ctx->alpenglow                     = tile->replay.alpenglow;
 
   ctx->wfs_enabled = memcmp( tile->replay.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) );
   ctx->expected_bank_hash = tile->replay.wait_for_supermajority_with_bank_hash;

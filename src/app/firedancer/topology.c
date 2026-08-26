@@ -249,6 +249,12 @@ fd_topo_initialize( config_t * config ) {
   int rserve_enabled    = config->tiles.rserve.enabled;
   int alpenglow_enabled = config->firedancer.development.alpenglow;
 
+  /* Under alpenglow, the rotor tile is dropped in for the repair tile: it
+     reads the same shred_out, publishes to the same repair_out, and uses
+     the same repair_sign/sign_repair round-trip links -- only the tile
+     differs. */
+  char const * repair = alpenglow_enabled ? "rotor" : "repair";
+
   if( FD_UNLIKELY( snapmk_enabled ) ) {
     FD_CHECK_ERR( config->firedancer.snapshots.max_full_snapshots_to_keep,
                   "[snapshots.max_full_snapshots_to_keep] must be nonzero when [layout.snapzp_tile_count] is nonzero" );
@@ -272,7 +278,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossvf" );
   fd_topob_wksp( topo, "gossip" );
   fd_topob_wksp( topo, "shred"  );
-  fd_topob_wksp( topo, "repair" );
+  fd_topob_wksp( topo, repair );
   if( rserve_enabled ) fd_topob_wksp( topo, "rserve" );
   fd_topob_wksp( topo, "replay" );
   fd_topob_wksp( topo, "accdb"  );
@@ -562,7 +568,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile( topo, "gossip",  "gossip",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
 
   FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
-  /**/                 fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
+  /**/                 fd_topob_tile( topo, repair,     repair,  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
   if( rserve_enabled) {
     /**/               fd_topob_tile( topo, "rserve",  "rserve",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
   }
@@ -605,8 +611,8 @@ fd_topo_initialize( config_t * config ) {
                       fd_topob_tile_in(     topo, "gossvf",  i,            "metric_in", "net_gossvf",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(shred_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                       fd_topob_tile_in (    topo, "shred",   i,            "metric_in", "net_shred",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(net_tile_cnt)   fd_topob_tile_in(     topo, "repair",  0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                fd_topob_tile_out(    topo, "repair",  0UL,                       "repair_net",    0UL                                                );
+  FOR(net_tile_cnt)   fd_topob_tile_in(     topo, repair,  0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                fd_topob_tile_out(    topo, repair,  0UL,                       "repair_net",    0UL                                                );
   FOR(net_tile_cnt)   fd_topob_tile_in (    topo, "txsend",  0UL,          "metric_in", "net_txsend",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(quic_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                       fd_topob_tile_in(     topo, "quic",    i,            "metric_in", "net_quic",      j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -675,19 +681,19 @@ fd_topo_initialize( config_t * config ) {
                       fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_manif",  0UL                                                );
   }
 
-  /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(    topo, repair,  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(    topo, repair,  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(    topo, repair,  0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, repair,  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( snapshots_enabled ) {
-                       fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                       fd_topob_tile_in(    topo, repair,  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
   if( !alpenglow_enabled ) {
-    /**/               fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_in(    topo, repair,  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   } else {
-    /**/               fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_in(    topo, repair,  0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
-  /**/                 fd_topob_tile_out(   topo, "repair",  0UL,                       "repair_out",    0                                                  );
+  /**/                 fd_topob_tile_out(   topo, repair,  0UL,                       "repair_out",    0                                                  );
 
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "repair_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( rserve_enabled ) {
@@ -888,10 +894,10 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_shred",   i                                                    );
   }
 
-  FOR(sign_tile_cnt-1UL) fd_topob_tile_out( topo, "repair",  0UL,                       "repair_sign",  i                                                    );
+  FOR(sign_tile_cnt-1UL) fd_topob_tile_out( topo, repair,  0UL,                       "repair_sign",  i                                                    );
   FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "sign",    i+1UL,        "metric_in", "repair_sign",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   FOR(sign_tile_cnt-1UL) fd_topob_tile_out( topo, "sign",    i+1UL,                     "sign_repair",  i                                                    );
-  FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "repair",  0UL,          "metric_in", "sign_repair",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* This link is polled because the signing requests are asynchronous */
+  FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, repair,  0UL,          "metric_in", "sign_repair",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* This link is polled because the signing requests are asynchronous */
 
   if( rserve_enabled ) {
     /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "rserve_sign",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -992,7 +998,7 @@ fd_topo_initialize( config_t * config ) {
      an object. */
   if( 1 /* just restrict the scope for these variables in this big function */ ) {
     fd_topo_obj_t * rnonce_ss_obj = fd_topob_obj( topo, "rnonce_ss", "rnonce" );
-    fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
+    fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, repair, 0UL ) ];
     fd_topob_tile_uses( topo, repair_tile, rnonce_ss_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
       fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
@@ -1104,7 +1110,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
     fd_topob_tile_uses( topo, shred_tile, fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
-  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ], fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, repair, 0UL ) ], fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
    /* store_fec_max is the maximum number of FEC sets Store retains.
@@ -1468,6 +1474,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapwr.partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
+    /* rotor (alpenglow) reuses the repair tile config */
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
     tile->repair.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->repair.slot_max                  = config->tiles.repair.slot_max;
@@ -1481,6 +1488,18 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
     fd_cstr_ncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
 
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
+    tile->rotor.slot_max = config->firedancer.runtime.max_live_slots;
+    tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
+
+    for( ulong i=0; i<tile->in_cnt; i++ ) {
+      if( !strcmp( config->topo.links[ tile->in_link_id[ i ] ].name, "sign_repair" ) ) {
+        tile->rotor.repair_sign_depth = config->topo.links[ tile->in_link_id[ i ] ].depth;
+        break;
+      }
+    }
+    tile->rotor.repair_sign_cnt = config->firedancer.layout.sign_tile_count - 1; /* -1 because this excludes the keyguard client */
+    fd_cstr_ncpy( tile->rotor.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rserve" ) ) ) {
     tile->rserve.repair_serve_listen_port = config->tiles.rserve.repair_serve_listen_port;
     tile->rserve.shred_storage_limit_gib = config->tiles.rserve.shred_storage_limit_gib;

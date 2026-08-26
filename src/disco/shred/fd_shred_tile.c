@@ -1075,6 +1075,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       fd_fec_evicted_t * evicted_msg = (fd_fec_evicted_t *)fd_type_pun( fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) );
       evicted_msg->slot        = spilled_fec.slot;
       evicted_msg->fec_set_idx = spilled_fec.fec_set_idx;
+      fd_memcpy( evicted_msg->merkle_root.uc, spilled_fec.merkle_root->hash, sizeof(fd_hash_t) );
 
       fd_stem_publish( stem, ctx->shred_out_idx, SHRED_SIG_FEC_EVICTED, ctx->shred_out_chunk, sizeof(fd_fec_evicted_t), 0, ctx->tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_evicted_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );

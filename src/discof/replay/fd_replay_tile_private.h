@@ -158,11 +158,6 @@ struct fd_replay_tile {
   int   wfs_enabled;
   int   wfs_complete;
 
-  /* is_alpenglow is 1 if the validator is booted in alpenglow mode.
-
-     Note: reasm is not used in alpenglow mode. instead frags are delivered
-     replay order directly from repair. */
-  int is_alpenglow;
   /* ranked per-epoch validator sets for cert verification. temp done
      in replay tile, may be moved to an external verify tile later. */
   fd_replay_epoch_vtrs_t epoch_vtrs[ FD_REPLAY_VTR_EPOCH_WINDOW ];
