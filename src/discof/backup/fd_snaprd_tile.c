@@ -6,6 +6,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
+#include "../../flamenco/accdb/fd_accdb_private.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include <errno.h>
 #include <unistd.h>
@@ -13,12 +14,15 @@
 #include <time.h>
 #include "generated/fd_snaprd_tile_seccomp.h"
 
-#define SNAPRD_STATE_IDLE 0
-#define SNAPRD_STATE_READ 1
-#define SNAPRD_STATE_DONE 2
+#define SNAPRD_STATE_IDLE    0
+#define SNAPRD_STATE_READ    1
+#define SNAPRD_STATE_DONE    2
+#define SNAPRD_STATE_CAPTURE 3 /* sampling accdb partition bounds */
+#define SNAPRD_STATE_DRAIN   4 /* waiting for in-flight accdb writes to land */
 
 #define STEM_BURST 64UL /* 64 * 64KiB -> 4MiB */
 #define SNAPRD_PART_MAX (1UL<<13)
+#define BARRIER_WORDS   (FD_ACCDB_MAX_JOINERS/64UL)
 
 struct fd_snaprd {
   uint state;
@@ -41,6 +45,8 @@ struct fd_snaprd {
   ulong part_cur;      /* cursor in [0,part_sz] */
   ulong part_sz;       /* byte size of partition */
   ulong part_file_off; /* accdb file offset of partition */
+
+  ulong barrier[ BARRIER_WORDS ]; /* writers whose pwritev2 has yet to land */
 
   struct {
     void * mem;
@@ -156,30 +162,75 @@ next_partition( fd_snaprd_t * ctx ) {
   return 0;
 }
 
-static void
-backup_disk_begin( fd_snaprd_t * ctx ) {
+/* backup_disk_capture determines which accdb partition ranges must be
+   read to produce a snapshot. */
+
+static int
+backup_disk_capture( fd_snaprd_t * ctx ) {
   ulong part_max = fd_accdb_shmem_partition_max( ctx->accdb );
   if( FD_UNLIKELY( part_max>SNAPRD_PART_MAX ) ) {
     FD_LOG_ERR(( "accdb partition count %lu exceeds snaprd capacity %lu", part_max, SNAPRD_PART_MAX ));
   }
 
+  ulong part_sz = fd_accdb_shmem_partition_sz( ctx->accdb );
+  fd_accdb_partition_t const * pool = (fd_accdb_partition_t const *)( (uchar const *)ctx->accdb + ctx->accdb->partition_pool_off );
+
   ctx->part_cnt = 0UL;
   ulong export_total_bytes = 0UL;
   for( ulong i=0UL; i<part_max; i++ ) {
-    fd_accdb_shmem_partition_info_t info[1];
-    fd_accdb_shmem_partition_info( ctx->accdb, i, info );
     /* the accdb partitions might grow after we save offsets into
        ctx->part, but we can safely ignore any future data (newly added
        rooted accounts will have been saved from cache, and non-rooted
        accounts are ignored regardless) */
-    if( !info->write_offset ) continue;
-    ctx->part[ ctx->part_cnt ].file_off = info->file_offset;
-    ctx->part[ ctx->part_cnt ].sz       = info->write_offset;
+
+    ulong sz = ULONG_MAX;
+    for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+      if( !FD_VOLATILE_CONST( ctx->accdb->has_partition[ k ] ) ) continue;
+      accdb_offset_t whead = { .val = FD_VOLATILE_CONST( ctx->accdb->whead[ k ].val ) };
+      if( packed_partition_idx( &whead )!=i ) continue;
+      sz = packed_partition_offset( &whead );
+      if( FD_UNLIKELY( sz>ctx->accdb->partition_sz ) ) return 0;
+      break;
+    }
+    if( sz==ULONG_MAX ) sz = FD_VOLATILE_CONST( partition_pool_ele_const( pool, i )->write_offset );
+
+    if( !sz ) continue;
+    ctx->part[ ctx->part_cnt ].file_off = i*part_sz;
+    ctx->part[ ctx->part_cnt ].sz       = sz;
     ctx->part_cnt++;
-    export_total_bytes += info->write_offset;
+    export_total_bytes += sz;
   }
   ctx->metrics.export_progress_bytes = 0UL;
   ctx->metrics.export_total_bytes    = export_total_bytes;
+
+  /* need to wait for these writers to complete */
+  memset( ctx->barrier, 0, sizeof(ctx->barrier) );
+  ulong joiner_cnt = FD_VOLATILE_CONST( ctx->accdb->joiner_cnt );
+  for( ulong t=0UL; t<joiner_cnt; t++ ) {
+    if( FD_VOLATILE_CONST( ctx->accdb->joiner_epochs[ t ].val )==ULONG_MAX ) continue;
+    ctx->barrier[ t/64UL ] |= 1UL<<(t%64UL);
+  }
+  return 1;
+}
+
+/* backup_disk_drain waits out the writes that were in flight when
+   backup_disk_capture sampled the partition bounds. */
+
+static void
+backup_disk_drain( fd_snaprd_t * ctx ) {
+  ulong remain = 0UL;
+  for( ulong w=0UL; w<BARRIER_WORDS; w++ ) {
+    ulong bits = ctx->barrier[ w ];
+    while( bits ) {
+      ulong b = (ulong)fd_ulong_find_lsb( bits );
+      bits &= bits-1UL;
+      if( FD_VOLATILE_CONST( ctx->accdb->joiner_epochs[ w*64UL+b ].val )==ULONG_MAX ) {
+        ctx->barrier[ w ] &= ~(1UL<<b);
+      }
+    }
+    remain |= ctx->barrier[ w ];
+  }
+  if( FD_UNLIKELY( remain ) ) return;
 
   /* An accdb with no data on disk yields an empty stream, which snapmk
      still has to see terminated (a zero size frag carrying eom). */
@@ -203,8 +254,8 @@ before_credit( fd_snaprd_t *       ctx,
 
   /* new backup job */
   ctx->in_ctl_seq = ctl_cur;
-  backup_disk_begin( ctx );
-  ctx->idle_cnt = 0UL;
+  ctx->state      = SNAPRD_STATE_CAPTURE;
+  ctx->idle_cnt   = 0UL;
   *charge_busy = 1;
 }
 
@@ -213,6 +264,19 @@ after_credit( fd_snaprd_t *       ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->state==SNAPRD_STATE_CAPTURE ) ) {
+    *charge_busy = 1;
+    if( FD_UNLIKELY( !backup_disk_capture( ctx ) ) ) return;
+    ctx->state = SNAPRD_STATE_DRAIN;
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->state==SNAPRD_STATE_DRAIN ) ) {
+    *charge_busy = 1;
+    backup_disk_drain( ctx );
+    return;
+  }
+
   if( FD_UNLIKELY( ctx->state!=SNAPRD_STATE_READ ) ) return;
 
   FD_CHECK_CRIT( *stem->cr_avail <= UINT_MAX, "cr_avail underflow" );

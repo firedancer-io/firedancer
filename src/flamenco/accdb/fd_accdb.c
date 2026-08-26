@@ -601,6 +601,7 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
     if( FD_UNLIKELY( part->queued ) ) {
       compaction_dlist_ele_remove( accdb->compaction_dlist[ part->layer ], part, accdb->partition_pool );
     }
+    FD_VOLATILE( part->write_offset ) = 0UL;
     partition_pool_ele_release( accdb->partition_pool, part );
   }
 
@@ -1856,6 +1857,7 @@ background_compact( fd_accdb_t * accdb,
     spin_lock_acquire( &accdb->shmem->partition_lock );
     deferred_free_dlist_ele_pop_head( accdb->deferred_free_dlist, accdb->partition_pool );
     FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_current_bytes, accdb->shmem->partition_sz );
+    FD_VOLATILE( p->write_offset ) = 0UL;
     partition_pool_ele_release( accdb->partition_pool, p );
     spin_lock_release( &accdb->shmem->partition_lock );
   }
@@ -3854,6 +3856,12 @@ background_preevict( fd_accdb_t * accdb,
       line->key.generation = UINT_MAX;
       if( FD_UNLIKELY( !line->persisted && acc_idx!=UINT_MAX ) ) {
         fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
+
+        /* advertise to external observers that write is in progress */
+        FD_COMPILER_MFENCE();
+        FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+        FD_HW_MFENCE();
+
         fd_racesan_hook( "preevict:pre_synth" );
 #if FD_TMPL_USE_HANDHOLDING
         FD_TEST( line_gen==accmeta->key.generation &&
@@ -3913,6 +3921,9 @@ background_preevict( fd_accdb_t * accdb,
 
         accdb->metrics->accounts_preevicted++;
         accdb->metrics->accounts_preevicted_per_class[ c ]++;
+
+        FD_COMPILER_MFENCE();
+        FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
       }
 
       line->persisted      = 1;

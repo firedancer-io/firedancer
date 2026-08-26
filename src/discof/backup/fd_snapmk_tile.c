@@ -1739,7 +1739,10 @@ snaprd_frag( fd_snapmk_t *       ctx,
       FD_CHECK_ERR( !parse->ps_cnt, "prestaged batch outlived its frag" );
       if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) {
         if( FD_UNLIKELY( parse->meta_sz || parse->acc_active || parse->pub_pending ) ) {
-          FD_LOG_CRIT(( "snaprd stream ended mid-account record" ));
+          FD_LOG_CRIT(( "snaprd stream ended mid-account record at accdb offset %lu "
+                        "(meta_sz=%u acc_active=%i acc_off=%u acc_sz=%u pub_pending=%i)",
+                        parse->src_off, parse->meta_sz, parse->acc_active,
+                        parse->acc_off, parse->acc_sz, parse->pub_pending ));
         }
         ctx->disk_out_idx = -1;
         barrier_install( ctx, stem );
