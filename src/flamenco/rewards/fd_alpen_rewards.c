@@ -217,15 +217,11 @@ slot_timestamp( fd_bank_t * bank,
 }
 
 int
-fd_alpen_rewards_apply( fd_bank_t *               bank,
+fd_alpen_rewards_apply( fd_bank_t *                bank,
                          fd_accdb_t *              accdb,
                          fd_capture_ctx_t *        capture_ctx,
                          fd_footer_certs_t const * certs,
-                         ulong                     footer_time_nanos,
-                         fd_footer_epoch_info_fn_t epoch_info_fn,
-                         void *                    epoch_info_ctx ) {
-  (void)epoch_info_fn;
-  (void)epoch_info_ctx;
+                         ulong                     footer_time_nanos ) {
 
   ulong bank_slot       = bank->f.slot;
   ulong current_epoch   = fd_slot_to_epoch( &bank->f.epoch_schedule, bank_slot, NULL );

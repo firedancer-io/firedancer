@@ -388,13 +388,6 @@ init_epoch_inflation_account( fd_svm_mini_t * mini ) {
   fd_svm_mini_put_account_rooted( mini, &acc );
 }
 
-static ag_epoch_info_t const *
-fixed_epoch_info( void * ctx,
-                  ulong  epoch ) {
-  (void)epoch;
-  return (ag_epoch_info_t const *)ctx;
-}
-
 static ulong
 vote_last_voted_slot( fd_svm_mini_t *     mini,
                       fd_accdb_fork_id_t  fork_id,
@@ -455,19 +448,13 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
     fd_vote_stakes_finalize( vote_stakes, bank->f.epoch );
   }
 
-  ag_epoch_info_t wrong_info = { .validator_cnt=1UL, .total_stake=200UL };
-  wrong_info.validators[0].id    = 0UL;
-  wrong_info.validators[0].stake = 200UL;
-  fd_memcpy( wrong_info.validators[0].vote_key, vote_b.uc, sizeof(fd_pubkey_t) );
-
   fd_reward_cert_t reward_cert = { .slot=reward_slot, .nbits=1U };
   reward_cert.signer_set[0] = 1UL;
   fd_footer_certs_t certs = { .skip_reward_cert=&reward_cert };
 
   fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )!=reward_slot );
-  FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL,
-                                    fixed_epoch_info, &wrong_info ) );
+  FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==reward_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=reward_slot );
 
@@ -475,8 +462,7 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   ag_fast_final_cert_t final_cert = { .slot=final_slot };
   final_cert.agg_sig.bitmask[0] = 1UL;
   certs = (fd_footer_certs_t){ .fast_final_cert=&final_cert };
-  FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL,
-                                    fixed_epoch_info, &wrong_info ) );
+  FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==final_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=final_slot );
 }

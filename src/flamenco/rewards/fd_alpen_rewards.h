@@ -16,12 +16,7 @@
 
 #include "fd_reward_cert.h"
 #include "../runtime/fd_bank.h"
-#include "../../choreo/votor/ag_epoch_info.h"
 #include "../../choreo/votor/ag_cert.h"
-
-/* fd_footer_epoch_info_fn_t returns the ranked Alpenglow validator set
-   for epoch, NULL if unknown. */
-typedef ag_epoch_info_t const * (*fd_footer_epoch_info_fn_t)( void * ctx, ulong epoch );
 
 struct fd_footer_certs {
   ag_fast_final_cert_t const * fast_final_cert;   /* fast BlockFinalizationCert */
@@ -69,9 +64,7 @@ fd_alpen_rewards_apply( fd_bank_t *               bank,
                          fd_accdb_t *              accdb,
                          fd_capture_ctx_t *        capture_ctx,
                          fd_footer_certs_t const * certs,
-                         ulong                     footer_time_nanos,
-                         fd_footer_epoch_info_fn_t epoch_info_fn,
-                         void *                    epoch_info_ctx );
+                         ulong                     footer_time_nanos );
 
 FD_PROTOTYPES_END
 

@@ -141,11 +141,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
   }
-  if( FD_UNLIKELY( tile->replay.alpenglow ) ) {
-    for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
-      l = FD_LAYOUT_APPEND( l, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
-    }
-  }
 
   l = FD_LAYOUT_FINI( l, scratch_align() );
 
@@ -210,22 +205,6 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
 
-/* ag_epoch_vtrs_update stores the ranked Alpenglow validator set for
-   the epoch built from outgoing epoch msg. */
-
-static void
-ag_epoch_vtrs_update( fd_replay_tile_t *          ctx,
-                      fd_epoch_info_msg_t const * msg ) {
-  fd_replay_epoch_vtrs_t * s = &ctx->epoch_vtrs[ msg->epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
-  /* Don't let a stale (older) re-publish evict a newer epoch sharing this
-    ring slot.  Refresh (==) and normal advance (older occupant) proceed. */
-  if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) return;
-  if( FD_UNLIKELY( !ag_epoch_info_rank( s->info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt ) ) ) {
-    FD_LOG_CRIT(( "epoch %lu info failed", msg->epoch ));
-  }
-  s->epoch = msg->epoch;
-}
-
 static void
 publish_epoch_info( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
@@ -264,8 +243,6 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
-
-  if( FD_UNLIKELY( ctx->is_alpenglow ) ) ag_epoch_vtrs_update( ctx, epoch_info_msg );
 }
 
 /**********************************************************************/
@@ -888,19 +865,6 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
                 int                 dead_reason,
                 int                 abandoned_reason );
 
-/* replay_epoch_info returns the ranked Alpenglow validator set tracked
-   for epoch, NULL if unknown. */
-
-static ag_epoch_info_t const *
-replay_epoch_info( void * _ctx,
-                   ulong  epoch ) {
-  fd_replay_tile_t * ctx = (fd_replay_tile_t *)_ctx;
-  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
-    if( ctx->epoch_vtrs[ i ].epoch==epoch ) return ctx->epoch_vtrs[ i ].info;
-  }
-  return NULL;
-}
-
 static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
@@ -928,8 +892,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
     // TODO missing cert verify - inline to replay or use new verify tiles
     if( FD_UNLIKELY( fd_runtime_apply_footer( bank, ctx->accdb, ctx->capture_ctx, certs,
-                                              fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx ),
-                                              replay_epoch_info, ctx ) ) ) {
+                                              fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx ) ) ) ) {
       FD_LOG_CRIT(( "slot %lu: footer cert processing failed; marking bank dead", bank->f.slot ));
       return;
     }
@@ -3616,12 +3579,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
-  }
-  if( FD_UNLIKELY( tile->replay.alpenglow ) ) {
-    for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
-      ctx->epoch_vtrs[ i ].epoch = ULONG_MAX;
-      ctx->epoch_vtrs[ i ].info  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
-    }
   }
 
   ctx->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( runtime_stack_mem, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS, ctx->runtime_stack_seed ) );

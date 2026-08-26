@@ -3,7 +3,6 @@
 
 #include "fd_vote_tracker.h"
 #include "../../disco/fd_clock_tile.h"
-#include "../../choreo/votor/ag_epoch_info.h"
 #include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
@@ -42,22 +41,6 @@ struct fd_replay_out_link {
 };
 
 typedef struct fd_replay_out_link fd_replay_out_link_t;
-
-/* fd_replay_epoch_vtrs_t is one epoch's ranked Alpenglow validator set,
-   used to verify the finalization certs embedded in block footers with
-   the exact checks the votor tile / pool run on network certs.  Mirrors
-   the votor tile's epoch window: footer certs only reference the
-   current or an immediately-adjacent epoch. */
-
-#define FD_REPLAY_VTR_EPOCH_WINDOW (4UL)
-
-/* TODO: the following struct is temporary, and should be removed after
-   the centralized BLS verify tile is created. */
-struct fd_replay_epoch_vtrs {
-   ulong             epoch; /* ULONG_MAX marks an empty entry */
-   ag_epoch_info_t * info;  /* ranked epoch info, alloc-ed on init size ag_epoch_info_footprint() */
- };
- typedef struct fd_replay_epoch_vtrs fd_replay_epoch_vtrs_t;
 
 /* fd_block_id_map is a simple map of block-ids to bank indices.  The
    map sits on top of an array of fd_block_id_ele_t.  This serves as a
@@ -163,9 +146,6 @@ struct fd_replay_tile {
      Note: reasm is not used in alpenglow mode. instead frags are delivered
      replay order directly from repair. */
   int is_alpenglow;
-  /* ranked per-epoch validator sets for cert verification. temp done
-     in replay tile, may be moved to an external verify tile later. */
-  fd_replay_epoch_vtrs_t epoch_vtrs[ FD_REPLAY_VTR_EPOCH_WINDOW ];
 
   fd_hash_t expected_bank_hash;
 

@@ -1665,9 +1665,7 @@ fd_runtime_apply_footer( fd_bank_t *               bank,
                          fd_accdb_t *              accdb,
                          fd_capture_ctx_t *        capture_ctx,
                          fd_footer_certs_t const * certs,
-                         ulong                     producer_time_nanos,
-                         fd_footer_epoch_info_fn_t epoch_info_fn,
-                         void *                    epoch_info_ctx ) {
+                         ulong                     producer_time_nanos ) {
 
   /* Rewrite the clock sysvar and the alpenclock account from the
      footer's producer timestamp (Agave Bank::update_clock_from_footer).
@@ -1700,9 +1698,7 @@ fd_runtime_apply_footer( fd_bank_t *               bank,
   fd_accdb_svm_write( bank, accdb, capture_ctx, &alpenclock_addr, &fd_solana_system_program_id,
                       data, sizeof(data), fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, sizeof(data) ), 0 );
 
-  return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs,
-                                  producer_time_nanos,
-                                  epoch_info_fn, epoch_info_ctx );
+  return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs, producer_time_nanos );
 }
 
 void
