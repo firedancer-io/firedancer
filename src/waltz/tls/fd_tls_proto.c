@@ -1,7 +1,6 @@
 #include "fd_tls.h"
 #include "fd_tls_proto.h"
 #include "fd_tls_serde.h"
-#include "fd_tls_asn1.h"
 #include "../../ballet/x509/fd_x509_mock.h"
 
 typedef struct fd_tls_u24 tls_u24;  /* code generator helper */
@@ -126,12 +125,6 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
       break;
     case FD_TLS_EXT_KEY_SHARE:
       ext_parse_res = fd_tls_decode_key_share_list( &out->key_share, ext_data, ext_sz );
-      break;
-    case FD_TLS_EXT_SERVER_CERT_TYPE:
-      ext_parse_res = fd_tls_decode_ext_cert_type_list( &out->server_cert_types, ext_data, ext_sz );
-      break;
-    case FD_TLS_EXT_CLIENT_CERT_TYPE:
-      ext_parse_res = fd_tls_decode_ext_cert_type_list( &out->client_cert_types, ext_data, ext_sz );
       break;
     case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
       ext_parse_res = fd_tls_decode_ext_quic_tp( &out->quic_tp, ext_data, ext_sz );
@@ -496,15 +489,8 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
       out->quic_tp.bufsz = (ushort)ext_sz;
       break;
     case FD_TLS_EXT_SERVER_CERT_TYPE:
-      if( FD_UNLIKELY( (ext_sz>wire_sz) | (ext_sz!=1) ) )
-        return -(long)FD_TLS_ALERT_DECODE_ERROR;
-      out->server_cert.cert_type = *(uchar const *)wire_laddr;
-      break;
     case FD_TLS_EXT_CLIENT_CERT_TYPE:
-      if( FD_UNLIKELY( (ext_sz>wire_sz) | (ext_sz!=1) ) )
-        return -(long)FD_TLS_ALERT_DECODE_ERROR;
-      out->client_cert.cert_type = *(uchar const *)wire_laddr;
-      break;
+      return -(long)FD_TLS_ALERT_UNSUPPORTED_EXTENSION;
     default:
       break;  /* TODO should we error on unknown extensions? */
     }
@@ -586,74 +572,6 @@ fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
       FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 #   undef FIELDS
   }
-
-  /* Server certificate type */
-
-  if( in->server_cert.cert_type ) {
-    ushort ext_type  = FD_TLS_EXT_SERVER_CERT_TYPE;
-    ushort ext_sz    = 1;
-    uchar  cert_type = (uchar)in->server_cert.cert_type;
-#   define FIELDS( FIELD )                \
-      FIELD( 0, &ext_type,    ushort, 1 ) \
-      FIELD( 1, &ext_sz,      ushort, 1 ) \
-        FIELD( 2, &cert_type, uchar,  1 )
-      FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
-#   undef FIELDS
-  }
-
-  /* Client certificate type */
-
-  if( in->client_cert.cert_type ) {
-    ushort ext_type  = FD_TLS_EXT_CLIENT_CERT_TYPE;
-    ushort ext_sz    = 1;
-    uchar  cert_type = (uchar)in->client_cert.cert_type;
-#   define FIELDS( FIELD )                \
-      FIELD( 0, &ext_type,    ushort, 1 ) \
-      FIELD( 1, &ext_sz,      ushort, 1 ) \
-        FIELD( 2, &cert_type, uchar,  1 )
-      FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
-#   undef FIELDS
-  }
-
-  return (long)( wire_laddr - (ulong)wire );
-}
-
-long
-fd_tls_encode_raw_public_key( uchar const * key,
-                              uchar *       wire,
-                              ulong         wire_sz ) {
-
-  ulong wire_laddr = (ulong)wire;
-
-  /* TLS Record Header */
-  uchar msg_type = (uchar)FD_TLS_MSG_CERT;
-
-  /* TLS Certificate Message header preceding X.509 data */
-
-  /* All size prefixes known in advance */
-  uint         rpk_sz       = sizeof(fd_asn1_ed25519_pubkey_prefix)+32UL;
-  fd_tls_u24_t msg_sz       = fd_uint_to_tls_u24( (uint)( rpk_sz + 9UL ) );
-  fd_tls_u24_t cert_list_sz = fd_uint_to_tls_u24( (uint)( rpk_sz + 5UL ) );
-  fd_tls_u24_t cert_sz      = fd_uint_to_tls_u24( (uint)( rpk_sz       ) );
-
-  /* zero sz certificate_request_context
-     (Server certificate never has a request context) */
-  uchar certificate_request_context_sz = (uchar)0;
-
-  /* No certificate extensions */
-  ushort ext_sz = (ushort)0;
-
-# define FIELDS( FIELD )                                            \
-    FIELD( 0, &msg_type,                         uchar,   1       ) \
-    FIELD( 1, &msg_sz,                           tls_u24, 1       ) \
-      FIELD( 2, &certificate_request_context_sz, uchar,   1       ) \
-      FIELD( 3, &cert_list_sz,                   tls_u24, 1       ) \
-        FIELD( 4, &cert_sz,                      tls_u24, 1       ) \
-        FIELD( 5, fd_asn1_ed25519_pubkey_prefix, uchar,   sizeof(fd_asn1_ed25519_pubkey_prefix) ) \
-        FIELD( 6, key,                           uchar,   32UL    ) \
-        FIELD( 7, &ext_sz,                       ushort,  1       )
-    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
-# undef FIELDS
 
   return (long)( wire_laddr - (ulong)wire );
 }
@@ -866,67 +784,6 @@ fd_tls_decode_key_share_list( fd_tls_key_share_t * out,
 }
 
 long
-fd_tls_decode_ext_cert_type_list( fd_tls_ext_cert_type_list_t * out,
-                                  uchar const *                 wire,
-                                  ulong                         wire_sz ) {
-
-  ulong wire_laddr = (ulong)wire;
-
-  out->present = 1;
-  FD_TLS_DECODE_LIST_BEGIN( uchar, alignof(uchar) ) {
-    uchar cert_type;
-    FD_TLS_DECODE_FIELD( &cert_type, uchar );  /* is this really a uchar? */
-    switch( cert_type ) {
-    case FD_TLS_CERTTYPE_X509:       out->x509 = 1;       break;
-    case FD_TLS_CERTTYPE_RAW_PUBKEY: out->raw_pubkey = 1; break;
-    default:
-      /* Ignore unsupported cert types ... */
-      break;
-    }
-  }
-  FD_TLS_DECODE_LIST_END
-
-  return (long)( wire_laddr - (ulong)wire );
-}
-
-long
-fd_tls_encode_ext_cert_type_list( fd_tls_ext_cert_type_list_t in,
-                                  uchar const *               wire,
-                                  ulong                       wire_sz ) {
-
-  ulong wire_laddr = (ulong)wire;
-
-  /* Encode list size */
-  uchar cnt = (uchar)fd_uchar_popcnt( in.uc );
-  FD_TLS_ENCODE_FIELD( &cnt, uchar );
-
-  /* Encode list */
-  uchar * fields = FD_TLS_SKIP_FIELDS( uchar, cnt );
-  if( in.x509       ) *fields++ = FD_TLS_CERTTYPE_X509;
-  if( in.raw_pubkey ) *fields++ = FD_TLS_CERTTYPE_RAW_PUBKEY;
-
-  return (long)( wire_laddr - (ulong)wire );
-}
-
-long
-fd_tls_decode_ext_cert_type( fd_tls_ext_cert_type_t * out,
-                              uchar const *           wire,
-                              ulong                   wire_sz ) {
-  ulong wire_laddr = (ulong)wire;
-  FD_TLS_DECODE_FIELD( &out->cert_type, uchar );
-  return (long)( wire_laddr - (ulong)wire );
-}
-
-long
-fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
-                             uchar const *          wire,
-                             ulong                  wire_sz ) {
-  ulong wire_laddr = (ulong)wire;
-  FD_TLS_ENCODE_FIELD( &in.cert_type, uchar );
-  return (long)( wire_laddr - (ulong)wire );
-}
-
-long
 fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const out,
                           uchar const *         const wire,
                           ulong                       wire_sz ) {
@@ -981,8 +838,7 @@ fd_tls_client_handle_x509( uchar const *  const cert,
 static long
 fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
                              uchar const * cert_chain,
-                             ulong         cert_chain_sz,
-                             uint          cert_type ) {
+                             ulong         cert_chain_sz ) {
 
   fd_memset( res, 0, sizeof(fd_tls_extract_cert_pubkey_res_t) );
 
@@ -1017,50 +873,22 @@ fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
 
   void * cert = (void *)wire_laddr;
 
-  switch( cert_type ) {
-
-  case FD_TLS_CERTTYPE_X509: {
-
-    /* DER-encoded X.509 certificate */
-
-    uint x509_alert = fd_tls_client_handle_x509( cert, cert_sz, &res->pubkey );
-    if( FD_UNLIKELY( x509_alert!=0U ) ) {
-      res->pubkey = NULL;
-      res->alert  = x509_alert;
-      res->reason = FD_TLS_REASON_X509_PARSE;
-      return -1L;
-    }
-
-    return 0L;
+  uint x509_alert = fd_tls_client_handle_x509( cert, cert_sz, &res->pubkey );
+  if( FD_UNLIKELY( x509_alert!=0U ) ) {
+    res->pubkey = NULL;
+    res->alert  = x509_alert;
+    res->reason = FD_TLS_REASON_X509_PARSE;
+    return -1L;
   }
 
-  case FD_TLS_CERTTYPE_RAW_PUBKEY: {
-
-    /* Interpret certificate entry as raw public key (RFC 7250)
-       'opaque ASN1_subjectPublicKeyInfo<1..2^24-1>' */
-
-    res->pubkey = fd_ed25519_public_key_from_asn1( cert, cert_sz );
-    if( FD_UNLIKELY( !res->pubkey ) ) {
-      res->reason = FD_TLS_REASON_SPKI_PARSE;
-      res->alert  = FD_TLS_ALERT_BAD_CERTIFICATE;
-      return -1L;
-    }
-
-    return 0L;
-  }
-
-  default:
-    FD_LOG_CRIT(( "invalid certificate type %u", cert_type ));
-
-  } /* end switch */
+  return 0L;
 }
 
 fd_tls_extract_cert_pubkey_res_t
 fd_tls_extract_cert_pubkey( uchar const * cert_chain,
-                            ulong         cert_chain_sz,
-                            uint          cert_type ) {
+                            ulong         cert_chain_sz ) {
   fd_tls_extract_cert_pubkey_res_t res;
-  long ret = fd_tls_extract_cert_pubkey_( &res, cert_chain, cert_chain_sz, cert_type );
+  long ret = fd_tls_extract_cert_pubkey_( &res, cert_chain, cert_chain_sz );
   if( FD_UNLIKELY( ret<0L && !res.alert ) ) {
     res.alert  = (uint)(-ret);
     res.reason = FD_TLS_REASON_CERT_PARSE;

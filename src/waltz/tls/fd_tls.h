@@ -14,10 +14,9 @@
 
    ### Peer Authentication
 
-   Peers are authenticated via Ed25519 using the TLS v1.3 raw public key
-   (RPK) extension.  Minimal support for X.509 is included.  Client
-   cert authentication is optional for fd_tls_client_t and mandatory
-   for fd_tls_server_t.
+   Peers are authenticated with X.509 certificates containing Ed25519
+   public keys.  Client cert authentication is optional for
+   fd_tls_client_t and mandatory for fd_tls_server_t.
 
    ### Key Exchange
 
@@ -51,9 +50,6 @@
                Transport Layer Security (TLS)
      https://datatracker.ietf.org/doc/html/rfc7919
      https://datatracker.ietf.org/doc/html/rfc4492
-
-     RFC 7250: Using Raw Public Keys in Transport Layer Security (TLS)
-     https://datatracker.ietf.org/doc/html/rfc7250
 
      RFC 8032: Edwards-Curve Digital Signature Algorithm (EdDSA)
      https://datatracker.ietf.org/doc/html/rfc8032
@@ -333,11 +329,10 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_CERT_CR_EXPECTED (501)  /* wanted Certificate or CertificateRequest, got another msg type */
 #define FD_TLS_REASON_CERT_CR_PARSE    (503)  /* failed to parse Certificate or CertificateRequest */
 
-#define FD_TLS_REASON_CERT_TYPE      (601)  /* unsupported certificate type */
 #define FD_TLS_REASON_CERT_EXPECTED  (602)  /* wanted Certificate, got another msg type */
 #define FD_TLS_REASON_CERT_PARSE     (604)  /* failed to parse Certificate */
 #define FD_TLS_REASON_X509_PARSE     (605)  /* X.509 DER parse failed */
-#define FD_TLS_REASON_SPKI_PARSE     (606)  /* Subject public key info parse failed */
+#define FD_TLS_REASON_CERT_ENCODE    (606)  /* failed to encode Certificate */
 
 #define FD_TLS_REASON_CERT_CHAIN_EMPTY    (701)  /* cert chain contains no certs */
 #define FD_TLS_REASON_CERT_CHAIN_PARSE    (702)  /* failed to parse cert chain */

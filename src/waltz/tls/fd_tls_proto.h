@@ -70,23 +70,6 @@ struct fd_tls_key_share {
 
 typedef struct fd_tls_key_share fd_tls_key_share_t;
 
-union fd_tls_ext_cert_type_list {
-  struct {
-    uchar present    : 1;  /* if 0, indicates that this extension is missing */
-    uchar x509       : 1;
-    uchar raw_pubkey : 1;
-  };
-  uchar uc;
-};
-
-typedef union fd_tls_ext_cert_type_list fd_tls_ext_cert_type_list_t;
-
-struct fd_tls_ext_cert_type {
-  uchar cert_type;
-};
-
-typedef struct fd_tls_ext_cert_type fd_tls_ext_cert_type_t;
-
 /* fd_tls_ext_opaque_t holds a pointer to opaque serialized extension
    data.  Lifetime of buf depends on context -- Look for documentation
    in usages of this structure.
@@ -144,8 +127,6 @@ struct fd_tls_client_hello {
   fd_tls_ext_supported_groups_t     supported_groups;
   fd_tls_ext_signature_algorithms_t signature_algorithms;
   fd_tls_key_share_t                key_share;
-  fd_tls_ext_cert_type_list_t       server_cert_types;
-  fd_tls_ext_cert_type_list_t       client_cert_types;
   fd_tls_ext_quic_tp_t              quic_tp;
   fd_tls_ext_alpn_t                 alpn;
 };
@@ -169,10 +150,8 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
    (RFC 8446, Section 4.3.1). */
 
 struct fd_tls_enc_ext {
-  fd_tls_ext_cert_type_t server_cert;
-  fd_tls_ext_cert_type_t client_cert;
-  fd_tls_ext_quic_tp_t   quic_tp;
-  fd_tls_ext_alpn_t      alpn;
+  fd_tls_ext_quic_tp_t quic_tp;
+  fd_tls_ext_alpn_t    alpn;
 };
 
 typedef struct fd_tls_enc_ext fd_tls_enc_ext_t;
@@ -282,11 +261,6 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 #define FD_TLS_MSG_CERT_REQ           ((uchar) 13)
 #define FD_TLS_MSG_CERT_VERIFY        ((uchar) 15)
 #define FD_TLS_MSG_FINISHED           ((uchar) 20)
-
-/* TLS certificate_type extension (RFC 7250) */
-
-#define FD_TLS_CERTTYPE_X509       ((uchar) 0)
-#define FD_TLS_CERTTYPE_RAW_PUBKEY ((uchar) 2)
 
 /* Serialization related **********************************************/
 
@@ -446,11 +420,6 @@ fd_tls_encode_cert_x509( uchar const * x509,
 
 
 long
-fd_tls_encode_raw_public_key( uchar const * ed25519_pubkey,
-                              uchar *       wire,
-                              ulong         wire_sz );
-
-long
 fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
                            uchar const *          wire,
                            ulong                  wire_sz );
@@ -495,27 +464,6 @@ fd_tls_decode_key_share_list( fd_tls_key_share_t * out,
                               uchar const *        wire,
                               ulong                wire_sz );
 
-long
-fd_tls_decode_ext_cert_type_list( fd_tls_ext_cert_type_list_t * out,
-                                  uchar const *                 wire,
-                                  ulong                         wire_sz );
-
-long
-fd_tls_encode_ext_cert_type_list( fd_tls_ext_cert_type_list_t in,
-                                  uchar const *               wire,
-                                  ulong                       wire_sz );
-
-
-long
-fd_tls_decode_ext_cert_type( fd_tls_ext_cert_type_t * out,
-                              uchar const *           wire,
-                              ulong                   wire_sz );
-
-long
-fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
-                             uchar const *          wire,
-                             ulong                  wire_sz );
-
 /* fd_tls_decode_ext_opaque is special:
    out->{buf,buf_sz} will be set to {wire,wire_sz}.
    i.e. lifetime of out->quic_tp is that of wire. */
@@ -555,8 +503,7 @@ typedef struct fd_tls_extract_cert_pubkey_res fd_tls_extract_cert_pubkey_res_t;
 
 fd_tls_extract_cert_pubkey_res_t
 fd_tls_extract_cert_pubkey( uchar const * cert,
-                            ulong         cert_sz,
-                            uint          cert_type );
+                            ulong         cert_sz );
 
 FD_PROTOTYPES_END
 

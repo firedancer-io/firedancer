@@ -138,8 +138,6 @@ LLVMFuzzerTestOneInput( uchar const * input,
   int   has_x509  = !!( state & (1UL<< 2) );
   int   is_quic   = !!( state & (1UL<< 3) );
   uchar hs_state  = (uchar)( ( state>> 4 )&0xFUL );
-  int   srv_rpk   = !!( state & (1UL<< 8) );
-  int   cli_rpk   = !!( state & (1UL<< 9) );
   int   cli_cert  = !!( state & (1UL<<10) );
   uint  enc_lvl   = (uint)(  ( state>>11 )&0x3UL );
 
@@ -158,19 +156,15 @@ LLVMFuzzerTestOneInput( uchar const * input,
   if( is_server ) {
     if( !_tls_valid_srv_hs_state[ hs_state ] ) return -1;
     fd_tls_estate_srv_t hs[1] = {{
-      .base            = base,
-      .server_cert_rpk = (uchar)(srv_rpk &1),
-      .client_cert     = (uchar)(cli_cert&1),
-      .client_cert_rpk = (uchar)(cli_rpk &1),
+      .base        = base,
+      .client_cert = (uchar)(cli_cert&1),
     }};
     fd_tls_server_handshake( tls, hs, payload, payload_sz, enc_lvl );
   } else {
     if( !_tls_valid_cli_hs_state[ hs_state ] ) return -1;
     fd_tls_estate_cli_t hs[1] = {{
-      .base            = base,
-      .server_cert_rpk = (uchar)(srv_rpk &1),
-      .client_cert     = (uchar)(cli_cert&1),
-      .client_cert_rpk = (uchar)(cli_rpk &1),
+      .base        = base,
+      .client_cert = (uchar)(cli_cert&1),
     }};
     fd_tls_client_handshake( tls, hs, payload, payload_sz, enc_lvl );
   }
