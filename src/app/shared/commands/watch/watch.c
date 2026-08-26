@@ -14,6 +14,7 @@
 
 #include <errno.h>
 #include <sys/select.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/resource.h>
 #include <linux/capability.h>
@@ -98,12 +99,12 @@ fmt_bytes( char * buf,
            ulong  buf_sz,
            long   bytes ) {
   char * tmp = fd_alloca_check( 1UL, buf_sz );
-  if( FD_LIKELY( 8L*bytes<1000L ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%ld bits", 8L*bytes ) );
-  else if( FD_LIKELY( 8L*bytes<1000000L ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f Kbit", (double)(8L*bytes)/1000.0 ) );
-  else if( FD_LIKELY( 8L*bytes<1000000000L ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f Mbit", (double)(8L*bytes)/1000000.0 ) );
-  else FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f Gbit", (double)(8L*bytes)/1000000000.0 ) );
+  if( FD_LIKELY( 8L*bytes<1000L ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%ld bit/s", 8L*bytes ) );
+  else if( FD_LIKELY( 8L*bytes<1000000L ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f Kbit/s", (double)(8L*bytes)/1000.0 ) );
+  else if( FD_LIKELY( 8L*bytes<1000000000L ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f Mbit/s", (double)(8L*bytes)/1000000.0 ) );
+  else FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f Gbit/s", (double)(8L*bytes)/1000000000.0 ) );
 
-  FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%10s", tmp ) );
+  FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%12s", tmp ) );
   return buf;
 }
 
@@ -169,6 +170,7 @@ diff_link( config_t const * config,
                  ulong            idx ) {
   long result = 0L;
 
+  ulong seen[ (FD_TOPO_MAX_LINKS+63UL)/64UL ] = {0};
   ulong overall_polled_idx = 0UL;
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
@@ -177,7 +179,11 @@ diff_link( config_t const * config,
       if( FD_UNLIKELY( !tile->in_link_poll[ j ] ) ) continue;
 
       if( FD_LIKELY( !strcmp( link->name, link_name ) ) ) {
-        result += (long)cur_link[ overall_polled_idx*8UL+idx ]-(long)prev_link[ overall_polled_idx*8UL+idx ];
+        ulong id = tile->in_link_id[ j ];
+        if( FD_LIKELY( !( seen[ id>>6 ] & (1UL<<(id&63UL)) ) ) ) {
+          seen[ id>>6 ] |= 1UL<<(id&63UL);
+          result += (long)cur_link[ overall_polled_idx*8UL+idx ]-(long)prev_link[ overall_polled_idx*8UL+idx ];
+        }
       }
 
       overall_polled_idx++;
@@ -238,6 +244,27 @@ static ulong tps_samples[ 200UL ];
 /* Snapshot */
 static ulong snapshot_rx_idx = 0UL;
 static ulong snapshot_rx_samples[ 100UL ];
+static long snap_cur_nanos  = 0L;
+static long snap_prev_nanos = 0L;
+static ulong snap_dt_idx = 0UL;
+static long  snap_dt_samples[ 200UL ];
+
+static long
+wallclock_monotonic( void ) {
+  struct timespec ts;
+  clock_gettime( CLOCK_MONOTONIC, &ts );
+  return (long)ts.tv_sec*(long)1e9+ts.tv_nsec;
+}
+
+static double
+window_seconds( ulong num ) {
+  ulong len = sizeof(snap_dt_samples)/sizeof(snap_dt_samples[0]);
+  ulong cnt = fd_ulong_min( snap_dt_idx, fd_ulong_min( num, len ) );
+  long sum = 0L;
+  for( ulong i=1UL; i<=cnt; i++ ) sum += snap_dt_samples[ (snap_dt_idx-i)%len ];
+  return (double)fd_long_max( sum, 1L )/1e9;
+}
+
 static ulong snapshot_acc_idx = 0UL;
 static ulong snapshot_acc_samples[ 100UL ];
 static ulong snapshot_wr_idx = 0UL;
@@ -453,14 +480,16 @@ fmt_bar( char * buf,
   frame_len += _len;                             \
 } while(0)
 
+#define SNAP_DT_NS() (fd_long_max( snap_cur_nanos-snap_prev_nanos, 1L ))
+
 #define DIFF_LINK_BYTES( link_name, metric_type, metric_subtype, metric ) (__extension__({ \
     long bytes = diff_link( config, link_name, prev_link, cur_link, MIDX( metric_type, metric_subtype, metric ) ); \
-     fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, bytes );                               \
+     fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, (long)((double)bytes*1e9/(double)SNAP_DT_NS()) ); \
   }))
 
 #define DIFF_BYTES( tile_name, metric_type, metric_subtype, metric ) (__extension__({ \
     ulong bytes = diff_tile( config, tile_name, prev_tile, cur_tile, MIDX( metric_type, metric_subtype, metric ) ); \
-     fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, (long)bytes );                          \
+     fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, (long)((double)bytes*1e9/(double)SNAP_DT_NS()) ); \
   }))
 
 #define COUNT( count ) (__extension__({                     \
@@ -488,7 +517,7 @@ write_bench( config_t const * config,
   ulong tps_sum = 0UL;
   ulong num_tps_samples = fd_ulong_min( tps_sent_samples_idx, sizeof(tps_sent_samples)/sizeof(tps_sent_samples[0]));
   for( ulong i=0UL; i<num_tps_samples; i++ ) tps_sum += tps_sent_samples[ i ];
-  char * tps_str = COUNTF( 100.0*(double)tps_sum/(double)num_tps_samples );
+  char * tps_str = COUNTF( (double)tps_sum/window_seconds( num_tps_samples ) );
 
   PRINT( ROWH( "◎", BGREEN, "bench       " )
          K( "tps" ) "%s"
@@ -620,19 +649,19 @@ write_snapshots( config_t const * config,
   ulong num_snap_rx_samples = fd_ulong_min( snapshot_rx_idx, sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0]) );
   for( ulong i=0UL; i<num_snap_rx_samples; i++ ) snap_rx_sum += snapshot_rx_samples[ i ];
   double megabytes_per_second = 0.0;
-  if( FD_LIKELY( num_snap_rx_samples ) ) megabytes_per_second = 100.0*(double)snap_rx_sum/(double)num_snap_rx_samples/1e6;
+  if( FD_LIKELY( num_snap_rx_samples ) ) megabytes_per_second = (double)snap_rx_sum/window_seconds( num_snap_rx_samples )/1e6;
 
   ulong accounts_sum = 0UL;
   ulong num_accounts_samples = fd_ulong_min( snapshot_acc_idx, sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0]) );
   for( ulong i=0UL; i<num_accounts_samples; i++ ) accounts_sum += snapshot_acc_samples[ i ];
   double million_accounts_per_second = 0.0;
-  if( FD_LIKELY( num_accounts_samples ) ) million_accounts_per_second = 100.0*(double)accounts_sum/(double)num_accounts_samples/1e6;
+  if( FD_LIKELY( num_accounts_samples ) ) million_accounts_per_second = (double)accounts_sum/window_seconds( num_accounts_samples )/1e6;
 
   ulong snap_wr_sum = 0UL;
   ulong num_snap_wr_samples = fd_ulong_min( snapshot_wr_idx, sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0]) );
   for( ulong i=0UL; i<num_snap_wr_samples; i++ ) snap_wr_sum += snapshot_wr_samples[ i ];
   double wr_megabytes_per_second = 0.0;
-  if( FD_LIKELY( num_snap_wr_samples ) ) wr_megabytes_per_second = 100.0*(double)snap_wr_sum/(double)num_snap_wr_samples/1e6;
+  if( FD_LIKELY( num_snap_wr_samples ) ) wr_megabytes_per_second = (double)snap_wr_sum/window_seconds( num_snap_wr_samples )/1e6;
 
   ulong snapct_total_ticks = total_regime( &cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ snapct_idx*FD_METRICS_TOTAL_SZ ] );
   ulong snapld_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] );
@@ -896,17 +925,16 @@ write_accdb( config_t const * config,
     sum_pre   += accdb_preevicted_samples[ i ];
   }
 
-  /* Snap interval is 10ms, so per-second rate = mean diff * 100. */
-  double acquired = 100.0*(double)sum_acq  /(double)n;
-  double writable = 100.0*(double)sum_wr   /(double)n;
-  double missed   = 100.0*(double)sum_miss /(double)n;
-  double evicted  = 100.0*(double)sum_evict/(double)n;
-  double waited   = 100.0*(double)sum_wait /(double)n;
-  double bytes_rd = 100.0*(double)sum_brd  /(double)n;
-  double bytes_wr = 100.0*(double)sum_bwr  /(double)n;
-  double bytes_cp = 100.0*(double)sum_bcp  /(double)n;
-  double bytes_pe = 100.0*(double)sum_bpe  /(double)n;
-  double preevicted = 100.0*(double)sum_pre/(double)n;
+  double acquired = (double)sum_acq/window_seconds( n );
+  double writable = (double)sum_wr/window_seconds( n );
+  double missed   = (double)sum_miss/window_seconds( n );
+  double evicted  = (double)sum_evict/window_seconds( n );
+  double waited   = (double)sum_wait/window_seconds( n );
+  double bytes_rd = (double)sum_brd/window_seconds( n );
+  double bytes_wr = (double)sum_bwr/window_seconds( n );
+  double bytes_cp = (double)sum_bcp/window_seconds( n );
+  double bytes_pe = (double)sum_bpe/window_seconds( n );
+  double preevicted = (double)sum_pre/window_seconds( n );
 
   double hit_pct = acquired>0.0 ? 100.0*(acquired-missed)/acquired : 0.0;
 
@@ -945,10 +973,10 @@ write_accdb( config_t const * config,
       sum_cn += accdb_committed_new_class_samples      [ c ][ i ];
       sum_co += accdb_committed_overwrite_class_samples[ c ][ i ];
     }
-    evict_class_str           [ c ] = COUNTF_T( 100.0*(double)sum_c /(double)n );
-    preevict_class_str        [ c ] = COUNTF_T( 100.0*(double)sum_pc/(double)n );
-    commit_new_class_str      [ c ] = COUNTF_T( 100.0*(double)sum_cn/(double)n );
-    commit_overwrite_class_str[ c ] = COUNTF_T( 100.0*(double)sum_co/(double)n );
+    evict_class_str           [ c ] = COUNTF_T( (double)sum_c/window_seconds( n ) );
+    preevict_class_str        [ c ] = COUNTF_T( (double)sum_pc/window_seconds( n ) );
+    commit_new_class_str      [ c ] = COUNTF_T( (double)sum_cn/window_seconds( n ) );
+    commit_overwrite_class_str[ c ] = COUNTF_T( (double)sum_co/window_seconds( n ) );
   }
 
   /* Per size class grid: dim header row, then one row per family
@@ -1133,7 +1161,7 @@ write_rserve( config_t const * config,
   ulong shreds_stored_sum = 0UL;
   ulong num_stored_shreds = fd_ulong_min( shreds_stored_samples_idx, sizeof(shreds_stored_sample)/sizeof(shreds_stored_sample[0]));
   for( ulong i=0UL; i<num_stored_shreds; i++ ) shreds_stored_sum += shreds_stored_sample[ i ];
-  char * shreds_stored = COUNTF( 100.0*(double)shreds_stored_sum/(double)num_stored_shreds );
+  char * shreds_stored = COUNTF( (double)shreds_stored_sum/window_seconds( num_stored_shreds ) );
 
   ulong shreds_cur = t[ MIDX( GAUGE, RSERVE, SHREDS_CURRENT ) ];
   ulong shreds_max = t[ MIDX( GAUGE, RSERVE, SHREDS_MAX     ) ];
@@ -1141,33 +1169,33 @@ write_rserve( config_t const * config,
   ulong valid_sum = 0UL;
   ulong num_valid_samples = fd_ulong_min( rserve_rps_valid_samples_idx, sizeof(rserve_rps_valid_samples)/sizeof(rserve_rps_valid_samples[0]) );
   for( ulong i=0UL; i<num_valid_samples; i++ ) valid_sum += rserve_rps_valid_samples[ i ];
-  char * valid_str = COUNTF( 100.0*(double)valid_sum/(double)num_valid_samples );
+  char * valid_str = COUNTF( (double)valid_sum/window_seconds( num_valid_samples ) );
 
   ulong invalid_sum = 0UL;
   ulong num_invalid_samples = fd_ulong_min( rserve_rps_invalid_samples_idx, sizeof(rserve_rps_invalid_samples)/sizeof(rserve_rps_invalid_samples[0]) );
   for( ulong i=0UL; i<num_invalid_samples; i++ ) invalid_sum += rserve_rps_invalid_samples[ i ];
-  char * invalid_str = COUNTF( 100.0*(double)invalid_sum/(double)num_invalid_samples );
+  char * invalid_str = COUNTF( (double)invalid_sum/window_seconds( num_invalid_samples ) );
 
   ulong num_total_samples = fd_ulong_max( num_valid_samples, 1UL );
-  char * total_str = COUNTF( 100.0*(double)(valid_sum+invalid_sum)/(double)num_total_samples );
+  char * total_str = COUNTF( (double)(valid_sum+invalid_sum)/window_seconds( num_total_samples ) );
 
   ulong n_inv = fd_ulong_max( num_invalid_samples, 1UL );
 
   ulong miss_sum = 0UL;
   for( ulong i=0UL; i<num_invalid_samples; i++ ) miss_sum += rserve_rps_miss_samples[ i ];
-  char * miss_str = COUNTF( 100.0*(double)miss_sum/(double)n_inv );
+  char * miss_str = COUNTF( (double)miss_sum/window_seconds( n_inv ) );
 
   ulong sigvfy_sum = 0UL;
   for( ulong i=0UL; i<num_invalid_samples; i++ ) sigvfy_sum += rserve_rps_sigvfy_samples[ i ];
-  char * sigvfy_str = COUNTF( 100.0*(double)sigvfy_sum/(double)n_inv );
+  char * sigvfy_str = COUNTF( (double)sigvfy_sum/window_seconds( n_inv ) );
 
   ulong stale_sum = 0UL;
   for( ulong i=0UL; i<num_invalid_samples; i++ ) stale_sum += rserve_rps_stale_samples[ i ];
-  char * stale_str = COUNTF( 100.0*(double)stale_sum/(double)n_inv );
+  char * stale_str = COUNTF( (double)stale_sum/window_seconds( n_inv ) );
 
   ulong other_sum = 0UL;
   for( ulong i=0UL; i<num_invalid_samples; i++ ) other_sum += rserve_rps_other_rej_samples[ i ];
-  char * other_str = COUNTF( 100.0*(double)other_sum/(double)n_inv );
+  char * other_str = COUNTF( (double)other_sum/window_seconds( n_inv ) );
 
   ulong  disk_used  = t[ MIDX( GAUGE, RSERVE, DISK_CURRENT_BYTES   ) ];
   ulong  disk_alloc = t[ MIDX( GAUGE, RSERVE, DISK_ALLOCATED_BYTES ) ];
@@ -1233,17 +1261,17 @@ write_replay( config_t const * config,
   ulong sps_sum = 0UL;
   ulong num_sps_samples = fd_ulong_min( sps_samples_idx, sizeof(sps_samples)/sizeof(sps_samples[0]));
   for( ulong i=0UL; i<num_sps_samples; i++ ) sps_sum += sps_samples[ i ];
-  char * sps_str = COUNTF( 100.0*(double)sps_sum/(double)num_sps_samples );
+  char * sps_str = COUNTF( (double)sps_sum/window_seconds( num_sps_samples ) );
 
   ulong tps_sum = 0UL;
   ulong num_tps_samples = fd_ulong_min( tps_samples_idx, sizeof(tps_samples)/sizeof(tps_samples[0]));
   for( ulong i=0UL; i<num_tps_samples; i++ ) tps_sum += tps_samples[ i ];
-  char * tps_str = COUNTF( 100.0*(double)tps_sum/(double)num_tps_samples );
+  char * tps_str = COUNTF( (double)tps_sum/window_seconds( num_tps_samples ) );
 
   ulong cups_sum = 0UL;
   ulong num_cups_samples = fd_ulong_min( cups_samples_idx, sizeof(cups_samples)/sizeof(cups_samples[0]));
   for( ulong i=0UL; i<num_cups_samples; i++ ) cups_sum += cups_samples[ i ];
-  char * mcups_str = COUNTF( 100.0*(double)cups_sum/(double)num_cups_samples );
+  char * mcups_str = COUNTF( (double)cups_sum/window_seconds( num_cups_samples ) );
 
   long replay_lag = (long)reset_slot-(long)turbine_slot;
   PRINT( ROWH( "▶", MAGENTA, "replay      " )
@@ -1352,23 +1380,23 @@ write_event( config_t const * config,
   ulong events_sent_sum = 0UL;
   ulong num_events_sent_samples = fd_ulong_min( events_sent_samples_idx, sizeof(events_sent_samples)/sizeof(events_sent_samples[0]));
   for( ulong i=0UL; i<num_events_sent_samples; i++ ) events_sent_sum += events_sent_samples[ i ];
-  char * events_sent_str = COUNTF( 100.0*(double)events_sent_sum/(double)num_events_sent_samples );
+  char * events_sent_str = COUNTF( (double)events_sent_sum/window_seconds( num_events_sent_samples ) );
 
   ulong events_acked_sum = 0UL;
   ulong num_events_acked_samples = fd_ulong_min( events_acked_samples_idx, sizeof(events_acked_samples)/sizeof(events_acked_samples[0]));
   for( ulong i=0UL; i<num_events_acked_samples; i++ ) events_acked_sum += events_acked_samples[ i ];
-  char * events_acked_str = COUNTF( 100.0*(double)events_acked_sum/(double)num_events_acked_samples );
+  char * events_acked_str = COUNTF( (double)events_acked_sum/window_seconds( num_events_acked_samples ) );
 
   ulong bytes_written_sum = 0UL;
   ulong num_bytes_written_samples = fd_ulong_min( event_bytes_written_samples_idx, sizeof(event_bytes_written_samples)/sizeof(event_bytes_written_samples[0]));
   for( ulong i=0UL; i<num_bytes_written_samples; i++ ) bytes_written_sum += event_bytes_written_samples[ i ];
-  long bytes_written_per_sec = (long)(100.0*(double)bytes_written_sum/(double)num_bytes_written_samples);
+  long bytes_written_per_sec = (long)((double)bytes_written_sum/window_seconds( num_bytes_written_samples ));
   char * bytes_written_str = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, bytes_written_per_sec );
 
   ulong bytes_read_sum = 0UL;
   ulong num_bytes_read_samples = fd_ulong_min( event_bytes_read_samples_idx, sizeof(event_bytes_read_samples)/sizeof(event_bytes_read_samples[0]));
   for( ulong i=0UL; i<num_bytes_read_samples; i++ ) bytes_read_sum += event_bytes_read_samples[ i ];
-  long bytes_read_per_sec = (long)(100.0*(double)bytes_read_sum/(double)num_bytes_read_samples);
+  long bytes_read_per_sec = (long)((double)bytes_read_sum/window_seconds( num_bytes_read_samples ));
   char * bytes_read_str = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, bytes_read_per_sec );
 
   char * event_queue_unacked_s = COUNT( event_queue_unacked );
@@ -1561,7 +1589,7 @@ write_backup( config_t const * config,
   ulong upload_sum = 0UL;
   ulong upload_cnt = fd_ulong_min( backup_upload_idx, sizeof(backup_upload_samples)/sizeof(backup_upload_samples[0]) );
   for( ulong i=0UL; i<upload_cnt; i++ ) upload_sum += backup_upload_samples[ i ];
-  double upload_mbps = upload_cnt ? 800.0*(double)upload_sum/(double)upload_cnt/1e6 : 0.0;
+  double upload_mbps = upload_cnt ? 8.0*(double)upload_sum/window_seconds( upload_cnt )/1e6 : 0.0;
 
   PRINT( ROWH( "□", BLUE, "backup      " ) );
   if( FD_LIKELY( server_on ) ) {
@@ -1608,9 +1636,9 @@ write_backup( config_t const * config,
   ulong comp_cnt = fd_ulong_min( backup_comp_idx, sizeof(backup_comp_samples)/sizeof(backup_comp_samples[0]) );
   for( ulong i=0UL; i<comp_cnt; i++ ) comp_sum += backup_comp_samples[ i ];
 
-  double accounts_per_second = acc_cnt  ? 100.0*(double)acc_sum /(double)acc_cnt       : 0.0;
-  double read_mbps           = read_cnt ? 100.0*(double)read_sum/(double)read_cnt/1e6 : 0.0;
-  double comp_mbps           = comp_cnt ? 100.0*(double)comp_sum/(double)comp_cnt/1e6 : 0.0;
+  double accounts_per_second = acc_cnt  ? (double)acc_sum/window_seconds( acc_cnt )       : 0.0;
+  double read_mbps           = read_cnt ? (double)read_sum/window_seconds( read_cnt )/1e6 : 0.0;
+  double comp_mbps           = comp_cnt ? (double)comp_sum/window_seconds( comp_cnt )/1e6 : 0.0;
   char * accounts_rate = COUNTF_T( accounts_per_second );
 
   PRINT( "  %s " BOLD "%5.1f" RESET U( "%%" )
@@ -1747,6 +1775,9 @@ run( config_t const * config,
   snap_links( &config->topo, links );
   fd_memcpy( links+(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links, cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL*sizeof(ulong) );
 
+  snap_cur_nanos  = wallclock_monotonic();
+  snap_prev_nanos = snap_cur_nanos-(long)1e7;
+
   ulong last_snap = 1UL;
 
 
@@ -1778,6 +1809,9 @@ run( config_t const * config,
       last_snap = 1UL-last_snap;
       snap_tiles( &config->topo, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ );
       snap_links( &config->topo, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+      snap_prev_nanos = snap_cur_nanos;
+      snap_cur_nanos  = wallclock_monotonic();
+      snap_dt_samples[ (snap_dt_idx++)%(sizeof(snap_dt_samples)/sizeof(snap_dt_samples[0])) ] = snap_cur_nanos-snap_prev_nanos;
 
       /* Bench */
       tps_sent_samples[ tps_sent_samples_idx%(sizeof(tps_sent_samples)/sizeof(tps_sent_samples[0])) ] = diff_tile( config, "benchs", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, BENCHS, TXN_TX ) );
