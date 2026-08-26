@@ -745,9 +745,20 @@ fd_gui_printf_epoch( fd_gui_t * gui,
         for( ulong i=0UL; i<stakes_cnt; i++ ) jsonp_ulong_as_str( gui->http, NULL, meta->stakes[ i ].stake );
       jsonp_close_array( gui->http );
 
-      jsonp_open_array( gui->http, "leader_slots" );
-        for( ulong i=0UL; i<sched_cnt; i++ ) jsonp_ulong( gui->http, NULL, meta->sched[ i ] );
-      jsonp_close_array( gui->http );
+      /* The schedule is derived client-side from staked_lamports (same
+         ChaCha20/wsample algorithm); FNV-1a-64 over the u32 LE rotation
+         indices lets the client verify its derivation */
+      ulong sched_hash = 0xcbf29ce484222325UL;
+      for( ulong i=0UL; i<sched_cnt; i++ ) {
+        uint v = meta->sched[ i ];
+        for( ulong b=0UL; b<4UL; b++ ) {
+          sched_hash ^= (v>>(8UL*b)) & 0xFFUL;
+          sched_hash *= 0x100000001b3UL;
+        }
+      }
+      char sched_hash_hex[ 17 ];
+      FD_TEST( fd_cstr_printf_check( sched_hash_hex, sizeof(sched_hash_hex), NULL, "%016lx", sched_hash ) );
+      jsonp_string( gui->http, "leader_slots_hash", sched_hash_hex );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }
