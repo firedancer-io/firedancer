@@ -4,6 +4,13 @@ CPPFLAGS?=
 LDFLAGS ?=
 LDLIBS  += -lrocksdb
 
+# Prefer a local RocksDB install over the system one when present.
+ROCKSDB_PREFIX ?= /opt/rocksdb/rocksdb-11.1.1
+ifneq ($(wildcard $(ROCKSDB_PREFIX)/include/rocksdb/c.h),)
+CPPFLAGS += -I$(ROCKSDB_PREFIX)/include
+LDFLAGS  += -L$(ROCKSDB_PREFIX)/lib -Wl,-rpath,$(ROCKSDB_PREFIX)/lib
+endif
+
 .PHONY: all clean
 
 all: blockstore2shredcap blockstore_minify
