@@ -464,6 +464,7 @@ accept_conns( fd_http_server_t * http ) {
     http->conns[ conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
     http->conns[ conn_id ].request_bytes_read     = 0UL;
     http->conns[ conn_id ].request_head_len       = 0UL;
+    http->conns[ conn_id ].request_total_len      = 0UL;
     http->conns[ conn_id ].response_bytes_written = 0UL;
 
     if( FD_UNLIKELY( http->callbacks.open ) ) {
@@ -499,6 +500,14 @@ read_conn_http( fd_http_server_t * http,
   http->metrics.bytes_read += (ulong)sz;
   conn->request_bytes_read += (ulong)sz;
 
+  /* While the head is parsed and the total size is known, only the body is
+     pending. Skip parsing entirely so a client dripping the body one byte
+     at a time costs O(1) per read instead of O(head length). */
+  if( FD_UNLIKELY( conn->request_total_len!=0UL &&
+                   conn->request_bytes_read<conn->request_total_len ) ) {
+    return;
+  }
+
   char const * method;
   ulong method_len;
   char const * path;
@@ -509,7 +518,8 @@ read_conn_http( fd_http_server_t * http,
   /* If the head already parsed on an earlier read (the body was pending),
      the parser's partial-head fast path would search for the terminator
      beyond its known position and wrongly report the request incomplete.
-     Reparse from scratch so the headers regenerate for this invocation. */
+     Reparse exactly once with the fast path disabled now that the full
+     request has arrived, so the headers regenerate for this invocation. */
   ulong last_len = conn->request_head_len ? 0UL : conn->request_bytes_read - (ulong)sz;
   int result = phr_parse_request( conn->request_bytes,
                                   conn->request_bytes_read,
@@ -590,7 +600,10 @@ read_conn_http( fd_http_server_t * http,
 
 
     if( FD_UNLIKELY( conn->request_bytes_read<(ulong)result+content_len ) ) {
-      return; /* Request still partial, wait for more data */
+      /* Body still pending: remember the validated total so subsequent
+         reads skip parsing until the full request has arrived. */
+      conn->request_total_len = (ulong)result + content_len;
+      return;
     }
   }
 
