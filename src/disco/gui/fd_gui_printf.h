@@ -73,6 +73,10 @@ void
 fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t *  peers );
 
 void
+fd_gui_peers_printf_stats( fd_gui_peers_ctx_t *         peers,
+                           fd_gui_peers_stats_t const * stats );
+
+void
 fd_gui_printf_slot( fd_gui_t *            gui,
                     ulong                slot_number,
                     fd_gui_slot_t const * slot );

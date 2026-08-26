@@ -1922,6 +1922,19 @@ fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t *  peers ) {
   jsonp_close_envelope( peers->http );
 }
 
+void
+fd_gui_peers_printf_stats( fd_gui_peers_ctx_t *         peers,
+                           fd_gui_peers_stats_t const * stats ) {
+  jsonp_open_envelope( peers->http, "peers", "stats" );
+    jsonp_open_object( peers->http, "value" );
+      jsonp_ulong       ( peers->http, "validator_count",  stats->validator_cnt    );
+      jsonp_ulong       ( peers->http, "rpc_count",        stats->rpc_cnt          );
+      jsonp_ulong_as_str( peers->http, "active_stake",     stats->active_stake     );
+      jsonp_ulong_as_str( peers->http, "delinquent_stake", stats->delinquent_stake );
+    jsonp_close_object( peers->http );
+  jsonp_close_envelope( peers->http );
+}
+
 static void
 fd_gui_printf_ts_tile_timers( fd_gui_t *                        gui,
                               long                              sample_time_nanos,

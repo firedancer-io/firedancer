@@ -197,6 +197,19 @@ struct fd_gui_peers_node {
 };
 typedef struct fd_gui_peers_node fd_gui_peers_node_t;
 
+/* Cluster-wide aggregates over the peer table, pushed to clients so
+   the frontend can render summary cards without folding the full peer
+   list.  Mirrors the frontend's client-side derivation: a peer with a
+   staked vote account is a validator, any other gossip peer is an RPC
+   node. */
+struct fd_gui_peers_stats {
+  ulong validator_cnt;
+  ulong rpc_cnt;
+  ulong active_stake;     /* lamports */
+  ulong delinquent_stake; /* lamports */
+};
+typedef struct fd_gui_peers_stats fd_gui_peers_stats_t;
+
 struct fd_gui_peers_gossip_stats {
   long  sample_time;
   ulong network_health_pull_response_msg_rx_success;
@@ -386,6 +399,7 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_ws_conn_t * client_viewports; /* points to 2D array with max_ws_conn_cnt rows and FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ columns */
 
   fd_gui_peers_gossip_stats_t gossip_stats  [ 1 ];
+  fd_gui_peers_stats_t peer_stats[ 1 ]; /* last broadcast values */
   fd_gui_peers_node_t contact_info_table[ FD_CONTACT_INFO_TABLE_SIZE ];
 
   ulong slot_voted; /* last vote slot for this validator */

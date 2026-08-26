@@ -192,6 +192,7 @@ fd_gui_peers_new( void *             shmem,
     ctx->next_metric_rate_update_nanos  = now;
     ctx->next_gossip_stats_update_nanos = now;
     memset( &ctx->gossip_stats, 0, sizeof(ctx->gossip_stats) );
+    memset( &ctx->peer_stats,   0, sizeof(ctx->peer_stats)   );
 
     for( ulong i = 0; i<FD_CONTACT_INFO_TABLE_SIZE; i++) ctx->contact_info_table[ i ].row.valid = 0;
 
@@ -879,6 +880,33 @@ fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
   }
 }
 
+static void
+fd_gui_peers_stats_snap( fd_gui_peers_ctx_t *   peers,
+                         fd_gui_peers_stats_t * stats ) {
+  memset( stats, 0, sizeof(*stats) );
+  for( fd_gui_peers_node_pubkey_map_iter_t iter = fd_gui_peers_node_pubkey_map_iter_init( peers->node_pubkey_map, peers->contact_info_table );
+       !fd_gui_peers_node_pubkey_map_iter_done( iter, peers->node_pubkey_map, peers->contact_info_table );
+       iter = fd_gui_peers_node_pubkey_map_iter_next( iter, peers->node_pubkey_map, peers->contact_info_table ) ) {
+    fd_gui_peers_row_t const * row = &fd_gui_peers_node_pubkey_map_iter_ele_const( iter, peers->node_pubkey_map, peers->contact_info_table )->row;
+    ulong stake = fd_ulong_if( row->has_vote_info && row->stake!=ULONG_MAX, row->stake, 0UL );
+    if( FD_LIKELY( stake ) ) stats->validator_cnt++;
+    else                     stats->rpc_cnt++;
+    if( FD_UNLIKELY( row->delinquent ) ) stats->delinquent_stake += stake;
+    else                                 stats->active_stake     += stake;
+  }
+}
+
+/* broadcast aggregates to all clients, if changed since last broadcast */
+static void
+fd_gui_peers_stats_broadcast( fd_gui_peers_ctx_t * peers ) {
+  fd_gui_peers_stats_t stats[ 1 ];
+  fd_gui_peers_stats_snap( peers, stats );
+  if( FD_LIKELY( !memcmp( stats, peers->peer_stats, sizeof(fd_gui_peers_stats_t) ) ) ) return;
+  *peers->peer_stats = *stats;
+  fd_gui_peers_printf_stats( peers, peers->peer_stats );
+  fd_http_server_ws_broadcast( peers->http );
+}
+
 void
 fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
                                 fd_epoch_info_msg_t const * epoch_info,
@@ -943,6 +971,8 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
     fd_http_server_ws_broadcast( peers->http );
   }
 
+  fd_gui_peers_stats_broadcast( peers );
+
   /* Build vote account index for fd_gui_peers_handle_vote */
   for( ulong j=0UL; j<stakes_cnt; j++ ) {
     peers->epochs[ epoch_idx ].vote_idx[ j ] = (fd_gui_peers_voter_idx_t){
@@ -992,6 +1022,7 @@ fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
     }
   }
   if( FD_UNLIKELY( last_vote_slot_p33==ULONG_MAX ) ) {
+    fd_gui_peers_stats_broadcast( peers ); /* keep counts fresh pre-votes */
     return; /* not enough observed votes */
   }
 
@@ -1023,6 +1054,8 @@ fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
     fd_gui_peers_printf_nodes( peers, peers->scratch.actions, peers->scratch.idxs, updated_cnt );
     fd_http_server_ws_broadcast( peers->http );
   }
+
+  fd_gui_peers_stats_broadcast( peers );
 }
 
 void
@@ -1537,6 +1570,13 @@ fd_gui_peers_ws_open( fd_gui_peers_ctx_t *  peers,
   peers->client_viewports[ ws_conn_id ].row_cnt = 0;
   peers->client_viewports[ ws_conn_id ].sort_key = FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY;
   fd_gui_peers_ws_conn_rr_grow( peers, ws_conn_id );
+
+  /* aggregates go out first so summary cards render before the full
+     peer table is transferred and applied */
+  fd_gui_peers_stats_t stats[ 1 ];
+  fd_gui_peers_stats_snap( peers, stats );
+  fd_gui_peers_printf_stats( peers, stats );
+  FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
 
   fd_gui_peers_printf_node_all( peers );
   FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
