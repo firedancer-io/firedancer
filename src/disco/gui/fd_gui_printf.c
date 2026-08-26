@@ -3375,3 +3375,63 @@ fd_gui_peers_printf_wfs_stakes( fd_gui_peers_ctx_t * peers ) {
     jsonp_close_object( peers->http );
   jsonp_close_envelope( peers->http );
 }
+
+void
+fd_gui_peers_printf_leaders( fd_gui_t * gui,
+                             ulong      epoch ) {
+  /* Lite per-leader metadata, index-aligned with the epoch's
+     staked_pubkeys array in epoch:new */
+  fd_gui_peers_ctx_t *   peers = gui->peers;
+  fd_gui_epoch_t const * meta  = fd_gui_epoch( gui, epoch );
+  ulong pub_cnt = FD_LIKELY( meta ) ? meta->pub_cnt : 0UL;
+
+  jsonp_open_envelope( gui->http, "peers", "leaders" );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_ulong( gui->http, "epoch", FD_LIKELY( meta ) ? meta->epoch : 0UL );
+
+      jsonp_open_array( gui->http, "names" );
+        for( ulong i=0UL; i<pub_cnt; i++ ) {
+          fd_gui_config_parse_info_t * info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &meta->pub[ i ], NULL, peers->node_info_pool );
+          if( FD_LIKELY( info ) ) jsonp_string( gui->http, NULL, info->name );
+          else                    jsonp_null  ( gui->http, NULL );
+        }
+      jsonp_close_array( gui->http );
+
+      jsonp_open_array( gui->http, "icon_urls" );
+        for( ulong i=0UL; i<pub_cnt; i++ ) {
+          fd_gui_config_parse_info_t * info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &meta->pub[ i ], NULL, peers->node_info_pool );
+          if( FD_LIKELY( info ) ) jsonp_string( gui->http, NULL, info->icon_uri );
+          else                    jsonp_null  ( gui->http, NULL );
+        }
+      jsonp_close_array( gui->http );
+
+      jsonp_open_array( gui->http, "delinquent" );
+        for( ulong i=0UL; i<pub_cnt; i++ ) {
+          ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &meta->pub[ i ], ULONG_MAX, peers->contact_info_table );
+          if( FD_LIKELY( peer_idx!=ULONG_MAX ) ) jsonp_bool( gui->http, NULL, peers->contact_info_table[ peer_idx ].row.delinquent );
+          else                                   jsonp_null( gui->http, NULL );
+        }
+      jsonp_close_array( gui->http );
+
+      jsonp_open_array( gui->http, "country_codes" );
+        for( ulong i=0UL; i<pub_cnt; i++ ) {
+          ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &meta->pub[ i ], ULONG_MAX, peers->contact_info_table );
+          if( FD_LIKELY( peer_idx!=ULONG_MAX && peers->contact_info_table[ peer_idx ].row.country_code_idx!=UCHAR_MAX ) ) {
+            jsonp_string( gui->http, NULL, peers->dbip.country_code[ peers->contact_info_table[ peer_idx ].row.country_code_idx ] );
+          } else {
+            jsonp_null( gui->http, NULL );
+          }
+        }
+      jsonp_close_array( gui->http );
+
+      jsonp_open_array( gui->http, "client_ids" );
+        for( ulong i=0UL; i<pub_cnt; i++ ) {
+          ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &meta->pub[ i ], ULONG_MAX, peers->contact_info_table );
+          if( FD_LIKELY( peer_idx!=ULONG_MAX ) ) jsonp_ulong( gui->http, NULL, peers->contact_info_table[ peer_idx ].row.contact_info.version.client );
+          else                                   jsonp_null ( gui->http, NULL );
+        }
+      jsonp_close_array( gui->http );
+
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}

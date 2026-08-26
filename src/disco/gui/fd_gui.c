@@ -132,6 +132,7 @@ fd_gui_new( void *                   shmem,
 
   gui->http        = http;
   gui->topo        = topo;
+  gui->peers       = NULL; /* wired by the gui tile after fd_gui_peers_new */
   gui->accdb_shmem = accdb_shmem;
   gui->tick_per_ns = fd_tempo_tick_per_ns( NULL );
   gui->tile_cnt    = tile_cnt;
@@ -573,6 +574,10 @@ fd_gui_ws_open( fd_gui_t * gui,
         FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
         fd_gui_printf_epoch( gui, e );
         FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+        if( FD_LIKELY( e==gui->epoch.current_epoch && gui->peers ) ) {
+          fd_gui_peers_printf_leaders( gui, e );
+          FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+        }
       }
     }
 
@@ -2453,6 +2458,11 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
 
   fd_gui_printf_epoch( gui, epoch_info->epoch );
   fd_http_server_ws_broadcast( gui->http );
+
+  if( FD_LIKELY( gui->peers ) ) {
+    fd_gui_peers_printf_leaders( gui, epoch_info->epoch );
+    fd_http_server_ws_broadcast( gui->http );
+  }
 }
 
 void

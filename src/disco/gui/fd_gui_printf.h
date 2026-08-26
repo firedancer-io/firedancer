@@ -170,6 +170,10 @@ void
 fd_gui_peers_printf_wfs_stakes( fd_gui_peers_ctx_t * peers );
 
 void
+fd_gui_peers_printf_leaders( fd_gui_t * gui,
+                             ulong      epoch );
+
+void
 fd_gui_printf_live_program_cache( fd_gui_t * gui );
 
 void
