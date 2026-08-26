@@ -8,6 +8,7 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_msan.h"
 #include "../../util/sanitize/fd_fuzz.h"
 #include "fd_ed25519.h"
 
@@ -92,6 +93,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar sigR[ 64 ];
   uchar * sig_resultC = fd_ed25519_sign( sigC, test->msg, sz, pub, test->prv, sha );
   int sig_resultR = sign_fn.fn( sigR, test->msg, sz, pub, test->prv );
+  fd_msan_unpoison( sigR, 64UL );
   assert( sig_resultC == sigC );
   assert( sig_resultR == 0 );
   assert( fd_memeq( sigC, sigR, 64UL ) );
