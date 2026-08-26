@@ -131,10 +131,8 @@ struct fd_tls_estate_srv {
    Type of handshake object depends on is_server. */
   fd_tls_estate_base_t base;
 
-  uchar  server_cert_rpk : 1;  /* 0: X.509  1: raw public key */
-  uchar  client_cert     : 1;  /* 0: no client auth  1: client cert */
-  uchar  client_cert_rpk : 1;  /* 0: X.509  1: raw public key */
-  uchar  hello_retry     : 1;
+  uchar client_cert : 1;  /* 0: no client auth  1: client cert */
+  uchar hello_retry : 1;
 
   fd_tls_transcript_t transcript;
   uchar               client_hs_secret[32];
@@ -197,11 +195,8 @@ struct fd_tls_estate_cli {
   uchar client_hs_secret[ 32 ];
   uchar master_secret   [ 32 ];
 
-  uchar client_cert        : 1;  /* 0=anon  1=client auth */
-  uchar server_cert_rpk    : 1;
-  uchar client_cert_nox509 : 1;
-  uchar client_cert_rpk    : 1;
-  uchar server_pubkey_pin  : 1;  /* if 1, require cert to match server_pubkey */
+  uchar client_cert       : 1;  /* 0=anon  1=client auth */
+  uchar server_pubkey_pin : 1;  /* if 1, require cert to match server_pubkey */
 
   fd_sha256_t transcript;
 };

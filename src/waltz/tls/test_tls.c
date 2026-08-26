@@ -1,9 +1,6 @@
 #include "fd_tls_proto.h"
 #include "../../ballet/x509/fd_x509_mock.h"
 
-FD_STATIC_ASSERT( sizeof( fd_tls_ext_cert_type_list_t )==1UL, layout );
-FD_STATIC_ASSERT( sizeof( fd_tls_ext_cert_type_t      )==1UL, layout );
-
 /* Serialization related testing **************************************/
 
 /* test_client_hello is an example TLS v1.3 ClientHello captured from
@@ -331,16 +328,14 @@ static void
 test_tls_truncated_cert_extract( void ) {
 
   {
-    fd_tls_extract_cert_pubkey_res_t res =
-      fd_tls_extract_cert_pubkey( NULL, 0UL, FD_TLS_CERTTYPE_X509 );
+    fd_tls_extract_cert_pubkey_res_t res = fd_tls_extract_cert_pubkey( NULL, 0UL );
     FD_TEST( !res.pubkey );
     FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
     FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
   }
 
   {
-    fd_tls_extract_cert_pubkey_res_t res =
-      fd_tls_extract_cert_pubkey( (uchar const *)"", 0UL, FD_TLS_CERTTYPE_X509 );
+    fd_tls_extract_cert_pubkey_res_t res = fd_tls_extract_cert_pubkey( (uchar const *)"", 0UL );
     FD_TEST( !res.pubkey );
     FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
     FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
@@ -348,8 +343,7 @@ test_tls_truncated_cert_extract( void ) {
 
   {
     uchar const cert_body[] = { 0x00 };
-    fd_tls_extract_cert_pubkey_res_t res =
-      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    fd_tls_extract_cert_pubkey_res_t res = fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body) );
     FD_TEST( !res.pubkey );
     FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
     FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
@@ -357,8 +351,7 @@ test_tls_truncated_cert_extract( void ) {
 
   {
     uchar const cert_body[] = { 0x00, 0x00, 0x00 };
-    fd_tls_extract_cert_pubkey_res_t res =
-      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    fd_tls_extract_cert_pubkey_res_t res = fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body) );
     FD_TEST( !res.pubkey );
     FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
     FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
@@ -369,8 +362,7 @@ test_tls_truncated_cert_extract( void ) {
       0x00,             /* certificate_request_context length = 0 */
       0x00, 0x00, 0x20, /* cert_list_sz = 32 (nonzero) */
     };
-    fd_tls_extract_cert_pubkey_res_t res =
-      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    fd_tls_extract_cert_pubkey_res_t res = fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body) );
     FD_TEST( !res.pubkey );
     FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
     FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
@@ -382,8 +374,7 @@ test_tls_truncated_cert_extract( void ) {
       0x00, 0x00, 0x20, /* cert_list_sz = 32 */
       0x00, 0x00, 0x20, /* cert_sz = 32 (but only 0 bytes follow) */
     };
-    fd_tls_extract_cert_pubkey_res_t res =
-      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    fd_tls_extract_cert_pubkey_res_t res = fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body) );
     FD_TEST( !res.pubkey );
     FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
     FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
@@ -394,29 +385,12 @@ test_tls_truncated_cert_extract( void ) {
       0x00,             /* certificate_request_context length = 0 */
       0x00, 0x00, 0x00, /* cert_list_sz = 0 */
     };
-    fd_tls_extract_cert_pubkey_res_t res =
-      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    fd_tls_extract_cert_pubkey_res_t res = fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body) );
     FD_TEST( !res.pubkey );
     FD_TEST( res.alert  == FD_TLS_ALERT_BAD_CERTIFICATE    );
     FD_TEST( res.reason == FD_TLS_REASON_CERT_CHAIN_EMPTY  );
   }
 
-  {
-    fd_tls_extract_cert_pubkey_res_t res =
-      fd_tls_extract_cert_pubkey( NULL, 0UL, FD_TLS_CERTTYPE_RAW_PUBKEY );
-    FD_TEST( !res.pubkey );
-    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
-    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
-  }
-
-  {
-    uchar const cert_body[] = { 0x00 };
-    fd_tls_extract_cert_pubkey_res_t res =
-      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_RAW_PUBKEY );
-    FD_TEST( !res.pubkey );
-    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
-    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
-  }
 }
 
 static void

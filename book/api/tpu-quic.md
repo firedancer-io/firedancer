@@ -43,9 +43,6 @@ Firedancer TPU-QUIC servers support the following TLS parameters.
 - ALPN: `solana-tpu`
 - Cipher suites
   - `TLS_AES_128_GCM_SHA256` (0x1301, TLS 1.3)
-- Certificate Types
-  - X.509
-  - Raw Public Keys (RFC 7250)
 - Signature schemes
   - `ed25519` (0x0807)
 - Key exchange groups
