@@ -382,18 +382,19 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         int ha_dup = 0;
         FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
         FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
-        if( FD_UNLIKELY( ha_dup ) ) {
+
+        int err = verify_crds_value( &view->pull_response->values[ i ], payload+view->pull_response->values[ i ].offset, view->pull_response->values[ i ].length, sha );
+        if( FD_LIKELY( err==FD_ED25519_SUCCESS && ha_dup ) ) {
+          /* Mark as failed instead of removing so the gossip tile
+             inserts the hash into the purged set. */
           if( FD_LIKELY( !failed[ i ] ) ) {
             ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
             ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ] += view->pull_response->values[ i ].length;
+            failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
           }
-          view->pull_response->values_len--;
-          view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len ];
-          failed[ i ] = failed[ view->pull_response->values_len ];
+          i++;
           continue;
         }
-
-        int err = verify_crds_value( &view->pull_response->values[ i ], payload+view->pull_response->values[ i ].offset, view->pull_response->values[ i ].length, sha );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
           if( FD_LIKELY( !failed[ i ] ) ) {
             ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
@@ -885,6 +886,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
       for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
         if( FD_UNLIKELY( failed[ i ]==FD_GOSSIP_FAILED_NO_CONTACT_INFO ) ) continue; /* Don't add to tcache so we can re-receive after learning contact info */
+        if( FD_UNLIKELY( failed[ i ]==FD_GOSSIP_FAILED_DUPLICATE       ) ) continue; /* already in the tcache */
         ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( message->pull_response->values[ i ].signature );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
