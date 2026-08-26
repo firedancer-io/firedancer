@@ -64,3 +64,16 @@ exit_group
 # used by the monitor.
 read: (or (eq (arg 0) drain_output_fd)
           (eq (arg 0) 0))
+
+# watch: wait for log output from the firedancer process
+#
+# The watch tile waits til either a log message arrives (only in the
+# development environment) or the next render deadline has arrived with
+# select.
+#
+# arg 0 is nfds drain_output_fd+1 to watch the log pipe, or zero when
+# running standalone (drain_output_fd is -1, so +1 wraps to zero).
+pselect6: (and (eq (arg 0) drain_output_fd+1)
+               (eq (arg 2) 0)
+               (eq (arg 3) 0)
+               (eq (arg 5) 0))

@@ -13,9 +13,12 @@
 #include "../../../../util/tile/fd_tile.h"
 
 #include <errno.h>
+#include <sys/select.h>
 #include <unistd.h>
 #include <sys/resource.h>
 #include <linux/capability.h>
+
+#include "../../../platform/fd_sys_util.h"
 
 void
 watch_cmd_perm( args_t *         args FD_PARAM_UNUSED,
@@ -66,6 +69,7 @@ drain( int fd ) {
     long result = read( fd, buf, sizeof(buf) );
     if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) break;
     else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( !result ) ) fd_sys_util_exit_group( 0 ); /* writer gone: validator exited */
 
     if( FD_LIKELY( !needs_reprint ) ) {
       /* Buffer the erase sequence and first log chunk together so the
@@ -1752,6 +1756,15 @@ run( config_t const * config,
 
   long next = fd_log_wallclock()+(long)1e7;
   for(;;) {
+    long timeout_ns = next-fd_log_wallclock();
+    if( FD_LIKELY( timeout_ns>0L ) ) {
+      fd_set rfds;
+      FD_ZERO( &rfds );
+      if( FD_LIKELY( drain_output_fd>=0 ) ) FD_SET( drain_output_fd, &rfds );
+      struct timeval tv = { .tv_sec = timeout_ns/(long)1e9, .tv_usec = (timeout_ns%(long)1e9)/1000L+1L };
+      if( FD_UNLIKELY( -1==select( drain_output_fd>=0 ? drain_output_fd+1 : 0, drain_output_fd>=0 ? &rfds : NULL, NULL, NULL, &tv ) && errno!=EINTR ) )
+        FD_LOG_ERR(( "select() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
     if( FD_UNLIKELY( drain_output_fd>=0 ) ) {
       if( FD_UNLIKELY( drain( drain_output_fd ) ) ) {
         frame_len = 0UL;
