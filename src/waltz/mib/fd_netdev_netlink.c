@@ -114,6 +114,7 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
 
     ushort ifi_type = ifi->ifi_type;
     if( ifi_type!=ARPHRD_ETHER && ifi_type!=ARPHRD_LOOPBACK && ifi_type!=ARPHRD_IPGRE ) continue;
+    if( ifi_type==ARPHRD_IPGRE && !(ifi->ifi_flags & IFF_UP) ) continue;
 
     struct ifinfomsg * msg    = NLMSG_DATA( nlh );
     struct rtattr *    rat    = (void *)( (ulong)msg + NLMSG_ALIGN( sizeof(struct ifinfomsg) ) );
