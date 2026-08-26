@@ -1,4 +1,5 @@
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_zstd_frame.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -23,7 +24,12 @@ struct fd_snapdc_tile {
   uint dirty   : 1;  /* in the middle of a frame? */
   int state;
 
-  ZSTD_DCtx * zstd;
+  ulong tile_idx;
+  ulong tile_count;
+  ulong frame_idx;
+
+  ZSTD_DCtx *     zstd;
+  fd_zstd_frame_t zstd_frame[1];
 
   struct {
     fd_wksp_t * mem;
@@ -137,8 +143,10 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->is_zstd = !!msg->zstd;
-      ctx->dirty = 0;
+      ctx->dirty       = 0;
+      ctx->frame_idx   = 0UL;
       ctx->in.frag_pos = 0UL;
+      FD_TEST( fd_zstd_frame_new( ctx->zstd_frame ) );
       if( ctx->full ) {
         ctx->metrics.full.compressed_bytes_read      = 0UL;
         ctx->metrics.full.decompressed_bytes_written = 0UL;
@@ -206,6 +214,126 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   }
 }
 
+static inline void
+finish_frame( fd_snapdc_tile_t * ctx ) {
+  ctx->dirty = 0;
+  ctx->frame_idx++;
+  FD_TEST( fd_zstd_frame_new( ctx->zstd_frame ) );
+}
+
+/* Reads until the end of the current frame (or the end of the frag, if
+   that comes earlier).  Returns 1 if bytes from the next frame remain
+   and stem must reprocess this frag. */
+static inline int
+skip_unowned_frame( fd_snapdc_tile_t *  ctx,
+                    fd_stem_context_t * stem,
+                    uchar const *       data,
+                    ulong               sz ) {
+  FD_TEST( ctx->frame_idx%ctx->tile_count!=ctx->tile_idx );
+  FD_TEST( ctx->dirty || ctx->in.frag_pos<sz );
+  ctx->dirty = 1;
+
+  ulong skipped = 0UL;
+  int scan_result = fd_zstd_frame_advance( ctx->zstd_frame, data+ctx->in.frag_pos, sz-ctx->in.frag_pos, &skipped );
+  switch( scan_result ) {
+    case FD_ZSTD_FRAME_ERR: {
+      transition_malformed( ctx, stem );
+      return 0;
+    }
+    case FD_ZSTD_FRAME_MORE: {
+      /* Current frame spans until the end of the frag, so we can move
+         onto the next frag. */
+      FD_TEST( skipped+ctx->in.frag_pos==sz );
+      ctx->in.frag_pos = 0UL;
+      return 0;
+    }
+    case FD_ZSTD_FRAME_END: {
+      /* A frame ends within this frag.  If the frame end coincides with
+         the frag end, wait for the next frag, otherwise reprocess
+         the next frame in this frag. */
+      FD_TEST( skipped && skipped<=sz-ctx->in.frag_pos );
+      ctx->in.frag_pos += skipped;
+      finish_frame( ctx );
+
+      if( FD_UNLIKELY( ctx->in.frag_pos==sz ) ) {
+        ctx->in.frag_pos = 0UL;
+        return 0;
+      }
+      return 1;
+    }
+    default: FD_LOG_ERR(( "unexpected zstd frame scan result %d", scan_result ));
+  }
+}
+
+/* Decompresses up to a single frame's data.  Returns 1 if the current
+   frag needs to be reprocessed. */
+static inline int
+process_owned_frame( fd_snapdc_tile_t *  ctx,
+                     fd_stem_context_t * stem,
+                     uchar const *       data,
+                     ulong               sz ) {
+  FD_TEST( ctx->frame_idx%ctx->tile_count==ctx->tile_idx );
+  FD_TEST( ctx->dirty || ctx->in.frag_pos<sz );
+  ctx->dirty = 1;
+
+  uchar * out          = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
+  ulong   in_sz        = sz-ctx->in.frag_pos;
+  ulong   in_consumed  = 0UL;
+  ulong   out_produced = 0UL;
+  ulong frame_res = ZSTD_decompressStream_simpleArgs(
+      ctx->zstd,
+      out,
+      ctx->out.mtu,
+      &out_produced,
+      data+ctx->in.frag_pos,
+      in_sz,
+      &in_consumed );
+  if( FD_UNLIKELY( ZSTD_isError( frame_res ) ) ) {
+    FD_LOG_WARNING(( "error while decompressing %s snapshot (%u-%s)",
+                     ctx->full ? "full" : "incremental",
+                     ZSTD_getErrorCode( frame_res ), ZSTD_getErrorName( frame_res ) ));
+    transition_malformed( ctx, stem );
+    return 0;
+  }
+
+  ctx->in.frag_pos += in_consumed;
+  FD_TEST( ctx->in.frag_pos<=sz );
+
+  if( FD_LIKELY( ctx->full ) ) {
+    ctx->metrics.full.compressed_bytes_read      += in_consumed;
+    ctx->metrics.full.decompressed_bytes_written += out_produced;
+  } else {
+    ctx->metrics.incremental.compressed_bytes_read      += in_consumed;
+    ctx->metrics.incremental.decompressed_bytes_written += out_produced;
+  }
+
+  if( FD_UNLIKELY( frame_res && !in_consumed && !out_produced ) ) {
+    if( FD_UNLIKELY( ctx->in.frag_pos<sz ) ) {
+      /* No progress with remaining input would retry forever */
+      transition_malformed( ctx, stem );
+    } else {
+      /* No progress with exhausted input means zstd needs the next frag */
+      ctx->in.frag_pos = 0UL;
+    }
+    return 0;
+  }
+
+  if( FD_LIKELY( out_produced || !frame_res ) ) {
+    ulong out_ctl = fd_frag_meta_ctl( 0UL, 0, !frame_res, 0 );
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, out_produced, out_ctl, 0UL, 0UL );
+    ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, out_produced, ctx->out.chunk0, ctx->out.wmark );
+  }
+
+  if( FD_UNLIKELY( !frame_res ) ) finish_frame( ctx );
+
+  /* frame_res==0 means the frame ended exactly at the output boundary;
+     re-polling then reports "new frame expected" and would mark the
+     stream dirty at a clean EOF. */
+  int maybe_more_output = (out_produced==ctx->out.mtu && frame_res!=0UL) || ctx->in.frag_pos<sz;
+  if( FD_LIKELY( !maybe_more_output ) ) ctx->in.frag_pos = 0UL;
+  return maybe_more_output;
+}
+
 static inline int
 handle_data_frag( fd_snapdc_tile_t *  ctx,
                   fd_stem_context_t * stem,
@@ -223,11 +351,12 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu && sz>=ctx->in.frag_pos );
   uchar const * data = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
-  uchar const * in  = data+ctx->in.frag_pos;
-  uchar * out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
 
   if( FD_UNLIKELY( !ctx->is_zstd ) ) {
+    if( FD_UNLIKELY( ctx->tile_idx!=0UL ) ) return 0;
     FD_TEST( ctx->in.frag_pos<sz );
+    uchar const * in  = data+ctx->in.frag_pos;
+    uchar *       out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
     ulong cpy = fd_ulong_min( sz-ctx->in.frag_pos, ctx->out.mtu );
     fd_memcpy( out, in, cpy );
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, cpy, 0UL, 0UL, 0UL );
@@ -248,48 +377,11 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     return 0;
   }
 
-  ulong in_consumed = 0UL, out_produced = 0UL;
-  ulong frame_res = ZSTD_decompressStream_simpleArgs(
-      ctx->zstd,
-      out,
-      ctx->out.mtu,
-      &out_produced,
-      in,
-      sz-ctx->in.frag_pos,
-      &in_consumed );
-  if( FD_UNLIKELY( ZSTD_isError( frame_res ) ) ) {
-    FD_LOG_WARNING(( "error while decompressing %s snapshot (%u-%s)",
-                     ctx->full ? "full" : "incremental",
-                     ZSTD_getErrorCode( frame_res ), ZSTD_getErrorName( frame_res ) ));
-    ctx->state = FD_SNAPSHOT_STATE_ERROR;
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-    return 0;
+  if( ctx->frame_idx%ctx->tile_count!=ctx->tile_idx ) {
+    return skip_unowned_frame( ctx, stem, data, sz );
   }
 
-  if( FD_LIKELY( out_produced ) ) {
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, out_produced, 0UL, 0UL, 0UL );
-    ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, out_produced, ctx->out.chunk0, ctx->out.wmark );
-  }
-
-  ctx->in.frag_pos += in_consumed;
-  FD_TEST( ctx->in.frag_pos<=sz );
-
-  if( FD_LIKELY( ctx->full ) ) {
-    ctx->metrics.full.compressed_bytes_read      += in_consumed;
-    ctx->metrics.full.decompressed_bytes_written += out_produced;
-  } else {
-    ctx->metrics.incremental.compressed_bytes_read      += in_consumed;
-    ctx->metrics.incremental.decompressed_bytes_written += out_produced;
-  }
-
-  ctx->dirty = frame_res!=0UL;
-
-  /* frame_res==0 means the frame ended exactly at the output boundary;
-     re-polling then reports "new frame expected" and would mark the
-     stream dirty at a clean EOF. */
-  int maybe_more_output = (out_produced==ctx->out.mtu && frame_res!=0UL) || ctx->in.frag_pos<sz;
-  if( FD_LIKELY( !maybe_more_output ) ) ctx->in.frag_pos = 0UL;
-  return maybe_more_output;
+  return process_owned_frame( ctx, stem, data, sz );
 }
 
 static inline int
@@ -345,14 +437,20 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_snapdc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t) );
   void * _zstd           = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
 
-  ctx->state = FD_SNAPSHOT_STATE_IDLE;
+  ctx->state      = FD_SNAPSHOT_STATE_IDLE;
+  ctx->tile_idx   = tile->kind_id;
+  ctx->tile_count = fd_topo_tile_name_cnt( topo, NAME );
+  FD_TEST( ctx->tile_count );
+  FD_TEST( ctx->tile_idx<ctx->tile_count );
 
   ctx->zstd = ZSTD_initStaticDStream( _zstd, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
   FD_TEST( ctx->zstd );
   FD_TEST( ctx->zstd==_zstd );
 
-  ctx->dirty = 0;
+  ctx->dirty       = 0;
+  ctx->frame_idx   = 0UL;
   ctx->in.frag_pos = 0UL;
+  FD_TEST( fd_zstd_frame_new( ctx->zstd_frame ) );
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
@@ -381,8 +479,7 @@ unprivileged_init( fd_topo_t const *      topo,
                  (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-/* handle_data_frag can publish one data frag plus an error frag */
-#define STEM_BURST 2UL
+#define STEM_BURST 1UL
 
 #define STEM_LAZY  (128L*3000L)
 

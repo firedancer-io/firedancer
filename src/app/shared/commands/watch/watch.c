@@ -548,9 +548,9 @@ write_snapshots( config_t const * config,
                  ulong const *    cur_tile,
                  ulong const *    prev_tile ) {
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
-  ulong snapdc_idx = fd_topo_find_tile( &config->topo, "snapdc", 0UL );
   ulong snapin_idx = fd_topo_find_tile( &config->topo, "snapin", 0UL );
   ulong snapwr_idx = fd_topo_find_tile( &config->topo, "snapwr", 0UL );
+  ulong snapdc_tile_cnt = fd_topo_tile_name_cnt( &config->topo, "snapdc" );
   ulong state = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, STATE ) ];
 
   double progress = 0.0;
@@ -583,14 +583,24 @@ write_snapshots( config_t const * config,
       if( FD_UNLIKELY( incremental ) ) {
         consumed   = fd_ulong_min( cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ],
                                    cur_tile[ snapwr_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, INCREMENTAL_BYTES_READ ) ] );
-        dc_in      = cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ];
-        dc_out     = cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        dc_in      = 0UL;
+        dc_out     = 0UL;
+        for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
+          ulong snapdc_idx = fd_topo_find_tile( &config->topo, "snapdc", i );
+          dc_in  += cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ];
+          dc_out += cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        }
         size_bytes = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ];
       } else {
         consumed   = fd_ulong_min( cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],
                                    cur_tile[ snapwr_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FULL_BYTES_READ ) ] );
-        dc_in      = cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ];
-        dc_out     = cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        dc_in      = 0UL;
+        dc_out     = 0UL;
+        for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
+          ulong snapdc_idx = fd_topo_find_tile( &config->topo, "snapdc", i );
+          dc_in  += cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ];
+          dc_out += cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        }
         size_bytes = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ];
       }
       double done_comp = dc_out ? (double)dc_in*( (double)consumed/(double)dc_out ) : 0.0;
@@ -622,7 +632,11 @@ write_snapshots( config_t const * config,
 
   ulong snapct_total_ticks = total_regime( &cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ snapct_idx*FD_METRICS_TOTAL_SZ ] );
   ulong snapld_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] );
-  ulong snapdc_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] );
+  ulong snapdc_total_ticks = 0UL;
+  for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
+    ulong snapdc_idx = fd_topo_find_tile( &config->topo, "snapdc", i );
+    snapdc_total_ticks += total_regime( &cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ ] );
+  }
   ulong snapin_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] );
   ulong snapwr_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapwr", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapwr", 0UL )*FD_METRICS_TOTAL_SZ ] );
   snapct_total_ticks = fd_ulong_max( snapct_total_ticks, 1UL );
