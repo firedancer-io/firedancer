@@ -232,6 +232,24 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
+  /* Add certificate types (RFC 7250) */
+
+  if( in->server_cert_types.x509 | in->server_cert_types.raw_pubkey ) {
+    uchar            cnt     = (uchar)( in->server_cert_types.x509 + in->server_cert_types.raw_pubkey );
+    fd_tls_ext_hdr_t ext_hdr = { .type = FD_TLS_EXT_SERVER_CERT_TYPE,
+                                 .sz   = (ushort)( 1U+cnt ) };
+    FD_TLS_ENCODE_SUB( fd_tls_encode_ext_hdr,            &ext_hdr              );
+    FD_TLS_ENCODE_SUB( fd_tls_encode_ext_cert_type_list, in->server_cert_types );
+  }
+
+  if( in->client_cert_types.x509 | in->client_cert_types.raw_pubkey ) {
+    uchar            cnt     = (uchar)( in->client_cert_types.x509 + in->client_cert_types.raw_pubkey );
+    fd_tls_ext_hdr_t ext_hdr = { .type = FD_TLS_EXT_CLIENT_CERT_TYPE,
+                                 .sz   = (ushort)( 1U+cnt ) };
+    FD_TLS_ENCODE_SUB( fd_tls_encode_ext_hdr,            &ext_hdr              );
+    FD_TLS_ENCODE_SUB( fd_tls_encode_ext_cert_type_list, in->client_cert_types );
+  }
+
   /* Add ALPN */
 
   if( in->alpn.bufsz ) {
@@ -897,7 +915,7 @@ fd_tls_encode_ext_cert_type_list( fd_tls_ext_cert_type_list_t in,
   ulong wire_laddr = (ulong)wire;
 
   /* Encode list size */
-  uchar cnt = (uchar)fd_uchar_popcnt( in.uc );
+  uchar cnt = (uchar)( in.x509 + in.raw_pubkey );
   FD_TLS_ENCODE_FIELD( &cnt, uchar );
 
   /* Encode list */

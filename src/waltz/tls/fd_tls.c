@@ -1155,6 +1155,26 @@ fd_tls_client_handshake( fd_tls_t const *      client,
   }
 }
 
+/* Certificate types that the client advertises (RFC 7250).  fd_tls
+   always sends these extensions, even though RFC 7250 Section 4.1
+   permits omitting them when X.509 is the only supported type. */
+
+static fd_tls_ext_cert_type_list_t const fd_tls_cli_server_cert_types = { .present=1, .x509=1 };
+static fd_tls_ext_cert_type_list_t const fd_tls_cli_client_cert_types = { .present=1, .x509=1 };
+
+/* fd_tls_cert_type_offered returns 1 if cert_type is in the given list
+   of advertised certificate types, 0 otherwise. */
+
+static int
+fd_tls_cert_type_offered( fd_tls_ext_cert_type_list_t offered,
+                          uint                        cert_type ) {
+  switch( cert_type ) {
+  case FD_TLS_CERTTYPE_X509:       return !!offered.x509;
+  case FD_TLS_CERTTYPE_RAW_PUBKEY: return !!offered.raw_pubkey;
+  default:                         return 0;
+  }
+}
+
 static long
 fd_tls_client_hs_start( fd_tls_t const * const      client,
                         fd_tls_estate_cli_t * const handshake ) {
@@ -1207,6 +1227,8 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
       .signature_algorithms = { .ed25519=1 },
       .cipher_suites        = { .aes_128_gcm_sha256=1 },
       .key_share            = { .has_x25519=1 },
+      .server_cert_types    = fd_tls_cli_server_cert_types,
+      .client_cert_types    = fd_tls_cli_client_cert_types,
       .quic_tp = {
         .buf   = (quic_tp_sz>=0L) ? quic_tp            : NULL,
         .bufsz = (quic_tp_sz>=0L) ? (ushort)quic_tp_sz : 0,
@@ -1408,27 +1430,17 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
 
   fd_sha256_append( &handshake->transcript, record, read_sz );
 
-  switch( ee->server_cert.cert_type ) {
-  case FD_TLS_CERTTYPE_X509:
-    break;  /* ok */
-  case FD_TLS_CERTTYPE_RAW_PUBKEY:
-    handshake->server_cert_rpk = 1;
-    break;
-  default:
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_TYPE );
-  }
+  /* Check the negotiated certificate types.  The server must not select
+     a type that we did not advertise (RFC 8446 Section 4.2).  A missing
+     extension implies X.509. */
 
-  handshake->client_cert_nox509 = 1;
-  switch( ee->client_cert.cert_type ) {
-  case FD_TLS_CERTTYPE_X509:
-    handshake->client_cert_nox509 = 0;
-    break;
-  case FD_TLS_CERTTYPE_RAW_PUBKEY:
-    handshake->client_cert_rpk = 1;
-    break;
-  default:
+  if( FD_UNLIKELY( !fd_tls_cert_type_offered( fd_tls_cli_server_cert_types, ee->server_cert.cert_type ) ||
+                   !fd_tls_cert_type_offered( fd_tls_cli_client_cert_types, ee->client_cert.cert_type ) ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_TYPE );
-  }
+
+  handshake->server_cert_rpk    = (uchar)( ee->server_cert.cert_type==FD_TLS_CERTTYPE_RAW_PUBKEY );
+  handshake->client_cert_rpk    = (uchar)( ee->client_cert.cert_type==FD_TLS_CERTTYPE_RAW_PUBKEY );
+  handshake->client_cert_nox509 = (uchar)( ee->client_cert.cert_type!=FD_TLS_CERTTYPE_X509       );
 
   /* QUIC mode */
 
