@@ -559,21 +559,13 @@ fd_gui_ws_open( fd_gui_t * gui,
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
-  {
-    fd_gui_printf_live_program_cache( gui );
-    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
-
-    if( FD_LIKELY( gui->summary.accounts_stats_have_reference ) ) {
-      fd_gui_printf_accounts_stats( gui );
-      FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
-    }
-  }
-
   if( FD_LIKELY( gui->block_engine.has_block_engine ) ) {
     fd_gui_printf_block_engine( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
+  /* Epoch (small since leader_slots went client-side) goes out before
+     the bulkier frames: the default route needs it for first render */
   if( FD_LIKELY( gui->epoch.current_epoch!=ULONG_MAX ) ) {
     for( ulong e=gui->epoch.current_epoch; e<=gui->epoch.current_epoch+1UL; e++ ) {
       if( FD_LIKELY( fd_gui_epoch( gui, e ) ) ) {
@@ -595,10 +587,19 @@ fd_gui_ws_open( fd_gui_t * gui,
     }
   }
 
+  fd_gui_printf_live_program_cache( gui );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+
   /* rebroadcast 10s of historical shred data */
   long const shred_history_start = now-10L*1000L*1000L*1000L;
   if( FD_LIKELY( !fd_gui_shreds_window_is_empty( gui, shred_history_start, now ) ) ) {
     fd_gui_printf_shred_rebroadcast( gui, shred_history_start, now );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
+
+  /* Bulky and only shown on the accounts route, goes last */
+  if( FD_LIKELY( gui->summary.accounts_stats_have_reference ) ) {
+    fd_gui_printf_accounts_stats( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 }
