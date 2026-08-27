@@ -1667,8 +1667,9 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
              with zeroed utilization so the row visually clears once its
              data has been moved out. */
           int    is_compacted   = info->compaction_state==0 &&
-                                  info->write_offset>0UL &&
-                                  info->compaction_offset>=info->write_offset;
+                                  ( ( info->write_offset>0UL &&
+                                      info->compaction_offset>=info->write_offset ) ||
+                                    ( !info->write_offset && info->bytes_written>0UL ) );
           ulong  tier           = is_compacted ? 255UL : (ulong)info->layer;
           double utilization    = (!is_compacted && partition_sz)
             ? (double)info->write_offset / (double)partition_sz : 0.0;

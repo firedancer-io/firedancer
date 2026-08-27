@@ -136,6 +136,7 @@ fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
 struct fd_accdb_shmem_partition_info {
   ulong file_offset;        /* byte offset of partition start in the accdb file */
   ulong write_offset;       /* current write head within the partition          */
+  ulong write_offset_raw;   /* active head's reservation tip, may exceed the partition size */
   ulong bytes_freed;        /* bytes marked freed within the partition          */
   ulong compaction_offset;  /* current compaction read offset within partition  */
   ulong read_ops;
@@ -162,6 +163,27 @@ void
 fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
                                ulong                             partition_idx,
                                fd_accdb_shmem_partition_info_t * out );
+
+/* Writer barrier.  Write heads advance when space is reserved, not
+   when the write lands, so a sampled offset may cover in-flight
+   writes.  capture records which joiners are mid-write; poll until it
+   returns 0, and everything below offsets sampled before capture is
+   on disk. */
+
+struct fd_accdb_shmem_writer_barrier { ulong bits[ 4UL ]; };
+
+typedef struct fd_accdb_shmem_writer_barrier fd_accdb_shmem_writer_barrier_t;
+
+void
+fd_accdb_shmem_writer_barrier_capture( fd_accdb_shmem_t const *          accdb,
+                                       fd_accdb_shmem_writer_barrier_t * barrier );
+
+ulong
+fd_accdb_shmem_writer_barrier_poll( fd_accdb_shmem_t const *          accdb,
+                                    fd_accdb_shmem_writer_barrier_t * barrier );
+
+ulong const *
+fd_accdb_shmem_snapshot_sync( fd_accdb_shmem_t const * accdb );
 
 FD_PROTOTYPES_END
 

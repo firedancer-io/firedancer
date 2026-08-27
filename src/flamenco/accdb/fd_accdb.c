@@ -444,6 +444,8 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
+  FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE,
+                 "snapshot load started while snapshot production active" );
   accdb->snapshot_loading = 1;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
 }
@@ -1666,6 +1668,7 @@ change_partition( fd_accdb_t *           accdb,
   ulong new_partition_idx = partition_pool_idx( accdb->partition_pool, partition );
   int had_partition = *has_partition;
   *out_offset   = accdb_offset( new_partition_idx, 0UL );
+  FD_COMPILER_MFENCE();
   *has_partition = 1;
 
   /* Now that the write head has been rotated away from the old
@@ -4312,11 +4315,15 @@ fd_accdb_background( fd_accdb_t * accdb,
       fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
       break;
     case FD_ACCDB_SNAPSHOT_SYNC_START_FULL:
+      FD_CHECK_CRIT( !FD_VOLATILE_CONST( shmem->snapshot_loading ),
+                     "snapshot production requested during snapshot load" );
       delta_reset( accdb );
       fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
       *charge_busy = 1;
       return;
     case FD_ACCDB_SNAPSHOT_SYNC_START_INCR:
+      FD_CHECK_CRIT( !FD_VOLATILE_CONST( shmem->snapshot_loading ),
+                     "snapshot production requested during snapshot load" );
       if( delta_is_valid( accdb->shmem ) ) {
         fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
       } else {
