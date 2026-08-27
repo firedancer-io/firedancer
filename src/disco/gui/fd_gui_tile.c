@@ -544,6 +544,16 @@ after_frag( fd_gui_ctx_t *      ctx,
         /* tsorig is the timestamp when the shred was received by the shred tile */
         fd_gui_handle_shred( ctx->gui, slot, shred_idx, fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
       }
+      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
+        fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );
+        long tspub_nanos = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+        fd_gui_timeline_handle_fec( ctx->gui, complete_msg->last_shred_hdr.slot,
+                                    sig==SHRED_SIG_FEC_COMPLETE_LEADER, tspub_nanos,
+                                    complete_msg->turbine_shred_cnt,
+                                    complete_msg->repair_shred_cnt,
+                                    complete_msg->reconstructed_shred_cnt,
+                                    fd_clock_tile_now( ctx->clock ) );
+      }
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );
         fd_gui_handle_leader_fec( ctx->gui, complete_msg->last_shred_hdr.slot, FD_FEC_SHRED_CNT, complete_msg->last_shred_hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );

@@ -210,6 +210,11 @@ fd_gui_new( void *                   shmem,
      initialized explicitly. */
   gui->timeline_scratch_in_use = 0;
   for( ulong i=0UL; i<FD_GUI_FEC_EVENT_CACHE_CNT; i++ ) gui->fec_events[ i ].valid = 0U;
+  gui->timeline_day_max                    = ULONG_MAX;
+  gui->timeline_skipped_slot_watermark     = ULONG_MAX;
+  gui->timeline_skipped_bank_seq_watermark = ULONG_MAX;
+  gui->timeline_skipped_coverage_start_ns  = LONG_MAX;
+  gui->timeline_skipped_coverage_end_ns    = LONG_MAX;
 
   gui->http        = http;
   gui->topo        = topo;
@@ -3025,21 +3030,379 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+/* ---- Timeline aggregate collection ----------------------------------
+
+   Slot, shred-source, compute, transaction and revenue activity is
+   accumulated into one stored record per UTC day.  Each day record holds
+   the same counters at seven stored resolutions, from 250 ms up to 12
+   hours, so a query can serve any requested granularity by merging whole
+   buckets of the next finer tier rather than rescanning raw events. */
+
+ulong const fd_gui_timeline_stored_granularity_ns[ FD_GUI_TIMELINE_STORED_GRANULARITY_CNT ] = {
+  250000000UL, 2000000000UL, 15000000000UL, 120000000000UL,
+  900000000000UL, 7200000000000UL, 43200000000000UL
+};
+
+ulong const fd_gui_timeline_stored_granularity_off[ FD_GUI_TIMELINE_STORED_GRANULARITY_CNT ] = {
+  FD_GUI_TIMELINE_250MS_OFF, FD_GUI_TIMELINE_2S_OFF,  FD_GUI_TIMELINE_15S_OFF,
+  FD_GUI_TIMELINE_2M_OFF,    FD_GUI_TIMELINE_15M_OFF, FD_GUI_TIMELINE_2H_OFF,
+  FD_GUI_TIMELINE_12H_OFF
+};
+
+#define FD_GUI_TIMELINE_METRIC_TURBINE       (0)
+#define FD_GUI_TIMELINE_METRIC_REPAIR        (1)
+#define FD_GUI_TIMELINE_METRIC_RECONSTRUCTED (2)
+#define FD_GUI_TIMELINE_METRIC_PUBLISHED     (3)
+
+static fd_gui_timeline_day_t *
+fd_gui_timeline_day_create( fd_gui_t * gui,
+                            ulong      day_idx,
+                            long       now ) {
+  /* Every path that turns a timestamp into a day record funnels through
+     here, so this is where the horizon is bounded.  Without the check a
+     single far-future timestamp would advance timeline_day_max past every
+     real day, after which day_for_event rejects correct events and all
+     aggregate writes are silently dropped until eviction rolls the
+     horizon forward again -- permanent, silent, whole-family loss from
+     one bad input. */
+  ulong now_day = now<0L ? 0UL : (ulong)now/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  if( FD_UNLIKELY( day_idx>now_day+1UL ) ) return NULL;
+
+  fd_gui_hist_timeline_day_key_t key = { .day=day_idx };
+  fd_gui_timeline_day_t * day = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &key );
+  if( FD_LIKELY( day ) ) {
+    gui->timeline_day_max = gui->timeline_day_max==ULONG_MAX ? day_idx : fd_ulong_max( gui->timeline_day_max, day_idx );
+    return day;
+  }
+
+  /* The KV ring reclaims a physical prefix, so the first insertion of
+     each day must stay monotonic.  A missing older day has already
+     fallen outside the retained horizon. */
+  if( FD_UNLIKELY( gui->timeline_day_max!=ULONG_MAX && day_idx<gui->timeline_day_max ) ) return NULL;
+  fd_gui_timeline_day_t const * oldest = fd_gui_store_kv_get_any( (fd_gui_store_t *)gui->db,
+                                                                  (ulong)FD_GUI_HIST_TIMELINE_DAY,
+                                                                  NULL );
+  if( FD_UNLIKELY( oldest && day_idx<oldest->day ) ) return NULL;
+
+  day = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_TIMELINE_DAY, &key );
+  if( FD_UNLIKELY( !day ) ) return NULL;
+  memset( day, 0xFF, sizeof(*day) );
+  day->day = day_idx;
+  gui->timeline_day_max = day_idx;
+  return day;
+}
+
+/* Return the retained record for an event's UTC day, creating records
+   only while time moves forward.  When advancing across a gap, create the
+   day immediately preceding the event first.  That keeps the common
+   midnight late-arrival case writable without letting an old event
+   reorder the KV ring. */
+
+static fd_gui_timeline_day_t *
+fd_gui_timeline_day_for_event( fd_gui_t * gui,
+                               ulong      day_idx,
+                               long       now ) {
+  fd_gui_hist_timeline_day_key_t key = { .day=day_idx };
+  fd_gui_timeline_day_t * day = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &key );
+  if( FD_LIKELY( day ) ) {
+    gui->timeline_day_max = gui->timeline_day_max==ULONG_MAX ? day_idx : fd_ulong_max( gui->timeline_day_max, day_idx );
+    return day;
+  }
+
+  if( FD_UNLIKELY( gui->timeline_day_max!=ULONG_MAX && day_idx<=gui->timeline_day_max ) ) return NULL;
+
+  if( FD_LIKELY( day_idx ) ) {
+    ulong preceding_day = day_idx-1UL;
+    if( gui->timeline_day_max==ULONG_MAX || preceding_day>gui->timeline_day_max ) {
+      if( FD_UNLIKELY( !fd_gui_timeline_day_create( gui, preceding_day, now ) ) ) return NULL;
+    }
+  }
+  return fd_gui_timeline_day_create( gui, day_idx, now );
+}
+
+static inline void
+fd_gui_timeline_ulong_add( ulong * value,
+                           ulong   delta ) {
+  ulong max_value = ULONG_MAX-1UL; /* ULONG_MAX is the unknown sentinel */
+  *value = delta>max_value-*value ? max_value : *value+delta;
+}
+
+static void
+fd_gui_timeline_event_delta( fd_gui_t * gui,
+                             ulong      slot,
+                             long       timestamp_ns,
+                             long       now,
+                             int        metric,
+                             ulong      value ) {
+  if( FD_UNLIKELY( slot==ULONG_MAX || timestamp_ns<0L || value==ULONG_MAX ) ) return;
+  ulong ts_ns   = (ulong)timestamp_ns;
+  ulong day_idx = ts_ns/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  ulong day_ns  = ts_ns%(ulong)FD_GUI_TIMELINE_DAY_NS;
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, day_idx, now );
+  if( FD_UNLIKELY( !day ) ) return;
+
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_STORED_GRANULARITY_CNT; g++ ) {
+    ulong idx = fd_gui_timeline_stored_granularity_off[ g ] + day_ns/fd_gui_timeline_stored_granularity_ns[ g ];
+    day->start_slot[ idx ] = day->start_slot[ idx ]==ULONG_MAX ? slot : fd_ulong_min( day->start_slot[ idx ], slot );
+    day->end_slot  [ idx ] = day->end_slot  [ idx ]==ULONG_MAX ? slot : fd_ulong_max( day->end_slot  [ idx ], slot );
+    ulong * dst;
+    switch( metric ) {
+      case FD_GUI_TIMELINE_METRIC_TURBINE:       dst = &day->turbine      [ idx ]; break;
+      case FD_GUI_TIMELINE_METRIC_REPAIR:        dst = &day->repair       [ idx ]; break;
+      case FD_GUI_TIMELINE_METRIC_RECONSTRUCTED: dst = &day->reconstructed[ idx ]; break;
+      case FD_GUI_TIMELINE_METRIC_PUBLISHED:     dst = &day->published    [ idx ]; break;
+      default: return;
+    }
+    if( *dst==ULONG_MAX ) *dst = value;
+    else                  fd_gui_timeline_ulong_add( dst, value );
+  }
+}
+
+void
+fd_gui_timeline_handle_fec( fd_gui_t * gui,
+                            ulong      slot,
+                            int        published,
+                            long       timestamp_ns,
+                            ulong      turbine_shred_cnt,
+                            ulong      repair_shred_cnt,
+                            ulong      reconstructed_shred_cnt,
+                            long       now ) {
+  ulong fec_shred_cnt = 2UL*(ulong)FD_FEC_SHRED_CNT; /* data plus coding */
+
+  /* All aggregate shred fields share the FEC completion timestamp.  A
+     completed FEC makes every source contribution known, including
+     zero. */
+  fd_gui_timeline_event_delta( gui, slot, timestamp_ns, now, FD_GUI_TIMELINE_METRIC_TURBINE,       turbine_shred_cnt       );
+  fd_gui_timeline_event_delta( gui, slot, timestamp_ns, now, FD_GUI_TIMELINE_METRIC_REPAIR,        repair_shred_cnt        );
+  fd_gui_timeline_event_delta( gui, slot, timestamp_ns, now, FD_GUI_TIMELINE_METRIC_RECONSTRUCTED, reconstructed_shred_cnt );
+  fd_gui_timeline_event_delta( gui, slot, timestamp_ns, now, FD_GUI_TIMELINE_METRIC_PUBLISHED,     published ? fec_shred_cnt : 0UL );
+}
+
+void
+fd_gui_timeline_handle_txn( fd_gui_t * gui,
+                            ulong      slot,
+                            long       timestamp_ns,
+                            ulong      compute_units,
+                            ulong      max_compute_units,
+                            ulong      transaction_fee,
+                            ulong      priority_fee,
+                            ulong      tips,
+                            int        is_simple_vote,
+                            int        txn_succeeded,
+                            long       now ) {
+  if( FD_UNLIKELY( slot==ULONG_MAX || timestamp_ns<0L ) ) return;
+
+  ulong ts_ns   = (ulong)timestamp_ns;
+  ulong day_idx = ts_ns/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  ulong day_ns  = ts_ns%(ulong)FD_GUI_TIMELINE_DAY_NS;
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, day_idx, now );
+  if( FD_UNLIKELY( !day ) ) return;
+
+#define TIMELINE_ADD(field,value) do {                                 \
+    ulong _v = (value);                                                \
+    if( _v!=ULONG_MAX ) {                                              \
+      if( day->field[ idx ]==ULONG_MAX ) day->field[ idx ] = _v;       \
+      else fd_gui_timeline_ulong_add( &day->field[ idx ], _v );        \
+    }                                                                  \
+  } while(0)
+
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_STORED_GRANULARITY_CNT; g++ ) {
+    ulong idx = fd_gui_timeline_stored_granularity_off[ g ] + day_ns/fd_gui_timeline_stored_granularity_ns[ g ];
+    day->start_slot[ idx ] = day->start_slot[ idx ]==ULONG_MAX ? slot : fd_ulong_min( day->start_slot[ idx ], slot );
+    day->end_slot  [ idx ] = day->end_slot  [ idx ]==ULONG_MAX ? slot : fd_ulong_max( day->end_slot  [ idx ], slot );
+    TIMELINE_ADD( compute_units, compute_units );
+    if( max_compute_units!=ULONG_MAX )
+      day->max_compute[ idx ] = day->max_compute[ idx ]==ULONG_MAX
+                              ? max_compute_units
+                              : fd_ulong_max( day->max_compute[ idx ], max_compute_units );
+    TIMELINE_ADD( txn_fees,  transaction_fee );
+    TIMELINE_ADD( prio_fees, priority_fee    );
+    TIMELINE_ADD( tips,      tips            );
+    TIMELINE_ADD( nonvote_success, !is_simple_vote &&  txn_succeeded );
+    TIMELINE_ADD( nonvote_failed,  !is_simple_vote && !txn_succeeded );
+    TIMELINE_ADD( vote_success,     is_simple_vote &&  txn_succeeded );
+    TIMELINE_ADD( vote_failed,      is_simple_vote && !txn_succeeded );
+  }
+#undef TIMELINE_ADD
+}
+
+static inline void
+fd_gui_timeline_skipped_inc( uint * value ) {
+  if( FD_UNLIKELY( *value==UINT_MAX ) ) *value = 1U;
+  else if( FD_LIKELY( *value<UINT_MAX-1U ) ) (*value)++;
+}
+
+/* Attribute one skipped slot to every stored tier.  Skipped slots are
+   synthetic timeline events, so they do not affect the observed
+   start_slot/end_slot bounds. */
+
+static void
+fd_gui_timeline_skipped_add( fd_gui_t * gui,
+                             long       timestamp_ns ) {
+  ulong ts_ns   = (ulong)timestamp_ns;
+  ulong day_idx = ts_ns/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  ulong day_ns  = ts_ns%(ulong)FD_GUI_TIMELINE_DAY_NS;
+
+  fd_gui_hist_timeline_day_key_t key = { .day=day_idx };
+  fd_gui_timeline_day_t * day = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &key );
+  FD_TEST( day ); /* The full covered day range is prepared before writes. */
+
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_STORED_GRANULARITY_CNT; g++ ) {
+    ulong idx = fd_gui_timeline_stored_granularity_off[ g ] + day_ns/fd_gui_timeline_stored_granularity_ns[ g ];
+    fd_gui_timeline_skipped_inc( &day->skipped[ idx ] );
+  }
+}
+
+/* Ensure every UTC day in the newly classified interval exists before any
+   skipped counts are written.  That makes the subsequent reverse ancestry
+   walk safe even when it crosses midnight. */
+
+static int
+fd_gui_timeline_skipped_prepare_days( fd_gui_t * gui,
+                                      long       start_ns,
+                                      long       end_ns,
+                                      long       now ) {
+  if( FD_UNLIKELY( start_ns<0L || end_ns<start_ns ) ) return 0;
+
+  ulong first_day = (ulong)start_ns/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  ulong last_day  = (ulong)end_ns  /(ulong)FD_GUI_TIMELINE_DAY_NS;
+  for( ulong day=first_day;; day++ ) {
+    if( FD_UNLIKELY( !fd_gui_timeline_day_create( gui, day, now ) ) ) return 0;
+    if( FD_LIKELY( day==last_day ) ) break;
+  }
+  return 1;
+}
+
+static int
+fd_gui_timeline_skipped_can_prepare_days( fd_gui_t * gui,
+                                          long       start_ns,
+                                          long       end_ns ) {
+  ulong first_day = (ulong)start_ns/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  ulong last_day  = (ulong)end_ns  /(ulong)FD_GUI_TIMELINE_DAY_NS;
+  for( ulong day=first_day;; day++ ) {
+    fd_gui_hist_timeline_day_key_t key = { .day=day };
+    if( FD_UNLIKELY( !fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &key ) &&
+                     gui->timeline_day_max!=ULONG_MAX && day<gui->timeline_day_max ) ) return 0;
+    if( FD_LIKELY( day==last_day ) ) break;
+  }
+  return 1;
+}
+
+/* Find the oldest landed slot that can anchor this OC update.  Once a
+   watermark exists, the new OC lineage must reach that exact fork record.
+   For the first OC event, use the longest retained suffix with valid,
+   nondecreasing completion timestamps. */
+
+static int
+fd_gui_timeline_skipped_find_anchor( fd_gui_t *             gui,
+                                     fd_gui_slot_t const *  tip,
+                                     fd_gui_slot_t const ** anchor_out ) {
+  int have_watermark = gui->timeline_skipped_slot_watermark!=ULONG_MAX;
+  if( FD_UNLIKELY( !tip || tip->completed_time==LONG_MAX || tip->completed_time<0L ) ) return 0;
+  if( FD_UNLIKELY( !fd_gui_timeline_skipped_can_prepare_days( gui, tip->completed_time, tip->completed_time ) ) ) return 0;
+
+  fd_gui_slot_t const * c = tip;
+  for(;;) {
+    if( FD_UNLIKELY( have_watermark && c->slot<gui->timeline_skipped_slot_watermark ) ) return 0;
+
+    if( have_watermark && c->slot==gui->timeline_skipped_slot_watermark ) {
+      if( FD_UNLIKELY( c->bank_seq!=gui->timeline_skipped_bank_seq_watermark ||
+                       c->completed_time!=gui->timeline_skipped_coverage_end_ns ) ) return 0;
+      *anchor_out = c;
+      return 1;
+    }
+
+    ulong pslot = c->parent_slot;
+    ulong pseq  = c->parent_bank_seq;
+    if( FD_UNLIKELY( pslot==ULONG_MAX || pseq==ULONG_MAX || pslot>=c->slot ) ) {
+      if( FD_UNLIKELY( have_watermark ) ) return 0;
+      *anchor_out = c;
+      return 1;
+    }
+
+    fd_gui_slot_t const * p = fd_gui_slot_get( gui, pslot, pseq );
+    if( FD_UNLIKELY( !p || p->completed_time==LONG_MAX || p->completed_time<0L ||
+                     p->completed_time>c->completed_time ) ) {
+      if( FD_UNLIKELY( have_watermark ) ) return 0;
+      *anchor_out = c;
+      return 1;
+    }
+    if( FD_UNLIKELY( !fd_gui_timeline_skipped_can_prepare_days( gui, p->completed_time, c->completed_time ) ) ) {
+      if( FD_UNLIKELY( have_watermark ) ) return 0;
+      *anchor_out = c;
+      return 1;
+    }
+    c = p;
+  }
+}
+
+/* Record every skipped numeric slot between consecutive landed slots on
+   the optimistically confirmed fork.  The completion-time interval is
+   divided into one equal segment per numeric slot transition, and a
+   skipped slot is placed at the midpoint of its segment. */
+
+void
+fd_gui_timeline_skipped_update( fd_gui_t *            gui,
+                                fd_gui_slot_t const * tip_in,
+                                long                  now ) {
+  if( FD_UNLIKELY( !tip_in ) ) return;
+  ulong tip_slot     = tip_in->slot;
+  ulong tip_bank_seq = tip_in->bank_seq;
+  long  tip_time     = tip_in->completed_time;
+  if( FD_UNLIKELY( gui->timeline_skipped_slot_watermark!=ULONG_MAX &&
+                   tip_slot<=gui->timeline_skipped_slot_watermark ) ) return;
+
+  fd_gui_slot_t const * anchor = NULL;
+  if( FD_UNLIKELY( !fd_gui_timeline_skipped_find_anchor( gui, tip_in, &anchor ) ) ) return;
+  if( FD_UNLIKELY( !fd_gui_timeline_skipped_prepare_days( gui, anchor->completed_time, tip_time, now ) ) ) return;
+
+  /* Creating day records can evict old slot history under space
+     pressure.  Reacquire and revalidate the path before writing any
+     counts.  A first OC backfill may shorten to the still-retained
+     suffix; an incremental update still has to reach its exact
+     watermark. */
+  fd_gui_slot_t const * tip = fd_gui_slot_get( gui, tip_slot, tip_bank_seq );
+  if( FD_UNLIKELY( !tip || tip->completed_time!=tip_time ) ) return;
+  if( FD_UNLIKELY( !fd_gui_timeline_skipped_find_anchor( gui, tip, &anchor ) ) ) return;
+  if( FD_UNLIKELY( !fd_gui_timeline_skipped_prepare_days( gui, anchor->completed_time, tip_time, now ) ) ) return;
+
+  fd_gui_slot_t const * c = tip;
+  while( c!=anchor ) {
+    fd_gui_slot_t const * p = fd_gui_slot_get( gui, c->parent_slot, c->parent_bank_seq );
+    FD_TEST( p ); /* find_anchor validated this exact path. */
+
+    ulong slot_delta = c->slot-p->slot;
+    ulong time_delta = (ulong)(c->completed_time-p->completed_time);
+    for( ulong k=1UL; k<slot_delta; k++ ) {
+      uint128 segment_midpoint = ((uint128)2UL*(uint128)k)-(uint128)1UL;
+      uint128 segment_cnt      =  (uint128)2UL*(uint128)slot_delta;
+      ulong offset_ns = (ulong)((segment_midpoint*(uint128)time_delta)/segment_cnt);
+      fd_gui_timeline_skipped_add( gui, p->completed_time+(long)offset_ns );
+    }
+    c = p;
+  }
+
+  if( FD_UNLIKELY( gui->timeline_skipped_coverage_start_ns==LONG_MAX ) )
+    gui->timeline_skipped_coverage_start_ns = anchor->completed_time;
+  gui->timeline_skipped_coverage_end_ns    = tip_time;
+  gui->timeline_skipped_slot_watermark     = tip_slot;
+  gui->timeline_skipped_bank_seq_watermark = tip_bank_seq;
+}
+
 void
 fd_gui_handle_oc_advanced( fd_gui_t * gui,
                            ulong      _slot,
                            ulong      bank_seq,
                            long       now ) {
-  (void)now;
-
   if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) return;
-
   fd_gui_slot_t * live_slot = fd_gui_slot_get( gui, _slot, bank_seq );
   if( FD_UNLIKELY( !live_slot ) ) return;
 
   fd_gui_slot_t const * slot = fd_gui_slot_get_canon( gui, _slot );
   int on_canonical_fork = ( slot && slot->bank_seq==bank_seq );
   if( FD_UNLIKELY( !on_canonical_fork ) ) return; /* we've since switched forks so this update is invalid */
+
+  fd_gui_timeline_skipped_update( gui, live_slot, now );
 
   ulong prev_oc = gui->summary.slot_optimistically_confirmed;
 
@@ -3469,6 +3832,11 @@ fd_gui_handle_replay_txn( fd_gui_t *                       gui,
   fd_memcpy( rec.signature,
              txn->txn->payload + TXN( txn->txn )->signature_off,
              FD_TXN_SIGNATURE_SZ );
+
+  fd_gui_timeline_handle_txn( gui, rec.slot, rec.commit_end_ns,
+                             (ulong)rec.compute_units_consumed, txn->max_compute_units,
+                             rec.transaction_fee, rec.priority_fee, rec.tips,
+                             rec.is_simple_vote, !rec.error_code, now );
 
   /* Every stage timestamp above is reconstructed relative to `now`, so
      completion_time_ns trails the wallclock by exactly however far the

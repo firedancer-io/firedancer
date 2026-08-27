@@ -260,6 +260,12 @@ struct fd_gui_timeline_day {
 };
 typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
 
+/* Stored bucket resolutions, and the offset of each tier's buckets
+   within a day record.  Defined in fd_gui.c. */
+
+extern ulong const fd_gui_timeline_stored_granularity_ns [ FD_GUI_TIMELINE_STORED_GRANULARITY_CNT ];
+extern ulong const fd_gui_timeline_stored_granularity_off[ FD_GUI_TIMELINE_STORED_GRANULARITY_CNT ];
+
 struct fd_gui_tile_timers {
   long   sample_time_nanos; /* wallclock ns this sample was taken; identical across the per-tile records. */
   ulong  tile_idx;          /* global tile index into topo->tiles. */
@@ -1273,6 +1279,13 @@ struct fd_gui {
      zeroed. */
   fd_gui_fec_event_cache_entry_t fec_events[ FD_GUI_FEC_EVENT_CACHE_CNT ];
 
+  /* Timeline aggregate collection state.  Initialized in fd_gui_new. */
+  ulong timeline_day_max;                    /* largest day key ever created, ULONG_MAX when none */
+  ulong timeline_skipped_slot_watermark;     /* newest OC slot whose skipped run is recorded */
+  ulong timeline_skipped_bank_seq_watermark;
+  long  timeline_skipped_coverage_start_ns;
+  long  timeline_skipped_coverage_end_ns;
+
   struct {
     ulong landed_slot;
     ulong landed_bank_seq;
@@ -1522,6 +1535,43 @@ void
 fd_gui_handle_replay_txn( fd_gui_t *                       gui,
                           fd_replay_txn_executed_t const * txn,
                           long                             now );
+
+/* fd_gui_timeline_handle_fec folds one completed FEC set's shred source
+   counts into the aggregate day records. */
+
+void
+fd_gui_timeline_handle_fec( fd_gui_t * gui,
+                            ulong      slot,
+                            int        published,
+                            long       timestamp_ns,
+                            ulong      turbine_shred_cnt,
+                            ulong      repair_shred_cnt,
+                            ulong      reconstructed_shred_cnt,
+                            long       now );
+
+/* fd_gui_timeline_handle_txn folds one replayed transaction's compute,
+   fee and outcome into the aggregate day records. */
+
+void
+fd_gui_timeline_handle_txn( fd_gui_t * gui,
+                            ulong      slot,
+                            long       timestamp_ns,
+                            ulong      compute_units,
+                            ulong      max_compute_units,
+                            ulong      transaction_fee,
+                            ulong      priority_fee,
+                            ulong      tips,
+                            int        is_simple_vote,
+                            int        txn_succeeded,
+                            long       now );
+
+/* fd_gui_timeline_skipped_update records the skipped slots between
+   consecutive landed slots on the optimistically confirmed fork. */
+
+void
+fd_gui_timeline_skipped_update( fd_gui_t *            gui,
+                                fd_gui_slot_t const * tip_in,
+                                long                  now );
 
 void
 fd_gui_handle_replay_update( fd_gui_t *                         gui,
