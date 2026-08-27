@@ -3027,6 +3027,75 @@ Shares `reference_slot`, `reference_ts`, `slot_delta`, `txn_idx`,
 
 :::
 
+#### `timeline.query_agg_*`
+| frequency   | type              | example |
+|-------------|-------------------|---------|
+| *Request*   | `TimelineAgg`     | below   |
+
+Five methods share one request and response shape:
+`timeline.query_agg_slots`, `query_agg_shreds`, `query_agg_compute`,
+`query_agg_txn` and `query_agg_revenue`.
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound of the window, as decimal digits |
+| end_ns      | `string` | Exclusive upper bound of the window, as decimal digits |
+| granularity | `string` | One of `250ms`, `500ms`, `1s`, `2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d` |
+
+The window is snapped outward to whole buckets of the requested
+granularity.  A request spanning more than 150 buckets is rejected, so
+the client must narrow the window or coarsen the granularity.
+
+Every response carries `granularity` and `reference_ts_ns`, the start of
+the first bucket.  Bucket `i` covers
+`[reference_ts_ns + i*granularity, reference_ts_ns + (i+1)*granularity)`.
+Array entries are `null` where nothing is known for that bucket, which is
+distinct from a known zero.
+
+| key | arrays |
+|-----|--------|
+| `query_agg_slots`   | `start_slot`, `end_slot`, `skipped` |
+| `query_agg_shreds`  | `turbine`, `repair`, `reconstructed`, `published` |
+| `query_agg_compute` | `compute_units`, plus a scalar `max_compute_units` |
+| `query_agg_txn`     | `success_nonvote_transactions`, `failed_nonvote_transactions`, `success_vote_transactions`, `failed_vote_transactions` |
+| `query_agg_revenue` | `txn_fees`, `prio_fees`, `tips` (all decimal strings) |
+
+`skipped` is `null` outside the range the validator has actually
+classified, rather than zero.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_txn",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657100000000000",
+        "granularity": "15s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_txn",
+    "id": 50,
+    "value": {
+        "granularity": "15s",
+        "reference_ts_ns": "1739657040000000000",
+        "success_nonvote_transactions": [1203, 1187, null, 1240],
+        "failed_nonvote_transactions":  [12, 9, null, 15],
+        "success_vote_transactions":    [640, 655, null, 648],
+        "failed_vote_transactions":     [0, 1, null, 0]
+    }
+}
+```
+
+:::
+
 ### slot
 Slots are opportunities for a leader to produce a block. Their level contract
 depends on the consensus mode.

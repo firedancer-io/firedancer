@@ -144,6 +144,19 @@ fd_gui_printf_timeline_query_txn_batches( fd_gui_t *   gui,
                                           long         end_ns,
                                           ulong        id );
 
+/* fd_gui_printf_timeline_query_agg serves the five timeline.query_agg_*
+   methods.  `granularity_idx` indexes fd_gui_timeline_granularities and
+   `reference_ts_ns` is the start of the first response bucket. */
+
+int
+fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
+                                  char const * key,
+                                  char const * granularity,
+                                  ulong        granularity_idx,
+                                  long         reference_ts_ns,
+                                  ulong        bucket_cnt,
+                                  ulong        id );
+
 void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );
 

@@ -2280,6 +2280,51 @@ fd_gui_request_timeline_events( fd_gui_t *    gui,
 }
 
 static int
+fd_gui_timeline_parse_granularity( char const * name,
+                                   ulong *      idx ) {
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_GRANULARITY_CNT; i++ ) {
+    if( !strcmp( name, fd_gui_timeline_granularities[ i ].name ) ) { *idx=i; return 0; }
+  }
+  return -1;
+}
+
+static int
+fd_gui_request_timeline_agg( fd_gui_t *    gui,
+                             ulong         ws_conn_id,
+                             char const *  key,
+                             ulong         request_id,
+                             cJSON const * params ) {
+  cJSON const * start_param = cJSON_GetObjectItemCaseSensitive( params, "start_ns"    );
+  cJSON const * end_param   = cJSON_GetObjectItemCaseSensitive( params, "end_ns"      );
+  cJSON const * gran_param  = cJSON_GetObjectItemCaseSensitive( params, "granularity" );
+
+  long start_ns, end_ns;
+  if( FD_UNLIKELY( fd_gui_cjson_parse_ns( start_param, &start_ns ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  if( FD_UNLIKELY( fd_gui_cjson_parse_ns( end_param,   &end_ns   ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  if( FD_UNLIKELY( !(start_ns>=0L && start_ns<LONG_MAX) || !(end_ns>=0L && end_ns<LONG_MAX) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  if( FD_UNLIKELY( end_ns<=start_ns ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  if( FD_UNLIKELY( !cJSON_IsString( gran_param ) || !gran_param->valuestring ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  ulong granularity_idx;
+  if( FD_UNLIKELY( fd_gui_timeline_parse_granularity( gran_param->valuestring, &granularity_idx ) ) )
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  ulong granularity_ns = fd_gui_timeline_granularities[ granularity_idx ].duration_ns;
+  ulong first_bucket   = (ulong)start_ns/granularity_ns;
+  ulong last_bucket    = ((ulong)end_ns-1UL)/granularity_ns;
+  ulong bucket_cnt     = last_bucket-first_bucket+1UL;
+  if( FD_UNLIKELY( bucket_cnt>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  if( FD_UNLIKELY( fd_gui_printf_timeline_query_agg( gui, key, gran_param->valuestring, granularity_idx,
+                                                     (long)(first_bucket*granularity_ns), bucket_cnt,
+                                                     request_id ) ) )
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
+static int
 fd_gui_request_timeline_txns( fd_gui_t *    gui,
                               ulong         ws_conn_id,
                               char const *  topic,
@@ -2392,6 +2437,21 @@ fd_gui_ws_message( fd_gui_t *    gui,
     }
 
     int result = fd_gui_request_timeline_events( gui, ws_conn_id, topic->valuestring, id, params );
+    cJSON_Delete( json );
+    return result;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "timeline" ) &&
+                        ( !strcmp( key->valuestring, "query_agg_slots"   ) ||
+                          !strcmp( key->valuestring, "query_agg_shreds"  ) ||
+                          !strcmp( key->valuestring, "query_agg_compute" ) ||
+                          !strcmp( key->valuestring, "query_agg_txn"     ) ||
+                          !strcmp( key->valuestring, "query_agg_revenue" ) ) ) ) {
+    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+
+    int result = fd_gui_request_timeline_agg( gui, ws_conn_id, key->valuestring, id, params );
     cJSON_Delete( json );
     return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "timeline" ) &&
@@ -3037,6 +3097,29 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
    the same counters at seven stored resolutions, from 250 ms up to 12
    hours, so a query can serve any requested granularity by merging whole
    buckets of the next finer tier rather than rescanning raw events. */
+
+fd_gui_timeline_granularity_t const fd_gui_timeline_granularities[ FD_GUI_TIMELINE_GRANULARITY_CNT ] = {
+  { "250ms",    250000000UL, FD_GUI_TIMELINE_STORED_250MS, 1UL },
+  { "500ms",    500000000UL, FD_GUI_TIMELINE_STORED_250MS, 2UL },
+  { "1s",      1000000000UL, FD_GUI_TIMELINE_STORED_250MS, 4UL },
+  { "2s",      2000000000UL, FD_GUI_TIMELINE_STORED_2S,    1UL },
+  { "4s",      4000000000UL, FD_GUI_TIMELINE_STORED_2S,    2UL },
+  { "8s",      8000000000UL, FD_GUI_TIMELINE_STORED_2S,    4UL },
+  { "15s",    15000000000UL, FD_GUI_TIMELINE_STORED_15S,   1UL },
+  { "30s",    30000000000UL, FD_GUI_TIMELINE_STORED_15S,   2UL },
+  { "1m",     60000000000UL, FD_GUI_TIMELINE_STORED_15S,   4UL },
+  { "2m",    120000000000UL, FD_GUI_TIMELINE_STORED_2M,    1UL },
+  { "4m",    240000000000UL, FD_GUI_TIMELINE_STORED_2M,    2UL },
+  { "8m",    480000000000UL, FD_GUI_TIMELINE_STORED_2M,    4UL },
+  { "15m",   900000000000UL, FD_GUI_TIMELINE_STORED_15M,   1UL },
+  { "30m",  1800000000000UL, FD_GUI_TIMELINE_STORED_15M,   2UL },
+  { "1h",   3600000000000UL, FD_GUI_TIMELINE_STORED_15M,   4UL },
+  { "2h",   7200000000000UL, FD_GUI_TIMELINE_STORED_2H,    1UL },
+  { "4h",  14400000000000UL, FD_GUI_TIMELINE_STORED_2H,    2UL },
+  { "8h",  28800000000000UL, FD_GUI_TIMELINE_STORED_2H,    4UL },
+  { "12h", 43200000000000UL, FD_GUI_TIMELINE_STORED_12H,   1UL },
+  { "1d",  86400000000000UL, FD_GUI_TIMELINE_STORED_12H,   2UL }
+};
 
 ulong const fd_gui_timeline_stored_granularity_ns[ FD_GUI_TIMELINE_STORED_GRANULARITY_CNT ] = {
   250000000UL, 2000000000UL, 15000000000UL, 120000000000UL,

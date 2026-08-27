@@ -3848,6 +3848,191 @@ done:
   return rc;
 }
 
+
+static inline void
+fd_gui_timeline_query_sum( ulong * dst,
+                           ulong   src ) {
+  if( FD_UNLIKELY( src==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( *dst==ULONG_MAX ) ) {
+    *dst = src;
+    return;
+  }
+  ulong max_value = ULONG_MAX-1UL; /* ULONG_MAX is the unknown sentinel */
+  *dst = src>max_value-*dst ? max_value : *dst+src;
+}
+
+static inline void
+fd_gui_timeline_query_skipped_sum( ulong * dst,
+                                   uint    src ) {
+  if( FD_UNLIKELY( src==UINT_MAX ) ) return;
+  if( FD_UNLIKELY( *dst==ULONG_MAX ) ) {
+    *dst = (ulong)src;
+    return;
+  }
+  ulong max_value = (ulong)UINT_MAX-1UL; /* UINT_MAX is the stored unknown sentinel */
+  *dst = (ulong)src>max_value-*dst ? max_value : *dst+(ulong)src;
+}
+
+static inline void
+fd_gui_timeline_query_bucket_merge( fd_gui_timeline_query_bucket_t * bucket,
+                                    fd_gui_timeline_day_t const *    day,
+                                    ulong                            idx ) {
+#define TIMELINE_MIN(field) do {                                              \
+    ulong _src = day->field[ idx ];                                           \
+    if( _src!=ULONG_MAX ) bucket->field = bucket->field==ULONG_MAX            \
+                                       ? _src                                 \
+                                       : fd_ulong_min( bucket->field, _src ); \
+  } while(0)
+#define TIMELINE_MAX(field) do {                                              \
+    ulong _src = day->field[ idx ];                                           \
+    if( _src!=ULONG_MAX ) bucket->field = bucket->field==ULONG_MAX            \
+                                       ? _src                                 \
+                                       : fd_ulong_max( bucket->field, _src ); \
+  } while(0)
+#define TIMELINE_SUM(field) fd_gui_timeline_query_sum( &bucket->field, day->field[ idx ] )
+  TIMELINE_MIN( start_slot      );
+  TIMELINE_MAX( end_slot        );
+  fd_gui_timeline_query_skipped_sum( &bucket->skipped, day->skipped[ idx ] );
+  TIMELINE_SUM( turbine         );
+  TIMELINE_SUM( repair          );
+  TIMELINE_SUM( reconstructed   );
+  TIMELINE_SUM( published       );
+  TIMELINE_SUM( compute_units   );
+  TIMELINE_MAX( max_compute     );
+  TIMELINE_SUM( txn_fees        );
+  TIMELINE_SUM( prio_fees       );
+  TIMELINE_SUM( tips            );
+  TIMELINE_SUM( nonvote_success );
+  TIMELINE_SUM( nonvote_failed  );
+  TIMELINE_SUM( vote_success    );
+  TIMELINE_SUM( vote_failed     );
+#undef TIMELINE_SUM
+#undef TIMELINE_MAX
+#undef TIMELINE_MIN
+}
+
+int
+fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
+                                  char const * key,
+                                  char const * granularity,
+                                  ulong        granularity_idx,
+                                  long         reference_ts_ns,
+                                  ulong        bucket_cnt,
+                                  ulong        id ) {
+  if( FD_UNLIKELY( reference_ts_ns<0L || !bucket_cnt ||
+                   bucket_cnt>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ||
+                   granularity_idx>=FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return -1;
+
+  fd_gui_timeline_granularity_t const * granularity_desc = &fd_gui_timeline_granularities[ granularity_idx ];
+  ulong gran_ns   = granularity_desc->duration_ns;
+  ulong stored_g  = granularity_desc->stored_idx;
+  ulong merge_cnt = granularity_desc->merge_cnt;
+  if( FD_UNLIKELY( stored_g>=FD_GUI_TIMELINE_STORED_GRANULARITY_CNT ||
+                   !merge_cnt || merge_cnt>FD_GUI_TIMELINE_MAX_MERGE_CNT ) ) return -1;
+  ulong stored_ns  = fd_gui_timeline_stored_granularity_ns [ stored_g ];
+  ulong stored_off = fd_gui_timeline_stored_granularity_off[ stored_g ];
+  /* A response bucket must be an exact whole number of stored buckets, or
+     the merge below would straddle a stored-granularity boundary. */
+  if( FD_UNLIKELY( gran_ns!=stored_ns*merge_cnt ) ) return -1;
+
+  fd_gui_timeline_scratch_t *      scratch = fd_gui_timeline_scratch_acquire( gui );
+  fd_gui_timeline_query_bucket_t * buckets = scratch->buckets;
+
+  fd_gui_timeline_day_t const * cached_rec = NULL;
+  ulong cached_day = ULONG_MAX;
+
+  for( ulong i=0UL; i<bucket_cnt; i++ ) {
+    memset( &buckets[ i ], 0xFF, sizeof(buckets[ i ]) );
+    buckets[ i ].has_day = 0U;
+    ulong ts      = (ulong)reference_ts_ns+i*gran_ns;
+    ulong day     = ts/(ulong)FD_GUI_TIMELINE_DAY_NS;
+    ulong day_ns  = ts%(ulong)FD_GUI_TIMELINE_DAY_NS;
+    ulong idx     = stored_off+day_ns/stored_ns;
+    if( day!=cached_day ) {
+      fd_gui_hist_timeline_day_key_t day_key = { .day=day };
+      cached_rec = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_DAY, &day_key );
+      cached_day = day;
+    }
+    if( FD_LIKELY( cached_rec ) ) {
+      buckets[ i ].has_day = 1U;
+      for( ulong j=0UL; j<merge_cnt; j++ )
+        fd_gui_timeline_query_bucket_merge( &buckets[ i ], cached_rec, idx+j );
+    }
+  }
+
+  if( !strcmp( key, "query_agg_slots" ) ) {
+    /* Skipped slots are only meaningful where the OC walk has actually
+       classified the interval.  Outside that coverage report unknown
+       rather than zero. */
+    int have_coverage = gui->timeline_skipped_coverage_start_ns!=LONG_MAX &&
+                        gui->timeline_skipped_coverage_end_ns  !=LONG_MAX;
+    for( ulong i=0UL; i<bucket_cnt; i++ ) {
+      ulong   bucket_start = (ulong)reference_ts_ns+i*gran_ns;
+      uint128 bucket_end   = (uint128)bucket_start+(uint128)gran_ns;
+      int covered = have_coverage && buckets[ i ].has_day &&
+                    bucket_start>=(ulong)gui->timeline_skipped_coverage_start_ns &&
+                    bucket_end<=(uint128)(ulong)gui->timeline_skipped_coverage_end_ns;
+      if(      FD_UNLIKELY( !covered                        ) ) buckets[ i ].skipped = ULONG_MAX;
+      else if( FD_UNLIKELY( buckets[ i ].skipped==ULONG_MAX ) ) buckets[ i ].skipped = 0UL;
+    }
+  }
+
+#define TIMELINE_ARRAY(name,field,as_string) do {                              \
+    jsonp_open_array( gui->http, (name) );                                     \
+    for( ulong _i=0UL; _i<bucket_cnt; _i++ ) {                                 \
+      if( buckets[ _i ].field==ULONG_MAX )                                     \
+        jsonp_null( gui->http, NULL );                                         \
+      else if( as_string )                                                     \
+        jsonp_ulong_as_str( gui->http, NULL, buckets[ _i ].field );            \
+      else                                                                     \
+        jsonp_ulong( gui->http, NULL, buckets[ _i ].field );                   \
+    }                                                                          \
+    jsonp_close_array( gui->http );                                            \
+  } while(0)
+
+  fd_gui_printf_open_query_response_envelope( gui->http, "timeline", key, id );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_string     ( gui->http, "granularity", granularity );
+      jsonp_long_as_str( gui->http, "reference_ts_ns", reference_ts_ns );
+
+      if( !strcmp( key, "query_agg_slots" ) ) {
+        TIMELINE_ARRAY( "start_slot", start_slot, 0 );
+        TIMELINE_ARRAY( "end_slot",   end_slot,   0 );
+        TIMELINE_ARRAY( "skipped",    skipped,    0 );
+      } else if( !strcmp( key, "query_agg_shreds" ) ) {
+        TIMELINE_ARRAY( "turbine",       turbine,       0 );
+        TIMELINE_ARRAY( "repair",        repair,        0 );
+        TIMELINE_ARRAY( "reconstructed", reconstructed, 0 );
+        TIMELINE_ARRAY( "published",     published,     0 );
+      } else if( !strcmp( key, "query_agg_compute" ) ) {
+        TIMELINE_ARRAY( "compute_units", compute_units, 0 );
+        ulong max_compute      = 0UL;
+        int   have_max_compute = 0;
+        for( ulong i=0UL; i<bucket_cnt; i++ ) {
+          if( buckets[ i ].max_compute==ULONG_MAX ) continue;
+          have_max_compute = 1;
+          max_compute = fd_ulong_max( max_compute, buckets[ i ].max_compute );
+        }
+        if( have_max_compute ) jsonp_ulong( gui->http, "max_compute_units", max_compute );
+        else                   jsonp_null ( gui->http, "max_compute_units" );
+      } else if( !strcmp( key, "query_agg_revenue" ) ) {
+        TIMELINE_ARRAY( "txn_fees",  txn_fees,  1 );
+        TIMELINE_ARRAY( "prio_fees", prio_fees, 1 );
+        TIMELINE_ARRAY( "tips",      tips,      1 );
+      } else if( !strcmp( key, "query_agg_txn" ) ) {
+        TIMELINE_ARRAY( "success_nonvote_transactions", nonvote_success, 0 );
+        TIMELINE_ARRAY( "failed_nonvote_transactions",  nonvote_failed,  0 );
+        TIMELINE_ARRAY( "success_vote_transactions",    vote_success,    0 );
+        TIMELINE_ARRAY( "failed_vote_transactions",     vote_failed,     0 );
+      }
+    jsonp_close_object( gui->http );
+  fd_gui_printf_close_query_response_envelope( gui->http );
+#undef TIMELINE_ARRAY
+
+  fd_gui_timeline_scratch_release( gui );
+  return 0;
+}
+
 void
 fd_gui_peers_printf_wfs_add( fd_gui_peers_ctx_t * peers,
                              ulong const *        idxs,

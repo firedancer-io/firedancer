@@ -260,6 +260,31 @@ struct fd_gui_timeline_day {
 };
 typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
 
+/* Query granularity ladder.  Each entry names a granularity the API
+   accepts, and says which stored tier serves it and how many of that
+   tier's buckets merge into one response bucket. */
+
+#define FD_GUI_TIMELINE_GRANULARITY_CNT (20UL)
+#define FD_GUI_TIMELINE_MAX_MERGE_CNT    (4UL)
+
+#define FD_GUI_TIMELINE_STORED_250MS (0UL)
+#define FD_GUI_TIMELINE_STORED_2S    (1UL)
+#define FD_GUI_TIMELINE_STORED_15S   (2UL)
+#define FD_GUI_TIMELINE_STORED_2M    (3UL)
+#define FD_GUI_TIMELINE_STORED_15M   (4UL)
+#define FD_GUI_TIMELINE_STORED_2H    (5UL)
+#define FD_GUI_TIMELINE_STORED_12H   (6UL)
+
+struct fd_gui_timeline_granularity {
+  char const * name;
+  ulong        duration_ns;
+  ulong        stored_idx;
+  ulong        merge_cnt;
+};
+typedef struct fd_gui_timeline_granularity fd_gui_timeline_granularity_t;
+
+extern fd_gui_timeline_granularity_t const fd_gui_timeline_granularities[ FD_GUI_TIMELINE_GRANULARITY_CNT ];
+
 /* Stored bucket resolutions, and the offset of each tier's buckets
    within a day record.  Defined in fd_gui.c. */
 
