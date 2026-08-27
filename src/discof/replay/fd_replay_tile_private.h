@@ -444,6 +444,10 @@ struct fd_replay_tile {
   ulong            identity_idx;
   int              identity_dirty;
 
+  ulong            voted_slot; /* monotone, ULONG_MAX if none */
+  int              has_vote_account;
+  fd_pubkey_t      vote_account[ 1 ];
+
   fd_node_info_box_t * node_info; /* shared */
 
   fd_keyswitch_t * keyswitch;

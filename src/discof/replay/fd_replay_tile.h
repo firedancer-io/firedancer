@@ -68,6 +68,7 @@
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
 #include "../../choreo/votor/ag_cert.h"
+#include "../../flamenco/rewards/fd_reward_cert.h" /* FD_REWARD_CERT_SLOT_DELAY */
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)
@@ -150,9 +151,11 @@ struct fd_replay_slot_completed {
   ulong tips;
   ulong shred_cnt;
 
-  int    voted;
-  ulong  voted_slot;/* ignore if voted = 0 */
-  ushort voted_rank; /* ignore if voted = 0 */
+  int    voted;      /* our vote was in the reward cert this block carried */
+  ulong  voted_slot; /* monotone: latest slot we are recorded as having voted on, ULONG_MAX if none */
+  ushort voted_rank; /* our rank in this block's epoch, USHORT_MAX if we are not a voter */
+  ulong  vote_balance;    /* ULONG_MAX if not sampled */
+  ushort vote_commission; /* USHORT_MAX if not sampled */
 
   struct {
     ulong block_cost;

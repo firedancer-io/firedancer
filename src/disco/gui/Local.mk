@@ -10,6 +10,8 @@ $(call make-unit-test,test_gui_store,test_gui_store,fd_disco fd_choreo fd_flamen
 $(call run-unit-test,test_gui_store)
 $(call make-unit-test,test_gui_hist_evict,test_gui_hist_evict,fd_disco fd_choreo fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_gui_hist_evict)
+$(call make-unit-test,test_gui_is_voter,test_gui_is_voter,fd_disco fd_choreo fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_gui_is_voter)
 
 src/disco/gui/dist_cmp/%.zst: src/disco/gui/dist/% | $(OBJDIR)/bin/fd_zstd_pack
 	@echo -e "ZSTD\t$(notdir $@)"

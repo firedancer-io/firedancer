@@ -40,6 +40,8 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
+#define FD_ALPENGLOW_GENESIS_MAX_FILE_SIZE_MIB (100UL)
+
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 extern fd_topo_run_tile_t *      TILES[];
 
@@ -240,6 +242,12 @@ fd_topo_initialize( config_t * config ) {
   ulong execrp_tile_cnt = config->firedancer.layout.execrp_tile_count;
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
 
+  int alpenglow_enabled = config->firedancer.development.alpenglow;
+  if( FD_UNLIKELY( alpenglow_enabled ) ) {
+    config->firedancer.development.genesis.max_file_size_mib =
+      fd_ulong_max( config->firedancer.development.genesis.max_file_size_mib,
+                    FD_ALPENGLOW_GENESIS_MAX_FILE_SIZE_MIB );
+  }
   ulong genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib << 20;
 
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
@@ -248,7 +256,6 @@ fd_topo_initialize( config_t * config ) {
   int telemetry_enabled = config->telemetry && strcmp( config->tiles.event.url, "" );
   int leader_enabled    = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled    = config->tiles.rserve.enabled;
-  int alpenglow_enabled = config->firedancer.development.alpenglow;
 
   char const * repair = alpenglow_enabled ? "rotor" : "repair";
   char const * poh    = alpenglow_enabled ? "motor" : "poh";
@@ -1072,6 +1079,8 @@ fd_topo_initialize( config_t * config ) {
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     if( !alpenglow_enabled ) {
       /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    } else {
+      /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "votor_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1765,6 +1774,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
     tile->gui.listen_port = config->tiles.gui.gui_listen_port;
     tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
+    tile->gui.is_alpenglow = config->firedancer.development.alpenglow;
     fd_cstr_ncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
     fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
     fd_cstr_ncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );

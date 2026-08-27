@@ -174,6 +174,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
     FD_MGAUGE_SET( REPLAY, LEADER_SLOT, 0UL );
   }
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
+  FD_MGAUGE_SET( REPLAY, ALPENGLOW_VOTE_SLOT, ctx->voted_slot );
 
   FD_MGAUGE_SET( REPLAY, BANK_LIVE, fd_banks_pool_used_cnt( ctx->banks ) );
 
@@ -240,9 +241,11 @@ replay_voter_rank( fd_replay_tile_t * ctx,
 static int
 replay_reward_cert_voted( fd_replay_tile_t * ctx,
                           fd_bank_t *        bank,
-                          ulong     *        slot_out,
                           ushort    *        rank_out ) {
+  *rank_out = USHORT_MAX;
   if( FD_LIKELY( !ctx->alpenglow ) ) return 0;
+
+  *rank_out = replay_voter_rank( ctx, bank, fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL ) );
 
   fd_reward_cert_t const * skip  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
   fd_reward_cert_t const * notar = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
@@ -251,16 +254,17 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
   ulong  reward_slot  = skip ? skip->slot : notar->slot;
   ulong  reward_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, reward_slot, NULL );
   ushort rank         = replay_voter_rank( ctx, bank, reward_epoch );
-
-  *slot_out = reward_slot;
-  *rank_out = rank;
-
-  if( FD_UNLIKELY( rank==USHORT_MAX ) ) { return 0; }
+  if( FD_UNLIKELY( rank==USHORT_MAX ) ) return 0;
 
   ulong word = (ulong)rank>>6;
   ulong bit  = 1UL<<( (ulong)rank & 63UL );
-  return ( !!skip  && rank<skip ->nbits && !!( skip ->signer_set[ word ] & bit ) ) ||
-         ( !!notar && rank<notar->nbits && !!( notar->signer_set[ word ] & bit ) );
+  int   in_cert = ( !!skip  && rank<skip ->nbits && !!( skip ->signer_set[ word ] & bit ) ) ||
+                  ( !!notar && rank<notar->nbits && !!( notar->signer_set[ word ] & bit ) );
+
+  if( FD_UNLIKELY( in_cert && ( ctx->voted_slot==ULONG_MAX || reward_slot>ctx->voted_slot ) ) ) {
+    ctx->voted_slot = reward_slot;
+  }
+  return in_cert;
 }
 
 static void
@@ -794,7 +798,21 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->priority_fee = priority_fees_pre_settle;
   slot_info->tips = bank->f.tips;
   slot_info->shred_cnt = bank->f.shred_cnt;
-  slot_info->voted = replay_reward_cert_voted( ctx, bank, &slot_info->voted_slot, &slot_info->voted_rank );
+  slot_info->voted      = replay_reward_cert_voted( ctx, bank, &slot_info->voted_rank );
+  slot_info->voted_slot = ctx->voted_slot;
+
+  slot_info->vote_balance    = ULONG_MAX;
+  slot_info->vote_commission = USHORT_MAX;
+  if( FD_UNLIKELY( ctx->alpenglow && ctx->has_vote_account && slot%512UL==0UL ) ) {
+    fd_acc_t acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
+    if( FD_LIKELY( acc.lamports ) ) {
+      slot_info->vote_balance = acc.lamports;
+
+      ushort bps;
+      if( FD_LIKELY( !fd_vote_account_commission_bps( acc.data, acc.data_len, 1, &bps ) ) ) slot_info->vote_commission = bps;
+    }
+    fd_accdb_unread_one( ctx->accdb, &acc );
+  }
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_b58 );
   FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_b58 );
@@ -1103,6 +1121,8 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
 
   memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
   ctx->identity_dirty = 1;
+
+  ctx->voted_slot = ULONG_MAX;
 
   fd_node_info_write_begin( ctx->node_info );
   ctx->node_info->info.identity = *ctx->identity_pubkey;
@@ -3972,6 +3992,18 @@ privileged_init( fd_topo_t const *      topo,
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
   ctx->identity_idx         = 0UL;
   ctx->identity_dirty       = 0;
+
+  ctx->voted_slot = ULONG_MAX;
+
+  /* Only Alpenglow samples the vote account, so do not make a bad path a
+     boot failure for Tower. */
+  ctx->has_vote_account = tile->replay.alpenglow && !!tile->replay.vote_account_path[0];
+  if( FD_LIKELY( ctx->has_vote_account ) ) {
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.vote_account_path, ctx->vote_account->uc ) ) ) {
+      uchar const * vote_key = fd_keyload_load( tile->replay.vote_account_path, /* pubkey only: */ 1 );
+      fd_memcpy( ctx->vote_account->uc, vote_key, sizeof(fd_pubkey_t) );
+    }
+  }
 
   ctx->bundle.enabled = tile->replay.bundle.enabled;
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {

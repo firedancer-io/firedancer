@@ -31,7 +31,7 @@
 /* ---- Network Bandwidth Monitoring ----------------------------------- */
 
 #define FD_GUI_NETWORK_EMA_HALF_LIFE_NS (1000000000L) /* 1 second in nanoseconds */
-#define FD_GUI_NET_PROTO_CNT            (6UL)         /* turbine, gossip, tpu, repair, rserve, metric */
+#define FD_GUI_NET_PROTO_CNT            (7UL)         /* turbine, gossip, tpu, repair, rserve, metric, votor */
 #define FD_GUI_NET_RATE_MAX_WINDOW_NS   (300L*1000L*1000L*1000L) /* 5 minutes in nanoseconds */
 
 /* Monotonic deque element for sliding-window max tracking of
@@ -141,9 +141,34 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
-#define FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED (2)
+#define FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED (2) /* "notarized" under Alpenglow */
 #define FD_GUI_SLOT_LEVEL_ROOTED                   (3)
 #define FD_GUI_SLOT_LEVEL_FINALIZED                (4)
+
+/* Strength of the notarization and finalization proofs known for a
+   block.*/
+
+#define FD_GUI_AG_NOTAR_NONE     ((uchar)0)
+#define FD_GUI_AG_NOTAR_FALLBACK ((uchar)1)
+#define FD_GUI_AG_NOTAR_REGULAR  ((uchar)2) /* supersedes fallback */
+
+#define FD_GUI_AG_FINAL_NONE     ((uchar)0)
+#define FD_GUI_AG_FINAL_IMPLICIT ((uchar)1) /* an ancestor of a finalized block */
+#define FD_GUI_AG_FINAL_SLOW     ((uchar)2) /* supersedes implicit */
+#define FD_GUI_AG_FINAL_FAST     ((uchar)3) /* supersedes slow */
+
+/* Whether our ordinary notarize or skip vote for a slot made it into
+   the reward certificate. */
+
+#define FD_GUI_VOTE_REWARDED_UNKNOWN ((uchar)0)
+#define FD_GUI_VOTE_REWARDED_YES     ((uchar)1)
+#define FD_GUI_VOTE_REWARDED_NO      ((uchar)2)
+
+/* Whether we hold a voter seat in a given epoch. */
+
+#define FD_GUI_IS_VOTER_UNKNOWN ((uchar)0)
+#define FD_GUI_IS_VOTER_YES     ((uchar)1)
+#define FD_GUI_IS_VOTER_NO      ((uchar)2)
 
 /* "Skipped" means not present on the canonical fork (i.e. tower_slot's
    fork). Since tower_slot may fall behind replay, we need a third state
@@ -236,6 +261,7 @@ struct fd_gui_network_stats {
     ulong repair;
     ulong rserve;
     ulong metric;
+    ulong votor;
   } in, out;
 };
 
@@ -333,9 +359,26 @@ struct __attribute__((packed)) fd_gui_slot {
   ulong     vote_slot;        /* most recent slot we had landed a vote for as of this slot's replay (ULONG_MAX if unknown) */
   uchar     skip;             /* one of FD_GUI_SKIP_STATUS_* */
   uchar     level;            /* one of FD_GUI_SLOT_LEVEL_* */
+  uchar     notarization_kind; /* Alpenglow: one of FD_GUI_AG_NOTAR_* */
+  uchar     finalization_kind; /* Alpenglow: one of FD_GUI_AG_FINAL_* */
+  uchar     vote_rewarded;     /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
+
+/* Buffer size for holding AG certificates before their slot is replayed. */
+
+#define FD_GUI_AG_WINDOW (1024UL) /* ~3.5 minutes of 200ms slots */
+
+struct fd_gui_ag_slot {
+  ulong slot;              /* ULONG_MAX when this entry is empty */
+  ulong bank_seq;          /* ULONG_MAX until a block for the slot completes replay */
+  uchar notarization_kind; /* one of FD_GUI_AG_NOTAR_* */
+  uchar finalization_kind; /* one of FD_GUI_AG_FINAL_* */
+  uchar skip;              /* 1 if a skip certificate was seen for this slot */
+};
+
+typedef struct fd_gui_ag_slot fd_gui_ag_slot_t;
 
 struct fd_gui_slot_ranking {
   ulong slot;
@@ -382,9 +425,13 @@ struct fd_gui_epoch {
   fd_gui_slot_rankings_t rankings   [ 1 ]; /* global slot rankings */
   fd_gui_slot_rankings_t my_rankings[ 1 ]; /* my slots only */
 
+  /* Alpenglow: one of FD_GUI_IS_VOTER_*. */
+  uchar epoch_is_voter;
+
   uchar latency_exact[ MAX_SLOTS_PER_EPOCH ]; /* skip-discounted latency or FD_GUI_VOTE_LATENCY_* */
   uchar is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* 1 if we were structurally a voter when this slot was replayed */
   uchar skipped      [ MAX_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
+  uchar vote_rewarded[ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
 
   fd_epoch_schedule_t epoch_schedule;    /* slot<->epoch conversion (fd_slot_to_epoch) */
   ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
@@ -734,6 +781,7 @@ struct fd_gui_summary {
   char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
   int          is_full_client;
+  int          is_alpenglow;
   char const * version;
   char const * cluster;
   char         accounts_database_path[ PATH_MAX ];
@@ -745,6 +793,7 @@ struct fd_gui_summary {
 
   ulong vote_distance;
   int   vote_state;
+  int   is_voter;
 
   long  startup_time_nanos;
 
@@ -771,6 +820,8 @@ struct fd_gui_summary {
   ulong shred_tile_cnt;
 
   ulong slot_rooted;
+  ulong slot_finalized;
+  ulong slot_notarized;
   ulong slot_optimistically_confirmed;
   ulong slot_estimated;
   ulong slot_caught_up;
@@ -780,6 +831,7 @@ struct fd_gui_summary {
   ulong slot_storage;
   ulong slot_tower;
   ulong slot_tower_bank_seq; /* tracks canonical fork frontier */
+  ulong slot_voted;
   ulong active_fork_cnt;
 
   struct {
@@ -871,6 +923,14 @@ struct fd_gui {
   ulong leader_slot_pending;
   ulong leader_bank_seq_pending;
 
+  /* For matching leader slots back to their bank_seq/bank_idx */
+#define FD_GUI_LEADER_RECENT_CNT (8UL)
+  struct {
+    ulong slot;
+    ulong bank_seq;
+  } leader_recent[ FD_GUI_LEADER_RECENT_CNT ];
+  ulong leader_recent_idx;
+
   fd_gui_summary_t summary;
 
   struct {
@@ -881,6 +941,10 @@ struct fd_gui {
   /* Scratch record for the synthesized skipped slots returned by
      fd_gui_slot_get_canon_safe. */
   fd_gui_slot_t skipped_scratch[ 1 ];
+
+  struct {
+    fd_gui_ag_slot_t slot[ FD_GUI_AG_WINDOW ];
+  } ag;
 
   /* used for estimating slot duration */
   fd_gui_turbine_slot_t turbine_slots[ FD_GUI_TURBINE_RECV_TIMESTAMPS ];
@@ -925,6 +989,10 @@ struct fd_gui {
   struct {
     ulong leader_shred_cnt;      /* A gauge counting the number of leader shreds seen on the SHRED_OUT link.  Resets at
                                     the end of a leader slot.  This works because leader fecs are published in order. */
+    ulong leader_shred_slot;     /* Alpenglow: the slot leader_shred_cnt is currently counting, ULONG_MAX if none.  An
+                                    abandoned leader block (FD_PACK_END_SLOT_REASON_ABANDONED) never publishes a FEC
+                                    carrying FD_SHRED_DATA_FLAG_SLOT_COMPLETE, so the end-of-slot reset above can be
+                                    missed; tracking the slot lets the next leader slot start from zero regardless. */
 
     /* The wallclock-ns timestamp up to which shred events have already
        been pushed to clients. */
@@ -967,6 +1035,7 @@ fd_gui_new( void *                   shmem,
             int                      has_vote_key,
             uchar const *            vote_key,
             int                      is_full_client,
+            int                      is_alpenglow,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,
@@ -1139,6 +1208,30 @@ fd_gui_handle_oc_advanced( fd_gui_t * gui,
                            ulong      slot,
                            ulong      bank_seq,
                            long       now );
+
+void
+fd_gui_handle_ag_notarized( fd_gui_t * gui,
+                            ulong      slot,
+                            uchar      notarization_kind );
+
+void
+fd_gui_handle_ag_finalized( fd_gui_t * gui,
+                            ulong      slot,
+                            uchar      finalization_kind );
+
+void
+fd_gui_handle_ag_skip_cert( fd_gui_t * gui,
+                            ulong      slot );
+
+void
+fd_gui_handle_ag_reward( fd_gui_t * gui,
+                         ulong      slot,
+                         int        rewarded );
+
+
+int
+fd_gui_ag_slot_is_skip_notarized( fd_gui_t const * gui,
+                                  ulong            slot );
 
 /* fd_gui_slot_get_canon_safe resolves slot number `_slot` on the
    canonical fork and returns a renderable record. */
@@ -1428,6 +1521,9 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
   meta->is_voter          = 0;
   meta->skip              = FD_GUI_SKIP_STATUS_UNKNOWN;
   meta->level             = (uchar)( _slot ? FD_GUI_SLOT_LEVEL_INCOMPLETE : FD_GUI_SLOT_LEVEL_ROOTED ); /* slot 0 always rooted */
+  meta->notarization_kind = FD_GUI_AG_NOTAR_NONE;
+  meta->finalization_kind = FD_GUI_AG_FINAL_NONE;
+  meta->vote_rewarded     = FD_GUI_VOTE_REWARDED_UNKNOWN;
   meta->vote_failed       = UINT_MAX;
   meta->vote_success      = UINT_MAX;
   meta->nonvote_success   = UINT_MAX;

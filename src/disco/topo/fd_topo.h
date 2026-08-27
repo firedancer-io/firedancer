@@ -416,6 +416,7 @@ struct fd_topo_tile {
       ushort listen_port;
 
       int    is_voting;
+      int    is_alpenglow;
 
       char   cluster[ 32 ];
       char   identity_key_path[ PATH_MAX ];

@@ -12,6 +12,10 @@
    epoch's ranked Alpenglow validator set signed). */
 #define FD_REWARD_CERT_SET_WORDS ((AG_VAT_MAX+63UL)/64UL)
 
+/* FD_REWARD_CERT_SLOT_DELAY is how far back the slot a footer's reward
+   certificates attest is from the block carrying them. */
+#define FD_REWARD_CERT_SLOT_DELAY (8UL)
+
 /* fd_reward_cert is a deserialized SkipRewardCertificate or
    NotarRewardCertificate out of an Alpenglow block footer (see
    fd_block_marker.h for the wire layout and deserializer).  The shape

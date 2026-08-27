@@ -7,7 +7,7 @@
    see runtime/src/block_component_processor/vote_reward.rs:
 
    - The skip/notar reward certs attest which validators voted on the
-     reward slot (NUM_SLOTS_FOR_REWARD before the block's slot).  Each
+     reward slot (FD_REWARD_CERT_SLOT_DELAY before the block's slot).  Each
      attested validator earns credits in its vote account's
      epoch_credits, and half of each award accrues to the block leader's
      vote account.
