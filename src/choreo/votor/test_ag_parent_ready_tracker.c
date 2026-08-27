@@ -448,8 +448,8 @@ test_prune( void ) {
     ag_parent_ready_state_map_t *             map  = tracker->states.map;
     ag_parent_ready_state_t * pool = tracker->states.pool;
     for( ag_parent_ready_state_map_iter_t iter = ag_parent_ready_state_map_iter_init( map, pool );
-         !ag_parent_ready_state_map_iter_done( iter, map, pool );
-         iter = ag_parent_ready_state_map_iter_next( iter, map, pool ) ) {
+                                                !ag_parent_ready_state_map_iter_done( iter, map, pool );
+                                          iter = ag_parent_ready_state_map_iter_next( iter, map, pool ) ) {
       ag_parent_ready_state_t const * ele = ag_parent_ready_state_map_iter_ele_const( iter, map, pool );
       if( ele->slot <  new_root ) below = 1;
       if( ele->slot == new_root ) at    = 1;
@@ -465,8 +465,8 @@ test_prune( void ) {
     ag_parent_ready_state_map_t *             map  = tracker->states.map;
     ag_parent_ready_state_t * pool = tracker->states.pool;
     for( ag_parent_ready_state_map_iter_t iter = ag_parent_ready_state_map_iter_init( map, pool );
-         !ag_parent_ready_state_map_iter_done( iter, map, pool );
-         iter = ag_parent_ready_state_map_iter_next( iter, map, pool ) ) {
+                                                !ag_parent_ready_state_map_iter_done( iter, map, pool );
+                                          iter = ag_parent_ready_state_map_iter_next( iter, map, pool ) ) {
       ag_parent_ready_state_t const * ele = ag_parent_ready_state_map_iter_ele_const( iter, map, pool );
       if( ele->slot <  new_root ) all_ge = 0;
       if( ele->slot == new_root ) at     = 1;

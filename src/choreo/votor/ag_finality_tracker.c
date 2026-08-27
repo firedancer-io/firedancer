@@ -124,8 +124,8 @@ parent_below( ag_finality_tracker_t * self,
   parent_map_t * map  = self->parents.map;
   parent_ele_t * pool = self->parents.pool;
   for( parent_map_iter_t iter = parent_map_iter_init( map, pool );
-       !parent_map_iter_done( iter, map, pool );
-       iter = parent_map_iter_next( iter, map, pool ) ) {
+                               !parent_map_iter_done( iter, map, pool );
+                         iter = parent_map_iter_next( iter, map, pool ) ) {
     parent_ele_t * e = parent_map_iter_ele( iter, map, pool );
     if( FD_UNLIKELY( e->block_id.slot<root ) ) return e;
   }
