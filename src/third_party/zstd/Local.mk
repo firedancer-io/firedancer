@@ -27,6 +27,11 @@ ZSTD_OBJS:=\
 
 ZSTD_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS))) -DZSTD_TRACE=0 -DDEBUGLEVEL=0 -DZSTD_LEGACY_SUPPORT=0 -DZSTD_ASAN_DONT_POISON_WORKSPACE=1 -DZSTD_MSAN_DONT_POISON_WORKSPACE=1
 
+ZSTD_ASFLAGS_NOWARN:=$(ZSTD_CFLAGS_NOWARN)
+ifdef FD_HAS_MSAN
+ZSTD_CFLAGS_NOWARN+=-include sanitizer/msan_interface.h
+endif
+
 $(OBJDIR)/obj/third_party/zstd/lib/%.o : src/third_party/zstd/lib/%.c
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
@@ -42,7 +47,7 @@ $(CC) $(ZSTD_CFLAGS_NOWARN) -fno-tree-vectorize -c $< -o $@
 $(OBJDIR)/obj/third_party/zstd/lib/decompress/huf_decompress_amd64.o : src/third_party/zstd/lib/decompress/huf_decompress_amd64.S
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(ZSTD_CFLAGS_NOWARN) -c $< -o $@
+$(CC) $(ZSTD_ASFLAGS_NOWARN) -c $< -o $@
 
 $(OBJDIR)/lib/libfd_zstd.a: $(patsubst %,$(OBJDIR)/obj/third_party/zstd/lib/%.o,$(ZSTD_OBJS)) $(OBJDIR)/obj/third_party/zstd/lib/decompress/huf_decompress_amd64.o
 
