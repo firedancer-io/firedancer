@@ -381,7 +381,7 @@ close_conn( fd_http_server_t * http,
   if( FD_UNLIKELY( conn_idx<http->max_conns ) ) {
     struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
     if( FD_LIKELY( (conn->state==FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER || conn->state==FD_HTTP_SERVER_CONNECTION_STATE_WRITING_BODY)
-                    && !conn->response.static_body ) ) {
+                    && !conn->response.static_body && conn->response._body_len ) ) {
       conn_treap_ele_remove( http->conn_treap, conn, http->conns );
     }
     conn_pool_ele_release( http->conns, conn );
@@ -727,7 +727,7 @@ parse_conn_http( fd_http_server_t * http,
   FD_LOG_NOTICE(( "Received %s request \"%s\" from %lu (fd=%d) response code %lu", fd_http_server_method_str( method_enum ), path_nul_terminated, conn_idx, http->pollfds[ conn_idx ].fd, conn->response.status ));
 #endif
 
-  if( FD_LIKELY( !conn->response.static_body ) ) conn_treap_ele_insert( http->conn_treap, conn, http->conns );
+  if( FD_LIKELY( !conn->response.static_body && conn->response._body_len ) ) conn_treap_ele_insert( http->conn_treap, conn, http->conns );
 }
 
 static void
@@ -1115,7 +1115,7 @@ write_conn_http( fd_http_server_t * http,
           ulong req_bytes_read = conn->request_bytes_read;
           ulong req_bytes_len  = conn->request_bytes_len;
 
-          if( FD_LIKELY( !conn->response.static_body ) ) conn_treap_ele_remove( http->conn_treap, conn, http->conns );
+          if( FD_LIKELY( !conn->response.static_body && conn->response._body_len ) ) conn_treap_ele_remove( http->conn_treap, conn, http->conns );
           conn_pool_ele_release( http->conns, conn );
 
           if( FD_UNLIKELY( !ws_conn_pool_free( http->ws_conns ) ) ) {
