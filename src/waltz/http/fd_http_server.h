@@ -79,8 +79,8 @@ fd_http_server_method_str( uchar method );
 /* Parameters needed for constructing an HTTP server.  */
 
 struct fd_http_server_params {
-  ulong treap_seed;             /* Seed used to randomize connection treap priorities */
-  ulong max_connection_cnt;    /* Maximum number of concurrent HTTP/1.1 connections open.  Connections are not persistent and will be closed after one request is served */
+  ulong treap_seed;            /* Seed used to randomize connection treap priorities */
+  ulong max_connection_cnt;    /* Maximum number of concurrent HTTP/1.1 connections open.  Connections are persistent and serve requests until the client closes or is evicted */
   ulong max_ws_connection_cnt; /* Maximum number of concurrent websocket connections open */
   ulong max_request_len;       /* Maximum total length of an HTTP request, including the terminating \r\n\r\n and any body in the case of a POST */
   ulong max_ws_recv_frame_len; /* Maximum size of an incoming websocket frame from the client.  Must be >= max_request_len */
@@ -185,9 +185,13 @@ struct fd_http_server_callbacks {
 
   void                      ( * open        )( ulong conn_id, int sockfd, void * ctx );
 
-  /* Close an HTTP request.  This is called back once all the data has
-     been sent to the HTTP client, or an error condition occurs, or the
-     caller force closes the connection by calling close.  If a
+  /* Close an HTTP connection.  Connections are persistent and may
+     serve many requests, so this is not a per-request completion
+     notification: it is called back when the connection closes, which
+     happens after a response completes for HTTP/1.0 clients, explicit
+     Connection: close, or pipelined requests, and otherwise when an
+     error condition occurs, the connection is evicted, the client
+     disconnects, or the caller force closes it by calling close.  If a
      connection is upgraded to a WebSocket connection, a close event is
      first sent once the HTTP upgrade response is sent, before a ws_open
      event is sent.  Close is not called when a WebSocket connection is

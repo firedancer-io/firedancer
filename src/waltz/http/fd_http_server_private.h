@@ -24,6 +24,7 @@
 struct fd_http_server_connection {
   int          state;
 
+  int          keep_alive;
   int          upgrade_websocket;
   int          compress_websocket;
   ulong        request_bytes_len;
@@ -31,6 +32,8 @@ struct fd_http_server_connection {
 
   char * request_bytes;
   ulong  request_bytes_read;
+  ulong  request_bytes_off;
+  ulong  request_consumed;
 
   fd_http_server_response_t response;
   ulong response_bytes_written;
