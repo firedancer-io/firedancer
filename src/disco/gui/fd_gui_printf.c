@@ -546,13 +546,9 @@ fd_gui_printf_tps_history( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "tps_history" );
     jsonp_open_array( gui->http, "value" );
 
+    /* [vote, nonvote_success, nonvote_failed] window counts; client derives total and /window */
     for( ulong i=0UL; i<FD_GUI_TPS_HISTORY_SAMPLE_CNT; i++ ) {
       ulong idx = (gui->summary.estimated_tps_history_idx+i) % FD_GUI_TPS_HISTORY_SAMPLE_CNT;
-      ulong vote_cnt = gui->summary.estimated_tps_history[ idx ].vote_failed
-                     + gui->summary.estimated_tps_history[ idx ].vote_success;
-      ulong total_cnt = vote_cnt
-                      + gui->summary.estimated_tps_history[ idx ].nonvote_success
-                      + gui->summary.estimated_tps_history[ idx ].nonvote_failed;
       jsonp_open_array( gui->http, NULL );
         if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
           ulong success_cnt = gui->summary.estimated_tps_history[ idx ].nonvote_success
@@ -562,10 +558,10 @@ fd_gui_printf_tps_history( fd_gui_t * gui ) {
           jsonp_double( gui->http, NULL, (double)success_cnt/(double)FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS );
           jsonp_double( gui->http, NULL, (double)failed_cnt /(double)FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS );
         } else {
-        jsonp_double( gui->http, NULL, (double)total_cnt/(double)FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS );
-        jsonp_double( gui->http, NULL, (double)vote_cnt/(double)FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS );
-        jsonp_double( gui->http, NULL, (double)gui->summary.estimated_tps_history[ idx ].nonvote_success/(double)FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS );
-        jsonp_double( gui->http, NULL, (double)gui->summary.estimated_tps_history[ idx ].nonvote_failed/(double)FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS );
+          jsonp_ulong( gui->http, NULL, gui->summary.estimated_tps_history[ idx ].vote_failed
+                                      + gui->summary.estimated_tps_history[ idx ].vote_success );
+          jsonp_ulong( gui->http, NULL, gui->summary.estimated_tps_history[ idx ].nonvote_success );
+          jsonp_ulong( gui->http, NULL, gui->summary.estimated_tps_history[ idx ].nonvote_failed );
         }
       jsonp_close_array( gui->http );
     }
