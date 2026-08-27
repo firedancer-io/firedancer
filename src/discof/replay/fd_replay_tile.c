@@ -1126,6 +1126,24 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
   }
 
+  /* Our vote account's balance and commission.  The tower tile supplies
+     these under Tower; under Alpenglow it does not exist, so replay
+     samples them here.  Both change rarely, so a cadence well short of
+     the identity balance's is plenty and keeps a full account read off
+     the per-block path. */
+  slot_info->vote_balance    = ULONG_MAX;
+  slot_info->vote_commission = USHORT_MAX;
+  if( FD_UNLIKELY( ctx->is_alpenglow && ctx->has_vote_account && bank->f.slot%512UL==0UL ) ) {
+    fd_acc_t acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
+    if( FD_LIKELY( acc.lamports ) ) {
+      slot_info->vote_balance = acc.lamports;
+
+      ushort bps;
+      if( FD_LIKELY( !fd_vote_account_commission_bps( acc.data, acc.data_len, 1, &bps ) ) ) slot_info->vote_commission = bps;
+    }
+    fd_accdb_unread_one( ctx->accdb, &acc );
+  }
+
   /* Mark the bank as frozen. */
   bank->f.block_id = fd_ptr_if( ctx->alpenglow,
                                 &ctx->block_id_arr[ bank->idx ].dmr,
@@ -3833,6 +3851,14 @@ privileged_init( fd_topo_t const *      topo,
   ctx->ag_finalized_slot  = 0UL;
   ctx->ag_reward_slot     = ULONG_MAX;
   ctx->ag_reward_rewarded = 0;
+
+  ctx->has_vote_account = !!tile->replay.vote_account_path[0];
+  if( FD_LIKELY( ctx->has_vote_account ) ) {
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.vote_account_path, ctx->vote_account->uc ) ) ) {
+      uchar const * vote_key = fd_keyload_load( tile->replay.vote_account_path, /* pubkey only: */ 1 );
+      fd_memcpy( ctx->vote_account->uc, vote_key, sizeof(fd_pubkey_t) );
+    }
+  }
 
   ctx->bundle.enabled = tile->replay.bundle.enabled;
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {

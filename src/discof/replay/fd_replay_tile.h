@@ -160,6 +160,13 @@ struct fd_replay_slot_completed {
   ulong finalized_slot;
   int   is_voter;
 
+  /* Sampled from our vote account on a cadence rather than every
+     block, so ULONG_MAX / USHORT_MAX mean "not sampled this slot"
+     rather than "absent", exactly as identity_balance does.  Under
+     Tower these come from the tower tile instead. */
+  ulong  vote_balance;
+  ushort vote_commission;
+
   /* since slot start, default ULONG_MAX */
   ulong vote_success;
   ulong vote_failed;

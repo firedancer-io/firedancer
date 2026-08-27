@@ -59,7 +59,7 @@ fd_gui_build_tile_order( fd_gui_t * gui ) {
 
   char const * const tile_display_order[] = {
     "gossvf", "gossip", "snapct", "snapld", "snapdc", "snapin", "snapwr",
-    "net", "shred", "repair", "replay", "execrp", "tower", "txsend", "sign",
+    "net", "shred", "repair", "replay", "execrp", "tower", "votor", "txsend", "sign",
     "quic", "verify", "dedup", "pack", "execle", "poh"
   };
 
@@ -774,6 +774,8 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
   cur->out.repair  = 0UL;
   cur->out.rserve  = 0UL;
   cur->out.tpu     = 0UL;
+  cur->out.votor   = 0UL;
+  cur->in.votor    = 0UL;
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
     ulong net_tile_idx = fd_topo_find_tile( topo, "net", i );
     if( FD_UNLIKELY( net_tile_idx==ULONG_MAX ) ) continue;
@@ -790,8 +792,26 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
           cur->out.rserve += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
       }
 
-      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "send_net" ) ) ) {
+      /* The link is txsend_net.  Matching "send_net" here meant tpu
+         egress read zero in both consensus modes. */
+      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "txsend_net" ) ) ) {
           cur->out.tpu += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
+      }
+      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "votor_net" ) ) ) {
+          cur->out.votor += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
+      }
+    }
+  }
+
+  /* Votor ingress, counted on its own polled in-links the same way
+     repair's is.  Both votor links are absent under Tower, so this
+     stays zero there without needing a mode check. */
+  ulong votor_tile_idx = fd_topo_find_tile( topo, "votor", 0UL );
+  if( FD_UNLIKELY( votor_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * votor = &topo->tiles[ votor_tile_idx ];
+    for( ulong i=0UL; i<votor->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !strcmp( topo->links[ votor->in_link_id[ i ] ].name, "net_votor" ) ) ) {
+          cur->in.votor += fd_metrics_link_in( votor->metrics, i )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
       }
     }
   }
@@ -869,6 +889,7 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
   d_in[ 3 ] = fd_ulong_sat_sub( cur->in.repair,  prev->in.repair  );
   d_in[ 4 ] = fd_ulong_sat_sub( cur->in.rserve,  prev->in.rserve  );
   d_in[ 5 ] = fd_ulong_sat_sub( cur->in.metric,  prev->in.metric  );
+  d_in[ 6 ] = fd_ulong_sat_sub( cur->in.votor,   prev->in.votor   );
 
   ulong d_out[ FD_GUI_NET_PROTO_CNT ];
   d_out[ 0 ] = fd_ulong_sat_sub( cur->out.turbine, prev->out.turbine );
@@ -877,6 +898,7 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
   d_out[ 3 ] = fd_ulong_sat_sub( cur->out.repair,  prev->out.repair  );
   d_out[ 4 ] = fd_ulong_sat_sub( cur->out.rserve,  prev->out.rserve  );
   d_out[ 5 ] = fd_ulong_sat_sub( cur->out.metric,  prev->out.metric  );
+  d_out[ 6 ] = fd_ulong_sat_sub( cur->out.votor,   prev->out.votor   );
 
   /* Compute per-protocol instantaneous bytes/sec rate and feed the EMA. */
   long dt_ns = now - gui->summary.net_rate_prev_ts;
@@ -1958,7 +1980,13 @@ fd_gui_request_slot( fd_gui_t *    gui,
 
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = fd_gui_slot_get_canon_safe( gui, _slot );
-  if( FD_UNLIKELY( !slot || slot->skip==FD_GUI_SKIP_STATUS_UNKNOWN ) ) {
+  /* An unknown skip status means the slot is at or ahead of the
+     frontier and we cannot say whether it is on the canonical fork.  A
+     slot the cluster has certified a skip for is not in that position -
+     it has no block and never will, which is a known state and one the
+     live feed already published as skip_notarized. */
+  int known = slot && ( slot->skip!=FD_GUI_SKIP_STATUS_UNKNOWN || fd_gui_ag_slot_is_skip_notarized( gui, _slot ) );
+  if( FD_UNLIKELY( !known ) ) {
     fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
@@ -2000,7 +2028,13 @@ fd_gui_request_slot_detailed( fd_gui_t *    gui,
 
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = fd_gui_slot_get_canon_safe( gui, _slot );
-  if( FD_UNLIKELY( !slot || slot->skip==FD_GUI_SKIP_STATUS_UNKNOWN ) ) {
+  /* An unknown skip status means the slot is at or ahead of the
+     frontier and we cannot say whether it is on the canonical fork.  A
+     slot the cluster has certified a skip for is not in that position -
+     it has no block and never will, which is a known state and one the
+     live feed already published as skip_notarized. */
+  int known = slot && ( slot->skip!=FD_GUI_SKIP_STATUS_UNKNOWN || fd_gui_ag_slot_is_skip_notarized( gui, _slot ) );
+  if( FD_UNLIKELY( !known ) ) {
     fd_gui_printf_null_query_response( gui->http, "slot", "query_detailed", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
@@ -3404,6 +3438,20 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
        under Alpenglow it rides slot_completed instead. */
     fd_gui_slot_t * rec = fd_gui_slot_get( gui, slot_completed->slot, slot_completed->bank_seq );
     if( FD_LIKELY( rec ) ) rec->is_voter = (uchar)(!!slot_completed->is_voter);
+
+    /* Under Tower these ride the tower link, which does not exist here,
+       so replay samples them from our vote account instead.  The
+       sentinels mean "not sampled this slot", not "absent". */
+    if( FD_UNLIKELY( slot_completed->vote_balance!=ULONG_MAX && gui->summary.vote_account_balance!=slot_completed->vote_balance ) ) {
+      gui->summary.vote_account_balance = slot_completed->vote_balance;
+      fd_gui_printf_vote_balance( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+    if( FD_UNLIKELY( slot_completed->vote_commission!=USHORT_MAX && gui->summary.vote_commission!=slot_completed->vote_commission ) ) {
+      gui->summary.vote_commission = slot_completed->vote_commission;
+      fd_gui_printf_vote_commission( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
 
     /* Replay's floor, taken from certificates in block footers.  Votor
        publishes the authoritative value but never sees those, so this

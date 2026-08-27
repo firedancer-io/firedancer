@@ -446,7 +446,15 @@ after_frag( fd_gui_ctx_t *      ctx,
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
         fd_replay_slot_completed_t const * slot_completed =  (fd_replay_slot_completed_t const *)src;
 
-        fd_gui_peers_update_delinquency( ctx->peers, fd_clock_tile_now( ctx->clock ) );
+        /* Peer delinquency is derived from observed vote transactions,
+           which Alpenglow does not have, so the pass has nothing to go
+           on and every peer reports not delinquent.  Skipping it is not
+           just an optimisation: the rule marks a voter with no observed
+           vote as delinquent, held off only by an early return that
+           fires while nothing at all has been seen.  One stray
+           vote-program transaction would clear that guard and flip every
+           silent peer to delinquent at once. */
+        if( FD_LIKELY( !ctx->gui->summary.is_alpenglow ) ) fd_gui_peers_update_delinquency( ctx->peers, fd_clock_tile_now( ctx->clock ) );
 
         fd_gui_handle_replay_update( ctx->gui, slot_completed, ctx->peers->slot_voted, fd_clock_tile_now( ctx->clock ) );
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
