@@ -11,6 +11,16 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_secp256r1_public_key_compress validates and compresses an SEC1
+   uncompressed public key.  In particular, this validates both canonical
+   coordinates and the curve equation before discarding the y coordinate.
+   Returns FD_SECP256R1_SUCCESS on success and FD_SECP256R1_FAILURE on
+   failure. */
+
+int
+fd_secp256r1_public_key_compress( uchar       compressed[ 33 ],
+                                  uchar const uncompressed[ 65 ] );
+
 /* fd_secp256r1_verify verifies a SECP256r1 signature.
    Enforces low-S malleability check (s <= (n-1)/2). */
 int

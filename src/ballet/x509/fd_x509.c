@@ -1,5 +1,7 @@
 #include "fd_x509.h"
 #include "fd_der.h"
+#include "../secp256r1/fd_secp256r1.h"
+#include "../secp384r1/fd_secp384r1.h"
 #include <string.h>
 
 /* OID for algorithm IDs. */
@@ -80,7 +82,10 @@ fd_x509_parse_spki( fd_der_cursor_t * c,
       0 == memcmp( alg_ptr + sizeof(oid_ec_pubkey), oid_prime256v1, sizeof(oid_prime256v1) ) ) {
     uchar const * bits; ulong bits_len;
     FD_DER_READ_BITS( *c, bits, bits_len );
-    if( FD_UNLIKELY( bits_len != 65 || bits[0] != 0x04 ) ) return -1;
+    if( FD_UNLIKELY( bits_len != 65 ) ) return -1;
+    uchar compressed[ 33 ];
+    if( FD_UNLIKELY( fd_secp256r1_public_key_compress( compressed, bits )
+                     !=FD_SECP256R1_SUCCESS ) ) return -1;
     *out_pk     = bits;
     *out_pk_len = 65;
     *out_type   = FD_X509_KEY_ECDSA_P256;
@@ -93,7 +98,10 @@ fd_x509_parse_spki( fd_der_cursor_t * c,
       0 == memcmp( alg_ptr + sizeof(oid_ec_pubkey), oid_secp384r1, sizeof(oid_secp384r1) ) ) {
     uchar const * bits; ulong bits_len;
     FD_DER_READ_BITS( *c, bits, bits_len );
-    if( FD_UNLIKELY( bits_len != 97 || bits[0] != 0x04 ) ) return -1;
+    if( FD_UNLIKELY( bits_len != 97 ) ) return -1;
+    uchar compressed[ 49 ];
+    if( FD_UNLIKELY( fd_secp384r1_public_key_compress( compressed, bits )
+                     !=FD_SECP384R1_SUCCESS ) ) return -1;
     *out_pk     = bits;
     *out_pk_len = 97;
     *out_type   = FD_X509_KEY_ECDSA_P384;
@@ -585,9 +593,11 @@ int
 fd_x509_ec_point_compress( uchar const * uncompressed,
                            ulong         coord_sz,
                            uchar *       compressed ) {
-  if( FD_UNLIKELY( uncompressed[0] != 0x04 ) ) return -1;
-
-  compressed[0] = (uchar)( 0x02 | ( uncompressed[ 2*coord_sz ] & 0x01 ) );
-  fd_memcpy( compressed + 1, uncompressed + 1, coord_sz );
-  return 0;
+  if( coord_sz==32UL )
+    return fd_secp256r1_public_key_compress( compressed, uncompressed )
+           ==FD_SECP256R1_SUCCESS ? 0 : -1;
+  if( coord_sz==48UL )
+    return fd_secp384r1_public_key_compress( compressed, uncompressed )
+           ==FD_SECP384R1_SUCCESS ? 0 : -1;
+  return -1;
 }

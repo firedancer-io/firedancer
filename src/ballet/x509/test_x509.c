@@ -1,6 +1,7 @@
 #include "fd_x509_mock.h"
 #include "fd_x509.h"
 #include "fd_der.h"
+#include "../hex/fd_hex.h"
 #include "../../util/fd_util.h"
 #include <string.h>
 
@@ -10,6 +11,20 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  /* Reject an uncompressed point whose y coordinate has been altered while
+     retaining the same parity bit. */
+  {
+    uchar uncompressed[ 65 ];
+    uchar compressed  [ 33 ];
+    fd_hex_decode( uncompressed,
+                   "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
+                   "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+                   65UL );
+    FD_TEST( !fd_x509_ec_point_compress( uncompressed, 32UL, compressed ) );
+    uncompressed[ 33 ] ^= 1U;
+    FD_TEST( fd_x509_ec_point_compress( uncompressed, 32UL, compressed )==-1 );
+  }
 
   /* Test v1 */
 

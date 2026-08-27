@@ -184,6 +184,43 @@ test_secp256r1_point_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
+test_secp256r1_public_key_compress( void ) {
+  uchar uncompressed[ 65 ];
+  uchar compressed  [ 33 ];
+  uchar expected    [ 33 ];
+
+  fd_hex_decode( uncompressed,
+                 "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
+                 "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+                 65UL );
+  fd_hex_decode( expected,
+                 "036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+                 33UL );
+
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, uncompressed )==FD_SECP256R1_SUCCESS );
+  FD_TEST( fd_memeq( compressed, expected, sizeof(expected) ) );
+
+  /* Changing y without changing its parity used to silently map this input
+     back to the original valid compressed point. */
+  uchar bad[ 65 ];
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  bad[ 33 ] ^= 1U;
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, bad )==FD_SECP256R1_FAILURE );
+
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  bad[ 0 ] = 0x02U;
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, bad )==FD_SECP256R1_FAILURE );
+
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  fd_hex_decode( bad+1, "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 32UL );
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, bad )==FD_SECP256R1_FAILURE );
+
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  fd_hex_decode( bad+33, "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 32UL );
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, bad )==FD_SECP256R1_FAILURE );
+}
+
+static void
 test_secp256r1_point_eq_x( FD_FN_UNUSED fd_rng_t * rng ) {
 
   uchar _pub[ 33 ] = { 0 }; uchar * pub = _pub;
@@ -380,6 +417,7 @@ main( int     argc,
   test_secp256r1_fp_sqrt         ( rng );
 
   test_secp256r1_point_frombytes ( rng );
+  test_secp256r1_public_key_compress();
   test_secp256r1_point_eq_x      ( rng );
 
   test_secp256r1_point_add_mixed ( rng );

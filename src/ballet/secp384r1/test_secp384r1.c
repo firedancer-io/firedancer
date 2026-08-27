@@ -1,5 +1,6 @@
 #include "../fd_ballet.h"
 #include "fd_secp384r1.h"
+#include "../hex/fd_hex.h"
 
 #if FD_USING_GCC && __GNUC__ >= 15
 #pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
@@ -35,6 +36,51 @@ static uchar const test_pubkey[] = {
   0x14
 };
 
+static void
+test_public_key_compress( void ) {
+  uchar uncompressed[ 97 ];
+  uchar compressed  [ 49 ];
+  uchar expected    [ 49 ];
+
+  fd_hex_decode( uncompressed,
+                 "04aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385"
+                 "502f25dbf55296c3a545e3872760ab7"
+                 "3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c0"
+                 "0a60b1ce1d7e819d7a431d7c90ea0e5f",
+                 97UL );
+  fd_hex_decode( expected,
+                 "03aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385"
+                 "502f25dbf55296c3a545e3872760ab7",
+                 49UL );
+
+  FD_TEST( fd_secp384r1_public_key_compress( compressed, uncompressed )==FD_SECP384R1_SUCCESS );
+  FD_TEST( fd_memeq( compressed, expected, sizeof(expected) ) );
+
+  /* Preserve y parity while corrupting the rest of the coordinate. */
+  uchar bad[ 97 ];
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  bad[ 49 ] ^= 1U;
+  FD_TEST( fd_secp384r1_public_key_compress( compressed, bad )==FD_SECP384R1_FAILURE );
+
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  bad[ 0 ] = 0x02U;
+  FD_TEST( fd_secp384r1_public_key_compress( compressed, bad )==FD_SECP384R1_FAILURE );
+
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  fd_hex_decode( bad+1,
+                 "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe"
+                 "ffffffff0000000000000000ffffffff",
+                 48UL );
+  FD_TEST( fd_secp384r1_public_key_compress( compressed, bad )==FD_SECP384R1_FAILURE );
+
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  fd_hex_decode( bad+49,
+                 "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe"
+                 "ffffffff0000000000000000ffffffff",
+                 48UL );
+  FD_TEST( fd_secp384r1_public_key_compress( compressed, bad )==FD_SECP384R1_FAILURE );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -42,6 +88,8 @@ main( int     argc,
 
   fd_sha512_t sha[1];
   FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
+
+  test_public_key_compress();
 
   /* Test 1: invalid signature (all zeros) must be rejected */
   {

@@ -133,10 +133,11 @@ fd_x509_decode_ecdsa_sig( uchar const * der,
                           uchar *       raw_sig,
                           ulong         scalar_sz );
 
-/* fd_x509_ec_point_compress compresses an uncompressed EC point
-   (04 || x || y) into a commpressed form (02/03 || x).
-   coord_sz is the byte size of each coordinate. uncommpressed must be
-   at least 1+2*coord_sz bytes.
+/* fd_x509_ec_point_compress validates and compresses a supported
+   uncompressed EC point (04 || x || y) into compressed form (02/03 || x).
+   coord_sz must be 32 for P-256 or 48 for P-384.  uncompressed must be
+   at least 1+2*coord_sz bytes.  Both coordinates must be canonical and the
+   exact supplied point must satisfy the corresponding curve equation.
    compressed must be at least 1+coord_sz bytes.
    Returns 0 on success, -1 on failure. */
 
