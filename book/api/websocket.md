@@ -241,6 +241,17 @@ votes are not transactions.
 `slot.missed_vote_history` retain less wall-clock history than an epoch
 under Alpenglow's shorter epochs.
 
+**Vote participation is always negative.**  Alpenglow vote transmission
+is not implemented.  The votor tile casts a vote, adds it to its own
+pool and stops there: it never serializes one for the wire, never dials
+a peer, and never sends a QUIC datagram, so no other validator ever sees
+it.  `SlotPublish.vote_rewarded` is therefore `false` for every slot
+whose reward certificate has arrived, `slot.missed_vote_history` covers
+every slot we were a voter for, `summary.vote_slot` stays `null`, and
+`summary.vote_state` and `health.vote` report `delinquent`.  All of that
+is accurate reporting of the validator's actual participation, not a
+reporting fault, and none of it changes until votes are transmitted.
+
 :::
 
 #### `summary.cluster`
