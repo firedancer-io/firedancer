@@ -994,6 +994,7 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
   FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
 
   datagram_rx_cnt = 0UL;
+  /* Simulate scratch values left by an earlier packet in a coalesced datagram. */
   fd_quic_pkt_t pkt_meta = {
     .ip4 = {{
       .saddr = FD_QUIC_SANDBOX_PEER_IP4,
@@ -1006,8 +1007,16 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
     .rcv_time   = sandbox->wallclock,
     .enc_level  = fd_quic_enc_level_appdata_id,
     .datagram_sz= (uint)pkt_sz,
+    .ack_flag       = ACK_FLAG_CANCEL,
+    .rtt_pkt_number = ULONG_MAX,
+    .rtt_ack_time   = 1L,
+    .rtt_ack_delay  = ULONG_MAX,
   };
   FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt, pkt_sz )==pkt_sz );
+  FD_TEST( pkt_meta.ack_flag      ==ACK_FLAG_RQD );
+  FD_TEST( pkt_meta.rtt_pkt_number==0UL          );
+  FD_TEST( pkt_meta.rtt_ack_time  ==0L           );
+  FD_TEST( pkt_meta.rtt_ack_delay ==0UL          );
   FD_TEST( datagram_rx_cnt==1UL );
   FD_TEST( datagram_rx_sz==sizeof(msg) );
   FD_TEST( !memcmp( datagram_rx_buf, msg, sizeof(msg) ) );
