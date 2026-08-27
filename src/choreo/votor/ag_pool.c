@@ -297,6 +297,8 @@ slot_state( ag_pool_t * self,
   ag_epoch_info_t const * info = fd_ptr_if  ( slot>=self->next_epoch_slot, self->next_epoch_info, self->curr_epoch_info );
   ulong                   rank = fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, self->curr_epoch_rank );
 
+  FD_TEST( slot_state_pool_free( self->slot_states->pool ) );
+
   ele       = slot_state_pool_ele_acquire( self->slot_states->pool );
   ele->slot = slot;
   ag_slot_state_zero( &ele->slot_state, slot, info, rank );
