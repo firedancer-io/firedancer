@@ -385,6 +385,32 @@ handle_epoch( fd_votor_tile_t *           ctx,
   index_id_to_rank( ctx->id_to_rank, ctx->curr_epoch_info, ctx->next_epoch_info );
   ag_pool_advance_epoch( ctx->pool, epoch_info, epoch_rank, msg->start_slot );
   ag_votor_advance_epoch( ctx->votor, epoch_rank, msg->start_slot );
+
+  FD_LOG_NOTICE(( "votor epoch %lu: %lu validators, own rank %hu",
+                  msg->epoch, epoch_info->validator_cnt, epoch_rank ));
+
+  /* We sign votes with a BLS key derived from the identity key, but the
+     cluster verifies them against the BLS key the vote account has
+     registered.  Those are set independently - agave derives from the
+     authorized voter keypair, so they only agree when the authorized
+     voter is the identity - and nothing else notices when they diverge:
+     the votes are well formed, they are sent, and every recipient
+     silently drops them on signature verification.  The validator then
+     looks like it is voting while earning no credits and appearing in
+     no certificate.  Cheap to check once an epoch, and there is no
+     other symptom to go on. */
+
+  if( FD_LIKELY( epoch_rank!=USHORT_MAX ) ) {
+    ag_bls_pub_t derived;
+    ag_bls_sec_to_pub( ctx->bls_key, derived );
+    if( FD_UNLIKELY( memcmp( derived, epoch_info->validators[ epoch_rank ].bls_key, AG_BLS_PUB_SZ ) ) ) {
+      FD_LOG_WARNING(( "votor epoch %lu: our derived BLS key does not match the one registered "
+                       "for our identity on chain - our votes cannot verify anywhere, so we "
+                       "will earn no credits and appear in no certificate. Check that the vote "
+                       "account's authorized voter is the identity key",
+                       msg->epoch ));
+    }
+  }
 }
 
 static void
