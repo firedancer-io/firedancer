@@ -109,6 +109,11 @@ ulong
 fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
                                   ulong                       slot );
 
+int
+fd_slot_to_leader_schedule_epoch_checked( fd_epoch_schedule_t const * schedule,
+                                          ulong                       slot,
+                                          ulong *                     out );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_schedule_h */

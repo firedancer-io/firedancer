@@ -1139,7 +1139,7 @@ static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
-#if defined(CBMC) || FD_HAS_ASAN
+#if defined(CBMC) || FD_HAS_ASAN || FD_HAS_UBSAN
   if( FD_UNLIKELY( !sz ) ) return d; /* Standard says sz 0 is UB, uncomment if target is insane and doesn't treat sz 0 as a nop */
 #endif
   return memcpy( d, s, sz );

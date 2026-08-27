@@ -1733,10 +1733,24 @@ state_process( fd_ssmanifest_parser_t * parser ) {
        derive the epoch from the slot and epoch schedule instead.
        https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/runtime/src/serde_snapshot.rs#L174 */
     parser->epoch                    = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
-    parser->leader_schedule_epoch    = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
+    if( FD_UNLIKELY( !fd_slot_to_leader_schedule_epoch_checked( &epoch_schedule, manifest->slot, &parser->leader_schedule_epoch ) ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: cannot derive leader schedule epoch from slot %lu "
+                       "(slots_per_epoch=%lu leader_schedule_slot_offset=%lu first_normal_slot=%lu first_normal_epoch=%lu)",
+                       manifest->slot,
+                       epoch_schedule.slots_per_epoch,
+                       epoch_schedule.leader_schedule_slot_offset,
+                       epoch_schedule.first_normal_slot,
+                       epoch_schedule.first_normal_epoch ));
+      return -1;
+    }
     ulong const epoch_stakes_ele_cnt = FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN;
 
     ulong const epoch_stakes_base = parser->epoch>0UL ? parser->epoch-1UL : 0UL;
+    if( FD_UNLIKELY( parser->leader_schedule_epoch<epoch_stakes_base ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: leader schedule epoch %lu precedes base epoch %lu",
+                       parser->leader_schedule_epoch, epoch_stakes_base ));
+      return -1;
+    }
     if( FD_UNLIKELY( parser->leader_schedule_epoch-epoch_stakes_base>=epoch_stakes_ele_cnt ) ) {
       FD_LOG_WARNING(( "fd_ssmanifest_parser only supports up to %lu epoch_stakes entries, but leader schedule epoch is %lu epochs after base epoch",
                        epoch_stakes_ele_cnt, parser->leader_schedule_epoch-epoch_stakes_base ));
