@@ -911,6 +911,7 @@ unprivileged_init( fd_topo_t const *      topo,
       }
       else if( !strcmp( ext, ".css" ) && index_html_refs( index_html, f->name ) )                preload_css = f->name;
     }
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/style-",  14UL ) && !strcmp( ext, ".css" ) && index_html_refs( index_html, f->name ) ) ) preload_css = f->name;
     else if( FD_UNLIKELY( !strncmp( f->name, "/assets/react-",  14UL ) && !strcmp( ext, ".js" ) ) ) preload_react  = f->name;
     else if( FD_UNLIKELY( !strncmp( f->name, "/assets/vendor-", 15UL ) && !strcmp( ext, ".js" ) ) ) preload_vendor = f->name;
     else if( FD_UNLIKELY( !strncmp( f->name, "/assets/main-",   13UL ) && !strcmp( ext, ".js" ) ) ) preload_main   = f->name;
