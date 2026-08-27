@@ -74,6 +74,8 @@ struct fd_block_id_ele {
   ulong     slot;
   ulong     bank_seq;
   ulong     next_;
+  fd_hash_t ag_block_id;
+  fd_hash_t ag_parent_block_id;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 

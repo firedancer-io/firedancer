@@ -98,10 +98,6 @@ ag_finality_tracker_highest_finalized_slot( ag_finality_tracker_t const * self )
 FD_FN_PURE ulong
 ag_finality_tracker_first_unpruned_slot( ag_finality_tracker_t const * self );
 
-/* ag_finality_tracker_status returns the finalization status of slot, or
-   -1 if the slot is unknown.  out_hash, if non-NULL, receives the block
-   hash the status refers to, zeroed when the status carries none. */
-
 int
 ag_finality_tracker_status( ag_finality_tracker_t const * self,
                             ulong                         slot,

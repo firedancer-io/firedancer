@@ -35,7 +35,7 @@
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../repair/fd_repair_tile.h"
-#include "../repair/fd_repair_tile.h"
+#include "../rotor/fd_rotor_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
 
@@ -654,9 +654,16 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   /* HACKY: hacky way of checking if we should send a null parent block
      id */
+  fd_hash_t block_id        = block_id_ele->latest_mr;
   fd_hash_t parent_block_id = {0};
   if( FD_LIKELY( !is_initial ) ) {
     parent_block_id = ctx->block_id_arr[ bank->parent_idx ].latest_mr;
+  }
+
+  if( FD_UNLIKELY( ctx->alpenglow && !is_initial ) ) {
+    FD_CHECK_CRIT( !fd_hash_check_zero( &block_id_ele->ag_block_id ), "no double merkle root for the completed block" );
+    block_id        = block_id_ele->ag_block_id;
+    parent_block_id = block_id_ele->ag_parent_block_id;
   }
 
   fd_hash_t const * bank_hash  = &bank->f.bank_hash;
@@ -694,7 +701,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->slots_per_epoch       = fd_epoch_slot_cnt( epoch_schedule, epoch );
   slot_info->block_height          = bank->f.block_height;
   slot_info->parent_slot           = bank->f.parent_slot;
-  slot_info->block_id              = block_id_ele->latest_mr;
+  slot_info->block_id              = block_id;
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
@@ -1020,7 +1027,9 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   block_id_ele->slot           = slot;
   block_id_ele->bank_seq       = ctx->leader_bank->bank_seq;
   block_id_ele->latest_fec_idx = 0U;
-  memset( &block_id_ele->latest_mr, 0, sizeof(fd_hash_t) );
+  memset( &block_id_ele->latest_mr,          0, sizeof(fd_hash_t) );
+  memset( &block_id_ele->ag_block_id,        0, sizeof(fd_hash_t) );
+  memset( &block_id_ele->ag_parent_block_id, 0, sizeof(fd_hash_t) );
 
   ctx->leader_bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   ctx->leader_bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
@@ -2157,6 +2166,8 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->bank_seq       = bank->bank_seq;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
+    memset( &block_id_ele->ag_block_id,        0, sizeof(fd_hash_t) );
+    memset( &block_id_ele->ag_parent_block_id, 0, sizeof(fd_hash_t) );
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
@@ -2999,6 +3010,21 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
+process_rotor_fec_replay( fd_replay_tile_t *            ctx,
+                          fd_rotor_replay_fec_t const * msg ) {
+  if( FD_LIKELY( !msg->slot_complete ) ) return; /* block id is only populated on the last FEC set */
+
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->mr, NULL, ctx->block_id_arr );
+  if( FD_UNLIKELY( !block_id_ele ) ) {
+    FD_LOG_DEBUG(( "no block id ele for completed slot %lu", msg->slot ));
+    return;
+  }
+
+  block_id_ele->ag_block_id        = msg->block_id;
+  block_id_ele->ag_parent_block_id = msg->parent_block_id;
+}
+
+static void
 process_fec_complete( fd_replay_tile_t *         ctx,
                       ulong                      sig,
                       fd_repair_fec_complete_t * complete_msg ) {
@@ -3499,6 +3525,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
          removed from store.  See topology.c for more details. */
       if( FD_UNLIKELY( sig==REPAIR_SIG_FEC || sig==REPAIR_SIG_FEC_LEADER || sig==REPAIR_SIG_FEC_INVALID ) ) {
         process_fec_complete( ctx, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      } else if( FD_UNLIKELY( sig==ROTOR_SIG_FEC_REPLAY ) ) {
+        process_rotor_fec_replay( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }
