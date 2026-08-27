@@ -1236,6 +1236,9 @@ EXAMPLES
     <gauge name="ClusterActiveStakeLamports" summary="Total cluster active stake at the optimistically confirmed slot" />
     <gauge name="EpochCredits" summary="Our vote account epoch credits at the optimistically confirmed slot" />
     <gauge name="AlpenglowVoteSlot" summary="Alpenglow: latest slot this validator is recorded as having voted on, 0 if none. Always 0 under Tower" />
+    <counter name="AlpenglowRewardCertResolved" summary="Alpenglow: footer reward certificates that determined a reward outcome for us, whether or not we were in them" />
+    <counter name="AlpenglowRewardCertRewarded" summary="Alpenglow: footer reward certificates that included our rank. Resolved minus this is our genuine missed vote count" />
+    <counter name="AlpenglowRewardCertUnreadable" summary="Alpenglow: footer reward certificates whose bitmap did not extend to our rank, so said nothing about us. Nonzero means our ranked set disagrees with the cluster's and the missed vote readout cannot be trusted" />
 
     <counter name="StoreQueryAcquired" summary="Store slock acquires for query" />
     <counter name="StoreQueryReleased" summary="Store slock releases for query" />

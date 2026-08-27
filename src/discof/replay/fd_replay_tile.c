@@ -329,10 +329,25 @@ ag_observe_footer_certs( fd_replay_tile_t *        ctx,
 
     /* A bitmap that does not reach our rank says nothing about us, so
        leave the slot unresolved rather than reporting a miss we did not
-       observe. */
-    if( FD_UNLIKELY( (ulong)rank>=cert->nbits ) ) continue;
+       observe.  It also means our ranked set disagrees with the one the
+       cluster built the certificate against, which would make every
+       other bit we read out of it suspect too - hence the counter. */
+    if( FD_UNLIKELY( (ulong)rank>=cert->nbits ) ) {
+      FD_MCNT_INC( REPLAY, ALPENGLOW_REWARD_CERT_UNREADABLE, 1UL );
+      continue;
+    }
 
     int in_cert = !!((cert->signer_set[ rank>>6 ] >> (rank & 63U)) & 1UL);
+
+    /* Counted per certificate rather than per resolved slot, so that
+       resolved minus rewarded is the number of certificates that could
+       have carried our vote and did not.  The reward certificate is
+       accumulated over the eight slots before the block carrying it and
+       has no stake threshold, so a miss here is not the live
+       certificate having closed early - it is our vote not reaching the
+       leader. */
+    FD_MCNT_INC( REPLAY, ALPENGLOW_REWARD_CERT_RESOLVED, 1UL );
+    if( FD_UNLIKELY( in_cert ) ) FD_MCNT_INC( REPLAY, ALPENGLOW_REWARD_CERT_REWARDED, 1UL );
 
     /* The certificate covering a slot resolves that slot's reward
        outcome whether or not we are in it - being absent is exactly
