@@ -363,6 +363,21 @@ fd_gui_store_ts_oldest_window( fd_gui_store_t * db,
                                ulong            ring_idx,
                                ulong *          out_window );
 
+/* fd_gui_store_ts_live_window_bounds returns, in *out_first_window and
+   *out_last_window, the time windows of the oldest and newest records
+   held by TS ring `ring_idx`.  Returns 1 if the ring holds any record,
+   0 if it is empty or not a TS ring.
+
+   Unlike fd_gui_store_ts_oldest_window this yields an upper bound too,
+   which is what lets a range scan reject a wholly stale or wholly
+   future request instead of walking the ring to find nothing. */
+
+int
+fd_gui_store_ts_live_window_bounds( fd_gui_store_t * db,
+                                    ulong            ring_idx,
+                                    ulong *          out_first_window,
+                                    ulong *          out_last_window );
+
 /* ---- TS ring: eviction ---------------------------------------------- */
 
 /* fd_gui_store_ts_evict reclaims drained records (up to budget records)

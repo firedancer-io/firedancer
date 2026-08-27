@@ -2150,14 +2150,14 @@ static inline int
 fd_gui_cjson_parse_ns( cJSON const * param,
                           long *        out ) {
   if( FD_UNLIKELY( !param ) ) return -1;
-  if( cJSON_IsNumber( param ) ) {
-    double v = param->valuedouble;
-    if( FD_UNLIKELY( !(v>=0.0 && v<(double)LONG_MAX) ) ) return -1;
-    *out = (long)v;
-    return 0;
-  }
   if( cJSON_IsString( param ) && param->valuestring ) {
-    *out = fd_cstr_to_long( param->valuestring );
+    /* Require a non-empty run of digits and nothing else. */
+    char const * s = param->valuestring;
+    if( FD_UNLIKELY( !*s ) ) return -1;
+    for( char const * c=s; *c; c++ ) {
+      if( FD_UNLIKELY( *c<'0' || *c>'9' ) ) return -1;
+    }
+    *out = fd_cstr_to_long( s );
     return 0;
   }
   return -1;

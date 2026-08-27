@@ -125,6 +125,23 @@ typedef struct fd_gui_hist_iter fd_gui_hist_iter_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_gui_hist_ts_clamp applies the bounded-skew timestamp policy that
+   every time-series ring uses: a record's timestamp is pulled into
+   [now-SKEW, now+SKEW] before it is floored to a window.  This is what
+   bounds the out-of-orderness of the append stream, which in turn is
+   what lets the ring evict from its tail.
+
+   The saturating form matters: `now` is caller supplied, so a caller
+   passing a value near the extremes must not wrap the bound. */
+
+static inline long
+fd_gui_hist_ts_clamp( long now,
+                      long ts_ns ) {
+  long lo = now<LONG_MIN+FD_GUI_HIST_TS_SKEW_NS ? LONG_MIN : now-FD_GUI_HIST_TS_SKEW_NS;
+  long hi = now>LONG_MAX-FD_GUI_HIST_TS_SKEW_NS ? LONG_MAX : now+FD_GUI_HIST_TS_SKEW_NS;
+  return fd_long_max( lo, fd_long_min( ts_ns, hi ) );
+}
+
 FD_FN_CONST ulong
 fd_gui_hist_align( void );
 

@@ -482,7 +482,7 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
 
   /* Clamp the record's timestamp to a bounded skew around `now` and
      write the clamped value back into the record. */
-  long clamped_ts = fd_long_max( now-FD_GUI_HIST_TS_SKEW_NS, fd_long_min( ts_ns, now+FD_GUI_HIST_TS_SKEW_NS ) );
+  long clamped_ts = fd_gui_hist_ts_clamp( now, ts_ns );
 
   uchar buf[ FD_GUI_HIST_TS_SZ_MAX ];
   if( FD_UNLIKELY( rec_sz>sizeof(buf) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d record too large (%lu)", dbi, rec_sz )); return -1; }
@@ -546,6 +546,29 @@ fd_gui_hist_range_begin( fd_gui_t *                   gui,
   iter->rec_sz      = fd_gui_hist_rec_sz( dbi );
   iter->_filter     = filter;
   iter->_filter_ctx = filter_ctx;
+
+  /* A request may span far more than the direct window index covers, at
+     which point fd_gui_store_ts_scan_begin degrades to a full ring scan.
+     Clamp the requested window to what the ring can actually hold, so a
+     wholly stale or wholly future request returns empty instead of
+     walking every record inside the tile's run loop.
+
+     Every TS record is skew-clamped at append time, so the ring's
+     contents are within 2*SKEW of its append-order endpoints. */
+
+  ulong first_window;
+  ulong last_window;
+  if( FD_UNLIKELY( !fd_gui_store_ts_live_window_bounds( db, (ulong)dbi, &first_window, &last_window ) ) ) return 0; /* empty ring */
+
+  ulong skew_window = (ulong)((2L*FD_GUI_HIST_TS_SKEW_NS + res_ns-1L) / res_ns);
+  ulong live_lo = fd_ulong_min( first_window, last_window );
+  ulong live_hi = fd_ulong_max( first_window, last_window );
+  live_lo = live_lo>skew_window            ? live_lo-skew_window : 0UL;
+  live_hi = live_hi>ULONG_MAX-skew_window  ? ULONG_MAX           : live_hi+skew_window;
+
+  window_lo = fd_ulong_max( window_lo, live_lo );
+  window_hi = fd_ulong_min( window_hi, live_hi );
+  if( FD_UNLIKELY( window_lo>window_hi ) ) return 0; /* request does not overlap the ring */
 
   fd_gui_store_ts_scan_begin( db, &iter->_it, (ulong)dbi, window_lo, window_hi, NULL, NULL );
   fd_gui_hist_iter_load( iter );
