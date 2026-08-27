@@ -125,6 +125,8 @@ typedef struct {
       fd_snapsv_msg_t snapsv_out;
       int             snapsv_eom;
     };
+
+    fd_votor_notif_t votor_notif;
   } parsed;
 
   fd_http_server_t * gui_server;
@@ -352,6 +354,13 @@ during_frag( fd_gui_ctx_t * ctx,
       ctx->parsed.snapsv_eom = fd_frag_meta_ctl_eom( ctl );
       break;
     }
+    case IN_KIND_VOTOR_NOTIF: {
+      /* Copy here rather than reading in after_frag: the link is
+         unreliable, so votor may overwrite the fragment underneath us. */
+      if( FD_UNLIKELY( sz!=sizeof(fd_votor_notif_t) ) ) break;
+      fd_memcpy( &ctx->parsed.votor_notif, src, sz );
+      break;
+    }
   }
 
   ctx->chunk = chunk;
@@ -402,9 +411,35 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_VOTOR_NOTIF: {
-      if( FD_UNLIKELY( sig!=FD_VOTOR_NOTIF_FINALIZED_SLOT || sz!=sizeof(fd_votor_notif_t) ) ) return;
-      fd_votor_notif_t const * notif = (fd_votor_notif_t const *)src;
-      fd_gui_handle_finalized_slot( ctx->gui, notif->finalized_slot );
+      if( FD_UNLIKELY( sz!=sizeof(fd_votor_notif_t) ) ) return;
+
+      /* Copied in during_frag: the link is unreliable, so the fragment
+         may already have been overwritten by now. */
+      fd_votor_notif_t const * notif = &ctx->parsed.votor_notif;
+
+      switch( sig ) {
+        case FD_VOTOR_NOTIF_FINALIZED_SLOT:
+          fd_gui_handle_finalized_slot( ctx->gui, notif->finalized_slot );
+          break;
+        case FD_VOTOR_NOTIF_CERT: {
+          fd_votor_notif_cert_t const * cert     = &notif->cert;
+          fd_hash_t const *             block_id = cert->has_block_id ? &cert->block_id : NULL;
+          switch( cert->kind ) {
+            case FD_VOTOR_NOTIF_CERT_NOTAR:          fd_gui_handle_ag_notarized( ctx->gui, cert->slot, block_id, FD_GUI_AG_NOTAR_REGULAR  ); break;
+            case FD_VOTOR_NOTIF_CERT_NOTAR_FALLBACK: fd_gui_handle_ag_notarized( ctx->gui, cert->slot, block_id, FD_GUI_AG_NOTAR_FALLBACK ); break;
+            case FD_VOTOR_NOTIF_CERT_SKIP:           fd_gui_handle_ag_skip_cert( ctx->gui, cert->slot );                                     break;
+            case FD_VOTOR_NOTIF_CERT_FAST_FINAL:     fd_gui_handle_ag_finalized( ctx->gui, cert->slot, block_id, FD_GUI_AG_FINAL_FAST      ); break;
+            case FD_VOTOR_NOTIF_CERT_FINAL:          fd_gui_handle_ag_finalized( ctx->gui, cert->slot, block_id, FD_GUI_AG_FINAL_SLOW      ); break;
+            default:                                                                                                                         break;
+          }
+          break;
+        }
+        case FD_VOTOR_NOTIF_PARENT_READY:
+          fd_gui_handle_ag_parent_ready( ctx->gui, notif->parent_ready.slot, notif->parent_ready.parent_slot, &notif->parent_ready.parent_block_id );
+          break;
+        default:
+          return;
+      }
       break;
     }
     case IN_KIND_REPLAY_OUT: {

@@ -137,7 +137,21 @@ struct fd_replay_slot_completed {
 
   int is_leader; /* whether we were leader for this slot */
   ulong identity_balance;
-  ulong vote_slot; /* Alpenglow: latest target slot in the fork-local vote account (ULONG_MAX if unknown) */
+
+  /* Alpenglow.  vote_slot is the latest slot this validator is recorded
+     as having voted on, taken from our rank bit in the certificates
+     carried by block footers (ULONG_MAX if we have not seen one).
+     finalized_slot is a floor on cluster finality derived from the same
+     footers, which is the only source of it while catching up, since
+     votor sees network certificates but not footer ones; consumers take
+     the larger of this and votor's own value.  is_voter is whether our
+     identity was in this slot's epoch ranked validator set, i.e. the
+     chain admitted us as a voter - it does not assert that we hold the
+     BLS secret, which replay has no way to check. */
+
+  ulong vote_slot;
+  ulong finalized_slot;
+  int   is_voter;
 
   /* since slot start, default ULONG_MAX */
   ulong vote_success;

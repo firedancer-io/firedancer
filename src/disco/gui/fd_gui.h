@@ -139,11 +139,34 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX (1UL)
 #define FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT             (2UL)
 
+/* Slot levels form a total order and are compared numerically.  Level 2
+   is "the cluster has committed to this block, but it is not yet
+   irreversible": under Tower that is optimistic confirmation (>2/3
+   voted), under Alpenglow it is notarization (>=60% notarized).  The two
+   occupy the same rung deliberately, so the ordering and every
+   comparison against it stay identical in both modes and only the
+   rendered string differs. */
+
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
-#define FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED (2)
+#define FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED (2) /* "notarized" under Alpenglow */
 #define FD_GUI_SLOT_LEVEL_ROOTED                   (3)
 #define FD_GUI_SLOT_LEVEL_FINALIZED                (4)
+
+/* Strength of the notarization and finalization proofs known for a
+   block.  Both are monotone: a consumer only ever raises them, so a
+   notification arriving out of order or twice cannot weaken what we
+   already know.  This is what lets the votor notification link be
+   unreliable. */
+
+#define FD_GUI_AG_NOTAR_NONE     ((uchar)0)
+#define FD_GUI_AG_NOTAR_FALLBACK ((uchar)1)
+#define FD_GUI_AG_NOTAR_REGULAR  ((uchar)2) /* supersedes fallback */
+
+#define FD_GUI_AG_FINAL_NONE     ((uchar)0)
+#define FD_GUI_AG_FINAL_IMPLICIT ((uchar)1) /* an ancestor of a finalized block */
+#define FD_GUI_AG_FINAL_SLOW     ((uchar)2) /* supersedes implicit */
+#define FD_GUI_AG_FINAL_FAST     ((uchar)3) /* supersedes slow */
 
 /* "Skipped" means not present on the canonical fork (i.e. tower_slot's
    fork). Since tower_slot may fall behind replay, we need a third state
@@ -333,9 +356,43 @@ struct __attribute__((packed)) fd_gui_slot {
   ulong     vote_slot;        /* most recent slot we had landed a vote for as of this slot's replay (ULONG_MAX if unknown) */
   uchar     skip;             /* one of FD_GUI_SKIP_STATUS_* */
   uchar     level;            /* one of FD_GUI_SLOT_LEVEL_* */
+  uchar     notarization_kind; /* Alpenglow: one of FD_GUI_AG_NOTAR_* */
+  uchar     finalization_kind; /* Alpenglow: one of FD_GUI_AG_FINAL_* */
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
+
+/* Alpenglow certificates name a block by (slot, block id), while slot
+   records are keyed by (slot, bank_seq).  fd_gui_ag_block is the join
+   between the two, and it is also where a certificate waits when it
+   arrives before we have replayed the block it names - which is normal,
+   not exceptional: finalization can outrun local replay, and a
+   certificate for an equivocating block we never fetch never resolves
+   at all.
+
+   Indexing by slot within a sliding window rather than hashing the
+   block id makes the structure self-evicting and fixed size: slot
+   s+FD_GUI_AG_WINDOW reuses the entry of slot s, and a certificate that
+   far behind the frontier describes a slot whose level has already been
+   settled by the rooted chain.  Two ways per slot matches replay's
+   promise of at most two blocks per slot.
+
+   This is also the seam for the block id change.  Alpenglow is moving
+   from the chained merkle root to a double merkle root; when it lands,
+   only the value stored in block_id here changes. */
+
+#define FD_GUI_AG_WINDOW (4096UL) /* ~13 minutes of 200ms slots */
+#define FD_GUI_AG_WAYS      (2UL) /* fd_replay_slot_completed delivers at most 2 blocks per slot */
+
+struct fd_gui_ag_block {
+  ulong     slot;              /* ULONG_MAX when this way is empty */
+  fd_hash_t block_id;
+  ulong     bank_seq;          /* ULONG_MAX until the block completes replay */
+  uchar     notarization_kind; /* one of FD_GUI_AG_NOTAR_* */
+  uchar     finalization_kind; /* one of FD_GUI_AG_FINAL_* */
+};
+
+typedef struct fd_gui_ag_block fd_gui_ag_block_t;
 
 struct fd_gui_slot_ranking {
   ulong slot;
@@ -884,6 +941,15 @@ struct fd_gui {
      fd_gui_slot_get_canon_safe. */
   fd_gui_slot_t skipped_scratch[ 1 ];
 
+  /* Alpenglow consensus state, untouched under Tower.  skip_slot[i]
+     holds the slot number of a slot with a skip certificate when
+     slot%FD_GUI_AG_WINDOW==i, and ULONG_MAX otherwise; a skipped slot
+     has no block and therefore no slot record to hang the state on. */
+  struct {
+    fd_gui_ag_block_t block[ FD_GUI_AG_WINDOW ][ FD_GUI_AG_WAYS ];
+    ulong             skip_slot[ FD_GUI_AG_WINDOW ];
+  } ag;
+
   /* used for estimating slot duration */
   fd_gui_turbine_slot_t turbine_slots[ FD_GUI_TURBINE_RECV_TIMESTAMPS ];
 
@@ -1146,6 +1212,55 @@ fd_gui_handle_oc_advanced( fd_gui_t * gui,
 void
 fd_gui_handle_finalized_slot( fd_gui_t * gui,
                               ulong      slot );
+
+/* Alpenglow consensus notifications.  These take plain scalars rather
+   than the votor wire types so that disco does not depend on discof;
+   the gui tile maps the five certificate kinds onto them.
+
+   block_id may be NULL when the certificate does not name a block, in
+   which case the notification is dropped rather than guessed at.  All
+   of these are idempotent and monotone - the link they arrive on is
+   unreliable, so they may be missed, duplicated, or reordered. */
+
+void
+fd_gui_handle_ag_notarized( fd_gui_t *        gui,
+                            ulong             slot,
+                            fd_hash_t const * block_id,
+                            uchar             notarization_kind );
+
+void
+fd_gui_handle_ag_finalized( fd_gui_t *        gui,
+                            ulong             slot,
+                            fd_hash_t const * block_id,
+                            uchar             finalization_kind );
+
+void
+fd_gui_handle_ag_skip_cert( fd_gui_t * gui,
+                            ulong      slot );
+
+void
+fd_gui_handle_ag_parent_ready( fd_gui_t *        gui,
+                               ulong             slot,
+                               ulong             parent_slot,
+                               fd_hash_t const * parent_block_id );
+
+/* Binds the block id certificates name to the bank_seq records are
+   keyed by, and applies any certificate that arrived before replay
+   completed the block. */
+
+void
+fd_gui_ag_register_block( fd_gui_t *        gui,
+                          ulong             slot,
+                          fd_hash_t const * block_id,
+                          ulong             bank_seq );
+
+/* True when the cluster has certified a skip for this slot.  Only
+   meaningful before the slot goes terminal, at which point the rooted
+   chain is authoritative. */
+
+int
+fd_gui_ag_slot_is_skip_notarized( fd_gui_t const * gui,
+                                  ulong            slot );
 
 /* fd_gui_slot_get_canon_safe resolves slot number `_slot` on the
    canonical fork and returns a renderable record. */

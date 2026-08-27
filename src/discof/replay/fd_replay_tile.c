@@ -226,6 +226,96 @@ ag_epoch_vtrs_update( fd_replay_tile_t *          ctx,
     FD_LOG_CRIT(( "epoch %lu info failed", msg->epoch ));
   }
   s->epoch = msg->epoch;
+
+  /* Locate ourselves in the ranked set.  Surviving ag_epoch_info_rank
+     means the chain admitted this identity as a voter for the epoch: it
+     has stake, and a well formed BLS key that no other validator
+     duplicates.  Certificate signer bitmaps are indexed by this rank,
+     so it is also how we read our own participation back out of them.
+
+     Note this does not prove we hold the BLS secret for the key the
+     chain has registered against our identity.  Checking that would
+     mean loading the identity private key into replay, which is not a
+     trade worth making for a monitoring field - votor is the tile that
+     holds signing keys. */
+
+  s->our_rank = USHORT_MAX;
+  for( ulong rank=0UL; rank<s->info->validator_cnt; rank++ ) {
+    if( FD_LIKELY( memcmp( s->info->validators[ rank ].id_key, ctx->identity_pubkey->uc, sizeof(fd_pubkey_t) ) ) ) continue;
+    s->our_rank = (ushort)rank;
+    break;
+  }
+}
+
+/* ag_our_rank returns our rank in the ranked validator set of the epoch
+   containing slot, or USHORT_MAX when that epoch is not in the window or
+   we are not in its set. */
+
+static ushort
+ag_our_rank( fd_replay_tile_t * ctx,
+             fd_bank_t const *  bank,
+             ulong              slot ) {
+  ulong epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, slot, NULL );
+
+  fd_replay_epoch_vtrs_t const * s = &ctx->epoch_vtrs[ epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
+  if( FD_UNLIKELY( s->epoch!=epoch ) ) return USHORT_MAX;
+  return s->our_rank;
+}
+
+/* ag_observe_footer_certs reads what a block's certificates say about
+   this validator and about cluster finality.  Everything here is a bit
+   test on data replay has already deserialized, so it costs nothing
+   beyond what the footer already forced us to parse.
+
+   Signer bitmaps are indexed by rank in the ranked set of the epoch
+   containing the slot the certificate is ABOUT, which across an epoch
+   boundary is not the epoch of the block carrying it - hence a rank
+   lookup per certificate rather than one for the block.
+
+   These certificates are shape validated but their signatures are not
+   (see the TODO at the call site), so a leader could put anything here.
+   Nothing consensus critical is derived from them below; the GUI fields
+   that are should be treated as the block leader's claim until the
+   certificate verify path lands. */
+
+static void
+ag_observe_footer_certs( fd_replay_tile_t *        ctx,
+                         fd_bank_t const *         bank,
+                         fd_footer_certs_t const * certs ) {
+  if( FD_UNLIKELY( certs->fast_final_cert ) ) ctx->ag_finalized_slot = fd_ulong_max( ctx->ag_finalized_slot, certs->fast_final_cert->slot );
+  if( FD_UNLIKELY( certs->final_cert      ) ) ctx->ag_finalized_slot = fd_ulong_max( ctx->ag_finalized_slot, certs->final_cert->slot      );
+
+  /* Ordinary notarize and skip votes are what the reward certificates
+     record, and they are the only votes the protocol rewards. */
+
+  fd_reward_cert_t const * rewards[ 2 ] = { certs->notar_reward_cert, certs->skip_reward_cert };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_reward_cert_t const * cert = rewards[ i ];
+    if( FD_LIKELY( !cert ) ) continue;
+
+    ushort rank = ag_our_rank( ctx, bank, cert->slot );
+    if( FD_UNLIKELY( rank==USHORT_MAX || (ulong)rank>=cert->nbits ) ) continue;
+    if( FD_LIKELY( !((cert->signer_set[ rank>>6 ] >> (rank & 63U)) & 1UL) ) ) continue;
+
+    ctx->ag_vote_slot = fd_ulong_max( ctx->ag_vote_slot, cert->slot );
+  }
+
+  /* A signature in a direct finalization proof advances the vote
+     account too, even though it earns no reward. */
+
+  ag_bls_agg_t const * aggs[ 2 ] = { certs->fast_final_cert ? &certs->fast_final_cert->agg_sig : NULL,
+                                     certs->final_cert      ? &certs->final_cert->agg_sig      : NULL };
+  ulong                slots[ 2 ] = { certs->fast_final_cert ? certs->fast_final_cert->slot : 0UL,
+                                      certs->final_cert      ? certs->final_cert->slot      : 0UL };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( !aggs[ i ] ) ) continue;
+
+    ushort rank = ag_our_rank( ctx, bank, slots[ i ] );
+    if( FD_UNLIKELY( rank==USHORT_MAX ) ) continue;
+    if( FD_LIKELY( !signer_set_test( aggs[ i ]->bitmask, (ulong)rank ) ) ) continue;
+
+    ctx->ag_vote_slot = fd_ulong_max( ctx->ag_vote_slot, slots[ i ] );
+  }
 }
 
 static void
@@ -635,49 +725,6 @@ report_block_completed( fd_replay_tile_t *                 ctx,
   fd_event_report_block_completed( ev );
 }
 
-/* Alpenglow rewards update the vote account in the replay bank.  Read
-   that fork-local state after block execution so the GUI does not infer
-   participation from transaction traffic. */
-
-static ulong
-alpenglow_vote_slot( fd_replay_tile_t * ctx,
-                     fd_bank_t const *  bank ) {
-  if( FD_LIKELY( !ctx->is_alpenglow || !ctx->has_vote_account ) ) return ULONG_MAX;
-
-  ulong    vote_slot = ULONG_MAX;
-  fd_acc_t acc       = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
-  if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) goto done;
-
-  fd_vote_state_versioned_t vote_state[1];
-  if( FD_UNLIKELY( fd_vsv_deserialize( &acc, vote_state ) ) ) goto done;
-
-  fd_pubkey_t const *        node_pubkey = NULL;
-  fd_landed_vote_t const *   votes       = NULL;
-  switch( vote_state->kind ) {
-    case fd_vote_state_versioned_enum_v1_14_11:
-      node_pubkey = &vote_state->v1_14_11.node_pubkey;
-      votes       = vote_state->v1_14_11.votes;
-      break;
-    case fd_vote_state_versioned_enum_v3:
-      node_pubkey = &vote_state->v3.node_pubkey;
-      votes       = vote_state->v3.votes;
-      break;
-    case fd_vote_state_versioned_enum_v4:
-      node_pubkey = &vote_state->v4.node_pubkey;
-      votes       = vote_state->v4.votes;
-      break;
-    default:
-      goto done;
-  }
-
-  if( FD_UNLIKELY( !fd_pubkey_eq( node_pubkey, ctx->identity_pubkey ) || deq_fd_landed_vote_t_empty( votes ) ) ) goto done;
-  vote_slot = deq_fd_landed_vote_t_peek_tail_const( votes )->lockout.slot;
-
-done:
-  fd_accdb_unread_one( ctx->accdb, &acc );
-  return vote_slot;
-}
-
 static void
 publish_slot_completed( fd_replay_tile_t *  ctx,
                         fd_stem_context_t * stem,
@@ -770,7 +817,9 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->first_transaction_scheduled_nanos = bank->first_transaction_scheduled_nanos;
   slot_info->last_transaction_finished_nanos   = bank->last_transaction_finished_nanos;
   slot_info->completion_time_nanos             = fd_clock_tile_now( ctx->clock );
-  slot_info->vote_slot                         = alpenglow_vote_slot( ctx, bank );
+  slot_info->vote_slot                         = fd_ulong_if( !!ctx->ag_vote_slot, ctx->ag_vote_slot, ULONG_MAX );
+  slot_info->finalized_slot                    = ctx->ag_finalized_slot;
+  slot_info->is_voter                          = ag_our_rank( ctx, bank, bank->f.slot )!=USHORT_MAX;
   if( !slot_info->first_transaction_scheduled_nanos ) { /* edge case: empty slot */
     slot_info->first_transaction_scheduled_nanos = slot_info->last_transaction_finished_nanos;
   }
@@ -997,6 +1046,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     certs->final_notar_cert  = fd_sched_get_final_notar_cert ( ctx->sched, bank->idx );
     certs->skip_reward_cert  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
     certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
+
+    ag_observe_footer_certs( ctx, bank, certs );
 
     // TODO missing cert verify - inline to replay or use new verify tiles
     if( FD_UNLIKELY( fd_runtime_apply_footer( bank, ctx->accdb, ctx->capture_ctx, certs,
@@ -3734,6 +3785,9 @@ privileged_init( fd_topo_t const *      topo,
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
   ctx->identity_idx         = 0UL;
   ctx->identity_dirty       = 0;
+
+  ctx->ag_vote_slot      = 0UL; /* zero means "no participation observed" */
+  ctx->ag_finalized_slot = 0UL;
 
   ctx->has_vote_account = !!tile->replay.vote_account_path[0];
   if( FD_LIKELY( ctx->has_vote_account ) ) {

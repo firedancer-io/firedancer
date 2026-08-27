@@ -1950,19 +1950,76 @@ fd_gui_load_slot_duration( fd_gui_t *            gui,
   return slot->completed_time - parent_completed_time;
 }
 
+/* Slot level renders differently in the two consensus modes.  Level 2
+   is the same rung in both - the cluster has committed to this block
+   but it is not yet irreversible - so only the name differs.  Two
+   Alpenglow levels do not come from the record's own level at all: a
+   slot the cluster certified a skip for has no block to complete, and
+   once finality settles the branch the slot is skipped outright, which
+   the rooted chain already tells us through the skip status. */
+
+static char const *
+fd_gui_slot_level_cstr( fd_gui_t const *      gui,
+                        ulong                 _slot,
+                        fd_gui_slot_t const * slot ) {
+  if( FD_LIKELY( !gui->summary.is_alpenglow ) ) {
+    switch( slot->level ) {
+      case FD_GUI_SLOT_LEVEL_INCOMPLETE:               return "incomplete";
+      case FD_GUI_SLOT_LEVEL_COMPLETED:                return "completed";
+      case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: return "optimistically_confirmed";
+      case FD_GUI_SLOT_LEVEL_ROOTED:                   return "rooted";
+      case FD_GUI_SLOT_LEVEL_FINALIZED:                return "finalized";
+      default:                                         return "unknown";
+    }
+  }
+
+  if( FD_UNLIKELY( slot->skip==FD_GUI_SKIP_STATUS_SKIPPED && slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) return "skipped";
+  if( FD_UNLIKELY( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED && fd_gui_ag_slot_is_skip_notarized( gui, _slot ) ) ) return "skip_notarized";
+
+  switch( slot->level ) {
+    case FD_GUI_SLOT_LEVEL_INCOMPLETE:               return "incomplete";
+    case FD_GUI_SLOT_LEVEL_COMPLETED:                return "completed";
+    case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: return "notarized";
+    case FD_GUI_SLOT_LEVEL_ROOTED:
+    case FD_GUI_SLOT_LEVEL_FINALIZED:                return "rooted";
+    default:                                         return "unknown";
+  }
+}
+
+/* Emits the two Alpenglow only proof strength fields, and nothing at
+   all under Tower.  A terminal skipped slot reports implicit finality
+   because that is literally how we learned it: no certificate named the
+   slot, a descendant of it was finalized. */
+
+static void
+fd_gui_printf_slot_proofs( fd_gui_t *            gui,
+                           fd_gui_slot_t const * slot ) {
+  if( FD_LIKELY( !gui->summary.is_alpenglow ) ) return;
+
+  switch( slot->notarization_kind ) {
+    case FD_GUI_AG_NOTAR_REGULAR:  jsonp_string( gui->http, "notarization_kind", "regular"  ); break;
+    case FD_GUI_AG_NOTAR_FALLBACK: jsonp_string( gui->http, "notarization_kind", "fallback" ); break;
+    default:                       jsonp_null  ( gui->http, "notarization_kind" );             break;
+  }
+
+  uchar final_kind = slot->finalization_kind;
+  if( FD_UNLIKELY( final_kind==FD_GUI_AG_FINAL_NONE          &&
+                   slot->skip==FD_GUI_SKIP_STATUS_SKIPPED    &&
+                   slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) final_kind = FD_GUI_AG_FINAL_IMPLICIT;
+
+  switch( final_kind ) {
+    case FD_GUI_AG_FINAL_FAST:     jsonp_string( gui->http, "finalization_kind", "fast"     ); break;
+    case FD_GUI_AG_FINAL_SLOW:     jsonp_string( gui->http, "finalization_kind", "slow"     ); break;
+    case FD_GUI_AG_FINAL_IMPLICIT: jsonp_string( gui->http, "finalization_kind", "implicit" ); break;
+    default:                       jsonp_null  ( gui->http, "finalization_kind" );             break;
+  }
+}
+
 void
 fd_gui_printf_slot( fd_gui_t *            gui,
                     ulong                _slot,
                     fd_gui_slot_t const * slot ) {
-  char const * level;
-  switch( slot->level ) {
-    case FD_GUI_SLOT_LEVEL_INCOMPLETE:               level = "incomplete"; break;
-    case FD_GUI_SLOT_LEVEL_COMPLETED:                level = "completed";  break;
-    case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: level = "optimistically_confirmed"; break;
-    case FD_GUI_SLOT_LEVEL_ROOTED:                   level = "rooted"; break;
-    case FD_GUI_SLOT_LEVEL_FINALIZED:                level = "finalized"; break;
-    default:                                         level = "unknown"; break;
-  }
+  char const * level = fd_gui_slot_level_cstr( gui, _slot, slot );
 
   long duration_nanos = fd_gui_load_slot_duration( gui, _slot, slot );
 
@@ -1990,6 +2047,7 @@ fd_gui_printf_slot( fd_gui_t *            gui,
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );
         else                                                jsonp_long_as_str( gui->http, "completed_time_nanos", slot->completed_time );
         jsonp_string( gui->http, "level", level );
+        fd_gui_printf_slot_proofs( gui, slot );
         if( FD_UNLIKELY( slot->nonvote_success==UINT_MAX ) ) jsonp_null( gui->http, "success_nonvote_transaction_cnt" );
         else                                                           jsonp_ulong( gui->http, "success_nonvote_transaction_cnt", slot->nonvote_success );
         if( FD_UNLIKELY( slot->nonvote_failed==UINT_MAX ) ) jsonp_null( gui->http, "failed_nonvote_transaction_cnt" );
@@ -2078,15 +2136,7 @@ fd_gui_printf_slot_request( fd_gui_t *            gui,
                             ulong                _slot,
                             ulong                id,
                             fd_gui_slot_t const * slot ) {
-  char const * level;
-  switch( slot->level ) {
-    case FD_GUI_SLOT_LEVEL_INCOMPLETE:               level = "incomplete"; break;
-    case FD_GUI_SLOT_LEVEL_COMPLETED:                level = "completed";  break;
-    case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: level = "optimistically_confirmed"; break;
-    case FD_GUI_SLOT_LEVEL_ROOTED:                   level = "rooted"; break;
-    case FD_GUI_SLOT_LEVEL_FINALIZED:                level = "finalized"; break;
-    default:                                         level = "unknown"; break;
-  }
+  char const * level = fd_gui_slot_level_cstr( gui, _slot, slot );
 
   long duration_nanos = fd_gui_load_slot_duration( gui, _slot, slot );
 
@@ -2112,6 +2162,7 @@ fd_gui_printf_slot_request( fd_gui_t *            gui,
 
         jsonp_bool( gui->http, "skipped", slot->skip==FD_GUI_SKIP_STATUS_SKIPPED );
         jsonp_string( gui->http, "level", level );
+        fd_gui_printf_slot_proofs( gui, slot );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );
@@ -2157,15 +2208,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
                                          ulong                _slot,
                                          ulong                id,
                                          fd_gui_slot_t const * slot ) {
-  char const * level;
-  switch( slot->level ) {
-    case FD_GUI_SLOT_LEVEL_INCOMPLETE:               level = "incomplete"; break;
-    case FD_GUI_SLOT_LEVEL_COMPLETED:                level = "completed";  break;
-    case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: level = "optimistically_confirmed"; break;
-    case FD_GUI_SLOT_LEVEL_ROOTED:                   level = "rooted"; break;
-    case FD_GUI_SLOT_LEVEL_FINALIZED:                level = "finalized"; break;
-    default:                                         level = "unknown"; break;
-  }
+  char const * level = fd_gui_slot_level_cstr( gui, _slot, slot );
 
   long duration_nanos = fd_gui_load_slot_duration( gui, _slot, slot );
 
@@ -2191,6 +2234,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
 
         jsonp_bool( gui->http, "skipped", slot->skip==FD_GUI_SKIP_STATUS_SKIPPED );
         jsonp_string( gui->http, "level", level );
+        fd_gui_printf_slot_proofs( gui, slot );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );
@@ -2488,15 +2532,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t *            gui,
                                      ulong                _slot,
                                      ulong                id,
                                      fd_gui_slot_t const * slot ) {
-  char const * level;
-  switch( slot->level ) {
-    case FD_GUI_SLOT_LEVEL_INCOMPLETE:               level = "incomplete"; break;
-    case FD_GUI_SLOT_LEVEL_COMPLETED:                level = "completed";  break;
-    case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: level = "optimistically_confirmed"; break;
-    case FD_GUI_SLOT_LEVEL_ROOTED:                   level = "rooted"; break;
-    case FD_GUI_SLOT_LEVEL_FINALIZED:                level = "finalized"; break;
-    default:                                         level = "unknown"; break;
-  }
+  char const * level = fd_gui_slot_level_cstr( gui, _slot, slot );
 
   long duration_nanos = fd_gui_load_slot_duration( gui, _slot, slot );
 
@@ -2522,6 +2558,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t *            gui,
 
         jsonp_bool( gui->http, "skipped", slot->skip==FD_GUI_SKIP_STATUS_SKIPPED );
         jsonp_string( gui->http, "level", level );
+        fd_gui_printf_slot_proofs( gui, slot );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );

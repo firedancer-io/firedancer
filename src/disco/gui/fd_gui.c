@@ -250,6 +250,11 @@ fd_gui_new( void *                   shmem,
   gui->summary.slot_voted                    = ULONG_MAX;
   gui->summary.active_fork_cnt               = 1UL;
 
+  for( ulong i=0UL; i<FD_GUI_AG_WINDOW; i++ ) {
+    for( ulong j=0UL; j<FD_GUI_AG_WAYS; j++ ) gui->ag.block[ i ][ j ].slot = ULONG_MAX;
+    gui->ag.skip_slot[ i ] = ULONG_MAX;
+  }
+
   memset( gui->summary.skip_rate, 0, sizeof(gui->summary.skip_rate) );
   gui->summary.skip_rate[ 0 ].epoch = ULONG_MAX;
   gui->summary.skip_rate[ 1 ].epoch = ULONG_MAX;
@@ -2273,7 +2278,10 @@ fd_gui_slot_get_canon_safe( fd_gui_t * gui, ulong _slot ) {
   if( FD_LIKELY( slot ) ) {
     return slot;
   } else {
-    uchar level = FD_GUI_SLOT_LEVEL_COMPLETED;
+    /* Under Alpenglow "completed" means a block for this slot completed
+       replay, and there is no record here precisely because none did -
+       so the floor is incomplete rather than completed. */
+    uchar level = fd_uchar_if( gui->summary.is_alpenglow, FD_GUI_SLOT_LEVEL_INCOMPLETE, FD_GUI_SLOT_LEVEL_COMPLETED );
     if( FD_LIKELY( gui->summary.slot_optimistically_confirmed!=ULONG_MAX && _slot<gui->summary.slot_optimistically_confirmed ) ) level = FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED;
     if( FD_LIKELY( gui->summary.slot_rooted!=ULONG_MAX && _slot<gui->summary.slot_rooted ) ) level = FD_GUI_SLOT_LEVEL_ROOTED;
 
@@ -2539,6 +2547,15 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
 
     c->level = FD_GUI_SLOT_LEVEL_ROOTED;
 
+    /* Under Alpenglow a rooted block is a finalized one, so it always
+       has a finalization proof.  If no certificate named this block
+       directly then we learned it from a descendant, which is exactly
+       what implicit finalization means - so the fallback is accurate
+       rather than a placeholder. */
+    if( FD_UNLIKELY( gui->summary.is_alpenglow && c->finalization_kind==FD_GUI_AG_FINAL_NONE ) ) {
+      c->finalization_kind = FD_GUI_AG_FINAL_IMPLICIT;
+    }
+
     fd_gui_printf_slot( gui, cslot, c );
     fd_http_server_ws_broadcast( gui->http );
 
@@ -2612,6 +2629,182 @@ fd_gui_handle_finalized_slot( fd_gui_t * gui,
 
   gui->summary.slot_finalized = slot;
   fd_gui_printf_finalized_slot( gui );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+/* Alpenglow per-block consensus state.
+   ==================================================================
+
+   Certificates arrive keyed by (slot, block id) and slot records are
+   keyed by (slot, bank_seq), so every certificate lands in gui->ag
+   first and reaches its record only once replay has told us which bank
+   the block became.  A certificate for a block we never replay simply
+   sits there until the window laps it. */
+
+static fd_gui_ag_block_t *
+fd_gui_ag_block_query( fd_gui_t *        gui,
+                       ulong             slot,
+                       fd_hash_t const * block_id ) {
+  fd_gui_ag_block_t * way = gui->ag.block[ slot % FD_GUI_AG_WINDOW ];
+  for( ulong i=0UL; i<FD_GUI_AG_WAYS; i++ ) {
+    if( FD_LIKELY( way[ i ].slot==slot && !memcmp( way[ i ].block_id.uc, block_id->uc, sizeof(fd_hash_t) ) ) ) return &way[ i ];
+  }
+  return NULL;
+}
+
+/* Returns the entry for (slot, block_id), creating it if needed.  A way
+   belonging to any other slot is free to take: the window has lapped
+   it.  Failing that we evict a way holding an unreplayed block before
+   one we have a record for, so a certificate naming a block we will
+   never fetch cannot displace state the GUI is actually rendering.  A
+   slot with three distinct blocks is past anything replay hands us a
+   record for, so dropping detail we cannot render is the right trade. */
+
+static fd_gui_ag_block_t *
+fd_gui_ag_block_insert( fd_gui_t *        gui,
+                        ulong             slot,
+                        fd_hash_t const * block_id ) {
+  fd_gui_ag_block_t * ent = fd_gui_ag_block_query( gui, slot, block_id );
+  if( FD_LIKELY( ent ) ) return ent;
+
+  fd_gui_ag_block_t * way = gui->ag.block[ slot % FD_GUI_AG_WINDOW ];
+
+  ent = NULL;
+  for( ulong i=0UL; i<FD_GUI_AG_WAYS; i++ ) {
+    if( FD_LIKELY( way[ i ].slot!=slot ) ) { ent = &way[ i ]; break; }
+  }
+  if( FD_UNLIKELY( !ent ) ) {
+    for( ulong i=0UL; i<FD_GUI_AG_WAYS; i++ ) {
+      if( FD_UNLIKELY( way[ i ].bank_seq==ULONG_MAX ) ) { ent = &way[ i ]; break; }
+    }
+  }
+  if( FD_UNLIKELY( !ent ) ) ent = &way[ FD_GUI_AG_WAYS-1UL ];
+
+  ent->slot              = slot;
+  ent->block_id          = *block_id;
+  ent->bank_seq          = ULONG_MAX;
+  ent->notarization_kind = FD_GUI_AG_NOTAR_NONE;
+  ent->finalization_kind = FD_GUI_AG_FINAL_NONE;
+  return ent;
+}
+
+/* Push what we know about a block onto its slot record.  Every field is
+   raised, never lowered, so a notification that arrives late, twice, or
+   out of order cannot walk a record backwards - which is what makes the
+   unreliable link the GUI reads these from safe. */
+
+static void
+fd_gui_ag_block_publish( fd_gui_t *                gui,
+                         fd_gui_ag_block_t const * ent ) {
+  if( FD_UNLIKELY( ent->bank_seq==ULONG_MAX ) ) return; /* not replayed yet, applied when it is */
+
+  fd_gui_slot_t * slot = fd_gui_slot_get( gui, ent->slot, ent->bank_seq );
+  if( FD_UNLIKELY( !slot ) ) return;
+
+  uchar notar = fd_uchar_if( ent->notarization_kind>slot->notarization_kind, ent->notarization_kind, slot->notarization_kind );
+  uchar final = fd_uchar_if( ent->finalization_kind>slot->finalization_kind, ent->finalization_kind, slot->finalization_kind );
+  uchar level = slot->level;
+
+  if( FD_LIKELY( notar!=FD_GUI_AG_NOTAR_NONE ) ) level = fd_uchar_if( level<FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED, FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED, level );
+  if( FD_UNLIKELY( final!=FD_GUI_AG_FINAL_NONE ) ) level = fd_uchar_if( level<FD_GUI_SLOT_LEVEL_ROOTED, FD_GUI_SLOT_LEVEL_ROOTED, level );
+
+  if( FD_LIKELY( notar==slot->notarization_kind && final==slot->finalization_kind && level==slot->level ) ) return;
+
+  slot->notarization_kind = notar;
+  slot->finalization_kind = final;
+  slot->level             = level;
+
+  fd_gui_printf_slot( gui, ent->slot, fd_gui_slot_get_canon_safe( gui, ent->slot ) );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+/* fd_gui_ag_register_block is called when replay completes a block, and
+   binds the block id a certificate would name to the bank_seq a record
+   is keyed by.  Any certificate that arrived first is applied now. */
+
+void
+fd_gui_ag_register_block( fd_gui_t *        gui,
+                          ulong             slot,
+                          fd_hash_t const * block_id,
+                          ulong             bank_seq ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
+
+  fd_gui_ag_block_t * ent = fd_gui_ag_block_insert( gui, slot, block_id );
+  ent->bank_seq = bank_seq;
+  fd_gui_ag_block_publish( gui, ent );
+}
+
+void
+fd_gui_handle_ag_notarized( fd_gui_t *        gui,
+                            ulong             slot,
+                            fd_hash_t const * block_id,
+                            uchar             notarization_kind ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow || !block_id ) ) return;
+
+  fd_gui_ag_block_t * ent = fd_gui_ag_block_insert( gui, slot, block_id );
+  ent->notarization_kind = fd_uchar_if( notarization_kind>ent->notarization_kind, notarization_kind, ent->notarization_kind );
+  fd_gui_ag_block_publish( gui, ent );
+}
+
+void
+fd_gui_handle_ag_finalized( fd_gui_t *        gui,
+                            ulong             slot,
+                            fd_hash_t const * block_id,
+                            uchar             finalization_kind ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow || !block_id ) ) return;
+
+  fd_gui_ag_block_t * ent = fd_gui_ag_block_insert( gui, slot, block_id );
+  ent->finalization_kind = fd_uchar_if( finalization_kind>ent->finalization_kind, finalization_kind, ent->finalization_kind );
+
+  /* Both direct finalizations are built on ordinary notarize votes, so
+     either one proves regular notarization even if we never saw the
+     notarization certificate itself. */
+  ent->notarization_kind = FD_GUI_AG_NOTAR_REGULAR;
+
+  fd_gui_ag_block_publish( gui, ent );
+}
+
+void
+fd_gui_handle_ag_skip_cert( fd_gui_t * gui,
+                            ulong      slot ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
+  if( FD_LIKELY( gui->ag.skip_slot[ slot % FD_GUI_AG_WINDOW ]==slot ) ) return;
+
+  gui->ag.skip_slot[ slot % FD_GUI_AG_WINDOW ] = slot;
+
+  /* A skipped slot has no block, so there is no record to raise; the
+     level is rendered from this table instead. */
+  fd_gui_printf_slot( gui, slot, fd_gui_slot_get_canon_safe( gui, slot ) );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+/* fd_gui_ag_slot_is_skip_notarized answers whether the cluster has
+   certified a skip for this slot.  Only meaningful before the slot goes
+   terminal: once finality settles the branch, the slot is skipped
+   outright and the rooted chain says so. */
+
+int
+fd_gui_ag_slot_is_skip_notarized( fd_gui_t const * gui,
+                                  ulong            slot ) {
+  return gui->summary.is_alpenglow && gui->ag.skip_slot[ slot % FD_GUI_AG_WINDOW ]==slot;
+}
+
+void
+fd_gui_handle_ag_parent_ready( fd_gui_t *        gui,
+                               ulong             slot,
+                               ulong             parent_slot,
+                               fd_hash_t const * parent_block_id ) {
+  (void)slot; (void)parent_block_id;
+
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
+  if( FD_LIKELY( gui->summary.slot_reset==parent_slot ) ) return;
+
+  /* The reset slot is the block Votor chose to build the next leader
+     window on.  It moves in window sized steps, so it is deliberately
+     not the same quantity as the completed slot, which tracks the
+     newest block we replayed. */
+  gui->summary.slot_reset = parent_slot;
+  fd_gui_printf_reset_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
 }
 
@@ -2787,9 +2980,16 @@ handle_tower_slot( fd_gui_t * gui, ulong reset_slot, ulong reset_bank_seq, long 
   gui->summary.slot_tower   = reset_slot;
   gui->summary.slot_tower_bank_seq = reset_bank_seq;
 
-  /* reset_slot is guaranteed present (returnable_frag deferred this
-     update until replay recorded it). */
-  FD_TEST( fd_gui_slot_get( gui, gui->summary.slot_tower, gui->summary.slot_tower_bank_seq ) );
+  /* Under Tower reset_slot is guaranteed present, because
+     returnable_frag defers the update until replay has recorded it.
+     Alpenglow has no such gate - the frontier comes from whatever block
+     replay last completed - so we cannot assert it and must not die if
+     the record is missing.  The GUI is a monitoring tool; a missing
+     record costs one frame of detail. */
+  if( FD_UNLIKELY( !fd_gui_slot_get( gui, gui->summary.slot_tower, gui->summary.slot_tower_bank_seq ) ) ) {
+    if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) return;
+    FD_TEST( 0 );
+  }
 
   /* reset_slot has not changed */
   if( FD_UNLIKELY( prev_reset_slot!=ULONG_MAX && reset_slot==prev_reset_slot && reset_bank_seq!=ULONG_MAX && reset_bank_seq==prev_reset_bank_seq ) ) return;
@@ -2800,8 +3000,16 @@ handle_tower_slot( fd_gui_t * gui, ulong reset_slot, ulong reset_bank_seq, long 
   /* ensure a history exists */
   if( FD_UNLIKELY( prev_reset_slot==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX ) ) return;
 
-  /* slot complete received out of order on the same fork? */
-  FD_TEST( fd_gui_slot_is_ancestor( gui, prev_reset_slot, gui->summary.slot_tower ) || !fd_gui_slot_is_ancestor( gui, gui->summary.slot_tower, prev_reset_slot ) );
+  /* slot complete received out of order on the same fork?  Alpenglow
+     replay completes blocks in its own provisional order and can move
+     the frontier backwards across a fork switch, so this holds only
+     under Tower.  Skipping the fork-switch bookkeeping leaves the
+     previous skip statuses in place until the next frontier move,
+     which is stale but not wrong. */
+  if( FD_UNLIKELY( !( fd_gui_slot_is_ancestor( gui, prev_reset_slot, gui->summary.slot_tower ) || !fd_gui_slot_is_ancestor( gui, gui->summary.slot_tower, prev_reset_slot ) ) ) ) {
+    if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) return;
+    FD_TEST( 0 );
+  }
 
   /* Switch forks. */
   for( ulong slot=fd_ulong_max( gui->summary.slot_tower, prev_reset_slot ); slot>gui->summary.slot_rooted; slot-- ) {
@@ -3110,13 +3318,36 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
       fd_http_server_ws_broadcast( gui->http );
     }
 
+    /* Bind this block's id to its bank_seq, and apply any certificate
+       that named it before we had replayed it. */
+    fd_gui_ag_register_block( gui, slot_completed->slot, &slot_completed->block_id, slot_completed->bank_seq );
+
+    /* Tower publishes is_voter on a link that does not exist here, so
+       under Alpenglow it rides slot_completed instead. */
+    fd_gui_slot_t * rec = fd_gui_slot_get( gui, slot_completed->slot, slot_completed->bank_seq );
+    if( FD_LIKELY( rec ) ) rec->is_voter = (uchar)(!!slot_completed->is_voter);
+
+    /* Replay's floor, taken from certificates in block footers.  Votor
+       publishes the authoritative value but never sees those, so this
+       is what keeps finality moving while we catch up.  The handler
+       already ignores anything that does not advance. */
+    if( FD_LIKELY( slot_completed->finalized_slot ) ) fd_gui_handle_finalized_slot( gui, slot_completed->finalized_slot );
+
+    /* Delinquency under Alpenglow is an exact lookback against the
+       on-chain vote account rather than Tower's vote distance: a voter
+       is current when its latest target slot is within 128 of the slot
+       we just processed. */
+    if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING && vote_slot!=ULONG_MAX ) ) {
+      ulong s       = slot_completed->slot;
+      int   current = fd_int_if( s>=128UL, vote_slot+128UL>s, vote_slot>0UL );
+      set_vote_state( gui, fd_int_if( current, FD_GUI_VOTE_STATE_VOTING, FD_GUI_VOTE_STATE_DELINQUENT ) );
+    }
+
     handle_tower_slot( gui, slot_completed->slot, slot_completed->bank_seq, now );
 
-    if( FD_UNLIKELY( gui->summary.slot_reset!=slot_completed->slot ) ) {
-      gui->summary.slot_reset = slot_completed->slot;
-      fd_gui_printf_reset_slot( gui );
-      fd_http_server_ws_broadcast( gui->http );
-    }
+    /* summary.reset_slot is not set here.  It is Votor's fork choice
+       and arrives as a parent-ready notification; the newest completed
+       slot is a different quantity and drives the frontier only. */
 
     if( FD_UNLIKELY( gui->summary.slot_estimated!=slot_completed->slot ) ) {
       gui->summary.slot_estimated = slot_completed->slot;

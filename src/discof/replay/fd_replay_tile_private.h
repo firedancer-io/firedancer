@@ -55,8 +55,9 @@ typedef struct fd_replay_out_link fd_replay_out_link_t;
 /* TODO: the following struct is temporary, and should be removed after
    the centralized BLS verify tile is created. */
 struct fd_replay_epoch_vtrs {
-   ulong             epoch; /* ULONG_MAX marks an empty entry */
-   ag_epoch_info_t * info;  /* ranked epoch info, alloc-ed on init size ag_epoch_info_footprint() */
+   ulong             epoch;    /* ULONG_MAX marks an empty entry */
+   ag_epoch_info_t * info;     /* ranked epoch info, alloc-ed on init size ag_epoch_info_footprint() */
+   ushort            our_rank; /* our identity's rank, USHORT_MAX if we are not in the set */
  };
  typedef struct fd_replay_epoch_vtrs fd_replay_epoch_vtrs_t;
 
@@ -461,6 +462,26 @@ struct fd_replay_tile {
   int              identity_dirty;
   int              has_vote_account;
   fd_pubkey_t      vote_account[1];
+
+  /* Alpenglow consensus facts observed in block footers, for the GUI.
+     Both are monotone maxima over every footer we have replayed.
+
+     ag_vote_slot is the latest slot this validator is recorded as
+     having voted on, read out of the certificates themselves rather
+     than out of the vote account: a reward or finalization certificate
+     with our rank bit set is exactly what the runtime turns into a
+     vote-account update, so the bit is the same fact one step earlier
+     and costs no account read on the critical path.
+
+     ag_finalized_slot is a floor on cluster finality.  Votor derives
+     the authoritative value from certificates it receives over the
+     network, but it never sees the ones carried in block footers, so
+     during catch-up its view can sit still while we are demonstrably
+     replaying blocks that prove finality.  Both are published and the
+     consumer takes the larger. */
+
+  ulong            ag_vote_slot;
+  ulong            ag_finalized_slot;
 
   fd_node_info_box_t * node_info; /* shared */
 

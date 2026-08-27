@@ -104,6 +104,23 @@ typedef struct id_to_rank id_to_rank_t;
 #define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, &(key), sizeof(fd_pubkey_t) ))
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
+/* Staged notifications, drained one per after_credit.  Distinct from
+   publishes because the notification link is unreliable and purely
+   informational: when this queue fills we drop the oldest entry rather
+   than stall votor, which is the whole point of keeping the two
+   separate.  Every notification carries a complete state, so the
+   consumer recovers from a drop on the next one for that slot. */
+
+struct notif_publish {
+  ulong            sig;
+  fd_votor_notif_t msg;
+};
+
+typedef struct notif_publish notif_publish_t;
+
+#define QUEUE_NAME notifs
+#define QUEUE_T    notif_publish_t
+#include "../../util/tmpl/fd_queue_dynamic.c"
 
 struct fd_votor_tile {
 
@@ -165,8 +182,8 @@ struct fd_votor_tile {
   ulong  votor_notif_out_wmark;
   ulong  votor_notif_out_chunk;
 
-  ulong finalized_slot;
-  int   finalized_slot_pending;
+  notif_publish_t * notifs;         /* NULL when the notification link is absent */
+  ulong             finalized_slot; /* last finalized slot we notified, ULONG_MAX if none */
 
   fd_stem_context_t * stem;
 
@@ -188,15 +205,118 @@ struct fd_votor_tile {
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
 
+/* stage_notif enqueues a notification for the informational link.  We
+   discard the oldest entry when the queue is full rather than block:
+   the link is unreliable by construction, a stale notification is worth
+   less than a fresh one, and consensus must never wait on a consumer
+   that is only watching. */
+
+static inline void
+stage_notif( fd_votor_tile_t *        ctx,
+             ulong                    sig,
+             fd_votor_notif_t const * msg ) {
+  if( FD_UNLIKELY( !ctx->notifs ) ) return;
+  if( FD_UNLIKELY( notifs_full( ctx->notifs ) ) ) notifs_pop( ctx->notifs );
+  notif_publish_t pub = { .sig = sig, .msg = *msg };
+  notifs_push( ctx->notifs, pub );
+}
+
+/* The whole union goes on the wire, so it is zeroed before a member is
+   filled in.  Initializing one member of a union leaves the bytes past
+   it unspecified, which would put stack contents on a link and make the
+   payload non-reproducible. */
+
+static inline void
+notif_init( fd_votor_notif_t * notif ) {
+  memset( notif, 0, sizeof(fd_votor_notif_t) );
+}
+
 static inline void
 stage_finalized_slot( fd_votor_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->votor_notif_out_idx==ULONG_MAX || ctx->rooted_block_id.slot==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( !ctx->notifs || ctx->rooted_block_id.slot==ULONG_MAX ) ) return;
 
   ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
   if( FD_LIKELY( ctx->finalized_slot!=ULONG_MAX && finalized_slot<=ctx->finalized_slot ) ) return;
 
-  ctx->finalized_slot         = finalized_slot;
-  ctx->finalized_slot_pending = 1;
+  ctx->finalized_slot = finalized_slot;
+
+  fd_votor_notif_t notif; notif_init( &notif );
+  notif.finalized_slot = finalized_slot;
+  stage_notif( ctx, FD_VOTOR_NOTIF_FINALIZED_SLOT, &notif );
+}
+
+/* stage_cert reports a certificate the pool accepted.  Skip and slow
+   finalization certificates name only a slot on the wire.  For a slow
+   finalization the block is still recoverable from the finality
+   tracker, which add_valid_cert updates before it pushes the event we
+   are reacting to - unless the matching notarization certificate has
+   not landed yet, in which case the block is not knowable and we say
+   so.  A later certificate for the slot carries it. */
+
+static inline void
+stage_cert( fd_votor_tile_t * ctx,
+            ag_cert_t const * cert ) {
+  if( FD_UNLIKELY( !ctx->notifs ) ) return;
+
+  uchar kind;
+  switch( cert->kind ) {
+  case AG_CERT_KIND_NOTAR:          kind = FD_VOTOR_NOTIF_CERT_NOTAR;          break;
+  case AG_CERT_KIND_NOTAR_FALLBACK: kind = FD_VOTOR_NOTIF_CERT_NOTAR_FALLBACK; break;
+  case AG_CERT_KIND_SKIP:           kind = FD_VOTOR_NOTIF_CERT_SKIP;           break;
+  case AG_CERT_KIND_FAST_FINAL:     kind = FD_VOTOR_NOTIF_CERT_FAST_FINAL;     break;
+  case AG_CERT_KIND_FINAL:          kind = FD_VOTOR_NOTIF_CERT_FINAL;          break;
+  default:                          return; /* genesis; ag_cert_slot does not accept it either */
+  }
+
+  ulong slot = ag_cert_slot( cert );
+
+  fd_votor_notif_t notif; notif_init( &notif );
+  notif.cert.slot = slot;
+  notif.cert.kind = kind;
+
+  uchar const * block_hash = ag_cert_block_hash( cert );
+  if( FD_LIKELY( block_hash ) ) {
+    memcpy( notif.cert.block_id.uc, block_hash, sizeof(ag_block_hash_t) );
+    notif.cert.has_block_id = 1;
+  } else if( FD_UNLIKELY( cert->kind==AG_CERT_KIND_FINAL ) ) {
+    ag_block_hash_t hash;
+    if( FD_LIKELY( ag_pool_finalized_block_hash( ctx->pool, slot, hash ) ) ) {
+      memcpy( notif.cert.block_id.uc, hash, sizeof(ag_block_hash_t) );
+      notif.cert.has_block_id = 1;
+    }
+  }
+
+  stage_notif( ctx, FD_VOTOR_NOTIF_CERT, &notif );
+
+  /* A slow finalization certificate carries no block, so if it arrived
+     before the notarization certificate for the same slot we reported
+     it without one.  This is the moment the block becomes knowable, so
+     report the finalization again now that we can name it.  A fast
+     finalization never needs this - it carries its own block. */
+
+  if( FD_UNLIKELY( cert->kind==AG_CERT_KIND_NOTAR ) ) {
+    ag_block_hash_t hash;
+    if( FD_UNLIKELY( ag_pool_finalized_block_hash( ctx->pool, slot, hash ) ) ) {
+      fd_votor_notif_t final; notif_init( &final );
+      final.cert.slot         = slot;
+      final.cert.kind         = FD_VOTOR_NOTIF_CERT_FINAL;
+      final.cert.has_block_id = 1;
+      memcpy( final.cert.block_id.uc, hash, sizeof(ag_block_hash_t) );
+      stage_notif( ctx, FD_VOTOR_NOTIF_CERT, &final );
+    }
+  }
+}
+
+static inline void
+stage_parent_ready( fd_votor_tile_t *         ctx,
+                    ag_parent_ready_t const * ready ) {
+  if( FD_UNLIKELY( !ctx->notifs ) ) return;
+
+  fd_votor_notif_t notif; notif_init( &notif );
+  notif.parent_ready.slot        = ready->slot;
+  notif.parent_ready.parent_slot = ready->parent.slot;
+  memcpy( notif.parent_ready.parent_block_id.uc, ready->parent.hash, sizeof(ag_block_hash_t) );
+  stage_notif( ctx, FD_VOTOR_NOTIF_PARENT_READY, &notif );
 }
 
 static void
@@ -428,6 +548,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots )    );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, id_to_rank_align(),       id_to_rank_footprint()                            );
+  l = FD_LAYOUT_APPEND( l, notifs_align(),           notifs_footprint( tile->votor.max_live_slots )    );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -446,14 +567,13 @@ after_credit( fd_votor_tile_t *   ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->finalized_slot_pending ) ) {
-    fd_votor_notif_t * notif = fd_chunk_to_laddr( ctx->votor_notif_out_mem, ctx->votor_notif_out_chunk );
-    notif->finalized_slot = ctx->finalized_slot;
-    fd_stem_publish( stem, ctx->votor_notif_out_idx, FD_VOTOR_NOTIF_FINALIZED_SLOT, ctx->votor_notif_out_chunk, sizeof(fd_votor_notif_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+  if( FD_UNLIKELY( ctx->notifs && !notifs_empty( ctx->notifs ) ) ) {
+    notif_publish_t pub = notifs_pop( ctx->notifs );
+    memcpy( fd_chunk_to_laddr( ctx->votor_notif_out_mem, ctx->votor_notif_out_chunk ), &pub.msg, sizeof(fd_votor_notif_t) );
+    fd_stem_publish( stem, ctx->votor_notif_out_idx, pub.sig, ctx->votor_notif_out_chunk, sizeof(fd_votor_notif_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->votor_notif_out_chunk = fd_dcache_compact_next( ctx->votor_notif_out_chunk, sizeof(fd_votor_notif_t), ctx->votor_notif_out_chunk0, ctx->votor_notif_out_wmark );
-    ctx->finalized_slot_pending = 0;
-    *opt_poll_in                 = 0;
-    *charge_busy                 = 1;
+    *opt_poll_in               = 0; /* drain the notifs */
+    *charge_busy               = 1;
     return;
   }
 
@@ -463,6 +583,17 @@ after_credit( fd_votor_tile_t *   ctx,
   *charge_busy = fd_quic_service( ctx->quic, now );
 
   if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
+    /* Mirror the two events a monitoring consumer cares about before
+       handing the event on.  Deliberately not safe-to-notar or
+       safe-to-skip: those are Votor's own vote triggers, not cluster
+       state, and reporting them would say nothing about a block. */
+
+    switch( ctx->scratch.pool_event.kind ) {
+    case AG_EVENT_POOL_CERT_CREATED: stage_cert        ( ctx, &ctx->scratch.pool_event.cert_created ); break;
+    case AG_EVENT_POOL_PARENT_READY: stage_parent_ready( ctx, &ctx->scratch.pool_event.parent_ready ); break;
+    default:                                                                                          break;
+    }
+
     ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
     *charge_busy = 1;
   }
@@ -659,6 +790,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            rooted     = FD_SCRATCH_ALLOC_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots )    );
   void *            publishes  = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
   void *            id_to_rank = FD_SCRATCH_ALLOC_APPEND( l, id_to_rank_align(),       id_to_rank_footprint()                            );
+  void *            notifs     = FD_SCRATCH_ALLOC_APPEND( l, notifs_align(),           notifs_footprint( tile->votor.max_live_slots ) );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -699,6 +831,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->id_to_rank = id_to_rank_join( id_to_rank_new( id_to_rank ) );
   FD_TEST( ctx->id_to_rank );
 
+  ctx->notifs                 = NULL; /* joined below, only if the link exists */
   ctx->finalized_slot         = ULONG_MAX;
   ctx->finalized_slot_pending = 0;
 
@@ -745,6 +878,9 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->votor_notif_out_chunk0 = fd_dcache_compact_chunk0( ctx->votor_notif_out_mem, votor_notif_out->dcache );
     ctx->votor_notif_out_wmark  = fd_dcache_compact_wmark ( ctx->votor_notif_out_mem, votor_notif_out->dcache, votor_notif_out->mtu );
     ctx->votor_notif_out_chunk  = ctx->votor_notif_out_chunk0;
+
+    ctx->notifs = notifs_join( notifs_new( notifs, tile->votor.max_live_slots ) );
+    FD_TEST( ctx->notifs );
   }
 
   ctx->quic = fd_quic_join( fd_quic_new( quic, &quic_limits ) );

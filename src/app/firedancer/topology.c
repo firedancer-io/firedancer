@@ -324,8 +324,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay_execrp" );
   fd_topob_wksp( topo, "replay_out"    );
   if( alpenglow_enabled ) {
-    fd_topob_wksp( topo, "votor_out" );
-    if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "votor_notif" );
+    fd_topob_wksp( topo, "votor_out"   );
+    fd_topob_wksp( topo, "votor_notif" );
   } else {
     fd_topob_wksp( topo, "tower_out" );
   }
@@ -501,8 +501,12 @@ fd_topo_initialize( config_t * config ) {
   if( alpenglow_enabled ) {
     /**/               fd_topob_link( topo, "votor_out",     "votor_out",     config->firedancer.runtime.max_live_slots, sizeof(fd_votor_msg_t),                        2UL ); /* one rooted per rooted slot, and the pool only tracks max_live_slots slots */
     /**/               fd_topob_link( topo, "votor_net",     "net_votor",     config->net.ingress_buffer_size,          FD_NET_MTU,                                    1UL );
-    if( FD_LIKELY( config->tiles.gui.enabled ) )
-      /**/             fd_topob_link( topo, "votor_notif",   "votor_notif",   128UL,                                    sizeof(fd_votor_notif_t),                      1UL );
+    /* Informational only, and created whether or not anything consumes
+       it so that votor runs the same code path either way.  Deep, and
+       consumed unreliably, because a stalled monitoring consumer must
+       never be able to back-pressure consensus: fd_stem gates the whole
+       run loop on min_cr_avail across every out link. */
+    /**/               fd_topob_link( topo, "votor_notif",   "votor_notif",   16384UL,                                  sizeof(fd_votor_notif_t),                      1UL )->permit_no_consumers = 1;
   } else {
     /**/               fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
   }
@@ -875,8 +879,7 @@ fd_topo_initialize( config_t * config ) {
     FOR(net_tile_cnt)  fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "net_votor",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
     /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_out",     0UL                                                  );
     /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_net",     0UL                                                  );
-    if( FD_LIKELY( config->tiles.gui.enabled ) )
-      /**/             fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_notif",   0UL                                                  );
+    /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_notif",   0UL                                                  );
     /**/               fd_topos_tile_in_net( topo,                        "metric_in", "votor_net",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   }
 
@@ -1076,7 +1079,12 @@ fd_topo_initialize( config_t * config ) {
     if( !alpenglow_enabled ) {
       /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     } else {
-      /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "votor_notif",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      /* Unreliable on purpose.  Every notification carries a complete
+         state rather than a delta, and the terminal levels arrive
+         reliably as roots on replay_out, so a drop here costs detail
+         and never correctness - whereas a reliable reader that stalls
+         would stall Alpenglow voting. */
+      /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "votor_notif",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
