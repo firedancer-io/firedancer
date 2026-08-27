@@ -92,6 +92,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.execle_tile_count                            );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
   CFG_POP      ( uint,   layout.snapdc_tile_count                            );
+  CFG_POP      ( uint,   layout.snapin_tile_count                            );
   CFG_POP      ( uint,   layout.snapzp_tile_count                            );
   CFG_POP      ( uint,   layout.snapsv_tile_count                            );
   CFG_POP      ( uint,   layout.snapsv_io_worker_count                       );
