@@ -445,7 +445,7 @@ STEM_(run1)( ulong                        in_cnt,
         metric_backp_cnt = 0UL;
 
         /* Receive flow control credits */
-        if( FD_LIKELY( min_cr_avail<cr_max ) ) {
+        if( FD_LIKELY( cons_cnt ) ) {
           ulong slowest_cons = ULONG_MAX;
           min_cr_avail = cr_max;
           for( ulong out_idx=0; out_idx<out_cnt; out_idx++ ) {
