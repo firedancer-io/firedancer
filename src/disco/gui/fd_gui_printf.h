@@ -105,12 +105,24 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
                                          ulong                id,
                                          fd_gui_slot_t const * slot );
 
-void
+/* The timeline query printers return 0 on success (including the case
+   where they emitted a result_limit_exceeded envelope instead of a
+   result) and -1 if no response could be produced at all.  start_ns is
+   inclusive and end_ns is exclusive. */
+
+int
 fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
                                      char const * topic,
                                      long         start_ns,
                                      long         end_ns,
                                      ulong        id );
+
+int
+fd_gui_printf_timeline_query_fec_events( fd_gui_t *   gui,
+                                         char const * topic,
+                                         long         start_ns,
+                                         long         end_ns,
+                                         ulong        id );
 
 void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );

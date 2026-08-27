@@ -3268,19 +3268,297 @@ fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before ) {
   jsonp_close_envelope( gui->http );
 }
 
-void
+static void
+fd_gui_printf_timeline_result_limit_exceeded( fd_gui_t *   gui,
+                                              char const * topic,
+                                              char const * key,
+                                              ulong        id ) {
+  jsonp_open_envelope( gui->http, topic, key );
+    jsonp_ulong( gui->http, "id", id );
+    jsonp_open_object( gui->http, "error" );
+      jsonp_string( gui->http, "code", "result_limit_exceeded" );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
+/* Emit the shared tail of a timeline shred/FEC query response: the
+   per-slot "skipped" array, which needs the rows sorted by slot.  The
+   caller has already emitted the columnar arrays. */
+
+#define TIMELINE_SKIPPED_ARRAY( sorted_stmt, slot_of, cnt ) do {              \
+  jsonp_open_array( gui->http, "skipped" );                                   \
+    if( FD_LIKELY( cnt ) ) {                                                  \
+      sorted_stmt;                                                            \
+      ulong prev_slot = ULONG_MAX;                                            \
+      for( ulong i=0UL; i<(cnt); i++ ) {                                      \
+        ulong slot = (slot_of);                                               \
+        if( FD_UNLIKELY( slot==prev_slot ) ) continue;                        \
+        prev_slot = slot;                                                     \
+        if( FD_UNLIKELY( fd_gui_slot_is_skipped( gui,                         \
+                                                 gui->summary.slot_rooted,    \
+                                                 gui->summary.slot_tower,     \
+                                                 gui->summary.slot_tower_bank_seq, \
+                                                 slot ) ) )                   \
+          jsonp_ulong( gui->http, NULL, slot-reference_slot );                \
+      }                                                                       \
+    }                                                                         \
+  jsonp_close_array( gui->http );                                             \
+} while(0)
+
+typedef fd_gui_slot_history_tvu_event_t const * fd_gui_shred_event_ptr_t;
+
+#define SORT_NAME fd_gui_shred_event_ptr_sort
+#define SORT_KEY_T fd_gui_shred_event_ptr_t
+#define SORT_BEFORE(a,b) ((a)->slot<(b)->slot)
+#include "../../util/tmpl/fd_sort.c"
+
+int
 fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
                                      char const * topic,
                                      long         start_ns,
                                      long         end_ns,
                                      ulong        id ) {
+  if( FD_UNLIKELY( end_ns<=start_ns ) ) return -1;
+
+  fd_gui_timeline_scratch_t * scratch = fd_gui_timeline_scratch_acquire( gui );
+  fd_gui_shred_event_ptr_t *  events  = scratch->shred_events;
+
+  int   rc             = 0;
+  int   limit_exceeded = 0;
+  ulong event_cnt      = 0UL;
+  ulong reference_slot = ULONG_MAX;
+  long  reference_ts   = LONG_MAX;
+
+  if( FD_LIKELY( gui->db ) ) {
+    fd_gui_hist_iter_t it;
+    if( FD_UNLIKELY( fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_SHRED_EVENTS, start_ns, end_ns-1L, NULL, NULL ) ) ) {
+      rc = -1;
+      goto done;
+    }
+    while( fd_gui_hist_range_next( &it ) ) {
+      fd_gui_slot_history_tvu_event_t const * event = (fd_gui_slot_history_tvu_event_t const *)it.rec;
+      if( FD_UNLIKELY( event->timestamp<start_ns || event->timestamp>=end_ns ) ) continue;
+      /* Check before writing: the array holds exactly the cap. */
+      if( FD_UNLIKELY( event_cnt==FD_GUI_TIMELINE_QUERY_SHRED_MAX ) ) {
+        limit_exceeded = 1;
+        break;
+      }
+      events[ event_cnt++ ] = event;
+      reference_slot = fd_ulong_min( reference_slot, event->slot      );
+      reference_ts   = fd_long_min ( reference_ts,   event->timestamp );
+    }
+    fd_gui_hist_range_end( &it );
+  }
+
+  if( FD_UNLIKELY( limit_exceeded ) ) {
+    fd_gui_printf_timeline_result_limit_exceeded( gui, topic, "query_shreds", id );
+    goto done;
+  }
+
   jsonp_open_envelope( gui->http, topic, "query_shreds" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
-      fd_gui_printf_shreds_window( gui, start_ns, end_ns );
+      jsonp_string( gui->http, "granularity", "shred" );
+      if( event_cnt ) jsonp_ulong      ( gui->http, "reference_slot", reference_slot );
+      else            jsonp_null       ( gui->http, "reference_slot" );
+      if( event_cnt ) jsonp_long_as_str( gui->http, "reference_ts",   reference_ts   );
+      else            jsonp_null       ( gui->http, "reference_ts"   );
+      jsonp_open_array( gui->http, "slot_delta" );
+        for( ulong i=0UL; i<event_cnt; i++ ) jsonp_ulong( gui->http, NULL, events[ i ]->slot-reference_slot );
+      jsonp_close_array( gui->http );
+      jsonp_open_array( gui->http, "idx" );
+        for( ulong i=0UL; i<event_cnt; i++ ) {
+          if( FD_LIKELY( events[ i ]->idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, events[ i ]->idx );
+          else                                            jsonp_null ( gui->http, NULL );
+        }
+      jsonp_close_array( gui->http );
+      jsonp_open_array( gui->http, "event" );
+        for( ulong i=0UL; i<event_cnt; i++ ) jsonp_ulong( gui->http, NULL, events[ i ]->event );
+      jsonp_close_array( gui->http );
+      jsonp_open_array( gui->http, "event_ts_delta" );
+        for( ulong i=0UL; i<event_cnt; i++ ) jsonp_long_as_str( gui->http, NULL, events[ i ]->timestamp-reference_ts );
+      jsonp_close_array( gui->http );
+      TIMELINE_SKIPPED_ARRAY( fd_gui_shred_event_ptr_sort_inplace( events, event_cnt ),
+                              events[ i ]->slot, event_cnt );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
+
+done:
+  fd_gui_timeline_scratch_release( gui );
+  return rc;
 }
+
+static inline ulong
+fd_gui_timeline_event_hash( uint   slot,
+                            ushort idx,
+                            uchar  event ) {
+  ulong key = ((ulong)slot<<24) | ((ulong)idx<<8) | (ulong)event;
+  return fd_ulong_hash( key );
+}
+
+static inline int
+fd_gui_timeline_event_key_eq( fd_gui_fec_query_event_t const *        a,
+                              fd_gui_slot_history_tvu_event_t const * b ) {
+  return a->slot==b->slot && a->idx==b->idx && a->event==b->event;
+}
+
+#define SORT_NAME fd_gui_fec_event_sort
+#define SORT_KEY_T fd_gui_fec_query_event_t
+#define SORT_BEFORE(a,b) ((a).slot<(b).slot)
+#include "../../util/tmpl/fd_sort.c"
+
+/* A FEC event may be recorded more than once, so the query reduces the
+   stored records to one row per (slot, FEC ordinal, event) carrying the
+   minimum timestamp.
+
+   That reduction has to look before the requested window: a key whose
+   true minimum lies earlier than start_ns must be excluded, and the
+   record carrying that minimum is outside the window.  Records are
+   skew-clamped at append, so 2*SKEW of lead-in is sufficient.
+
+   No lead-out is needed.  A candidate at or after end_ns cannot create a
+   surviving row, and it cannot lower an existing row's minimum either,
+   since any row that survives already has a minimum below end_ns.
+
+   Occupancy is capped at the row limit rather than counted ahead of
+   time.  Counting would mean two extra full scans, and the count is not
+   bounded by anything except store capacity -- the FEC ring has no
+   max_records -- so it could not size a fixed region anyway.  Keys
+   created only by lead-in records count against the cap, so a window
+   already near the limit can report result_limit_exceeded slightly
+   early; that is the conservative direction. */
+
+int
+fd_gui_printf_timeline_query_fec_events( fd_gui_t *   gui,
+                                         char const * topic,
+                                         long         start_ns,
+                                         long         end_ns,
+                                         ulong        id ) {
+  if( FD_UNLIKELY( end_ns<=start_ns ) ) return -1;
+
+  long const guard_ns      = 2L*FD_GUI_HIST_TS_SKEW_NS;
+  long       scan_start_ns = start_ns<=LONG_MIN+guard_ns ? LONG_MIN+1L : start_ns-guard_ns;
+
+  fd_gui_timeline_scratch_t * scratch = fd_gui_timeline_scratch_acquire( gui );
+  fd_gui_fec_query_event_t *  events  = scratch->fec.events;
+  uint *                      map     = scratch->fec.map;
+
+  int   rc             = 0;
+  int   limit_exceeded = 0;
+  ulong event_cnt      = 0UL;
+  /* Lazily initialized, and function local so that a previous query's
+     indices can never be mistaken for this one's. */
+  int   map_init       = 0;
+
+  if( FD_LIKELY( gui->db ) ) {
+    fd_gui_hist_iter_t it;
+    if( FD_UNLIKELY( fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_FEC_EVENTS,
+                                              scan_start_ns, end_ns-1L, NULL, NULL ) ) ) {
+      rc = -1;
+      goto done;
+    }
+    while( fd_gui_hist_range_next( &it ) ) {
+      fd_gui_slot_history_tvu_event_t const * candidate = (fd_gui_slot_history_tvu_event_t const *)it.rec;
+      if( FD_UNLIKELY( candidate->timestamp<scan_start_ns || candidate->timestamp>=end_ns ) ) continue;
+
+      if( FD_UNLIKELY( !map_init ) ) {
+        memset( map, 0xFF, FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT*sizeof(uint) );
+        map_init = 1;
+      }
+
+      ulong map_idx = fd_gui_timeline_event_hash( candidate->slot, candidate->idx, candidate->event ) & (FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT-1UL);
+      for(;;) {
+        uint event_idx = map[ map_idx ];
+        if( FD_UNLIKELY( event_idx==UINT_MAX ) ) {
+          if( FD_UNLIKELY( event_cnt==FD_GUI_TIMELINE_FEC_EVENT_CAP ) ) {
+            /* Safety valve only: the array carries headroom above the row
+               limit, so reaching this means the lead-in alone produced more
+               keys than the entire response budget. */
+            limit_exceeded = 1;
+            break;
+          }
+          events[ event_cnt ] = (fd_gui_fec_query_event_t) {
+            .timestamp = candidate->timestamp,
+            .slot      = candidate->slot,
+            .idx       = candidate->idx,
+            .event     = candidate->event
+          };
+          map[ map_idx ] = (uint)event_cnt++;
+          break;
+        }
+        if( FD_LIKELY( fd_gui_timeline_event_key_eq( &events[ event_idx ], candidate ) ) ) {
+          events[ event_idx ].timestamp = fd_long_min( events[ event_idx ].timestamp, candidate->timestamp );
+          break;
+        }
+        map_idx = (map_idx+1UL) & (FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT-1UL);
+      }
+      if( FD_UNLIKELY( limit_exceeded ) ) break;
+    }
+    fd_gui_hist_range_end( &it );
+  }
+
+  if( FD_UNLIKELY( limit_exceeded ) ) {
+    fd_gui_printf_timeline_result_limit_exceeded( gui, topic, "query_shreds", id );
+    goto done;
+  }
+
+  /* Drop the keys whose reduced minimum turned out to precede the
+     window.  Only what survives counts against the caller's row limit --
+     a key created purely by the lead-in scan is not a row the caller
+     asked for and must not consume their budget. */
+  ulong out_cnt = 0UL;
+  for( ulong i=0UL; i<event_cnt; i++ ) {
+    if( FD_UNLIKELY( events[ i ].timestamp<start_ns ) ) continue;
+    events[ out_cnt++ ] = events[ i ];
+  }
+  event_cnt = out_cnt;
+
+  if( FD_UNLIKELY( event_cnt>FD_GUI_TIMELINE_QUERY_SHRED_MAX ) ) {
+    fd_gui_printf_timeline_result_limit_exceeded( gui, topic, "query_shreds", id );
+    goto done;
+  }
+
+  ulong reference_slot = ULONG_MAX;
+  long  reference_ts   = LONG_MAX;
+  for( ulong i=0UL; i<event_cnt; i++ ) {
+    reference_slot = fd_ulong_min( reference_slot, events[ i ].slot      );
+    reference_ts   = fd_long_min ( reference_ts,   events[ i ].timestamp );
+  }
+
+  jsonp_open_envelope( gui->http, topic, "query_shreds" );
+    jsonp_ulong( gui->http, "id", id );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_string( gui->http, "granularity", "fec" );
+      if( event_cnt ) jsonp_ulong      ( gui->http, "reference_slot", reference_slot );
+      else            jsonp_null       ( gui->http, "reference_slot" );
+      if( event_cnt ) jsonp_long_as_str( gui->http, "reference_ts",   reference_ts   );
+      else            jsonp_null       ( gui->http, "reference_ts"   );
+      jsonp_open_array( gui->http, "slot_delta" );
+        for( ulong i=0UL; i<event_cnt; i++ ) jsonp_ulong( gui->http, NULL, events[ i ].slot-reference_slot );
+      jsonp_close_array( gui->http );
+      jsonp_open_array( gui->http, "idx" );
+        for( ulong i=0UL; i<event_cnt; i++ ) {
+          if( FD_LIKELY( events[ i ].idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, events[ i ].idx );
+          else                                           jsonp_null ( gui->http, NULL );
+        }
+      jsonp_close_array( gui->http );
+      jsonp_open_array( gui->http, "event" );
+        for( ulong i=0UL; i<event_cnt; i++ ) jsonp_ulong( gui->http, NULL, events[ i ].event );
+      jsonp_close_array( gui->http );
+      jsonp_open_array( gui->http, "event_ts_delta" );
+        for( ulong i=0UL; i<event_cnt; i++ ) jsonp_long_as_str( gui->http, NULL, events[ i ].timestamp-reference_ts );
+      jsonp_close_array( gui->http );
+      TIMELINE_SKIPPED_ARRAY( fd_gui_fec_event_sort_inplace( events, event_cnt ),
+                              events[ i ].slot, event_cnt );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+
+done:
+  fd_gui_timeline_scratch_release( gui );
+  return rc;
+}
+
+#undef TIMELINE_SKIPPED_ARRAY
 
 void
 fd_gui_peers_printf_wfs_add( fd_gui_peers_ctx_t * peers,

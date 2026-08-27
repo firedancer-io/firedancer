@@ -528,11 +528,12 @@ after_frag( fd_gui_ctx_t *      ctx,
       uint sig_src      = fd_shred_sig_src( sig );
       if( FD_LIKELY( sig_src==SHRED_SIG_SRC_TURBINE || sig_src==SHRED_SIG_SRC_REPAIR || sig_src==SHRED_SIG_SRC_BAD_REPAIR ) ) {
         fd_shred_base_t const * msg = (fd_shred_base_t const *)fd_type_pun_const( src );
-        ulong slot      = msg->shred.slot;
-        ulong shred_idx = msg->shred.idx;
-        int is_turbine  = sig_src==SHRED_SIG_SRC_TURBINE;
+        ulong slot        = msg->shred.slot;
+        ulong shred_idx   = msg->shred.idx;
+        ulong fec_set_idx = msg->shred.fec_set_idx;
+        int is_turbine    = sig_src==SHRED_SIG_SRC_TURBINE;
         /* tsorig is the timestamp when the shred was received by the shred tile */
-        fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+        fd_gui_handle_shred( ctx->gui, slot, shred_idx, fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
       }
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );

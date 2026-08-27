@@ -1021,6 +1021,29 @@ struct fd_gui_summary {
 
 typedef struct fd_gui_summary fd_gui_summary_t;
 
+/* ---- FEC event dedup cache ------------------------------------------
+
+   Every shred event is also recorded against its FEC set, reduced to the
+   earliest timestamp seen for each (slot, FEC ordinal, event).  Writing
+   one record per shred would put 32 near-identical rows in the ring for
+   each FEC set, so a small direct-mapped cache suppresses the ones that
+   cannot lower the minimum.
+
+   The cache is an optimization, not the reduction itself: on a collision
+   a redundant candidate is appended and the FEC query does the
+   authoritative reduction across whatever was retained. */
+
+#define FD_GUI_FEC_EVENT_CACHE_CNT (4096UL)
+
+struct fd_gui_fec_event_cache_entry {
+  long   timestamp;
+  uint   slot;
+  ushort idx;
+  uchar  event;
+  uchar  valid;
+};
+typedef struct fd_gui_fec_event_cache_entry fd_gui_fec_event_cache_entry_t;
+
 /* ---- Timeline query scratch -----------------------------------------
 
    The timeline query printers and the transaction batch materializer
@@ -1241,6 +1264,11 @@ struct fd_gui {
   fd_gui_timeline_scratch_t timeline_scratch;
   int                       timeline_scratch_in_use;
 
+  /* Suppresses FEC event records that cannot lower a key's minimum
+     timestamp.  Initialized in fd_gui_new; the workspace is not
+     zeroed. */
+  fd_gui_fec_event_cache_entry_t fec_events[ FD_GUI_FEC_EVENT_CACHE_CNT ];
+
   struct {
     ulong landed_slot;
     ulong landed_bank_seq;
@@ -1432,6 +1460,7 @@ void
 fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      slot,
                      ulong      shred_idx,
+                     ulong      fec_set_idx,
                      int        is_turbine,
                      long       tsorig,
                      long       now );
@@ -1751,12 +1780,30 @@ fd_gui_slot_skipped_get_parent( fd_gui_t * gui, ulong slot ) {
   return ULONG_MAX;
 }
 
-/* fd_gui_slot_is_skipped returns 1 if `slot` is skipped on the fork
-   whose tip is (des, des_bank_seq) and whose root is `root`, 0
-   otherwise. */
+/* fd_gui_slot_is_skipped returns 1 if `slot` is skipped, 0 otherwise.
+   Slots below `root` are resolved from the durable rooted-fork epoch
+   cache; later slots are resolved against the fork whose tip is
+   (des, des_bank_seq).  Returns 0 when the status is unknown. */
 
 static inline int
 fd_gui_slot_is_skipped( fd_gui_t * gui, ulong root, ulong des, ulong des_bank_seq, ulong slot ) {
+  /* The fork walk below cannot answer for a slot at or below `root`: it
+     returns 0 as soon as it reaches root, which every descent from the
+     tower tip does before it could ever straddle an older slot.  Since
+     root trails the tip by only a handful of slots, that would make
+     every historical query report nothing as skipped.  Slots that old
+     are settled, so resolve them from the durable rooted-fork epoch
+     cache instead. */
+  if( FD_LIKELY( root!=ULONG_MAX && slot<root ) ) {
+    if( FD_UNLIKELY( !gui->epoch.has_epoch_schedule ) ) return 0;
+    ulong epoch_num = fd_slot_to_epoch( &gui->epoch.epoch_schedule, slot, NULL );
+    fd_gui_epoch_t const * epoch = fd_gui_epoch( gui, epoch_num );
+    if( FD_UNLIKELY( !epoch || slot<epoch->start_slot ) ) return 0;
+    ulong idx = slot-epoch->start_slot;
+    return idx<epoch->slot_cnt && !!epoch->skipped[ idx ];
+  }
+  if( FD_UNLIKELY( slot==root ) ) return 0;
+
   fd_gui_slot_t * c = fd_gui_slot_get( gui, des, des_bank_seq );
   ulong cslot = des;
   while( c ) {

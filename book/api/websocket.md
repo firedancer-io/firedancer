@@ -2826,17 +2826,43 @@ UNIX nanosecond timestamp window.
 |-------------|---------------|---------|
 | *Request*   | `SlotShreds`  | below   |
 
-| param    | type     | description |
-|----------|----------|-------------|
-| start_ns | `string` | Inclusive lower bound of the UNIX nanosecond timestamp window to query for shred events |
-| end_ns   | `string` | Inclusive upper bound of the UNIX nanosecond timestamp window to query for shred events |
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound of the UNIX nanosecond timestamp window to query.  Must be a string of decimal digits |
+| end_ns      | `string` | Exclusive upper bound of the UNIX nanosecond timestamp window to query.  Must be a string of decimal digits, and greater than `start_ns` |
+| granularity | `string` | Either `shred` or `fec`.  Required |
 
 WebSocket clients may request historical shred metadata over a UNIX
-nanosecond timestamp window.  The requested window must not exceed 10
-seconds.  The response has the same shape as the live `slot.live_shreds`
-topic and covers every shred event recorded in the window across all
-slots.  If no shred events fall in the window, the response arrays will
-be empty.
+nanosecond timestamp window.  At `shred` granularity the response holds
+one row per recorded shred event.  At `fec` granularity the rows are
+reduced to one per `(slot, FEC set ordinal, event)`, carrying the
+earliest timestamp recorded for that combination.
+
+If no events fall in the window the arrays are empty and
+`reference_slot` and `reference_ts` are `null`.
+
+If the window contains more rows than the server will return, the
+response carries an `error` object with code `result_limit_exceeded`
+instead of a `value`, and the client should narrow the window.
+
+::: warning Breaking change
+This method previously took an inclusive `end_ns`, had no `granularity`
+param, named the shred index array `shred_idx`, and returned sentinel
+values rather than `null` for `reference_slot` and `reference_ts` on an
+empty result.  Its response is no longer the same shape as the live
+`slot.live_shreds` topic, which keeps the old field names.
+:::
+
+| field          | type              | description |
+|----------------|-------------------|-------------|
+| granularity    | `string`          | Echoes the requested granularity |
+| reference_slot | `number\|null`    | Smallest slot in the response; all `slot_delta` values are relative to it |
+| reference_ts   | `string\|null`    | Smallest timestamp in the response; all `event_ts_delta` values are relative to it |
+| slot_delta     | `number[]`        | Per row, `slot - reference_slot` |
+| idx            | `(number\|null)[]`| Per row, the shred index or FEC set ordinal.  `null` when not applicable |
+| event          | `number[]`        | Per row, the event kind, using the same enum as `SlotShreds` below |
+| event_ts_delta | `string[]`        | Per row, `timestamp - reference_ts` |
+| skipped        | `number[]`        | Slot deltas, among the slots present, whose slot was skipped |
 
 ::: details Example
 
@@ -2847,7 +2873,8 @@ be empty.
     "id": 32,
     "params": {
         "start_ns": "1739657041588000000",
-        "end_ns": "1739657041589000000"
+        "end_ns": "1739657041589000000",
+        "granularity": "shred"
     }
 }
 ```
@@ -2858,12 +2885,25 @@ be empty.
     "key": "query_shreds",
     "id": 32,
     "value": {
+        "granularity": "shred",
         "reference_slot": 289245044,
         "reference_ts": "1739657041588242791",
         "slot_delta": [0, 0],
-        "shred_idx": [1234, null],
+        "idx": [1234, null],
         "event": [0, 1],
-        "event_ts_delta": ["1000000", "2000000"]
+        "event_ts_delta": ["1000000", "2000000"],
+        "skipped": []
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 33,
+    "error": {
+        "code": "result_limit_exceeded"
     }
 }
 ```
@@ -3117,7 +3157,7 @@ and is broadcast to all WebSocket clients.
 | reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
 | slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
 | shred_idx       | `(number\|null)[]` | `shred_idx[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
-| event           | `number[]`         | `event[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
+| event           | `number[]`         | `event[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `slot_complete` (4), and `shred_published` (6).  The value 5 is unused |
 | event_ts_delta  | `string[]`         | `reference_ts + event_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occurred |
 
 #### `slot.update`

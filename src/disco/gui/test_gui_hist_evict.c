@@ -770,6 +770,58 @@ test_waterfall_snapshots( fd_gui_t * gui ) {
    for rework.  The eviction *mechanics* it drives are exercised above via
    fd_gui_hist_evict_oldest. */
 
+/* fd_gui_slot_is_skipped must answer for slots at or below `root` from
+   the durable rooted-fork epoch cache.  The fork walk cannot: it returns
+   0 the moment it reaches root, which every descent from the tower tip
+   does before it could straddle an older slot.  Since root trails the
+   tip by only a handful of slots, a regression here reports essentially
+   every historical slot as not-skipped, which the timeline shred and FEC
+   queries surface directly in their `skipped` array. */
+
+static void
+test_slot_is_skipped_below_root( fd_gui_t * gui ) {
+  FD_TEST( fd_epoch_schedule_derive( &gui->epoch.epoch_schedule, 432000UL, 432000UL, 0 ) );
+  gui->epoch.has_epoch_schedule = 1;
+
+  /* Let the schedule tell us where the slot lands rather than assuming. */
+  ulong const probe_slot = 5000000UL;
+  ulong offset;
+  ulong epoch = fd_slot_to_epoch( &gui->epoch.epoch_schedule, probe_slot, &offset );
+  ulong start_slot = probe_slot - offset;
+  put_epoch( gui, epoch, start_slot, gui->epoch.epoch_schedule.slots_per_epoch );
+
+  fd_gui_hist_epoch_key_t key[ 1 ]; key->epoch = epoch;
+  fd_gui_epoch_t * rec = (fd_gui_epoch_t *)fd_gui_hist_kv_get( gui, FD_GUI_HIST_EPOCH, key );
+  FD_TEST( rec );
+
+  ulong const skipped_slot = probe_slot;
+  ulong const kept_slot    = probe_slot + 1UL;
+  FD_TEST( fd_slot_to_epoch( &gui->epoch.epoch_schedule, kept_slot, NULL )==epoch );
+  rec->skipped[ skipped_slot-start_slot ] = 1;
+  rec->skipped[ kept_slot   -start_slot ] = 0;
+
+  /* Both slots sit well below root, so only the epoch cache can answer.
+     The fork tip is deliberately unpopulated: the walk has nothing to
+     find, which is exactly the situation for a historical query. */
+  ulong const root = probe_slot + 1000UL;
+
+  FD_TEST(  fd_gui_slot_is_skipped( gui, root, root, BANK_SEQ, skipped_slot ) );
+  FD_TEST( !fd_gui_slot_is_skipped( gui, root, root, BANK_SEQ, kept_slot    ) );
+
+  /* root itself is on the fork by definition, and an unknown epoch or a
+     slot outside the record's range must not be reported as skipped. */
+  FD_TEST( !fd_gui_slot_is_skipped( gui, root, root, BANK_SEQ, root ) );
+  FD_TEST( !fd_gui_slot_is_skipped( gui, root, root, BANK_SEQ, start_slot-1UL ) );
+
+  /* Without an epoch schedule there is nothing to consult, so the answer
+     must be "unknown" rather than a wrong "skipped". */
+  gui->epoch.has_epoch_schedule = 0;
+  FD_TEST( !fd_gui_slot_is_skipped( gui, root, root, BANK_SEQ, skipped_slot ) );
+  gui->epoch.has_epoch_schedule = 1;
+
+  FD_LOG_NOTICE(( "test_slot_is_skipped_below_root: ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -823,6 +875,11 @@ main( int     argc,
   store_open( s6, 1UL<<30, 8 );
   test_timeline_db( s6->gui );
   store_close( s6 );
+
+  test_store_t s7[ 1 ];
+  store_open( s7, 1UL<<30, 10 );
+  test_slot_is_skipped_below_root( s7->gui );
+  store_close( s7 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
