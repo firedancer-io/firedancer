@@ -66,10 +66,38 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 65536
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
+/* Conservative JSON sizing for the bounded timeline query rows.  The
+   HTTP server temporarily keeps both the raw and the compressed frame
+   in the outgoing ring, and at >=128 KiB zstd's compression bound is
+   raw_sz+(raw_sz>>8).
+
+   FD_GUI_TIMELINE_TXN_JSON_ROW_MAX is the worst case across both txn
+   query shapes, derived from the columnar emission in
+   fd_gui_printf_timeline_query_txns.  The meta shape is the larger of
+   the two: four ulong columns at 21 B, a base58 signature at 91 B
+   (88 chars, quotes, comma), four more ulong columns at 21 B, three
+   quoted ulong columns at 23 B, three bools at 6 B, and two quoted
+   timestamp deltas at 23 B, totalling 371 B.  The timestamps shape is
+   266 B.  480 leaves headroom without letting the cap drift far from
+   what the format can actually produce. */
+
+#define FD_GUI_TIMELINE_TXN_JSON_ROW_MAX   (480UL)
+#define FD_GUI_TIMELINE_SHRED_JSON_ROW_MAX (56UL)
+#define FD_GUI_TIMELINE_JSON_FIXED_MAX     (4096UL)
+#define FD_GUI_TIMELINE_RAW_RESPONSE_MAX   (32UL<<20)
+
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_TIMESTAMPS_MAX      *FD_GUI_TIMELINE_TXN_JSON_ROW_MAX  +FD_GUI_TIMELINE_JSON_FIXED_MAX<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_timestamps_query_fits_raw_bound       );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_BATCH_TIMESTAMPS_MAX*FD_GUI_TIMELINE_TXN_JSON_ROW_MAX  +FD_GUI_TIMELINE_JSON_FIXED_MAX<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_batch_timestamps_query_fits_raw_bound );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_META_MAX            *FD_GUI_TIMELINE_TXN_JSON_ROW_MAX  +FD_GUI_TIMELINE_JSON_FIXED_MAX<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_meta_query_fits_raw_bound             );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX               *FD_GUI_TIMELINE_SHRED_JSON_ROW_MAX+FD_GUI_TIMELINE_JSON_FIXED_MAX<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_query_fits_raw_bound                );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8))<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ, query_and_compression_fit_send_buffer );
+
 FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_CNT==FD_GUI_HIST_CNT, gui_db_metric_count );
 
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
+  if( FD_UNLIKELY( tile->gui.send_buffer_size_mb<(FD_GUI_HTTP_MIN_SEND_BUFFER_SZ>>20) ) )
+    FD_LOG_ERR(( "[tiles.gui.send_buffer_size_mb] must be at least %lu MiB", FD_GUI_HTTP_MIN_SEND_BUFFER_SZ>>20 ));
   if( FD_UNLIKELY( tile->gui.send_buffer_size_mb>(ULONG_MAX>>20) ) )
     FD_LOG_ERR(( "[tiles.gui.send_buffer_size_mb] is too large" ));
 

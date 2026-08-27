@@ -202,6 +202,15 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 FD_STATIC_ASSERT( FD_GUI_TXN_BATCH_MAX_TXN<=UCHAR_MAX, txn_batch_count_fits );
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT<=UINT_MAX, txn_batch_member_idx_fits );
 
+/* Minimum GUI send buffer.  A bounded timeline query response and the
+   compressed copy the HTTP server stages alongside it must both fit in
+   the outgoing ring at once, otherwise fd_http_server_ws_send fails and
+   the FD_TEST on it in the request path aborts.  The static asserts in
+   fd_gui_tile.c tie this to the row caps and prove the invariant at
+   build time. */
+
+#define FD_GUI_HTTP_MIN_SEND_BUFFER_SZ (256UL<<20)
+
 /* Stored timeline-day bucket layout. */
 #define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (7UL)
 #define FD_GUI_TIMELINE_DAY_NS                 (86400000000000L)
