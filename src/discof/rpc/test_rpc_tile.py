@@ -676,6 +676,15 @@ GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION = [
         },
         "description": f"getMinimumBalanceForRentExemption success",
     },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getMinimumBalanceForRentExemption",
+            "params": [10 * 1024 * 1024 + 1],
+        },
+        "description": "getMinimumBalanceForRentExemption rejects oversized account",
+    },
 ]
 
 GET_SLOT = [
