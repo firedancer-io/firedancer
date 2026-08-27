@@ -38,7 +38,7 @@
 #define IN_KIND_ACK    (0)
 #define IN_KIND_SNAPLD (1)
 #define IN_KIND_GOSSIP (2)
-#define MAX_IN_LINKS   (4)
+#define MAX_IN_LINKS   (2UL+FD_SNAPIN_TILE_MAX) /* gossip_out + snapld_dc + one snapin_ct ack link per snapin tile */
 
 struct fd_snapct_out_link {
   ulong       idx;

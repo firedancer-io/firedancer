@@ -704,6 +704,7 @@ struct fd_topo_tile {
       ulong accdb_obj_id;
       ulong txncache_obj_id;
       ulong banks_obj_id;
+      ulong snoop_obj_id; /* parallel snapshot-load topology only */
       int   alpenglow;
     } snapin;
 
