@@ -150,6 +150,7 @@ struct fd_http_server_response {
 
   char const * content_type;     /* Content-Type to set in the HTTP response */
   char const * cache_control;    /* Cache-Control to set in the HTTP response */
+  char const * link;             /* Link to set in the HTTP response */
   char const * content_encoding; /* Content-Encoding to set in the HTTP response */
   char const * location[2];      /* Location to set in the HTTP response (concatenated) */
   ulong        location_len[2];  /* Lengths of the two location fragments */
