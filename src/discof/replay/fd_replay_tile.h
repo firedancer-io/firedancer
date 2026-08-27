@@ -149,6 +149,10 @@ struct fd_replay_slot_completed {
   ulong tips;
   ulong shred_cnt;
 
+  int    voted;
+  ulong  voted_slot;/* ignore if voted = 0 */
+  ushort voted_rank; /* ignore if voted = 0 */
+
   struct {
     ulong block_cost;
     ulong allocated_accounts_data_size;
