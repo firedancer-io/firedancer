@@ -290,6 +290,20 @@ ag_our_rank( fd_replay_tile_t * ctx,
   return s->our_rank;
 }
 
+/* ag_epoch_validator_cnt returns the size of that same ranked set, or 0
+   when the epoch is not in the window. */
+
+static ulong
+ag_epoch_validator_cnt( fd_replay_tile_t * ctx,
+                        fd_bank_t const *  bank,
+                        ulong              slot ) {
+  ulong epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, slot, NULL );
+
+  fd_replay_epoch_vtrs_t const * s = &ctx->epoch_vtrs[ epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
+  if( FD_UNLIKELY( s->epoch!=epoch ) ) return 0UL;
+  return s->info->validator_cnt;
+}
+
 /* ag_observe_footer_certs reads what a block's certificates say about
    this validator and about cluster finality.  Everything here is a bit
    test on data replay has already deserialized, so it costs nothing
@@ -327,17 +341,24 @@ ag_observe_footer_certs( fd_replay_tile_t *        ctx,
     ushort rank = ag_our_rank( ctx, bank, cert->slot );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) continue;
 
-    /* A bitmap that does not reach our rank says nothing about us, so
-       leave the slot unresolved rather than reporting a miss we did not
-       observe.  It also means our ranked set disagrees with the one the
-       cluster built the certificate against, which would make every
-       other bit we read out of it suspect too - hence the counter. */
-    if( FD_UNLIKELY( (ulong)rank>=cert->nbits ) ) {
-      FD_MCNT_INC( REPLAY, ALPENGLOW_REWARD_CERT_UNREADABLE, 1UL );
-      continue;
+    /* Signer bitmaps are truncated to the highest participating rank
+       plus one, not padded out to the ranked set - see
+       AggregateAccumulator::into_sig_and_ranks upstream, which resizes
+       to ranks.last_one()+1 before encoding, and the base3 path which
+       resizes to the max of the two last_ones.  So a bitmap that stops
+       short of our rank is not unreadable: it says positively that
+       nobody at or above our rank signed, which includes us.  Reading
+       the bit is only valid within nbits.
+
+       A certificate wider than our whole ranked set is a different
+       matter - the sets disagree, and every bit we read out of it is
+       suspect. */
+    if( FD_UNLIKELY( cert->nbits>ag_epoch_validator_cnt( ctx, bank, cert->slot ) ) ) {
+      FD_MCNT_INC( REPLAY, ALPENGLOW_REWARD_CERT_SET_MISMATCH, 1UL );
     }
 
-    int in_cert = !!((cert->signer_set[ rank>>6 ] >> (rank & 63U)) & 1UL);
+    int in_cert = (ulong)rank<cert->nbits &&
+                  !!((cert->signer_set[ rank>>6 ] >> (rank & 63U)) & 1UL);
 
     /* Counted per certificate rather than per resolved slot, so that
        resolved minus rewarded is the number of certificates that could
@@ -345,7 +366,7 @@ ag_observe_footer_certs( fd_replay_tile_t *        ctx,
        accumulated over the eight slots before the block carrying it and
        has no stake threshold, so a miss here is not the live
        certificate having closed early - it is our vote not reaching the
-       leader. */
+       leader in time to be aggregated. */
     FD_MCNT_INC( REPLAY, ALPENGLOW_REWARD_CERT_RESOLVED, 1UL );
     if( FD_UNLIKELY( in_cert ) ) FD_MCNT_INC( REPLAY, ALPENGLOW_REWARD_CERT_REWARDED, 1UL );
 

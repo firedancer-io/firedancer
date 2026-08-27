@@ -1020,7 +1020,7 @@
 | <span class="metrics-name">replay_&#8203;alpenglow_&#8203;vote_&#8203;slot</span> | gauge | Alpenglow: latest slot this validator is recorded as having voted on, 0 if none. Always 0 under Tower |
 | <span class="metrics-name">replay_&#8203;alpenglow_&#8203;reward_&#8203;cert_&#8203;resolved</span> | counter | Alpenglow: footer reward certificates that determined a reward outcome for us, whether or not we were in them |
 | <span class="metrics-name">replay_&#8203;alpenglow_&#8203;reward_&#8203;cert_&#8203;rewarded</span> | counter | Alpenglow: footer reward certificates that included our rank. Resolved minus this is our genuine missed vote count |
-| <span class="metrics-name">replay_&#8203;alpenglow_&#8203;reward_&#8203;cert_&#8203;unreadable</span> | counter | Alpenglow: footer reward certificates whose bitmap did not extend to our rank, so said nothing about us. Nonzero means our ranked set disagrees with the cluster's and the missed vote readout cannot be trusted |
+| <span class="metrics-name">replay_&#8203;alpenglow_&#8203;reward_&#8203;cert_&#8203;set_&#8203;mismatch</span> | counter | Alpenglow: footer reward certificates covering more ranks than our ranked validator set holds. Nonzero means our ranked set disagrees with the cluster's and the missed vote readout cannot be trusted |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;acquired</span> | counter | Store slock acquires for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;released</span> | counter | Store slock releases for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;wait_&#8203;seconds</span> | histogram | Time spent waiting to acquire the slock for query |
