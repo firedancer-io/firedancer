@@ -55,6 +55,10 @@ struct fd_txncache_blockcache_shmem {
 
   uint generation;
 
+  ulong slot;            /* The slot of the block this entry is for.  The txncache itself does not use this, it is
+                            recorded so that snapshot serialization can attribute each transaction to the slot it
+                            executed in. */
+
   fd_hash_t blockhash;   /* The blockhash that this entry is for. */
   ulong txnhash_offset;  /* To save memory, the Agave validator decided to truncate the hash of transactions stored in
                             this memory to 20 bytes rather than 32 bytes.  The bytes used are not the first 20 as you

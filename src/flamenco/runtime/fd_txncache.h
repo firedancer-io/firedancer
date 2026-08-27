@@ -174,11 +174,16 @@ fd_txncache_reset( fd_txncache_t * tc );
    Attaching a child takes a write lock on the entire structure, which
    is an expensive stall for any other concurrent operations, but it is
    OK because the operation is otherwise cheap and it is called rarely
-   (once every 400ms or so). */
+   (once every 400ms or so).
+
+   slot is the slot of the child bank.  The txncache does not use it, it
+   is recorded only so that snapshot serialization can group entries by
+   the slot they executed in. */
 
 fd_txncache_fork_id_t
 fd_txncache_attach_child( fd_txncache_t *       tc,
-                          fd_txncache_fork_id_t parent_fork_id );
+                          fd_txncache_fork_id_t parent_fork_id,
+                          ulong                 slot );
 
 void
 fd_txncache_attach_blockhash( fd_txncache_t *       tc,

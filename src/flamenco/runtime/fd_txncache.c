@@ -249,7 +249,8 @@ fd_txncache_insert_txn( fd_txncache_t *         tc,
 
 fd_txncache_fork_id_t
 fd_txncache_attach_child( fd_txncache_t *       tc,
-                          fd_txncache_fork_id_t parent_fork_id ) {
+                          fd_txncache_fork_id_t parent_fork_id,
+                          ulong                 slot ) {
   fd_rwlock_write( tc->shmem->lock );
 
   FD_TEST( blockcache_pool_free( tc->blockcache_shmem_pool ) );
@@ -259,7 +260,8 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
   fd_txncache_fork_id_t fork_id = { .val = (ushort)idx };
 
   fork->shmem->generation = tc->shmem->blockcache_generation++;
-  fork->shmem->child_id = (fd_txncache_fork_id_t){ .val = USHORT_MAX };
+  fork->shmem->slot       = slot;
+  fork->shmem->child_id   = (fd_txncache_fork_id_t){ .val = USHORT_MAX };
 
   if( FD_LIKELY( parent_fork_id.val==USHORT_MAX ) ) {
     FD_TEST( blockcache_pool_free( tc->blockcache_shmem_pool )==blockcache_pool_max( tc->blockcache_shmem_pool )-1UL );

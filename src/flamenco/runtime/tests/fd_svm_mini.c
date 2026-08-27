@@ -468,7 +468,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   bank->f.slot = params->root_slot;
 
   bank->progcache_fork_id = fd_progcache_fork_id_initial();
-  bank->txncache_fork_id  = fd_txncache_attach_child( mini->txncache, (fd_txncache_fork_id_t){ USHORT_MAX } );
+  bank->txncache_fork_id  = fd_txncache_attach_child( mini->txncache, (fd_txncache_fork_id_t){ USHORT_MAX }, bank->f.slot );
 
   /* Create the root fork in accdb */
   fd_accdb_fork_id_t root_fork_id = fd_accdb_attach_child( accdb, SENTINEL );
@@ -666,7 +666,7 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   bank->f.slot = child_slot;
 
   bank->progcache_fork_id    = fd_progcache_attach_child( mini->progcache->join, parent_bank->progcache_fork_id );
-  bank->txncache_fork_id     = fd_txncache_attach_child ( mini->txncache,        parent_bank->txncache_fork_id  );
+  bank->txncache_fork_id     = fd_txncache_attach_child ( mini->txncache,        parent_bank->txncache_fork_id, bank->f.slot );
   bank->accdb_fork_id        = fd_accdb_attach_child    ( accdb,                 parent_bank->accdb_fork_id     );
   bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
