@@ -10,10 +10,11 @@
 
    fd_uverbs_init opens one uverbs context, validates the selected device
    and port, maps a UAR, registers packet memory, and creates a protection
-   domain, one raw-packet QP, and separate RX and TX CQs over caller-owned
-   queue memory, leaving the QP ready to run.  The tile installs flow steering
-   separately.  Linux creates and tracks these resources, while the packet
-   path uses the mapped queues and doorbells directly.
+   domain, one send-only raw-packet QP, one receive WQ, a one-entry RWQ
+   indirection table, and an RSS QP over caller-owned queue memory.  The tile
+   installs flow steering separately.  Linux creates and tracks these
+   resources, while the packet path uses the mapped queues and doorbells
+   directly.
 
    mlx5 queue fields are big-endian.  This implementation reserves 64
    bytes for each TX WQE and 16 bytes for each RX WQE. */
@@ -65,13 +66,21 @@ typedef struct fd_mlx5_cq_control fd_mlx5_cq_control_t;
    separate from UAR MMIO.  Linux names these words MLX5_RCV_DBR and
    MLX5_SND_DBR.  Both fields are stored big-endian. */
 struct __attribute__((aligned(8UL))) fd_mlx5_qp_control {
-  uint rq_prod;
+  uint reserved;
   uint sq_prod;
 };
 typedef struct fd_mlx5_qp_control fd_mlx5_qp_control_t;
 
+/* fd_mlx5_rx_wq_control is the mlx5 receive WQ doorbell record. */
+struct __attribute__((aligned(8UL))) fd_mlx5_rx_wq_control {
+  uint rq_prod;
+  uint reserved;
+};
+typedef struct fd_mlx5_rx_wq_control fd_mlx5_rx_wq_control_t;
+
 FD_STATIC_ASSERT( sizeof(fd_mlx5_cq_control_t)==8UL, mlx5_cq_control_sz );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_qp_control_t)==8UL, mlx5_qp_control_sz );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_rx_wq_control_t)==8UL, mlx5_rx_wq_control_sz );
 
 struct fd_mlx5_cq {
   fd_mlx5_cqe_t *        entries;
@@ -81,32 +90,45 @@ struct fd_mlx5_cq {
 };
 typedef struct fd_mlx5_cq fd_mlx5_cq_t;
 
-struct fd_mlx5_qp {
-  fd_mlx5_rx_wqe_t *     rq;
-  fd_mlx5_tx_wqe_t *     sq;
-  fd_mlx5_cq_t *         rx_cq;
-  fd_mlx5_cq_t *         tx_cq;
-  uint                   rx_depth;
-  uint                   tx_depth;
+/* fd_mlx5_rx_wq owns one standalone Linux receive WQ. */
+struct fd_mlx5_rx_wq {
+  fd_mlx5_rx_wqe_t * rq;
+  fd_mlx5_cq_t *     rx_cq;
+  uint               rx_depth;
+  uint               rq_prod;
+  uint               rq_cons;
+  uint *             rq_wqe_buf_chunk;
 
+  fd_mlx5_rx_wq_control_t * control;
+  uint                      handle;
+  uint                      wqn;
+};
+typedef struct fd_mlx5_rx_wq fd_mlx5_rx_wq_t;
+
+/* fd_mlx5_tx_qp owns one send-only raw-packet QP. */
+struct fd_mlx5_tx_qp {
+  fd_mlx5_tx_wqe_t *     sq;
+  fd_mlx5_cq_t *         tx_cq;
+  uint                   tx_depth;
   uint                   sq_prod;
   uint                   sq_posted;
   uint                   sq_cons;
-  uint                   rq_prod;
-  uint                   rq_cons;
-
-  uint *                 rq_wqe_buf_chunk;
   uint *                 sq_wqe_frame_sz;
 
   fd_mlx5_qp_control_t * control;
   volatile uchar *       sq_doorbell;      /* points to the SQ doorbell register in a non-cached UAR mapping. */
   uint                   handle;           /* identifies this QP in later Linux uverbs commands. */
   uint                   qpn;              /* identifies this QP to the NIC. */
-  uint                   lkey;             /* lkey permits the NIC to DMA the registered packet memory. */
   uchar                  tx_inline_hdr_sz; /* number of Ethernet header bytes copied into each TX WQE. */
 
 };
-typedef struct fd_mlx5_qp fd_mlx5_qp_t;
+typedef struct fd_mlx5_tx_qp fd_mlx5_tx_qp_t;
+
+/* fd_mlx5_rss_qp identifies the receive-only QP used as a flow target. */
+struct fd_mlx5_rss_qp {
+  uint handle;
+};
+typedef struct fd_mlx5_rss_qp fd_mlx5_rss_qp_t;
 
 /* fd_netlink_rdma_ctx stores the state used to request one QP-bound counter
    through Linux NETLINK_RDMA. */
@@ -121,34 +143,37 @@ typedef struct fd_netlink_rdma_ctx fd_netlink_rdma_ctx_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_uverbs_init creates one UAR, RX CQ, TX CQ, PD, MR, and QP over
-   caller-initialized queue and packet memory.  The QP is returned in RTS
-   state.  On failure, process-scoped resources can remain live.  Callers
-   must exit rather than retry initialization. */
-fd_mlx5_qp_t *
-fd_uverbs_init( fd_uverbs_ctx_t * uverbs,
-                fd_mlx5_cq_t *    rx_cq,
-                fd_mlx5_cq_t *    tx_cq,
-                fd_mlx5_qp_t *    qp,
-                char const *      rdma_name,
-                uint              port_num,
-                void *            packet_memory,
-                ulong             packet_memory_sz );
+/* fd_uverbs_init creates one UAR, RX CQ, TX CQ, PD, MR, send-only QP,
+   receive WQ, one-entry indirection table, and RSS QP over caller-initialized
+   queue and packet memory.  On failure, process-scoped resources can remain
+   live.  Callers must exit rather than retry initialization. */
+fd_mlx5_rss_qp_t *
+fd_uverbs_init( fd_uverbs_ctx_t *  uverbs,
+                fd_mlx5_cq_t *     rx_cq,
+                fd_mlx5_cq_t *     tx_cq,
+                fd_mlx5_rx_wq_t *  rx_wq,
+                fd_mlx5_tx_qp_t *  tx_qp,
+                fd_mlx5_rss_qp_t * rss_qp,
+                uint *             lkey,
+                char const *       rdma_name,
+                uint               port_num,
+                void *             packet_memory,
+                ulong              packet_memory_sz );
 
 /* fd_uverbs_create_udp_flow and fd_uverbs_create_gre_udp_flow steer matching
-   IPv4 traffic to qp.  The GRE destination IP and port select the inner
+   IPv4 traffic to an RSS QP.  The GRE destination IP and port select the inner
    packet.  A zero destination IP matches every IPv4 address. */
 int
-fd_uverbs_create_udp_flow( fd_uverbs_ctx_t *    uverbs,
-                           fd_mlx5_qp_t const * qp,
-                           uint                 dst_ip,
-                           ushort               dst_port );
+fd_uverbs_create_udp_flow( fd_uverbs_ctx_t *        uverbs,
+                           fd_mlx5_rss_qp_t const * rss_qp,
+                           uint                     dst_ip,
+                           ushort                   dst_port );
 
 int
-fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *    uverbs,
-                               fd_mlx5_qp_t const * qp,
-                               uint                 inner_dst_ip,
-                               ushort               inner_dst_port );
+fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *        uverbs,
+                               fd_mlx5_rss_qp_t const * rss_qp,
+                               uint                     inner_dst_ip,
+                               ushort                   inner_dst_port );
 
 /* fd_mlx5_netlink_rdma_init binds a manual RDMA counter to qpn. */
 fd_netlink_rdma_ctx_t *
