@@ -1250,6 +1250,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->details.commit_start_ticks = LONG_MAX;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
+  fd_memset( &txn_out->details.txn_cost, 0, sizeof(txn_out->details.txn_cost) );
 
   txn_out->details.loaded_accounts_data_size = 0UL;
   txn_out->details.accounts_resize_delta     = 0L;

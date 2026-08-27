@@ -328,6 +328,32 @@ test_v1_feature_gate( void ) {
 }
 
 static void
+test_prepare_and_execute_resets_txn_cost( void ) {
+  static fd_bank_t    bank;
+  static fd_runtime_t runtime;
+  static fd_txn_p_t   txnp;
+  static fd_txn_out_t txn_out;
+
+  bank.f.slot = 1UL;
+  fd_features_enable_all( &bank.f.features );
+  bank.f.features.enable_tx_v1 = FD_FEATURE_DISABLED;
+
+  fd_memset( &txnp, 0, sizeof(txnp) );
+  fd_txn_t * txn = TXN( &txnp );
+  txn->transaction_version = FD_TXN_V1;
+
+  fd_txn_in_t txn_in = { .txn = &txnp };
+  fd_memset( &txn_out.details.txn_cost, 0xa5, sizeof(txn_out.details.txn_cost) );
+
+  fd_runtime_prepare_and_execute_txn( &runtime, &bank, &txn_in, &txn_out );
+
+  fd_transaction_cost_t zero_cost = {0};
+  FD_TEST( txn_out.err.txn_err==FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION );
+  FD_TEST( !memcmp( &txn_out.details.txn_cost, &zero_cost, sizeof(zero_cost) ) );
+  FD_LOG_NOTICE(( "test_prepare_and_execute_resets_txn_cost: PASSED" ));
+}
+
+static void
 test_sysvar_instructions_overflow( void ) {
   static fd_txn_p_t txnp;
   fd_memset( &txnp, 0, sizeof(txnp) );
@@ -370,6 +396,7 @@ main( int     argc,
   test_sanitize_compute_unit_limits_heap_size();
   test_sanitize_txn_v1_config_heap_size( &bank );
   test_v1_feature_gate();
+  test_prepare_and_execute_resets_txn_cost();
   test_sysvar_instructions_overflow();
 
   FD_LOG_NOTICE(( "pass" ));
