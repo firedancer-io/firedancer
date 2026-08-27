@@ -433,13 +433,28 @@ after_credit( fd_votor_tile_t *   ctx,
 
   if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
     ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
+    ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
+    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_CERT_CREATED ) ) {
+      publish_t pub;
+      switch( cert->kind ) {
+      case AG_CERT_KIND_FINAL:          pub.sig = FD_VOTOR_SIG_FINAL;          pub.msg.final.slot          = cert->final.slot;          ag_pool_finalized_block_hash( ctx->pool, cert->final.slot, pub.msg.final.block_id.uc ); break; /* names only the slot */
+      case AG_CERT_KIND_FAST_FINAL:     pub.sig = FD_VOTOR_SIG_FAST_FINAL;     pub.msg.fast_final.slot     = cert->fast_final.slot;     memcpy( pub.msg.fast_final.block_id.uc,     cert->fast_final.block_hash,     sizeof(fd_hash_t) ); break;
+      case AG_CERT_KIND_NOTAR:          pub.sig = FD_VOTOR_SIG_NOTAR;          pub.msg.notar.slot          = cert->notar.slot;          memcpy( pub.msg.notar.block_id.uc,          cert->notar.block_hash,          sizeof(fd_hash_t) ); break;
+      case AG_CERT_KIND_NOTAR_FALLBACK: pub.sig = FD_VOTOR_SIG_NOTAR_FALLBACK; pub.msg.notar_fallback.slot = cert->notar_fallback.slot; memcpy( pub.msg.notar_fallback.block_id.uc, cert->notar_fallback.block_hash, sizeof(fd_hash_t) ); break;
+      case AG_CERT_KIND_SKIP:           pub.sig = FD_VOTOR_SIG_SKIP;           pub.msg.skip.slot           = cert->skip.slot;           break;
+      default:                          FD_LOG_ERR(( "unexpected certificate kind %u", cert->kind ));
+      }
+      FD_TEST( !publishes_full( ctx->publishes ) );
+      publishes_push( ctx->publishes, pub );
+    }
     *charge_busy = 1;
   }
 
   if( FD_UNLIKELY( ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event ) ) ) {
-    publish_t pub = { .sig = FD_VOTOR_SIG_REPAIR_BLOCK_ID };
-    pub.msg.repair_block.slot = ctx->scratch.repair_event.block.slot;
-    memcpy( &pub.msg.repair_block.block_id, ctx->scratch.repair_event.block.hash, sizeof(fd_hash_t) );
+    publish_t pub = { .sig = FD_VOTOR_SIG_REPAIR };
+    pub.msg.repair.slot = ctx->scratch.repair_event.block.slot;
+    memcpy( &pub.msg.repair.block_id, ctx->scratch.repair_event.block.hash, sizeof(fd_hash_t) );
+    FD_TEST( !publishes_full( ctx->publishes ) );
     publishes_push( ctx->publishes, pub );
     *charge_busy = 1;
   }
@@ -482,6 +497,7 @@ after_credit( fd_votor_tile_t *   ctx,
         publish_t pub = { .sig = FD_VOTOR_SIG_ROOTED };
         pub.msg.rooted.slot = rooted_block_id.slot;
         memcpy( pub.msg.rooted.block_id.uc, rooted_block_id.hash, sizeof(fd_hash_t) );
+        FD_TEST( !publishes_full( ctx->publishes ) );
         publishes_push( ctx->publishes, pub );
 
         replayed = replayed_query( ctx->replayed, rooted_block_id, NULL );

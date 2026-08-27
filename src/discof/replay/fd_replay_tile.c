@@ -228,6 +228,60 @@ ag_epoch_vtrs_update( fd_replay_tile_t *          ctx,
   s->epoch = msg->epoch;
 }
 
+/* replay_epoch_info returns the ranked Alpenglow validator set tracked
+   for epoch, NULL if unknown. */
+
+static ag_epoch_info_t const *
+replay_epoch_info( void * _ctx,
+                   ulong  epoch ) {
+  fd_replay_tile_t * ctx = (fd_replay_tile_t *)_ctx;
+  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+    if( ctx->epoch_vtrs[ i ].epoch==epoch ) return ctx->epoch_vtrs[ i ].info;
+  }
+  return NULL;
+}
+
+static ushort
+replay_voter_rank( fd_replay_tile_t * ctx,
+                   ulong              epoch ) {
+  if( FD_LIKELY( !ctx->alpenglow ) ) return USHORT_MAX;
+
+  ag_epoch_info_t const * info = replay_epoch_info( ctx, epoch );
+  if( FD_UNLIKELY( !info ) ) return USHORT_MAX;
+
+  for( ulong rank=0UL; rank<info->validator_cnt; rank++ ) {
+    if( FD_LIKELY( memcmp( info->validators[ rank ].id_key, ctx->identity_pubkey->uc, sizeof(ag_id_key_t) ) ) ) continue;
+    return (ushort)rank;
+  }
+  return USHORT_MAX;
+}
+
+static int
+replay_reward_cert_voted( fd_replay_tile_t * ctx,
+                          fd_bank_t *        bank,
+                          ulong     *        slot_out,
+                          ushort    *        rank_out ) {
+  if( FD_LIKELY( !ctx->alpenglow ) ) return 0;
+
+  fd_reward_cert_t const * skip  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
+  fd_reward_cert_t const * notar = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
+  if( FD_LIKELY( !skip && !notar ) ) return 0;
+
+  ulong  reward_slot  = skip ? skip->slot : notar->slot;
+  ulong  reward_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, reward_slot, NULL );
+  ushort rank         = replay_voter_rank( ctx, reward_epoch );
+
+  *slot_out = reward_slot;
+  *rank_out = rank;
+
+  if( FD_UNLIKELY( rank==USHORT_MAX ) ) { return 0; }
+
+  ulong word = (ulong)rank>>6;
+  ulong bit  = 1UL<<( (ulong)rank & 63UL );
+  return ( !!skip  && rank<skip ->nbits && !!( skip ->signer_set[ word ] & bit ) ) ||
+         ( !!notar && rank<notar->nbits && !!( notar->signer_set[ word ] & bit ) );
+}
+
 static void
 publish_epoch_info( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
@@ -767,6 +821,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->priority_fee = priority_fees_pre_settle;
   slot_info->tips = bank->f.tips;
   slot_info->shred_cnt = bank->f.shred_cnt;
+  slot_info->voted = replay_reward_cert_voted( ctx, bank, &slot_info->voted_slot, &slot_info->voted_rank );
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_b58 );
   FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_b58 );
@@ -915,19 +970,6 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
                 ulong               bank_idx,
                 int                 dead_reason,
                 int                 abandoned_reason );
-
-/* replay_epoch_info returns the ranked Alpenglow validator set tracked
-   for epoch, NULL if unknown. */
-
-static ag_epoch_info_t const *
-replay_epoch_info( void * _ctx,
-                   ulong  epoch ) {
-  fd_replay_tile_t * ctx = (fd_replay_tile_t *)_ctx;
-  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
-    if( ctx->epoch_vtrs[ i ].epoch==epoch ) return ctx->epoch_vtrs[ i ].info;
-  }
-  return NULL;
-}
 
 static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
