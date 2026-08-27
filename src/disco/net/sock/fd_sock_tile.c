@@ -294,6 +294,10 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
+  if( FD_UNLIKELY( ctx->repair_shred_sock_idx!=UINT_MAX && ctx->repair_rx==0xFF ) ) {
+    FD_LOG_ERR(( "repair intake socket configured but no net_repair out link was found" ));
+  }
+
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     if( !strstr( topo->links[ tile->in_link_id[ i ] ].name, "_net" ) ) {
       FD_LOG_ERR(( "in link %lu is not a net TX link", i ));
