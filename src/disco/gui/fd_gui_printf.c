@@ -319,17 +319,30 @@ void
 fd_gui_printf_catch_up_history( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "catch_up_history" );
     jsonp_open_object( gui->http, "value" );
+      /* stored [start,end] inclusive ranges go out as-is; singletons as bare slots */
       jsonp_open_array( gui->http, "turbine" );
         for( ulong i=0UL; i<gui->summary.catch_up_turbine_sz; i+=2 ) {
-          for( ulong j=gui->summary.catch_up_turbine[ i ]; j<=gui->summary.catch_up_turbine[ i+1UL ]; j++ ) {
-            jsonp_ulong( gui->http, NULL, j );
+          ulong start = gui->summary.catch_up_turbine[ i     ];
+          ulong end   = gui->summary.catch_up_turbine[ i+1UL ];
+          if( FD_UNLIKELY( start==end ) ) jsonp_ulong( gui->http, NULL, start );
+          else {
+            jsonp_open_array( gui->http, NULL );
+              jsonp_ulong( gui->http, NULL, start );
+              jsonp_ulong( gui->http, NULL, end   );
+            jsonp_close_array( gui->http );
           }
         }
       jsonp_close_array( gui->http );
       jsonp_open_array( gui->http, "repair" );
         for( ulong i=0UL; i<gui->summary.catch_up_repair_sz; i+=2 ) {
-          for( ulong j=gui->summary.catch_up_repair[ i ]; j<=gui->summary.catch_up_repair[ i+1UL ]; j++ ) {
-            jsonp_ulong( gui->http, NULL, j );
+          ulong start = gui->summary.catch_up_repair[ i     ];
+          ulong end   = gui->summary.catch_up_repair[ i+1UL ];
+          if( FD_UNLIKELY( start==end ) ) jsonp_ulong( gui->http, NULL, start );
+          else {
+            jsonp_open_array( gui->http, NULL );
+              jsonp_ulong( gui->http, NULL, start );
+              jsonp_ulong( gui->http, NULL, end   );
+            jsonp_close_array( gui->http );
           }
         }
       jsonp_close_array( gui->http );
