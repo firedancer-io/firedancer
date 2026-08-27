@@ -570,6 +570,12 @@ main( int     argc,
   char req_buf[8192];
   char res_buf[4096];
 
+  FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[%lu]}",
+      FD_RUNTIME_ACC_SZ_MAX+1UL ) );
+  expect_rpc_response( ctx, req_buf,
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":1}" );
+
   expect_rpc_response( ctx,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[\"not-an-array\"]}",
       "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"not-an-array\\\", expected a sequence.\"},\"id\":1}" );

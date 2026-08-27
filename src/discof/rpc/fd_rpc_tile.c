@@ -1853,6 +1853,11 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), id_cstr );
   }
+  if( FD_UNLIKELY( acct_sz->valuedouble>(double)FD_RUNTIME_ACC_SZ_MAX ) ) {
+    CSTR_JSON( id, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
+  }
+  ulong acct_sz_value = (ulong)acct_sz->valuedouble;
 
   bank_info_t const * bank = &ctx->banks[ bank_idx ];
 
@@ -1861,7 +1866,7 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
     .exemption_threshold = bank->rent.exemption_threshold,
     .burn_percent = bank->rent.burn_percent,
   };
-  ulong minimum = fd_rent_exempt_minimum_balance( &rent, acct_sz->valueulong );
+  ulong minimum = fd_rent_exempt_minimum_balance( &rent, acct_sz_value );
   CSTR_JSON( id, id_cstr );
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", minimum, id_cstr );
 }
