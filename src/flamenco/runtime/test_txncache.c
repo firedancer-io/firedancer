@@ -14,6 +14,13 @@ FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN==128UL, unit_test );
 
 #define NULL_FORK ((fd_txncache_fork_id_t){ .val = USHORT_MAX })
 
+/* The txncache does not use blockcache slots for anything, so these
+   tests only need them to be distinct. */
+
+static ulong next_slot = 1UL;
+
+#define attach_child( tc, parent ) fd_txncache_attach_child( (tc), (parent), next_slot++ )
+
 static void
 test_bucket_cnt( void ) {
   FD_TEST( fd_txncache_bucket_cnt( 0UL )==1UL );
@@ -42,10 +49,10 @@ test0( uchar * scratch0,
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
   FD_TEST( tc );
 
-  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_fork_id_t root = attach_child( tc, NULL_FORK );
   fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
 
-  fd_txncache_fork_id_t slot1 = fd_txncache_attach_child( tc, root );
+  fd_txncache_fork_id_t slot1 = attach_child( tc, root );
   fd_txncache_insert( tc, slot1, BLOCKHASH(1UL), TXNHASH(1UL) );
   fd_txncache_insert( tc, slot1, BLOCKHASH(1UL), TXNHASH(5UL) );
   fd_txncache_insert( tc, slot1, BLOCKHASH(1UL), TXNHASH(9UL) );
@@ -94,11 +101,11 @@ test_advance_root( uchar * scratch0,
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
   FD_TEST( tc );
 
-  fd_txncache_fork_id_t slot = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_fork_id_t slot = attach_child( tc, NULL_FORK );
   fd_txncache_finalize_fork( tc, slot, 0UL, BLOCKHASH(0UL) );
 
   for( ulong i=0UL; i<8192UL; i++ ) {
-    slot = fd_txncache_attach_child( tc, slot );
+    slot = attach_child( tc, slot );
     fd_txncache_insert( tc, slot, BLOCKHASH(i), TXNHASH(i) );
     fd_txncache_finalize_fork( tc, slot, 0UL, BLOCKHASH(i+1UL) );
     fd_txncache_advance_root( tc, slot );
@@ -112,7 +119,7 @@ test_advance_root( uchar * scratch0,
   FD_TEST(  fd_txncache_query( tc, slot, BLOCKHASH(8042UL), TXNHASH(8042UL) ) );
   FD_TEST(  fd_txncache_query( tc, slot, BLOCKHASH(8041UL), TXNHASH(8041UL) ) );
 
-  slot = fd_txncache_attach_child( tc, slot );
+  slot = attach_child( tc, slot );
   fd_txncache_finalize_fork( tc, slot, 0UL, BLOCKHASH(8193UL) );
   fd_txncache_advance_root( tc, slot );
 }
@@ -169,7 +176,7 @@ test_purge_stale( uchar * scratch0,
   /* Create root with blockhash 0.  This root will stay alive throughout
      the test. */
 
-  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_fork_id_t root = attach_child( tc, NULL_FORK );
   fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(0UL) );
 
   fd_txncache_fork_id_t prev = root;
@@ -183,8 +190,8 @@ test_purge_stale( uchar * scratch0,
 
   ulong stale_id = stale_id_base;
   for( ulong i=0UL; i<stale_rounds; i++ ) {
-    fd_txncache_fork_id_t loser  = fd_txncache_attach_child( tc, prev );
-    fd_txncache_fork_id_t winner = fd_txncache_attach_child( tc, prev );
+    fd_txncache_fork_id_t loser  = attach_child( tc, prev );
+    fd_txncache_fork_id_t winner = attach_child( tc, prev );
 
     ulong stale_cnt = stale_base+(ulong)(i<stale_extra);
     for( ulong j=0UL; j<stale_cnt; j++ ) {
@@ -202,7 +209,7 @@ test_purge_stale( uchar * scratch0,
   /* Fill the remaining slots with valid txns that should survive the
      purge. */
 
-  fd_txncache_fork_id_t query_fork = fd_txncache_attach_child( tc, prev );
+  fd_txncache_fork_id_t query_fork = attach_child( tc, prev );
 
   FD_LOG_NOTICE(( "inserting %lu valid txns to fill remaining slots", valid_pre_purge ));
 
@@ -277,7 +284,7 @@ test_purge_stale_global( uchar * scratch0,
 
   /* Step 1: Create root R0 with blockhash 0. */
 
-  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_fork_id_t root = attach_child( tc, NULL_FORK );
   fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(0UL) );
 
   /* Step 2: Fill R0's blockcache with stale txns via a single child
@@ -292,7 +299,7 @@ test_purge_stale_global( uchar * scratch0,
 
   FD_LOG_NOTICE(( "inserting %lu stale txns into R0 (%lu pages)", total_stale, r0_pages ));
 
-  fd_txncache_fork_id_t loser = fd_txncache_attach_child( tc, root );
+  fd_txncache_fork_id_t loser = attach_child( tc, root );
   FD_STORE( ulong, blockhash_buf, 0UL );
   for( ulong i=0UL; i<total_stale; i++ ) {
     FD_STORE( ulong, txnhash_buf, stale_id_base+i );
@@ -310,11 +317,11 @@ test_purge_stale_global( uchar * scratch0,
   ulong const chain_len = max_active_slots-2UL;
   fd_txncache_fork_id_t prev = root;
   for( ulong i=0UL; i<chain_len; i++ ) {
-    fd_txncache_fork_id_t fork = fd_txncache_attach_child( tc, prev );
+    fd_txncache_fork_id_t fork = attach_child( tc, prev );
     fd_txncache_finalize_fork( tc, fork, 0UL, BLOCKHASH(2000UL+i) );
     prev = fork;
   }
-  fd_txncache_fork_id_t inserter = fd_txncache_attach_child( tc, prev );
+  fd_txncache_fork_id_t inserter = attach_child( tc, prev );
 
   /* Step 4: Insert valid txns through the inserter until every txnpage
      in the global pool is allocated.  The tip fork F_chain_len keeps
@@ -409,7 +416,7 @@ test_advance_past_minority_then_purge( uchar * scratch0,
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
   FD_TEST( tc );
 
-  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_fork_id_t root = attach_child( tc, NULL_FORK );
   fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(0UL) );
 
   fd_txncache_fork_id_t prev = root;
@@ -444,8 +451,8 @@ test_advance_past_minority_then_purge( uchar * scratch0,
 
   ulong stale_id = stale_id_base;
   for( ulong i=0UL; i<stale_rounds-1UL; i++ ) {
-    fd_txncache_fork_id_t loser  = fd_txncache_attach_child( tc, prev );
-    fd_txncache_fork_id_t winner = fd_txncache_attach_child( tc, prev );
+    fd_txncache_fork_id_t loser  = attach_child( tc, prev );
+    fd_txncache_fork_id_t winner = attach_child( tc, prev );
 
     ulong stale_cnt = stale_base+(ulong)(i<stale_extra);
     for( ulong j=0UL; j<stale_cnt; j++ ) {
@@ -465,10 +472,10 @@ test_advance_past_minority_then_purge( uchar * scratch0,
      stale_extra<stale_rounds, so the last round inserts exactly
      stale_base. */
 
-  fd_txncache_fork_id_t loser_a = fd_txncache_attach_child( tc, prev );
-  fd_txncache_fork_id_t winner  = fd_txncache_attach_child( tc, prev );
-  fd_txncache_fork_id_t loser_b = fd_txncache_attach_child( tc, prev );
-  fd_txncache_fork_id_t child   = fd_txncache_attach_child( tc, winner );
+  fd_txncache_fork_id_t loser_a = attach_child( tc, prev );
+  fd_txncache_fork_id_t winner  = attach_child( tc, prev );
+  fd_txncache_fork_id_t loser_b = attach_child( tc, prev );
+  fd_txncache_fork_id_t child   = attach_child( tc, winner );
 
   for( ulong j=0UL; j<stale_base; j++ ) {
     fd_txncache_insert( tc, loser_a, BLOCKHASH(0UL), TXNHASH(stale_id++) );

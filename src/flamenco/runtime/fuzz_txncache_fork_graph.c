@@ -79,6 +79,7 @@ typedef struct {
   ulong        live_cnt;
   ulong        hash_nonce;
   ulong        bulk_cnt;
+  ulong        next_slot;    /* the txncache does not use blockcache slots, they just need to be distinct */
 
   ushort current_root;
   ushort roots[ FUZZ_ROOT_HISTORY_MAX ];
@@ -319,7 +320,7 @@ model_init( model_t *       m,
   m->max_live_slots = max_live_slots;
 
   /* add a root fork as finalized to start with */
-  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK, m->next_slot++ );
   model_add_fork( m, root, USHORT_MAX, tc->blockcache_pool[ root.val ].shmem->generation );
 
   fd_hash_t blockhash[ 1 ];
@@ -783,7 +784,7 @@ op_attach( model_t *       m,
   ushort parent = model_pick_fork( m, cur, 1, FORK_NEW, FORK_FINAL );
   if( FD_UNLIKELY( parent==USHORT_MAX ) ) return;
 
-  fd_txncache_fork_id_t child = fd_txncache_attach_child( m->tc, (fd_txncache_fork_id_t){ .val = parent } );
+  fd_txncache_fork_id_t child = fd_txncache_attach_child( m->tc, (fd_txncache_fork_id_t){ .val = parent }, m->next_slot++ );
   model_add_fork( m, child, parent, m->tc->blockcache_pool[ child.val ].shmem->generation );
 }
 
@@ -859,7 +860,7 @@ model_attach_child( model_t * m,
   FD_TEST( model_current_tree_cnt( m )<m->max_live_slots );
   FD_TEST( blockcache_pool_free( m->tc->blockcache_shmem_pool ) );
 
-  fd_txncache_fork_id_t child = fd_txncache_attach_child( m->tc, (fd_txncache_fork_id_t){ .val = parent } );
+  fd_txncache_fork_id_t child = fd_txncache_attach_child( m->tc, (fd_txncache_fork_id_t){ .val = parent }, m->next_slot++ );
   model_add_fork( m, child, parent, m->tc->blockcache_pool[ child.val ].shmem->generation );
   return child.val;
 }
@@ -1109,7 +1110,7 @@ op_extend_root( model_t *       m,
   if( FD_UNLIKELY( !blockcache_pool_free( m->tc->blockcache_shmem_pool ) ) ) return;
 
   ushort parent = m->current_root;
-  fd_txncache_fork_id_t child = fd_txncache_attach_child( m->tc, (fd_txncache_fork_id_t){ .val = parent } );
+  fd_txncache_fork_id_t child = fd_txncache_attach_child( m->tc, (fd_txncache_fork_id_t){ .val = parent }, m->next_slot++ );
   model_add_fork( m, child, parent, m->tc->blockcache_pool[ child.val ].shmem->generation );
 
   fd_hash_t blockhash[ 1 ];

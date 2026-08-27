@@ -67,6 +67,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../tango/fseq/fd_fseq.h"
 
 #include <time.h> /* CLOCK_REALTIME */
@@ -606,9 +607,17 @@ zip_align( fd_snapmk_t * ctx ) {
 
 static void
 snapmk_status_cache_prepare( fd_snapmk_t * ctx ) {
-  ulong slot = ctx->bank->f.slot;
-  fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, slot );
-  ulong bin_sz = fd_txncache_writer_serialized_sz( ctx->txncache, slot );
+  /* The status cache must cover every recently rooted slot, including
+     the ones the txncache has already dropped, so the writer needs the
+     slot history to tell rooted slots from skipped ones. */
+  ulong                          hist_sz;
+  uchar const *                  hist_data = fd_sysvar_cache_data_query( &ctx->bank->f.sysvar_cache, fd_sysvar_slot_history_id.uc, &hist_sz );
+  fd_slot_history_view_t         hist[1];
+  fd_slot_history_view_t const * slot_history = hist_data ? fd_sysvar_slot_history_view( hist, hist_data, hist_sz ) : NULL;
+  if( FD_UNLIKELY( !slot_history ) ) FD_LOG_WARNING(( "SlotHistory sysvar unavailable, status cache will not cover older rooted slots" ));
+
+  fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, slot_history );
+  ulong bin_sz = fd_txncache_writer_serialized_sz( ctx->txncache_writer );
 
   zip_reset( ctx );
   fd_tar_meta_t meta;

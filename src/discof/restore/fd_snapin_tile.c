@@ -350,20 +350,22 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     }
   }
 
-  /* The most recent slots (up to the number of slots in the txncache)
-     in the SlotHistory should be present in the txncache. */
-  if( FD_LIKELY( slot_set.ele_cnt ) ) {
-    ulong oldest = newest_slot - slot_set.ele_cnt;
-    for( ulong i=newest_slot; i>oldest; i-- ) {
-      if( FD_LIKELY( fd_sysvar_slot_history_find_slot( view, i )==FD_SLOT_HISTORY_SLOT_FOUND ) ) {
-        if( FD_UNLIKELY( slot_set_ele_query( slot_set.map, &i, NULL, slot_set.pool )==NULL ) ) {
-          /* VerifySlotDeltasError::SlotNotFoundInDeltas
-             https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L147
-             https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L609 */
-          FD_LOG_WARNING(( "slot %lu missing from slot deltas but present in SlotHistory", i ));
-          return -1;
-        }
-      }
+  /* Each of the FD_SLOT_DELTA_MAX_ENTRIES most recent slots in the
+     SlotHistory should have a slot delta. */
+  ulong checked = 0UL;
+  for( ulong i=newest_slot+1UL; i && checked<FD_SLOT_DELTA_MAX_ENTRIES; ) {
+    i--;
+    int found = fd_sysvar_slot_history_find_slot( view, i );
+    if( FD_UNLIKELY( found==FD_SLOT_HISTORY_SLOT_TOO_OLD ) ) break;
+    if( FD_LIKELY( found!=FD_SLOT_HISTORY_SLOT_FOUND ) ) continue;
+    checked++;
+
+    if( FD_UNLIKELY( slot_set_ele_query( slot_set.map, &i, NULL, slot_set.pool )==NULL ) ) {
+      /* VerifySlotDeltasError::SlotNotFoundInDeltas
+         https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L147
+         https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L609 */
+      FD_LOG_WARNING(( "slot %lu missing from slot deltas but present in SlotHistory", i ));
+      return -1;
     }
   }
 
@@ -537,10 +539,10 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     (b) is trivial to retrieve, as it's in the actual slot_deltas entry
     in the manifest served by Agave.  But (a) is mildly annoying.  Agave
     serves slot_deltas based on slot, so we need an additional mapping
-    from slot to position in our banks chain.  It turns out we have to
-    go to yet another structure in the manifest to retrieve this, the
-    ancestors array.  This is just an array of slot values,  so we need
-    to sort it, and line it up against our banks chain like so,
+    from slot to position in our banks chain.  A rooted slot produces
+    exactly one blockhash, and the status cache has to contain a slot
+    delta for every rooted slot in the recent history, so the slots of
+    the slot deltas line up against our banks chain like so,
 
        _root_150  -> _root_149  -> ... -> _root_2  -> _root_1  -> _root
        _max-150   -> _max-149   -> ... -> _max-2   -> _max-1   -> _max
@@ -548,31 +550,23 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
     From there we are done.
 
-    Well almost ... if you were paying attention you might have noticed
-    this is a lot of work and we are lazy.  Why don't we just ignore the
-    slot mapping and assume everything executed at the root slot
-    exactly?  The only invariant we should maintain from a memory
-    perspective is that at most, across all active banks,
-    FD_MAX_TXN_PER_SLOT transactions are stored per slot, but we
-    have preserved that.  It is not true "per slot" technically, but
-    it's true across all slots, and the memory is aggregated.  It will
-    also always be true, even as slots are garbage collected, because
-    entries are collected by reference blockhash, not executed slot.
+    It is tempting to skip the slot mapping and just assume everything
+    executed at the root slot: it would still dedup correctly, because
+    every bank in the chain is an ancestor of the root, and the memory
+    bound would still hold, because entries are collected by referenced
+    blockhash and not by executed slot.  But we would then have no way
+    to say which slot a transaction executed in when we serialize the
+    txncache back out into a snapshot of our own, and a status cache
+    that files every entry under one slot is not loadable.
 
-    ... actually we can't do this.  There's more broken things here.
-    The Agave status decided to only store 20 bytes for 32 byte
-    transaction hashes to save on memory.  That's OK, but they didn't
-    just take the first 20 bytes.  They instead, for each blockhash,
-    take a random offset between 0 and 12, and store bytes
-    [ offset, offset+20 ) of the transaction hash.  We need to know this
-    offset to be able to query the txncache later, so we need to
-    retrieve it from the slot_deltas entry in the manifest, and key it
-    into our txncache.  Unfortunately this offset is stored per slot in
-    the slot_deltas entry.  So we need to first go and retrieve the
-    ancestors array, sort it, and line it up against our banks chain as
-    described above, and then go through slot deltas, to retrieve the
-    offset for each slot, and stick it into the appropriate bank in
-    our chain. */
+    There's one more thing to retrieve while we are here.  The Agave
+    status cache decided to only store 20 bytes for 32 byte transaction
+    hashes to save on memory.  That's OK, but they didn't just take the
+    first 20 bytes.  They instead, for each blockhash, take a random
+    offset between 0 and 12, and store bytes [ offset, offset+20 ) of
+    the transaction hash.  We need to know this offset to be able to
+    query the txncache later, so we retrieve it from the slot_deltas
+    entry in the manifest, and key it into our txncache. */
 
   if( FD_UNLIKELY( blockhashes_len>FD_BLOCKHASHES_MAX ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: blockhash queue length %lu exceeds maximum %lu", blockhashes_len, FD_BLOCKHASHES_MAX ));
@@ -600,6 +594,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     uchar blockhash[ 32UL ];
     fd_txncache_fork_id_t fork_id;
     ulong txnhash_offset;
+    ulong slot;
   } banks[ FD_BLOCKHASHES_MAX ] = {0};
 
   for( ulong i=0UL; i<blockhashes_len; i++ ) {
@@ -622,6 +617,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
     banks[ blockhashes_len-1UL-idx ].fork_id.val = USHORT_MAX;
     banks[ blockhashes_len-1UL-idx ].txnhash_offset = ULONG_MAX;
+    banks[ blockhashes_len-1UL-idx ].slot = ULONG_MAX;
     memcpy( banks[ blockhashes_len-1UL-idx ].blockhash, elem->hash, 32UL );
     banks[ blockhashes_len-1UL-idx ].exists = 1;
   }
@@ -679,14 +675,29 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     banks[ chain_idx ].txnhash_offset = group->txnhash_offset;
   }
 
+  /* Line the slots of the slot deltas up against the banks chain, per
+     above.  If the snapshot has fewer slot deltas than blockhashes the
+     older banks are left with an unknown slot: their transactions fall
+     back to the root below, and they are skipped as slot deltas if we
+     serialize the txncache back out. */
+
+  ulong chain_slots[ FD_TXNCACHE_MAX_SLOT_DELTAS ];
+  for( ulong i=0UL; i<ctx->txncache_slots_len; i++ ) { /* insertion sort, descending */
+    ulong slot = ctx->txncache_slots[ i ].slot;
+    ulong j    = i;
+    for( ; j && chain_slots[ j-1UL ]<slot; j-- ) chain_slots[ j ] = chain_slots[ j-1UL ];
+    chain_slots[ j ] = slot;
+  }
+  ulong chain_slots_len = fd_ulong_min( ctx->txncache_slots_len, chain_len );
+  for( ulong i=0UL; i<chain_slots_len; i++ ) banks[ i ].slot = chain_slots[ i ];
+
   /* Construct the linear fork chain in the txncache. */
 
   fd_txncache_fork_id_t parent = { .val = USHORT_MAX };
-  for( ulong i=0UL; i<chain_len; i++ ) banks[ chain_len-1UL-i ].fork_id = parent = fd_txncache_attach_child( ctx->txncache, parent );
+  for( ulong i=0UL; i<chain_len; i++ ) banks[ chain_len-1UL-i ].fork_id = parent = fd_txncache_attach_child( ctx->txncache, parent, banks[ chain_len-1UL-i ].slot );
   for( ulong i=0UL; i<chain_len; i++ ) fd_txncache_attach_blockhash( ctx->txncache, banks[ i ].fork_id, banks[ i ].blockhash );
 
-  /* Now insert all transactions as if they executed at the current
-     root, per above. */
+  /* Now insert all transactions on the bank they executed on. */
 
   for( ulong i=0UL; i<ctx->blockhash_groups_len; i++ ) {
     blockhash_group_t const * group = &ctx->blockhash_groups[ i ];
@@ -706,11 +717,24 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
     fd_hash_t key;
     fd_memcpy( key.uc, group->blockhash, 32UL );
-    if( FD_UNLIKELY( !blockhash_map_ele_query_const( blockhash_map, &key, NULL, blockhash_pool ) ) ) continue;
+    fd_blockhash_entry_t const * hash_entry = blockhash_map_ele_query_const( blockhash_map, &key, NULL, blockhash_pool );
+    if( FD_UNLIKELY( !hash_entry ) ) continue;
+
+    /* Insert on the bank the transactions executed on.  Index 0 is the
+       root and index i its i'th parent, so the executing bank must not
+       be older than the bank that produced the blockhash it references,
+       otherwise fd_txncache_insert cannot find the blockhash on the fork
+       and aborts.  Valid snapshots always satisfy this, the clamp is so
+       a corrupt one cannot bring the validator down. */
+    ulong hash_idx   = (ulong)( hash_entry-blockhash_pool );
+    ulong insert_idx = 0UL;
+    for( ulong j=0UL; j<chain_slots_len; j++ ) {
+      if( FD_UNLIKELY( banks[ j ].slot==group->slot ) ) { insert_idx = fd_ulong_min( j, hash_idx ); break; }
+    }
 
     for( ulong j=0UL; j<group->txncache_entry_cnt; j++ ) {
       fd_sstxncache_hash_t const * entry = &entries[ j ];
-      fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, group->blockhash, entry->txnhash );
+      fd_txncache_insert( ctx->txncache, banks[ insert_idx ].fork_id, group->blockhash, entry->txnhash );
     }
   }
 

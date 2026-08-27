@@ -151,7 +151,8 @@ mock_multi_epoch_leaders_next_slot_fn( fd_multi_epoch_leaders_t const * mleaders
 
 fd_txncache_fork_id_t
 mock_txncache_attach_child_fn( fd_txncache_t *       tc FD_PARAM_UNUSED,
-                               fd_txncache_fork_id_t parent_fork_id FD_PARAM_UNUSED ) {
+                               fd_txncache_fork_id_t parent_fork_id FD_PARAM_UNUSED,
+                               ulong                 slot FD_PARAM_UNUSED ) {
   return (fd_txncache_fork_id_t){ .val=(ushort)++mock_txncache_fork_id_next };
 }
 
