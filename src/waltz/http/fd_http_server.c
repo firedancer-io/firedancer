@@ -899,7 +899,7 @@ write_conn_http( fd_http_server_t * http,
                  ulong              conn_idx ) {
   struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
 
-  char header_buf[ 1024 ];
+  char header_buf[ 2048 ];
 
   uchar const * response;
   ulong         response_len;
@@ -976,6 +976,11 @@ write_conn_http( fd_http_server_t * http,
         ulong cache_control_len;
         FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &cache_control_len, "Cache-Control: %s\r\n", conn->response.cache_control ) );
         response_len += cache_control_len;
+      }
+      if( FD_LIKELY( conn->response.link ) ) {
+        ulong link_len;
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &link_len, "Link: %s\r\n", conn->response.link ) );
+        response_len += link_len;
       }
       if( FD_LIKELY( conn->response.content_encoding ) ) {
         ulong content_encoding_len;

@@ -127,6 +127,8 @@ typedef struct {
 
   fd_http_server_t * gui_server;
 
+  char index_html_link[ 1024 ];
+
   long next_poll_nanos;
 
   fd_keyswitch_t * keyswitch;
@@ -651,6 +653,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
         else if( !strcmp( ext, ".svg" ) ) content_type = "image/svg+xml";
         else if( !strcmp( ext, ".woff" ) ) content_type = "font/woff";
         else if( !strcmp( ext, ".woff2" ) ) content_type = "font/woff2";
+        else if( !strcmp( ext, ".wasm" ) ) content_type = "application/wasm";
       }
 
       char const * cache_control = NULL;
@@ -681,6 +684,12 @@ gui_http_request( fd_http_server_request_t const * request ) {
         data_len = *(f->gzip_data_len);
       }
 
+      char const * link = NULL;
+      if( FD_LIKELY( !strcmp( f->name, "/index.html" ) ) ) {
+        fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)request->ctx;
+        link = ctx->index_html_link[ 0 ] ? ctx->index_html_link : NULL;
+      }
+
       return (fd_http_server_response_t){
         .status            = 200,
         .static_body       = data,
@@ -688,6 +697,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
         .content_type      = content_type,
         .cache_control     = cache_control,
         .content_encoding  = content_encoding,
+        .link              = link,
         .upgrade_websocket = 0,
       };
     }
@@ -775,6 +785,15 @@ privileged_init( fd_topo_t const *      topo,
   }
 }
 
+static int
+index_html_refs( fd_http_static_file_t const * html,
+                 char const *                  name ) {
+  ulong name_len = strlen( name );
+  if( FD_UNLIKELY( name_len>*(html->data_len) ) ) return 0;
+  for( ulong i=0UL; i<=*(html->data_len)-name_len; i++ ) if( FD_UNLIKELY( !memcmp( html->data+i, name, name_len ) ) ) return 1;
+  return 0;
+}
+
 static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
@@ -788,6 +807,57 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt )                     );
                        FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
+
+  fd_http_static_file_t const * index_html = NULL;
+  for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
+    if( FD_UNLIKELY( !strcmp( f->name, "/index.html" ) ) ) index_html = f;
+  }
+  FD_TEST( index_html );
+
+  char const * preload_js     = NULL;
+  char const * preload_css    = NULL;
+  char const * preload_worker = NULL;
+  char const * preload_wasm   = NULL;
+  char const * split_js[ 16 ];
+  ulong        split_js_cnt   = 0UL;
+  for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
+    char const * ext = strrchr( f->name, '.' );
+    if( FD_UNLIKELY( !ext ) ) continue;
+    if( FD_UNLIKELY( !strncmp( f->name, "/assets/index-", 14UL ) ) ) {
+      if( !strcmp( ext, ".js" ) ) {
+        if( FD_UNLIKELY( index_html_refs( index_html, f->name ) ) )                              preload_js = f->name;
+        else if( FD_LIKELY( split_js_cnt<sizeof(split_js)/sizeof(split_js[ 0 ]) ) )              split_js[ split_js_cnt++ ] = f->name;
+      }
+      else if( !strcmp( ext, ".css" ) && index_html_refs( index_html, f->name ) )                preload_css = f->name;
+    }
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/wsWorker-", 17UL ) && !strcmp( ext, ".js"   ) ) ) preload_worker = f->name;
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/zstd-dec-", 17UL ) && !strcmp( ext, ".wasm" ) ) ) preload_wasm   = f->name;
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/UplotReact-", 19UL ) && !strcmp( ext, ".js" ) &&
+                          split_js_cnt<sizeof(split_js)/sizeof(split_js[ 0 ]) ) )                split_js[ split_js_cnt++ ] = f->name;
+  }
+
+  ctx->index_html_link[ 0 ] = '\0';
+  ulong off = 0UL, sz;
+  if( FD_LIKELY( preload_js ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=modulepreload", off ? ", " : "", preload_js ) );
+    off += sz;
+  }
+  if( FD_LIKELY( preload_css ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=preload; as=style; crossorigin", off ? ", " : "", preload_css ) );
+    off += sz;
+  }
+  if( FD_LIKELY( preload_worker ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=preload; as=worker", off ? ", " : "", preload_worker ) );
+    off += sz;
+  }
+  if( FD_LIKELY( preload_wasm ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=preload; as=fetch; crossorigin", off ? ", " : "", preload_wasm ) );
+    off += sz;
+  }
+  for( ulong i=0UL; i<split_js_cnt; i++ ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=modulepreload", off ? ", " : "", split_js[ i ] ) );
+    off += sz;
+  }
 
   /* The backtest topology has no repair tile (the backt tile stands in
      for repair and tower), but it is still the full Firedancer client. */
