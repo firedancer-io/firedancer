@@ -2,7 +2,6 @@
 
 #include "../../disco/tiles.h"
 #include "../../disco/pack/fd_pack.h"
-#include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -263,7 +262,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   uint consumed_acct_data_cus[   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_timestamps       [ 4*MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_tips             [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
-  int   remove_simple_vote_from_cost_model = 0;
+  int   remove_simple_vote_from_cost_model;
 
   void * load_and_execute_output = fd_ext_bank_load_and_execute_txns( ctx->_bank,
                                                                       ctx->txn_abi_mem,
@@ -275,6 +274,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                                                                       out_timestamps,
                                                                       out_tips,
                                                                       &remove_simple_vote_from_cost_model );
+  FD_TEST( remove_simple_vote_from_cost_model==1 );
 
   ulong sanitized_idx = 0UL;
   int skip_commit = 0;
@@ -333,16 +333,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     ctx->metrics.fee_only += (ulong)(processing_results[ sanitized_idx-1UL ]==FD_BANK_TRANSACTION_LANDED);
 
-    int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
-    if( FD_UNLIKELY( is_simple_vote && !remove_simple_vote_from_cost_model ) ) {
-      /* TODO: remove this once remove_simple_vote_from_cost_model is
-         activated */
-      txn->execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
-      txn->execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
-    } else {
-      txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
-      txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
-    }
+    txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
+    txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
@@ -477,9 +469,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   uint consumed_cus         [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_timestamps      [ 4*MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong tips                [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
-  int   remove_simple_vote_from_cost_model = 0;
+  int   remove_simple_vote_from_cost_model;
   if( FD_LIKELY( execution_success ) ) {
     execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, transaction_err, actual_execution_cus, actual_acct_data_cus, out_timestamps, tips, &remove_simple_vote_from_cost_model );
+    FD_TEST( remove_simple_vote_from_cost_model==1 );
   }
 
   if( FD_LIKELY( execution_success ) ) {
@@ -540,16 +533,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
                      _sig_b58, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
       }
 
-      int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
-      if( FD_UNLIKELY( is_simple_vote && !remove_simple_vote_from_cost_model ) ) {
-        /* TODO: remove this once remove_simple_vote_from_cost_model is
-           activated */
-        txn->execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
-        txn->execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
-      } else {
-        txn->execle_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
-        txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
-      }
+      txn->execle_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
+      txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
     }
   }
 
