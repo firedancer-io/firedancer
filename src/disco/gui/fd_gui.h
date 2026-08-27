@@ -1012,6 +1012,168 @@ struct fd_gui_summary {
 
 typedef struct fd_gui_summary fd_gui_summary_t;
 
+/* ---- Timeline query scratch -----------------------------------------
+
+   The timeline query printers and the transaction batch materializer
+   need large temporary arrays.  The GUI does not allocate them: it
+   reserves one bounded region, sized to the largest single consumer,
+   and every consumer indexes into that region.
+
+   Taking the maximum over consumers rather than the sum is sound
+   because the consumers are mutually exclusive.  The GUI tile is
+   single threaded, fd_gui_ws_message services at most one query per
+   call and returns before the next frame is read, and batch
+   materialization runs from after_frag while every query runs from
+   before_credit -- sequential statements in one stem loop body, which
+   cannot nest.  fd_gui_t.timeline_scratch_in_use enforces that
+   invariant at runtime instead of leaving it to this comment.
+
+   Every count below is a compile-time bound.  A count derived from a
+   client request must be validated against its cap BEFORE it is used
+   to index the region, because the region is a fixed workspace
+   allocation rather than a heap block. */
+
+#define FD_GUI_TIMELINE_QUERY_SHRED_MAX               (524288UL)
+#define FD_GUI_TIMELINE_QUERY_TXN_TIMESTAMPS_MAX       (65536UL)
+#define FD_GUI_TIMELINE_QUERY_TXN_BATCH_TIMESTAMPS_MAX (65536UL)
+#define FD_GUI_TIMELINE_QUERY_TXN_META_MAX             (65536UL)
+/* TODO: tune.  150 was too low for the wider views the dashboard asks
+   for.  The bucket array is the smallest arm of the timeline scratch by a
+   wide margin, so this costs 1,360,000 bytes there and does not move the
+   region, which the FEC arm binds; the ceiling that matters is response
+   size, and 10000 buckets is roughly 3 MB against a 32 MiB cap. */
+
+#define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS              (10000UL)
+
+/* The txn timestamp and txn meta queries share one pointer array, so it
+   is sized to whichever cap is larger. */
+
+#define FD_GUI_TIMELINE_QUERY_TXN_MAX                                    \
+  (FD_GUI_TIMELINE_QUERY_TXN_TIMESTAMPS_MAX>FD_GUI_TIMELINE_QUERY_TXN_META_MAX ? \
+   FD_GUI_TIMELINE_QUERY_TXN_TIMESTAMPS_MAX : FD_GUI_TIMELINE_QUERY_TXN_META_MAX)
+
+/* The FEC reduction scans a lead-in before the requested window, so it
+   can create keys that the window filter then removes.  Those keys must
+   not consume the caller's row budget: the row limit applies to rows the
+   caller actually receives, and is therefore checked after filtering.
+
+   The collection array carries headroom above the row limit for exactly
+   that reason.  At twice the limit, the lead-in would have to create as
+   many keys as the entire response budget before collection could
+   saturate, which at a 20 s lead-in is far beyond any real event rate.
+   Saturation is still handled, but as a safety valve rather than as the
+   normal limit path.
+
+   The dedup map is open addressed, so a power of two at twice the array
+   capacity holds the load factor at 0.5 and the linear probe always
+   finds a free slot.  Slots hold an index into the events array, so uint
+   is wide enough with UINT_MAX as the empty sentinel. */
+
+#define FD_GUI_TIMELINE_FEC_EVENT_CAP    (2UL*FD_GUI_TIMELINE_QUERY_SHRED_MAX)
+#define FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT (2UL*FD_GUI_TIMELINE_FEC_EVENT_CAP)
+FD_STATIC_ASSERT( !(FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT & (FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT-1UL)), fd_gui_timeline_fec_map_pow2 );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_FEC_EVENT_CAP<UINT_MAX, fd_gui_timeline_fec_map_idx_fits );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_FEC_EVENT_CAP>FD_GUI_TIMELINE_QUERY_SHRED_MAX, fd_gui_timeline_fec_headroom );
+
+struct fd_gui_fec_query_event {
+  long   timestamp;
+  uint   slot;
+  ushort idx;
+  uchar  event;
+};
+typedef struct fd_gui_fec_query_event fd_gui_fec_query_event_t;
+
+struct fd_gui_timeline_query_bucket {
+  ulong start_slot;
+  ulong end_slot;
+  ulong skipped;
+  ulong turbine;
+  ulong repair;
+  ulong reconstructed;
+  ulong published;
+  ulong compute_units;
+  ulong max_compute;
+  ulong txn_fees;
+  ulong prio_fees;
+  ulong tips;
+  ulong nonvote_success;
+  ulong nonvote_failed;
+  ulong vote_success;
+  ulong vote_failed;
+  uchar has_day;
+};
+typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
+
+typedef fd_gui_store_replay_txn_t const * fd_gui_batch_txn_ptr_t;
+
+struct fd_gui_txn_batch_work {
+  ulong first;
+  ulong cnt;
+  ulong tile_idx;
+  ulong representative_txn_idx;
+  long  start_ns;
+  long  end_ns;
+  uchar success;
+};
+typedef struct fd_gui_txn_batch_work fd_gui_txn_batch_work_t;
+
+/* These element sizes are load bearing: the region size is derived from
+   them, so pin them rather than letting a padding change resize the GUI
+   workspace silently. */
+
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_query_event_t)      ==16UL,  fd_gui_fec_query_event_sz );
+FD_STATIC_ASSERT( sizeof(fd_gui_txn_batch_work_t)       ==56UL,  fd_gui_txn_batch_work_sz );
+FD_STATIC_ASSERT( sizeof(fd_gui_timeline_query_bucket_t)==136UL, fd_gui_timeline_query_bucket_sz );
+
+union fd_gui_timeline_scratch {
+  /* timeline.query_shreds at "fec" granularity.  Both arms are live
+     across the whole scan, so this arm sums rather than maxes. */
+  struct {
+    fd_gui_fec_query_event_t events[ FD_GUI_TIMELINE_FEC_EVENT_CAP ];
+    uint                     map   [ FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT ];
+  } fec;
+
+  /* timeline.query_shreds at "shred" granularity.  Records are never
+     copied; these point into the store. */
+  fd_gui_slot_history_tvu_event_t const * shred_events[ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
+
+  /* timeline.query_txn_timestamps at "txn" granularity, and
+     timeline.query_txn_meta. */
+  fd_gui_store_replay_txn_t const * txns[ FD_GUI_TIMELINE_QUERY_TXN_MAX ];
+
+  /* timeline.query_txn_timestamps at "txn_batch" granularity. */
+  fd_gui_store_replay_txn_batch_t const * txn_batches[ FD_GUI_TIMELINE_QUERY_TXN_BATCH_TIMESTAMPS_MAX ];
+
+  /* timeline.query_agg_*. */
+  fd_gui_timeline_query_bucket_t buckets[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+
+  /* Transaction batch materialization at slot completion.  All five
+     arrays are live simultaneously across collect, sort, build, and
+     normalize, so this arm sums too. */
+  struct {
+    fd_gui_batch_txn_ptr_t  exec_txns   [ FD_MAX_TXN_PER_SLOT ];
+    fd_gui_batch_txn_ptr_t  sig_txns    [ FD_MAX_TXN_PER_SLOT ];
+    fd_gui_txn_batch_work_t exec_batches[ FD_MAX_TXN_PER_SLOT ];
+    fd_gui_txn_batch_work_t sig_batches [ FD_MAX_TXN_PER_SLOT ];
+    ulong                   heap        [ FD_MAX_TXN_PER_SLOT ];
+  } materialize;
+};
+typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
+
+/* The FEC arm is now the binding one, at
+   FD_GUI_TIMELINE_FEC_EVENT_CAP*16 + FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT*4
+   bytes; the batch materializer is second at
+   FD_MAX_TXN_PER_SLOT*(8+8+56+56+8).  Pinning the total keeps any future
+   growth of the region an explicit, reviewed change rather than a silent
+   workspace increase. */
+
+FD_STATIC_ASSERT( sizeof(fd_gui_timeline_scratch_t)==
+                    FD_GUI_TIMELINE_FEC_EVENT_CAP*sizeof(fd_gui_fec_query_event_t)+
+                    FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT*sizeof(uint), fd_gui_timeline_scratch_sz );
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_FEC_EVENT_CAP*sizeof(fd_gui_fec_query_event_t)+
+                    FD_GUI_TIMELINE_FEC_MAP_SLOT_CNT*sizeof(uint) >
+                    FD_MAX_TXN_PER_SLOT*136UL, fd_gui_timeline_scratch_fec_binds );
+
 struct fd_gui {
   fd_http_server_t * http;
   fd_topo_t const * topo;
@@ -1061,6 +1223,14 @@ struct fd_gui {
     fd_gui_store_txn_end_t    ends  [ FD_MAX_TXN_PER_SLOT ];
     fd_gui_slot_txn_join_t    joined[ FD_MAX_TXN_PER_SLOT ];
   } slot_txn_scratch;
+
+  /* Bounded scratch shared by the timeline query printers and the
+     transaction batch materializer; see fd_gui_timeline_scratch_t.
+     timeline_scratch_in_use enforces the mutual-exclusion invariant the
+     union's sizing depends on.  The workspace is not zeroed, so it is
+     initialized explicitly in fd_gui_new. */
+  fd_gui_timeline_scratch_t timeline_scratch;
+  int                       timeline_scratch_in_use;
 
   struct {
     ulong landed_slot;
@@ -1112,6 +1282,29 @@ struct fd_gui {
 typedef struct fd_gui fd_gui_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_gui_timeline_scratch_acquire returns the shared timeline scratch
+   region, asserting that no other consumer already holds it.  The
+   assert is the runtime half of the mutual-exclusion invariant that
+   lets fd_gui_timeline_scratch_t be a union rather than a sum.
+
+   Release with fd_gui_timeline_scratch_release on EVERY exit path,
+   including early error returns.  A leaked guard turns the next
+   legitimate query into an abort, so prefer a single goto exit per
+   consumer over scattered release calls. */
+
+FD_FN_UNUSED static fd_gui_timeline_scratch_t *
+fd_gui_timeline_scratch_acquire( fd_gui_t * gui ) {
+  FD_TEST( !gui->timeline_scratch_in_use );
+  gui->timeline_scratch_in_use = 1;
+  return &gui->timeline_scratch;
+}
+
+FD_FN_UNUSED static void
+fd_gui_timeline_scratch_release( fd_gui_t * gui ) {
+  FD_TEST( gui->timeline_scratch_in_use );
+  gui->timeline_scratch_in_use = 0;
+}
 
 /* fd_gui_tile_timers_diff computes the compact, display-ready diff of a
    single tile's timers between two raw cumulative samples `prev` and

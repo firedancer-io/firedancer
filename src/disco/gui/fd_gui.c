@@ -130,6 +130,14 @@ fd_gui_new( void *                   shmem,
   void *     egress_maxq_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(), fd_gui_rate_deque_footprint() );
   void *     hist_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_hist_align(),       fd_gui_hist_footprint() );
 
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, fd_gui_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)shmem + fd_gui_footprint( tile_cnt, max_live_slots ) ) )
+    FD_LOG_ERR(( "fd_gui_new scratch overflow %lu %lu", scratch_top, (ulong)shmem + fd_gui_footprint( tile_cnt, max_live_slots ) ));
+
+  /* The workspace is not zeroed, so the scratch guard must be
+     initialized explicitly. */
+  gui->timeline_scratch_in_use = 0;
+
   gui->http        = http;
   gui->topo        = topo;
   gui->accdb_shmem = accdb_shmem;
