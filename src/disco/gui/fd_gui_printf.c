@@ -3212,7 +3212,7 @@ fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
 }
 
 static void
-fd_gui_printf_shreds_window( fd_gui_t * gui, long after_ns, long before_ns ) {
+fd_gui_printf_shreds_window( fd_gui_t * gui, long after_ns, long before_ns, int compact_ts ) {
   /* find the min slot / min ts across the window (for delta encoding). */
   ulong min_slot = ULONG_MAX;
   long  min_ts   = LONG_MAX;
@@ -3261,7 +3261,20 @@ fd_gui_printf_shreds_window( fd_gui_t * gui, long after_ns, long before_ns ) {
     SHREDS_WINDOW_ITER( { jsonp_ulong( gui->http, NULL, e->event ); } );
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "event_ts_delta" );
-    SHREDS_WINDOW_ITER( { jsonp_long_as_str( gui->http, NULL, e->timestamp-min_ts ); } );
+    if( FD_LIKELY( compact_ts ) ) {
+      /* ms-quantized second-order deltas; client double prefix-sums, scales ms->ns */
+      long prev_ms   = 0L;
+      long prev_step = 0L;
+      SHREDS_WINDOW_ITER({
+        long ms   = (e->timestamp-min_ts+500000L)/1000000L;
+        long step = ms-prev_ms;
+        jsonp_long( gui->http, NULL, step-prev_step );
+        prev_step = step;
+        prev_ms   = ms;
+      });
+    } else {
+      SHREDS_WINDOW_ITER( { jsonp_long_as_str( gui->http, NULL, e->timestamp-min_ts ); } );
+    }
   jsonp_close_array( gui->http );
 
 #undef SHREDS_WINDOW_ITER
@@ -3271,7 +3284,7 @@ void
 fd_gui_printf_shred_updates( fd_gui_t * gui, long after_ns, long before_ns ) {
   jsonp_open_envelope( gui->http, "slot", "live_shreds" );
     jsonp_open_object( gui->http, "value" );
-      fd_gui_printf_shreds_window( gui, after_ns, before_ns );
+      fd_gui_printf_shreds_window( gui, after_ns, before_ns, 1 );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }
@@ -3280,7 +3293,7 @@ void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before ) {
   jsonp_open_envelope( gui->http, "slot", "live_shreds" );
     jsonp_open_object( gui->http, "value" );
-      fd_gui_printf_shreds_window( gui, after, before );
+      fd_gui_printf_shreds_window( gui, after, before, 1 );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }
@@ -3294,7 +3307,7 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
   jsonp_open_envelope( gui->http, topic, "query_shreds" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
-      fd_gui_printf_shreds_window( gui, start_ns, end_ns );
+      fd_gui_printf_shreds_window( gui, start_ns, end_ns, 0 );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }
