@@ -2,7 +2,7 @@
 #include "bits/fd_bits.h"
 
 /* A cleaner implementation of xxhash-r39 (Open Source BSD licensed). */
-#if defined(__AVX512DQ__) && defined(__AVX512VL__)
+#if FD_HAS_AVX512 && defined(__AVX512DQ__) && defined(__AVX512VL__)
 #include "simd/fd_avx.h"
 #endif
 
@@ -76,7 +76,7 @@ fd_hash_generic( ulong        seed,
   return h;
 }
 
-#if defined(__AVX512DQ__) && defined(__AVX512VL__)
+#if FD_HAS_AVX512 && defined(__AVX512DQ__) && defined(__AVX512VL__)
 static inline FD_FN_UNUSED FD_FN_PURE ulong
 fd_hash_avx512dq( ulong        seed,
                   void const * buf,
@@ -153,7 +153,7 @@ ulong
 fd_hash( ulong        seed,
          void const * buf,
          ulong        sz ) {
-#if defined(__AVX512DQ__) && defined(__AVX512VL__)
+#if FD_HAS_AVX512 && defined(__AVX512DQ__) && defined(__AVX512VL__)
   return fd_hash_avx512dq( seed, buf, sz );
 #else
   return fd_hash_generic( seed, buf, sz );

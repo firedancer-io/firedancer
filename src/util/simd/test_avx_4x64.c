@@ -375,7 +375,7 @@ main( int     argc,
     FD_TEST( wv_test( wv_max( x, y ), fd_ulong_max(x0,y0), fd_ulong_max(x1,y1), fd_ulong_max(x2,y2), fd_ulong_max(x3,y3) ) );
     FD_TEST( wv_test( wv_add( x, y ), x0+y0, x1+y1, x2+y2, x3+y3 ) );
     FD_TEST( wv_test( wv_sub( x, y ), x0-y0, x1-y1, x2-y2, x3-y3 ) );
-#if defined(__AVX512DQ__) && defined(__AVX512VL__)
+#if FD_HAS_AVX512 && defined(__AVX512DQ__) && defined(__AVX512VL__)
     FD_TEST( wv_test( wv_mul( x, y ), x0*y0, x1*y1, x2*y2, x3*y3 ) );
 #endif
 

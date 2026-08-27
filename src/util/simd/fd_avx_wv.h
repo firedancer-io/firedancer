@@ -132,7 +132,7 @@ wv_insert_variable( wv_t a, int n, ulong v ) {
 
 #define wv_add(a,b)    _mm256_add_epi64(   (a), (b) ) /* [ a0 +b0     a1 +b1     ... a3 +b3     ] */
 #define wv_sub(a,b)    _mm256_sub_epi64(   (a), (b) ) /* [ a0 -b0     a1 -b1     ... a3 -b3     ] */
-#if defined(__AVX512DQ__) && defined(__AVX512VL__)
+#if FD_HAS_AVX512 && defined(__AVX512DQ__) && defined(__AVX512VL__)
 #define wv_mul(a,b)    _mm256_mullo_epi64( (a), (b) ) /* [ a0 *b0     a1 *b1     ... a3 *b3     ] */
 #endif
 #define wv_mul_ll(a,b) _mm256_mul_epu32(   (a), (b) ) /* [ a0l*b0l    a1l*b1l    ... a3l *b3l   ] */
@@ -174,7 +174,7 @@ static inline wv_t wv_ror( wv_t a, int imm ) { return wv_or( wv_shr( a, imm & 63
 static inline wv_t wv_rol_variable( wv_t a, int n ) { return wv_or( wv_shl_variable( a, n&63 ), wv_shr_variable( a, (-n)&63 ) ); }
 static inline wv_t wv_ror_variable( wv_t a, int n ) { return wv_or( wv_shr_variable( a, n&63 ), wv_shl_variable( a, (-n)&63 ) ); }
 
-#if defined(__AVX512VL__)
+#if FD_HAS_AVX512 && defined(__AVX512VL__)
 #define wv_rol_vector(a,b) _mm256_rolv_epi64( (a), (b) )
 #define wv_ror_vector(a,b) _mm256_rorv_epi64( (a), (b) )
 #else
