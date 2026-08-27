@@ -1188,7 +1188,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
      the per-block path. */
   slot_info->vote_balance    = ULONG_MAX;
   slot_info->vote_commission = USHORT_MAX;
-  if( FD_UNLIKELY( ctx->is_alpenglow && ctx->has_vote_account && bank->f.slot%512UL==0UL ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow && ctx->has_vote_account && bank->f.slot%512UL==0UL ) ) {
     fd_acc_t acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
     if( FD_LIKELY( acc.lamports ) ) {
       slot_info->vote_balance = acc.lamports;
@@ -1296,7 +1296,7 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
   ctx->identity_dirty = 1;
 
-  if( FD_UNLIKELY( ctx->is_alpenglow ) ) ag_epoch_vtrs_rerank( ctx );
+  if( FD_UNLIKELY( ctx->alpenglow ) ) ag_epoch_vtrs_rerank( ctx );
 
   fd_node_info_write_begin( ctx->node_info );
   ctx->node_info->info.identity = *ctx->identity_pubkey;

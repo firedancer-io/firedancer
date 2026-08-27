@@ -857,9 +857,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->id_to_rank = id_to_rank_join( id_to_rank_new( id_to_rank ) );
   FD_TEST( ctx->id_to_rank );
 
-  ctx->notifs                 = NULL; /* joined below, only if the link exists */
-  ctx->finalized_slot         = ULONG_MAX;
-  ctx->finalized_slot_pending = 0;
+  ctx->notifs         = NULL; /* joined below, only if the link exists */
+  ctx->finalized_slot = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
