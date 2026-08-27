@@ -310,14 +310,14 @@ static void
 ag_observe_footer_certs( fd_replay_tile_t *        ctx,
                          fd_bank_t const *         bank,
                          fd_footer_certs_t const * certs ) {
-  ctx->ag_reward_slot     = ULONG_MAX;
-  ctx->ag_reward_rewarded = 0;
-
   if( FD_UNLIKELY( certs->fast_final_cert ) ) ctx->ag_finalized_slot = fd_ulong_max( ctx->ag_finalized_slot, certs->fast_final_cert->slot );
   if( FD_UNLIKELY( certs->final_cert      ) ) ctx->ag_finalized_slot = fd_ulong_max( ctx->ag_finalized_slot, certs->final_cert->slot      );
 
   /* Ordinary notarize and skip votes are what the reward certificates
      record, and they are the only votes the protocol rewards. */
+
+  ulong resolved_slot     = ULONG_MAX;
+  int   resolved_rewarded = 0;
 
   fd_reward_cert_t const * rewards[ 2 ] = { certs->notar_reward_cert, certs->skip_reward_cert };
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -327,17 +327,35 @@ ag_observe_footer_certs( fd_replay_tile_t *        ctx,
     ushort rank = ag_our_rank( ctx, bank, cert->slot );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) continue;
 
+    /* A bitmap that does not reach our rank says nothing about us, so
+       leave the slot unresolved rather than reporting a miss we did not
+       observe. */
+    if( FD_UNLIKELY( (ulong)rank>=cert->nbits ) ) continue;
+
+    int in_cert = !!((cert->signer_set[ rank>>6 ] >> (rank & 63U)) & 1UL);
+
     /* The certificate covering a slot resolves that slot's reward
        outcome whether or not we are in it - being absent is exactly
-       what "missed" means, so record the resolution either way. */
-    ctx->ag_reward_slot = cert->slot;
+       what "missed" means, so record the resolution either way.
 
-    if( FD_UNLIKELY( (ulong)rank>=cert->nbits ) ) continue;
-    if( FD_LIKELY( !((cert->signer_set[ rank>>6 ] >> (rank & 63U)) & 1UL) ) ) continue;
+       Both certificates should cover slot-8, but the footer format does
+       not enforce it, and only one outcome fits in the slot message.
+       Keeping the outcome attached to the slot it was computed from
+       stops a reward earned under one certificate being reported
+       against the other's slot; when they do agree, being in either one
+       earns the reward. */
+    if( FD_LIKELY( cert->slot==resolved_slot ) ) {
+      resolved_rewarded |= in_cert;
+    } else if( FD_LIKELY( resolved_slot==ULONG_MAX || cert->slot>resolved_slot ) ) {
+      resolved_slot     = cert->slot;
+      resolved_rewarded = in_cert;
+    }
 
-    ctx->ag_reward_rewarded = 1;
-    ctx->ag_vote_slot       = fd_ulong_max( ctx->ag_vote_slot, cert->slot );
+    if( FD_UNLIKELY( in_cert ) ) ctx->ag_vote_slot = fd_ulong_max( ctx->ag_vote_slot, cert->slot );
   }
+
+  ctx->ag_reward_slot     = resolved_slot;
+  ctx->ag_reward_rewarded = resolved_rewarded;
 
   /* A signature in a direct finalization proof advances the vote
      account too, even though it earns no reward. */
