@@ -54,6 +54,7 @@
 
 #define FD_GOSSIP_FAILED_NO_CONTACT_INFO (1)
 #define FD_GOSSIP_FAILED_WALLCLOCK       (2)
+#define FD_GOSSIP_FAILED_DUPLICATE       (3)
 
 /* FD_GOSSIP_STAKED_THRESHOLD is the minimum stake (in lamports) at
    which a node is considered an active participant (e.g. it does not
