@@ -1235,6 +1235,7 @@ EXAMPLES
     <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot" />
     <gauge name="ClusterActiveStakeLamports" summary="Total cluster active stake at the optimistically confirmed slot" />
     <gauge name="EpochCredits" summary="Our vote account epoch credits at the optimistically confirmed slot" />
+    <gauge name="AlpenglowVoteSlot" summary="Alpenglow: latest slot this validator is recorded as having voted on, 0 if none. Always 0 under Tower" />
 
     <counter name="StoreQueryAcquired" summary="Store slock acquires for query" />
     <counter name="StoreQueryReleased" summary="Store slock releases for query" />

@@ -2375,7 +2375,10 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
           jsonp_close_array( gui->http );
 
           jsonp_ulong( gui->http, "max_total_block_cost",        lmeta->scheduler_stats->limits->max_cost_per_block        );
-          jsonp_ulong( gui->http, "max_total_vote_cost",         lmeta->scheduler_stats->limits->max_vote_cost_per_block   );
+          /* Deprecated to zero under Alpenglow.  Unlike the other vote
+             fields this one does not fall to zero by itself: it is a
+             protocol constant that pack asserts a lower bound on. */
+          jsonp_ulong( gui->http, "max_total_vote_cost",         fd_ulong_if( gui->summary.is_alpenglow, 0UL, lmeta->scheduler_stats->limits->max_vote_cost_per_block ) );
           jsonp_ulong( gui->http, "max_account_write_cost",      lmeta->scheduler_stats->limits->max_write_cost_per_acct   );
           jsonp_ulong( gui->http, "max_total_bytes",             lmeta->scheduler_stats->limits->max_data_bytes_per_block  );
           jsonp_ulong( gui->http, "max_total_microblocks",       lmeta->max_microblocks                                    );
@@ -2529,9 +2532,12 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
           jsonp_open_array( gui->http, "txn_from_bundle" );
             for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui->http, NULL, joined[ i ].start->flags & FD_GUI_TXN_FLAGS_FROM_BUNDLE );
           jsonp_close_array( gui->http );
-          jsonp_open_array( gui->http, "txn_is_simple_vote" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui->http, NULL, joined[ i ].start->flags & FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE );
-          jsonp_close_array( gui->http );
+          /* Tower-only: Alpenglow has no vote transactions to flag. */
+          if( FD_LIKELY( !gui->summary.is_alpenglow ) ) {
+            jsonp_open_array( gui->http, "txn_is_simple_vote" );
+              for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui->http, NULL, joined[ i ].start->flags & FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE );
+            jsonp_close_array( gui->http );
+          }
           jsonp_open_array( gui->http, "txn_bank_idx" );
             for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, joined[ i ].end->bank_idx );
           jsonp_close_array( gui->http );

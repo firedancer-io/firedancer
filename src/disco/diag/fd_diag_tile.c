@@ -40,6 +40,7 @@ struct fd_diag_tile {
     ulong shred_tile_idx[ FD_TILE_MAX ];
     ulong shred_cnt;
     ulong tower_idx;
+    ulong votor_idx;
     ulong replay_idx;
   } tiles;
 
@@ -319,8 +320,32 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
   }
 
   ulong tower_idx   = ctx->tiles.tower_idx;
+  ulong votor_idx   = ctx->tiles.votor_idx;
   ulong vote_status = FD_DIAG_VOTE_STATUS_DISABLED;
-  if( FD_LIKELY( ctx->is_voting && tower_idx!=ULONG_MAX ) ) {
+
+  /* Alpenglow has no tower tile and no vote distance.  Delinquency is an
+     exact lookback against the latest slot our vote is recorded on,
+     which replay reads out of certificate signer bitmaps and exports as
+     a gauge; the processed slot is replay's reset slot.  Diag has no
+     input links, so a gauge is the only channel available to it. */
+  if( FD_UNLIKELY( ctx->is_voting && votor_idx!=ULONG_MAX ) ) {
+    ulong replay_idx_ag = ctx->tiles.replay_idx;
+    if( FD_UNLIKELY( ctx->metrics[ votor_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL || replay_idx_ag==ULONG_MAX ) ) {
+      vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
+    } else {
+      volatile ulong * m = ctx->metrics[ replay_idx_ag ];
+      ulong vote_slot    = m[ FD_METRICS_GAUGE_REPLAY_ALPENGLOW_VOTE_SLOT_OFF ];
+      ulong replay_slot  = m[ FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF ];
+      if( FD_UNLIKELY( !replay_slot ) ) {
+        vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
+      } else {
+        int current = !!vote_slot && ( replay_slot<128UL || vote_slot+128UL>replay_slot );
+        vote_status = fd_ulong_if( current,
+                                   FD_DIAG_VOTE_STATUS_VOTING,
+                                   FD_DIAG_VOTE_STATUS_DELINQUENT );
+      }
+    }
+  } else if( FD_LIKELY( ctx->is_voting && tower_idx!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( ctx->metrics[ tower_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL ) ) {
       vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
     } else {
@@ -1318,6 +1343,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tiles.shred_cnt = fd_topo_tile_name_cnt( topo, "shred" );
   for( ulong i=0UL; i<ctx->tiles.shred_cnt; i++ ) ctx->tiles.shred_tile_idx[ i ] = fd_topo_find_tile( topo, "shred", i );
   ctx->tiles.tower_idx  = fd_topo_find_tile( topo, "tower",  0UL );
+  ctx->tiles.votor_idx  = fd_topo_find_tile( topo, "votor",  0UL );
   ctx->tiles.replay_idx = fd_topo_find_tile( topo, "replay", 0UL );
 
   fd_cpuset_new( &ctx->cpu_has_tile );

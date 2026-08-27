@@ -212,6 +212,37 @@ implementation.  A server which does not publish `summary.is_alpenglow`
 must be treated as a Tower server.  The consensus mode does not change
 during the lifetime of a validator process.
 
+::: warning Alpenglow gaps in the current implementation
+
+The Alpenglow half of this document is fully served except for the
+following, which a client should not yet rely on.  Each is a limitation
+of the implementation, not of the API.
+
+**Everything about a leader slot.**  Alpenglow block production is not
+implemented, so an Alpenglow validator never produces a block.
+`SlotPublish.mine` is therefore always `false`, and `slot.query_detailed`
+and `slot.query_transactions` never carry the `limits`,
+`scheduler_stats`, `transactions` or waterfall `out` objects for a slot
+of ours.  The Alpenglow-specific behaviour documented for those fields -
+`used_total_vote_cost` and `max_total_vote_cost` reading zero,
+`pending_vote_smallest_*` reading null, `txn_is_simple_vote` being
+omitted, and `txn_source_tpu` never being `send` - is implemented but
+unreachable, and untested against a real block.
+
+**Vote account details in `peers.update`.**  `last_vote`, `root_slot`,
+`epoch_credits` and `commission` are reported as zero.  This is not
+Alpenglow-specific; they are zero under Tower too.  `epoch_rewards` is
+not published at all.  `delinquent` is always `false` under Alpenglow,
+because it is derived from observed vote transactions and Alpenglow
+votes are not transactions.
+
+**Epoch length.**  Slot history retention is sized for a Tower epoch, so
+`slot.skipped_history`, `slot.skipped_history_cluster` and
+`slot.missed_vote_history` retain less wall-clock history than an epoch
+under Alpenglow's shorter epochs.
+
+:::
+
 #### `summary.cluster`
 | frequency       | type     | example        |
 |-----------------|----------|----------------|
