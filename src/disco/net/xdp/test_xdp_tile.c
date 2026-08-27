@@ -909,7 +909,7 @@ main( int     argc,
 
     /* after_frag */
     ulong tx_metric_before = ctx->metrics.tx_submit_cnt;
-    after_frag( ctx, 0, tx_seq, 0, during_frag_expected_sz, 0, 0, NULL );
+    after_frag( ctx, 0, tx_seq, 0, during_frag_src_sz, 0, 0, NULL );
     ulong tx_metric_after  = ctx->metrics.tx_submit_cnt;
     FD_TEST( tx_metric_before+1==tx_metric_after ); /* assert that XDP tile published a TX frame */
     ulong tx_prod = xsk->ring_tx.cached_prod;
