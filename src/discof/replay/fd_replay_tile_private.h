@@ -480,6 +480,9 @@ struct fd_replay_tile {
   ulong            ag_vote_slot;
   ulong            ag_finalized_slot;
 
+  ulong                ag_reward_slot;     /* slot the last footer's reward cert covered, ULONG_MAX if none */
+  int                  ag_reward_rewarded; /* whether our rank bit was set in it */
+
   fd_node_info_box_t * node_info; /* shared */
 
   fd_keyswitch_t * keyswitch;

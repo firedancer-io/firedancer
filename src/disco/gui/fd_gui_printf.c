@@ -2013,6 +2013,50 @@ fd_gui_printf_slot_proofs( fd_gui_t *            gui,
     case FD_GUI_AG_FINAL_IMPLICIT: jsonp_string( gui->http, "finalization_kind", "implicit" ); break;
     default:                       jsonp_null  ( gui->http, "finalization_kind" );             break;
   }
+
+  /* Null covers both "the certificate that would resolve this has not
+     been replayed yet" and "we were not a voter", which are the two
+     cases the spec says are not a miss. */
+  if( FD_LIKELY( slot->vote_rewarded==FD_GUI_VOTE_REWARDED_UNKNOWN || !slot->is_voter ) ) {
+    jsonp_null( gui->http, "vote_rewarded" );
+  } else {
+    jsonp_bool( gui->http, "vote_rewarded", slot->vote_rewarded==FD_GUI_VOTE_REWARDED_YES );
+  }
+}
+
+/* Resolved slots this epoch where we were a voter and our ordinary
+   notarize or skip vote did not make it into the reward certificate.
+   Run-length encoded as inclusive [start, end] pairs.  Unresolved slots
+   - including the most recent eight, whose certificate has not been
+   produced yet - are omitted rather than reported as missed. */
+
+void
+fd_gui_printf_missed_vote_history( fd_gui_t * gui,
+                                   ulong      epoch ) {
+  jsonp_open_envelope( gui->http, "slot", "missed_vote_history" );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_open_array( gui->http, "slot" );
+        fd_gui_epoch_t const * rec = fd_gui_epoch( gui, epoch );
+        ulong lo, hi;
+        if( FD_LIKELY( gui->summary.is_alpenglow && fd_gui_skipped_history_bounds( gui, rec, &lo, &hi ) ) ) {
+          ulong run_start = ULONG_MAX;
+          for( ulong i=lo; i<hi; i++ ) {
+            int missed = rec->vote_rewarded[ i ]==FD_GUI_VOTE_REWARDED_NO && rec->is_voter[ i ];
+            if( FD_UNLIKELY( missed && run_start==ULONG_MAX ) ) run_start = rec->start_slot+i;
+            if( FD_UNLIKELY( !missed && run_start!=ULONG_MAX ) ) {
+              jsonp_ulong( gui->http, NULL, run_start );
+              jsonp_ulong( gui->http, NULL, rec->start_slot+i-1UL );
+              run_start = ULONG_MAX;
+            }
+          }
+          if( FD_UNLIKELY( run_start!=ULONG_MAX ) ) {
+            jsonp_ulong( gui->http, NULL, run_start );
+            jsonp_ulong( gui->http, NULL, rec->start_slot+hi-1UL );
+          }
+        }
+      jsonp_close_array( gui->http );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
 }
 
 void

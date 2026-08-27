@@ -444,7 +444,8 @@ fd_gui_set_identity( fd_gui_t *    gui,
   }
   fd_gui_printf_vote_state( gui );
   fd_http_server_ws_broadcast( gui->http );
-  fd_gui_printf_late_votes_history( gui );
+  if( FD_LIKELY( !gui->summary.is_alpenglow ) ) fd_gui_printf_late_votes_history ( gui );
+  else                                          fd_gui_printf_missed_vote_history( gui, gui->epoch.current_epoch );
   fd_http_server_ws_broadcast( gui->http );
 }
 
@@ -531,7 +532,9 @@ fd_gui_ws_open( fd_gui_t * gui,
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
   for( ulong i=0UL; i<printers_len; i++ ) {
     if( FD_UNLIKELY( gui->summary.is_alpenglow &&
-                     (printers[ i ]==fd_gui_printf_vote_distance || printers[ i ]==fd_gui_printf_optimistically_confirmed_slot) ) ) continue;
+                     (printers[ i ]==fd_gui_printf_vote_distance              ||
+                      printers[ i ]==fd_gui_printf_optimistically_confirmed_slot ||
+                      printers[ i ]==fd_gui_printf_late_votes_history ) ) ) continue;
     printers[ i ]( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
@@ -579,6 +582,11 @@ fd_gui_ws_open( fd_gui_t * gui,
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     fd_gui_printf_skipped_history_cluster( gui, gui->epoch.current_epoch );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+
+    if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
+      fd_gui_printf_missed_vote_history( gui, gui->epoch.current_epoch );
+      FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    }
   }
 
   /* rebroadcast 10s of historical shred data */
@@ -2359,6 +2367,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
     memset( epoch->latency_exact, (int)FD_GUI_VOTE_LATENCY_NOT_VOTED, sizeof(epoch->latency_exact) );
     memset( epoch->is_voter,      0,                                 sizeof(epoch->is_voter)      );
     memset( epoch->skipped,       0,                                 sizeof(epoch->skipped)       );
+    memset( epoch->vote_rewarded, FD_GUI_VOTE_REWARDED_UNKNOWN,      sizeof(epoch->vote_rewarded) );
     epoch->epoch_schedule = epoch_info->epoch_schedule;
     epoch->pub_cnt        = lsched->pub_cnt;
     epoch->stakes_cnt     = epoch_info->staked_vote_cnt;
@@ -2796,6 +2805,41 @@ fd_gui_handle_ag_finalized( fd_gui_t *        gui,
   ent->notarization_kind = FD_GUI_AG_NOTAR_REGULAR;
 
   fd_gui_ag_block_publish( gui, ent );
+}
+
+void
+fd_gui_handle_ag_reward_resolved( fd_gui_t * gui,
+                                  ulong      slot,
+                                  int        rewarded ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
+
+  uchar state = fd_uchar_if( !!rewarded, FD_GUI_VOTE_REWARDED_YES, FD_GUI_VOTE_REWARDED_NO );
+
+  fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+  if( FD_LIKELY( epoch ) ) {
+    ulong idx = slot - epoch->start_slot;
+    if( FD_LIKELY( idx<epoch->slot_cnt && epoch->vote_rewarded[ idx ]!=state ) ) {
+      epoch->vote_rewarded[ idx ] = state;
+
+      /* Only a resolved miss belongs in the history, and only for a slot
+         we were structurally able to vote on. */
+      if( FD_UNLIKELY( state==FD_GUI_VOTE_REWARDED_NO && epoch->is_voter[ idx ] ) ) {
+        fd_gui_printf_missed_vote_history( gui, epoch->epoch );
+        fd_http_server_ws_broadcast( gui->http );
+      }
+    }
+  }
+
+  /* The spec requires the slot to be republished once the outcome is
+     known.  Applied to the canonical record: the outcome is a property
+     of the fork carrying the certificate, and the canonical fork is the
+     one the client is being shown. */
+  fd_gui_slot_t * rec = fd_gui_slot_get_canon( gui, slot );
+  if( FD_UNLIKELY( !rec || rec->vote_rewarded==state ) ) return;
+
+  rec->vote_rewarded = state;
+  fd_gui_printf_slot( gui, slot, rec );
+  fd_http_server_ws_broadcast( gui->http );
 }
 
 void
@@ -3366,6 +3410,12 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
        is what keeps finality moving while we catch up.  The handler
        already ignores anything that does not advance. */
     if( FD_LIKELY( slot_completed->finalized_slot ) ) fd_gui_handle_finalized_slot( gui, slot_completed->finalized_slot );
+
+    /* The block just replayed carries the reward certificate for an
+       earlier slot, so it resolves that slot's outcome, not its own. */
+    if( FD_UNLIKELY( slot_completed->reward_slot!=ULONG_MAX ) ) {
+      fd_gui_handle_ag_reward_resolved( gui, slot_completed->reward_slot, slot_completed->reward_rewarded );
+    }
 
     /* Delinquency under Alpenglow is an exact lookback against the
        on-chain vote account rather than Tower's vote distance: a voter

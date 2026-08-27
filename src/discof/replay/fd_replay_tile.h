@@ -103,6 +103,13 @@ struct fd_replay_slot_completed {
   ulong parent_slot;
 
   fd_hash_t block_id;        /* block id (last FEC set's merkle root) of the slot received from replay */
+  /* The reward outcome this block resolves.  A reward certificate for
+     slot s rides in slot s+8's footer, so a completed block reports the
+     outcome for an earlier slot, not for itself.  reward_slot is
+     ULONG_MAX when this block's footer carried no reward certificate,
+     in which case nothing was resolved. */
+  ulong reward_slot;
+  int   reward_rewarded;
   fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
   fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
   fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */

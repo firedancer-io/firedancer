@@ -168,6 +168,16 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_AG_FINAL_SLOW     ((uchar)2) /* supersedes implicit */
 #define FD_GUI_AG_FINAL_FAST     ((uchar)3) /* supersedes slow */
 
+/* Whether our ordinary notarize or skip vote for a slot made it into
+   the reward certificate that slot+8 carries.  Unknown until that
+   certificate is replayed, which is why this is tri-state rather than a
+   boolean: "not yet resolved" and "resolved as missed" are different
+   things and the spec renders them differently. */
+
+#define FD_GUI_VOTE_REWARDED_UNKNOWN ((uchar)0)
+#define FD_GUI_VOTE_REWARDED_YES     ((uchar)1)
+#define FD_GUI_VOTE_REWARDED_NO      ((uchar)2)
+
 /* "Skipped" means not present on the canonical fork (i.e. tower_slot's
    fork). Since tower_slot may fall behind replay, we need a third state
    to assign slots which are ahead of it. */
@@ -358,6 +368,7 @@ struct __attribute__((packed)) fd_gui_slot {
   uchar     level;            /* one of FD_GUI_SLOT_LEVEL_* */
   uchar     notarization_kind; /* Alpenglow: one of FD_GUI_AG_NOTAR_* */
   uchar     finalization_kind; /* Alpenglow: one of FD_GUI_AG_FINAL_* */
+  uchar     vote_rewarded;     /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
@@ -442,6 +453,7 @@ struct fd_gui_epoch {
   uchar latency_exact[ MAX_SLOTS_PER_EPOCH ]; /* skip-discounted latency or FD_GUI_VOTE_LATENCY_* */
   uchar is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* 1 if we were structurally a voter when this slot was replayed */
   uchar skipped      [ MAX_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
+  uchar vote_rewarded[ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
 
   fd_epoch_schedule_t epoch_schedule;    /* slot<->epoch conversion (fd_slot_to_epoch) */
   ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
@@ -1257,6 +1269,14 @@ fd_gui_handle_ag_parent_ready( fd_gui_t *        gui,
    keyed by, and applies any certificate that arrived before replay
    completed the block. */
 
+/* Records the reward outcome a completed block resolved for an earlier
+   slot.  Idempotent; a resolution never becomes unresolved. */
+
+void
+fd_gui_handle_ag_reward_resolved( fd_gui_t * gui,
+                                  ulong      slot,
+                                  int        rewarded );
+
 void
 fd_gui_ag_register_block( fd_gui_t *        gui,
                           ulong             slot,
@@ -1564,6 +1584,7 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
      raised afterwards, which would make a stale value permanent. */
   meta->notarization_kind = FD_GUI_AG_NOTAR_NONE;
   meta->finalization_kind = FD_GUI_AG_FINAL_NONE;
+  meta->vote_rewarded     = FD_GUI_VOTE_REWARDED_UNKNOWN;
   meta->vote_failed       = UINT_MAX;
   meta->vote_success      = UINT_MAX;
   meta->nonvote_success   = UINT_MAX;

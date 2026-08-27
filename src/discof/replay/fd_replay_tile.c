@@ -309,6 +309,9 @@ static void
 ag_observe_footer_certs( fd_replay_tile_t *        ctx,
                          fd_bank_t const *         bank,
                          fd_footer_certs_t const * certs ) {
+  ctx->ag_reward_slot     = ULONG_MAX;
+  ctx->ag_reward_rewarded = 0;
+
   if( FD_UNLIKELY( certs->fast_final_cert ) ) ctx->ag_finalized_slot = fd_ulong_max( ctx->ag_finalized_slot, certs->fast_final_cert->slot );
   if( FD_UNLIKELY( certs->final_cert      ) ) ctx->ag_finalized_slot = fd_ulong_max( ctx->ag_finalized_slot, certs->final_cert->slot      );
 
@@ -321,10 +324,18 @@ ag_observe_footer_certs( fd_replay_tile_t *        ctx,
     if( FD_LIKELY( !cert ) ) continue;
 
     ushort rank = ag_our_rank( ctx, bank, cert->slot );
-    if( FD_UNLIKELY( rank==USHORT_MAX || (ulong)rank>=cert->nbits ) ) continue;
+    if( FD_UNLIKELY( rank==USHORT_MAX ) ) continue;
+
+    /* The certificate covering a slot resolves that slot's reward
+       outcome whether or not we are in it - being absent is exactly
+       what "missed" means, so record the resolution either way. */
+    ctx->ag_reward_slot = cert->slot;
+
+    if( FD_UNLIKELY( (ulong)rank>=cert->nbits ) ) continue;
     if( FD_LIKELY( !((cert->signer_set[ rank>>6 ] >> (rank & 63U)) & 1UL) ) ) continue;
 
-    ctx->ag_vote_slot = fd_ulong_max( ctx->ag_vote_slot, cert->slot );
+    ctx->ag_reward_rewarded = 1;
+    ctx->ag_vote_slot       = fd_ulong_max( ctx->ag_vote_slot, cert->slot );
   }
 
   /* A signature in a direct finalization proof advances the vote
@@ -845,6 +856,9 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->last_transaction_finished_nanos   = bank->last_transaction_finished_nanos;
   slot_info->completion_time_nanos             = fd_clock_tile_now( ctx->clock );
   slot_info->vote_slot                         = fd_ulong_if( !!ctx->ag_vote_slot, ctx->ag_vote_slot, ULONG_MAX );
+  slot_info->reward_slot                       = ctx->ag_reward_slot;
+  slot_info->reward_rewarded                   = ctx->ag_reward_rewarded;
+  ctx->ag_reward_slot                          = ULONG_MAX; /* consumed */
   slot_info->finalized_slot                    = ctx->ag_finalized_slot;
   slot_info->is_voter                          = ag_our_rank( ctx, bank, bank->f.slot )!=USHORT_MAX;
   if( !slot_info->first_transaction_scheduled_nanos ) { /* edge case: empty slot */
@@ -3815,8 +3829,10 @@ privileged_init( fd_topo_t const *      topo,
   ctx->identity_idx         = 0UL;
   ctx->identity_dirty       = 0;
 
-  ctx->ag_vote_slot      = 0UL; /* zero means "no participation observed" */
-  ctx->ag_finalized_slot = 0UL;
+  ctx->ag_vote_slot       = 0UL; /* zero means "no participation observed" */
+  ctx->ag_finalized_slot  = 0UL;
+  ctx->ag_reward_slot     = ULONG_MAX;
+  ctx->ag_reward_rewarded = 0;
 
   ctx->bundle.enabled = tile->replay.bundle.enabled;
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
