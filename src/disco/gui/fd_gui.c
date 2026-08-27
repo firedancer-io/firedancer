@@ -625,9 +625,10 @@ fd_gui_ws_open( fd_gui_t * gui,
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
 
   /* Feeds the overview accounts card, goes ahead of the bulky shred
-     replay */
+     replay; aggregates only — the accounts-route tables ride the next
+     periodic full frame */
   if( FD_LIKELY( gui->summary.accounts_stats_have_reference ) ) {
-    fd_gui_printf_accounts_stats( gui );
+    fd_gui_printf_accounts_stats( gui, 0 );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
@@ -1937,7 +1938,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
       *gui->summary.accounts_stats_reference = *gui->summary.accounts_stats_current;
       fd_gui_accounts_stats_snap( gui, gui->summary.accounts_stats_current );
-      fd_gui_printf_accounts_stats( gui );
+      fd_gui_printf_accounts_stats( gui, 1 );
       fd_http_server_ws_broadcast( gui->http );
       gui->summary.accounts_stats_have_reference = 1;
     }

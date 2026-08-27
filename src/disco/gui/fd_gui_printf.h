@@ -192,6 +192,7 @@ void
 fd_gui_printf_system_resources( fd_gui_t * gui );
 
 void
-fd_gui_printf_accounts_stats( fd_gui_t * gui );
+fd_gui_printf_accounts_stats( fd_gui_t * gui,
+                              int        with_tables );
 
 #endif /* HEADER_fd_src_disco_gui_fd_gui_printf_h */

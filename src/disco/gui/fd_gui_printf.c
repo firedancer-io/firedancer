@@ -1351,7 +1351,8 @@ fd_gui_accdb_weighted_rate( ulong const * ring,
 }
 
 void
-fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
+fd_gui_printf_accounts_stats( fd_gui_t * gui,
+                              int        with_tables ) {
   fd_gui_accounts_stats_t const * cur  = gui->summary.accounts_stats_current;
   fd_gui_accounts_stats_t const * prev = gui->summary.accounts_stats_reference;
   int have_ref = gui->summary.accounts_stats_have_reference;
@@ -1599,7 +1600,13 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
       /* Per-tile breakdown.  Iterate the slot table built at init.
          snapwr's row disappears when it has reached the shutdown
          status (matching how snapwr drops out of the overview tiles
-         table). */
+         table).
+
+         The tiles/partitions tables serve only the accounts route and
+         dominate the frame (~29KB of ~41KB); the connect burst sends
+         the frame without them (with_tables=0) and the next periodic
+         broadcast (100ms cadence) carries the full tables. */
+      if( with_tables ) {
       jsonp_open_array( gui->http, "tiles" );
         for( ulong s=0UL; s<gui->summary.accdb->accdb_tile_cnt; s++ ) {
           ulong t_idx = (ulong)gui->summary.accdb->accdb_tile_topo_idx[ s ];
@@ -1672,6 +1679,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
           jsonp_close_object( gui->http );
         }
       jsonp_close_array( gui->http );
+      }
 
       jsonp_open_object( gui->http, "io" );
         jsonp_ulong(  gui->http, "acquired",            cur->acquired            );
@@ -1705,6 +1713,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
          the GUI tile's locally-measured tick rate, since the accdb hot
          path stamps fd_tickcount() rather than fd_log_wallclock() (no
          syscall on the IO path). */
+      if( with_tables ) {
       jsonp_open_array( gui->http, "partitions" );
       if( FD_LIKELY( gui->accdb_shmem ) ) {
         ulong  partition_sz = fd_accdb_shmem_partition_sz( gui->accdb_shmem );
@@ -1778,6 +1787,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
         }
       }
       jsonp_close_array( gui->http );
+      }
 
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
