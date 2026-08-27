@@ -200,7 +200,14 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
     uchar const * oid_raw; ulong oid_raw_len;
     FD_DER_READ_RAW( ext, FD_DER_TAG_OID, oid_raw, oid_raw_len );
 
-    FD_DER_SKIP_IF( ext, FD_DER_TAG_BOOLEAN );
+    int critical = 0;
+    if( ext.p<ext.end && *ext.p==FD_DER_TAG_BOOLEAN ) {
+      uchar const * critical_ptr; ulong critical_len;
+      FD_DER_READ( ext, FD_DER_TAG_BOOLEAN, critical_ptr, critical_len );
+      /* critical is DEFAULT FALSE, so DER permits only explicit TRUE. */
+      if( FD_UNLIKELY( critical_len!=1UL || critical_ptr[0]!=0xFF ) ) return -1;
+      critical = 1;
+    }
 
     /* OCTET STRING wrapping the extension value */
     uchar const * val_ptr; ulong val_len;
@@ -224,6 +231,7 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
           FD_DER_READ( val, FD_DER_TAG_BOOLEAN, ca_ptr, ca_len );
           /* cA is DEFAULT FALSE, so DER permits only explicit TRUE. */
           if( FD_UNLIKELY( ca_len!=1UL || ca_ptr[0]!=0xFF ) ) return -1;
+          if( FD_UNLIKELY( !critical ) ) return -1;
           out->is_ca = 1;
         }
         int path_len_tag; FD_DER_PEEK_TAG_OR( val, path_len_tag, 0 );
@@ -304,11 +312,16 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
     /* subjectAltName (2.5.29.17) */
     if( fd_der_oid_match( oid_raw, oid_raw_len,
                           oid_san, sizeof(oid_san) ) ) {
+      if( FD_UNLIKELY( out->has_subject_alt_name ) ) return -1;
+      if( FD_UNLIKELY( out->subject_len==2UL && !critical ) ) return -1;
+
       fd_der_cursor_t val = { .p = val_ptr, .end = val_ptr + val_len };
 
       /* SEQUENCE OF GeneralName */
       uchar const * san_ptr; ulong san_len;
       FD_DER_READ( val, FD_DER_TAG_SEQUENCE, san_ptr, san_len );
+      if( FD_UNLIKELY( !san_len ) ) return -1;  /* SIZE (1..MAX) */
+      if( FD_UNLIKELY( FD_DER_HAS_MORE( val ) ) ) return -1;
 
       out->san_general_names     = san_ptr;
       out->san_general_names_len = san_len;
@@ -326,6 +339,7 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
     }
 
     /* Unknown extension */
+    if( FD_UNLIKELY( critical ) ) return -1;
   }
 
   return 0;
@@ -502,6 +516,8 @@ fd_x509_cert_parse( uchar const *         cert,
           return -1;
         }
       }
+
+      if( FD_UNLIKELY( out->subject_len==2UL && !out->has_subject_alt_name ) ) return -1;
     }
 
     /* signatureAlgorithm must match the TBSCertificate field exactly. */
@@ -514,6 +530,9 @@ fd_x509_cert_parse( uchar const *         cert,
     FD_DER_READ_BITS( c, out->sig, out->sig_len );
 
   FD_DER_LEAVE( c );
+
+  /* The supplied buffer is one DER Certificate, not a DER prefix. */
+  if( FD_UNLIKELY( FD_DER_HAS_MORE( c ) ) ) return -1;
 
   return 0;
 }
@@ -880,7 +899,9 @@ fd_x509_decode_ecdsa_sig( uchar const * der,
   FD_DER_ENTER( c, FD_DER_TAG_SEQUENCE );
     FD_DER_READ( c, FD_DER_TAG_INTEGER, r_ptr, r_len );
     FD_DER_READ( c, FD_DER_TAG_INTEGER, s_ptr, s_len );
-  FD_DER_LEAVE_RELAXED( c );
+  FD_DER_LEAVE( c );
+
+  if( FD_UNLIKELY( FD_DER_HAS_MORE( c ) ) ) return -1;
 
   if( FD_UNLIKELY( fd_der_int_to_fixed( r_ptr, r_len, raw_sig,             scalar_sz ) ) ) return -1;
   if( FD_UNLIKELY( fd_der_int_to_fixed( s_ptr, s_len, raw_sig + scalar_sz, scalar_sz ) ) ) return -1;
