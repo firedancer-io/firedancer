@@ -894,6 +894,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   char const * preload_js     = NULL;
   char const * preload_css    = NULL;
+  char const * preload_react  = NULL;
+  char const * preload_vendor = NULL;
+  char const * preload_main   = NULL;
   char const * preload_worker = NULL;
   char const * preload_wasm   = NULL;
   char const * split_js[ 16 ];
@@ -908,6 +911,9 @@ unprivileged_init( fd_topo_t const *      topo,
       }
       else if( !strcmp( ext, ".css" ) && index_html_refs( index_html, f->name ) )                preload_css = f->name;
     }
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/react-",  14UL ) && !strcmp( ext, ".js" ) ) ) preload_react  = f->name;
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/vendor-", 15UL ) && !strcmp( ext, ".js" ) ) ) preload_vendor = f->name;
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/main-",   13UL ) && !strcmp( ext, ".js" ) ) ) preload_main   = f->name;
     else if( FD_UNLIKELY( !strncmp( f->name, "/assets/wsWorker-", 17UL ) && !strcmp( ext, ".js"   ) ) ) preload_worker = f->name;
     else if( FD_UNLIKELY( !strncmp( f->name, "/assets/zstd-dec-", 17UL ) && !strcmp( ext, ".wasm" ) ) ) preload_wasm   = f->name;
     else if( FD_UNLIKELY( !strncmp( f->name, "/assets/UplotReact-", 19UL ) && !strcmp( ext, ".js" ) &&
@@ -920,6 +926,16 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=modulepreload", off ? ", " : "", preload_js ) );
     off += sz;
   }
+  /* Pipelined entry: react first (high), vendor, then main last (low),
+     mirroring the fetchpriority attributes on the index.html tags. */
+  if( FD_LIKELY( preload_react ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=modulepreload; fetchpriority=high", off ? ", " : "", preload_react ) );
+    off += sz;
+  }
+  if( FD_LIKELY( preload_vendor ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=modulepreload", off ? ", " : "", preload_vendor ) );
+    off += sz;
+  }
   if( FD_LIKELY( preload_css ) ) {
     FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=preload; as=style; crossorigin", off ? ", " : "", preload_css ) );
     off += sz;
@@ -930,6 +946,10 @@ unprivileged_init( fd_topo_t const *      topo,
   }
   if( FD_LIKELY( preload_wasm ) ) {
     FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=preload; as=fetch; crossorigin", off ? ", " : "", preload_wasm ) );
+    off += sz;
+  }
+  if( FD_LIKELY( preload_main ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=modulepreload; fetchpriority=low", off ? ", " : "", preload_main ) );
     off += sz;
   }
   for( ulong i=0UL; i<split_js_cnt; i++ ) {
