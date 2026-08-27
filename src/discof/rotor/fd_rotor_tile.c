@@ -1272,6 +1272,7 @@ after_credit( ctx_t *             ctx,
   /* Publish any FECs the chainer has delivered for replay. */
   if( publish_fec_replay( ctx, stem ) ) {
     *charge_busy = 1;
+    *opt_poll_in = 0;
     return;
   }
 
