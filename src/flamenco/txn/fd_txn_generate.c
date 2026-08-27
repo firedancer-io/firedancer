@@ -38,6 +38,8 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
 
   /* Fill out txn metadata */
   fd_txn_t * txn_meta             = (fd_txn_t *) out_txn_meta;
+  txn_meta->transaction_version   = FD_TXN_VLEGACY;
+  txn_meta->signature_cnt         = (uchar)num_signatures;
   txn_meta->acct_addr_cnt         = accounts->acct_cnt;
   txn_meta->readonly_signed_cnt   = accounts->readonly_signed_cnt;
   txn_meta->readonly_unsigned_cnt = accounts->readonly_unsigned_cnt;
