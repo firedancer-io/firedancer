@@ -118,7 +118,7 @@ fd_hash_avx512dq( ulong        seed,
     h ^= z; h = h*C1 + C4;
   }
 
-  h += ((ulong)sz);
+  h += sz;
 
   while( (p+8)<=stop ) { /* Last 1 to 3 complete ulong's */
     ulong w = FD_LOAD( ulong, p );
