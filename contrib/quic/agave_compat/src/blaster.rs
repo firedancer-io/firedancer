@@ -1,8 +1,7 @@
 #![allow(non_camel_case_types)]
 
+use crate::tpu_client::TpuClient;
 use rand::RngExt;
-use solana_client::connection_cache::ConnectionCache;
-use solana_connection_cache::client_connection::ClientConnection;
 use std::net::ToSocketAddrs;
 
 pub(crate) fn blast(dst: String) {
@@ -90,23 +89,17 @@ pub(crate) fn blast(dst: String) {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
-    let conn_cache = ConnectionCache::new_quic("test", 16);
-    let conn = conn_cache.get_connection(&sa);
-
-    let mut batch = Vec::<Vec<u8>>::with_capacity(1024);
+    let client = TpuClient::new(sa);
 
     let mut rng = rand::rng();
     let mut sent = 0usize;
     let mut sent_stat = 0usize;
     loop {
-        let cnt: usize = rng.random_range(1..batch.capacity());
-        batch.clear();
-        for _ in 0..cnt {
-            batch.push(BUF[0..rng.random_range(1..BUF.len())].to_vec());
-        }
-        if let Err(err) = conn.send_data_batch(&batch) {
-            eprintln!("{:?}", err);
-        }
+        let cnt: usize = rng.random_range(1..1024);
+        let batch = (0..cnt)
+            .map(|_| BUF[0..rng.random_range(1..BUF.len())].to_vec())
+            .collect();
+        client.send_batch(batch);
         sent += cnt;
         if sent - sent_stat > 10000 {
             eprintln!("Sent: {}", sent);
