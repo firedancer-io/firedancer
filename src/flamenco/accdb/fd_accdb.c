@@ -780,6 +780,8 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
      live + deferred forks <= max_live_slots. */
   wait_cmd( accdb );
 
+  if( FD_UNLIKELY( accdb->shmem->generation==UINT_MAX ) ) FD_LOG_ERR(( "accdb ran out of generation sequence numbers, restart required" ));
+
   fd_accdb_fork_shmem_t * acquired = fork_pool_acquire( accdb->fork_shmem_pool );
   if( FD_UNLIKELY( !acquired ) ) {
     submit_cmd( accdb, FD_ACCDB_CMD_DRAIN_DEFERRED, USHORT_MAX );
