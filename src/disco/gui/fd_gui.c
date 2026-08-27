@@ -539,6 +539,11 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_health
   };
 
+  /* Server time first: the offscreen chart's first present gates on it,
+     and the periodic broadcast otherwise queues behind the bulk tail */
+  fd_gui_printf_server_time_nanos( gui, now );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
   for( ulong i=0UL; i<printers_len; i++ ) {
     if( FD_UNLIKELY( gui->summary.is_alpenglow && (printers[ i ]==fd_gui_printf_vote_distance || printers[ i ]==fd_gui_printf_optimistically_confirmed_slot || printers[ i ]==fd_gui_printf_late_votes_history ) ) ) continue;
