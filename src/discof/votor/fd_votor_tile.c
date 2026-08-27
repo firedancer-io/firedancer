@@ -14,10 +14,10 @@
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 #include "../replay/fd_replay_tile.h"
 
-#define IN_KIND_REPLAY (0)
-#define IN_KIND_EPOCH  (1)
-#define IN_KIND_IPECHO (2)
-#define IN_KIND_NET    (3)
+#define IN_KIND_EPOCH  (0)
+#define IN_KIND_IPECHO (1)
+#define IN_KIND_NET    (2)
+#define IN_KIND_REPLAY (3)
 
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
@@ -49,7 +49,6 @@ struct replayed {
   ag_block_id_t block_id;
   ag_block_id_t parent_block_id;
 };
-
 typedef struct replayed replayed_t;
 
 #define MAP_NAME               replayed
@@ -79,11 +78,39 @@ typedef struct publish publish_t;
 #define QUEUE_T    publish_t
 #include "../../util/tmpl/fd_queue_dynamic.c"
 
+/* id_to_rank maps a validator identity key to its rank in the current
+   and next epochs.  This map is refreshed on every epoch boundary.  The
+   number of keys is bounded by the VAT (AG_VAT_MAX). */
+
+#define ID_TO_RANK_LG_SLOT_CNT (13) /* 2*AG_VAT_MAX keys, fill ratio 0.25 */
+FD_STATIC_ASSERT( (1UL<<ID_TO_RANK_LG_SLOT_CNT)>=4UL*AG_VAT_MAX, id_to_rank );
+
+struct id_to_rank {
+  fd_pubkey_t id_key;
+  ushort      curr_rank; /* USHORT_MAX when the identity is unranked in that epoch */
+  ushort      next_rank;
+};
+typedef struct id_to_rank id_to_rank_t;
+
+#define MAP_NAME              id_to_rank
+#define MAP_T                 id_to_rank_t
+#define MAP_LG_SLOT_CNT       ID_TO_RANK_LG_SLOT_CNT
+#define MAP_KEY               id_key
+#define MAP_KEY_T             fd_pubkey_t
+#define MAP_KEY_NULL          ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
+#define MAP_KEY_INVAL(k)      (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, &(key), sizeof(fd_pubkey_t) ))
+#define MAP_MEMOIZE           0
+#include "../../util/tmpl/fd_map.c"
+
 struct fd_votor_tile {
 
   /* Metadata */
 
-  uchar const * identity_keypair;
+  uchar const * identity_keypair; /* FIXME */
+  fd_pubkey_t   identity;         /* identity_keypair's public half, as the id_to_rank key type */
   ag_bls_sec_t  bls_key;
   uchar         sha512[ FD_SHA512_FOOTPRINT ] __attribute__((aligned(FD_SHA512_ALIGN)));
   ushort        shred_version;
@@ -97,6 +124,7 @@ struct fd_votor_tile {
   ag_epoch_info_t * next_epoch_info;
   ulong             next_epoch_slot;
   ushort            next_epoch_rank;
+  id_to_rank_t *    id_to_rank;      /* identity -> its rank in each of the above */
   ag_pool_t *       pool;
   ag_votor_t *      votor;
   replayed_t *      replayed;
@@ -105,7 +133,7 @@ struct fd_votor_tile {
 
   /* Networking */
 
-  ag_id_key_t        peer[ QUIC_CONN_MAX ];
+  fd_pubkey_t        conn_ctxs[ QUIC_CONN_MAX ];
   fd_net_rx_bounds_t net_in_bounds[ 32 ];
   uchar              net_buf[ FD_NET_MTU ];
   fd_quic_t *        quic;
@@ -139,7 +167,6 @@ struct fd_votor_tile {
     union {
       ag_vote_t           vote;
       ag_cert_t           cert;
-      fd_replay_message_t replay;
       ag_event_pool_t     pool_event;
       ag_event_repair_t   repair_event;
       ag_event_timeout_t  timeout_event;
@@ -153,25 +180,49 @@ struct fd_votor_tile {
 typedef struct fd_votor_tile fd_votor_tile_t;
 
 static void
-advance_epoch( fd_votor_tile_t *           ctx,
+index_id_to_rank( id_to_rank_t *          id_to_rank,
+                  ag_epoch_info_t const * curr,
+                  ag_epoch_info_t const * next ) {
+  id_to_rank_clear( id_to_rank );
+
+  for( ulong rank=0UL; rank<curr->validator_cnt; rank++ ) {
+    fd_pubkey_t id_key;
+    memcpy( id_key.uc, curr->validators[ rank ].id_key, sizeof(ag_id_key_t) );
+    id_to_rank_t * ele = id_to_rank_insert( id_to_rank, id_key );
+    FD_TEST( ele );
+    ele->curr_rank = (ushort)rank;
+    ele->next_rank = USHORT_MAX;
+  }
+
+  if( FD_UNLIKELY( !next ) ) return; /* second epoch not installed yet */
+
+  for( ulong rank=0UL; rank<next->validator_cnt; rank++ ) {
+    fd_pubkey_t id_key;
+    memcpy( id_key.uc, next->validators[ rank ].id_key, sizeof(ag_id_key_t) );
+    id_to_rank_t * ele = id_to_rank_query( id_to_rank, id_key, NULL );
+    if( FD_UNLIKELY( !ele ) ) { /* ranked next epoch but not this one */
+      ele = id_to_rank_insert( id_to_rank, id_key );
+      FD_TEST( ele );
+      ele->curr_rank = USHORT_MAX;
+    }
+    ele->next_rank = (ushort)rank;
+  }
+}
+
+static void
+handle_epoch( fd_votor_tile_t *           ctx,
                fd_epoch_info_msg_t const * msg ) {
 
   ag_epoch_info_t * epoch_info;
   if     ( FD_UNLIKELY( !ctx->curr_epoch_info ) ) epoch_info = &ctx->scratch.curr_epoch_info;
   else if( FD_UNLIKELY( !ctx->next_epoch_info ) ) epoch_info = &ctx->scratch.next_epoch_info;
-  else {
-    FD_TEST( ag_pool_finalized_slot( ctx->pool )>=ctx->next_epoch_slot );
-    epoch_info = ctx->curr_epoch_info;
-  }
+  else                                            epoch_info = ctx->curr_epoch_info;
 
-  if( FD_UNLIKELY( !ag_epoch_info_rank( epoch_info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt ) ) ) {
-    FD_LOG_WARNING(( "epoch %lu ranked no validators, ignoring", msg->epoch ));
-    return;
-  }
+  ag_epoch_info_rank( epoch_info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt );
 
   ushort epoch_rank = USHORT_MAX;
   for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
-    if( FD_LIKELY( memcmp( epoch_info->validators[ rank ].id_key, ctx->identity_keypair+32UL, sizeof(ag_id_key_t) ) ) ) continue;
+    if( FD_LIKELY( memcmp( epoch_info->validators[ rank ].id_key, ctx->identity.uc, sizeof(ag_id_key_t) ) ) ) continue;
     epoch_rank = (ushort)rank;
     break;
   }
@@ -191,26 +242,44 @@ advance_epoch( fd_votor_tile_t *           ctx,
     ctx->next_epoch_rank = epoch_rank;
   }
 
-  ag_pool_advance_epoch ( ctx->pool,  epoch_info, epoch_rank, msg->start_slot );
-  ag_votor_advance_epoch( ctx->votor,             epoch_rank, msg->start_slot );
-
-  FD_LOG_NOTICE(( "votor epoch %lu: %lu validators, own rank %hu",
-                  msg->epoch, epoch_info->validator_cnt, epoch_rank ));
+  index_id_to_rank( ctx->id_to_rank, ctx->curr_epoch_info, ctx->next_epoch_info );
+  ag_pool_advance_epoch( ctx->pool, epoch_info, epoch_rank, msg->start_slot );
+  ag_votor_advance_epoch( ctx->votor, epoch_rank, msg->start_slot );
 }
 
+static void
+handle_replay( fd_votor_tile_t *           ctx,
+               ulong                       sig,
+               fd_replay_message_t const * replay ) {
+  switch( sig ) {
+  case REPLAY_SIG_SLOT_COMPLETED: {
+    fd_replay_slot_completed_t const * slot_completed  = &replay->slot_completed;
+    ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
+    ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
+    if( FD_LIKELY( !replayed_query( ctx->replayed, block_id, NULL ) ) ) replayed_insert( ctx->replayed, block_id )->parent_block_id = parent_block_id;
 
-static ushort
-peer_rank( fd_quic_conn_t *        conn,
-           ag_epoch_info_t const * epoch_info ) {
-  uchar const * id_key = fd_quic_conn_get_context( conn );
-  if( FD_UNLIKELY( !id_key ) ) return USHORT_MAX; /* bound in quic_conn_new, and fd_quic zeroes it when the slot is reused */
+    /* the first block replay completes is the one it booted on */
 
-  for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
-    if( FD_LIKELY( memcmp( epoch_info->validators[ rank ].id_key, id_key, sizeof(ag_id_key_t) ) ) ) continue;
-    return (ushort)rank;
+    if( FD_UNLIKELY( ctx->rooted_block_id.slot==ULONG_MAX ) ) {
+      ctx->rooted_block_id = block_id;
+      ag_pool_init ( ctx->pool,  block_id.slot );
+      ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock() );
+    }
+    ag_pool_add_block( ctx->pool, &block_id, &parent_block_id );
+    ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
+    memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
+    ag_votor_handle_replay_event( ctx->votor, &completed );
+    break;
   }
-
-  return USHORT_MAX;
+  case REPLAY_SIG_SLOT_DEAD: {
+    fd_replay_slot_dead_t const * slot_dead = &replay->slot_dead;
+    ag_event_replay_t             dead      = { .kind = AG_EVENT_REPLAY_DEAD, .slot = slot_dead->slot };
+    ag_votor_handle_replay_event( ctx->votor, &dead );
+    break;
+  }
+  default:
+    FD_LOG_ERR(( "unexpected replay sig %lu", sig ));
+  }
 }
 
 static int
@@ -261,13 +330,16 @@ quic_sign( void *      signer_ctx,
 static void
 quic_conn_new( fd_quic_conn_t * conn,
                void *           _ctx ) {
-  fd_votor_tile_t * ctx = _ctx;
-
   if( FD_UNLIKELY( !conn->tls_hs ) ) return; /* no authenticated identity, so no votes will be attributed */
+  fd_pubkey_t const * id_key = (fd_pubkey_t const *)fd_type_pun_const( conn->tls_hs->hs.srv.client_pubkey );
 
-  uchar * id_key = ctx->peer[ conn->conn_idx ];
-  memcpy( id_key, conn->tls_hs->hs.srv.client_pubkey, sizeof(ag_id_key_t) );
-  fd_quic_conn_set_context( conn, id_key );
+  fd_votor_tile_t * ctx = _ctx;
+  if( FD_LIKELY( ctx->curr_epoch_info ) && FD_UNLIKELY( !id_to_rank_query( ctx->id_to_rank, *id_key, NULL ) ) ) {
+    fd_quic_conn_close( conn, 0U );
+    return;
+  }
+  ctx->conn_ctxs[ conn->conn_idx ] = *id_key;
+  fd_quic_conn_set_context( conn, &ctx->conn_ctxs[ conn->conn_idx ] );
 }
 
 static void
@@ -287,10 +359,15 @@ quic_datagram_rx( fd_quic_conn_t * conn,
   case DATAGRAM_KIND_SKIP_FALLBACK_VOTE:
   case DATAGRAM_KIND_GENESIS_VOTE: {
     if( FD_UNLIKELY( ag_vote_de( &ctx->scratch.vote, ctx->shred_version, data, data_sz, NULL ) ) ) return;
-    ag_epoch_info_t const * epoch_info = fd_ptr_if( ag_vote_slot( &ctx->scratch.vote )>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
+    int                     next       = ag_vote_slot( &ctx->scratch.vote )>=ctx->next_epoch_slot;
+    ag_epoch_info_t const * epoch_info = fd_ptr_if( next, ctx->next_epoch_info, ctx->curr_epoch_info );
     if( FD_UNLIKELY( !epoch_info ) ) return;
-    ushort rank = peer_rank( conn, epoch_info );
-    if( FD_UNLIKELY( rank>=epoch_info->validator_cnt ) ) return; /* not an authenticated validator this epoch */
+    fd_pubkey_t const * peer = fd_quic_conn_get_context( conn );
+    if( FD_UNLIKELY( !peer ) ) return; /* bound in quic_conn_new, and fd_quic zeroes it when the slot is reused */
+    id_to_rank_t const * ele = id_to_rank_query( ctx->id_to_rank, *peer, NULL );
+    if( FD_UNLIKELY( !ele ) ) return;
+    ushort rank = fd_ushort_if( next, ele->next_rank, ele->curr_rank );
+    if( FD_UNLIKELY( rank==USHORT_MAX ) ) return; /* not an authenticated validator this epoch */
     ag_vote_set_rank( &ctx->scratch.vote, rank );
     // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, epoch_info->validators[ rank ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
@@ -330,6 +407,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, replayed_align(),         replayed_footprint( lg_blk_max )                          );
   l = FD_LAYOUT_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots )    );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, id_to_rank_align(),       id_to_rank_footprint()                            );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -423,16 +501,20 @@ before_frag( fd_votor_tile_t * ctx,
              ulong             sig ) {
   (void)seq;
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+  switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_EPOCH:
+    return 0;
+  case IN_KIND_IPECHO:
+    return 0;
+  case IN_KIND_NET:
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
-  }
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
-    if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD ) ) return 1;
-
+  case IN_KIND_REPLAY:
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
+    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD;
+  default:
+    FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
-  return 0;
 }
 
 static void
@@ -443,29 +525,28 @@ during_frag( fd_votor_tile_t * ctx,
              ulong             chunk,
              ulong             sz,
              ulong             ctl ) {
-  (void)seq; (void)sig;
+  (void)seq;
 
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_NET: {
-    void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
-    fd_memcpy( ctx->net_buf, src, sz );
+  case IN_KIND_EPOCH:
+    handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
     break;
-  }
+  case IN_KIND_IPECHO:
+    /* unreliable link, handled in after_frag */
+    break;
+  case IN_KIND_NET:
+    fd_memcpy( ctx->net_buf, fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz ), sz );
+    break;
   case IN_KIND_REPLAY: {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof(ctx->scratch.replay) ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof(fd_replay_message_t) ) ) {
       FD_LOG_ERR(( "chunk %lu sz %lu from replay out of bounds, chunk0 %lu wmark %lu",
                    chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
     }
-    fd_memcpy( &ctx->scratch.replay, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sz );
+    handle_replay( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
     break;
   }
-  case IN_KIND_EPOCH: {
-
-    advance_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
-    break;
-  }
-  case IN_KIND_IPECHO: break;
-  default:             break;
+  default:
+    FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
 }
 
@@ -483,51 +564,23 @@ after_frag( fd_votor_tile_t *   ctx,
   ctx->stem = stem;
 
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_NET:
-    if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t) ) ) break;
-    fd_quic_process_packet( ctx->quic,
-                            ctx->net_buf+sizeof(fd_eth_hdr_t),
-                            sz-sizeof(fd_eth_hdr_t),
-                            fd_log_wallclock() );
+  case IN_KIND_EPOCH:
+    /* reliable link, handled in during_frag */
     break;
-  case IN_KIND_REPLAY: {
-    switch( sig ) {
-    case REPLAY_SIG_SLOT_COMPLETED: {
-      fd_replay_slot_completed_t const * slot_completed  = &ctx->scratch.replay.slot_completed;
-      ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
-      ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
-      if( FD_LIKELY( !replayed_query( ctx->replayed, block_id, NULL ) ) ) replayed_insert( ctx->replayed, block_id )->parent_block_id = parent_block_id;
-      /* the first block replay completes is the one it booted on */
-
-      if( FD_UNLIKELY( ctx->rooted_block_id.slot==ULONG_MAX ) ) {
-        ctx->rooted_block_id = block_id;
-        ag_pool_init ( ctx->pool,  block_id.slot );
-        ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock() );
-      }
-      ag_pool_add_block( ctx->pool, &block_id, &parent_block_id );
-      ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
-      memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
-      ag_votor_handle_replay_event( ctx->votor, &completed );
-      break;
-    }
-    case REPLAY_SIG_SLOT_DEAD: {
-      fd_replay_slot_dead_t const * slot_dead = &ctx->scratch.replay.slot_dead;
-      ag_event_replay_t             dead      = { .kind = AG_EVENT_REPLAY_DEAD, .slot = slot_dead->slot };
-      ag_votor_handle_replay_event( ctx->votor, &dead );
-      break;
-    }
-    default:
-      __builtin_unreachable();
-    }
-    break;
-  }
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
     ctx->shred_version = (ushort)sig;
     ag_votor_set_shred_version( ctx->votor, ctx->shred_version );
     break;
-  case IN_KIND_EPOCH:  break;
-  default:             break;
+  case IN_KIND_NET:
+    if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t) ) ) break;
+    fd_quic_process_packet( ctx->quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_log_wallclock() );
+    break;
+  case IN_KIND_REPLAY:
+    /* reliable link, handled in during_frag */
+    break;
+  default:
+    FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
 }
 
@@ -543,13 +596,13 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_keypair = fd_keyload_load( tile->votor.identity_key_path, 0 );
+  memcpy( ctx->identity.uc, ctx->identity_keypair+32UL, sizeof(fd_pubkey_t) );
 
   static char const derive_msg[] = "bls-key-derive-alpenglow";
   uchar         ikm[ 64 ];
   fd_sha512_t   _sha[ 1 ];
   fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
-  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL,
-                   ctx->identity_keypair+32UL, ctx->identity_keypair, sha );
+  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha );
   fd_sha512_leave( sha );
   ag_bls_sec_derive( ctx->bls_key, ikm, sizeof(ikm) );
   fd_memzero_explicit( ikm, sizeof(ikm) );
@@ -565,13 +618,14 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_votor_tile_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                           );
-  void *            quic      = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),          fd_quic_footprint( &quic_limits )                 );
-  void *            pool      = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),          ag_pool_footprint( tile->votor.max_live_slots )   );
-  void *            votor     = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),         ag_votor_footprint( tile->votor.max_live_slots )  );
-  void *            replayed  = FD_SCRATCH_ALLOC_APPEND( l, replayed_align(),         replayed_footprint( lg_blk_max )                  );
-  void *            rooted    = FD_SCRATCH_ALLOC_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots )    );
-  void *            publishes = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
+  fd_votor_tile_t * ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                           );
+  void *            quic       = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),          fd_quic_footprint( &quic_limits )                 );
+  void *            pool       = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),          ag_pool_footprint( tile->votor.max_live_slots )   );
+  void *            votor      = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),         ag_votor_footprint( tile->votor.max_live_slots )  );
+  void *            replayed   = FD_SCRATCH_ALLOC_APPEND( l, replayed_align(),         replayed_footprint( lg_blk_max )                  );
+  void *            rooted     = FD_SCRATCH_ALLOC_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots )    );
+  void *            publishes  = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
+  void *            id_to_rank = FD_SCRATCH_ALLOC_APPEND( l, id_to_rank_align(),       id_to_rank_footprint()                            );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -590,15 +644,15 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->votor );
   ag_votor_set_bls_key ( ctx->votor, ctx->bls_key );
 
-  ctx->curr_epoch_info   = NULL;
-  ctx->curr_epoch_slot   = ULONG_MAX;
-  ctx->curr_epoch_rank   = USHORT_MAX;
-  ctx->next_epoch_info   = NULL;
-  ctx->next_epoch_slot   = ULONG_MAX;
-  ctx->next_epoch_rank   = USHORT_MAX;
-  fd_memset( ctx->peer, 0, sizeof(ctx->peer) );
+  ctx->curr_epoch_info = NULL;
+  ctx->curr_epoch_slot = ULONG_MAX;
+  ctx->curr_epoch_rank = USHORT_MAX;
+  ctx->next_epoch_info = NULL;
+  ctx->next_epoch_slot = ULONG_MAX;
+  ctx->next_epoch_rank = USHORT_MAX;
+  fd_memset( ctx->conn_ctxs, 0, sizeof(ctx->conn_ctxs) );
 
-  ctx->rooted_block_id   = (ag_block_id_t){ .slot = ULONG_MAX };
+  ctx->rooted_block_id = (ag_block_id_t){ .slot = ULONG_MAX };
 
   ctx->replayed = replayed_join( replayed_new( replayed, lg_blk_max, seed ) );
   FD_TEST( ctx->replayed );
@@ -609,18 +663,20 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->publishes = publishes_join( publishes_new( publishes, tile->votor.max_live_slots ) );
   FD_TEST( ctx->publishes );
 
+  ctx->id_to_rank = id_to_rank_join( id_to_rank_new( id_to_rank ) );
+  FD_TEST( ctx->id_to_rank );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
-    if     ( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
+    if     ( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "net_votor"    ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     }
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( link->mtu ) ) {
@@ -658,11 +714,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic->config.idle_timeout = 5L*1000L*1000L*1000L;
   ctx->quic->config.ack_delay    = 2L*1000L*1000L;
   fd_memcpy( ctx->quic->config.identity_public_key, ctx->identity_keypair+32UL, 32UL );
-  ctx->quic->config.sign        = quic_sign;
-  ctx->quic->config.sign_ctx    = ctx;
-  ctx->quic->config.alpn[ 0 ]   = 0x0c;
+  ctx->quic->config.sign         = quic_sign;
+  ctx->quic->config.sign_ctx     = ctx;
+  ctx->quic->config.alpn[ 0 ]    = 0x0c;
   fd_memcpy( ctx->quic->config.alpn+1, "alpenglow-v1", 12UL );
-  ctx->quic->config.alpn_sz     = 13UL;
+  ctx->quic->config.alpn_sz      = 13UL;
   ctx->quic->config.initial_rx_max_stream_data = 0UL;
   ctx->quic->config.max_datagram_frame_size    = 1280UL;
 

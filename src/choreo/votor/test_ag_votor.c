@@ -68,8 +68,8 @@ min_live_slot( ag_votor_t const * votor ) {
   slot_state_ele_t const * ele = votor->slot_states->pool;
   ulong min = ULONG_MAX;
   for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, ele );
-       !slot_state_map_iter_done( iter, map, ele );
-       iter = slot_state_map_iter_next( iter, map, ele ) ) {
+                                   !slot_state_map_iter_done( iter, map, ele );
+                             iter = slot_state_map_iter_next( iter, map, ele ) ) {
     min = fd_ulong_min( min, slot_state_map_iter_ele_const( iter, map, ele )->slot );
   }
   return min;

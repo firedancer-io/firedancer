@@ -468,7 +468,7 @@ ag_pool_add_cert( ag_pool_t *       self,
   case AG_CERT_KIND_SKIP:           duplicate = state->certs.skip.slot!=ULONG_MAX;                                                    break;
   case AG_CERT_KIND_FAST_FINAL:     duplicate = state->certs.fast_finalize.slot!=ULONG_MAX;                                           break;
   case AG_CERT_KIND_FINAL:          duplicate = state->certs.finalize.slot!=ULONG_MAX;                                                break;
-  default:                          FD_LOG_ERR(( "invalid cert kind %u", cert->kind ));
+  default:                          __builtin_unreachable();
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
 
@@ -562,15 +562,21 @@ ag_pool_recover_from_standstill( ag_pool_t * self ) {
 
   /* 1. collect our finalized slot's cert */
 
-  ulong                          finalized_slot      = ag_pool_finalized_slot( self );
-  ag_slot_certs_t const * fast_final_or_final = &slot_state_map_ele_query_const( self->slot_states->map, &finalized_slot, NULL, self->slot_states->pool )->slot_state.certs;
-  if( FD_LIKELY( fast_final_or_final && fast_final_or_final->fast_finalize.slot!=ULONG_MAX ) ) {
-    certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = fast_final_or_final->fast_finalize };
-  } else if( fast_final_or_final && fast_final_or_final->finalize.slot!=ULONG_MAX && fast_final_or_final->notar.slot!=ULONG_MAX ) {
-    certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL,      .final      = fast_final_or_final->finalize      };
-    certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR,      .notar      = fast_final_or_final->notar         };
-  } else {
-    __builtin_unreachable();
+  ulong finalized_slot = ag_pool_finalized_slot( self );
+  slot_state_ele_t const * fast_final_or_final_ = slot_state_map_ele_query_const( self->slot_states->map, &finalized_slot, NULL, self->slot_states->pool );
+  if( FD_LIKELY( fast_final_or_final_ ) ) { /* possible no cert if snapshot slot */
+    ag_slot_certs_t const * fast_final_or_final = &fast_final_or_final_->slot_state.certs;
+    if( FD_LIKELY( fast_final_or_final->fast_finalize.slot!=ULONG_MAX ) ) {
+      certs[certs_cnt++] = ( ag_cert_t ){ .kind       = AG_CERT_KIND_FAST_FINAL,
+                                          .fast_final = fast_final_or_final->fast_finalize };
+    } else {
+      FD_TEST( fast_final_or_final->finalize.slot!=ULONG_MAX );
+      FD_TEST( fast_final_or_final->notar.slot   !=ULONG_MAX );
+      certs[certs_cnt++] = ( ag_cert_t ){ .kind  = AG_CERT_KIND_FINAL,
+                                          .final = fast_final_or_final->finalize };
+      certs[certs_cnt++] = ( ag_cert_t ){ .kind  = AG_CERT_KIND_NOTAR,
+                                          .notar = fast_final_or_final->notar };
+    }
   }
 
   /* 2. collect every cert and own vote for slots > finalized slot */
@@ -578,8 +584,8 @@ ag_pool_recover_from_standstill( ag_pool_t * self ) {
   slot_state_map_t * map  = self->slot_states->map;
   slot_state_ele_t * pool = self->slot_states->pool;
   for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
-       !slot_state_map_iter_done( iter, map, pool );
-       iter = slot_state_map_iter_next( iter, map, pool ) ) {
+                                   !slot_state_map_iter_done( iter, map, pool );
+                             iter = slot_state_map_iter_next( iter, map, pool ) ) {
     slot_state_ele_t const * ele = slot_state_map_iter_ele_const( iter, map, pool );
     if( ele->slot<=finalized_slot ) continue;
 
