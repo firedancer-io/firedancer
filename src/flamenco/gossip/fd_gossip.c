@@ -410,6 +410,12 @@ void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
                          fd_stake_weight_t const * stake_weights,
                          ulong                     stake_weights_cnt ) {
+  for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
+    if( FD_LIKELY( stake_weights[ i ].stake<FD_GOSSIP_STAKED_THRESHOLD ) ) continue;
+    if( FD_UNLIKELY( get_stake( gossip, stake_weights[ i ].key.uc )<FD_GOSSIP_STAKED_THRESHOLD ) )
+      fd_gossip_purged_drain_no_contact_info( gossip->purged, stake_weights[ i ].key.uc );
+  }
+
   stake_map_reset( gossip->stake.map );
   stake_pool_reset( gossip->stake.pool );
 
@@ -627,7 +633,7 @@ rx_values( fd_gossip_t *             gossip,
   for( ulong i=0UL; i<values_len; i++ ) {
     fd_gossip_value_t const * value = &values[ i ];
 
-    if( FD_UNLIKELY( failed[ i ] ) ) {
+    if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) {
       uchar candidate_hash[ 32UL ];
       fd_sha256_hash( payload+value->offset, value->length, candidate_hash );
       if( FD_LIKELY( failed[ i ]==FD_GOSSIP_FAILED_NO_CONTACT_INFO ) ) fd_gossip_purged_insert_no_contact_info( gossip->purged, value->origin, candidate_hash, now );
@@ -674,7 +680,7 @@ rx_pull_response( fd_gossip_t *                     gossip,
   long results[ 17UL ];
   rx_values( gossip, pull_response->values_len, pull_response->values, payload, failed, stem, now, results );
   for( ulong i=0UL; i<pull_response->values_len; i++ ) {
-    if( FD_UNLIKELY( failed[ i ] ) ) continue;
+    if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
     if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PULL_RESPONSE_IDX ]++;
     else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_STALE_IDX ]++;
     else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
@@ -774,7 +780,7 @@ rx_push( fd_gossip_t *            gossip,
   rx_values( gossip, push->values_len, push->values, payload, failed, stem, now, results );
 
   for( ulong i=0UL; i<push->values_len; i++ ) {
-    if( FD_UNLIKELY( failed[ i ] ) ) continue;
+    if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
     if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
     else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_STALE_IDX ]++;
     else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_DUPLICATE_IDX ]++;
