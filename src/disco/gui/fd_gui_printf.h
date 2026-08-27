@@ -81,6 +81,15 @@ fd_gui_printf_slot( fd_gui_t *            gui,
                     ulong                slot_number,
                     fd_gui_slot_t const * slot );
 
+/* Columnar slot replay covering [start_slot, end_slot] (at most 64
+   slots); rows with no canonical record or unknown skip status are
+   omitted. */
+
+void
+fd_gui_printf_slot_batch( fd_gui_t * gui,
+                          ulong      start_slot,
+                          ulong      end_slot );
+
 void
 fd_gui_printf_summary_ping( fd_gui_t * gui,
                             ulong      id );

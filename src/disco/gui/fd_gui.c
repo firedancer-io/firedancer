@@ -602,15 +602,22 @@ fd_gui_ws_open( fd_gui_t * gui,
   }
 
   /* Replay recent slots so the sidebar viewport renders from the burst
-     instead of a query round trip per visible row */
+     instead of a query round trip per visible row; one columnar frame
+     instead of 64 keyed ones (alpenglow keeps keyed frames: its slot
+     schema differs) */
   if( FD_LIKELY( gui->summary.slot_tower!=ULONG_MAX ) ) {
     ulong end   = gui->summary.slot_tower;
     ulong start = fd_ulong_if( end>=64UL, end-63UL, 0UL );
-    for( ulong s=start; s<=end; s++ ) {
-      fd_gui_slot_t const * slot = fd_gui_slot_get_canon_safe( gui, s );
-      if( FD_UNLIKELY( !slot || slot->skip==FD_GUI_SKIP_STATUS_UNKNOWN ) ) continue;
-      fd_gui_printf_slot( gui, s, slot );
+    if( FD_LIKELY( !gui->summary.is_alpenglow ) ) {
+      fd_gui_printf_slot_batch( gui, start, end );
       FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    } else {
+      for( ulong s=start; s<=end; s++ ) {
+        fd_gui_slot_t const * slot = fd_gui_slot_get_canon_safe( gui, s );
+        if( FD_UNLIKELY( !slot || slot->skip==FD_GUI_SKIP_STATUS_UNKNOWN ) ) continue;
+        fd_gui_printf_slot( gui, s, slot );
+        FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+      }
     }
   }
 

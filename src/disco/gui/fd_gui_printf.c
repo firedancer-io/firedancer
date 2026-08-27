@@ -2204,6 +2204,61 @@ fd_gui_printf_slot( fd_gui_t *            gui,
 }
 
 void
+fd_gui_printf_slot_batch( fd_gui_t * gui,
+                          ulong      start_slot,
+                          ulong      end_slot ) {
+  FD_TEST( end_slot>=start_slot && end_slot-start_slot<64UL );
+
+  /* Columnar replay of the recent slot window: one frame of parallel
+     arrays carrying the fields the frontend consumes, instead of 64
+     slot:update frames repeating the key set per slot.  Mirrors the
+     non-alpenglow slot:update schema. */
+
+  ulong                 slots    [ 64 ];
+  fd_gui_slot_t const * recs     [ 64 ];
+  long                  durations[ 64 ];
+  ulong cnt = 0UL;
+  for( ulong s=start_slot; s<=end_slot; s++ ) {
+    fd_gui_slot_t const * slot = fd_gui_slot_get_canon_safe( gui, s );
+    if( FD_UNLIKELY( !slot || slot->skip==FD_GUI_SKIP_STATUS_UNKNOWN ) ) continue;
+    slots    [ cnt ] = s;
+    recs     [ cnt ] = slot;
+    durations[ cnt ] = fd_gui_load_slot_duration( gui, s, slot );
+    cnt++;
+  }
+
+#define COL( name, EMIT ) do {                 \
+    jsonp_open_array( gui->http, name );       \
+    for( ulong i=0UL; i<cnt; i++ ) { EMIT; }   \
+    jsonp_close_array( gui->http );            \
+  } while( 0 )
+
+  jsonp_open_envelope( gui->http, "slot", "batch" );
+    jsonp_open_object( gui->http, "value" );
+      COL( "slot",    jsonp_ulong ( gui->http, NULL, slots[ i ] ) );
+      COL( "mine",    jsonp_bool  ( gui->http, NULL, recs[ i ]->mine ) );
+      COL( "skipped", jsonp_bool  ( gui->http, NULL, recs[ i ]->skip==FD_GUI_SKIP_STATUS_FINALIZED ) );
+      COL( "level",   jsonp_string( gui->http, NULL, fd_gui_slot_level_cstr( gui, slots[ i ], recs[ i ] ) ) );
+      COL( "success_nonvote_transaction_cnt", if( recs[ i ]->nonvote_success==UINT_MAX ) jsonp_null( gui->http, NULL ); else jsonp_ulong( gui->http, NULL, recs[ i ]->nonvote_success ) );
+      COL( "failed_nonvote_transaction_cnt",  if( recs[ i ]->nonvote_failed ==UINT_MAX ) jsonp_null( gui->http, NULL ); else jsonp_ulong( gui->http, NULL, recs[ i ]->nonvote_failed  ) );
+      COL( "success_vote_transaction_cnt",    if( recs[ i ]->vote_success   ==UINT_MAX ) jsonp_null( gui->http, NULL ); else jsonp_ulong( gui->http, NULL, recs[ i ]->vote_success    ) );
+      COL( "failed_vote_transaction_cnt",     if( recs[ i ]->vote_failed    ==UINT_MAX ) jsonp_null( gui->http, NULL ); else jsonp_ulong( gui->http, NULL, recs[ i ]->vote_failed     ) );
+      COL( "priority_fee",    if( recs[ i ]->priority_fee   ==ULONG_MAX ) jsonp_null( gui->http, NULL ); else jsonp_ulong_as_str( gui->http, NULL, recs[ i ]->priority_fee    ) );
+      COL( "transaction_fee", if( recs[ i ]->transaction_fee==ULONG_MAX ) jsonp_null( gui->http, NULL ); else jsonp_ulong_as_str( gui->http, NULL, recs[ i ]->transaction_fee ) );
+      COL( "tips",            if( recs[ i ]->tips           ==ULONG_MAX ) jsonp_null( gui->http, NULL ); else jsonp_ulong_as_str( gui->http, NULL, recs[ i ]->tips            ) );
+      COL( "max_compute_units", if( recs[ i ]->max_compute_units==UINT_MAX ) jsonp_null( gui->http, NULL ); else jsonp_ulong( gui->http, NULL, recs[ i ]->max_compute_units ) );
+      COL( "compute_units",     if( recs[ i ]->compute_units    ==UINT_MAX ) jsonp_null( gui->http, NULL ); else jsonp_ulong( gui->http, NULL, recs[ i ]->compute_units     ) );
+      COL( "duration_nanos",    if( durations[ i ]==LONG_MAX ) jsonp_null( gui->http, NULL ); else jsonp_long( gui->http, NULL, durations[ i ] ) );
+      COL( "completed_time_nanos", if( recs[ i ]->completed_time==LONG_MAX ) jsonp_null( gui->http, NULL ); else jsonp_long_as_str( gui->http, NULL, recs[ i ]->completed_time ) );
+      COL( "vote_latency_exact", if( recs[ i ]->vote_latency_exact==FD_GUI_VOTE_LATENCY_NOT_VOTED ) jsonp_null( gui->http, NULL ); else jsonp_ulong( gui->http, NULL, recs[ i ]->vote_latency_exact ) );
+      COL( "is_voter", jsonp_bool( gui->http, NULL, fd_gui_resolve_slot_voter_state( gui, slots[ i ], recs[ i ] )==FD_GUI_IS_VOTER_YES ) );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+
+#undef COL
+}
+
+void
 fd_gui_printf_summary_ping( fd_gui_t * gui,
                             ulong      id ) {
   jsonp_open_envelope( gui->http, "summary", "ping" );
