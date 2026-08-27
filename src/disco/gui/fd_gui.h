@@ -571,7 +571,6 @@ struct fd_gui_store_replay_txn {
   uint  compute_units_requested; /* 0 means unavailable */
   uint  compute_units_consumed;
   uint  error_code;
-  uchar is_committable;
   uchar is_fees_only;
   uchar is_simple_vote;
 };
@@ -1513,6 +1512,11 @@ void
 fd_gui_handle_tower_update( fd_gui_t *                   gui,
                             fd_tower_slot_done_t const * msg,
                             long                         now );
+
+void
+fd_gui_handle_replay_txn( fd_gui_t *                       gui,
+                          fd_replay_txn_executed_t const * txn,
+                          long                             now );
 
 void
 fd_gui_handle_replay_update( fd_gui_t *                         gui,

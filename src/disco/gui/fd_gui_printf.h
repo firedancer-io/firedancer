@@ -124,6 +124,18 @@ fd_gui_printf_timeline_query_fec_events( fd_gui_t *   gui,
                                          long         end_ns,
                                          ulong        id );
 
+/* `key` selects the response shape: "query_txn_timestamps" emits the
+   per-stage timestamp columns, "query_txn_meta" emits the signature and
+   metadata columns. */
+
+int
+fd_gui_printf_timeline_query_txns( fd_gui_t *   gui,
+                                   char const * topic,
+                                   char const * key,
+                                   long         start_ns,
+                                   long         end_ns,
+                                   ulong        id );
+
 void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );
 

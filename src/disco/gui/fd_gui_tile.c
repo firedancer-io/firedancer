@@ -336,6 +336,18 @@ before_frag( fd_gui_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
+
+  /* Drop the replay signals the GUI does not consume.  This runs before
+     returnable_frag, which defers every replay frag until the epoch
+     schedule is known -- so the list below must keep each signal the GUI
+     does consume, or that deferral would never see it. */
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
+    return sig!=REPLAY_SIG_SLOT_COMPLETED &&
+           sig!=REPLAY_SIG_BECAME_LEADER  &&
+           sig!=REPLAY_SIG_ROOT_ADVANCED  &&
+           sig!=REPLAY_SIG_OC_ADVANCED    &&
+           sig!=REPLAY_SIG_TXN_EXECUTED;
+  }
   return 0;
 }
 
@@ -364,13 +376,6 @@ during_frag( fd_gui_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_DIAG ) ) {
     sz = sig;
-  }
-
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
-    if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED &&
-                   sig!=REPLAY_SIG_BECAME_LEADER  &&
-                   sig!=REPLAY_SIG_ROOT_ADVANCED  &&
-                   sig!=REPLAY_SIG_OC_ADVANCED ) ) return;
   }
 
   if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
@@ -494,6 +499,10 @@ after_frag( fd_gui_ctx_t *      ctx,
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_OC_ADVANCED ) ) {
         fd_replay_oc_advanced_t const * oc = (fd_replay_oc_advanced_t const *)src;
         fd_gui_handle_oc_advanced( ctx->gui, oc->slot, oc->bank_seq, fd_clock_tile_now( ctx->clock ) );
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
+        if( FD_UNLIKELY( sz!=sizeof(fd_replay_txn_executed_t) ) )
+          FD_LOG_ERR(( "replay txn executed message has unexpected size %lu (expected %lu)", sz, sizeof(fd_replay_txn_executed_t) ));
+        fd_gui_handle_replay_txn( ctx->gui, (fd_replay_txn_executed_t const *)src, fd_clock_tile_now( ctx->clock ) );
       } else {
         return;
       }

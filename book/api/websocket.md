@@ -2910,6 +2910,110 @@ empty result.  Its response is no longer the same shape as the live
 
 :::
 
+#### `timeline.query_txn_timestamps`
+| frequency   | type              | example |
+|-------------|-------------------|---------|
+| *Request*   | `TimelineTxnTs`   | below   |
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound of the window, as decimal digits |
+| end_ns      | `string` | Exclusive upper bound of the window, as decimal digits |
+| granularity | `string` | Must be `txn`.  Required |
+
+Per-transaction replay stage timings over a UNIX nanosecond window,
+selected by each transaction's completion time.  Rows are ordered by
+`(slot, txn_idx)`.
+
+All timestamps are emitted as deltas against `reference_ts`, which is
+the earliest stage timestamp across every row in the response — not the
+earliest completion time — so every delta is non-negative.  Stages that
+did not run are `null`.
+
+Over-large results return `result_limit_exceeded` as described for
+`timeline.query_shreds`.
+
+| field                         | type              | description |
+|-------------------------------|-------------------|-------------|
+| granularity                   | `string`          | Echoes `txn` |
+| reference_slot                | `number\|null`    | Smallest slot in the response |
+| reference_ts                  | `string\|null`    | Earliest stage timestamp in the response |
+| slot_delta                    | `number[]`        | Per row, `slot - reference_slot` |
+| txn_idx                       | `number[]`        | Per row, index of the transaction within its slot |
+| txn_exec_idx                  | `number[]`        | Per row, the execution tile that ran it |
+| txn_sigverify_exec_idx        | `number[]`        | Per row, the tile that signature-verified it |
+| txn_sigverify_start_ts_delta  | `string[]`        | Per row, delta against `reference_ts` |
+| txn_sigverify_end_ts_delta    | `string[]`        | Per row, delta against `reference_ts` |
+| txn_load_start_ts_delta       | `string[]`        | Per row, delta against `reference_ts` |
+| txn_check_start_ts_delta      | `(string\|null)[]`| Per row, delta against `reference_ts` |
+| txn_exec_start_ts_delta       | `(string\|null)[]`| Per row, delta against `reference_ts` |
+| txn_commit_start_ts_delta     | `(string\|null)[]`| Per row, delta against `reference_ts` |
+| txn_commit_end_ts_delta       | `string[]`        | Per row, delta against `reference_ts` |
+| txn_error_code                | `number[]`        | Per row, the runtime error code, 0 on success |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_txn_timestamps",
+    "id": 40,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000",
+        "granularity": "txn"
+    }
+}
+```
+
+:::
+
+#### `timeline.query_txn_meta`
+| frequency   | type              | example |
+|-------------|-------------------|---------|
+| *Request*   | `TimelineTxnMeta` | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound of the window, as decimal digits |
+| end_ns   | `string` | Exclusive upper bound of the window, as decimal digits |
+
+Per-transaction metadata over the same window and row ordering as
+`timeline.query_txn_timestamps`.  This method takes no `granularity`.
+
+Shares `reference_slot`, `reference_ts`, `slot_delta`, `txn_idx`,
+`txn_exec_idx`, `txn_sigverify_exec_idx` and `txn_error_code` with
+`query_txn_timestamps`, and adds:
+
+| field                       | type               | description |
+|-----------------------------|--------------------|-------------|
+| txn_signature               | `string[]`         | Per row, the base58 transaction signature |
+| txn_compute_units_requested | `(number\|null)[]` | Per row, requested compute units.  `null` when unavailable |
+| txn_compute_units_consumed  | `number[]`         | Per row, compute units actually consumed |
+| txn_transaction_fee         | `string[]`         | Per row, the base fee |
+| txn_priority_fee            | `string[]`         | Per row, the priority fee |
+| txn_tips                    | `string[]`         | Per row, tips |
+| txn_is_fees_only            | `boolean[]`        | Per row, whether only fees were charged |
+| txn_is_simple_vote          | `boolean[]`        | Per row, whether it is a simple vote |
+| txn_load_start_ts_delta     | `string[]`         | Per row, delta against `reference_ts` |
+| txn_commit_end_ts_delta     | `string[]`         | Per row, delta against `reference_ts` |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_txn_meta",
+    "id": 41,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000"
+    }
+}
+```
+
+:::
+
 ### slot
 Slots are opportunities for a leader to produce a block. Their level contract
 depends on the consensus mode.

@@ -2274,6 +2274,38 @@ fd_gui_request_timeline_events( fd_gui_t *    gui,
   return 0;
 }
 
+static int
+fd_gui_request_timeline_txns( fd_gui_t *    gui,
+                              ulong         ws_conn_id,
+                              char const *  topic,
+                              char const *  key,
+                              ulong         request_id,
+                              cJSON const * params ) {
+  const cJSON * start_param = cJSON_GetObjectItemCaseSensitive( params, "start_ns" );
+  const cJSON * end_param   = cJSON_GetObjectItemCaseSensitive( params, "end_ns"   );
+
+  long start_ns, end_ns;
+  if( FD_UNLIKELY( fd_gui_cjson_parse_ns( start_param, &start_ns ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  if( FD_UNLIKELY( fd_gui_cjson_parse_ns( end_param,   &end_ns   ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  if( FD_UNLIKELY( !(start_ns>=0L && start_ns<LONG_MAX) || !(end_ns>=0L && end_ns<LONG_MAX) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  if( FD_UNLIKELY( end_ns<=start_ns ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  int err;
+  if( FD_LIKELY( !strcmp( key, "query_txn_timestamps" ) ) ) {
+    cJSON const * gran_param = cJSON_GetObjectItemCaseSensitive( params, "granularity" );
+    if( FD_UNLIKELY( !cJSON_IsString( gran_param ) || !gran_param->valuestring ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    if( FD_LIKELY( !strcmp( gran_param->valuestring, "txn" ) ) ) err = fd_gui_printf_timeline_query_txns( gui, topic, key, start_ns, end_ns, request_id );
+    else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  } else {
+    err = fd_gui_printf_timeline_query_txns( gui, topic, key, start_ns, end_ns, request_id );
+  }
+
+  if( FD_UNLIKELY( err ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
 int
 fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         ws_conn_id,
@@ -2354,6 +2386,18 @@ fd_gui_ws_message( fd_gui_t *    gui,
     }
 
     int result = fd_gui_request_timeline_events( gui, ws_conn_id, topic->valuestring, id, params );
+    cJSON_Delete( json );
+    return result;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "timeline" ) &&
+                        ( !strcmp( key->valuestring, "query_txn_timestamps" ) ||
+                          !strcmp( key->valuestring, "query_txn_meta" ) ) ) ) {
+    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+
+    int result = fd_gui_request_timeline_txns( gui, ws_conn_id, topic->valuestring, key->valuestring, id, params );
     cJSON_Delete( json );
     return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
@@ -3372,6 +3416,70 @@ fd_gui_stage_landed_vote( fd_gui_t * gui,
   gui->landed_votes[ gui->landed_vote_cnt ].landed_bank_seq = landed_bank_seq;
   gui->landed_votes[ gui->landed_vote_cnt ].voted_slot      = voted_slot;
   gui->landed_vote_cnt++;
+}
+
+/* Replay reports transaction stage times as raw tickcounts.  Anchor them
+   against the wallclock sample taken when the frag was drained. */
+
+static inline long
+fd_gui_replay_tick_to_nanos( fd_gui_t const * gui,
+                             long             now,
+                             long             tick_now,
+                             long             tick ) {
+  if( FD_UNLIKELY( tick==LONG_MAX ) ) return LONG_MAX;
+  return now + (long)((double)(tick-tick_now) / gui->tick_per_ns);
+}
+
+void
+fd_gui_handle_replay_txn( fd_gui_t *                       gui,
+                          fd_replay_txn_executed_t const * txn,
+                          long                             now ) {
+  if( FD_UNLIKELY( txn->tick_sigverify_done==LONG_MAX || txn->tick_commit_end==LONG_MAX ) ) return;
+
+  long tick_now        = fd_tickcount();
+  long completion_tick = fd_long_max( txn->tick_sigverify_done, txn->tick_commit_end );
+
+  uint  pack_flags              = 0U;
+  ulong compute_units_requested = fd_pack_compute_cost( TXN( txn->txn ), txn->txn->payload,
+                                                        &pack_flags, NULL, NULL, NULL, NULL, NULL );
+
+  fd_gui_store_replay_txn_t rec = {
+    .completion_time_ns      = fd_gui_replay_tick_to_nanos( gui, now, tick_now, completion_tick ),
+    .slot                    = txn->slot,
+    .txn_idx                 = txn->index_in_slot,
+    .txn_exec_idx            = txn->exec_tile_idx,
+    .txn_sigverify_exec_idx  = txn->sigverify_exec_tile_idx,
+    .sigverify_start_ns      = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_sigverify_disp ),
+    .sigverify_end_ns        = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_sigverify_done ),
+    .load_start_ns           = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_load_start ),
+    .check_start_ns          = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_check_start ),
+    .exec_start_ns           = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_exec_start ),
+    .commit_start_ns         = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_commit_start ),
+    .commit_end_ns           = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_commit_end ),
+    .transaction_fee         = txn->transaction_fee,
+    .priority_fee            = txn->priority_fee,
+    .tips                    = txn->tips,
+    .compute_units_requested = (uint)compute_units_requested,
+    .compute_units_consumed  = txn->compute_units_consumed,
+    .error_code              = (uint)(-(long)txn->txn_err),
+    .is_fees_only            = (uchar)!!txn->is_fees_only,
+    .is_simple_vote          = (uchar)!!txn->is_simple_vote
+  };
+  fd_memcpy( rec.signature,
+             txn->txn->payload + TXN( txn->txn )->signature_off,
+             FD_TXN_SIGNATURE_SZ );
+
+  /* Every stage timestamp above is reconstructed relative to `now`, so
+     completion_time_ns trails the wallclock by exactly however far the
+     GUI is behind on this link.  Anchoring the append on the record's own
+     time rather than on `now` keeps the bounded-skew clamp from rewriting
+     a correct timestamp into a wrong one during a backlog, while leaving
+     the clamp itself in place for every other ring.
+
+     The ring's append order stays sorted because replay completes
+     transactions monotonically, which is what the eviction and the range
+     scan bound actually depend on. */
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, rec.completion_time_ns, rec.completion_time_ns, &rec );
 }
 
 void
