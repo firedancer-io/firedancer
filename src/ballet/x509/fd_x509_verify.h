@@ -72,10 +72,10 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
                       ulong                        hostname_len,
                       long                         unix_seconds );
 
-/* fd_x509_verify_tls_cert_msg verifies the certificate chain carried in
-   the body of a TLS 1.3 Certificate handshake message (RFC 8446
-   Section 4.4.2), i.e. a certificate_request_context followed by a
-   CertificateList.  Parses the chain, then verifies it with
+/* fd_x509_verify_tls_cert_msg verifies the server certificate chain
+   carried in the body of a TLS 1.3 Certificate handshake message (RFC
+   8446 Section 4.4.2), i.e. an empty certificate_request_context followed
+   by a CertificateList.  Parses the chain, then verifies it with
    fd_x509_verify_chain.  ca_store, hostname and hostname_len are as
    documented there.
 

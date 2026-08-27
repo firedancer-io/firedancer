@@ -199,20 +199,22 @@ fd_x509_verify_tls_cert_msg( uchar const *              cert_msg,
                              ulong                      hostname_len,
                              long                       unix_seconds ) {
 
+  if( FD_UNLIKELY( !cert_msg ) ) return FD_X509_VERIFY_ERR_PARSE;
+
   uchar const * p   = cert_msg;
   uchar const * end = cert_msg + cert_msg_sz;
 
-  /* certificate_request_context<0..2^8-1> */
+  /* A server Certificate sent for the main handshake must have an empty
+     certificate_request_context (RFC 8446 Section 4.4.2). */
   if( FD_UNLIKELY( (ulong)(end-p)<1UL ) ) return FD_X509_VERIFY_ERR_PARSE;
   ulong ctx_len = *p++;
-  if( FD_UNLIKELY( (ulong)(end-p)<ctx_len ) ) return FD_X509_VERIFY_ERR_PARSE;
-  p += ctx_len;
+  if( FD_UNLIKELY( ctx_len ) ) return FD_X509_VERIFY_ERR_PARSE;
 
   /* certificate_list<0..2^24-1> */
   if( FD_UNLIKELY( (ulong)(end-p)<3UL ) ) return FD_X509_VERIFY_ERR_PARSE;
   ulong list_len = ( (ulong)p[0]<<16 ) | ( (ulong)p[1]<<8 ) | (ulong)p[2];
   p += 3;
-  if( FD_UNLIKELY( p+list_len > end ) ) return FD_X509_VERIFY_ERR_PARSE;
+  if( FD_UNLIKELY( list_len != (ulong)( end-p ) ) ) return FD_X509_VERIFY_ERR_PARSE;
   uchar const * list_end = p + list_len;
 
   uchar const * chain_der   [ FD_X509_CHAIN_MAX ];
@@ -243,7 +245,16 @@ fd_x509_verify_tls_cert_msg( uchar const *              cert_msg,
     ulong ext_len = ( (ulong)p[0]<<8 ) | (ulong)p[1];
     p += 2;
     if( FD_UNLIKELY( (ulong)(list_end-p)<ext_len ) ) return FD_X509_VERIFY_ERR_PARSE;
-    p += ext_len;
+    uchar const * ext_end = p + ext_len;
+
+    while( p < ext_end ) {
+      if( FD_UNLIKELY( (ulong)(ext_end-p)<4UL ) ) return FD_X509_VERIFY_ERR_PARSE;
+      p += 2; /* ExtensionType */
+      ulong ext_data_len = ( (ulong)p[0]<<8 ) | (ulong)p[1];
+      p += 2;
+      if( FD_UNLIKELY( (ulong)(ext_end-p)<ext_data_len ) ) return FD_X509_VERIFY_ERR_PARSE;
+      p += ext_data_len;
+    }
   }
 
   if( FD_UNLIKELY( !chain_cnt ) ) return FD_X509_VERIFY_ERR_PARSE;
