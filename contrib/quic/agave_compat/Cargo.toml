@@ -15,11 +15,10 @@ env_logger = "0.11"
 libc = "0.2"
 rand = "0.10"
 solana-bls-signatures = "3.3.0"
-solana-connection-cache = "3.1.14"
-solana-client = "3.1.14"
 solana-keypair = "3.1.2"
 solana-pubkey = "3.0.0"
-solana-streamer = "3.1.14"
-solana-quic-client = "3.1.14"
+solana-streamer = { version = "3.1.14", features = ["agave-unstable-api"] }
+solana-tpu-client-next = { path = "../../../agave/tpu-client-next", features = ["agave-unstable-api", "dev-context-only-utils"] }
+tokio = { version = "1.52", features = ["full"] }
 tokio-util = "0.7"
-wincode = "=0.5.3"
+wincode = "=0.5.5"
