@@ -78,6 +78,7 @@ SYSCALL_ARGS = {
     "setsockopt":      (  "int",  "int",   "int", "long",  "int",    None  ),
     "shutdown":        (  "int",  "int",    None,   None,   None,    None  ),
     "socket":          (  "int",  "int",   "int",   None,   None,    None  ),
+    "sync_file_range": (  "int", "long",  "long",  "int",   None,    None  ),
     "wait4":           (  "int", "long",   "int", "long",   None,    None  ),
     "write":           (  "int", "long",  "long",   None,   None,    None  ),
     "writev":          (  "int", "long",  "long",   None,   None,    None  ),

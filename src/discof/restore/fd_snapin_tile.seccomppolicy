@@ -31,3 +31,26 @@ exit: (eq (arg 0) 0)
 # device in chunks, as it runs out.
 fallocate: (and (eq (arg 0) accounts_fd)
                 (eq (arg 1) 0))
+
+# accounts database: write account records at explicit offsets
+#
+# Parallel snapshot loader tiles write the packed account records
+# directly into their own partitions of the accounts file.
+#
+# arg 0 is the file descriptor to write to.
+pwrite64: (eq (arg 0) accounts_fd)
+
+# accounts database: tile 0 samples records back from the
+# accounts file at load end to verify the index and file agree.
+#
+# arg 0 is the file descriptor to read from.
+pread64: (eq (arg 0) accounts_fd)
+
+# accounts database: start and bound asynchronous writeback
+#
+# Parallel snapshot loader tiles kick kernel writeback of their
+# written records in large contiguous runs, and wait on the oldest
+# in-flight range to bound dirty page accumulation.
+#
+# arg 0 is the file descriptor being written back.
+sync_file_range: (eq (arg 0) accounts_fd)

@@ -1,9 +1,11 @@
+#define _GNU_SOURCE /* sync_file_range */
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssload.h"
 #include "utils/fd_ssmsg.h"
 #include "utils/fd_ssparse.h"
 #include "utils/fd_ssmanifest_parser.h"
 #include "utils/fd_slot_delta_parser.h"
+#include "utils/fd_snapin_io.h"
 #include "../../util/fd_hash32.h"
 
 #include "../../disco/topo/fd_topo.h"
@@ -25,12 +27,87 @@
 
 #include "generated/fd_snapin_tile_seccomp.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+
 #define NAME "snapin"
 
-/* The snapin tile is a state machine that parses and loads a full
-   and optionally an incremental snapshot.  It is currently responsible
-   for loading accounts into an in-memory database, though this may
-   change. */
+/* The snapshot loader runs as N identical fused parse+insert+write
+   snapin tiles (kind_id 0..N-1).  Every tile independently reassembles
+   the decompressed snapshot stream from all snapdc lanes (full reliable
+   consumer, expected-frame rotation), walks the tar entry headers via
+   the ssparse appendvec passthrough, and parses+inserts only the
+   appendvecs it claimed from the shared `next_appendvec` counter: one
+   eager claim at INIT, and the next claim taken as it starts parsing
+   the appendvec it holds, so ownership follows the tiles' actual
+   progress instead of a static rule.
+
+   Non-owned appendvec bodies are skipped by pure arithmetic inside the
+   passthrough parser, so a tile's frag release rate is its own scan
+   position -- there is no coordinator, no job/coverage protocol and no
+   returnable-frag hold.  Owned accounts are inserted through the
+   striped-lock accdb writer and their packed disk records pwrite()n at
+   the tile's own explicit offsets through a staging buffer.
+
+   All controls (INIT/FINI/...) ride the data lanes as barriers exactly
+   as in the sequential loader, and every tile acks them to snapct on
+   its own snapin_ct link (snapct counts ack links by name).  Tile 0
+   additionally parses the manifest and status cache (the stream places
+   them before all appendvecs; the other tiles discard those byte
+   ranges), owns the manif/gui out links, publishes the attempt slot,
+   and at end of load reads the shared totals and winner-gated snoop
+   targets and runs the readback gate.  Cross-tile coordination happens
+   exclusively through the snapio_snoop shared object; see
+   utils/fd_snapin_io.h for the happens-before chains.
+
+   Every write a tile makes to that shared object is one of exactly
+   three kinds: an atomic read-modify-write (`next_appendvec`,
+   `totals`), a write from inside the accdb snoop callback with the
+   account's stripe lock held (`slot_history`, `feature_snoop`), or a
+   write from tile 0's INIT critical sequence, which completes before
+   the attempt slot that releases every other tile is published. */
+
+/* Per-tile staging buffer coalescing the packed disk records of
+   consecutive accounts into one pwrite. */
+
+#define FD_SNAPIN_WRITE_BUF_SZ (2UL<<20)
+
+/* Write-behind: tiles kick async writeback of their flushed records in
+   large contiguous runs and bound their in-flight (kicked but not yet
+   completed) dirty bytes.  Without this, N tiles writing ~9 GB/s
+   aggregate into the page cache outrun the array's sustained
+   multi-stream writeback rate; once the accumulated dirty pages cross
+   the kernel's balance_dirty_pages engagement point, every pwrite gets
+   throttled with coarse (up to ~100 ms) sleeps -- and a sleeping tile
+   freezes its lane fseqs (tile fseq == scan position), which convoys
+   the ENTIRE pipe (measured at eight writers: raw intake collapsed from
+   9.3 GB/s to an oscillating 1.4-7 GB/s once ~100 GB of dirty pages had
+   accumulated).  The write-behind backstop replaces those coarse kernel
+   sleeps with smooth kick-granular self-throttling to the device, and
+   starting writeback immediately maximizes the bytes drained during the
+   load.  The aggregate window must stay below the throttle engagement
+   point ((dirty_background_ratio+dirty_ratio)/2, ~6.5% of RAM by
+   default) to preserve the page-cache elasticity that low tile counts
+   rely on. */
+
+#define FD_SNAPIN_WB_KICK_SZ      (64UL<<20) /* kick writeback per this many contiguous flushed bytes */
+#define FD_SNAPIN_WB_TOTAL_WINDOW (80UL<<30) /* aggregate kicked-not-waited budget across all tiles */
+#define FD_SNAPIN_WB_RING_CNT     (4096UL)   /* max outstanding kicked ranges (pow2) */
+
+/* Tile count at and above which write-behind is engaged.  Below it,
+   aggregate pwrite intake cannot outrun the array's writeback and
+   riding the page cache is measurably faster. */
+
+#define FD_SNAPIN_WB_MIN_WORKERS  (8UL)
+
+/* Timeout for the INIT attempt-slot spin gate.  The gate is
+   deadlock-free by construction -- tile 0's progress to its own INIT
+   barrier (which publishes the slot) depends only on already-published
+   frags, never on the spinner's fseq -- so a timeout indicates a
+   protocol bug and crashes loudly for debuggability. */
+
+#define FD_SNAPIN_SPIN_TIMEOUT_NS (30L*1000L*1000L*1000L)
 
 /* 300 root slots in the slot deltas array, and each one references all
    151 prior blockhashes that it's able to. */
@@ -96,9 +173,12 @@ typedef struct fd_snapin_out_link fd_snapin_out_link_t;
 struct fd_snapin_tile {
   int  state;
   uint full           : 1;  /* loading a full snapshot? */
-  uint init_completed : 1;  /* did INIT complete for this attempt? */
+  uint init_completed : 1;  /* tile 0: did INIT complete for this attempt? */
 
+  ulong tile_idx;           /* == tile->kind_id */
+  ulong tile_cnt;
   ulong lane_cnt;
+  ulong generation;         /* attempt counter, bumped at the first INIT frag (all tiles, in lockstep via their lane barriers) */
   ulong expected_frame;
   ulong pending_control;    /* control message expected from snapdc tiles */
   uchar control_seen[ FD_TOPO_MAX_TILE_IN_LINKS ];
@@ -107,33 +187,25 @@ struct fd_snapin_tile {
   long boot_timestamp;
 
   fd_accdb_t *    accdb;
-  fd_txncache_t * txncache;
+  fd_txncache_t * txncache; /* tile 0 only */
 
   fd_banks_t * banks;
-  fd_bank_t *  bank;
+  fd_bank_t *  bank;        /* tile 0 only */
 
+  /* Every tile updates the bank's root stake delegations directly from
+     the snoop callback (the struct serializes mutators on its own write
+     lock), so every tile joins banks even though only tile 0 owns the
+     bank itself. */
+  fd_stake_delegations_t * stake_delegations;
+
+  /* Tile 0: the feature snoop the bank is finalized from, accumulated
+     across the full and incremental loads.  Each attempt's shared
+     winner-gated copy is merged in at the NEXT/DONE barrier. */
   fd_feature_snoop_t feature_snoop[1];
-  struct {
-    int         capturing;
-    fd_pubkey_t pubkey;
-    ulong       lamports;
-    uchar       owner[ 32UL ];
-    ulong       need;
-    ulong       write_pos;
-    uchar       buf[ sizeof(fd_feature_t) ];
-  } feature_reasm;
-  struct {
-    int         capturing;
-    fd_pubkey_t pubkey;
-    ulong       lamports;
-    ulong       data_len;
-    ulong       write_pos;
-    uchar       buf[ sizeof(fd_stake_state_t) ];
-  } stake_reasm;
 
   fd_ssparse_t             ssparse[1];
-  fd_ssmanifest_parser_t * manifest_parser;
-  fd_slot_delta_parser_t * slot_delta_parser;
+  fd_ssmanifest_parser_t * manifest_parser;   /* tile 0 only */
+  fd_slot_delta_parser_t * slot_delta_parser; /* tile 0 only */
 
   struct {
     int manifest_done;
@@ -150,15 +222,14 @@ struct fd_snapin_tile {
   ulong full_genesis_creation_time_seconds;
   uchar advertised_hash[ FD_HASH_FOOTPRINT ];
 
-  ulong capitalization;          /* tracks capitalization of all loaded accounts in the current snapshot */
-  ulong dup_capitalization;      /* tracks capitalization of duplicate accounts encountered during incremental snapshot loading */
+  ulong capitalization;          /* tile 0: capitalization of all loaded accounts, from the shared totals */
+  ulong dup_capitalization;      /* tile 0: capitalization of duplicate accounts, from the shared totals */
   ulong manifest_capitalization; /* capitalization according to the current snapshot manifest */
 
   struct {
-    ulong                        capitalization;
-    fd_accdb_snapshot_recovery_t accdb_metadata;
-    fd_feature_snoop_t           feature_snoop;
-  } recovery; /* stores state from the last full snapshot for incremental revert */
+    ulong              capitalization;
+    fd_feature_snoop_t feature_snoop;
+  } recovery; /* tile 0: stores state from the last full snapshot for incremental revert */
 
   ulong               blockhash_groups_len;
   blockhash_group_t * blockhash_groups;
@@ -172,14 +243,17 @@ struct fd_snapin_tile {
   ulong                   txncache_current_slot_entry_cnt;
 
   fd_accdb_fork_id_t accdb_root_fork_id;
-  fd_accdb_fork_id_t accdb_incr_fork_id; /* child fork for incremental writes (purge on failure) */
+  fd_accdb_fork_id_t accdb_incr_fork_id; /* tile 0: child fork for incremental writes (purge on failure) */
   fd_txncache_fork_id_t txncache_root_fork_id;
 
   struct {
     ulong full_bytes_read;
     ulong incremental_bytes_read;
 
-    /* Account counters (full + incremental) */
+    /* Account counters.  Per attempt on every tile while an attempt is
+       in flight (zeroed when the tile folds them at FINI);
+       tile 0's are additionally the fold target at the NEXT/DONE
+       barrier, so after a load they hold the cross-tile totals. */
     ulong accounts_loaded;
     ulong accounts_replaced;
     ulong accounts_ignored;
@@ -203,31 +277,154 @@ struct fd_snapin_tile {
   } in[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   fd_snapin_out_link_t ct_out;
-  fd_snapin_out_link_t manifest_out;
-  fd_snapin_out_link_t gui_out;
+  fd_snapin_out_link_t manifest_out; /* tile 0 only */
+  fd_snapin_out_link_t gui_out;      /* tile 0 only */
+
+  /* Shared snapio_snoop object. */
+  fd_snapio_snoop_hdr_t * snoop_hdr;
+  uint *                  stripe_locks;
+  fd_snapio_worker_t *    my_snoop;                      /* this tile's fail-partition staging */
+  fd_snapio_worker_t *    snoops[ FD_SNAPIN_TILE_MAX ];   /* tile 0: all tiles' fail-partition staging */
+
+  /* Sharded parse state (per attempt). */
+  ulong appendvec_seq;      /* stream sequence number of the next appendvec header */
+  ulong claimed_appendvec;  /* the one outstanding claim off hdr->next_appendvec */
+  ulong owned_appendvecs;   /* claims consumed this attempt */
+  ulong owned_bytes;
+  ulong incr_fork;          /* accdb fork for this attempt's inserts, from the attempt slot (USHORT_MAX = full) */
+
+  /* Per-attempt insert counters, folded into the shared totals at FINI.
+     Kept separate from metrics.accounts_* because tile 0's gauges also
+     hold cross-attempt fold results. */
+  struct {
+    ulong accounts_loaded;
+    ulong accounts_replaced;
+    ulong accounts_ignored;
+    ulong input_lamports;
+    ulong replaced_lamports;
+    ulong ignored_lamports;
+  } worker;
+
+  /* Write engine: private explicit-offset write head + staging buffer. */
+  fd_accdb_snapshot_whead_t whead;
+  uchar * write_buf;
+  ulong   write_buf_used;
+  ulong   flush_off;        /* file offset of write_buf[0] */
+  ulong   bytes_written;
+  fd_accdb_snapshot_worker_metrics_t worker_metrics[1];
+  struct {
+    int   accepted;    /* 0 = ignored duplicate: drop the data bytes */
+    ulong received;
+    ulong file_off;    /* allocated meta offset; data at +sizeof(disk_meta) */
+  } open_acc;
+
+  /* Snoop view of the batch currently inside
+     fd_accdb_snapshot_write_batch_worker.  The callback only receives
+     the batch index, so the account inputs it needs are published here
+     first; the fields are live only for the duration of that one call
+     and are only read for indices flagged in snoop_candidates[]. */
+  struct {
+    ulong                 slot;
+    uchar const * const * pubkeys;
+    uchar const * const * owners;
+    uchar const * const * datas;
+    ulong const *         lamports;
+    ulong const *         data_lens;
+    ulong const *         data_szs;    /* bytes readable at datas[i] */
+    int   const *         executables;
+  } snoop_view;
+
+  /* Streaming-path snoop deferral.  A fragmented account body is not
+     available at ACCOUNT_HEADER time, but the shared snoop targets may
+     only be written from inside the callback, with the account's stripe
+     lock held.  So for the rare accounts a snoop cares about, the accdb
+     insert (and therefore the record staging) is held back until the
+     body prefix the snoop needs has been buffered here, and only then
+     issued as a one-entry batch.  `need` is always <= data_len, so the
+     buffer always fills before the body ends. */
+  struct {
+    int   active;
+    int   executable;
+    ulong slot;
+    ulong lamports;
+    ulong data_len;
+    ulong need;
+    ulong write_pos;
+    uchar pubkey[ 32UL ];
+    uchar owner [ 32UL ];
+    uchar buf   [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
+  } pending;
+
+  /* Write-behind (bounded in-flight dirty bytes). */
+  ulong wb_kick_sz;         /* kick granularity (lowered by tests) */
+  ulong wb_window;          /* per-tile in-flight cap; 0 disables */
+  ulong wb_run_off;         /* current un-kicked contiguous flushed run */
+  ulong wb_run_sz;
+  ulong wb_pending;         /* kicked but not yet waited-on bytes */
+  ulong wb_head;            /* ring of kicked ranges */
+  ulong wb_tail;
+  ulong wb_kick_cnt;        /* instrumentation */
+  ulong wb_wait_cnt;
+  struct { ulong off; ulong sz; } wb_ring[ FD_SNAPIN_WB_RING_CNT ];
+
+  /* Tile 0: end-of-attempt fold state. */
+  int   attempt_folded;     /* shared totals and snoop targets read out for this attempt? */
+  struct {
+    ulong eq_slot_dups;
+    ulong eq_slot_lamports_diff;
+    ulong bytes_written;
+  } worker_fold;
+
+  /* Tile 0: rollback of a failed attempt, deferred from the FAIL
+     barrier to the NEXT INIT barrier.  fd_accdb_reset and the
+     incremental purge path require that no other joiner is still
+     mutating shared state, but a tile that is behind on the stream
+     keeps inserting until it consumes its own FAIL barrier copies.
+     By the retry's INIT barrier every tile has provably quiesced:
+     snapct publishes the retry INIT only after ALL FAIL acks, and each
+     tile acks FAIL only after its worker-side teardown (including
+     writer_end).  If snapct aborts without retrying, the rollback
+     never runs and the database is left dirty at shutdown; benign,
+     the process exits and the next boot's INIT_FULL resets it. */
+  struct {
+    int                pending;
+    int                full;  /* kind of the failed attempt */
+    fd_accdb_fork_id_t fork;  /* incr fork of the failed attempt */
+  } rollback;
+
+  /* Tile 0: partitions abandoned by failed attempts (gathered from the
+     tiles' fail-partition staging at the FAIL quiesce), released back to the
+     partition pool once the failed attempt's index purge completed --
+     at the next INIT_INCR (whose attach_child waits for the purge); a
+     failed FULL attempt instead releases everything via fd_accdb_reset
+     at the retry's INIT_FULL.  Bounded by the partition pool size. */
+  uint  doomed_partitions[ FD_SNAPIO_FAIL_PARTITION_MAX ];
+  ulong doomed_partition_cnt;
+  struct {       /* appendvec size distribution, logged at FINI */
+    ulong cnt;
+    ulong bytes;
+    ulong max_sz;
+    ulong over_64m_cnt;
+    ulong over_256m_bytes;
+    ulong log2_hist[ 48 ];
+  } av_stats;
 
   ulong gui_config_acct_sz;   /* total expected account data length (0 when not accumulating) */
   ulong gui_config_acct_off;  /* bytes accumulated so far into the current gui_out link chunk */
 
-  /* In-memory copy of the SlotHistory sysvar account, captured by
-     snooping the account stream as the snapshot is loaded.  The accdb
-     read-back path is unsafe at the end of load because the snapwr
-     tile may not have flushed the bytes yet; the snoop path observes
-     the bytes directly.  The captured copy is then used by
-     verify_slot_deltas_with_slot_history.
-
-     Replacement uses the same precedence as fd_accdb_snapshot_write_*:
-     a write with slot >= captured.slot replaces the captured copy.
-     This handles the incremental snapshot superseding the full. */
+  /* Tile 0: in-memory copy of the SlotHistory sysvar account, read out
+     of the shared winner-gated capture at the NEXT/DONE barrier.  The
+     accdb read-back path is unsafe at the end of load because the
+     write-behind may not have flushed the bytes yet; the snoop path
+     observes the bytes directly.  The captured copy is then used by
+     verify_slot_deltas_with_slot_history. */
   struct {
     int   captured;
-    int   capturing; /* streaming-path: currently appending data for this account */
+    int   executable;
     ulong slot;
     ulong lamports;
     ulong data_len;
     uchar owner[ 32UL ];
-    int   executable;
-    ulong write_pos; /* bytes written into buf during the current streaming capture */
     uchar buf[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
   } slot_history;
 };
@@ -243,7 +440,7 @@ format_count( char * out, ulong out_sz, ulong n ) {
 
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && !ctx->tile_idx ) ) {
     ulong accounts_dup = ctx->metrics.accounts_ignored + ctx->metrics.accounts_replaced;
     long  elapsed_ns   = fd_log_wallclock() - ctx->boot_timestamp;
     char  loaded_buf[ 32 ];
@@ -258,19 +455,29 @@ should_shutdown( fd_snapin_tile_t * ctx ) {
 
 static ulong
 scratch_align( void ) {
-  return 512UL;
+  /* Must cover the largest FD_LAYOUT_APPEND alignment in
+     scratch_footprint (the 4096-aligned write buffer).  The footprint
+     is computed from a zero base, so if the topology placed the tile
+     object at a smaller alignment the runtime layout could consume up
+     to align-scratch_align more bytes than the footprint and overflow
+     into the next workspace object (with >=2 tiles that is the next
+     tile's ctx). */
+  return 4096UL;
 }
 
 static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),     sizeof(fd_snapin_tile_t)                                    );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots )        );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),              fd_accdb_footprint( tile->snapin.max_live_slots )           );
-  l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                            );
-  l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
-  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),       sizeof(fd_snapin_tile_t)                                    );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                fd_accdb_footprint( tile->snapin.max_live_slots )           );
+  if( FD_LIKELY( !tile->kind_id ) ) {
+    l = FD_LAYOUT_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots )        );
+    l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                            );
+    l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
+    l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  }
+  l = FD_LAYOUT_APPEND( l, 4096UL,                          FD_SNAPIN_WRITE_BUF_SZ                                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -290,10 +497,9 @@ metrics_write( fd_snapin_tile_t * ctx ) {
 
 /* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
    sysvar account after loading a snapshot.  Uses the in-memory copy
-   captured by snooping the account stream (process_account_batch /
-   process_account_header / process_account_data).  We cannot read
-   from accdb at this point because the snapwr tile's pwritev2 may
-   not have completed yet for the SlotHistory bytes.
+   read out of the shared winner-gated capture.  We cannot read from
+   accdb at this point because the write-behind may not have completed
+   yet for the SlotHistory bytes.
 
    Returns 0 if verification passed, -1 if not. */
 
@@ -843,25 +1049,281 @@ process_manifest( fd_snapin_tile_t *  ctx,
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
+static int
+validate_capitalization( fd_snapin_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
+    /* SnapshotError::MismatchedCapitalization
+        https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
+    FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization %lu",
+                     ctx->full?"full":"incr", ctx->manifest_capitalization, ctx->capitalization ));
+    return -1;
+  }
+  return 0;
+}
+
+/* Write engine ********************************************************/
+
 static void
-snoop_stake_delegation( fd_snapin_tile_t *  ctx,
-                        fd_pubkey_t const * stake_account,
-                        ulong               lamports,
-                        ulong               data_len,
-                        uchar const *       data,
-                        ulong               data_sz ) {
+worker_reset_write_engine( fd_snapin_tile_t * ctx ) {
+  ctx->write_buf_used      = 0UL;
+  ctx->flush_off           = 0UL;
+  ctx->bytes_written       = 0UL;
+  ctx->whead.val           = 0UL;
+  ctx->whead.has_partition = 0;
+  ctx->whead.attempt_partition_cnt = 0UL; /* tracker buffer/capacity are set once at init */
+  fd_memset( &ctx->open_acc, 0, sizeof(ctx->open_acc) );
+  ctx->wb_run_sz  = 0UL;
+  ctx->wb_pending = 0UL;
+  ctx->wb_head    = 0UL;
+  ctx->wb_tail    = 0UL;
+  ctx->wb_kick_cnt = 0UL;
+  ctx->wb_wait_cnt = 0UL;
+}
+
+/* Write-behind machinery.  worker_wb_disable turns it off for the rest
+   of the run (unsupported filesystem); worker_wb_kick starts async
+   writeback of the accumulated contiguous run; worker_wb_track records
+   a flushed range and applies the smooth self-throttle backstop. */
+
+static void
+worker_wb_disable( fd_snapin_tile_t * ctx ) {
+  FD_LOG_WARNING(( "sync_file_range failed (%d-%s); disabling write-behind", errno, fd_io_strerror( errno ) ));
+  ctx->wb_window  = 0UL;
+  ctx->wb_run_sz  = 0UL;
+  ctx->wb_pending = 0UL;
+  ctx->wb_head    = ctx->wb_tail;
+}
+
+static void
+worker_wb_kick( fd_snapin_tile_t * ctx ) {
+  if( FD_LIKELY( !ctx->wb_run_sz ) ) return;
+
+  /* Ring full: retire the oldest range first. */
+  if( FD_UNLIKELY( ctx->wb_tail-ctx->wb_head>=FD_SNAPIN_WB_RING_CNT ) ) {
+    ulong idx = ctx->wb_head & (FD_SNAPIN_WB_RING_CNT-1UL);
+    while( FD_UNLIKELY( -1==sync_file_range( FD_ACCDB_FD_RW, (long)ctx->wb_ring[ idx ].off, (long)ctx->wb_ring[ idx ].sz,
+                                             SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER ) ) ) {
+      if( FD_LIKELY( errno==EINTR ) ) continue;
+      worker_wb_disable( ctx );
+      return;
+    }
+    ctx->wb_pending -= ctx->wb_ring[ idx ].sz;
+    ctx->wb_head++;
+    ctx->wb_wait_cnt++;
+  }
+
+  while( FD_UNLIKELY( -1==sync_file_range( FD_ACCDB_FD_RW, (long)ctx->wb_run_off, (long)ctx->wb_run_sz, SYNC_FILE_RANGE_WRITE ) ) ) {
+    if( FD_LIKELY( errno==EINTR ) ) continue;
+    worker_wb_disable( ctx );
+    return;
+  }
+  ctx->wb_ring[ ctx->wb_tail & (FD_SNAPIN_WB_RING_CNT-1UL) ] = (__typeof__(ctx->wb_ring[0])){ .off = ctx->wb_run_off, .sz = ctx->wb_run_sz };
+  ctx->wb_tail++;
+  ctx->wb_pending += ctx->wb_run_sz;
+  ctx->wb_run_sz   = 0UL;
+  ctx->wb_kick_cnt++;
+}
+
+static void
+worker_wb_track( fd_snapin_tile_t * ctx,
+                 ulong              off,
+                 ulong              sz ) {
+  if( FD_LIKELY( !ctx->wb_window ) ) return;
+
+  if( FD_UNLIKELY( ctx->wb_run_sz && off!=ctx->wb_run_off+ctx->wb_run_sz ) ) worker_wb_kick( ctx ); /* partition rotation */
+  if( FD_UNLIKELY( !ctx->wb_run_sz ) ) ctx->wb_run_off = off;
+  ctx->wb_run_sz += sz;
+  if( FD_UNLIKELY( ctx->wb_run_sz>=ctx->wb_kick_sz ) ) worker_wb_kick( ctx );
+
+  /* Backstop: wait on the oldest kicked range whenever the in-flight
+     window is exceeded.  That range was kicked tens of kicks ago
+     (window/kick_sz), so the wait is short and kick granular: the lane
+     runway rides through it where the kernel's coarse dirty-throttle
+     sleeps would stall the pipe. */
+  while( FD_UNLIKELY( ctx->wb_window && ctx->wb_pending>ctx->wb_window && ctx->wb_head!=ctx->wb_tail ) ) {
+    ulong idx = ctx->wb_head & (FD_SNAPIN_WB_RING_CNT-1UL);
+    while( FD_UNLIKELY( -1==sync_file_range( FD_ACCDB_FD_RW, (long)ctx->wb_ring[ idx ].off, (long)ctx->wb_ring[ idx ].sz,
+                                             SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER ) ) ) {
+      if( FD_LIKELY( errno==EINTR ) ) continue;
+      worker_wb_disable( ctx );
+      return;
+    }
+    ctx->wb_pending -= ctx->wb_ring[ idx ].sz;
+    ctx->wb_head++;
+    ctx->wb_wait_cnt++;
+  }
+}
+
+/* Staging buffer: buffered pwrites into the tile's own accdb
+   partitions.  flush_off is explicit because per-tile offsets are only
+   sequential within a partition; worker_buffer_write flushes whenever
+   the allocator rotates. */
+
+static void
+worker_buffer_flush( fd_snapin_tile_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->write_buf_used ) ) return;
+
+  ulong sz  = ctx->write_buf_used;
+  ulong off = ctx->flush_off;
+  ulong bytes_written = 0UL;
+  while( bytes_written<sz ) {
+    long res = pwrite( FD_ACCDB_FD_RW, ctx->write_buf+bytes_written, sz-bytes_written, (long)(off+bytes_written) );
+    if( FD_UNLIKELY( -1L==res ) ) {
+      if( FD_LIKELY( errno==EINTR ) ) continue;
+      FD_LOG_ERR(( "error writing to disk (%d-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    bytes_written      += (ulong)res;
+    ctx->bytes_written += (ulong)res;
+  }
+  ctx->flush_off      += sz;
+  ctx->write_buf_used  = 0UL;
+
+  worker_wb_track( ctx, off, sz );
+}
+
+static void
+worker_buffer_write( fd_snapin_tile_t * ctx,
+                     ulong              file_off,
+                     uchar const *      data,
+                     ulong              sz ) {
+  /* Force a flush whenever the next offset is not the natural append
+     point (first write, or the allocator rotated to a new partition). */
+  if( FD_UNLIKELY( file_off!=ctx->flush_off+ctx->write_buf_used ) ) {
+    worker_buffer_flush( ctx );
+    ctx->flush_off = file_off;
+  }
+  while( sz ) {
+    ulong avail = FD_SNAPIN_WRITE_BUF_SZ - ctx->write_buf_used;
+    ulong n     = fd_ulong_min( sz, avail );
+    fd_memcpy( ctx->write_buf + ctx->write_buf_used, data, n );
+    ctx->write_buf_used += n;
+    data += n;
+    sz   -= n;
+    if( FD_UNLIKELY( ctx->write_buf_used==FD_SNAPIN_WRITE_BUF_SZ ) ) worker_buffer_flush( ctx );
+  }
+}
+
+static void
+worker_stage_meta( fd_snapin_tile_t * ctx,
+                   ulong              file_off,
+                   uchar const *      pubkey,
+                   uchar const *      owner,
+                   ulong              data_len ) {
+  fd_accdb_disk_meta_t meta;
+  fd_memcpy( meta.pubkey, pubkey, 32UL );
+  meta.size       = (uint)data_len;
+  meta.generation = 0U;
+  fd_memcpy( meta.owner, owner, 32UL );
+  worker_buffer_write( ctx, file_off, meta.b, sizeof(fd_accdb_disk_meta_t) );
+}
+
+/* Winner-gated snoops ***********************************************/
+
+/* A tile snoops three kinds of account: the SlotHistory sysvar (by
+   pubkey) and the feature-gate and stake programs (by owner).  Only
+   these are flagged as snoop candidates, so the callback never touches
+   the hot insert path. */
+
+static inline int
+worker_snoop_candidate( uchar const * pubkey,
+                        uchar const * owner ) {
+  return !memcmp( owner,  fd_solana_feature_program_id.uc, 32UL )
+      || !memcmp( owner,  fd_solana_stake_program_id.uc,   32UL )
+      || !memcmp( pubkey, fd_sysvar_slot_history_id.uc,    32UL );
+}
+
+/* worker_snoop_need returns how many leading body bytes the snoops need
+   from a candidate account, applying the same gates as the sequential
+   loader (a gate that rejects the account outright yields 0).  It is
+   always <= data_len, so the streaming path's buffer fills before the
+   body ends. */
+
+static inline ulong
+worker_snoop_need( uchar const * pubkey,
+                   uchar const * owner,
+                   ulong         lamports,
+                   ulong         data_len ) {
+  if( FD_UNLIKELY( !memcmp( pubkey, fd_sysvar_slot_history_id.uc, 32UL ) ) ) {
+    return data_len<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ? data_len : 0UL;
+  }
+  if( FD_UNLIKELY( !lamports ) ) return 0UL;
+  if( FD_UNLIKELY( !memcmp( owner, fd_solana_feature_program_id.uc, 32UL ) ) ) {
+    return fd_ulong_min( data_len, sizeof(fd_feature_t) );
+  }
+  if( FD_UNLIKELY( !memcmp( owner, fd_solana_stake_program_id.uc, 32UL ) ) ) {
+    return data_len>=sizeof(fd_stake_state_t) ? sizeof(fd_stake_state_t) : 0UL;
+  }
+  return 0UL;
+}
+
+FD_STATIC_ASSERT( sizeof(fd_feature_t)    <=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, snoop_prefix_buf );
+FD_STATIC_ASSERT( sizeof(fd_stake_state_t)<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, snoop_prefix_buf );
+
+/* worker_snoop_winner is the accdb snoop callback: the striped writer
+   invokes it for every insert-or-replace winner the tile flagged as a
+   candidate, with that account's stripe lock STILL HELD.  Because one
+   pubkey always hashes to one stripe, and because equal-slot
+   cross-appendvec duplicates hard-fail the load, the winners for a
+   given pubkey fire serialized and in strictly increasing slot order:
+   the last callback to fire is the highest-slot version, which is the
+   version the sequential loader would have kept.  Writing the shared
+   snoop targets only from here is therefore both race-free and
+   stream-order equivalent, with no positional tiebreak needed.
+
+   Distinct pubkeys may run here concurrently, but they only ever touch
+   disjoint targets: distinct elements of the feature snoop's per-id
+   arrays, or the stake-delegations struct, which serializes mutators on
+   its own write lock.  That nests the stake lock inside a stripe lock;
+   the order is one-way (no accdb path takes a stripe lock while holding
+   the stake lock), so it cannot deadlock. */
+
+static void
+worker_snoop_winner( void * cb_ctx,
+                     ulong  batch_idx ) {
+  fd_snapin_tile_t * ctx = (fd_snapin_tile_t *)cb_ctx;
+
+  uchar const * pubkey   = ctx->snoop_view.pubkeys  [ batch_idx ];
+  uchar const * owner    = ctx->snoop_view.owners   [ batch_idx ];
+  uchar const * data     = ctx->snoop_view.datas    [ batch_idx ];
+  ulong         lamports = ctx->snoop_view.lamports [ batch_idx ];
+  ulong         data_len = ctx->snoop_view.data_lens[ batch_idx ];
+  ulong         data_sz  = ctx->snoop_view.data_szs [ batch_idx ];
+
+  if( FD_UNLIKELY( !memcmp( pubkey, fd_sysvar_slot_history_id.uc, 32UL ) ) ) {
+    if( FD_UNLIKELY( data_len>FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) return;
+    fd_snapio_snoop_hdr_t * hdr = ctx->snoop_hdr;
+    hdr->slot_history.slot       = ctx->snoop_view.slot;
+    hdr->slot_history.lamports   = lamports;
+    hdr->slot_history.data_len   = data_len;
+    hdr->slot_history.executable = ctx->snoop_view.executables[ batch_idx ];
+    fd_memcpy( hdr->slot_history.owner, owner, 32UL );
+    fd_memcpy( hdr->slot_history.buf, data, fd_ulong_min( data_len, data_sz ) );
+    hdr->slot_history.captured   = 1;
+    return;
+  }
+
+  if( FD_UNLIKELY( !memcmp( owner, fd_solana_feature_program_id.uc, 32UL ) ) ) {
+    fd_feature_snoop_account( &ctx->snoop_hdr->feature_snoop, (fd_pubkey_t const *)pubkey,
+                              lamports, owner, data, data_sz );
+    return;
+  }
+
+  if( FD_UNLIKELY( !lamports ) ) return;
+
+  /* Stake delegation.  Same per-account update the sequential loader
+     applies, so a parallel load leaves the identical delegation set. */
   fd_stake_state_t const * stake_state = fd_stake_state_view( data, data_sz );
   if( FD_UNLIKELY( !stake_state || stake_state->stake_type!=FD_STAKE_STATE_STAKE ) ) return;
 
   fd_delegation_t const * delegation = &stake_state->stake.stake.delegation;
   if( FD_UNLIKELY( ( delegation->activation_epoch!=ULONG_MAX &&
-                    delegation->activation_epoch>=(ulong)USHORT_MAX ) ||
+                     delegation->activation_epoch>=(ulong)USHORT_MAX ) ||
                    ( delegation->deactivation_epoch!=ULONG_MAX &&
-                    delegation->deactivation_epoch>=(ulong)USHORT_MAX ) ) ) return;
+                     delegation->deactivation_epoch>=(ulong)USHORT_MAX ) ) ) return;
 
   fd_stake_delegations_root_update(
-      fd_banks_stake_delegations_root_query( ctx->banks ),
-      stake_account,
+      ctx->stake_delegations,
+      (fd_pubkey_t const *)pubkey,
       &delegation->voter_pubkey,
       delegation->stake,
       delegation->activation_epoch,
@@ -873,185 +1335,248 @@ snoop_stake_delegation( fd_snapin_tile_t *  ctx,
       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 }
 
+static void
+worker_reset_attempt( fd_snapin_tile_t * ctx ) {
+  ctx->expected_frame = 0UL;
+  for( ulong lane=0UL; lane<ctx->lane_cnt; lane++ ) ctx->in[ lane ].pos = 0UL;
+  ctx->appendvec_seq    = 0UL;
+  ctx->owned_appendvecs = 0UL;
+  ctx->owned_bytes      = 0UL;
+  ctx->incr_fork        = ULONG_MAX;
+  worker_reset_write_engine( ctx );
+  fd_memset( &ctx->worker, 0, sizeof(ctx->worker) );
+  fd_memset( ctx->worker_metrics, 0, sizeof(ctx->worker_metrics) );
+  ctx->metrics.accounts_loaded   = 0UL;
+  ctx->metrics.accounts_replaced = 0UL;
+  ctx->metrics.accounts_ignored  = 0UL;
+  ctx->pending.active            = 0;
+  fd_ssparse_init( ctx->ssparse );
+  fd_ssparse_batch_enable( ctx->ssparse, 1 );
+  fd_ssparse_appendvec_passthrough_enable( ctx->ssparse, 1 );
+  /* claimed_appendvec is deliberately NOT reset here: the INIT handler
+     draws a fresh claim for every attempt after the spin gate, so there
+     is no unclaimed sentinel to restore.
+
+     my_snoop's fail_partition_cnt is likewise NOT touched -- only the
+     owning tile's FAIL handler stamps it and only tile 0 clears it (at
+     the deferred-rollback gather), because INIT barriers complete in
+     arbitrary tile order and a tile zeroing its own list at INIT would
+     race tile 0's gather.  The shared next_appendvec, totals and
+     winner-gated snoop targets are re-zeroed once by tile 0 in its INIT
+     critical sequence, not per-tile here. */
+}
+
 static int
-process_account_batch( fd_snapin_tile_t *            ctx,
-                       fd_ssparse_advance_result_t * result ) {
+worker_process_account_batch( fd_snapin_tile_t *            ctx,
+                              fd_ssparse_advance_result_t * result ) {
   uchar const * const * entries    = result->account_batch.batch;
   ulong                 cnt        = result->account_batch.batch_cnt;
   ulong                 batch_slot = result->account_batch.slot;
 
-  uchar const * pubkeys    [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
-  ulong         lamports   [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
-  ulong         data_lens  [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
-  int           executables[ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  uchar const * pubkeys     [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  uchar const * owners      [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  uchar const * datas       [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  ulong         lamports    [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  ulong         data_lens   [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  int           executables [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  int           candidates  [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  ulong         file_offsets[ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
 
   for( ulong i=0UL; i<cnt; i++ ) {
     uchar const * e = entries[ i ];
     pubkeys[ i ]     = e + 16UL;
+    owners[ i ]      = e + 64UL;
+    datas[ i ]       = e + 136UL; /* batch bodies are contiguous */
     lamports[ i ]    = fd_ulong_load_8_fast( e+48UL );
     data_lens[ i ]   = fd_ulong_load_8_fast( e+8UL );
     executables[ i ] = e[ 96UL ];
-
-    /* Snoop SlotHistory sysvar.  Account body in the batch path is
-       contiguous starting at e+136. */
-    if( FD_UNLIKELY( !memcmp( pubkeys[ i ], fd_sysvar_slot_history_id.uc, 32UL ) ) &&
-        ( !ctx->slot_history.captured || batch_slot>=ctx->slot_history.slot ) &&
-        data_lens[ i ]<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) {
-      ctx->slot_history.slot       = batch_slot;
-      ctx->slot_history.lamports   = lamports[ i ];
-      ctx->slot_history.data_len   = data_lens[ i ];
-      ctx->slot_history.executable = executables[ i ];
-      memcpy( ctx->slot_history.owner, e+64UL, 32UL );
-      memcpy( ctx->slot_history.buf, e+136UL, data_lens[ i ] );
-      ctx->slot_history.captured   = 1;
-    }
-
-    fd_feature_snoop_account( ctx->feature_snoop, (fd_pubkey_t const *)pubkeys[ i ], lamports[ i ], e+64UL, e+136UL, data_lens[ i ] );
-
-    if( FD_UNLIKELY( lamports[ i ] &&
-                     !memcmp( e+64UL, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
-      snoop_stake_delegation( ctx, (fd_pubkey_t const *)pubkeys[ i ], lamports[ i ],
-                              data_lens[ i ], e+136UL, data_lens[ i ] );
-    }
+    candidates[ i ]  = worker_snoop_candidate( pubkeys[ i ], owners[ i ] );
   }
+
+  ctx->snoop_view.slot        = batch_slot;
+  ctx->snoop_view.pubkeys     = pubkeys;
+  ctx->snoop_view.owners      = owners;
+  ctx->snoop_view.datas       = datas;
+  ctx->snoop_view.lamports    = lamports;
+  ctx->snoop_view.data_lens   = data_lens;
+  ctx->snoop_view.data_szs    = data_lens;
+  ctx->snoop_view.executables = executables;
 
   ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
-  fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
-  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, batch_slot, lamports, data_lens,
-                                                     executables, &accounts_ignored, &accounts_replaced, &accounts_loaded,
-                                                     &replaced_lamports, &ignored_lamports ) ) ) {
+  fd_accdb_fork_id_t fork_id = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
+  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch_worker( ctx->accdb, fork_id, cnt, pubkeys, batch_slot, lamports,
+                                                            data_lens, executables, candidates, &ctx->whead,
+                                                            ctx->stripe_locks, FD_SNAPIO_STRIPE_MSK, ctx->worker_metrics,
+                                                            file_offsets, &accounts_ignored, &accounts_replaced,
+                                                            &accounts_loaded, &replaced_lamports, &ignored_lamports,
+                                                            worker_snoop_winner, ctx ) ) ) {
     return -1;
   }
+
+  /* Stage the accepted disk records (72 byte header + data, packed at
+     the allocated explicit offsets; ignored dups burn no space). */
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( file_offsets[ i ]==ULONG_MAX ) ) continue;
+    worker_stage_meta( ctx, file_offsets[ i ], pubkeys[ i ], owners[ i ], data_lens[ i ] );
+    if( FD_LIKELY( data_lens[ i ] ) ) {
+      worker_buffer_write( ctx, file_offsets[ i ]+sizeof(fd_accdb_disk_meta_t), datas[ i ], data_lens[ i ] );
+    }
+  }
+
   ctx->metrics.accounts_ignored  += accounts_ignored;
   ctx->metrics.accounts_replaced += accounts_replaced;
   ctx->metrics.accounts_loaded   += accounts_loaded;
   ctx->metrics.total_accounts_processed += cnt;
   ctx->metrics.total_account_batches_processed++;
-  /* Sum lamports of every accepted entry into capitalization, and
-     accumulate the lamports of overwritten entries into
-     dup_capitalization so the final value can be reconciled with the
-     manifest.  Ignored entries (older slot than what's already in the
-     accdb) contribute neither to the live database nor to capitalization,
-     so subtract their lamports back out. */
-  for( ulong i=0UL; i<cnt; i++ ) ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, lamports[ i ] );
-  ctx->capitalization     = fd_ulong_sat_sub( ctx->capitalization, ignored_lamports );
-  ctx->dup_capitalization = fd_ulong_sat_add( ctx->dup_capitalization, replaced_lamports );
+  ctx->worker.accounts_ignored  += accounts_ignored;
+  ctx->worker.accounts_replaced += accounts_replaced;
+  ctx->worker.accounts_loaded   += accounts_loaded;
+  for( ulong i=0UL; i<cnt; i++ ) ctx->worker.input_lamports = fd_ulong_sat_add( ctx->worker.input_lamports, lamports[ i ] );
+  ctx->worker.replaced_lamports = fd_ulong_sat_add( ctx->worker.replaced_lamports, replaced_lamports );
+  ctx->worker.ignored_lamports  = fd_ulong_sat_add( ctx->worker.ignored_lamports,  ignored_lamports  );
 
+  return 0;
+}
+
+/* worker_insert_one inserts a single streamed account, stages its meta
+   record and opens the tile's body-write window.  candidate flags the
+   account for the snoop callback, in which case data[0,data_sz) is the
+   body prefix the snoops read (see ctx->pending). */
+
+static int
+worker_insert_one( fd_snapin_tile_t * ctx,
+                   uchar const *      pubkey,
+                   uchar const *      owner,
+                   ulong              slot,
+                   ulong              lamports,
+                   ulong              data_len,
+                   int                executable,
+                   int                candidate,
+                   uchar const *      data,
+                   ulong              data_sz ) {
+  uchar const * pubkeys     [ 1 ] = { pubkey };
+  uchar const * owners      [ 1 ] = { owner };
+  uchar const * datas       [ 1 ] = { data };
+  ulong         lamports_a  [ 1 ] = { lamports };
+  ulong         data_lens   [ 1 ] = { data_len };
+  ulong         data_szs    [ 1 ] = { data_sz };
+  int           executables [ 1 ] = { executable };
+  int           candidates  [ 1 ] = { candidate };
+  ulong         file_offsets[ 1 ];
+
+  ctx->snoop_view.slot        = slot;
+  ctx->snoop_view.pubkeys     = pubkeys;
+  ctx->snoop_view.owners      = owners;
+  ctx->snoop_view.datas       = datas;
+  ctx->snoop_view.lamports    = lamports_a;
+  ctx->snoop_view.data_lens   = data_lens;
+  ctx->snoop_view.data_szs    = data_szs;
+  ctx->snoop_view.executables = executables;
+
+  ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
+  fd_accdb_fork_id_t fork_id = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
+  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch_worker( ctx->accdb, fork_id, 1UL, pubkeys, slot, lamports_a,
+                                                            data_lens, executables, candidates, &ctx->whead,
+                                                            ctx->stripe_locks, FD_SNAPIO_STRIPE_MSK, ctx->worker_metrics,
+                                                            file_offsets, &accounts_ignored, &accounts_replaced,
+                                                            &accounts_loaded, &replaced_lamports, &ignored_lamports,
+                                                            worker_snoop_winner, ctx ) ) ) {
+    return -1;
+  }
+  int ignored = file_offsets[ 0 ]==ULONG_MAX;
+
+  ctx->open_acc.accepted = !ignored;
+  ctx->open_acc.received = 0UL;
+  ctx->open_acc.file_off = file_offsets[ 0 ];
+  if( FD_LIKELY( !ignored ) ) worker_stage_meta( ctx, file_offsets[ 0 ], pubkey, owner, data_len );
+
+  ctx->metrics.accounts_ignored  += accounts_ignored;
+  ctx->metrics.accounts_replaced += accounts_replaced;
+  ctx->metrics.accounts_loaded   += accounts_loaded;
+  ctx->metrics.total_accounts_processed++;
+  ctx->metrics.total_account_batches_processed++;
+  ctx->worker.accounts_ignored  += accounts_ignored;
+  ctx->worker.accounts_replaced += accounts_replaced;
+  ctx->worker.accounts_loaded   += accounts_loaded;
+  ctx->worker.input_lamports    = fd_ulong_sat_add( ctx->worker.input_lamports,    lamports );
+  ctx->worker.replaced_lamports = fd_ulong_sat_add( ctx->worker.replaced_lamports, replaced_lamports );
+  ctx->worker.ignored_lamports  = fd_ulong_sat_add( ctx->worker.ignored_lamports,  ignored_lamports  );
+
+  return 0;
+}
+
+/* worker_pending_flush issues the held-back insert of a snoop candidate
+   now that its body prefix is buffered, then stages that prefix; the
+   rest of the body streams normally from here. */
+
+static int
+worker_pending_flush( fd_snapin_tile_t * ctx ) {
+  ctx->pending.active = 0;
+  if( FD_UNLIKELY( 0!=worker_insert_one( ctx, ctx->pending.pubkey, ctx->pending.owner, ctx->pending.slot,
+                                         ctx->pending.lamports, ctx->pending.data_len, ctx->pending.executable,
+                                         1, ctx->pending.buf, ctx->pending.write_pos ) ) ) return -1;
+  if( FD_LIKELY( ctx->open_acc.accepted && ctx->pending.write_pos ) ) {
+    worker_buffer_write( ctx, ctx->open_acc.file_off+sizeof(fd_accdb_disk_meta_t),
+                         ctx->pending.buf, ctx->pending.write_pos );
+  }
+  ctx->open_acc.received = ctx->pending.write_pos;
   return 0;
 }
 
 static int
-process_account_header( fd_snapin_tile_t * ctx,
-                        fd_ssparse_advance_result_t * result ) {
-  ctx->metrics.total_account_batches_processed++;
-  ctx->metrics.total_accounts_processed++;
-  ulong replaced_lamports = 0UL;
-  fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
-  int account = fd_accdb_snapshot_write_one( ctx->accdb,
-                                             fork_id,
-                                             result->account_header.pubkey,
-                                             result->account_header.slot,
-                                             result->account_header.lamports,
-                                             result->account_header.data_len,
-                                             result->account_header.executable,
-                                             &replaced_lamports );
-  if( FD_UNLIKELY( -1==account ) ) {
-    ctx->metrics.accounts_ignored++;
-  } else {
-    if( FD_UNLIKELY( 2==account ) ) {
-      ctx->metrics.accounts_replaced++;
-      ctx->dup_capitalization = fd_ulong_sat_add( ctx->dup_capitalization, replaced_lamports );
-    } else {
-      ctx->metrics.accounts_loaded++;
-    }
-    ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, result->account_header.lamports );
+worker_process_account_header( fd_snapin_tile_t *            ctx,
+                               fd_ssparse_advance_result_t * result ) {
+  uchar const * pubkey   = result->account_header.pubkey;
+  uchar const * owner    = result->account_header.owner;
+  ulong         lamports = result->account_header.lamports;
+  ulong         data_len = result->account_header.data_len;
+
+  if( FD_LIKELY( !worker_snoop_candidate( pubkey, owner ) ) ) {
+    return worker_insert_one( ctx, pubkey, owner, result->account_header.slot, lamports, data_len,
+                              result->account_header.executable, 0, NULL, 0UL );
   }
 
-  /* Snoop SlotHistory sysvar.  Streaming path: arm the capture window
-     here; process_account_data appends bytes while armed. */
-  ctx->slot_history.capturing = 0;
-  if( FD_UNLIKELY( !memcmp( result->account_header.pubkey, fd_sysvar_slot_history_id.uc, 32UL ) ) &&
-      ( !ctx->slot_history.captured || result->account_header.slot>=ctx->slot_history.slot ) &&
-      result->account_header.data_len<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) {
-    ctx->slot_history.slot       = result->account_header.slot;
-    ctx->slot_history.lamports   = result->account_header.lamports;
-    ctx->slot_history.data_len   = result->account_header.data_len;
-    ctx->slot_history.executable = result->account_header.executable;
-    memcpy( ctx->slot_history.owner, result->account_header.owner, 32UL );
-    ctx->slot_history.write_pos  = 0UL;
-    ctx->slot_history.capturing  = 1;
-  }
-  ctx->feature_reasm.capturing = 0;
-  if( FD_UNLIKELY( !memcmp( result->account_header.owner, fd_solana_feature_program_id.uc, 32UL ) &&
-                   result->account_header.lamports ) ) {
-    memcpy( ctx->feature_reasm.pubkey.uc, result->account_header.pubkey, 32UL );
-    memcpy( ctx->feature_reasm.owner,     result->account_header.owner,  32UL );
-    ctx->feature_reasm.lamports  = result->account_header.lamports;
-    ctx->feature_reasm.need      = fd_ulong_min( result->account_header.data_len, sizeof(ctx->feature_reasm.buf) );
-    ctx->feature_reasm.write_pos = 0UL;
-    ctx->feature_reasm.capturing = 1;
-    if( FD_UNLIKELY( !ctx->feature_reasm.need ) ) {
-      fd_feature_snoop_account( ctx->feature_snoop, &ctx->feature_reasm.pubkey,
-                                ctx->feature_reasm.lamports, ctx->feature_reasm.owner,
-                                ctx->feature_reasm.buf, 0UL );
-      ctx->feature_reasm.capturing = 0;
-    }
-  }
-
-  ctx->stake_reasm.capturing = 0;
-  if( FD_UNLIKELY( account!=-1 &&
-                   result->account_header.lamports &&
-                   result->account_header.data_len>=sizeof(fd_stake_state_t) &&
-                   !memcmp( result->account_header.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
-    memcpy( ctx->stake_reasm.pubkey.uc, result->account_header.pubkey, sizeof(fd_pubkey_t) );
-    ctx->stake_reasm.lamports  = result->account_header.lamports;
-    ctx->stake_reasm.data_len  = result->account_header.data_len;
-    ctx->stake_reasm.write_pos = 0UL;
-    ctx->stake_reasm.capturing = 1;
-  }
-
+  /* Snoop candidate: hold the insert back until the prefix the snoops
+     need has been buffered, so the callback can write the shared
+     targets with the stripe lock held. */
+  ctx->pending.active     = 1;
+  ctx->pending.executable = result->account_header.executable;
+  ctx->pending.slot       = result->account_header.slot;
+  ctx->pending.lamports   = lamports;
+  ctx->pending.data_len   = data_len;
+  ctx->pending.need       = worker_snoop_need( pubkey, owner, lamports, data_len );
+  ctx->pending.write_pos  = 0UL;
+  fd_memcpy( ctx->pending.pubkey, pubkey, 32UL );
+  fd_memcpy( ctx->pending.owner,  owner,  32UL );
+  if( FD_UNLIKELY( !ctx->pending.need ) ) return worker_pending_flush( ctx );
   return 0;
 }
 
-static void
-process_account_data( fd_snapin_tile_t *            ctx,
-                      fd_ssparse_advance_result_t * result ) {
-  if( FD_UNLIKELY( ctx->slot_history.capturing ) ) {
-    ulong remaining = ctx->slot_history.data_len - ctx->slot_history.write_pos;
-    ulong copy_sz   = fd_ulong_min( result->account_data.data_sz, remaining );
-    memcpy( ctx->slot_history.buf + ctx->slot_history.write_pos, result->account_data.data, copy_sz );
-    ctx->slot_history.write_pos += copy_sz;
-    if( ctx->slot_history.write_pos==ctx->slot_history.data_len ) {
-      ctx->slot_history.captured  = 1;
-      ctx->slot_history.capturing = 0;
-    }
+/* Returns 0 on success, -1 on a failure that must fail the attempt. */
+
+static int
+worker_process_account_data( fd_snapin_tile_t *            ctx,
+                             fd_ssparse_advance_result_t * result ) {
+  uchar const * data    = result->account_data.data;
+  ulong         data_sz = result->account_data.data_sz;
+
+  if( FD_UNLIKELY( ctx->pending.active ) ) {
+    ulong copy_sz = fd_ulong_min( data_sz, ctx->pending.need-ctx->pending.write_pos );
+    fd_memcpy( ctx->pending.buf+ctx->pending.write_pos, data, copy_sz );
+    ctx->pending.write_pos += copy_sz;
+    if( FD_UNLIKELY( ctx->pending.write_pos<ctx->pending.need ) ) return 0;
+    if( FD_UNLIKELY( 0!=worker_pending_flush( ctx ) ) ) return -1;
+    data    += copy_sz;
+    data_sz -= copy_sz;
+    if( FD_LIKELY( !data_sz ) ) return 0;
   }
 
-  if( FD_UNLIKELY( ctx->feature_reasm.capturing ) ) {
-    ulong remaining = ctx->feature_reasm.need - ctx->feature_reasm.write_pos;
-    ulong copy_sz   = fd_ulong_min( result->account_data.data_sz, remaining );
-    memcpy( ctx->feature_reasm.buf + ctx->feature_reasm.write_pos, result->account_data.data, copy_sz );
-    ctx->feature_reasm.write_pos += copy_sz;
-    if( ctx->feature_reasm.write_pos==ctx->feature_reasm.need ) {
-      fd_feature_snoop_account( ctx->feature_snoop, &ctx->feature_reasm.pubkey,
-                                ctx->feature_reasm.lamports, ctx->feature_reasm.owner,
-                                ctx->feature_reasm.buf, ctx->feature_reasm.need );
-      ctx->feature_reasm.capturing = 0;
-    }
+  if( FD_LIKELY( ctx->open_acc.accepted ) ) {
+    worker_buffer_write( ctx, ctx->open_acc.file_off+sizeof(fd_accdb_disk_meta_t)+ctx->open_acc.received,
+                         data, data_sz );
   }
-
-  if( FD_UNLIKELY( ctx->stake_reasm.capturing ) ) {
-    ulong remaining = sizeof(ctx->stake_reasm.buf) - ctx->stake_reasm.write_pos;
-    ulong copy_sz   = fd_ulong_min( result->account_data.data_sz, remaining );
-    memcpy( ctx->stake_reasm.buf + ctx->stake_reasm.write_pos, result->account_data.data, copy_sz );
-    ctx->stake_reasm.write_pos += copy_sz;
-    if( ctx->stake_reasm.write_pos==sizeof(ctx->stake_reasm.buf) ) {
-      snoop_stake_delegation( ctx, &ctx->stake_reasm.pubkey, ctx->stake_reasm.lamports,
-                              ctx->stake_reasm.data_len, ctx->stake_reasm.buf,
-                              sizeof(ctx->stake_reasm.buf) );
-      ctx->stake_reasm.capturing = 0;
-    }
-  }
+  ctx->open_acc.received += data_sz;
+  return 0;
 }
 
 static int
@@ -1095,8 +1620,42 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         return 0;
       case FD_SSPARSE_ADVANCE_AGAIN:
         break;
+      case FD_SSPARSE_ADVANCE_APPENDVEC: {
+        /* Tar-boundary sharding: each appendvec is owned by exactly one
+           tile.  Owned: flip the passthrough parser into parsing this
+           one appendvec's accounts in-stream.  Not owned: the garbage
+           skipper consumes the body arithmetically. */
+        ulong av_idx = ctx->appendvec_seq++;
+        if( FD_UNLIKELY( !ctx->tile_idx ) ) {
+          ulong body_sz = result->appendvec.data_sz;
+          ctx->av_stats.cnt++;
+          ctx->av_stats.bytes += body_sz;
+          ctx->av_stats.max_sz = fd_ulong_max( ctx->av_stats.max_sz, body_sz );
+          if( FD_UNLIKELY( body_sz>(64UL<<20) ) )  ctx->av_stats.over_64m_cnt++;
+          if( FD_UNLIKELY( body_sz>(256UL<<20) ) ) ctx->av_stats.over_256m_bytes += body_sz;
+          ctx->av_stats.log2_hist[ fd_ulong_min( (ulong)fd_ulong_find_msb( fd_ulong_max( body_sz, 1UL ) ), 47UL ) ]++;
+        }
+        if( FD_UNLIKELY( av_idx==ctx->claimed_appendvec ) ) {
+          /* Claim the next appendvec before parsing this one: the counter is
+             already past av_idx (it handed av_idx to us), so a fresh claim can
+             never land behind our walk position.  The tar format streams the
+             whole manifest before any appendvec, so tile 0 reaches this point
+             only after its manifest parse -- other tiles absorb the early
+             appendvecs without any special case. */
+          ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->snoop_hdr->next_appendvec, 1UL );
+          ctx->owned_appendvecs++;
+          fd_ssparse_appendvec_parse( ctx->ssparse );
+          ctx->owned_bytes += result->appendvec.data_sz;
+        }
+        break;
+      }
+      case FD_SSPARSE_ADVANCE_REGION:
+        /* Non-appendvec tar entry (version/manifest/status cache);
+           nothing to do at header time. */
+        break;
       case FD_SSPARSE_ADVANCE_MANIFEST:
       case FD_SSPARSE_ADVANCE_MANIFEST_DONE: {
+        if( FD_LIKELY( ctx->tile_idx ) ) break; /* only tile 0 parses the manifest */
         if( FD_UNLIKELY( ctx->flags.manifest_done ) ) {
           FD_LOG_WARNING(( "excess data after manifest" ));
           transition_malformed( ctx, stem );
@@ -1121,6 +1680,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         break;
       }
       case FD_SSPARSE_ADVANCE_STATUS_CACHE: {
+        if( FD_LIKELY( ctx->tile_idx ) ) break; /* only tile 0 parses the status cache */
         fd_slot_delta_parser_advance_result_t sd_result[1];
         ulong bytes_remaining = result->status_cache.data_sz;
 
@@ -1221,12 +1781,20 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         break;
       }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
-        early_exit = process_account_header( ctx, result );
+        early_exit = worker_process_account_header( ctx, result );
         if( FD_UNLIKELY( early_exit<0 ) ) {
           transition_malformed( ctx, stem );
           return 0;
         }
 
+        /* TODO(parallel snapshot load): with tar-boundary sharding each
+           tile only sees account bytes for its owned appendvecs, so
+           this ConfigProgram capture (validator name/icon for the GUI)
+           only fires for tile-0-owned appendvecs and snapin_gui is
+           effectively silent until gossip/replay refresh the info.
+           Unlike the other snoops it cannot ride the accdb callback:
+           the payload has to reach snapin_gui as a link publish, which
+           may not happen with a stripe lock held. */
         if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX
                       && !memcmp( result->account_header.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) )
                       && result->account_header.data_len
@@ -1238,7 +1806,11 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
-        process_account_data( ctx, result );
+        early_exit = worker_process_account_data( ctx, result );
+        if( FD_UNLIKELY( early_exit<0 ) ) {
+          transition_malformed( ctx, stem );
+          return 0;
+        }
 
         /* Account data may span multiple input chunks (when an account
            straddles a decompressed chunk boundary), so we copy each
@@ -1269,7 +1841,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
-        early_exit = process_account_batch( ctx, result );
+        early_exit = worker_process_account_batch( ctx, result );
         if( FD_UNLIKELY( early_exit<0 ) ) {
           transition_malformed( ctx, stem );
           return 0;
@@ -1301,16 +1873,163 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   return reprocess_frag;
 }
 
-static int
-validate_capitalization( fd_snapin_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
-    /* SnapshotError::MismatchedCapitalization
-        https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
-    FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization %lu",
-                     ctx->full?"full":"incr", ctx->manifest_capitalization, ctx->capitalization ));
-    return -1;
+/* Tile-0 end-of-load work ********************************************/
+
+/* Read out the shared totals and the winner-gated snoop targets.  They
+   are valid only after all FINI acks: snapct publishes NEXT/DONE only
+   once every tile acked FINI, and each tile folds its counters into
+   `totals` (and last wins the snoop targets) before that ack.  There is
+   nothing per-tile left to gather -- hdr->totals is already the
+   cross-tile sum and hdr->slot_history/hdr->feature_snoop are already
+   the single winner-gated copy. */
+
+static void
+tile0_fold_attempt( fd_snapin_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->attempt_folded ) ) return;
+  ctx->attempt_folded = 1;
+
+  fd_snapio_totals_t const * totals = &ctx->snoop_hdr->totals;
+
+  /* Eager claim: every appendvec in the stream was claimed by exactly
+     one tile, and every tile ends the attempt holding exactly one
+     unmatched claim. */
+  FD_TEST( totals->appendvecs_processed==ctx->appendvec_seq );
+  FD_TEST( ctx->snoop_hdr->next_appendvec==ctx->appendvec_seq+ctx->snoop_hdr->worker_cnt );
+
+  ctx->metrics.accounts_loaded   = fd_ulong_if( ctx->full, 0UL, ctx->metrics.full_accounts_loaded   ) + totals->accounts_loaded;
+  ctx->metrics.accounts_replaced = fd_ulong_if( ctx->full, 0UL, ctx->metrics.full_accounts_replaced ) + totals->accounts_replaced;
+  ctx->metrics.accounts_ignored  = fd_ulong_if( ctx->full, 0UL, ctx->metrics.full_accounts_ignored  ) + totals->accounts_ignored;
+  ctx->capitalization = fd_ulong_if( ctx->full, 0UL, ctx->recovery.capitalization );
+  ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, totals->input_lamports   );
+  ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, totals->ignored_lamports );
+  ctx->dup_capitalization = totals->replaced_lamports;
+  ctx->worker_fold.eq_slot_dups          += totals->eq_slot_dups;
+  ctx->worker_fold.eq_slot_lamports_diff += totals->eq_slot_lamports_diff;
+  ctx->worker_fold.bytes_written         += totals->bytes_written;
+
+  /* Slot history: hdr already holds the single winner-gated copy. */
+  fd_snapio_snoop_hdr_t const * hdr = ctx->snoop_hdr;
+  if( FD_LIKELY( hdr->slot_history.captured ) ) {
+    ctx->slot_history.captured   = 1;
+    ctx->slot_history.slot       = hdr->slot_history.slot;
+    ctx->slot_history.lamports   = hdr->slot_history.lamports;
+    ctx->slot_history.data_len   = hdr->slot_history.data_len;
+    ctx->slot_history.executable = hdr->slot_history.executable;
+    fd_memcpy( ctx->slot_history.owner, hdr->slot_history.owner, 32UL );
+    fd_memcpy( ctx->slot_history.buf, hdr->slot_history.buf, hdr->slot_history.data_len );
   }
-  return 0;
+
+  /* Features: merge this attempt's winner-gated copy over the carried
+     state, per id.  hdr->feature_snoop is zeroed at every INIT, so an
+     incremental attempt only overrides the ids whose accounts it
+     actually streamed -- the sequential loader likewise accumulates
+     into one snoop across the full and incremental loads. */
+  for( ulong i=0UL; i<FD_FEATURE_SNOOP_CNT; i++ ) {
+    if( FD_LIKELY( !hdr->feature_snoop.present[ i ] ) ) continue;
+    ctx->feature_snoop->present        [ i ] = 1;
+    ctx->feature_snoop->is_active      [ i ] = hdr->feature_snoop.is_active      [ i ];
+    ctx->feature_snoop->activation_slot[ i ] = hdr->feature_snoop.activation_slot[ i ];
+  }
+}
+
+/* Order-independent checksums of the snooped state.  The parallel
+   loader must reproduce them exactly against a single-tile run of the
+   same snapshot. */
+
+static void
+log_snoop_checksums( fd_snapin_tile_t * ctx ) {
+  fd_stake_delegations_t * sd = ctx->stake_delegations;
+  fd_stake_delegation_t const * root_pool  = fd_type_pun_const( (uchar const *)sd + sd->pool_offset_ );
+  fd_stake_delegation_t const * delta_pool = fd_type_pun_const( (uchar const *)sd + sd->delta_pool_offset_ );
+  ulong stake_cs  = 0UL;
+  ulong stake_cnt = 0UL;
+  for( ulong i=0UL; i<sd->pool_idx_wmk_; i++ ) {
+    fd_stake_delegation_t const * d = &root_pool[ i ];
+    if( !d->in_use ) continue;
+    if( d->delta_idx!=UINT_MAX ) d = &delta_pool[ d->delta_idx ];
+    if( d->is_tombstone ) continue;
+    ulong h = fd_hash( 0x57A4EUL, d->stake_account.uc, 32UL );
+    h = fd_hash( h, d->vote_account.uc, 32UL );
+    ulong nums[ 6 ] = { d->stake, d->lamports, d->credits_observed,
+                        (ulong)d->activation_epoch, (ulong)d->deactivation_epoch, (ulong)d->acc_dlen };
+    h = fd_hash( h, nums, sizeof(nums) );
+    stake_cs += h; /* commutative: iteration order independent */
+    stake_cnt++;
+  }
+  ulong feature_cs = fd_hash( 0xFEA7UL, ctx->feature_snoop, sizeof(fd_feature_snoop_t) );
+  ulong sh_cs      = ctx->slot_history.captured ? fd_hash( 0x5107UL, ctx->slot_history.buf, ctx->slot_history.data_len ) : 0UL;
+  FD_LOG_NOTICE(( "snoop A/B: stake_cnt=%lu stake_cs=%016lx feature_cs=%016lx slot_history_slot=%lu slot_history_cs=%016lx",
+                  stake_cnt, stake_cs, feature_cs, ctx->slot_history.captured ? ctx->slot_history.slot : 0UL, sh_cs ));
+}
+
+/* Appendvec count and size distribution.  An appendvec is parseable
+   only sequentially by its owning tile, so any appendvec larger than
+   the in-flight lane window forces the whole pipe down to one tile's
+   fused rate for its duration; these numbers bound that tax. */
+
+static void
+log_appendvec_stats( fd_snapin_tile_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->av_stats.cnt ) ) return;
+
+  /* Approximate percentiles from the log2 histogram (upper bucket
+     bound). */
+  ulong p50 = 0UL, p90 = 0UL;
+  ulong seen = 0UL;
+  for( ulong b=0UL; b<48UL; b++ ) {
+    seen += ctx->av_stats.log2_hist[ b ];
+    if( !p50 && seen*2UL >=      ctx->av_stats.cnt ) p50 = 2UL<<b;
+    if( !p90 && seen*10UL>= 9UL*ctx->av_stats.cnt  ) p90 = 2UL<<b;
+  }
+  FD_LOG_NOTICE(( "appendvecs: cnt=%lu total=%.1f GiB avg=%.1f MiB p50<=%lu p90<=%lu max=%lu, >64MiB cnt=%lu, >256MiB bytes=%.1f GiB",
+                  ctx->av_stats.cnt,
+                  (double)ctx->av_stats.bytes/(double)(1UL<<30),
+                  (double)ctx->av_stats.bytes/(double)ctx->av_stats.cnt/(double)(1UL<<20),
+                  p50, p90, ctx->av_stats.max_sz,
+                  ctx->av_stats.over_64m_cnt,
+                  (double)ctx->av_stats.over_256m_bytes/(double)(1UL<<30) ));
+}
+
+/* Tile 0's deferred rollback of a failed attempt, run at the retry's
+   INIT barrier before the attempt's normal accdb work.  Every tile has
+   provably quiesced: snapct published this INIT only after ALL FAIL
+   acks, and each tile acked FAIL only after its worker-side teardown
+   (including writer_end).  No tile can start the NEW attempt's
+   allocations or inserts concurrently either: its first insert is
+   gated on the attempt slot, which tile 0 publishes only after this
+   rollback and its INIT work completed. */
+
+static void
+tile0_rollback_failed_attempt( fd_snapin_tile_t * ctx,
+                               int                retry_full ) {
+  ctx->rollback.pending = 0;
+
+  /* Gather the tiles' per-attempt partition lists.  They are released
+     once the purge below has completed: attach_child at this INIT_INCR
+     waits for it; a failed FULL attempt instead releases everything
+     via fd_accdb_reset at this INIT_FULL. */
+  for( ulong w=0UL; w<ctx->tile_cnt; w++ ) {
+    fd_snapio_worker_t * ws = ctx->snoops[ w ];
+    for( ulong i=0UL; i<ws->fail_partition_cnt; i++ ) {
+      FD_TEST( ctx->doomed_partition_cnt<FD_SNAPIO_FAIL_PARTITION_MAX );
+      ctx->doomed_partitions[ ctx->doomed_partition_cnt++ ] = ws->fail_partitions[ i ];
+    }
+    ws->fail_partition_cnt = 0UL;
+  }
+
+  if( !ctx->rollback.full ) {
+    /* Purge the failed incremental fork (and subsequent children); the
+       attach_child at this INIT_INCR waits for it before the doomed
+       partitions are released.  When the retry is a full load instead,
+       skip the purge: fd_accdb_reset wipes the fork (and reclaims every
+       partition) wholesale, and must not run concurrently with an
+       in-flight background purge. */
+    if( FD_LIKELY( !retry_full ) ) fd_accdb_purge( ctx->accdb, ctx->rollback.fork );
+    *ctx->feature_snoop = ctx->recovery.feature_snoop;
+  } else {
+    /* A failed FULL attempt can only be retried by another full load:
+       there is no valid root to hang an incremental off. */
+    FD_TEST( retry_full );
+  }
 }
 
 static void
@@ -1334,79 +2053,148 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      /* generation was already bumped at the first INIT frag (see
+         handle_control_barrier) */
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->expected_frame = 0UL;
-      for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
-        ctx->in[ i ].pos = 0UL;
+
+      worker_reset_attempt( ctx );
+      fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
+      if( ctx->full ) ctx->metrics.full_bytes_read = 0UL;
+      ctx->metrics.incremental_bytes_read = 0UL;
+
+      if( FD_UNLIKELY( !ctx->tile_idx ) ) {
+        /* Deferred rollback of a failed previous attempt, before this
+           attempt's accdb work (and before the attempt slot publish
+           that releases the other tiles' first inserts). */
+        if( FD_UNLIKELY( ctx->rollback.pending ) ) tile0_rollback_failed_attempt( ctx, ctx->full );
+
+        ctx->blockhash_groups_len    = 0UL;
+        ctx->manifest_capitalization = 0UL;
+        ctx->txncache_slots_len      = 0UL;
+        ctx->attempt_folded          = 0;
+        fd_memset( &ctx->worker_fold, 0, sizeof(ctx->worker_fold) );
+        fd_memset( &ctx->av_stats,    0, sizeof(ctx->av_stats)    );
+
+        fd_txncache_reset( ctx->txncache );
+        fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
+        fd_slot_delta_parser_init( ctx->slot_delta_parser );
+
+        /* Rewind metric counters (no-op unless recovering from a fail) */
+        if( ctx->full ) {
+          ctx->metrics.full_accounts_loaded   = 0UL;
+          ctx->metrics.full_accounts_replaced = 0UL;
+          ctx->metrics.full_accounts_ignored  = 0UL;
+          ctx->full_genesis_creation_time_seconds = 0UL;
+          ctx->capitalization          = 0UL;
+          ctx->dup_capitalization      = 0UL;
+          ctx->recovery.capitalization = 0UL;
+
+          fd_stake_delegations_reset( ctx->stake_delegations );
+          fd_accdb_reset( ctx->accdb );
+          /* The reset released every partition, including any doomed
+             ones from previously failed attempts. */
+          ctx->doomed_partition_cnt = 0UL;
+          fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+          ctx->accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
+
+          fd_accdb_snapshot_load_begin_with_writers( ctx->accdb, ctx->tile_cnt );
+
+          ctx->slot_history.captured = 0;
+
+          fd_memset( ctx->feature_snoop, 0, sizeof(ctx->feature_snoop) );
+        } else {
+          /* Dashboard gauges: restore the full snapshot's totals; the
+             fold at DONE recomputes the absolute values. */
+          ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
+          ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
+          ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
+
+          ctx->capitalization     = ctx->recovery.capitalization;
+          ctx->dup_capitalization = 0UL;
+
+          /* Discard stale capture so the retry's sysvar is snooped fresh */
+          ctx->slot_history.captured = 0;
+
+          /* Create a child fork for incremental writes.  On failure,
+             fd_accdb_purge(child) reverts just the incremental changes.
+             On success, fd_accdb_advance_root(child) promotes them. */
+          ctx->accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->accdb_root_fork_id );
+
+          /* attach_child waited for any pending background command, so
+             a previously failed incremental attempt's purge has
+             completed and no index entry references its tiles'
+             partitions anymore: release them back to the partition pool
+             before this attempt starts allocating. */
+          if( FD_UNLIKELY( ctx->doomed_partition_cnt ) ) {
+            fd_accdb_snapshot_worker_release_partitions( ctx->accdb, ctx->doomed_partitions, ctx->doomed_partition_cnt );
+            ctx->doomed_partition_cnt = 0UL;
+          }
+        }
+
+        /* Save the slot advertised by the snapshot peer and verify it
+           against the slot in the snapshot manifest.  For redirect-based
+           HTTP downloads, these are initial estimates from gossip and
+           will be updated by the META message below once the redirect
+           resolves to a concrete snapshot filename. */
+        fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
+        ctx->advertised_slot = msg->slot;
+        fd_memcpy( ctx->advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
+        ctx->init_completed = 1;
+
+        /* Re-zero the attempt-scoped shared state.  Only this tile
+           writes it here, and no tile reads or writes it before it
+           passes the spin gate below, which the attempt slot publish
+           releases -- so this is the one place a snoop target or
+           counter may be written outside an atomic or a stripe lock.
+           Every attempt must start from zero: workspaces outlive
+           crashed loads, and a retry follows a partially completed
+           attempt. */
+        fd_snapio_snoop_hdr_t * hdr = ctx->snoop_hdr;
+        fd_memset( &hdr->totals,        0, sizeof(hdr->totals)        );
+        fd_memset( &hdr->slot_history,  0, sizeof(hdr->slot_history)  );
+        fd_memset( &hdr->feature_snoop, 0, sizeof(hdr->feature_snoop) );
+        FD_VOLATILE( hdr->next_appendvec ) = 0UL;
+        FD_COMPILER_MFENCE();
+
+        /* Publish the attempt slot LAST, once this tile's attempt-scoped
+           accdb work is complete: every tile (including this one) gates
+           its first insert on it. */
+        FD_VOLATILE( hdr->attempt.fork_id ) = ctx->full ? (ulong)USHORT_MAX : (ulong)ctx->accdb_incr_fork_id.val;
+        FD_COMPILER_MFENCE();
+        FD_VOLATILE( hdr->attempt.generation ) = ctx->generation;
       }
-      ctx->blockhash_groups_len    = 0UL;
-      ctx->manifest_capitalization = 0UL;
 
-      ctx->txncache_slots_len = 0UL;
-
-      fd_txncache_reset( ctx->txncache );
-      fd_ssparse_init( ctx->ssparse );
-      fd_ssparse_batch_enable( ctx->ssparse, 1 );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
-      fd_slot_delta_parser_init( ctx->slot_delta_parser );
-      fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
-
-      /* Rewind metric counters (no-op unless recovering from a fail) */
-      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
-        ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0;
-        ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced = 0;
-        ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0;
-        ctx->metrics.full_bytes_read   = 0UL;
-        ctx->metrics.incremental_bytes_read = 0UL;
-        ctx->full_genesis_creation_time_seconds = 0UL;
-        ctx->capitalization                     = 0UL;
-        ctx->dup_capitalization                 = 0UL;
-        ctx->recovery.capitalization            = 0UL;
-
-        fd_stake_delegations_reset( fd_banks_stake_delegations_root_query( ctx->banks ) );
-        fd_accdb_reset( ctx->accdb );
-        fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-        ctx->accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
-
-        fd_accdb_snapshot_load_begin( ctx->accdb );
-
-        ctx->slot_history.captured  = 0;
-        ctx->slot_history.capturing = 0;
-
-        fd_memset( ctx->feature_snoop, 0, sizeof(ctx->feature_snoop) );
-        ctx->feature_reasm.capturing = 0;
-        ctx->stake_reasm.capturing   = 0;
-      } else {
-        ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
-        ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
-        ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
-        ctx->metrics.incremental_bytes_read = 0UL;
-
-        ctx->capitalization     = ctx->recovery.capitalization;
-        ctx->dup_capitalization = 0UL;
-
-        /* Discard stale capture so the retry's sysvar is snooped fresh */
-        ctx->slot_history.captured  = 0;
-        ctx->slot_history.capturing = 0;
-        ctx->feature_reasm.capturing = 0;
-        ctx->stake_reasm.capturing   = 0;
-
-        /* Create a child fork for incremental writes.  On failure,
-           fd_accdb_purge(child) reverts just the incremental changes.
-           On success, fd_accdb_advance_root(child) promotes them. */
-        ctx->accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->accdb_root_fork_id );
+      /* INIT spin gate: nothing else barrier-orders tile 0's INIT-time
+         accdb work (reset/attach/load_begin for full, attach_child +
+         doomed-partition release for incremental) against this tile's
+         first insert -- snapct does not gate DATA on INIT acks.
+         Bounded and deadlock-free: this tile has consumed INIT on all
+         its lanes, so every snapdc already published its INIT copy and
+         tile 0 needs nothing from us to complete its own barrier and
+         publish the slot. */
+      long deadline = fd_log_wallclock() + FD_SNAPIN_SPIN_TIMEOUT_NS;
+      while( FD_VOLATILE_CONST( ctx->snoop_hdr->attempt.generation )!=ctx->generation ) {
+        FD_SPIN_PAUSE();
+        if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
+          FD_LOG_ERR(( "tile %lu timed out waiting for the attempt slot (generation %lu); this is a bug",
+                       ctx->tile_idx, ctx->generation ));
+        }
       }
+      FD_COMPILER_MFENCE();
+      ctx->incr_fork = FD_VOLATILE_CONST( ctx->snoop_hdr->attempt.fork_id );
+      if( FD_UNLIKELY( ctx->full ? ctx->incr_fork!=(ulong)USHORT_MAX : ctx->incr_fork>=(ulong)USHORT_MAX ) ) {
+        FD_LOG_ERR(( "invalid attempt fork %lu (full=%d); this is a bug", ctx->incr_fork, (int)ctx->full ));
+      }
+      fd_accdb_snapshot_writer_begin( ctx->accdb );
 
-      /* Save the slot advertised by the snapshot peer and verify it
-         against the slot in the snapshot manifest.  For redirect-based
-         HTTP downloads, these are initial estimates from gossip and
-         will be updated by the META message below once the redirect
-         resolves to a concrete snapshot filename. */
-      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
-      ctx->advertised_slot = msg->slot;
-      fd_memcpy( ctx->advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
-      ctx->init_completed = 1;
+      /* Eager claim.  Every tile takes its first claim here, before any
+         data arrives, for INIT_FULL and INIT_INCR alike: the counter was
+         zeroed by tile 0 above, so the claim sequence starts at 0 every
+         attempt.  From here the tile always holds exactly one
+         outstanding claim, which the appendvec walk consumes and
+         immediately replaces. */
+      ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->snoop_hdr->next_appendvec, 1UL );
       break;
     }
 
@@ -1428,8 +2216,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
       /* This is a special case: handle_data_frag must have already
          processed FD_SSPARSE_ADVANCE_DONE and moved the state into
-         FD_SNAPSHOT_STATE_FINISHING.  Otherwise, treat this as a
-         malformed snapshot so that the pipeline can retry. */
+         FD_SNAPSHOT_STATE_FINISHING (every tile walks the whole tar
+         itself, so its parser reaches EOF before the FINI barrier
+         completes).  Otherwise, treat this as a malformed snapshot so
+         that the pipeline can retry. */
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
         FD_LOG_WARNING(( "received FINI while in state %s (%lu), expected FINISHING (possibly truncated tar stream)",
                          fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
@@ -1437,12 +2227,68 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         forward_msg = 0;
         break;
       }
+
+      /* Make every staged byte durable and hand off the final partition
+         before acking: tile 0's readback gate and load_end at the DONE
+         barrier run only after all FINI acks. */
+      worker_buffer_flush( ctx );
+      fd_accdb_snapshot_worker_close( ctx->accdb, &ctx->whead );
+      fd_accdb_snapshot_writer_end( ctx->accdb );
+      fd_accdb_snapshot_flush_worker_metrics( ctx->accdb, ctx->worker_metrics );
+
+      FD_LOG_NOTICE(( "snapin %lu: owned appendvecs=%lu owned_bytes=%lu bytes_written=%lu, wb kicks=%lu waits=%lu",
+                      ctx->tile_idx, ctx->owned_appendvecs, ctx->owned_bytes, ctx->bytes_written,
+                      ctx->wb_kick_cnt, ctx->wb_wait_cnt ));
+      if( FD_UNLIKELY( !ctx->tile_idx ) ) log_appendvec_stats( ctx );
+
+      if( FD_UNLIKELY( ctx->worker_metrics->eq_slot_dups ) ) {
+        /* Equal-slot cross-appendvec duplicates were ignored without a
+           stream-order tiebreak; the load result would be
+           schedule-dependent, so hard-fail the snapshot. */
+        FD_LOG_WARNING(( "tile %lu: %lu equal-slot cross-appendvec duplicates (lamports-diff=%lu) cannot be tiebroken; flagging snapshot malformed",
+                         ctx->tile_idx, ctx->worker_metrics->eq_slot_dups, ctx->worker_metrics->eq_slot_lamports_diff ));
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
+
+      /* Fold this tile's counters into the shared totals (the
+         snapin_ct link is mcache-only, so the counters cannot ride the
+         ack; tile 0 reads the fold at the NEXT/DONE barrier, which
+         snapct gates on all FINI acks).  One atomic add per field, so
+         there is no per-tile staging slot for tile 0 to gather. */
+      fd_snapio_totals_t * totals = &ctx->snoop_hdr->totals;
+      FD_ATOMIC_FETCH_AND_ADD( &totals->accounts_loaded,       ctx->worker.accounts_loaded                );
+      FD_ATOMIC_FETCH_AND_ADD( &totals->accounts_replaced,     ctx->worker.accounts_replaced              );
+      FD_ATOMIC_FETCH_AND_ADD( &totals->accounts_ignored,      ctx->worker.accounts_ignored               );
+      FD_ATOMIC_FETCH_AND_ADD( &totals->input_lamports,        ctx->worker.input_lamports                 );
+      FD_ATOMIC_FETCH_AND_ADD( &totals->replaced_lamports,     ctx->worker.replaced_lamports              );
+      FD_ATOMIC_FETCH_AND_ADD( &totals->ignored_lamports,      ctx->worker.ignored_lamports               );
+      FD_ATOMIC_FETCH_AND_ADD( &totals->bytes_written,         ctx->bytes_written                         );
+      FD_ATOMIC_FETCH_AND_ADD( &totals->eq_slot_dups,          ctx->worker_metrics->eq_slot_dups          );
+      FD_ATOMIC_FETCH_AND_ADD( &totals->eq_slot_lamports_diff, ctx->worker_metrics->eq_slot_lamports_diff );
+      FD_ATOMIC_FETCH_AND_ADD( &totals->appendvecs_processed,  ctx->owned_appendvecs                      );
+      FD_COMPILER_MFENCE(); /* totals + snoop targets visible before the ack */
+
+      /* The fold above just handed the attempt's counters to tile 0,
+         which reads them into its own gauges: zero this tile's account
+         gauges so dashboards summing over all snapin tiles do not count
+         the load twice while the fold and the fresh gauges coexist. */
+      ctx->metrics.accounts_loaded   = 0UL;
+      ctx->metrics.accounts_replaced = 0UL;
+      ctx->metrics.accounts_ignored  = 0UL;
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      if( FD_LIKELY( ctx->tile_idx ) ) break;
+
+      /* Every tile has acked FINI by the time NEXT arrives (snapct
+         gates on the acks), so the shared totals and snoop targets are
+         complete and quiescent. */
+      tile0_fold_attempt( ctx );
 
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
         FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
@@ -1459,7 +2305,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       ctx->recovery.capitalization = ctx->capitalization;
-      fd_accdb_snapshot_save_whead( ctx->accdb, &ctx->recovery.accdb_metadata );
       ctx->recovery.feature_snoop = *ctx->feature_snoop;
 
       /* Backup metric counters */
@@ -1473,6 +2318,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      if( FD_LIKELY( ctx->tile_idx ) ) break;
+
+      tile0_fold_attempt( ctx );
 
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
         if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
@@ -1489,6 +2337,17 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
+      /* Multi-writer layout is not stream-ordered: gate on a sampled
+         index->file readback (tiles flushed + closed their partitions
+         before acking FINI, so the bytes are visible here).  Must run
+         BEFORE advance_root below: the promotion is asynchronous and
+         background_advance_root concurrently unlinks + defer-frees
+         shadowed full entries, which can be recycled under our chain
+         walk (this joiner publishes no epoch).  Pre-promotion, both the
+         old and new versions are chain-linked with valid on-disk
+         records, so the readback covers both phases. */
+      fd_accdb_snapshot_verify_readback( ctx->accdb, 100000UL );
+
       if( !ctx->full ) {
         fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->accdb_incr_fork_id );
         /* ensure that snapin tile sees all delta changes before rooting */
@@ -1501,6 +2360,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_accdb_snapshot_load_end( ctx->accdb );
 
       fd_feature_snoop_finalize( &ctx->bank->f.features, ctx->bank_slot, &ctx->epoch_schedule, ctx->feature_snoop );
+
+      FD_LOG_NOTICE(( "parallel loader: equal-slot cross-appendvec dups=%lu (lamports-diff=%lu), worker bytes written=%lu",
+                      ctx->worker_fold.eq_slot_dups, ctx->worker_fold.eq_slot_lamports_diff,
+                      ctx->worker_fold.bytes_written ));
+      log_snoop_checksums( ctx );
 
       /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1516,19 +2380,43 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
-      if( FD_LIKELY( ctx->init_completed ) ) {
-        if( ctx->full ) {
-          fd_accdb_reset( ctx->accdb );
-          ctx->accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-          ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-        } else {
-          fd_accdb_purge( ctx->accdb, ctx->accdb_incr_fork_id ); /* this fork and subsequent children */
-          fd_accdb_snapshot_revert_whead( ctx->accdb, &ctx->recovery.accdb_metadata );
-          ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-          *ctx->feature_snoop = ctx->recovery.feature_snoop;
+      /* Worker-side teardown.  Close the final open partition (stamps
+         its write_offset and books the tail slack, exactly like a
+         rotation would) and publish this attempt's partition list
+         before dropping the tracker: tile 0 gathers the lists at its
+         deferred rollback and releases the partitions once the index
+         purge completed.  Fold the attempt's buffered shared-counter
+         deltas (disk_used_bytes, accounts_total) BEFORE they are
+         discarded: the purge subtracts per unlinked entry, so
+         discarding the additions would leave the shared counters
+         net-negative by the attempt's contribution.  The staging
+         buffer and private write head are then simply forgotten.  The
+         FAIL ack below is this tile's quiesce certificate: after it,
+         the tile touches no shared accdb state until it passes the
+         next attempt's INIT spin gate. */
+      fd_accdb_snapshot_worker_close( ctx->accdb, &ctx->whead );
+      fd_accdb_snapshot_flush_worker_metrics( ctx->accdb, ctx->worker_metrics );
+      ctx->my_snoop->fail_partition_cnt = ctx->whead.attempt_partition_cnt;
+      FD_COMPILER_MFENCE(); /* partition list visible before the ack */
+      worker_reset_attempt( ctx );
+      fd_accdb_snapshot_writer_end( ctx->accdb );
+
+      /* Tile 0: defer the database rollback to the NEXT INIT barrier,
+         by which point snapct has collected every tile's FAIL ack (so
+         all in-flight inserts have provably drained).  If the load is
+         aborted without a retry the rollback never runs; benign, the
+         process exits and the next boot's INIT_FULL resets. */
+      if( FD_UNLIKELY( !ctx->tile_idx ) ) {
+        if( FD_LIKELY( ctx->init_completed ) ) {
+          ctx->rollback.pending = 1;
+          ctx->rollback.full    = ctx->full;
+          ctx->rollback.fork    = ctx->accdb_incr_fork_id;
         }
+        if( ctx->full ) ctx->accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+        ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+        ctx->init_completed = 0;
       }
-      ctx->init_completed = 0;
+
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     }
@@ -1547,7 +2435,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
   }
 
-  /* Forward the control message down the pipeline */
+  /* Forward the control message down the pipeline (this is the tile's
+     ack: snapct counts one snapin_ct link per snapin tile). */
   if( FD_LIKELY( forward_msg ) ) {
     fd_stem_publish( stem, ctx->ct_out.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
   }
@@ -1634,6 +2523,19 @@ handle_control_barrier( fd_snapin_tile_t *  ctx,
     FD_TEST( ctx->pending_control==ULONG_MAX || sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
     clear_control_barrier( ctx );
     ctx->pending_control = sig;
+
+    /* Bump the attempt generation at the FIRST INIT frag (barrier
+       start), not at barrier completion: an ERROR processed while the
+       INIT barrier is partially complete aborts the barrier (the
+       remaining INIT frags are drained by the ERROR-state filter), but
+       every tile is guaranteed to observe at least one INIT frag per
+       attempt (INIT is only ever sent after the previous FAIL fully
+       flushed, and the aborting ERROR is itself queued behind INIT on
+       its own lane).  Bumping here keeps all tiles' generations in
+       lockstep even across aborted barriers. */
+    if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL || sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) ) {
+      ctx->generation++;
+    }
   }
 
   /* Only process the control frag when all upstream tiles have sent
@@ -1706,8 +2608,9 @@ privileged_init( fd_topo_t const *      topo,
 static inline fd_snapin_out_link_t
 out1( fd_topo_t const *      topo,
       fd_topo_tile_t const * tile,
-      char const *           name ) {
-  ulong idx = fd_topo_find_tile_out_link( topo, tile, name, 0UL );
+      char const *           name,
+      ulong                  kind_id ) {
+  ulong idx = fd_topo_find_tile_out_link( topo, tile, name, kind_id );
 
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) return (fd_snapin_out_link_t){ .idx = ULONG_MAX, .mem = NULL, .chunk0 = 0, .wmark = 0, .chunk = 0, .mtu = 0 };
 
@@ -1726,20 +2629,21 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),     sizeof(fd_snapin_tile_t)                                    );
-  void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots )        );
-  void * _accdb           = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),              fd_accdb_footprint( tile->snapin.max_live_slots )           );
-  void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                            );
-  void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
-  ctx->blockhash_groups   = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
-  ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
+  void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapin.max_live_slots ) );
 
+  ctx->tile_idx = tile->kind_id;
+  if( FD_UNLIKELY( ctx->tile_idx>=FD_SNAPIN_TILE_MAX ) ) {
+    FD_LOG_ERR(( "tile `" NAME "` has unsupported kind id %lu", tile->kind_id ));
+  }
   ctx->full            = 1;
   ctx->init_completed  = 0;
   ctx->state           = FD_SNAPSHOT_STATE_IDLE;
   ctx->lane_cnt        = tile->in_cnt;
+  ctx->generation      = 0UL;
   ctx->expected_frame  = 0UL;
   clear_control_barrier( ctx );
+  fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapin.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
@@ -1747,43 +2651,76 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
   FD_TEST( ctx->accdb );
 
-  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
-  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
-  FD_TEST( txncache_shmem );
-  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
-  FD_TEST( ctx->txncache );
+  fd_snapio_snoop_hdr_t * snoop_hdr = fd_snapio_snoop_join( fd_topo_obj_laddr( topo, tile->snapin.snoop_obj_id ) );
+  FD_TEST( snoop_hdr );
+  FD_TEST( ctx->tile_idx<snoop_hdr->worker_cnt );
+  ctx->snoop_hdr     = snoop_hdr;
+  ctx->tile_cnt      = snoop_hdr->worker_cnt;
+  ctx->stripe_locks  = fd_snapio_snoop_stripes( snoop_hdr );
+  ctx->my_snoop      = fd_snapio_snoop_worker( snoop_hdr, ctx->tile_idx );
+  if( FD_UNLIKELY( !ctx->tile_idx ) ) {
+    for( ulong w=0UL; w<ctx->tile_cnt; w++ ) ctx->snoops[ w ] = fd_snapio_snoop_worker( snoop_hdr, w );
+  }
 
-  ctx->alpenglow = tile->snapin.alpenglow;
+  /* Track this attempt's partitions straight into the shared staging,
+     so a failed attempt's list only needs its count stamped before the
+     FAIL ack. */
+  ctx->whead.attempt_partitions    = ctx->my_snoop->fail_partitions;
+  ctx->whead.attempt_partition_cnt = 0UL;
+  ctx->whead.attempt_partition_max = FD_SNAPIO_FAIL_PARTITION_MAX;
 
+  ctx->wb_kick_sz = FD_SNAPIN_WB_KICK_SZ;
+  ctx->wb_window  = ctx->tile_cnt>=FD_SNAPIN_WB_MIN_WORKERS
+                  ? FD_SNAPIN_WB_TOTAL_WINDOW/ctx->tile_cnt : 0UL;
+
+  /* Every tile updates the root stake delegations from its snoop
+     callback, so every tile joins banks; only tile 0 initializes and
+     owns the bank itself. */
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->snapin.banks_obj_id ) );
   FD_TEST( ctx->banks );
-  ctx->bank = fd_banks_init_bank( ctx->banks );
-  FD_TEST( ctx->bank );
-  FD_TEST( ctx->bank->idx==0UL );
+  ctx->stake_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
+  FD_TEST( ctx->stake_delegations );
 
+  if( FD_UNLIKELY( !ctx->tile_idx ) ) {
+    void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots )        );
+    void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                            );
+    void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
+    ctx->blockhash_groups   = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
+    ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+
+    void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
+    fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
+    FD_TEST( txncache_shmem );
+    ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+    FD_TEST( ctx->txncache );
+
+    ctx->bank = fd_banks_init_bank( ctx->banks );
+    FD_TEST( ctx->bank );
+    FD_TEST( ctx->bank->idx==0UL );
+
+    ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
+    FD_TEST( ctx->manifest_parser );
+
+    ctx->slot_delta_parser = fd_slot_delta_parser_join( fd_slot_delta_parser_new( _sd_parser ) );
+    FD_TEST( ctx->slot_delta_parser );
+  }
+
+  ctx->write_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096UL, FD_SNAPIN_WRITE_BUF_SZ );
+
+  ctx->alpenglow = tile->snapin.alpenglow;
   ctx->blockhash_groups_len = 0UL;
 
-  ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
-  FD_TEST( ctx->manifest_parser );
+  ctx->ct_out       = out1( topo, tile, "snapin_ct",    ctx->tile_idx );
+  ctx->manifest_out = out1( topo, tile, "snapin_manif", 0UL           );
+  ctx->gui_out      = out1( topo, tile, "snapin_gui",   0UL           );
 
-  ctx->slot_delta_parser = fd_slot_delta_parser_join( fd_slot_delta_parser_new( _sd_parser ) );
-  FD_TEST( ctx->slot_delta_parser );
+  if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME ":%lu` missing required out link `snapin_ct`", ctx->tile_idx ));
+  if( FD_UNLIKELY( !ctx->tile_idx && ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
 
-  fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
-
-  if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
-  FD_TEST( tile->in_cnt );
-
-  ctx->ct_out =       out1( topo, tile, "snapin_ct" );
-  ctx->manifest_out = out1( topo, tile, "snapin_manif" );
-  ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
-
-  if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct`" ));
-  if( FD_UNLIKELY( ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
-
-  fd_ssparse_init( ctx->ssparse );
-  fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
-  fd_slot_delta_parser_init( ctx->slot_delta_parser );
+  if( FD_UNLIKELY( !ctx->tile_idx ) ) {
+    fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
+    fd_slot_delta_parser_init( ctx->slot_delta_parser );
+  }
 
   for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
     fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
@@ -1796,6 +2733,11 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].mtu    = in_link->mtu;
     ctx->in[ i ].pos    = 0UL;
   }
+  if( FD_UNLIKELY( !ctx->lane_cnt || ctx->lane_cnt>FD_SNAPIN_IO_LANE_MAX ) ) {
+    FD_LOG_ERR(( "tile `" NAME ":%lu` has %lu snapshot data lanes, expected 1..%lu", ctx->tile_idx, ctx->lane_cnt, FD_SNAPIN_IO_LANE_MAX ));
+  }
+
+  worker_reset_attempt( ctx );
 
   ctx->gui_config_acct_sz  = 0UL;
   ctx->gui_config_acct_off = 0UL;
@@ -1808,8 +2750,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->manifest_capitalization            = 0UL;
   ctx->capitalization                     = 0UL;
   ctx->dup_capitalization                 = 0UL;
-  ctx->recovery.capitalization = 0UL;
-  memset( &ctx->recovery.accdb_metadata, 0, sizeof(ctx->recovery.accdb_metadata) );
+  ctx->recovery.capitalization            = 0UL;
+
+  ctx->attempt_folded = 0;
+  fd_memset( &ctx->worker_fold, 0, sizeof(ctx->worker_fold) );
+  fd_memset( &ctx->av_stats,    0, sizeof(ctx->av_stats)    );
+  ctx->doomed_partition_cnt = 0UL;
 
   ctx->accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
@@ -1819,15 +2765,20 @@ unprivileged_init( fd_topo_t const *      topo,
 }
 
 /* There are 3 output links that affect the calculation of STEM_BURST:
-    1. snapin_ct
-    2. snapin_manif - worst case: 1 message
-    3. snapin_gui   - worst case: 1 message (config program account)
+    1. snapin_ct    - worst case: 1 message (ack or unsolicited ERROR)
+    2. snapin_manif - worst case: 1 message (tile 0 only)
+    3. snapin_gui   - worst case: 1 message (config program account,
+       tile 0 only)
    The STEM_BURST is the max value across these 3 links (not the sum).
    Note that snapin_txn is excluded from this calculation, since it is
    an unreliable link, working as a dcache place holder. */
 #define STEM_BURST 1UL
 
-#define STEM_LAZY  (128L*3000L)
+/* Account batches arrive at roughly two million messages per second and
+   every tile's fseq is its scan position.  Refresh flow-control credits
+   well before a lane's runway drains so the producers never see a stale
+   fseq snapshot. */
+#define STEM_LAZY  (128L*250L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapin_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapin_tile_t)
