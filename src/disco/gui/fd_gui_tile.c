@@ -27,6 +27,8 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
+#include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/base64/fd_base64.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../third_party/cjson/cJSON_alloc.h"
@@ -127,6 +129,7 @@ typedef struct {
 
   fd_http_server_t * gui_server;
 
+  char index_html_etag[ 3 ][ 24 ]; /* plain, zstd, gzip */
   char index_html_link[ 1024 ];
 
   long next_poll_nanos;
@@ -676,20 +679,33 @@ gui_http_request( fd_http_server_request_t const * request ) {
       }
 
       char const * content_encoding = NULL;
+      ulong enc_idx = 0UL;
       if( FD_LIKELY( accepts_zstd && f->zstd_data ) ) {
         content_encoding = "zstd";
         data = f->zstd_data;
         data_len = *(f->zstd_data_len);
+        enc_idx = 1UL;
       } else if( FD_LIKELY( accepts_gzip && f->gzip_data ) ) {
         content_encoding = "gzip";
         data = f->gzip_data;
         data_len = *(f->gzip_data_len);
+        enc_idx = 2UL;
       }
 
+      char const * etag = NULL;
       char const * link = NULL;
       if( FD_LIKELY( !strcmp( f->name, "/index.html" ) ) ) {
         fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)request->ctx;
+        etag = ctx->index_html_etag[ enc_idx ];
         link = ctx->index_html_link[ 0 ] ? ctx->index_html_link : NULL;
+        if( FD_UNLIKELY( fd_http_server_etag_matches( request->headers.if_none_match, etag ) ) ) {
+          return (fd_http_server_response_t){
+            .status        = 304,
+            .cache_control = cache_control,
+            .etag          = etag,
+            .link          = link,
+          };
+        }
       }
 
       return (fd_http_server_response_t){
@@ -699,6 +715,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
         .content_type      = content_type,
         .cache_control     = cache_control,
         .content_encoding  = content_encoding,
+        .etag              = etag,
         .link              = link,
         .upgrade_websocket = 0,
       };
@@ -815,6 +832,21 @@ unprivileged_init( fd_topo_t const *      topo,
     if( FD_UNLIKELY( !strcmp( f->name, "/index.html" ) ) ) index_html = f;
   }
   FD_TEST( index_html );
+
+  {
+    fd_http_static_file_t const * f = index_html;
+    uchar hash[ 32 ];
+    uchar const * rep_data[ 3 ]     = { f->data,     f->zstd_data,     f->gzip_data     };
+    ulong const * rep_data_len[ 3 ] = { f->data_len, f->zstd_data_len, f->gzip_data_len };
+    for( ulong e=0UL; e<3UL; e++ ) {
+      ctx->index_html_etag[ e ][ 0 ] = '\0';
+      if( FD_UNLIKELY( !rep_data[ e ] ) ) continue;
+      fd_sha256_hash( rep_data[ e ], *(rep_data_len[ e ]), hash );
+      char b64[ FD_BASE64_ENC_SZ( 9UL )+1UL ];
+      b64[ fd_base64_encode( b64, hash, 9UL ) ] = '\0';
+      FD_TEST( fd_cstr_printf_check( ctx->index_html_etag[ e ], sizeof(ctx->index_html_etag[ e ]), NULL, "\"%s\"", b64 ) );
+    }
+  }
 
   char const * preload_js     = NULL;
   char const * preload_css    = NULL;

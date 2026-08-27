@@ -1226,6 +1226,161 @@ test_close_in_pipelined_callback( void ) {
   free( scratch );
 }
 
+/* test_etag_304 covers the If-None-Match request plumbing, the RFC
+   9110 list/weak/star matcher, and the 304 wire response (ETag header,
+   no body -- including a body the callback staged by mistake). */
+
+static fd_http_server_t * etag_http;
+static char               etag_seen[ 256 ];
+static char const *       etag_current = "\"abc123\"";
+
+static fd_http_server_response_t
+request_etag( fd_http_server_request_t const * request ) {
+  strncpy( etag_seen, request->headers.if_none_match, sizeof( etag_seen )-1UL );
+  if( fd_http_server_etag_matches( request->headers.if_none_match, etag_current ) ) {
+    fd_http_server_printf( etag_http, "junk" ); /* must be suppressed on the wire */
+    fd_http_server_response_t response = { .status = 304, .etag = etag_current };
+    FD_TEST( !fd_http_server_stage_body( etag_http, &response ) );
+    return response;
+  }
+  fd_http_server_printf( etag_http, "ok" );
+  fd_http_server_response_t response = { .status = 200, .content_type = "text/plain", .etag = etag_current };
+  FD_TEST( !fd_http_server_stage_body( etag_http, &response ) );
+  return response;
+}
+
+static void
+etag_roundtrip( fd_http_server_t *       http,
+                overflow_close_state_t * state,
+                char const *             req,
+                char *                   buf,
+                ulong                    buf_sz ) {
+  int client_fd = keep_alive_connect( http );
+
+  etag_seen[ 0 ] = '\0';
+  send_all( client_fd, req, strlen( req ) );
+  ulong close_cnt = state->close_cnt;
+  ulong len = 0UL;
+  for( ulong i=0UL; i<400UL && state->close_cnt==close_cnt; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+    long n = recv( client_fd, buf+len, buf_sz-len-1UL, MSG_DONTWAIT );
+    if( n>0L ) len += (ulong)n;
+  }
+  for( ulong i=0UL; i<50UL; i++ ) { /* drain the tail */
+    fd_http_server_poll( http, 1, ULONG_MAX );
+    long n = recv( client_fd, buf+len, buf_sz-len-1UL, MSG_DONTWAIT );
+    if( n>0L ) len += (ulong)n;
+    else if( !n ) break;
+  }
+  buf[ len ] = '\0';
+  FD_TEST( state->close_cnt==close_cnt+1UL );
+  close( client_fd );
+}
+
+static void
+test_etag_304( void ) {
+  FD_LOG_NOTICE(( "Testing If-None-Match matching and 304 responses" ));
+
+  /* matcher semantics */
+  FD_TEST(  fd_http_server_etag_matches( "\"abc123\"",           "\"abc123\"" ) );
+  FD_TEST(  fd_http_server_etag_matches( "W/\"abc123\"",         "\"abc123\"" ) );
+  FD_TEST(  fd_http_server_etag_matches( "\"old\", \"abc123\"",  "\"abc123\"" ) );
+  FD_TEST(  fd_http_server_etag_matches( "*",                    "\"abc123\"" ) );
+  FD_TEST( !fd_http_server_etag_matches( "\"abc12\"",            "\"abc123\"" ) );
+  FD_TEST( !fd_http_server_etag_matches( "abc123",               "\"abc123\"" ) );
+  FD_TEST( !fd_http_server_etag_matches( "",                     "\"abc123\"" ) );
+  /* syntactically invalid preconditions never match */
+  FD_TEST( !fd_http_server_etag_matches( "\"old\" \"abc123\"",   "\"abc123\"" ) );
+  FD_TEST( !fd_http_server_etag_matches( "*junk",                "\"abc123\"" ) );
+  FD_TEST( !fd_http_server_etag_matches( "\"abc123\" junk",      "\"abc123\"" ) );
+  FD_TEST( !fd_http_server_etag_matches( "\"abc123",             "\"abc123\"" ) );
+  FD_TEST(  fd_http_server_etag_matches( "\"old\", \"abc123\",",  "\"abc123\"" ) );
+  FD_TEST(  fd_http_server_etag_matches( " * ",                  "\"abc123\"" ) );
+  FD_TEST(  fd_http_server_etag_matches( ", \"abc123\"",          "\"abc123\"" ) );
+  FD_TEST(  fd_http_server_etag_matches( "\"old\",, \"abc123\"",  "\"abc123\"" ) );
+
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_etag,
+    .close   = close_capture,
+  };
+
+  fd_http_server_params_t params = default_test_params();
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  etag_http = http;
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  char buf[ 2048 ];
+
+  /* no validator: 200 with ETag and body, callback sees empty */
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( !etag_seen[ 0 ] );
+  FD_TEST( strstr( buf, "200 OK" ) && strstr( buf, "ETag: \"abc123\"" ) && strstr( buf, "\r\n\r\nok" ) );
+
+  /* matching validator: 304 with ETag, no body, staged junk suppressed */
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nIf-None-Match: \"abc123\"\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( !strcmp( etag_seen, "\"abc123\"" ) );
+  FD_TEST( strstr( buf, "304 Not Modified" ) && strstr( buf, "ETag: \"abc123\"" ) );
+  FD_TEST( !strstr( buf, "ok" ) && !strstr( buf, "junk" ) );
+
+  /* weak and list forms also revalidate */
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nIf-None-Match: W/\"abc123\"\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "304 Not Modified" ) );
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nIf-None-Match: \"old\", \"abc123\"\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "304 Not Modified" ) );
+
+  /* the 304 advertises the connection behavior like the 200 */
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nIf-None-Match: \"abc123\"\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "304 Not Modified" ) && strstr( buf, "Connection: close" ) );
+
+  /* under keep-alive the 304 keeps the connection open and stays
+     framed: two pipelined revalidations answered on one connection */
+  int client_fd = keep_alive_connect( http );
+  char const * inm = "GET / HTTP/1.1\r\nIf-None-Match: \"abc123\"\r\n\r\n";
+  send_all( client_fd, inm, strlen( inm ) );
+  send_all( client_fd, inm, strlen( inm ) );
+  buf[ 0 ] = '\0';
+  ulong len = 0UL;
+  for( ulong i=0UL; i<400UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+    long n = recv( client_fd, buf+len, sizeof( buf )-len-1UL, MSG_DONTWAIT );
+    if( n>0L ) { len += (ulong)n; buf[ len ] = '\0'; }
+    char * first = strstr( buf, "304 Not Modified" );
+    if( first && strstr( first+1UL, "304 Not Modified" ) ) break;
+  }
+  char * first = strstr( buf, "304 Not Modified" );
+  FD_TEST( first && strstr( first+1UL, "304 Not Modified" ) );
+  FD_TEST( strstr( buf, "Connection: keep-alive" ) );
+  FD_TEST( !strstr( buf, "junk" ) );
+  ulong close_cnt = state.close_cnt;
+  close( client_fd );
+  for( ulong i=0UL; i<400UL && state.close_cnt==close_cnt; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  FD_TEST( state.close_cnt==close_cnt+1UL );
+
+  /* repeated field lines combine into one list */
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nIf-None-Match: \"old\"\r\nIf-None-Match: \"abc123\"\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( !strcmp( etag_seen, "\"old\", \"abc123\"" ) );
+  FD_TEST( strstr( buf, "304 Not Modified" ) );
+
+  /* an oversize combined value rejects the request instead of
+     silently dropping the precondition */
+  char big_req[ 512 ];
+  char big_tag[ 200 ];
+  memset( big_tag, 'a', sizeof( big_tag ) ); big_tag[ sizeof( big_tag )-1UL ] = '\0';
+  FD_TEST( fd_cstr_printf_check( big_req, sizeof( big_req ), NULL, "GET / HTTP/1.1\r\nIf-None-Match: \"%s\"\r\n\r\n", big_tag ) );
+  etag_roundtrip( http, &state, big_req, buf, sizeof( buf ) );
+  FD_TEST( !strstr( buf, "HTTP/1.1" ) ); /* no response, connection rejected */
+  FD_TEST( state.last_reason==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1241,6 +1396,7 @@ main( int     argc,
   test_keep_alive();
   test_zero_length_status_body();
   test_close_in_pipelined_callback();
+  test_etag_304();
   test_transfer_encoding_close();
   test_duplicate_content_length_different_close();
   test_ws_bad_key_close();

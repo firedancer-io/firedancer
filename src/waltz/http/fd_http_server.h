@@ -106,6 +106,7 @@ struct fd_http_server_request {
   struct {
     char const * content_type;         /* The NUL terminated value of the Content-Type header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
     char const * accept_encoding;      /* The NUL terminated value of the Accept-Encoding header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
+    char const * if_none_match;        /* The NUL terminated value of the If-None-Match header of the request.  Not sanitized and may contain arbitrary content.  Empty if the header was not present */
     int          compress_websocket;   /* True if the client has provided an `Sec-WebSocket-Protocol: compress-zstd` header indicating that the responder can choose to compress WebSocket frames with ZStandard.  Only large (>200 bytes) Server -> Client messages are compressed */
     int          upgrade_websocket;    /* True if the client has provided an `Upgrade: websocket` header, valid `Sec-WebSocket-Key` and supported `Sec-Websocket-Version`, indicating that the
                                           responder should upgrade the connection to a WebSocket by setting `upgrade_websocket` to 1 in the response */
@@ -152,6 +153,7 @@ struct fd_http_server_response {
   char const * cache_control;    /* Cache-Control to set in the HTTP response */
   char const * link;             /* Link to set in the HTTP response */
   char const * content_encoding; /* Content-Encoding to set in the HTTP response */
+  char const * etag;             /* ETag to set in the HTTP response */
   char const * location[2];      /* Location to set in the HTTP response (concatenated) */
   ulong        location_len[2];  /* Lengths of the two location fragments */
 
@@ -329,6 +331,13 @@ void
 fd_http_server_close( fd_http_server_t * http,
                       ulong              conn_id,
                       int                reason );
+
+/* Returns 1 if the If-None-Match field value matches etag, else 0.
+   etag is the quoted strong validator the server would serve. */
+
+int
+fd_http_server_etag_matches( char const * if_none_match,
+                             char const * etag );
 
 /* Close an active WebSocket connection.  The connection ID must be an
    open WebSocket connection ID in [0, max_ws_connection_cnt).  The
