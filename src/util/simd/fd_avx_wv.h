@@ -125,15 +125,16 @@ wv_insert_variable( wv_t a, int n, ulong v ) {
 /* Note: _mm256_{min,max}_epu64 are missing pre AVX-512.  We emulate
    these on pre AVX-512 targets below (and use the AVX-512 versions if
    possible).  Likewise, there is no _mm256_mullo_epi64 pre AVX-512.
-   Since this is not cheap to emulate, we do not provide a wv_mul for
-   the time being (we could consider exposing it on AVX-512 targets
-   though).  There is a 64L*64L->64 multiply (where the lower 32-bits of
+   Since this is not cheap to emulate, we only provide wv_mul if it can
+   run natively.  There is a 64L*64L->64 multiply (where the lower 32-bits of
    the inputs will be zero extended to 64-bits beforehand) though and
    that is very useful.  So we do provide that. */
 
 #define wv_add(a,b)    _mm256_add_epi64(   (a), (b) ) /* [ a0 +b0     a1 +b1     ... a3 +b3     ] */
 #define wv_sub(a,b)    _mm256_sub_epi64(   (a), (b) ) /* [ a0 -b0     a1 -b1     ... a3 -b3     ] */
-//#define wv_mul(a,b)  _mm256_mullo_epi64( (a), (b) ) /* [ a0 *b0     a1 *b1     ... a3 *b3     ] */
+#if defined(__AVX512DQ__) && defined(__AVX512VL__)
+#define wv_mul(a,b)    _mm256_mullo_epi64( (a), (b) ) /* [ a0 *b0     a1 *b1     ... a3 *b3     ] */
+#endif
 #define wv_mul_ll(a,b) _mm256_mul_epu32(   (a), (b) ) /* [ a0l*b0l    a1l*b1l    ... a3l *b3l   ] */
 
 /* Binary operations */
@@ -173,6 +174,10 @@ static inline wv_t wv_ror( wv_t a, int imm ) { return wv_or( wv_shr( a, imm & 63
 static inline wv_t wv_rol_variable( wv_t a, int n ) { return wv_or( wv_shl_variable( a, n&63 ), wv_shr_variable( a, (-n)&63 ) ); }
 static inline wv_t wv_ror_variable( wv_t a, int n ) { return wv_or( wv_shr_variable( a, n&63 ), wv_shl_variable( a, (-n)&63 ) ); }
 
+#if defined(__AVX512VL__)
+#define wv_rol_vector(a,b) _mm256_rolv_epi64( (a), (b) )
+#define wv_ror_vector(a,b) _mm256_rorv_epi64( (a), (b) )
+#else
 static inline wv_t wv_rol_vector( wv_t a, wl_t b ) {
   wl_t m = wl_bcast( 63L );
   return wv_or( wv_shl_vector( a, wl_and( b, m ) ), wv_shr_vector( a, wl_and( wl_neg( b ), m ) ) );
@@ -182,6 +187,7 @@ static inline wv_t wv_ror_vector( wv_t a, wl_t b ) {
   wl_t m = wl_bcast( 63L );
   return wv_or( wv_shr_vector( a, wl_and( b, m ) ), wv_shl_vector( a, wl_and( wl_neg( b ), m ) ) );
 }
+#endif
 
 #define wv_bswap(a) wu_to_wv_raw( wu_bswap( wv_to_wu_raw( wv_rol( (a), 32 ) ) ) )
 

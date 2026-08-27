@@ -375,7 +375,9 @@ main( int     argc,
     FD_TEST( wv_test( wv_max( x, y ), fd_ulong_max(x0,y0), fd_ulong_max(x1,y1), fd_ulong_max(x2,y2), fd_ulong_max(x3,y3) ) );
     FD_TEST( wv_test( wv_add( x, y ), x0+y0, x1+y1, x2+y2, x3+y3 ) );
     FD_TEST( wv_test( wv_sub( x, y ), x0-y0, x1-y1, x2-y2, x3-y3 ) );
-  //FD_TEST( wv_test( wv_mul( x, y ), x0*y0, x1*y1, x2*y2, x3*y3 ) );
+#if defined(__AVX512DQ__) && defined(__AVX512VL__)
+    FD_TEST( wv_test( wv_mul( x, y ), x0*y0, x1*y1, x2*y2, x3*y3 ) );
+#endif
 
 #   define SE_LO(x) ((ulong)(uint)(x))
     FD_TEST( wv_test( wv_mul_ll( x, y ), SE_LO(x0)*SE_LO(y0), SE_LO(x1)*SE_LO(y1), SE_LO(x2)*SE_LO(y2), SE_LO(x3)*SE_LO(y3) ) );

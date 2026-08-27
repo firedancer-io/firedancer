@@ -1,12 +1,9 @@
 #include "fd_util_base.h"
 #include "bits/fd_bits.h"
-#include "../ballet/fd_ballet_base.h"
 
 /* A cleaner implementation of xxhash-r39 (Open Source BSD licensed). */
-#if FD_HAS_AVX512
+#if defined(__AVX512DQ__) && defined(__AVX512VL__)
 #include "simd/fd_avx.h"
-#else
-#include <immintrin.h>
 #endif
 
 #define ROTATE_LEFT(x,r) (((x)<<(r)) | ((x)>>(64-(r))))
@@ -16,16 +13,13 @@
 #define C4 ( 9650029242287828579UL)
 #define C5 ( 2870177450012600261UL)
 
-ulong
-fd_hash( ulong        seed,
-         void const * buf,
-         ulong        sz ) {
+static inline FD_FN_UNUSED FD_FN_PURE ulong
+fd_hash_generic( ulong        seed,
+                 void const * buf,
+                 ulong        sz ) {
   uchar const * p    = ((uchar const *)buf);
   uchar const * stop = p + sz;
-  /* Sharing this values between 2 conditional
-  compilation blocks */
-  __m256i c1_vec;       (void)c1_vec;
-  __m256i c2_vec;       (void)c2_vec;
+
   ulong h;
 
   if( sz<32 ) h = seed + C5;
@@ -37,53 +31,19 @@ fd_hash( ulong        seed,
     ulong z = seed - C1;
 
     do { /* All complete blocks of 32 */
-
-      #if FD_HAS_AVX512
-      c1_vec =         _mm256_set1_epi64x(( long long)C1  );
-      c2_vec =         _mm256_set1_epi64x(( long long)C2  );
-      wv_t input_vec = _mm256_loadu_si256(( const wv_t*)p );
-      /* Temporary array, eliminated by compiler already.
-       Provides the intention clearly to the compiler.
-       Same goes for other arrays used in #IF FD_HAS_AVX512 blocks. */
-      FD_ALIGNED ulong arr[4] = { w, x, y, z };
-      wv_t state_vec =  _mm256_loadu_si256(( const wv_t*)arr   );
-      input_vec =      _mm256_mullo_epi64( input_vec, c2_vec   );
-      state_vec =       wl_add( state_vec, input_vec           );
-      state_vec =       wv_rol( state_vec, 31                  );
-      state_vec =      _mm256_mullo_epi64( state_vec, c1_vec   );
-      FD_ALIGNED ulong results[4];
-      _mm256_storeu_si256(( wv_t*)results, state_vec );
-      w = results[0]; x = results[1]; y = results[2]; z = results[3];
-      #else
       w += FD_LOAD( ulong, p    )*C2; w = ROTATE_LEFT( w, 31 ); w *= C1;
       x += FD_LOAD( ulong, p+ 8 )*C2; x = ROTATE_LEFT( x, 31 ); x *= C1;
       y += FD_LOAD( ulong, p+16 )*C2; y = ROTATE_LEFT( y, 31 ); y *= C1;
       z += FD_LOAD( ulong, p+24 )*C2; z = ROTATE_LEFT( z, 31 ); z *= C1;
-      #endif
       p += 32;
     } while( p<=stop32 );
 
     h = ROTATE_LEFT( w, 1 ) + ROTATE_LEFT( x, 7 ) + ROTATE_LEFT( y, 12 ) + ROTATE_LEFT( z, 18 );
-    #if FD_HAS_AVX512
-    /* state_vec shouldn't kept between upper conditional compilation block and this one because it creates much register preassure, since it puts both w x y z and state_vec at registers at the same time. */
-    FD_ALIGNED ulong arr[4] = { w, x, y, z };
-    wv_t state_vec =  _mm256_loadu_si256(( const wv_t*)arr );
-    state_vec =      _mm256_mullo_epi64( state_vec, c2_vec );
-    state_vec =                      wv_rol( state_vec, 31 );
-    state_vec =      _mm256_mullo_epi64( state_vec, c1_vec );
-    FD_ALIGNED ulong results[4];
-       _mm256_storeu_si256(( wv_t*)results, state_vec );
-    w = results[0]; x = results[1]; y = results[2]; z = results[3];
-    h ^= w; h = h*C1 + C4;
-    h ^= x; h = h*C1 + C4;
-    h ^= y; h = h*C1 + C4;
-    h ^= z; h = h*C1 + C4;
-    #else
+
     w *= C2; w = ROTATE_LEFT( w, 31 ); w *= C1; h ^= w; h = h*C1 + C4;
     x *= C2; x = ROTATE_LEFT( x, 31 ); x *= C1; h ^= x; h = h*C1 + C4;
     y *= C2; y = ROTATE_LEFT( y, 31 ); y *= C1; h ^= y; h = h*C1 + C4;
     z *= C2; z = ROTATE_LEFT( z, 31 ); z *= C1; h ^= z; h = h*C1 + C4;
-    #endif
   }
 
   h += ((ulong)sz);
@@ -114,6 +74,90 @@ fd_hash( ulong        seed,
   h ^= h >> 32;
 
   return h;
+}
+
+#if defined(__AVX512DQ__) && defined(__AVX512VL__)
+static inline FD_FN_UNUSED FD_FN_PURE ulong
+fd_hash_avx512dq( ulong        seed,
+                  void const * buf,
+                  ulong        sz ) {
+  uchar const * p    = ((uchar const *)buf);
+  uchar const * stop = p + sz;
+  ulong h;
+
+  if( sz<32 ) h = seed + C5;
+  else {
+    uchar const * stop32 = stop - 32;
+    ulong w, x, y, z;
+    wv_t state_vec = wv_add( wv_bcast( seed ), wv( C1 + C2, C2, 0UL, 0UL - C1 ) );
+    wv_t c1_vec = wv_bcast( C1 );
+    wv_t c2_vec = wv_bcast( C2 );
+    do { /* All complete blocks of 32 */
+      wv_t input_vec = wv_ldu( p );
+      input_vec = wv_mul( input_vec, c2_vec );
+      state_vec = wv_add( state_vec, input_vec );
+      state_vec = wv_rol( state_vec, 31 );
+      state_vec = wv_mul( state_vec, c1_vec );
+      p += 32;
+    } while( p<=stop32 );
+    wv_t h_vec = wv_rol_vector( state_vec, wv( 1UL, 7UL, 12UL, 18UL ) );
+    h = wv_extract( h_vec, 0 )
+      + wv_extract( h_vec, 1 )
+      + wv_extract( h_vec, 2 )
+      + wv_extract( h_vec, 3 );
+    state_vec = wv_mul( state_vec, c2_vec );
+    state_vec = wv_rol( state_vec, 31 );
+    state_vec = wv_mul( state_vec, c1_vec );
+    w = wv_extract( state_vec, 0 );
+    x = wv_extract( state_vec, 1 );
+    y = wv_extract( state_vec, 2 );
+    z = wv_extract( state_vec, 3 );
+    h ^= w; h = h*C1 + C4;
+    h ^= x; h = h*C1 + C4;
+    h ^= y; h = h*C1 + C4;
+    h ^= z; h = h*C1 + C4;
+  }
+
+  h += ((ulong)sz);
+
+  while( (p+8)<=stop ) { /* Last 1 to 3 complete ulong's */
+    ulong w = FD_LOAD( ulong, p );
+    w *= C2; w = ROTATE_LEFT( w, 31 ); w *= C1; h ^= w; h = ROTATE_LEFT( h, 27 )*C1 + C4;
+    p += 8;
+  }
+
+  if( (p+4)<=stop ) { /* Last complete uint */
+    ulong w = ((ulong)FD_LOAD( uint, p ));
+    w *= C1; h ^= w; h = ROTATE_LEFT( h, 23 )*C2 + C3;
+    p += 4;
+  }
+
+  while( p<stop ) { /* Last 1 to 3 uchar's */
+    ulong w = ((ulong)(p[0]));
+    w *= C5; h ^= w; h = ROTATE_LEFT( h, 11 )*C1;
+    p++;
+  }
+
+  /* Final avalanche */
+  h ^= h >> 33;
+  h *= C2;
+  h ^= h >> 29;
+  h *= C3;
+  h ^= h >> 32;
+
+  return h;
+}
+#endif
+
+ulong
+fd_hash( ulong        seed,
+         void const * buf,
+         ulong        sz ) {
+#if defined(__AVX512DQ__) && defined(__AVX512VL__)
+  return fd_hash_avx512dq( seed, buf, sz );
+#else
+  return fd_hash_generic( seed, buf, sz );
+#endif
 }
 
 ulong
