@@ -53,8 +53,8 @@ min_live_slot( ag_pool_t const * pool ) {
   slot_state_ele_t const * ele = pool->slot_states->pool;
   ulong min = ULONG_MAX;
   for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, ele );
-       !slot_state_map_iter_done( iter, map, ele );
-       iter = slot_state_map_iter_next( iter, map, ele ) ) {
+                                   !slot_state_map_iter_done( iter, map, ele );
+                             iter = slot_state_map_iter_next( iter, map, ele ) ) {
     min = fd_ulong_min( min, slot_state_map_iter_ele_const( iter, map, ele )->slot );
   }
   return min;
@@ -1220,6 +1220,38 @@ test_retired_epoch_already_pruned( void ) {
   teardown_pool_only( pool );
 }
 
+/* Firedancer-only test.
+
+   ag_pool_init names a finalized slot straight from the block replay
+   booted on, so on snapshot boot that slot has no slot state and no
+   certificate behind it -- certificates only reach the pool over the
+   network or from our own votor.  Standstill recovery must emit an
+   empty bundle for it rather than reach through the absent state.  The
+   reference cannot hit this: it always starts at genesis and asserts a
+   final cert is present. */
+
+static void
+test_standstill_recovery_no_final_cert( void ) {
+  ag_pool_t * pool = setup_pool(); /* ag_pool_init( pool, 0UL ), no certs */
+
+  FD_TEST(  ag_pool_finalized_slot( pool )==0UL );
+  FD_TEST( !contains_slot( pool, 0UL ) );
+
+  ag_pool_recover_from_standstill( pool );
+
+  ag_standstill_t const * ss = NULL;
+  ulong event_cnt = take_events( pool );
+  for( ulong i=0UL; i<event_cnt; i++ ) {
+    if( event( i )->kind==AG_EVENT_POOL_STANDSTILL ) ss = &event( i )->standstill;
+  }
+  FD_TEST( ss );
+  FD_TEST( ss->slot    ==1UL ); /* finalized slot + 1 */
+  FD_TEST( ss->cert_cnt==0UL );
+  FD_TEST( ss->vote_cnt==0UL );
+
+  teardown_pool_only( pool );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1259,6 +1291,7 @@ main( int     argc,
   test_epoch_boundary_slot();
   test_epoch_installed_late();
   test_retired_epoch_already_pruned();
+  test_standstill_recovery_no_final_cert();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
