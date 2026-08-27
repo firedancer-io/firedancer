@@ -44,7 +44,7 @@ fd_genesis_parse( fd_genesis_t * genesis,
 
     account->owner_off = _i;
     CHECK_LEFT( 32UL ); INC( 32UL ); /* owner */
-    CHECK_LEFT(  1UL ); INC(  1UL ); /* executable */
+    CHECK_LEFT(  1UL ); CHECK( FD_LOAD( uchar, CURSOR )<=1U ); INC(  1UL ); /* executable */
     CHECK_LEFT(  8UL ); INC(  8UL ); /* rent epoch */
   }
 
@@ -75,7 +75,7 @@ fd_genesis_parse( fd_genesis_t * genesis,
     CHECK_LEFT(  8UL ); ulong dlen = FD_LOAD( ulong, CURSOR ); INC(  8UL ); /* dlen */
     CHECK_LEFT( dlen );                                        INC( dlen ); /* data */
     CHECK_LEFT( 32UL );                                        INC( 32UL ); /* owner */
-    CHECK_LEFT(  1UL );                                        INC(  1UL ); /* executable */
+    CHECK_LEFT(  1UL ); CHECK( FD_LOAD( uchar, CURSOR )<=1U ); INC(  1UL ); /* executable */
     CHECK_LEFT(  8UL );                                        INC(  8UL ); /* rent epoch */
   }
 
@@ -86,9 +86,11 @@ fd_genesis_parse( fd_genesis_t * genesis,
   CHECK_LEFT( 8UL ); genesis->poh.tick_duration_secs = FD_LOAD( ulong, CURSOR ); INC( 8UL );
   CHECK_LEFT( 4UL ); genesis->poh.tick_duration_ns   = FD_LOAD( uint,  CURSOR ); INC( 4UL );
   CHECK_LEFT( 1UL ); int has_target_tick_count       = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+  CHECK( has_target_tick_count<=1 );
   if( has_target_tick_count ) { CHECK_LEFT( 8UL ); genesis->poh.target_tick_count = FD_LOAD( ulong, CURSOR ); INC( 8UL ); }
   else                                            genesis->poh.target_tick_count = 0UL;
   CHECK_LEFT( 1UL ); int has_hashes_per_tick       = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+  CHECK( has_hashes_per_tick<=1 );
   if( has_hashes_per_tick ) { CHECK_LEFT( 8UL ); genesis->poh.hashes_per_tick = FD_LOAD( ulong, CURSOR ); INC( 8UL ); }
   else                                          genesis->poh.hashes_per_tick = 0UL;
 
@@ -114,6 +116,7 @@ fd_genesis_parse( fd_genesis_t * genesis,
   CHECK_LEFT( 8UL ); genesis->epoch_schedule.slots_per_epoch             = FD_LOAD( ulong, CURSOR ); INC( 8UL );
   CHECK_LEFT( 8UL ); genesis->epoch_schedule.leader_schedule_slot_offset = FD_LOAD( ulong, CURSOR ); INC( 8UL );
   CHECK_LEFT( 1UL ); genesis->epoch_schedule.warmup                      = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+  CHECK( genesis->epoch_schedule.warmup<=1U );
   CHECK_LEFT( 8UL ); genesis->epoch_schedule.first_normal_epoch          = FD_LOAD( ulong, CURSOR ); INC( 8UL );
   CHECK_LEFT( 8UL ); genesis->epoch_schedule.first_normal_slot           = FD_LOAD( ulong, CURSOR ); INC( 8UL );
 
