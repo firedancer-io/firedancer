@@ -1547,21 +1547,31 @@ fd_http_server_printf( fd_http_server_t * http,
                        ... ) {
   if( FD_UNLIKELY( http->stage_err ) ) return;
 
-  va_list ap;
-  va_start( ap, fmt );
-  ulong printed_len = (ulong)vsnprintf( NULL, 0UL, fmt, ap );
-  va_end( ap );
-
-  /* reserve enough for the NULL terminator */
-  fd_http_server_reserve( http, printed_len+1UL );
+  /* Speculatively reserve enough for the common case and print
+     directly into the ring, re-sizing exactly only on overflow. */
+  ulong spec_sz = fd_ulong_min( 1024UL, http->oring_sz-http->stage_len );
+  fd_http_server_reserve( http, spec_sz );
   if( FD_UNLIKELY( http->stage_err ) ) return;
 
+  va_list ap;
   va_start( ap, fmt );
-  vsnprintf( (char *)http->oring+(http->stage_off%http->oring_sz)+http->stage_len,
-             INT_MAX, /* We already proved it's going to fit above */
-             fmt,
-             ap );
+  ulong printed_len = (ulong)vsnprintf( (char *)http->oring+(http->stage_off%http->oring_sz)+http->stage_len,
+                                        spec_sz,
+                                        fmt,
+                                        ap );
   va_end( ap );
+
+  if( FD_UNLIKELY( printed_len+1UL>spec_sz ) ) {
+    fd_http_server_reserve( http, printed_len+1UL );
+    if( FD_UNLIKELY( http->stage_err ) ) return;
+
+    va_start( ap, fmt );
+    vsnprintf( (char *)http->oring+(http->stage_off%http->oring_sz)+http->stage_len,
+               INT_MAX, /* We already proved it's going to fit above */
+               fmt,
+               ap );
+    va_end( ap );
+  }
 
   http->stage_len += printed_len;
 }
