@@ -463,6 +463,7 @@ accept_conns( fd_http_server_t * http ) {
     http->pollfds[ conn_id ].events = POLLIN;
     http->conns[ conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
     http->conns[ conn_id ].request_bytes_read     = 0UL;
+    http->conns[ conn_id ].request_bytes_off      = 0UL;
     http->conns[ conn_id ].response_bytes_written = 0UL;
 
     if( FD_UNLIKELY( http->callbacks.open ) ) {
@@ -477,30 +478,10 @@ accept_conns( fd_http_server_t * http ) {
 }
 
 static void
-read_conn_http( fd_http_server_t * http,
-                ulong              conn_idx ) {
+parse_conn_http( fd_http_server_t * http,
+                 ulong              conn_idx,
+                 ulong              last_len ) {
   struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
-
-  if( FD_UNLIKELY( conn->state!=FD_HTTP_SERVER_CONNECTION_STATE_READING ) ) {
-    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF );
-    return;
-  }
-
-  long sz = read( http->pollfds[ conn_idx ].fd, conn->request_bytes+conn->request_bytes_read, http->max_request_len-conn->request_bytes_read );
-  if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data to read, continue. */
-  else if( FD_UNLIKELY( !sz || (-1==sz && is_expected_network_error( errno ) ) ) ) {
-    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
-    return;
-  }
-  else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "read failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
-
-  /* New data was read... process it */
-  http->metrics.bytes_read += (ulong)sz;
-  conn->request_bytes_read += (ulong)sz;
-  if( FD_UNLIKELY( conn->request_bytes_read==http->max_request_len ) ) {
-    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
-    return;
-  }
 
   char const * method;
   ulong method_len;
@@ -509,20 +490,20 @@ read_conn_http( fd_http_server_t * http,
   int minor_version;
   struct phr_header headers[ 32 ];
   ulong num_headers = 32UL;
-  int result = phr_parse_request( conn->request_bytes,
-                                  conn->request_bytes_read,
+  int result = phr_parse_request( conn->request_bytes+conn->request_bytes_off,
+                                  conn->request_bytes_read-conn->request_bytes_off,
                                   &method, &method_len,
                                   &path, &path_len,
                                   &minor_version,
                                   headers, &num_headers,
-                                  conn->request_bytes_read - (ulong)sz );
+                                  last_len );
   if( FD_UNLIKELY( -2==result ) ) return; /* Request still partial, wait for more data */
   else if( FD_UNLIKELY( -1==result ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
     return;
   }
 
-  FD_TEST( result>0 && (ulong)result<=conn->request_bytes_read );
+  FD_TEST( result>0 && (ulong)result<=conn->request_bytes_read-conn->request_bytes_off );
 
   uchar method_enum = UCHAR_MAX;
   if( FD_LIKELY( method_len==3UL && !strncmp( method, "GET", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_GET;
@@ -544,43 +525,41 @@ read_conn_http( fd_http_server_t * http,
   }
 
   ulong content_len = 0UL;
-  if( FD_UNLIKELY( method_enum==FD_HTTP_SERVER_METHOD_POST || method_enum==FD_HTTP_SERVER_METHOD_PUT ) ) {
-    int found = 0;
-    for( ulong i=0UL; i<num_headers; i++ ) {
-      if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) ) ) {
-        ulong this_content_len = 0UL;
-        int parse_err = fd_http_parse_content_len( headers[ i ].value, (ulong)headers[ i ].value_len, &this_content_len );
-        if( FD_UNLIKELY( parse_err ) ) {
-          close_conn( http, conn_idx, fd_int_if( parse_err==FD_HTTP_PARSE_CONTENT_LEN_OVERFLOW, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST ) );
-          return;
-        }
-        if( FD_UNLIKELY( found && this_content_len!=content_len ) ) {
-          /* RFC 7230 s3.3.3 rule 4: reject if duplicate Content-Length
-             values differ */
-          close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
-          return;
-        }
-        content_len = this_content_len;
-        found = 1;
+  int found = 0;
+  for( ulong i=0UL; i<num_headers; i++ ) {
+    if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) ) ) {
+      ulong this_content_len = 0UL;
+      int parse_err = fd_http_parse_content_len( headers[ i ].value, (ulong)headers[ i ].value_len, &this_content_len );
+      if( FD_UNLIKELY( parse_err ) ) {
+        close_conn( http, conn_idx, fd_int_if( parse_err==FD_HTTP_PARSE_CONTENT_LEN_OVERFLOW, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST ) );
+        return;
       }
+      if( FD_UNLIKELY( found && this_content_len!=content_len ) ) {
+        /* RFC 7230 s3.3.3 rule 4: reject if duplicate Content-Length
+            values differ */
+        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+        return;
+      }
+      content_len = this_content_len;
+      found = 1;
     }
+  }
 
-    if( FD_UNLIKELY( !found ) ) {
-      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONTENT_LENGTH_HEADER );
-      return;
-    }
+  if( FD_UNLIKELY( !found && (method_enum==FD_HTTP_SERVER_METHOD_POST || method_enum==FD_HTTP_SERVER_METHOD_PUT) ) ) {
+    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONTENT_LENGTH_HEADER );
+    return;
+  }
 
-    ulong total_len = (ulong)result+content_len;
+  ulong total_len = (ulong)result+content_len;
 
-    if( FD_UNLIKELY( total_len<content_len || total_len>http->max_request_len ) ) { /* Overflow */
-      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
-      return;
-    }
+  if( FD_UNLIKELY( total_len<content_len || total_len>http->max_request_len ) ) { /* Overflow */
+    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+    return;
+  }
 
 
-    if( FD_UNLIKELY( conn->request_bytes_read<(ulong)result+content_len ) ) {
-      return; /* Request still partial, wait for more data */
-    }
+  if( FD_UNLIKELY( conn->request_bytes_read-conn->request_bytes_off<(ulong)result+content_len ) ) {
+    return; /* Request still partial, wait for more data */
   }
 
   char content_type_nul_terminated[ 128 ] = {0};
@@ -622,7 +601,7 @@ read_conn_http( fd_http_server_t * http,
   conn->upgrade_websocket = 0;
   int compress_websocket = 0;
   if( FD_UNLIKELY( upgrade_key && !strncasecmp( upgrade_key, "websocket", 9UL ) ) ) {
-    conn->request_bytes_len = (ulong)result;
+    conn->request_bytes_len = conn->request_bytes_off+(ulong)result;
     conn->upgrade_websocket = 1;
 
 #if FD_HAS_ZSTD
@@ -686,7 +665,23 @@ read_conn_http( fd_http_server_t * http,
     }
   }
 
-  conn->state    = FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER;
+  int connection_close = 0;
+  for( ulong i=0UL; i<num_headers; i++ ) {
+    if( FD_UNLIKELY( headers[ i ].name_len==10UL && !strncasecmp( headers[ i ].name, "Connection", 10UL ) ) ) {
+      char const * value = headers[ i ].value;
+      ulong        j     = 0UL;
+      while( j<headers[ i ].value_len ) {
+        while( j<headers[ i ].value_len && (value[ j ]==','  || value[ j ]==' ' || value[ j ]=='\t') ) j++;
+        ulong k = j;
+        while( k<headers[ i ].value_len && value[ k ]!=',' && value[ k ]!=' ' && value[ k ]!='\t' ) k++;
+        if( FD_UNLIKELY( k-j==5UL && !strncasecmp( value+j, "close", 5UL ) ) ) { connection_close = 1; break; }
+        j = k;
+      }
+    }
+  }
+
+  conn->keep_alive       = minor_version==1 && !connection_close && !conn->upgrade_websocket;
+  conn->request_consumed = conn->request_bytes_off+(ulong)result+content_len;
 
   fd_http_server_request_t request = {
     .connection_id             = conn_idx,
@@ -707,7 +702,7 @@ read_conn_http( fd_http_server_t * http,
   switch( method_enum ) {
     case FD_HTTP_SERVER_METHOD_POST:
     case FD_HTTP_SERVER_METHOD_PUT: {
-      request.post.body     = (uchar*)conn->request_bytes+result;
+      request.post.body     = (uchar*)conn->request_bytes+conn->request_bytes_off+result;
       request.post.body_len = content_len;
     } break;
     default: break;
@@ -716,6 +711,16 @@ read_conn_http( fd_http_server_t * http,
   fd_http_server_response_t response = http->callbacks.request( &request );
   if( FD_LIKELY( http->pollfds[ conn_idx ].fd==-1 ) ) return; /* Connection was closed by callback */
   conn->response = response;
+  conn->state    = FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER;
+
+  switch( conn->response.status ) {
+    case 200: case 204: case 400: break;
+    default:
+      conn->response.static_body_len = 0UL;
+      conn->response._body_len       = 0UL;
+      break;
+  }
+
   http->pollfds[ conn_idx ].events = POLLOUT | (response.upgrade_websocket ? POLLIN : 0);
 
 #if FD_HTTP_SERVER_DEBUG
@@ -723,6 +728,45 @@ read_conn_http( fd_http_server_t * http,
 #endif
 
   if( FD_LIKELY( !conn->response.static_body ) ) conn_treap_ele_insert( http->conn_treap, conn, http->conns );
+}
+
+static void
+read_conn_http( fd_http_server_t * http,
+                ulong              conn_idx ) {
+  struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
+
+  if( FD_UNLIKELY( conn->state!=FD_HTTP_SERVER_CONNECTION_STATE_READING ) ) {
+    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF );
+    return;
+  }
+
+  if( FD_UNLIKELY( conn->request_bytes_off ) ) {
+    memmove( conn->request_bytes, conn->request_bytes+conn->request_bytes_off, conn->request_bytes_read-conn->request_bytes_off );
+    conn->request_bytes_read -= conn->request_bytes_off;
+    conn->request_bytes_off   = 0UL;
+  }
+
+  long sz = read( http->pollfds[ conn_idx ].fd, conn->request_bytes+conn->request_bytes_read, http->max_request_len-conn->request_bytes_read );
+  if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data to read, continue. */
+  else if( FD_UNLIKELY( !sz || (-1==sz && is_expected_network_error( errno ) ) ) ) {
+    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
+    return;
+  }
+  else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "read failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
+
+  /* New data was read... process it */
+  http->metrics.bytes_read += (ulong)sz;
+  conn->request_bytes_read += (ulong)sz;
+
+  parse_conn_http( http, conn_idx, conn->request_bytes_read-(ulong)sz );
+
+  /* A full buffer may hold multiple valid pipelined requests, so it is
+     only oversized if parsing left it full and still incomplete */
+  if( FD_UNLIKELY( http->pollfds[ conn_idx ].fd!=-1 &&
+                   conn->state==FD_HTTP_SERVER_CONNECTION_STATE_READING &&
+                   conn->request_bytes_read==http->max_request_len ) ) {
+    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+  }
 }
 
 static void
@@ -926,7 +970,7 @@ write_conn_http( fd_http_server_t * http,
             FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %.*s\r\n", (int)encoded_len, sec_websocket_accept_base64 ) );
           } else {
             ulong body_len = conn->response.static_body ? conn->response.static_body_len : conn->response._body_len;
-            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nConnection: close\r\n", body_len ) );
+            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n", body_len ) );
           }
           break;
         case 204: {
@@ -1013,6 +1057,11 @@ write_conn_http( fd_http_server_t * http,
         ulong access_control_allow_headers_len;
         FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &access_control_allow_headers_len, "Access-Control-Allow-Headers: %s\r\n", conn->response.access_control_allow_headers ) );
         response_len += access_control_allow_headers_len;
+      }
+      if( FD_LIKELY( !conn->response.upgrade_websocket ) ) {
+        ulong connection_len;
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &connection_len, "Connection: %s\r\n", conn->keep_alive ? "keep-alive" : "close" ) );
+        response_len += connection_len;
       }
       if( FD_LIKELY( conn->response.access_control_max_age ) ) {
         ulong access_control_max_age_len;
@@ -1112,7 +1161,17 @@ write_conn_http( fd_http_server_t * http,
         }
         break;
       case FD_HTTP_SERVER_CONNECTION_STATE_WRITING_BODY:
-        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
+        if( FD_LIKELY( conn->keep_alive ) ) {
+          if( FD_LIKELY( !conn->response.static_body ) ) conn_treap_ele_remove( http->conn_treap, conn, http->conns );
+          ulong remaining = conn->request_bytes_read-conn->request_consumed;
+          conn->state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
+          conn->request_bytes_off      = conn->request_consumed;
+          conn->response_bytes_written = 0UL;
+          http->pollfds[ conn_idx ].events = POLLIN;
+          if( FD_UNLIKELY( remaining ) ) parse_conn_http( http, conn_idx, 0UL );
+        } else {
+          close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
+        }
         break;
     }
   }

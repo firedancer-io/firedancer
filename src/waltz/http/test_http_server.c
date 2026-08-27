@@ -164,11 +164,11 @@ test_oring( void ) {
   };
 
   /* zstd cctx estimate assumes the single-threaded vendored build */
-  uchar scratch[ 1633152 ] __attribute__((aligned(128UL)));
+  uchar scratch[ 1633280 ] __attribute__((aligned(128UL)));
 #if FD_HAS_ZSTD
-  FD_TEST( fd_http_server_footprint( params )==1633152 );
+  FD_TEST( fd_http_server_footprint( params )==1633280 );
 #else
-  FD_TEST( fd_http_server_footprint( params )==329472 );
+  FD_TEST( fd_http_server_footprint( params )==329600 );
   FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
 #endif
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
@@ -904,6 +904,328 @@ test_ws_fragmented_interleaved_control( void ) {
   ws_test_server_delete( http, scratch, client_fd );
 }
 
+/* test_keep_alive covers connection reuse: sequential requests on one
+   connection, Connection token parsing, explicit close, HTTP/1.0, and
+   pipelined requests, and body framing on GET. */
+
+static fd_http_server_t * keep_alive_http;
+
+static fd_http_server_response_t
+request_ok_body( fd_http_server_request_t const * request ) {
+  (void)request;
+  fd_http_server_printf( keep_alive_http, "ok" );
+  fd_http_server_response_t response = {
+    .status       = 200,
+    .content_type = "text/plain",
+  };
+  FD_TEST( !fd_http_server_stage_body( keep_alive_http, &response ) );
+  return response;
+}
+
+static void
+keep_alive_recv( fd_http_server_t * http,
+                 int                client_fd,
+                 char *             buf,
+                 ulong              buf_sz ) {
+  ulong len = 0UL;
+  for( ulong i=0UL; i<400UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+    long n = recv( client_fd, buf+len, buf_sz-len-1UL, MSG_DONTWAIT );
+    if( n>0L ) {
+      len += (ulong)n;
+      buf[ len ] = '\0';
+      if( strstr( buf, "\r\n\r\nok" ) ) return;
+    }
+  }
+  FD_LOG_ERR(( "no response received" ));
+}
+
+static void
+keep_alive_wait_close( fd_http_server_t *       http,
+                       overflow_close_state_t * state,
+                       ulong                    close_cnt ) {
+  for( ulong i=0UL; i<400UL && state->close_cnt<close_cnt; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  FD_TEST( state->close_cnt==close_cnt );
+}
+
+static int
+keep_alive_connect( fd_http_server_t * http ) {
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = server_addr.sin_port,
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+  return client_fd;
+}
+
+static void
+test_keep_alive( void ) {
+  FD_LOG_NOTICE(( "Testing keep-alive connection reuse" ));
+
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_ok_body,
+    .close   = close_capture,
+  };
+
+  fd_http_server_params_t params = default_test_params();
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  keep_alive_http = http;
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  char buf[ 1024 ];
+
+  /* two sequential requests on one connection */
+  int client_fd = keep_alive_connect( http );
+  char const * get = "GET / HTTP/1.1\r\nHost: test\r\n\r\n";
+  send_all( client_fd, get, strlen( get ) );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "Connection: keep-alive" ) );
+  FD_TEST( !state.close_cnt );
+  send_all( client_fd, get, strlen( get ) );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "Connection: keep-alive" ) );
+  FD_TEST( !state.close_cnt );
+  close( client_fd );
+  keep_alive_wait_close( http, &state, 1UL );
+
+  /* extension tokens are not close */
+  client_fd = keep_alive_connect( http );
+  char const * get_ext = "GET / HTTP/1.1\r\nConnection: close-timeout, xclose\r\n\r\n";
+  send_all( client_fd, get_ext, strlen( get_ext ) );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "Connection: keep-alive" ) );
+
+  /* a close token in a list is */
+  char const * get_close = "GET / HTTP/1.1\r\nConnection: keep-alive, close\r\n\r\n";
+  send_all( client_fd, get_close, strlen( get_close ) );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "Connection: close" ) );
+  keep_alive_wait_close( http, &state, 2UL );
+  close( client_fd );
+
+  /* HTTP/1.0 closes */
+  client_fd = keep_alive_connect( http );
+  char const * get_10 = "GET / HTTP/1.0\r\n\r\n";
+  send_all( client_fd, get_10, strlen( get_10 ) );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "Connection: close" ) );
+  keep_alive_wait_close( http, &state, 3UL );
+  close( client_fd );
+
+  /* pipelined requests are served sequentially regardless of read
+     boundaries */
+  client_fd = keep_alive_connect( http );
+  char const * get_two = "GET / HTTP/1.1\r\nHost: test\r\n\r\nGET / HTTP/1.1\r\nHost: test\r\n\r\n";
+  send_all( client_fd, get_two, strlen( get_two ) );
+  ulong len = 0UL;
+  for( ulong i=0UL; i<400UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+    long n = recv( client_fd, buf+len, sizeof( buf )-len-1UL, MSG_DONTWAIT );
+    if( n>0L ) { len += (ulong)n; buf[ len ] = '\0'; }
+    char * second = len ? strstr( buf, "\r\n\r\nok" ) : NULL;
+    if( second && strstr( second+6UL, "\r\n\r\nok" ) ) break;
+  }
+  FD_TEST( strstr( buf, "\r\n\r\nok" ) && strstr( strstr( buf, "\r\n\r\nok" )+6UL, "\r\n\r\nok" ) );
+  FD_TEST( !strstr( buf, "Connection: close" ) );
+  close( client_fd );
+  keep_alive_wait_close( http, &state, 4UL );
+
+  /* pipelined requests totaling more than max_request_len are all
+     served as the buffer drains, not closed as one oversized request */
+  client_fd = keep_alive_connect( http );
+  ulong close_cnt = state.close_cnt;
+  char pipeline[ 35UL*30UL ]; /* 1050 bytes > max_request_len, in one write */
+  for( ulong i=0UL; i<35UL; i++ ) memcpy( pipeline+30UL*i, get_two, 30UL );
+  send_all( client_fd, pipeline, sizeof( pipeline ) );
+  ulong ok_cnt = 0UL;
+  char  tail[ 8 ] = {0};
+  for( ulong i=0UL; i<4000UL && ok_cnt<35UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+    char chunk[ 256 ];
+    long n = recv( client_fd, chunk, sizeof( chunk )-1UL, MSG_DONTWAIT );
+    if( n>0L ) {
+      /* count "\r\n\r\nok" across chunk boundaries via a small carry */
+      char scan[ 256+8 ];
+      ulong tail_len = strlen( tail );
+      memcpy( scan, tail, tail_len );
+      memcpy( scan+tail_len, chunk, (ulong)n );
+      scan[ tail_len+(ulong)n ] = '\0';
+      for( char * p=scan; (p=strstr( p, "\r\n\r\nok" )); p+=6UL ) ok_cnt++;
+      ulong keep = fd_ulong_min( tail_len+(ulong)n, 5UL );
+      memcpy( tail, scan+tail_len+(ulong)n-keep, keep );
+      tail[ keep ] = '\0';
+    }
+  }
+  FD_TEST( ok_cnt==35UL );
+  FD_TEST( state.close_cnt==close_cnt );
+  close( client_fd );
+  keep_alive_wait_close( http, &state, close_cnt+1UL );
+
+  /* a GET with Content-Length waits for and consumes the body, keeping
+     the request stream framed */
+  client_fd = keep_alive_connect( http );
+  char const * get_body = "GET / HTTP/1.1\r\nContent-Length: 5\r\n\r\n";
+  send_all( client_fd, get_body, strlen( get_body ) );
+  for( ulong i=0UL; i<50UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+    char c;
+    FD_TEST( recv( client_fd, &c, 1UL, MSG_DONTWAIT )<0L ); /* no response until the body arrives */
+  }
+  send_all( client_fd, "12345", 5UL );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "Connection: keep-alive" ) );
+  send_all( client_fd, get, strlen( get ) );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "Connection: keep-alive" ) );
+  close( client_fd );
+  keep_alive_wait_close( http, &state, close_cnt+2UL );
+
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+
+/* A 302 whose handler also staged a body: the header declares
+   Content-Length: 0, so the stray bytes must not reach the stream */
+
+static fd_http_server_response_t
+request_redirect_with_junk( fd_http_server_request_t const * request ) {
+  (void)request;
+  fd_http_server_printf( keep_alive_http, "junk" );
+  static char const prefix[] = "/elsewhere";
+  fd_http_server_response_t response = {
+    .status       = 302UL,
+    .location     = { prefix },
+    .location_len = { sizeof(prefix)-1UL },
+  };
+  FD_TEST( !fd_http_server_stage_body( keep_alive_http, &response ) );
+  return response;
+}
+
+static void
+test_zero_length_status_body( void ) {
+  FD_LOG_NOTICE(( "Testing body suppression on Content-Length: 0 statuses" ));
+
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_redirect_with_junk,
+    .close   = close_capture,
+  };
+
+  fd_http_server_params_t params = default_test_params();
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  keep_alive_http = http;
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  int client_fd = keep_alive_connect( http );
+  char const * get = "GET / HTTP/1.1\r\nHost: test\r\n\r\n";
+  char buf[ 2048 ] = {0};
+  ulong len = 0UL;
+  send_all( client_fd, get, strlen( get ) );
+  send_all( client_fd, get, strlen( get ) );
+  for( ulong i=0UL; i<400UL; i++ ) {
+    fd_http_server_poll( http, 1, ULONG_MAX );
+    long n = recv( client_fd, buf+len, sizeof( buf )-len-1UL, MSG_DONTWAIT );
+    if( n>0L ) { len += (ulong)n; buf[ len ] = '\0'; }
+    char * second = len ? strstr( buf, "302 Found" ) : NULL;
+    if( second && strstr( second+9UL, "302 Found" ) ) break;
+  }
+  FD_TEST( strstr( buf, "302 Found" ) && strstr( strstr( buf, "302 Found" )+9UL, "302 Found" ) );
+  FD_TEST( strstr( buf, "Content-Length: 0" ) );
+  FD_TEST( !strstr( buf, "junk" ) ); /* staged body suppressed, stream framed */
+  FD_TEST( !state.close_cnt );
+  close( client_fd );
+
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+
+/* test_close_in_pipelined_callback: the second pipelined request's
+   callback closes the connection while the first response's stale
+   fields still sit in conn->response; membership inference must not
+   remove the treap node twice. */
+
+static ulong pipeline_close_req_cnt;
+
+static fd_http_server_response_t
+request_close_second( fd_http_server_request_t const * request ) {
+  pipeline_close_req_cnt++;
+  if( FD_UNLIKELY( pipeline_close_req_cnt==2UL ) ) {
+    fd_http_server_close( keep_alive_http, request->connection_id, FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
+    return request_noop( request );
+  }
+  fd_http_server_printf( keep_alive_http, "ok" );
+  fd_http_server_response_t response = {
+    .status       = 200,
+    .content_type = "text/plain",
+  };
+  FD_TEST( !fd_http_server_stage_body( keep_alive_http, &response ) );
+  return response;
+}
+
+static void
+test_close_in_pipelined_callback( void ) {
+  FD_LOG_NOTICE(( "Testing close from the second pipelined request's callback" ));
+
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_close_second,
+    .close   = close_capture,
+  };
+
+  fd_http_server_params_t params = default_test_params();
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  keep_alive_http        = http;
+  pipeline_close_req_cnt = 0UL;
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  char buf[ 1024 ];
+
+  int client_fd = keep_alive_connect( http );
+  char const * get_two = "GET / HTTP/1.1\r\nHost: test\r\n\r\nGET / HTTP/1.1\r\nHost: test\r\n\r\n";
+  send_all( client_fd, get_two, strlen( get_two ) );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "\r\n\r\nok" ) );
+  keep_alive_wait_close( http, &state, 1UL );
+  FD_TEST( pipeline_close_req_cnt==2UL );
+  close( client_fd );
+
+  /* treap intact: the server keeps serving dynamic responses */
+  client_fd = keep_alive_connect( http );
+  char const * get = "GET / HTTP/1.1\r\nHost: test\r\n\r\n";
+  send_all( client_fd, get, strlen( get ) );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "\r\n\r\nok" ) );
+  close( client_fd );
+  keep_alive_wait_close( http, &state, 2UL );
+
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -916,6 +1238,9 @@ main( int     argc,
   test_poll_interest();
   test_ws_send_after_staging_eviction();
   test_location_raw_path();
+  test_keep_alive();
+  test_zero_length_status_body();
+  test_close_in_pipelined_callback();
   test_transfer_encoding_close();
   test_duplicate_content_length_different_close();
   test_ws_bad_key_close();
