@@ -272,13 +272,6 @@ static const ulong FD_PACK_MAX_SIMPLE_VOTE_COST = ( 2UL*FD_PACK_COST_PER_SIGNATU
                                                     FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST + /* 16,384 */
                                                     FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST );       /* 265    */
 
-/* Legacy Frankendancer's Agave FFI rebate path still supports
-   feature-inactive banks. */
-static const ulong FD_PACK_FIXED_SIMPLE_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE         +
-                                                      2UL*FD_PACK_COST_PER_WRITABLE_ACCT +
-                                                      FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS +
-                                                      8UL );
-
 #undef FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST
 
 /* Computes the total cost and a few related properties for the
