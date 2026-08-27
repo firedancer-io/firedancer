@@ -907,14 +907,19 @@ after_frag( fd_net_ctx_t *      ctx,
     uchar * gre_hdr           = outer_iphdr + sizeof(fd_ip4_hdr_t);
     uchar * inner_iphdr       = gre_hdr + sizeof(fd_gre_hdr_t);
 
-    /* outer hdr + gre hdr + inner net_tot_len */
-    ushort  outer_net_tot_len = (ushort)( sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + fd_ushort_bswap( ( (fd_ip4_hdr_t *)inner_iphdr )->net_tot_len ) );
+    ulong inner_net_tot_len = fd_ushort_bswap( FD_LOAD( ushort, inner_iphdr+offsetof(fd_ip4_hdr_t, net_tot_len) ) );
+    ulong outer_net_tot_len = sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + inner_net_tot_len;
+    ulong tx_sz = sizeof(fd_eth_hdr_t) + outer_net_tot_len;
+    if( FD_UNLIKELY( inner_net_tot_len!=sz-sizeof(fd_eth_hdr_t) || tx_sz>FD_NET_MTU ) ) {
+      ctx->metrics.tx_invalid_cnt++;
+      return;
+    }
 
     /* Construct outer ip header */
     fd_ip4_hdr_t ip4_outer = (fd_ip4_hdr_t) {
       .verihl       = FD_IP4_VERIHL( 4,5 ),
       .tos          = 0,
-      .net_tot_len  = fd_ushort_bswap( outer_net_tot_len ),
+      .net_tot_len  = fd_ushort_bswap( (ushort)outer_net_tot_len ),
       .net_id       = 0,
       .net_frag_off = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF ),
       .ttl          = 64,
@@ -934,7 +939,7 @@ after_frag( fd_net_ctx_t *      ctx,
     FD_STORE( fd_gre_hdr_t, gre_hdr, gre_hdr_ );
 
     iphdr   = inner_iphdr;
-    sz      = sizeof(fd_eth_hdr_t) + outer_net_tot_len;
+    sz      = tx_sz;
     xsk_idx = 0;
   }
 
