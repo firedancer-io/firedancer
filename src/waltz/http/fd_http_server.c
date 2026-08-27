@@ -359,6 +359,34 @@ fd_http_server_listen6( fd_http_server_t *    http,
   return http;
 }
 
+int
+fd_http_server_etag_matches( char const * if_none_match,
+                             char const * etag ) {
+  ulong etag_len = strlen( etag );
+  char const * p = if_none_match;
+  while( *p==' ' || *p=='\t' ) p++;
+  if( *p=='*' ) {
+    p++;
+    while( *p==' ' || *p=='\t' ) p++;
+    return !*p;
+  }
+  int matched = 0;
+  while( *p ) {
+    while( *p==' ' || *p=='\t' || *p==',' ) p++;
+    if( !*p ) break;
+    if( p[ 0 ]=='W' && p[ 1 ]=='/' ) p += 2;
+    if( FD_UNLIKELY( *p!='"' ) ) return 0;
+    char const * end = strchr( p+1, '"' );
+    if( FD_UNLIKELY( !end ) ) return 0;
+    ulong len = (ulong)(end-p)+1UL;
+    if( len==etag_len && !memcmp( p, etag, len ) ) matched = 1;
+    p = end+1;
+    while( *p==' ' || *p=='\t' ) p++;
+    if( FD_UNLIKELY( *p && *p!=',' ) ) return 0;
+  }
+  return matched;
+}
+
 static void
 close_conn( fd_http_server_t * http,
             ulong              conn_idx,
@@ -583,6 +611,21 @@ parse_conn_http( fd_http_server_t * http,
     }
   }
 
+  char if_none_match_nul_terminated[ 128 ] = {0};
+  ulong if_none_match_len = 0UL;
+  for( ulong i=0UL; i<num_headers; i++ ) {
+    if( FD_UNLIKELY( headers[ i ].name_len==13UL && !strncasecmp( headers[ i ].name, "If-None-Match", 13UL ) ) ) {
+      ulong sep_len = if_none_match_len ? 2UL : 0UL;
+      if( FD_UNLIKELY( if_none_match_len+sep_len+headers[ i ].value_len>sizeof(if_none_match_nul_terminated)-1UL ) ) {
+        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+        return;
+      }
+      if( FD_LIKELY( sep_len ) ) { memcpy( if_none_match_nul_terminated+if_none_match_len, ", ", 2UL ); if_none_match_len += 2UL; }
+      memcpy( if_none_match_nul_terminated+if_none_match_len, headers[ i ].value, headers[ i ].value_len );
+      if_none_match_len += headers[ i ].value_len;
+    }
+  }
+
   char path_nul_terminated[ 128 ] = {0};
   if( FD_UNLIKELY( path_len>(sizeof( path_nul_terminated )-1UL) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG );
@@ -695,6 +738,7 @@ parse_conn_http( fd_http_server_t * http,
 
     .headers.content_type       = content_type_nul_terminated,
     .headers.accept_encoding    = accept_encoding_nul_terminated,
+    .headers.if_none_match      = if_none_match_nul_terminated,
     .headers.compress_websocket = compress_websocket,
     .headers.upgrade_websocket  = conn->upgrade_websocket,
   };
@@ -981,6 +1025,10 @@ write_conn_http( fd_http_server_t * http,
         case 302:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 302 Found\r\nContent-Length: 0\r\n" ) );
           break;
+        case 304:
+          /* RFC 9110 s15.4.5: no body, no Content-Length */
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 304 Not Modified\r\n" ) );
+          break;
         case 400: {
           ulong body_len = conn->response.static_body ? conn->response.static_body_len : conn->response._body_len;
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\n", body_len ) );
@@ -1062,6 +1110,11 @@ write_conn_http( fd_http_server_t * http,
         ulong connection_len;
         FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &connection_len, "Connection: %s\r\n", conn->keep_alive ? "keep-alive" : "close" ) );
         response_len += connection_len;
+      }
+      if( FD_LIKELY( conn->response.etag ) ) {
+        ulong etag_len;
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &etag_len, "ETag: %s\r\n", conn->response.etag ) );
+        response_len += etag_len;
       }
       if( FD_LIKELY( conn->response.access_control_max_age ) ) {
         ulong access_control_max_age_len;
