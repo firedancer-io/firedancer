@@ -948,6 +948,15 @@ struct fd_gui {
   struct {
     fd_gui_ag_block_t block[ FD_GUI_AG_WINDOW ][ FD_GUI_AG_WAYS ];
     ulong             skip_slot[ FD_GUI_AG_WINDOW ];
+
+    /* Whether certificate block ids and replay block ids are the same
+       hash is not something this tile can check directly, and if they
+       ever diverge the symptom is silence - levels simply never advance
+       past completed.  Counting both outcomes makes that diagnosable
+       from the log instead of guessable. */
+    ulong resolved_cnt;   /* certificates that reached a slot record */
+    ulong unresolved_cnt; /* certificate entries lapped without ever binding to a block */
+    int   diagnosed;      /* one-shot latch for the log lines below */
   } ag;
 
   /* used for estimating slot duration */
@@ -1550,6 +1559,11 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
   meta->is_voter          = 0;
   meta->skip              = FD_GUI_SKIP_STATUS_UNKNOWN;
   meta->level             = (uchar)( _slot ? FD_GUI_SLOT_LEVEL_INCOMPLETE : FD_GUI_SLOT_LEVEL_ROOTED ); /* slot 0 always rooted */
+  /* Records come out of a recycled ring, so these must be cleared and
+     not left to inherit a lapped record's proofs - they are only ever
+     raised afterwards, which would make a stale value permanent. */
+  meta->notarization_kind = FD_GUI_AG_NOTAR_NONE;
+  meta->finalization_kind = FD_GUI_AG_FINAL_NONE;
   meta->vote_failed       = UINT_MAX;
   meta->vote_success      = UINT_MAX;
   meta->nonvote_success   = UINT_MAX;

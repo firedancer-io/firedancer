@@ -254,6 +254,9 @@ fd_gui_new( void *                   shmem,
     for( ulong j=0UL; j<FD_GUI_AG_WAYS; j++ ) gui->ag.block[ i ][ j ].slot = ULONG_MAX;
     gui->ag.skip_slot[ i ] = ULONG_MAX;
   }
+  gui->ag.resolved_cnt   = 0UL;
+  gui->ag.unresolved_cnt = 0UL;
+  gui->ag.diagnosed      = 0;
 
   memset( gui->summary.skip_rate, 0, sizeof(gui->summary.skip_rate) );
   gui->summary.skip_rate[ 0 ].epoch = ULONG_MAX;
@@ -2680,6 +2683,23 @@ fd_gui_ag_block_insert( fd_gui_t *        gui,
   }
   if( FD_UNLIKELY( !ent ) ) ent = &way[ FD_GUI_AG_WAYS-1UL ];
 
+  /* We are about to discard whatever was here.  If it held a proof but
+     never bound to a replayed block, that certificate named something
+     we could not match - the signal that matters if the two block id
+     spaces are not the same hash. */
+  if( FD_UNLIKELY( ent->slot!=ULONG_MAX && ent->bank_seq==ULONG_MAX &&
+                   ( ent->notarization_kind!=FD_GUI_AG_NOTAR_NONE ||
+                     ent->finalization_kind!=FD_GUI_AG_FINAL_NONE ) ) ) {
+    gui->ag.unresolved_cnt++;
+
+    if( FD_UNLIKELY( !gui->ag.diagnosed && !gui->ag.resolved_cnt && gui->ag.unresolved_cnt>=64UL ) ) {
+      gui->ag.diagnosed = 1;
+      FD_LOG_WARNING(( "alpenglow: %lu certificates aged out without ever matching a replayed block, and none have matched; "
+                       "certificate block ids and replay block ids are probably different hashes",
+                       gui->ag.unresolved_cnt ));
+    }
+  }
+
   ent->slot              = slot;
   ent->block_id          = *block_id;
   ent->bank_seq          = ULONG_MAX;
@@ -2705,14 +2725,28 @@ fd_gui_ag_block_publish( fd_gui_t *                gui,
   uchar final = fd_uchar_if( ent->finalization_kind>slot->finalization_kind, ent->finalization_kind, slot->finalization_kind );
   uchar level = slot->level;
 
-  if( FD_LIKELY( notar!=FD_GUI_AG_NOTAR_NONE ) ) level = fd_uchar_if( level<FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED, FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED, level );
-  if( FD_UNLIKELY( final!=FD_GUI_AG_FINAL_NONE ) ) level = fd_uchar_if( level<FD_GUI_SLOT_LEVEL_ROOTED, FD_GUI_SLOT_LEVEL_ROOTED, level );
+  /* A certificate raises the level at most to notarized, never to
+     rooted, even though a finalization certificate proves the block is
+     final.  Rooting is fd_gui_handle_root_advanced's job, and it walks
+     the ancestor chain only until it meets a slot already at rooted -
+     so pre-empting it here would break the walk on its first iteration
+     and silently skip every piece of per-rooted-slot bookkeeping it
+     does: skip rate, is_voter, vote latency, and the implicit finality
+     fallback.  The root follows one hop behind, over replay. */
+  if( FD_LIKELY( notar!=FD_GUI_AG_NOTAR_NONE || final!=FD_GUI_AG_FINAL_NONE ) ) {
+    level = fd_uchar_if( level<FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED, FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED, level );
+  }
 
   if( FD_LIKELY( notar==slot->notarization_kind && final==slot->finalization_kind && level==slot->level ) ) return;
 
   slot->notarization_kind = notar;
   slot->finalization_kind = final;
   slot->level             = level;
+
+  if( FD_UNLIKELY( !gui->ag.resolved_cnt ) ) {
+    FD_LOG_NOTICE(( "alpenglow: first certificate matched to a replayed block at slot %lu", ent->slot ));
+  }
+  gui->ag.resolved_cnt++;
 
   fd_gui_printf_slot( gui, ent->slot, fd_gui_slot_get_canon_safe( gui, ent->slot ) );
   fd_http_server_ws_broadcast( gui->http );
@@ -3337,9 +3371,15 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
        on-chain vote account rather than Tower's vote distance: a voter
        is current when its latest target slot is within 128 of the slot
        we just processed. */
-    if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING && vote_slot!=ULONG_MAX ) ) {
+    if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {
+      /* A validator configured to vote whose participation we have never
+         observed is delinquent, not voting - that is the case the
+         indicator exists for, and it is what the Tower path reports for
+         an unset vote slot.  It does mean a freshly booted voter reads
+         delinquent until its first vote is certified, which is honest:
+         we do not yet know that it votes. */
       ulong s       = slot_completed->slot;
-      int   current = fd_int_if( s>=128UL, vote_slot+128UL>s, vote_slot>0UL );
+      int   current = vote_slot!=ULONG_MAX && fd_int_if( s>=128UL, vote_slot+128UL>s, vote_slot>0UL );
       set_vote_state( gui, fd_int_if( current, FD_GUI_VOTE_STATE_VOTING, FD_GUI_VOTE_STATE_DELINQUENT ) );
     }
 

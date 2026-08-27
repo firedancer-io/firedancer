@@ -212,6 +212,20 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
 
+/* ag_rank_of_identity finds an identity's position in a ranked
+   Alpenglow validator set, or USHORT_MAX if it is not in the set.
+   Certificate signer bitmaps are indexed by this rank. */
+
+static ushort
+ag_rank_of_identity( ag_epoch_info_t const * info,
+                     fd_pubkey_t const *     identity ) {
+  for( ulong rank=0UL; rank<info->validator_cnt; rank++ ) {
+    if( FD_LIKELY( memcmp( info->validators[ rank ].id_key, identity->uc, sizeof(fd_pubkey_t) ) ) ) continue;
+    return (ushort)rank;
+  }
+  return USHORT_MAX;
+}
+
 /* ag_epoch_vtrs_update stores the ranked Alpenglow validator set for
    the epoch built from outgoing epoch msg. */
 
@@ -239,12 +253,25 @@ ag_epoch_vtrs_update( fd_replay_tile_t *          ctx,
      trade worth making for a monitoring field - votor is the tile that
      holds signing keys. */
 
-  s->our_rank = USHORT_MAX;
-  for( ulong rank=0UL; rank<s->info->validator_cnt; rank++ ) {
-    if( FD_LIKELY( memcmp( s->info->validators[ rank ].id_key, ctx->identity_pubkey->uc, sizeof(fd_pubkey_t) ) ) ) continue;
-    s->our_rank = (ushort)rank;
-    break;
+  s->our_rank = ag_rank_of_identity( s->info, ctx->identity_pubkey );
+}
+
+/* ag_epoch_vtrs_rerank recomputes every live epoch's cached rank.  The
+   ranked sets themselves are unchanged by an identity switch, but which
+   entry is ours is, and an epoch's set is only rebuilt at its boundary
+   - so without this a switch would leave us reading the old identity's
+   bit out of certificate bitmaps for the rest of the epoch. */
+
+static void
+ag_epoch_vtrs_rerank( fd_replay_tile_t * ctx ) {
+  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+    fd_replay_epoch_vtrs_t * s = &ctx->epoch_vtrs[ i ];
+    if( FD_LIKELY( s->epoch==ULONG_MAX ) ) continue;
+    s->our_rank = ag_rank_of_identity( s->info, ctx->identity_pubkey );
   }
+
+  /* Participation we recorded belongs to the previous identity. */
+  ctx->ag_vote_slot = 0UL;
 }
 
 /* ag_our_rank returns our rank in the ranked validator set of the epoch
@@ -1181,6 +1208,8 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
 
   memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
   ctx->identity_dirty = 1;
+
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) ag_epoch_vtrs_rerank( ctx );
 
   fd_node_info_write_begin( ctx->node_info );
   ctx->node_info->info.identity = *ctx->identity_pubkey;
@@ -3788,14 +3817,6 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->ag_vote_slot      = 0UL; /* zero means "no participation observed" */
   ctx->ag_finalized_slot = 0UL;
-
-  ctx->has_vote_account = !!tile->replay.vote_account_path[0];
-  if( FD_LIKELY( ctx->has_vote_account ) ) {
-    if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.vote_account_path, ctx->vote_account->uc ) ) ) {
-      uchar const * vote_key = fd_keyload_load( tile->replay.vote_account_path, /* pubkey only: */ 1 );
-      fd_memcpy( ctx->vote_account->uc, vote_key, sizeof(fd_pubkey_t) );
-    }
-  }
 
   ctx->bundle.enabled = tile->replay.bundle.enabled;
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {

@@ -460,9 +460,6 @@ struct fd_replay_tile {
   fd_pubkey_t      identity_pubkey[1];
   ulong            identity_idx;
   int              identity_dirty;
-  int              has_vote_account;
-  fd_pubkey_t      vote_account[1];
-
   /* Alpenglow consensus facts observed in block footers, for the GUI.
      Both are monotone maxima over every footer we have replayed.
 
