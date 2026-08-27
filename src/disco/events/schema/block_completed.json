@@ -57,7 +57,8 @@
                 "account_cost_limit":          { "description": "A transaction pushed one account over its per-block compute limit." },
                 "vote_cost_limit":             { "description": "A vote transaction pushed the block over its vote compute limit." },
                 "account_data_limit":          { "description": "A transaction pushed the block over its account data size limit." },
-                "duplicate_account":           { "description": "A transaction referenced the same account more than once." }
+                "duplicate_account":           { "description": "A transaction referenced the same account more than once." },
+                "bad_footer":                  { "description": "An Alpenglow block failed to parse its footer." }
             }
         },
         "dead_time":                                 { "type": "DateTime64(9)",                                     "description": "When the block was ruled invalid; 0 if not dead." },

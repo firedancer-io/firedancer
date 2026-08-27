@@ -314,6 +314,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_VOTE_COST_LIMIT             (24) /* A vote transaction pushed the block over its vote compute limit. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ACCOUNT_DATA_LIMIT          (25) /* A transaction pushed the block over its account data size limit. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_DUPLICATE_ACCOUNT           (26) /* A transaction referenced the same account more than once. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER                  (27) /* An Alpenglow block failed to parse its footer. */
 
 /* Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead. */
 #define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED (1) /* Not abandoned; the block completed or was ruled invalid. */
