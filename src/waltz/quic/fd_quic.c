@@ -2232,6 +2232,11 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
+  pkt->ack_flag       = 0U;
+  pkt->rtt_pkt_number = 0UL;
+  pkt->rtt_ack_time   = 0L;
+  pkt->rtt_ack_delay  = 0UL;
+
   fd_quic_state_t * state = fd_quic_get_state( quic );
   fd_quic_conn_t *  conn  = NULL;
 
