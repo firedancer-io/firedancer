@@ -121,7 +121,7 @@ main( int     argc,
   fd_http_server_params_t params = {
     .max_connection_cnt    = 5UL,
     .max_ws_connection_cnt = 2UL,
-    .max_request_len       = 1<<16,
+    .max_request_len       = 2048UL,
     .max_ws_recv_frame_len = 2048UL,
     .max_ws_send_frame_cnt = 100UL,
     .outgoing_buffer_sz    = 4096UL,
