@@ -625,6 +625,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
       .static_body       = firedancer_svg,
       .static_body_len   = firedancer_svg_sz,
       .content_type      = "image/svg+xml",
+      .cache_control     = "public, max-age=86400",
       .upgrade_websocket = 0,
     };
   }
@@ -659,6 +660,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
       char const * cache_control = NULL;
       if( FD_LIKELY( !strncmp( request->path, "/assets", 7 ) ) ) cache_control = "public, max-age=31536000, immutable";
       else if( FD_LIKELY( !strcmp( f->name, "/index.html" ) ) )  cache_control = "no-cache";
+      else if( FD_UNLIKELY( !strcmp( f->name, "/version" ) ) )   cache_control = "no-cache";
 
       const uchar * data = f->data;
       ulong data_len = *(f->data_len);
