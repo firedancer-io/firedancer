@@ -199,6 +199,11 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_SLOT_SHRED_SHRED_PUBLISHED         (6UL)
 
 #define FD_GUI_TXN_BATCH_MAX_TXN (32UL)
+
+/* Transactions closer together than this on the same tile, with the same
+   success value, are grouped into one visual batch. */
+
+#define FD_GUI_TXN_BATCH_GAP_NS  (100000L)
 FD_STATIC_ASSERT( FD_GUI_TXN_BATCH_MAX_TXN<=UCHAR_MAX, txn_batch_count_fits );
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT<=UINT_MAX, txn_batch_member_idx_fits );
 

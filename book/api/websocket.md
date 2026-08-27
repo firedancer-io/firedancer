@@ -2919,7 +2919,7 @@ empty result.  Its response is no longer the same shape as the live
 |-------------|----------|-------------|
 | start_ns    | `string` | Inclusive lower bound of the window, as decimal digits |
 | end_ns      | `string` | Exclusive upper bound of the window, as decimal digits |
-| granularity | `string` | Must be `txn`.  Required |
+| granularity | `string` | Either `txn` or `txn_batch`.  Required |
 
 Per-transaction replay stage timings over a UNIX nanosecond window,
 selected by each transaction's completion time.  Rows are ordered by
@@ -2950,6 +2950,19 @@ Over-large results return `result_limit_exceeded` as described for
 | txn_commit_start_ts_delta     | `(string\|null)[]`| Per row, delta against `reference_ts` |
 | txn_commit_end_ts_delta       | `string[]`        | Per row, delta against `reference_ts` |
 | txn_error_code                | `number[]`        | Per row, the runtime error code, 0 on success |
+
+At `txn_batch` granularity the rows are batches rather than individual
+transactions.  When a slot completes, its transactions are grouped into
+runs on the same tile with the same success value, separated by less
+than 100 microseconds, up to 32 members per batch.  Execution and
+signature verification are batched independently and then paired one to
+one, so the sigverify lane is merged or split to match the execution
+lane's batch count.
+
+The batch response uses the same fields, with `txn_idx` carrying the
+batch index rather than a transaction index.  Intermediate stage
+timestamps are projected across the batch in proportion to the summed
+per-stage durations of its members, so they remain monotonic.
 
 ::: details Example
 

@@ -3728,6 +3728,126 @@ done:
   return rc;
 }
 
+static inline void
+fd_gui_replay_txn_batch_min_ts( long *                                  min_ts,
+                                fd_gui_store_replay_txn_batch_t const * batch ) {
+#define MIN_TS(field) do { if( batch->field!=LONG_MAX ) *min_ts = fd_long_min( *min_ts, batch->field ); } while(0)
+  MIN_TS( sigverify_start_ns );
+  MIN_TS( sigverify_end_ns   );
+  MIN_TS( load_start_ns      );
+  MIN_TS( check_start_ns     );
+  MIN_TS( exec_start_ns      );
+  MIN_TS( commit_start_ns    );
+  MIN_TS( commit_end_ns      );
+#undef MIN_TS
+}
+
+typedef fd_gui_store_replay_txn_batch_t const * fd_gui_replay_txn_batch_ptr_t;
+
+#define SORT_NAME fd_gui_replay_txn_batch_ptr_sort
+#define SORT_KEY_T fd_gui_replay_txn_batch_ptr_t
+#define SORT_BEFORE(a,b) (((a)->slot<(b)->slot) || (((a)->slot==(b)->slot) && ((a)->batch_idx<(b)->batch_idx)))
+#include "../../util/tmpl/fd_sort.c"
+
+int
+fd_gui_printf_timeline_query_txn_batches( fd_gui_t *   gui,
+                                          char const * topic,
+                                          char const * key,
+                                          long         start_ns,
+                                          long         end_ns,
+                                          ulong        id ) {
+  if( FD_UNLIKELY( strcmp( key, "query_txn_timestamps" ) ) ) return -1;
+  if( FD_UNLIKELY( end_ns<=start_ns ) ) return -1;
+
+  fd_gui_timeline_scratch_t *      scratch = fd_gui_timeline_scratch_acquire( gui );
+  fd_gui_replay_txn_batch_ptr_t *  batches = scratch->txn_batches;
+
+  int   rc             = 0;
+  int   limit_exceeded = 0;
+  ulong batch_cnt      = 0UL;
+  ulong reference_slot = ULONG_MAX;
+  long  reference_ts   = LONG_MAX;
+
+  if( FD_LIKELY( gui->db ) ) {
+    fd_gui_hist_iter_t it;
+    if( FD_UNLIKELY( fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN_BATCH, start_ns, end_ns-1L, NULL, NULL ) ) ) {
+      rc = -1;
+      goto done;
+    }
+    while( fd_gui_hist_range_next( &it ) ) {
+      fd_gui_store_replay_txn_batch_t const * batch = (fd_gui_store_replay_txn_batch_t const *)it.rec;
+      if( FD_UNLIKELY( batch->completion_time_ns<start_ns || batch->completion_time_ns>=end_ns ) ) continue;
+      if( FD_UNLIKELY( batch_cnt==FD_GUI_TIMELINE_QUERY_TXN_BATCH_TIMESTAMPS_MAX ) ) {
+        limit_exceeded = 1;
+        break;
+      }
+      batches[ batch_cnt++ ] = batch;
+      reference_slot = fd_ulong_min( reference_slot, batch->slot );
+      fd_gui_replay_txn_batch_min_ts( &reference_ts, batch );
+    }
+    fd_gui_hist_range_end( &it );
+  }
+
+  if( FD_UNLIKELY( limit_exceeded ) ) {
+    fd_gui_printf_timeline_result_limit_exceeded( gui, topic, key, id );
+    goto done;
+  }
+
+  fd_gui_replay_txn_batch_ptr_sort_inplace( batches, batch_cnt );
+
+  jsonp_open_envelope( gui->http, topic, key );
+    jsonp_ulong( gui->http, "id", id );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_string( gui->http, "granularity", "txn_batch" );
+      if( batch_cnt )              jsonp_ulong      ( gui->http, "reference_slot", reference_slot );
+      else                         jsonp_null       ( gui->http, "reference_slot" );
+      if( reference_ts!=LONG_MAX ) jsonp_long_as_str( gui->http, "reference_ts",   reference_ts   );
+      else                         jsonp_null       ( gui->http, "reference_ts"   );
+
+#define BATCH_ARRAY_ULONG(name,field) do {                                     \
+  jsonp_open_array( gui->http, (name) );                                       \
+  for( ulong i=0UL; i<batch_cnt; i++ )                                         \
+    jsonp_ulong( gui->http, NULL, batches[ i ]->field );                       \
+  jsonp_close_array( gui->http );                                              \
+} while(0)
+
+#define BATCH_ARRAY_TS(name,field,nullable) do {                               \
+  jsonp_open_array( gui->http, (name) );                                       \
+  for( ulong i=0UL; i<batch_cnt; i++ ) {                                       \
+    if( (nullable) && batches[ i ]->field==LONG_MAX )                          \
+      jsonp_null( gui->http, NULL );                                           \
+    else                                                                       \
+      jsonp_long_as_str( gui->http, NULL, batches[ i ]->field-reference_ts );  \
+  }                                                                            \
+  jsonp_close_array( gui->http );                                              \
+} while(0)
+
+      jsonp_open_array( gui->http, "slot_delta" );
+        for( ulong i=0UL; i<batch_cnt; i++ ) jsonp_ulong( gui->http, NULL, batches[ i ]->slot-reference_slot );
+      jsonp_close_array( gui->http );
+      BATCH_ARRAY_ULONG( "txn_idx",                batch_idx              );
+      BATCH_ARRAY_ULONG( "txn_exec_idx",           txn_exec_idx           );
+      BATCH_ARRAY_ULONG( "txn_sigverify_exec_idx", txn_sigverify_exec_idx );
+      BATCH_ARRAY_TS( "txn_sigverify_start_ts_delta", sigverify_start_ns, 0 );
+      BATCH_ARRAY_TS( "txn_sigverify_end_ts_delta",   sigverify_end_ns,   0 );
+      BATCH_ARRAY_TS( "txn_load_start_ts_delta",      load_start_ns,      0 );
+      BATCH_ARRAY_TS( "txn_check_start_ts_delta",     check_start_ns,     1 );
+      BATCH_ARRAY_TS( "txn_exec_start_ts_delta",      exec_start_ns,      1 );
+      BATCH_ARRAY_TS( "txn_commit_start_ts_delta",    commit_start_ns,    1 );
+      BATCH_ARRAY_TS( "txn_commit_end_ts_delta",      commit_end_ns,      0 );
+      BATCH_ARRAY_ULONG( "txn_error_code", error_code );
+
+#undef BATCH_ARRAY_TS
+#undef BATCH_ARRAY_ULONG
+
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+
+done:
+  fd_gui_timeline_scratch_release( gui );
+  return rc;
+}
+
 void
 fd_gui_peers_printf_wfs_add( fd_gui_peers_ctx_t * peers,
                              ulong const *        idxs,

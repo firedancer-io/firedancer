@@ -2294,7 +2294,8 @@ fd_gui_request_timeline_txns( fd_gui_t *    gui,
   if( FD_LIKELY( !strcmp( key, "query_txn_timestamps" ) ) ) {
     cJSON const * gran_param = cJSON_GetObjectItemCaseSensitive( params, "granularity" );
     if( FD_UNLIKELY( !cJSON_IsString( gran_param ) || !gran_param->valuestring ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    if( FD_LIKELY( !strcmp( gran_param->valuestring, "txn" ) ) ) err = fd_gui_printf_timeline_query_txns( gui, topic, key, start_ns, end_ns, request_id );
+    if(      FD_LIKELY( !strcmp( gran_param->valuestring, "txn"       ) ) ) err = fd_gui_printf_timeline_query_txns       ( gui, topic, key, start_ns, end_ns, request_id );
+    else if( FD_LIKELY( !strcmp( gran_param->valuestring, "txn_batch" ) ) ) err = fd_gui_printf_timeline_query_txn_batches( gui, topic, key, start_ns, end_ns, request_id );
     else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } else {
     err = fd_gui_printf_timeline_query_txns( gui, topic, key, start_ns, end_ns, request_id );
@@ -3482,11 +3483,472 @@ fd_gui_handle_replay_txn( fd_gui_t *                       gui,
   fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, rec.completion_time_ns, rec.completion_time_ns, &rec );
 }
 
+/* ---- Transaction batching -------------------------------------------
+
+   When a slot completes, its individual transaction records are grouped
+   into visually stable batches: runs of transactions on the same tile,
+   with the same success value, separated by less than
+   FD_GUI_TXN_BATCH_GAP_NS, up to FD_GUI_TXN_BATCH_MAX_TXN members.
+
+   Execution and signature verification are batched independently and
+   then paired, so the sigverify lane is normalized to the same batch
+   count as the execution lane -- merged when it has too many, split at
+   its widest internal gaps when it has too few. */
+
+static inline long
+fd_gui_txn_batch_span( fd_gui_txn_batch_work_t const * batch ) {
+  return fd_long_sat_sub( batch->end_ns, batch->start_ns );
+}
+
+#define SORT_NAME fd_gui_batch_exec_txn_sort
+#define SORT_KEY_T fd_gui_batch_txn_ptr_t
+#define SORT_BEFORE(a,b) (((a)->txn_exec_idx<(b)->txn_exec_idx) || \
+                          (((a)->txn_exec_idx==(b)->txn_exec_idx) && \
+                           (((a)->load_start_ns<(b)->load_start_ns) || \
+                            (((a)->load_start_ns==(b)->load_start_ns) && \
+                             (((a)->commit_end_ns<(b)->commit_end_ns) || \
+                              (((a)->commit_end_ns==(b)->commit_end_ns) && ((a)->txn_idx<(b)->txn_idx)))))))
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME fd_gui_batch_sigverify_txn_sort
+#define SORT_KEY_T fd_gui_batch_txn_ptr_t
+#define SORT_BEFORE(a,b) (((a)->txn_sigverify_exec_idx<(b)->txn_sigverify_exec_idx) || \
+                          (((a)->txn_sigverify_exec_idx==(b)->txn_sigverify_exec_idx) && \
+                           (((a)->sigverify_start_ns<(b)->sigverify_start_ns) || \
+                            (((a)->sigverify_start_ns==(b)->sigverify_start_ns) && \
+                             (((a)->sigverify_end_ns<(b)->sigverify_end_ns) || \
+                              (((a)->sigverify_end_ns==(b)->sigverify_end_ns) && ((a)->txn_idx<(b)->txn_idx)))))))
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME fd_gui_txn_batch_order_sort
+#define SORT_KEY_T fd_gui_txn_batch_work_t
+#define SORT_BEFORE(a,b) (((a).representative_txn_idx<(b).representative_txn_idx) || \
+                          (((a).representative_txn_idx==(b).representative_txn_idx) && \
+                           (((a).tile_idx<(b).tile_idx) || \
+                            (((a).tile_idx==(b).tile_idx) && ((a).start_ns<(b).start_ns)))))
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME fd_gui_txn_batch_keep_sort
+#define SORT_KEY_T fd_gui_txn_batch_work_t
+#define SORT_BEFORE(a,b) ((fd_gui_txn_batch_span(&(a))>fd_gui_txn_batch_span(&(b))) || \
+                          ((fd_gui_txn_batch_span(&(a))==fd_gui_txn_batch_span(&(b))) && \
+                           (((a).cnt>(b).cnt) || \
+                            (((a).cnt==(b).cnt) && ((a).representative_txn_idx<(b).representative_txn_idx)))))
+#include "../../util/tmpl/fd_sort.c"
+
+static inline int
+fd_gui_txn_batch_near( long prev_end_ns,
+                       long next_start_ns ) {
+  return next_start_ns<=fd_long_sat_add( prev_end_ns, FD_GUI_TXN_BATCH_GAP_NS );
+}
+
+static ulong
+fd_gui_txn_batch_build_lane( fd_gui_batch_txn_ptr_t const * txns,
+                             ulong                          txn_cnt,
+                             int                            sigverify,
+                             fd_gui_txn_batch_work_t *      batches ) {
+  ulong batch_cnt = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_gui_store_replay_txn_t const * txn = txns[ i ];
+    ulong tile_idx = sigverify ? txn->txn_sigverify_exec_idx : txn->txn_exec_idx;
+    long  start_ns = sigverify ? txn->sigverify_start_ns     : txn->load_start_ns;
+    long  end_ns   = sigverify ? txn->sigverify_end_ns       : txn->commit_end_ns;
+    uchar success  = (uchar)(txn->error_code==0U);
+
+    int merge = 0;
+    if( batch_cnt ) {
+      fd_gui_txn_batch_work_t * batch = &batches[ batch_cnt-1UL ];
+      fd_gui_store_replay_txn_t const * prev = txns[ i-1UL ];
+      long prev_end_ns = sigverify ? prev->sigverify_end_ns : prev->commit_end_ns;
+      merge = batch->tile_idx==tile_idx &&
+              batch->success ==success  &&
+              batch->cnt     <FD_GUI_TXN_BATCH_MAX_TXN &&
+              fd_gui_txn_batch_near( prev_end_ns, start_ns );
+    }
+
+    if( FD_UNLIKELY( !merge ) ) {
+      batches[ batch_cnt++ ] = (fd_gui_txn_batch_work_t) {
+        .first                  = i,
+        .cnt                    = 1UL,
+        .tile_idx               = tile_idx,
+        .representative_txn_idx = txn->txn_idx,
+        .start_ns               = start_ns,
+        .end_ns                 = end_ns,
+        .success                = success
+      };
+    } else {
+      fd_gui_txn_batch_work_t * batch = &batches[ batch_cnt-1UL ];
+      batch->cnt++;
+      batch->start_ns = fd_long_min( batch->start_ns, start_ns );
+      batch->end_ns   = fd_long_max( batch->end_ns,   end_ns   );
+    }
+  }
+  return batch_cnt;
+}
+
+static void
+fd_gui_txn_batch_recompute_sigverify( fd_gui_txn_batch_work_t *      batch,
+                                      fd_gui_batch_txn_ptr_t const * txns ) {
+  fd_gui_store_replay_txn_t const * first = txns[ batch->first ];
+  batch->tile_idx               = first->txn_sigverify_exec_idx;
+  batch->representative_txn_idx = first->txn_idx;
+  batch->success                = (uchar)(first->error_code==0U);
+  batch->start_ns               = first->sigverify_start_ns;
+  batch->end_ns                 = first->sigverify_end_ns;
+  for( ulong i=1UL; i<batch->cnt; i++ ) {
+    fd_gui_store_replay_txn_t const * txn = txns[ batch->first+i ];
+    batch->start_ns = fd_long_min( batch->start_ns, txn->sigverify_start_ns );
+    batch->end_ns   = fd_long_max( batch->end_ns,   txn->sigverify_end_ns   );
+  }
+}
+
+static inline int
+fd_gui_txn_batch_wider( fd_gui_txn_batch_work_t const * a,
+                        fd_gui_txn_batch_work_t const * b ) {
+  long a_span = fd_gui_txn_batch_span( a );
+  long b_span = fd_gui_txn_batch_span( b );
+  if( a_span!=b_span ) return a_span>b_span;
+  if( a->cnt!=b->cnt ) return a->cnt>b->cnt;
+  return a->representative_txn_idx<b->representative_txn_idx;
+}
+
+static void
+fd_gui_txn_batch_heap_push( ulong *                         heap,
+                            ulong *                         heap_cnt,
+                            ulong                           idx,
+                            fd_gui_txn_batch_work_t const * batches ) {
+  ulong child = (*heap_cnt)++;
+  while( child ) {
+    ulong parent = (child-1UL)>>1;
+    if( !fd_gui_txn_batch_wider( &batches[ idx ], &batches[ heap[ parent ] ] ) ) break;
+    heap[ child ] = heap[ parent ];
+    child = parent;
+  }
+  heap[ child ] = idx;
+}
+
+static ulong
+fd_gui_txn_batch_heap_pop( ulong *                         heap,
+                           ulong *                         heap_cnt,
+                           fd_gui_txn_batch_work_t const * batches ) {
+  ulong result = heap[ 0 ];
+  ulong idx    = heap[ --(*heap_cnt) ];
+  ulong parent = 0UL;
+  while( (parent<<1)+1UL<*heap_cnt ) {
+    ulong child = (parent<<1)+1UL;
+    if( child+1UL<*heap_cnt && fd_gui_txn_batch_wider( &batches[ heap[ child+1UL ] ], &batches[ heap[ child ] ] ) ) child++;
+    if( !fd_gui_txn_batch_wider( &batches[ heap[ child ] ], &batches[ idx ] ) ) break;
+    heap[ parent ] = heap[ child ];
+    parent = child;
+  }
+  if( *heap_cnt ) heap[ parent ] = idx;
+  return result;
+}
+
+static ulong
+fd_gui_txn_batch_sigverify_split_at( fd_gui_txn_batch_work_t const * batch,
+                                     fd_gui_batch_txn_ptr_t const *  txns ) {
+  ulong best_off  = 1UL;
+  long  best_gap  = LONG_MIN;
+  ulong midpoint2 = batch->cnt;
+  for( ulong off=1UL; off<batch->cnt; off++ ) {
+    fd_gui_store_replay_txn_t const * prev = txns[ batch->first+off-1UL ];
+    fd_gui_store_replay_txn_t const * next = txns[ batch->first+off     ];
+    long gap = fd_long_sat_sub( next->sigverify_start_ns, prev->sigverify_end_ns );
+    ulong off2           = 2UL*off;
+    ulong best_off2      = 2UL*best_off;
+    ulong distance2      = off2     >midpoint2 ? off2     -midpoint2 : midpoint2-off2;
+    ulong best_distance2 = best_off2>midpoint2 ? best_off2-midpoint2 : midpoint2-best_off2;
+    if( gap>best_gap || (gap==best_gap && distance2<best_distance2) ) {
+      best_gap = gap;
+      best_off = off;
+    }
+  }
+  return best_off;
+}
+
+static int
+fd_gui_txn_batch_normalize_sigverify( fd_gui_txn_batch_work_t *      batches,
+                                      ulong *                        batch_cnt,
+                                      ulong                          target_cnt,
+                                      fd_gui_batch_txn_ptr_t const * txns,
+                                      ulong *                        heap ) {
+  if( *batch_cnt>target_cnt ) {
+    fd_gui_txn_batch_keep_sort_inplace( batches, *batch_cnt );
+    *batch_cnt = target_cnt;
+    return 0;
+  }
+  if( *batch_cnt==target_cnt ) return 0;
+
+  ulong heap_cnt = 0UL;
+  for( ulong i=0UL; i<*batch_cnt; i++ )
+    if( batches[ i ].cnt>1UL ) fd_gui_txn_batch_heap_push( heap, &heap_cnt, i, batches );
+
+  /* The heap avoids rescanning every candidate batch for each split.
+     Finding the internal gap scans at most FD_GUI_TXN_BATCH_MAX_TXN-1
+     entries, and the fixed member cap bounds the repeated gap scans per
+     original batch, so this cannot become quadratic in the slot's
+     transaction count. */
+  while( *batch_cnt<target_cnt ) {
+    if( FD_UNLIKELY( !heap_cnt ) ) return -1;
+    ulong idx       = fd_gui_txn_batch_heap_pop( heap, &heap_cnt, batches );
+    ulong split_off = fd_gui_txn_batch_sigverify_split_at( &batches[ idx ], txns );
+    fd_gui_txn_batch_work_t right = batches[ idx ];
+    right.first += split_off;
+    right.cnt   -= split_off;
+    batches[ idx ].cnt = split_off;
+    fd_gui_txn_batch_recompute_sigverify( &batches[ idx ], txns );
+    fd_gui_txn_batch_recompute_sigverify( &right,          txns );
+    ulong right_idx = (*batch_cnt)++;
+    batches[ right_idx ] = right;
+    if( batches[ idx       ].cnt>1UL ) fd_gui_txn_batch_heap_push( heap, &heap_cnt, idx,       batches );
+    if( batches[ right_idx ].cnt>1UL ) fd_gui_txn_batch_heap_push( heap, &heap_cnt, right_idx, batches );
+  }
+  return 0;
+}
+
+static inline uint128
+fd_gui_txn_batch_stage_duration( long start_ns,
+                                 long end_ns ) {
+  return (uint128)(ulong)fd_long_max( fd_long_sat_sub( end_ns, start_ns ), 0L );
+}
+
+/* Returns floor(span*cumulative/total) without overflowing.  cumulative
+   is at most total, and total is the sum of at most four durations for
+   each of the at most 32 transactions in a batch.  The bitwise
+   multiply/divide keeps the intermediate remainder below three times
+   total. */
+static ulong
+fd_gui_txn_batch_scale_offset( ulong   span,
+                               uint128 cumulative,
+                               uint128 total ) {
+  if( FD_UNLIKELY( !total || !cumulative ) ) return 0UL;
+  if( FD_UNLIKELY( cumulative>=total ) ) return span;
+
+  uint128 remainder = (uint128)0;
+  ulong   quotient  = 0UL;
+  for( int bit=62; bit>=0; bit-- ) {
+    remainder <<= 1;
+    if( span & (1UL<<bit) ) remainder += cumulative;
+    ulong digit = 0UL;
+    if( remainder>=total ) { remainder-=total; digit++; }
+    if( remainder>=total ) { remainder-=total; digit++; }
+    quotient = (quotient<<1) + digit;
+  }
+  return quotient;
+}
+
+static long
+fd_gui_txn_batch_project_stage_start( long    load_start_ns,
+                                      long    commit_end_ns,
+                                      uint128 cumulative,
+                                      uint128 total ) {
+  long span = fd_long_max( fd_long_sat_sub( commit_end_ns, load_start_ns ), 0L );
+  ulong offset = fd_gui_txn_batch_scale_offset( (ulong)span, cumulative, total );
+  return fd_long_min( commit_end_ns, fd_long_sat_add( load_start_ns, (long)offset ) );
+}
+
+static void
+fd_gui_txn_batch_record( fd_gui_store_replay_txn_batch_t * record,
+                         ulong                             batch_idx,
+                         fd_gui_txn_batch_work_t const *   exec_batch,
+                         fd_gui_batch_txn_ptr_t const *    exec_txns,
+                         fd_gui_txn_batch_work_t const *   sigverify_batch,
+                         fd_gui_batch_txn_ptr_t const *    sigverify_txns ) {
+  fd_memset( record, 0, sizeof(*record) );
+  fd_gui_store_replay_txn_t const * representative = exec_txns[ exec_batch->first ];
+  record->slot                    = representative->slot;
+  record->batch_idx               = batch_idx;
+  record->txn_idx                 = representative->txn_idx;
+  record->txn_exec_idx            = exec_batch->tile_idx;
+  record->txn_sigverify_exec_idx  = sigverify_batch->tile_idx;
+  record->error_code              = representative->error_code;
+  record->exec_txn_cnt            = (uchar)exec_batch->cnt;
+  record->sigverify_txn_cnt       = (uchar)sigverify_batch->cnt;
+  record->load_start_ns           = LONG_MAX;
+  record->check_start_ns          = LONG_MAX;
+  record->exec_start_ns           = LONG_MAX;
+  record->commit_start_ns         = LONG_MAX;
+  record->commit_end_ns           = LONG_MIN;
+  record->sigverify_start_ns      = LONG_MAX;
+  record->sigverify_end_ns        = LONG_MIN;
+
+  uint128 stage_duration[ 4 ] = { (uint128)0, (uint128)0, (uint128)0, (uint128)0 };
+  int     stage_present [ 4 ] = { 0, 0, 0, 0 };
+  for( ulong i=0UL; i<exec_batch->cnt; i++ ) {
+    fd_gui_store_replay_txn_t const * txn = exec_txns[ exec_batch->first+i ];
+    record->exec_txn_idx[ i ] = (uint)txn->txn_idx;
+    record->load_start_ns = fd_long_min( record->load_start_ns, txn->load_start_ns );
+    record->commit_end_ns = fd_long_max( record->commit_end_ns, txn->commit_end_ns );
+
+    long const stage_start[ 4 ] = {
+      txn->load_start_ns,
+      txn->check_start_ns,
+      txn->exec_start_ns,
+      txn->commit_start_ns
+    };
+    for( ulong stage=0UL; stage<4UL; stage++ ) {
+      if( stage_start[ stage ]==LONG_MAX ) continue;
+      stage_present[ stage ] = 1;
+      long stage_end_ns = txn->commit_end_ns;
+      for( ulong next=stage+1UL; next<4UL; next++ ) {
+        if( stage_start[ next ]!=LONG_MAX ) {
+          stage_end_ns = stage_start[ next ];
+          break;
+        }
+      }
+      stage_duration[ stage ] += fd_gui_txn_batch_stage_duration( stage_start[ stage ], stage_end_ns );
+    }
+  }
+
+  uint128 total_duration = stage_duration[ 0 ] + stage_duration[ 1 ] +
+                           stage_duration[ 2 ] + stage_duration[ 3 ];
+  uint128 cumulative = stage_duration[ 0 ];
+  if( stage_present[ 1 ] )
+    record->check_start_ns = fd_gui_txn_batch_project_stage_start( record->load_start_ns, record->commit_end_ns,
+                                                                   cumulative, total_duration );
+  cumulative += stage_duration[ 1 ];
+  if( stage_present[ 2 ] )
+    record->exec_start_ns = fd_gui_txn_batch_project_stage_start( record->load_start_ns, record->commit_end_ns,
+                                                                  cumulative, total_duration );
+  cumulative += stage_duration[ 2 ];
+  if( stage_present[ 3 ] )
+    record->commit_start_ns = fd_gui_txn_batch_project_stage_start( record->load_start_ns, record->commit_end_ns,
+                                                                    cumulative, total_duration );
+
+  for( ulong i=0UL; i<sigverify_batch->cnt; i++ ) {
+    fd_gui_store_replay_txn_t const * txn = sigverify_txns[ sigverify_batch->first+i ];
+    record->sigverify_txn_idx[ i ] = (uint)txn->txn_idx;
+    record->sigverify_start_ns = fd_long_min( record->sigverify_start_ns, txn->sigverify_start_ns );
+    record->sigverify_end_ns   = fd_long_max( record->sigverify_end_ns,   txn->sigverify_end_ns   );
+  }
+  record->completion_time_ns = fd_long_max( record->sigverify_end_ns, record->commit_end_ns );
+}
+
+static int
+fd_gui_txn_batch_collect_slot( fd_gui_t *               gui,
+                               ulong                    slot,
+                               long                     min_completion_ns,
+                               long                     max_completion_ns,
+                               fd_gui_batch_txn_ptr_t * txns,
+                               ulong                    txn_cap,
+                               ulong *                  txn_cnt ) {
+  ulong observed = 0UL;
+  fd_gui_hist_iter_t it;
+  int err = fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN,
+                                     min_completion_ns, max_completion_ns, NULL, NULL );
+  if( FD_UNLIKELY( err ) ) return err;
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_txn_t const * txn = (fd_gui_store_replay_txn_t const *)it.rec;
+    if( txn->slot!=slot ) continue;
+    if( FD_UNLIKELY( observed>=txn_cap ) ) break;
+    txns[ observed++ ] = txn;
+  }
+  fd_gui_hist_range_end( &it );
+  *txn_cnt = observed;
+  return err;
+}
+
+static int
+fd_gui_materialize_replay_txn_batches( fd_gui_t * gui,
+                                       ulong      slot,
+                                       long       min_completion_ns,
+                                       long       max_completion_ns,
+                                       ulong      expected_txn_cnt ) {
+  if( FD_UNLIKELY( !gui->db || !expected_txn_cnt ) ) return 0;
+  ulong const txn_cap = fd_ulong_min( expected_txn_cnt, FD_MAX_TXN_PER_SLOT );
+  if( FD_UNLIKELY( !txn_cap ) ) return 0;
+
+  fd_gui_timeline_scratch_t * scratch = fd_gui_timeline_scratch_acquire( gui );
+
+  int   err     = 0;
+  ulong txn_cnt = 0UL;
+  if( FD_UNLIKELY( fd_gui_txn_batch_collect_slot( gui, slot, min_completion_ns, max_completion_ns,
+                                                  scratch->materialize.exec_txns, txn_cap, &txn_cnt ) ) ) {
+    err = -1;
+    goto done;
+  }
+  if( FD_UNLIKELY( !txn_cnt ) ) goto done;
+
+  fd_memcpy( scratch->materialize.sig_txns, scratch->materialize.exec_txns, txn_cnt*sizeof(fd_gui_batch_txn_ptr_t) );
+  fd_gui_batch_exec_txn_sort_inplace     ( scratch->materialize.exec_txns, txn_cnt );
+  fd_gui_batch_sigverify_txn_sort_inplace( scratch->materialize.sig_txns,  txn_cnt );
+  ulong exec_batch_cnt = fd_gui_txn_batch_build_lane( scratch->materialize.exec_txns, txn_cnt, 0, scratch->materialize.exec_batches );
+  ulong sig_batch_cnt  = fd_gui_txn_batch_build_lane( scratch->materialize.sig_txns,  txn_cnt, 1, scratch->materialize.sig_batches  );
+  if( FD_UNLIKELY( fd_gui_txn_batch_normalize_sigverify( scratch->materialize.sig_batches, &sig_batch_cnt, exec_batch_cnt,
+                                                         scratch->materialize.sig_txns, scratch->materialize.heap ) ) ) {
+    err = -1;
+    goto done;
+  }
+
+  fd_gui_txn_batch_order_sort_inplace( scratch->materialize.exec_batches, exec_batch_cnt );
+  fd_gui_txn_batch_order_sort_inplace( scratch->materialize.sig_batches,  sig_batch_cnt  );
+
+  /* The collected pointers reference records still living in the replay
+     transaction ring, and appending a batch below can itself evict from
+     that ring to make room -- fd_gui_hist_ts_append reserves a region,
+     and the reserve path is free to reclaim from any time-series ring,
+     including this one.  A reclaimed region goes straight back on the
+     free list and is reused by the very append that triggered it, so any
+     pointer into it is stale from that moment on.
+
+     Watch the ring's reclaim counter and stop as soon as it moves.
+     Losing the tail of one slot's batches is the right trade: if live
+     batching data is being evicted, the store is undersized, and that is
+     the problem worth surfacing rather than working around. */
+  fd_gui_store_metrics_t const * metrics  = fd_gui_store_metrics( (fd_gui_store_t const *)gui->db );
+  ulong                          reclaims = metrics->region_reclaims[ FD_GUI_HIST_REPLAY_TXN ];
+
+  for( ulong i=0UL; i<exec_batch_cnt; i++ ) {
+    fd_gui_store_replay_txn_batch_t record;
+    fd_gui_txn_batch_record( &record, i,
+                             &scratch->materialize.exec_batches[ i ], scratch->materialize.exec_txns,
+                             &scratch->materialize.sig_batches [ i ], scratch->materialize.sig_txns );
+    if( FD_UNLIKELY( fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN_BATCH,
+                                            record.completion_time_ns, record.completion_time_ns, &record ) ) ) err = -1;
+    if( FD_UNLIKELY( metrics->region_reclaims[ FD_GUI_HIST_REPLAY_TXN ]!=reclaims ) ) {
+      FD_LOG_WARNING(( "gui: replay txn records for slot %lu were evicted while materializing batches; "
+                       "dropping the remaining %lu batches (gui database is likely undersized)",
+                       slot, exec_batch_cnt-i-1UL ));
+      err = -1;
+      break;
+    }
+  }
+
+done:
+  fd_gui_timeline_scratch_release( gui );
+  return err;
+}
+
 void
 fd_gui_handle_replay_update( fd_gui_t *                         gui,
                              fd_replay_slot_completed_t const * slot_completed,
                              ulong                              vote_slot,
                              long                               now ) {
+  /* Materialize this slot's transaction batches before anything else, so
+     the per-transaction records are still resident in the ring. */
+  ulong batch_txn_cnt = 0UL;
+  if( slot_completed->vote_success    !=ULONG_MAX &&
+      slot_completed->vote_failed     !=ULONG_MAX &&
+      slot_completed->nonvote_success !=ULONG_MAX &&
+      slot_completed->nonvote_failed  !=ULONG_MAX ) {
+    batch_txn_cnt = fd_ulong_sat_add( slot_completed->vote_success, slot_completed->vote_failed );
+    batch_txn_cnt = fd_ulong_sat_add( batch_txn_cnt, slot_completed->nonvote_success );
+    batch_txn_cnt = fd_ulong_sat_add( batch_txn_cnt, slot_completed->nonvote_failed  );
+    batch_txn_cnt = fd_ulong_min( batch_txn_cnt, FD_MAX_TXN_PER_SLOT );
+  }
+  if( FD_LIKELY( batch_txn_cnt &&
+                 slot_completed->first_transaction_scheduled_nanos>0L &&
+                 slot_completed->completion_time_nanos>0L ) ) {
+    /* The transaction records carry their own reconstructed completion
+       times, which are not rewritten on append, so a small slack around
+       the slot's own bounds is enough to find them all. */
+    long const slack_ns = 2L*1000L*1000L*1000L;
+    long lo_ns = fd_long_sat_sub( slot_completed->first_transaction_scheduled_nanos, slack_ns );
+    long hi_ns = fd_long_sat_add( slot_completed->completion_time_nanos,             slack_ns );
+    fd_gui_materialize_replay_txn_batches( gui, slot_completed->slot, lo_ns, hi_ns, batch_txn_cnt );
+  }
+
   if( FD_LIKELY( gui->summary.slot_storage!=slot_completed->storage_slot ) ) {
     gui->summary.slot_storage = slot_completed->storage_slot;
     fd_gui_printf_storage_slot( gui );

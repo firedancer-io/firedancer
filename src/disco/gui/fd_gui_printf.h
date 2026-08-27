@@ -136,6 +136,14 @@ fd_gui_printf_timeline_query_txns( fd_gui_t *   gui,
                                    long         end_ns,
                                    ulong        id );
 
+int
+fd_gui_printf_timeline_query_txn_batches( fd_gui_t *   gui,
+                                          char const * topic,
+                                          char const * key,
+                                          long         start_ns,
+                                          long         end_ns,
+                                          ulong        id );
+
 void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );
 
