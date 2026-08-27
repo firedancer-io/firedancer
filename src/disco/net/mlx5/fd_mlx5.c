@@ -32,6 +32,12 @@
 #ifndef IB_UVERBS_QPT_RAW_PACKET
 #define IB_UVERBS_QPT_RAW_PACKET (8U)
 #endif
+#ifndef IB_UVERBS_CREATE_QP_MASK_IND_TABLE
+#define IB_UVERBS_CREATE_QP_MASK_IND_TABLE (1U)
+#endif
+#ifndef IB_UVERBS_WQT_RQ
+#define IB_UVERBS_WQT_RQ (0U)
+#endif
 #ifndef MLX5_LIB_CAP_DYN_UAR
 #define MLX5_LIB_CAP_DYN_UAR (2UL)
 #endif
@@ -120,6 +126,15 @@
 
 #define FD_MLX5_QP_ATTR_STATE (1U)    /* IB_QP_STATE */
 #define FD_MLX5_QP_ATTR_PORT  (1U<<5) /* IB_QP_PORT */
+
+#define FD_MLX5_WQS_RESET (0U) /* IB_WQS_RESET */
+#define FD_MLX5_WQS_RDY   (1U) /* IB_WQS_RDY */
+
+#define FD_MLX5_WQ_ATTR_STATE     (1U)    /* IB_WQ_STATE */
+#define FD_MLX5_WQ_ATTR_CUR_STATE (1U<<1) /* IB_WQ_CUR_STATE */
+
+#define FD_MLX5_RX_HASH_FUNC_TOEPLITZ (1U)  /* MLX5_RX_HASH_FUNC_TOEPLITZ */
+#define FD_MLX5_RX_HASH_KEY_SZ        (40U) /* MLX5_FLD_SZ_BYTES(tirc, rx_hash_toeplitz_key) */
 
 struct fd_mlx5_pd {
   fd_uverbs_ctx_t * ctx;    /* uverbs context */
@@ -272,7 +287,7 @@ struct fd_uverbs_destroy_cq_req {
 typedef struct fd_uverbs_destroy_cq_req fd_uverbs_destroy_cq_req_t;
 FD_STATIC_ASSERT( sizeof(fd_uverbs_destroy_cq_req_t)==24UL, uverbs_destroy_cq_req_sz );
 
-struct fd_uverbs_create_qp_req {
+struct fd_uverbs_create_tx_qp_req {
   struct ib_uverbs_cmd_hdr hdr;
   ulong                    response;
   ulong                    user_handle;
@@ -291,13 +306,13 @@ struct fd_uverbs_create_qp_req {
   uchar                    reserved;
   struct mlx5_ib_create_qp mlx5;
 };
-typedef struct fd_uverbs_create_qp_req fd_uverbs_create_qp_req_t;
+typedef struct fd_uverbs_create_tx_qp_req fd_uverbs_create_tx_qp_req_t;
 
-struct fd_uverbs_create_qp_resp {
+struct fd_uverbs_create_tx_qp_resp {
   struct ib_uverbs_create_qp_resp core;
   struct mlx5_ib_create_qp_resp   mlx5;
 };
-typedef struct fd_uverbs_create_qp_resp fd_uverbs_create_qp_resp_t;
+typedef struct fd_uverbs_create_tx_qp_resp fd_uverbs_create_tx_qp_resp_t;
 
 struct fd_uverbs_modify_qp_req {
   struct ib_uverbs_cmd_hdr   hdr;
@@ -305,6 +320,48 @@ struct fd_uverbs_modify_qp_req {
 };
 typedef struct fd_uverbs_modify_qp_req fd_uverbs_modify_qp_req_t;
 FD_STATIC_ASSERT( sizeof(fd_uverbs_modify_qp_req_t)==120UL, uverbs_modify_qp_req_sz );
+
+struct fd_uverbs_create_rx_wq_req {
+  fd_uverbs_ex_hdr_t            hdr;
+  struct ib_uverbs_ex_create_wq core;
+  struct mlx5_ib_create_wq      mlx5;
+};
+typedef struct fd_uverbs_create_rx_wq_req fd_uverbs_create_rx_wq_req_t;
+
+struct fd_uverbs_create_rx_wq_resp {
+  struct ib_uverbs_ex_create_wq_resp core;
+  struct mlx5_ib_create_wq_resp      mlx5;
+};
+typedef struct fd_uverbs_create_rx_wq_resp fd_uverbs_create_rx_wq_resp_t;
+
+struct fd_uverbs_modify_rx_wq_req {
+  fd_uverbs_ex_hdr_t            hdr;
+  struct ib_uverbs_ex_modify_wq core;
+  struct mlx5_ib_modify_wq      mlx5;
+};
+typedef struct fd_uverbs_modify_rx_wq_req fd_uverbs_modify_rx_wq_req_t;
+
+struct fd_uverbs_create_rwq_ind_table_req {
+  fd_uverbs_ex_hdr_t hdr;
+  uint               comp_mask;
+  uint               log_ind_tbl_size;
+  uint               wq_handle;
+  uint               reserved;
+};
+typedef struct fd_uverbs_create_rwq_ind_table_req fd_uverbs_create_rwq_ind_table_req_t;
+
+struct fd_uverbs_create_rss_qp_req {
+  fd_uverbs_ex_hdr_t                 hdr;
+  struct ib_uverbs_ex_create_qp      core;
+  struct mlx5_ib_create_qp_rss       mlx5;
+};
+typedef struct fd_uverbs_create_rss_qp_req fd_uverbs_create_rss_qp_req_t;
+
+struct fd_uverbs_create_rss_qp_resp {
+  struct ib_uverbs_ex_create_qp_resp core;
+  struct mlx5_ib_create_qp_resp      mlx5;
+};
+typedef struct fd_uverbs_create_rss_qp_resp fd_uverbs_create_rss_qp_resp_t;
 
 struct fd_uverbs_create_udp_flow_req {
   fd_uverbs_ex_hdr_t                 hdr;
@@ -578,11 +635,8 @@ fd_uverbs_get_context( fd_uverbs_ctx_t * ctx,
   req->mlx5.num_low_latency_bfregs = 4U;
   req->mlx5.max_cqe_version        = 1U;
   req->mlx5.lib_caps               = MLX5_LIB_CAP_4K_UAR | MLX5_LIB_CAP_DYN_UAR;
-  if( FD_UNLIKELY( fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_GET_CONTEXT,
-                                           sizeof(req), sizeof(resp) ) ) ) {
-    errno = EINVAL;
-    return -1;
-  }
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_GET_CONTEXT,
+                                    sizeof(req), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( ctx->cmd_fd, req, sizeof(req) ) ) ) return -1;
   if( FD_UNLIKELY( resp->async_fd>(uint)INT_MAX ) ) {
     errno = EPROTO;
@@ -634,11 +688,8 @@ fd_uverbs_query_device( fd_uverbs_ctx_t * ctx,
   fd_memset( resp, 0, sizeof(resp) );
 
   req->response = (ulong)resp;
-  if( FD_UNLIKELY( fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_QUERY_DEVICE,
-                                           sizeof(req), sizeof(resp) ) ) ) {
-    errno = EINVAL;
-    return -1;
-  }
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_QUERY_DEVICE,
+                                    sizeof(req), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( ctx->cmd_fd, req, sizeof(req) ) ) ) return -1;
 
   caps->max_mr_size = resp->max_mr_size;
@@ -664,11 +715,8 @@ fd_uverbs_query_port( fd_uverbs_ctx_t * ctx ) {
 
   req->response = (ulong)resp;
   req->port_num = (uchar)ctx->port_num;
-  if( FD_UNLIKELY( fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_QUERY_PORT,
-                                           sizeof(req), sizeof(resp) ) ) ) {
-    errno = EINVAL;
-    return -1;
-  }
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_QUERY_PORT,
+                                    sizeof(req), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( ctx->cmd_fd, req, sizeof(req) ) ) ) return -1;
 
   if( FD_UNLIKELY( resp->link_layer!=FD_MLX5_LINK_LAYER_ETHERNET ) ) {
@@ -734,11 +782,8 @@ fd_uverbs_alloc_pd( fd_mlx5_pd_t *      pd,
   fd_memset( req,  0, sizeof(req ) );
   fd_memset( resp, 0, sizeof(resp) );
   req->response = (ulong)resp;
-  if( FD_UNLIKELY( fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_ALLOC_PD,
-                                           sizeof(req), sizeof(resp) ) ) ) {
-    errno = EINVAL;
-    return NULL;
-  }
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_ALLOC_PD,
+                                    sizeof(req), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( ctx->cmd_fd, req, sizeof(req) ) ) ) return NULL;
 
   pd->ctx    = ctx;
@@ -769,11 +814,8 @@ fd_uverbs_register_mr( uint *         lkey,
   req->hca_va       = memory_addr;
   req->pd_handle    = pd->handle;
   req->access_flags = IB_UVERBS_ACCESS_LOCAL_WRITE;
-  if( FD_UNLIKELY( fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_REG_MR,
-                                           sizeof(req), sizeof(resp) ) ) ) {
-    errno = EINVAL;
-    return NULL;
-  }
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_REG_MR,
+                                    sizeof(req), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( pd->ctx->cmd_fd, req, sizeof(req) ) ) ) return NULL;
 
   *lkey = resp->lkey;
@@ -913,11 +955,8 @@ fd_uverbs_create_cq( uint *               handle,
   req->mlx5.fields.cqe_size    = sizeof(fd_mlx5_cqe_t);
   req->mlx5.fields.flags       = MLX5_IB_CREATE_CQ_FLAGS_UAR_PAGE_INDEX;
   req->mlx5.uar.uar_page_index = (ushort)page_id;
-  if( FD_UNLIKELY( fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_CREATE_CQ,
-                                           sizeof(req), sizeof(resp) ) ) ) {
-    errno = EINVAL;
-    return NULL;
-  }
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_CREATE_CQ,
+                                    sizeof(req), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( ctx->cmd_fd, req, sizeof(req) ) ) ) return NULL;
   if( FD_UNLIKELY( resp->cqe!=cq->depth-1U ) ) {
     fd_uverbs_destroy_cq_req_t       destroy[1];
@@ -927,10 +966,9 @@ fd_uverbs_create_cq( uint *               handle,
 
     destroy->response  = (ulong)destroy_resp;
     destroy->cq_handle = resp->cq_handle;
-    if( !fd_uverbs_init_cmd_hdr( &destroy->hdr, IB_USER_VERBS_CMD_DESTROY_CQ,
-                                 sizeof(destroy), sizeof(destroy_resp) ) ) {
-      fd_uverbs_write_cmd( ctx->cmd_fd, destroy, sizeof(destroy) );
-    }
+    FD_TEST( !fd_uverbs_init_cmd_hdr( &destroy->hdr, IB_USER_VERBS_CMD_DESTROY_CQ,
+                                      sizeof(destroy), sizeof(destroy_resp) ) );
+    fd_uverbs_write_cmd( ctx->cmd_fd, destroy, sizeof(destroy) );
     FD_LOG_WARNING(( "invalid mlx5 CQ response (CQEs %u, requested %u)", resp->cqe, cq->depth-1U ));
     errno = EPROTO;
     return NULL;
@@ -942,74 +980,63 @@ fd_uverbs_create_cq( uint *               handle,
 
 static int
 fd_uverbs_modify_qp( fd_uverbs_ctx_t * uverbs,
-                     fd_mlx5_qp_t *    qp,
+                     fd_mlx5_tx_qp_t * tx_qp,
                      uint              state ) {
   fd_uverbs_modify_qp_req_t req[1];
   fd_memset( req, 0, sizeof(req) );
-  req->core.qp_handle = qp->handle;
+  req->core.qp_handle = tx_qp->handle;
   req->core.attr_mask = FD_MLX5_QP_ATTR_STATE;
   req->core.qp_state  = (uchar)state;
   if( state==FD_MLX5_QPS_INIT ) {
     req->core.attr_mask |= FD_MLX5_QP_ATTR_PORT;
     req->core.port_num   = (uchar)uverbs->port_num;
   }
-  if( FD_UNLIKELY( fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_MODIFY_QP,
-                                           sizeof(req), 0UL ) ) ) {
-    errno = EINVAL;
-    return -1;
-  }
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_MODIFY_QP,
+                                    sizeof(req), 0UL ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return -1;
   return 0;
 }
 
-static fd_mlx5_qp_t *
-fd_uverbs_create_qp( fd_uverbs_ctx_t * uverbs,
-                     fd_mlx5_qp_t *    qp,
-                     fd_mlx5_pd_t *    pd,
-                     uint              rx_cq_handle,
-                     uint              tx_cq_handle,
-                     uint              uar_page_id ) {
-  if( FD_UNLIKELY( !uverbs || !qp || !qp->rx_cq || !qp->tx_cq || !qp->rq || !qp->sq ||
-                   !qp->control || !pd || pd->ctx!=uverbs ) ) {
+static fd_mlx5_tx_qp_t *
+fd_uverbs_create_tx_qp( fd_uverbs_ctx_t * uverbs,
+                        fd_mlx5_tx_qp_t * tx_qp,
+                        fd_mlx5_pd_t *    pd,
+                        uint              tx_cq_handle,
+                        uint              uar_page_id ) {
+  if( FD_UNLIKELY( !uverbs || !tx_qp || !tx_qp->tx_cq || !tx_qp->sq ||
+                   !tx_qp->control || !pd || pd->ctx!=uverbs ) ) {
     errno = EINVAL;
     return NULL;
   }
 
-  fd_uverbs_create_qp_req_t  req [1];
-  fd_uverbs_create_qp_resp_t resp[1];
+  fd_uverbs_create_tx_qp_req_t  req [1];
+  fd_uverbs_create_tx_qp_resp_t resp[1];
   fd_memset( req,  0, sizeof(req ) );
   fd_memset( resp, 0, sizeof(resp) );
 
   req->response          = (ulong)resp;
-  req->user_handle       = (ulong)qp;
+  req->user_handle       = (ulong)tx_qp;
   req->pd_handle         = pd->handle;
   req->send_cq_handle    = tx_cq_handle;
-  req->recv_cq_handle    = rx_cq_handle;
-  req->max_send_wr       = qp->tx_depth;
-  req->max_recv_wr       = qp->rx_depth;
+  /* Linux requires both CQ handles even when max_recv_wr is zero. */
+  req->recv_cq_handle    = tx_cq_handle;
+  req->max_send_wr       = tx_qp->tx_depth;
   req->max_send_sge      = 1U;
-  req->max_recv_sge      = 1U;
   req->qp_type           = IB_UVERBS_QPT_RAW_PACKET;
-  req->mlx5.buf_addr     = (ulong)qp->rq;
-  req->mlx5.db_addr      = (ulong)qp->control;
-  req->mlx5.sq_wqe_count = qp->tx_depth;
-  req->mlx5.rq_wqe_count = qp->rx_depth;
-  req->mlx5.rq_wqe_shift = (uint)fd_ulong_find_lsb( sizeof(fd_mlx5_rx_wqe_t) );
+  req->mlx5.db_addr      = (ulong)tx_qp->control;
+  req->mlx5.sq_wqe_count = tx_qp->tx_depth;
   req->mlx5.flags        = MLX5_QP_FLAG_UAR_PAGE_INDEX;
   req->mlx5.uidx         = 0U;
   req->mlx5.bfreg_index  = uar_page_id;
-  req->mlx5.sq_buf_addr  = (ulong)qp->sq;
-  if( FD_UNLIKELY( fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_CREATE_QP,
-                                           sizeof(req), sizeof(resp) ) ) ) {
-    errno = EINVAL;
-    return NULL;
-  }
+  req->mlx5.sq_buf_addr  = (ulong)tx_qp->sq;
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_CREATE_QP,
+                                    sizeof(req), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
 
-  if( FD_UNLIKELY( resp->core.max_send_wr <qp->tx_depth ||
-                   resp->core.max_recv_wr <qp->rx_depth ||
-                   resp->core.max_send_sge<1U           ||
-                   resp->core.max_recv_sge<1U           ||
+  if( FD_UNLIKELY( resp->core.max_send_wr<tx_qp->tx_depth ||
+                   resp->core.max_recv_wr                 ||
+                   resp->core.max_send_sge<1U             ||
+                   resp->core.max_recv_sge                ||
                    resp->core.qpn>0xffffffU ) ) {
     FD_LOG_WARNING(( "invalid mlx5 QP response (max send WRs %u, max receive WRs %u, max send SGEs %u, "
                      "max receive SGEs %u, QPN %u)",
@@ -1019,18 +1046,117 @@ fd_uverbs_create_qp( fd_uverbs_ctx_t * uverbs,
     return NULL;
   }
 
-  qp->handle       = resp->core.qp_handle;
-  qp->qpn          = resp->core.qpn;
-  return qp;
+  tx_qp->handle = resp->core.qp_handle;
+  tx_qp->qpn    = resp->core.qpn;
+  return tx_qp;
 }
 
-static fd_mlx5_qp_t *
-fd_uverbs_start_qp( fd_uverbs_ctx_t * uverbs,
-                    fd_mlx5_qp_t *    qp ) {
-  if( FD_UNLIKELY( fd_uverbs_modify_qp( uverbs, qp, FD_MLX5_QPS_INIT ) ||
-                   fd_uverbs_modify_qp( uverbs, qp, FD_MLX5_QPS_RTR  ) ||
-                   fd_uverbs_modify_qp( uverbs, qp, FD_MLX5_QPS_RTS  ) ) ) return NULL;
-  return qp;
+static fd_mlx5_tx_qp_t *
+fd_uverbs_start_tx_qp( fd_uverbs_ctx_t * uverbs,
+                       fd_mlx5_tx_qp_t * tx_qp ) {
+  if( FD_UNLIKELY( fd_uverbs_modify_qp( uverbs, tx_qp, FD_MLX5_QPS_INIT ) ||
+                   fd_uverbs_modify_qp( uverbs, tx_qp, FD_MLX5_QPS_RTR  ) ||
+                   fd_uverbs_modify_qp( uverbs, tx_qp, FD_MLX5_QPS_RTS  ) ) ) return NULL;
+  return tx_qp;
+}
+
+static fd_mlx5_rx_wq_t *
+fd_uverbs_create_rx_wq( fd_uverbs_ctx_t * uverbs,
+                        fd_mlx5_rx_wq_t * rx_wq,
+                        fd_mlx5_pd_t *    pd,
+                        uint              rx_cq_handle ) {
+  fd_uverbs_create_rx_wq_req_t  req [1];
+  fd_uverbs_create_rx_wq_resp_t resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
+
+  req->core.wq_type      = IB_UVERBS_WQT_RQ;
+  req->core.user_handle  = (ulong)rx_wq;
+  req->core.pd_handle    = pd->handle;
+  req->core.cq_handle    = rx_cq_handle;
+  req->core.max_wr       = rx_wq->rx_depth;
+  req->core.max_sge      = 1U;
+  req->mlx5.buf_addr     = (ulong)rx_wq->rq;
+  req->mlx5.db_addr      = (ulong)rx_wq->control;
+  req->mlx5.rq_wqe_count = rx_wq->rx_depth;
+  req->mlx5.rq_wqe_shift = (uint)fd_ulong_find_lsb( sizeof(fd_mlx5_rx_wqe_t) );
+  ulong const core_req_sz  = offsetof( fd_uverbs_create_rx_wq_req_t,  mlx5 );
+  ulong const core_resp_sz = offsetof( fd_uverbs_create_rx_wq_resp_t, mlx5 );
+  FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_WQ,
+                                   core_req_sz, sizeof(req), resp,
+                                   core_resp_sz, sizeof(resp) ) );
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
+  if( FD_UNLIKELY( resp->core.max_wr<rx_wq->rx_depth ||
+                   resp->core.max_sge<1U             ||
+                   resp->core.wqn>0xffffffU ) ) {
+    FD_LOG_WARNING(( "invalid mlx5 receive WQ response (max WRs %u, max SGEs %u, WQN %u)",
+                     resp->core.max_wr, resp->core.max_sge, resp->core.wqn ));
+    errno = EPROTO;
+    return NULL;
+  }
+
+  rx_wq->handle = resp->core.wq_handle;
+  rx_wq->wqn    = resp->core.wqn;
+  return rx_wq;
+}
+
+static fd_mlx5_rx_wq_t *
+fd_uverbs_start_rx_wq( fd_uverbs_ctx_t * uverbs,
+                       fd_mlx5_rx_wq_t * rx_wq ) {
+  fd_uverbs_modify_rx_wq_req_t req[1];
+  fd_memset( req, 0, sizeof(req) );
+  req->core.attr_mask     = FD_MLX5_WQ_ATTR_STATE | FD_MLX5_WQ_ATTR_CUR_STATE;
+  req->core.wq_handle     = rx_wq->handle;
+  req->core.wq_state      = FD_MLX5_WQS_RDY;
+  req->core.curr_wq_state = FD_MLX5_WQS_RESET;
+  ulong const core_req_sz = offsetof( fd_uverbs_modify_rx_wq_req_t, mlx5 );
+  FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_MODIFY_WQ,
+                                   core_req_sz, sizeof(req), NULL, 0UL, 0UL ) );
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
+  return rx_wq;
+}
+
+static uint *
+fd_uverbs_create_rwq_ind_table( uint *                  handle,
+                                fd_uverbs_ctx_t *       uverbs,
+                                fd_mlx5_rx_wq_t const * rx_wq ) {
+  fd_uverbs_create_rwq_ind_table_req_t          req [1];
+  struct ib_uverbs_ex_create_rwq_ind_table_resp resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
+  req->wq_handle = rx_wq->handle;
+  FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_RWQ_IND_TBL,
+                                   sizeof(req), sizeof(req), resp,
+                                   sizeof(resp), sizeof(resp) ) );
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
+  *handle = resp->ind_tbl_handle;
+  return handle;
+}
+
+static fd_mlx5_rss_qp_t *
+fd_uverbs_create_rss_qp( fd_uverbs_ctx_t *  uverbs,
+                         fd_mlx5_rss_qp_t * rss_qp,
+                         fd_mlx5_pd_t *     pd,
+                         uint               rwq_ind_table_handle ) {
+  fd_uverbs_create_rss_qp_req_t  req [1];
+  fd_uverbs_create_rss_qp_resp_t resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
+  req->core.user_handle        = (ulong)rss_qp;
+  req->core.pd_handle          = pd->handle;
+  req->core.qp_type            = IB_UVERBS_QPT_RAW_PACKET;
+  req->core.comp_mask          = IB_UVERBS_CREATE_QP_MASK_IND_TABLE;
+  req->core.rwq_ind_tbl_handle = rwq_ind_table_handle;
+  req->mlx5.rx_hash_function   = FD_MLX5_RX_HASH_FUNC_TOEPLITZ;
+  req->mlx5.rx_key_len         = FD_MLX5_RX_HASH_KEY_SZ;
+  ulong const core_req_sz  = offsetof( fd_uverbs_create_rss_qp_req_t,  mlx5 );
+  ulong const core_resp_sz = offsetof( fd_uverbs_create_rss_qp_resp_t, mlx5 );
+  FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_QP,
+                                   core_req_sz, sizeof(req), resp,
+                                   core_resp_sz, sizeof(resp) ) );
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
+  rss_qp->handle = resp->core.base.qp_handle;
+  return rss_qp;
 }
 
 static int
@@ -1045,9 +1171,9 @@ fd_uverbs_init_udp_flow_req( fd_uverbs_create_udp_flow_req_t *   req,
   fd_memset( req,  0, sizeof(*req ) );
   fd_memset( resp, 0, sizeof(*resp) );
   ulong const core_req_sz = offsetof( fd_uverbs_create_udp_flow_req_t, mlx5_ncounters_data );
-  if( FD_UNLIKELY( fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_FLOW,
-                                          core_req_sz, sizeof(*req), resp,
-                                          sizeof(*resp), sizeof(*resp) ) ) ) return -1;
+  FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_FLOW,
+                                   core_req_sz, sizeof(*req), resp,
+                                   sizeof(*resp), sizeof(*resp) ) );
 
   req->qp_handle           = qp_handle;
   req->size                = sizeof(req->eth)+sizeof(req->ipv4)+sizeof(req->udp);
@@ -1069,18 +1195,18 @@ fd_uverbs_init_udp_flow_req( fd_uverbs_create_udp_flow_req_t *   req,
 }
 
 int
-fd_uverbs_create_udp_flow( fd_uverbs_ctx_t *    uverbs,
-                           fd_mlx5_qp_t const * qp,
-                           uint                 dst_ip,
-                           ushort               dst_port ) {
-  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !qp || !dst_port ) ) {
+fd_uverbs_create_udp_flow( fd_uverbs_ctx_t *        uverbs,
+                           fd_mlx5_rss_qp_t const * rss_qp,
+                           uint                     dst_ip,
+                           ushort                   dst_port ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !rss_qp || !dst_port ) ) {
     errno = EINVAL;
     return -1;
   }
 
   fd_uverbs_create_udp_flow_req_t   req [1];
   struct ib_uverbs_create_flow_resp resp[1];
-  if( FD_UNLIKELY( fd_uverbs_init_udp_flow_req( req, resp, qp->handle,
+  if( FD_UNLIKELY( fd_uverbs_init_udp_flow_req( req, resp, rss_qp->handle,
                                                 uverbs->port_num, dst_ip,
                                                 dst_port ) ) ) {
     errno = EINVAL;
@@ -1102,9 +1228,9 @@ fd_uverbs_init_gre_flow_req( fd_uverbs_create_gre_flow_req_t *   req,
   fd_memset( req,  0, sizeof(*req ) );
   fd_memset( resp, 0, sizeof(*resp) );
   ulong const core_req_sz = offsetof( fd_uverbs_create_gre_flow_req_t, mlx5_ncounters_data );
-  if( FD_UNLIKELY( fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_FLOW,
-                                          core_req_sz, sizeof(*req), resp,
-                                          sizeof(*resp), sizeof(*resp) ) ) ) return -1;
+  FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_FLOW,
+                                   core_req_sz, sizeof(*req), resp,
+                                   sizeof(*resp), sizeof(*resp) ) );
 
   req->qp_handle    = qp_handle;
   req->size         = sizeof(req->eth)+sizeof(req->outer_ipv4)+sizeof(req->gre)+
@@ -1145,18 +1271,18 @@ fd_uverbs_init_gre_flow_req( fd_uverbs_create_gre_flow_req_t *   req,
 }
 
 int
-fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *    uverbs,
-                               fd_mlx5_qp_t const * qp,
-                               uint                 inner_dst_ip,
-                               ushort               inner_dst_port ) {
-  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !qp || !inner_dst_port ) ) {
+fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *        uverbs,
+                               fd_mlx5_rss_qp_t const * rss_qp,
+                               uint                     inner_dst_ip,
+                               ushort                   inner_dst_port ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !rss_qp || !inner_dst_port ) ) {
     errno = EINVAL;
     return -1;
   }
 
   fd_uverbs_create_gre_flow_req_t   req [1];
   struct ib_uverbs_create_flow_resp resp[1];
-  if( FD_UNLIKELY( fd_uverbs_init_gre_flow_req( req, resp, qp->handle,
+  if( FD_UNLIKELY( fd_uverbs_init_gre_flow_req( req, resp, rss_qp->handle,
                                                 uverbs->port_num, inner_dst_ip,
                                                 inner_dst_port ) ) ) {
     errno = EINVAL;
@@ -1166,18 +1292,22 @@ fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *    uverbs,
   return 0;
 }
 
-fd_mlx5_qp_t *
-fd_uverbs_init( fd_uverbs_ctx_t * uverbs,
-                fd_mlx5_cq_t *    rx_cq,
-                fd_mlx5_cq_t *    tx_cq,
-                fd_mlx5_qp_t *    qp,
-                char const *      rdma_name,
-                uint              port_num,
-                void *            packet_memory,
-                ulong             packet_memory_sz ) {
-  if( FD_UNLIKELY( !uverbs || !rx_cq || !tx_cq || !qp ||
-                   qp->rx_cq!=rx_cq || qp->tx_cq!=tx_cq ||
-                   qp->rx_depth!=rx_cq->depth || qp->tx_depth!=tx_cq->depth ) ) {
+fd_mlx5_rss_qp_t *
+fd_uverbs_init( fd_uverbs_ctx_t *  uverbs,
+                fd_mlx5_cq_t *     rx_cq,
+                fd_mlx5_cq_t *     tx_cq,
+                fd_mlx5_rx_wq_t *  rx_wq,
+                fd_mlx5_tx_qp_t *  tx_qp,
+                fd_mlx5_rss_qp_t * rss_qp,
+                uint *             lkey,
+                char const *       rdma_name,
+                uint               port_num,
+                void *             packet_memory,
+                ulong              packet_memory_sz ) {
+  if( FD_UNLIKELY( !uverbs || !rx_cq || !tx_cq || !rx_wq || !tx_qp || !rss_qp || !lkey ||
+                   !rx_wq->rq || !rx_wq->control ||
+                   rx_wq->rx_cq!=rx_cq || tx_qp->tx_cq!=tx_cq ||
+                   rx_wq->rx_depth!=rx_cq->depth || tx_qp->tx_depth!=tx_cq->depth ) ) {
     errno = EINVAL;
     return NULL;
   }
@@ -1187,24 +1317,29 @@ fd_uverbs_init( fd_uverbs_ctx_t * uverbs,
   uint           uar_page_id;
   uint           rx_cq_handle;
   uint           tx_cq_handle;
+  uint           rwq_ind_table_handle;
   if( FD_UNLIKELY( !fd_uverbs_open_context( uverbs, caps, rdma_name, port_num ) ) ) return NULL;
-  if( FD_UNLIKELY( !fd_uint_is_pow2( qp->rx_depth ) || !fd_uint_is_pow2( qp->tx_depth ) ||
-                   qp->rx_depth>caps->max_recv_wr || qp->tx_depth>caps->max_send_wqe ||
-                   qp->rx_depth-1U>caps->max_cqe || qp->tx_depth-1U>caps->max_cqe ) ) {
+  if( FD_UNLIKELY( !fd_uint_is_pow2( rx_wq->rx_depth ) || !fd_uint_is_pow2( tx_qp->tx_depth ) ||
+                   rx_wq->rx_depth>caps->max_recv_wr || tx_qp->tx_depth>caps->max_send_wqe ||
+                   rx_wq->rx_depth-1U>caps->max_cqe || tx_qp->tx_depth-1U>caps->max_cqe ) ) {
     errno = EINVAL;
     return NULL;
   }
 
-  qp->sq_doorbell = fd_uverbs_map_uar( uverbs, &uar_page_id );
-  if( FD_UNLIKELY( !qp->sq_doorbell ||
+  tx_qp->sq_doorbell = fd_uverbs_map_uar( uverbs, &uar_page_id );
+  if( FD_UNLIKELY( !tx_qp->sq_doorbell ||
                    !fd_uverbs_create_cq( &rx_cq_handle, uverbs, rx_cq, uar_page_id, caps->max_cqe ) ||
                    !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tx_cq, uar_page_id, caps->max_cqe ) ||
                    !fd_uverbs_alloc_pd( pd, uverbs ) ||
-                   !fd_uverbs_register_mr( &qp->lkey, pd, packet_memory, packet_memory_sz, caps->max_mr_size ) ||
-                   !fd_uverbs_create_qp( uverbs, qp, pd, rx_cq_handle, tx_cq_handle, uar_page_id ) ||
-                   !fd_uverbs_start_qp( uverbs, qp ) ) ) return NULL;
-  qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;
-  return qp;
+                   !fd_uverbs_register_mr( lkey, pd, packet_memory, packet_memory_sz, caps->max_mr_size ) ||
+                   !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id ) ||
+                   !fd_uverbs_start_tx_qp( uverbs, tx_qp ) ||
+                   !fd_uverbs_create_rx_wq( uverbs, rx_wq, pd, rx_cq_handle ) ||
+                   !fd_uverbs_start_rx_wq( uverbs, rx_wq ) ||
+                   !fd_uverbs_create_rwq_ind_table( &rwq_ind_table_handle, uverbs, rx_wq ) ||
+                   !fd_uverbs_create_rss_qp( uverbs, rss_qp, pd, rwq_ind_table_handle ) ) ) return NULL;
+  tx_qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;
+  return rss_qp;
 }
 
 #define FD_MLX5_NL_RECV_BUF_SZ (8192UL)
