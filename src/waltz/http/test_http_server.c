@@ -1381,6 +1381,79 @@ test_etag_304( void ) {
   free( scratch );
 }
 
+/* test_close_in_request_callback covers a close issued from inside the
+   request callback: close_conn must release the still-reading
+   connection without a treap removal, read_conn_http must return
+   without touching the released slot, and the server must keep serving
+   afterwards. */
+
+static fd_http_server_t * close_self_http;
+static ulong              close_self_request_cnt;
+
+static fd_http_server_response_t
+request_close_self( fd_http_server_request_t const * request ) {
+  close_self_request_cnt++;
+  if( close_self_request_cnt==1UL ) fd_http_server_close( close_self_http, request->connection_id, FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
+  return request_noop( request );
+}
+
+static void
+test_close_in_request_callback( void ) {
+  FD_LOG_NOTICE(( "Testing close from inside the request callback" ));
+
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_close_self,
+    .close   = close_capture,
+  };
+
+  fd_http_server_params_t params = default_test_params();
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  close_self_http         = http;
+  close_self_request_cnt  = 0UL;
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = server_addr.sin_port,
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+
+  char const * get = "GET / HTTP/1.1\r\n\r\n";
+
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+  send_all( client_fd, get, strlen( get ) );
+  for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  FD_TEST( state.close_cnt==1UL );
+  FD_TEST( state.last_reason==FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
+  FD_TEST( close_self_request_cnt==1UL );
+  close( client_fd );
+
+  /* the released slot is reusable and the server still serves */
+  client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+  send_all( client_fd, get, strlen( get ) );
+  for( ulong i=0UL; i<200UL && close_self_request_cnt<2UL; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  FD_TEST( close_self_request_cnt==2UL );
+  close( client_fd );
+  for( ulong i=0UL; i<200UL && state.close_cnt<2UL; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  FD_TEST( state.close_cnt==2UL );
+
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1396,6 +1469,7 @@ main( int     argc,
   test_keep_alive();
   test_zero_length_status_body();
   test_close_in_pipelined_callback();
+  test_close_in_request_callback();
   test_etag_304();
   test_transfer_encoding_close();
   test_duplicate_content_length_different_close();

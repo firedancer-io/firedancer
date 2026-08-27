@@ -753,7 +753,7 @@ parse_conn_http( fd_http_server_t * http,
   }
 
   fd_http_server_response_t response = http->callbacks.request( &request );
-  if( FD_LIKELY( http->pollfds[ conn_idx ].fd==-1 ) ) return; /* Connection was closed by callback */
+  if( FD_UNLIKELY( http->pollfds[ conn_idx ].fd==-1 ) ) return; /* Connection was closed by callback */
   conn->response = response;
   conn->state    = FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER;
 
