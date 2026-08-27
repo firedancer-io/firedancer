@@ -2243,20 +2243,20 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     mark_bank_dead( ctx, stem, sched_fec->bank_idx, dr, ar );
     return 1;
   } else if( FD_UNLIKELY( ctx->alpenglow ) ) {
-    ag_final_cert_t const *      final_cert      = fd_sched_get_final_cert( ctx->sched, sched_fec->bank_idx );
-    ag_fast_final_cert_t const * fast_final_cert = fd_sched_get_fast_final_cert( ctx->sched, sched_fec->bank_idx );
+    ag_cert_final_t const *      final_cert      = fd_sched_get_final_cert( ctx->sched, sched_fec->bank_idx );
+    ag_cert_fast_final_t const * fast_final_cert = fd_sched_get_fast_final_cert( ctx->sched, sched_fec->bank_idx );
     if( FD_UNLIKELY( final_cert || fast_final_cert ) ) {
       // parsed the block footer, so we need to forward it to the votor / verify asap
       fd_replay_final_cert_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
       msg->slot = bank->f.slot;
       msg->cert_cnt = final_cert ? 2 : 1;
       if( final_cert ) {
-        msg->certs[0].inner.final = *final_cert;
+        msg->certs[0].final = *final_cert;
         msg->certs[0].kind = AG_CERT_KIND_FINAL;
-        msg->certs[1].inner.notar = *fd_sched_get_final_notar_cert( ctx->sched, sched_fec->bank_idx );
+        msg->certs[1].notar = *fd_sched_get_final_notar_cert( ctx->sched, sched_fec->bank_idx );
         msg->certs[1].kind = AG_CERT_KIND_NOTAR;
       } else if( fast_final_cert ) {
-        msg->certs[0].inner.fast_final = *fast_final_cert;
+        msg->certs[0].fast_final = *fast_final_cert;
         msg->certs[0].kind = AG_CERT_KIND_FAST_FINAL;
       }
       //fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_FINAL_CERT, ctx->replay_out->chunk, sizeof(fd_replay_final_cert_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );

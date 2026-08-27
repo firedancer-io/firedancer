@@ -82,7 +82,7 @@ ag_bls_agg_zero( ag_bls_agg_t * agg );
 
 void
 ag_bls_agg_add( ag_bls_agg_t *     self,
-                ulong              signer_idx,
+                ulong              rank,
                 ag_bls_sig_t const sig );
 
 /* agave AggregateAccumulator::add_aggregate */
@@ -133,9 +133,9 @@ ag_bls_agg_verify_merged( ag_bls_agg_t const * agg_base,
 
 FD_FN_PURE static inline int
 ag_bls_agg_is_signer( ag_bls_agg_t const * self,
-                      ulong                validator_idx ) {
-  if( FD_UNLIKELY( validator_idx>=AG_BLS_SIGNERS_MAX ) ) return 0;
-  return signer_set_test( self->bitmask, validator_idx );
+                      ulong                rank ) {
+  if( FD_UNLIKELY( rank>=AG_BLS_SIGNERS_MAX ) ) return 0;
+  return signer_set_test( self->bitmask, rank );
 }
 
 /* AggregateSignature::signers */

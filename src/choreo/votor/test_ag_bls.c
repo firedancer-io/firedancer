@@ -272,7 +272,7 @@ test_ref_api( void ) {
   FD_TEST( !ag_bls_agg_verify( agg, msg, msg_sz, all_pk[0], sizeof(ag_bls_pub_t), N-1UL ) );
 
   /* Regression: wire certs carry a TRIMMED bit count (ag_signer_store
-     trimmed width = highest signer rank + 1), so it is routinely below the
+     trimmed width = highest rank rank + 1), so it is routinely below the
      epoch validator count.  Rejecting that -- as aggsig.rs' strict
      bitmask.len()==pks.len() would -- discards almost every real cert. */
   ag_bls_sig_t tsigs[2];

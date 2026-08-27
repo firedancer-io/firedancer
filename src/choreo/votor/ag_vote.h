@@ -10,222 +10,153 @@
 #define AG_VOTE_KIND_NOTAR_FALLBACK  (3U)
 #define AG_VOTE_KIND_SKIP_FALLBACK   (4U)
 
-struct __attribute__((packed)) ag_notar_vote {
+struct __attribute__((packed)) ag_vote_notar {
   ulong           slot;
   ag_block_hash_t block_hash;
   ag_bls_sig_t    sig;
-  ushort          signer;
+  ushort          rank;
 };
-typedef struct ag_notar_vote ag_notar_vote_t;
+typedef struct ag_vote_notar ag_vote_notar_t;
 
-struct __attribute__((packed)) ag_notar_fallback_vote {
+struct __attribute__((packed)) ag_vote_notar_fallback {
   ulong           slot;
   ag_block_hash_t block_hash;
   ag_bls_sig_t    sig;
-  ushort          signer;
+  ushort          rank;
 };
-typedef struct ag_notar_fallback_vote ag_notar_fallback_vote_t;
+typedef struct ag_vote_notar_fallback ag_vote_notar_fallback_t;
 
-struct __attribute__((packed)) ag_skip_vote {
+struct __attribute__((packed)) ag_vote_skip {
   ulong        slot;
   ag_bls_sig_t sig;
-  ushort       signer;
+  ushort       rank;
 };
-typedef struct ag_skip_vote ag_skip_vote_t;
+typedef struct ag_vote_skip ag_vote_skip_t;
 
-struct __attribute__((packed)) ag_skip_fallback_vote {
+struct __attribute__((packed)) ag_vote_skip_fallback {
   ulong        slot;
   ag_bls_sig_t sig;
-  ushort       signer;
+  ushort       rank;
 };
-typedef struct ag_skip_fallback_vote ag_skip_fallback_vote_t;
+typedef struct ag_vote_skip_fallback ag_vote_skip_fallback_t;
 
-struct __attribute__((packed)) ag_final_vote {
+struct __attribute__((packed)) ag_vote_final {
   ulong        slot;
   ag_bls_sig_t sig;
-  ushort       signer;
+  ushort       rank;
 };
-typedef struct ag_final_vote ag_final_vote_t;
+typedef struct ag_vote_final ag_vote_final_t;
 
 struct __attribute__((packed)) ag_vote {
   uint kind;
   union {
-    ag_notar_vote_t          notar;
-    ag_notar_fallback_vote_t notar_fallback;
-    ag_skip_vote_t           skip;
-    ag_skip_fallback_vote_t  skip_fallback;
-    ag_final_vote_t          final;
-  } inner;
+    ag_vote_notar_t          notar;
+    ag_vote_notar_fallback_t notar_fallback;
+    ag_vote_skip_t           skip;
+    ag_vote_skip_fallback_t  skip_fallback;
+    ag_vote_final_t          final;
+  };
 };
 typedef struct ag_vote ag_vote_t;
 
 #define AG_VOTE_PAYLOAD_MAX (43UL)
 
-#define AG_VOTE_SERIALIZED_MAX (2UL + sizeof(ag_notar_vote_t) + 2UL)
+#define AG_VOTE_SERIALIZED_MAX (2UL + sizeof(ag_vote_notar_t) + 2UL)
 
 FD_PROTOTYPES_BEGIN
-
-/* ag_vote_payload_bytes_to_sign lays the bytes a vote signs into out.  h
-   is the block hash for the notar and notar-fallback kinds and NULL for
-   the kinds that carry none. */
 
 ulong
 ag_vote_payload_bytes_to_sign( uchar *               out,
                                uint                  kind,
                                ulong                 slot,
-                               ag_block_hash_t const h,
+                               ag_block_hash_t const hash,
                                ushort                shred_version );
 
-void
-ag_notar_vote_new( ag_notar_vote_t *     out,
-                   ulong                 slot,
-                   ag_block_hash_t const h,
-                   ag_bls_sec_t const    sk,
-                   ushort                signer,
-                   ushort                shred_version );
-int
-ag_notar_vote_check_sig( ag_notar_vote_t const * self,
-                         ag_bls_pub_t const      pk,
-                         ushort                  shred_version );
-void
-ag_notar_fallback_vote_new( ag_notar_fallback_vote_t * out,
-                            ulong                      slot,
-                            ag_block_hash_t const      h,
-                            ag_bls_sec_t const         sk,
-                            ushort                     signer,
-                            ushort                     shred_version );
-int
-ag_notar_fallback_vote_check_sig( ag_notar_fallback_vote_t const * self,
-                                  ag_bls_pub_t const               pk,
-                                  ushort                           shred_version );
-void
-ag_skip_vote_new( ag_skip_vote_t *   out,
-                  ulong              slot,
-                  ag_bls_sec_t const sk,
-                  ushort             signer,
-                  ushort             shred_version );
-int
-ag_skip_vote_check_sig( ag_skip_vote_t const * self,
-                        ag_bls_pub_t const     pk,
-                        ushort                 shred_version );
-void
-ag_skip_fallback_vote_new( ag_skip_fallback_vote_t * out,
-                           ulong                     slot,
-                           ag_bls_sec_t const        sk,
-                           ushort                    signer,
-                           ushort                    shred_version );
-int
-ag_skip_fallback_vote_check_sig( ag_skip_fallback_vote_t const * self,
-                                 ag_bls_pub_t const              pk,
-                                 ushort                          shred_version );
-void
-ag_final_vote_new( ag_final_vote_t *  out,
-                   ulong              slot,
-                   ag_bls_sec_t const sk,
-                   ushort             signer,
-                   ushort             shred_version );
-int
-ag_final_vote_check_sig( ag_final_vote_t const * self,
-                         ag_bls_pub_t const      pk,
-                         ushort                  shred_version );
+ag_vote_t
+ag_vote_construct_notar( ulong                 slot,
+                         ag_block_hash_t const hash,
+                         ag_bls_sec_t const    sec,
+                         ushort                rank,
+                         ushort                shred_version );
 
-/* ag_vote_new_signed builds a vote of the given kind and signs it with
-   the supplied callback.  h is the block hash for the notar and
-   notar-fallback kinds and NULL for the kinds that carry none. */
+ag_vote_t
+ag_vote_construct_notar_fallback( ulong                 slot,
+                                  ag_block_hash_t const hash,
+                                  ag_bls_sec_t const    sec,
+                                  ushort                rank,
+                                  ushort                shred_version );
 
-void
-ag_vote_new_signed( ag_vote_t *           out,
-                    uint                  kind,
-                    ulong                 slot,
-                    ag_block_hash_t const h,
-                    ag_bls_sign_fn        sign,
-                    void *                sign_ctx,
-                    ushort                signer,
-                    ushort                shred_version );
+ag_vote_t
+ag_vote_construct_skip( ulong              slot,
+                        ag_bls_sec_t const sec,
+                        ushort             rank,
+                        ushort             shred_version );
 
-void
-ag_vote_new_notar( ag_vote_t *           out,
-                   ulong                 slot,
-                   ag_block_hash_t const h,
-                   ag_bls_sec_t const    sk,
-                   ushort                signer,
-                   ushort                shred_version );
-void
-ag_vote_new_notar_fallback( ag_vote_t *           out,
-                            ulong                 slot,
-                            ag_block_hash_t const h,
-                            ag_bls_sec_t const    sk,
-                            ushort                signer,
-                            ushort                shred_version );
-void
-ag_vote_new_skip( ag_vote_t *        out,
-                  ulong              slot,
-                  ag_bls_sec_t const sk,
-                  ushort             signer,
-                  ushort             shred_version );
-void
-ag_vote_new_skip_fallback( ag_vote_t *        out,
-                           ulong              slot,
-                           ag_bls_sec_t const sk,
-                           ushort             signer,
-                           ushort             shred_version );
-void
-ag_vote_new_final( ag_vote_t *        out,
-                   ulong              slot,
-                   ag_bls_sec_t const sk,
-                   ushort             signer,
-                   ushort             shred_version );
+ag_vote_t
+ag_vote_construct_skip_fallback( ulong              slot,
+                                 ag_bls_sec_t const sec,
+                                 ushort             rank,
+                                 ushort             shred_version );
+
+ag_vote_t
+ag_vote_construct_final( ulong              slot,
+                         ag_bls_sec_t const sec,
+                         ushort             rank,
+                         ushort             shred_version );
 
 int
-ag_vote_check_sig( ag_vote_t const *  self,
-                   ag_bls_pub_t const pk,
-                   ushort             shred_version );
+ag_vote_verify( ag_vote_t const *  self,
+                ag_bls_pub_t const pub,
+                ushort             shred_version );
 
 FD_FN_PURE static inline ulong
 ag_vote_slot( ag_vote_t const * self ) {
   switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          return self->inner.notar.slot;
-  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->inner.notar_fallback.slot;
-  case AG_VOTE_KIND_SKIP:           return self->inner.skip.slot;
-  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->inner.skip_fallback.slot;
-  default:                          return self->inner.final.slot;
+  case AG_VOTE_KIND_NOTAR:          return self->notar.slot;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.slot;
+  case AG_VOTE_KIND_SKIP:           return self->skip.slot;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.slot;
+  default:                          return self->final.slot;
   }
 }
 
 FD_FN_PURE static inline ushort
-ag_vote_signer( ag_vote_t const * self ) {
+ag_vote_rank( ag_vote_t const * self ) {
   switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          return self->inner.notar.signer;
-  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->inner.notar_fallback.signer;
-  case AG_VOTE_KIND_SKIP:           return self->inner.skip.signer;
-  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->inner.skip_fallback.signer;
-  default:                          return self->inner.final.signer;
+  case AG_VOTE_KIND_NOTAR:          return self->notar.rank;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.rank;
+  case AG_VOTE_KIND_SKIP:           return self->skip.rank;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.rank;
+  default:                          return self->final.rank;
   }
 }
 
 static inline void
-ag_vote_set_signer( ag_vote_t * self, ushort signer ) {
+ag_vote_set_rank( ag_vote_t * self,
+                  ushort      rank ) {
   switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          self->inner.notar.signer          = signer; break;
-  case AG_VOTE_KIND_NOTAR_FALLBACK: self->inner.notar_fallback.signer = signer; break;
-  case AG_VOTE_KIND_SKIP:           self->inner.skip.signer           = signer; break;
-  case AG_VOTE_KIND_SKIP_FALLBACK:  self->inner.skip_fallback.signer  = signer; break;
-  default:                          self->inner.final.signer          = signer; break;
+  case AG_VOTE_KIND_NOTAR:          self->notar.rank          = rank; break;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: self->notar_fallback.rank = rank; break;
+  case AG_VOTE_KIND_SKIP:           self->skip.rank           = rank; break;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  self->skip_fallback.rank  = rank; break;
+  default:                          self->final.rank          = rank; break;
   }
 }
 
-/* ag_vote_block_hash returns the vote's block hash, or NULL for the
-   kinds that carry none.  uchar const * rather than ag_block_hash_t for
-   the same reason as ag_cert_block_hash: C cannot return an array
-   type. */
+/* Only a notar and a notar fallback vote carry a block hash, so the
+   accessor takes the vote that owns the 32 bytes rather than the union:
+   the type states which kinds have a hash, and neither accessor has a
+   NULL return for the caller to handle.  A caller holding an ag_vote_t
+   has already discriminated the kind wherever it wants a hash. */
 
 FD_FN_PURE static inline uchar const *
-ag_vote_block_hash( ag_vote_t const * self ) {
-  switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          return self->inner.notar.block_hash;
-  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->inner.notar_fallback.block_hash;
-  default:                          return NULL;
-  }
+ag_vote_notar_block_hash( ag_vote_notar_t const * self ) {
+  return self->block_hash;
+}
+
+FD_FN_PURE static inline uchar const *
+ag_vote_notar_fallback_block_hash( ag_vote_notar_fallback_t const * self ) {
+  return self->block_hash;
 }
 
 FD_PROTOTYPES_END

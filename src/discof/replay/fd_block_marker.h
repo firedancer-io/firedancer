@@ -50,9 +50,9 @@ struct fd_block_footer {
       notar_cert. */
    int                  has_fast_final_cert;
    int                  has_final_cert;
-   ag_fast_final_cert_t fast_final_cert;
-   ag_final_cert_t      final_cert;
-   ag_notar_cert_t      notar_cert;
+   ag_cert_fast_final_t fast_final_cert;
+   ag_cert_final_t      final_cert;
+   ag_cert_notar_t      notar_cert;
 
    /* Optional reward certs. Shapes are validated but signatures are
       not verified. */

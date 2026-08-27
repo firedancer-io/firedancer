@@ -150,13 +150,13 @@ ag_bls_agg_zero( ag_bls_agg_t * agg ) {
 
 void
 ag_bls_agg_add( ag_bls_agg_t *     self,
-                ulong              signer_idx,
+                ulong              rank,
                 ag_bls_sig_t const sig ) {
-  FD_TEST( signer_idx<AG_BLS_SIGNERS_MAX );
-  FD_TEST( !signer_set_test( self->bitmask, signer_idx ) );
+  FD_TEST( rank<AG_BLS_SIGNERS_MAX );
+  FD_TEST( !signer_set_test( self->bitmask, rank ) );
 
   int first = ( signer_set_cnt( self->bitmask )==0UL );
-  signer_set_insert( self->bitmask, signer_idx );
+  signer_set_insert( self->bitmask, rank );
 
   if( FD_UNLIKELY( first ) ) {
     fd_memcpy( self->sig, sig, AG_BLS_SIG_SZ );

@@ -530,13 +530,13 @@ fd_sched_get_notar_reward_cert( fd_sched_t * sched, ulong bank_idx );
    or no footer marker has been parsed for the block.  The certs' shapes
    were validated at parse time, but their signatures are not verified.
    The certs stay valid until the block is pruned. */
-ag_fast_final_cert_t const *
+ag_cert_fast_final_t const *
 fd_sched_get_fast_final_cert( fd_sched_t * sched, ulong bank_idx );
 
-ag_final_cert_t const *
+ag_cert_final_t const *
 fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx );
 
-ag_notar_cert_t const *
+ag_cert_notar_t const *
 fd_sched_get_final_notar_cert( fd_sched_t * sched, ulong bank_idx );
 
 void
