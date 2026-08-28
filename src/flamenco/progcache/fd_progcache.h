@@ -17,7 +17,16 @@
 
 #define FD_PROGCACHE_SHMEM_MAGIC (0xf17eda2ce7fc2c03UL)
 
-#define FD_PROGCACHE_SPAD_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH * (20UL<<20))
+#define FD_PROGCACHE_SPAD_LVL_MAX (11UL<<20)
+#define FD_PROGCACHE_SPAD_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH * FD_PROGCACHE_SPAD_LVL_MAX)
+
+/* A spill level holds at most one val: a calldests bitset for
+   FD_SBPF_TEXT_CNT_MAX instructions plus a load buffer bounded by
+   FD_RUNTIME_ACC_SZ_MAX, plus alignment (margin covers set header and
+   both align-ups). */
+FD_STATIC_ASSERT( FD_PROGCACHE_SPAD_LVL_MAX >=
+                  FD_RUNTIME_ACC_SZ_MAX + 8UL*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT + 4096UL,
+                  spad_lvl_fits_worst_case_val );
 
 struct fd_progcache_shmem {
 
