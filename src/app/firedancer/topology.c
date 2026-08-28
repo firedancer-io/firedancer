@@ -543,10 +543,11 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "genesi_out",    "genesi_out",    1UL,                                      fd_genesi_tile_mtu( genesis_max_message_size ), 1UL );
   /**/                 fd_topob_link( topo, "ipecho_out",    "ipecho_out",    2UL,                                      0UL,                           1UL );
-  /* Mainnet gossip ingress is ~5-15k pps; 4096 verified packets is
-     ~0.3s of buffering at 10x that, and the MTU is 25 KiB so depth is
-     the dominant cost. */
-  FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossip", "gossvf_gossip", 4096UL,                                   FD_GOSSIP_GOSSVF_MTU,          1UL );
+  /* Mainnet post-filter gossip ingress is <=7.5k pps/link; 2048
+     verified packets is ~0.27s of buffering at that rate (~27ms at
+     10x), and the MTU is 25 KiB so depth is the dominant cost.
+     Consumer is unreliable: overrun drops, gossip retransmits. */
+  FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossip", "gossvf_gossip", 2048UL,                                   FD_GOSSIP_GOSSVF_MTU,          1UL );
   /**/                 fd_topob_link( topo, "gossip_gossvf", "gossip_gossvf", 65536UL*2UL,                              sizeof(fd_gossip_ping_update_t), 1UL ); /* min pow2 >= gossip's STEM_BURST */
   /**/                 fd_topob_link( topo, "gossip_ciaddr", "gossip_ciaddr", 65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL ); /* min pow2 >= gossip's STEM_BURST */
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
