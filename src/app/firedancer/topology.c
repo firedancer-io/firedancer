@@ -488,15 +488,19 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "admin_replay",  "admin_replay",  32UL,                                     0UL,                           1UL );
   /**/                 fd_topob_link( topo, "replay_admin",  "admin_replay",  32UL,                                     0UL,                           1UL );
   if( leader_enabled ) {
-    /**/                   fd_topob_link( topo, "dedup_resolv",  "dedup_resolv",  65536UL,                                  FD_TPU_PARSED_MTU,             1UL );
-    FOR(resolv_tile_cnt)   fd_topob_link( topo, "resolv_pack",   "resolv_pack",   65536UL,                                  FD_TPU_RESOLVED_MTU,           1UL );
+    /* Depths below cover consumer latency at >=10x current mainnet
+       load (~50k TPS incl votes => 8192 txn frags is ~160ms; leader
+       microblock links drain in realtime by poh/shred, 4096 exceeds a
+       full mainnet slot of microblocks in flight). */
+    /**/                   fd_topob_link( topo, "dedup_resolv",  "dedup_resolv",  8192UL,                                   FD_TPU_PARSED_MTU,             1UL );
+    FOR(resolv_tile_cnt)   fd_topob_link( topo, "resolv_pack",   "resolv_pack",   8192UL,                                   FD_TPU_RESOLVED_MTU,           1UL );
     /**/                   fd_topob_link( topo, "pack_poh",      "pack_poh",      4096UL,                                   sizeof(fd_done_packing_t),     1UL );
-    FOR(execle_tile_cnt)   fd_topob_link( topo, "execle_poh",    "execle_poh",    16384UL,                                  FD_EXECLE_POH_MTU,             1UL );
+    FOR(execle_tile_cnt)   fd_topob_link( topo, "execle_poh",    "execle_poh",    4096UL,                                   FD_EXECLE_POH_MTU,             1UL );
     FOR(execle_tile_cnt)   fd_topob_link( topo, "pack_execle",   "pack_execle",   256UL,                                    FD_PACK_EXECLE_MTU,            1UL );
     if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
-      FOR(execle_tile_cnt) fd_topob_link( topo, "execle_pack",   "execle_pack",   16384UL,                                  FD_PACK_REBATE_MAX_SZ,         1UL );
+      FOR(execle_tile_cnt) fd_topob_link( topo, "execle_pack",   "execle_pack",   4096UL,                                   FD_PACK_REBATE_MAX_SZ,         1UL );
     }
-    /**/                   fd_topob_link( topo, "poh_shred",     "poh_shred",     16384UL,                                  FD_POH_SHRED_MTU,              1UL );
+    /**/                   fd_topob_link( topo, "poh_shred",     "poh_shred",     4096UL,                                   FD_POH_SHRED_MTU,              1UL );
     /**/                   fd_topob_link( topo, "poh_replay",    "poh_replay",    4096UL,                                   sizeof(fd_poh_leader_slot_ended_t), 1UL );
   }
 
