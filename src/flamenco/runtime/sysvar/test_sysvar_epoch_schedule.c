@@ -42,6 +42,10 @@ test_sysvar_epoch_schedule_edge_case( void ) {
   FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule, 0UL )==3UL );
   FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule, 1UL )==3UL );
   FD_TEST( fd_epoch_schedule_derive( &schedule, 31UL, 31UL, 0 )==NULL );
+
+  schedule.first_normal_epoch = ULONG_MAX;
+  FD_TEST( fd_epoch_slot0( &schedule, 64UL      )==ULONG_MAX );
+  FD_TEST( fd_epoch_slot0( &schedule, ULONG_MAX )==ULONG_MAX );
 }
 
 static fd_epoch_schedule_t const
