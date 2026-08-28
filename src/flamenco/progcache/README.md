@@ -137,8 +137,9 @@ Each record access considers the following slot numbers:
 ### Record life cycle
 
 Records have the following states:
+- free: descriptor is in the record pool with its write lock held
 - hidden: resources allocated, but invisible (cannot be referenced by
-  any thread)
+  any thread); inherits the write lock from the pool
 - published: owned by a fork, visible to users
 - rooted: finalized by consensus (not owned by a fork), visible
 
@@ -157,6 +158,11 @@ The record descriptor itself is reclaimed according to these rules:
 - Records that are part of a transaction defer reclamation to rooting/
   cancellation (replay tile)
 - Records that are already rooted are immediately reclaimed
+
+Reclamation leaves the descriptor write locked when returning it to the
+record pool.  Allocation inherits that lock and keeps it held through
+initialization and publication.  This prevents stale speculative readers
+from acquiring a recycled descriptor between generations.
 
 ### Cache replacement policy
 

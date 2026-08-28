@@ -132,8 +132,8 @@ fd_progcache_shmem_new( void * shmem,
 
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_progcache_shmem_align() ) == (ulong)pc + fd_progcache_shmem_footprint( txn_max, rec_max ) );
 
-  fd_memset( pc,      0, offsetof(fd_progcache_shmem_t, spill) );
-  fd_memset( rec_ele, 0, rec_max * sizeof(fd_progcache_rec_t)  );
+  fd_memset( pc, 0, offsetof(fd_progcache_shmem_t, spill) );
+  for( ulong i=0UL; i<rec_max; i++ ) fd_progcache_rec_new( &rec_ele[ i ] );
 
   pc->wksp_tag = wksp_tag;
   pc->seed     = seed;
