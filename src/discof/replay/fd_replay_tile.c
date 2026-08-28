@@ -2350,6 +2350,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   }
 
   sched_fec->data              = data_view->data;
+  sched_fec->shred_offs        = data_view->shred_offs;
   sched_fec->completed_ns      = (long)reasm_fec->fec_completed_ts_nanos;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;

@@ -31,6 +31,7 @@
 
 static fd_store_fec_t mock_store_fec;
 static uchar          mock_store_data[ 4096 ];
+static ushort         mock_store_offs[ FD_FEC_SHRED_CNT ];
 
 fd_store_fec_t *
 mock_store_query_fn( fd_store_map_t *  map FD_PARAM_UNUSED,
@@ -44,6 +45,7 @@ mock_store_fec_data_view_fn( fd_store_t *               store FD_PARAM_UNUSED,
                              fd_store_fec_t *           fec FD_PARAM_UNUSED,
                              fd_store_fec_data_view_t * view ) {
   view->data = mock_store_data;
+  view->shred_offs = mock_store_offs;
   view->fec = &mock_store_fec;
   view->flags = 0U;
   return 0;

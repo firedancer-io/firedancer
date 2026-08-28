@@ -29,7 +29,7 @@ insert_payload( fd_store_t * store,
   FD_TEST( data );
   fd_memset( data, byte, sz );
   fec->data_sz = (uint)sz;
-  fec->shred_offs[0] = (ushort)sz;
+  fd_store_fec_shred_offs( data )[0] = (ushort)sz;
   fd_store_fec_data_publish( store, fec );
   return fec;
 }

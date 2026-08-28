@@ -670,6 +670,7 @@ block_can_ingest( case_t const * tc,
 static void
 prepare_fec( block_t const *  block,
              fd_store_fec_t * store_fec,
+             ushort *         shred_offs,   /* FD_FEC_SHRED_CNT entries */
              fd_sched_fec_t * fec ) {
   ulong seg       = block->ingested_seg_cnt;
   ulong seg_start = seg ? (ulong)block->seg_end[ seg-1UL ] : 0UL;
@@ -677,8 +678,9 @@ prepare_fec( block_t const *  block,
   ulong seg_sz    = seg_end - seg_start;
 
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-  store_fec->data_sz       = (uint)seg_sz;
-  store_fec->shred_offs[0] = (ushort)seg_sz;
+  store_fec->data_sz = (uint)seg_sz;
+  fd_memset( shred_offs, 0, FD_FEC_SHRED_CNT*sizeof(ushort) );
+  shred_offs[0]      = (ushort)seg_sz;
 
   *fec = (fd_sched_fec_t) {
     .bank_idx           = block->bank_idx,
@@ -687,6 +689,7 @@ prepare_fec( block_t const *  block,
     .parent_slot        = block->parent_slot,
     .fec                = store_fec,
     .data               = (uchar *)block->encoded + seg_start,
+    .shred_offs         = shred_offs,
     .shred_cnt          = 1U,
     .is_last_in_batch   = (uint)(seg+1UL==block->seg_cnt),
     .is_last_in_block   = (uint)(seg+1UL==block->seg_cnt),
@@ -699,8 +702,9 @@ block_fec_can_ingest( case_t const * tc,
                       block_t const * block ) {
   if( FD_UNLIKELY( !block_can_ingest( tc, block ) ) ) return 0;
   fd_store_fec_t store_fec[ 1 ];
+  ushort         shred_offs[ FD_FEC_SHRED_CNT ];
   fd_sched_fec_t fec[ 1 ];
-  prepare_fec( block, store_fec, fec );
+  prepare_fec( block, store_fec, shred_offs, fec );
   return fd_sched_fec_can_ingest( tc->sched, fec );
 }
 
@@ -710,8 +714,9 @@ ingest_next_segment( case_t * tc,
   FD_TEST( block_can_ingest( tc, block ) );
 
   fd_store_fec_t store_fec[ 1 ];
+  ushort         shred_offs[ FD_FEC_SHRED_CNT ];
   fd_sched_fec_t fec[ 1 ];
-  prepare_fec( block, store_fec, fec );
+  prepare_fec( block, store_fec, shred_offs, fec );
   FD_TEST( fd_sched_fec_can_ingest( tc->sched, fec ) );
   FD_TEST( fd_sched_fec_ingest( tc->sched, fec ) );
   block->ingested_seg_cnt++;

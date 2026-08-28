@@ -229,15 +229,16 @@ after_credit( fd_backt_tile_t *   ctx,
   }
 
   fd_store_fec_t * fec = fd_store_query( ctx->map_join, &mr );
-  if( FD_UNLIKELY( !fec->data_sz ) ) memset( fec->shred_offs, 0, sizeof(fec->shred_offs) );
+  uchar * data = fd_store_fec_data( ctx->store, fec );
+  if( FD_UNLIKELY( !fec->data_sz ) ) memset( fd_store_fec_shred_offs( data ), 0, FD_STORE_FEC_OFFS_SZ );
   if( FD_UNLIKELY( fec->data_sz+fd_shred_payload_sz( shred )>ctx->store->fec_data_max ) ) {
     FD_LOG_ERR(( "backtest FEC payload exceeds store maximum (%lu>%lu)",
                  fec->data_sz+fd_shred_payload_sz( shred ), ctx->store->fec_data_max ));
   }
-  fd_memcpy( fd_store_fec_data( ctx->store, fec ) + fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
+  fd_memcpy( data + fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz = (uint)( fec->data_sz + fd_shred_payload_sz( shred ) );
   ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
-  if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) fec->shred_offs[ shred_idx ] = (ushort)fec->data_sz;
+  if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) fd_store_fec_shred_offs( data )[ shred_idx ] = (ushort)fec->data_sz;
   if( FD_UNLIKELY( completes_fec_set ) ) fd_store_fec_data_publish( ctx->store, fec );
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;

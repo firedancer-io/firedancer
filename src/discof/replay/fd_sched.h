@@ -73,6 +73,8 @@ struct fd_sched_fec {
   ulong            parent_slot;         /* Slot number of the parent block. */
   fd_store_fec_t * fec;                 /* FEC set metadata. */
   uchar          * data;                /* Resolved laddr of the FEC set data buffer. */
+  ushort const   * shred_offs;          /* Cumulative data shred sizes (FD_FEC_SHRED_CNT entries); from the
+                                           store data view's payload slot header. */
   uint             shred_cnt;           /* Number of shreds in the FEC set. */
   uint             is_last_in_batch:1;  /* Set if this is the last FEC set in the batch; relevant because the
                                            parser should ignore trailing bytes at the end of a batch. */

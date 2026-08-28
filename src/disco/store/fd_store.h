@@ -14,11 +14,16 @@
    slots are aligned in the RAM cache and spill file. */
 #define FD_STORE_PAYLOAD_PAGE_SZ (FD_SHMEM_NORMAL_PAGE_SZ)
 
-/* fd_store_payload_slot_sz returns fec_data_max rounded up to a whole
-   number of pages. */
+/* Each payload slot starts with a FD_STORE_FEC_OFFS_SZ shred-offsets
+   table followed by the payload, in both the RAM cache and the spill
+   file, so the offsets travel with the payload through the disk tier. */
+#define FD_STORE_FEC_OFFS_SZ (FD_FEC_SHRED_CNT*sizeof(ushort))
+
+/* fd_store_payload_slot_sz returns the offsets table plus fec_data_max
+   rounded up to a whole number of pages. */
 FD_FN_CONST static inline ulong
 fd_store_payload_slot_sz( ulong fec_data_max ) {
-  return fd_ulong_align_up( fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ );
+  return fd_ulong_align_up( FD_STORE_FEC_OFFS_SZ + fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ );
 }
 #define FD_STORE_MAGIC (0xf17eda2ce75702e4UL) /* firedancer store version 4 */
 
@@ -97,15 +102,14 @@ fd_shredb_max_slots( ulong gib ) {
 }
 
 
-/* Exactly 128 bytes.  Offsets are cumulative sizes <= fec_data_max
-   (63985) so they fit ushort, and payload locations are stored as
-   payload_slot_sz-granular slot indices (< fec_max <= UINT_MAX) rather
-   than byte offsets so they fit uint. */
+/* Exactly 64 bytes.  Payload locations are stored as payload_slot_sz-
+   granular slot indices (< fec_max <= UINT_MAX) rather than byte
+   offsets so they fit uint.  The per-shred offsets table lives at the
+   head of the payload slot (see FD_STORE_FEC_OFFS_SZ), not here. */
 
-struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
+struct __attribute__((aligned(64))) fd_store_fec {
   fd_hash_t key;
   ulong     next;                            /* managed by fd_pool / fd_map_chain_para */
-  ushort    shred_offs[FD_FEC_SHRED_CNT];    /* shred_offs[i] = cumulative size of data shreds [0..i] */
   uint      data_sz;                         /* sz of the FEC set payload, <= fec_data_max */
   uint      data_idx;                        /* RAM cache slot idx when RAM_*, spill-file slot idx when DISK */
   uint      cache_prev;                      /* RAM_READY LRU links, UINT_MAX when unlinked */
@@ -115,7 +119,7 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
 };
 typedef struct fd_store_fec fd_store_fec_t;
 
-FD_STATIC_ASSERT( sizeof(struct fd_store_fec)==FD_STORE_ALIGN, fd_store_fec );
+FD_STATIC_ASSERT( sizeof(struct fd_store_fec)==64UL, fd_store_fec );
 
 
 #define POOL_NAME  fd_store_pool
@@ -286,16 +290,26 @@ fd_store_map_ljoin( fd_store_t * store, fd_store_map_t * ljoin ) {
                             store->fec_max );
 }
 
-/* FEC data pointer for writers.  Only valid in RAM_WRITING. */
+/* FEC payload pointer for writers.  Only valid in RAM_WRITING. */
 
 FD_FN_PURE static inline uchar *
 fd_store_fec_data( fd_store_t const *     store,
                    fd_store_fec_t const * fec ) {
-  return (uchar *)( (ulong)store - store->store_gaddr + store->cache_data_gaddr + (ulong)fec->data_idx*store->payload_slot_sz );
+  return (uchar *)( (ulong)store - store->store_gaddr + store->cache_data_gaddr + (ulong)fec->data_idx*store->payload_slot_sz + FD_STORE_FEC_OFFS_SZ );
+}
+
+/* Shred-offsets table preceding a payload pointer returned by
+   fd_store_fec_data / fd_store_fec_data_acquire.  shred_offs[i] =
+   cumulative size of data shreds [0..i]. */
+
+FD_FN_CONST static inline ushort *
+fd_store_fec_shred_offs( uchar * data ) {
+  return (ushort *)( data - FD_STORE_FEC_OFFS_SZ );
 }
 
 struct fd_store_fec_data_view {
   uchar          * data;
+  ushort         * shred_offs;               /* FD_FEC_SHRED_CNT cumulative shred sizes */
   fd_store_fec_t * fec;
   uint             flags;
 };

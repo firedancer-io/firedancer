@@ -1137,14 +1137,14 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_TEST( block->shred_cnt<FD_SHRED_BLK_MAX );
     uint shred_off;
     if( FD_LIKELY( i<32UL ) ) {
-      shred_off = fec->fec->shred_offs[ i ];
+      shred_off = fec->shred_offs[ i ];
     } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
       /* We don't track shred boundaries after 32 shreds, assume they're
          sized uniformly */
       ulong num_overflow_shreds = fec->shred_cnt-32UL;
       ulong overflow_idx        = i-32UL;
-      ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->shred_offs[ 31 ];
-      shred_off = fec->fec->shred_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
+      ulong overflow_data_sz    = fec->fec->data_sz-fec->shred_offs[ 31 ];
+      shred_off = fec->shred_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
     } else {
       shred_off = (uint)fec->fec->data_sz;
     }

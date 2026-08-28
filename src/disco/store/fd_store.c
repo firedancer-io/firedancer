@@ -178,8 +178,10 @@ spill_one_locked( fd_store_t * store,
   ulong ram_idx   = victim->data_idx;
   ulong spill_off = (ulong)victim_idx * store->payload_slot_sz;
 
-  long res = pwrite( disk_fd, cache_data_laddr( store ) + ram_idx*store->payload_slot_sz, victim->data_sz, (off_t)spill_off );
-  if( FD_UNLIKELY( res!=(long)victim->data_sz ) ) {
+  /* Spill slot base includes the shred-offsets table. */
+  ulong spill_sz = FD_STORE_FEC_OFFS_SZ + victim->data_sz;
+  long res = pwrite( disk_fd, cache_data_laddr( store ) + ram_idx*store->payload_slot_sz, spill_sz, (off_t)spill_off );
+  if( FD_UNLIKELY( res!=(long)spill_sz ) ) {
     FD_LOG_ERR(( "error spilling FEC payload to disk: (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -402,7 +404,7 @@ fd_store_fec_data_acquire( fd_store_t     * store,
   fd_rwlock_write( &store->cache_lock );
 
   if( FD_UNLIKELY( fec->data_state==FD_STORE_FEC_DATA_RAM_WRITING ) ) {
-    uchar * data = cache_data_laddr( store ) + (ulong)fec->data_idx*store->payload_slot_sz;
+    uchar * data = cache_data_laddr( store ) + (ulong)fec->data_idx*store->payload_slot_sz + FD_STORE_FEC_OFFS_SZ;
     fd_rwlock_unwrite( &store->cache_lock );
     return data;
   }
@@ -428,7 +430,7 @@ fd_store_fec_data_acquire( fd_store_t     * store,
   fec->data_pin_cnt = 0U;
   fec->data_state   = FD_STORE_FEC_DATA_RAM_WRITING;
 
-  uchar * data = cache_data_laddr( store ) + slot*store->payload_slot_sz;
+  uchar * data = cache_data_laddr( store ) + slot*store->payload_slot_sz + FD_STORE_FEC_OFFS_SZ;
   fd_rwlock_unwrite( &store->cache_lock );
   return data;
 }
@@ -470,9 +472,10 @@ fd_store_fec_data_view( fd_store_t *               store,
                         fd_store_fec_t *           fec,
                         fd_store_fec_data_view_t * view ) {
   if( FD_UNLIKELY( !view ) ) return -1;
-  view->data  = NULL;
-  view->fec   = NULL;
-  view->flags = 0U;
+  view->data       = NULL;
+  view->shred_offs = NULL;
+  view->fec        = NULL;
+  view->flags      = 0U;
   if( FD_UNLIKELY( !store || !fec ) ) return -1;
   fd_store_fec_t * fec0 = pool_ele_laddr( store );
   if( FD_UNLIKELY( fec<fec0 || fec>=fec0+store->fec_max ) ) return -1;
@@ -486,8 +489,10 @@ fd_store_fec_data_view( fd_store_t *               store,
 
   if( FD_LIKELY( fec->data_state==FD_STORE_FEC_DATA_RAM_READY ) ) {
     cache_pin_locked( store, fec );
-    view->data = cache_data_laddr( store ) + (ulong)fec->data_idx*store->payload_slot_sz;
-    view->fec  = fec;
+    uchar * slot     = cache_data_laddr( store ) + (ulong)fec->data_idx*store->payload_slot_sz;
+    view->data       = slot + FD_STORE_FEC_OFFS_SZ;
+    view->shred_offs = (ushort *)slot;
+    view->fec        = fec;
     fd_rwlock_unwrite( &store->cache_lock );
     return 0;
   }
@@ -498,15 +503,16 @@ fd_store_fec_data_view( fd_store_t *               store,
       return -1;
     }
     ulong data_sz  = fec->data_sz;
+    ulong read_sz  = FD_STORE_FEC_OFFS_SZ + data_sz;
     ulong data_off = (ulong)fec->data_idx*store->payload_slot_sz;
     uchar * spill_read_data = spill_read_data_laddr( store );
     cache_pin_locked( store, fec );
     fd_rwlock_unwrite( &store->cache_lock );
 
     fd_rwlock_write( &store->spill_read_lock );
-    long res = pread( disk_fd, spill_read_data, data_sz, (off_t)data_off );
+    long res = pread( disk_fd, spill_read_data, read_sz, (off_t)data_off );
 
-    if( FD_UNLIKELY( res!=(long)data_sz ) ) {
+    if( FD_UNLIKELY( res!=(long)read_sz ) ) {
       fd_rwlock_unwrite( &store->spill_read_lock );
       fd_rwlock_write( &store->cache_lock );
       store->fec_spill_read_fail_cnt++;
@@ -521,9 +527,10 @@ fd_store_fec_data_view( fd_store_t *               store,
     store->fec_spill_read_bytes += data_sz;
     fd_rwlock_unwrite( &store->cache_lock );
 
-    view->data  = spill_read_data;
-    view->fec   = fec;
-    view->flags = FD_STORE_FEC_DATA_VIEW_SPILL;
+    view->data       = spill_read_data + FD_STORE_FEC_OFFS_SZ;
+    view->shred_offs = (ushort *)spill_read_data;
+    view->fec        = fec;
+    view->flags      = FD_STORE_FEC_DATA_VIEW_SPILL;
     return 0;
   }
 
@@ -541,9 +548,10 @@ fd_store_fec_data_view_release( fd_store_t *               store,
   cache_unpin_locked( store, view->fec );
   fd_rwlock_unwrite( &store->cache_lock );
 
-  view->data  = NULL;
-  view->fec   = NULL;
-  view->flags = 0U;
+  view->data       = NULL;
+  view->shred_offs = NULL;
+  view->fec        = NULL;
+  view->flags      = 0U;
 }
 
 void

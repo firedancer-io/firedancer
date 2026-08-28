@@ -401,8 +401,9 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
 
       fd_store_fec_t store_fec[1] = {0};
       store_fec->key = popped_rec->mr;
-      store_fec->data_sz         = (uint)popped_rec->payload_sz;
-      for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) store_fec->shred_offs[ i ] = (ushort)popped_rec->shred_offs[ i ];
+      store_fec->data_sz = (uint)popped_rec->payload_sz;
+      ushort shred_offs[ FD_FEC_SHRED_CNT ];
+      for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) shred_offs[ i ] = (ushort)popped_rec->shred_offs[ i ];
 
       fd_sched_fec_t sched_fec = {
         .bank_idx          = bank_idx,
@@ -411,6 +412,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
         .parent_slot       = fd_ulong_if( popped_rec->slot>=popped_rec->parent_off, popped_rec->slot-popped_rec->parent_off, 0UL ),
         .fec               = store_fec,
         .data              = popped_rec->payload,
+        .shred_offs        = shred_offs,
         .shred_cnt         = popped_rec->shred_cnt,
         .is_last_in_batch  = !!popped_rec->data_complete,
         .is_last_in_block  = !!popped_rec->slot_complete,

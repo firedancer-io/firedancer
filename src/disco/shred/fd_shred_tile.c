@@ -1225,6 +1225,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
         uchar * fec_data = fd_store_fec_data_acquire( ctx->store, ctx->disk_fd, fec );
         if( FD_UNLIKELY( !fec_data ) ) FD_LOG_CRIT(( "store RAM cache full and no spill victim available" ));
+        ushort * shred_offs = fd_store_fec_shred_offs( fec_data );
 
         for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
           fd_shred_t * data_shred = set->data_shreds[i].s;
@@ -1235,7 +1236,7 @@ after_frag( fd_shred_ctx_t *    ctx,
           }
           fd_memcpy( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
           fec->data_sz = (uint)( fec->data_sz + payload_sz );
-          if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (ushort)( payload_sz + (i==0UL ? 0UL : (ulong)fec->shred_offs[ i-1UL ]) );
+          if( FD_LIKELY( i<32UL ) ) shred_offs[ i ] = (ushort)( payload_sz + (i==0UL ? 0UL : (ulong)shred_offs[ i-1UL ]) );
         }
         fd_store_fec_data_publish( ctx->store, fec );
       }
