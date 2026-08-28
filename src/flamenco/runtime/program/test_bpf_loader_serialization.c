@@ -366,8 +366,7 @@ find_program_index( fixture_input_t const * in ) {
   return -1;
 }
 
-/* Per-fixture context: txn_out is huge (10MB nonce_rollback_data buffer),
-   so allocate via static. */
+/* Per-fixture context: txn_out is large, so allocate via static. */
 static fd_txn_in_t     g_txn_in[1];
 static fd_txn_out_t    g_txn_out[1];
 static fd_instr_info_t g_info[1];

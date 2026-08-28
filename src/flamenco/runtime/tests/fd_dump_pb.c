@@ -1246,18 +1246,24 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
         ( txn_out->accounts.nonce_idx_in_txn==FD_FEE_PAYER_TXN_IDX )
           ? txn_out->accounts.fee_payer_rollback_lamports
           : txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->prior_lamports;
+      fd_acc_t const * nonce_acc = txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ];
       write_account_to_result1(
         txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn].uc,
         nonce_rollback_lamports,
-        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->prior_owner,
-        txn_out->accounts.nonce_rollback_data_len,
-        txn_out->accounts.nonce_rollback_data,
-        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->prior_executable,
+        nonce_acc->prior_owner,
+        nonce_acc->prior_data_len,
+        nonce_acc->prior_data,
+        nonce_acc->prior_executable,
         txn_result->rollback_accounts,
         &txn_result->rollback_accounts_count,
         &_l,
         out_end
       );
+      /* Splice the advanced nonce header over the prior data. */
+      fd_exec_test_acct_state_t * nonce_out = &txn_result->rollback_accounts[ txn_result->rollback_accounts_count-1U ];
+      if( FD_LIKELY( nonce_out->data ) )
+        fd_memcpy( nonce_out->data->bytes, txn_out->accounts.nonce_rollback_data,
+                   fd_ulong_min( nonce_out->data->size, txn_out->accounts.nonce_rollback_data_len ) );
     }
   }
 

@@ -1171,8 +1171,9 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
        nonce account may be the fee payer (case 2). */
     if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) ) {
       fd_acc_t * nonce_account = txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ];
+      fd_memcpy( nonce_account->data, nonce_account->prior_data, nonce_account->prior_data_len );
       fd_memcpy( nonce_account->data, txn_out->accounts.nonce_rollback_data, txn_out->accounts.nonce_rollback_data_len );
-      nonce_account->data_len = txn_out->accounts.nonce_rollback_data_len;
+      nonce_account->data_len = nonce_account->prior_data_len;
       fd_memcpy( nonce_account->owner, nonce_account->prior_owner, 32UL );
       if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
         nonce_account->lamports = txn_out->accounts.fee_payer_rollback_lamports;

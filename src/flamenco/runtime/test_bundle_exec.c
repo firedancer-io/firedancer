@@ -283,8 +283,7 @@ bundle_acquire( test_env_t * env, fd_txn_p_t * representative_txn, ulong txn_cnt
 
 static void
 test_execute_bundles( fd_svm_mini_t * mini ) {
-  /* env contains fd_txn_out_t which has a 10MB nonce_rollback_data
-     buffer — must not be on the stack. */
+  /* env is large (fd_txn_out_t buffers) — must not be on the stack. */
   static test_env_t env_storage[1];
   test_env_t * env = env_storage;
   setup_env( env, mini );

@@ -912,14 +912,14 @@ fd_check_transaction_age( fd_bank_t *         bank,
         };
 
         FD_TEST( fd_nonce_state_versions_size( &new_state )<=FD_SYSTEM_PROGRAM_NONCE_DLEN );
-        fd_memcpy( txn_out->accounts.nonce_rollback_data, nonce_entry->data, nonce_entry->data_len );
-        txn_out->accounts.nonce_rollback_data_len = nonce_entry->data_len;
 
         ulong written = 0UL;
-        int err = fd_nonce_state_versions_encode( &new_state, txn_out->accounts.nonce_rollback_data, txn_out->accounts.nonce_rollback_data_len, &written );
+        int err = fd_nonce_state_versions_encode( &new_state, txn_out->accounts.nonce_rollback_data,
+                                                  fd_ulong_min( nonce_entry->data_len, FD_SYSTEM_PROGRAM_NONCE_DLEN ), &written );
         if( FD_UNLIKELY( err ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
+        txn_out->accounts.nonce_rollback_data_len = written;
 
         return FD_RUNTIME_EXECUTE_SUCCESS;
       }

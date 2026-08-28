@@ -318,8 +318,10 @@ struct fd_txn_out {
     uchar rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
 
     ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */
+    /* Advanced nonce state header; rollback splices it over the
+       account's prior_data (which supplies any legal trailing bytes). */
     ulong nonce_rollback_data_len;
-    uchar nonce_rollback_data[ FD_RUNTIME_ACC_SZ_MAX ];
+    uchar nonce_rollback_data[ FD_SYSTEM_PROGRAM_NONCE_DLEN ];
     ulong fee_payer_rollback_lamports;
 
     /* Backing buffer for the sysvar instructions account.  This account

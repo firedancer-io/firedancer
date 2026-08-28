@@ -1677,6 +1677,81 @@ FD_UNIT_TEST( execle_bundle_nonce_dup2 ) {
   test_env_destroy( env );
 }
 
+FD_UNIT_TEST( execle_nonce_rollback_trailing ) {
+  /* Failed durable nonce txn: the committed rollback must advance the
+     80-byte nonce header and preserve legal trailing data bytes. */
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer = { .ul = { 0xccf0UL } };
+  fd_pubkey_t nonce_key = { .ul = { 0xccf1UL } };
+  fd_pubkey_t recipient = { .ul = { 0xccf2UL } };
+
+  ulong const fee_payer_start = 1000000UL;
+  ulong const nonce_start     = 10000000UL;
+  ulong const fee             = 5000UL;
+
+  fd_blockhash_info_t * blockhash_info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &bank->f.block_hash_queue );
+  FD_TEST( blockhash_info );
+  blockhash_info->lamports_per_signature = fee;
+
+  fd_hash_t stale_blockhash = {0};
+  fd_memset( stale_blockhash.uc, 0x44, sizeof(fd_hash_t) );
+  fd_hash_t durable_nonce;
+  test_durable_nonce_from_blockhash( &durable_nonce, &stale_blockhash );
+
+  test_fund_account( env, &fee_payer, fee_payer_start );
+
+  /* Nonce account with 48 trailing bytes past the 80-byte state */
+  uchar nonce_data[ FD_SYSTEM_PROGRAM_NONCE_DLEN+48UL ];
+  fd_memset( nonce_data, 0x5A, sizeof(nonce_data) );
+  fd_nonce_state_versions_t state = {
+    .version       = FD_NONCE_VERSION_CURRENT,
+    .kind          = FD_NONCE_STATE_INITIALIZED,
+    .authority     = fee_payer,
+    .durable_nonce = durable_nonce,
+  };
+  ulong written = 0UL;
+  FD_TEST( !fd_nonce_state_versions_encode( &state, nonce_data, sizeof(nonce_data), &written ) );
+  test_put_account_rooted( env, &nonce_key, &fd_solana_system_program_id, nonce_start, 0UL, 0,
+                           nonce_data, sizeof(nonce_data) );
+
+  /* Transfer more than the balance: advance nonce succeeds, transfer
+     fails, txn lands with fee charged and nonce rolled forward. */
+  fd_txn_p_t txn[1];
+  test_build_durable_nonce_transfer_txn( txn, fee_payer, nonce_key, recipient, &durable_nonce,
+                                         2UL*fee_payer_start, 55UL );
+  test_execle_run( env, txn, 1UL, 24U, 55UL, 0 );
+
+  FD_TEST( env->execle->txn_out[0].err.is_committable );
+  FD_TEST( env->execle->txn_out[0].err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( env->execle->txn_out[0].accounts.nonce_idx_in_txn!=ULONG_MAX );
+
+  fd_hash_t const * last_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  FD_TEST( last_blockhash );
+  fd_nonce_state_versions_t advanced = {
+    .version                = FD_NONCE_VERSION_CURRENT,
+    .kind                   = FD_NONCE_STATE_INITIALIZED,
+    .authority              = fee_payer,
+    .lamports_per_signature = fee
+  };
+  test_durable_nonce_from_blockhash( &advanced.durable_nonce, last_blockhash );
+  uchar expected[ sizeof(nonce_data) ];
+  fd_memset( expected, 0x5A, sizeof(expected) );
+  FD_TEST( !fd_nonce_state_versions_encode( &advanced, expected, sizeof(expected), &written ) );
+
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( env->mini, env->bank_idx );
+  fd_acc_t acc = fd_accdb_read_one( env->mini->runtime->accdb, fork_id, nonce_key.uc );
+  FD_TEST( acc.lamports==nonce_start );
+  FD_TEST( acc.data_len==sizeof(expected) );
+  FD_TEST( !memcmp( acc.data, expected, sizeof(expected) ) );
+  fd_accdb_unread_one( env->mini->runtime->accdb, &acc );
+
+  FD_TEST( test_read_lamports( env, &fee_payer )==fee_payer_start-fee );
+
+  test_env_destroy( env );
+}
+
 FD_UNIT_TEST( execle_bundle_dup ) {
   /* Duplicate transaction in a bundle causing a status cache collision */
   test_env_t * env = test_env_create();
