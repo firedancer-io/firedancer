@@ -481,7 +481,7 @@ struct fd_tower {
   fd_tower_vtr_t *   vtrs;      /* deque of voter entries (NULL if vtr_max==0) */
 
   void * lck_pool;        /* lockout interval pool */
-  void * lck_map;         /* lockout interval map chain */
+  void * lck_slot_map;    /* slot -> head of that slot's interval list in lck_pool */
   void * lck_pubkey_pool; /* refcounted vote-account pubkey pool for lockouts */
   void * lck_pubkey_map;  /* map of vote-account pubkeys for lockouts */
 
@@ -705,7 +705,7 @@ fd_tower_to_cstr( fd_tower_t const * tower,
                   char *             cstr );
 
 /* fd_tower_lockos API.  Lockout intervals are stored inline in the
-   tower (lck_pool and lck_map). */
+   tower (lck_pool), threaded per slot off lck_slot_map. */
 
 void
 fd_tower_lockos_insert( fd_tower_t *      tower,
