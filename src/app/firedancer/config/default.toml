@@ -1126,8 +1126,9 @@ telemetry = true
     # downstream consumers, after which additional packets begin to
     # replace older ones, which will be dropped.  Smaller values use
     # less memory.  Larger values decrease link overruns caused by
-    # excessive latency.
-    ingress_buffer_size = 16384
+    # excessive latency.  8192 per net tile is ~50ms of buffering per
+    # consumer at 10x current mainnet aggregate packet rates.
+    ingress_buffer_size = 8192
 
 
     # This section contains XDP-specific network configuration.
@@ -1217,8 +1218,10 @@ telemetry = true
         #
         # Smaller values use less memory.  Larger values reduce packet
         # loss caused by excessive scheduling or inter-CPU latency.
-        xdp_rx_queue_size = 32768
-        xdp_tx_queue_size = 32768
+        # 16384 entries is ~80ms of tolerance at ~200k pps, an order of
+        # magnitude beyond typical NIC ring depths.
+        xdp_rx_queue_size = 16384
+        xdp_tx_queue_size = 16384
 
         # When the oldest packet in a batch has been queued for more
         # than the specified duration, flushes the batch out to the
