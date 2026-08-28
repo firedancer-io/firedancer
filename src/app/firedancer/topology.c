@@ -433,9 +433,17 @@ fd_topo_initialize( config_t * config ) {
      formula below covers both links. */
   ulong shred_depth = 4096UL;
 
+  /* gossip_net egress is ~5-20k pps: 8192 is 0.4-1.6s of net tile
+     stall tolerance (net drains at line rate).  shred_net (turbine
+     retransmit + leader shreds) can burst a few 100k pps on
+     high-stake nodes: 16384 keeps 80+ ms of absorption there.  Both
+     are consumed unreliably (net tiles, gui): overrun drops the
+     packet and the protocol retries, and unreliable consumers never
+     enter the producer's cr_max>=STEM_BURST boot check
+     (fd_stem.c). */
   /*                                  topo, link_name,       wksp_name,       depth,                                    mtu,                           burst */
-  /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    32768UL,                                  FD_NET_MTU,                    1UL );
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",     "net_shred",     32768UL,                                  FD_NET_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    8192UL,                                   FD_NET_MTU,                    1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",     "net_shred",     16384UL,                                  FD_NET_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "repair_net",    "net_repair",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "txsend_net",    "net_txsend",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",      "net_quic",      config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
