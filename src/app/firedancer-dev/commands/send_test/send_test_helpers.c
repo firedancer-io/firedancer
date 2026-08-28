@@ -142,8 +142,8 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
   fd_stake_weight_msg_t * msg = fd_chunk_to_laddr( out->mem, out->chunk );
 
   msg->epoch = ctx->epoch;
-  msg->start_slot = ctx->epoch*MAX_SLOTS_PER_EPOCH;
-  msg->slot_cnt = MAX_SLOTS_PER_EPOCH;
+  msg->start_slot = ctx->epoch*FD_RUNTIME_SLOTS_PER_EPOCH;
+  msg->slot_cnt = FD_RUNTIME_SLOTS_PER_EPOCH;
 
   fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( msg );
   ulong stake_count = 0;

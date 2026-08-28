@@ -18,7 +18,6 @@
 
 #include "../../util/fd_util_base.h"
 #include "fd_gui_store.h"
-#include "../../flamenco/leaders/fd_leaders_base.h"   /* MAX_SLOTS_PER_EPOCH */
 #include "../../flamenco/runtime/fd_slot_params.h"    /* FD_SLOT_PARAMS_200MS */
 
 struct fd_gui;
@@ -45,7 +44,7 @@ typedef struct fd_gui fd_gui_t;
    epochs reachable within the TS index horizon (30 days) +2 for partial
    epochs at both ends of the horizon. */
 
-#define FD_GUI_HIST_MAX_EPOCHS ((FD_GUI_STORE_TS_IDX_DEPTH*(ulong)FD_GUI_HIST_RES_1S_NS)/(MAX_SLOTS_PER_EPOCH*((FD_SLOT_PARAMS_200MS).ns_per_slot))+2UL)
+#define FD_GUI_HIST_MAX_EPOCHS ((FD_GUI_STORE_TS_IDX_DEPTH*(ulong)FD_GUI_HIST_RES_1S_NS)/(FD_RUNTIME_SLOTS_PER_EPOCH*((FD_SLOT_PARAMS_200MS).ns_per_slot))+2UL)
 
 #define FD_GUI_HIST_SCHEDULER_COUNTS (0)  /* (ts, type)            */
 #define FD_GUI_HIST_TILE_TIMERS      (1)  /* (ts, type)            */

@@ -23,8 +23,8 @@ setup_valid_manifest_base( fd_snapshot_manifest_t * manifest ) {
   manifest->ticks_per_slot = 64UL;
   manifest->blockhashes_len = 1UL;
   manifest->blockhashes[0].hash_index = 0UL;
-  manifest->epoch_schedule_params.slots_per_epoch             = 432000UL;
-  manifest->epoch_schedule_params.leader_schedule_slot_offset = 432000UL;
+  manifest->epoch_schedule_params.slots_per_epoch             = FD_RUNTIME_SLOTS_PER_EPOCH;
+  manifest->epoch_schedule_params.leader_schedule_slot_offset = FD_RUNTIME_SLOTS_PER_EPOCH;
 }
 
 static void
@@ -91,26 +91,18 @@ test_epoch_schedule( fd_snapshot_manifest_t * manifest ) {
   manifest->epoch_schedule_params.slots_per_epoch = FD_EPOCH_LEN_MIN - 1UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* slots_per_epoch too large with warmup (would cause 1UL<<64 UB in
-     fd_epoch_schedule_derive without the upper-bound guard). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_schedule_params.slots_per_epoch             = (1UL<<63) + 1UL;
-  manifest->epoch_schedule_params.leader_schedule_slot_offset = (1UL<<63) + 1UL;
-  manifest->epoch_schedule_params.warmup                      = 1;
+  manifest->epoch_schedule_params.slots_per_epoch             = FD_RUNTIME_SLOTS_PER_EPOCH + 1UL;
+  manifest->epoch_schedule_params.leader_schedule_slot_offset = FD_RUNTIME_SLOTS_PER_EPOCH + 1UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* slots_per_epoch exactly at 2^63 with warmup (valid, no UB). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_schedule_params.slots_per_epoch             = 1UL<<63;
   manifest->epoch_schedule_params.leader_schedule_slot_offset = 1UL<<63;
   manifest->epoch_schedule_params.warmup                      = 1;
-  fd_epoch_schedule_t huge_derived;
-  FD_TEST( fd_epoch_schedule_derive( &huge_derived, 1UL<<63, 1UL<<63, 1 ) );
-  manifest->epoch_schedule_params.first_normal_epoch = huge_derived.first_normal_epoch;
-  manifest->epoch_schedule_params.first_normal_slot  = huge_derived.first_normal_slot;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Invalid warmup. */
   fd_memset( manifest, 0, sizeof(*manifest) );

@@ -37,7 +37,7 @@ struct fd_per_epoch_info_private {
   fd_epoch_leaders_t * lsched;
   fd_shred_dest_t    * sdest;
 
-  uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+  uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, FD_RUNTIME_SLOTS_PER_EPOCH) ];
   uchar __attribute__((aligned(FD_SHRED_DEST_ALIGN   ))) _sdest [ MAX_SHRED_DEST_FOOTPRINT ];
 };
 typedef struct fd_per_epoch_info_private fd_per_epoch_info_t;
