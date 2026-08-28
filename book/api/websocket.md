@@ -2818,8 +2818,17 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical shred event data recorded by the validator, queryable over a
-UNIX nanosecond timestamp window.
+Historical shred, transaction, and aggregate data recorded by the
+validator, queryable over UNIX nanosecond timestamp windows.
+
+Every successful timeline query includes `available_start_ns` and
+`available_end_ns`.  These decimal strings describe the retained
+inclusive-start, exclusive-end interval for that query's backing data.
+Both are `null` when the backing storage is empty.  Event queries use
+their event ring, transaction queries use their transaction or batch
+ring, fine slot aggregates use the common retained interval of their
+transaction and FEC sources, and coarse aggregates use retained UTC-day
+boundaries.  Error responses do not include availability bounds.
 
 #### `timeline.query_shreds`
 | frequency   | type          | example |
@@ -2856,6 +2865,8 @@ empty result.  Its response is no longer the same shape as the live
 | field          | type              | description |
 |----------------|-------------------|-------------|
 | granularity    | `string`          | Echoes the requested granularity |
+| available_start_ns | `string\|null` | Inclusive beginning of retained shred/FEC data |
+| available_end_ns   | `string\|null` | Exclusive end of retained shred/FEC data |
 | reference_slot | `number\|null`    | Smallest slot in the response; all `slot_delta` values are relative to it |
 | reference_ts   | `string\|null`    | Smallest timestamp in the response; all `event_ts_delta` values are relative to it |
 | slot_delta     | `number[]`        | Per row, `slot - reference_slot` |
@@ -2886,6 +2897,8 @@ empty result.  Its response is no longer the same shape as the live
     "id": 32,
     "value": {
         "granularity": "shred",
+        "available_start_ns": "1739657041000000000",
+        "available_end_ns": "1739657042000000000",
         "reference_slot": 289245044,
         "reference_ts": "1739657041588242791",
         "slot_delta": [0, 0],
@@ -2935,7 +2948,9 @@ Over-large results return `result_limit_exceeded` as described for
 
 | field                         | type              | description |
 |-------------------------------|-------------------|-------------|
-| granularity                   | `string`          | Echoes `txn` |
+| granularity                   | `string`          | Echoes `txn` or `txn_batch` |
+| available_start_ns            | `string\|null`    | Inclusive beginning of retained transaction data |
+| available_end_ns              | `string\|null`    | Exclusive end of retained transaction data |
 | reference_slot                | `number\|null`    | Smallest slot in the response |
 | reference_ts                  | `string\|null`    | Earliest stage timestamp in the response |
 | slot_delta                    | `number[]`        | Per row, `slot - reference_slot` |
@@ -2996,7 +3011,7 @@ Per-transaction metadata over the same window and row ordering as
 
 Shares `reference_slot`, `reference_ts`, `slot_delta`, `txn_idx`,
 `txn_exec_idx`, `txn_sigverify_exec_idx` and `txn_error_code` with
-`query_txn_timestamps`, and adds:
+`query_txn_timestamps`, including its availability fields, and adds:
 
 | field                       | type               | description |
 |-----------------------------|--------------------|-------------|
@@ -3040,28 +3055,47 @@ Five methods share one request and response shape:
 |-------------|----------|-------------|
 | start_ns    | `string` | Inclusive lower bound of the window, as decimal digits |
 | end_ns      | `string` | Exclusive upper bound of the window, as decimal digits |
-| granularity | `string` | One of `250ms`, `500ms`, `1s`, `2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d` |
+| granularity | `string` | One of `1ms`, `2ms`, `5ms`, `10ms`, `25ms`, `50ms`, `100ms`, `250ms`, `500ms`, `1s`, `2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d` |
 
 The window is snapped outward to whole buckets of the requested
-granularity.  A request spanning more than 150 buckets is rejected, so
+granularity.  `end_ns` remains exclusive even after alignment.  A
+request spanning more than 10,000 buckets is rejected, so
 the client must narrow the window or coarsen the granularity.
 
-Every response carries `granularity` and `reference_ts_ns`, the start of
-the first bucket.  Bucket `i` covers
+Granularities below 250 ms are reduced when queried from retained
+transaction and completed-FEC records.  Granularities of 250 ms and
+above use retained pre-aggregated timeline-day buckets.  Consequently,
+their availability windows can differ.
+
+Every response carries `granularity`, `reference_ts_ns`,
+`available_start_ns`, and `available_end_ns`.  `reference_ts_ns` is the
+start of the first bucket.  Bucket `i` covers
 `[reference_ts_ns + i*granularity, reference_ts_ns + (i+1)*granularity)`.
 Array entries are `null` where nothing is known for that bucket, which is
 distinct from a known zero.
 
+| common field       | type           | description |
+|--------------------|----------------|-------------|
+| granularity        | `string`       | Echoes the requested granularity |
+| reference_ts_ns    | `string`       | Start of the first aligned response bucket |
+| available_start_ns | `string\|null` | Inclusive beginning of retained backing data |
+| available_end_ns   | `string\|null` | Exclusive end of retained backing data |
+
 | key | arrays |
 |-----|--------|
-| `query_agg_slots`   | `start_slot`, `end_slot`, `skipped` |
+| `query_agg_slots`   | `start_slot`, `end_slot`, `skipped`, `mine`, `mine_skipped` |
 | `query_agg_shreds`  | `turbine`, `repair`, `reconstructed`, `published` |
 | `query_agg_compute` | `compute_units`, plus a scalar `max_compute_units` |
 | `query_agg_txn`     | `success_nonvote_transactions`, `failed_nonvote_transactions`, `success_vote_transactions`, `failed_vote_transactions` |
 | `query_agg_revenue` | `txn_fees`, `prio_fees`, `tips` (all decimal strings) |
 
-`skipped` is `null` outside the range the validator has actually
-classified, rather than zero.
+`mine` counts completed blocks produced by this validator.
+`mine_skipped` counts those completed local blocks whose numeric slot is
+classified as skipped on the canonical fork, and never exceeds `mine`.
+`skipped` and `mine_skipped` are `null` outside the range the validator
+has classified.  Within known retained/classified coverage, a bucket
+with no matching local or skipped slots reports zero rather than
+`null`.
 
 ::: details Example
 
@@ -3086,6 +3120,8 @@ classified, rather than zero.
     "value": {
         "granularity": "15s",
         "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
         "success_nonvote_transactions": [1203, 1187, null, 1240],
         "failed_nonvote_transactions":  [12, 9, null, 15],
         "success_vote_transactions":    [640, 655, null, 648],
