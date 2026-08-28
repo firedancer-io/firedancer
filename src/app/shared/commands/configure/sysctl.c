@@ -97,6 +97,16 @@ static sysctl_param_t sock_params[] = {
   {0}
 };
 
+static sysctl_param_t gui_params[] = {
+  {
+    "/proc/sys/net/core/wmem_max",
+    4194304,
+    ENFORCE_MINIMUM,
+    0,
+  },
+  {0}
+};
+
 /* Some of these sysctl limits are needed for the Agave client, not
    Firedancer.  We set them on their behalf to make configuration easier
    for users. */
@@ -136,6 +146,7 @@ init( config_t const * config ) {
     sock_params[ 1 ].value = config->net.socket.send_buffer_size;
     init_param_list( sock_params );
   }
+  if( config->tiles.gui.enabled ) init_param_list( gui_params );
 }
 
 static configure_result_t
@@ -189,6 +200,11 @@ check( config_t const * config,
     FD_LOG_ERR(( "unknown net provider: %s", config->net.provider ));
   }
   if( r.result!=CONFIGURE_OK ) return r;
+
+  if( config->tiles.gui.enabled ) {
+    r = check_param_list( gui_params );
+    if( r.result!=CONFIGURE_OK ) return r;
+  }
 
   CONFIGURE_OK();
 }

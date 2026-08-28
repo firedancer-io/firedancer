@@ -496,6 +496,7 @@ test_treap_seed( void ) {
 static void
 test_poll_interest( void ) {
   fd_http_server_params_t params = default_test_params();
+  params.send_buffer_sz = 65536UL;
   fd_http_server_callbacks_t callbacks = {
     .request    = request_websocket,
     .ws_message = ws_message_noop,
@@ -526,6 +527,17 @@ test_poll_interest( void ) {
   FD_TEST( http->metrics.connection_cnt==1UL );
   FD_TEST( http->pollfds[ 0 ].events==POLLIN );
   FD_TEST( !fd_http_server_poll( http, 1, ULONG_MAX ) );
+
+  /* accepted sockets inherit the listener's TCP_NODELAY and SO_SNDBUF
+     (the kernel reports SO_SNDBUF doubled) */
+  int nodelay = 0;
+  int sndbuf  = 0;
+  socklen_t optlen = sizeof( nodelay );
+  FD_TEST( !getsockopt( http->pollfds[ 0 ].fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, &optlen ) );
+  FD_TEST( nodelay );
+  optlen = sizeof( sndbuf );
+  FD_TEST( !getsockopt( http->pollfds[ 0 ].fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen ) );
+  FD_TEST( sndbuf==2*65536 );
 
   char const upgrade[] =
       "GET / HTTP/1.1\r\n"

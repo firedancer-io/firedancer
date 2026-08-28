@@ -16,6 +16,7 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 
 #if FD_HAS_ZSTD
 #define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
@@ -137,6 +138,11 @@ fd_http_server_new( void *                     shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( params.send_buffer_sz>(ulong)INT_MAX ) ) {
+    FD_LOG_WARNING(( "oversize send_buffer_sz" ));
+    return NULL;
+  }
+
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_http_server_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
@@ -177,6 +183,7 @@ fd_http_server_new( void *                     shmem,
   http->max_request_len       = params.max_request_len;
   http->max_ws_recv_frame_len = params.max_ws_recv_frame_len;
   http->max_ws_send_frame_cnt = params.max_ws_send_frame_cnt;
+  http->send_buffer_sz        = params.send_buffer_sz;
   http->compress_websocket    = params.compress_websocket;
 
 #if FD_HAS_ZSTD
@@ -315,6 +322,17 @@ fd_http_server_listen6( fd_http_server_t *    http,
   int optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
     FD_LOG_ERR(( "setsockopt failed (%i-%s)", errno, strerror( errno ) ));
+
+  /* Pipelines responses: without this Nagle holds each sub-MSS tail
+     for an RTT waiting on the prior segment's ACK */
+  if( FD_UNLIKELY( -1==setsockopt( sockfd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof( optval ) ) ) )
+    FD_LOG_ERR(( "setsockopt(TCP_NODELAY) failed (%i-%s)", errno, strerror( errno ) ));
+
+  if( FD_UNLIKELY( http->send_buffer_sz ) ) {
+    int sndbuf = (int)http->send_buffer_sz;
+    if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof( sndbuf ) ) ) )
+      FD_LOG_ERR(( "setsockopt(SO_SNDBUF) failed (%i-%s)", errno, strerror( errno ) ));
+  }
 
   union {
     struct sockaddr_in  ip4;

@@ -72,6 +72,7 @@ derive_http_params( fd_topo_tile_t const * tile ) {
     .max_ws_recv_frame_len = FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN,
     .max_ws_send_frame_cnt = FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT,
     .outgoing_buffer_sz    = tile->gui.send_buffer_size_mb * (1UL<<20UL),
+    .send_buffer_sz        = 4UL<<20UL,
     .compress_websocket    = tile->gui.websocket_compression,
   };
 }
@@ -261,7 +262,8 @@ before_credit( fd_gui_ctx_t *      ctx,
   int charge_busy_server = 0;
   long now = fd_clock_tile_now( ctx->clock );
   if( FD_UNLIKELY( now>=ctx->next_poll_nanos ) ) {
-    charge_busy_server = fd_http_server_poll( ctx->gui_server, 0, 1UL );
+    /* 8 matches a browser's per-host parallel connection budget */
+    charge_busy_server = fd_http_server_poll( ctx->gui_server, 0, 8UL );
     ctx->next_poll_nanos = fd_clock_tile_now( ctx->clock ) + 128L*1000L;
   }
 
