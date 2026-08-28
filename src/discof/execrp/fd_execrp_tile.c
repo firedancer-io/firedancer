@@ -120,7 +120,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
-  l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
   l = FD_LAYOUT_APPEND(   l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
 
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -448,7 +447,6 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_execrp_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
-  uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
   void * _ed25519_cache     = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
 
   void * _capture_ctx = NULL;
@@ -493,7 +491,11 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( result_obj_id!=ULONG_MAX );
   ctx->result = (fd_execrp_result_t *)fd_topo_obj_laddr( topo, result_obj_id )+tile->kind_id;
 
-  FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ), pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+  /* rec_load scratch aliases the deploy rodata buffer (disjoint live
+     ranges, see fd_runtime.h) */
+  FD_STATIC_ASSERT( FD_PROGCACHE_SCRATCH_ALIGN<=64UL, pc_scratch_align );
+  FD_STATIC_ASSERT( FD_PROGCACHE_SCRATCH_FOOTPRINT<=FD_RUNTIME_ACC_SZ_MAX, pc_scratch_sz );
+  FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ), ctx->runtime->bpf_loader_program.rodata, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execrp.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
