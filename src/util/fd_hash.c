@@ -2,6 +2,9 @@
 #include "bits/fd_bits.h"
 
 /* A cleaner implementation of xxhash-r39 (Open Source BSD licensed). */
+#if FD_HAS_AVX512 && defined(__AVX512DQ__) && defined(__AVX512VL__)
+#include "simd/fd_avx.h"
+#endif
 
 #define ROTATE_LEFT(x,r) (((x)<<(r)) | ((x)>>(64-(r))))
 #define C1 (11400714785074694791UL)
@@ -10,10 +13,10 @@
 #define C4 ( 9650029242287828579UL)
 #define C5 ( 2870177450012600261UL)
 
-ulong
-fd_hash( ulong        seed,
-         void const * buf,
-         ulong        sz ) {
+static inline FD_FN_UNUSED FD_FN_PURE ulong
+fd_hash_generic( ulong        seed,
+                 void const * buf,
+                 ulong        sz ) {
   uchar const * p    = ((uchar const *)buf);
   uchar const * stop = p + sz;
 
@@ -71,6 +74,90 @@ fd_hash( ulong        seed,
   h ^= h >> 32;
 
   return h;
+}
+
+#if FD_HAS_AVX512 && defined(__AVX512DQ__) && defined(__AVX512VL__)
+static inline FD_FN_UNUSED FD_FN_PURE ulong
+fd_hash_avx512dq( ulong        seed,
+                  void const * buf,
+                  ulong        sz ) {
+  uchar const * p    = ((uchar const *)buf);
+  uchar const * stop = p + sz;
+  ulong h;
+
+  if( sz<32 ) h = seed + C5;
+  else {
+    uchar const * stop32 = stop - 32;
+    ulong w, x, y, z;
+    wv_t state_vec = wv_add( wv_bcast( seed ), wv( C1 + C2, C2, 0UL, 0UL - C1 ) );
+    wv_t c1_vec = wv_bcast( C1 );
+    wv_t c2_vec = wv_bcast( C2 );
+    do { /* All complete blocks of 32 */
+      wv_t input_vec = wv_ldu( p );
+      input_vec = wv_mul( input_vec, c2_vec );
+      state_vec = wv_add( state_vec, input_vec );
+      state_vec = wv_rol( state_vec, 31 );
+      state_vec = wv_mul( state_vec, c1_vec );
+      p += 32;
+    } while( p<=stop32 );
+    wv_t h_vec = wv_rol_vector( state_vec, wv( 1UL, 7UL, 12UL, 18UL ) );
+    h = wv_extract( h_vec, 0 )
+      + wv_extract( h_vec, 1 )
+      + wv_extract( h_vec, 2 )
+      + wv_extract( h_vec, 3 );
+    state_vec = wv_mul( state_vec, c2_vec );
+    state_vec = wv_rol( state_vec, 31 );
+    state_vec = wv_mul( state_vec, c1_vec );
+    w = wv_extract( state_vec, 0 );
+    x = wv_extract( state_vec, 1 );
+    y = wv_extract( state_vec, 2 );
+    z = wv_extract( state_vec, 3 );
+    h ^= w; h = h*C1 + C4;
+    h ^= x; h = h*C1 + C4;
+    h ^= y; h = h*C1 + C4;
+    h ^= z; h = h*C1 + C4;
+  }
+
+  h += sz;
+
+  while( (p+8)<=stop ) { /* Last 1 to 3 complete ulong's */
+    ulong w = FD_LOAD( ulong, p );
+    w *= C2; w = ROTATE_LEFT( w, 31 ); w *= C1; h ^= w; h = ROTATE_LEFT( h, 27 )*C1 + C4;
+    p += 8;
+  }
+
+  if( (p+4)<=stop ) { /* Last complete uint */
+    ulong w = ((ulong)FD_LOAD( uint, p ));
+    w *= C1; h ^= w; h = ROTATE_LEFT( h, 23 )*C2 + C3;
+    p += 4;
+  }
+
+  while( p<stop ) { /* Last 1 to 3 uchar's */
+    ulong w = ((ulong)(p[0]));
+    w *= C5; h ^= w; h = ROTATE_LEFT( h, 11 )*C1;
+    p++;
+  }
+
+  /* Final avalanche */
+  h ^= h >> 33;
+  h *= C2;
+  h ^= h >> 29;
+  h *= C3;
+  h ^= h >> 32;
+
+  return h;
+}
+#endif
+
+ulong
+fd_hash( ulong        seed,
+         void const * buf,
+         ulong        sz ) {
+#if FD_HAS_AVX512 && defined(__AVX512DQ__) && defined(__AVX512VL__)
+  return fd_hash_avx512dq( seed, buf, sz );
+#else
+  return fd_hash_generic( seed, buf, sz );
+#endif
 }
 
 ulong
