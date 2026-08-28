@@ -32,6 +32,7 @@
 #include "../../flamenco/accdb/fd_accdb_cache.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
+#include "../../flamenco/runtime/fd_bpf_ser_arena.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
 #include "../../flamenco/stakes/fd_collector_overrides.h"
 
@@ -204,10 +205,10 @@ fd_topo_obj_t *
 setup_topo_bpfser_arena( fd_topo_t *  topo,
                          char const * wksp_name,
                          ulong        bundle_cnt,
-                         ulong        frame_cnt ) {
+                         ulong        slot_sz ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "bpfser_arena", wksp_name );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bundle_cnt, "obj.%lu.bundle_cnt", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, frame_cnt,  "obj.%lu.frame_cnt",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, slot_sz,    "obj.%lu.slot_sz",    obj->id ) );
   return obj;
 }
 
@@ -1230,13 +1231,19 @@ fd_topo_initialize( config_t * config ) {
      deep-CPI whale txns to a full-size bundle here.  The leader pool
      is separate so leader-slot txns never queue behind replay. */
   fd_topob_wksp( topo, "bpfser_arena" )->demote_ok = 1; /* whale-only overflow bundles, cold at mainnet load */
-  fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ); /* execrp frame1 windowed: bundle frame 0 hosts depth 1 */
+  fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH ) ); /* execrp frame1 windowed: bundle frame 0 hosts depth 1 */
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], bpfser_rp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bpfser_rp_obj->id, "bpfser_rp" ) );
+  fd_topo_obj_t * deployscr_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 2UL, FD_RUNTIME_ACC_SZ_MAX ); /* deploy ELF-load scratch pool */
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], deployscr_rp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, deployscr_rp_obj->id, "deployscr_rp" ) );
   if( FD_LIKELY( execle_tile_cnt ) ) {
-    fd_topo_obj_t * bpfser_le_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH-1UL ); /* execle frame1 fully provisioned */
+    fd_topo_obj_t * bpfser_le_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH-1UL ) ); /* execle frame1 fully provisioned */
     FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], bpfser_le_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, bpfser_le_obj->id, "bpfser_le" ) );
+    fd_topo_obj_t * deployscr_le_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL, FD_RUNTIME_ACC_SZ_MAX );
+    FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], deployscr_le_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, deployscr_le_obj->id, "deployscr_le" ) );
   }
 
   /* +1 for either snapin (snapshots enabled) or genesi (bootstrap), which
@@ -1645,6 +1652,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execrp.progcache_obj_id!=ULONG_MAX );
     tile->execrp.accdb_obj_id     = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execrp.accdb_obj_id    !=ULONG_MAX );
     tile->execrp.bpfser_arena_obj_id = fd_pod_query_ulong( config->topo.props, "bpfser_rp", ULONG_MAX ); FD_TEST( tile->execrp.bpfser_arena_obj_id!=ULONG_MAX );
+    tile->execrp.deploy_pool_obj_id  = fd_pod_query_ulong( config->topo.props, "deployscr_rp", ULONG_MAX ); FD_TEST( tile->execrp.deploy_pool_obj_id!=ULONG_MAX );
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
@@ -1771,6 +1779,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.progcache_obj_id   = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execle.progcache_obj_id!=ULONG_MAX );
     tile->execle.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execle.accdb_obj_id    !=ULONG_MAX );
     tile->execle.bpfser_arena_obj_id = fd_pod_query_ulong( config->topo.props, "bpfser_le", ULONG_MAX ); FD_TEST( tile->execle.bpfser_arena_obj_id!=ULONG_MAX );
+    tile->execle.deploy_pool_obj_id  = fd_pod_query_ulong( config->topo.props, "deployscr_le", ULONG_MAX ); FD_TEST( tile->execle.deploy_pool_obj_id!=ULONG_MAX );
     tile->execle.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->execle.report_transaction_diffs = config->development.event.report_transaction_diffs;
 

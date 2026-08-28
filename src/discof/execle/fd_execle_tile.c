@@ -828,6 +828,11 @@ unprivileged_init( fd_topo_t const *      topo,
                            _bpfser_frame1, BPF_LOADER_SERIALIZATION_FOOTPRINT,
                            _bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
 
+  FD_TEST( tile->execle.deploy_pool_obj_id!=ULONG_MAX );
+  ctx->runtime->bpf_loader_program.deploy_pool = fd_bpf_ser_arena_join( fd_topo_obj_laddr( topo, tile->execle.deploy_pool_obj_id ) );
+  FD_TEST( ctx->runtime->bpf_loader_program.deploy_pool );
+  ctx->runtime->bpf_loader_program.programdata = NULL;
+
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
     for( ulong j=0UL; j<i; j++ ) ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];

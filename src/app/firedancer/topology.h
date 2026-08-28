@@ -67,7 +67,7 @@ fd_topo_obj_t *
 setup_topo_bpfser_arena( fd_topo_t *  topo,
                          char const * wksp_name,
                          ulong        bundle_cnt,
-                         ulong        frame_cnt );
+                         ulong        slot_sz );
 
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,

@@ -1,24 +1,33 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_bpf_ser_arena_h
 #define HEADER_fd_src_flamenco_runtime_fd_bpf_ser_arena_h
 
-/* fd_bpf_ser_arena is a shared pool of full-size BPF loader
-   serialization bundles.  A bundle backs frame_cnt consecutive
-   instruction-depth frames of one in-flight transaction at the full
-   per-frame worst case: the deepest frame_cnt depths, i.e. depths
-   FD_MAX_INSTRUCTION_STACK_DEPTH+1-frame_cnt
-   ..FD_MAX_INSTRUCTION_STACK_DEPTH.  Exec tiles keep small per-tile
-   windows for typical frames (see fd_runtime.h) and fall back to a
-   bundle from this arena for the rare transaction whose frames exceed
-   a window.  Tiles whose depth-1 frame is fully provisioned per tile
-   pool 4-frame bundles (depths 2..5); tiles whose depth-1 frame is
-   also windowed pool 5-frame bundles (depths 1..5).
+/* fd_bpf_ser_arena is a shared FIFO-ticket pool of bundle_cnt fixed
+   slot_sz byte scratch slots.  Exec tiles use two kinds:
+
+   - Serialization bundles: a slot backs frame_cnt consecutive
+     instruction-depth frames of one in-flight transaction at the full
+     per-frame worst case (slot_sz = FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT
+     ( frame_cnt )): the deepest frame_cnt depths, i.e. depths
+     FD_MAX_INSTRUCTION_STACK_DEPTH+1-frame_cnt
+     ..FD_MAX_INSTRUCTION_STACK_DEPTH.  Tiles keep small per-tile
+     windows for typical frames (see fd_runtime.h) and fall back to a
+     bundle for the rare transaction whose frames exceed a window.
+     Tiles whose depth-1 frame is fully provisioned per tile pool
+     4-frame bundles (depths 2..5); tiles whose depth-1 frame is also
+     windowed pool 5-frame bundles (depths 1..5).
+
+   - Deploy ELF-load scratch: a slot backs one fd_sbpf_program_load
+     scratch buffer (slot_sz = FD_RUNTIME_ACC_SZ_MAX), held only for
+     the duration of the load call inside fd_deploy_program.
 
    Acquisition is an all-or-nothing FIFO ticket: a caller takes a
-   ticket, waits until the pool has a free bundle for its turn, and
-   holds exactly one bundle until release.  Holders never wait on
-   anything while holding, so the scheme is deadlock free; exhaustion
-   is a bounded wait behind bundle_cnt concurrently executing
-   transactions, never an abort. */
+   ticket, waits until the pool has a free slot for its turn, and
+   holds exactly one slot until release.  Holders never wait on
+   anything while holding (a serialization bundle holder may wait on a
+   deploy slot, but never the reverse: deploy slots are released
+   before any other acquire), so the scheme is deadlock free;
+   exhaustion is a bounded wait behind bundle_cnt concurrently
+   executing transactions, never an abort. */
 
 #include "fd_runtime_const.h"
 
@@ -31,7 +40,7 @@
 struct __attribute__((aligned(FD_BPF_SER_ARENA_ALIGN))) fd_bpf_ser_arena {
   ulong magic;
   ulong bundle_cnt;
-  ulong frame_cnt;  /* full-size frames per bundle */
+  ulong slot_sz;    /* bytes per slot */
   uchar pad0[ 104 ];
 
   ulong next_ticket; /* tickets issued */
@@ -42,7 +51,7 @@ struct __attribute__((aligned(FD_BPF_SER_ARENA_ALIGN))) fd_bpf_ser_arena {
 
   struct { ulong used; uchar pad[ 120 ]; } slot[ FD_BPF_SER_ARENA_BUNDLE_MAX ];
 
-  /* bundle_cnt bundles of FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( frame_cnt ) follow */
+  /* bundle_cnt slots of slot_sz bytes follow */
 };
 typedef struct fd_bpf_ser_arena fd_bpf_ser_arena_t;
 
@@ -52,16 +61,16 @@ FD_FN_CONST static inline ulong fd_bpf_ser_arena_align( void ) { return FD_BPF_S
 
 FD_FN_CONST static inline ulong
 fd_bpf_ser_arena_footprint( ulong bundle_cnt,
-                            ulong frame_cnt ) {
+                            ulong slot_sz ) {
   if( FD_UNLIKELY( !bundle_cnt || bundle_cnt>FD_BPF_SER_ARENA_BUNDLE_MAX ) ) return 0UL;
-  if( FD_UNLIKELY( !frame_cnt || frame_cnt>FD_MAX_INSTRUCTION_STACK_DEPTH ) ) return 0UL;
-  return sizeof(fd_bpf_ser_arena_t) + bundle_cnt*FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( frame_cnt );
+  if( FD_UNLIKELY( !slot_sz || !fd_ulong_is_aligned( slot_sz, FD_RUNTIME_EBPF_HOST_ALIGN ) ) ) return 0UL;
+  return sizeof(fd_bpf_ser_arena_t) + bundle_cnt*slot_sz;
 }
 
 void *
 fd_bpf_ser_arena_new( void * shmem,
                       ulong  bundle_cnt,
-                      ulong  frame_cnt );
+                      ulong  slot_sz );
 
 fd_bpf_ser_arena_t *
 fd_bpf_ser_arena_join( void * shmem );

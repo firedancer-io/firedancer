@@ -138,6 +138,9 @@ test_env_create( void ) {
   fd_topo_obj_t * banks_obj      = test_topo_obj_laddr( topo, "banks",      "execle", env->mini->banks );
   fd_topo_obj_t * txncache_obj   = test_topo_obj_laddr( topo, "txncache",   "execle", env->mini->txncache_shmem );
   fd_topo_obj_t * bpfser_obj     = test_topo_obj_laddr( topo, "bpfser_arena", "execle", env->mini->bpfser_arena_mem );
+  void * deployscr_mem = fd_wksp_alloc_laddr( env->mini->wksp, fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_RUNTIME_ACC_SZ_MAX ), TOPO_TAG );
+  FD_TEST( fd_bpf_ser_arena_new( deployscr_mem, 1UL, FD_RUNTIME_ACC_SZ_MAX ) );
+  fd_topo_obj_t * deployscr_obj  = test_topo_obj_laddr( topo, "bpfser_arena", "execle", deployscr_mem );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   void * busy_fseq_mem = fd_wksp_alloc_laddr( env->mini->wksp, fd_fseq_align(), fd_fseq_footprint(), TOPO_TAG );
@@ -149,6 +152,7 @@ test_env_create( void ) {
   topo_tile->execle.progcache_obj_id = progcache_obj->id;
   topo_tile->execle.txncache_obj_id  = txncache_obj->id;
   topo_tile->execle.bpfser_arena_obj_id = bpfser_obj->id;
+  topo_tile->execle.deploy_pool_obj_id  = deployscr_obj->id;
 
   privileged_init( topo, topo_tile );
   unprivileged_init( topo, topo_tile );

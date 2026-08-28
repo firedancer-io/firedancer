@@ -3,22 +3,22 @@
 static inline uchar *
 bundle_laddr( fd_bpf_ser_arena_t * arena,
               ulong                idx ) {
-  return (uchar *)arena + sizeof(fd_bpf_ser_arena_t) + idx*FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( arena->frame_cnt );
+  return (uchar *)arena + sizeof(fd_bpf_ser_arena_t) + idx*arena->slot_sz;
 }
 
 void *
 fd_bpf_ser_arena_new( void * shmem,
                       ulong  bundle_cnt,
-                      ulong  frame_cnt ) {
+                      ulong  slot_sz ) {
   if( FD_UNLIKELY( !shmem ) ) { FD_LOG_WARNING(( "NULL shmem" )); return NULL; }
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, FD_BPF_SER_ARENA_ALIGN ) ) ) { FD_LOG_WARNING(( "misaligned shmem" )); return NULL; }
   if( FD_UNLIKELY( !bundle_cnt || bundle_cnt>FD_BPF_SER_ARENA_BUNDLE_MAX ) ) { FD_LOG_WARNING(( "bad bundle_cnt" )); return NULL; }
-  if( FD_UNLIKELY( !frame_cnt || frame_cnt>FD_MAX_INSTRUCTION_STACK_DEPTH ) ) { FD_LOG_WARNING(( "bad frame_cnt" )); return NULL; }
+  if( FD_UNLIKELY( !slot_sz || !fd_ulong_is_aligned( slot_sz, FD_RUNTIME_EBPF_HOST_ALIGN ) ) ) { FD_LOG_WARNING(( "bad slot_sz" )); return NULL; }
 
   fd_bpf_ser_arena_t * arena = (fd_bpf_ser_arena_t *)shmem;
   memset( arena, 0, sizeof(fd_bpf_ser_arena_t) );
   arena->bundle_cnt = bundle_cnt;
-  arena->frame_cnt  = frame_cnt;
+  arena->slot_sz    = slot_sz;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( arena->magic ) = FD_BPF_SER_ARENA_MAGIC;
@@ -66,8 +66,8 @@ void
 fd_bpf_ser_arena_release( fd_bpf_ser_arena_t * arena,
                           uchar *              bundle ) {
   ulong off = (ulong)(bundle - bundle_laddr( arena, 0UL ));
-  ulong idx = off/FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( arena->frame_cnt );
-  if( FD_UNLIKELY( (off%FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( arena->frame_cnt )) || idx>=arena->bundle_cnt ) ) FD_LOG_CRIT(( "bad bundle" ));
+  ulong idx = off/arena->slot_sz;
+  if( FD_UNLIKELY( (off%arena->slot_sz) || idx>=arena->bundle_cnt ) ) FD_LOG_CRIT(( "bad bundle" ));
   if( FD_UNLIKELY( !FD_VOLATILE_CONST( arena->slot[ idx ].used ) ) ) FD_LOG_CRIT(( "double release" ));
 
   /* Free the slot before counting the release so a woken waiter always

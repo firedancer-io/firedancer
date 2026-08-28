@@ -13,6 +13,7 @@
 */
 #define _GNU_SOURCE
 #include "../../firedancer/topology.h"
+#include "../../../flamenco/runtime/fd_bpf_ser_arena.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/commands/watch/watch.h"
@@ -390,9 +391,12 @@ backtest_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_wksp( topo, "bpfser_arena" );
-  fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 2UL, FD_MAX_INSTRUCTION_STACK_DEPTH );
+  fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 2UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH ) );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], bpfser_rp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bpfser_rp_obj->id, "bpfser_rp" ) );
+  fd_topo_obj_t * deployscr_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 2UL, FD_RUNTIME_ACC_SZ_MAX );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], deployscr_rp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, deployscr_rp_obj->id, "deployscr_rp" ) );
 
   if( snapin_tile ) fd_topob_tile_uses( topo, snapin_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, accdb_tile,  accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

@@ -431,6 +431,11 @@ unprivileged_init( fd_topo_t const *      topo,
                            _bpfser_frame1, FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT,
                            _bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP ) );
 
+  FD_TEST( tile->execrp.deploy_pool_obj_id!=ULONG_MAX );
+  ctx->runtime->bpf_loader_program.deploy_pool = fd_bpf_ser_arena_join( fd_topo_obj_laddr( topo, tile->execrp.deploy_pool_obj_id ) );
+  FD_TEST( ctx->runtime->bpf_loader_program.deploy_pool );
+  ctx->runtime->bpf_loader_program.programdata = NULL;
+
 
   /* First find and setup the in-link from replay to exec. */
   ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", 0UL );

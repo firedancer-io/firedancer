@@ -170,7 +170,14 @@ struct fd_runtime {
        rec_load never calls fd_deploy_program. */
     uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(64UL)));
     uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
-    uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+
+    /* Deploy ELF-load scratch (FD_RUNTIME_ACC_SZ_MAX bytes), live only
+       inside fd_sbpf_program_load: a FD_RUNTIME_ACC_SZ_MAX-slot pool
+       shared across exec tiles (slot acquired per deploy, released as
+       soon as the load returns), or a caller-owned private buffer when
+       deploy_pool is NULL. */
+    fd_bpf_ser_arena_t * deploy_pool;
+    uchar *              programdata;
   } bpf_loader_program;
 
   union {
@@ -270,7 +277,10 @@ fd_runtime_bpf_ser_init( fd_runtime_t *       runtime,
   runtime->bpf_loader_serialization.window     = (uchar *)window;
   runtime->bpf_loader_serialization.window_cap = window_cap;
   runtime->bpf_loader_serialization.window_top = 0UL;
-  runtime->bpf_loader_serialization.bundle_first_depth = arena ? FD_MAX_INSTRUCTION_STACK_DEPTH+1UL-arena->frame_cnt : 2UL;
+  ulong frame_cnt = arena ? arena->slot_sz/BPF_LOADER_SERIALIZATION_FOOTPRINT : 0UL;
+  if( FD_UNLIKELY( arena && ((arena->slot_sz%BPF_LOADER_SERIALIZATION_FOOTPRINT) || !frame_cnt || frame_cnt>FD_MAX_INSTRUCTION_STACK_DEPTH) ) )
+    FD_LOG_CRIT(( "arena slot size is not a serialization bundle" ));
+  runtime->bpf_loader_serialization.bundle_first_depth = arena ? FD_MAX_INSTRUCTION_STACK_DEPTH+1UL-frame_cnt : 2UL;
   if( FD_UNLIKELY( frame1_cap<BPF_LOADER_SERIALIZATION_FOOTPRINT && runtime->bpf_loader_serialization.bundle_first_depth!=1UL ) )
     FD_LOG_CRIT(( "windowed depth-1 frame requires an arena with depth-1 bundle frames" ));
   runtime->bpf_loader_serialization.promote_cnt      = 0UL;

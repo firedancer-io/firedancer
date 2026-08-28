@@ -105,15 +105,19 @@ deploy_env_init( deploy_env_t * env,
   fd_memset( env->runtime, 0, sizeof(fd_runtime_t) );
   env->runtime->instr.stack_sz = 1;
 
-  void * bpfser_mem = fd_wksp_alloc_laddr( wksp, fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ), tag++ );
+  void * bpfser_mem = fd_wksp_alloc_laddr( wksp, fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH ) ), tag++ );
   FD_TEST( bpfser_mem );
   void * bpfser_frame1 = fd_wksp_alloc_laddr( wksp, FD_RUNTIME_EBPF_HOST_ALIGN, BPF_LOADER_SERIALIZATION_FOOTPRINT, tag++ );
   FD_TEST( bpfser_frame1 );
   void * bpfser_window = fd_wksp_alloc_laddr( wksp, FD_RUNTIME_EBPF_HOST_ALIGN, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ), tag++ );
   FD_TEST( bpfser_window );
-  fd_runtime_bpf_ser_init( env->runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ) ),
+  fd_runtime_bpf_ser_init( env->runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH ) ) ),
                            bpfser_frame1, BPF_LOADER_SERIALIZATION_FOOTPRINT,
                            bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
+  void * deploy_scratch = fd_wksp_alloc_laddr( wksp, FD_ACCOUNT_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX, tag++ );
+  FD_TEST( deploy_scratch );
+  env->runtime->bpf_loader_program.deploy_pool = NULL;
+  env->runtime->bpf_loader_program.programdata = (uchar *)deploy_scratch;
 
   env->txn_out = fd_wksp_alloc_laddr( wksp, alignof(fd_txn_out_t), sizeof(fd_txn_out_t), tag++ );
   FD_TEST( env->txn_out );
@@ -155,6 +159,42 @@ test_deploy_v0_succeeds( fd_wksp_t * wksp ) {
                                /* disable_sbpf_v0_v1_v2_deployment */ 0 );
   FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
 
+  deploy_env_destroy( env );
+}
+
+/* Deploy through a shared 1-slot scratch pool: the slot must be
+   released by the time fd_deploy_program returns (both on success and
+   on load failure), leaving the sole slot immediately reacquirable. */
+static void
+test_deploy_pooled_scratch( fd_wksp_t * wksp ) {
+  deploy_env_t env[1];
+  deploy_env_init( env, wksp );
+
+  void * pool_mem = fd_wksp_alloc_laddr( wksp, fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_RUNTIME_ACC_SZ_MAX ), 99UL );
+  FD_TEST( pool_mem );
+  fd_bpf_ser_arena_t * pool = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( pool_mem, 1UL, FD_RUNTIME_ACC_SZ_MAX ) );
+  FD_TEST( pool );
+  env->runtime->bpf_loader_program.deploy_pool = pool;
+  env->runtime->bpf_loader_program.programdata = NULL;
+
+  int err = fd_deploy_program( env->ctx, elf_v0, elf_v0_sz,
+                               /* disable_sbpf_v0_v1_v2_deployment */ 0 );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+
+  ulong t = fd_bpf_ser_arena_ticket( pool );
+  FD_TEST( fd_bpf_ser_arena_ready( pool, t ) );          /* slot released after load */
+  fd_bpf_ser_arena_release( pool, fd_bpf_ser_arena_wait( pool, t ) );
+
+  static uchar garbage[ 64 ];
+  err = fd_deploy_program( env->ctx, garbage, sizeof(garbage),
+                           /* disable_sbpf_v0_v1_v2_deployment */ 0 );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+
+  t = fd_bpf_ser_arena_ticket( pool );
+  FD_TEST( fd_bpf_ser_arena_ready( pool, t ) );          /* no slot leaked by a failed deploy */
+  fd_bpf_ser_arena_release( pool, fd_bpf_ser_arena_wait( pool, t ) );
+
+  fd_wksp_free_laddr( pool_mem );
   deploy_env_destroy( env );
 }
 
@@ -259,6 +299,7 @@ main( int     argc,
   FD_TEST( wksp );
 
   test_deploy_v0_succeeds( wksp );
+  test_deploy_pooled_scratch( wksp );
   test_deploy_v3_succeeds( wksp );
   test_deploy_v0_rejected_when_gated( wksp );
 
