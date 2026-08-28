@@ -693,6 +693,13 @@ test_timeline_db( fd_gui_t * gui ) {
   FD_TEST( descs[ FD_GUI_HIST_FEC_EVENTS ].val_sz==sizeof(fd_gui_fec_event_record_t) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_TXN_BATCH ].name, "replay_txn_batch" ) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].val_sz==sizeof(fd_gui_timeline_day_t) );
+  char const * fine_names[] = { "1ms", "2ms", "5ms", "10ms", "25ms", "50ms", "100ms" };
+  ulong const fine_ns[] = { 1000000UL, 2000000UL, 5000000UL, 10000000UL, 25000000UL, 50000000UL, 100000000UL };
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_FINE_GRANULARITY_CNT; i++ ) {
+    FD_TEST( !strcmp( fd_gui_timeline_granularities[i].name, fine_names[i] ) );
+    FD_TEST( fd_gui_timeline_granularities[i].duration_ns==fine_ns[i] );
+    FD_TEST( fd_gui_timeline_granularities[i].stored_idx==ULONG_MAX );
+  }
 
   /* Replay transactions use the same bounded-skew timestamp handling as all
      other time-series records. */
