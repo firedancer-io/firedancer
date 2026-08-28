@@ -18,3 +18,10 @@ endif # FD_HAS_HOSTED
 ifdef FD_HAS_RACESAN
 $(call make-unit-test,test_accdb_racesan,test_accdb_racesan,fd_flamenco fd_ballet fd_util)
 endif
+
+$(call add-hdrs,fd_zle.h)
+$(call add-objs,fd_zle,fd_flamenco)
+
+$(call make-unit-test,test_zle,test_zle,fd_flamenco fd_util)
+$(call run-unit-test,test_zle)
+$(call make-unit-test,bench_zle,bench_zle,fd_flamenco fd_util)
