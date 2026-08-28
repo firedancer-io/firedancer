@@ -255,7 +255,7 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( snapmk_enabled ) ) {
     FD_CHECK_ERR( config->firedancer.snapshots.max_full_snapshots_to_keep,
                   "[snapshots.max_full_snapshots_to_keep] must be nonzero when [layout.snapzp_tile_count] is nonzero" );
-    FD_CHECK_ERR( !config->firedancer.snapshots.incremental_snapshot_interval_slots ||
+    FD_CHECK_ERR( !config->firedancer.snapshots.incremental_snapshot_interval_blocks ||
                   config->firedancer.snapshots.max_incremental_snapshots_to_keep,
                   "[snapshots.max_incremental_snapshots_to_keep] must be nonzero when incremental snapshot production is enabled" );
   }
@@ -1535,8 +1535,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
 
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
-    tile->replay.full_snapshot_interval_slots        = config->firedancer.snapshots.full_snapshot_interval_slots;
-    tile->replay.incremental_snapshot_interval_slots = config->firedancer.snapshots.incremental_snapshot_interval_slots;
+    tile->replay.full_snapshot_interval_blocks        = config->firedancer.snapshots.full_snapshot_interval_blocks;
+    tile->replay.incremental_snapshot_interval_blocks = config->firedancer.snapshots.incremental_snapshot_interval_blocks;
 
     fd_cstr_ncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
 

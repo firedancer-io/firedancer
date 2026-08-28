@@ -1684,11 +1684,13 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->notified_root_bank      = bank;
   ctx->published_root_slot     = 0UL;
   ctx->published_root_bank_idx = 0UL;
-  if( FD_UNLIKELY( ctx->snapmk.full_interval ) ) {
-    ctx->snapmk.next_full_slot = ctx->snapmk.full_interval;
+  if( FD_UNLIKELY( ctx->snapmk.full_interval_blocks ) ) {
+    ulong interval = ctx->snapmk.full_interval_blocks;
+    ctx->snapmk.next_full_block_height = ((bank->f.block_height/interval)+1UL)*interval;
   }
-  if( FD_UNLIKELY( ctx->snapmk.incremental_interval ) ) {
-    ctx->snapmk.next_incremental_slot = ctx->snapmk.incremental_interval;
+  if( FD_UNLIKELY( ctx->snapmk.incremental_interval_blocks ) ) {
+    ulong interval = ctx->snapmk.incremental_interval_blocks;
+    ctx->snapmk.next_incremental_block_height = ((bank->f.block_height/interval)+1UL)*interval;
   }
 
   ctx->reset_slot            = 0UL;
@@ -1816,11 +1818,13 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->notified_root_bank      = bank;
     ctx->published_root_slot     = ctx->consensus_root_slot;
     ctx->published_root_bank_idx = 0UL;
-    if( FD_UNLIKELY( ctx->snapmk.full_interval ) ) {
-      ctx->snapmk.next_full_slot = ((snapshot_slot/ctx->snapmk.full_interval)+1UL)*ctx->snapmk.full_interval;
+    if( FD_UNLIKELY( ctx->snapmk.full_interval_blocks ) ) {
+      ulong interval = ctx->snapmk.full_interval_blocks;
+      ctx->snapmk.next_full_block_height = ((bank->f.block_height/interval)+1UL)*interval;
     }
-    if( FD_UNLIKELY( ctx->snapmk.incremental_interval ) ) {
-      ctx->snapmk.next_incremental_slot = ((snapshot_slot/ctx->snapmk.incremental_interval)+1UL)*ctx->snapmk.incremental_interval;
+    if( FD_UNLIKELY( ctx->snapmk.incremental_interval_blocks ) ) {
+      ulong interval = ctx->snapmk.incremental_interval_blocks;
+      ctx->snapmk.next_incremental_block_height = ((bank->f.block_height/interval)+1UL)*interval;
     }
 
     ctx->reset_slot            = snapshot_slot;
@@ -2525,43 +2529,56 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
   return 1;
 }
 
-static ulong
-snapshot_target_slot( fd_replay_tile_t * ctx,
-                      int *              out_incremental ) {
-  *out_incremental = 0;
-  if( FD_LIKELY( !ctx->snapmk.supported || ctx->snapmk.active ) ) return ULONG_MAX;
+/* Periodic snapshots use block height, matching Agave.  Manually
+   scheduled snapshots remain slot based. */
 
-  int caught_up  = ctx->caught_up; /* suspend periodic snaps until caught up */
-  ulong full     = ULONG_MAX;
-  ulong interval = ctx->snapmk.full_interval;
+static int
+snapshot_due_for_root( fd_replay_tile_t * ctx,
+                       ulong              published_root_block_height,
+                       ulong              advanceable_root_slot,
+                       ulong              advanceable_root_block_height,
+                       ulong              consensus_root_block_height,
+                       int *              out_incremental ) {
+  *out_incremental = 0;
+  if( FD_LIKELY( !ctx->snapmk.supported || ctx->snapmk.active ) ) return 0;
+
+  int   caught_up   = ctx->caught_up; /* suspend periodic snaps until caught up */
+  ulong full_target = ULONG_MAX;
+  ulong interval    = ctx->snapmk.full_interval_blocks;
   if( FD_UNLIKELY( interval && caught_up ) ) {
-    if( FD_UNLIKELY( ctx->snapmk.next_full_slot==ULONG_MAX ) ) {
-      ctx->snapmk.next_full_slot = ((ctx->published_root_slot/interval)+1UL)*interval;
+    if( FD_UNLIKELY( ctx->snapmk.next_full_block_height==ULONG_MAX ) ) {
+      ctx->snapmk.next_full_block_height = ((published_root_block_height/interval)+1UL)*interval;
     }
 
     /* If snapshot production fell behind by more than one interval,
        skip ahead to the latest due interval. */
-    full = fd_ulong_max( ctx->snapmk.next_full_slot, (ctx->consensus_root_slot/interval)*interval );
+    full_target = fd_ulong_max( ctx->snapmk.next_full_block_height,
+                                (consensus_root_block_height/interval)*interval );
   }
-  full = fd_ulong_min( full, ctx->snapmk.scheduled_at );
+
+  /* Manual slot scheduling always requests a full snapshot. */
+  if( FD_UNLIKELY( advanceable_root_slot>=ctx->snapmk.scheduled_at_slot ) ) return 1;
 
   /* An incremental snapshot is only possible once a full snapshot
      exists to serve as its base. */
-  ulong incremental = ULONG_MAX;
-  ulong incr_interval = ctx->snapmk.incremental_interval;
+  ulong incremental_target = ULONG_MAX;
+  ulong incr_interval      = ctx->snapmk.incremental_interval_blocks;
   if( FD_UNLIKELY( incr_interval && caught_up && ctx->snapmk.base_slot!=ULONG_MAX ) ) {
-    if( FD_UNLIKELY( ctx->snapmk.next_incremental_slot==ULONG_MAX ) ) {
-      ctx->snapmk.next_incremental_slot = ((ctx->published_root_slot/incr_interval)+1UL)*incr_interval;
+    if( FD_UNLIKELY( ctx->snapmk.next_incremental_block_height==ULONG_MAX ) ) {
+      ctx->snapmk.next_incremental_block_height = ((published_root_block_height/incr_interval)+1UL)*incr_interval;
     }
-    incremental = fd_ulong_max( ctx->snapmk.next_incremental_slot, (ctx->consensus_root_slot/incr_interval)*incr_interval );
+    incremental_target = fd_ulong_max( ctx->snapmk.next_incremental_block_height,
+                                       (consensus_root_block_height/incr_interval)*incr_interval );
   }
 
-  /* A full snapshot due at the same slot supersedes the incremental. */
-  if( FD_UNLIKELY( incremental<full ) ) {
-    *out_incremental = 1;
-    return incremental;
-  }
-  return full;
+  /* A full snapshot due at the same block height supersedes the
+     incremental snapshot. */
+  ulong target      = full_target;
+  int   incremental = incremental_target<full_target;
+  if( FD_UNLIKELY( incremental ) ) target = incremental_target;
+  if( FD_LIKELY( advanceable_root_block_height<target ) ) return 0;
+  *out_incremental = incremental;
+  return 1;
 }
 
 static void
@@ -2591,6 +2608,11 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
                    target_bank->bank_seq!=block_id_ele->bank_seq ||
                    !fd_hash_eq( &target_bank->f.block_id, &ctx->consensus_root ) ||
                    target_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
+
+  fd_bank_t * published_root_bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  FD_TEST( published_root_bank );
+  ulong published_root_block_height = published_root_bank->f.block_height;
+  ulong consensus_root_block_height = target_bank->f.block_height;
 
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
@@ -2649,25 +2671,32 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( ctx->timing_slot_of_bank[ b ]!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) && !fd_banks_bank_query( ctx->banks, b ) ) ) timing_slot_release( ctx, b );
   }
 
+  int snap_incremental;
+  int snap_due = snapshot_due_for_root( ctx,
+                                        published_root_block_height,
+                                        advanceable_root_slot,
+                                        bank->f.block_height,
+                                        consensus_root_block_height,
+                                        &snap_incremental );
+
   ctx->published_root_slot     = advanceable_root_slot;
   ctx->published_root_bank_idx = advanceable_root_idx;
 
-  int   snap_incremental;
-  ulong snap_target_slot = snapshot_target_slot( ctx, &snap_incremental );
-  if( FD_UNLIKELY( advanceable_root_slot>=snap_target_slot ) ) {
+  if( FD_UNLIKELY( snap_due ) ) {
     snapmk_start( ctx, stem, snap_incremental );
     if( FD_UNLIKELY( !snap_incremental ) ) {
-      if( FD_UNLIKELY( ctx->snapmk.full_interval &&
-                       advanceable_root_slot>=ctx->snapmk.next_full_slot ) ) {
-        ctx->snapmk.next_full_slot = ((advanceable_root_slot/ctx->snapmk.full_interval)+1UL)*ctx->snapmk.full_interval;
+      if( FD_UNLIKELY( ctx->snapmk.full_interval_blocks &&
+                       bank->f.block_height>=ctx->snapmk.next_full_block_height ) ) {
+        ulong interval = ctx->snapmk.full_interval_blocks;
+        ctx->snapmk.next_full_block_height = ((bank->f.block_height/interval)+1UL)*interval;
       }
-      if( FD_UNLIKELY( advanceable_root_slot>=ctx->snapmk.scheduled_at ) ) {
-        ctx->snapmk.scheduled_at = ULONG_MAX;
+      if( FD_UNLIKELY( advanceable_root_slot>=ctx->snapmk.scheduled_at_slot ) ) {
+        ctx->snapmk.scheduled_at_slot = ULONG_MAX;
       }
     }
-    /* A full snapshot re-bases the incremental schedule onto itself. */
-    if( FD_UNLIKELY( ctx->snapmk.incremental_interval ) ) {
-      ctx->snapmk.next_incremental_slot = ((advanceable_root_slot/ctx->snapmk.incremental_interval)+1UL)*ctx->snapmk.incremental_interval;
+    if( FD_UNLIKELY( ctx->snapmk.incremental_interval_blocks ) ) {
+      ulong interval = ctx->snapmk.incremental_interval_blocks;
+      ctx->snapmk.next_incremental_block_height = ((bank->f.block_height/interval)+1UL)*interval;
     }
   }
 
@@ -3496,14 +3525,14 @@ admin_snap_create( fd_replay_tile_t *  ctx,
     }
 
 
-    if( FD_UNLIKELY( ctx->snapmk.scheduled_at!=ULONG_MAX &&
-                     ctx->snapmk.scheduled_at!=target_slot ) ) {
-      FD_LOG_WARNING(( "admin requested snapshot creation at slot %lu, but a snapshot is already scheduled at slot %lu. ignoring ...", target_slot, ctx->snapmk.scheduled_at ));
+    if( FD_UNLIKELY( ctx->snapmk.scheduled_at_slot!=ULONG_MAX &&
+                     ctx->snapmk.scheduled_at_slot!=target_slot ) ) {
+      FD_LOG_WARNING(( "admin requested snapshot creation at slot %lu, but a snapshot is already scheduled at slot %lu. ignoring ...", target_slot, ctx->snapmk.scheduled_at_slot ));
       admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
       return;
     }
 
-    ctx->snapmk.scheduled_at = target_slot;
+    ctx->snapmk.scheduled_at_slot = target_slot;
     FD_LOG_NOTICE(( "snapshot creation scheduled at slot %lu", target_slot ));
     admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
     return;
@@ -3941,17 +3970,17 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->is_leader             = 0;
   ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
-  ctx->snapmk.active                = 0;
-  ctx->snapmk.supported             = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
-  ctx->snapmk.scheduled_at          = ULONG_MAX;
-  ctx->snapmk.full_interval         = tile->replay.full_snapshot_interval_slots;
-  ctx->snapmk.next_full_slot        = ULONG_MAX;
-  ctx->snapmk.incremental_interval  = tile->replay.incremental_snapshot_interval_slots;
-  ctx->snapmk.next_incremental_slot = ULONG_MAX;
-  ctx->snapmk.base_slot             = ULONG_MAX;
+  ctx->snapmk.active                        = 0;
+  ctx->snapmk.supported                     = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
+  ctx->snapmk.scheduled_at_slot             = ULONG_MAX;
+  ctx->snapmk.full_interval_blocks          = tile->replay.full_snapshot_interval_blocks;
+  ctx->snapmk.next_full_block_height        = ULONG_MAX;
+  ctx->snapmk.incremental_interval_blocks   = tile->replay.incremental_snapshot_interval_blocks;
+  ctx->snapmk.next_incremental_block_height = ULONG_MAX;
+  ctx->snapmk.base_slot                     = ULONG_MAX;
   if( FD_UNLIKELY( !ctx->snapmk.supported ) ) {
-    ctx->snapmk.full_interval        = 0UL;
-    ctx->snapmk.incremental_interval = 0UL;
+    ctx->snapmk.full_interval_blocks        = 0UL;
+    ctx->snapmk.incremental_interval_blocks = 0UL;
   }
   ctx->reset_slot            = 0UL;
   ctx->reset_block_id        = ctx->initial_block_id;

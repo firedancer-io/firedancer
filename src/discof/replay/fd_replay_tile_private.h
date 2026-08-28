@@ -500,11 +500,11 @@ struct fd_replay_tile {
     uint  active:1;
     uint  incremental:1;
     ulong bank_idx;
-    ulong scheduled_at;
-    ulong full_interval;
-    ulong next_full_slot;
-    ulong incremental_interval;
-    ulong next_incremental_slot;
+    ulong scheduled_at_slot;
+    ulong full_interval_blocks;
+    ulong next_full_block_height;
+    ulong incremental_interval_blocks;
+    ulong next_incremental_block_height;
     ulong base_slot;
   } snapmk;
 
