@@ -119,7 +119,7 @@ wait_for_parent_ready( ag_parent_ready_state_t * state ) {
     ag_block_id_t arg_min = state->ready_ids[0];
     for( ulong i=1; i<state->ready_id_cnt; i++ ) {
       ag_block_id_t const * id = &state->ready_ids[i];
-      if( FD_UNLIKELY( id->slot<arg_min.slot ) || ( id->slot==arg_min.slot && 0<memcmp( id->hash, arg_min.hash, sizeof(ag_block_hash_t) ) ) ) {
+      if( FD_UNLIKELY( id->slot<arg_min.slot ) || ( id->slot==arg_min.slot && 0>memcmp( id->hash, arg_min.hash, sizeof(ag_block_hash_t) ) ) ) {
         arg_min = *id;
       }
     }
@@ -281,7 +281,9 @@ ag_parent_ready_tracker_parents_ready( ag_parent_ready_tracker_t * self,
 ag_block_id_t
 ag_parent_ready_tracker_wait_for_parent_ready( ag_parent_ready_tracker_t * self,
                                                ulong                       slot ) {
-  return wait_for_parent_ready( slot_state( self, slot ) );
+  ag_parent_ready_state_t * state = ag_parent_ready_state_map_ele_query( self->states.map, &slot, NULL, self->states.pool );
+  if( FD_UNLIKELY( !state ) ) return (ag_block_id_t){ .slot = ULONG_MAX };
+  return wait_for_parent_ready( state );
 }
 
 void
