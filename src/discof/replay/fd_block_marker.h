@@ -1,7 +1,8 @@
+/* TODO move out of replay to somewhere more reasonable... */
+
 #ifndef HEADER_fd_src_discof_replay_fd_block_marker_h
 #define HEADER_fd_src_discof_replay_fd_block_marker_h
-
-/* fd_block_marker deserializes Alpenglow block markers. */
+/* fd_block_marker serializes and deserializes block markers */
 
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/rewards/fd_reward_cert.h"
@@ -11,6 +12,10 @@
 #define FD_BLOCK_MARKER_DE_ERR_TRUNCATED   (-1) /* input ended short of the encoding */
 #define FD_BLOCK_MARKER_DE_ERR_MALFORMED   (-2) /* not a valid encoding */
 #define FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED (-3) /* valid, but a version/variant we don't handle */
+
+#define FD_BLOCK_MARKER_SER_SUCCESS         ( 0)
+#define FD_BLOCK_MARKER_SER_ERR_NOSPACE     (-1) /* output buffer too small */
+#define FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED (-2) /* a variant or field we don't emit */
 
 /* Size of the fixed marker preamble: marker_flag (8) + version (2) +
    variant (1) + length (2). */
@@ -73,6 +78,39 @@ struct fd_block_marker {
 };
 typedef struct fd_block_marker fd_block_marker_t;
 
+struct __attribute__((packed)) fd_block_marker_serde {
+  ulong  entry_cnt; /* BlockComponent::BlockMarker                 (u64, always 0) */
+  ushort version;   /* VersionedBlockMarker::V1                    (u16 tag)       */
+  uchar  variant;   /* BlockMarkerV1                               (u8 tag)        */
+  ushort length;    /* LengthPrefixed<VersionedBlockMarkerV1>::len (u16)           */
+/*uchar  payload[];*/
+};
+typedef struct fd_block_marker_serde fd_block_marker_serde_t;
+
+struct __attribute__((packed)) fd_block_header_serde {
+  uchar version;               /* VersionedBlockHeader::V1       (u8 tag) */
+  ulong parent_slot;           /* BlockHeaderV1::parent_slot     (Slot)   */
+  uchar parent_block_id[ 32 ]; /* BlockHeaderV1::parent_block_id (Hash)   */
+};
+typedef struct fd_block_header_serde fd_block_header_serde_t;
+
+struct __attribute__((packed)) fd_block_footer_serde {
+  uchar version;                   /* VersionedBlockFooter::V1                 (u8 tag)                          */
+  uchar bank_hash[ 32 ];           /* BlockFooterV1::bank_hash                 (Hash)                            */
+  ulong block_producer_time_nanos; /* BlockFooterV1::block_producer_time_nanos (u64)                             */
+  uchar user_agent_len;            /* BlockFooterV1::block_user_agent          (WincodeVec<u8, FixIntLen<u8>>)   */
+/*uchar user_agent[];*/            /* BlockFooterV1::block_user_agent          (WincodeVec<u8, FixIntLen<u8>>)   */
+  /* Each Option is a one byte tag immediately followed by its own
+     payload when present, so a cert's length shifts the next tag. */
+/*uchar has_block_final_cert;*/    /* BlockFooterV1::block_final_cert          (Option<BlockFinalizationCert>)   */
+/*uchar block_final_cert[];*/      /* BlockFinalizationCert                                                     */
+/*uchar has_skip_reward_cert;*/    /* BlockFooterV1::skip_reward_cert          (Option<SkipRewardCertificate>)   */
+/*uchar skip_reward_cert[];*/      /* SkipRewardCertificate                                                     */
+/*uchar has_notar_reward_cert;*/   /* BlockFooterV1::notar_reward_cert         (Option<NotarRewardCertificate>)  */
+/*uchar notar_reward_cert[];*/     /* NotarRewardCertificate                                                    */
+};
+typedef struct fd_block_footer_serde fd_block_footer_serde_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* The deserializers below decode a versioned block marker payload,
@@ -109,6 +147,19 @@ fd_block_marker_de( fd_block_marker_t * marker,
                     uchar const *       buf,
                     ulong               buf_max,
                     ulong *             buf_sz );
+
+/* fd_block_marker_ser serializes a whole block marker, with buf pointing
+   at the marker flag (the start of the entry batch).  Only HEADER and
+   FOOTER are emitted, and a footer must have all certificates absent.
+   buf_sz is set to FD_BLOCK_MARKER_PREAMBLE_SZ + length on success.
+   Returns FD_BLOCK_MARKER_SER_SUCCESS or FD_BLOCK_MARKER_SER_ERR_* on
+   failure; a failed call may have written a prefix. */
+
+int
+fd_block_marker_ser( fd_block_marker_t const * marker,
+                     uchar *                   buf,
+                     ulong                     buf_max,
+                     ulong *                   buf_sz );
 
 FD_PROTOTYPES_END
 
