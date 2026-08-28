@@ -51,6 +51,8 @@ typedef struct {
   ulong min_part_max; /* Artificially raise part_max */
   ulong min_loose_sz; /* Artificially raise loose footprint */
 
+  int demote_ok;      /* If set, back with 2 MiB huge pages instead of gigantic pages when the 1 GiB round-up waste is large.  Only for low-traffic workspaces where 2 MiB TLB reach is not a perf concern.  Memory is still hugetlbfs, locked up front. */
+
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */

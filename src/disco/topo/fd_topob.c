@@ -979,6 +979,13 @@ fd_topob_finish( fd_topo_t *                topo,
 
     ulong page_sz = topo->max_page_size;
     if( total_wksp_footprint < topo->gigantic_page_threshold ) page_sz = FD_SHMEM_HUGE_PAGE_SZ;
+
+    /* Opted-in low-traffic wksps fall back to huge pages when the
+       1 GiB round-up waste is large (>=64 MiB and >=1/16th). */
+    if( FD_UNLIKELY( wksp->demote_ok && page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
+      ulong waste = fd_ulong_align_up( total_wksp_footprint, FD_SHMEM_GIGANTIC_PAGE_SZ )-total_wksp_footprint;
+      if( waste>=(64UL<<20) && waste>=(total_wksp_footprint>>4) ) page_sz = FD_SHMEM_HUGE_PAGE_SZ;
+    }
     if( FD_UNLIKELY( page_sz!=FD_SHMEM_HUGE_PAGE_SZ && page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "invalid page_sz" ));
 
     ulong wksp_aligned_footprint = fd_ulong_align_up( total_wksp_footprint, page_sz );
