@@ -1455,9 +1455,12 @@ telemetry = true
         # protect against denial of service from high volumes of
         # transaction spam.
         #
-        # The default value here, 2^26 - 2 is a good balance, as it fits
-        # in 1 GiB of memory using a single gigantic page.
-        signature_cache_size = 33554430
+        # The default value here, 2^23 - 2, keeps around 190 MiB of
+        # signature history.  At 10x current mainnet transaction rates
+        # (~50k TPS including votes) this remembers ~168 seconds of
+        # signatures, well past the ~90 second recent blockhash window
+        # within which a duplicate could otherwise be replayed at us.
+        signature_cache_size = 8388606
 
     # The bundle tile receives bundles from a block producer remote
     # endpoint and forwards them for execution to pack.
