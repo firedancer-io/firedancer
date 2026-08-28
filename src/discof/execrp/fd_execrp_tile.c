@@ -16,8 +16,10 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../flamenco/events/fd_event_runtime.h"
+#include "fd_exec_pmu.h"
 
 #include <time.h>
+#include <errno.h>
 #include "generated/fd_execrp_tile_seccomp.h"
 
 /* The exec tile is responsible for executing single transactions.  The
@@ -38,6 +40,8 @@ typedef struct link_ctx {
 
 struct fd_execrp_tile {
   ulong tile_idx;
+
+  fd_exec_pmu_t pmu[1];
 
   fd_startup_gate_t startup_gate[1];
 
@@ -89,6 +93,10 @@ struct fd_execrp_tile {
 
     /* Ticks spent committing a txn (database writes) */
     ulong txn_commit_cum_ticks;
+
+    ulong perf_cpu_cycles;
+    ulong perf_instructions;
+    ulong perf_demand_llc_miss;
 
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
   } metrics;
@@ -153,6 +161,10 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_SETUP,  ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
+
+  FD_MCNT_SET( EXECRP, TXN_CPU_CYCLES,      ctx->metrics.perf_cpu_cycles      );
+  FD_MCNT_SET( EXECRP, TXN_INSTRUCTIONS,    ctx->metrics.perf_instructions    );
+  FD_MCNT_SET( EXECRP, TXN_DEMAND_LLC_MISS, ctx->metrics.perf_demand_llc_miss );
 
   fd_runtime_t const * runtime = ctx->runtime;
   ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks +
@@ -292,7 +304,13 @@ returnable_frag( fd_execrp_tile_t *  ctx,
           ctx->capture_ctx->current_txn_idx = msg->capture_txn_idx;
         }
 
+        if( ctx->pmu->enabled ) {
+          ctx->pmu->txn_valid = fd_exec_pmu_snapshot( ctx->pmu, ctx->pmu->prev );
+        }
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+        if( ctx->pmu->enabled ) {
+          fd_exec_pmu_record( ctx->pmu, &ctx->txn_out );
+        }
 
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
@@ -320,6 +338,10 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.txn_check_cum_ticks  += check_start_ticks_dt;
         ctx->metrics.txn_exec_cum_ticks   += exec_start_ticks_dt;
         ctx->metrics.txn_commit_cum_ticks += commit_ticks_dt;
+
+        ctx->metrics.perf_cpu_cycles      += ctx->txn_out.details.pmc.cpu_cycles;
+        ctx->metrics.perf_instructions    += ctx->txn_out.details.pmc.instructions;
+        ctx->metrics.perf_demand_llc_miss += ctx->txn_out.details.pmc.demand_llc_miss;
 
         break;
       }
@@ -359,6 +381,19 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 extern FD_TL int fd_wksp_oom_silent;
 
 static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_execrp_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t), sizeof(fd_execrp_tile_t) );
+
+  int pmu_status = fd_exec_pmu_init( ctx->pmu, tile->cpu_idx!=ULONG_MAX );
+  if( FD_UNLIKELY( pmu_status<0 ) )
+    FD_LOG_WARNING(( "transaction performance counters unavailable (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -368,6 +403,11 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
+
+  if( FD_UNLIKELY( ctx->pmu->magic!=FD_EXEC_PMU_MAGIC ) ) fd_exec_pmu_reset( ctx->pmu );
+  FD_METRIC_SET_AVAILABLE( EXECRP, TXN_CPU_CYCLES,      ctx->pmu->enabled );
+  FD_METRIC_SET_AVAILABLE( EXECRP, TXN_INSTRUCTIONS,    ctx->pmu->enabled );
+  FD_METRIC_SET_AVAILABLE( EXECRP, TXN_DEMAND_LLC_MISS, ctx->pmu->enabled );
 
   void * _capture_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -545,12 +585,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 static ulong
-populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -558,6 +598,13 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+
+  if( FD_LIKELY( topo && tile ) ) {
+    fd_execrp_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+    if( FD_LIKELY( ctx->pmu->magic==FD_EXEC_PMU_MAGIC && ctx->pmu->enabled ) ) {
+      for( ulong i=0UL; i<FD_EXEC_PMU_EVENT_CNT; i++ ) out_fds[ out_cnt++ ] = ctx->pmu->fd[ i ];
+    }
+  }
 
   return out_cnt;
 }
@@ -594,6 +641,7 @@ fd_topo_run_tile_t fd_tile_execrp = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

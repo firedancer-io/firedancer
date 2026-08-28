@@ -269,6 +269,12 @@ struct fd_txn_out {
     fd_signature_t              signature;                 /* First transaction signature */
     int                         is_simple_vote;            /* Whether the transaction is a simple vote */
     ulong                       commit_index_in_slot;      /* 0-indexed commit-completion order within this slot */
+
+    struct {
+      ulong cpu_cycles;
+      ulong instructions;
+      ulong demand_llc_miss;
+    } pmc;
   } details;
 
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:

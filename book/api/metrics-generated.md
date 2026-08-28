@@ -1209,6 +1209,9 @@
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds (VM setup (CPI)) |
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds (VM commit (CPI)) |
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds (VM interpreter execution) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;cpu_&#8203;cycles</span> | counter | CPU cycles spent executing transactions when AMD PMU profiling is available |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;instructions</span> | counter | Instructions retired while executing transactions when AMD PMU profiling is available |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;demand_&#8203;llc_&#8203;miss</span> | counter | Demand-data fills sourced beyond the local LLC while executing transactions when AMD PMU profiling is available |
 | <span class="metrics-name">execrp_&#8203;cu_&#8203;executed</span> | counter | Estimated compute units executed since tile start |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;lookup</span> | counter | Program cache lookups |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;hit</span> | counter | Program cache hits |

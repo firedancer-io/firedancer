@@ -1814,12 +1814,6 @@ EXAMPLES
     <int value="4" name="Interpreter" label="VM interpreter execution" />
 </enum>
 
-<enum name="TxnPerfPhase">
-    <int value="0" name="Prepare" label="Transaction preparation" />
-    <int value="1" name="Execute" label="Transaction instruction execution" />
-    <int value="2" name="Commit" label="Transaction result commit" />
-</enum>
-
 <tile name="execrp">
     <gauge name="Processing" summary="Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing), either 1 or 0" />
 
@@ -1830,9 +1824,9 @@ EXAMPLES
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
     <counter name="VmRegimeDurationNanos" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds" />
 
-    <counter name="TxnCpuCycles" optional="true" enum="TxnPerfPhase" summary="CPU cycles spent in transaction execution phases when AMD PMU profiling is available" />
-    <counter name="TxnInstructions" optional="true" enum="TxnPerfPhase" summary="Retired instructions spent in transaction execution phases when AMD PMU profiling is available" />
-    <counter name="TxnDemandLlcMiss" optional="true" enum="TxnPerfPhase" summary="Demand-data fills sourced beyond the local LLC in transaction execution phases when AMD PMU profiling is available" />
+    <counter name="TxnCpuCycles" optional="true" summary="CPU cycles spent executing transactions when AMD PMU profiling is available" />
+    <counter name="TxnInstructions" optional="true" summary="Instructions retired while executing transactions when AMD PMU profiling is available" />
+    <counter name="TxnDemandLlcMiss" optional="true" summary="Demand-data fills sourced beyond the local LLC while executing transactions when AMD PMU profiling is available" />
 
     <counter name="CuExecuted" summary="Estimated compute units executed since tile start" />
 
