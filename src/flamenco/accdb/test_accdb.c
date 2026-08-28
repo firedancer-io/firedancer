@@ -34,6 +34,7 @@ static uchar owner3[ 32UL ] = { 3, 0 };
 #define TEST_CACHE_FOOTPRINT    (32UL<<20UL)
 
 static fd_accdb_shmem_t * test_shmem_mem;
+static int                test_scratch_fd = -1;
 
 static fd_accdb_t *
 test_setup_ex( int * out_fd,
@@ -48,6 +49,10 @@ test_setup_ex( int * out_fd,
   int fd = memfd_create( "accdb_test", 0 );
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
+
+  test_scratch_fd = memfd_create( "accdb_test_scratch", 0 );
+  if( FD_UNLIKELY( test_scratch_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+  FD_TEST( !ftruncate( test_scratch_fd, (long)fd_accdb_scratch_sz( max_live_slots, max_account_writes_per_slot ) ) );
 
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 0UL, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
   FD_TEST( shmem_fp );
@@ -66,6 +71,7 @@ test_setup_ex( int * out_fd,
   FD_TEST( accdb_mem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL ) );
   FD_TEST( accdb );
+  fd_accdb_set_scratch_fd( accdb, test_scratch_fd );
   return accdb;
 }
 
@@ -87,6 +93,7 @@ test_join_writer( int fd ) {
   FD_TEST( mem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, -1, 0UL, NULL ) );
   FD_TEST( accdb );
+  fd_accdb_set_scratch_fd( accdb, test_scratch_fd );
   return accdb;
 }
 
@@ -96,6 +103,8 @@ test_teardown( fd_accdb_t * accdb,
   free( test_shmem_mem );
   free( accdb );
   close( fd );
+  close( test_scratch_fd );
+  test_scratch_fd = -1;
 }
 
 /* Process any pending advance_root / purge command submitted to the
@@ -847,6 +856,56 @@ test_purge_deep_subtree( void ) {
   FD_TEST( accdb_read( accdb, keep, pk_a, &lamports, &d, &data_len, owner ) );
   FD_TEST( lamports==9UL );
   FD_TEST( !memcmp( owner, owner3, 32UL ) );
+
+  test_teardown( accdb, fd );
+}
+
+/* Force the deferred-free buffer through its spill tier: shrink the
+   RAM window to a few entries, purge a fork holding many writes so
+   T2 spills full stage chunks, then drain and verify every spilled
+   entry is read back and released correctly. */
+static void
+test_deferred_spill( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+
+  /* Shrink the window (the region is txn_max entries, far larger):
+     8 resident + 4 stage. */
+  test_shmem_mem->deferred_acc_resident = 8UL;
+  test_shmem_mem->deferred_acc_stage    = 4UL;
+
+  ulong lamports;
+  uchar d;
+  ulong data_len;
+  uchar owner[ 32UL ];
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t keep = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t drop = fd_accdb_attach_child( accdb, root );
+
+  uchar keep_pk[ 32UL ] = { 0xEE };
+  accdb_write( accdb, keep, keep_pk, 777UL, NULL, 0UL, owner2 );
+
+  /* 30 deferred unlinks = 8 resident + 5 spilled chunks of 4 + 2
+     still staged at drain time. */
+  for( ulong i=0UL; i<30UL; i++ ) {
+    uchar pk[ 32UL ] = { (uchar)(1UL+i), 0xF0 };
+    accdb_write( accdb, drop, pk, 10UL+i, NULL, 0UL, owner2 );
+  }
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==31UL );
+
+  fd_accdb_purge( accdb, drop );
+  drain_background( accdb );
+  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==30UL ); /* spill exercised */
+
+  fd_accdb_advance_root( accdb, keep ); /* drains the deferred batch */
+  drain_background( accdb );
+  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==0UL );
+
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
+  FD_TEST( accdb_read( accdb, keep, keep_pk, &lamports, &d, &data_len, owner ) );
+  FD_TEST( lamports==777UL );
+  FD_TEST( !memcmp( owner, owner2, 32UL ) );
 
   test_teardown( accdb, fd );
 }
@@ -1992,6 +2051,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_purge_deep_subtree ..." ));
   test_purge_deep_subtree();
+
+  FD_LOG_NOTICE(( "test_deferred_spill ..." ));
+  test_deferred_spill();
 
   FD_LOG_NOTICE(( "test_root_tombstones_old_version ..." ));
   test_root_tombstones_old_version();

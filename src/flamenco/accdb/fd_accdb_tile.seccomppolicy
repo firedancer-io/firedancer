@@ -3,7 +3,10 @@
 #
 # accounts_fd: The accounts database writes to a single file on disk to
 #              store account data as not all of can fit in memory.
-uint logfile_fd, uint accounts_fd, uint accdb_idx_fd
+#
+# accdb_scratch_fd: Spill file for the deferred-free buffer tail tier,
+#                   written and read back with explicit positioned I/O.
+uint logfile_fd, uint accounts_fd, uint accdb_idx_fd, uint accdb_scratch_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -33,11 +36,15 @@ pread64: (eq (arg 0) accounts_fd)
 #
 # arg 0 is the file descriptor to write to.
 pwritev2: (or (eq (arg 0) accounts_fd)
-              (eq (arg 0) accdb_idx_fd))
+              (eq (arg 0) accdb_idx_fd)
+              (eq (arg 0) accdb_scratch_fd))
 
 # accounts index: the on-disk bucket tier of the accounts index is
 # read (and for writer roles, written) with explicit positioned I/O.
-preadv2: (eq (arg 0) accdb_idx_fd)
+# The scratch spill file's deferred-free tail is read back the same
+# way at drain time.
+preadv2: (or (eq (arg 0) accdb_idx_fd)
+             (eq (arg 0) accdb_scratch_fd))
 
 # accounts database: allocate more space from the disk
 #

@@ -44,8 +44,9 @@ typedef struct fd_accdb_fork fd_accdb_fork_t;
 
 struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int fd;
-  int idx_fd; /* bucket/index file, -1 in RAM-only mode */
-  int ro;     /* readonly joiner: no shmem writes permitted */
+  int idx_fd;     /* bucket/index file, -1 in RAM-only mode          */
+  int scratch_fd; /* spill file, -1 on joiners that never run T2     */
+  int ro;         /* readonly joiner: no shmem writes permitted      */
 
   int acquire_state;
 
@@ -291,6 +292,7 @@ fd_accdb_new( void *              ljoin,
 
   accdb->fd = fd;
   accdb->idx_fd = idx_fd;
+  accdb->scratch_fd = -1;
   accdb->ro = 0;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->snapshot_loading = 0;
@@ -682,6 +684,12 @@ fd_accdb_join( void * shaccdb ) {
   return (fd_accdb_t*)shaccdb;
 }
 
+void
+fd_accdb_set_scratch_fd( fd_accdb_t * accdb,
+                         int          scratch_fd ) {
+  accdb->scratch_fd = scratch_fd;
+}
+
 fd_accdb_t *
 fd_accdb_join_readonly( void *             ljoin,
                         fd_accdb_shmem_t * shmem,
@@ -723,6 +731,7 @@ fd_accdb_join_readonly( void *             ljoin,
 
   accdb->fd     = fd_ro;
   accdb->idx_fd = idx_fd_ro;
+  accdb->scratch_fd = -1;
   accdb->ro     = 1;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
@@ -1077,6 +1086,50 @@ idx_io_write( fd_accdb_t * accdb,
   }
 }
 
+/* scratch_io_read / scratch_io_write: full-length explicit I/O on the
+   scratch spill file (deferred-free buffer tail tier).  Only reached
+   on the T2 joiner, which carries the scratch fd.  Failures and short
+   I/O abort: the spill file is fallocated to full capacity at boot,
+   so any error here is real corruption, and degrading silently would
+   narrow the deterministic FD_TEST exhaustion semantics. */
+
+static void
+scratch_io_read( fd_accdb_t * accdb,
+                 void *       buf,
+                 ulong        sz,
+                 ulong        off ) {
+  if( FD_UNLIKELY( accdb->scratch_fd<0 ) ) FD_LOG_ERR(( "deferred spill read on a joiner without the scratch fd" ));
+  ulong got = 0UL;
+  while( got<sz ) {
+    struct iovec iov = { .iov_base = (uchar *)buf+got, .iov_len = sz-got };
+    long result = preadv2( accdb->scratch_fd, &iov, 1, (long)(off+got), 0 );
+    if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
+    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "scratch pread() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accdb scratch file is corrupt, data expected at offset %lu with size %lu exceeded file extents", off+got, sz ));
+    got += (ulong)result;
+    accdb->metrics->bytes_read += (ulong)result;
+    accdb->metrics->read_ops++;
+  }
+}
+
+static void
+scratch_io_write( fd_accdb_t * accdb,
+                  void const * buf,
+                  ulong        sz,
+                  ulong        off ) {
+  if( FD_UNLIKELY( accdb->scratch_fd<0 ) ) FD_LOG_ERR(( "deferred spill write on a joiner without the scratch fd" ));
+  ulong put = 0UL;
+  while( put<sz ) {
+    struct iovec iov = { .iov_base = (void *)( (uchar const *)buf+put ), .iov_len = sz-put };
+    long result = pwritev2( accdb->scratch_fd, &iov, 1, (long)(off+put), 0 );
+    if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
+    else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "scratch pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    put += (ulong)result;
+    accdb->metrics->bytes_written += (ulong)result;
+    accdb->metrics->write_ops++;
+  }
+}
+
 /* idx_page_read: seqlock-validated read of one bucket page.  Returns
    the (even) seqlock value the page contents are consistent with.
    idx_page_read_raw skips validation (sole-writer paths: the accdb
@@ -1371,37 +1424,73 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
   /* All readers that could have been holding a captured pointer to any
      of these accs at unlink time have now exited their epoch sections.
      It is safe to materialize pool.next links and hand the chain to
-     acc_pool_release_chain. */
+     acc_pool_release_chain.
+
+     Two jobs are fused into one pass per entry (so the spilled tail
+     can stream through the stage buffer chunk by chunk):
+
+     1) Late-publish sweep: a concurrent acquire evictor may have
+        published a new offset into one of these accmetas after
+        acc_unlink's xchg-to-INVAL but before exiting its epoch.  Now
+        that the epoch has drained, any such publish is complete and
+        visible.  Free the orphaned disk bytes before the accmeta is
+        released to the pool and its fields recycled.
+
+     2) Chain link: lay pool.next of the PREVIOUS entry.  Entries are
+        distinct accmetas (an acc index is appended at most once per
+        accmeta lifetime), so linking i-1 while sweeping i touches
+        different elements; nothing reads pool.next until the chain is
+        handed to release_chain at the end.  Link order across the
+        segments below is irrelevant - the chain just collects every
+        entry. */
   uint *               buf      = accdb->deferred_acc_buf;
   fd_accdb_accmeta_t * acc_pool = accdb->acc_pool;
-
-  /* Late-publish sweep: a concurrent acquire evictor may have published
-     a new offset into one of these accmetas after acc_unlink's
-     xchg-to-INVAL but before exiting its epoch.  Now that the epoch has
-     drained, any such publish is complete and visible.  Free the
-     orphaned disk bytes here, before the accmeta is released to the
-     pool and its fields recycled. */
   ulong acc_pool_cap = acc_pool_ele_max( accdb->acc_pool_join );
-  for( ulong i=0UL; i<n; i++ ) {
-    int migrated = !!( buf[ i ] & FD_ACCDB_DEFER_MIGRATED );
-    buf[ i ] &= ~FD_ACCDB_DEFER_MIGRATED;
-    FD_TEST( (ulong)buf[ i ]<acc_pool_cap );
-    if( FD_UNLIKELY( migrated ) ) continue; /* bytes + bucket slot live on */
-    fd_accdb_accmeta_t * accmeta = &acc_pool[ buf[ i ] ];
-    ulong off = fd_accdb_acc_offset( accmeta );
-    if( FD_UNLIKELY( off!=FD_ACCDB_OFF_INVAL ) ) {
-      ulong entry_sz = (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t);
-      fd_accdb_shmem_bytes_freed( accdb->shmem, off, entry_sz );
-      FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
+  ulong resident     = accdb->shmem->deferred_acc_resident;
+  ulong stage_max    = accdb->shmem->deferred_acc_stage;
+  uint * stage       = buf + resident;
+
+  uint head = UINT_MAX;
+  uint prev = UINT_MAX;
+
+# define DEFER_CONSUME( raw ) do {                                                                          \
+    uint _v        = (raw);                                                                                 \
+    int  _migrated = !!( _v & FD_ACCDB_DEFER_MIGRATED );                                                    \
+    _v &= ~FD_ACCDB_DEFER_MIGRATED;                                                                         \
+    FD_TEST( (ulong)_v<acc_pool_cap );                                                                      \
+    if( FD_LIKELY( !_migrated ) ) { /* migrated: bytes + bucket slot live on */                             \
+      fd_accdb_accmeta_t * _accmeta = &acc_pool[ _v ];                                                      \
+      ulong _off = fd_accdb_acc_offset( _accmeta );                                                         \
+      if( FD_UNLIKELY( _off!=FD_ACCDB_OFF_INVAL ) ) {                                                       \
+        ulong _entry_sz = (ulong)FD_ACCDB_SIZE_DATA(_accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t); \
+        fd_accdb_shmem_bytes_freed( accdb->shmem, _off, _entry_sz );                                        \
+        FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, _entry_sz );                    \
+      }                                                                                                     \
+    }                                                                                                       \
+    if( FD_LIKELY( prev!=UINT_MAX ) ) acc_pool[ prev ].pool.next = acc_pool_private_cidx( (ulong)_v );      \
+    else                              head = _v;                                                            \
+    prev = _v;                                                                                              \
+  } while(0)
+
+  ulong r_end = fd_ulong_min( n, resident );
+  for( ulong i=0UL; i<r_end; i++ ) DEFER_CONSUME( buf[ i ] );
+
+  if( FD_UNLIKELY( n>resident ) ) {
+    /* Tail past the resident window: full stage chunks were pwritten
+       to the scratch file as they sealed; the final partial chunk is
+       still in the stage buffer.  Consume the RAM tail first, then
+       stream the spilled chunks back through the same stage buffer. */
+    ulong flush_wm = resident + ((n-resident)/stage_max)*stage_max; /* first unflushed index */
+    for( ulong i=flush_wm; i<n; i++ ) DEFER_CONSUME( stage[ i-flush_wm ] );
+    for( ulong base=resident; base<flush_wm; base+=stage_max ) {
+      scratch_io_read( accdb, stage, stage_max*sizeof(uint), (base-resident)*sizeof(uint) );
+      for( ulong i=0UL; i<stage_max; i++ ) DEFER_CONSUME( stage[ i ] );
     }
   }
 
-  for( ulong i=0UL; i+1UL<n; i++ ) {
-    acc_pool[ buf[ i ] ].pool.next = acc_pool_private_cidx( (ulong)buf[ i+1UL ] );
-  }
-  fd_accdb_accmeta_t * head = &acc_pool[ buf[ 0UL ] ];
-  fd_accdb_accmeta_t * tail = &acc_pool[ buf[ n-1UL ] ];
-  acc_pool_release_chain( accdb->acc_pool_join, head, tail );
+# undef DEFER_CONSUME
+
+  acc_pool_release_chain( accdb->acc_pool_join, &acc_pool[ head ], &acc_pool[ prev ] );
   FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->acc_pool_used.val, n );
   accdb->shmem->deferred_acc_buf_cnt = 0UL;
 }
@@ -1417,8 +1506,24 @@ static inline void
 deferred_acc_append( fd_accdb_t * accdb,
                      uint         acc_idx ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
-  FD_TEST( shmem->deferred_acc_buf_cnt<shmem->deferred_acc_buf_max );
-  accdb->deferred_acc_buf[ shmem->deferred_acc_buf_cnt++ ] = acc_idx;
+  ulong cnt = shmem->deferred_acc_buf_cnt;
+  FD_TEST( cnt<shmem->deferred_acc_buf_max );
+  ulong resident = shmem->deferred_acc_resident;
+  if( FD_LIKELY( cnt<resident ) ) {
+    accdb->deferred_acc_buf[ cnt ] = acc_idx;
+  } else {
+    /* Tail tier: stage in RAM, pwrite each sealed chunk to the scratch
+       file.  Positions are pure functions of cnt, so the direct cnt
+       reset in fd_accdb_reset discards spilled data for free. */
+    ulong  stage_max = shmem->deferred_acc_stage;
+    uint * stage     = accdb->deferred_acc_buf + resident;
+    ulong  pos       = (cnt-resident)%stage_max;
+    stage[ pos ] = acc_idx;
+    if( FD_UNLIKELY( pos==stage_max-1UL ) ) {
+      scratch_io_write( accdb, stage, stage_max*sizeof(uint), (cnt+1UL-stage_max-resident)*sizeof(uint) );
+    }
+  }
+  shmem->deferred_acc_buf_cnt = cnt+1UL;
 }
 
 /* acc_unlink unlinks an account from its hash map chain, frees any

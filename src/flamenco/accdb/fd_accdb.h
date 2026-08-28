@@ -25,6 +25,14 @@
 #define FD_ACCDB_IDX_FD_RW (123456)
 #define FD_ACCDB_IDX_FD_RO (123455)
 
+/* Well-known fd for the accdb scratch spill file (deferred-free buffer
+   tail tier).  Opened, fully fallocated, and unlinked by
+   initialize_accdb_fd; contents never survive a boot.  Only joiners
+   that run the T2 background work need it (see
+   fd_accdb_set_scratch_fd). */
+
+#define FD_ACCDB_SCRATCH_FD (123454)
+
 struct fd_accdb_entry {
   uchar   pubkey[ 32UL ];
   uchar   owner[ 32UL ];
@@ -97,6 +105,18 @@ fd_accdb_new( void *              ljoin,
 
 fd_accdb_t *
 fd_accdb_join( void * shaccdb );
+
+/* fd_accdb_set_scratch_fd hands this joiner an O_RDWR fd of the scratch
+   spill file (fd_accdb_scratch_sz bytes, fallocated).  Required only on
+   the joiner that runs fd_accdb_background (T2): the deferred-free
+   buffer tail past its locked RAM window spills there with explicit
+   pwrite/pread.  Joiners without it (default -1) never touch the file;
+   they would abort if a spill were ever attempted, which cannot happen
+   on non-T2 joiners. */
+
+void
+fd_accdb_set_scratch_fd( fd_accdb_t * accdb,
+                         int          scratch_fd );
 
 /* fd_accdb_join_readonly is the read-only counterpart of fd_accdb_new +
    fd_accdb_join.  shmem_ro may point into a read-only mapping of the

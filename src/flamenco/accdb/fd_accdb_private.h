@@ -303,6 +303,22 @@ fd_accdb_idx_bloom_probe( ulong * bloom,     /* NULL for test-only via const cas
 #define FD_ACCDB_IDX_STAGE_SZ    (64UL<<10)   /* per-range append stage */
 #define FD_ACCDB_IDX_CARRY_MAX   (8192UL)     /* cross-range overflow   */
 
+/* Deferred-free buffer tiering.  The buffer must hold txn_max entries
+   (worst single advance_root/purge prunes a ~max_live_slots-deep
+   competing subtree; exhaustion is FD_TEST abort), but only a small
+   window is ever populated on mainnet (~1 rooted slot of unlinks per
+   call).  Locked RAM holds the first DEFER_RESIDENT entries plus one
+   DEFER_STAGE staging chunk; past the resident window T2 pwrites full
+   stage chunks to the scratch spill file (explicit I/O, fallocated to
+   full capacity up front) and preads them back at drain.  T2 is the
+   sole writer and consumer; the spill cursor is derived entirely from
+   deferred_acc_buf_cnt so a direct cnt reset discards spilled data.
+   The stage size divides the window so drain preads are sequential
+   full chunks. */
+
+#define FD_ACCDB_DEFER_WINDOW_ELE (16UL<<20)  /* 64 MiB locked window  */
+#define FD_ACCDB_DEFER_STAGE_ELE  (2UL<<20)   /* 8 MiB spill I/O chunk */
+
 /* Demotion age threshold, in generations (~slots).  A rooted version
    is only written back to the bucket once it has gone this long
    without being superseded, so per-slot rewriters (vote accounts)
@@ -711,6 +727,13 @@ struct fd_accdb_shmem_private {
   ulong deferred_acc_buf_cnt;
   ulong deferred_acc_buf_max;
   ulong deferred_acc_epoch;
+
+  /* Deferred buffer RAM window split (see the DEFER tiering comment
+     above).  resident+stage entries are backed by the buf region;
+     stage==0 means the whole capacity is resident and no spill can
+     occur (small txn_max, tests). */
+  ulong deferred_acc_resident;
+  ulong deferred_acc_stage;
 
   /* Disk-resident index state.  index_ram_max==0 selects RAM-only mode
      (pool sized max_accounts, none of the structures below exist,

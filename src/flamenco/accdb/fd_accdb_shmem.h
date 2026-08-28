@@ -132,6 +132,14 @@ ulong
 fd_accdb_idx_bucket_sz( ulong max_accounts,
                         ulong index_ram_max );
 
+/* fd_accdb_scratch_sz returns the required size of the scratch spill
+   file (deferred-free buffer tail tier), fallocated up front at boot
+   so capacity exhaustion cannot surface as mid-run ENOSPC. */
+
+ulong
+fd_accdb_scratch_sz( ulong max_live_slots,
+                     ulong max_account_writes_per_slot );
+
 fd_accdb_shmem_t *
 fd_accdb_shmem_join( void * shtc );
 

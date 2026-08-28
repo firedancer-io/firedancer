@@ -64,6 +64,8 @@ struct fd_accdb_shmem_layout {
   ulong pool_max;
   ulong chain_cnt;
   ulong txn_max;
+  ulong defer_resident;
+  ulong defer_stage;
   ulong delta_chain_cnt;
   ulong hot_chain_cnt;
   ulong npage;
@@ -137,6 +139,16 @@ fd_accdb_shmem_layout( fd_accdb_shmem_layout_t * out,
   if( FD_UNLIKELY( txn_max/max_account_writes_per_slot!=max_live_slots ) ) return 0UL;
   if( FD_UNLIKELY( txn_max>=UINT_MAX                        ) ) return 0UL;
 
+  /* Deferred buffer RAM window: full capacity resident when it fits,
+     else a 64 MiB window (56 MiB resident + 8 MiB spill stage) with
+     the tail in the scratch spill file. */
+  ulong defer_resident = txn_max;
+  ulong defer_stage    = 0UL;
+  if( txn_max>FD_ACCDB_DEFER_WINDOW_ELE ) {
+    defer_resident = FD_ACCDB_DEFER_WINDOW_ELE-FD_ACCDB_DEFER_STAGE_ELE;
+    defer_stage    = FD_ACCDB_DEFER_STAGE_ELE;
+  }
+
   ulong descends_fp = descends_set_footprint( max_live_slots );
   if( FD_UNLIKELY( !descends_fp                          ) ) return 0UL;
   if( FD_UNLIKELY( max_live_slots>ULONG_MAX/descends_fp  ) ) return 0UL;
@@ -176,6 +188,8 @@ fd_accdb_shmem_layout( fd_accdb_shmem_layout_t * out,
   lo->pool_max        = pool_max;
   lo->chain_cnt       = chain_cnt;
   lo->txn_max         = txn_max;
+  lo->defer_resident  = defer_resident;
+  lo->defer_stage     = defer_stage;
   lo->delta_chain_cnt = delta_chain_cnt;
   lo->hot_chain_cnt   = hot_chain_cnt;
   lo->npage           = npage;
@@ -207,7 +221,7 @@ fd_accdb_shmem_layout( fd_accdb_shmem_layout_t * out,
   lo->deferred_free_dlist_off = fd_ulong_align_up( l, deferred_free_dlist_align() );
   l = FD_LAYOUT_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                      );
   lo->deferred_acc_buf_off = fd_ulong_align_up( l, alignof(uint) );
-  l = FD_LAYOUT_APPEND( l, alignof(uint),            txn_max*sizeof(uint)                                    );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),            (defer_resident+defer_stage)*sizeof(uint)               );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     lo->cache_region_off[ c ] = fd_ulong_align_up( l, FD_ACCDB_CACHE_META_SZ );
     l = FD_LAYOUT_APPEND( l, FD_ACCDB_CACHE_META_SZ, cache_class_max[c]*fd_accdb_cache_slot_sz[c]            );
@@ -233,6 +247,15 @@ fd_accdb_shmem_layout( fd_accdb_shmem_layout_t * out,
   ulong footprint = FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
   if( out ) *out = *lo;
   return footprint;
+}
+
+ulong
+fd_accdb_scratch_sz( ulong max_live_slots,
+                     ulong max_account_writes_per_slot ) {
+  ulong txn_max = max_live_slots*max_account_writes_per_slot;
+  /* Deferred-free spill region: full capacity so the FD_TEST
+     exhaustion bound is never narrowed by the tiering. */
+  return txn_max*sizeof(uint);
 }
 
 ulong
@@ -515,6 +538,8 @@ fd_accdb_shmem_new( void * shmem,
   accdb->deferred_acc_buf_cnt = 0UL;
   accdb->deferred_acc_buf_max = txn_max;
   accdb->deferred_acc_epoch   = 0UL;
+  accdb->deferred_acc_resident = lo->defer_resident;
+  accdb->deferred_acc_stage    = lo->defer_stage;
 
   /* Disk-resident index state and region offsets. */
   accdb->index_ram_max    = index_ram_max;

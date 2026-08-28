@@ -4,6 +4,7 @@
 #include "../../../../flamenco/stakes/fd_stake_delegations.h"
 #include "../../../../flamenco/rewards/fd_stake_rewards.h"
 #include "../../../../flamenco/runtime/fd_txncache_shmem.h"
+#include "../../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../../disco/pack/fd_pack_cost.h"
 
 #include <sys/wait.h>
@@ -456,6 +457,11 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RW, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
+        /* Scratch spill file: only the accdb tile (T2 background work)
+           touches it. */
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_SCRATCH_FD, F_SETFD, !strcmp( tile->name, "accdb" ) ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         } else {
@@ -519,6 +525,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_SCRATCH_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     for( ulong j=0UL; j<snap_max; j++ ) {
       if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( snapshot_dio_enabled )
@@ -1035,6 +1042,27 @@ initialize_accdb_fd( config_t const * config ) {
     if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==dup2( spill_fd, spills[ i ].fd ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  /* accdb scratch spill file (deferred-free buffer tail tier).
+     Contents never survive a boot, so it is unlinked immediately like
+     the banks spill files.  Fully fallocated up front so capacity
+     exhaustion cannot surface as mid-run ENOSPC. */
+  {
+    char spill_path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s.accscratch", config->paths.accounts ) );
+    int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+    ulong scratch_sz = fd_accdb_scratch_sz( config->firedancer.runtime.max_live_slots, FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT );
+    if( FD_UNLIKELY( -1==fallocate( spill_fd, 0, 0L, (long)scratch_sz ) ) ) {
+      if( FD_LIKELY( errno==ENOSPC ) ) FD_LOG_ERR(( "fallocate() failed (%d-%s). The accounts database scratch file needs "
+                                                    "%lu GiB of disk space at `%s`. Free up disk space to continue.",
+                                                    errno, fd_io_strerror( errno ), (scratch_sz+(1UL<<30)-1UL)>>30, spill_path ));
+      else FD_LOG_ERR(( "fallocate() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( -1==dup2( spill_fd, FD_ACCDB_SCRATCH_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
