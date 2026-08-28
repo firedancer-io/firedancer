@@ -157,6 +157,12 @@ union fdctl_args {
 
   struct {
     char topo[ 64 ];
+    char tile[ 256 ];
+    int  tail;
+  } events;
+
+  struct {
+    char topo[ 64 ];
     int  sort;
     int  json;
   } mem;

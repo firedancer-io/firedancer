@@ -175,6 +175,7 @@ extern action_t fd_action_mem;
 extern action_t fd_action_netconf;
 extern action_t fd_action_help;
 extern action_t fd_action_metrics;
+extern action_t fd_action_events;
 extern action_t fd_action_version;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_watch;
@@ -197,6 +198,7 @@ action_t * ACTIONS[] = {
   &fd_action_netconf,
   &fd_action_help,
   &fd_action_metrics,
+  &fd_action_events,
   &fd_action_version,
   &fd_action_shred_version,
   &fd_action_add_authorized_voter,
