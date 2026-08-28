@@ -19,12 +19,13 @@ fd_genesis_client_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_genesis_client_footprint( void ) {
-  return sizeof(fd_genesis_client_t);
+fd_genesis_client_footprint( ulong peer_max ) {
+  return sizeof(fd_genesis_client_t) + peer_max*sizeof(fd_genesis_client_peer_t);
 }
 
 void *
-fd_genesis_client_new( void * shmem ) {
+fd_genesis_client_new( void * shmem,
+                       ulong  peer_max ) {
   fd_genesis_client_t * gen = (fd_genesis_client_t *)shmem;
 
   if( FD_UNLIKELY( !shmem ) ) {
@@ -36,6 +37,13 @@ fd_genesis_client_new( void * shmem ) {
     FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
   }
+
+  if( FD_UNLIKELY( peer_max>FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ) ) {
+    FD_LOG_WARNING(( "peer_max too large" ));
+    return NULL;
+  }
+
+  gen->peer_max = peer_max;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( gen->magic ) = FD_GENESIS_CLIENT_MAGIC;
@@ -70,7 +78,7 @@ void
 fd_genesis_client_init( fd_genesis_client_t * client,
                         fd_ip4_port_t const * servers,
                         ulong                 servers_len ) {
-  FD_TEST( servers_len<=FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
+  FD_TEST( servers_len<=client->peer_max );
   ulong peer_cnt = 0UL;
 
   for( ulong i=0UL; i<servers_len; i++ ) {

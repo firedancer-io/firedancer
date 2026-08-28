@@ -102,7 +102,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t )    );
-  l = FD_LAYOUT_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint( tile->genesi.entrypoints_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
   if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) ) {
     l = FD_LAYOUT_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->genesi.max_live_slots ) );
@@ -427,7 +427,7 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_genesi_tile_t * ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t )    );
-  fd_genesis_client_t * _client = FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
+  fd_genesis_client_t * _client = FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint( tile->genesi.entrypoints_cnt ) );
 
   fd_memset( ctx, 0, sizeof( fd_genesi_tile_t ) );
 
@@ -476,7 +476,7 @@ privileged_init( fd_topo_t const *      topo,
           if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
           ctx->local_genesis = 0;
-          ctx->client = fd_genesis_client_join( fd_genesis_client_new( _client ) );
+          ctx->client = fd_genesis_client_join( fd_genesis_client_new( _client, tile->genesi.entrypoints_cnt ) );
           FD_TEST( ctx->client );
 
           fd_dns_resolve_peers( tile->genesi.entrypoints[ 0 ], sizeof(tile->genesi.entrypoints[ 0 ]), tile->genesi.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
@@ -498,7 +498,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t )                        );
-                           FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint()                     );
+                           FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint( tile->genesi.entrypoints_cnt ) );
   void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()                              );
   void * _accdb          = !tile->genesi.entrypoints_cnt ?
                            FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->genesi.max_live_slots ) ) :

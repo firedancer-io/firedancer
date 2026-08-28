@@ -20,11 +20,13 @@ struct fd_genesis_client_private {
   long start_time_nanos;
   ulong peer_cnt;
   ulong remaining_peer_cnt;
+  ulong peer_max;
 
   struct pollfd pollfds[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
-  fd_genesis_client_peer_t peers[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
   ulong magic;
+
+  fd_genesis_client_peer_t peers[]; /* peer_max entries */
 };
 
 #endif /* HEADER_fd_src_discof_genesis_fd_genesis_client_private_h */

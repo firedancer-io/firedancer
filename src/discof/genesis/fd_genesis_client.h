@@ -13,11 +13,15 @@ typedef struct fd_genesis_client_private fd_genesis_client_t;
 FD_FN_CONST ulong
 fd_genesis_client_align( void );
 
+/* peer_max is the number of concurrent download peers provisioned,
+   at most FD_TOPO_GOSSIP_ENTRYPOINTS_MAX. */
+
 FD_FN_CONST ulong
-fd_genesis_client_footprint( void );
+fd_genesis_client_footprint( ulong peer_max );
 
 void *
-fd_genesis_client_new( void * shmem );
+fd_genesis_client_new( void * shmem,
+                       ulong  peer_max );
 
 fd_genesis_client_t *
 fd_genesis_client_join( void * shgen );
