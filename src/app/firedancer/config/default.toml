@@ -1380,7 +1380,7 @@ telemetry = true
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 131072
+        max_concurrent_connections = 16384
 
         # Controls how many transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
