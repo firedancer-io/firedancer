@@ -251,6 +251,7 @@ fd_topo_initialize( config_t * config ) {
   int alpenglow_enabled = config->firedancer.development.alpenglow;
 
   char const * repair = alpenglow_enabled ? "rotor" : "repair";
+  char const * poh    = alpenglow_enabled ? "motor" : "poh";
 
   if( FD_UNLIKELY( snapmk_enabled ) ) {
     FD_CHECK_ERR( config->firedancer.snapshots.max_full_snapshots_to_keep,
@@ -293,7 +294,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "resolv" );
     fd_topob_wksp( topo, "pack"   );
     fd_topob_wksp( topo, "execle" );
-    fd_topob_wksp( topo, "poh"    );
+    fd_topob_wksp( topo, poh      );
   } else {
     execle_tile_cnt = 0UL;
     resolv_tile_cnt = 0UL;
@@ -586,7 +587,7 @@ fd_topo_initialize( config_t * config ) {
     FOR(resolv_tile_cnt) fd_topob_tile( topo, "resolv",  "resolv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,               0 );
     /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        config->tiles.bundle.enabled, 0 );
     FOR(execle_tile_cnt) fd_topob_tile( topo, "execle",  "execle",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,               0 );
-    /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,               0 );
+    /**/                 fd_topob_tile( topo, poh,       poh,       "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,               0 );
   }
   FOR(sign_tile_cnt)   fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,               1 );
 
@@ -773,11 +774,14 @@ fd_topo_initialize( config_t * config ) {
     if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
       FOR(execle_tile_cnt)fd_topob_tile_out(topo, "execle",  i,                         "execle_pack",   i                                                  );
     }
-    FOR(execle_tile_cnt) fd_topob_tile_in ( topo, "poh",     0UL,          "metric_in", "execle_poh",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in ( topo, "poh",     0UL,          "metric_in", "pack_poh",      0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in ( topo, "poh",     0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_out( topo, "poh",     0UL,                       "poh_shred",     0UL                                                );
-    /**/                 fd_topob_tile_out( topo, "poh",     0UL,                       "poh_replay",    0UL                                                );
+    FOR(execle_tile_cnt) fd_topob_tile_in ( topo, poh,       0UL,          "metric_in", "execle_poh",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in ( topo, poh,       0UL,          "metric_in", "pack_poh",      0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in ( topo, poh,       0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    if( alpenglow_enabled ) {
+      /**/               fd_topob_tile_in ( topo, poh,       0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    }
+    /**/                 fd_topob_tile_out( topo, poh,       0UL,                       "poh_shred",     0UL                                                );
+    /**/                 fd_topob_tile_out( topo, poh,       0UL,                       "poh_replay",    0UL                                                );
     FOR(shred_tile_cnt)  fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "poh_shred",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
@@ -1019,8 +1023,8 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( leader_enabled ) {
-    fd_topo_obj_t * ldr_tt_obj = fd_topob_obj( topo, "ldr_tt", "poh" );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "poh",    0UL ) ], ldr_tt_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topo_obj_t * ldr_tt_obj = fd_topob_obj( topo, "ldr_tt", poh );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, poh,      0UL ) ], ldr_tt_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], ldr_tt_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
     FD_TEST( fd_pod_insertf_ulong( topo->props, ldr_tt_obj->id, "ldr_tt" ) );
   }
@@ -1700,6 +1704,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );
 
     tile->poh.execle_cnt = config->firedancer.layout.execle_tile_count;
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "motor" ) ) ) {
+    fd_cstr_ncpy( tile->motor.identity_key_path, config->paths.identity_key, sizeof(tile->motor.identity_key_path) );
+
+    tile->motor.execle_cnt = config->firedancer.layout.execle_tile_count;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
 

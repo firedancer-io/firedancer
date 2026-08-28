@@ -380,6 +380,11 @@ struct fd_topo_tile {
     } poh;
 
     struct {
+      ulong execle_cnt;
+      char  identity_key_path[ PATH_MAX ];
+    } motor;
+
+    struct {
       ulong             depth;
       ulong             fec_resolver_depth;
       char              identity_key_path[ PATH_MAX ];

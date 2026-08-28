@@ -406,6 +406,7 @@ static char const * POST_START[] = {
   "accdb",  /* FIREDANCER only */
   "execle", /* FIREDANCER only */
   "poh",    /* FIREDANCER only */
+  "motor",  /* FIREDANCER only */
   "execrp", /* FIREDANCER only */
   "txsend", /* FIREDANCER only */
   "solcap", /* FIREDANCER only */
@@ -454,6 +455,7 @@ static char const * ALWAYS[] = {
 static char const * CRITICAL_TILES[] = {
   "pack",
   "poh",
+  "motor",
   "pohh",
   "gui",
   "guih",
