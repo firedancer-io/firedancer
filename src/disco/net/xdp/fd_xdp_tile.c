@@ -1725,7 +1725,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->repair_client_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair intake port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
+  } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->rserve_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->neigh4_solicit->mcache==NULL ) ) {
     FD_LOG_ERR(( "netlink request link not found" ));
