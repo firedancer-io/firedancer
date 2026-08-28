@@ -184,9 +184,19 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     FD_LOG_ERR(( "fd_sbpf_program_new() failed" ));
   }
 
-  /* Load program */
-  void * scratch = instr_ctx->runtime->bpf_loader_program.programdata;
+  /* Load program.  The scratch slot comes from the shared deploy pool
+     (bounded FIFO wait; deploys are rare) and is released as soon as
+     the load returns: the verify VM below reads only prog->rodata/
+     text.  A held serialization bundle may wait on this pool but a
+     slot holder never waits on anything, so the strict ser-bundle-
+     before-deploy-scratch order stays deadlock free. */
+  fd_bpf_ser_arena_t * deploy_pool = instr_ctx->runtime->bpf_loader_program.deploy_pool;
+  uchar * scratch = deploy_pool ? fd_bpf_ser_arena_acquire( deploy_pool ) : instr_ctx->runtime->bpf_loader_program.programdata;
+  if( FD_UNLIKELY( !scratch ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
   int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch, programdata_size );
+  if( deploy_pool ) fd_bpf_ser_arena_release( deploy_pool, scratch );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }

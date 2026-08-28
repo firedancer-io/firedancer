@@ -18,9 +18,9 @@ alloc_aligned( ulong align, ulong sz ) {
 static void
 test_arena_fifo( void ) {
   ulong bundle_cnt = 2UL;
-  ulong frame_cnt  = FD_MAX_INSTRUCTION_STACK_DEPTH-1UL;
-  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( bundle_cnt, frame_cnt ) );
-  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, bundle_cnt, frame_cnt ) );
+  ulong slot_sz    = FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH-1UL );
+  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( bundle_cnt, slot_sz ) );
+  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, bundle_cnt, slot_sz ) );
   FD_TEST( arena );
 
   /* First bundle_cnt tickets acquire immediately */
@@ -55,7 +55,7 @@ test_arena_fifo( void ) {
 
   /* Full bundle write: every frame slot addressable at full footprint */
   uchar * b = fd_bpf_ser_arena_acquire( arena );
-  memset( b, 0x5a, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( frame_cnt ) );
+  memset( b, 0x5a, slot_sz );
   fd_bpf_ser_arena_release( arena, b );
 
   free( mem );
@@ -69,8 +69,8 @@ test_window_promotion( void ) {
   ulong  window_cap = FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP );
   void * window     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, window_cap );
   void * frame1     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, BPF_LOADER_SERIALIZATION_FOOTPRINT );
-  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH-1UL ) );
-  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH-1UL ) );
+  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH-1UL ) ) );
+  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH-1UL ) ) );
   fd_runtime_bpf_ser_init( runtime, arena, frame1, BPF_LOADER_SERIALIZATION_FOOTPRINT, window, window_cap );
   FD_TEST( runtime->bpf_loader_serialization.bundle_first_depth==2UL );
 
@@ -145,8 +145,8 @@ test_depth1_promote( void ) {
   void * frame1     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, frame1_cap );
   ulong  window_cap = FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP );
   void * window     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, window_cap );
-  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ) );
-  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ) );
+  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH ) ) );
+  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH ) ) );
   fd_runtime_bpf_ser_init( runtime, arena, frame1, frame1_cap, window, window_cap );
   FD_TEST( runtime->bpf_loader_serialization.bundle_first_depth==1UL );
 
