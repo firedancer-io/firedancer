@@ -695,6 +695,9 @@
 | <span class="metrics-name">execle_&#8203;txncache_&#8203;operation_&#8203;stalled</span> | counter | Transaction cache queries and inserts by this tile that fell back to the exclusive lock, stalling every tile; pages they load are read while holding it |
 | <span class="metrics-name">execle_&#8203;txncache_&#8203;query_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache query |
 | <span class="metrics-name">execle_&#8203;txncache_&#8203;insert_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache insert |
+| <span class="metrics-name">execle_&#8203;ser_&#8203;arena_&#8203;promoted</span> | counter | Transactions promoted to a full-size shared BPF serialization arena bundle |
+| <span class="metrics-name">execle_&#8203;ser_&#8203;top_&#8203;frame_&#8203;peak_&#8203;bytes</span> | gauge | Largest top-level (depth 1) BPF serialization frame observed |
+| <span class="metrics-name">execle_&#8203;ser_&#8203;window_&#8203;peak_&#8203;bytes</span> | gauge | Largest deep-CPI (depth 2+) BPF serialization window fill observed |
 
 </div>
 
@@ -1395,6 +1398,9 @@
 | <span class="metrics-name">execrp_&#8203;txncache_&#8203;operation_&#8203;stalled</span> | counter | Transaction cache queries and inserts by this tile that fell back to the exclusive lock, stalling every tile; pages they load are read while holding it |
 | <span class="metrics-name">execrp_&#8203;txncache_&#8203;query_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache query |
 | <span class="metrics-name">execrp_&#8203;txncache_&#8203;insert_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache insert |
+| <span class="metrics-name">execrp_&#8203;ser_&#8203;arena_&#8203;promoted</span> | counter | Transactions promoted to a full-size shared BPF serialization arena bundle |
+| <span class="metrics-name">execrp_&#8203;ser_&#8203;top_&#8203;frame_&#8203;peak_&#8203;bytes</span> | gauge | Largest top-level (depth 1) BPF serialization frame observed |
+| <span class="metrics-name">execrp_&#8203;ser_&#8203;window_&#8203;peak_&#8203;bytes</span> | gauge | Largest deep-CPI (depth 2+) BPF serialization window fill observed |
 
 </div>
 

@@ -832,6 +832,9 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="TxncacheInsertDurationNanos" min="10" max="100000000" source="ticks">
         <summary>Duration of one transaction cache insert</summary>
     </histogram>
+    <counter name="SerArenaPromoted" summary="Transactions promoted to a full-size shared BPF serialization arena bundle" />
+    <gauge name="SerTopFramePeakBytes" summary="Largest top-level (depth 1) BPF serialization frame observed" />
+    <gauge name="SerWindowPeakBytes" summary="Largest deep-CPI (depth 2+) BPF serialization window fill observed" />
 </tile>
 
 <enum name="ShredProcessResult">
@@ -1872,6 +1875,9 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="TxncacheInsertDurationNanos" min="10" max="100000000" source="ticks">
         <summary>Duration of one transaction cache insert</summary>
     </histogram>
+    <counter name="SerArenaPromoted" summary="Transactions promoted to a full-size shared BPF serialization arena bundle" />
+    <gauge name="SerTopFramePeakBytes" summary="Largest top-level (depth 1) BPF serialization frame observed" />
+    <gauge name="SerWindowPeakBytes" summary="Largest deep-CPI (depth 2+) BPF serialization window fill observed" />
 </tile>
 
 <tile name="benchs" telemetry="false">

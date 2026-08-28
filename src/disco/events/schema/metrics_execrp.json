@@ -398,6 +398,9 @@
                 "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
-        }
+        },
+        "ser_arena_promoted":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions promoted to a full-size shared BPF serialization arena bundle", "field_number": 404257351 },
+        "ser_top_frame_peak_bytes":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Largest top-level (depth 1) BPF serialization frame observed", "field_number": 508947539 },
+        "ser_window_peak_bytes":         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Largest deep-CPI (depth 2+) BPF serialization window fill observed", "field_number": 318525759 }
     }
 }

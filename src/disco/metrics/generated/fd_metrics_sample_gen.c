@@ -1115,7 +1115,7 @@ static fd_metrics_sample_field_t const fields_pack[ 316 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_execle[ 247 ] = {
+static fd_metrics_sample_field_t const fields_execle[ 250 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1363,6 +1363,9 @@ static fd_metrics_sample_field_t const fields_execle[ 247 ] = {
   { FD_METRICS_HISTOGRAM_EXECLE_TXNCACHE_INSERT_DURATION_NANOS_OFF+15, 16U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_HISTOGRAM_EXECLE_TXNCACHE_INSERT_DURATION_NANOS_OFF+16, 17U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
+  { FD_METRICS_COUNTER_EXECLE_SER_ARENA_PROMOTED_OFF, 326957234U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_EXECLE_SER_TOP_FRAME_PEAK_BYTES_OFF, 417114236U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_EXECLE_SER_WINDOW_PEAK_BYTES_OFF, 317203779U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_shred[ 177 ] = {
@@ -3426,7 +3429,7 @@ static fd_metrics_sample_field_t const fields_ipecho[ 55 ] = {
   { FD_METRICS_GAUGE_IPECHO_PORT_CHECK_TCP_IN_FLIGHT_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_execrp[ 244 ] = {
+static fd_metrics_sample_field_t const fields_execrp[ 247 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -3671,6 +3674,9 @@ static fd_metrics_sample_field_t const fields_execrp[ 244 ] = {
   { FD_METRICS_HISTOGRAM_EXECRP_TXNCACHE_INSERT_DURATION_NANOS_OFF+15, 16U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_HISTOGRAM_EXECRP_TXNCACHE_INSERT_DURATION_NANOS_OFF+16, 17U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
+  { FD_METRICS_COUNTER_EXECRP_SER_ARENA_PROMOTED_OFF, 404257351U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_EXECRP_SER_TOP_FRAME_PEAK_BYTES_OFF, 508947539U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_EXECRP_SER_WINDOW_PEAK_BYTES_OFF, 318525759U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_votor[ 357 ] = {
@@ -4665,7 +4671,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "dedup", 28U, fields_dedup, 43UL, 552UL },
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
   { "pack", 30U, fields_pack, 316UL, 3355UL },
-  { "execle", 31U, fields_execle, 247UL, 2599UL },
+  { "execle", 31U, fields_execle, 250UL, 2644UL },
   { "shred", 32U, fields_shred, 177UL, 1962UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
   { "replay", 34U, fields_replay, 296UL, 3164UL },
@@ -4687,7 +4693,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "waker", 50U, fields_waker, 40UL, 536UL },
   { "mwaitx", 51U, fields_mwaitx, 44UL, 564UL },
   { "ipecho", 52U, fields_ipecho, 55UL, 674UL },
-  { "execrp", 53U, fields_execrp, 244UL, 2575UL },
+  { "execrp", 53U, fields_execrp, 247UL, 2620UL },
   { "votor", 54U, fields_votor, 357UL, 3719UL },
   { "gui", 55U, fields_gui, 298UL, 3184UL },
   { "event", 56U, fields_event, 54UL, 699UL },

@@ -120,6 +120,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
+  l = FD_LAYOUT_APPEND(   l, FD_RUNTIME_EBPF_HOST_ALIGN,   FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT                          );
   l = FD_LAYOUT_APPEND(   l, FD_RUNTIME_EBPF_HOST_ALIGN,   FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP ) );
   l = FD_LAYOUT_APPEND(   l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
 
@@ -175,6 +176,10 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET  ( EXECRP, TXNCACHE_OPERATION_STALLED,      txncache->stalled_cnt     );
   FD_MHIST_COPY( EXECRP, TXNCACHE_QUERY_DURATION_NANOS,   txncache->query_ticks     );
   FD_MHIST_COPY( EXECRP, TXNCACHE_INSERT_DURATION_NANOS,  txncache->insert_ticks    );
+
+  FD_MCNT_SET  ( EXECRP, SER_ARENA_PROMOTED,       runtime->bpf_loader_serialization.promote_cnt      );
+  FD_MGAUGE_SET( EXECRP, SER_TOP_FRAME_PEAK_BYTES, runtime->bpf_loader_serialization.frame1_watermark );
+  FD_MGAUGE_SET( EXECRP, SER_WINDOW_PEAK_BYTES,    runtime->bpf_loader_serialization.window_watermark );
 
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -448,6 +453,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_execrp_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
+  void * _bpfser_frame1     = FD_SCRATCH_ALLOC_APPEND( l, FD_RUNTIME_EBPF_HOST_ALIGN,   FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT                          );
   void * _bpfser_window     = FD_SCRATCH_ALLOC_APPEND( l, FD_RUNTIME_EBPF_HOST_ALIGN,   FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP ) );
   void * _ed25519_cache     = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
 
@@ -518,7 +524,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( tile->execrp.bpfser_arena_obj_id!=ULONG_MAX );
   fd_bpf_ser_arena_t * bpfser_arena = fd_bpf_ser_arena_join( fd_topo_obj_laddr( topo, tile->execrp.bpfser_arena_obj_id ) );
   FD_TEST( bpfser_arena );
-  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena, _bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP ) );
+  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena,
+                           _bpfser_frame1, FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT,
+                           _bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP ) );
 
 
   /* First find and setup the in-link from replay to exec. */

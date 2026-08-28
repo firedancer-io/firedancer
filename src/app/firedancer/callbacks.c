@@ -233,7 +233,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_footer_cache = {
 static ulong
 bpfser_arena_footprint( fd_topo_t const *     topo,
                         fd_topo_obj_t const * obj ) {
-  return fd_bpf_ser_arena_footprint( VAL("bundle_cnt") );
+  return fd_bpf_ser_arena_footprint( VAL("bundle_cnt"), VAL("frame_cnt") );
 }
 
 static ulong
@@ -245,7 +245,7 @@ bpfser_arena_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 bpfser_arena_new( fd_topo_t const *     topo,
                   fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_bpf_ser_arena_new( fd_topo_obj_laddr( topo, obj->id ), VAL("bundle_cnt") ) );
+  FD_TEST( fd_bpf_ser_arena_new( fd_topo_obj_laddr( topo, obj->id ), VAL("bundle_cnt"), VAL("frame_cnt") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_bpfser_arena = {

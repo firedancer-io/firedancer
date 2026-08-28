@@ -18,8 +18,9 @@ alloc_aligned( ulong align, ulong sz ) {
 static void
 test_arena_fifo( void ) {
   ulong bundle_cnt = 2UL;
-  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( bundle_cnt ) );
-  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, bundle_cnt ) );
+  ulong frame_cnt  = FD_MAX_INSTRUCTION_STACK_DEPTH-1UL;
+  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( bundle_cnt, frame_cnt ) );
+  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, bundle_cnt, frame_cnt ) );
   FD_TEST( arena );
 
   /* First bundle_cnt tickets acquire immediately */
@@ -54,7 +55,7 @@ test_arena_fifo( void ) {
 
   /* Full bundle write: every frame slot addressable at full footprint */
   uchar * b = fd_bpf_ser_arena_acquire( arena );
-  memset( b, 0x5a, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT );
+  memset( b, 0x5a, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( frame_cnt ) );
   fd_bpf_ser_arena_release( arena, b );
 
   free( mem );
@@ -67,9 +68,11 @@ test_window_promotion( void ) {
 
   ulong  window_cap = FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP );
   void * window     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, window_cap );
-  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL ) );
-  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL ) );
-  fd_runtime_bpf_ser_init( runtime, arena, window, window_cap );
+  void * frame1     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, BPF_LOADER_SERIALIZATION_FOOTPRINT );
+  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH-1UL ) );
+  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH-1UL ) );
+  fd_runtime_bpf_ser_init( runtime, arena, frame1, BPF_LOADER_SERIALIZATION_FOOTPRINT, window, window_cap );
+  FD_TEST( runtime->bpf_loader_serialization.bundle_first_depth==2UL );
 
   uchar * buf; ulong cap;
 
@@ -84,6 +87,7 @@ test_window_promotion( void ) {
   FD_TEST( cap==window_cap );
   ulong d2_sz = window_cap-4096UL;
   fd_runtime_bpf_ser_frame_commit( runtime, 2UL, d2_sz );
+  FD_TEST( runtime->bpf_loader_serialization.window_watermark==fd_ulong_align_up( d2_sz, FD_RUNTIME_EBPF_HOST_ALIGN ) );
 
   /* Depth 3 sees only the leftover window */
   fd_runtime_bpf_ser_frame_begin( runtime, 3UL, &buf, &cap );
@@ -123,10 +127,73 @@ test_window_promotion( void ) {
   FD_TEST( cap==window_cap );
   fd_runtime_bpf_ser_reset( runtime );
 
+  FD_TEST( runtime->bpf_loader_serialization.promote_cnt==1UL );
+
   free( mem );
+  free( frame1 );
   free( window );
   free( runtime );
   FD_LOG_NOTICE(( "test_window_promotion: pass" ));
+}
+
+static void
+test_depth1_promote( void ) {
+  fd_runtime_t * runtime = (fd_runtime_t *)alloc_aligned( 4096UL, sizeof(fd_runtime_t) );
+
+  /* Replay-tile shape: windowed frame1, 5-frame single-bundle arena */
+  ulong  frame1_cap = FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT;
+  void * frame1     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, frame1_cap );
+  ulong  window_cap = FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP );
+  void * window     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, window_cap );
+  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ) );
+  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ) );
+  fd_runtime_bpf_ser_init( runtime, arena, frame1, frame1_cap, window, window_cap );
+  FD_TEST( runtime->bpf_loader_serialization.bundle_first_depth==1UL );
+
+  uchar * buf; ulong cap;
+
+  /* Depth 1 serializes into the windowed frame1 */
+  fd_runtime_bpf_ser_frame_begin( runtime, 1UL, &buf, &cap );
+  FD_TEST( buf==runtime->bpf_loader_serialization.frame1 );
+  FD_TEST( cap==frame1_cap );
+
+  /* An oversized top-level instruction promotes to bundle frame 0 */
+  uchar * b1 = fd_runtime_bpf_ser_frame_promote( runtime, 1UL );
+  FD_TEST( runtime->bpf_loader_serialization.bundle );
+  FD_TEST( b1==runtime->bpf_loader_serialization.bundle );
+  FD_TEST( runtime->bpf_loader_serialization.promote_cnt==1UL );
+
+  /* A held bundle is preferred at every depth, depth 1 included */
+  fd_runtime_bpf_ser_frame_begin( runtime, 1UL, &buf, &cap );
+  FD_TEST( buf==runtime->bpf_loader_serialization.bundle );
+  FD_TEST( cap==BPF_LOADER_SERIALIZATION_FOOTPRINT );
+  fd_runtime_bpf_ser_frame_begin( runtime, 3UL, &buf, &cap );
+  FD_TEST( buf==runtime->bpf_loader_serialization.bundle+2UL*BPF_LOADER_SERIALIZATION_FOOTPRINT );
+  FD_TEST( cap==BPF_LOADER_SERIALIZATION_FOOTPRINT );
+  uchar * b5 = fd_runtime_bpf_ser_frame_promote( runtime, FD_MAX_INSTRUCTION_STACK_DEPTH );
+  FD_TEST( b5==runtime->bpf_loader_serialization.bundle+(FD_MAX_INSTRUCTION_STACK_DEPTH-1UL)*BPF_LOADER_SERIALIZATION_FOOTPRINT );
+  FD_TEST( runtime->bpf_loader_serialization.promote_cnt==1UL ); /* no re-promote */
+
+  /* Sole bundle held: the next txn's ticket queues until txn end */
+  ulong t = fd_bpf_ser_arena_ticket( arena );
+  FD_TEST( !fd_bpf_ser_arena_ready( arena, t ) );
+  fd_runtime_bpf_ser_reset( runtime );
+  FD_TEST( !runtime->bpf_loader_serialization.bundle );
+  FD_TEST( fd_bpf_ser_arena_ready( arena, t ) );
+  uchar * b = fd_bpf_ser_arena_wait( arena, t );
+  memset( b, 0x5a, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH ) );
+  fd_bpf_ser_arena_release( arena, b );
+
+  /* Next txn starts back in the windowed frame1 */
+  fd_runtime_bpf_ser_frame_begin( runtime, 1UL, &buf, &cap );
+  FD_TEST( buf==runtime->bpf_loader_serialization.frame1 );
+  FD_TEST( cap==frame1_cap );
+
+  free( mem );
+  free( window );
+  free( frame1 );
+  free( runtime );
+  FD_LOG_NOTICE(( "test_depth1_promote: pass" ));
 }
 
 static void
@@ -187,6 +254,7 @@ main( int     argc,
 
   test_arena_fifo();
   test_window_promotion();
+  test_depth1_promote();
   test_serialize_full();
 
   FD_LOG_NOTICE(( "pass" ));
