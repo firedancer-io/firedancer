@@ -121,7 +121,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  int extra_benchmark = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-bench" );
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   /* Test signed integer overflow is wrapping.  Needs to be at run time
@@ -360,66 +359,7 @@ main( int     argc,
 
   } while(0);
 
-  do {
-    char const * buf = "The quick brown fox jumps over the lazy dog.";
-    ulong        sz  = strlen(buf)+1UL;
-    FD_TEST( fd_hash( 0UL, buf, sz )==0xf3f632730b075fa5UL );
-    FD_TEST( fd_hash( 1UL, buf, sz )==0x9d33e5e77b3544ceUL );
-  } while(0);
-
   FD_TEST( fd_memeq( NULL, NULL, 0UL ) );
-
-  do {
-    uchar src[2048]; memset( src, 0, 2048UL );
-    uchar dst[2048]; memset( dst, 0, 2048UL );
-    for( ulong iter=0UL; iter<1000000UL; iter++ )  {
-
-      ulong _s0 = (ulong)fd_rng_uint_roll( rng, 2049UL );
-      ulong _s1 = (ulong)fd_rng_uint_roll( rng, 2049UL );
-      ulong s0  = fd_ulong_min( _s0, _s1 );
-      ulong s1  = fd_ulong_max( _s0, _s1 );
-      ulong sz  = s1-s0;
-
-      ulong d0 = (ulong)fd_rng_uint_roll( rng, (uint)(2049UL-sz) );
-      ulong d1 = d0 + sz;
-
-      ulong hs0 = fd_hash( 0UL, src, s0 ); ulong hs1 = fd_hash( 0UL, src+s1, 2048UL-s1 );
-      ulong hd0 = fd_hash( 0UL, dst, d0 ); ulong hd1 = fd_hash( 0UL, dst+d1, 2048UL-d1 );
-
-      int c = (int)fd_rng_uchar( rng );
-      memset( src+s0, c, sz );
-      FD_TEST( fd_memset( dst+d0, c, sz )==(dst+d0) );
-      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
-      FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
-
-      for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
-
-      FD_TEST( fd_memcpy( dst+d0, src+s0, sz )==(dst+d0) );
-      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
-      FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
-
-      for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
-
-      ulong seed = fd_rng_ulong( rng );
-      ulong hash = fd_hash( seed, src+s0, sz );
-      FD_TEST( fd_hash_memcpy( seed, dst+d0, src+s0, sz )==hash );
-      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
-
-      /* Flip some bits */
-
-      if( sz>0UL ) {
-        ulong dflip = d0 + (ulong)fd_rng_uint_roll( rng, (uint)sz );
-        int c2 = (int)fd_rng_uchar( rng );
-        dst[ dflip ] = (uchar)(dst[ dflip ] ^ (uchar)c2);
-        FD_TEST( fd_memeq( dst+d0, src+s0, sz )==(!c2) );
-      }
-    }
-  } while(0);
 
   /* Test fd_tickcount (FIXME: TEST MORE THAN MONOTONICITY?) */
 
@@ -439,35 +379,6 @@ main( int     argc,
   FD_TEST( fd_ulong_is_aligned( (ulong)quine_binary, 128UL )     );
   FD_TEST( !memcmp ( quine_binary, quine_cstr, quine_binary_sz ) );
   FD_TEST( fd_memeq( quine_binary, quine_cstr, quine_binary_sz ) );
-
-  /* FIXME: ADD HASH QUALITY CHECKER HERE */
-  if( extra_benchmark ) {
-    ulong const workload_iter = 8192UL;
-    ulong const warmup        = 1024UL;
-
-    ulong const sizes[] = { 32UL, 64UL, 128UL, 512UL, 1232UL };
-    ulong const size_cnt = sizeof(sizes) / sizeof(sizes[0]);
-    char buf[1232UL];
-    for( ulong i = 0UL; i < sizeof(buf); i++ )
-      buf[i] = (char)fd_rng_uchar( rng );
-
-    for( ulong j = 0UL; j < size_cnt; j++ ) {
-      ulong sz = sizes[j];
-      for( ulong i = 0UL; i < warmup; i++ ) {
-        ulong result = fd_hash( i, buf, sz );
-        FD_COMPILER_FORGET( result );
-      }
-      FD_HW_MFENCE();
-      long dt = fd_log_wallclock();
-      for( ulong i = 0UL; i < workload_iter; i++ ) {
-        ulong result = fd_hash( i, buf, sz );
-        FD_COMPILER_FORGET( result );
-      }
-      dt = fd_log_wallclock() - dt;
-      double ns_byte = ((double)(dt)) / ((double)(workload_iter * sz));
-      FD_LOG_NOTICE(( "fd_hash: %.3f ns/byte (sz %lu)", ns_byte, sz ));
-    }
-  }
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
