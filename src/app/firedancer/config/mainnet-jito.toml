@@ -11,6 +11,12 @@
 [snapshots]
     [snapshots.sources]
         servers = [ "http://solana-mainnet-rpc.jumpisolated.com:8899" ]
+[development]
+    [development.genesis]
+        # Mainnet genesis.bin is a fixed historical artifact well under
+        # 1 MiB; 2 MiB keeps >2x slack while shrinking the genesi tile,
+        # genesi_out link, and rpc genesis buffers.
+        max_file_size_mib = 2
 [tiles.bundle]
     enabled = true
     url = "https://mainnet.block-engine.jito.wtf"
