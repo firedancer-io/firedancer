@@ -601,9 +601,10 @@ snapshot_load_cmd_fn( args_t *   args,
       ulong volatile * metrics = snapin_all_metrics[ i ];
       snapin_wait[ i ] = metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ]
                        + metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-      /* Tile 0 folds the per-tile counters into its own gauge at the
-         end of each load phase; while a load is in flight, each tile's
-         gauge holds its own share, so the sum is the live total. */
+      /* Every snapin tile's gauge holds its own share, cumulative over
+         the load session, so the sum across tiles is the live total.
+         It only ever moves backwards when a failed attempt is rolled
+         back at the retry's INIT barrier. */
       acc_cnt += metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) ];
     }
 
@@ -664,7 +665,7 @@ snapshot_load_cmd_fn( args_t *   args,
               c_bold, progress, c_norm,
               c_dim, c_norm, (double)( total_off -total_off_old  )/1e9, c_dim, c_norm,
               c_dim, c_norm, (double)( decomp_off-decomp_off_old )/1e9, c_dim, c_norm,
-              c_dim, c_norm, (double)( acc_cnt   -acc_cnt_old    )/1e6, c_dim, c_norm );
+              c_dim, c_norm, (double)fd_ulong_sat_sub( acc_cnt, acc_cnt_old )/1e6, c_dim, c_norm );
 
       static char const * tile_key[ 3 ] = { "ld", "dc(avg)", "in(avg)" };
       printf( "  %sbusy%s", c_dim, c_norm );

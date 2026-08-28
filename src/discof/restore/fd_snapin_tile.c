@@ -89,10 +89,16 @@
    load.  The aggregate window must stay below the throttle engagement
    point ((dirty_background_ratio+dirty_ratio)/2, ~6.5% of RAM by
    default) to preserve the page-cache elasticity that low tile counts
-   rely on. */
+   rely on -- so it is a fraction of the host's RAM, not a fixed byte
+   count: window = min( WB_WINDOW_MAX, WB_MEM_PCT% of MemTotal ), read
+   at privileged_init (before the sandbox closes /proc) and divided
+   evenly across the tiles.  WB_WINDOW_MAX is what was swept on the
+   ~1.2 TB reference host, where the percentage term is not the binding
+   one. */
 
 #define FD_SNAPIN_WB_KICK_SZ      (64UL<<20) /* kick writeback per this many contiguous flushed bytes */
-#define FD_SNAPIN_WB_TOTAL_WINDOW (80UL<<30) /* aggregate kicked-not-waited budget across all tiles */
+#define FD_SNAPIN_WB_WINDOW_MAX   (80UL<<30) /* aggregate kicked-not-waited budget across all tiles */
+#define FD_SNAPIN_WB_MEM_PCT      (5UL)      /* ... capped at this percentage of MemTotal */
 #define FD_SNAPIN_WB_RING_CNT     (4096UL)   /* max outstanding kicked ranges (pow2) */
 
 /* Tile count at and above which write-behind is engaged.  Below it,
@@ -254,15 +260,22 @@ struct fd_snapin_tile {
     ulong full_bytes_read;
     ulong incremental_bytes_read;
 
-    /* Account counters.  Per attempt on every tile while an attempt is
-       in flight (zeroed when the tile folds them at FINI);
-       tile 0's are additionally the fold target at the NEXT/DONE
-       barrier, so after a load they hold the cross-tile totals. */
+    /* Account gauges.  Strictly this tile's OWN share, cumulative over
+       the load session (full then incremental), and live from the first
+       insert through FINI and past the NEXT/DONE barrier: the GUI and
+       the snapshot-load watch both SUM these over all snapin tiles and
+       take deltas, so anything that dips them mid-load (a per-tile zero
+       at FINI, or tile 0 overwriting its own with the cross-tile fold)
+       either collapses the sum to zero or double counts it.  They are
+       rebased only at an INIT barrier: to 0 for a full attempt, to this
+       tile's latched full-snapshot share for an incremental one (which
+       also discards a failed incremental attempt's partial counts).
+       Tile 0's cross-tile totals live in ctx->totals_fold instead. */
     ulong accounts_loaded;
     ulong accounts_replaced;
     ulong accounts_ignored;
 
-    /* Account counters (snapshot taken for full snapshot only) */
+    /* This tile's own share of the full snapshot, latched at NEXT. */
     ulong full_accounts_loaded;
     ulong full_accounts_replaced;
     ulong full_accounts_ignored;
@@ -361,6 +374,7 @@ struct fd_snapin_tile {
   } pending;
 
   /* Write-behind (bounded in-flight dirty bytes). */
+  ulong wb_total_window;    /* aggregate cap, sized from MemTotal at privileged_init */
   ulong wb_kick_sz;         /* kick granularity (lowered by tests) */
   ulong wb_window;          /* per-tile in-flight cap; 0 disables */
   ulong wb_run_off;         /* current un-kicked contiguous flushed run */
@@ -379,6 +393,17 @@ struct fd_snapin_tile {
     ulong eq_slot_lamports_diff;
     ulong bytes_written;
   } worker_fold;
+
+  /* Tile 0: cross-tile account totals, accumulated out of the shared
+     `totals` at each successful attempt's NEXT/DONE barrier (so
+     cumulative over the load session; reset at INIT_FULL).  Diagnostic
+     only -- deliberately NOT written back into the per-tile gauges,
+     which dashboards sum across all snapin tiles. */
+  struct {
+    ulong accounts_loaded;
+    ulong accounts_replaced;
+    ulong accounts_ignored;
+  } totals_fold;
 
   /* Tile 0: rollback of a failed attempt, deferred from the FAIL
      barrier to the NEXT INIT barrier.  fd_accdb_reset and the
@@ -446,11 +471,11 @@ format_count( char * out, ulong out_sz, ulong n ) {
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && !ctx->tile_idx ) ) {
-    ulong accounts_dup = ctx->metrics.accounts_ignored + ctx->metrics.accounts_replaced;
+    ulong accounts_dup = ctx->totals_fold.accounts_ignored + ctx->totals_fold.accounts_replaced;
     long  elapsed_ns   = fd_log_wallclock() - ctx->boot_timestamp;
     char  loaded_buf[ 32 ];
     char  dup_buf   [ 32 ];
-    format_count( loaded_buf, sizeof(loaded_buf), ctx->metrics.accounts_loaded );
+    format_count( loaded_buf, sizeof(loaded_buf), ctx->totals_fold.accounts_loaded );
     format_count( dup_buf,    sizeof(dup_buf),    accounts_dup                 );
     FD_LOG_NOTICE(( "loaded %s accounts %s(%s dups)%s from snapshot in %.3f seconds",
                     loaded_buf, fd_log_style_dim(), dup_buf, fd_log_style_normal(), (double)elapsed_ns/1e9 ));
@@ -1352,9 +1377,6 @@ worker_reset_attempt( fd_snapin_tile_t * ctx ) {
   worker_reset_write_engine( ctx );
   fd_memset( &ctx->worker, 0, sizeof(ctx->worker) );
   fd_memset( ctx->worker_metrics, 0, sizeof(ctx->worker_metrics) );
-  ctx->metrics.accounts_loaded   = 0UL;
-  ctx->metrics.accounts_replaced = 0UL;
-  ctx->metrics.accounts_ignored  = 0UL;
   ctx->pending.active            = 0;
   fd_ssparse_init( ctx->ssparse );
   fd_ssparse_batch_enable( ctx->ssparse, 1 );
@@ -1362,6 +1384,11 @@ worker_reset_attempt( fd_snapin_tile_t * ctx ) {
   /* claimed_appendvec is deliberately NOT reset here: a fresh claim is
      drawn for every attempt when the attempt-slot gate opens, so there
      is no unclaimed sentinel to restore.
+
+     The metrics.accounts_* gauges are likewise NOT reset here: they are
+     load-session cumulative, not attempt scoped, so that the cross-tile
+     sum the dashboards take never dips.  The INIT handler rebases them
+     (see the struct comment).
 
      my_snoop's fail_partition_cnt is likewise NOT touched -- only the
      owning tile's FAIL handler stamps it and only tile 0 clears it (at
@@ -1902,9 +1929,16 @@ tile0_fold_attempt( fd_snapin_tile_t * ctx ) {
   FD_TEST( totals->appendvecs_processed==ctx->appendvec_seq );
   FD_TEST( ctx->snoop_hdr->next_appendvec==ctx->appendvec_seq+ctx->snoop_hdr->worker_cnt );
 
-  ctx->metrics.accounts_loaded   = fd_ulong_if( ctx->full, 0UL, ctx->metrics.full_accounts_loaded   ) + totals->accounts_loaded;
-  ctx->metrics.accounts_replaced = fd_ulong_if( ctx->full, 0UL, ctx->metrics.full_accounts_replaced ) + totals->accounts_replaced;
-  ctx->metrics.accounts_ignored  = fd_ulong_if( ctx->full, 0UL, ctx->metrics.full_accounts_ignored  ) + totals->accounts_ignored;
+  /* Cross-tile account totals, for the end-of-load log and nothing
+     else.  totals is re-zeroed at every INIT and this runs only on a
+     successful attempt, so accumulating gives the load-session sum.
+     Deliberately not written into ctx->metrics: the gauges are summed
+     across all snapin tiles by the dashboards, and folding the total
+     into tile 0's gauge would double count every other tile. */
+  ctx->totals_fold.accounts_loaded   += totals->accounts_loaded;
+  ctx->totals_fold.accounts_replaced += totals->accounts_replaced;
+  ctx->totals_fold.accounts_ignored  += totals->accounts_ignored;
+
   ctx->capitalization = fd_ulong_if( ctx->full, 0UL, ctx->recovery.capitalization );
   ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, totals->input_lamports   );
   ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, totals->ignored_lamports );
@@ -2139,6 +2173,25 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       if( ctx->full ) ctx->metrics.full_bytes_read = 0UL;
       ctx->metrics.incremental_bytes_read = 0UL;
 
+      /* Rebase this tile's account gauges -- the only point at which
+         they may move backwards (see the struct comment).  A full
+         attempt starts the session at zero; an incremental attempt, and
+         any retry of one, resumes from this tile's latched
+         full-snapshot share, discarding whatever a failed attempt had
+         accumulated. */
+      if( ctx->full ) {
+        ctx->metrics.accounts_loaded        = 0UL;
+        ctx->metrics.accounts_replaced      = 0UL;
+        ctx->metrics.accounts_ignored       = 0UL;
+        ctx->metrics.full_accounts_loaded   = 0UL;
+        ctx->metrics.full_accounts_replaced = 0UL;
+        ctx->metrics.full_accounts_ignored  = 0UL;
+      } else {
+        ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
+        ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
+        ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
+      }
+
       if( FD_UNLIKELY( !ctx->tile_idx ) ) {
         /* Deferred rollback of a failed previous attempt, before this
            attempt's accdb work (and before the attempt slot publish
@@ -2158,9 +2211,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
         /* Rewind metric counters (no-op unless recovering from a fail) */
         if( ctx->full ) {
-          ctx->metrics.full_accounts_loaded   = 0UL;
-          ctx->metrics.full_accounts_replaced = 0UL;
-          ctx->metrics.full_accounts_ignored  = 0UL;
+          fd_memset( &ctx->totals_fold, 0, sizeof(ctx->totals_fold) );
           ctx->full_genesis_creation_time_seconds = 0UL;
           ctx->capitalization          = 0UL;
           ctx->dup_capitalization      = 0UL;
@@ -2180,12 +2231,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
           fd_memset( ctx->feature_snoop, 0, sizeof(ctx->feature_snoop) );
         } else {
-          /* Dashboard gauges: restore the full snapshot's totals; the
-             fold at DONE recomputes the absolute values. */
-          ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
-          ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
-          ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
-
           ctx->capitalization     = ctx->recovery.capitalization;
           ctx->dup_capitalization = 0UL;
 
@@ -2323,19 +2368,25 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_ATOMIC_FETCH_AND_ADD( &totals->appendvecs_processed,  ctx->owned_appendvecs                      );
       FD_COMPILER_MFENCE(); /* totals + snoop targets visible before the ack */
 
-      /* The fold above just handed the attempt's counters to tile 0,
-         which reads them into its own gauges: zero this tile's account
-         gauges so dashboards summing over all snapin tiles do not count
-         the load twice while the fold and the fresh gauges coexist. */
-      ctx->metrics.accounts_loaded   = 0UL;
-      ctx->metrics.accounts_replaced = 0UL;
-      ctx->metrics.accounts_ignored  = 0UL;
+      /* This tile's account gauges are deliberately left alone: they
+         hold its own share, tile 0 does not fold the shared totals back
+         into a gauge, and dashboards sum them across all snapin tiles
+         (see the metrics struct comment). */
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+
+      /* Every tile latches its OWN full-snapshot share: the incremental
+         attempt (and any retry of it) rebases its gauge on this, which
+         is what keeps the cross-tile sum continuous across the phase
+         boundary. */
+      ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
+      ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
+      ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
+
       if( FD_LIKELY( ctx->tile_idx ) ) break;
 
       /* Every tile has acked FINI by the time NEXT arrives (snapct
@@ -2359,11 +2410,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       ctx->recovery.capitalization = ctx->capitalization;
       ctx->recovery.feature_snoop = *ctx->feature_snoop;
-
-      /* Backup metric counters */
-      ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
-      ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
-      ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
       ctx->init_completed = 0;
       break;
     }
@@ -2664,12 +2710,53 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
+/* Returns MemTotal in bytes, or 0 if it cannot be determined. */
+
+static ulong
+read_mem_total_bytes( void ) {
+  int fd = open( "/proc/meminfo", O_RDONLY );
+  if( FD_UNLIKELY( -1==fd ) ) return 0UL;
+  char  buf[ 4096 ];
+  long  n = read( fd, buf, sizeof(buf)-1UL );
+  if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close(/proc/meminfo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( n<=0L ) ) return 0UL;
+  buf[ n ] = '\0';
+
+  char const * p = strstr( buf, "MemTotal:" );
+  if( FD_UNLIKELY( !p ) ) return 0UL;
+  p += strlen( "MemTotal:" );
+  while( *p==' ' || *p=='\t' ) p++;
+  if( FD_UNLIKELY( *p<'0' || *p>'9' ) ) return 0UL;
+  ulong kib = 0UL;
+  for( ; *p>='0' && *p<='9'; p++ ) {
+    if( FD_UNLIKELY( kib>(ULONG_MAX-9UL)/10UL ) ) return 0UL; /* implausible, but do not wrap */
+    kib = kib*10UL + (ulong)(*p-'0');
+  }
+  if( FD_UNLIKELY( kib>(ULONG_MAX>>10) ) ) return 0UL;
+  return kib<<10;
+}
+
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   fd_snapin_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
+
+  /* Size the aggregate write-behind window here, while /proc is still
+     reachable: the budget must stay below the host's dirty-throttle
+     engagement point, which is a fraction of RAM, so a fixed byte count
+     is only valid on the host it was swept on.  With MemTotal unknown
+     there is no safe budget, so write-behind is disabled -- that is the
+     behaviour every topology below FD_SNAPIN_WB_MIN_WORKERS tiles runs
+     with anyway. */
+  ulong mem_total = read_mem_total_bytes();
+  if( FD_UNLIKELY( !mem_total ) ) {
+    FD_LOG_WARNING(( "could not read MemTotal from /proc/meminfo; disabling snapshot write-behind" ));
+    ctx->wb_total_window = 0UL;
+  } else {
+    ctx->wb_total_window = fd_ulong_min( FD_SNAPIN_WB_WINDOW_MAX, (mem_total/100UL)*FD_SNAPIN_WB_MEM_PCT );
+  }
 }
 
 static inline fd_snapin_out_link_t
@@ -2736,9 +2823,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->whead.attempt_partition_cnt = 0UL;
   ctx->whead.attempt_partition_max = FD_SNAPIO_FAIL_PARTITION_MAX;
 
+  /* wb_total_window was sized from MemTotal in privileged_init. */
   ctx->wb_kick_sz = FD_SNAPIN_WB_KICK_SZ;
   ctx->wb_window  = ctx->tile_cnt>=FD_SNAPIN_WB_MIN_WORKERS
-                  ? FD_SNAPIN_WB_TOTAL_WINDOW/ctx->tile_cnt : 0UL;
+                  ? ctx->wb_total_window/ctx->tile_cnt : 0UL;
+  if( FD_UNLIKELY( !ctx->tile_idx ) ) {
+    FD_LOG_NOTICE(( "snapin: write-behind window %lu MiB aggregate, %lu MiB per tile (%lu tiles)",
+                    ctx->wb_total_window>>20, ctx->wb_window>>20, ctx->tile_cnt ));
+  }
 
   /* Every tile updates the root stake delegations from its snoop
      callback, so every tile joins banks; only tile 0 initializes and

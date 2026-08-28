@@ -88,7 +88,10 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   if( FD_UNLIKELY( !descends_fp                          ) ) return 0UL;
   if( FD_UNLIKELY( max_live_slots>ULONG_MAX/descends_fp  ) ) return 0UL;
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts<<2) + (max_accounts&1UL) );
+  /* 4 chains per account (8x the old max_accounts/2 sizing): a measured
+     loader-throughput choice, shorter hash chains under parallel insert.
+     Costs ~32 GiB of acc_map at the default max_accounts. */
+  ulong chain_cnt = fd_ulong_pow2_up( max_accounts<<2 );
 
   if( FD_UNLIKELY( chain_cnt>ULONG_MAX/sizeof(uint) ) ) return 0UL;
 
@@ -249,7 +252,8 @@ fd_accdb_shmem_new( void * shmem,
     return NULL;
   }
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts<<2) + (max_accounts&1UL) );
+  /* Must match fd_accdb_shmem_footprint (4 chains per account). */
+  ulong chain_cnt = fd_ulong_pow2_up( max_accounts<<2 );
 
   if( FD_UNLIKELY( chain_cnt>ULONG_MAX/sizeof(uint) ) ) {
     FD_LOG_WARNING(( "chain_cnt*sizeof(uint) overflows" ));

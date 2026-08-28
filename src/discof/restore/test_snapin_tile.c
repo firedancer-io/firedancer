@@ -1049,7 +1049,9 @@ test_accumulator_fold( void ) {
     ctx->worker.replaced_lamports =   5000UL*(t+1UL);
     ctx->worker.ignored_lamports  =    700UL*(t+1UL);
     ctx->bytes_written            = 4096UL*(t+1UL);
-    /* Gauges the tile must zero once it hands the counters to tile 0. */
+    /* Gauges the tile must keep live through FINI: the dashboards sum
+       them across all snapin tiles, so a per-tile dip at the barrier (or
+       tile 0 folding the cross-tile total into its own) breaks them. */
     ctx->metrics.accounts_loaded   = 77UL;
     ctx->metrics.accounts_replaced = 78UL;
     ctx->metrics.accounts_ignored  = 79UL;
@@ -1076,9 +1078,9 @@ test_accumulator_fold( void ) {
   FD_TEST( tot->appendvecs_processed ==T            );
   FD_TEST( !tot->eq_slot_dups && !tot->eq_slot_lamports_diff );
   for( ulong t=0UL; t<n; t++ ) {
-    FD_TEST( !cl->ctx[ t ].metrics.accounts_loaded   );
-    FD_TEST( !cl->ctx[ t ].metrics.accounts_replaced );
-    FD_TEST( !cl->ctx[ t ].metrics.accounts_ignored  );
+    FD_TEST( cl->ctx[ t ].metrics.accounts_loaded  ==77UL );
+    FD_TEST( cl->ctx[ t ].metrics.accounts_replaced==78UL );
+    FD_TEST( cl->ctx[ t ].metrics.accounts_ignored ==79UL );
   }
 
   /* Tile 0 reads the fold at NEXT.  A full attempt's capitalization is
@@ -1092,18 +1094,110 @@ test_accumulator_fold( void ) {
   fd_snapin_tile_t * t0 = &cl->ctx[ 0 ];
   FD_TEST( t0->state==FD_SNAPSHOT_STATE_IDLE );
   FD_TEST( t0->attempt_folded );
-  FD_TEST( t0->metrics.accounts_loaded  ==exp_loaded   );
-  FD_TEST( t0->metrics.accounts_replaced==exp_replaced );
-  FD_TEST( t0->metrics.accounts_ignored ==exp_ignored  );
+  /* The cross-tile fold lands in tile 0's diagnostic totals, NOT in its
+     gauge: the gauges stay per-tile so the dashboards' sum is exact. */
+  FD_TEST( t0->totals_fold.accounts_loaded  ==exp_loaded   );
+  FD_TEST( t0->totals_fold.accounts_replaced==exp_replaced );
+  FD_TEST( t0->totals_fold.accounts_ignored ==exp_ignored  );
   FD_TEST( t0->dup_capitalization       ==exp_repl_l   );
   FD_TEST( t0->capitalization           ==exp_input-exp_ign_l-exp_repl_l );
   FD_TEST( t0->worker_fold.bytes_written==exp_bytes    );
   FD_TEST( !t0->worker_fold.eq_slot_dups && !t0->worker_fold.eq_slot_lamports_diff );
   /* The full snapshot's totals are saved for the incremental revert. */
   FD_TEST( t0->recovery.capitalization    ==t0->capitalization );
-  FD_TEST( t0->metrics.full_accounts_loaded==exp_loaded );
+  /* Every tile latched its own share, and the cross-tile sum is
+     unchanged by the barrier -- that is the continuity the GUI and the
+     snapshot-load watch depend on. */
+  ulong gauge_sum = 0UL;
+  for( ulong t=0UL; t<n; t++ ) {
+    FD_TEST( cl->ctx[ t ].metrics.full_accounts_loaded  ==77UL );
+    FD_TEST( cl->ctx[ t ].metrics.accounts_loaded       ==77UL );
+    gauge_sum += cl->ctx[ t ].metrics.accounts_loaded;
+  }
+  FD_TEST( gauge_sum==77UL*n );
   FD_TEST( t0->slot_history.captured );
   FD_TEST( t0->slot_history.data_len==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+
+  test_cluster_delete( cl );
+}
+
+/* The per-tile ACCOUNT_LOADED gauges must never dip mid-load: the GUI
+   and the snapshot-load watch sum them across all snapin tiles and take
+   deltas off that sum.  Walk a full load, an incremental load and a
+   failed-then-retried incremental, sampling the sum at every barrier. */
+static void
+test_gauge_sum_continuity( void ) {
+  ulong const n = 4UL;
+  ulong const T = 6UL;
+  ulong const bank_slot = 440123518UL;
+
+  test_cluster_t * cl = test_cluster_new( n, 1UL );
+  test_counters_reset();
+  test_stream_init( T );
+  ulong owner[ TEST_AV_MAX ];
+
+# define GAUGE_SUM() (__extension__({                                            \
+    ulong _s = 0UL;                                                              \
+    for( ulong _t=0UL; _t<n; _t++ ) _s += cl->ctx[ _t ].metrics.accounts_loaded;  \
+    _s; }))
+
+  /* --- Full load ------------------------------------------------- */
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+  FD_TEST( !GAUGE_SUM() );
+  cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
+
+  ulong full_share = 100UL;
+  for( ulong t=0UL; t<n; t++ ) {
+    cl->ctx[ t ].metrics.accounts_loaded = full_share;
+    cl->ctx[ t ].worker.accounts_loaded  = full_share;
+  }
+  FD_TEST( GAUGE_SUM()==full_share*n );
+
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
+  FD_TEST( GAUGE_SUM()==full_share*n );   /* was ~0 before: every tile zeroed here */
+
+  test_stamp_slot_history( cl, bank_slot );
+  cl->ctx[ 0 ].manifest_capitalization = 0UL;
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_NEXT );
+  FD_TEST( GAUGE_SUM()==full_share*n );   /* was full_share*n + the fold: double counted */
+  FD_TEST( cl->ctx[ 0 ].totals_fold.accounts_loaded==full_share*n );
+
+  /* --- Incremental that fails ------------------------------------ */
+  test_counters_reset();
+  test_stream_init( T );
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
+  FD_TEST( GAUGE_SUM()==full_share*n );   /* resumes from the full share */
+
+  for( ulong t=0UL; t<n; t++ ) cl->ctx[ t ].metrics.accounts_loaded += 7UL;
+  FD_TEST( GAUGE_SUM()==(full_share+7UL)*n );
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( GAUGE_SUM()==(full_share+7UL)*n ); /* FAIL alone does not rewind */
+
+  /* --- Incremental retry ----------------------------------------- */
+  test_counters_reset();
+  test_stream_init( T );
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
+  /* The retry's INIT is the one point the sum steps back, and only by
+     the failed attempt's own contribution -- never to zero. */
+  FD_TEST( GAUGE_SUM()==full_share*n );
+
+  cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
+  ulong incr_share = 11UL;
+  for( ulong t=0UL; t<n; t++ ) {
+    cl->ctx[ t ].metrics.accounts_loaded += incr_share;
+    cl->ctx[ t ].worker.accounts_loaded   = incr_share;
+  }
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
+  FD_TEST( GAUGE_SUM()==(full_share+incr_share)*n );
+
+  test_stamp_slot_history( cl, bank_slot );
+  cl->ctx[ 0 ].manifest_capitalization = cl->ctx[ 0 ].recovery.capitalization;
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
+  FD_TEST( GAUGE_SUM()==(full_share+incr_share)*n );
+  /* Tile 0's diagnostic total accumulates over the session. */
+  FD_TEST( cl->ctx[ 0 ].totals_fold.accounts_loaded==(full_share+incr_share)*n );
+
+# undef GAUGE_SUM
 
   test_cluster_delete( cl );
 }
@@ -1231,6 +1325,7 @@ main( int     argc,
   test_fini_truncated_malform();
   test_eq_slot_fini_malform();
   test_accumulator_fold();
+  test_gauge_sum_continuity();
   test_full_lifecycle_8_tiles();
 
   FD_LOG_NOTICE(( "pass" ));
