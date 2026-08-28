@@ -48,6 +48,23 @@
 #define FD_STAKE_REWARDS_ALIGN          (128UL)
 #define FD_STAKE_REWARDS_MAX_FORK_WIDTH (128UL)
 
+/* Reward entries are tiered: locked RAM holds one insert-order staging
+   window (the fork being computed) and one partition-grouped resident
+   window (the fork most recently sealed); the full max_fork_width
+   capacity lives in per-fork regions of a spill file, written once with
+   sequential pwrites when a fork is sealed and pread back per-partition
+   chunk during distribution.  A fork's lifecycle is: init (+optional
+   window_advance), inserts, seal, iteration.  On mainnet a single
+   boundary chain is live, so distribution reads are served from the
+   resident window and the file is only ever written (once per epoch).
+
+   The spill file lives on the well-known fd below (see
+   initialize_banks_spill_fds; tests dup2 a memfd onto it).  123460/1
+   are accdb, 123462 is reserved by XDP, 123458 the stake delegation
+   spill. */
+
+#define FD_STAKE_REWARDS_FD (123459)
+
 struct fd_stake_rewards;
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
@@ -167,7 +184,9 @@ fd_stake_rewards_window_hi( fd_stake_rewards_t const * stake_rewards,
 /* fd_stake_rewards_insert inserts a new stake reward for a given fork.
    It hashes the reward into the appropriate partition.  The reward is
    only stored if its partition falls inside the fork's window, but it
-   always counts towards fd_stake_rewards_total_rewards. */
+   always counts towards fd_stake_rewards_total_rewards.  fork_idx must
+   be the currently staged fork (the most recently init'd, not yet
+   sealed). */
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
@@ -175,6 +194,16 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          fd_pubkey_t const *  pubkey,
                          ulong                lamports,
                          ulong                credits_observed );
+
+/* fd_stake_rewards_seal finishes a fork's computation: the staged
+   entries are grouped by partition into the resident window and
+   streamed to the fork's spill file region.  Must be called after the
+   last insert and before any iteration; fork_idx must be the staged
+   fork.  Initializing another fork seals the staged one implicitly. */
+
+void
+fd_stake_rewards_seal( fd_stake_rewards_t * stake_rewards,
+                       uchar                fork_idx );
 
 /* Iterator for iterating over the stake rewards for a given fork and
    partition.  partition_idx must lie inside the fork's window.  The

@@ -5,8 +5,10 @@
 #include "../fd_bank.h"
 #include "../fd_runtime_stack.h"
 #include "../fd_runtime.h"
+#include "../../rewards/fd_stake_rewards.h"
 #include <errno.h>
 #include <sys/mman.h>
+#include <unistd.h>
 #include "../../../util/shmem/fd_shmem_private.h"
 
 fd_wksp_t *
@@ -122,6 +124,16 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   /* Create accdb backed by memfd */
   int accdb_fd = memfd_create( "accdb_fuzz", 0 );
   if( FD_UNLIKELY( accdb_fd<0 ) ) { FD_LOG_WARNING(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) )); goto bail1; }
+
+  /* Back the banks spill files (stake delegation fallback overflow,
+     stake reward windows) with memfds on their well-known fds. */
+  int spill_fds[ 2 ] = { FD_STAKE_DELEGATIONS_FD, FD_STAKE_REWARDS_FD };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    int mfd = memfd_create( "banks_spill_fuzz", 0 );
+    if( FD_UNLIKELY( mfd<0 ) ) { FD_LOG_WARNING(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) )); goto bail1; }
+    if( FD_UNLIKELY( dup2( mfd, spill_fds[ i ] )!=spill_fds[ i ] ) ) { FD_LOG_WARNING(( "dup2 failed (%i-%s)", errno, fd_io_strerror( errno ) )); goto bail1; }
+    if( FD_UNLIKELY( close( mfd ) ) ) { FD_LOG_WARNING(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) )); goto bail1; }
+  }
 
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( accdb_shmem, max_accounts, max_live_slots,

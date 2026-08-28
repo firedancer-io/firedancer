@@ -2,6 +2,7 @@
 #include "run.h"
 #include "../../../../flamenco/accdb/fd_accdb.h"
 #include "../../../../flamenco/stakes/fd_stake_delegations.h"
+#include "../../../../flamenco/rewards/fd_stake_rewards.h"
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
@@ -431,10 +432,13 @@ main_pid_namespace( void * _args ) {
         }
 
         /* Stake delegation fallback spill file: only the tiles that
-           mutate the stake delegations cache touch it. */
+           mutate the stake delegations cache touch it.  The stake
+           rewards spill file is written and read by replay alone. */
         int tile_uses_stake_spill = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
                                     !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapin" );
         if( FD_UNLIKELY( -1==fcntl( FD_STAKE_DELEGATIONS_FD, F_SETFD, tile_uses_stake_spill ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fcntl( FD_STAKE_REWARDS_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         int tile_uses_snap_fd     = !strcmp( tile->name, "snapct" ) ||
@@ -490,6 +494,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_STAKE_REWARDS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     for( ulong j=0UL; j<snap_max; j++ ) {
       if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( snapshot_dio_enabled )
@@ -990,17 +995,24 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==dup2( accounts_ro_fd, FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  /* Spill file for the disk overflow of the stake delegation pubkey
-     fallback tier, alongside accounts.db.  Contents never survive a
-     boot, so it is unlinked immediately: the kernel reclaims the space
-     on exit however the process dies. */
-  char spill_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s.stakedel", config->paths.accounts ) );
-  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
-  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==dup2( spill_fd, FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  /* Spill files for the disk tiers of the banks workspace (stake
+     delegation pubkey fallback overflow, stake reward windows),
+     alongside accounts.db.  Contents never survive a boot, so they are
+     unlinked immediately: the kernel reclaims the space on exit however
+     the process dies. */
+  struct { char const * suffix; int fd; } spills[ 2 ] = {
+    { .suffix = "stakedel", .fd = FD_STAKE_DELEGATIONS_FD },
+    { .suffix = "stakerew", .fd = FD_STAKE_REWARDS_FD     },
+  };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    char spill_path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s.%s", config->paths.accounts, spills[ i ].suffix ) );
+    int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==dup2( spill_fd, spills[ i ].fd ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 /* Snapshot production prep

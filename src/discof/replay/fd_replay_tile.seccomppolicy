@@ -5,7 +5,7 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd
+uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint rewards_spill_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -56,8 +56,16 @@ futex: (and (eq (arg 1) FUTEX_WAKE)
 # stake delegations: disk overflow of the pubkey fallback tier, only
 # touched in fallback mode (more stake accounts than the delegation
 # pools can hold).
+#
+# stake rewards: per-partition reads of a sealed reward window that is
+# no longer RAM resident (concurrent boundary-crossing forks only).
 pread64: (or (eq (arg 0) store_fd)
-             (eq (arg 0) stake_spill_fd))
+             (eq (arg 0) stake_spill_fd)
+             (eq (arg 0) rewards_spill_fd))
 
 # stake delegations: disk overflow of the pubkey fallback tier
-pwrite64: (eq (arg 0) stake_spill_fd)
+#
+# stake rewards: sealing an epoch boundary's reward window streams it to
+# the spill file.
+pwrite64: (or (eq (arg 0) stake_spill_fd)
+              (eq (arg 0) rewards_spill_fd))

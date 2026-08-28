@@ -1364,6 +1364,10 @@ setup_stake_partitions( fd_bank_t *                    bank,
       calculated_stake_rewards->new_credits_observed
     );
   }
+
+  /* Computation done: group the window by partition and stream it to
+     the fork's spill file region. */
+  fd_stake_rewards_seal( stake_rewards, fork_idx );
 }
 
 /* Calculate epoch reward and return vote and stake rewards.

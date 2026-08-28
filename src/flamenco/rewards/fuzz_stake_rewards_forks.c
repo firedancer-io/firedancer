@@ -2,8 +2,11 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include "../../util/fd_util.h"
 #include "fd_rewards_base.h"
@@ -47,6 +50,7 @@ typedef struct {
   ulong          total_rewards;
   uchar          distributed[ FUZZ_MAX_PARTITIONS ];
   int            distribution_started;
+  int            sealed;
 } fork_model_t;
 
 typedef struct {
@@ -55,8 +59,20 @@ typedef struct {
   ulong                root_slot;
   ulong                epoch_insert_cnt;
   ulong                fork_cnt;
+  uint                 staging_idx; /* fork_idx currently staged, UINT_MAX none */
   fork_model_t         fork[ FUZZ_MAX_FORKS ];
 } model_t;
+
+/* Find the model fork holding fork_idx, or NULL. */
+
+static fork_model_t *
+find_fork( model_t * m,
+           uint      fork_idx ) {
+  for( ulong i=0UL; i<m->fork_cnt; i++ ) {
+    if( (uint)m->fork[i].fork_idx==fork_idx ) return &m->fork[i];
+  }
+  return NULL;
+}
 
 static void * fuzz_mem;
 static model_t fuzz_model[ 1 ];
@@ -177,6 +193,10 @@ validate_fork( model_t const *      m,
     FD_LOG_ERR(( "total rewards changed for fork %u", (uint)f->fork_idx ));
   }
 
+  /* Entries are only readable once the fork is sealed; the staged fork
+     is validated on metadata alone. */
+  if( FD_UNLIKELY( !f->sealed ) ) return;
+
   uchar seen[ FUZZ_MAX_ENTRIES ] = {0};
   ulong seen_cnt     = 0UL;
   ulong seen_rewards = 0UL;
@@ -223,6 +243,7 @@ release_fork( model_t * m,
   if( FD_UNLIKELY( free_after!=free_before+1UL ) ) {
     FD_LOG_ERR(( "fork %u was not returned to the pool", (uint)f->fork_idx ));
   }
+  if( FD_UNLIKELY( m->staging_idx==(uint)f->fork_idx ) ) m->staging_idx = UINT_MAX; /* purge un-stages */
   m->fork[ fork_pos ] = m->fork[ --m->fork_cnt ];
 }
 
@@ -287,6 +308,12 @@ init_fork( model_t * m, fuzz_reader_t * r, int force_new_epoch ) {
   fd_hash_t parent_blockhash;
   make_hash( &parent_blockhash, m->epoch, parent_slot, slot, fuzz_u64( r ) );
 
+  /* init implicitly seals whatever is still staged. */
+  if( FD_UNLIKELY( m->staging_idx!=UINT_MAX ) ) {
+    fork_model_t * staged = find_fork( m, m->staging_idx );
+    if( FD_LIKELY( staged ) ) staged->sealed = 1;
+  }
+
   fork_model_t * f = &m->fork[ m->fork_cnt++ ];
   memset( f, 0, sizeof(fork_model_t) );
   f->refcnt                = 1UL;
@@ -301,18 +328,22 @@ init_fork( model_t * m, fuzz_reader_t * r, int force_new_epoch ) {
                                                     starting_block_height,
                                                     partition_cnt,
                                                     0UL );
+  m->staging_idx           = (uint)f->fork_idx;
   return f;
 }
 
 static void
 insert_reward( model_t *       m,
                fuzz_reader_t * r ) {
-  if( FD_UNLIKELY( !m->fork_cnt ) ) {
+  /* Inserts only land in the staged fork. */
+  if( FD_UNLIKELY( m->staging_idx==UINT_MAX ) ) {
     if( FD_UNLIKELY( !init_fork( m, r, 0 ) ) ) return;
   }
   if( FD_UNLIKELY( m->epoch_insert_cnt>=FUZZ_MAX_STAKE_ACCOUNTS ) ) return;
 
-  fork_model_t * f = &m->fork[ m->fork_cnt-1UL ];
+  fork_model_t * f = find_fork( m, m->staging_idx );
+  if( FD_UNLIKELY( !f ) ) return;
+  if( FD_UNLIKELY( f->sealed ) ) return;
   if( FD_UNLIKELY( f->entry_cnt>=FUZZ_MAX_ENTRIES ) ) return;
   if( FD_UNLIKELY( f->distribution_started ) ) return;
 
@@ -350,6 +381,15 @@ distribute_partition( model_t *       m,
     partition_idx = (uint)fuzz_bounded( r, f->partition_cnt );
   }
 
+  /* Distribution reads the fork, so seal it first, like the boundary
+     does when its computation completes.  Any unsealed fork is the
+     staged one. */
+  if( FD_UNLIKELY( !f->sealed ) ) {
+    fd_stake_rewards_seal( m->stake_rewards, f->fork_idx );
+    f->sealed = 1;
+    if( FD_LIKELY( m->staging_idx==(uint)f->fork_idx ) ) m->staging_idx = UINT_MAX;
+  }
+
   f->distribution_started = 1;
   f->distributed[ partition_idx ] = 1U;
 }
@@ -359,6 +399,7 @@ clear_rewards( model_t * m ) {
   fd_stake_rewards_clear( m->stake_rewards );
   m->fork_cnt         = 0UL;
   m->epoch_insert_cnt = 0UL;
+  m->staging_idx      = UINT_MAX;
 }
 
 int
@@ -377,6 +418,12 @@ LLVMFuzzerInitialize( int  *   argc,
   fuzz_mem = aligned_alloc( fd_stake_rewards_align(),
                             FD_ULONG_ALIGN_UP( footprint, fd_stake_rewards_align() ) );
   if( FD_UNLIKELY( !fuzz_mem ) ) FD_LOG_ERR(( "failed to allocate stake rewards fuzz memory" ));
+
+  /* Back the reward spill file with a memfd on its well-known fd. */
+  int mfd = memfd_create( "stakerew_spill_fuzz", 0 );
+  if( FD_UNLIKELY( mfd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+  if( FD_UNLIKELY( dup2( mfd, FD_STAKE_REWARDS_FD )!=FD_STAKE_REWARDS_FD ) ) FD_LOG_ERR(( "dup2 failed" ));
+  if( FD_UNLIKELY( close( mfd ) ) ) FD_LOG_ERR(( "close failed" ));
   return 0;
 }
 
@@ -398,6 +445,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   m->stake_rewards = stake_rewards;
   m->epoch         = 1UL + fuzz_bounded( &r, FUZZ_EPOCH_BOUND );
   m->root_slot     = fuzz_bounded( &r, FUZZ_ROOT_SLOT_BOUND );
+  m->staging_idx   = UINT_MAX;
 
   ulong action_cnt = 1UL + fuzz_bounded( &r, FUZZ_MAX_ACTIONS );
   for( ulong action_idx=0UL; action_idx<action_cnt; action_idx++ ) {

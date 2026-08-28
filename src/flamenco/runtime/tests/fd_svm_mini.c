@@ -15,6 +15,7 @@
 #include "../../runtime/program/fd_vote_program.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../../stakes/fd_stake_delegations.h"
+#include "../../rewards/fd_stake_rewards.h"
 #include "../../stakes/fd_vote_stakes.h"
 #include "../../leaders/fd_leaders.h"
 #include <errno.h>
@@ -180,6 +181,17 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   /* Create accdb backed by memfd */
   int accdb_fd = memfd_create( "accdb_test", 0 );
   if( FD_UNLIKELY( accdb_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Back the banks spill files (stake delegation fallback overflow,
+     stake reward windows) with memfds on their well-known fds, like the
+     validator boot does with real files. */
+  int spill_fds[ 2 ] = { FD_STAKE_DELEGATIONS_FD, FD_STAKE_REWARDS_FD };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    int mfd = memfd_create( "banks_spill_test", 0 );
+    if( FD_UNLIKELY( mfd<0 ) ) FD_LOG_ERR(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( dup2( mfd, spill_fds[ i ] )!=spill_fds[ i ] ) ) FD_LOG_ERR(( "dup2 failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( mfd ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( accdb_shmem, limits->max_accounts, limits->max_live_slots,
