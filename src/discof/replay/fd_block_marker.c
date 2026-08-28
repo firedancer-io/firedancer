@@ -200,3 +200,92 @@ fd_block_marker_de( fd_block_marker_t * marker,
   if( buf_sz ) *buf_sz = buf_max-rem;
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
+
+FD_STATIC_ASSERT( sizeof(fd_block_marker_serde_t)==FD_BLOCK_MARKER_PREAMBLE_SZ, fd_block_marker_serde );
+FD_STATIC_ASSERT( sizeof(fd_block_header_serde_t)==41UL,                        fd_block_marker_serde );
+FD_STATIC_ASSERT( sizeof(fd_block_footer_serde_t)==42UL,                        fd_block_marker_serde );
+
+#define CHECK_SPACE( n ) do {                                          \
+  if( FD_UNLIKELY( (n)>rem ) ) return FD_BLOCK_MARKER_SER_ERR_NOSPACE; \
+} while( 0 )
+
+static int
+block_header_ser( fd_block_header_t const * header,
+                  uchar **                  _buf,
+                  ulong *                   _rem ) {
+  uchar * buf = *_buf;
+  ulong   rem = *_rem;
+
+  CHECK_SPACE( sizeof(fd_block_header_serde_t) );
+  fd_block_header_serde_t * out = (fd_block_header_serde_t *)buf;
+  out->version     = (uchar)1;
+  out->parent_slot = header->parent_slot;
+  fd_memcpy( out->parent_block_id, header->parent_block_id.uc, sizeof(out->parent_block_id) );
+  ADVANCE( sizeof(fd_block_header_serde_t) );
+
+  *_buf = buf; *_rem = rem;
+  return FD_BLOCK_MARKER_SER_SUCCESS;
+}
+
+static int
+block_footer_ser( fd_block_footer_t const * footer,
+                  uchar **                  _buf,
+                  ulong *                   _rem ) {
+  uchar * buf = *_buf;
+  ulong   rem = *_rem;
+
+  /* Certificates are not emitted yet.  All three are absent. */
+  if( FD_UNLIKELY( footer->has_fast_final_cert   ||
+                   footer->has_final_cert        ||
+                   footer->has_skip_reward_cert  ||
+                   footer->has_notar_reward_cert ) ) return FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED;
+  if( FD_UNLIKELY( footer->user_agent_len>FD_BLOCK_FOOTER_USER_AGENT_MAX ) ) return FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED;
+
+  CHECK_SPACE( sizeof(fd_block_footer_serde_t)+footer->user_agent_len+3UL );
+  fd_block_footer_serde_t * out = (fd_block_footer_serde_t *)buf;
+  out->version                   = (uchar)1;
+  out->block_producer_time_nanos = footer->block_producer_time_nanos;
+  out->user_agent_len            = (uchar)footer->user_agent_len;
+  fd_memcpy( out->bank_hash, footer->bank_hash.uc, sizeof(out->bank_hash) );
+  ADVANCE( sizeof(fd_block_footer_serde_t) );
+
+  fd_memcpy( buf, footer->user_agent, footer->user_agent_len );
+  ADVANCE( footer->user_agent_len );
+
+  buf[ 0 ] = 0; /* block_final_cert  absent */
+  buf[ 1 ] = 0; /* skip_reward_cert  absent */
+  buf[ 2 ] = 0; /* notar_reward_cert absent */
+  ADVANCE( 3UL );
+
+  *_buf = buf; *_rem = rem;
+  return FD_BLOCK_MARKER_SER_SUCCESS;
+}
+
+int
+fd_block_marker_ser( fd_block_marker_t const * marker,
+                     uchar *                   buf,
+                     ulong                     buf_max,
+                     ulong *                   buf_sz ) {
+  ulong rem = buf_max;
+  int   err;
+
+  if( FD_UNLIKELY( marker->variant!=HEADER && marker->variant!=FOOTER ) ) return FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED;
+
+  CHECK_SPACE( sizeof(fd_block_marker_serde_t) );
+  fd_block_marker_serde_t * out = (fd_block_marker_serde_t *)buf;
+  out->entry_cnt = 0UL;
+  out->version   = (ushort)1;
+  out->variant   = marker->variant;
+  ADVANCE( sizeof(fd_block_marker_serde_t) );
+
+  uchar * payload = buf;
+  if( marker->variant==HEADER ) err = block_header_ser( &marker->header, &buf, &rem );
+  else                          err = block_footer_ser( &marker->footer, &buf, &rem );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  /* The length is only known once the payload is written. */
+  out->length = (ushort)(buf-payload);
+
+  if( buf_sz ) *buf_sz = buf_max-rem;
+  return FD_BLOCK_MARKER_SER_SUCCESS;
+}
