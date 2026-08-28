@@ -258,6 +258,13 @@ fd_topo_initialize( config_t * config ) {
     FD_CHECK_ERR( !config->firedancer.snapshots.incremental_snapshot_interval_slots ||
                   config->firedancer.snapshots.max_incremental_snapshots_to_keep,
                   "[snapshots.max_incremental_snapshots_to_keep] must be nonzero when incremental snapshot production is enabled" );
+    if( FD_UNLIKELY( config->firedancer.snapshots.full_snapshot_interval_slots &&
+                     config->firedancer.snapshots.sources.max_local_full_effective_age<=config->firedancer.snapshots.full_snapshot_interval_slots ) ) {
+      FD_LOG_WARNING(( "[snapshots.sources.max_local_full_effective_age] is %u slots, not greater than [snapshots.full_snapshot_interval_slots] of %lu slots.\n"
+                       "This leaves no slack for full snapshot creation and can prevent startup from locally produced snapshots.",
+                       config->firedancer.snapshots.sources.max_local_full_effective_age,
+                       config->firedancer.snapshots.full_snapshot_interval_slots ));
+    }
   }
 
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
