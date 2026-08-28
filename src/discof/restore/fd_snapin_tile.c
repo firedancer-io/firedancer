@@ -39,9 +39,9 @@
    consumer, expected-frame rotation), walks the tar entry headers via
    the ssparse appendvec passthrough, and parses+inserts only the
    appendvecs it claimed from the shared `next_appendvec` counter: one
-   eager claim at INIT, and the next claim taken as it starts parsing
-   the appendvec it holds, so ownership follows the tiles' actual
-   progress instead of a static rule.
+   eager claim when its attempt-slot gate opens, and the next claim taken
+   as it starts parsing the appendvec it holds, so ownership follows the
+   tiles' actual progress instead of a static rule.
 
    Non-owned appendvec bodies are skipped by pure arithmetic inside the
    passthrough parser, so a tile's frag release rate is its own scan
@@ -101,13 +101,16 @@
 
 #define FD_SNAPIN_WB_MIN_WORKERS  (8UL)
 
-/* Timeout for the INIT attempt-slot spin gate.  The gate is
-   deadlock-free by construction -- tile 0's progress to its own INIT
-   barrier (which publishes the slot) depends only on already-published
-   frags, never on the spinner's fseq -- so a timeout indicates a
-   protocol bug and crashes loudly for debuggability. */
+/* Rate limit for the attempt-slot gate diagnostic.  The gate holds the
+   tile's data lanes (it does not spin inside a frag handler), so an
+   unpublished slot is a stall to report, not a crash: it is also the
+   normal state while tile 0 is still doing slow INIT work (a large
+   failed-incremental purge wait, the acc_map memset), and it is the
+   expected state when an ERROR aborted tile 0's own INIT barrier -- in
+   which case the tile must stay live to consume the ERROR and ack the
+   FAIL that follows. */
 
-#define FD_SNAPIN_SPIN_TIMEOUT_NS (30L*1000L*1000L*1000L)
+#define FD_SNAPIN_GATE_WARN_NS (10L*1000L*1000L*1000L)
 
 /* 300 root slots in the slot deltas array, and each one references all
    151 prior blockhashes that it's able to. */
@@ -174,6 +177,7 @@ struct fd_snapin_tile {
   int  state;
   uint full           : 1;  /* loading a full snapshot? */
   uint init_completed : 1;  /* tile 0: did INIT complete for this attempt? */
+  uint gate_pending   : 1;  /* waiting for this attempt's slot before admitting data? */
 
   ulong tile_idx;           /* == tile->kind_id */
   ulong tile_cnt;
@@ -292,6 +296,7 @@ struct fd_snapin_tile {
   ulong owned_appendvecs;   /* claims consumed this attempt */
   ulong owned_bytes;
   ulong incr_fork;          /* accdb fork for this attempt's inserts, from the attempt slot (USHORT_MAX = full) */
+  long  gate_warn_ts;       /* next wallclock at which a held-data diagnostic may be logged */
 
   /* Per-attempt insert counters, folded into the shared totals at FINI.
      Kept separate from metrics.accounts_* because tile 0's gauges also
@@ -1343,6 +1348,7 @@ worker_reset_attempt( fd_snapin_tile_t * ctx ) {
   ctx->owned_appendvecs = 0UL;
   ctx->owned_bytes      = 0UL;
   ctx->incr_fork        = ULONG_MAX;
+  ctx->gate_pending     = 0;
   worker_reset_write_engine( ctx );
   fd_memset( &ctx->worker, 0, sizeof(ctx->worker) );
   fd_memset( ctx->worker_metrics, 0, sizeof(ctx->worker_metrics) );
@@ -1353,8 +1359,8 @@ worker_reset_attempt( fd_snapin_tile_t * ctx ) {
   fd_ssparse_init( ctx->ssparse );
   fd_ssparse_batch_enable( ctx->ssparse, 1 );
   fd_ssparse_appendvec_passthrough_enable( ctx->ssparse, 1 );
-  /* claimed_appendvec is deliberately NOT reset here: the INIT handler
-     draws a fresh claim for every attempt after the spin gate, so there
+  /* claimed_appendvec is deliberately NOT reset here: a fresh claim is
+     drawn for every attempt when the attempt-slot gate opens, so there
      is no unclaimed sentinel to restore.
 
      my_snoop's fail_partition_cnt is likewise NOT touched -- only the
@@ -2032,6 +2038,76 @@ tile0_rollback_failed_attempt( fd_snapin_tile_t * ctx,
   }
 }
 
+/* Attempt-slot gate ***************************************************/
+
+/* Nothing barrier-orders tile 0's INIT-time accdb work (reset + attach +
+   load_begin for a full load, attach_child + doomed-partition release
+   for an incremental one) against another tile's first insert: snapct
+   does not gate DATA on INIT acks.  So every tile gates its first
+   insert of an attempt on the attempt slot, which tile 0 publishes last
+   in its INIT critical sequence.
+
+   The gate is armed (not waited on) at the INIT barrier and polled from
+   the DATA admission path in before_frag, which holds the lane until
+   the slot carries this attempt's generation.  It deliberately does NOT
+   spin inside the INIT handler: an ERROR can abort tile 0's own INIT
+   barrier mid-way (see handle_control_barrier), leaving the slot
+   unpublished for this generation forever, and a tile parked inside a
+   frag handler would never consume the ERROR that is sitting at one of
+   its lane heads, never ack the FAIL that follows, and so wedge the
+   whole retry.  Holding the lane instead keeps ERROR and FAIL
+   deliverable (before_frag admits ERROR unconditionally and admits FAIL
+   once in ERROR state), so an aborted attempt drains and retries; the
+   retry's INIT re-arms the gate on the new generation.
+
+   Deadlock-free: a tile only ever holds DATA behind an unpublished
+   slot, and tile 0's progress to its own INIT barrier depends only on
+   already-published frags -- by per-lane in-order consumption a gating
+   tile has already consumed INIT on every lane, so every snapdc has
+   published its INIT copy and tile 0 needs nothing from the gating tile
+   to publish. */
+
+static void
+attempt_gate_open( fd_snapin_tile_t * ctx ) {
+  FD_COMPILER_MFENCE();
+  FD_TEST( FD_VOLATILE_CONST( ctx->snoop_hdr->attempt.generation )==ctx->generation );
+  ctx->incr_fork = FD_VOLATILE_CONST( ctx->snoop_hdr->attempt.fork_id );
+  if( FD_UNLIKELY( ctx->full ? ctx->incr_fork!=(ulong)USHORT_MAX : ctx->incr_fork>=(ulong)USHORT_MAX ) ) {
+    FD_LOG_ERR(( "invalid attempt fork %lu (full=%d); this is a bug", ctx->incr_fork, (int)ctx->full ));
+  }
+  fd_accdb_snapshot_writer_begin( ctx->accdb );
+
+  /* Eager claim.  The counter was re-zeroed by tile 0 before it
+     published the slot, so the claim sequence starts at 0 every
+     attempt.  From here the tile always holds exactly one outstanding
+     claim, which the appendvec walk consumes and immediately replaces.
+     Drawing it here (rather than at the INIT barrier) cannot orphan an
+     ordinal: the claim is taken before the first data frag is admitted,
+     so the tile's walk position is still 0 and every claim it can ever
+     draw is at or ahead of that position. */
+  ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->snoop_hdr->next_appendvec, 1UL );
+  ctx->gate_pending      = 0;
+}
+
+/* Returns 1 if this attempt's write path is armed, 0 if the caller must
+   hold the frag. */
+
+static inline int
+attempt_gate_ready( fd_snapin_tile_t * ctx ) {
+  if( FD_LIKELY( !ctx->gate_pending ) ) return 1;
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( ctx->snoop_hdr->attempt.generation )!=ctx->generation ) ) {
+    long now = fd_log_wallclock();
+    if( FD_UNLIKELY( now>=ctx->gate_warn_ts ) ) {
+      ctx->gate_warn_ts = now + FD_SNAPIN_GATE_WARN_NS;
+      FD_LOG_WARNING(( "tile %lu holding snapshot data: attempt slot for generation %lu not published yet (slot holds %lu)",
+                       ctx->tile_idx, ctx->generation, FD_VOLATILE_CONST( ctx->snoop_hdr->attempt.generation ) ));
+    }
+    return 0;
+  }
+  attempt_gate_open( ctx );
+  return 1;
+}
+
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
@@ -2143,9 +2219,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->init_completed = 1;
 
         /* Re-zero the attempt-scoped shared state.  Only this tile
-           writes it here, and no tile reads or writes it before it
-           passes the spin gate below, which the attempt slot publish
-           releases -- so this is the one place a snoop target or
+           writes it here, and no tile reads or writes it before its
+           attempt-slot gate opens, which the publish below releases
+           -- so this is the one place a snoop target or
            counter may be written outside an atomic or a stripe lock.
            Every attempt must start from zero: workspaces outlive
            crashed loads, and a retry follows a partially completed
@@ -2165,36 +2241,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         FD_VOLATILE( hdr->attempt.generation ) = ctx->generation;
       }
 
-      /* INIT spin gate: nothing else barrier-orders tile 0's INIT-time
-         accdb work (reset/attach/load_begin for full, attach_child +
-         doomed-partition release for incremental) against this tile's
-         first insert -- snapct does not gate DATA on INIT acks.
-         Bounded and deadlock-free: this tile has consumed INIT on all
-         its lanes, so every snapdc already published its INIT copy and
-         tile 0 needs nothing from us to complete its own barrier and
-         publish the slot. */
-      long deadline = fd_log_wallclock() + FD_SNAPIN_SPIN_TIMEOUT_NS;
-      while( FD_VOLATILE_CONST( ctx->snoop_hdr->attempt.generation )!=ctx->generation ) {
-        FD_SPIN_PAUSE();
-        if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
-          FD_LOG_ERR(( "tile %lu timed out waiting for the attempt slot (generation %lu); this is a bug",
-                       ctx->tile_idx, ctx->generation ));
-        }
-      }
-      FD_COMPILER_MFENCE();
-      ctx->incr_fork = FD_VOLATILE_CONST( ctx->snoop_hdr->attempt.fork_id );
-      if( FD_UNLIKELY( ctx->full ? ctx->incr_fork!=(ulong)USHORT_MAX : ctx->incr_fork>=(ulong)USHORT_MAX ) ) {
-        FD_LOG_ERR(( "invalid attempt fork %lu (full=%d); this is a bug", ctx->incr_fork, (int)ctx->full ));
-      }
-      fd_accdb_snapshot_writer_begin( ctx->accdb );
-
-      /* Eager claim.  Every tile takes its first claim here, before any
-         data arrives, for INIT_FULL and INIT_INCR alike: the counter was
-         zeroed by tile 0 above, so the claim sequence starts at 0 every
-         attempt.  From here the tile always holds exactly one
-         outstanding claim, which the appendvec walk consumes and
-         immediately replaces. */
-      ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->snoop_hdr->next_appendvec, 1UL );
+      /* Arm the attempt-slot gate (see attempt_gate_open above).  Tile 0
+         published the slot itself a few lines up, so it opens the gate
+         right here and never holds data; every other tile opens it from
+         the data admission path in before_frag. */
+      ctx->gate_pending = 1;
+      ctx->gate_warn_ts = fd_log_wallclock() + FD_SNAPIN_GATE_WARN_NS;
+      if( FD_UNLIKELY( !ctx->tile_idx ) ) attempt_gate_open( ctx );
       break;
     }
 
@@ -2392,8 +2445,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
          net-negative by the attempt's contribution.  The staging
          buffer and private write head are then simply forgotten.  The
          FAIL ack below is this tile's quiesce certificate: after it,
-         the tile touches no shared accdb state until it passes the
-         next attempt's INIT spin gate. */
+         the tile touches no shared accdb state until the next attempt's
+         slot gate opens. */
       fd_accdb_snapshot_worker_close( ctx->accdb, &ctx->whead );
       fd_accdb_snapshot_flush_worker_metrics( ctx->accdb, ctx->worker_metrics );
       ctx->my_snoop->fail_partition_cnt = ctx->whead.attempt_partition_cnt;
@@ -2407,13 +2460,20 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
          aborted without a retry the rollback never runs; benign, the
          process exits and the next boot's INIT_FULL resets. */
       if( FD_UNLIKELY( !ctx->tile_idx ) ) {
+        /* Everything that discards attempt-scoped accdb state must stay
+           under this guard: when an ERROR aborted this tile's own INIT
+           barrier the INIT handler never ran, so `full` still describes
+           the PREVIOUS attempt.  Wiping accdb_root_fork_id on that stale
+           flag would strand the root of a full load that actually
+           succeeded, and the retry's attach_child would hang a second
+           ROOT off USHORT_MAX instead of the loaded accounts. */
         if( FD_LIKELY( ctx->init_completed ) ) {
           ctx->rollback.pending = 1;
           ctx->rollback.full    = ctx->full;
           ctx->rollback.fork    = ctx->accdb_incr_fork_id;
+          if( ctx->full ) ctx->accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+          ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         }
-        if( ctx->full ) ctx->accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-        ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ctx->init_completed = 0;
       }
 
@@ -2473,9 +2533,16 @@ before_frag( fd_snapin_tile_t * ctx,
     return -1;
   }
 
-  /* Only accept DATA frags from the expected lane */
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA && in_idx!=ctx->expected_frame%ctx->lane_cnt ) ) {
-    return -1;
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) {
+    /* Only accept DATA frags from the expected lane */
+    if( FD_UNLIKELY( in_idx!=ctx->expected_frame%ctx->lane_cnt ) ) return -1;
+
+    /* ... and only once this attempt's slot is published, so no insert
+       can race tile 0's INIT-time accdb work.  Controls stay
+       admissible while data is held: that is what lets a tile whose
+       INIT barrier completed for an attempt tile 0 never published
+       consume the aborting ERROR and ack the FAIL. */
+    if( FD_UNLIKELY( !attempt_gate_ready( ctx ) ) ) return -1;
   }
 
   return 0;

@@ -20,10 +20,13 @@
      - the attempt slot, published by tile 0 at its INIT barrier (after
        its attempt-scoped accdb work: reset+attach for a full load,
        attach_child+doomed-partition release for an incremental one).
-       Every tile spins on it before its first insert of the attempt,
-       because nothing else orders tile 0's INIT-time accdb work
-       against another tile's first insert: snapct does not gate DATA
-       on INIT acks.  The accdb fork id for the attempt rides the slot;
+       Every tile gates its first insert of the attempt on it, because
+       nothing else orders tile 0's INIT-time accdb work against another
+       tile's first insert: snapct does not gate DATA on INIT acks.  The
+       gate is non-blocking -- a tile holds its data lanes until the slot
+       carries its generation, so an attempt whose INIT barrier was
+       aborted on tile 0 still drains and retries.  The accdb fork id for
+       the attempt rides the slot;
 
      - `next_appendvec`, the eager-claim counter every tile
        fetch-and-adds to pick the appendvecs it owns (no static
@@ -117,14 +120,19 @@ typedef struct fd_snapio_worker fd_snapio_worker_t;
 
 /* The attempt slot: {generation, fork_id}, published (with a fence) by
    tile 0 in its INIT barrier handler once its attempt-scoped accdb
-   work is complete.  Every tile (including tile 0) spins
+   work is complete.  Every tile (including tile 0) requires
    attempt.generation==own generation before its writer_begin, caching
    the fork id: USHORT_MAX during a full load, the incremental fork id
-   during an incremental one.  Bounded and deadlock-free: a spinning
-   tile has, by per-lane in-order consumption, already consumed INIT on
-   all its lanes, so every snapdc already published its INIT copy and
-   tile 0 needs nothing from the spinner to complete its own INIT
-   barrier and publish the slot. */
+   during an incremental one.  The wait is a non-blocking hold on the
+   tile's data lanes, not a spin inside a frag handler, so control frags
+   stay deliverable while it holds.  Deadlock-free: a gating tile has, by
+   per-lane in-order consumption, already consumed INIT on all its lanes,
+   so every snapdc already published its INIT copy and tile 0 needs
+   nothing from the gating tile to complete its own INIT barrier and
+   publish the slot.  The generation (rather than a flag) is what is
+   compared, so a slot left behind by an earlier attempt -- including one
+   whose INIT barrier tile 0 never completed -- cannot release the gate
+   early. */
 
 struct fd_snapio_snoop_hdr {
   ulong magic;
@@ -136,7 +144,8 @@ struct fd_snapio_snoop_hdr {
   } attempt;
 
   /* next_appendvec: the eager-claim counter.  Every tile
-     FD_ATOMIC_FETCH_AND_ADDs it once at INIT (before parsing anything)
+     FD_ATOMIC_FETCH_AND_ADDs it once when its attempt-slot gate opens
+     (before parsing anything, so its walk position is still 0)
      to pick up its first appendvec, and again every time it starts
      parsing the appendvec it currently holds a claim for, so it always
      holds exactly one unmatched claim while an attempt is in flight.
@@ -144,7 +153,7 @@ struct fd_snapio_snoop_hdr {
      that every tile walks identically (skipping the body bytes of
      appendvecs it does not own), and the counter hands out claims in
      that same order one at a time, so a freshly fetched claim can
-     never land behind any tile's current walk position: the value at
+     never land behind the fetching tile's walk position: the value at
      walk position P can only be dispensed once, and it is dispensed
      (and immediately consumed by the tile that drew it) no later than
      the first tile's walk reaches P.  Tile 0 re-zeroes it (along with
