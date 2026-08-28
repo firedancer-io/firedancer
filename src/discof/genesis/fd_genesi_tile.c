@@ -521,7 +521,7 @@ unprivileged_init( fd_topo_t const *      topo,
     void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->genesi.accdb_obj_id );
     fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
     FD_TEST( accdb_shmem );
-    ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+    ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_IDX_FD_RW, 0UL, NULL ) );
     FD_TEST( ctx->accdb );
   }
 
@@ -597,14 +597,16 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<tile->genesi.entrypoints_cnt+6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<tile->genesi.entrypoints_cnt+7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) )
+  if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) ) {
     out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+    out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RW; /* accounts index */
+  }
 
   if( FD_UNLIKELY( -1==ctx->in_fd ) ) {
     FD_TEST( -1!=ctx->out_dir_fd );

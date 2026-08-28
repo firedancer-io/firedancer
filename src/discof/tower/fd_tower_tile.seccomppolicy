@@ -13,7 +13,7 @@
 #
 # eqvoc_fd: The spill file holding in-progress duplicate-proof bodies
 #           (gossip DuplicateShred chunk bytes; metadata stays in RAM).
-uint logfile_fd, uint checkpt_fd, uint restore_fd, uint accounts_fd, uint lockos_fd, uint eqvoc_fd
+uint logfile_fd, uint checkpt_fd, uint restore_fd, uint accounts_fd, uint lockos_fd, uint eqvoc_fd, uint accdb_idx_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -54,7 +54,8 @@ pwritev2: (eq (arg 0) accounts_fd)
 # Users of the accounts database may need to read data into the cache.
 #
 # arg 0 is the file descriptor to read from
-preadv2: (eq (arg 0) accounts_fd)
+preadv2: (or (eq (arg 0) accounts_fd)
+             (eq (arg 0) accdb_idx_fd))
 
 # accounts database: allocate more space from the disk
 #

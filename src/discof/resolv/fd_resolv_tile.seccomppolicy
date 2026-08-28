@@ -4,7 +4,7 @@
 # accdb_ro_fd: Read-only file descriptor onto the accdb data file.  The
 #              resolv tile uses preadv2 against this fd to load address
 #              lookup table accounts on cache miss.
-uint logfile_fd, uint accdb_ro_fd
+uint logfile_fd, uint accdb_ro_fd, uint accdb_idx_ro_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -27,4 +27,5 @@ clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)
 # accounts database: serving address lookup table reads on cache miss
 #
 # arg 0 is the file descriptor to read from.
-preadv2: (eq (arg 0) accdb_ro_fd)
+preadv2: (or (eq (arg 0) accdb_ro_fd)
+             (eq (arg 0) accdb_idx_ro_fd))

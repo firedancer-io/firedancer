@@ -126,14 +126,14 @@ bench_setup( int * out_fd,
   *out_fd = fd;
 
   ulong cache_fp = BENCH_CACHE_FOOTPRINT;
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots,
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 0UL, max_live_slots,
                                               max_account_writes_per_slot,
                                               partition_cnt, cache_fp, 640UL, 1UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
-      fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
+      fd_accdb_shmem_new( shmem_mem, max_accounts, 0UL, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
                           partition_sz, cache_fp, 640UL, 0, 42UL, 1UL, 0UL ) );
   FD_TEST( shmem );
@@ -142,7 +142,7 @@ bench_setup( int * out_fd,
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }

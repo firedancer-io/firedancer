@@ -676,6 +676,22 @@ telemetry = true
     # down the index structure, and use more memory than is necessary.
     max_accounts = 1_300_000_000
 
+    # How many entries of the accounts index are kept resident in
+    # memory.  The full index for all max_accounts accounts lives in an
+    # on-disk bucket file next to the accounts database, read and
+    # written with explicit I/O; memory holds the live fork overlay,
+    # recently rooted writes, and a scan-resistant cache of promoted
+    # hot entries, all locked in huge pages up front.  64 million
+    # entries (4 GiB) comfortably covers the mainnet daily reusable
+    # working set (~12M distinct re-referenced accounts); misses cost
+    # one 4 KiB index read plus the account data read the cold account
+    # would need anyway, off the critical execution path.
+    #
+    # Setting this to 0 keeps the entire index in memory (sized by
+    # max_accounts, roughly 100 GiB at the default), which is the right
+    # mode for tests and small development clusters.
+    index_ram_max = 67_108_864
+
     # The size of the in-memory cache for hit accounts, in GiB.  The
     # performance of the validator is surprisingly not sensitive to this
     # parameter, as long as it is large enough to hold the hottest

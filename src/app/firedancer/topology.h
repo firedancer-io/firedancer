@@ -46,6 +46,7 @@ fd_topo_obj_t *
 setup_topo_accdb( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_accounts,
+                  ulong        index_ram_max,
                   ulong        max_live_slots,
                   ulong        max_account_writes_per_slot,
                   ulong        partition_cnt,

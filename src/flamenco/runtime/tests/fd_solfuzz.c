@@ -96,7 +96,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   ulong const cache_footprint      = (12UL<<30UL);
   ulong const cache_min_reserved   = fd_accdb_cache_min_reserved( 1 );
 
-  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( max_accounts, max_live_slots,
+  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( max_accounts, 0UL, max_live_slots,
                                                    writes_per_slot, partition_cnt,
                                                    cache_footprint, cache_min_reserved, 1UL, 0UL );
   ulong accdb_join_sz  = fd_accdb_footprint( max_live_slots );
@@ -136,11 +136,11 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   }
 
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
-      fd_accdb_shmem_new( accdb_shmem, max_accounts, max_live_slots,
+      fd_accdb_shmem_new( accdb_shmem, max_accounts, 0UL, max_live_slots,
                           writes_per_slot, partition_cnt,
                           partition_sz, cache_footprint, cache_min_reserved, 1, 42UL, 1UL, 0UL ) );
   if( FD_UNLIKELY( !shmem ) ) goto bail1;
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, -1, 0UL, NULL ) );
   if( FD_UNLIKELY( !accdb ) ) goto bail1;
   runner->accdb = accdb;
 

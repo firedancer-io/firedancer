@@ -84,8 +84,16 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_accdb_shmem_align( void );
 
+/* index_ram_max selects the accounts-index residency mode.  0 keeps
+   the entire index in the workspace (pool sized max_accounts,
+   bit-for-bit the historical behavior; tests, fuzzers, and small dev
+   clusters).  Non-zero bounds the in-workspace accmeta pool to that
+   many entries and keeps the full index in an on-disk bucket file
+   accessed with explicit pread/pwrite (see fd_accdb_private.h). */
+
 ulong
 fd_accdb_shmem_footprint( ulong max_accounts,
+                          ulong index_ram_max,
                           ulong max_live_slots,
                           ulong max_account_writes_per_slot,
                           ulong partition_cnt,
@@ -97,6 +105,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
 void *
 fd_accdb_shmem_new( void * shmem,
                     ulong  max_accounts,
+                    ulong  index_ram_max,
                     ulong  max_live_slots,
                     ulong  max_account_writes_per_slot,
                     ulong  partition_cnt,
@@ -107,6 +116,21 @@ fd_accdb_shmem_new( void * shmem,
                     ulong  seed,
                     ulong  joiner_cnt,
                     ulong  max_incremental_accounts );
+
+/* fd_accdb_idx_file_sz returns the required size of the on-disk index
+   file for a database created with max_accounts (bucket pages plus the
+   transient snapshot-load spill region), or 0 in RAM-only mode. */
+
+ulong
+fd_accdb_idx_file_sz( ulong max_accounts,
+                      ulong index_ram_max );
+
+/* fd_accdb_idx_bucket_sz returns just the bucket-page portion (the
+   region fallocated up front at boot). */
+
+ulong
+fd_accdb_idx_bucket_sz( ulong max_accounts,
+                        ulong index_ram_max );
 
 fd_accdb_shmem_t *
 fd_accdb_shmem_join( void * shtc );

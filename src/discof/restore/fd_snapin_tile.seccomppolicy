@@ -14,7 +14,7 @@
 # txncache_fd: The file descriptor for the transaction cache disk
 #              tier.  Cold status cache pages are spilled to and read
 #              back from this file.
-uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint spill_fd, uint txncache_fd
+uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint spill_fd, uint txncache_fd, uint accdb_idx_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -38,8 +38,13 @@ exit: (eq (arg 0) 0)
 #
 # The accounts database allocates more space from the underlying storage
 # device in chunks, as it runs out.
-fallocate: (and (eq (arg 0) accounts_fd)
-                (eq (arg 1) 0))
+#
+# accounts index: after placement the spill region is released with
+# FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE (mode 3).
+fallocate: (or (and (eq (arg 0) accounts_fd)
+                    (eq (arg 1) 0))
+               (and (eq (arg 0) accdb_idx_fd)
+                    (eq (arg 1) 3)))
 
 # stake delegations: disk overflow of the pubkey fallback tier, only
 # touched in fallback mode; txncache staging spill: per-slot staging
@@ -58,3 +63,9 @@ pread64: (or (eq (arg 0) stake_spill_fd)
 pwrite64: (or (eq (arg 0) stake_spill_fd)
               (eq (arg 0) spill_fd)
               (eq (arg 0) txncache_fd))
+
+# accounts index: the on-disk bucket tier of the accounts index is
+# read (and for writer roles, written) with explicit positioned I/O.
+preadv2: (eq (arg 0) accdb_idx_fd)
+
+pwritev2: (eq (arg 0) accdb_idx_fd)

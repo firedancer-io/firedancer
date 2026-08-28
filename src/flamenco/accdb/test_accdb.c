@@ -49,12 +49,12 @@ test_setup_ex( int * out_fd,
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 0UL, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
-      fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
+      fd_accdb_shmem_new( shmem_mem, max_accounts, 0UL, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
                           partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
@@ -64,7 +64,7 @@ test_setup_ex( int * out_fd,
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -85,7 +85,7 @@ test_join_writer( int fd ) {
   ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots );
   void * mem = aligned_alloc( fd_accdb_align(), fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, -1, 0UL, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -973,7 +973,7 @@ test_mainnet_footprint( void ) {
 
   FD_TEST( max_account_writes_per_slot==321280UL );
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL, 0UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 0UL, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL, 0UL );
   FD_TEST( shmem_fp );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
@@ -1742,9 +1742,202 @@ test_sentinel_index_wrap( void ) {
   /* (3) The constructor accepts the maximum partition_cnt==8192 (the
      default), so the wrap above is a reachable configuration, not a
      rejected one. */
-  ulong fp = fd_accdb_shmem_footprint( 1024UL, 64UL, 8192UL, max_cnt,
+  ulong fp = fd_accdb_shmem_footprint( 1024UL, 0UL, 64UL, 8192UL, max_cnt,
                                        TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
   FD_TEST( fp ); /* 0 would mean partition_cnt==8192 was rejected */
+}
+
+/* Disk-resident index end to end: full-snapshot spill+placement into
+   the bucket file, read-through and promotion, incremental override
+   with the bucket capitalization probe, aging-based demotion,
+   tombstone slot deletion, and recreation. */
+
+static void
+test_disk_index( void ) {
+  ulong max_accounts   = 4096UL;
+  ulong hot_max        = 1024UL;
+  ulong max_live_slots = 256UL;
+  ulong mawps          = 8192UL;
+  ulong partition_cnt  = 8192UL;
+  ulong partition_sz   = 1UL<<30UL;
+
+  int fd = memfd_create( "accdb_disk_test", 0 );
+  FD_TEST( fd>=0 );
+  int idx_fd = memfd_create( "accdb_disk_test_idx", 0 );
+  FD_TEST( idx_fd>=0 );
+  FD_TEST( !ftruncate( idx_fd, (long)fd_accdb_idx_file_sz( max_accounts, hot_max ) ) );
+
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, hot_max, max_live_slots, mawps, partition_cnt, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+  FD_TEST( shmem_fp );
+  void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
+  FD_TEST( shmem_mem );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( shmem_mem, max_accounts, hot_max, max_live_slots, mawps, partition_cnt,
+                          partition_sz, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, 1UL, 0UL ) );
+  FD_TEST( shmem );
+
+  void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots ) );
+  FD_TEST( accdb_mem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, idx_fd, 0UL, NULL ) );
+  FD_TEST( accdb );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  /* Full snapshot: A0..A9 at slot 5, a duplicate of A5 at slot 6 with
+     different lamports (placement dedup: higher slot wins), and one
+     zero-lamport marker (dropped at placement). */
+  uchar pk[ 12 ][ 32 ];
+  for( ulong i=0UL; i<12UL; i++ ) { memset( pk[ i ], 0, 32UL ); pk[ i ][ 0 ] = (uchar)(0x40+i); pk[ i ][ 31 ] = (uchar)i; }
+
+  struct { uchar const * pk; ulong slot; ulong lam; ulong dlen; } recs[ 12 ];
+  ulong rec_cnt = 0UL;
+  for( ulong i=0UL; i<10UL; i++ ) recs[ rec_cnt++ ] = (__typeof__(recs[0])){ pk[ i ], 5UL, 100UL+i, 16UL+i };
+  recs[ rec_cnt++ ] = (__typeof__(recs[0])){ pk[ 5 ], 6UL, 555UL, 20UL };  /* dup of A5, wins   */
+  recs[ rec_cnt++ ] = (__typeof__(recs[0])){ pk[ 11 ], 5UL, 0UL, 0UL };    /* zero-lamport      */
+
+  ulong rec_off[ 12 ]; ulong cum = 0UL;
+  for( ulong i=0UL; i<rec_cnt; i+=4UL ) {
+    ulong cnt = fd_ulong_min( 4UL, rec_cnt-i );
+    uchar const * pks[ 4 ]; ulong slots[ 4 ]; ulong lams[ 4 ]; ulong dls[ 4 ]; int exs[ 4 ] = {0};
+    for( ulong j=0UL; j<cnt; j++ ) { pks[ j ] = recs[ i+j ].pk; slots[ j ] = recs[ i+j ].slot; lams[ j ] = recs[ i+j ].lam; dls[ j ] = recs[ i+j ].dlen; }
+    ulong ig, rp, ld, rl, il;
+    FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, cnt, pks, slots, lams, dls, exs, &ig, &rp, &ld, &rl, &il ) );
+    FD_TEST( ld==cnt );
+    for( ulong j=0UL; j<cnt; j++ ) { rec_off[ i+j ] = cum; cum += sizeof(fd_accdb_disk_meta_t)+dls[ j ]; }
+  }
+
+  /* Emulate snapwr: locate the write-head partition and lay down the
+     record bytes at the sequentially reserved offsets. */
+  ulong base = ULONG_MAX;
+  for( ulong p=0UL; p<fd_accdb_shmem_partition_max( shmem ); p++ ) {
+    fd_accdb_shmem_partition_info_t info[1];
+    fd_accdb_shmem_partition_info( shmem, p, info );
+    if( info->is_write_head ) { base = info->file_offset; break; }
+  }
+  FD_TEST( base!=ULONG_MAX );
+  for( ulong i=0UL; i<rec_cnt; i++ ) {
+    fd_accdb_disk_meta_t meta;
+    memcpy( meta.pubkey, recs[ i ].pk, 32UL );
+    meta.size = (uint)recs[ i ].dlen; meta.generation = 0U;
+    memset( meta.owner, (int)(0xA0+i), 32UL );
+    FD_TEST( sizeof(meta)==(ulong)pwrite( fd, &meta, sizeof(meta), (long)(base+rec_off[ i ]) ) );
+    uchar data[ 64 ]; memset( data, (int)(0xB0+i), sizeof(data) );
+    if( recs[ i ].dlen ) FD_TEST( (long)recs[ i ].dlen==pwrite( fd, data, recs[ i ].dlen, (long)(base+rec_off[ i ]+sizeof(meta)) ) );
+  }
+
+  fd_accdb_placement_stats_t pst[1];
+  FD_TEST( !fd_accdb_snapshot_placement( accdb, pst ) );
+  FD_TEST( pst->winners==10UL );
+  FD_TEST( pst->losers==1UL );
+  FD_TEST( pst->loser_lamports==105UL ); /* the slot-5 A5 lost */
+  FD_TEST( pst->zero_dropped==1UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==10UL );
+
+  /* Read-through and promotion out of the bucket. */
+  fd_accdb_fork_id_t f1 = fd_accdb_attach_child( accdb, root );
+  FD_TEST(  fd_accdb_exists( accdb, f1, pk[ 3 ] ) );
+  FD_TEST( !fd_accdb_exists( accdb, f1, pk[ 11 ] ) );
+  FD_TEST( fd_accdb_lamports( accdb, f1, pk[ 5 ] )==555UL ); /* dedup winner */
+  ulong lam; uchar data[ 64 ]; ulong dlen; uchar owner[ 32 ];
+  FD_TEST( accdb_read( accdb, f1, pk[ 3 ], &lam, data, &dlen, owner ) );
+  FD_TEST( lam==103UL && dlen==19UL );
+  FD_TEST( owner[ 0 ]==0xA3 && data[ 0 ]==0xB3 );
+  /* second read hits the promoted (hot_map) copy */
+  FD_TEST( accdb_read( accdb, f1, pk[ 3 ], &lam, data, &dlen, owner ) );
+  FD_TEST( lam==103UL );
+  int exec; ulong nl, ndl; uchar nowner[ 32 ]; static uchar ndata[ 10UL<<20 ];
+  FD_TEST( FD_ACCDB_READ_ONE_NOCACHE_MISS!=fd_accdb_read_one_nocache( accdb, f1, pk[ 7 ], &nl, &exec, nowner, ndata, &ndl ) );
+  FD_TEST( nl==107UL && ndl==23UL && nowner[ 0 ]==0xA7 );
+
+  /* Incremental: new accounts B0..B4 plus an override of A3.  The
+     bloom-gated bucket probe must report A3's superseded lamports. */
+  fd_accdb_fork_id_t inc = fd_accdb_attach_child( accdb, root );
+  uchar bpk[ 6 ][ 32 ];
+  for( ulong i=0UL; i<6UL; i++ ) { memset( bpk[ i ], 0, 32UL ); bpk[ i ][ 0 ] = (uchar)(0x70+i); }
+  {
+    uchar const * pks[ 6 ] = { bpk[ 0 ], bpk[ 1 ], bpk[ 2 ], bpk[ 3 ], bpk[ 4 ], pk[ 3 ] };
+    ulong slots[ 6 ] = { 9,9,9,9,9,9 }; ulong lams[ 6 ] = { 201,202,203,204,205,333 };
+    ulong dls[ 6 ] = { 8,8,8,8,8,24 }; int exs[ 6 ] = {0};
+    ulong ig, rp, ld, rl, il;
+    FD_TEST( !fd_accdb_snapshot_write_batch( accdb, inc, 6UL, pks, slots, lams, dls, exs, &ig, &rp, &ld, &rl, &il ) );
+    FD_TEST( ld==5UL && rp==1UL && rl==103UL && !ig );
+    ulong off = cum;
+    for( ulong j=0UL; j<6UL; j++ ) {
+      fd_accdb_disk_meta_t meta;
+      memcpy( meta.pubkey, pks[ j ], 32UL );
+      meta.size = (uint)dls[ j ]; meta.generation = 0U;
+      memset( meta.owner, (int)(0xC0+j), 32UL );
+      FD_TEST( sizeof(meta)==(ulong)pwrite( fd, &meta, sizeof(meta), (long)(base+off) ) );
+      uchar d2[ 32 ]; memset( d2, (int)(0xD0+j), sizeof(d2) );
+      FD_TEST( (long)dls[ j ]==pwrite( fd, d2, dls[ j ], (long)(base+off+sizeof(meta)) ) );
+      off += sizeof(meta)+dls[ j ];
+    }
+  }
+  fd_accdb_advance_root( accdb, inc );
+  drain_background( accdb );
+  fd_accdb_snapshot_load_end( accdb );
+  root = inc;
+
+  FD_TEST( fd_accdb_lamports( accdb, root, pk[ 3 ] )==333UL );  /* overlay wins  */
+  FD_TEST( fd_accdb_lamports( accdb, root, bpk[ 2 ] )==203UL );
+
+  /* Age the incremental writes past FD_ACCDB_DEMOTE_AGE generations so
+     the background sweep writes them back to the bucket, then verify
+     the merge accounting: A3's stale full-snapshot slot is replaced
+     (accounts_total merges the two incarnations back to one). */
+  for( ulong i=0UL; i<80UL; i++ ) {
+    fd_accdb_fork_id_t f = fd_accdb_attach_child( accdb, root );
+    fd_accdb_advance_root( accdb, f );
+    drain_background( accdb );
+    drain_background( accdb );
+    root = f;
+  }
+  for( ulong i=0UL; i<8UL; i++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==15UL ); /* 10 + 5 new; A3 merged */
+  FD_TEST( fd_accdb_lamports( accdb, root, pk[ 3 ] )==333UL );  /* now bucket-resident */
+  FD_TEST( accdb_read( accdb, root, bpk[ 4 ], &lam, data, &dlen, owner ) );
+  FD_TEST( lam==205UL && dlen==8UL && owner[ 0 ]==0xC4 && data[ 0 ]==0xD4 );
+
+  /* Tombstone a demoted account: the rooted delete must erase its
+     bucket slot (bloom-gated, generation-guarded). */
+  {
+    fd_accdb_fork_id_t f = fd_accdb_attach_child( accdb, root );
+    accdb_write( accdb, f, bpk[ 1 ], 0UL, NULL, 0UL, owner );
+    fd_accdb_advance_root( accdb, f );
+    drain_background( accdb );
+    root = f;
+  }
+  FD_TEST( !fd_accdb_exists( accdb, root, bpk[ 1 ] ) );
+  FD_TEST( fd_accdb_lamports( accdb, root, bpk[ 1 ] )==0UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==14UL );
+
+  /* Recreate it and age it back out to the bucket. */
+  {
+    fd_accdb_fork_id_t f = fd_accdb_attach_child( accdb, root );
+    uchar own2[ 32 ]; memset( own2, 0xEE, 32UL );
+    uchar d3[ 4 ] = { 1,2,3,4 };
+    accdb_write( accdb, f, bpk[ 1 ], 777UL, d3, 4UL, own2 );
+    fd_accdb_advance_root( accdb, f );
+    drain_background( accdb );
+    root = f;
+  }
+  FD_TEST( fd_accdb_lamports( accdb, root, bpk[ 1 ] )==777UL );
+  for( ulong i=0UL; i<80UL; i++ ) {
+    fd_accdb_fork_id_t f = fd_accdb_attach_child( accdb, root );
+    fd_accdb_advance_root( accdb, f );
+    drain_background( accdb );
+    drain_background( accdb );
+    root = f;
+  }
+  for( ulong i=0UL; i<8UL; i++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_lamports( accdb, root, bpk[ 1 ] )==777UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==15UL );
+
+  free( accdb_mem );
+  free( shmem_mem );
+  close( fd );
+  close( idx_fd );
 }
 
 int
@@ -1754,6 +1947,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_basic ..." ));
   test_basic();
+
+  FD_LOG_NOTICE(( "test_disk_index ..." ));
+  test_disk_index();
 
   FD_LOG_NOTICE(( "test_background_preevict_ignores_uninitialized_tail ..." ));
   test_background_preevict_ignores_uninitialized_tail();

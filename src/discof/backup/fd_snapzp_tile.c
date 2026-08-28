@@ -208,7 +208,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( accdb_shmem_ro );
   ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapzp.accdb_epoch_obj_id ) );
   FD_TEST( epoch_fseq );
-  ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
+  ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO, FD_ACCDB_IDX_FD_RO );
   FD_TEST( ctx->accdb );
   FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq ) );
   ctx->overrun = fd_backup_overrun( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
@@ -228,12 +228,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   (void)topo;
   ulong snap_fd_cnt = tile->snapzp.snap_fd_cnt;
-  FD_CHECK_ERR( out_fds_cnt>=3UL+snap_fd_cnt, "out_fds[] too small" );
+  FD_CHECK_ERR( out_fds_cnt>=4UL+snap_fd_cnt, "out_fds[] too small" );
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
+  out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RO;
   for( uint i=0U; i<snap_fd_cnt; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_DIO_FD( i );
   return out_cnt;
@@ -251,7 +252,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)fd_log_private_logfile_fd(),
       (uint)FD_SNAP_DIO_FD( 0 ),
       (uint)FD_SNAP_DIO_FD( snap_fd_cnt-1U ),
-      (uint)FD_ACCDB_FD_RO );
+      (uint)FD_ACCDB_FD_RO,
+      (uint)FD_ACCDB_IDX_FD_RO );
   return sock_filter_policy_fd_snapzp_tile_instr_cnt;
 }
 

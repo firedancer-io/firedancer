@@ -101,6 +101,7 @@ typedef struct fd_configh fd_configh_t;
 struct fd_configf {
   struct {
     ulong max_accounts;
+    ulong index_ram_max;
     ulong cache_size_gib;
   } accounts;
 

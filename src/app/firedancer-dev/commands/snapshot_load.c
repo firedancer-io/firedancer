@@ -88,6 +88,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "accdb" );
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb",
       config->firedancer.accounts.max_accounts,
+      0UL, /* RAM-only index: dev harnesses provide no index file */
       config->firedancer.runtime.max_live_slots,
       FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT,
       8192UL,
@@ -352,26 +353,10 @@ accounts_hist( accounts_hist_t * hist,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( shmem );
 
-  /* Recompute the shmem layout to locate acc_map and acc_pool element
-     storage without taking a writer joiner slot.  This mirrors the
-     layout in fd_accdb_shmem_new and fd_accdb_join_readonly. */
+  ulong chain_cnt = shmem->chain_cnt;
 
-  ulong max_live_slots              = shmem->max_live_slots;
-  ulong max_accounts                = shmem->max_accounts;
-  ulong max_account_writes_per_slot = shmem->max_account_writes_per_slot;
-  ulong partition_cnt               = shmem->partition_cnt;
-  ulong chain_cnt                   = shmem->chain_cnt;
-  ulong txn_max                     = max_live_slots * max_account_writes_per_slot;
-
-  FD_SCRATCH_ALLOC_INIT( l, shmem );
-                                  FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-                                  FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),              fork_pool_footprint()                                   );
-                                  FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
-                                  FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
-  uint *               acc_map  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-                                  FD_SCRATCH_ALLOC_APPEND( l, acc_pool_align(),               acc_pool_footprint()                                    );
-  fd_accdb_accmeta_t * acc_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    max_accounts*sizeof(fd_accdb_accmeta_t)                     );
-  (void)txn_max; (void)partition_cnt;
+  uint *               acc_map  = (uint *)              ( (uchar *)shmem + shmem->acc_map_off      );
+  fd_accdb_accmeta_t * acc_pool = (fd_accdb_accmeta_t *)( (uchar *)shmem + shmem->acc_pool_ele_off );
 
   /* Walk every hash chain.  Each non-UINT_MAX head index yields a
      linked list of live acc_pool elements via map.next. */

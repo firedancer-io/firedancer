@@ -31,11 +31,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_rpc_tile_instr_cnt = 76;
+static const uint sock_filter_policy_fd_rpc_tile_instr_cnt = 78;
 
-static void populate_sock_filter_policy_fd_rpc_tile( ulong out_cnt, struct sock_filter out[ static 76 ], uint logfile_fd, uint rpc_socket_fd, uint accdb_ro_fd ) {
-  FD_TEST( out_cnt >= 76 );
-  struct sock_filter filter[76] = {
+static void populate_sock_filter_policy_fd_rpc_tile( ulong out_cnt, struct sock_filter out[ static 78 ], uint logfile_fd, uint rpc_socket_fd, uint accdb_ro_fd, uint accdb_idx_ro_fd ) {
+  FD_TEST( out_cnt >= 78 );
+  struct sock_filter filter[78] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 10 ),
@@ -184,7 +184,11 @@ static void populate_sock_filter_policy_fd_rpc_tile( ulong out_cnt, struct sock_
 //  check_preadv2:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_ro_fd)), /* preadv2_ALLOW */ 1, /* preadv2_KILL */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_ro_fd)), /* preadv2_ALLOW */ 3, /* or_16 */ 0 ),
+//  or_16:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_idx_ro_fd)), /* preadv2_ALLOW */ 1, /* preadv2_KILL */ 0 ),
 //  preadv2_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  preadv2_ALLOW:

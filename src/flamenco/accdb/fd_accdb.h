@@ -17,6 +17,14 @@
 #define FD_ACCDB_FD_RW (123461)
 #define FD_ACCDB_FD_RO (123460)
 
+/* Well-known fds for the accounts index (bucket) file, used when
+   [accounts.index_ram_max] is non-zero.  Opened and fully fallocated
+   by initialize_accdb_fd before sandboxing, exactly like the data
+   file; all access is explicit pread/pwrite. */
+
+#define FD_ACCDB_IDX_FD_RW (123456)
+#define FD_ACCDB_IDX_FD_RO (123455)
+
 struct fd_accdb_entry {
   uchar   pubkey[ 32UL ];
   uchar   owner[ 32UL ];
@@ -83,6 +91,7 @@ void *
 fd_accdb_new( void *              ljoin,
               fd_accdb_shmem_t *  shmem,
               int                 fd,
+              int                 idx_fd,
               ulong               external_epoch_cnt,
               ulong const **      external_epoch_slots );
 
@@ -111,7 +120,8 @@ fd_accdb_t *
 fd_accdb_join_readonly( void *             ljoin,
                         fd_accdb_shmem_t * shmem_ro,
                         ulong *            my_epoch_slot_rw,
-                        int                fd_ro );
+                        int                fd_ro,
+                        int                idx_fd_ro );
 
 /* fd_accdb_snapshot_load_{begin,end} toggle a mode on this writer
    joiner that causes layer-0 partition handoffs to backfill tiering
@@ -578,6 +588,26 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
                                ulong *             out_ignored_lamports );
+
+/* fd_accdb_snapshot_placement scatters the full-snapshot spill into
+   the on-disk bucket file (disk-index mode; no-op otherwise).  Called
+   by the snapshot loader after the full snapshot stream completes and
+   before capitalization validation.  Deduplicates by snapshot slot;
+   the losers' lamports must be folded into the loader's duplicate
+   capitalization ledger. */
+
+struct fd_accdb_placement_stats {
+  ulong winners;        /* live accounts placed in the bucket        */
+  ulong losers;         /* duplicate records superseded during dedup */
+  ulong loser_lamports; /* their lamports (-> dup capitalization)    */
+  ulong zero_dropped;   /* zero-lamport tombstone markers dropped    */
+};
+
+typedef struct fd_accdb_placement_stats fd_accdb_placement_stats_t;
+
+int
+fd_accdb_snapshot_placement( fd_accdb_t *                 accdb,
+                             fd_accdb_placement_stats_t * stats );
 
 /* fd_accdb_background performs one unit of background work.
 

@@ -110,7 +110,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_fallback_stake_accounts, limits->max_vote_accounts );
   ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
-  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
+  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, 0UL, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
                                                     TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, joiner_cnt, 0UL );
   ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
@@ -151,7 +151,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
                                                limits->max_vote_accounts );
   ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
-  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
+  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, 0UL, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
                                                     TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, joiner_cnt, 0UL );
   ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
@@ -194,11 +194,11 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   }
 
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
-      fd_accdb_shmem_new( accdb_shmem, limits->max_accounts, limits->max_live_slots,
+      fd_accdb_shmem_new( accdb_shmem, limits->max_accounts, 0UL, limits->max_live_slots,
                           TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
                           TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, -1, 0UL, NULL ) );
   FD_TEST( accdb );
 
   /* Save accdb init params for reset */
@@ -456,7 +456,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   /* Re-initialize shmem in place */
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
-      fd_accdb_shmem_new( mini->accdb_shmem_mem, mini->accdb_max_accounts, mini->accdb_max_live_slots,
+      fd_accdb_shmem_new( mini->accdb_shmem_mem, mini->accdb_max_accounts, 0UL, mini->accdb_max_live_slots,
                           TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
                           TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, mini->accdb_joiner_cnt, 0UL ) );
   FD_TEST( shmem );
@@ -465,7 +465,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   FD_TEST( 0==ftruncate( accdb_fd, 0 ) );
 
   /* Re-initialize accdb join in place */
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mini->accdb_join_mem, shmem, accdb_fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mini->accdb_join_mem, shmem, accdb_fd, -1, 0UL, NULL ) );
   FD_TEST( accdb );
   mini->runtime->accdb = accdb;
 

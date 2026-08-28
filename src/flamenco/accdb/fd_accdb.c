@@ -44,10 +44,21 @@ typedef struct fd_accdb_fork fd_accdb_fork_t;
 
 struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int fd;
+  int idx_fd; /* bucket/index file, -1 in RAM-only mode */
+  int ro;     /* readonly joiner: no shmem writes permitted */
 
   int acquire_state;
 
   fd_accdb_shmem_t * shmem;
+
+  /* Disk-resident index tier (NULL/unused in RAM-only mode). */
+  uint *                 hot_map;     /* hot_chain_cnt chain heads    */
+  uint *                 idx_seqlock; /* per bucket page              */
+  ulong *                idx_bloom;
+  fd_accdb_idx_range_t * idx_ranges;  /* spill/placement state        */
+  uchar *                idx_stage;
+  uchar *                idx_window;
+  fd_accdb_idx_slot_t *  idx_carry;
 
   fd_accdb_fork_t * fork_pool;
   fork_pool_t fork_shmem_pool[1];
@@ -234,6 +245,7 @@ void *
 fd_accdb_new( void *              ljoin,
               fd_accdb_shmem_t *  shmem,
               int                 fd,
+              int                 idx_fd,
               ulong               external_epoch_cnt,
               ulong const **      external_epoch_slots ) {
   if( FD_UNLIKELY( !ljoin ) ) {
@@ -251,42 +263,53 @@ fd_accdb_new( void *              ljoin,
     return NULL;
   }
 
+  if( FD_UNLIKELY( shmem->index_ram_max && idx_fd<0 ) ) {
+    FD_LOG_WARNING(( "idx_fd must be a valid file descriptor when the disk index is enabled" ));
+    return NULL;
+  }
+
   ulong max_live_slots = shmem->max_live_slots;
-  ulong max_accounts = shmem->max_accounts;
-  ulong max_account_writes_per_slot = shmem->max_account_writes_per_slot;
-  ulong partition_cnt = shmem->partition_cnt;
+  ulong pool_max       = shmem->pool_max;
+  ulong txn_max        = shmem->max_live_slots * shmem->max_account_writes_per_slot;
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
-  ulong txn_max = max_live_slots * max_account_writes_per_slot;
-
-  FD_SCRATCH_ALLOC_INIT( l, shmem );
-                             FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-  void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
-  void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
-  void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),        max_accounts*sizeof(fd_accdb_accmeta_t)             );
-  void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
-  void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
+  uchar * base = (uchar *)shmem;
+  void * _fork_pool_ele       = base + shmem->fork_pool_ele_off;
+  void * _descends_sets       = base + shmem->descends_off;
+  void * _acc_map             = base + shmem->acc_map_off;
+  void * _acc_pool_ele        = base + shmem->acc_pool_ele_off;
+  void * _txn_pool_ele        = base + shmem->txn_pool_ele_off;
+  void * _partition_pool      = base + shmem->partition_pool_region_off;
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
-    _compaction_dlists[ k ] = FD_SCRATCH_ALLOC_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                                 );
+    _compaction_dlists[ k ]   = base + shmem->compaction_dlist_off[ k ];
   }
-  void * _deferred_free_dlist = FD_SCRATCH_ALLOC_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                         );
+  void * _deferred_free_dlist = base + shmem->deferred_free_dlist_off;
 
   FD_SCRATCH_ALLOC_INIT( l2, ljoin );
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),         sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
   accdb->fd = fd;
+  accdb->idx_fd = idx_fd;
+  accdb->ro = 0;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->snapshot_loading = 0;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
-  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, pool_max ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map = _acc_map;
   FD_TEST( txn_pool_join( accdb->txn_pool, shmem->txn_pool, _txn_pool_ele, txn_max ) );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
+
+  accdb->hot_map     = shmem->index_ram_max ? (uint  *)( base + shmem->hot_map_off     ) : NULL;
+  accdb->idx_seqlock = shmem->index_ram_max ? (uint  *)( base + shmem->idx_seqlock_off ) : NULL;
+  accdb->idx_bloom   = shmem->index_ram_max ? (ulong *)( base + shmem->idx_bloom_off   ) : NULL;
+  accdb->idx_ranges  = shmem->index_ram_max ? (fd_accdb_idx_range_t *)( base + shmem->idx_range_off ) : NULL;
+  accdb->idx_stage   = shmem->index_ram_max ? base + shmem->idx_stage_off  : NULL;
+  accdb->idx_window  = shmem->index_ram_max ? base + shmem->idx_window_off : NULL;
+  accdb->idx_carry   = shmem->index_ram_max ? (fd_accdb_idx_slot_t *)( base + shmem->idx_carry_off ) : NULL;
+
   accdb->partition_pool = partition_pool_join( _partition_pool );
   FD_TEST( accdb->partition_pool );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -409,6 +432,20 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   /* Deferred acc buffer. */
   shmem->deferred_acc_buf_cnt = 0UL;
   shmem->deferred_acc_epoch   = 0UL;
+
+  /* Disk-index state.  The bucket file itself is fully rewritten by
+     the next placement pass (and unreachable meanwhile: bloom zeroed,
+     acc_map empty), so only the RAM side structures reset. */
+  if( FD_UNLIKELY( shmem->index_ram_max ) ) {
+    for( ulong i=0UL; i<shmem->hot_chain_cnt; i++ ) accdb->hot_map[ i ] = FD_ACCDB_HOT_EMPTY;
+    fd_memset( accdb->idx_seqlock, 0, shmem->idx_npage*sizeof(uint) );
+    fd_memset( accdb->idx_bloom,   0, shmem->idx_bloom_sz );
+    fd_memset( accdb->idx_ranges,  0, shmem->idx_nrange*sizeof(fd_accdb_idx_range_t) );
+    shmem->demote_chain_cursor = 0UL;
+    shmem->hot_evict_cursor    = 0UL;
+    shmem->idx_carry_cnt       = 0UL;
+  }
+  shmem->acc_pool_used.val = 0UL;
 
   /* Shared metrics: zero gauges that reflect current state (now empty)
      but preserve counters and accounts_capacity. */
@@ -649,7 +686,8 @@ fd_accdb_t *
 fd_accdb_join_readonly( void *             ljoin,
                         fd_accdb_shmem_t * shmem,
                         ulong *            my_epoch_slot_rw,
-                        int                fd_ro ) {
+                        int                fd_ro,
+                        int                idx_fd_ro ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -665,41 +703,41 @@ fd_accdb_join_readonly( void *             ljoin,
     return NULL;
   }
 
-  ulong max_live_slots               = shmem->max_live_slots;
-  ulong max_accounts                 = shmem->max_accounts;
-  ulong max_account_writes_per_slot  = shmem->max_account_writes_per_slot;
-  ulong partition_cnt                = shmem->partition_cnt;
-
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
-  ulong txn_max   = max_live_slots * max_account_writes_per_slot;
-
-  /* Recompute the same shmem scratch layout that fd_accdb_shmem_new
-     used.  All FD_SCRATCH_ALLOC_APPEND calls here only compute pointer
-     offsets — they do not write to shmem. */
-  FD_SCRATCH_ALLOC_INIT( l, shmem );
-                             FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-  void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
-  void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
-  void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    max_accounts*sizeof(fd_accdb_accmeta_t)                 );
-                             FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
-                             FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
-  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
-                             FD_SCRATCH_ALLOC_APPEND( l, compaction_dlist_align(),       compaction_dlist_footprint()                            );
+  if( FD_UNLIKELY( shmem->index_ram_max && idx_fd_ro<0 ) ) {
+    FD_LOG_WARNING(( "idx_fd_ro must be a valid file descriptor when the disk index is enabled" ));
+    return NULL;
   }
-                             FD_SCRATCH_ALLOC_APPEND( l, deferred_free_dlist_align(),    deferred_free_dlist_footprint()                         );
+
+  ulong max_live_slots = shmem->max_live_slots;
+  ulong pool_max       = shmem->pool_max;
+
+  uchar * base = (uchar *)shmem;
+  void * _fork_pool_ele = base + shmem->fork_pool_ele_off;
+  void * _descends_sets = base + shmem->descends_off;
+  void * _acc_map       = base + shmem->acc_map_off;
+  void * _acc_pool_ele  = base + shmem->acc_pool_ele_off;
 
   FD_SCRATCH_ALLOC_INIT( l2, ljoin );
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),         sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
-  accdb->fd    = fd_ro;
+  accdb->fd     = fd_ro;
+  accdb->idx_fd = idx_fd_ro;
+  accdb->ro     = 1;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
-  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, pool_max ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
+
+  accdb->hot_map     = shmem->index_ram_max ? (uint  *)( base + shmem->hot_map_off     ) : NULL;
+  accdb->idx_seqlock = shmem->index_ram_max ? (uint  *)( base + shmem->idx_seqlock_off ) : NULL;
+  accdb->idx_bloom   = shmem->index_ram_max ? (ulong *)( base + shmem->idx_bloom_off   ) : NULL;
+  accdb->idx_ranges  = NULL;
+  accdb->idx_stage   = NULL;
+  accdb->idx_window  = NULL;
+  accdb->idx_carry   = NULL;
 
   /* Writer-only structures: leave NULL so any accidental writer-path
      call from a readonly joiner crashes loudly rather than corrupting
@@ -969,6 +1007,320 @@ cache_try_pin( fd_accdb_cache_line_t * line,
   }
 }
 
+/* ------------------------------------------------------------------
+   Disk-resident index (bucket) tier.  See fd_accdb_private.h for the
+   architecture overview.  All disk access is explicit pread/pwrite on
+   accdb->idx_fd; nothing here is ever demand-paged. */
+
+static inline int
+idx_enabled( fd_accdb_t const * accdb ) {
+  return !!accdb->shmem->index_ram_max;
+}
+
+static inline ulong
+idx_page_of_key( fd_accdb_t const * accdb,
+                 uchar const        pubkey[ 32 ] ) {
+  return fd_accdb_idx_page_of( fd_hash32( pubkey, accdb->shmem->seed+2UL ), accdb->shmem->idx_npage );
+}
+
+static inline int
+idx_bloom_test( fd_accdb_t const * accdb,
+                uchar const        pubkey[ 32 ] ) {
+  return fd_accdb_idx_bloom_probe( accdb->idx_bloom, accdb->shmem->idx_bloom_sz,
+                                   fd_hash32( pubkey, accdb->shmem->seed+3UL ),
+                                   fd_hash32( pubkey, accdb->shmem->seed+4UL ), 0 );
+}
+
+static inline void
+idx_bloom_insert( fd_accdb_t * accdb,
+                  uchar const  pubkey[ 32 ] ) {
+  fd_accdb_idx_bloom_probe( accdb->idx_bloom, accdb->shmem->idx_bloom_sz,
+                            fd_hash32( pubkey, accdb->shmem->seed+3UL ),
+                            fd_hash32( pubkey, accdb->shmem->seed+4UL ), 1 );
+}
+
+/* idx_io_read / idx_io_write: full-length explicit I/O on the index
+   file with short-read/short-write and EINTR handling. */
+
+static void
+idx_io_read( fd_accdb_t * accdb,
+             void *       buf,
+             ulong        sz,
+             ulong        off ) {
+  ulong got = 0UL;
+  while( got<sz ) {
+    struct iovec iov = { .iov_base = (uchar *)buf+got, .iov_len = sz-got };
+    long result = preadv2( accdb->idx_fd, &iov, 1, (long)(off+got), 0 );
+    if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
+    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "index pread() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts index is corrupt, data expected at offset %lu with size %lu exceeded file extents", off+got, sz ));
+    got += (ulong)result;
+    accdb->metrics->bytes_read += (ulong)result;
+    accdb->metrics->read_ops++;
+  }
+}
+
+static void
+idx_io_write( fd_accdb_t * accdb,
+              void const * buf,
+              ulong        sz,
+              ulong        off ) {
+  ulong put = 0UL;
+  while( put<sz ) {
+    struct iovec iov = { .iov_base = (void *)( (uchar const *)buf+put ), .iov_len = sz-put };
+    long result = pwritev2( accdb->idx_fd, &iov, 1, (long)(off+put), 0 );
+    if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
+    else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "index pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    put += (ulong)result;
+    accdb->metrics->bytes_written += (ulong)result;
+    accdb->metrics->write_ops++;
+  }
+}
+
+/* idx_page_read: seqlock-validated read of one bucket page.  Returns
+   the (even) seqlock value the page contents are consistent with.
+   idx_page_read_raw skips validation (sole-writer paths: the accdb
+   tile, and the snapin placement pass which runs before any reader
+   exists).  idx_page_write is writer-only and brackets the page write
+   odd/even; buffered same-thread pwritev2 keeps the data TSO-ordered
+   against the seqlock stores. */
+
+static uint
+idx_page_read( fd_accdb_t *          accdb,
+               ulong                 page,
+               fd_accdb_idx_page_t * buf ) {
+  uint * seqp = &accdb->idx_seqlock[ page ];
+  for(;;) {
+    uint s0 = FD_VOLATILE_CONST( *seqp );
+    if( FD_UNLIKELY( s0&1U ) ) { FD_SPIN_PAUSE(); continue; }
+    FD_COMPILER_MFENCE();
+    idx_io_read( accdb, buf, FD_ACCDB_IDX_PAGE_SZ, page*FD_ACCDB_IDX_PAGE_SZ );
+    FD_COMPILER_MFENCE();
+    uint s1 = FD_VOLATILE_CONST( *seqp );
+    if( FD_LIKELY( s0==s1 ) ) return s0;
+    FD_SPIN_PAUSE();
+  }
+}
+
+static inline void
+idx_page_read_raw( fd_accdb_t *          accdb,
+                   ulong                 page,
+                   fd_accdb_idx_page_t * buf ) {
+  idx_io_read( accdb, buf, FD_ACCDB_IDX_PAGE_SZ, page*FD_ACCDB_IDX_PAGE_SZ );
+}
+
+static void
+idx_page_write( fd_accdb_t *                accdb,
+                ulong                       page,
+                fd_accdb_idx_page_t const * buf ) {
+  uint * seqp = &accdb->idx_seqlock[ page ];
+  uint   s    = FD_VOLATILE_CONST( *seqp );
+  FD_VOLATILE( *seqp ) = s+1U;
+  FD_COMPILER_MFENCE();
+  idx_io_write( accdb, buf, FD_ACCDB_IDX_PAGE_SZ, page*FD_ACCDB_IDX_PAGE_SZ );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *seqp ) = s+2U;
+}
+
+static inline fd_accdb_idx_slot_t *
+idx_page_find( fd_accdb_idx_page_t * buf,
+               uchar const           pubkey[ 32 ] ) {
+  for( ulong i=0UL; i<FD_ACCDB_IDX_SLOT_CNT; i++ ) {
+    if( buf->slot[ i ].off_plus1 && !memcmp( buf->slot[ i ].pubkey, pubkey, 32UL ) ) return &buf->slot[ i ];
+  }
+  return NULL;
+}
+
+static inline fd_accdb_idx_slot_t *
+idx_page_empty( fd_accdb_idx_page_t * buf ) {
+  for( ulong i=0UL; i<FD_ACCDB_IDX_SLOT_CNT; i++ ) {
+    if( !buf->slot[ i ].off_plus1 ) return &buf->slot[ i ];
+  }
+  return NULL;
+}
+
+/* idx_lookup: seqlock-validated probe for pubkey.  On hit copies the
+   slot to out_slot and returns 1 with *out_page / *out_seq naming the
+   page the slot was found on and the seqlock value it was consistent
+   with (promotion re-checks it).  Linear probing continues past a page
+   only if its sticky overflow flag is set. */
+
+static int
+idx_lookup( fd_accdb_t *          accdb,
+            uchar const           pubkey[ 32 ],
+            fd_accdb_idx_slot_t * out_slot,
+            ulong *               out_page,
+            uint *                out_seq ) {
+  fd_accdb_idx_page_t buf[1];
+  ulong npage = accdb->shmem->idx_npage;
+  ulong page0 = idx_page_of_key( accdb, pubkey );
+  for( ulong probe=0UL; probe<FD_ACCDB_IDX_PROBE_MAX; probe++ ) {
+    ulong page = page0+probe; if( FD_UNLIKELY( page>=npage ) ) page -= npage;
+    uint seq = idx_page_read( accdb, page, buf );
+    fd_accdb_idx_slot_t * s = idx_page_find( buf, pubkey );
+    if( s ) {
+      *out_slot = *s;
+      if( out_page ) *out_page = page;
+      if( out_seq  ) *out_seq  = seq;
+      return 1;
+    }
+    if( FD_LIKELY( !(buf->flags & FD_ACCDB_IDX_PAGE_STICKY) ) ) return 0;
+  }
+  return 0;
+}
+
+/* idx_upsert: writer-only (T2 / snapin) insert-or-replace.  Fills
+   *old and returns 1 when an existing slot for pubkey was replaced,
+   returns 0 on fresh insert.  Full pages passed over on insert get
+   their sticky flag set so lookups keep probing. */
+
+static int
+idx_upsert( fd_accdb_t *                accdb,
+            fd_accdb_idx_slot_t const * rec,
+            fd_accdb_idx_slot_t *       old ) {
+  fd_accdb_idx_page_t buf[1];
+  ulong npage = accdb->shmem->idx_npage;
+  ulong page0 = idx_page_of_key( accdb, rec->pubkey );
+  ulong empty_page = ULONG_MAX; ulong empty_idx = 0UL;
+  for( ulong probe=0UL; probe<FD_ACCDB_IDX_PROBE_MAX; probe++ ) {
+    ulong page = page0+probe; if( FD_UNLIKELY( page>=npage ) ) page -= npage;
+    idx_page_read_raw( accdb, page, buf );
+    fd_accdb_idx_slot_t * s = idx_page_find( buf, rec->pubkey );
+    if( s ) {
+      *old = *s;
+      *s = *rec;
+      idx_page_write( accdb, page, buf );
+      return 1;
+    }
+    if( empty_page==ULONG_MAX ) {
+      fd_accdb_idx_slot_t * e = idx_page_empty( buf );
+      if( e ) { empty_page = page; empty_idx = (ulong)( e-buf->slot ); }
+      else if( !(buf->flags & FD_ACCDB_IDX_PAGE_STICKY) ) {
+        /* Insert must continue past this full page: make it sticky. */
+        buf->flags |= FD_ACCDB_IDX_PAGE_STICKY;
+        idx_page_write( accdb, page, buf );
+      }
+    }
+    if( FD_LIKELY( !(buf->flags & FD_ACCDB_IDX_PAGE_STICKY) ) ) break;
+  }
+  if( FD_UNLIKELY( empty_page==ULONG_MAX ) ) FD_LOG_ERR(( "accounts index bucket file over-full, raise [accounts.max_accounts]" ));
+  idx_page_read_raw( accdb, empty_page, buf );
+  fd_accdb_idx_slot_t * e = &buf->slot[ empty_idx ];
+  if( FD_UNLIKELY( e->off_plus1 ) ) {
+    e = idx_page_empty( buf );
+    FD_TEST( e ); /* single writer: slots cannot fill in between */
+  }
+  *e = *rec;
+  idx_page_write( accdb, empty_page, buf );
+  return 0;
+}
+
+/* idx_delete: writer-only guarded delete: removes pubkey's slot iff
+   slot.generation < gen_lt (both original commit generations, totally
+   ordered per pubkey; idempotent under recreation races).  Fills *old
+   and returns 1 when a slot was deleted. */
+
+static int
+idx_delete( fd_accdb_t *          accdb,
+            uchar const           pubkey[ 32 ],
+            uint                  gen_lt,
+            fd_accdb_idx_slot_t * old ) {
+  fd_accdb_idx_page_t buf[1];
+  ulong npage = accdb->shmem->idx_npage;
+  ulong page0 = idx_page_of_key( accdb, pubkey );
+  for( ulong probe=0UL; probe<FD_ACCDB_IDX_PROBE_MAX; probe++ ) {
+    ulong page = page0+probe; if( FD_UNLIKELY( page>=npage ) ) page -= npage;
+    idx_page_read_raw( accdb, page, buf );
+    fd_accdb_idx_slot_t * s = idx_page_find( buf, pubkey );
+    if( s ) {
+      if( FD_UNLIKELY( s->generation>=gen_lt ) ) return 0;
+      *old = *s;
+      memset( s, 0, sizeof(fd_accdb_idx_slot_t) );
+      idx_page_write( accdb, page, buf );
+      return 1;
+    }
+    if( FD_LIKELY( !(buf->flags & FD_ACCDB_IDX_PAGE_STICKY) ) ) return 0;
+  }
+  return 0;
+}
+
+/* ---- hot_map: chain-head array of promoted rooted entries over the
+   shared acc_pool.  Readers walk lock-free (masking the claim bit);
+   inserts and removals hold the per-chain claim bit. */
+
+static inline ulong
+hot_chain_of( fd_accdb_t const * accdb,
+              uchar const        pubkey[ 32 ] ) {
+  return fd_hash32( pubkey, accdb->shmem->seed ) & ( accdb->shmem->hot_chain_cnt-1UL );
+}
+
+/* hot_walk: lock-free read walk.  Full joiners mark hits with the
+   HOT-ref bit (bit 28, dead for rooted entries) for second-chance
+   eviction; readonly joiners must not write shmem. */
+
+static fd_accdb_accmeta_t *
+hot_walk( fd_accdb_t * accdb,
+          uchar const  pubkey[ 32 ] ) {
+  uint head = FD_VOLATILE_CONST( accdb->hot_map[ hot_chain_of( accdb, pubkey ) ] ) & ~FD_ACCDB_HOT_CLAIM;
+  uint idx  = ( head==FD_ACCDB_HOT_EMPTY ) ? UINT_MAX : head;
+  while( idx!=UINT_MAX ) {
+    fd_accdb_accmeta_t * m = &accdb->acc_pool[ idx ];
+    uint next = FD_VOLATILE_CONST( m->map.next );
+    if( FD_LIKELY( !memcmp( m->key.pubkey, pubkey, 32UL ) ) ) {
+      if( FD_LIKELY( !accdb->ro ) &&
+          !( FD_VOLATILE_CONST( m->executable_size ) & FD_ACCDB_SIZE_PD_WRITE_BIT ) ) {
+        FD_ATOMIC_FETCH_AND_OR( &m->executable_size, FD_ACCDB_SIZE_PD_WRITE_BIT );
+      }
+      return m;
+    }
+    idx = next;
+  }
+  return NULL;
+}
+
+/* hot_claim/hot_release bracket structural chain mutations. The value
+   passed to hot_release becomes the new head (claim bit cleared). */
+
+static inline uint
+hot_claim( fd_accdb_t * accdb,
+           ulong        chain ) {
+  uint * headp = &accdb->hot_map[ chain ];
+  for(;;) {
+    uint cur = FD_VOLATILE_CONST( *headp );
+    if( FD_UNLIKELY( cur & FD_ACCDB_HOT_CLAIM ) ) { FD_SPIN_PAUSE(); continue; }
+    if( FD_LIKELY( FD_ATOMIC_CAS( headp, cur, cur|FD_ACCDB_HOT_CLAIM )==cur ) ) return cur;
+    FD_SPIN_PAUSE();
+  }
+}
+
+static inline void
+hot_release( fd_accdb_t * accdb,
+             ulong        chain,
+             uint         new_head ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( accdb->hot_map[ chain ] ) = new_head;
+}
+
+/* hot_find_locked walks the chain (claim held) for pubkey, filling
+   *out_prev (UINT_MAX if head).  Returns pool idx or UINT_MAX. */
+
+static uint
+hot_find_locked( fd_accdb_t * accdb,
+                 uint         head,
+                 uchar const  pubkey[ 32 ],
+                 uint *       out_prev ) {
+  uint prev = UINT_MAX;
+  uint idx  = ( head==FD_ACCDB_HOT_EMPTY ) ? UINT_MAX : head;
+  while( idx!=UINT_MAX ) {
+    fd_accdb_accmeta_t * m = &accdb->acc_pool[ idx ];
+    if( FD_LIKELY( !memcmp( m->key.pubkey, pubkey, 32UL ) ) ) { *out_prev = prev; return idx; }
+    prev = idx;
+    idx  = FD_VOLATILE_CONST( m->map.next );
+  }
+  *out_prev = UINT_MAX;
+  return UINT_MAX;
+}
+
 /* wait_for_epoch_drain spins until every joiner's published epoch
    exceeds tag, meaning all readers that were active at epoch=tag have
    since exited their critical sections. */
@@ -1031,7 +1383,10 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
      pool and its fields recycled. */
   ulong acc_pool_cap = acc_pool_ele_max( accdb->acc_pool_join );
   for( ulong i=0UL; i<n; i++ ) {
+    int migrated = !!( buf[ i ] & FD_ACCDB_DEFER_MIGRATED );
+    buf[ i ] &= ~FD_ACCDB_DEFER_MIGRATED;
     FD_TEST( (ulong)buf[ i ]<acc_pool_cap );
+    if( FD_UNLIKELY( migrated ) ) continue; /* bytes + bucket slot live on */
     fd_accdb_accmeta_t * accmeta = &acc_pool[ buf[ i ] ];
     ulong off = fd_accdb_acc_offset( accmeta );
     if( FD_UNLIKELY( off!=FD_ACCDB_OFF_INVAL ) ) {
@@ -1047,6 +1402,7 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
   fd_accdb_accmeta_t * head = &acc_pool[ buf[ 0UL ] ];
   fd_accdb_accmeta_t * tail = &acc_pool[ buf[ n-1UL ] ];
   acc_pool_release_chain( accdb->acc_pool_join, head, tail );
+  FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->acc_pool_used.val, n );
   accdb->shmem->deferred_acc_buf_cnt = 0UL;
 }
 
@@ -1233,6 +1589,238 @@ acc_unlink( fd_accdb_t * accdb,
   }
 }
 
+/* acc_cache_teardown invalidates a departing (demoted / hot-evicted)
+   accmeta's cache binding and tries to reclaim the line, mirroring the
+   tail of acc_unlink.  Unlike acc_unlink the entry is CLEAN by
+   construction (rooted, persisted), so the pinned-reader branch only
+   needs the persisted neutralization, and there is no tombstone
+   assert: a reader may legitimately hold a pin on a version that is
+   merely migrating to the bucket tier.  The key/generation re-check
+   before scrubbing forecloses the ABA family acc_unlink's PINNED
+   branch is known to suffer. */
+
+static void
+acc_cache_teardown( fd_accdb_t *         accdb,
+                    fd_accdb_accmeta_t * accmeta ) {
+  uint cur_es;
+  for(;;) {
+    cur_es = FD_VOLATILE_CONST( accmeta->executable_size );
+    if( FD_UNLIKELY( cur_es & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) { FD_SPIN_PAUSE(); continue; }
+    uint nxt_es = cur_es | FD_ACCDB_SIZE_CACHE_CLAIM_BIT;
+    if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur_es, nxt_es )==cur_es ) ) break;
+    FD_SPIN_PAUSE();
+  }
+
+  uint cidx = FD_ACCDB_ACC_CIDX_INVAL;
+  int  had_valid = FD_ACCDB_SIZE_CACHE_VALID( cur_es );
+  if( FD_UNLIKELY( had_valid ) ) {
+    cidx = FD_VOLATILE_CONST( accmeta->cache_idx );
+    FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~FD_ACCDB_SIZE_CACHE_VALID_BIT );
+    FD_VOLATILE( accmeta->cache_idx ) = FD_ACCDB_ACC_CIDX_INVAL;
+  }
+
+  FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~FD_ACCDB_SIZE_CACHE_CLAIM_BIT );
+
+  if( FD_UNLIKELY( had_valid ) ) {
+    fd_accdb_cache_line_t * stale = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
+    uint old_rc = FD_ATOMIC_CAS( &stale->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL );
+    if( FD_LIKELY( !old_rc ) ) {
+      if( FD_LIKELY( stale->key.generation==accmeta->key.generation &&
+                     !memcmp( stale->key.pubkey, accmeta->key.pubkey, 32UL ) ) ) {
+        ulong sc = FD_ACCDB_ACC_CIDX_CLASS( cidx );
+        stale->key.generation = UINT_MAX;
+        stale->persisted = 1;
+        stale->acc_idx   = UINT_MAX;
+        FD_COMPILER_MFENCE();
+        FD_VOLATILE( stale->refcnt ) = 0;
+        cache_free_push( accdb, sc, stale );
+      } else {
+        FD_VOLATILE( stale->refcnt ) = 0;
+      }
+    } else if( FD_LIKELY( old_rc!=FD_ACCDB_EVICT_SENTINEL ) ) {
+      fd_accdb_cache_line_t * mine = cache_try_pin( stale, accmeta->key.pubkey, accmeta->key.generation );
+      if( FD_LIKELY( mine ) ) {
+        FD_VOLATILE( mine->persisted ) = 1;
+        FD_ATOMIC_FETCH_AND_SUB( &mine->refcnt, 1U );
+      }
+    }
+  }
+}
+
+/* migrate_unlink removes accmeta from its acc_map chain WITHOUT
+   deleting the account: its data bytes and freshly-upserted bucket
+   slot live on (invariant I5): no offset invalidation (readers holding
+   the accmeta may still pread until the epoch drains), no byte free,
+   no accounts_total decrement.  The pool slot rides the deferred free
+   with the MIGRATED tag. */
+
+static int
+migrate_unlink( fd_accdb_t * accdb,
+                ulong        map_idx,
+                uint         acc_idx ) {
+  fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
+
+  for(;;) {
+    uint old_head = FD_VOLATILE_CONST( accdb->acc_map[ map_idx ] );
+    if( FD_LIKELY( old_head==acc_idx ) ) {
+      if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_map[ map_idx ], acc_idx, accmeta->map.next )==acc_idx ) ) break;
+      FD_SPIN_PAUSE();
+      continue;
+    }
+    /* Interior removal: walk from the head.  Absence means T2 (us)
+       already migrated this entry (duplicate candidate); skip. */
+    uint prev = old_head;
+    while( prev!=UINT_MAX && FD_VOLATILE_CONST( accdb->acc_pool[ prev ].map.next )!=acc_idx ) prev = FD_VOLATILE_CONST( accdb->acc_pool[ prev ].map.next );
+    if( FD_UNLIKELY( prev==UINT_MAX ) ) return 0;
+    FD_ATOMIC_CAS( &accdb->acc_pool[ prev ].map.next, acc_idx, accmeta->map.next );
+    break;
+  }
+
+  acc_cache_teardown( accdb, accmeta );
+  deferred_acc_append( accdb, acc_idx | FD_ACCDB_DEFER_MIGRATED );
+  return 1;
+}
+
+/* hot_unlink_locked removes pool idx from a hot chain whose claim is
+   held (head = value observed at claim time).  Returns the new head to
+   pass to hot_release. */
+
+static uint
+hot_unlink_locked( fd_accdb_t * accdb,
+                   uint         head,
+                   uint         prev,
+                   uint         idx ) {
+  fd_accdb_accmeta_t * m = &accdb->acc_pool[ idx ];
+  uint next = FD_VOLATILE_CONST( m->map.next );
+  if( FD_LIKELY( prev==UINT_MAX ) ) return ( next==UINT_MAX ) ? FD_ACCDB_HOT_EMPTY : next;
+  FD_VOLATILE( accdb->acc_pool[ prev ].map.next ) = next;
+  return head;
+}
+
+/* hot_purge removes any hot_map entry for pubkey (T2 only; used when a
+   bucket write supersedes the promoted copy).  The chain claim bit is
+   released before the cache teardown so bit hold times stay O(chain
+   walk) (invariant I6). */
+
+static void
+hot_purge( fd_accdb_t * accdb,
+           uchar const  pubkey[ 32 ] ) {
+  ulong chain = hot_chain_of( accdb, pubkey );
+  uint  head  = hot_claim( accdb, chain );
+  uint  prev;
+  uint  idx   = hot_find_locked( accdb, head, pubkey, &prev );
+  uint  new_head = ( idx==UINT_MAX ) ? head : hot_unlink_locked( accdb, head, prev, idx );
+  hot_release( accdb, chain, new_head );
+  if( FD_UNLIKELY( idx!=UINT_MAX ) ) {
+    acc_cache_teardown( accdb, &accdb->acc_pool[ idx ] );
+    deferred_acc_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED );
+  }
+}
+
+/* promote_from_slot installs a bucket slot as a hot_map entry (full
+   joiners only, called after a seqlock-validated bucket hit).  Returns
+   the accmeta on success (ours or a racing promoter's), or NULL if the
+   page's seqlock moved under us (T2 demoted a newer version, deleted
+   the key, or relocated the record) -- the caller must re-do the
+   bucket lookup.  The re-check under the chain claim bit closes the
+   validate-before-bit window: T2's bucket mutations for a pubkey
+   always bump the page seqlock BEFORE taking this pubkey's chain bit,
+   so a promoter that inserted under an older seq value is either
+   removed by T2's purge (T2 got the bit first) or never inserts (we
+   see the new seq here and retry).
+
+   The promoted entry reuses the version's ORIGINAL commit generation
+   from the slot (minting fresh generations would exhaust the 32-bit
+   space under adversarial cold-read sweeps).  (pubkey, generation)
+   uniqueness across promote/evict/re-promote cycles is preserved by
+   acc_cache_teardown's key re-check at eviction, and a stale pinned
+   line is bytes-identical (same immutable rooted version), so the
+   generation-ABA re-checks stay sound. */
+
+static fd_accdb_accmeta_t *
+promote_from_slot( fd_accdb_t *                accdb,
+                   uchar const                 pubkey[ 32 ],
+                   fd_accdb_idx_slot_t const * slot,
+                   ulong                       page,
+                   uint                        seq ) {
+  fd_accdb_accmeta_t * m = acc_pool_acquire( accdb->acc_pool_join );
+  if( FD_UNLIKELY( !m ) ) FD_LOG_ERR(( "accounts index hot pool exhausted, raise [accounts.index_ram_max] (current %lu)", accdb->shmem->index_ram_max ));
+  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->acc_pool_used.val, 1UL );
+
+  fd_memcpy( m->key.pubkey, pubkey, 32UL );
+  m->key.generation  = slot->generation;
+  m->lamports        = slot->lamports;
+  m->cache_idx       = FD_ACCDB_ACC_CIDX_INVAL;
+  m->executable_size = slot->executable_size & ( FD_ACCDB_SIZE_MASK | FD_ACCDB_SIZE_EXEC_BIT );
+  m->offset_fork     = fd_accdb_acc_pack_offset_fork( slot->off_plus1-1UL, FD_ACCDB_FORK_ID_ROOTED );
+
+  ulong chain = hot_chain_of( accdb, pubkey );
+  uint  head  = hot_claim( accdb, chain );
+
+  uint prev;
+  uint dup = hot_find_locked( accdb, head, pubkey, &prev );
+  if( FD_UNLIKELY( dup!=UINT_MAX ) ) {
+    hot_release( accdb, chain, head );
+    acc_pool_release( accdb->acc_pool_join, m );
+    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->acc_pool_used.val, 1UL );
+    return &accdb->acc_pool[ dup ];
+  }
+
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->idx_seqlock[ page ] )!=seq ) ) {
+    hot_release( accdb, chain, head );
+    acc_pool_release( accdb->acc_pool_join, m );
+    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->acc_pool_used.val, 1UL );
+    return NULL;
+  }
+
+  uint idx = (uint)acc_pool_idx( accdb->acc_pool_join, m );
+  m->map.next = ( head==FD_ACCDB_HOT_EMPTY ) ? UINT_MAX : head;
+  hot_release( accdb, chain, idx );
+  return m;
+}
+
+/* disk_lookup_promote: the full-joiner cold read path,
+   hot_map -> bloom -> bucket pread -> promote.  Returns the promoted
+   (or already hot) accmeta, or NULL if the account does not exist in
+   the rooted tier.  Runs under the caller's published epoch. */
+
+static fd_accdb_accmeta_t *
+disk_lookup_promote( fd_accdb_t * accdb,
+                     uchar const  pubkey[ 32 ] ) {
+  fd_accdb_accmeta_t * hot = hot_walk( accdb, pubkey );
+  if( FD_LIKELY( hot ) ) return hot;
+  if( FD_LIKELY( !idx_bloom_test( accdb, pubkey ) ) ) return NULL;
+  for(;;) {
+    fd_accdb_idx_slot_t slot[1]; ulong page; uint seq;
+    if( FD_UNLIKELY( !idx_lookup( accdb, pubkey, slot, &page, &seq ) ) ) return NULL;
+    fd_accdb_accmeta_t * m = promote_from_slot( accdb, pubkey, slot, page, seq );
+    if( FD_LIKELY( m ) ) return m;
+    FD_SPIN_PAUSE();
+  }
+}
+
+/* disk_lookup_ro: read-through lookup for paths that must not (or can
+   not) promote: readonly joiners and metadata probes.  Copies the slot
+   and returns 1 on hit. */
+
+static int
+disk_lookup_ro( fd_accdb_t *          accdb,
+                uchar const           pubkey[ 32 ],
+                fd_accdb_idx_slot_t * out_slot ) {
+  fd_accdb_accmeta_t * hot = hot_walk( accdb, pubkey );
+  if( FD_LIKELY( hot ) ) {
+    fd_memcpy( out_slot->pubkey, hot->key.pubkey, 32UL );
+    out_slot->off_plus1       = fd_accdb_acc_offset( hot )+1UL;
+    out_slot->lamports        = FD_VOLATILE_CONST( hot->lamports );
+    out_slot->executable_size = FD_VOLATILE_CONST( hot->executable_size ) & ( FD_ACCDB_SIZE_MASK | FD_ACCDB_SIZE_EXEC_BIT );
+    out_slot->generation      = hot->key.generation;
+    out_slot->slot            = 0UL;
+    return 1;
+  }
+  if( FD_LIKELY( !idx_bloom_test( accdb, pubkey ) ) ) return 0;
+  return idx_lookup( accdb, pubkey, out_slot, NULL, NULL );
+}
+
 /* fork_slot_defer removes fork_id from every descends_set and chains
    the fork pool slot onto the deferred fork chain for later release.
    The slot must not be released immediately because concurrent readers
@@ -1417,6 +2005,24 @@ background_advance_root( fd_accdb_t *       accdb,
          new_acc as an "older version" - in that case new_acc_seen=0
          and we skip, since the freelist cleanup is already done. */
       if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
+        if( FD_UNLIKELY( idx_enabled( accdb ) ) ) {
+          /* Erase the bucket slot (generation-guarded, so recreation
+             races are idempotent) and any promoted incarnation BEFORE
+             the tombstone leaves acc_map, so no reader window exists
+             in which the deleted account resurrects from the bucket.
+             Bloom gates the pread: same-lifetime ephemerals were never
+             demoted and skip all I/O. */
+          if( FD_UNLIKELY( idx_bloom_test( accdb, new_acc->key.pubkey ) ) ) {
+            fd_accdb_idx_slot_t old[1];
+            if( idx_delete( accdb, new_acc->key.pubkey, new_acc->key.generation, old ) ) {
+              ulong old_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( old->executable_size );
+              fd_accdb_shmem_bytes_freed( accdb->shmem, old->off_plus1-1UL, old_sz );
+              FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, old_sz );
+              FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->accounts_total, 1UL );
+            }
+          }
+          hot_purge( accdb, new_acc->key.pubkey );
+        }
         uint new_acc_idx = (uint)txne->acc_pool_idx;
         acc_unlink( accdb, txne->acc_map_idx, new_acc_prev, new_acc_idx );
         deferred_acc_append( accdb, new_acc_idx );
@@ -1921,6 +2527,7 @@ background_compact( fd_accdb_t * accdb,
      offset matches the record we are compacting. */
   fd_accdb_accmeta_t * accmeta = NULL;
   ulong source_packed = 0UL;
+  int   is_hot        = 0;
   uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ] );
   while( acc_idx!=UINT_MAX ) {
     fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ acc_idx ];
@@ -1934,9 +2541,90 @@ background_compact( fd_accdb_t * accdb,
     acc_idx = next_idx;
   }
 
+  /* Disk-index tiers: a promoted (hot_map) entry, or a bucket-only
+     slot, may own this record.  Bloom-negative proves the pubkey has
+     no bucket slot (inserts precede unlinks; deletions only leave
+     stale positives), which is the fast path for dead ephemerals. */
+  int   is_bucket   = 0;
+  ulong bucket_page = 0UL;
+  fd_accdb_idx_slot_t bslot[1];
+  if( FD_UNLIKELY( !accmeta && idx_enabled( accdb ) ) ) {
+    uint hidx = FD_VOLATILE_CONST( accdb->hot_map[ hot_chain_of( accdb, meta->pubkey ) ] ) & ~FD_ACCDB_HOT_CLAIM;
+    uint hcur = ( hidx==FD_ACCDB_HOT_EMPTY ) ? UINT_MAX : hidx;
+    while( hcur!=UINT_MAX ) {
+      fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ hcur ];
+      uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
+      ulong candidate_packed = FD_VOLATILE_CONST( candidate->offset_fork );
+      if( FD_LIKELY( (candidate_packed & FD_ACCDB_OFF_MASK)==compact_base+compact->compaction_offset ) ) {
+        accmeta       = candidate;
+        source_packed = candidate_packed;
+        is_hot        = 1;
+        break;
+      }
+      hcur = next_idx;
+    }
+    if( !accmeta && idx_bloom_test( accdb, meta->pubkey ) &&
+        idx_lookup( accdb, meta->pubkey, bslot, &bucket_page, NULL ) &&
+        bslot->off_plus1-1UL==compact_base+compact->compaction_offset ) {
+      is_bucket = 1;
+    }
+  }
+
   ulong record_sz  = sizeof(fd_accdb_disk_meta_t) + (ulong)meta->size;
   ulong bytes_copied = 0UL;
-  if( FD_UNLIKELY( !accmeta ) ) {
+  if( FD_UNLIKELY( is_bucket ) ) {
+    /* Bucket-only live record: relocate and re-sync the slot under the
+       pubkey's hot chain claim bit, so the slot update is atomic
+       against a concurrent promoter (invariant I3; the promoter's
+       seqlock re-check under its bit is the other half). */
+    ulong dest_layer  = fd_ulong_min( src_layer+1UL, FD_ACCDB_COMPACTION_LAYER_CNT-1UL );
+    ulong dest_offset = allocate_next_compaction_write( accdb, record_sz, dest_layer );
+    while( FD_UNLIKELY( bytes_copied<record_sz ) ) {
+      long in_off  = (long)(compact_base + compact->compaction_offset + bytes_copied);
+      long out_off = (long)(dest_offset + bytes_copied);
+      long result = copy_file_range( accdb->fd, &in_off, accdb->fd, &out_off, record_sz-bytes_copied, 0 );
+      if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
+      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "copy_file_range() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
+                                                     compact_base+compact->compaction_offset+bytes_copied, record_sz ));
+      fd_accdb_partition_read_bump( accdb, compact_base+compact->compaction_offset+bytes_copied, (ulong)result );
+      bytes_copied += (ulong)result;
+      accdb->metrics->copy_ops++;
+    }
+    FD_COMPILER_MFENCE();
+
+    ulong chain = hot_chain_of( accdb, meta->pubkey );
+    uint  head  = hot_claim( accdb, chain );
+    /* A promoter may have installed this slot's entry between our
+       lookup and the claim: repoint it too. */
+    uint prev;
+    uint hot_idx = hot_find_locked( accdb, head, meta->pubkey, &prev );
+    if( FD_UNLIKELY( hot_idx!=UINT_MAX ) ) {
+      fd_accdb_accmeta_t * hm = &accdb->acc_pool[ hot_idx ];
+      ulong packed = FD_VOLATILE_CONST( hm->offset_fork );
+      if( FD_LIKELY( (packed & FD_ACCDB_OFF_MASK)==compact_base+compact->compaction_offset ) ) {
+        FD_ATOMIC_CAS( &hm->offset_fork, packed, ( packed & ~FD_ACCDB_OFF_MASK ) | ( dest_offset & FD_ACCDB_OFF_MASK ) );
+      }
+    }
+    fd_accdb_idx_page_t pgbuf[1];
+    idx_page_read_raw( accdb, bucket_page, pgbuf );
+    fd_accdb_idx_slot_t * sl = idx_page_find( pgbuf, meta->pubkey );
+    if( FD_LIKELY( sl && sl->off_plus1-1UL==compact_base+compact->compaction_offset ) ) {
+      sl->off_plus1 = dest_offset+1UL;
+      idx_page_write( accdb, bucket_page, pgbuf );
+    } else {
+      /* slot moved on (demote/delete raced ahead of us on T2?  cannot:
+         single-threaded — this is the paranoid arm): dest copy is dead */
+      fd_accdb_shmem_bytes_freed( accdb->shmem, dest_offset, record_sz );
+      bytes_copied = 0UL;
+    }
+    hot_release( accdb, chain, head );
+
+    accdb->shmem->shmetrics->accounts_relocated++;
+    accdb->shmem->shmetrics->accounts_relocated_bytes += bytes_copied;
+    compact->compaction_accounts_relocated++;
+    compact->compaction_bytes_relocated += bytes_copied;
+  } else if( FD_UNLIKELY( !accmeta ) ) {
     /* Dead record — the index entry was already removed, so this
        on-disk extent is garbage.  Nothing to relocate. */
     compact->compaction_dead_records++;
@@ -1990,6 +2678,22 @@ background_compact( fd_accdb_t * accdb,
          it as freed so compaction can reclaim it later. */
       fd_accdb_shmem_bytes_freed( accdb->shmem, dest_offset, record_sz );
       bytes_copied = 0UL;
+    } else if( FD_UNLIKELY( is_hot ) ) {
+      /* Promoted entry: its bucket slot duplicates the offset; re-sync
+         in the same T2 step (invariant I3) so hot eviction can drop
+         the RAM copy without leaving the slot dangling into a
+         recyclable partition. */
+      fd_accdb_idx_slot_t bs[1]; ulong pg;
+      if( FD_LIKELY( idx_lookup( accdb, meta->pubkey, bs, &pg, NULL ) &&
+                     bs->off_plus1-1UL==compact_base+compact->compaction_offset ) ) {
+        fd_accdb_idx_page_t pgbuf[1];
+        idx_page_read_raw( accdb, pg, pgbuf );
+        fd_accdb_idx_slot_t * sl = idx_page_find( pgbuf, meta->pubkey );
+        if( FD_LIKELY( sl && sl->off_plus1-1UL==compact_base+compact->compaction_offset ) ) {
+          sl->off_plus1 = dest_offset+1UL;
+          idx_page_write( accdb, pg, pgbuf );
+        }
+      }
     }
   }
 
@@ -2228,7 +2932,16 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
       break;
     }
-    if( FD_UNLIKELY( acc==UINT_MAX ) )                                       accmetas[ i ] = NULL;
+    if( FD_UNLIKELY( acc==UINT_MAX ) ) {
+      /* Not in the fork overlay: consult the rooted disk tier
+         (hot_map -> bloom -> bucket pread), promoting bucket hits so
+         the cache machinery below has a RAM accmeta to bind to.  Any
+         version newer than the rooted one would by definition be in
+         acc_map and was found above, so tier precedence preserves the
+         per-pubkey newest-first invariant. */
+      if( FD_UNLIKELY( idx_enabled( accdb ) ) ) accmetas[ i ] = disk_lookup_promote( accdb, pubkeys[ i ] );
+      else                                      accmetas[ i ] = NULL;
+    }
     else                                                                     accmetas[ i ] = &accdb->acc_pool[ acc ];
 
 #if FD_TMPL_USE_HANDHOLDING
@@ -3325,7 +4038,8 @@ release_inner( fd_accdb_t * accdb,
     } else {
       accdb->metrics->accounts_committed_new_per_class[ new_size_class ]++;
       fd_accdb_accmeta_t * accmeta = acc_pool_acquire( accdb->acc_pool_join );
-      FD_TEST( accmeta );
+      if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts index pool exhausted%s", accdb->shmem->index_ram_max ? ", raise [accounts.index_ram_max] or inspect demotion lag" : "" ));
+      FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->acc_pool_used.val, 1UL );
       ulong acc_idx = acc_pool_idx( accdb->acc_pool_join, accmeta );
       fd_memcpy( accmeta->key.pubkey, accs[ i ].pubkey, 32UL );
       accmeta->lamports        = accs[ i ].lamports;
@@ -3527,7 +4241,18 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
     break;
   }
 
-  if( FD_UNLIKELY( !accmeta ) ) {
+  /* Rooted disk tier: hot_map read (safe for readonly joiners, which
+     skip the ref-bit write), then bloom, then a seqlock-validated
+     bucket pread.  Never promotes: this is the read-through path. */
+  fd_accdb_idx_slot_t dslot[1];
+  int from_bucket = 0;
+  if( FD_UNLIKELY( !accmeta ) && idx_enabled( accdb ) ) {
+    fd_accdb_accmeta_t * hot = hot_walk( accdb, pubkey );
+    if( FD_LIKELY( hot ) ) accmeta = hot;
+    else if( FD_UNLIKELY( idx_bloom_test( accdb, pubkey ) && idx_lookup( accdb, pubkey, dslot, NULL, NULL ) ) ) from_bucket = 1;
+  }
+
+  if( FD_UNLIKELY( !accmeta && !from_bucket ) ) {
     accdb->metrics->accounts_acquired_per_class[ 0 ]++;
     *out_lamports = 0UL;
     FD_COMPILER_MFENCE();
@@ -3539,10 +4264,10 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   ///   Snapshot acc fields.  The acc element's metadata is effectively
   ///   immutable from the perspective of cross-fork readers (see the
   ///   comment block in fd_accdb.h about cross-fork reads). */
-  uint  snap_es       = FD_VOLATILE_CONST( accmeta->executable_size );
-  uint  snap_gen      = accmeta->key.generation;
-  ulong snap_lamports = accmeta->lamports;
-  uint  snap_cidx     = FD_VOLATILE_CONST( accmeta->cache_idx );
+  uint  snap_es       = from_bucket ? dslot->executable_size            : FD_VOLATILE_CONST( accmeta->executable_size );
+  uint  snap_gen      = from_bucket ? dslot->generation                 : accmeta->key.generation;
+  ulong snap_lamports = from_bucket ? dslot->lamports                   : accmeta->lamports;
+  uint  snap_cidx     = from_bucket ? (uint)FD_ACCDB_ACC_CIDX_INVAL     : FD_VOLATILE_CONST( accmeta->cache_idx );
   ulong data_len      = (ulong)FD_ACCDB_SIZE_DATA( snap_es );
   int   executable    = FD_ACCDB_SIZE_EXEC( snap_es );
 
@@ -3615,12 +4340,17 @@ miss:;
   ///   our critical section, so the bytes at the snapshotted offset
   ///   remain stable for the duration of the read.
   fd_racesan_hook( "accdb_nocache:pre_offset" );
-  ulong off_packed = FD_VOLATILE_CONST( accmeta->offset_fork );
-  if( FD_UNLIKELY( (off_packed & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) {
-    accdb->metrics->accounts_waited++;
-    while( FD_UNLIKELY( ((off_packed=FD_VOLATILE_CONST( accmeta->offset_fork )) & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) FD_SPIN_PAUSE();
+  ulong off;
+  if( FD_UNLIKELY( from_bucket ) ) {
+    off = dslot->off_plus1-1UL;
+  } else {
+    ulong off_packed = FD_VOLATILE_CONST( accmeta->offset_fork );
+    if( FD_UNLIKELY( (off_packed & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) {
+      accdb->metrics->accounts_waited++;
+      while( FD_UNLIKELY( ((off_packed=FD_VOLATILE_CONST( accmeta->offset_fork )) & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) FD_SPIN_PAUSE();
+    }
+    off = off_packed & FD_ACCDB_OFF_MASK;
   }
-  ulong off = off_packed & FD_ACCDB_OFF_MASK;
   fd_racesan_hook( "accdb_nocache:pre_preadv2" );
 
   struct iovec iovs[ 2 ] = {
@@ -3688,7 +4418,15 @@ fd_accdb_exists( fd_accdb_t *       accdb,
   }
 
   int result;
-  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0;
+  if( FD_UNLIKELY( acc==UINT_MAX ) ) {
+    result = 0;
+    if( FD_UNLIKELY( idx_enabled( accdb ) ) ) {
+      /* Rooted disk tier, read-through (existence probes must never
+         churn the hot pool: RO references cost 0 CU). */
+      fd_accdb_idx_slot_t dslot[1];
+      result = disk_lookup_ro( accdb, pubkey, dslot );
+    }
+  }
   else                               result = !!FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
 
   FD_COMPILER_MFENCE();
@@ -3772,7 +4510,13 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   }
 
   ulong result;
-  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0UL;
+  if( FD_UNLIKELY( acc==UINT_MAX ) ) {
+    result = 0UL;
+    if( FD_UNLIKELY( idx_enabled( accdb ) ) ) {
+      fd_accdb_idx_slot_t dslot[1];
+      if( disk_lookup_ro( accdb, pubkey, dslot ) ) result = dslot->lamports;
+    }
+  }
   else                               result = FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
 
   FD_COMPILER_MFENCE();
@@ -3943,6 +4687,352 @@ background_preevict( fd_accdb_t * accdb,
   }
 }
 
+/* ---- full-snapshot spill + placement (boot bucket construction) ----
+
+   Full-snapshot accounts do not pass through the RAM index at all:
+   snapin appends fixed 64 B records to per-range extents of the index
+   file (sequential buffered appends, overlapped with the download like
+   today's data-file stores), then a post-EOF placement pass scatters
+   each range into a locked RAM window and writes the range's bucket
+   pages sequentially, deduplicating by snapshot slot and building the
+   bloom filter in the same pass. */
+
+static void
+idx_spill_flush( fd_accdb_t * accdb,
+                 ulong        range ) {
+  fd_accdb_shmem_t *     shmem = accdb->shmem;
+  fd_accdb_idx_range_t * r     = &accdb->idx_ranges[ range ];
+  if( FD_LIKELY( !r->stage_cnt ) ) return;
+  ulong sz = (ulong)r->stage_cnt*sizeof(fd_accdb_idx_slot_t);
+  if( FD_UNLIKELY( r->spill_sz+sz>shmem->idx_spill_extent ) )
+    FD_LOG_ERR(( "snapshot account count exceeds [accounts.max_accounts] provisioning (index spill range %lu overflow)", range ));
+  idx_io_write( accdb, accdb->idx_stage + range*FD_ACCDB_IDX_STAGE_SZ, sz,
+                shmem->idx_spill_base + range*shmem->idx_spill_extent + r->spill_sz );
+  r->spill_sz += sz;
+  r->stage_cnt = 0U;
+}
+
+static void
+idx_spill_append( fd_accdb_t *  accdb,
+                  uchar const   pubkey[ 32 ],
+                  ulong         file_off,
+                  ulong         lamports,
+                  ulong         data_len,
+                  int           executable,
+                  ulong         slot ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong page  = idx_page_of_key( accdb, pubkey );
+  ulong range = page/( FD_ACCDB_IDX_WINDOW_SZ/FD_ACCDB_IDX_PAGE_SZ );
+  fd_accdb_idx_range_t * r = &accdb->idx_ranges[ range ];
+  fd_accdb_idx_slot_t * rec = (fd_accdb_idx_slot_t *)( accdb->idx_stage + range*FD_ACCDB_IDX_STAGE_SZ ) + r->stage_cnt;
+  fd_memcpy( rec->pubkey, pubkey, 32UL );
+  rec->off_plus1       = file_off+1UL;
+  rec->lamports        = lamports;
+  rec->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_len, executable );
+  rec->generation      = accdb->fork_pool[ shmem->root_fork_id.val ].shmem->generation;
+  rec->slot            = slot;
+  r->stage_cnt++;
+  if( FD_UNLIKELY( (ulong)r->stage_cnt==FD_ACCDB_IDX_STAGE_SZ/sizeof(fd_accdb_idx_slot_t) ) ) idx_spill_flush( accdb, range );
+}
+
+/* scatter one spill record into the placement window.  base_page is
+   the window's first bucket page, wpage the page count resident.
+   from_page is where probing starts (the record's home page, or the
+   window base for records carried across a range boundary). */
+
+static void
+idx_place_rec( fd_accdb_t *                accdb,
+               fd_accdb_idx_slot_t const * rec,
+               ulong                       base_page,
+               ulong                       wpage,
+               ulong                       from_page,
+               fd_accdb_placement_stats_t * st ) {
+  ulong local = from_page-base_page;
+  for(;;) {
+    if( FD_UNLIKELY( local>=wpage ) ) {
+      if( FD_UNLIKELY( accdb->shmem->idx_carry_cnt>=FD_ACCDB_IDX_CARRY_MAX ) )
+        FD_LOG_ERR(( "accounts index placement carry overflow" ));
+      accdb->idx_carry[ accdb->shmem->idx_carry_cnt++ ] = *rec;
+      return;
+    }
+    fd_accdb_idx_page_t * pg = (fd_accdb_idx_page_t *)( accdb->idx_window + local*FD_ACCDB_IDX_PAGE_SZ );
+    fd_accdb_idx_slot_t * match = NULL;
+    fd_accdb_idx_slot_t * empty = NULL;
+    for( ulong i=0UL; i<FD_ACCDB_IDX_SLOT_CNT; i++ ) {
+      fd_accdb_idx_slot_t * sl = &pg->slot[ i ];
+      if( !sl->off_plus1 ) { if( !empty ) empty = sl; continue; }
+      if( FD_UNLIKELY( !memcmp( sl->pubkey, rec->pubkey, 32UL ) ) ) { match = sl; break; }
+    }
+    if( FD_UNLIKELY( match!=NULL ) ) {
+      /* Duplicate across append vecs: newest snapshot slot wins (ties:
+         later arrival, matching fd_accdb_snapshot_write_one).  The
+         loser's data bytes die; its lamports feed dup_capitalization. */
+      fd_accdb_idx_slot_t const * loser = ( rec->slot>=match->slot ) ? (fd_accdb_idx_slot_t const *)match : rec;
+      st->losers++;
+      st->loser_lamports += loser->lamports;
+      ulong loser_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( loser->executable_size );
+      fd_accdb_shmem_bytes_freed( accdb->shmem, loser->off_plus1-1UL, loser_sz );
+      accdb->shmem->shmetrics->disk_used_bytes -= loser_sz;
+      if( rec->slot>=match->slot ) *match = *rec;
+      return;
+    }
+    if( FD_LIKELY( empty!=NULL ) ) { *empty = *rec; return; }
+    pg->flags |= FD_ACCDB_IDX_PAGE_STICKY;
+    local++;
+  }
+}
+
+int
+fd_accdb_snapshot_placement( fd_accdb_t *                 accdb,
+                             fd_accdb_placement_stats_t * st ) {
+  memset( st, 0, sizeof(*st) );
+  if( FD_UNLIKELY( !accdb ) ) return 0; /* stub harnesses drive DONE with no accdb */
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_UNLIKELY( !idx_enabled( accdb ) ) ) return 0;
+
+  for( ulong r=0UL; r<shmem->idx_nrange; r++ ) idx_spill_flush( accdb, r );
+
+  ulong ppr      = FD_ACCDB_IDX_WINDOW_SZ/FD_ACCDB_IDX_PAGE_SZ;
+  ulong chunk_sz = fd_ulong_min( shmem->idx_nrange*FD_ACCDB_IDX_STAGE_SZ, 8UL<<20 );
+  uchar * chunk  = accdb->idx_stage; /* stages are flushed: reuse as read buffer */
+
+  shmem->idx_carry_cnt = 0UL;
+
+  for( ulong r=0UL; r<shmem->idx_nrange; r++ ) {
+    ulong base_page = r*ppr;
+    ulong wpage     = fd_ulong_min( ppr, shmem->idx_npage-base_page );
+    memset( accdb->idx_window, 0, wpage*FD_ACCDB_IDX_PAGE_SZ );
+
+    /* records carried over the previous range boundary probe from the
+       window base */
+    ulong carry_cnt = shmem->idx_carry_cnt;
+    shmem->idx_carry_cnt = 0UL;
+    for( ulong i=0UL; i<carry_cnt; i++ ) {
+      fd_accdb_idx_slot_t rec = accdb->idx_carry[ i ];
+      idx_place_rec( accdb, &rec, base_page, wpage, base_page, st );
+    }
+
+    ulong spill_off = shmem->idx_spill_base + r*shmem->idx_spill_extent;
+    ulong spill_sz  = accdb->idx_ranges[ r ].spill_sz;
+    for( ulong pos=0UL; pos<spill_sz; ) {
+      ulong take = fd_ulong_min( chunk_sz, spill_sz-pos );
+      idx_io_read( accdb, chunk, take, spill_off+pos );
+      fd_accdb_idx_slot_t const * recs = (fd_accdb_idx_slot_t const *)chunk;
+      for( ulong i=0UL; i<take/sizeof(fd_accdb_idx_slot_t); i++ ) {
+        idx_place_rec( accdb, &recs[ i ], base_page, wpage, idx_page_of_key( accdb, recs[ i ].pubkey ), st );
+      }
+      pos += take;
+    }
+
+    /* strip tombstones (zero-lamport snapshot markers), build bloom */
+    for( ulong pgi=0UL; pgi<wpage; pgi++ ) {
+      fd_accdb_idx_page_t * pg = (fd_accdb_idx_page_t *)( accdb->idx_window + pgi*FD_ACCDB_IDX_PAGE_SZ );
+      for( ulong i=0UL; i<FD_ACCDB_IDX_SLOT_CNT; i++ ) {
+        fd_accdb_idx_slot_t * sl = &pg->slot[ i ];
+        if( !sl->off_plus1 ) continue;
+        if( FD_UNLIKELY( !sl->lamports ) ) {
+          ulong dead_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( sl->executable_size );
+          fd_accdb_shmem_bytes_freed( shmem, sl->off_plus1-1UL, dead_sz );
+          shmem->shmetrics->disk_used_bytes -= dead_sz;
+          st->zero_dropped++;
+          memset( sl, 0, sizeof(*sl) );
+          continue;
+        }
+        idx_bloom_insert( accdb, sl->pubkey );
+        st->winners++;
+      }
+    }
+
+    idx_io_write( accdb, accdb->idx_window, wpage*FD_ACCDB_IDX_PAGE_SZ, base_page*FD_ACCDB_IDX_PAGE_SZ );
+  }
+
+  /* wrap-around carries (a full page run at the end of the file;
+     effectively unreachable at load factor 0.5) */
+  ulong carry_cnt = shmem->idx_carry_cnt;
+  shmem->idx_carry_cnt = 0UL;
+  for( ulong i=0UL; i<carry_cnt; i++ ) {
+    fd_accdb_idx_slot_t rec = accdb->idx_carry[ i ];
+    if( FD_UNLIKELY( !rec.lamports ) ) { st->zero_dropped++; continue; }
+    fd_accdb_idx_slot_t old[1];
+    if( idx_upsert( accdb, &rec, old ) ) {
+      fd_accdb_idx_slot_t const * loser = ( rec.slot>=old->slot ) ? (fd_accdb_idx_slot_t const *)old : &rec;
+      if( FD_UNLIKELY( loser==&rec ) ) { fd_accdb_idx_slot_t t[1]; idx_upsert( accdb, old, t ); }
+      st->losers++;
+      st->loser_lamports += loser->lamports;
+      ulong loser_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( loser->executable_size );
+      fd_accdb_shmem_bytes_freed( shmem, loser->off_plus1-1UL, loser_sz );
+      shmem->shmetrics->disk_used_bytes -= loser_sz;
+    } else {
+      st->winners++;
+    }
+    idx_bloom_insert( accdb, rec.pubkey );
+  }
+
+  /* placement is the population authority after a full load */
+  shmem->shmetrics->accounts_total = st->winners;
+
+  /* release the transient spill extents */
+  for( ulong r=0UL; r<shmem->idx_nrange; r++ ) accdb->idx_ranges[ r ].spill_sz = 0UL;
+  if( FD_UNLIKELY( -1==fallocate( accdb->idx_fd, 3 /* PUNCH_HOLE|KEEP_SIZE */, (long)shmem->idx_spill_base,
+                                  (long)( shmem->idx_nrange*shmem->idx_spill_extent ) ) ) ) {
+    FD_LOG_WARNING(( "index spill punch failed (%d-%s); transient extents remain until next boot", errno, fd_io_strerror( errno ) ));
+  }
+  return 0;
+}
+
+/* background_demote sweeps acc_map for rooted versions that have aged
+   past FD_ACCDB_DEMOTE_AGE generations without being superseded and
+   writes them back to the bucket file, freeing their RAM index slots.
+   Per-slot rewriters (vote accounts) never age out, so they cost no
+   bucket I/O.  T2 only. */
+
+#define FD_ACCDB_DEMOTE_BATCH (64UL)
+
+static void
+background_demote( fd_accdb_t * accdb,
+                   int *        charge_busy ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_LIKELY( !shmem->index_ram_max ) ) return;
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( shmem->snapshot_loading ) ) ) return;
+  if( FD_UNLIKELY( shmem->root_fork_id.val==USHORT_MAX ) ) return;
+
+  uint root_gen = accdb->fork_pool[ shmem->root_fork_id.val ].shmem->generation;
+  if( FD_UNLIKELY( root_gen<FD_ACCDB_DEMOTE_AGE ) ) return;
+  uint gen_cut = root_gen-FD_ACCDB_DEMOTE_AGE;
+
+  struct { uint acc_idx; uint gen; ulong page; } cand[ FD_ACCDB_DEMOTE_BATCH ];
+  ulong cand_cnt = 0UL;
+
+  ulong chain_cnt = shmem->chain_cnt;
+  ulong cursor    = shmem->demote_chain_cursor;
+  ulong scan_max  = fd_ulong_min( 4096UL, chain_cnt ); /* never revisit a chain within one batch */
+  for( ulong scanned=0UL; scanned<scan_max && cand_cnt<FD_ACCDB_DEMOTE_BATCH; scanned++ ) {
+    ulong chain = cursor & (chain_cnt-1UL);
+    cursor++;
+    uint idx = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
+    while( idx!=UINT_MAX && cand_cnt<FD_ACCDB_DEMOTE_BATCH ) {
+      fd_accdb_accmeta_t * m = &accdb->acc_pool[ idx ];
+      uint  next = FD_VOLATILE_CONST( m->map.next );
+      ulong off  = FD_VOLATILE_CONST( m->offset_fork ) & FD_ACCDB_OFF_MASK;
+      if( FD_UNLIKELY( m->key.generation<=gen_cut && FD_VOLATILE_CONST( m->lamports ) && off!=FD_ACCDB_OFF_INVAL ) ) {
+        cand[ cand_cnt ].acc_idx = idx;
+        cand[ cand_cnt ].gen     = m->key.generation;
+        cand[ cand_cnt ].page    = idx_page_of_key( accdb, m->key.pubkey );
+        cand_cnt++;
+      }
+      idx = next;
+    }
+  }
+  shmem->demote_chain_cursor = cursor;
+  if( FD_LIKELY( !cand_cnt ) ) return;
+  *charge_busy = 1;
+
+  /* Release the previous deferred batch (T2 is the only pool releaser,
+     so entries collected above cannot be recycled between here and the
+     apply loop below). */
+  drain_deferred_frees( accdb );
+
+  /* Page order for I/O locality. */
+  for( ulong i=1UL; i<cand_cnt; i++ ) {
+    __typeof__(cand[0]) tmp = cand[ i ];
+    ulong j = i;
+    while( j && cand[ j-1UL ].page>tmp.page ) { cand[ j ] = cand[ j-1UL ]; j--; }
+    cand[ j ] = tmp;
+  }
+
+  ulong demoted = 0UL;
+  for( ulong i=0UL; i<cand_cnt; i++ ) {
+    fd_accdb_accmeta_t * m = &accdb->acc_pool[ cand[ i ].acc_idx ];
+    if( FD_UNLIKELY( m->key.generation!=cand[ i ].gen ) ) continue;
+    ulong off = FD_VOLATILE_CONST( m->offset_fork ) & FD_ACCDB_OFF_MASK;
+    if( FD_UNLIKELY( off==FD_ACCDB_OFF_INVAL ) ) continue; /* dirty writeback in flight; retry later */
+    if( FD_UNLIKELY( !FD_VOLATILE_CONST( m->lamports ) ) ) continue;
+
+    fd_accdb_idx_slot_t rec[1];
+    fd_memcpy( rec->pubkey, m->key.pubkey, 32UL );
+    rec->off_plus1       = off+1UL;
+    rec->lamports        = m->lamports;
+    rec->executable_size = m->executable_size & ( FD_ACCDB_SIZE_MASK | FD_ACCDB_SIZE_EXEC_BIT );
+    rec->generation      = m->key.generation;
+    rec->slot            = 0UL;
+
+    fd_accdb_idx_slot_t old[1];
+    if( idx_upsert( accdb, rec, old ) && FD_LIKELY( old->off_plus1!=rec->off_plus1 ) ) {
+      /* The bucket held a superseded version (full-snapshot slot under
+         an incremental override, or an earlier demotion): its data
+         bytes die now, and its population count merges into ours. */
+      ulong old_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( old->executable_size );
+      fd_accdb_shmem_bytes_freed( shmem, old->off_plus1-1UL, old_sz );
+      FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, old_sz );
+      FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->accounts_total, 1UL );
+    }
+    idx_bloom_insert( accdb, m->key.pubkey );
+
+    /* Bucket write complete: retire the promoted incarnation (if any)
+       and then the acc_map copy.  Readers never miss in all tiers. */
+    hot_purge( accdb, m->key.pubkey );
+    migrate_unlink( accdb, fd_hash32( m->key.pubkey, shmem->seed )&(chain_cnt-1UL), cand[ i ].acc_idx );
+    demoted++;
+  }
+
+  if( FD_LIKELY( demoted ) ) {
+    ulong tag = FD_ATOMIC_FETCH_AND_ADD( &shmem->epoch, 1UL );
+    if( FD_LIKELY( shmem->deferred_acc_buf_cnt ) ) shmem->deferred_acc_epoch = tag;
+  }
+}
+
+/* background_hot_evict trims the promoted read cache when pool
+   occupancy crosses the high-water mark.  Hot entries are always
+   clean and bucket-synced (compaction re-syncs relocations in the same
+   T2 step), so eviction is RAM-only: unlink, tear down the cache
+   binding, deferred-free the slot.  Second chance via the HOT-ref bit
+   set on lookup hits. */
+
+static void
+background_hot_evict( fd_accdb_t * accdb,
+                      int *        charge_busy ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_LIKELY( !shmem->index_ram_max ) ) return;
+  ulong used = FD_VOLATILE_CONST( shmem->acc_pool_used.val );
+  if( FD_LIKELY( used < shmem->pool_max - (shmem->pool_max>>3) ) ) return;
+  *charge_busy = 1;
+
+  drain_deferred_frees( accdb );
+
+  uint  victims[ 512UL ];
+  ulong evicted = 0UL;
+  for( ulong sweep=0UL; sweep<1024UL && evicted<512UL; sweep++ ) {
+    ulong chain = (shmem->hot_evict_cursor++) & (shmem->hot_chain_cnt-1UL);
+    uint  head  = hot_claim( accdb, chain );
+    uint  cur_head = head;
+    uint  prev = UINT_MAX;
+    uint  idx  = ( head==FD_ACCDB_HOT_EMPTY ) ? UINT_MAX : head;
+    while( idx!=UINT_MAX && evicted<512UL ) {
+      fd_accdb_accmeta_t * m = &accdb->acc_pool[ idx ];
+      uint next = FD_VOLATILE_CONST( m->map.next );
+      if( FD_UNLIKELY( FD_VOLATILE_CONST( m->executable_size ) & FD_ACCDB_SIZE_PD_WRITE_BIT ) ) {
+        FD_ATOMIC_FETCH_AND_AND( &m->executable_size, ~FD_ACCDB_SIZE_PD_WRITE_BIT );
+        prev = idx;
+      } else {
+        cur_head = hot_unlink_locked( accdb, cur_head, prev, idx );
+        victims[ evicted++ ] = idx;
+      }
+      idx = next;
+    }
+    hot_release( accdb, chain, cur_head );
+  }
+
+  for( ulong i=0UL; i<evicted; i++ ) {
+    acc_cache_teardown( accdb, &accdb->acc_pool[ victims[ i ] ] );
+    deferred_acc_append( accdb, victims[ i ] | FD_ACCDB_DEFER_MIGRATED );
+  }
+
+  if( FD_LIKELY( evicted ) ) {
+    ulong tag = FD_ATOMIC_FETCH_AND_ADD( &shmem->epoch, 1UL );
+    if( FD_LIKELY( shmem->deferred_acc_buf_cnt ) ) shmem->deferred_acc_epoch = tag;
+  }
+}
+
 int
 fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
                              fd_accdb_fork_id_t fork_id,
@@ -3957,6 +5047,19 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
   if( FD_UNLIKELY( slot>UINT_MAX ) ) FD_LOG_ERR(( "snapshot slot %lu exceeds 2^32-1, accdb format must be widened", slot ));
 
   int incremental = fork_id.val!=USHORT_MAX;
+
+  /* Disk-index full-snapshot mode: the record goes to the spill (and
+     later the bucket file via placement), never through the RAM index.
+     The write head still advances so snapwr stays in sync. */
+  if( FD_UNLIKELY( !incremental && idx_enabled( accdb ) ) ) {
+    if( FD_UNLIKELY( accdb->shmem->root_fork_id.val==USHORT_MAX ) ) FD_LOG_ERR(( "snapshot_write_one called without a root fork attached" ));
+    ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
+    ulong file_off = allocate_next_write( accdb, entry_sz );
+    idx_spill_append( accdb, pubkey, file_off, lamports, data_len, executable, slot );
+    accdb->shmem->shmetrics->disk_used_bytes += entry_sz;
+    *out_replaced_lamports = 0UL;
+    return 1;
+  }
 
   fd_accdb_fork_t * fork     = NULL;
   uint              fork_gen = 0U;
@@ -4002,9 +5105,26 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
 
   int replace = !!accmeta;
 
+  /* Incremental records land in the RAM overlay (they are rooted and
+     demoted through the ordinary machinery afterwards); the account's
+     full-snapshot incarnation lives in the bucket, so probe it (bloom
+     gated) for the capitalization ledger: its lamports are being
+     superseded.  The stale bucket slot itself stays shadowed by
+     acc_map until this entry demotes over it. */
+  if( FD_UNLIKELY( incremental && !accmeta && !cross_fork && idx_enabled( accdb ) ) ) {
+    if( FD_UNLIKELY( idx_bloom_test( accdb, pubkey ) ) ) {
+      fd_accdb_idx_slot_t dslot[1];
+      if( FD_LIKELY( idx_lookup( accdb, pubkey, dslot, NULL, NULL ) ) ) {
+        cross_fork = 1;
+        *out_replaced_lamports = dslot->lamports;
+      }
+    }
+  }
+
   if( FD_UNLIKELY( !accmeta ) ) {
     accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
-    if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
+    if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.%s], current value is %lu", accdb->shmem->index_ram_max ? "index_ram_max" : "max_accounts", acc_pool_ele_max( accdb->acc_pool_join ) ));
+    FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->acc_pool_used.val, 1UL );
 
     uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
 
@@ -4065,6 +5185,36 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             out_ignored_lamports ) {
   int incremental = fork_id.val!=USHORT_MAX;
 
+  /* Disk-index full-snapshot mode: batch goes to the spill; dedup and
+     lamport reconciliation happen at placement.  The intra-batch
+     duplicate check (corrupt-snapshot signal) is preserved. */
+  if( FD_UNLIKELY( !incremental && idx_enabled( accdb ) ) ) {
+    if( FD_UNLIKELY( accdb->shmem->root_fork_id.val==USHORT_MAX ) ) FD_LOG_ERR(( "snapshot_write_batch called without a root fork attached" ));
+    for( ulong i=0UL; i<cnt; i++ ) {
+      if( FD_UNLIKELY( slots[ i ]>UINT_MAX ) ) FD_LOG_ERR(( "snapshot slot %lu exceeds 2^32-1, accdb format must be widened", slots[ i ] ));
+      for( ulong j=0UL; j<i; j++ ) {
+        if( FD_UNLIKELY( !memcmp( pubkeys[ j ], pubkeys[ i ], 32UL ) ) ) {
+          FD_LOG_WARNING(( "corrupt snapshot: duplicate pubkey within a single batch (entries %lu and %lu, slots %lu and %lu)", j, i, slots[ j ], slots[ i ] ));
+          return -1;
+        }
+      }
+    }
+    ulong used_bytes = 0UL;
+    for( ulong i=0UL; i<cnt; i++ ) {
+      ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
+      ulong file_off = allocate_next_write( accdb, entry_sz );
+      idx_spill_append( accdb, pubkeys[ i ], file_off, lamports[ i ], data_lens[ i ], executables[ i ], slots[ i ] );
+      used_bytes += entry_sz;
+    }
+    accdb->shmem->shmetrics->disk_used_bytes += used_bytes;
+    *accounts_ignored      = 0UL;
+    *accounts_replaced     = 0UL;
+    *accounts_loaded       = cnt;
+    *out_replaced_lamports = 0UL;
+    *out_ignored_lamports  = 0UL;
+    return 0;
+  }
+
   fd_accdb_fork_t * fork     = NULL;
   uint              fork_gen = 0U;
   if( FD_UNLIKELY( incremental ) ) {
@@ -4097,6 +5247,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   ulong                hashes[ 8 ];
   fd_accdb_accmeta_t * existing[ 8 ];       /* same-fork dup or full-snapshot replace */
   fd_accdb_accmeta_t * cross_existing[ 8 ]; /* cross-fork dup (incremental only) */
+  ulong                cross_bucket_lamports[ 8 ]; /* bucket-resident dup lamports, ULONG_MAX = none */
   int                  skip[ 8 ];
 
   for( ulong i=0UL; i<cnt; i++ ) {
@@ -4141,6 +5292,17 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
         break;
       }
       next_acc = candidate->map.next;
+    }
+
+    /* Incremental override of a bucket-resident (full snapshot)
+       incarnation: bloom-gated probe for the superseded lamports (see
+       fd_accdb_snapshot_write_one). */
+    cross_bucket_lamports[ i ] = ULONG_MAX;
+    if( FD_UNLIKELY( incremental && next_acc==UINT_MAX && idx_enabled( accdb ) ) ) {
+      if( FD_UNLIKELY( idx_bloom_test( accdb, pubkeys[ i ] ) ) ) {
+        fd_accdb_idx_slot_t dslot[1];
+        if( FD_LIKELY( idx_lookup( accdb, pubkeys[ i ], dslot, NULL, NULL ) ) ) cross_bucket_lamports[ i ] = dslot->lamports;
+      }
     }
   }
 
@@ -4197,6 +5359,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     } else {
       accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
       if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading" ));
+      FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->acc_pool_used.val, 1UL );
 
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
 
@@ -4217,6 +5380,10 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
       if( cross_existing[ i ] ) {
         replaced_lamports += cross_existing[ i ]->lamports;
+        replaced++;
+        cross_replaced++;
+      } else if( FD_UNLIKELY( cross_bucket_lamports[ i ]!=ULONG_MAX ) ) {
+        replaced_lamports += cross_bucket_lamports[ i ];
         replaced++;
         cross_replaced++;
       } else {
@@ -4345,6 +5512,9 @@ fd_accdb_background( fd_accdb_t * accdb,
   }
 
   background_preevict( accdb, charge_busy, 0 );
+
+  background_demote   ( accdb, charge_busy );
+  background_hot_evict( accdb, charge_busy );
 
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     background_compact( accdb, k, charge_busy );

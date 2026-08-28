@@ -1353,6 +1353,17 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_DONE:
+        /* Full snapshot in disk-index mode: scatter the index spill
+           into the bucket file now, before capitalization validation:
+           duplicate resolution happens at placement, so the losers'
+           lamports land in dup_capitalization here. */
+        if( FD_UNLIKELY( ctx->full ) ) {
+          fd_accdb_placement_stats_t pst[1];
+          fd_accdb_snapshot_placement( ctx->accdb, pst );
+          ctx->dup_capitalization        = fd_ulong_sat_add( ctx->dup_capitalization, pst->loser_lamports );
+          ctx->metrics.accounts_loaded   = fd_ulong_sat_sub( ctx->metrics.accounts_loaded, pst->losers );
+          ctx->metrics.accounts_replaced += pst->losers;
+        }
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
       default:
@@ -1752,7 +1763,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
 
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
@@ -1765,6 +1776,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation fallback spill */
   out_fds[ out_cnt++ ] = ctx->txncache_spill_fd; /* txncache staging spill */
   out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* txncache disk tier */
+  out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RW; /* accounts index */
 
   return out_cnt;
 }
@@ -1775,7 +1787,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, (uint)ctx->txncache_spill_fd, (uint)FD_TXNCACHE_FD );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, (uint)ctx->txncache_spill_fd, (uint)FD_TXNCACHE_FD, FD_ACCDB_IDX_FD_RW );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
@@ -1842,7 +1854,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapin.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem );
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_IDX_FD_RW, 0UL, NULL ) );
   FD_TEST( ctx->accdb );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );

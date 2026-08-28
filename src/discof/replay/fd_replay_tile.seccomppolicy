@@ -9,7 +9,7 @@
 # txncache_fd: The file descriptor for the transaction cache disk
 #              tier.  Cold status cache pages are spilled to and read
 #              back from this file.
-uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint rewards_spill_fd, uint txncache_fd
+uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint rewards_spill_fd, uint txncache_fd, uint accdb_idx_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -39,7 +39,8 @@ pwritev2: (eq (arg 0) accounts_fd)
 # Users of the accounts database may need to read data into the cache.
 #
 # arg 0 is the file descriptor to read from
-preadv2: (eq (arg 0) accounts_fd)
+preadv2: (or (eq (arg 0) accounts_fd)
+             (eq (arg 0) accdb_idx_fd))
 
 # accounts database: allocate more space from the disk
 #

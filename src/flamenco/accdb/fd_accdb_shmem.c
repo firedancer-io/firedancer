@@ -53,15 +53,60 @@ fd_accdb_shmem_join( void * shtc ) {
   return accdb;
 }
 
-ulong
-fd_accdb_shmem_footprint( ulong max_accounts,
-                          ulong max_live_slots,
-                          ulong max_account_writes_per_slot,
-                          ulong partition_cnt,
-                          ulong cache_footprint,
-                          ulong cache_min_reserved,
-                          ulong joiner_cnt,
-                          ulong max_incremental_accounts ) {
+/* fd_accdb_shmem_layout computes the shared-memory layout.  Offsets
+   are relative to the shmem base.  Returns the total footprint, or 0
+   if the parameters are invalid.  The disk-index regions (hot_map,
+   seqlocks, bloom, spill state) have size zero in RAM-only mode
+   (index_ram_max==0) and are appended after the RAM-only layout, so
+   RAM-only images are bit-compatible with the historical layout. */
+
+struct fd_accdb_shmem_layout {
+  ulong pool_max;
+  ulong chain_cnt;
+  ulong txn_max;
+  ulong delta_chain_cnt;
+  ulong hot_chain_cnt;
+  ulong npage;
+  ulong bloom_sz;
+  ulong nrange;
+  ulong spill_base;
+  ulong spill_extent;
+  ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
+
+  ulong fork_pool_ele_off;
+  ulong descends_off;
+  ulong acc_map_off;
+  ulong acc_pool_ele_off;
+  ulong txn_pool_ele_off;
+  ulong partition_pool_off;
+  ulong compaction_dlist_off[ FD_ACCDB_COMPACTION_LAYER_CNT ];
+  ulong deferred_free_dlist_off;
+  ulong deferred_acc_buf_off;
+  ulong cache_region_off[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong delta_chain_off;
+  ulong delta_ele_off;
+  ulong hot_map_off;
+  ulong idx_seqlock_off;
+  ulong idx_bloom_off;
+  ulong idx_range_off;
+  ulong idx_stage_off;
+  ulong idx_window_off;
+  ulong idx_carry_off;
+};
+
+typedef struct fd_accdb_shmem_layout fd_accdb_shmem_layout_t;
+
+static ulong
+fd_accdb_shmem_layout( fd_accdb_shmem_layout_t * out,
+                       ulong max_accounts,
+                       ulong index_ram_max,
+                       ulong max_live_slots,
+                       ulong max_account_writes_per_slot,
+                       ulong partition_cnt,
+                       ulong cache_footprint,
+                       ulong cache_min_reserved,
+                       ulong joiner_cnt,
+                       ulong max_incremental_accounts ) {
   if( FD_UNLIKELY( !max_accounts    ) ) return 0UL;
   if( FD_UNLIKELY( !max_live_slots  ) ) return 0UL;
   if( FD_UNLIKELY( !max_account_writes_per_slot) ) return 0UL;
@@ -80,6 +125,14 @@ fd_accdb_shmem_footprint( ulong max_accounts,
 
   if( FD_UNLIKELY( max_live_slots>=USHORT_MAX ) ) return 0UL;
 
+  /* Disk-index mode bounds: pool indices must fit the 31-bit hot_map
+     head encoding, and a pool larger than the account cap is
+     equivalent to RAM-only. */
+  if( FD_UNLIKELY( index_ram_max>=(1UL<<31)      ) ) return 0UL;
+  if( FD_UNLIKELY( index_ram_max> max_accounts   ) ) return 0UL;
+
+  ulong pool_max = index_ram_max ? index_ram_max : max_accounts;
+
   ulong txn_max = max_live_slots * max_account_writes_per_slot;
   if( FD_UNLIKELY( txn_max/max_account_writes_per_slot!=max_live_slots ) ) return 0UL;
   if( FD_UNLIKELY( txn_max>=UINT_MAX                        ) ) return 0UL;
@@ -88,7 +141,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   if( FD_UNLIKELY( !descends_fp                          ) ) return 0UL;
   if( FD_UNLIKELY( max_live_slots>ULONG_MAX/descends_fp  ) ) return 0UL;
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
+  ulong chain_cnt = fd_ulong_pow2_up( (pool_max>>1) + (pool_max&1UL) );
 
   if( FD_UNLIKELY( chain_cnt>ULONG_MAX/sizeof(uint) ) ) return 0UL;
 
@@ -99,31 +152,125 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   if( FD_UNLIKELY( max_incremental_accounts>UINT_MAX ) ) return 0UL;
   ulong delta_chain_cnt = fd_ulong_pow2_up( (max_incremental_accounts>>1) + (max_incremental_accounts&1UL) );
 
+  ulong hot_chain_cnt = 0UL;
+  ulong npage         = 0UL;
+  ulong bloom_sz      = 0UL;
+  ulong nrange        = 0UL;
+  ulong spill_base    = 0UL;
+  ulong spill_extent  = 0UL;
+  if( index_ram_max ) {
+    hot_chain_cnt = chain_cnt;
+    npage         = fd_accdb_idx_npage( max_accounts );
+    bloom_sz      = fd_accdb_idx_bloom_sz( max_accounts );
+    nrange        = ( npage*FD_ACCDB_IDX_PAGE_SZ + FD_ACCDB_IDX_WINDOW_SZ-1UL )/FD_ACCDB_IDX_WINDOW_SZ;
+    spill_base    = fd_ulong_align_up( npage*FD_ACCDB_IDX_PAGE_SZ, 1UL<<20 );
+    /* 1.5x hash-uniformity slack over the expected per-range record
+       volume; overflow past the extent is a hard error (indicates a
+       snapshot far above max_accounts). */
+    spill_extent  = fd_ulong_align_up( ( max_accounts*sizeof(fd_accdb_idx_slot_t)*3UL/2UL )/nrange, 1UL<<20 );
+    if( FD_UNLIKELY( spill_base+nrange*spill_extent>(ulong)LONG_MAX ) ) return 0UL;
+  }
+
+  fd_accdb_shmem_layout_t lo[1];
+  memset( lo, 0, sizeof(lo) );
+  lo->pool_max        = pool_max;
+  lo->chain_cnt       = chain_cnt;
+  lo->txn_max         = txn_max;
+  lo->delta_chain_cnt = delta_chain_cnt;
+  lo->hot_chain_cnt   = hot_chain_cnt;
+  lo->npage           = npage;
+  lo->bloom_sz        = bloom_sz;
+  lo->nrange          = nrange;
+  lo->spill_base      = spill_base;
+  lo->spill_extent    = spill_extent;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) lo->cache_class_max[ c ] = cache_class_max[ c ];
+
   ulong l;
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_ACCDB_SHMEM_ALIGN,     sizeof(fd_accdb_shmem_t)                                );
+  lo->fork_pool_ele_off = fd_ulong_align_up( l, alignof(fd_accdb_fork_shmem_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)      );
+  lo->descends_off = fd_ulong_align_up( l, descends_set_align() );
   l = FD_LAYOUT_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
+  lo->acc_map_off = fd_ulong_align_up( l, alignof(uint) );
   l = FD_LAYOUT_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_accmeta_t), max_accounts*sizeof(fd_accdb_accmeta_t)              );
+  lo->acc_pool_ele_off = fd_ulong_align_up( l, alignof(fd_accdb_accmeta_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_accmeta_t), pool_max*sizeof(fd_accdb_accmeta_t)                  );
+  lo->txn_pool_ele_off = fd_ulong_align_up( l, alignof(fd_accdb_txn_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_t),  txn_max*sizeof(fd_accdb_txn_t)                          );
+  lo->partition_pool_off = fd_ulong_align_up( l, partition_pool_align() );
   l = FD_LAYOUT_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+    lo->compaction_dlist_off[ k ] = fd_ulong_align_up( l, compaction_dlist_align() );
     l = FD_LAYOUT_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                          );
   }
+  lo->deferred_free_dlist_off = fd_ulong_align_up( l, deferred_free_dlist_align() );
   l = FD_LAYOUT_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                      );
+  lo->deferred_acc_buf_off = fd_ulong_align_up( l, alignof(uint) );
   l = FD_LAYOUT_APPEND( l, alignof(uint),            txn_max*sizeof(uint)                                    );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    lo->cache_region_off[ c ] = fd_ulong_align_up( l, FD_ACCDB_CACHE_META_SZ );
     l = FD_LAYOUT_APPEND( l, FD_ACCDB_CACHE_META_SZ, cache_class_max[c]*fd_accdb_cache_slot_sz[c]            );
   }
+  lo->delta_chain_off = fd_ulong_align_up( l, alignof(uint) );
   l = FD_LAYOUT_APPEND( l, alignof(uint),            delta_chain_cnt*sizeof(uint)                            );
+  lo->delta_ele_off = fd_ulong_align_up( l, alignof(fd_accdb_delta_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_delta_t),max_incremental_accounts*sizeof(fd_accdb_delta_t)       );
-  return FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
+  lo->hot_map_off = fd_ulong_align_up( l, 64UL );
+  l = FD_LAYOUT_APPEND( l, 64UL,                     hot_chain_cnt*sizeof(uint)                              );
+  lo->idx_seqlock_off = fd_ulong_align_up( l, 64UL );
+  l = FD_LAYOUT_APPEND( l, 64UL,                     npage*sizeof(uint)                                      );
+  lo->idx_bloom_off = fd_ulong_align_up( l, 64UL );
+  l = FD_LAYOUT_APPEND( l, 64UL,                     bloom_sz                                                );
+  lo->idx_range_off = fd_ulong_align_up( l, 64UL );
+  l = FD_LAYOUT_APPEND( l, 64UL,                     nrange*sizeof(fd_accdb_idx_range_t)                     );
+  lo->idx_stage_off = fd_ulong_align_up( l, 64UL );
+  l = FD_LAYOUT_APPEND( l, 64UL,                     nrange*( index_ram_max ? FD_ACCDB_IDX_STAGE_SZ : 0UL )  );
+  lo->idx_window_off = fd_ulong_align_up( l, FD_ACCDB_IDX_PAGE_SZ );
+  l = FD_LAYOUT_APPEND( l, FD_ACCDB_IDX_PAGE_SZ,     index_ram_max ? FD_ACCDB_IDX_WINDOW_SZ : 0UL            );
+  lo->idx_carry_off = fd_ulong_align_up( l, 64UL );
+  l = FD_LAYOUT_APPEND( l, 64UL,                     index_ram_max ? FD_ACCDB_IDX_CARRY_MAX*sizeof(fd_accdb_idx_slot_t) : 0UL );
+  ulong footprint = FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
+  if( out ) *out = *lo;
+  return footprint;
+}
+
+ulong
+fd_accdb_idx_bucket_sz( ulong max_accounts,
+                        ulong index_ram_max ) {
+  if( !index_ram_max ) return 0UL;
+  return fd_accdb_idx_npage( max_accounts )*FD_ACCDB_IDX_PAGE_SZ;
+}
+
+ulong
+fd_accdb_idx_file_sz( ulong max_accounts,
+                      ulong index_ram_max ) {
+  if( !index_ram_max ) return 0UL;
+  ulong npage      = fd_accdb_idx_npage( max_accounts );
+  ulong nrange     = ( npage*FD_ACCDB_IDX_PAGE_SZ + FD_ACCDB_IDX_WINDOW_SZ-1UL )/FD_ACCDB_IDX_WINDOW_SZ;
+  ulong spill_base = fd_ulong_align_up( npage*FD_ACCDB_IDX_PAGE_SZ, 1UL<<20 );
+  ulong extent     = fd_ulong_align_up( ( max_accounts*sizeof(fd_accdb_idx_slot_t)*3UL/2UL )/nrange, 1UL<<20 );
+  return spill_base + nrange*extent;
+}
+
+ulong
+fd_accdb_shmem_footprint( ulong max_accounts,
+                          ulong index_ram_max,
+                          ulong max_live_slots,
+                          ulong max_account_writes_per_slot,
+                          ulong partition_cnt,
+                          ulong cache_footprint,
+                          ulong cache_min_reserved,
+                          ulong joiner_cnt,
+                          ulong max_incremental_accounts ) {
+  return fd_accdb_shmem_layout( NULL, max_accounts, index_ram_max, max_live_slots, max_account_writes_per_slot,
+                                partition_cnt, cache_footprint, cache_min_reserved, joiner_cnt, max_incremental_accounts );
 }
 
 void *
 fd_accdb_shmem_new( void * shmem,
                     ulong  max_accounts,
+                    ulong  index_ram_max,
                     ulong  max_live_slots,
                     ulong  max_account_writes_per_slot,
                     ulong  partition_cnt,
@@ -228,44 +375,22 @@ fd_accdb_shmem_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( max_accounts>=UINT_MAX ) ) {
-    FD_LOG_WARNING(( "max_accounts must be less than UINT_MAX" ));
-    return NULL;
-  }
-
-  ulong txn_max = max_live_slots * max_account_writes_per_slot;
-  if( FD_UNLIKELY( txn_max/max_account_writes_per_slot!=max_live_slots ) ) {
-    FD_LOG_WARNING(( "max_live_slots*max_account_writes_per_slot overflows" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( txn_max>=UINT_MAX ) ) {
-    FD_LOG_WARNING(( "max_live_slots*max_account_writes_per_slot must be less than UINT_MAX" ));
-    return NULL;
-  }
-
-  ulong descends_fp = descends_set_footprint( max_live_slots );
-  if( FD_UNLIKELY( !descends_fp || max_live_slots>ULONG_MAX/descends_fp ) ) {
-    FD_LOG_WARNING(( "max_live_slots*descends_set_footprint overflows" ));
-    return NULL;
-  }
-
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
-
-  if( FD_UNLIKELY( chain_cnt>ULONG_MAX/sizeof(uint) ) ) {
-    FD_LOG_WARNING(( "chain_cnt*sizeof(uint) overflows" ));
-    return NULL;
-  }
-
   if( FD_UNLIKELY( !cache_min_reserved ) ) {
     FD_LOG_WARNING(( "cache_min_reserved must be non-zero" ));
     return NULL;
   }
 
-  ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
-  if( FD_UNLIKELY( !fd_accdb_cache_class_cnt( cache_footprint, cache_min_reserved, cache_class_max ) ) ) {
-    FD_LOG_WARNING(( "invalid cache_footprint" ));
+  fd_accdb_shmem_layout_t lo[1];
+  if( FD_UNLIKELY( !fd_accdb_shmem_layout( lo, max_accounts, index_ram_max, max_live_slots, max_account_writes_per_slot,
+                                           partition_cnt, cache_footprint, cache_min_reserved, joiner_cnt, max_incremental_accounts ) ) ) {
+    FD_LOG_WARNING(( "invalid accdb shmem parameters" ));
     return NULL;
   }
+  ulong pool_max        = lo->pool_max;
+  ulong chain_cnt       = lo->chain_cnt;
+  ulong txn_max         = lo->txn_max;
+  ulong delta_chain_cnt = lo->delta_chain_cnt;
+  ulong * cache_class_max = lo->cache_class_max;
   /* cidx packs only FD_ACCDB_CACHE_LINE_BITS bits of line index, so
      cache_class_max[c]>FD_ACCDB_CACHE_LINE_MAX would let line indices
      alias.  fd_accdb_cache_class_cnt clamps this; assert here so any
@@ -273,43 +398,30 @@ fd_accdb_shmem_new( void * shmem,
      rather than as silent cache corruption at runtime. */
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( cache_class_max[ c ]<=FD_ACCDB_CACHE_LINE_MAX );
 
-  if( FD_UNLIKELY( max_incremental_accounts>UINT_MAX ) ) {
-    FD_LOG_WARNING(( "max_incremental_accounts must be at most %u", UINT_MAX ));
-    return NULL;
-  }
-
-  ulong delta_chain_cnt = fd_ulong_pow2_up( (max_incremental_accounts>>1) + (max_incremental_accounts&1UL) );
-  if( FD_UNLIKELY( delta_chain_cnt>UINT_MAX ) ) {
-    FD_LOG_WARNING(( "max_incremental_accounts must be at most %u", UINT_MAX ));
-    return NULL;
-  }
-
-  FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_accdb_shmem_t * accdb = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,     sizeof(fd_accdb_shmem_t)                                );
-  void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)      );
-  void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
-  void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t), max_accounts*sizeof(fd_accdb_accmeta_t)                     );
-  void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),  txn_max*sizeof(fd_accdb_txn_t)                          );
-  void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
+  fd_accdb_shmem_t * accdb = (fd_accdb_shmem_t *)shmem;
+  uchar * base = (uchar *)shmem;
+  void * _fork_pool_ele       = base + lo->fork_pool_ele_off;
+  void * _descends_sets       = base + lo->descends_off;
+  void * _acc_map             = base + lo->acc_map_off;
+  void * _acc_pool_ele        = base + lo->acc_pool_ele_off;
+  void * _txn_pool_ele        = base + lo->txn_pool_ele_off;
+  void * _partition_pool      = base + lo->partition_pool_off;
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
-    _compaction_dlists[ k ] = FD_SCRATCH_ALLOC_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                           );
+    _compaction_dlists[ k ]   = base + lo->compaction_dlist_off[ k ];
   }
-  void * _deferred_free_dlist = FD_SCRATCH_ALLOC_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                   );
-  void * _deferred_acc_buf    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            txn_max*sizeof(uint)                                 );
+  void * _deferred_free_dlist = base + lo->deferred_free_dlist_off;
   void * _cache_regions[ FD_ACCDB_CACHE_CLASS_CNT ];
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    _cache_regions[ c ] = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_CACHE_META_SZ, cache_class_max[c]*fd_accdb_cache_slot_sz[c]                 );
+    _cache_regions[ c ]       = base + lo->cache_region_off[ c ];
   }
-  void * _delta_map  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),             delta_chain_cnt*sizeof(uint)                      );
-  void * _delta_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_delta_t), max_incremental_accounts*sizeof(fd_accdb_delta_t) );
+  void * _delta_map           = base + lo->delta_chain_off;
 
   fd_memset( _acc_map, 0xFF, chain_cnt*sizeof(uint) );
 
   FD_TEST( acc_pool_new( accdb->acc_pool ) );
   acc_pool_t _acc_pool_join[1];
-  FD_TEST( acc_pool_join( _acc_pool_join, accdb->acc_pool, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( _acc_pool_join, accdb->acc_pool, _acc_pool_ele, pool_max ) );
   acc_pool_reset( _acc_pool_join );
   acc_pool_leave( _acc_pool_join );
 
@@ -399,10 +511,44 @@ fd_accdb_shmem_new( void * shmem,
   }
   accdb->deferred_free_dlist_off = (ulong)_deferred_free_dlist - (ulong)shmem;
 
-  accdb->deferred_acc_buf_off = (ulong)_deferred_acc_buf - (ulong)shmem;
+  accdb->deferred_acc_buf_off = lo->deferred_acc_buf_off;
   accdb->deferred_acc_buf_cnt = 0UL;
   accdb->deferred_acc_buf_max = txn_max;
   accdb->deferred_acc_epoch   = 0UL;
+
+  /* Disk-resident index state and region offsets. */
+  accdb->index_ram_max    = index_ram_max;
+  accdb->pool_max         = pool_max;
+  accdb->hot_chain_cnt    = lo->hot_chain_cnt;
+  accdb->idx_npage        = lo->npage;
+  accdb->idx_bloom_sz     = lo->bloom_sz;
+  accdb->idx_spill_base   = lo->spill_base;
+  accdb->idx_spill_extent = lo->spill_extent;
+  accdb->idx_nrange       = lo->nrange;
+  accdb->fork_pool_ele_off = lo->fork_pool_ele_off;
+  accdb->descends_off      = lo->descends_off;
+  accdb->acc_map_off       = lo->acc_map_off;
+  accdb->acc_pool_ele_off  = lo->acc_pool_ele_off;
+  accdb->txn_pool_ele_off  = lo->txn_pool_ele_off;
+  accdb->partition_pool_region_off = lo->partition_pool_off;
+  accdb->hot_map_off       = lo->hot_map_off;
+  accdb->idx_seqlock_off   = lo->idx_seqlock_off;
+  accdb->idx_bloom_off     = lo->idx_bloom_off;
+  accdb->idx_range_off     = lo->idx_range_off;
+  accdb->idx_stage_off     = lo->idx_stage_off;
+  accdb->idx_window_off    = lo->idx_window_off;
+  accdb->idx_carry_off     = lo->idx_carry_off;
+  accdb->demote_chain_cursor = 0UL;
+  accdb->hot_evict_cursor    = 0UL;
+  accdb->idx_carry_cnt       = 0UL;
+  accdb->acc_pool_used.val   = 0UL;
+  if( index_ram_max ) {
+    uint * hot_map = (uint *)( base + lo->hot_map_off );
+    for( ulong i=0UL; i<lo->hot_chain_cnt; i++ ) hot_map[ i ] = FD_ACCDB_HOT_EMPTY;
+    fd_memset( base + lo->idx_seqlock_off, 0, lo->npage*sizeof(uint) );
+    fd_memset( base + lo->idx_bloom_off,   0, lo->bloom_sz );
+    fd_memset( base + lo->idx_range_off,   0, lo->nrange*sizeof(fd_accdb_idx_range_t) );
+  }
 
   accdb->epoch          = 1UL;
   accdb->snapshot_sync  = FD_ACCDB_SNAPSHOT_SYNC_IDLE;
@@ -443,10 +589,10 @@ fd_accdb_shmem_new( void * shmem,
   }
 
   accdb->delta.seed       = seed+1UL;
-  accdb->delta.chain_off  = (ulong)_delta_map - (ulong)shmem;
+  accdb->delta.chain_off  = lo->delta_chain_off;
   accdb->delta.chain_cnt  = (uint)delta_chain_cnt;
   accdb->delta.chain_mask = (uint)delta_chain_cnt - 1U;
-  accdb->delta.ele_off    = (ulong)_delta_pool - (ulong)shmem;
+  accdb->delta.ele_off    = lo->delta_ele_off;
   accdb->delta.ele_max    = max_incremental_accounts;
   accdb->delta.head       = 0UL;
 

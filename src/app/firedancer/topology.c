@@ -204,6 +204,7 @@ fd_topo_obj_t *
 setup_topo_accdb( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_accounts,
+                  ulong        index_ram_max,
                   ulong        max_live_slots,
                   ulong        max_account_writes_per_slot,
                   ulong        partition_cnt,
@@ -220,6 +221,7 @@ setup_topo_accdb( fd_topo_t *  topo,
   ulong cache_min_reserved = fd_accdb_cache_min_reserved( bundle_enabled );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_accounts,       "obj.%lu.max_accounts",       obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, index_ram_max,      "obj.%lu.index_ram_max",      obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,     "obj.%lu.max_live_slots",     obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_account_writes_per_slot, "obj.%lu.max_account_writes_per_slot", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, partition_cnt,      "obj.%lu.partition_cnt",      obj->id ) );
@@ -1197,8 +1199,14 @@ fd_topo_initialize( config_t * config ) {
      are mutually exclusive accdb writers. */
   ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+resolv_tile_cnt+1UL;
   ulong partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
+  /* Snapshot production's disk-phase liveness resolution has not yet
+     been taught the bucket tier; producing snapshots requires the
+     RAM-only index for now. */
+  if( FD_UNLIKELY( snapmk_enabled && config->firedancer.accounts.index_ram_max ) )
+    FD_LOG_ERR(( "[layout.enable_snapshot_production] currently requires [accounts.index_ram_max] = 0 (RAM-resident accounts index)" ));
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
       config->firedancer.accounts.max_accounts,
+      config->firedancer.accounts.index_ram_max,
       config->firedancer.runtime.max_live_slots,
       FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT,
       8192UL,

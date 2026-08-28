@@ -368,6 +368,7 @@ fd_config_to_json( fd_config_t const * config,
 
   jw_obj_open( &w, "accounts" );
     jw_ulong( &w, "max_accounts",   f->accounts.max_accounts );
+    jw_ulong( &w, "index_ram_max",  f->accounts.index_ram_max );
     jw_ulong( &w, "cache_size_gib", f->accounts.cache_size_gib );
   jw_obj_close( &w );
 

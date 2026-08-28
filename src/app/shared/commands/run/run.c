@@ -450,6 +450,18 @@ main_pid_namespace( void * _args ) {
         }
         if( FD_UNLIKELY( -1==fcntl( FD_TXNCACHE_FD, F_SETFD, tile_uses_txncache ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+        if( FD_UNLIKELY( tile_uses_accdb ) ) {
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        } else {
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RW, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+
+        if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        } else {
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+
         int tile_uses_snap_fd     = !strcmp( tile->name, "snapct" ) ||
                                     !strcmp( tile->name, "snapmk" );
         int tile_uses_snap_dio_fd = !strcmp( tile->name, "snapzp" );
@@ -505,6 +517,8 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_REWARDS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     for( ulong j=0UL; j<snap_max; j++ ) {
       if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( snapshot_dio_enabled )
@@ -1044,6 +1058,35 @@ initialize_accdb_fd( config_t const * config ) {
   }
   if( FD_UNLIKELY( -1==dup2( txncache_fd, FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( txncache_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* On-disk accounts index (bucket) file.  Created empty even in
+     RAM-only mode so the well-known fds are always valid; the bucket
+     pages are fully fallocated up front when the disk index is
+     enabled, so any ENOSPC surfaces here at boot with sizing advice
+     rather than mid-run. */
+  char idx_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( idx_path, sizeof(idx_path), NULL, "%s-index", config->paths.accounts ) );
+  int idx_fd = open( idx_path, oflags, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==idx_fd ) ) FD_LOG_ERR(( "failed to open accounts.db-index (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( idx_fd, FD_ACCDB_IDX_FD_RW ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( idx_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ulong bucket_sz = fd_accdb_idx_bucket_sz( config->firedancer.accounts.max_accounts, config->firedancer.accounts.index_ram_max );
+  if( FD_LIKELY( bucket_sz ) ) {
+    if( FD_UNLIKELY( -1==fallocate( FD_ACCDB_IDX_FD_RW, 0, 0L, (long)bucket_sz ) ) ) {
+      if( FD_LIKELY( errno==ENOSPC ) ) FD_LOG_ERR(( "fallocate() failed (%d-%s). The accounts index needs %lu GiB of "
+                                                    "disk space at `%s`. Free up disk space, or set "
+                                                    "[accounts.index_ram_max] to 0 to keep the index fully in memory.",
+                                                    errno, fd_io_strerror( errno ), bucket_sz>>30, idx_path ));
+      else FD_LOG_ERR(( "fallocate() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
+  FD_TEST( fd_cstr_printf_check( proc_path, sizeof(proc_path), NULL, "/proc/self/fd/%d", FD_ACCDB_IDX_FD_RW ) );
+  int idx_ro_fd = open( proc_path, O_RDONLY|O_NOATIME );
+  if( FD_UNLIKELY( -1==idx_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts.db-index read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( idx_ro_fd, FD_ACCDB_IDX_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( idx_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 /* Snapshot production prep

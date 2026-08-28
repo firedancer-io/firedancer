@@ -26,17 +26,10 @@ fd_backup_cache_t *
 fd_backup_cache_join( fd_backup_cache_t * backup,
                       fd_accdb_shmem_t *  accdb,
                       ulong *             epoch_fseq ) {
-  ulong max_live_slots = accdb->max_live_slots;
-  ulong max_accounts   = accdb->max_accounts;
+  ulong chain_cnt = accdb->chain_cnt;
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
-
-  FD_SCRATCH_ALLOC_INIT( l, accdb );
-  /*                       */FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-  /*                       */FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
-  /*                       */FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
-  void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    max_accounts*sizeof(fd_accdb_accmeta_t)             );
+  void * _acc_map      = (uchar *)accdb + accdb->acc_map_off;
+  void * _acc_pool_ele = (uchar *)accdb + accdb->acc_pool_ele_off;
 
   uchar const * cache[ FD_ACCDB_CACHE_CLASS_CNT ];
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
@@ -46,7 +39,7 @@ fd_backup_cache_join( fd_backup_cache_t * backup,
   fd_backup_accidx_t idx = {
     .acc_map      = _acc_map,
     .acc_pool     = _acc_pool_ele,
-    .max_accounts = max_accounts,
+    .max_accounts = accdb->pool_max,
     .seed         = accdb->seed,
     .chain_mask   = (uint)( chain_cnt-1UL ),
     .epoch_slot   = epoch_fseq,

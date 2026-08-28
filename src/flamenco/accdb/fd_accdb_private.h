@@ -165,6 +165,151 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 
 #include "../../util/tmpl/fd_dlist.c"
 
+/* ---------------------------------------------------------------------
+   Disk-resident index (bucket) tier.
+
+   When index_ram_max is non-zero, the accmeta pool is bounded to
+   index_ram_max entries and the full index lives in a flat
+   fixed-geometry hash file (the "bucket" file) accessed exclusively
+   with explicit pread/pwrite.  RAM holds only the unrooted fork
+   overlay, rooted-but-not-yet-demoted versions (acc_map), and a
+   bounded read cache of promoted rooted entries (hot_map).  All
+   validator memory stays locked in hugetlbfs workspaces; disk
+   residency is explicit I/O, never demand paging.
+
+   Bucket file geometry: 4 KiB pages, each a 64 B header plus 63 64 B
+   slots.  page(pubkey) = fastrange64( fd_hash32( pubkey, seed^SALT ),
+   npage ).  Collision overflow is linear probing to the next page; a
+   page that ever overflowed carries a sticky flag so lookups know to
+   continue past it (deletes never clear the flag).  Load factor is
+   capped at 0.5 so overflow is vanishingly rare (Poisson mean <=31.5
+   keys on 63 slots).
+
+   A per-page seqlock word array lives in the workspace.  T2 (and the
+   snapin placement pass, disjoint in time) is the sole bucket writer;
+   every page write is bracketed odd/even.  Readers pread the page and
+   validate against the shmem word.  Correctness relies on buffered
+   same-thread pwritev2 (copy_from_user executes on the writing thread,
+   TSO-ordered against the seqlock stores).
+
+   A single blocked bloom filter (10 bits/key over max_accounts) is the
+   RAM negative oracle: bloom-negative proves a key is not in the
+   bucket (inserts happen before the RAM entry is unlinked; deletes
+   accumulate as stale positives that only cost a wasted pread). */
+
+#define FD_ACCDB_IDX_PAGE_SZ     (4096UL)
+#define FD_ACCDB_IDX_SLOT_CNT    (63UL)
+#define FD_ACCDB_IDX_PROBE_MAX   (64UL)
+#define FD_ACCDB_IDX_PAGE_STICKY (1U)
+
+/* fork_id stored in promoted (hot_map) entries' offset_fork.  Promoted
+   entries are rooted, so the generation<=root_generation fast path
+   makes them visible to all forks and the fork bits are never
+   consulted; the sentinel just makes them identifiable (compaction's
+   bucket re-sync, debugging).  max_live_slots<USHORT_MAX so real fork
+   ids never reach this value. */
+#define FD_ACCDB_FORK_ID_ROOTED  ((ushort)(USHORT_MAX-1U))
+
+/* hot_map chain head encoding: bit 31 = insert/remove claim bit,
+   low 31 bits = acc_pool index or FD_ACCDB_HOT_EMPTY.  Entry links use
+   accmeta.map.next with UINT_MAX terminator (an entry is linked in
+   exactly one of acc_map/hot_map at a time, so the field is shared).
+   Pool indices are < 2^31 (index_ram_max bounded), so "empty" and
+   "claimed" cannot collide. */
+#define FD_ACCDB_HOT_EMPTY (0x7FFFFFFFU)
+#define FD_ACCDB_HOT_CLAIM (0x80000000U)
+
+/* Deferred-free entries tagged MIGRATED are pool slots whose bytes and
+   bucket slot live on (demotion / hot eviction): the drain sweep must
+   not free their data bytes or decrement accounts_total. */
+#define FD_ACCDB_DEFER_MIGRATED (0x80000000U)
+
+struct __attribute__((packed)) fd_accdb_idx_slot {
+  uchar pubkey[ 32UL ];
+  ulong off_plus1;       /* 0 = empty slot, else data file offset + 1 */
+  ulong lamports;        /* always non-zero for a live slot           */
+  uint  executable_size; /* data size | EXEC bit; no RAM-only bits    */
+  uint  generation;      /* version's original commit generation      */
+  ulong slot;            /* snapshot slot at placement; 0 afterwards  */
+};
+
+typedef struct fd_accdb_idx_slot fd_accdb_idx_slot_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_idx_slot_t)==64UL, idx_slot_layout );
+
+struct fd_accdb_idx_page {
+  uint  flags;           /* FD_ACCDB_IDX_PAGE_STICKY */
+  uchar pad[ 60UL ];
+  fd_accdb_idx_slot_t slot[ FD_ACCDB_IDX_SLOT_CNT ];
+};
+
+typedef struct fd_accdb_idx_page fd_accdb_idx_page_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_idx_page_t)==FD_ACCDB_IDX_PAGE_SZ, idx_page_layout );
+
+/* npage such that load factor max_accounts/(npage*63) <= 0.5 */
+
+static FD_FN_CONST inline ulong
+fd_accdb_idx_npage( ulong max_accounts ) {
+  return ( 2UL*max_accounts + FD_ACCDB_IDX_SLOT_CNT-1UL )/FD_ACCDB_IDX_SLOT_CNT;
+}
+
+static FD_FN_CONST inline ulong
+fd_accdb_idx_page_of( ulong hash,
+                      ulong npage ) {
+  return (ulong)( ( (__uint128_t)hash * (__uint128_t)npage )>>64 );
+}
+
+/* Blocked bloom filter: 64 B (8 ulong) blocks, 8 probe bits per key,
+   ~10 bits/key budget. */
+
+static FD_FN_CONST inline ulong
+fd_accdb_idx_bloom_sz( ulong max_accounts ) {
+  return fd_ulong_align_up( max_accounts*10UL/8UL, 64UL );
+}
+
+static inline int
+fd_accdb_idx_bloom_probe( ulong * bloom,     /* NULL for test-only via const cast at caller */
+                          ulong   bloom_sz,
+                          ulong   h1,
+                          ulong   h2,
+                          int     insert ) {
+  ulong   nblock = bloom_sz>>6;
+  ulong * block  = bloom + 8UL*fd_accdb_idx_page_of( h1, nblock );
+  int hit = 1;
+  for( ulong j=0UL; j<8UL; j++ ) {
+    ulong bit = 1UL<<( ( h2>>(6UL*j) ) & 63UL );
+    if( insert ) FD_ATOMIC_FETCH_AND_OR( &block[ j ], bit );
+    else         hit &= !!( FD_VOLATILE_CONST( block[ j ] ) & bit );
+  }
+  return hit;
+}
+
+/* Spill/placement constants for full-snapshot bucket construction.
+   Spill records (fd_accdb_idx_slot_t) are appended to per-range
+   extents of the index file beyond the bucket pages; the placement
+   pass then scatters each range into a RAM window and writes the
+   range's pages sequentially. */
+
+#define FD_ACCDB_IDX_WINDOW_SZ   (256UL<<20)  /* placement RAM window   */
+#define FD_ACCDB_IDX_STAGE_SZ    (64UL<<10)   /* per-range append stage */
+#define FD_ACCDB_IDX_CARRY_MAX   (8192UL)     /* cross-range overflow   */
+
+/* Demotion age threshold, in generations (~slots).  A rooted version
+   is only written back to the bucket once it has gone this long
+   without being superseded, so per-slot rewriters (vote accounts)
+   never churn bucket I/O: their versions are superseded before they
+   age out. */
+#define FD_ACCDB_DEMOTE_AGE      (64U)
+
+struct fd_accdb_idx_range {
+  ulong spill_sz;   /* bytes appended to this range's spill extent */
+  uint  stage_cnt;  /* records currently in the RAM stage buffer   */
+  uint  pad;
+};
+
+typedef struct fd_accdb_idx_range fd_accdb_idx_range_t;
+
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -558,6 +703,45 @@ struct fd_accdb_shmem_private {
   ulong deferred_acc_buf_cnt;
   ulong deferred_acc_buf_max;
   ulong deferred_acc_epoch;
+
+  /* Disk-resident index state.  index_ram_max==0 selects RAM-only mode
+     (pool sized max_accounts, none of the structures below exist,
+     behavior is bit-for-bit the pre-disk-index database). */
+
+  ulong index_ram_max;   /* accmeta pool bound, 0 = RAM-only        */
+  ulong pool_max;        /* actual acc_pool capacity                */
+  ulong hot_chain_cnt;   /* pow2 hot_map chain head count           */
+  ulong idx_npage;       /* bucket file page count                  */
+  ulong idx_bloom_sz;    /* bloom filter bytes (one copy)           */
+  ulong idx_spill_base;  /* spill region base offset in index file  */
+  ulong idx_spill_extent;/* per-range spill extent bytes            */
+  ulong idx_nrange;      /* placement range count                   */
+
+  /* Region offsets from shmem base (also for pre-existing regions so
+     joiners need not mirror the layout computation). */
+  ulong fork_pool_ele_off;
+  ulong descends_off;
+  ulong acc_map_off;
+  ulong acc_pool_ele_off;
+  ulong txn_pool_ele_off;
+  ulong partition_pool_region_off; /* raw region (partition_pool_off
+                                      above is the joined pointer)    */
+  ulong hot_map_off;      /* hot_chain_cnt uints                     */
+  ulong idx_seqlock_off;  /* idx_npage uints                         */
+  ulong idx_bloom_off;    /* idx_bloom_sz bytes                      */
+  ulong idx_range_off;    /* idx_nrange fd_accdb_idx_range_t         */
+  ulong idx_stage_off;    /* idx_nrange * FD_ACCDB_IDX_STAGE_SZ      */
+  ulong idx_window_off;   /* FD_ACCDB_IDX_WINDOW_SZ placement window */
+  ulong idx_carry_off;    /* FD_ACCDB_IDX_CARRY_MAX slots            */
+
+  /* T2-only demote/evict bookkeeping. */
+  ulong demote_chain_cursor; /* acc_map sweep position               */
+  ulong hot_evict_cursor;    /* hot_map sweep position               */
+  ulong idx_carry_cnt;       /* placement cross-range overflow count */
+
+  /* Live accmeta pool occupancy (FAA at acquire sites, subtracted when
+     deferred batches release).  Drives hot_map eviction. */
+  struct __attribute__((aligned(64))) { ulong val; } acc_pool_used;
 
   acc_pool_shmem_t  acc_pool [1];
   fork_pool_shmem_t fork_pool[1];

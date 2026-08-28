@@ -102,6 +102,7 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "accdb_data" );
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
       config->firedancer.accounts.max_accounts,
+      0UL, /* RAM-only index: dev harnesses provide no index file */
       config->firedancer.runtime.max_live_slots,
       FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT,
       8192UL,

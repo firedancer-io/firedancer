@@ -85,13 +85,13 @@ setup_accdb( void ) {
   int fd = memfd_create( "fuzz_rpc_accdb", 0 );
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot,
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 0UL, max_live_slots, max_account_writes_per_slot,
                                              partition_cnt, cache_footprint, cache_min_reserved, joiner_cnt, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
-      fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots, max_account_writes_per_slot,
+      fd_accdb_shmem_new( shmem_mem, max_accounts, 0UL, max_live_slots, max_account_writes_per_slot,
                           partition_cnt, partition_sz, cache_footprint, cache_min_reserved,
                           0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
@@ -100,7 +100,7 @@ setup_accdb( void ) {
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
