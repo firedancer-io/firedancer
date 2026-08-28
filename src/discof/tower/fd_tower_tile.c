@@ -881,7 +881,7 @@ query_towers( fd_tower_tile_t *            ctx,
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ulong              fork_id     = bank->vote_stakes_fork_id;
-  uchar __attribute__((aligned(FD_VOTE_STAKES_T_2_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ];
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
 
 #define BATCH 64UL
   fd_pubkey_t   vote_accs[ BATCH ];
@@ -890,13 +890,15 @@ query_towers( fd_tower_tile_t *            ctx,
   int           writable[ BATCH ];
   fd_acc_t      accs[ BATCH ];
 
-  fd_vote_stakes_t_2_iter_t * iter = fd_vote_stakes_t_2_iter_init( vote_stakes, fork_id, iter_mem );
-  while( !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter ) ) {
+  fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
+  while( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
     ulong batch_n = 0UL;
-    while( !fd_vote_stakes_t_2_iter_done( vote_stakes, fork_id, iter ) && batch_n<BATCH ) {
+    while( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) && batch_n<BATCH ) {
       uchar is_valid;
-      fd_vote_stakes_t_2_iter_ele( vote_stakes, fork_id, iter, &vote_accs[ batch_n ], NULL, &stakes[ batch_n ], NULL, NULL, NULL, &is_valid, NULL );
-      fd_vote_stakes_t_2_iter_next( vote_stakes, fork_id, iter );
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
+                               &vote_accs[ batch_n ], NULL, &stakes[ batch_n ],
+                               NULL, NULL, NULL, &is_valid, NULL, NULL );
+      fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
       total_stake += stakes[ batch_n ];
       if( FD_UNLIKELY( !is_valid ) ) continue;
       pubkeys[ batch_n ]  = vote_accs[ batch_n ].uc;
@@ -1177,10 +1179,10 @@ count_vote_txn( fd_tower_tile_t * ctx,
 static ulong
 query_epoch_voters( fd_tower_tile_t *      ctx,
                     ulong                  epoch,
+                    int                    iter_kind,
                     fd_accdb_fork_id_t     accdb_fork_id,
                     fd_vote_stakes_t *     vote_stakes,
                     ulong                  vote_stakes_fork_id,
-                    int                    use_t_1,
                     epoch_vtr_t *          pool,
                     epoch_vtr_map_t *      map,
                     int                    update_id_keys_vote_accs ) {
@@ -1188,19 +1190,13 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
   epoch_vtr_pool_reset( pool );
   epoch_vtr_map_reset( map );
   ulong total_stake = 0UL;
-  fd_vote_stakes_iter_t * iter = use_t_1 ? fd_vote_stakes_t_1_iter_init( vote_stakes, vote_stakes_fork_id, ctx->iter_mem )
-                                         : fd_vote_stakes_t_2_iter_init( vote_stakes, vote_stakes_fork_id, ctx->iter_mem );
-  while( use_t_1 ? !fd_vote_stakes_t_1_iter_done( vote_stakes, vote_stakes_fork_id, iter )
-                 : !fd_vote_stakes_t_2_iter_done( vote_stakes, vote_stakes_fork_id, iter ) ) {
+  fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, vote_stakes_fork_id, iter_kind, ctx->iter_mem );
+  while( !fd_vote_stakes_iter_done( vote_stakes, vote_stakes_fork_id, iter_kind, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake;
-    if( use_t_1 ) {
-      fd_vote_stakes_t_1_iter_ele( vote_stakes, vote_stakes_fork_id, iter, &pubkey, NULL, &stake, NULL, NULL );
-      fd_vote_stakes_t_1_iter_next( vote_stakes, vote_stakes_fork_id, iter );
-    } else {
-      fd_vote_stakes_t_2_iter_ele( vote_stakes, vote_stakes_fork_id, iter, &pubkey, NULL, &stake, NULL, NULL, NULL, NULL, NULL );
-      fd_vote_stakes_t_2_iter_next( vote_stakes, vote_stakes_fork_id, iter );
-    }
+    fd_vote_stakes_iter_ele( vote_stakes, vote_stakes_fork_id, iter_kind, iter, &pubkey, NULL, &stake,
+                             NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_iter_next( vote_stakes, vote_stakes_fork_id, iter_kind, iter );
     total_stake += stake;
     epoch_vtr_t * vtr = epoch_vtr_pool_ele_acquire( pool );
     vtr->vote_acc = pubkey;
@@ -1243,8 +1239,8 @@ query_voters( fd_tower_tile_t *            ctx,
 
     ctx->vtr_cnt = 0;
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-    ctx->root_epoch_total_stake = query_epoch_voters( ctx, epoch,     bank->accdb_fork_id, vote_stakes, bank->vote_stakes_fork_id, 0, ctx->root_epoch_vtr_pool, ctx->root_epoch_vtr_map, 1 );
-    ctx->next_epoch_total_stake = query_epoch_voters( ctx, epoch+1UL, bank->accdb_fork_id, vote_stakes, bank->vote_stakes_fork_id, 1, ctx->next_epoch_vtr_pool, ctx->next_epoch_vtr_map, 0 );
+    ctx->root_epoch_total_stake = query_epoch_voters( ctx, epoch,     FD_VOTE_STAKES_ITER_T_2, bank->accdb_fork_id, vote_stakes, bank->vote_stakes_fork_id, ctx->root_epoch_vtr_pool, ctx->root_epoch_vtr_map, 1 );
+    ctx->next_epoch_total_stake = query_epoch_voters( ctx, epoch+1UL, FD_VOTE_STAKES_ITER_T_1, bank->accdb_fork_id, vote_stakes, bank->vote_stakes_fork_id, ctx->next_epoch_vtr_pool, ctx->next_epoch_vtr_map, 0 );
   }
   ctx->root_epoch = epoch;
 

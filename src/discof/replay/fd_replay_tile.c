@@ -143,11 +143,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
   }
-  if( FD_UNLIKELY( tile->replay.alpenglow ) ) {
-    for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
-      l = FD_LAYOUT_APPEND( l, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
-    }
-  }
 
   l = FD_LAYOUT_FINI( l, scratch_align() );
 
@@ -212,46 +207,31 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
 
-/* ag_epoch_vtrs_update stores the ranked Alpenglow validator set for
-   the epoch built from outgoing epoch msg. */
-
-static void
-ag_epoch_vtrs_update( fd_replay_tile_t *          ctx,
-                      fd_epoch_info_msg_t const * msg ) {
-  fd_replay_epoch_vtrs_t * s = &ctx->epoch_vtrs[ msg->epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
-  /* Don't let a stale (older) re-publish evict a newer epoch sharing this
-    ring slot.  Refresh (==) and normal advance (older occupant) proceed. */
-  if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) return;
-  if( FD_UNLIKELY( !ag_epoch_info_rank( s->info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt ) ) ) {
-    FD_LOG_CRIT(( "epoch %lu info failed", msg->epoch ));
-  }
-  s->epoch = msg->epoch;
-}
-
-/* replay_epoch_info returns the ranked Alpenglow validator set tracked
-   for epoch, NULL if unknown. */
-
-static ag_epoch_info_t const *
-replay_epoch_info( void * _ctx,
-                   ulong  epoch ) {
-  fd_replay_tile_t * ctx = (fd_replay_tile_t *)_ctx;
-  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
-    if( ctx->epoch_vtrs[ i ].epoch==epoch ) return ctx->epoch_vtrs[ i ].info;
-  }
-  return NULL;
-}
-
 static ushort
 replay_voter_rank( fd_replay_tile_t * ctx,
+                   fd_bank_t *        bank,
                    ulong              epoch ) {
   if( FD_LIKELY( !ctx->alpenglow ) ) return USHORT_MAX;
 
-  ag_epoch_info_t const * info = replay_epoch_info( ctx, epoch );
-  if( FD_UNLIKELY( !info ) ) return USHORT_MAX;
+  ulong fork_id    = bank->vote_stakes_fork_id;
+  ulong fork_epoch = fd_vote_stakes_fork_epoch( fork_id );
+  int   iter_kind  = FD_VOTE_STAKES_ITER_T_2;
+  if( FD_UNLIKELY( epoch!=fork_epoch ) ) {
+    if( FD_UNLIKELY( !fork_epoch || epoch!=fork_epoch-1UL ) ) return USHORT_MAX;
+    iter_kind = FD_VOTE_STAKES_ITER_T_3;
+  }
 
-  for( ulong rank=0UL; rank<info->validator_cnt; rank++ ) {
-    if( FD_LIKELY( memcmp( info->validators[ rank ].id_key, ctx->identity_pubkey->uc, sizeof(ag_id_key_t) ) ) ) continue;
-    return (ushort)rank;
+  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
+    fd_pubkey_t vote_key;
+    fd_pubkey_t identity;
+    ushort     rank;
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &vote_key, &identity,
+                             NULL, NULL, NULL, NULL, NULL, &rank, NULL );
+    if( FD_UNLIKELY( fd_pubkey_eq( &identity, ctx->identity_pubkey ) ) ) return rank;
   }
   return USHORT_MAX;
 }
@@ -269,7 +249,7 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
 
   ulong  reward_slot  = skip ? skip->slot : notar->slot;
   ulong  reward_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, reward_slot, NULL );
-  ushort rank         = replay_voter_rank( ctx, reward_epoch );
+  ushort rank         = replay_voter_rank( ctx, bank, reward_epoch );
 
   *slot_out = reward_slot;
   *rank_out = rank;
@@ -320,8 +300,6 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
-
-  if( FD_UNLIKELY( ctx->alpenglow ) ) ag_epoch_vtrs_update( ctx, epoch_info_msg );
 }
 
 /**********************************************************************/
@@ -984,32 +962,33 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   ulong execution_fees_pre_settle = bank->f.execution_fees;
   ulong priority_fees_pre_settle  = bank->f.priority_fees;
 
-  /* Apply footer side effects before hashing. */
+  fd_footer_certs_t certs[1];
+  fd_footer_certs_t const * certs_opt = NULL;
+  ulong footer_time_nanos = 0UL;
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
-    fd_footer_certs_t certs[1];
     certs->fast_final_cert   = fd_sched_get_fast_final_cert  ( ctx->sched, bank->idx );
     certs->final_cert        = fd_sched_get_final_cert       ( ctx->sched, bank->idx );
     certs->final_notar_cert  = fd_sched_get_final_notar_cert ( ctx->sched, bank->idx );
     certs->skip_reward_cert  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
     certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
-
     // TODO missing cert verify - inline to replay or use new verify tiles
-    if( FD_UNLIKELY( fd_runtime_apply_footer( bank, ctx->accdb, ctx->capture_ctx, certs,
-                                              fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx ),
-                                              replay_epoch_info, ctx ) ) ) {
-      FD_LOG_CRIT(( "slot %lu: footer cert processing failed; marking bank dead", bank->f.slot ));
-    }
+    certs_opt        = certs;
+    footer_time_nanos = fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx );
   }
 
   /* Do hashing and other end-of-block processing. */
-  fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
+  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, certs_opt, footer_time_nanos ) ) ) {
+    mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
     fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
     if( FD_UNLIKELY( memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
       FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
-      FD_LOG_CRIT(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+      FD_LOG_WARNING(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+      mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
       return;
     } else {
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58 );
@@ -1181,7 +1160,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ulong execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
   ulong priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
 
-  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx );
+  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL );
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
@@ -3808,12 +3787,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
-  }
-  if( FD_UNLIKELY( tile->replay.alpenglow ) ) {
-    for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
-      ctx->epoch_vtrs[ i ].epoch = ULONG_MAX;
-      ctx->epoch_vtrs[ i ].info  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
-    }
   }
 
   ctx->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( runtime_stack_mem, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS, ctx->runtime_stack_seed ) );

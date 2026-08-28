@@ -1570,17 +1570,18 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   {
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
-    uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
-    for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, iter_mem );
-         !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter );
-         fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter ) ) {
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter_mem );
+         !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
+         fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
       fd_pubkey_t pubkey;
       fd_pubkey_t node_account;
       ulong       stake;
       ushort      commission;
       uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
 
-      fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &pubkey, &node_account, &stake, &commission, bls_key );
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
+                               NULL, NULL, &commission, NULL, NULL, bls_key );
       fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &pubkey, &node_account, stake, commission, bls_key );
     }
     fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );
@@ -1660,14 +1661,12 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
 }
 
-int
-fd_runtime_apply_footer( fd_bank_t *               bank,
-                         fd_accdb_t *              accdb,
-                         fd_capture_ctx_t *        capture_ctx,
-                         fd_footer_certs_t const * certs,
-                         ulong                     producer_time_nanos,
-                         fd_footer_epoch_info_fn_t epoch_info_fn,
-                         void *                    epoch_info_ctx ) {
+static int
+apply_footer( fd_bank_t *               bank,
+              fd_accdb_t *              accdb,
+              fd_capture_ctx_t *        capture_ctx,
+              fd_footer_certs_t const * certs,
+              ulong                     producer_time_nanos ) {
 
   /* Rewrite the clock sysvar and the alpenclock account from the
      footer's producer timestamp (Agave Bank::update_clock_from_footer).
@@ -1700,17 +1699,19 @@ fd_runtime_apply_footer( fd_bank_t *               bank,
   fd_accdb_svm_write( bank, accdb, capture_ctx, &alpenclock_addr, &fd_solana_system_program_id,
                       data, sizeof(data), fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, sizeof(data) ), 0 );
 
-  return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs,
-                                 producer_time_nanos,
-                                 epoch_info_fn, epoch_info_ctx );
+  return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs, producer_time_nanos );
 }
 
-void
-fd_runtime_block_execute_finalize( fd_bank_t *        bank,
-                                   fd_accdb_t *       accdb,
-                                   fd_capture_ctx_t * capture_ctx ) {
+int
+fd_runtime_block_execute_finalize( fd_bank_t *               bank,
+                                   fd_accdb_t *              accdb,
+                                   fd_capture_ctx_t *        capture_ctx,
+                                   fd_footer_certs_t const * certs,
+                                   ulong                     producer_time_nanos ) {
+  if( FD_UNLIKELY( certs && apply_footer( bank, accdb, capture_ctx, certs, producer_time_nanos ) ) ) return -1;
   fd_runtime_freeze( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );
+  return 0;
 }
 
 /* Mirrors Agave function solana_sdk::transaction_context::find_index_of_account

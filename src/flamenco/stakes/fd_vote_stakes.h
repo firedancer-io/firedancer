@@ -6,7 +6,8 @@
 #include "../accdb/fd_accdb_base.h"
 #include "../runtime/program/vote/fd_vote_codec.h"
 
-#define FD_VOTE_STAKES_ALIGN (128UL)
+#define FD_VOTE_STAKES_ALIGN                (128UL)
+#define FD_VOTE_STAKES_ALPENGLOW_RANK_NULL  USHORT_MAX
 
 /* fd_vote_stakes is the Firedancer equivalent of the Agave epoch stakes
    data structure.  It is a fork aware data structure that maintains the
@@ -133,6 +134,16 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
                        ushort              commission,
                        uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
+/* fd_vote_stakes_finalize assigns Alpenglow ranks to the resident
+   epoch-stakes set for epoch.  Accounts with invalid BLS keys or
+   duplicate BLS/identity keys retain
+   FD_VOTE_STAKES_ALPENGLOW_RANK_NULL but remain in the set.  This is a
+   no-op if the set is not resident. */
+
+void
+fd_vote_stakes_finalize( fd_vote_stakes_t * vote_stakes,
+                         ulong              epoch );
+
 /* fd_vote_stakes_purge_fork removes a t-1 set.  This should be called
    when the banks are evicting a bank or during root advancement. */
 
@@ -225,76 +236,56 @@ ulong
 fd_vote_stakes_total_stake( fd_vote_stakes_t const * vote_stakes,
                             ulong                    epoch );
 
-/* Defined below are the iterators for the t-1 and t-2 sets.  These
-   iterators will NOT skip over invalid vote accounts intentionally.
-   The reason being is that invalid vote accounts are still considered
-   for stake and leader calculations: the caller is expected to handle
-   the state of each account correctly. */
+/* The iterator will NOT skip over invalid vote accounts
+   intentionally.  The reason being is that invalid vote accounts are
+   still considered for stake and leader calculations: the caller is
+   expected to handle the state of each account correctly. */
 
 #define FD_VOTE_STAKES_ITER_FOOTPRINT     (16UL)
 #define FD_VOTE_STAKES_ITER_ALIGN         (8UL)
-#define FD_VOTE_STAKES_T_1_ITER_FOOTPRINT FD_VOTE_STAKES_ITER_FOOTPRINT
-#define FD_VOTE_STAKES_T_1_ITER_ALIGN     FD_VOTE_STAKES_ITER_ALIGN
-#define FD_VOTE_STAKES_T_2_ITER_FOOTPRINT FD_VOTE_STAKES_ITER_FOOTPRINT
-#define FD_VOTE_STAKES_T_2_ITER_ALIGN     FD_VOTE_STAKES_ITER_ALIGN
+#define FD_VOTE_STAKES_ITER_T_1           (1)
+#define FD_VOTE_STAKES_ITER_T_2           (2)
+#define FD_VOTE_STAKES_ITER_T_3           (3)
 
 struct vacc_map_iter;
 typedef struct vacc_map_iter fd_vote_stakes_iter_t;
-typedef fd_vote_stakes_iter_t fd_vote_stakes_t_1_iter_t;
-typedef fd_vote_stakes_iter_t fd_vote_stakes_t_2_iter_t;
 
-fd_vote_stakes_t_1_iter_t *
-fd_vote_stakes_t_1_iter_init( fd_vote_stakes_t const * vote_stakes,
-                              ulong                    fork_id,
-                              uchar                    iter_mem[ static FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ] );
+/* The iterator accesses the fork's t-1, t-2, or t-3 set according to
+   iter_kind.  Fork-local vote state outputs may only be requested for
+   FD_VOTE_STAKES_ITER_T_2. */
 
-int
-fd_vote_stakes_t_1_iter_done( fd_vote_stakes_t const *    vote_stakes,
-                              ulong                       fork_id,
-                              fd_vote_stakes_t_1_iter_t * iter );
-
-void
-fd_vote_stakes_t_1_iter_next( fd_vote_stakes_t const *    vote_stakes,
-                              ulong                       fork_id,
-                              fd_vote_stakes_t_1_iter_t * iter );
-
-void
-fd_vote_stakes_t_1_iter_ele( fd_vote_stakes_t const *    vote_stakes,
-                             ulong                       fork_id,
-                             fd_vote_stakes_t_1_iter_t * iter,
-                             fd_pubkey_t *               pubkey_out,
-                             fd_pubkey_t *               node_account_out_opt,
-                             ulong *                     stake_out_opt,
-                             ushort *                    commission_out_opt,
-                             uchar                       bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] );
-
-fd_vote_stakes_t_2_iter_t *
-fd_vote_stakes_t_2_iter_init( fd_vote_stakes_t const * vote_stakes,
-                              ulong                    fork_id,
-                              uchar                    iter_mem[ static FD_VOTE_STAKES_T_2_ITER_FOOTPRINT ] );
+fd_vote_stakes_iter_t *
+fd_vote_stakes_iter_init( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          int                      iter_kind,
+                          uchar                    iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] );
 
 int
-fd_vote_stakes_t_2_iter_done( fd_vote_stakes_t const *    vote_stakes,
-                              ulong                       fork_id,
-                              fd_vote_stakes_t_2_iter_t * iter );
+fd_vote_stakes_iter_done( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          int                      iter_kind,
+                          fd_vote_stakes_iter_t *  iter );
 
 void
-fd_vote_stakes_t_2_iter_next( fd_vote_stakes_t const *    vote_stakes,
-                              ulong                       fork_id,
-                              fd_vote_stakes_t_2_iter_t * iter );
+fd_vote_stakes_iter_next( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          int                      iter_kind,
+                          fd_vote_stakes_iter_t *  iter );
 
 void
-fd_vote_stakes_t_2_iter_ele( fd_vote_stakes_t const *    vote_stakes,
-                             ulong                       fork_id,
-                             fd_vote_stakes_t_2_iter_t * iter,
-                             fd_pubkey_t *               pubkey_out,
-                             fd_pubkey_t *               node_account_out_opt,
-                             ulong *                     stake_out_opt,
-                             ulong *                     last_vote_slot_out_opt,
-                             long *                      last_vote_ts_out_opt,
-                             ushort *                    commission_out_opt,
-                             uchar *                     is_valid_out_opt,
-                             uchar                       bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] );
+fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
+                         ulong                    fork_id,
+                         int                      iter_kind,
+                         fd_vote_stakes_iter_t *  iter,
+                         fd_pubkey_t *            pubkey_out,
+                         fd_pubkey_t *            node_account_out_opt,
+                         ulong *                  stake_out_opt,
+                         ulong *                  last_vote_slot_out_opt,
+                         long *                   last_vote_ts_out_opt,
+                         ushort *                 commission_out_opt,
+                         uchar *                  is_valid_out_opt,
+                         ushort *                 alpenglow_rank_out_opt,
+                         uchar                    bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
 FD_PROTOTYPES_END
 

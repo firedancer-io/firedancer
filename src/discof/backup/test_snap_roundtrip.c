@@ -161,15 +161,17 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( bank->f.epoch>=1UL );
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ulong              fork_id     = bank->vote_stakes_fork_id;
-  uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
-  fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, fork_id, iter_mem );
-  FD_TEST( !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter ) );
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter_mem );
+  FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) );
   fd_pubkey_t vote0;
-  fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &vote0, NULL, NULL, NULL, NULL );
-  fd_vote_stakes_t_1_iter_next( vote_stakes, fork_id, iter );
-  FD_TEST( !fd_vote_stakes_t_1_iter_done( vote_stakes, fork_id, iter ) );
+  fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &vote0, NULL, NULL,
+                           NULL, NULL, NULL, NULL, NULL, NULL );
+  fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
+  FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) );
   fd_pubkey_t vote1;
-  fd_vote_stakes_t_1_iter_ele( vote_stakes, fork_id, iter, &vote1, NULL, NULL, NULL, NULL );
+  fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &vote1, NULL, NULL,
+                           NULL, NULL, NULL, NULL, NULL, NULL );
 
   fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
   fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };

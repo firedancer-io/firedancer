@@ -55,17 +55,16 @@ fd_reward_epoch_stakes_set( fd_bank_t *                    bank,
   ulong                   entries_cnt = 0UL;
 
   fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong                    fork_id     = bank->vote_stakes_fork_id;
 
-  uchar __attribute__((aligned(FD_VOTE_STAKES_T_1_ITER_ALIGN))) vote_iter_mem[ FD_VOTE_STAKES_T_1_ITER_FOOTPRINT ];
-  for( fd_vote_stakes_t_1_iter_t * iter = fd_vote_stakes_t_1_iter_init( vote_stakes, bank->vote_stakes_fork_id, vote_iter_mem );
-       !fd_vote_stakes_t_1_iter_done( vote_stakes, bank->vote_stakes_fork_id, iter );
-       fd_vote_stakes_t_1_iter_next( vote_stakes, bank->vote_stakes_fork_id, iter ) ) {
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) vote_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, vote_iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     FD_TEST( entries_cnt<FD_REWARD_EPOCH_STAKE_MAX_CNT );
-    fd_vote_stakes_t_1_iter_ele( vote_stakes,
-                                 bank->vote_stakes_fork_id,
-                                 iter,
-                                 &entries[ entries_cnt ].vote_pubkey,
-                                 NULL, NULL, NULL, NULL );
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
+                             &entries[ entries_cnt ].vote_pubkey, NULL, NULL,
+                             NULL, NULL, NULL, NULL, NULL, NULL );
     fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
         map, &entries[ entries_cnt ].vote_pubkey, NULL, pool );
     FD_TEST( accumulated );

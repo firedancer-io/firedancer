@@ -1,4 +1,5 @@
 #include "fd_svm_mini.h"
+#include "../../rewards/fd_alpen_rewards.h"
 #include "../../rewards/fd_rewards.h"
 #include "../../rewards/fd_rewards_base.h"
 #include "../../rewards/fd_stake_rewards.h"
@@ -10,6 +11,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_pubkey_utils.h"
 #include "../sysvar/fd_sysvar_rent.h"
+#include "../../../ballet/hex/fd_hex.h"
 #include <stdlib.h>
 
 #define TEST_STAKE_ACCOUNT_STORES_PER_BLOCK (4096UL)
@@ -384,6 +386,85 @@ init_epoch_inflation_account( fd_svm_mini_t * mini ) {
   acc.data_len = sizeof(data);
   acc.data     = data;
   fd_svm_mini_put_account_rooted( mini, &acc );
+}
+
+static ulong
+vote_last_voted_slot( fd_svm_mini_t *     mini,
+                      fd_accdb_fork_id_t  fork_id,
+                      fd_pubkey_t const * vote_key ) {
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, vote_key->uc );
+  FD_TEST( acc.lamports );
+  fd_vote_state_versioned_t vote_state[1];
+  FD_TEST( !fd_vsv_deserialize( &acc, vote_state ) );
+  ulong const * last_voted_slot = fd_vsv_get_last_voted_slot( vote_state );
+  ulong         result          = last_voted_slot ? *last_voted_slot : ULONG_MAX;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+  return result;
+}
+
+static void
+test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
+                                   int             use_t_3 ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_ROOT_SLOT;
+  params->mock_validator_cnt = 2UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  activate_alpenglow( mini );
+  set_alpenglow_migration( mini, TEST_ROOT_SLOT );
+  init_epoch_inflation_account( mini );
+
+  fd_pubkey_t identity_a, vote_a, stake_a;
+  fd_pubkey_t identity_b, vote_b, stake_b;
+  mock_validator_keys_idx( params->hash_seed, 0UL, &identity_a, &vote_a, &stake_a );
+  mock_validator_keys_idx( params->hash_seed, 1UL, &identity_b, &vote_b, &stake_b );
+
+  ulong reward_slot = use_t_3 ? 10UL : 2UL;
+  ulong bank_idx    = fd_svm_mini_attach_child( mini, root_idx, reward_slot+8UL );
+  fd_bank_t * bank  = fd_svm_mini_bank( mini, bank_idx );
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, alpenglow, 0UL );
+
+  uchar valid_bls[2][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  fd_hex_decode( valid_bls[0], "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb", sizeof(valid_bls[0]) );
+  fd_hex_decode( valid_bls[1], "af9ff5448e60bc9a718f463ac102bd6f8772e6460c19076a6c89d5806e5a8ef44b6f3b8af09e37a4e564987a26b9deda", sizeof(valid_bls[1]) );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_reset( vote_stakes );
+  bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
+
+  if( use_t_3 ) {
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 200UL, 0U, valid_bls[1] );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 100UL, 0U, valid_bls[0] );
+    fd_vote_stakes_finalize( vote_stakes, bank->f.epoch );
+
+    fd_vote_stakes_snap_insert_t_3( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 200UL, 0U, valid_bls[0] );
+    fd_vote_stakes_snap_insert_t_3( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 100UL, 0U, valid_bls[1] );
+    fd_vote_stakes_finalize( vote_stakes, bank->f.epoch-1UL );
+  } else {
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 200UL, 0U, valid_bls[0] );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 100UL, 0U, valid_bls[1] );
+    fd_vote_stakes_finalize( vote_stakes, bank->f.epoch );
+  }
+
+  fd_reward_cert_t reward_cert = { .slot=reward_slot, .nbits=1U };
+  reward_cert.signer_set[0] = 1UL;
+  fd_footer_certs_t certs = { .skip_reward_cert=&reward_cert };
+
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
+  FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )!=reward_slot );
+  FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL ) );
+  FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==reward_slot );
+  FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=reward_slot );
+
+  ulong final_slot = reward_slot+1UL;
+  ag_cert_fast_final_t final_cert = { .slot=final_slot };
+  final_cert.agg_sig.bitmask[0] = 1UL;
+  certs = (fd_footer_certs_t){ .fast_final_cert=&final_cert };
+  FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL ) );
+  FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==final_slot );
+  FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=final_slot );
 }
 
 /* Writes a VoteStateV4-serialized vote account with the given
@@ -2651,6 +2732,8 @@ main( int     argc,
   fd_svm_mini_t * mini = fd_svm_test_boot( &argc, &argv, limits );
 
   test_commission_split();
+  test_footer_uses_vote_stakes_rank( mini, 0 );
+  test_footer_uses_vote_stakes_rank( mini, 1 );
   test_alpenglow_reward_uses_vote_credits( mini );
   test_alpenglow_preserves_commission_remainder( mini );
   test_no_credits_no_reward( mini );
