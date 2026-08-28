@@ -109,7 +109,7 @@ void
 fd_collector_overrides_reset( fd_collector_overrides_t * co );
 
 ushort
-fd_collector_overrides_get_root_idx( fd_collector_overrides_t * co );
+fd_collector_overrides_get_root_idx( fd_collector_overrides_t const * co );
 
 /* fd_collector_overrides_upsert records the non-default collectors
    for (pubkey, epoch) on the given fork.  Pass has_inflation /
@@ -140,12 +140,6 @@ fd_collector_overrides_query( fd_collector_overrides_t * co,
                               fd_pubkey_t const *        pubkey,
                               fd_pubkey_t *              inflation_out_opt,
                               fd_pubkey_t *              block_out_opt );
-
-/* fd_collector_overrides_ele_cnt returns the number of live entries
-   (across all forks and epochs).  Intended for tests and metrics. */
-
-ulong
-fd_collector_overrides_ele_cnt( fd_collector_overrides_t * co );
 
 FD_PROTOTYPES_END
 

@@ -1,4 +1,4 @@
-#include "fd_collector_overrides.h"
+#include "fd_collector_overrides_private.h"
 
 static fd_pubkey_t
 key( uchar b ) {
@@ -33,7 +33,7 @@ main( int     argc,
 
   /* Upsert both collectors for vote_a at epoch 100 on the root. */
   fd_collector_overrides_upsert( co, root, 100UL, &vote_a, 1, &coll_1, 1, &coll_2 );
-  FD_TEST( fd_collector_overrides_ele_cnt( co )==1UL );
+  FD_TEST( co->ele_cnt==1UL );
 
   int flags = fd_collector_overrides_query( co, root, 100UL, &vote_a, &out_infl, &out_block );
   FD_TEST( flags==(FD_COLLECTOR_OVERRIDE_INFLATION|FD_COLLECTOR_OVERRIDE_BLOCK) );
@@ -66,12 +66,12 @@ main( int     argc,
      entry... */
   fd_collector_overrides_upsert( co, f1, 101UL, &vote_a, 1, &coll_1, 0, NULL );
   fd_collector_overrides_upsert( co, f2, 101UL, &vote_a, 1, &coll_1, 0, NULL );
-  FD_TEST( fd_collector_overrides_ele_cnt( co )==3UL );
+  FD_TEST( co->ele_cnt==3UL );
 
   /* ...while divergent content does not. */
   fd_collector_overrides_upsert( co, f1, 101UL, &vote_b, 1, &coll_1, 0, NULL );
   fd_collector_overrides_upsert( co, f2, 101UL, &vote_b, 1, &coll_2, 0, NULL );
-  FD_TEST( fd_collector_overrides_ele_cnt( co )==5UL );
+  FD_TEST( co->ele_cnt==5UL );
 
   flags = fd_collector_overrides_query( co, f1, 101UL, &vote_b, &out_infl, NULL );
   FD_TEST( flags==FD_COLLECTOR_OVERRIDE_INFLATION && !memcmp( &out_infl, &coll_1, sizeof(fd_pubkey_t) ) );
@@ -81,14 +81,14 @@ main( int     argc,
   /* Purging f2 keeps shared entries alive for f1 and frees
      f2-only entries. */
   fd_collector_overrides_purge_child( co, f2 );
-  FD_TEST( fd_collector_overrides_ele_cnt( co )==4UL );
+  FD_TEST( co->ele_cnt==4UL );
   FD_TEST( fd_collector_overrides_query( co, f1, 101UL, &vote_a, NULL, NULL ) );
 
   /* Advancing the root to f1 drops everything only the old root saw
      ... but the inherited epoch-100 entries survive via f1's bit. */
   fd_collector_overrides_advance_root( co, f1 );
   FD_TEST( fd_collector_overrides_get_root_idx( co )==f1 );
-  FD_TEST( fd_collector_overrides_ele_cnt( co )==4UL );
+  FD_TEST( co->ele_cnt==4UL );
   FD_TEST( fd_collector_overrides_query( co, f1, 100UL, &vote_a, NULL, NULL ) );
   FD_TEST( fd_collector_overrides_query( co, f1, 101UL, &vote_a, NULL, NULL ) );
 
@@ -100,7 +100,7 @@ main( int     argc,
   FD_TEST(  fd_collector_overrides_query( co, f3, 101UL, &vote_a, NULL, NULL ) );
 
   fd_collector_overrides_advance_root( co, f3 );
-  FD_TEST( fd_collector_overrides_ele_cnt( co )==2UL ); /* 101: vote_a shared, vote_b(f1 content) */
+  FD_TEST( co->ele_cnt==2UL ); /* 101: vote_a shared, vote_b(f1 content) */
 
   /* Fork id reuse must not resurrect stale visibility. */
   ushort f4 = fd_collector_overrides_new_child( co );
@@ -108,7 +108,7 @@ main( int     argc,
 
   /* Reset drops everything. */
   fd_collector_overrides_reset( co );
-  FD_TEST( fd_collector_overrides_ele_cnt( co )==0UL );
+  FD_TEST( co->ele_cnt==0UL );
   root = fd_collector_overrides_get_root_idx( co );
   FD_TEST( !fd_collector_overrides_query( co, root, 100UL, &vote_a, NULL, NULL ) );
 
