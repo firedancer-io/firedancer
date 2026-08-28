@@ -1043,12 +1043,6 @@ snap_check_fd( char const * snap_dir,
 
   if( FD_UNLIKELY( !S_ISREG( st.st_mode ) ) )
     FD_LOG_ERR(( "snapshot `%s/%s` is not a regular file", snap_dir, name ));
-
-  /* A link count above one means the inode is also reachable from
-     outside the snapshots directory, so chowning it below would hand
-     the target user a file we never meant to give away. */
-  if( FD_UNLIKELY( st.st_nlink!=1UL ) )
-    FD_LOG_ERR(( "snapshot `%s/%s` has unexpected link count %lu", snap_dir, name, (ulong)st.st_nlink ));
 }
 
 static void
