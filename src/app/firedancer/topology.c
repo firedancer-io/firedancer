@@ -1227,8 +1227,8 @@ fd_topo_initialize( config_t * config ) {
      tiles keep small CU-bounded per-tile windows and promote rare
      deep-CPI whale txns to a full-size bundle here.  The leader pool
      is separate so leader-slot txns never queue behind replay. */
-  fd_topob_wksp( topo, "bpfser_arena" );
-  fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 2UL );
+  fd_topob_wksp( topo, "bpfser_arena" )->demote_ok = 1; /* whale-only overflow bundles, cold at mainnet load */
+  fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], bpfser_rp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bpfser_rp_obj->id, "bpfser_rp" ) );
   if( FD_LIKELY( execle_tile_cnt ) ) {
