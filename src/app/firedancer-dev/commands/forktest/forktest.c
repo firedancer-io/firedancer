@@ -400,7 +400,7 @@ forktest_topo( config_t * config ) {
 
   ulong store_fec_max = config->firedancer.runtime.max_live_slots * FD_FEC_BLK_MAX + (shred_depth * shred_tile_cnt) + 1;
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.rserve.shred_cache_size_gib, store_fec_set_cnt, config->paths.shredb );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.rserve.shred_cache_size_mib, store_fec_set_cnt, config->paths.shredb );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );

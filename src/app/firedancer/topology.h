@@ -33,7 +33,7 @@ setup_topo_store( fd_topo_t *  topo,
                   ulong        fec_max,
                   ulong        fec_data_max,
                   ulong        shred_storage_gib,
-                  ulong        shred_cache_gib,
+                  ulong        shred_cache_mib,
                   ulong        fec_set_cnt,
                   char const * db_path );
 

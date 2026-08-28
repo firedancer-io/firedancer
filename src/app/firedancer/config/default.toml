@@ -1750,12 +1750,15 @@ telemetry = true
         # cadence that far-behind nodes bootstrap from instead.
         shred_storage_limit_gib = 32
 
-        # Sets the FEC payload RAM cache size.  When full, the oldest
-        # unpinned payloads spill to the shred database and are loaded back
-        # on demand. Zero disables the limit.  1 GiB holds ~32k FEC
-        # payloads, several hundred mainnet slots of unreplayed data,
-        # while the steady-state working set is a few slots.
-        shred_cache_size_gib = 1
+        # Sets the FEC payload RAM cache size in MiB.  When full, the
+        # oldest unpinned payloads spill to the shred database and are
+        # loaded back on demand.  Zero disables the limit.  Payloads
+        # stay cached until their slot is rooted and pruned, so the
+        # resident set is root distance x FECs per slot: ~1300-2600
+        # payloads at mainnet (~32 slot root lag, 40-80 FECs/slot).
+        # 384 MiB holds 6144 payloads, >2x that, so spill only happens
+        # in catchup or long fork-stall regimes.
+        shred_cache_size_mib = 384
 
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just

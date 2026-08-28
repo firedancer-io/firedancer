@@ -162,14 +162,14 @@ setup_topo_store( fd_topo_t *  topo,
                   ulong        fec_max,
                   ulong        fec_data_max,
                   ulong        shred_storage_gib,
-                  ulong        shred_cache_gib,
+                  ulong        shred_cache_mib,
                   ulong        fec_set_cnt,
                   char const * db_path ) {
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
 
   fd_topo_obj_t * obj = fd_topob_obj( topo, "store", wksp_name );
-  ulong shred_cache_bytes = shred_cache_gib * 1024UL * 1024UL * 1024UL;
+  ulong shred_cache_bytes = shred_cache_mib * 1024UL * 1024UL;
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,           "obj.%lu.fec_max",           obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_data_max,      "obj.%lu.fec_data_max",      obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, shred_storage_gib, "obj.%lu.shred_storage_gib", obj->id ) );
@@ -1173,7 +1173,7 @@ fd_topo_initialize( config_t * config ) {
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max,
                                                 rserve_enabled ? config->tiles.rserve.shred_storage_limit_gib : 0UL,
-                                                config->tiles.rserve.shred_cache_size_gib,
+                                                config->tiles.rserve.shred_cache_size_mib,
                                                 store_fec_set_cnt,
                                                 config->paths.shredb );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

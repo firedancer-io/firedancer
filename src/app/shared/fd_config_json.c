@@ -617,7 +617,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool ( &w, "enabled",                   config->tiles.rserve.enabled );
       jw_ulong( &w, "repair_serve_listen_port",  config->tiles.rserve.repair_serve_listen_port );
       jw_ulong( &w, "shred_storage_limit_gib",   config->tiles.rserve.shred_storage_limit_gib );
-      jw_ulong( &w, "shred_cache_size_gib",      config->tiles.rserve.shred_cache_size_gib );
+      jw_ulong( &w, "shred_cache_size_mib",      config->tiles.rserve.shred_cache_size_mib );
     jw_obj_close( &w );
     jw_obj_open( &w, "replay" );
       jw_ulong( &w, "max_transaction_lookahead_buffer_size", config->tiles.replay.max_transaction_lookahead_buffer_size );
