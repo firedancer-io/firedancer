@@ -147,6 +147,15 @@ FD_STATIC_ASSERT( 1<<AUTH_VTR_LG_MAX==32, AUTH_VTR_LG_MAX );
 
 #define EQVOC_MAX (2)
 
+/* eqvoc's fec_map is a sample cache of the first shred seen per FEC
+   set, used to detect equivocating shreds as they arrive off the wire.
+   Shreds propagate within seconds of production, so proof construction
+   only needs a cache covering the recent propagation window, not every
+   live slot: 64 slots ~ 25.6s at 400ms slots.  The cache FIFO-evicts
+   when full and consumers tolerate misses (no proof constructed). */
+
+#define EQVOC_FEC_SLOT_MAX (64UL)
+
 /* The Alpenglow VAT caps the voting set of validators to 2000.  Only
    the top 2000 voters by stake will be counted towards consensus rules.
    Firedancer uses the same bound for TowerBFT.
@@ -1593,7 +1602,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong slot_max    = fd_ulong_pow2_up( tile->tower.max_live_slots );
   ulong blk_max     = slot_max * EQVOC_MAX;
-  ulong fec_max     = slot_max * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
+  ulong fec_max     = EQVOC_FEC_SLOT_MAX * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
   ulong pub_max     = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
 
   ulong l = FD_LAYOUT_INIT;
@@ -1628,7 +1637,7 @@ init_choreo( void                 * scratch,
              fd_topo_tile_t const * tile ) {
   ulong slot_max    = fd_ulong_pow2_up( tile->tower.max_live_slots );
   ulong blk_max     = slot_max * EQVOC_MAX;
-  ulong fec_max     = slot_max * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
+  ulong fec_max     = EQVOC_FEC_SLOT_MAX * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
   ulong pub_max     = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->tower.accdb_obj_id );
