@@ -89,6 +89,7 @@ extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_pack;
 extern fd_topo_run_tile_t fd_tile_execle;
 extern fd_topo_run_tile_t fd_tile_poh;
+extern fd_topo_run_tile_t fd_tile_motor;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
@@ -162,6 +163,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_replay,
   &fd_tile_execrp,
   &fd_tile_poh,
+  &fd_tile_motor,
   &fd_tile_txsend,
   &fd_tile_tower,
   &fd_tile_votor,
