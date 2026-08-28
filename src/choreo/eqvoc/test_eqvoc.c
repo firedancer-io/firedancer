@@ -1,6 +1,8 @@
 #include "fd_eqvoc.c"
 #include "fd_eqvoc.h"
 
+#include <stdlib.h>
+
 FD_IMPORT_BINARY( id,       "src/choreo/eqvoc/fixtures/id.bin"       );
 FD_IMPORT_BINARY( pay1,     "src/choreo/eqvoc/fixtures/pay1.bin"     );
 FD_IMPORT_BINARY( pay2,     "src/choreo/eqvoc/fixtures/pay2.bin"     );
@@ -23,7 +25,7 @@ static void
 test_compact_indices( void ) {
   FD_TEST( sizeof(dup_t)==32UL  );
   FD_TEST( sizeof(fec_t)==1256UL );
-  FD_TEST( sizeof(prf_t)==2544UL );
+  FD_TEST( sizeof(prf_t)==72UL   );
   FD_TEST( sizeof(vtr_t)==72UL   );
   FD_TEST( !fd_eqvoc_footprint( 1UL<<32, 1UL,     1UL,     1UL ) );
   FD_TEST( !fd_eqvoc_footprint( 1UL,     1UL<<32, 1UL,     1UL ) );
@@ -42,11 +44,22 @@ vtr_insert( fd_eqvoc_t *        eqvoc,
   vtr_dlist_ele_push_tail( eqvoc->vtr_dlist, vtr, eqvoc->vtr_pool );
 }
 
+static int spill_fd = -1;
+
 fd_eqvoc_t *
 setup( void ) {
   FD_TEST( fd_eqvoc_footprint( SLOT_MAX, FEC_MAX, SLOT_MAX, VTR_MAX ) < sizeof(eqvoc_mem) );
 
+  if( spill_fd<0 ) {
+    char tmpl[] = "/tmp/test_eqvoc_XXXXXX";
+    spill_fd = mkstemp( tmpl );
+    FD_TEST( spill_fd>=0 );
+    FD_TEST( !unlink( tmpl ) );
+    FD_TEST( !ftruncate( spill_fd, (off_t)fd_eqvoc_spill_footprint( SLOT_MAX, VTR_MAX ) ) );
+  }
+
   fd_eqvoc_t * eqvoc = fd_eqvoc_join( fd_eqvoc_new( eqvoc_mem, SLOT_MAX, FEC_MAX, SLOT_MAX, VTR_MAX, 0UL ) );
+  fd_eqvoc_spill_fd_set( eqvoc, spill_fd );
   return eqvoc;
 }
 
@@ -169,14 +182,17 @@ test_chunk_insert( void ) {
   prf_t * prf = prf_query( eqvoc, vtr, 5 );
   FD_TEST( prf );
   FD_TEST( prf->buf_sz==FD_EQVOC_CHUNK0_LEN );
-  FD_TEST( prf->buf[0]==0xAA );
+  uchar b0;
+  FD_TEST( pread( spill_fd, &b0, 1UL, (off_t)(prf_pool_idx( eqvoc->prf_pool, prf )*PRF_BUF_SZ) )==1L );
+  FD_TEST( b0==0xAA );
 
   fd_gossip_duplicate_shred_t chunk0b = { .slot = 5, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN };
   memset( chunk0b.chunk, 0xBB, FD_EQVOC_CHUNK0_LEN );
   FD_TEST( fd_eqvoc_chunk_insert( eqvoc, ROOT, SHRED_VERSION, &leaders, &a, &chunk0b, chunks_out )==FD_EQVOC_IGNORED );
 
   prf = prf_query( eqvoc, vtr, 5 );
-  FD_TEST( prf->buf[0]==0xAA ); /* original data preserved */
+  FD_TEST( pread( spill_fd, &b0, 1UL, (off_t)(prf_pool_idx( eqvoc->prf_pool, prf )*PRF_BUF_SZ) )==1L );
+  FD_TEST( b0==0xAA ); /* original data preserved */
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==1 );
 
   /* Reinserting chunk 2 with different length is also ignored. */

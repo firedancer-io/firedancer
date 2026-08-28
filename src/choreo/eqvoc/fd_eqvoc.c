@@ -3,6 +3,9 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../disco/shred/fd_fec_set.h"
 
+#include <errno.h>
+#include <unistd.h>
+
 /* fd_eqvoc maintains four bounded maps:
 
    dup_map  (capacity dup_max): maps slot -> equivocation result,
@@ -159,6 +162,13 @@ typedef struct {
   fd_pubkey_t from;
 } xid_t;
 
+/* Assembled chunk bytes live out-of-line in a spill file (spill_fd),
+   one PRF_BUF_SZ region per pool idx: proofs are rare (~zero at
+   mainnet, gossip-rate-bounded adversarially), so only the 72 B
+   metadata stays resident. */
+
+#define PRF_BUF_SZ (2UL * FD_SHRED_MAX_SZ + 2UL * sizeof(ulong))
+
 struct prf {
   xid_t key;
   uint next;
@@ -172,7 +182,6 @@ struct prf {
   } dlist;
   uchar idxs; /* [0, 7]. bit vec encoding which of the chunk idxs have been received (at most FD_EQVOC_CHUNK_CNT = 3). */
   ulong buf_sz;
-  uchar buf[2 * FD_SHRED_MAX_SZ + 2 * sizeof(ulong)];
 };
 typedef struct prf prf_t;
 
@@ -249,6 +258,7 @@ struct fd_eqvoc {
   ulong fec_max;
   ulong per_vtr_max;
   ulong vtr_max;
+  int   spill_fd; /* proof body spill file (owner sets via fd_eqvoc_spill_fd_set) */
 
   /* owned */
 
@@ -271,6 +281,18 @@ typedef struct fd_eqvoc fd_eqvoc_t;
 ulong
 fd_eqvoc_align( void ) {
   return 128UL;
+}
+
+ulong
+fd_eqvoc_spill_footprint( ulong per_vtr_max,
+                          ulong vtr_max ) {
+  return fd_ulong_pow2_up( per_vtr_max )*fd_ulong_pow2_up( vtr_max )*PRF_BUF_SZ;
+}
+
+void
+fd_eqvoc_spill_fd_set( fd_eqvoc_t * eqvoc,
+                       int          fd ) {
+  eqvoc->spill_fd = fd;
 }
 
 ulong
@@ -361,6 +383,7 @@ fd_eqvoc_new( void * shmem,
   eqvoc->fec_max     = fec_max;
   eqvoc->per_vtr_max = per_vtr_max;
   eqvoc->vtr_max     = vtr_max;
+  eqvoc->spill_fd    = -1;
 
   eqvoc->sha512     = fd_sha512_new( sha512                                           );
   eqvoc->bmtree_mem = bmtree_mem;
@@ -803,35 +826,48 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
   prf_t * prf = prf_query( eqvoc, vtr, chunk->slot );
   if( FD_UNLIKELY( !prf ) ) prf = prf_insert( eqvoc, chunk->slot, from );
   if( FD_UNLIKELY( fd_uchar_extract_bit( prf->idxs, chunk->chunk_index ) ) ) return FD_EQVOC_IGNORED;
-  fd_memcpy( prf->buf + chunk->chunk_index * FD_EQVOC_CHUNK_SZ, chunk->chunk, chunk->chunk_len );
+
+  /* All validation gates passed: pwrite the chunk bytes into this
+     prf's spill file region.  Chunks 0/1 are exactly FD_EQVOC_CHUNK_SZ
+     so bytes [0,buf_sz) are contiguous and all freshly written once
+     idxs is complete (recycled regions never leak stale bytes). */
+
+  ulong buf_off = prf_pool_idx( eqvoc->prf_pool, prf )*PRF_BUF_SZ;
+  if( FD_UNLIKELY( pwrite( eqvoc->spill_fd, chunk->chunk, chunk->chunk_len, (off_t)(buf_off + chunk->chunk_index*FD_EQVOC_CHUNK_SZ) )!=(long)chunk->chunk_len ) )
+    FD_LOG_ERR(( "eqvoc proof spill pwrite failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   prf->buf_sz += chunk->chunk_len;
   prf->idxs = fd_uchar_set_bit( prf->idxs, chunk->chunk_index );
   if( FD_UNLIKELY( prf->idxs!=(1 << FD_EQVOC_CHUNK_CNT) - 1 ) ) return FD_EQVOC_IGNORED; /* not all chunks received yet */
 
+  uchar buf[ PRF_BUF_SZ ] __attribute__((aligned(8)));
+  ulong buf_sz = prf->buf_sz;
+  if( FD_UNLIKELY( pread( eqvoc->spill_fd, buf, buf_sz, (off_t)buf_off )!=(long)buf_sz ) )
+    FD_LOG_ERR(( "eqvoc proof spill pread failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   int err = FD_EQVOC_ERR_SERDE; ulong off = 0;
 
-  if( FD_UNLIKELY( prf->buf_sz - off < sizeof(ulong) ) ) goto cleanup;
-  ulong shred1_sz = fd_ulong_load_8( prf->buf );
+  if( FD_UNLIKELY( buf_sz - off < sizeof(ulong) ) ) goto cleanup;
+  ulong shred1_sz = fd_ulong_load_8( buf );
   off += sizeof(ulong);
 
-  if( FD_UNLIKELY( prf->buf_sz - off < shred1_sz ) ) goto cleanup;
+  if( FD_UNLIKELY( buf_sz - off < shred1_sz ) ) goto cleanup;
   /* We use FD_SHRED_BLK_MAX as max_shred_idx because that is what
      Agave does here (Shred::new_from_serialized_shred in into_shreds):
      https://github.com/anza-xyz/agave/blob/v4.2/gossip/src/duplicate_shred.rs#L350-L351 */
-  fd_shred_t const * shred1 = fd_shred_parse( prf->buf + off, shred1_sz, FD_SHRED_BLK_MAX );
+  fd_shred_t const * shred1 = fd_shred_parse( buf + off, shred1_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( !shred1 || fd_shred_sz( shred1 )!=shred1_sz ) ) goto cleanup; /* check the sz matches parsed shred's type */
   off += shred1_sz;
 
-  if( FD_UNLIKELY( prf->buf_sz - off < sizeof(ulong) ) ) goto cleanup;
-  ulong shred2_sz = fd_ulong_load_8( prf->buf + off );
+  if( FD_UNLIKELY( buf_sz - off < sizeof(ulong) ) ) goto cleanup;
+  ulong shred2_sz = fd_ulong_load_8( buf + off );
   off += sizeof(ulong);
 
-  if( FD_UNLIKELY( prf->buf_sz - off < shred2_sz ) ) goto cleanup;
-  fd_shred_t const * shred2 = fd_shred_parse( prf->buf + off, shred2_sz, FD_SHRED_BLK_MAX );
+  if( FD_UNLIKELY( buf_sz - off < shred2_sz ) ) goto cleanup;
+  fd_shred_t const * shred2 = fd_shred_parse( buf + off, shred2_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( !shred2 || fd_shred_sz( shred2 )!=shred2_sz ) ) goto cleanup; /* check the sz matches parsed shred's type */
   off += shred2_sz;
 
-  if( FD_UNLIKELY( off!=prf->buf_sz ) ) goto cleanup;
+  if( FD_UNLIKELY( off!=buf_sz ) ) goto cleanup;
 
   if( FD_UNLIKELY( shred1->slot != chunk->slot || shred2->slot != chunk->slot ) ) goto cleanup;
 

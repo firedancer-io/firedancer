@@ -283,6 +283,7 @@ struct fd_tower_tile {
   int              checkpt_fd;
   int              restore_fd;
   int              lockos_fd; /* tower lockout interval spill file */
+  int              eqvoc_fd;  /* eqvoc duplicate-proof body spill file */
   fd_pubkey_t      identity_key[1];
   fd_pubkey_t      vote_account[1];
   ulong            auth_vtr_path_cnt;  /* number of authorized voter paths passed to tile */
@@ -2052,6 +2053,16 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( -1==unlink( path ) ) ) FD_LOG_ERR(( "unlink(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==ftruncate( ctx->lockos_fd, (off_t)lockos_sz ) ) ) FD_LOG_ERR(( "ftruncate(`%s`,%lu) failed (%i-%s)", path, lockos_sz, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fallocate( ctx->lockos_fd, 0, 0, (off_t)lockos_sz ) && errno!=EOPNOTSUPP ) ) FD_LOG_ERR(( "fallocate(`%s`,%lu) failed (%i-%s)", path, lockos_sz, errno, fd_io_strerror( errno ) ));
+
+  /* Same treatment for in-progress duplicate-proof bodies. */
+
+  ulong eqvoc_sz = fd_eqvoc_spill_footprint( EQVOC_PER_VTR_MAX, VTR_MAX );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-eqvoc-%s.bin", tile->tower.base_path, identity_key_b58 ) );
+  ctx->eqvoc_fd = open( path, O_RDWR|O_CREAT|O_TRUNC, 0600 );
+  if( FD_UNLIKELY( -1==ctx->eqvoc_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( path ) ) ) FD_LOG_ERR(( "unlink(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==ftruncate( ctx->eqvoc_fd, (off_t)eqvoc_sz ) ) ) FD_LOG_ERR(( "ftruncate(`%s`,%lu) failed (%i-%s)", path, eqvoc_sz, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fallocate( ctx->eqvoc_fd, 0, 0, (off_t)eqvoc_sz ) && errno!=EOPNOTSUPP ) ) FD_LOG_ERR(( "fallocate(`%s`,%lu) failed (%i-%s)", path, eqvoc_sz, errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -2061,6 +2072,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_tower_tile_t * ctx     = init_choreo( scratch, topo, tile );
 
   ctx->tower->lck_fd = ctx->lockos_fd;
+  fd_eqvoc_spill_fd_set( ctx->eqvoc, ctx->eqvoc_fd );
 
   ctx->wksp               = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->identity_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
@@ -2119,7 +2131,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, FD_ACCDB_FD_RW, (uint)ctx->lockos_fd );
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, FD_ACCDB_FD_RW, (uint)ctx->lockos_fd, (uint)ctx->eqvoc_fd );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
 }
 
@@ -2132,7 +2144,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -2142,6 +2154,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( ctx->restore_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->restore_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts database */
   out_fds[ out_cnt++ ] = ctx->lockos_fd; /* lockout interval spill */
+  out_fds[ out_cnt++ ] = ctx->eqvoc_fd;  /* duplicate-proof body spill */
 
   return out_cnt;
 }

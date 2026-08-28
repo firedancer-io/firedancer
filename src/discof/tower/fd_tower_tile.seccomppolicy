@@ -10,7 +10,10 @@
 #
 # lockos_fd: The spill file holding cold lockout interval slot lists
 #            (full worst-case capacity; RAM keeps a recent-slot window).
-uint logfile_fd, uint checkpt_fd, uint restore_fd, uint accounts_fd, uint lockos_fd
+#
+# eqvoc_fd: The spill file holding in-progress duplicate-proof bodies
+#           (gossip DuplicateShred chunk bytes; metadata stays in RAM).
+uint logfile_fd, uint checkpt_fd, uint restore_fd, uint accounts_fd, uint lockos_fd, uint eqvoc_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -61,5 +64,9 @@ fallocate: (and (eq (arg 0) accounts_fd)
                 (eq (arg 1) 0))
 
 # tower lockout spill: spill/reload cold slot lists whole
-pwrite64: (eq (arg 0) lockos_fd)
-pread64:  (eq (arg 0) lockos_fd)
+# eqvoc proof spill: write chunk bytes as they arrive, read the
+# assembled proof back on completion
+pwrite64: (or (eq (arg 0) lockos_fd)
+              (eq (arg 0) eqvoc_fd))
+pread64:  (or (eq (arg 0) lockos_fd)
+              (eq (arg 0) eqvoc_fd))

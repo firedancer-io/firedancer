@@ -4,6 +4,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "fd_eqvoc.h"
 #include "../../util/fd_util.h"
@@ -18,6 +19,8 @@ static uint               sched[100] = { 0 };
 static fd_epoch_leaders_t leaders    = { .slot0 = 0, .slot_cnt = 100, .pub = leader, .pub_cnt = 1, .sched = sched, .sched_cnt = 4 };
 static fd_gossip_duplicate_shred_t chunks_out[ FD_EQVOC_CHUNK_CNT ];
 
+static int spill_fd = -1;
+
 int
 LLVMFuzzerInitialize( int  *   argc,
                       char *** argv ) {
@@ -26,6 +29,12 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_boot( argc, argv );
   atexit( fd_halt );
   fd_log_level_core_set(3); /* crash on warning log */
+
+  char tmpl[] = "/tmp/fuzz_eqvoc_XXXXXX";
+  spill_fd = mkstemp( tmpl );
+  if( FD_UNLIKELY( spill_fd<0 ) ) FD_LOG_ERR(( "mkstemp failed" ));
+  unlink( tmpl );
+  if( FD_UNLIKELY( ftruncate( spill_fd, (off_t)fd_eqvoc_spill_footprint( SLOT_MAX, FROM_MAX ) ) ) ) FD_LOG_ERR(( "ftruncate failed" ));
   return 0;
 }
 
@@ -39,6 +48,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar * mem       = aligned_alloc( fd_eqvoc_align(), footprint );
 
   fd_eqvoc_t * eqvoc = fd_eqvoc_join( fd_eqvoc_new( mem, SLOT_MAX, SHRED_MAX, SLOT_MAX, FROM_MAX, 0UL ) );
+  fd_eqvoc_spill_fd_set( eqvoc, spill_fd );
 
   fd_pubkey_t from;
   memcpy( &from, data, 32UL );

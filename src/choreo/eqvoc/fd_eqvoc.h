@@ -103,6 +103,23 @@ fd_eqvoc_footprint( ulong dup_max,
                     ulong per_vtr_max,
                     ulong vtr_max );
 
+/* fd_eqvoc_spill_footprint returns the required byte size of the proof
+   body spill file: one fixed region per in-progress proof pool element
+   (full per_vtr_max*vtr_max capacity lives on disk; only 72 B metadata
+   per element stays resident). */
+
+FD_FN_CONST ulong
+fd_eqvoc_spill_footprint( ulong per_vtr_max,
+                          ulong vtr_max );
+
+/* fd_eqvoc_spill_fd_set sets the fd backing in-progress proof bodies.
+   Must be set before calling fd_eqvoc_chunk_insert.  The fd needs
+   read+write and fd_eqvoc_spill_footprint bytes. */
+
+void
+fd_eqvoc_spill_fd_set( fd_eqvoc_t * eqvoc,
+                       int          fd );
+
 /* fd_eqvoc_new formats an unused memory region for use as a eqvoc.
    mem is a non-NULL pointer to this region in the local address space
    with the required footprint and alignment. */
