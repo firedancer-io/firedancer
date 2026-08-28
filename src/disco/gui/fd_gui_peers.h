@@ -68,7 +68,7 @@
   country_codes, or 255 for unmapped space; seg_city[i] is an index
   into city_names, or UINT_MAX. */
 
-#define FD_GUI_GEOIP_BIN_MAX          (128UL<<20) /* decompressed image cap */
+#define FD_GUI_GEOIP_BIN_MAX          (64UL<<20) /* decompressed image cap; embedded image is ~54 MiB, boot fails loudly if a dbip refresh outgrows this */
 #define FD_GUI_GEOIP_MAX_CITY_NAME_SZ (80UL)
 #define FD_GUI_GEOIP_MAX_CITY_CNT     (160000UL)
 #define FD_GUI_GEOIP_MAX_COUNTRY_CNT  (254UL)
@@ -94,7 +94,7 @@ typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
 #define FD_GUI_PEERS_NODE_UPDATE (2)
 #define FD_GUI_PEERS_NODE_DELETE (3)
 
-#define FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT                 (256UL) /* maximum number of maintained active sort keys */
+#define FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT                 (96UL)  /* maximum number of maintained active sort keys; >= default max ws conns + default key, excess evicts round-robin and rebuilds on next viewport read */
 #define FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ                    (200UL) /* the maximum number of rows a client can request for a table viewport */
 #define FD_GUI_PEERS_WS_VIEWPORT_UPDATE_INTERVAL_MILLIS    ( 150L)
 #define FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS    ( 150L)
