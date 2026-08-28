@@ -839,11 +839,14 @@ check_confirmed( ctx_t           * ctx,
        early exit above. */
     FD_TEST( bad_fec_idx != UINT_MAX );
 
-    fd_hash_t const * expected = (bad_fec_idx == bad_blk->complete_idx - (FD_FEC_SHRED_CNT - 1)) ? &bad_blk->confirmed_bid : &bad_blk->merkle_roots[(bad_fec_idx / 32) + 1].cmr;
+    fd_hash_t null_mr = {{0}};
+    fd_forest_mr_t * bad_pair  = fd_forest_blk_mr( ctx->forest, bad_blk, bad_fec_idx / 32 );
+    fd_forest_mr_t * next_pair = fd_forest_blk_mr( ctx->forest, bad_blk, (bad_fec_idx / 32) + 1 );
+    fd_hash_t const * expected = (bad_fec_idx == bad_blk->complete_idx - (FD_FEC_SHRED_CNT - 1)) ? &bad_blk->confirmed_bid : (next_pair ? &next_pair->cmr : &null_mr);
 
     FD_BASE58_ENCODE_32_BYTES( confirmed_bid->uc,                             confirmed_bid_b58 );
     FD_BASE58_ENCODE_32_BYTES( expected->uc,                                  expected_mr );
-    FD_BASE58_ENCODE_32_BYTES( bad_blk->merkle_roots[bad_fec_idx / 32].mr.uc, recorded_mr );
+    FD_BASE58_ENCODE_32_BYTES( (bad_pair ? &bad_pair->mr : &null_mr)->uc,     recorded_mr );
 
     FD_LOG_WARNING(( "[%s] slot %lu block_id %s confirmation detected incorrect FECs. bad FEC is slot %lu fec set %u. expected mr (%s) != recorded mr (%s)",
                        __func__,
@@ -904,7 +907,9 @@ after_fec( ctx_t      * ctx,
     /* Note: this log does not imply that the slot is fully executable.
        It's possible that we have a slot that doesn't chain verify,
        which could be un-executable. */
-    FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[ele->complete_idx / 32].mr.uc, block_id );
+    fd_hash_t null_mr = {{0}};
+    fd_forest_mr_t * last_pair = fd_forest_blk_mr( ctx->forest, ele, ele->complete_idx / 32 );
+    FD_BASE58_ENCODE_32_BYTES( (last_pair ? &last_pair->mr : &null_mr)->uc, block_id );
     FD_BASE58_ENCODE_32_BYTES( mr->uc, fec_mr );
     FD_LOG_INFO(( "[%s] slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms. last recvd fec: %u, mr %s. current block_id: %s",
                     __func__,

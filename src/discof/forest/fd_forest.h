@@ -32,9 +32,10 @@
 
 /* Merkle root tracking.
    For each FEC set in the slot, we record the merkle root of the first
-   shred we receive in `.merkle_roots[ fec_set_idx / 32 ]`. Then for any
-   shred in the same FEC inserted later, the merkle root of the new
-   shred is compared to the merkle root we have stored.
+   shred we receive in the entry for FEC ordinal fec_set_idx/32 (see
+   fd_forest_blk_mr). Then for any shred in the same FEC inserted
+   later, the merkle root of the new shred is compared to the merkle
+   root we have stored.
 
    If they are the same  -> good.
    If they are different -> we're going to mark this merkle root as
@@ -135,6 +136,37 @@
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
 
+/* Merkle roots are tracked in 32-FEC chunks allocated from a shared
+   side pool rather than inline (1024 inline entries were 64 KiB per
+   blk).  A blk holds the pool idxs of its chunks in mrs[]; UINT_MAX
+   means no chunk, which reads as all-zero entries.  The pool is sized
+   for a generous 128-FEC average per blk (mainnet blocks run ~30-100
+   FECs); the single-block 1024-FEC adversarial bound stays reachable
+   per slot from the shared pool.  On pool exhaustion the farthest-
+   from-root unconfirmed leaf is evicted (the existing blk-pool-full
+   policy) and re-repaired later. */
+
+#define FD_FOREST_MR_CHUNK_FECS     (32UL)
+#define FD_FOREST_MR_CHUNKS_PER_BLK (FD_FEC_BLK_MAX/FD_FOREST_MR_CHUNK_FECS)
+#define FD_FOREST_MR_POOL_MULT      (4UL)
+
+struct fd_forest_mr {
+  fd_hash_t mr;  /* initialized to null hash, written when a shred is received.  invalidated
+                    to invalid_mr when multiple versions of the merkle root are detected. */
+  fd_hash_t cmr;
+};
+typedef struct fd_forest_mr fd_forest_mr_t;
+
+struct fd_forest_mrs {
+  ulong          next; /* reserved by fd_pool */
+  fd_forest_mr_t fecs[ FD_FOREST_MR_CHUNK_FECS ];
+};
+typedef struct fd_forest_mrs fd_forest_mrs_t;
+
+#define POOL_NAME fd_forest_mrpool
+#define POOL_T    fd_forest_mrs_t
+#include "../../util/tmpl/fd_pool.c"
+
 /* fd_forest_blk_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
    (`child_idx`), its immediate-right sibling (`sibling_idx`), and its
@@ -158,11 +190,8 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
   fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* received data shred idxs */
-  struct {
-    fd_hash_t mr;
-    fd_hash_t cmr;
-  } merkle_roots[ FD_FEC_BLK_MAX ]; /* received merkle roots. mr is initialized to null hash, written to when a shred is
-                                       received. invalidated to invalid_mr on multiple versions of the merkle root are detected. */
+  uint mrs[ FD_FOREST_MR_CHUNKS_PER_BLK ]; /* mrpool idxs of received merkle root chunks (UINT_MAX = none, reads as
+                                              all-zero entries).  See fd_forest_blk_mr. */
 
   fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
                                on confirmation, and don't know the index of the last fec set until we repair the slot.
@@ -361,6 +390,7 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong root;           /* pool idx of the root */
   ulong wksp_gaddr;     /* wksp gaddr of fd_forest in the backing wksp, non-zero gaddr */
   ulong pool_gaddr;     /* wksp gaddr of fd_pool */
+  ulong mrpool_gaddr;   /* wksp gaddr of fd_forest_mrpool (merkle root chunks) */
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
   ulong frontier_gaddr; /* leaves that needs repair */
   ulong subtrees_gaddr; /* head of orphaned trees */
@@ -421,9 +451,11 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_forest_t),       sizeof(fd_forest_t)                     ),
       fd_forest_pool_align(),     fd_forest_pool_footprint    ( ele_max ) ),
+      fd_forest_mrpool_align(),   fd_forest_mrpool_footprint  ( ele_max*FD_FOREST_MR_POOL_MULT ) ),
       fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max ) ),
       fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) ),
       fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) ),
@@ -508,6 +540,25 @@ fd_forest_pool( fd_forest_t * forest ) {
 FD_FN_PURE static inline fd_forest_blk_t const *
 fd_forest_pool_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->pool_gaddr );
+}
+
+/* fd_forest_mrpool returns a pointer in the caller's address space to
+   forest's merkle root chunk pool. */
+
+FD_FN_PURE static inline fd_forest_mrs_t *
+fd_forest_mrpool( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->mrpool_gaddr );
+}
+
+/* fd_forest_blk_mr returns the {mr,cmr} entry for FEC ordinal fec_idx
+   (== fec_set_idx/32) of blk, or NULL if no chunk is allocated there
+   (reads as the old all-zero entry).  Never allocates. */
+
+FD_FN_PURE static inline fd_forest_mr_t *
+fd_forest_blk_mr( fd_forest_t * forest, fd_forest_blk_t * blk, ulong fec_idx ) {
+  uint chunk_idx = blk->mrs[ fec_idx/FD_FOREST_MR_CHUNK_FECS ];
+  if( FD_UNLIKELY( chunk_idx==UINT_MAX ) ) return NULL;
+  return &fd_forest_mrpool_ele( fd_forest_mrpool( forest ), chunk_idx )->fecs[ fec_idx%FD_FOREST_MR_CHUNK_FECS ];
 }
 
 /* fd_forest_{ancestry, ancestry_const} returns a pointer in the caller's

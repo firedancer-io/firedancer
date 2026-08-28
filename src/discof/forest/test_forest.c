@@ -1799,7 +1799,7 @@ test_eqvoc_different_slot_size( fd_wksp_t * wksp ) {
   ele = fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, SHRED_SRC_REPAIR, &mr_3_0c, &mr_2c, fd_tickcount() );
   FD_TEST( ele );
   FD_TEST( ele->parent_slot == 2 ); /* parent_slot changes on shred in fec 0 */
-  FD_TEST( fd_hash_eq( &ele->merkle_roots[0].mr, &mr_3_0c ) );
+  FD_TEST( fd_hash_eq( &fd_forest_blk_mr( forest, ele, 0UL )->mr, &mr_3_0c ) );
 
   /* shred in the last FEC set doesn't do anything because we still don't know complete_idx */
   FD_TEST( fd_forest_data_shred_insert( forest, 3, 2, 94, 64, 0, 0, SHRED_SRC_REPAIR, &mr_3_2c, &mr_3_1c, fd_tickcount() ) );
@@ -1858,8 +1858,8 @@ test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
   FD_TEST( ele->chain_confirmed );
   FD_TEST( ele->lowest_verified_fec == 0 );
 
-  fd_hash_t saved_mr  = ele->merkle_roots[1].mr;
-  fd_hash_t saved_cmr = ele->merkle_roots[1].cmr;
+  fd_hash_t saved_mr  = fd_forest_blk_mr( forest, ele, 1UL )->mr;
+  fd_hash_t saved_cmr = fd_forest_blk_mr( forest, ele, 1UL )->cmr;
   FD_TEST( fd_hash_eq( &saved_mr, &mr_3_1 ) );
 
   /* Now a conflicting FEC_COMPLETE arrives for FEC 1 (fec_set_idx=32)
@@ -1868,8 +1868,8 @@ test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
   fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1_bad, &cmr_bad, fd_tickcount() );
 
   /* The verified merkle root must NOT have been overwritten */
-  FD_TEST( fd_hash_eq( &ele->merkle_roots[1].mr,  &saved_mr  ) );
-  FD_TEST( fd_hash_eq( &ele->merkle_roots[1].cmr, &saved_cmr ) );
+  FD_TEST( fd_hash_eq( &fd_forest_blk_mr( forest, ele, 1UL )->mr,  &saved_mr  ) );
+  FD_TEST( fd_hash_eq( &fd_forest_blk_mr( forest, ele, 1UL )->cmr, &saved_cmr ) );
 
   /* The block should still be chain-confirmed */
   FD_TEST( ele->chain_confirmed );
@@ -1957,7 +1957,7 @@ test_buffered_idx_oob( fd_wksp_t * wksp ) {
 
   /* buffered_idx should still be FD_SHRED_BLK_MAX - 1 */
   FD_TEST( blk->buffered_idx == FD_SHRED_BLK_MAX - 1 );
-  FD_TEST( blk->merkle_roots[0].mr.ul[0] == ULONG_MAX );
+  FD_TEST( fd_forest_blk_mr( forest, blk, 0UL )->mr.ul[0] == ULONG_MAX );
 
   /* no longer blocks consumed-frontier advancement and FEC chain verification. */
   FD_TEST( blk->buffered_idx == blk->complete_idx );

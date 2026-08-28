@@ -842,8 +842,8 @@ test_parent_edge_mismatch_with_verified_fec0( fd_wksp_t * wksp ) {
    FD_TEST( slot10->parent_slot == 9 );
    FD_TEST( slot10->buffered_idx == slot10->complete_idx );
    FD_TEST( slot10->complete_idx == FD_FEC_SHRED_CNT - 1U );
-   FD_TEST( fd_hash_eq( &slot10->merkle_roots[0].mr,  &mr_10 ) );
-   FD_TEST( fd_hash_eq( &slot10->merkle_roots[0].cmr, &mr_9  ) );
+   FD_TEST( fd_hash_eq( &fd_forest_blk_mr( ctx->forest, slot10, 0UL )->mr,  &mr_10 ) );
+   FD_TEST( fd_hash_eq( &fd_forest_blk_mr( ctx->forest, slot10, 0UL )->cmr, &mr_9  ) );
 
    /* Slot 10 gets duplicate confirmed which triggers check_confirmed.
       The parent edge mismatch is detected and slot 8 is returned as the bad block.
