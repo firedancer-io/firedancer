@@ -1534,9 +1534,11 @@ telemetry = true
         # become leader and stores them for future execution.  This
         # option determines the maximum number of transactions that
         # will be stored before those with the lowest estimated
-        # profitability get dropped.  The maximum allowed, and default
-        # value is 65524.  It is not recommended to change this.
-        max_pending_transactions = 65524
+        # profitability get dropped.  The maximum allowed value is
+        # 65524.  The default of 16384 holds several leader rotations
+        # worth of block content at current mainnet rates; raise it on
+        # memory-rich machines to buffer more low-priority backlog.
+        max_pending_transactions = 16384
 
         # When a transaction consumes fewer CUs than it requests, the
         # execle and pack tiles work together to adjust the block limits
