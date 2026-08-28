@@ -4,16 +4,16 @@
 /* fd_backup_shmem.h is a shared memory data structure tracking which
    accounts have been packed into the snapshot.  Each account is tracked by
    its position in the account index.
-   
+
    For each visited account:
    - mark the account as visited (in snapmk)
    - copy and compress the account (in snapzp)
      - if the read failed recover via request from snapzp to snapmk
-  
+
    Reads may fail when reading database cache that is concurrently
    evicted.  Accounts that failed to be read are added to the overrun
    queue, then retried via a later disk read.
-   
+
    Data structures:
    - bit vector shadowing the account index
    - MPSC queue tracking overruns */
@@ -76,6 +76,34 @@ struct fd_backup_overrun {
 
 typedef struct fd_backup_overrun fd_backup_overrun_t;
 
+/* Per-snapzp statistics for the snapshot currently being produced.
+   Each snapzp tile owns one cache-line-sized entry.  snapmk reads all
+   entries after the final flush barrier. */
+
+#define FD_BACKUP_STATS_MAX 64UL
+
+struct __attribute__((aligned(128))) fd_backup_worker_stats {
+  ulong account_cnt;
+  ulong account_sz;
+  ulong tombstone_cnt;
+  ulong cached_account_cnt;
+  ulong disk_account_cnt;
+  ulong zstd_data_frame_cnt;
+  ulong zstd_padding_sz;
+  ulong uncompressed_sz;
+  ulong compress_ticks;
+  ulong io_blocked_ticks;
+  ulong reserved[ 6 ];
+};
+
+typedef struct fd_backup_worker_stats fd_backup_worker_stats_t;
+
+struct fd_backup_stats {
+  fd_backup_worker_stats_t worker[ FD_BACKUP_STATS_MAX ];
+};
+
+typedef struct fd_backup_stats fd_backup_stats_t;
+
 FD_PROTOTYPES_BEGIN
 
 static inline void
@@ -92,15 +120,16 @@ fd_backup_overrun_push( fd_backup_overrun_t * q,
 
 FD_FN_CONST static inline ulong
 fd_backup_align( void ) {
-  return fd_ulong_max( alignof(fd_backup_overrun_t), visited_set_align() );
+  return fd_ulong_max( fd_ulong_max( alignof(fd_backup_overrun_t), alignof(fd_backup_stats_t) ), visited_set_align() );
 }
 
 FD_FN_PURE static inline ulong
 fd_backup_footprint( ulong max_accounts ) {
-  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-      alignof(fd_backup_overrun_t), sizeof(fd_backup_overrun_t) ),
-      visited_set_align(),          visited_set_footprint( max_accounts ) ),
-      fd_backup_align() );
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_backup_overrun_t), sizeof(fd_backup_overrun_t)             );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_backup_stats_t),   sizeof(fd_backup_stats_t)               );
+  l = FD_LAYOUT_APPEND( l, visited_set_align(),          visited_set_footprint( max_accounts )   );
+  return FD_LAYOUT_FINI( l, fd_backup_align() );
 }
 
 static inline void *
@@ -110,8 +139,9 @@ fd_backup_new( void * mem,
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_backup_align() ) ) ) return NULL;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_backup_overrun_t * q = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backup_overrun_t), sizeof(fd_backup_overrun_t) );
-  void *          set_mem = FD_SCRATCH_ALLOC_APPEND( l, visited_set_align(),          visited_set_footprint( max_accounts ) );
+  fd_backup_overrun_t * q       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backup_overrun_t), sizeof(fd_backup_overrun_t) );
+  fd_backup_stats_t *   stats   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backup_stats_t), sizeof(fd_backup_stats_t) );
+  void *                set_mem = FD_SCRATCH_ALLOC_APPEND( l, visited_set_align(),      visited_set_footprint( max_accounts ) );
   FD_CHECK_CRIT( (ulong)q==(ulong)mem, "layout error" );
 
   q->head = 0UL;
@@ -120,6 +150,8 @@ fd_backup_new( void * mem,
     q->slot[ i ].seq     = i-1U;
     q->slot[ i ].acc_idx = UINT_MAX;
   }
+
+  fd_memset( stats, 0, sizeof(fd_backup_stats_t) );
 
   if( FD_UNLIKELY( !visited_set_new( set_mem, max_accounts ) ) ) return NULL;
   return mem;
@@ -132,12 +164,23 @@ fd_backup_overrun( void * mem ) {
   return (fd_backup_overrun_t *)mem;
 }
 
+/* fd_backup_stats returns per-worker snapshot statistics. */
+
+static inline fd_backup_stats_t *
+fd_backup_stats( void * mem ) {
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  /*                        */FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backup_overrun_t), sizeof(fd_backup_overrun_t) );
+  fd_backup_stats_t * stats = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backup_stats_t), sizeof(fd_backup_stats_t) );
+  return stats;
+}
+
 /* fd_backup_set returns a join to the visited bit set. */
 
 static inline visited_set_t *
 fd_backup_set( void * mem ) {
   FD_SCRATCH_ALLOC_INIT( l, mem );
   /*             */FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backup_overrun_t), sizeof(fd_backup_overrun_t) );
+  /*             */FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backup_stats_t),   sizeof(fd_backup_stats_t)   );
   void * set_mem = FD_SCRATCH_ALLOC_APPEND( l, visited_set_align(),          visited_set_footprint( 1UL ) );
   return visited_set_join( set_mem );
 }

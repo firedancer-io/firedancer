@@ -1124,9 +1124,6 @@ test_limits( void ) {
     /* Test that as we gradually increase the CU limit, the correct number of votes get scheduled.
        After 33 iterations we start hitting FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK. */
     for( ulong cu_limit=0UL; cu_limit<33UL*FD_PACK_MAX_SIMPLE_VOTE_COST; cu_limit += FD_PACK_MAX_SIMPLE_VOTE_COST ) {
-      /* FIXME: Before remove_simple_vote_from_cost_model, CU limit for
-                votes is done based on the typical cost, which is
-                slightly different from the sample vote cost. */
       schedule_validate_microblock( pack, cu_limit, 1.0f, cu_limit/FD_PACK_MAX_SIMPLE_VOTE_COST, 0UL, 0UL, &outcome );
     }
     /* sum_{x=0}^32 x = 528, so there should be 496 transactions left */

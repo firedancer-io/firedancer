@@ -352,9 +352,10 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 /* fd_runtime_block_execute_finalize finishes the execution of the block
    by applying optional Alpenglow footer effects, paying a fee out to
    the block leader, updating any sysvars, and updating the bank hash.
-   certs is NULL for blocks without an Alpenglow footer. */
+   certs is NULL for blocks without an Alpenglow footer.  Returns -1 if
+   the footer is invalid and 0 otherwise. */
 
-void
+int
 fd_runtime_block_execute_finalize( fd_bank_t *                bank,
                                    fd_accdb_t *               accdb,
                                    fd_capture_ctx_t *         capture_ctx,

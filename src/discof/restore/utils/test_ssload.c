@@ -21,10 +21,25 @@
    epoch_stakes_base=0, t_1_idx=1 (valid). */
 static void
 setup_valid_manifest_base( fd_snapshot_manifest_t * manifest ) {
+  manifest->ticks_per_slot = 64UL;
   manifest->blockhashes_len = 1UL;
   manifest->blockhashes[0].hash_index = 0UL;
   manifest->epoch_schedule_params.slots_per_epoch             = 432000UL;
   manifest->epoch_schedule_params.leader_schedule_slot_offset = 432000UL;
+}
+
+static void
+test_ticks_per_slot( fd_snapshot_manifest_t * manifest ) {
+  FD_LOG_NOTICE(( "testing ticks_per_slot" ));
+
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+
+  manifest->ticks_per_slot = 0UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  FD_LOG_NOTICE(( "... pass" ));
 }
 
 static void
@@ -754,6 +769,7 @@ main( int     argc,
 
   test_valid_base_manifest( manifest );
   test_capacity_mismatch( manifest );
+  test_ticks_per_slot( manifest );
   test_epoch_schedule( manifest );
   test_blockhash_queue( manifest );
   test_hard_forks( manifest );

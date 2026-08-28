@@ -13,9 +13,11 @@
 #include <time.h>
 #include "generated/fd_snaprd_tile_seccomp.h"
 
-#define SNAPRD_STATE_IDLE 0
-#define SNAPRD_STATE_READ 1
-#define SNAPRD_STATE_DONE 2
+#define SNAPRD_STATE_IDLE    0
+#define SNAPRD_STATE_READ    1
+#define SNAPRD_STATE_DONE    2
+#define SNAPRD_STATE_CAPTURE 3 /* sampling accdb partition bounds */
+#define SNAPRD_STATE_DRAIN   4 /* waiting for in-flight accdb writes to land */
 
 #define STEM_BURST 64UL /* 64 * 64KiB -> 4MiB */
 #define SNAPRD_PART_MAX (1UL<<13)
@@ -41,6 +43,8 @@ struct fd_snaprd {
   ulong part_cur;      /* cursor in [0,part_sz] */
   ulong part_sz;       /* byte size of partition */
   ulong part_file_off; /* accdb file offset of partition */
+
+  fd_accdb_shmem_writer_barrier_t barrier[ 1 ]; /* writers whose pwritev2 has yet to land */
 
   struct {
     void * mem;
@@ -156,30 +160,57 @@ next_partition( fd_snaprd_t * ctx ) {
   return 0;
 }
 
-static void
-backup_disk_begin( fd_snaprd_t * ctx ) {
+/* backup_disk_capture determines which accdb partition ranges must be
+   read to produce a snapshot. */
+
+static int
+backup_disk_capture( fd_snaprd_t * ctx ) {
+  FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( fd_accdb_shmem_snapshot_sync( ctx->accdb ) )==FD_ACCDB_SNAPSHOT_SYNC_RUNNING,
+                 "backup capture outside snapshot_sync RUNNING" );
+
   ulong part_max = fd_accdb_shmem_partition_max( ctx->accdb );
   if( FD_UNLIKELY( part_max>SNAPRD_PART_MAX ) ) {
     FD_LOG_ERR(( "accdb partition count %lu exceeds snaprd capacity %lu", part_max, SNAPRD_PART_MAX ));
   }
 
+  ulong part_sz = fd_accdb_shmem_partition_sz( ctx->accdb );
+
   ctx->part_cnt = 0UL;
   ulong export_total_bytes = 0UL;
   for( ulong i=0UL; i<part_max; i++ ) {
-    fd_accdb_shmem_partition_info_t info[1];
-    fd_accdb_shmem_partition_info( ctx->accdb, i, info );
     /* the accdb partitions might grow after we save offsets into
        ctx->part, but we can safely ignore any future data (newly added
        rooted accounts will have been saved from cache, and non-rooted
        accounts are ignored regardless) */
-    if( !info->write_offset ) continue;
-    ctx->part[ ctx->part_cnt ].file_off = info->file_offset;
-    ctx->part[ ctx->part_cnt ].sz       = info->write_offset;
+
+    fd_accdb_shmem_partition_info_t info[ 1 ];
+    fd_accdb_shmem_partition_info( ctx->accdb, i, info );
+
+    ulong sz = info->write_offset_raw;
+    if( FD_UNLIKELY( info->is_write_head && sz>part_sz ) ) return 0; /* mid-rotation, retry */
+    FD_CHECK_CRIT( sz<=part_sz, "accdb partition write_offset exceeds partition size" );
+
+    if( !sz ) continue;
+    if( FD_UNLIKELY( info->compaction_offset>=sz ) ) continue; /* already compacted, partition effectively dead */
+    ctx->part[ ctx->part_cnt ].file_off = i*part_sz;
+    ctx->part[ ctx->part_cnt ].sz       = sz;
     ctx->part_cnt++;
-    export_total_bytes += info->write_offset;
+    export_total_bytes += sz;
   }
   ctx->metrics.export_progress_bytes = 0UL;
   ctx->metrics.export_total_bytes    = export_total_bytes;
+
+  /* need to wait for these writers to complete */
+  fd_accdb_shmem_writer_barrier_capture( ctx->accdb, ctx->barrier );
+  return 1;
+}
+
+/* backup_disk_drain waits out the writes that were in flight when
+   backup_disk_capture sampled the partition bounds. */
+
+static void
+backup_disk_drain( fd_snaprd_t * ctx ) {
+  if( FD_UNLIKELY( fd_accdb_shmem_writer_barrier_poll( ctx->accdb, ctx->barrier ) ) ) return;
 
   /* An accdb with no data on disk yields an empty stream, which snapmk
      still has to see terminated (a zero size frag carrying eom). */
@@ -203,8 +234,8 @@ before_credit( fd_snaprd_t *       ctx,
 
   /* new backup job */
   ctx->in_ctl_seq = ctl_cur;
-  backup_disk_begin( ctx );
-  ctx->idle_cnt = 0UL;
+  ctx->state      = SNAPRD_STATE_CAPTURE;
+  ctx->idle_cnt   = 0UL;
   *charge_busy = 1;
 }
 
@@ -213,10 +244,25 @@ after_credit( fd_snaprd_t *       ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->state==SNAPRD_STATE_CAPTURE ) ) {
+    *charge_busy = 1;
+    if( FD_UNLIKELY( !backup_disk_capture( ctx ) ) ) return;
+    ctx->state = SNAPRD_STATE_DRAIN;
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->state==SNAPRD_STATE_DRAIN ) ) {
+    *charge_busy = 1;
+    backup_disk_drain( ctx );
+    return;
+  }
+
   if( FD_UNLIKELY( ctx->state!=SNAPRD_STATE_READ ) ) return;
 
   FD_CHECK_CRIT( *stem->cr_avail <= UINT_MAX, "cr_avail underflow" );
   FD_CHECK_CRIT( ctx->part_cur <= ctx->part_sz, "partition cursor overflow" );
+  FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( fd_accdb_shmem_snapshot_sync( ctx->accdb ) )==FD_ACCDB_SNAPSHOT_SYNC_RUNNING,
+                 "accdb resumed compaction while backup read in progress" );
 
   ulong burst_rem = STEM_BURST;
   while( ctx->state==SNAPRD_STATE_READ && stem->cr_avail[ 0 ] && burst_rem-- ) {

@@ -11,7 +11,7 @@ FD_STATIC_ASSERT( sizeof(ag_cert_block_final_serde_t    )==8UL+sizeof(ag_block_h
 #define BASE2_BITMAP (0)
 #define BASE3_BITMAP (1)
 
-/* One past the highest signer, or zero when nobody signed.  Agave trims
+/* One past the highest rank, or zero when nobody signed.  Agave trims
    the rank bitvec to exactly this width when it builds a certificate, and
    to the wider of the two partitions for base3. */
 
@@ -128,7 +128,7 @@ base3_bitmap_de( ag_bls_agg_t * base,
 
 /* TODO: check serde accepting AG_BLS_SIGNERS_MAX (2048) vs AG_VAT_MAX
    (2000); reward processing ignores bits past the validator count
-   instead of rejecting the cert. Check what Agave does with signer bits
+   instead of rejecting the cert. Check what Agave does with rank bits
    >= the epoch's validator set size and match it. */
 
 static int
@@ -163,24 +163,24 @@ ag_cert_ser( ag_cert_t const * self,
   ulong                slot;
   switch( self->kind ) {
   case AG_CERT_KIND_FINAL:
-    slot = self->inner.final.slot;          base = &self->inner.final.agg_sig;
+    slot = self->final.slot;          base = &self->final.agg_sig;
     break;
   case AG_CERT_KIND_FAST_FINAL:
-    slot = self->inner.fast_final.slot;     base = &self->inner.fast_final.agg_sig;
-    hash = self->inner.fast_final.block_hash;
+    slot = self->fast_final.slot;     base = &self->fast_final.agg_sig;
+    hash = self->fast_final.block_hash;
     break;
   case AG_CERT_KIND_NOTAR:
-    slot = self->inner.notar.slot;          base = &self->inner.notar.agg_sig;
-    hash = self->inner.notar.block_hash;
+    slot = self->notar.slot;          base = &self->notar.agg_sig;
+    hash = self->notar.block_hash;
     break;
   case AG_CERT_KIND_NOTAR_FALLBACK:
-    slot = self->inner.notar_fallback.slot; base = &self->inner.notar_fallback.agg_sig_notar;
-    fb   = &self->inner.notar_fallback.agg_sig_notar_fallback;
-    hash = self->inner.notar_fallback.block_hash;
+    slot = self->notar_fallback.slot; base = &self->notar_fallback.agg_sig_notar;
+    fb   = &self->notar_fallback.agg_sig_notar_fallback;
+    hash = self->notar_fallback.block_hash;
     break;
   case AG_CERT_KIND_SKIP:
-    slot = self->inner.skip.slot;           base = &self->inner.skip.agg_sig_skip;
-    fb   = &self->inner.skip.agg_sig_skip_fallback;
+    slot = self->skip.slot;           base = &self->skip.agg_sig_skip;
+    fb   = &self->skip.agg_sig_skip_fallback;
     break;
   default:
     return -1;
@@ -259,27 +259,27 @@ ag_cert_de( ag_cert_t *   cert,
   int err;
   switch( cert->kind ) {
   case AG_CERT_KIND_FINAL:
-    cert->inner.final.slot = slot;
-    if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.final.agg_sig, bm, bm_cnt ) ) ) return err;
-    fd_memcpy( cert->inner.final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
+    cert->final.slot = slot;
+    if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->final.agg_sig, bm, bm_cnt ) ) ) return err;
+    fd_memcpy( cert->final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_KIND_FAST_FINAL:
-    cert->inner.fast_final.slot = slot;
-    memcpy( cert->inner.fast_final.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.fast_final.agg_sig, bm, bm_cnt ) ) ) return err;
-    fd_memcpy( cert->inner.fast_final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
+    cert->fast_final.slot = slot;
+    memcpy( cert->fast_final.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
+    if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->fast_final.agg_sig, bm, bm_cnt ) ) ) return err;
+    fd_memcpy( cert->fast_final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_KIND_NOTAR:
-    cert->inner.notar.slot = slot;
-    memcpy( cert->inner.notar.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->inner.notar.agg_sig, bm, bm_cnt ) ) ) return err;
-    fd_memcpy( cert->inner.notar.agg_sig.sig, sig, AG_BLS_SIG_SZ );
+    cert->notar.slot = slot;
+    memcpy( cert->notar.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
+    if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->notar.agg_sig, bm, bm_cnt ) ) ) return err;
+    fd_memcpy( cert->notar.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_KIND_NOTAR_FALLBACK: {
-    ag_bls_agg_t * b = &cert->inner.notar_fallback.agg_sig_notar;
-    ag_bls_agg_t * f = &cert->inner.notar_fallback.agg_sig_notar_fallback;
-    cert->inner.notar_fallback.slot = slot;
-    memcpy( cert->inner.notar_fallback.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
+    ag_bls_agg_t * b = &cert->notar_fallback.agg_sig_notar;
+    ag_bls_agg_t * f = &cert->notar_fallback.agg_sig_notar_fallback;
+    cert->notar_fallback.slot = slot;
+    memcpy( cert->notar_fallback.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( bm_cnt<1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
     if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_zero( f ); }
     else                      { if( FD_UNLIKELY( err = base3_bitmap_de( b, f, bm, bm_cnt ) ) ) return err; }
@@ -287,9 +287,9 @@ ag_cert_de( ag_cert_t *   cert,
     break;
   }
   case AG_CERT_KIND_SKIP: {
-    ag_bls_agg_t * b = &cert->inner.skip.agg_sig_skip;
-    ag_bls_agg_t * f = &cert->inner.skip.agg_sig_skip_fallback;
-    cert->inner.skip.slot = slot;
+    ag_bls_agg_t * b = &cert->skip.agg_sig_skip;
+    ag_bls_agg_t * f = &cert->skip.agg_sig_skip_fallback;
+    cert->skip.slot = slot;
     if( FD_UNLIKELY( bm_cnt<1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
     if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_zero( f ); }
     else                      { if( FD_UNLIKELY( err = base3_bitmap_de( b, f, bm, bm_cnt ) ) ) return err; }
@@ -313,9 +313,9 @@ decompress( ag_bls_agg_t * agg ) {
 }
 
 int
-ag_cert_block_final_de( ag_fast_final_cert_t * fast_final,
-                        ag_final_cert_t *      final,
-                        ag_notar_cert_t *      notar,
+ag_cert_block_final_de( ag_cert_fast_final_t * fast_final,
+                        ag_cert_final_t *      final,
+                        ag_cert_notar_t *      notar,
                         uchar const *          buf,
                         ulong                  buf_max,
                         ulong *                buf_sz ) {
@@ -339,7 +339,7 @@ ag_cert_block_final_de( ag_fast_final_cert_t * fast_final,
   if( FD_UNLIKELY( has_notar_aggregate>1 ) ) return -1;
 
   if( !has_notar_aggregate ) {
-    fd_memset( fast_final, 0, sizeof(ag_fast_final_cert_t) );
+    fd_memset( fast_final, 0, sizeof(ag_cert_fast_final_t) );
     fast_final->slot    = block_final->slot;
     fast_final->agg_sig = *final_agg;
     memcpy( fast_final->block_hash, block_final->block_id, sizeof(ag_block_hash_t) );
@@ -352,8 +352,8 @@ ag_cert_block_final_de( ag_fast_final_cert_t * fast_final,
   if( FD_UNLIKELY( footer_aggregate_de( notar_agg, buf, remaining, &consumed ) ) ) return -1;
   remaining -= consumed;
 
-  fd_memset( final, 0, sizeof(ag_final_cert_t) );
-  fd_memset( notar, 0, sizeof(ag_notar_cert_t) );
+  fd_memset( final, 0, sizeof(ag_cert_final_t) );
+  fd_memset( notar, 0, sizeof(ag_cert_notar_t) );
   final->slot    = block_final->slot;
   final->agg_sig = *final_agg;
   notar->slot    = block_final->slot;

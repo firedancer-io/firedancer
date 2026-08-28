@@ -372,6 +372,90 @@ test_errors( void ) {
   FD_TEST( fd_block_marker_de( marker, g_buf, g_sz, NULL )==FD_BLOCK_MARKER_DE_ERR_MALFORMED );
 }
 
+/* roundtrip re-encodes the marker occupying g_buf[0,marker_sz) and
+   asserts the encoding is byte identical, then that every shorter output
+   buffer is refused. */
+
+static void
+roundtrip( ulong marker_sz ) {
+  static uchar out[ 512 ];
+
+  fd_block_marker_t marker[1];
+  FD_TEST( fd_block_marker_de( marker, g_buf, marker_sz, NULL )==FD_BLOCK_MARKER_DE_SUCCESS );
+
+  ulong out_sz = 0UL;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), &out_sz )==FD_BLOCK_MARKER_SER_SUCCESS );
+  FD_TEST( out_sz==marker_sz );
+  FD_TEST( !memcmp( out, g_buf, marker_sz ) );
+
+  for( ulong sz=0UL; sz<out_sz; sz++ ) {
+    FD_TEST( fd_block_marker_ser( marker, out, sz, NULL )==FD_BLOCK_MARKER_SER_ERR_NOSPACE );
+  }
+}
+
+static void
+test_ser( void ) {
+  static uchar out[ 512 ];
+  fd_hash_t parent_id = hash_of( 0x11 );
+
+  /* header round trips */
+  emit_reset();
+  emit_preamble( HEADER, (ushort)41 );
+  emit_u8 ( 1 );
+  emit_u64( 1234UL );
+  emit( parent_id.uc, sizeof(fd_hash_t) );
+  roundtrip( g_sz );
+
+  /* footer with no certs round trips */
+  emit_reset();
+  emit_preamble( FOOTER, (ushort)(1UL+32UL+8UL+1UL+5UL+3UL) );
+  emit_u8 ( 1 );
+  emit_rep( 0x33, 32UL );
+  emit_u64( 987654321UL );
+  emit_u8 ( 5 ); emit( "agave", 5UL );
+  emit_u8 ( 0 ); emit_u8( 0 ); emit_u8( 0 );
+  roundtrip( g_sz );
+
+  /* empty user agent round trips */
+  emit_reset();
+  emit_preamble( FOOTER, (ushort)(1UL+32UL+8UL+1UL+3UL) );
+  emit_u8 ( 1 );
+  emit_rep( 0x44, 32UL );
+  emit_u64( 0UL );
+  emit_u8 ( 0 );
+  emit_u8 ( 0 ); emit_u8( 0 ); emit_u8( 0 );
+  roundtrip( g_sz );
+
+  /* a footer carrying a cert is not emitted */
+  fd_block_marker_t marker[1];
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  marker->variant                    = FOOTER;
+  marker->footer.has_fast_final_cert = 1;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
+
+  /* nor is an over-long user agent */
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  marker->variant               = FOOTER;
+  marker->footer.user_agent_len = FD_BLOCK_FOOTER_USER_AGENT_MAX+1UL;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
+
+  /* nor are the variants we never produce */
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  marker->variant = UPDATE_PARENT;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
+  marker->variant = GENESIS_CERTIFICATE;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
+
+  /* the widest footer we emit fits the bound */
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  marker->variant               = FOOTER;
+  marker->footer.user_agent_len = FD_BLOCK_FOOTER_USER_AGENT_MAX;
+  ulong out_sz = 0UL;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), &out_sz )==FD_BLOCK_MARKER_SER_SUCCESS );
+  FD_TEST( out_sz<=sizeof(out) );
+  FD_TEST( fd_block_marker_de( marker, out, out_sz, NULL )==FD_BLOCK_MARKER_DE_SUCCESS );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -385,6 +469,7 @@ main( int     argc,
   test_reward_cert_bitmap_errors();
   test_final_cert_bitmap_bound();
   test_errors();
+  test_ser();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

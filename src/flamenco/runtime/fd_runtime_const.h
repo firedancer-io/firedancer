@@ -78,6 +78,54 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
+/* Bound the number of distinct writable accounts that can enter the
+   cost tracker in an 87.5M CU block.  A transaction with w writable
+   accounts costs at least 720+300*w CUs and carries at most 64 writable
+   accounts.  Thus W writables need at least ceil(W/64) transactions:
+
+     300*W + 720*ceil(W/64) <= 87500000
+
+   The largest solution is 281123: 4392 full 64-account transactions
+   plus one 35-account transaction cost 87499860 CUs.  A 281124th
+   writable would cost 87500160 CUs. */
+
+#define FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT (281123UL)
+
+/* With 100M stake accounts, ceil(100M/4096)=24415 partitions.
+   Assuming uniform hashing, one partition has
+   X~Binomial(100M,1/24415), with mean 4095.84. So,
+   P(any partition has X>8192) <= 24415*P(X>=8193) ~= 5.75e-686. */
+
+#define FD_RUNTIME_MAX_EPOCH_REWARD_ACC_WRITES_PER_SLOT (8192UL)
+
+/* FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT defines a reasonable upper bound
+   on the number of unique accounts that can be written to in a single
+   slot.  The worst case can be defined by:
+   1. Worst case number of writable accounts in a slot from worst-case
+      transactions.  This bound comes from the cost tracker: 281123.
+   2. During partitioned epoch rewards.  A reasonable upper bound is
+      8192 accounts per stake partition since the odds of this happening
+      are very very low.
+   3. All of the other account updates that can happen in a slot.  In
+      the standard case this would be the sysvars, the incinerator,
+      and the fee collector (7 accounts.)
+      - Clock
+      - SlotHashes
+      - RecentBlockhashes
+      - SlotHistory
+      - Epoch Rewards
+      - Fee Collector
+      - Incinerator
+      - Alpenclock (Alpenglow)
+      - Leader Vote Account (Alpenglow)
+   4. Alpenglow rewards can touch the full VAT vote set up to 2 times.
+      This happens in the case near the epoch boundary where the reward
+      cert and the finalization cert are in two different epochs. */
+#define FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT (FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT + \
+                                            FD_RUNTIME_MAX_EPOCH_REWARD_ACC_WRITES_PER_SLOT + \
+                                            9UL + \
+                                            (2UL * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS))
+
 /* FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN is the protocol level hardcoded
    limit on the total account data growth (sum of resize deltas) across a
    single transaction.  Defined here (alongside FD_RUNTIME_ACC_SZ_MAX) so

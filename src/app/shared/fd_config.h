@@ -160,8 +160,8 @@ struct fd_configf {
     uint max_retry_abort;
     uint min_download_speed_mibs;
     ulong wait_for_peers_timeout_seconds;
-    ulong full_snapshot_interval_slots;
-    ulong incremental_snapshot_interval_slots;
+    ulong full_snapshot_interval_blocks;
+    ulong incremental_snapshot_interval_blocks;
     ulong max_incremental_snapshot_accounts;
 
     struct {
@@ -181,6 +181,7 @@ struct fd_configf {
     int alpenglow;
 
     struct {
+      ushort quic_client_listen_port;
       ushort quic_server_listen_port;
     } votor;
 
@@ -236,8 +237,8 @@ struct fd_config_net {
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
-    char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
-    int  listen_gre;
+    char rss_queue_mode[ 16 ]; /* "simple", "dedicated" or "auto" */
+    int  listen_gre; /* true/false or "auto" */
     int  native_bond; /* true/false or "auto" */
   } xdp;
 

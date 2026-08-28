@@ -21,6 +21,7 @@
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../util/fd_hash32.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
 #include <stdio.h>
 
 struct fd_replay_in_link {
@@ -57,6 +58,9 @@ struct fd_block_id_ele {
   ulong     slot;
   ulong     bank_seq;
   ulong     next_;
+  fd_hash_t dmr;
+  fd_hash_t parent_dmr;
+  ulong     dmr_next_;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
@@ -102,6 +106,15 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY                latest_mr
 #define MAP_NEXT               next_
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define MAP_NAME               dmr_map
+#define MAP_ELE_T              fd_block_id_ele_t
+#define MAP_KEY_T              fd_hash_t
+#define MAP_KEY                dmr
+#define MAP_NEXT               dmr_next_
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
@@ -345,6 +358,8 @@ struct fd_replay_tile {
   fd_block_id_ele_t * block_id_arr;
   ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
+  dmr_map_t *         dmr_map;
+  uchar *             dmr_tree_arr;
 
   /* Capture-related configs */
   fd_capture_ctx_t *     capture_ctx;
@@ -464,11 +479,11 @@ struct fd_replay_tile {
     uint  active:1;
     uint  incremental:1;
     ulong bank_idx;
-    ulong scheduled_at;
-    ulong full_interval;
-    ulong next_full_slot;
-    ulong incremental_interval;
-    ulong next_incremental_slot;
+    ulong scheduled_at_slot;
+    ulong full_interval_blocks;
+    ulong next_full_block_height;
+    ulong incremental_interval_blocks;
+    ulong next_incremental_block_height;
     ulong base_slot;
   } snapmk;
 

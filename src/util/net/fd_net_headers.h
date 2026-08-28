@@ -84,27 +84,37 @@ fd_ip4_udp_hdr_strip( uchar const *         data,
                       fd_eth_hdr_t ** const opt_eth,
                       fd_ip4_hdr_t ** const opt_ip4,
                       fd_udp_hdr_t ** const opt_udp ) {
-  fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)data;
-  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
-  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
+  ulong const eth_ip4_sz = sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t);
+  if( FD_UNLIKELY( data_sz<eth_ip4_sz ) ) return 0;
+
+  fd_eth_hdr_t const * eth        = (fd_eth_hdr_t const *)data;
+  fd_ip4_hdr_t const * ip4        = (fd_ip4_hdr_t const *)( data + sizeof(fd_eth_hdr_t) );
+  ulong const          ip4_hdr_sz = FD_IP4_GET_LEN( *ip4 );
+
+  /* IHL cannot place the UDP header inside the minimum IPv4 header. */
+  if( FD_UNLIKELY( ip4_hdr_sz<sizeof(fd_ip4_hdr_t) ) ) return 0;
+
+  ulong const hdr_sz = sizeof(fd_eth_hdr_t) + ip4_hdr_sz + sizeof(fd_udp_hdr_t);
 
   /* data_sz is less than the observed combined header size */
-  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+data_sz ) ) return 0;
+  if( FD_UNLIKELY( data_sz<hdr_sz ) ) return 0;
+
+  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( data + sizeof(fd_eth_hdr_t) + ip4_hdr_sz );
   ulong udp_sz = fd_ushort_bswap( udp->net_len );
 
   /* observed udp_hdr+payload sz is smaller than minimum udp header sz */
   if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) ) return 0;
   ulong payload_sz_ = udp_sz-sizeof(fd_udp_hdr_t);
-  uchar * payload_     = (uchar *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
+  uchar * payload_ = (uchar *)( data + hdr_sz );
 
   /* payload_sz is greater than the total packet size */
-  if( FD_UNLIKELY( payload_+payload_sz_>data+data_sz ) ) return 0;
+  if( FD_UNLIKELY( payload_sz_>data_sz-hdr_sz ) ) return 0;
 
-  fd_ulong_store_if( !!opt_eth,        (ulong*)opt_eth,     (ulong)eth      );
-  fd_ulong_store_if( !!opt_ip4,        (ulong*)opt_ip4,     (ulong)ip4      );
-  fd_ulong_store_if( !!opt_udp,        (ulong*)opt_udp,     (ulong)udp      );
-  fd_ulong_store_if( !!opt_payload,    (ulong*)opt_payload, (ulong)payload_ );
-  fd_ulong_store_if( !!opt_payload_sz, opt_payload_sz,      payload_sz_     );
+  if( opt_eth        ) *opt_eth        = (fd_eth_hdr_t *)eth;
+  if( opt_ip4        ) *opt_ip4        = (fd_ip4_hdr_t *)ip4;
+  if( opt_udp        ) *opt_udp        = (fd_udp_hdr_t *)udp;
+  if( opt_payload    ) *opt_payload    = payload_;
+  if( opt_payload_sz ) *opt_payload_sz = payload_sz_;
 
   return 1;
 }

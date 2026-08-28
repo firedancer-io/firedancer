@@ -6,6 +6,9 @@ main( int     argc,
 
   fd_boot( &argc, &argv );
 
+  int extra_benchmark = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-bench" );
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   FD_LOG_NOTICE(( "Testing hash sequences" ));
 
   static uint const ref32[10] = {
@@ -51,6 +54,65 @@ main( int     argc,
     if( x!=z        ) FD_LOG_ERR(( "FAIL: inv64" ));
     if( fd_ulong_hash( fd_ulong_hash_inverse( x ) )!=x ) FD_LOG_ERR(( "FAIL: INV64" ));
   }
+
+  do {
+    char const * buf = "The quick brown fox jumps over the lazy dog.";
+    ulong        sz  = strlen(buf)+1UL;
+    FD_TEST( fd_hash( 0UL, buf, sz )==0xf3f632730b075fa5UL );
+    FD_TEST( fd_hash( 1UL, buf, sz )==0x9d33e5e77b3544ceUL );
+  } while(0);
+
+  do {
+    uchar src[2048]; memset( src, 0, 2048UL );
+    uchar dst[2048]; memset( dst, 0, 2048UL );
+    for( ulong iter=0UL; iter<1000000UL; iter++ )  {
+
+      ulong _s0 = (ulong)fd_rng_uint_roll( rng, 2049UL );
+      ulong _s1 = (ulong)fd_rng_uint_roll( rng, 2049UL );
+      ulong s0  = fd_ulong_min( _s0, _s1 );
+      ulong s1  = fd_ulong_max( _s0, _s1 );
+      ulong sz  = s1-s0;
+
+      ulong d0 = (ulong)fd_rng_uint_roll( rng, (uint)(2049UL-sz) );
+      ulong d1 = d0 + sz;
+
+      ulong hs0 = fd_hash( 0UL, src, s0 ); ulong hs1 = fd_hash( 0UL, src+s1, 2048UL-s1 );
+      ulong hd0 = fd_hash( 0UL, dst, d0 ); ulong hd1 = fd_hash( 0UL, dst+d1, 2048UL-d1 );
+
+      int c = (int)fd_rng_uchar( rng );
+      memset( src+s0, c, sz );
+      FD_TEST( fd_memset( dst+d0, c, sz )==(dst+d0) );
+      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
+      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
+      FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
+      FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
+
+      for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
+
+      FD_TEST( fd_memcpy( dst+d0, src+s0, sz )==(dst+d0) );
+      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
+      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
+      FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
+      FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
+
+      for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
+
+      ulong seed = fd_rng_ulong( rng );
+      ulong hash = fd_hash( seed, src+s0, sz );
+      FD_TEST( fd_hash_memcpy( seed, dst+d0, src+s0, sz )==hash );
+      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
+      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
+
+      /* Flip some bits */
+
+      if( sz>0UL ) {
+        ulong dflip = d0 + (ulong)fd_rng_uint_roll( rng, (uint)sz );
+        int c2 = (int)fd_rng_uchar( rng );
+        dst[ dflip ] = (uchar)(dst[ dflip ] ^ (uchar)c2);
+        FD_TEST( fd_memeq( dst+d0, src+s0, sz )==(!c2) );
+      }
+    }
+  } while(0);
 
   ulong seq      = 0UL;
   int   iter_cnt = 1048576;
@@ -156,8 +218,36 @@ main( int     argc,
     FD_LOG_NOTICE(( "fluct_max %f", (double)fluct_max ));
   } while(0);
 
+  if( extra_benchmark ) {
+    ulong const workload_iter = 1048576UL;
+    ulong const warmup        =    1024UL;
+
+    ulong const sizes[] = { 32UL, 64UL, 128UL, 512UL, 4096UL };
+    ulong const size_cnt = sizeof(sizes) / sizeof(sizes[0]);
+    char buf[ 4096 ] = {0};
+
+    for( ulong j = 0UL; j < size_cnt; j++ ) {
+      ulong sz = sizes[j];
+      ulong hash = 0UL;
+      for( ulong i=0UL; i<warmup; i++ ) {
+        hash = fd_hash( hash, buf, sz );
+      }
+      FD_HW_MFENCE();
+      long dt = -fd_log_wallclock();
+      for( ulong i = 0UL; i<workload_iter; i++ ) {
+        hash = fd_hash( hash, buf, sz );
+      }
+      dt += fd_log_wallclock();
+      FD_COMPILER_UNPREDICTABLE( hash );
+      double ns_byte = (double)dt / ((double)workload_iter * (double)sz);
+      double gbps    = 8.0 / ns_byte;
+      FD_LOG_NOTICE(( "fd_hash: %.3f ns/byte, %.3f Gbps (sz %lu)", ns_byte, gbps, sz ));
+    }
+  }
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-

@@ -1250,6 +1250,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->details.commit_start_ticks = LONG_MAX;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
+  fd_memset( &txn_out->details.txn_cost, 0, sizeof(txn_out->details.txn_cost) );
 
   txn_out->details.loaded_accounts_data_size = 0UL;
   txn_out->details.accounts_resize_delta     = 0L;
@@ -1671,7 +1672,7 @@ apply_footer( fd_bank_t *               bank,
      footer's producer timestamp (Agave Bank::update_clock_from_footer).
      The clock must be applied before the reward certs. */
 
-  long unix_timestamp = (long)( producer_time_nanos/1000000000UL );
+  long unix_timestamp = (long)(producer_time_nanos/1000000000UL);
 
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock_ );
@@ -1701,17 +1702,16 @@ apply_footer( fd_bank_t *               bank,
   return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs, producer_time_nanos );
 }
 
-void
+int
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_accdb_t *              accdb,
                                    fd_capture_ctx_t *        capture_ctx,
                                    fd_footer_certs_t const * certs,
                                    ulong                     producer_time_nanos ) {
-  if( FD_UNLIKELY( certs && apply_footer( bank, accdb, capture_ctx, certs, producer_time_nanos ) ) ) {
-    FD_LOG_CRIT(( "slot %lu: footer cert processing failed; marking bank dead", bank->f.slot ));
-  }
+  if( FD_UNLIKELY( certs && apply_footer( bank, accdb, capture_ctx, certs, producer_time_nanos ) ) ) return -1;
   fd_runtime_freeze( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );
+  return 0;
 }
 
 /* Mirrors Agave function solana_sdk::transaction_context::find_index_of_account

@@ -41,7 +41,7 @@ ag_vote_ser( ag_vote_t const * self,
              ulong *           buf_sz );
 
 int
-ag_vote_de( ag_vote_t *   out,
+ag_vote_de( ag_vote_t *   self,
             ushort        shred_version,
             uchar const * buf,
             ulong         buf_max,

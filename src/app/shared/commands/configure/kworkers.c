@@ -105,8 +105,13 @@ fini( config_t const * config,
 
   FD_CPUSET_DECL( all );
   fd_cpu_isolation_host_cpus( all );
+
+  FD_CPUSET_DECL( excluded );
+  read_wq_cpumask( excluded );
+  fd_cpuset_subtract( excluded, all, excluded );
+
   write_wq_cpumask( all );
-  return 1;
+  return !fd_cpuset_is_null( excluded );
 }
 
 static configure_result_t
@@ -119,6 +124,18 @@ check( config_t const * config,
 
   FD_CPUSET_DECL( tile_cpus );
   fd_cpu_isolation_tile_cpus( tile_cpus, &config->topo );
+
+  if( FD_UNLIKELY( fd_cpuset_is_null( tile_cpus ) ) ) {
+    FD_CPUSET_DECL( missing );
+    fd_cpu_isolation_host_cpus( missing );
+    fd_cpuset_subtract( missing, missing, current );
+    if( FD_UNLIKELY( !fd_cpuset_is_null( missing ) ) ) {
+      char list[ FD_CPU_ISOLATION_LIST_MAX ];
+      fd_cpu_isolation_format_list( list, sizeof(list), missing );
+      NOT_CONFIGURED( "kernel workqueue cpumask excludes CPUs %s but no tile CPUs are pinned", list );
+    }
+    CONFIGURE_OK();
+  }
 
   FD_CPUSET_DECL( overlap );
   fd_cpuset_intersect( overlap, current, tile_cpus );

@@ -1667,8 +1667,9 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
              with zeroed utilization so the row visually clears once its
              data has been moved out. */
           int    is_compacted   = info->compaction_state==0 &&
-                                  info->write_offset>0UL &&
-                                  info->compaction_offset>=info->write_offset;
+                                  ( ( info->write_offset>0UL &&
+                                      info->compaction_offset>=info->write_offset ) ||
+                                    ( !info->write_offset && info->bytes_written>0UL ) );
           ulong  tier           = is_compacted ? 255UL : (ulong)info->layer;
           double utilization    = (!is_compacted && partition_sz)
             ? (double)info->write_offset / (double)partition_sz : 0.0;
@@ -1755,9 +1756,12 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
             case FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW:         tag = "alpenglow";         break;
             default:                                       tag = "unknown";           break;
           }
-          uint ip4 = peer->row.contact_info.sockets[ j ].is_ipv6 ? 0U : peer->row.contact_info.sockets[ j ].ip4;
+          uint   ip4  = peer->row.contact_info.sockets[ j ].is_ipv6 ? 0U : peer->row.contact_info.sockets[ j ].ip4;
+          ushort port = fd_ushort_bswap( peer->row.contact_info.sockets[ j ].port );
+          if( FD_LIKELY( !ip4 && !port ) ) continue;
+
           char line[ 64 ];
-          FD_TEST( fd_cstr_printf( line, sizeof( line ), NULL, FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( ip4 ), fd_ushort_bswap( peer->row.contact_info.sockets[ j ].port ) ) );
+          FD_TEST( fd_cstr_printf( line, sizeof( line ), NULL, FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( ip4 ), port ) );
           jsonp_string( peers->http, tag, line );
         }
       jsonp_close_object( peers->http );

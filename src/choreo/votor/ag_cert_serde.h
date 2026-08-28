@@ -12,7 +12,7 @@
 struct __attribute__((packed)) ag_cert_signature_serde {
   ag_bls_sig_t signature;  /* WireCertSignature::signature (BLSSignature) */
   ulong        bitmap_cnt; /* WireCertSignature::bitmap    (Vec<u8>)      */
-/*uchar           bitmap[];*/ /* WireCertSignature::bitmap    (Vec<u8>)      */
+/*uchar        bitmap[];*/ /* WireCertSignature::bitmap    (Vec<u8>)      */
 };
 typedef struct ag_cert_signature_serde ag_cert_signature_serde_t;
 
@@ -42,8 +42,8 @@ typedef struct ag_cert_bitmap_serde ag_cert_bitmap_serde_t;
 
 struct __attribute__((packed)) ag_cert_votes_aggregate_serde {
   uchar  signature[ AG_BLS_SIG_COMPRESSED_SZ ]; /* VotesAggregate::signature (BLSSignatureCompressed)         */
-  ushort bitmap_cnt;                               /* VotesAggregate::bitmap    (WincodeVec<u8, FixIntLen<u16>>) */
-/*uchar  bitmap[];*/                               /* VotesAggregate::bitmap    (WincodeVec<u8, FixIntLen<u16>>) */
+  ushort bitmap_cnt;                            /* VotesAggregate::bitmap    (WincodeVec<u8, FixIntLen<u16>>) */
+/*uchar  bitmap[];*/                            /* VotesAggregate::bitmap    (WincodeVec<u8, FixIntLen<u16>>) */
 };
 typedef struct ag_cert_votes_aggregate_serde ag_cert_votes_aggregate_serde_t;
 
@@ -73,9 +73,9 @@ ag_cert_de( ag_cert_t *   cert,
             ulong *       buf_sz );
 
 int
-ag_cert_block_final_de( ag_fast_final_cert_t * fast_final,
-                        ag_final_cert_t *      final,
-                        ag_notar_cert_t *      notar,
+ag_cert_block_final_de( ag_cert_fast_final_t * fast_final,
+                        ag_cert_final_t *      final,
+                        ag_cert_notar_t *      notar,
                         uchar const *          buf,
                         ulong                  buf_max,
                         ulong *                buf_sz );

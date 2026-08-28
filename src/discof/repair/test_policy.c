@@ -282,6 +282,231 @@ new_policy( fd_wksp_t * wksp ) {
   return fd_policy_join( fd_policy_new( mem, 1024UL, 0, rnonce ) );
 }
 
+/* Orphan heads pop in creation order, reschedule one dedup window
+   after each request, and stop being served once connected. */
+static void
+test_orphan_due_prq( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+
+  fd_forest_init( forest, 0UL );
+
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  fd_forest_blk_t * orphan0 = fd_forest_blk_insert( forest, 102UL, 100UL, NULL );
+  fd_forest_blk_t * orphan1 = fd_forest_blk_insert( forest, 103UL, 101UL, NULL );
+  FD_TEST( orphan0 && orphan1 );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* Fresh heads are immediately eligible, in creation order. */
+  long now = 1000000000L;
+  int charge_busy;
+  fd_repair_msg_t const * msg = fd_policy_next( policy, dedup, forest, repair, now, ULONG_MAX, &charge_busy );
+  FD_TEST( charge_busy && msg && msg->kind==FD_REPAIR_KIND_ORPHAN && msg->orphan.slot==102UL );
+  FD_TEST( fd_reqlim_next_due( dedup, fd_reqlim_key( FD_REPAIR_KIND_ORPHAN, 102UL, UINT_MAX ), now )==now+FD_REQLIM_DEDUP_TIMEOUT );
+
+  msg = fd_policy_next( policy, dedup, forest, repair, now+1L, ULONG_MAX, &charge_busy );
+  FD_TEST( charge_busy && msg && msg->kind==FD_REPAIR_KIND_ORPHAN && msg->orphan.slot==103UL );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* Both in their dedup window: no orphan requests. */
+  msg = fd_policy_next( policy, dedup, forest, repair, now+2L, ULONG_MAX, &charge_busy );
+  FD_TEST( !msg || msg->kind!=FD_REPAIR_KIND_ORPHAN );
+
+  /* Window expiry: earliest touched head goes first again. */
+  msg = fd_policy_next( policy, dedup, forest, repair, now+FD_REQLIM_DEDUP_TIMEOUT, ULONG_MAX, &charge_busy );
+  FD_TEST( charge_busy && msg && msg->kind==FD_REPAIR_KIND_ORPHAN && msg->orphan.slot==102UL );
+
+  /* Connect 102 under the root: its entry goes stale and 103 is the
+     only head still served. */
+  FD_TEST( fd_forest_blk_insert( forest, 100UL, 0UL, NULL ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+  now += 2L*FD_REQLIM_DEDUP_TIMEOUT;
+  msg = fd_policy_next( policy, dedup, forest, repair, now, ULONG_MAX, &charge_busy );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_ORPHAN && msg->orphan.slot==103UL );
+  msg = fd_policy_next( policy, dedup, forest, repair, now+1L, ULONG_MAX, &charge_busy );
+  FD_TEST( !msg || msg->kind!=FD_REPAIR_KIND_ORPHAN );
+  FD_TEST( !fd_forest_verify( forest ) );
+}
+
+/* A pop whose reqlim key is still in its dedup window reschedules the
+   head without sending. */
+static void
+test_orphan_dedup_reschedule( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+
+  fd_forest_init( forest, 0UL );
+
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  FD_TEST( fd_forest_blk_insert( forest, 102UL, 100UL, NULL ) );
+
+  long now = 1000000000L;
+  FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_ORPHAN, 102UL, UINT_MAX ), now ) );
+
+  int charge_busy;
+  fd_repair_msg_t const * msg = fd_policy_next( policy, dedup, forest, repair, now+1L, ULONG_MAX, &charge_busy );
+  FD_TEST( !msg || msg->kind!=FD_REPAIR_KIND_ORPHAN );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  msg = fd_policy_next( policy, dedup, forest, repair, now+2L, ULONG_MAX, &charge_busy );
+  FD_TEST( !msg || msg->kind!=FD_REPAIR_KIND_ORPHAN );
+
+  msg = fd_policy_next( policy, dedup, forest, repair, now+FD_REQLIM_DEDUP_TIMEOUT, ULONG_MAX, &charge_busy );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_ORPHAN && msg->orphan.slot==102UL );
+  FD_TEST( !fd_forest_verify( forest ) );
+}
+
+/* Fill the orphanq to capacity via head evictions so the reclaim scan
+   runs, then re-create an evicted head and check it is served exactly
+   once per dedup window. */
+static void
+test_orphan_reclaim_and_rehead( fd_wksp_t * wksp ) {
+  ulong const slot_max = 4UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( 64UL ),     1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, 64UL, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+
+  fd_forest_init( forest, 100UL );
+
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  fd_forest_orphan_ent_t * orphanq = fd_forest_orphanq( forest );
+  ulong max = fd_forest_orphanq_max( orphanq );
+
+  /* Each insert past pool capacity evicts a head and pushes one more
+     entry; nothing pops, so the queue walks up to max and the next
+     insert exercises the reclaim scan. */
+  ulong slot = 102UL;
+  while( fd_forest_orphanq_cnt( orphanq )<max ) {
+    FD_TEST( fd_forest_blk_insert( forest, slot, slot-1UL, NULL ) );
+    FD_TEST( !fd_forest_verify( forest ) );
+    slot += 2UL;
+  }
+  FD_TEST( fd_forest_blk_insert( forest, slot, slot-1UL, NULL ) ); /* reclaim */
+  FD_TEST( !fd_forest_verify( forest ) );
+  FD_TEST( fd_forest_orphanq_cnt( orphanq )==max );
+
+  /* Re-create an evicted head inside the current window: old queued
+     entries for it are stale by token and must not revive. */
+  FD_TEST( fd_forest_blk_insert( forest, 116UL, 115UL, NULL ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  long now = 1000000000L;
+  int charge_busy;
+  ulong served[ 8UL ]; ulong served_cnt = 0UL;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    fd_repair_msg_t const * msg = fd_policy_next( policy, dedup, forest, repair, now+(long)i, ULONG_MAX, &charge_busy );
+    FD_TEST( !fd_forest_verify( forest ) );
+    if( FD_LIKELY( msg && msg->kind==FD_REPAIR_KIND_ORPHAN ) ) {
+      for( ulong j=0UL; j<served_cnt; j++ ) FD_TEST( served[ j ]!=msg->orphan.slot ); /* once per window */
+      served[ served_cnt++ ] = msg->orphan.slot;
+    }
+  }
+  ulong served_116 = 0UL;
+  for( ulong j=0UL; j<served_cnt; j++ ) served_116 += (ulong)( served[ j ]==116UL );
+  FD_TEST( served_116==1UL );
+}
+
+/* Recreate the revival shape: a requested head is evicted and
+   re-created inside its dedup window; its old queued entry must stay
+   dead.  A due-matched (rather than token-matched) liveness check
+   revives it and fails fd_forest_verify here. */
+static void
+test_orphan_rehead_revival( fd_wksp_t * wksp ) {
+  ulong const slot_max = 4UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( 64UL ),     1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, 64UL, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+
+  fd_forest_init( forest, 100UL );
+
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  FD_TEST( fd_forest_blk_insert( forest, 102UL, 101UL, NULL ) );
+  FD_TEST( fd_forest_blk_insert( forest, 104UL, 103UL, NULL ) );
+  FD_TEST( fd_forest_blk_insert( forest, 106UL, 105UL, NULL ) );
+
+  /* Open all three dedup windows. */
+  long now = 1000000000L;
+  int charge_busy;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    fd_repair_msg_t const * msg = fd_policy_next( policy, dedup, forest, repair, now+(long)i, ULONG_MAX, &charge_busy );
+    FD_TEST( msg && msg->kind==FD_REPAIR_KIND_ORPHAN && msg->orphan.slot==102UL+2UL*i );
+  }
+
+  /* Evict requested head 106 (highest), then re-create it in-window. */
+  FD_TEST( fd_forest_blk_insert( forest, 108UL, 107UL, NULL ) );
+  FD_TEST( fd_forest_blk_insert( forest, 106UL, 105UL, NULL ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* 106's fresh entry pops deduped and reschedules to the same due as
+     its dead entry: the dead one must not come back live. */
+  fd_repair_msg_t const * msg = fd_policy_next( policy, dedup, forest, repair, now+3L, ULONG_MAX, &charge_busy );
+  FD_TEST( !msg || msg->kind!=FD_REPAIR_KIND_ORPHAN );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* Next window: every head exactly once. */
+  ulong served[ 8UL ]; ulong served_cnt = 0UL;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    msg = fd_policy_next( policy, dedup, forest, repair, now+3L+FD_REQLIM_DEDUP_TIMEOUT+(long)i, ULONG_MAX, &charge_busy );
+    FD_TEST( !fd_forest_verify( forest ) );
+    if( FD_LIKELY( msg && msg->kind==FD_REPAIR_KIND_ORPHAN ) ) {
+      for( ulong j=0UL; j<served_cnt; j++ ) FD_TEST( served[ j ]!=msg->orphan.slot );
+      served[ served_cnt++ ] = msg->orphan.slot;
+    }
+  }
+  ulong served_106 = 0UL;
+  for( ulong j=0UL; j<served_cnt; j++ ) served_106 += (ulong)( served[ j ]==106UL );
+  FD_TEST( served_106==1UL );
+}
+
+
 /* Verify dlist counts and map/pool counts stay in sync after removals. */
 void
 test_dlist_consistency_after_remove( fd_wksp_t * wksp ) {
@@ -592,6 +817,10 @@ main( int argc, char ** argv ) {
   test_peer_interleave( wksp );
   test_ewma_latency( wksp );
   test_remove_sole_peer( wksp );
+  test_orphan_due_prq( wksp );
+  test_orphan_dedup_reschedule( wksp );
+  test_orphan_reclaim_and_rehead( wksp );
+  test_orphan_rehead_revival( wksp );
   test_dlist_consistency_after_remove( wksp );
   test_response_update_unknown_peer( wksp );
   test_null_pubkey_query( wksp );

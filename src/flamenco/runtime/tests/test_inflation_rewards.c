@@ -459,7 +459,7 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=reward_slot );
 
   ulong final_slot = reward_slot+1UL;
-  ag_fast_final_cert_t final_cert = { .slot=final_slot };
+  ag_cert_fast_final_t final_cert = { .slot=final_slot };
   final_cert.agg_sig.bitmask[0] = 1UL;
   certs = (fd_footer_certs_t){ .fast_final_cert=&final_cert };
   FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL ) );

@@ -32,6 +32,7 @@
 #define TEST_BANKS_MAX 16UL
 #define TEST_OUT_CNT   3UL
 #define TEST_REPAIR_IN_IDX 0UL
+#define TEST_EXECRP_IN_IDX 1UL
 
 /* ---- Mock store ---- */
 
@@ -55,6 +56,14 @@ static ulong          mock_sched_abandon_idx;
 static ulong          mock_sched_root_notify_cnt;
 static ulong          mock_sched_root_notify_idx;
 static ulong          mock_sched_capacity;
+static fd_sched_txn_info_t mock_sched_txn_info;
+static fd_txn_p_t     mock_sched_txn;
+static ulong          mock_sched_txn_idx;
+static ulong          mock_sched_task_done_cnt;
+static ulong          mock_sched_task_done_type;
+static ulong          mock_sched_task_done_txn_idx;
+static ulong          mock_sched_task_done_exec_idx;
+static long           mock_sched_task_done_tick;
 
 int mock_sched_fec_ingest_fn( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_fec_t * f ) {
   mock_sched_last_fec = *f;
@@ -78,6 +87,34 @@ void  mock_sched_root_notify_fn ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
   mock_sched_root_notify_idx = i;
 }
 
+int
+mock_sched_task_done_fn( fd_sched_t * s FD_PARAM_UNUSED,
+                         ulong        task_type,
+                         ulong        txn_idx,
+                         ulong        exec_idx,
+                         void *       data FD_PARAM_UNUSED ) {
+  mock_sched_task_done_cnt++;
+  mock_sched_task_done_type     = task_type;
+  mock_sched_task_done_txn_idx  = txn_idx;
+  mock_sched_task_done_exec_idx = exec_idx;
+  if( task_type==FD_SCHED_TT_TXN_EXEC ) mock_sched_txn_info.tick_exec_done = mock_sched_task_done_tick;
+  return 0;
+}
+
+fd_txn_p_t *
+mock_sched_get_txn_fn( fd_sched_t * s FD_PARAM_UNUSED,
+                       ulong        txn_idx ) {
+  FD_TEST( txn_idx==mock_sched_txn_idx );
+  return &mock_sched_txn;
+}
+
+fd_sched_txn_info_t *
+mock_sched_get_txn_info_fn( fd_sched_t * s FD_PARAM_UNUSED,
+                            ulong        txn_idx ) {
+  FD_TEST( txn_idx==mock_sched_txn_idx );
+  return &mock_sched_txn_info;
+}
+
 #define fd_sched_fec_ingest        mock_sched_fec_ingest_fn
 #define fd_sched_can_ingest_cnt    mock_sched_can_ingest_fn
 #define fd_sched_is_drained        mock_sched_is_drained_fn
@@ -89,6 +126,9 @@ void  mock_sched_root_notify_fn ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
 #define fd_sched_set_poh_params    mock_sched_poh_fn
 #define fd_sched_task_next_ready   mock_sched_task_next_fn
 #define fd_sched_root_notify       mock_sched_root_notify_fn
+#define fd_sched_task_done         mock_sched_task_done_fn
+#define fd_sched_get_txn           mock_sched_get_txn_fn
+#define fd_sched_get_txn_info      mock_sched_get_txn_info_fn
 
 /* ---- Mock leader setup dependencies ---- */
 
@@ -470,6 +510,139 @@ assert_reception_event_matches( fd_event_block_completed_t const * ev,
 }
 
 static void
+test_txn_completion_publish( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  ulong const depth = 128UL;
+  ulong const mtu   = sizeof(fd_execrp_task_done_msg_t);
+  ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
+  void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+  FD_TEST( dcache_mem );
+  void * dcache = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) );
+  FD_TEST( dcache );
+
+  ctx->in_cnt = fd_ulong_max( ctx->in_cnt, TEST_EXECRP_IN_IDX+1UL );
+  ctx->in_kind[ TEST_EXECRP_IN_IDX ] = IN_KIND_EXECRP;
+  ctx->in[ TEST_EXECRP_IN_IDX ].mem    = wksp;
+  ctx->in[ TEST_EXECRP_IN_IDX ].chunk0 = fd_dcache_compact_chunk0( wksp, dcache );
+  ctx->in[ TEST_EXECRP_IN_IDX ].wmark  = fd_dcache_compact_wmark ( wksp, dcache, mtu );
+  ctx->in[ TEST_EXECRP_IN_IDX ].mtu    = mtu;
+
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  FD_TEST( bank );
+  FD_TEST( bank->cost_tracker_pool_idx==ULONG_MAX );
+  bank->refcnt = 1UL;
+
+  mock_sched_txn_idx = 37UL;
+  fd_memset( &mock_sched_txn, 0x5a, sizeof(mock_sched_txn) );
+  mock_sched_txn.payload_sz = 321UL;
+
+  mock_sched_txn_info = (fd_sched_txn_info_t) {
+    .flags                    = FD_SCHED_TXN_SIGVERIFY_DONE,
+    .txn_err                  = FD_RUNTIME_EXECUTE_SUCCESS,
+    .received_ns              = 1000L,
+    .is_simple_vote           = 0,
+    .tick_parsed              = 1001L,
+    .tick_sigverify_disp      = 1002L,
+    .tick_sigverify_done      = 1003L,
+    .tick_exec_disp           = 1004L,
+    .tick_exec_done           = LONG_MAX,
+    .tick_load_start          = LONG_MAX,
+    .tick_check_start         = LONG_MAX,
+    .tick_exec_start          = LONG_MAX,
+    .tick_commit_start        = LONG_MAX,
+    .tick_commit_end          = LONG_MAX,
+    .slot                     = 1234UL,
+    .bank_seq                 = ULONG_MAX,
+    .index_in_slot            = 56UL,
+    .exec_tile_idx            = 7UL,
+    .sigverify_exec_tile_idx  = 9UL,
+    .compute_units_consumed   = 0U,
+    .max_compute_units        = ULONG_MAX,
+    .transaction_fee          = ULONG_MAX,
+    .priority_fee             = ULONG_MAX,
+    .tips                     = ULONG_MAX,
+  };
+
+  mock_sched_task_done_cnt      = 0UL;
+  mock_sched_task_done_type     = ULONG_MAX;
+  mock_sched_task_done_txn_idx  = ULONG_MAX;
+  mock_sched_task_done_exec_idx = ULONG_MAX;
+  mock_sched_task_done_tick     = 1005L;
+
+  ulong in_chunk = ctx->in[ TEST_EXECRP_IN_IDX ].chunk0;
+  fd_execrp_task_done_msg_t * msg = fd_chunk_to_laddr( ctx->in[ TEST_EXECRP_IN_IDX ].mem, in_chunk );
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_idx                         = bank->idx;
+  msg->txn_exec->txn_idx                = mock_sched_txn_idx;
+  msg->txn_exec->is_committable         = 1;
+  msg->txn_exec->is_fees_only           = 1;
+  msg->txn_exec->txn_err                = FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+  msg->txn_exec->is_simple_vote         = 1;
+  msg->txn_exec->tick_load_start        = 2001L;
+  msg->txn_exec->tick_check_start       = 2002L;
+  msg->txn_exec->tick_exec_start        = LONG_MAX;
+  msg->txn_exec->tick_commit_start      = 2003L;
+  msg->txn_exec->tick_commit_end        = 2004L;
+  msg->txn_exec->compute_units_consumed = 3456U;
+  msg->txn_exec->transaction_fee        = 5001UL;
+  msg->txn_exec->priority_fee           = 5002UL;
+  msg->txn_exec->tips                   = 5003UL;
+  msg->txn_exec->bank_seq               = 4321UL;
+
+  ulong out_chunk = ctx->replay_out->chunk;
+  ulong sig = (FD_EXECRP_TT_TXN_EXEC<<32) | mock_sched_txn_info.exec_tile_idx;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk,
+                             sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+
+  FD_TEST( bank->refcnt==0UL );
+  FD_TEST( mock_sched_task_done_cnt==1UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_EXEC );
+  FD_TEST( mock_sched_task_done_txn_idx==mock_sched_txn_idx );
+  FD_TEST( mock_sched_task_done_exec_idx==mock_sched_txn_info.exec_tile_idx );
+
+  ulong out_idx = ctx->replay_out->idx;
+  FD_TEST( test_stem_seqs[ out_idx ]==1UL );
+  fd_frag_meta_t const * meta = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( 0UL, test_stem_depths[ out_idx ] );
+  FD_TEST( meta->seq==0UL );
+  FD_TEST( meta->sig==REPLAY_SIG_TXN_EXECUTED );
+  FD_TEST( meta->chunk==out_chunk );
+  FD_TEST( meta->sz==sizeof(fd_replay_txn_executed_t) );
+
+  fd_replay_txn_executed_t const * out = fd_chunk_to_laddr_const( ctx->replay_out->mem, meta->chunk );
+  FD_TEST( !memcmp( out->txn, &mock_sched_txn, sizeof(mock_sched_txn) ) );
+  FD_TEST( out->txn_err==msg->txn_exec->txn_err );
+  FD_TEST( out->is_committable==msg->txn_exec->is_committable );
+  FD_TEST( out->is_fees_only==msg->txn_exec->is_fees_only );
+  FD_TEST( out->is_simple_vote==msg->txn_exec->is_simple_vote );
+
+  FD_TEST( out->tick_parsed==mock_sched_txn_info.tick_parsed );
+  FD_TEST( out->tick_sigverify_disp==mock_sched_txn_info.tick_sigverify_disp );
+  FD_TEST( out->tick_sigverify_done==mock_sched_txn_info.tick_sigverify_done );
+  FD_TEST( out->tick_exec_done==mock_sched_task_done_tick );
+  FD_TEST( out->tick_load_start==msg->txn_exec->tick_load_start );
+  FD_TEST( out->tick_check_start==msg->txn_exec->tick_check_start );
+  FD_TEST( out->tick_exec_start==LONG_MAX );
+  FD_TEST( out->tick_commit_start==msg->txn_exec->tick_commit_start );
+  FD_TEST( out->tick_commit_end==msg->txn_exec->tick_commit_end );
+
+  FD_TEST( out->slot==mock_sched_txn_info.slot );
+  FD_TEST( mock_sched_txn_info.bank_seq==msg->txn_exec->bank_seq );
+  FD_TEST( out->bank_seq==msg->txn_exec->bank_seq );
+  FD_TEST( out->index_in_slot==mock_sched_txn_info.index_in_slot );
+  FD_TEST( out->exec_tile_idx==mock_sched_txn_info.exec_tile_idx );
+  FD_TEST( out->sigverify_exec_tile_idx==mock_sched_txn_info.sigverify_exec_tile_idx );
+  FD_TEST( out->compute_units_consumed==msg->txn_exec->compute_units_consumed );
+  FD_TEST( out->max_compute_units==ULONG_MAX );
+  FD_TEST( out->transaction_fee==msg->txn_exec->transaction_fee );
+  FD_TEST( out->priority_fee==msg->txn_exec->priority_fee );
+  FD_TEST( out->tips==msg->txn_exec->tips );
+
+  FD_LOG_NOTICE(( "pass: test_txn_completion_publish" ));
+}
+
+static void
 test_reception_metrics_sidecar( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[1];
   setup_ctx( ctx, wksp );
@@ -610,6 +783,46 @@ drive_become_leader( fd_replay_tile_t * ctx,
   FD_TEST( ctx->leader_bank->f.slot==leader_slot );
   FD_TEST( ctx->leader_bank->parent_idx==reset_bank->idx );
   return ctx->leader_bank;
+}
+
+static void
+test_snapshot_intervals_use_block_height( void ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_memset( ctx, 0, sizeof(fd_replay_tile_t) );
+
+  ctx->caught_up                             = 1;
+  ctx->snapmk.supported                      = 1;
+  ctx->snapmk.scheduled_at_slot              = ULONG_MAX;
+  ctx->snapmk.full_interval_blocks           = 100000UL;
+  ctx->snapmk.next_full_block_height         = ULONG_MAX;
+  ctx->snapmk.next_incremental_block_height  = ULONG_MAX;
+  ctx->snapmk.base_slot                      = ULONG_MAX;
+
+  int incremental = -1;
+  FD_TEST( !snapshot_due_for_root( ctx, 99998UL, 250000UL, 99999UL, 99999UL, &incremental ) );
+  FD_TEST( !incremental );
+  FD_TEST( ctx->snapmk.next_full_block_height==100000UL );
+
+  FD_TEST( snapshot_due_for_root( ctx, 99999UL, 250001UL, 100000UL, 100000UL, &incremental ) );
+  FD_TEST( !incremental );
+
+  ctx->snapmk.next_full_block_height        = 200000UL;
+  ctx->snapmk.incremental_interval_blocks   = 200UL;
+  ctx->snapmk.next_incremental_block_height = ULONG_MAX;
+  ctx->snapmk.base_slot                     = 100UL;
+  FD_TEST( !snapshot_due_for_root( ctx, 398UL, 250002UL, 399UL, 399UL, &incremental ) );
+  FD_TEST( !incremental );
+  FD_TEST( ctx->snapmk.next_incremental_block_height==400UL );
+
+  FD_TEST( snapshot_due_for_root( ctx, 399UL, 250003UL, 400UL, 400UL, &incremental ) );
+  FD_TEST( incremental );
+
+  ctx->snapmk.next_full_block_height        = 200000UL;
+  ctx->snapmk.next_incremental_block_height = 200000UL;
+  FD_TEST( snapshot_due_for_root( ctx, 199999UL, 400UL, 200000UL, 200000UL, &incremental ) );
+  FD_TEST( !incremental );
+
+  FD_LOG_NOTICE(( "pass: test_snapshot_intervals_use_block_height" ));
 }
 
 static void
@@ -1886,7 +2099,9 @@ main( int     argc,
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_reception_metrics_sidecar( wksp );             fd_wksp_reset( wksp, 42U );
+  test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
+  test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );
+  test_snapshot_intervals_use_block_height();
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );

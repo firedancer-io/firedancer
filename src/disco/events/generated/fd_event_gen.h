@@ -314,6 +314,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_VOTE_COST_LIMIT             (24) /* A vote transaction pushed the block over its vote compute limit. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ACCOUNT_DATA_LIMIT          (25) /* A transaction pushed the block over its account data size limit. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_DUPLICATE_ACCOUNT           (26) /* A transaction referenced the same account more than once. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER                  (27) /* An Alpenglow block failed to parse its footer. */
 
 /* Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead. */
 #define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED (1) /* Not abandoned; the block completed or was ruled invalid. */
@@ -402,7 +403,7 @@ struct fd_event_block_completed {
   ulong                                 cost_tracker_block_cost;                   /* Compute units used by all transactions, votes included; the vote/non-vote split is not part of this event (pack_vote_cost carries the producer-side vote reservation on leader rows). 0 if no cost tracker existed for the block (never prepared for replay, or no bank). */
   ulong                                 cost_tracker_allocated_accounts_data_size; /* New account data allocated, in bytes. 0 if no cost tracker existed for the block. */
   ulong                                 cost_tracker_block_cost_limit;             /* Block compute unit limit. 0 if no cost tracker existed for the block (never prepared for replay, or no bank). */
-  ulong                                 cost_tracker_vote_cost_limit;              /* Block vote compute unit limit. 0 if no cost tracker existed for the block. */
+  ulong                                 cost_tracker_vote_cost_limit;              /* Deprecated runtime vote compute unit limit. Always 0. */
   ulong                                 cost_tracker_account_cost_limit;           /* Per-account compute unit limit. 0 if no cost tracker existed for the block. */
   ulong                                 became_leader_time;                        /* When replay began block production for the slot, all prerequisites (e.g. parent block identity) in hand. Minus leader_slot_start_time: local production start delay. 0 for blocks this validator did not produce. */
   ulong                                 leader_slot_start_time;                    /* When the leader slot was scheduled to begin, estimated locally by projecting slot durations from the reset onto the parent fork; embeds upstream lateness rather than tracking a cluster-absolute timeline. 0 for blocks this validator did not produce. */
@@ -410,7 +411,7 @@ struct fd_event_block_completed {
   ulong                                 pack_end_time;                             /* When block production ended. 0 for blocks this validator did not produce. */
   ulong                                 microblock_count;                          /* Microblocks pack scheduled during production. A microblock whose transactions all failed execution is skipped at PoH mixin and absent from the block, so this can exceed block content. 0 for blocks this validator did not produce. */
   ulong                                 pack_block_cost;                           /* Compute units pack reserved while building the block, votes included. Reservations are refunded as transactions finish, so this can exceed cost_tracker_block_cost (the charged amount) by refunds unsettled at slot end. 0 for blocks this validator did not produce. */
-  ulong                                 pack_vote_cost;                            /* Vote compute units pack reserved while building the block, less refunds settled by slot end. Pack's vote costing is not feature-gated by remove_simple_vote_from_cost_model, so this stays populated on leader rows. 0 for blocks this validator did not produce. */
+  ulong                                 pack_vote_cost;                            /* Vote compute units pack reserved while building the block, less refunds settled by slot end. This is not a runtime consensus limit but gets populated by pack. 0 for blocks this validator did not produce. */
   ulong                                 pack_data_bytes;                           /* Bytes pack's cost model reserved for block content: transaction payloads plus a 48-byte header per microblock, net of rebates settled by slot end. Excludes tick entries; can exceed the block's actual content by rebates unsettled at slot end. A size, not a compute measure. 0 for blocks this validator did not produce. */
   int                                   pack_end_reason;                           /* Why block production stopped; not_leader for blocks this validator did not produce. */
   ulong                                 bundle_txn_count;                          /* Bundled transactions pack scheduled during production, counted whether or not the bundle survived to the block (aborted bundles are skipped at PoH mixin). 0 for blocks this validator did not produce. */
@@ -439,9 +440,100 @@ fd_event_block_completed_footprint( fd_event_block_completed_t const * msg ) {
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_BLOCK_COMPLETED_BUF_MAX (11275587UL)
 
+/* Snapshot production result. */
+#define FD_EVENT_SNAPSHOT_CREATED_RESULT_SUCCESS                       (1) /* The snapshot was produced and published to the local snapshot directory. */
+#define FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS (2) /* The incremental snapshot could not be produced because more accounts changed than snapshots.max_incremental_snapshot_accounts permits. */
+
+/* Zstandard compression strategy. */
+#define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_FAST     (1) /* Zstandard fast strategy. */
+#define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_DFAST    (2) /* Zstandard double-fast strategy. */
+#define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_GREEDY   (3) /* Zstandard greedy strategy. */
+#define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_LAZY     (4) /* Zstandard lazy strategy. */
+#define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_LAZY2    (5) /* Zstandard lazy2 strategy. */
+#define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTLAZY2  (6) /* Zstandard binary-tree lazy2 strategy. */
+#define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTOPT    (7) /* Zstandard binary-tree optimal strategy. */
+#define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTULTRA  (8) /* Zstandard binary-tree ultra strategy. */
+#define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTULTRA2 (9) /* Zstandard binary-tree ultra2 strategy. */
+
+/* The result of a snapshot production attempt. */
+struct fd_event_snapshot_created {
+  int   result;                         /* Snapshot production result. */
+  ulong slot;                           /* The snapshot slot. The snapshot contains the chain state after replaying this slot. */
+  ulong base_slot;                      /* For an incremental snapshot, the slot of the full snapshot it's based on. 0 for a full snapshot. */
+  uchar filename[ 128UL ];              /* Final snapshot filename. */
+  ulong filename_len;                   /* Length of filename (<= 128) */
+  uchar hash[ 32UL ];                   /* Raw 32-byte snapshot hash (currently blake3_256(accounts_lthash)). */
+  uchar bank_hash[ 32UL ];              /* Bank hash of the snapshot slot. */
+  uchar block_id[ 32UL ];               /* Block identifier (FEC set tree root) of the bank at the snapshot slot. */
+  uchar bank_accounts_lthash[ 2048UL ]; /* Raw 2048-byte accounts LtHash from the bank. */
+  ulong bank_accounts_lthash_len;       /* Length of bank_accounts_lthash (<= 2048) */
+  ulong epoch;                          /* Epoch number of snapshot slot. */
+  ulong block_height;                   /* Block height at the snapshot slot (as seen in manifest). */
+  ulong capitalization;                 /* Total capitalization in lamports (as seen in manifest). */
+  ulong transaction_count;              /* Cumulative number of historical transactions (as seen in manifest, unverified). */
+  ulong account_count;                  /* Number of account records written to the snapshot. Full snapshots contain all live accounts; incremental snapshots contain accounts changed since base_slot. */
+  ulong tombstone_count;                /* Number of zero-lamport account records written to the snapshot. */
+  ulong cached_accounts_count;          /* Number of non-tombstone account records read from the accounts database cache. */
+  ulong disk_accounts_count;            /* Number of non-tombstone account records read from accounts database disk storage. */
+  ulong manifest_size;                  /* Uncompressed serialized manifest payload size in bytes, excluding its TAR header and padding. */
+  ulong accounts_size;                  /* Total uncompressed size in bytes of account records, including each record header and record alignment padding but excluding TAR headers and TAR padding. */
+  ulong status_cache_size;              /* Uncompressed serialized status-cache payload size in bytes, excluding its TAR header and padding. */
+  ulong compressed_size;                /* Final compressed snapshot file size in bytes, including archive data and skippable alignment frames. */
+  ulong uncompressed_size;              /* Total number of bytes produced by decompressing all Zstandard frames, including TAR headers and TAR padding but excluding skippable alignment frames. */
+  ulong zstd_data_frame_count;          /* Number of Zstandard data frames in the snapshot file. Excludes skippable frames used for alignment padding. */
+  ulong zstd_padding_size;              /* Total compressed-file bytes occupied by Zstandard skippable frames used for alignment padding, including their 8-byte frame headers. */
+  ulong zstd_window_size;               /* Zstandard compression window size in bytes. */
+  int   zstd_strategy;                  /* Zstandard compression strategy. */
+  ulong duration_compress_nanos;        /* Aggregate CPU time spent in Zstandard compression calls across snapshot producer threads, in nanoseconds. */
+  ulong duration_io_blocked_nanos;      /* Aggregate time snapshot producer threads spent blocked on snapshot file writes, in nanoseconds. */
+  ulong start_time;                     /* Wall-clock time at which snapshot production began, in nanoseconds since the Unix epoch. */
+  ulong accounts_start_time;            /* Wall-clock time at which writing snapshot account records began, in nanoseconds since the Unix epoch. */
+  ulong end_time;                       /* Wall-clock time at which snapshot production ended, in nanoseconds since the Unix epoch. */
+};
+typedef struct fd_event_snapshot_created fd_event_snapshot_created_t;
+
+/* Worst-case encoded size of a snapshot_created event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_SNAPSHOT_CREATED_BUF_MAX (2799UL)
+
+/* The admin command that was processed. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_SET_IDENTITY                 (1) /* Change the running validator identity. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_GET_IDENTITY                 (2) /* Read the running validator identity. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER         (3) /* Add an authorized voter key. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_REMOVE_ALL_AUTHORIZED_VOTERS (4) /* Remove every authorized voter key. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE              (5) /* Request creation of a snapshot. */
+
+/* The result of processing the admin command. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS              (1) /* The command completed successfully. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND      (2) /* The running validator does not recognize this command. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH (3) /* The request used an unsupported admin command ABI version. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH    (4) /* The request size did not match the admin command ABI. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED          (5) /* The command is not supported by this validator configuration. */
+#define FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM               (6) /* The command returned a command-specific result described by custom_result. */
+
+/* An admin command completed. Emitted once for every command processed by the running validator, whether it succeeded or failed. */
+struct fd_event_admin_command {
+  int   type;                  /* The admin command that was processed. */
+  int   result;                /* The result of processing the admin command. */
+  uchar custom_result[ 64UL ]; /* The command-specific result when result is custom. */
+  ulong custom_result_len;     /* Length of custom_result (<= 64) */
+  ulong start_time;            /* Wall-clock nanosecond unix timestamp at which the command started getting processed. */
+  ulong end_time;              /* Wall-clock nanosecond unix timestamp at which the command completed. */
+  ulong payload_version;       /* Payload version requested by the command. Valid only when has_payload_version is true. */
+  int   has_payload_version;   /* Whether the command payload was large enough to contain payload_version. */
+  ulong payload_size;          /* Size of the received command payload in bytes. */
+  uchar args_json[ 256UL ];    /* Command-specific public values serialized as JSON. Unavailable values are omitted. Private key material is never included. */
+  ulong args_json_len;         /* Length of args_json (<= 256) */
+};
+typedef struct fd_event_admin_command fd_event_admin_command_t;
+
+/* Worst-case encoded size of a admin_command event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_ADMIN_COMMAND_BUF_MAX (538UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; }))
+#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -515,6 +607,26 @@ fd_event_block_completed_serialize( fd_circq_t *                       circq,
                                     ulong                              link_seq,
                                     fd_event_block_completed_t const * msg );
 
+/* Serialize a snapshot_created event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_snapshot_created_serialize( fd_circq_t *                        circq,
+                                     fd_event_client_t *                 client,
+                                     long                                timestamp_nanos,
+                                     ulong                               link_seq,
+                                     fd_event_snapshot_created_t const * msg );
+
+/* Serialize a admin_command event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_admin_command_serialize( fd_circq_t *                     circq,
+                                  fd_event_client_t *              client,
+                                  long                             timestamp_nanos,
+                                  ulong                            link_seq,
+                                  fd_event_admin_command_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -580,6 +692,20 @@ fd_event_report_block_completed( fd_event_block_completed_t const * msg ) {
     { (void const *)msg->txn_timing, msg->txn_timing_cnt*sizeof(msg->txn_timing[0]) },
   };
   fd_event_report_gather_( 9UL, iov, sizeof(iov)/sizeof(iov[0]) );
+}
+
+/* Report a snapshot_created event (SnapshotCreated, id 11) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_snapshot_created( fd_event_snapshot_created_t const * msg ) {
+  fd_event_report_( 11UL, msg, sizeof(fd_event_snapshot_created_t) );
+}
+
+/* Report a admin_command event (AdminCommand, id 12) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_admin_command( fd_event_admin_command_t const * msg ) {
+  fd_event_report_( 12UL, msg, sizeof(fd_event_admin_command_t) );
 }
 
 FD_PROTOTYPES_END

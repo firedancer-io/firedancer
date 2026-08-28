@@ -149,11 +149,14 @@ struct fd_replay_slot_completed {
   ulong tips;
   ulong shred_cnt;
 
+  int    voted;
+  ulong  voted_slot;/* ignore if voted = 0 */
+  ushort voted_rank; /* ignore if voted = 0 */
+
   struct {
     ulong block_cost;
     ulong allocated_accounts_data_size;
     ulong block_cost_limit;
-    ulong vote_cost_limit;
     ulong account_cost_limit;
     ulong pool_idx;
   } cost_tracker;
@@ -187,11 +190,30 @@ struct fd_replay_txn_executed {
   int is_committable;
   int is_fees_only;
   int txn_err;
+  int is_simple_vote;
+
+  /* LONG_MAX if stage was not reached */
   long  tick_parsed;
   long  tick_sigverify_disp;
   long  tick_sigverify_done;
   long  tick_exec_disp;
   long  tick_exec_done;
+  long  tick_load_start;
+  long  tick_check_start;
+  long  tick_exec_start;
+  long  tick_commit_start;
+  long  tick_commit_end;
+
+  ulong slot;
+  ulong bank_seq;
+  ulong index_in_slot;
+  ulong exec_tile_idx;
+  ulong sigverify_exec_tile_idx;
+  uint  compute_units_consumed; /* possibly zero if is_committable is zero */
+  ulong max_compute_units;
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
 };
 typedef struct fd_replay_txn_executed fd_replay_txn_executed_t;
 

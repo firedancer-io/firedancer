@@ -241,7 +241,8 @@ struct ag_repair_response {
 };
 typedef struct ag_repair_response ag_repair_response_t;
 
-#define AG_REPAIR_RESPONSE_MAX_SZ (sizeof(uint) + sizeof(ag_repair_response_t))
+/* Max payload size of a blockid repair response */
+#define AG_REPAIR_RESPONSE_MAX_SZ (sizeof(ag_repair_response_t))
 
 /* FD_REPAIR_PONG_PREIMAGE_PREFIX is used by Repair's Ping-Pong protocol.
    Both a Ping and Pong contain a hash token, that is generated from a

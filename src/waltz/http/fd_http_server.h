@@ -79,8 +79,8 @@ fd_http_server_method_str( uchar method );
 /* Parameters needed for constructing an HTTP server.  */
 
 struct fd_http_server_params {
-  ulong treap_seed;             /* Seed used to randomize connection treap priorities */
-  ulong max_connection_cnt;    /* Maximum number of concurrent HTTP/1.1 connections open.  Connections are not persistent and will be closed after one request is served */
+  ulong treap_seed;            /* Seed used to randomize connection treap priorities */
+  ulong max_connection_cnt;    /* Maximum number of concurrent HTTP/1.1 connections open.  Connections are persistent and serve requests until the client closes or is evicted */
   ulong max_ws_connection_cnt; /* Maximum number of concurrent websocket connections open */
   ulong max_request_len;       /* Maximum total length of an HTTP request, including the terminating \r\n\r\n and any body in the case of a POST */
   ulong max_ws_recv_frame_len; /* Maximum size of an incoming websocket frame from the client.  Must be >= max_request_len */
@@ -106,6 +106,7 @@ struct fd_http_server_request {
   struct {
     char const * content_type;         /* The NUL terminated value of the Content-Type header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
     char const * accept_encoding;      /* The NUL terminated value of the Accept-Encoding header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
+    char const * if_none_match;        /* The NUL terminated value of the If-None-Match header of the request.  Not sanitized and may contain arbitrary content.  Empty if the header was not present */
     int          compress_websocket;   /* True if the client has provided an `Sec-WebSocket-Protocol: compress-zstd` header indicating that the responder can choose to compress WebSocket frames with ZStandard.  Only large (>200 bytes) Server -> Client messages are compressed */
     int          upgrade_websocket;    /* True if the client has provided an `Upgrade: websocket` header, valid `Sec-WebSocket-Key` and supported `Sec-Websocket-Version`, indicating that the
                                           responder should upgrade the connection to a WebSocket by setting `upgrade_websocket` to 1 in the response */
@@ -150,7 +151,9 @@ struct fd_http_server_response {
 
   char const * content_type;     /* Content-Type to set in the HTTP response */
   char const * cache_control;    /* Cache-Control to set in the HTTP response */
+  char const * link;             /* Link to set in the HTTP response */
   char const * content_encoding; /* Content-Encoding to set in the HTTP response */
+  char const * etag;             /* ETag to set in the HTTP response */
   char const * location[2];      /* Location to set in the HTTP response (concatenated) */
   ulong        location_len[2];  /* Lengths of the two location fragments */
 
@@ -184,9 +187,13 @@ struct fd_http_server_callbacks {
 
   void                      ( * open        )( ulong conn_id, int sockfd, void * ctx );
 
-  /* Close an HTTP request.  This is called back once all the data has
-     been sent to the HTTP client, or an error condition occurs, or the
-     caller force closes the connection by calling close.  If a
+  /* Close an HTTP connection.  Connections are persistent and may
+     serve many requests, so this is not a per-request completion
+     notification: it is called back when the connection closes, which
+     happens after a response completes for HTTP/1.0 clients, explicit
+     Connection: close, or pipelined requests, and otherwise when an
+     error condition occurs, the connection is evicted, the client
+     disconnects, or the caller force closes it by calling close.  If a
      connection is upgraded to a WebSocket connection, a close event is
      first sent once the HTTP upgrade response is sent, before a ws_open
      event is sent.  Close is not called when a WebSocket connection is
@@ -324,6 +331,13 @@ void
 fd_http_server_close( fd_http_server_t * http,
                       ulong              conn_id,
                       int                reason );
+
+/* Returns 1 if the If-None-Match field value matches etag, else 0.
+   etag is the quoted strong validator the server would serve. */
+
+int
+fd_http_server_etag_matches( char const * if_none_match,
+                             char const * etag );
 
 /* Close an active WebSocket connection.  The connection ID must be an
    open WebSocket connection ID in [0, max_ws_connection_cnt).  The

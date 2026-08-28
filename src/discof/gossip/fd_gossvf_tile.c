@@ -2,14 +2,15 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/fd_disco_base.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../flamenco/gossip/fd_ping_tracker.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
+#include "../../ballet/siphash13/fd_siphash13.h"
 #include "../../util/net/fd_net_headers.h"
-#include "../../util/fd_hash32.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "generated/fd_gossvf_tile_seccomp.h"
 
@@ -160,11 +161,10 @@ struct fd_gossvf_tile_ctx {
   fd_gossip_update_message_t _gossip_update[1];
   fd_gossip_message_t _message[1];
 
-  double ticks_per_ns;
-  long   last_wallclock;
-  long   last_tickcount;
+  fd_clock_tile_t clock[1];
 
   ulong seed;
+  ulong dedup_key[ 2 ];
 
   ulong round_robin_idx;
   ulong round_robin_cnt;
@@ -227,8 +227,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 during_housekeeping( fd_gossvf_tile_ctx_t * ctx ) {
-  ctx->last_wallclock = fd_log_wallclock();
-  ctx->last_tickcount = fd_tickcount();
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
+  }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     memcpy( ctx->identity_pubkey->uc, ctx->keyswitch->bytes, 32UL );
@@ -379,18 +380,14 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
       ulong i = 0UL;
       while( i<view->pull_response->values_len ) {
-        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( view->pull_response->values[ i ].signature );
+        ulong dedup_tag = fd_siphash13_hash( payload+view->pull_response->values[ i ].offset, view->pull_response->values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
+        dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
         int ha_dup = 0;
         FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
         FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         if( FD_UNLIKELY( ha_dup ) ) {
-          if( FD_LIKELY( !failed[ i ] ) ) {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ] += view->pull_response->values[ i ].length;
-          }
-          view->pull_response->values_len--;
-          view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len ];
-          failed[ i ] = failed[ view->pull_response->values_len ];
+          if( FD_LIKELY( !failed[ i ] ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
+          i++;
           continue;
         }
 
@@ -415,6 +412,17 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
     case FD_GOSSIP_MESSAGE_PUSH: {
       ulong i = 0UL;
       while( i<view->push->values_len ) {
+        ulong dedup_tag = fd_siphash13_hash( payload+view->push->values[ i ].offset, view->push->values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
+        dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
+        int ha_dup = 0;
+        FD_FN_UNUSED ulong tcache_map_idx = 0;
+        FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
+        if( FD_LIKELY( ha_dup ) ) {
+          if( FD_LIKELY( !failed[ i ] ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
+          i++;
+          continue;
+        }
+
         int err = verify_crds_value( &view->push->values[ i ], payload+view->push->values[ i ].offset, view->push->values[ i ].length, sha );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
           if( FD_LIKELY( !failed[ i ] ) ) {
@@ -786,7 +794,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   ctx->peer.addr = ip4_hdr->saddr;
   ctx->peer.port = udp_hdr->net_sport;
 
-  long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
+  long now = fd_clock_tile_now( ctx->clock );
 
   fd_gossip_message_t * message = ctx->_message;
   int decoded = fd_gossip_message_deserialize( message, payload, payload_sz );
@@ -885,8 +893,9 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   switch( message->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
       for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
-        if( FD_UNLIKELY( failed[ i ]==FD_GOSSIP_FAILED_NO_CONTACT_INFO ) ) continue; /* Don't add to tcache so we can re-receive after learning contact info */
-        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( message->pull_response->values[ i ].signature );
+        if( FD_UNLIKELY( failed[ i ] ) ) continue; /* NCI: re-receive after learning contact info; duplicate: already in the tcache */
+        ulong dedup_tag = fd_siphash13_hash( payload+message->pull_response->values[ i ].offset, message->pull_response->values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
+        dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         (void)ha_dup; /* unused */
@@ -895,8 +904,9 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     }
     case FD_GOSSIP_MESSAGE_PUSH: {
       for( ulong i=0UL; i<message->push->values_len; i++ ) {
-        if( FD_UNLIKELY( failed[ i ] ) ) continue; /* Don't add to tcache so we can re-receive after learning contact info */
-        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( message->push->values[ i ].signature );
+        if( FD_UNLIKELY( failed[ i ] ) ) continue; /* NCI: re-receive after learning contact info; duplicate: already in the tcache */
+        ulong dedup_tag = fd_siphash13_hash( payload+message->push->values[ i ].offset, message->push->values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
+        dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         (void)ha_dup; /* unused */
@@ -920,16 +930,20 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   switch( message->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
       for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
-        if( FD_UNLIKELY( failed[ i ] ) ) continue;
-        ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX ]++;
-        ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX ] += message->pull_response->values[ i ].length;
+        if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
+        ulong metric_idx = failed[ i ] ? FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_DUPLICATE_IDX
+                                       : FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX;
+        ctx->metrics.crds_rx[ metric_idx ]++;
+        ctx->metrics.crds_rx_bytes[ metric_idx ] += message->pull_response->values[ i ].length;
       }
       break;
     case FD_GOSSIP_MESSAGE_PUSH:
       for( ulong i=0UL; i<message->push->values_len; i++ ) {
-        if( FD_UNLIKELY( failed[ i ] ) ) continue;
-        ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX ]++;
-        ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX ] += message->push->values[ i ].length;
+        if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
+        ulong metric_idx = failed[ i ] ? FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_DUPLICATE_IDX
+                                       : FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX;
+        ctx->metrics.crds_rx[ metric_idx ]++;
+        ctx->metrics.crds_rx_bytes[ metric_idx ] += message->push->values[ i ].length;
       }
       break;
     default:
@@ -1000,6 +1014,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossvf_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gossvf_tile_ctx_t ), sizeof( fd_gossvf_tile_ctx_t ) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8U ) );
+  FD_TEST( fd_rng_secure( ctx->dedup_key, 16U ) );
 
   if( FD_UNLIKELY( !strcmp( tile->gossvf.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
@@ -1061,9 +1076,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->shred_version = tile->gossvf.shred_version;
 
-  ctx->ticks_per_ns   = fd_tempo_tick_per_ns( NULL );
-  ctx->last_wallclock = fd_log_wallclock();
-  ctx->last_tickcount = fd_tickcount();
+  fd_clock_tile_init( ctx->clock );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
 

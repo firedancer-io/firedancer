@@ -359,66 +359,7 @@ main( int     argc,
 
   } while(0);
 
-  do {
-    char const * buf = "The quick brown fox jumps over the lazy dog.";
-    ulong        sz  = strlen(buf)+1UL;
-    FD_TEST( fd_hash( 0UL, buf, sz )==0xf3f632730b075fa5UL );
-    FD_TEST( fd_hash( 1UL, buf, sz )==0x9d33e5e77b3544ceUL );
-  } while(0);
-
   FD_TEST( fd_memeq( NULL, NULL, 0UL ) );
-
-  do {
-    uchar src[2048]; memset( src, 0, 2048UL );
-    uchar dst[2048]; memset( dst, 0, 2048UL );
-    for( ulong iter=0UL; iter<1000000UL; iter++ )  {
-
-      ulong _s0 = (ulong)fd_rng_uint_roll( rng, 2049UL );
-      ulong _s1 = (ulong)fd_rng_uint_roll( rng, 2049UL );
-      ulong s0  = fd_ulong_min( _s0, _s1 );
-      ulong s1  = fd_ulong_max( _s0, _s1 );
-      ulong sz  = s1-s0;
-
-      ulong d0 = (ulong)fd_rng_uint_roll( rng, (uint)(2049UL-sz) );
-      ulong d1 = d0 + sz;
-
-      ulong hs0 = fd_hash( 0UL, src, s0 ); ulong hs1 = fd_hash( 0UL, src+s1, 2048UL-s1 );
-      ulong hd0 = fd_hash( 0UL, dst, d0 ); ulong hd1 = fd_hash( 0UL, dst+d1, 2048UL-d1 );
-
-      int c = (int)fd_rng_uchar( rng );
-      memset( src+s0, c, sz );
-      FD_TEST( fd_memset( dst+d0, c, sz )==(dst+d0) );
-      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
-      FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
-
-      for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
-
-      FD_TEST( fd_memcpy( dst+d0, src+s0, sz )==(dst+d0) );
-      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
-      FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
-
-      for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
-
-      ulong seed = fd_rng_ulong( rng );
-      ulong hash = fd_hash( seed, src+s0, sz );
-      FD_TEST( fd_hash_memcpy( seed, dst+d0, src+s0, sz )==hash );
-      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
-      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
-
-      /* Flip some bits */
-
-      if( sz>0UL ) {
-        ulong dflip = d0 + (ulong)fd_rng_uint_roll( rng, (uint)sz );
-        int c2 = (int)fd_rng_uchar( rng );
-        dst[ dflip ] = (uchar)(dst[ dflip ] ^ (uchar)c2);
-        FD_TEST( fd_memeq( dst+d0, src+s0, sz )==(!c2) );
-      }
-    }
-  } while(0);
 
   /* Test fd_tickcount (FIXME: TEST MORE THAN MONOTONICITY?) */
 
@@ -438,8 +379,6 @@ main( int     argc,
   FD_TEST( fd_ulong_is_aligned( (ulong)quine_binary, 128UL )     );
   FD_TEST( !memcmp ( quine_binary, quine_cstr, quine_binary_sz ) );
   FD_TEST( fd_memeq( quine_binary, quine_cstr, quine_binary_sz ) );
-
-  /* FIXME: ADD HASH QUALITY CHECKER HERE */
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

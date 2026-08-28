@@ -184,8 +184,7 @@ fd_policy_peer_select( fd_policy_t * policy ) {
 
 fd_repair_msg_t const *
 fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy ) {
-  fd_forest_blk_t *      pool     = fd_forest_pool( forest );
-  fd_forest_subtlist_t * subtlist = fd_forest_subtlist( forest );
+  fd_forest_blk_t * pool = fd_forest_pool( forest );
   *charge_busy = 0;
 
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return NULL;
@@ -194,15 +193,23 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
   fd_repair_msg_t * out = NULL;
   ulong now_ms = ts_ms( now );
 
-  for( fd_forest_subtlist_iter_t iter = fd_forest_subtlist_iter_fwd_init( subtlist, pool );
-                                       !fd_forest_subtlist_iter_done    ( iter, subtlist, pool );
-                                 iter = fd_forest_subtlist_iter_fwd_next( iter, subtlist, pool ) ) {
+  fd_forest_orphan_ent_t * orphanq = fd_forest_orphanq( forest );
+  ulong budget = 64UL;
+  while( budget-- && fd_forest_orphanq_cnt( orphanq ) && orphanq[ 0 ].due<=now ) {
     *charge_busy = 1;
-    fd_forest_blk_t * orphan = fd_forest_subtlist_iter_ele( iter, subtlist, pool );
-    ulong key                = fd_reqlim_key( FD_REPAIR_KIND_ORPHAN, orphan->slot, UINT_MAX );
-    if( FD_UNLIKELY( !fd_reqlim_next( dedup, key, now ) ) ) {
-      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, orphan->slot, 0U, now );
-      out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, nonce, orphan->slot );
+    fd_forest_orphan_ent_t ent = orphanq[ 0 ];
+    fd_forest_orphanq_remove_min( orphanq );
+    fd_forest_blk_t * orphan = fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &ent.slot, NULL, pool );
+    if( FD_UNLIKELY( !orphan || orphan->orphan_seq!=ent.seq ) ) continue;
+    ulong key     = fd_reqlim_key( FD_REPAIR_KIND_ORPHAN, ent.slot, UINT_MAX );
+    int   deduped = fd_reqlim_next( dedup, key, now );
+    ulong seq = forest->orphan_seq_next++;
+    orphan->orphan_seq = seq;
+    fd_forest_orphan_ent_t nxt = { .due = fd_reqlim_next_due( dedup, key, now ), .slot = ent.slot, .seq = seq };
+    fd_forest_orphanq_insert( orphanq, &nxt );
+    if( FD_LIKELY( !deduped ) ) {
+      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ent.slot, 0U, now );
+      out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, nonce, ent.slot );
       orphan->req_orphan_cnt++;
       return out;
     }

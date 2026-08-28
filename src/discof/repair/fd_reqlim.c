@@ -104,6 +104,8 @@ fd_reqlim_next( fd_reqlim_t * dedup, ulong key, long now ) {
     return 1;
   }
   ele->req_ts = now;
+  fd_reqlim_lru_ele_remove   ( dedup->lru, ele, dedup->pool );
+  fd_reqlim_lru_ele_push_tail( dedup->lru, ele, dedup->pool );
   return 0;
 }
 
@@ -114,4 +116,14 @@ fd_reqlim_query( fd_reqlim_t const * dedup, ulong key, long now ) {
     return 1;
   }
   return 0;
+}
+
+long
+fd_reqlim_next_due( fd_reqlim_t const * dedup, ulong key, long now ) {
+  fd_reqlim_ele_t const * ele = fd_reqlim_map_ele_query_const( dedup->map, &key, NULL, dedup->pool );
+  if( FD_LIKELY( ele ) ) {
+    long next_due = ele->req_ts + (long)FD_REQLIM_DEDUP_TIMEOUT;
+    if( FD_LIKELY( now < next_due ) ) return next_due;
+  }
+  return now;
 }

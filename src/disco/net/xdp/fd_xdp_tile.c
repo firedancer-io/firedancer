@@ -12,6 +12,7 @@
 #include <linux/if_xdp.h>
 
 #include "../fd_net_common.h"
+#include "../../../discof/repair/fd_repair.h"
 #include "../../metrics/fd_metrics.h"
 #include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
 #include "../../topo/fd_topo.h"
@@ -231,8 +232,7 @@ typedef struct {
   ulong    umem_sz; /* Size  of UMEM */
 
   /* UMEM chunk region within workspace */
-  uint     umem_chunk0; /* Lowest allowed chunk number */
-  uint     umem_wmark;  /* Highest allowed chunk number */
+  uint     umem_chunk0; /* Chunk number of the first byte of UMEM */
 
   /* All net tiles are subscribed to the same TX links.  (These are
      incoming links from app tiles asking the net tile to send out packets)
@@ -271,7 +271,8 @@ typedef struct {
   ushort repair_client_listen_port;
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
-  ushort votor_listen_port;
+  ushort votor_quic_client_listen_port;
+  ushort votor_quic_server_listen_port;
 
   ulong in_cnt;
   fd_net_in_ctx_t in[ MAX_NET_INS ];
@@ -906,14 +907,19 @@ after_frag( fd_net_ctx_t *      ctx,
     uchar * gre_hdr           = outer_iphdr + sizeof(fd_ip4_hdr_t);
     uchar * inner_iphdr       = gre_hdr + sizeof(fd_gre_hdr_t);
 
-    /* outer hdr + gre hdr + inner net_tot_len */
-    ushort  outer_net_tot_len = (ushort)( sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + fd_ushort_bswap( ( (fd_ip4_hdr_t *)inner_iphdr )->net_tot_len ) );
+    ulong inner_net_tot_len = fd_ushort_bswap( FD_LOAD( ushort, inner_iphdr+offsetof(fd_ip4_hdr_t, net_tot_len) ) );
+    ulong outer_net_tot_len = sizeof(fd_ip4_hdr_t) + sizeof(fd_gre_hdr_t) + inner_net_tot_len;
+    ulong tx_sz = sizeof(fd_eth_hdr_t) + outer_net_tot_len;
+    if( FD_UNLIKELY( inner_net_tot_len!=sz-sizeof(fd_eth_hdr_t) || tx_sz>FD_NET_MTU ) ) {
+      ctx->metrics.tx_invalid_cnt++;
+      return;
+    }
 
     /* Construct outer ip header */
     fd_ip4_hdr_t ip4_outer = (fd_ip4_hdr_t) {
       .verihl       = FD_IP4_VERIHL( 4,5 ),
       .tos          = 0,
-      .net_tot_len  = fd_ushort_bswap( outer_net_tot_len ),
+      .net_tot_len  = fd_ushort_bswap( (ushort)outer_net_tot_len ),
       .net_id       = 0,
       .net_frag_off = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF ),
       .ttl          = 64,
@@ -933,7 +939,7 @@ after_frag( fd_net_ctx_t *      ctx,
     FD_STORE( fd_gre_hdr_t, gre_hdr, gre_hdr_ );
 
     iphdr   = inner_iphdr;
-    sz      = sizeof(fd_eth_hdr_t) + outer_net_tot_len;
+    sz      = tx_sz;
     xsk_idx = 0;
   }
 
@@ -1118,8 +1124,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
     out = ctx->gossvf_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_client_listen_port ) ) {
     proto = DST_PROTO_REPAIR;
-    if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
-    else                                      out = ctx->shred_out;
+    if( FD_UNLIKELY( udp_sz-sizeof(fd_udp_hdr_t) <= AG_REPAIR_RESPONSE_MAX_SZ ) ) out = ctx->repair_out; /* ping-pongs, blockid repair responses */
+    else                                                                          out = ctx->shred_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
     if( FD_UNLIKELY( !ctx->rserve_enabled ) ) return;
     proto = DST_PROTO_RSERVE;
@@ -1127,14 +1133,15 @@ net_rx_packet( fd_net_ctx_t * ctx,
   } else if( FD_UNLIKELY( udp_dstport==ctx->txsend_src_port ) ) {
     proto = DST_PROTO_SEND;
     out = ctx->txsend_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->votor_listen_port ) ) {
+  } else if( FD_UNLIKELY( udp_dstport==ctx->votor_quic_client_listen_port || udp_dstport==ctx->votor_quic_server_listen_port ) ) {
+    /* the client src port carries the replies to the votor tile's own outbound QUIC connections */
     if( FD_UNLIKELY( !ctx->votor_enabled ) ) return;
     proto = DST_PROTO_VOTOR;
     out = ctx->votor_out;
   } else {
     FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
                   "Only the following ports should be configured to forward packets: "
-                  "%hu, %hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
+                  "%hu, %hu, %hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
                   "Please report this error to Firedancer maintainers.",
                   udp_dstport,
                   ctx->shred_listen_port,
@@ -1143,7 +1150,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
                   ctx->gossip_listen_port,
                   ctx->repair_client_listen_port,
                   ctx->repair_serve_listen_port,
-                  ctx->votor_listen_port ));
+                  ctx->votor_quic_client_listen_port,
+                  ctx->votor_quic_server_listen_port ));
   }
 
   /* tile can decide how to partition based on src ip addr and src port */
@@ -1243,18 +1251,17 @@ net_rx_event( fd_net_ctx_t * ctx,
      packet was forwarded to a downstream ring, the newly shadowed frame
      is returned.  Otherwise, the frame just received is returned. */
 
-  if( FD_UNLIKELY( ( freed_chunk < ctx->umem_chunk0 ) |
-                    ( freed_chunk > ctx->umem_wmark ) ) ) {
-    FD_LOG_CRIT(( "mcache corruption detected: chunk=%u chunk0=%u wmark=%u",
-                  freed_chunk, ctx->umem_chunk0, ctx->umem_wmark ));
+  FD_STATIC_ASSERT( FD_ULONG_IS_POW2( FD_NET_MTU ), "FD_NET_MTU must be a power of two" );
+  ulong frame_mask = FD_NET_MTU - 1UL;
+  ulong freed_off  = ( (ulong)( freed_chunk - ctx->umem_chunk0 )<<FD_CHUNK_LG_SZ ) & (~frame_mask);
+  if( FD_UNLIKELY( freed_off+FD_NET_MTU > ctx->umem_sz ) ) {
+    FD_LOG_CRIT(( "mcache corruption detected: chunk=%u chunk0=%u frame=0x%lx umem_sz=0x%lx",
+                  freed_chunk, ctx->umem_chunk0, freed_off, ctx->umem_sz ));
   }
 
-  FD_STATIC_ASSERT( FD_ULONG_IS_POW2( FD_NET_MTU ), "FD_NET_MTU must be a power of two" );
-  uint  fill_prod  = fill_ring->cached_prod;
-  uint  fill_mask  = (fill_ring->depth)-1U;
-  ulong frame_mask = FD_NET_MTU - 1UL;
-  ulong freed_off  = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
-  fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
+  uint fill_prod = fill_ring->cached_prod;
+  uint fill_mask = (fill_ring->depth)-1U;
+  fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off;
   fill_ring->cached_prod = fill_prod+1U;
 }
 
@@ -1485,7 +1492,6 @@ privileged_init( fd_topo_t const *      topo,
   ctx->umem        = umem;
   ctx->umem_sz     = umem_sz;
   ctx->umem_chunk0 = (uint)umem_chunk0;
-  ctx->umem_wmark  = (uint)umem_wmark;
 
   ctx->free_tx.queue = free_tx;
   ctx->free_tx.depth = tile->xdp.xdp_tx_queue_size;
@@ -1633,7 +1639,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->repair_client_listen_port      = tile->net.repair_client_listen_port;
   ctx->repair_serve_listen_port       = tile->net.repair_serve_listen_port;
   ctx->txsend_src_port                = tile->net.txsend_src_port;
-  ctx->votor_listen_port              = tile->net.votor_quic_server_listen_port;
+  ctx->votor_quic_client_listen_port  = tile->net.votor_quic_client_listen_port;
+  ctx->votor_quic_server_listen_port  = tile->net.votor_quic_server_listen_port;
 
   /* Put a bound on chunks we read from the input, to make sure they
      are within in the data region of the workspace. */
@@ -1722,13 +1729,15 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->repair_client_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair intake port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
+  } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->rserve_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->neigh4_solicit->mcache==NULL ) ) {
     FD_LOG_ERR(( "netlink request link not found" ));
   } else if( FD_UNLIKELY( ctx->txsend_src_port!=0 && ctx->txsend_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "txsend listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->votor_listen_port!=0 && ctx->votor_out->mcache==NULL ) ) {
+  } else if( FD_UNLIKELY( ctx->votor_quic_client_listen_port!=0 && ctx->votor_out->mcache==NULL ) ) {
+    FD_LOG_ERR(( "votor client src port set but no out link was found" ));
+  } else if( FD_UNLIKELY( ctx->votor_quic_server_listen_port!=0 && ctx->votor_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "votor listen port set but no out link was found" ));
   }
 

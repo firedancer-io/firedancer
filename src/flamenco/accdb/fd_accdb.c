@@ -444,6 +444,8 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
+  FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE,
+                 "snapshot load started while snapshot production active" );
   accdb->snapshot_loading = 1;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
 }
@@ -601,6 +603,7 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
     if( FD_UNLIKELY( part->queued ) ) {
       compaction_dlist_ele_remove( accdb->compaction_dlist[ part->layer ], part, accdb->partition_pool );
     }
+    FD_VOLATILE( part->write_offset ) = 0UL;
     partition_pool_ele_release( accdb->partition_pool, part );
   }
 
@@ -776,6 +779,8 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
      advance_root has fully run on T2, so
      live + deferred forks <= max_live_slots. */
   wait_cmd( accdb );
+
+  if( FD_UNLIKELY( accdb->shmem->generation==UINT_MAX ) ) FD_LOG_ERR(( "accdb ran out of generation sequence numbers, restart required" ));
 
   fd_accdb_fork_shmem_t * acquired = fork_pool_acquire( accdb->fork_shmem_pool );
   if( FD_UNLIKELY( !acquired ) ) {
@@ -1665,6 +1670,7 @@ change_partition( fd_accdb_t *           accdb,
   ulong new_partition_idx = partition_pool_idx( accdb->partition_pool, partition );
   int had_partition = *has_partition;
   *out_offset   = accdb_offset( new_partition_idx, 0UL );
+  FD_COMPILER_MFENCE();
   *has_partition = 1;
 
   /* Now that the write head has been rotated away from the old
@@ -1856,6 +1862,7 @@ background_compact( fd_accdb_t * accdb,
     spin_lock_acquire( &accdb->shmem->partition_lock );
     deferred_free_dlist_ele_pop_head( accdb->deferred_free_dlist, accdb->partition_pool );
     FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_current_bytes, accdb->shmem->partition_sz );
+    FD_VOLATILE( p->write_offset ) = 0UL;
     partition_pool_ele_release( accdb->partition_pool, p );
     spin_lock_release( &accdb->shmem->partition_lock );
   }
@@ -3479,7 +3486,7 @@ fd_accdb_unwrite_one( fd_accdb_t * accdb,
   fd_accdb_release( accdb, 1UL, acc );
 }
 
-void
+int
 fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            fd_accdb_fork_id_t fork_id,
                            uchar const *      pubkey,
@@ -3525,7 +3532,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
     *out_lamports = 0UL;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-    return;
+    return FD_ACCDB_READ_ONE_NOCACHE_MISS;
   }
 
   /// STEP 2.
@@ -3545,7 +3552,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
     *out_lamports = 0UL;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-    return;
+    return FD_ACCDB_READ_ONE_NOCACHE_MISS;
   }
 
   /// STEP 3.
@@ -3593,7 +3600,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
       accdb->metrics->bytes_copied += data_len;
       FD_COMPILER_MFENCE();
       FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-      return;
+      return FD_ACCDB_READ_ONE_NOCACHE_CACHE;
     }
   }
 
@@ -3653,6 +3660,7 @@ miss:;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+  return FD_ACCDB_READ_ONE_NOCACHE_DISK;
 }
 
 int
@@ -3854,6 +3862,12 @@ background_preevict( fd_accdb_t * accdb,
       line->key.generation = UINT_MAX;
       if( FD_UNLIKELY( !line->persisted && acc_idx!=UINT_MAX ) ) {
         fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
+
+        /* advertise to external observers that write is in progress */
+        FD_COMPILER_MFENCE();
+        FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+        FD_HW_MFENCE();
+
         fd_racesan_hook( "preevict:pre_synth" );
 #if FD_TMPL_USE_HANDHOLDING
         FD_TEST( line_gen==accmeta->key.generation &&
@@ -3913,6 +3927,9 @@ background_preevict( fd_accdb_t * accdb,
 
         accdb->metrics->accounts_preevicted++;
         accdb->metrics->accounts_preevicted_per_class[ c ]++;
+
+        FD_COMPILER_MFENCE();
+        FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
       }
 
       line->persisted      = 1;
@@ -4301,11 +4318,15 @@ fd_accdb_background( fd_accdb_t * accdb,
       fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
       break;
     case FD_ACCDB_SNAPSHOT_SYNC_START_FULL:
+      FD_CHECK_CRIT( !FD_VOLATILE_CONST( shmem->snapshot_loading ),
+                     "snapshot production requested during snapshot load" );
       delta_reset( accdb );
       fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
       *charge_busy = 1;
       return;
     case FD_ACCDB_SNAPSHOT_SYNC_START_INCR:
+      FD_CHECK_CRIT( !FD_VOLATILE_CONST( shmem->snapshot_loading ),
+                     "snapshot production requested during snapshot load" );
       if( delta_is_valid( accdb->shmem ) ) {
         fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
       } else {

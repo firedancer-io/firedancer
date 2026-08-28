@@ -1,11 +1,11 @@
 #![allow(non_camel_case_types)]
 
-use agave_votor_messages::{consensus_message::ConsensusMessage, vote::Vote};
+use agave_votor_messages::{
+    consensus_message::ConsensusMessage, vote::Vote, wire::VersionedWireConsensusMessage,
+};
 use libc::{in_addr, sockaddr_in, socket, strlen, AF_INET, FILE, IPPROTO_UDP, SOCK_DGRAM};
 use rand::RngExt;
 use solana_bls_signatures::{Signature as BLSSignature, BLS_SIGNATURE_AFFINE_SIZE};
-use solana_client::connection_cache::ConnectionCache;
-use solana_connection_cache::client_connection::ClientConnection;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_streamer::nonblocking::simple_qos::SimpleQosConfig;
@@ -21,6 +21,9 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 mod blaster;
+mod tpu_client;
+
+use crate::tpu_client::TpuClient;
 
 #[allow(non_upper_case_globals)]
 #[allow(non_camel_case_types)]
@@ -84,8 +87,13 @@ fn alpenglow_test_message() -> ConsensusMessage {
     )
 }
 
+fn alpenglow_test_wire_message() -> VersionedWireConsensusMessage {
+    VersionedWireConsensusMessage::new(alpenglow_test_message(), 1)
+}
+
 fn alpenglow_test_wire() -> Vec<u8> {
-    wincode::serialize(&alpenglow_test_message()).expect("failed to serialize Alpenglow message")
+    wincode::serialize(&alpenglow_test_wire_message())
+        .expect("failed to serialize Alpenglow message")
 }
 
 unsafe fn fd_wksp_new_anonymous(
@@ -182,6 +190,13 @@ unsafe fn agave_to_fdquic() {
     (*quic).config.retry = 1;
     (*quic).config.idle_timeout = 10_000_000_000; // 10s
 
+    let rx_state = Box::leak(Box::new(Mutex::new(StreamRxState {
+        buf: Vec::new(),
+        fin: false,
+    })));
+    FD_STREAM_RX_STATE = rx_state as *const Mutex<StreamRxState>;
+    (*quic).cb.stream_rx = Some(fd_stream_rx_collect);
+
     fd_quic_set_aio_net_tx(quic, fd_udpsock_get_tx(udpsock));
     fd_udpsock_set_rx(udpsock, fd_quic_get_aio_net_rx(quic));
 
@@ -225,16 +240,30 @@ unsafe fn agave_to_fdquic() {
 
     // Set up Agave components
 
-    let conn_cache = ConnectionCache::new_quic("test", 16);
-    let conn = conn_cache.get_connection(&SocketAddr::new(
+    let client = TpuClient::new(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         listen_port,
     ));
-    conn.send_data(b"Hello").expect("Failed to send data");
+    client.send_batch(vec![b"Hello"]);
+
+    let start = Instant::now();
+    loop {
+        if rx_state.lock().unwrap().fin {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "timed out waiting for tpu-client-next stream"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(rx_state.lock().unwrap().buf, b"Hello");
+    client.shutdown();
 
     let stop = stop_ptr as *mut AtomicU32;
     (*stop).store(1, Ordering::Relaxed);
     fd_quic_thread.join().unwrap();
+    FD_STREAM_RX_STATE = std::ptr::null();
     fd_halt();
 }
 
@@ -294,15 +323,13 @@ unsafe fn agave_alpenglow_to_fdquic() {
         assert!(metrics.stream_rx_byte_cnt > 0);
     });
 
-    let expected = alpenglow_test_message();
+    let expected = alpenglow_test_wire_message();
     let wire = alpenglow_test_wire();
-    let conn_cache = ConnectionCache::new_quic("test_alpenglow", 1);
-    let conn = conn_cache.get_connection(&SocketAddr::new(
+    let client = TpuClient::new(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         listen_port,
     ));
-    conn.send_data(&wire)
-        .expect("Failed to send Alpenglow message");
+    client.send_batch(vec![wire]);
 
     let start = Instant::now();
     loop {
@@ -317,10 +344,11 @@ unsafe fn agave_alpenglow_to_fdquic() {
     }
 
     let received = rx_state.lock().unwrap().buf.clone();
-    let actual: ConsensusMessage =
+    let actual: VersionedWireConsensusMessage =
         wincode::deserialize_exact(&received).expect("failed to deserialize Alpenglow message");
     assert_eq!(actual, expected);
     println!("fd_quic server received valid Alpenglow message");
+    client.shutdown();
 
     let stop = stop_ptr as *mut AtomicU32;
     (*stop).store(1, Ordering::Relaxed);
@@ -458,24 +486,18 @@ unsafe fn agave_to_fdquic_bench() {
 
     const BUF: [u8; 1232] = [0u8; 1232];
 
-    let conn_cache = ConnectionCache::new_quic("test", 16);
-    let conn = conn_cache.get_connection(&SocketAddr::new(
+    let client = TpuClient::new(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         listen_port,
     ));
 
-    let mut batch = Vec::<Vec<u8>>::with_capacity(1024);
-
     let mut rng = rand::rng();
     loop {
-        let cnt: usize = rng.random_range(1..batch.capacity());
-        batch.clear();
-        for _ in 0..cnt {
-            batch.push(BUF[0..rng.random_range(1..BUF.len())].to_vec());
-        }
-        if let Err(err) = conn.send_data_batch(&batch) {
-            eprintln!("{:?}", err);
-        }
+        let cnt: usize = rng.random_range(1..1024);
+        let batch = (0..cnt)
+            .map(|_| BUF[0..rng.random_range(1..BUF.len())].to_vec())
+            .collect();
+        client.send_batch(batch);
     }
 }
 
@@ -675,8 +697,8 @@ unsafe fn fdquic_to_agave_alpenglow() {
         );
     };
 
-    let expected = alpenglow_test_message();
-    let actual: ConsensusMessage =
+    let expected = alpenglow_test_wire_message();
+    let actual: VersionedWireConsensusMessage =
         wincode::deserialize_exact(&received).expect("failed to deserialize Alpenglow message");
     assert_eq!(actual, expected);
     println!("Agave Alpenglow server received valid fd_quic message");
@@ -777,26 +799,22 @@ unsafe fn fdquic_to_remote_agave_alpenglow(dst: SocketAddrV4, requested_local_po
 }
 
 fn agave_votor_to_remote(dst: SocketAddr) {
-    let wire = Arc::new(alpenglow_test_wire());
-    let connection_cache = ConnectionCache::new_quic("agave_votor_remote_client", 1);
-    let conn = connection_cache.get_connection(&dst);
+    let wire = alpenglow_test_wire();
+    let client = TpuClient::new(dst);
     let start = Instant::now();
     let mut next_send = Instant::now();
     let mut sent = 0u64;
 
     while start.elapsed() < Duration::from_secs(20) {
         if Instant::now() >= next_send {
-            match conn.send_data_async(wire.clone()) {
-                Ok(()) => {
-                    sent += 1;
-                    eprintln!("Queued Agave votor message {}", sent);
-                }
-                Err(err) => eprintln!("Agave votor send failed: {err:?}"),
-            }
+            client.send_batch(vec![wire.clone()]);
+            sent += 1;
+            eprintln!("Queued Agave votor message {}", sent);
             next_send += Duration::from_millis(200);
         }
         std::thread::sleep(Duration::from_millis(10));
     }
+    client.shutdown();
     eprintln!("Finished Agave votor remote send: queued={sent}");
 }
 
@@ -805,10 +823,10 @@ static USAGE: &str = r"Usage: ./firedancer-agave-quic-test <command>
 Available commands are:
 
   blast:       Flood target with MTU-size QUIC streams
-  ping-server: Ping solana_client to fd_quic server
+  ping-server: Ping tpu-client-next to fd_quic server
   ping-client: Ping fd_quic client to solana_streamer server
-  spam-server: Benchmark single solana_streamer client to fd_quic server
-  alpenglow-ping-server: Ping Agave Alpenglow client to fd_quic server
+  spam-server: Benchmark single tpu-client-next client to fd_quic server
+  alpenglow-ping-server: Ping tpu-client-next Alpenglow client to fd_quic server
   alpenglow-ping-client: Ping fd_quic client to Agave Alpenglow server
   alpenglow-remote-client: Ping remote QUIC endpoint with fd_quic Alpenglow payload
   agave-votor-remote-client: Ping remote QUIC endpoint with Agave votor send path";

@@ -31,10 +31,7 @@ functionality including execution and consensus is using the Agave
 validator code.
 * **Firedancer** A full from-scratch Firedancer with no Agave code.
 
-Both validators are built from this codebase. The Firedancer validator
-is not ready for test or production use and has no releases.
-Frankendancer is currently available on both Solana testnet and
-mainnet-beta.
+Both validators are built from this codebase.
 
 ## Developing
 Firedancer currently only supports Linux and requires a relatively new

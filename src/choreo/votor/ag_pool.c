@@ -92,6 +92,9 @@ struct __attribute__((aligned(128UL))) ag_pool {
     ulong               parent_ready_cnt;
     ag_event_pool_t *   pool_events;
     ulong               pool_event_cnt;
+    ag_block_id_t *     implicitly_finalized;
+    ulong *             implicitly_skipped;
+    ag_slot_state_cert_builder_t slot_state; /* shared by every slot state */
   } scratch;
 };
 
@@ -124,6 +127,8 @@ ag_pool_footprint( ulong slot_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(ag_pool_t),                   sizeof(ag_pool_t)                                                           ),
       alignof(slot_states_t),               sizeof(slot_states_t)                                                       ),
@@ -140,6 +145,8 @@ ag_pool_footprint( ulong slot_max ) {
       alignof(ag_vote_t),                   sizeof(ag_vote_t)        *slot_max                                         ),
       alignof(ag_parent_ready_t),           sizeof(ag_parent_ready_t)*slot_max                                         ),
       alignof(ag_event_pool_t),             sizeof(ag_event_pool_t)  *slot_max                                         ),
+      alignof(ag_block_id_t),               sizeof(ag_block_id_t)    *slot_max                                         ),
+      alignof(ulong),                       sizeof(ulong)            *slot_max                                         ),
     ag_pool_align() );
 }
 
@@ -177,12 +184,14 @@ ag_pool_new( void * mem,
   void *      s2n_waiting_parent_cert      = FD_SCRATCH_ALLOC_APPEND( l, alignof(s2n_waiting_parent_cert_t),   sizeof(s2n_waiting_parent_cert_t)                                           );
   void *      s2n_waiting_parent_cert_pool = FD_SCRATCH_ALLOC_APPEND( l, s2n_waiting_parent_cert_pool_align(), s2n_waiting_parent_cert_pool_footprint( s2n_max )                       );
   void *      s2n_waiting_parent_cert_map  = FD_SCRATCH_ALLOC_APPEND( l, s2n_waiting_parent_cert_map_align(),  s2n_waiting_parent_cert_map_footprint ( s2n_waiting_parent_cert_chain_cnt ) );
-  void *      pool_events                 = FD_SCRATCH_ALLOC_APPEND( l, pool_events_align(),                 pool_events_footprint( slot_max )                                          );
-  void *      repair_events               = FD_SCRATCH_ALLOC_APPEND( l, repair_events_align(),               repair_events_footprint( slot_max )                                        );
-  void *      cert_scratch                 = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_cert_t),                   sizeof(ag_cert_t)        *slot_max                                         );
-  void *      vote_scratch                 = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_vote_t),                   sizeof(ag_vote_t)        *slot_max                                         );
-  void *      parent_ready_scratch         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_parent_ready_t),           sizeof(ag_parent_ready_t)*slot_max                                         );
-  void *      pool_event_scratch           = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_event_pool_t),             sizeof(ag_event_pool_t)  *slot_max                                         );
+  void *      pool_events                  = FD_SCRATCH_ALLOC_APPEND( l, pool_events_align(),                 pool_events_footprint( slot_max )                                          );
+  void *      repair_events                = FD_SCRATCH_ALLOC_APPEND( l, repair_events_align(),               repair_events_footprint( slot_max )                                        );
+  void *      cert_scratch                 = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_cert_t),                  sizeof(ag_cert_t)        *slot_max );
+  void *      vote_scratch                 = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_vote_t),                  sizeof(ag_vote_t)        *slot_max );
+  void *      parent_ready_scratch         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_parent_ready_t),          sizeof(ag_parent_ready_t)*slot_max );
+  void *      pool_event_scratch           = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_event_pool_t),            sizeof(ag_event_pool_t)  *slot_max );
+  void *      implicitly_finalized_scratch = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_block_id_t),              sizeof(ag_block_id_t)    *slot_max );
+  void *      implicitly_skipped_scratch   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                      sizeof(ulong)            *slot_max );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, ag_pool_align() ) == (ulong)mem + footprint );
 
   pool->curr_epoch_info = NULL;
@@ -219,6 +228,14 @@ ag_pool_new( void * mem,
   pool->scratch.parent_ready_cnt = 0UL;
   pool->scratch.pool_events      = (ag_event_pool_t *)pool_event_scratch;
   pool->scratch.pool_event_cnt   = 0UL;
+
+  /* Storage for the finalization events the finality tracker appends
+     to.  A single call can walk the entire unpruned ancestry, so both
+     arrays are sized for every live slot. */
+
+  pool->scratch.implicitly_finalized = (ag_block_id_t *)implicitly_finalized_scratch;
+  pool->scratch.implicitly_skipped   = (ulong *)implicitly_skipped_scratch;
+
 
   return mem;
 }
@@ -280,11 +297,19 @@ slot_state( ag_pool_t * self,
   ag_epoch_info_t const * info = fd_ptr_if  ( slot>=self->next_epoch_slot, self->next_epoch_info, self->curr_epoch_info );
   ulong                   rank = fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, self->curr_epoch_rank );
 
+  FD_TEST( slot_state_pool_free( self->slot_states->pool ) );
+
   ele       = slot_state_pool_ele_acquire( self->slot_states->pool );
   ele->slot = slot;
   ag_slot_state_zero( &ele->slot_state, slot, info, rank );
+  ele->slot_state.cert_builder = &self->scratch.slot_state;
   slot_state_map_ele_insert( self->slot_states->map, ele, self->slot_states->pool );
   return &ele->slot_state;
+}
+
+static inline ag_finalization_event_t
+finalization_event_default( ag_pool_t * self ) {
+  return ag_finalization_event_default( self->scratch.implicitly_finalized, self->scratch.implicitly_skipped );
 }
 
 static void
@@ -316,7 +341,8 @@ add_valid_cert( ag_pool_t *       self,
     uchar const * block_hash = ag_cert_block_hash( cert );
     ag_block_id_t block_id   = ag_block_id( slot, block_hash );
     if( FD_LIKELY( cert->kind==AG_CERT_KIND_NOTAR ) ) {
-      ag_finalization_event_t finalization_event = ag_finality_tracker_mark_notarized( self->finality_tracker, &block_id );
+      ag_finalization_event_t finalization_event = finalization_event_default( self );
+      ag_finality_tracker_mark_notarized( self->finality_tracker, &block_id, &finalization_event );
       handle_finalization( self, &finalization_event );
     }
 
@@ -365,15 +391,17 @@ add_valid_cert( ag_pool_t *       self,
   }
 
   case AG_CERT_KIND_FAST_FINAL: {
-    ag_fast_final_cert_t const * ff_cert = &cert->inner.fast_final;
+    ag_cert_fast_final_t const * ff_cert = &cert->fast_final;
     ag_block_id_t block_id = ag_block_id( slot, ff_cert->block_hash );
-    ag_finalization_event_t finalization_event = ag_finality_tracker_mark_fast_finalized( self->finality_tracker, &block_id );
+    ag_finalization_event_t finalization_event = finalization_event_default( self );
+    ag_finality_tracker_mark_fast_finalized( self->finality_tracker, &block_id, &finalization_event );
     handle_finalization( self, &finalization_event );
     break;
   }
 
   case AG_CERT_KIND_FINAL: {
-    ag_finalization_event_t finalization_event = ag_finality_tracker_mark_finalized( self->finality_tracker, slot );
+    ag_finalization_event_t finalization_event = finalization_event_default( self );
+    ag_finality_tracker_mark_finalized( self->finality_tracker, slot, &finalization_event );
     handle_finalization( self, &finalization_event );
     break;
   }
@@ -415,16 +443,14 @@ ag_pool_advance_epoch( ag_pool_t *             self,
 void
 ag_pool_init( ag_pool_t * self,
               ulong       slot ) {
-  self->finality_tracker->highest_finalized_slot = slot;
-  self->finality_tracker->first_unpruned_slot    = slot;
-  self->parent_ready_tracker->root               = slot;
+  ag_finality_tracker_init( self->finality_tracker, slot );
+  self->parent_ready_tracker->root = slot;
 }
 
 void
 ag_pool_fini( ag_pool_t * self ) {
-  self->finality_tracker->highest_finalized_slot = ULONG_MAX;
-  self->finality_tracker->first_unpruned_slot    = ULONG_MAX;
-  self->parent_ready_tracker->root               = ULONG_MAX;
+  ag_finality_tracker_fini( self->finality_tracker );
+  self->parent_ready_tracker->root = ULONG_MAX;
 }
 
 int
@@ -439,12 +465,12 @@ ag_pool_add_cert( ag_pool_t *       self,
   ag_slot_state_t * state = slot_state( self, slot );
   int duplicate = 0;
   switch( cert->kind ) {
-  case AG_CERT_KIND_NOTAR:          duplicate = state->certificates.notar.slot!=ULONG_MAX;                                                   break;
+  case AG_CERT_KIND_NOTAR:          duplicate = state->certs.notar.slot!=ULONG_MAX;                                                   break;
   case AG_CERT_KIND_NOTAR_FALLBACK: duplicate = ag_slot_state_is_notar_fallback     ( state, ag_cert_block_hash( cert ) );                   break;
-  case AG_CERT_KIND_SKIP:           duplicate = state->certificates.skip.slot!=ULONG_MAX;                                                    break;
-  case AG_CERT_KIND_FAST_FINAL:     duplicate = state->certificates.fast_finalize.slot!=ULONG_MAX;                                           break;
-  case AG_CERT_KIND_FINAL:          duplicate = state->certificates.finalize.slot!=ULONG_MAX;                                                break;
-  default:                          FD_LOG_ERR(( "invalid cert kind %u", cert->kind ));
+  case AG_CERT_KIND_SKIP:           duplicate = state->certs.skip.slot!=ULONG_MAX;                                                    break;
+  case AG_CERT_KIND_FAST_FINAL:     duplicate = state->certs.fast_finalize.slot!=ULONG_MAX;                                           break;
+  case AG_CERT_KIND_FINAL:          duplicate = state->certs.finalize.slot!=ULONG_MAX;                                                break;
+  default:                          __builtin_unreachable();
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
 
@@ -462,7 +488,7 @@ ag_pool_add_vote( ag_pool_t *       self,
     return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
   }
 
-  ulong             voter       = ag_vote_signer( vote );
+  ulong             voter       = ag_vote_rank( vote );
   ulong             voter_stake = ag_epoch_info_validator( fd_ptr_if( slot >= self->next_epoch_slot, self->next_epoch_info, self->curr_epoch_info ), voter )->stake;
   ag_slot_state_t * slot_state_ = slot_state( self, slot );
 
@@ -470,7 +496,7 @@ ag_pool_add_vote( ag_pool_t *       self,
     return AG_POOL_ERR_SLASHABLE;
   } else if( FD_UNLIKELY( ag_slot_state_should_ignore_vote( slot_state_, vote ) ) ) {
     return AG_POOL_ERR_DUPLICATE;
-  } else if( FD_UNLIKELY( !ag_slot_state_vote_fits( slot_state_, vote ) ) ) {
+  } else if( FD_UNLIKELY( vote->kind==AG_VOTE_KIND_NOTAR_FALLBACK && slot_state_->votes.notar_fallback_cnt[ voter ]>=AG_NOTAR_FALLBACK_VOTE_MAX ) ) {
     return AG_POOL_ERR_HASH_CAPACITY;
   }
 
@@ -479,13 +505,13 @@ ag_pool_add_vote( ag_pool_t *       self,
   for( ulong i=0UL; i<slot_state_outputs.certs_cnt; i++ ) {
     add_valid_cert( self, &slot_state_outputs.certs[i] );
   }
-  for( ulong i=0UL; i<slot_state_outputs.pool_events_cnt; i++ ) {
-    ag_event_pool_t event = slot_state_outputs.pool_events[i];
+  for( ulong i=0UL; i<slot_state_outputs.votor_events_cnt; i++ ) {
+    ag_event_pool_t event = slot_state_outputs.votor_events[i];
     event.seq             = self->seq++;
     pool_events_push( self->pool_events, event );
   }
-  for( ulong i=0UL; i<slot_state_outputs.block_repairs_cnt; i++ ) {
-    repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = slot_state_outputs.block_repairs[i] } );
+  for( ulong i=0UL; i<slot_state_outputs.block_to_repair_cnt; i++ ) {
+    repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = slot_state_outputs.block_to_repair[i] } );
   }
   return AG_POOL_SUCCESS;
 }
@@ -500,7 +526,8 @@ ag_pool_add_block( ag_pool_t *           self,
   ulong         parent_slot = parent_id->slot;
   uchar const * parent_hash = parent_id->hash;
 
-  ag_finalization_event_t finalization_event = ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id );
+  ag_finalization_event_t finalization_event = finalization_event_default( self );
+  ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id, &finalization_event );
   ag_parent_ready_t       new_parents_ready  = ag_parent_ready_tracker_handle_finalization( self->parent_ready_tracker, &finalization_event, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
   if( FD_UNLIKELY( new_parents_ready.slot!=ULONG_MAX ) ) {
     ag_event_pool_t event = { .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY, .parent_ready = { .slot = new_parents_ready.slot, .parent = new_parents_ready.parent } };
@@ -537,15 +564,21 @@ ag_pool_recover_from_standstill( ag_pool_t * self ) {
 
   /* 1. collect our finalized slot's cert */
 
-  ulong                          finalized_slot      = ag_pool_finalized_slot( self );
-  ag_slot_certificates_t const * fast_final_or_final = &slot_state_map_ele_query_const( self->slot_states->map, &finalized_slot, NULL, self->slot_states->pool )->slot_state.certificates;
-  if( FD_LIKELY( fast_final_or_final && fast_final_or_final->fast_finalize.slot!=ULONG_MAX ) ) {
-    certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .inner.fast_final = fast_final_or_final->fast_finalize };
-  } else if( fast_final_or_final && fast_final_or_final->finalize.slot!=ULONG_MAX && fast_final_or_final->notar.slot!=ULONG_MAX ) {
-    certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL,      .inner.final      = fast_final_or_final->finalize      };
-    certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR,      .inner.notar      = fast_final_or_final->notar         };
-  } else {
-    __builtin_unreachable();
+  ulong finalized_slot = ag_pool_finalized_slot( self );
+  slot_state_ele_t const * fast_final_or_final_ = slot_state_map_ele_query_const( self->slot_states->map, &finalized_slot, NULL, self->slot_states->pool );
+  if( FD_LIKELY( fast_final_or_final_ ) ) { /* possible no cert if snapshot slot */
+    ag_slot_certs_t const * fast_final_or_final = &fast_final_or_final_->slot_state.certs;
+    if( FD_LIKELY( fast_final_or_final->fast_finalize.slot!=ULONG_MAX ) ) {
+      certs[certs_cnt++] = ( ag_cert_t ){ .kind       = AG_CERT_KIND_FAST_FINAL,
+                                          .fast_final = fast_final_or_final->fast_finalize };
+    } else {
+      FD_TEST( fast_final_or_final->finalize.slot!=ULONG_MAX );
+      FD_TEST( fast_final_or_final->notar.slot   !=ULONG_MAX );
+      certs[certs_cnt++] = ( ag_cert_t ){ .kind  = AG_CERT_KIND_FINAL,
+                                          .final = fast_final_or_final->finalize };
+      certs[certs_cnt++] = ( ag_cert_t ){ .kind  = AG_CERT_KIND_NOTAR,
+                                          .notar = fast_final_or_final->notar };
+    }
   }
 
   /* 2. collect every cert and own vote for slots > finalized slot */
@@ -553,29 +586,29 @@ ag_pool_recover_from_standstill( ag_pool_t * self ) {
   slot_state_map_t * map  = self->slot_states->map;
   slot_state_ele_t * pool = self->slot_states->pool;
   for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
-       !slot_state_map_iter_done( iter, map, pool );
-       iter = slot_state_map_iter_next( iter, map, pool ) ) {
+                                   !slot_state_map_iter_done( iter, map, pool );
+                             iter = slot_state_map_iter_next( iter, map, pool ) ) {
     slot_state_ele_t const * ele = slot_state_map_iter_ele_const( iter, map, pool );
     if( ele->slot<=finalized_slot ) continue;
 
-    ag_slot_certificates_t const * sc = &ele->slot_state.certificates;
-    if( sc->finalize.slot     !=ULONG_MAX && certs_cnt<self->slot_max ) certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL,      .inner.final      = sc->finalize      };
-    if( sc->fast_finalize.slot!=ULONG_MAX && certs_cnt<self->slot_max ) certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .inner.fast_final = sc->fast_finalize };
-    if( sc->notar.slot        !=ULONG_MAX && certs_cnt<self->slot_max ) certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR,      .inner.notar      = sc->notar         };
-    if( sc->skip.slot         !=ULONG_MAX && certs_cnt<self->slot_max ) certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_SKIP,       .inner.skip       = sc->skip          };
+    ag_slot_certs_t const * sc = &ele->slot_state.certs;
+    if( sc->finalize.slot     !=ULONG_MAX && certs_cnt<self->slot_max ) certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL,      .final      = sc->finalize      };
+    if( sc->fast_finalize.slot!=ULONG_MAX && certs_cnt<self->slot_max ) certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = sc->fast_finalize };
+    if( sc->notar.slot        !=ULONG_MAX && certs_cnt<self->slot_max ) certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR,      .notar      = sc->notar         };
+    if( sc->skip.slot         !=ULONG_MAX && certs_cnt<self->slot_max ) certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_SKIP,       .skip       = sc->skip          };
     for( ulong i=0UL; i<sc->notar_fallback_cnt && certs_cnt<self->slot_max; i++ ) {
-      certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR_FALLBACK, .inner.notar_fallback = sc->notar_fallback[i] };
+      certs[ certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR_FALLBACK, .notar_fallback = sc->notar_fallback[i] };
     }
 
     ag_slot_votes_t const * sv   = &ele->slot_state.votes;
     ulong                   rank = ele->slot_state.own_rank;
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) continue; /* unstaked */
-    if( sv->finalize     [rank].slot!=ULONG_MAX && votes_cnt<self->slot_max ) votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_FINAL,         .inner.final         = sv->finalize     [rank] };
-    if( sv->notar        [rank].slot!=ULONG_MAX && votes_cnt<self->slot_max ) votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR,         .inner.notar         = sv->notar        [rank] };
-    if( sv->skip         [rank].slot!=ULONG_MAX && votes_cnt<self->slot_max ) votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_SKIP,          .inner.skip          = sv->skip         [rank] };
-    if( sv->skip_fallback[rank].slot!=ULONG_MAX && votes_cnt<self->slot_max ) votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_SKIP_FALLBACK, .inner.skip_fallback = sv->skip_fallback[rank] };
+    if( sv->finalize     [rank].slot!=ULONG_MAX && votes_cnt<self->slot_max ) votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_FINAL,         .final         = sv->finalize     [rank] };
+    if( sv->notar        [rank].slot!=ULONG_MAX && votes_cnt<self->slot_max ) votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR,         .notar         = sv->notar        [rank] };
+    if( sv->skip         [rank].slot!=ULONG_MAX && votes_cnt<self->slot_max ) votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_SKIP,          .skip          = sv->skip         [rank] };
+    if( sv->skip_fallback[rank].slot!=ULONG_MAX && votes_cnt<self->slot_max ) votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_SKIP_FALLBACK, .skip_fallback = sv->skip_fallback[rank] };
     for( ulong i=0UL; i<sv->notar_fallback_cnt[rank] && votes_cnt<self->slot_max; i++ ) {
-      votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR_FALLBACK, .inner.notar_fallback = sv->notar_fallback[rank][i] };
+      votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR_FALLBACK, .notar_fallback = sv->notar_fallback[rank][i] };
     }
   }
 

@@ -120,8 +120,8 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.max_retry_abort                           );
   CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
   CFG_POP      ( ulong,  snapshots.wait_for_peers_timeout_seconds            );
-  CFG_POP      ( ulong,  snapshots.full_snapshot_interval_slots              );
-  CFG_POP      ( ulong,  snapshots.incremental_snapshot_interval_slots       );
+  CFG_POP      ( ulong,  snapshots.full_snapshot_interval_blocks             );
+  CFG_POP      ( ulong,  snapshots.incremental_snapshot_interval_blocks      );
   CFG_POP      ( ulong,  snapshots.max_incremental_snapshot_accounts         );
 
   CFG_POP      ( bool,   snapshots.server.enabled                            );
@@ -136,6 +136,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
   CFG_POP      ( bool,   development.alpenglow                               );
 
+  CFG_POP      ( ushort, development.votor.quic_client_listen_port           );
   CFG_POP      ( ushort, development.votor.quic_server_listen_port           );
 
   CFG_POP      ( bool,   development.genesis.validate_genesis_hash           );
@@ -212,10 +213,10 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
   CFG_POP      ( cstr,   net.xdp.rss_queue_mode                           );
-  CFG_POP      ( bool,   net.xdp.listen_gre                               );
+  CFG_POP      ( boolau, net.xdp.listen_gre                               );
   CFG_POP      ( boolau, net.xdp.native_bond                              );
-  CFG_POP      ( uint,   net.mlx5.rx_queue_size                            );
-  CFG_POP      ( uint,   net.mlx5.tx_queue_size                            );
+  CFG_POP      ( uint,   net.mlx5.rx_queue_size                           );
+  CFG_POP      ( uint,   net.mlx5.tx_queue_size                           );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 

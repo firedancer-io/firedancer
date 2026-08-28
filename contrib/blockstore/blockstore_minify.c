@@ -11,8 +11,9 @@
 
 #include <rocksdb/c.h>
 
-static char const * const rocksdb_cf_names[] = {
-  "default",
+/* Column families whose keys are slot-major (8 byte big-endian slot
+   prefix).  These are range-copied into the minified blockstore. */
+static char const * const slot_indexed_cf_names[] = {
   "meta",
   "dead_slots",
   "duplicate_slots",
@@ -23,27 +24,39 @@ static char const * const rocksdb_cf_names[] = {
   "index",
   "data_shred",
   "code_shred",
-  "transaction_status",
-  "address_signatures",
-  "transaction_memos",
   "rewards",
   "blocktime",
   "perf_samples",
   "block_height",
   "optimistic_slots",
   "merkle_root_meta",
+  "alt_meta",
+  "alt_index",
+  "alt_data_shred",
+  "alt_merkle_root_meta",
+  "double_merkle_meta",
 };
 
-#define ROCKSDB_CF_CNT (sizeof(rocksdb_cf_names)/sizeof(rocksdb_cf_names[0]))
+#define SLOT_INDEXED_CF_CNT (sizeof(slot_indexed_cf_names)/sizeof(slot_indexed_cf_names[0]))
 
-#define ROCKSDB_CFIDX_ROOT               (7U)
-#define ROCKSDB_CFIDX_TRANSACTION_STATUS (11U)
-#define ROCKSDB_CFIDX_ADDRESS_SIGNATURES (12U)
-#define ROCKSDB_CFIDX_TRANSACTION_MEMOS  (13U)
+/* Column families whose keys are not slot-major.  These cannot be
+   range-copied by slot and are skipped. */
+static char const * const non_slot_indexed_cf_names[] = {
+  "default",
+  "transaction_status",
+  "address_signatures",
+  "transaction_memos",
+  "transaction_status_index",
+  "program_costs",
+};
+
+#define NON_SLOT_INDEXED_CF_CNT (sizeof(non_slot_indexed_cf_names)/sizeof(non_slot_indexed_cf_names[0]))
 
 struct blockstore_db {
   rocksdb_t * db;
-  rocksdb_column_family_handle_t * cf_handles[ROCKSDB_CF_CNT];
+  size_t cf_cnt;
+  char ** cf_names;
+  rocksdb_column_family_handle_t ** cf_handles;
   rocksdb_options_t * opts;
   rocksdb_readoptions_t * ro;
   rocksdb_writeoptions_t * wo;
@@ -114,6 +127,32 @@ parse_uint64_arg( char const * name,
   return 0;
 }
 
+static int
+cf_is_slot_indexed( char const * name ) {
+  for( size_t i=0UL; i<SLOT_INDEXED_CF_CNT; i++ ) {
+    if( strcmp( name, slot_indexed_cf_names[i] )==0 ) return 1;
+  }
+  for( size_t i=0UL; i<NON_SLOT_INDEXED_CF_CNT; i++ ) {
+    if( strcmp( name, non_slot_indexed_cf_names[i] )==0 ) return 0;
+  }
+  fprintf( stderr,
+           "error: unrecognized column family \"%s\": add it to the slot-indexed or "
+           "non-slot-indexed list in blockstore_minify.c instead of assuming its key "
+           "is slot-major\n",
+           name );
+  exit( 1 );
+}
+
+static size_t
+cf_index_of( struct blockstore_db * db,
+             char const *           name ) {
+  for( size_t i=0UL; i<db->cf_cnt; i++ ) {
+    if( strcmp( db->cf_names[i], name )==0 ) return i;
+  }
+  fprintf( stderr, "error: source RocksDB has no \"%s\" column family\n", name );
+  exit( 1 );
+}
+
 static char *
 blockstore_open_read_only( struct blockstore_db * db,
                            char const *           path ) {
@@ -121,20 +160,33 @@ blockstore_open_read_only( struct blockstore_db * db,
 
   db->opts = rocksdb_options_create();
   if( !db->opts ) die( "rocksdb_options_create failed" );
-
-  rocksdb_options_t const * cf_options[ROCKSDB_CF_CNT];
-  for( size_t i=0UL; i<ROCKSDB_CF_CNT; i++ ) cf_options[i] = db->opts;
+  /* Old minified blockstores may reference files that no longer exist for
+     column families that are never copied.  Defer the failure to iteration
+     time (caught by rocksdb_iter_get_error) instead of failing the open. */
+  rocksdb_options_set_paranoid_checks( db->opts, 0 );
 
   char * err = NULL;
+  db->cf_names = rocksdb_list_column_families( db->opts, path, &db->cf_cnt, &err );
+  if( err ) return err;
+
+  /* Fail fast on unrecognized column families before anything is created. */
+  for( size_t i=0UL; i<db->cf_cnt; i++ ) cf_is_slot_indexed( db->cf_names[i] );
+
+  rocksdb_options_t const ** cf_options = calloc( db->cf_cnt, sizeof(*cf_options) );
+  db->cf_handles = calloc( db->cf_cnt, sizeof(*db->cf_handles) );
+  if( !cf_options || !db->cf_handles ) die( "out of memory" );
+  for( size_t i=0UL; i<db->cf_cnt; i++ ) cf_options[i] = db->opts;
+
   db->db = rocksdb_open_for_read_only_column_families(
       db->opts,
       path,
-      (int)ROCKSDB_CF_CNT,
-      rocksdb_cf_names,
-      (rocksdb_options_t const * const *)cf_options,
+      (int)db->cf_cnt,
+      (char const * const *)db->cf_names,
+      cf_options,
       db->cf_handles,
       0,
       &err );
+  free( cf_options );
   if( err ) return err;
 
   db->ro = rocksdb_readoptions_create();
@@ -144,16 +196,32 @@ blockstore_open_read_only( struct blockstore_db * db,
 
 static void
 blockstore_create( struct blockstore_db * db,
-                   char const *           path ) {
+                   char const *           path,
+                   struct blockstore_db * src ) {
   memset( db, 0, sizeof(*db) );
 
   db->opts = rocksdb_options_create();
   if( !db->opts ) die( "rocksdb_options_create failed" );
   rocksdb_options_set_create_if_missing( db->opts, 1 );
+  rocksdb_options_set_create_missing_column_families( db->opts, 1 );
   rocksdb_options_set_compression( db->opts, rocksdb_lz4_compression );
 
+  db->cf_cnt = src->cf_cnt;
+  db->cf_handles = calloc( db->cf_cnt, sizeof(*db->cf_handles) );
+  rocksdb_options_t const ** cf_options = calloc( db->cf_cnt, sizeof(*cf_options) );
+  if( !cf_options || !db->cf_handles ) die( "out of memory" );
+  for( size_t i=0UL; i<db->cf_cnt; i++ ) cf_options[i] = db->opts;
+
   char * err = NULL;
-  db->db = rocksdb_open( db->opts, path, &err );
+  db->db = rocksdb_open_column_families(
+      db->opts,
+      path,
+      (int)db->cf_cnt,
+      (char const * const *)src->cf_names,
+      cf_options,
+      db->cf_handles,
+      &err );
+  free( cf_options );
   if( err ) {
     fprintf( stderr, "error: rocksdb creation failed: %s\n", err );
     rocksdb_free( err );
@@ -162,24 +230,22 @@ blockstore_create( struct blockstore_db * db,
 
   db->wo = rocksdb_writeoptions_create();
   if( !db->wo ) die( "rocksdb_writeoptions_create failed" );
-
-  for( size_t i=1UL; i<ROCKSDB_CF_CNT; i++ ) {
-    db->cf_handles[i] = rocksdb_create_column_family( db->db, db->opts, rocksdb_cf_names[i], &err );
-    if( err ) {
-      fprintf( stderr, "error: rocksdb_create_column_family(%s) failed: %s\n", rocksdb_cf_names[i], err );
-      rocksdb_free( err );
-      exit( 1 );
-    }
-  }
 }
 
 static void
 blockstore_close( struct blockstore_db * db ) {
-  for( size_t i=0UL; i<ROCKSDB_CF_CNT; i++ ) {
-    if( db->cf_handles[i] ) {
+  for( size_t i=0UL; i<db->cf_cnt; i++ ) {
+    if( db->cf_handles && db->cf_handles[i] ) {
       rocksdb_column_family_handle_destroy( db->cf_handles[i] );
       db->cf_handles[i] = NULL;
     }
+  }
+  free( db->cf_handles );
+  db->cf_handles = NULL;
+
+  if( db->cf_names ) {
+    rocksdb_list_column_families_destroy( db->cf_names, db->cf_cnt );
+    db->cf_names = NULL;
   }
 
   if( db->ro ) {
@@ -204,7 +270,8 @@ static uint64_t
 blockstore_root_slot( struct blockstore_db * db,
                       int                    last,
                       char **                err_out ) {
-  rocksdb_iterator_t * iter = rocksdb_create_iterator_cf( db->db, db->ro, db->cf_handles[ROCKSDB_CFIDX_ROOT] );
+  size_t root_cf_idx = cf_index_of( db, "root" );
+  rocksdb_iterator_t * iter = rocksdb_create_iterator_cf( db->db, db->ro, db->cf_handles[root_cf_idx] );
   if( !iter ) {
     *err_out = "rocksdb_create_iterator_cf(root) failed";
     return 0UL;
@@ -238,18 +305,17 @@ copy_slot_indexed_range( struct blockstore_db * src,
                          size_t                 cf_idx,
                          uint64_t               start_slot,
                          uint64_t               end_slot ) {
-  fprintf( stderr, "copy_slot_indexed_range: %s\n", rocksdb_cf_names[cf_idx] );
+  char const * cf_name = src->cf_names[cf_idx];
+  fprintf( stderr, "copy_slot_indexed_range: %s\n", cf_name );
 
-  if( cf_idx==ROCKSDB_CFIDX_TRANSACTION_MEMOS ||
-      cf_idx==ROCKSDB_CFIDX_TRANSACTION_STATUS ||
-      cf_idx==ROCKSDB_CFIDX_ADDRESS_SIGNATURES ) {
-    fprintf( stderr, "skipping %s because it is not slot indexed\n", rocksdb_cf_names[cf_idx] );
+  if( !cf_is_slot_indexed( cf_name ) ) {
+    fprintf( stderr, "skipping %s because it is not slot indexed\n", cf_name );
     return;
   }
 
   rocksdb_iterator_t * iter = rocksdb_create_iterator_cf( src->db, src->ro, src->cf_handles[cf_idx] );
   if( !iter ) {
-    fprintf( stderr, "error: rocksdb_create_iterator_cf failed for %s\n", rocksdb_cf_names[cf_idx] );
+    fprintf( stderr, "error: rocksdb_create_iterator_cf failed for %s\n", cf_name );
     exit( 1 );
   }
 
@@ -260,7 +326,7 @@ copy_slot_indexed_range( struct blockstore_db * src,
     size_t key_sz = 0UL;
     char const * key = rocksdb_iter_key( iter, &key_sz );
     if( !key || key_sz<sizeof(uint64_t) ) {
-      fprintf( stderr, "error: corrupt RocksDB: invalid key in %s\n", rocksdb_cf_names[cf_idx] );
+      fprintf( stderr, "error: corrupt RocksDB: invalid key in %s\n", cf_name );
       exit( 1 );
     }
 
@@ -274,7 +340,7 @@ copy_slot_indexed_range( struct blockstore_db * src,
     char * err = NULL;
     rocksdb_put_cf( dst->db, dst->wo, dst->cf_handles[cf_idx], key, key_sz, value, value_sz, &err );
     if( err ) {
-      fprintf( stderr, "error: rocksdb_put_cf(%s) failed: %s\n", rocksdb_cf_names[cf_idx], err );
+      fprintf( stderr, "error: rocksdb_put_cf(%s) failed: %s\n", cf_name, err );
       exit( 1 );
     }
   }
@@ -284,7 +350,7 @@ copy_slot_indexed_range( struct blockstore_db * src,
   char * iter_err = NULL;
   rocksdb_iter_get_error( iter, &iter_err );
   if( iter_err ) {
-    fprintf( stderr, "error: iterating %s failed: %s\n", rocksdb_cf_names[cf_idx], iter_err );
+    fprintf( stderr, "error: iterating %s failed: %s\n", cf_name, iter_err );
     exit( 1 );
   }
 
@@ -331,10 +397,10 @@ minify( char const * rocksdb_path,
   }
 
   struct blockstore_db mini_db;
-  blockstore_create( &mini_db, mini_db_dir );
+  blockstore_create( &mini_db, mini_db_dir, &big_db );
 
   fprintf( stderr, "copying RocksDB range [%" PRIu64 ", %" PRIu64 "]\n", start_slot, end_slot );
-  for( size_t cf_idx=1UL; cf_idx<ROCKSDB_CF_CNT; cf_idx++ ) {
+  for( size_t cf_idx=0UL; cf_idx<big_db.cf_cnt; cf_idx++ ) {
     copy_slot_indexed_range( &big_db, &mini_db, cf_idx, start_slot, end_slot );
   }
   fputs( "copied all slot-indexed column families\n", stderr );
@@ -343,18 +409,19 @@ minify( char const * rocksdb_path,
   if( !flush_options ) die( "rocksdb_flushoptions_create failed" );
   rocksdb_flushoptions_set_wait( flush_options, 1 );
 
-  for( size_t i=1UL; i<ROCKSDB_CF_CNT; i++ ) {
+  for( size_t i=0UL; i<mini_db.cf_cnt; i++ ) {
+    if( strcmp( big_db.cf_names[i], "default" )==0 ) continue;
     char * flush_err = NULL;
     rocksdb_flush_cf( mini_db.db, flush_options, mini_db.cf_handles[i], &flush_err );
     if( flush_err ) {
-      fprintf( stderr, "error: flushing minified RocksDB column family %s failed: %s\n", rocksdb_cf_names[i], flush_err );
+      fprintf( stderr, "error: flushing minified RocksDB column family %s failed: %s\n", big_db.cf_names[i], flush_err );
       exit( 1 );
     }
   }
   rocksdb_flushoptions_destroy( flush_options );
 
-  blockstore_close( &big_db );
   blockstore_close( &mini_db );
+  blockstore_close( &big_db );
 }
 
 int

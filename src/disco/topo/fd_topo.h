@@ -113,6 +113,7 @@ struct fd_topo_net_tile {
   ushort repair_client_listen_port;
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
+  ushort votor_quic_client_listen_port;
   ushort votor_quic_server_listen_port;
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
@@ -490,8 +491,8 @@ struct fd_topo_tile {
       ulong heap_size_gib;
       ulong sched_depth;
       ulong max_live_slots;
-      ulong full_snapshot_interval_slots;
-      ulong incremental_snapshot_interval_slots;
+      ulong full_snapshot_interval_blocks;
+      ulong incremental_snapshot_interval_blocks;
 
       /* not specified in TOML */
 
@@ -628,7 +629,9 @@ struct fd_topo_tile {
 
     struct {
       char   identity_key_path[ PATH_MAX ];
+      ushort quic_client_listen_port;
       ushort quic_server_listen_port;
+      uint   ip_addr;
       ulong  max_live_slots;
     } votor;
 

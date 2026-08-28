@@ -52,7 +52,7 @@ fd_cost_tracker_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l,  fd_cost_tracker_align(),  sizeof(cost_tracker_outer_t) );
   l = FD_LAYOUT_APPEND( l,  account_cost_map_align(), account_cost_map_footprint( map_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l,  alignof(account_cost_t),  FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT*sizeof(account_cost_t) );
+  l = FD_LAYOUT_APPEND( l,  alignof(account_cost_t),  FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT*sizeof(account_cost_t) );
   return FD_LAYOUT_FINI( l, fd_cost_tracker_align() );
 }
 
@@ -75,7 +75,7 @@ fd_cost_tracker_new( void * shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   cost_tracker_outer_t * cost_tracker = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_align(),  sizeof(cost_tracker_outer_t) );
   void * _map                         = FD_SCRATCH_ALLOC_APPEND( l, account_cost_map_align(), account_cost_map_footprint( map_chain_cnt ) );
-  void * _accounts                    = FD_SCRATCH_ALLOC_APPEND( l, alignof(account_cost_t),  FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT*sizeof(account_cost_t) );
+  void * _accounts                    = FD_SCRATCH_ALLOC_APPEND( l, alignof(account_cost_t),  FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT*sizeof(account_cost_t) );
 
   account_cost_map_t * map = account_cost_map_join( account_cost_map_new( _map, map_chain_cnt, seed ) );
   FD_TEST( map );
@@ -124,7 +124,6 @@ fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
                       ulong                    slot ) {
   /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4809-L4816 */
   cost_tracker->block_cost_limit   = slot_params->max_block_units;
-  cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
   cost_tracker->account_cost_limit = slot_params->max_writable_account_units;
   cost_tracker->data_size_limit    = slot_params->max_block_accounts_data_size_delta;
 
@@ -137,10 +136,7 @@ fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
 
   if( FD_UNLIKELY( cost_tracker->larger_max_cost_per_block ) ) cost_tracker->block_cost_limit = LARGER_MAX_COST_PER_BLOCK;
 
-  cost_tracker->remove_simple_vote_from_cost_model = FD_FEATURE_ACTIVE( slot, features, remove_simple_vote_from_cost_model );
-
   cost_tracker->block_cost                   = 0UL;
-  cost_tracker->vote_cost                    = 0UL;
   cost_tracker->allocated_accounts_data_size = 0UL;
 
   cost_tracker_outer_t * outer = fd_type_pun( cost_tracker );
@@ -269,11 +265,11 @@ calculate_allocated_accounts_data_size( fd_bank_t * bank, fd_txn_in_t const * tx
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L119-L145 */
 static inline fd_transaction_cost_t
-calculate_non_vote_transaction_cost( fd_bank_t *          bank,
-                                     fd_txn_in_t const *  txn_in,
-                                     fd_txn_out_t const * txn_out,
-                                     uint                 loaded_accounts_data_size_cost,
-                                     uint                 data_bytes_cost ) {
+calculate_transaction_cost( fd_bank_t *          bank,
+                            fd_txn_in_t const *  txn_in,
+                            fd_txn_out_t const * txn_out,
+                            uint                 loaded_accounts_data_size_cost,
+                            uint                 data_bytes_cost ) {
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L128 */
   uint signature_cost = get_signature_cost( txn_in );
@@ -286,7 +282,6 @@ calculate_non_vote_transaction_cost( fd_bank_t *          bank,
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L134-L144 */
   return (fd_transaction_cost_t) {
-    .type = FD_TXN_COST_TYPE_TRANSACTION,
     .transaction = {
       .signature_cost               = signature_cost,
       .write_lock_cost              = write_lock_cost,
@@ -304,40 +299,22 @@ calculate_non_vote_transaction_cost( fd_bank_t *          bank,
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L26-L42 */
 static inline uint
 transaction_cost_sum( fd_transaction_cost_t const * txn_cost ) {
-  switch( txn_cost->type ) {
-    case FD_TXN_COST_TYPE_SIMPLE_VOTE: {
-      /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L38 */
-      return FD_SIMPLE_VOTE_USAGE_COST;
-    }
-    case FD_TXN_COST_TYPE_TRANSACTION: {
-      /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L164-L171 */
-      fd_usage_cost_details_t const * usage_cost = &txn_cost->transaction;
-      uint                            cost       = 0U;
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L164-L171 */
+  fd_usage_cost_details_t const * usage_cost = &txn_cost->transaction;
+  uint                            cost       = 0U;
 
-      cost = fd_uint_sat_add( cost, usage_cost->signature_cost );
-      cost = fd_uint_sat_add( cost, usage_cost->write_lock_cost );
-      cost = fd_uint_sat_add( cost, usage_cost->data_bytes_cost );
-      cost = fd_uint_sat_add( cost, usage_cost->programs_execution_cost );
-      cost = fd_uint_sat_add( cost, usage_cost->loaded_accounts_data_size_cost );
+  cost = fd_uint_sat_add( cost, usage_cost->signature_cost );
+  cost = fd_uint_sat_add( cost, usage_cost->write_lock_cost );
+  cost = fd_uint_sat_add( cost, usage_cost->data_bytes_cost );
+  cost = fd_uint_sat_add( cost, usage_cost->programs_execution_cost );
+  cost = fd_uint_sat_add( cost, usage_cost->loaded_accounts_data_size_cost );
 
-      return cost;
-    }
-    default: {
-      FD_LOG_CRIT(( "unexpected transaction cost type %u", txn_cost->type ));
-    }
-  }
+  return cost;
 }
 
 static inline ulong
 get_allocated_accounts_data_size( fd_transaction_cost_t const * txn_cost ) {
-  switch( txn_cost->type ) {
-  case FD_TXN_COST_TYPE_SIMPLE_VOTE:
-    return 0UL;
-  case FD_TXN_COST_TYPE_TRANSACTION:
-    return txn_cost->transaction.allocated_accounts_data_size;
-  default:
-    FD_LOG_CRIT(( "unexpected transaction cost type %u", txn_cost->type ));
-  }
+  return txn_cost->transaction.allocated_accounts_data_size;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L277-L322 */
@@ -348,13 +325,6 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L281 */
   uint cost = transaction_cost_sum( tx_cost );
-
-  /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L283-L288 */
-  if( FD_UNLIKELY( txn_out->details.is_simple_vote && !cost_tracker->remove_simple_vote_from_cost_model ) ) {
-    if( FD_UNLIKELY( fd_ulong_sat_add( cost_tracker->vote_cost, cost )>cost_tracker->vote_cost_limit ) ) {
-      return FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT;
-    }
-  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L290-L293 */
   if( FD_UNLIKELY( fd_ulong_sat_add( cost_tracker->block_cost, cost )>cost_tracker->block_cost_limit ) ) {
@@ -410,7 +380,7 @@ add_transaction_execution_cost( fd_cost_tracker_t * _cost_tracker,
 
     account_cost_t * account_cost = account_cost_map_ele_query( map, writable_acc, NULL, pool );
     if( FD_UNLIKELY( !account_cost ) ) {
-      FD_TEST( cost_tracker->accounts_used<FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
+      FD_TEST( cost_tracker->accounts_used<FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT );
 
       account_cost = pool+cost_tracker->accounts_used;
       cost_tracker->accounts_used++;
@@ -425,9 +395,6 @@ add_transaction_execution_cost( fd_cost_tracker_t * _cost_tracker,
   }
 
   cost_tracker->cost_tracker->block_cost = fd_ulong_sat_add( cost_tracker->cost_tracker->block_cost, adjustment );
-  if( FD_UNLIKELY( txn_out->details.is_simple_vote && !cost_tracker->cost_tracker->remove_simple_vote_from_cost_model ) ) {
-    cost_tracker->cost_tracker->vote_cost = fd_ulong_sat_add( cost_tracker->cost_tracker->vote_cost, adjustment );
-  }
 }
 
 
@@ -446,21 +413,15 @@ void
 fd_cost_tracker_calculate_cost( fd_bank_t *         bank,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/cost-model/src/cost_model.rs#L83-L85 */
   fd_transaction_cost_t * txn_cost = &txn_out->details.txn_cost;
-  if( txn_out->details.is_simple_vote &&
-      !FD_FEATURE_ACTIVE_BANK( bank, remove_simple_vote_from_cost_model ) ) {
-    txn_cost->type = FD_TXN_COST_TYPE_SIMPLE_VOTE;
-  } else {
-    /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L78-L81 */
-    uint loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_out );
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L78-L81 */
+  uint loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_out );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L82-L83 */
-    uint instructions_data_cost = get_instructions_data_cost( txn_in );
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L82-L83 */
+  uint instructions_data_cost = get_instructions_data_cost( txn_in );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L85-L93 */
-    *txn_cost = calculate_non_vote_transaction_cost( bank, txn_in, txn_out, loaded_accounts_data_size_cost, instructions_data_cost );
-  }
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L85-L93 */
+  *txn_cost = calculate_transaction_cost( bank, txn_in, txn_out, loaded_accounts_data_size_cost, instructions_data_cost );
 }
 
 int

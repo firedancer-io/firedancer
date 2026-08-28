@@ -57,6 +57,7 @@ get_ports( fd_config_t const * config,
     ADD_PORT( config->tiles.rserve.repair_serve_listen_port    );
     ADD_PORT( config->tiles.txsend.txsend_src_port             );
     if( config->firedancer.development.alpenglow ) {
+      ADD_PORT( config->firedancer.development.votor.quic_client_listen_port );
       ADD_PORT( config->firedancer.development.votor.quic_server_listen_port );
     }
   }
@@ -172,10 +173,14 @@ init_device( char const *        device,
     int gre_ntuple_error = 0;
     if( listen_gre ) gre_ntuple_error = fd_ethtool_ioctl_ntuple_set_gre( &ioc, rule_idx++, 0U );
     if( FD_UNLIKELY( gre_ntuple_error ) ) {
-      FD_LOG_ERR(( "error configuring network device (%s), failed to install ntuple rule "
-                   "to route GRE packets to Firedancer.  If you require GRE-wrapped "
-                   "traffic (e.g. with DoubleZero), set `net.xdp.rss_queue_mode=\"simple\"`.  "
-                   "Otherwise, set `net.xdp.listen_gre=false`.", device ));
+      if( strict ) {
+        FD_LOG_ERR(( "error configuring network device (%s), failed to install ntuple rule "
+                     "to route GRE packets to Firedancer.  If you require GRE-wrapped "
+                     "traffic (e.g. with DoubleZero), set `net.xdp.rss_queue_mode=\"simple\"`.  "
+                     "Otherwise, set `net.xdp.listen_gre=false`.", device ));
+      } else {
+        return 1;
+      }
     }
   }
 
@@ -421,14 +426,23 @@ fini_device( char const * device ) {
   /* This should happen first, otherwise changing the number of channels may fail */
   error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
 
-  error |= (0!=fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ ));
+  int channels_error = fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ );
+  error |= (0!=channels_error);
 
   /* Some drivers (i40e) do not always evenly redistribute the RXFH table
      when increasing the channel count, so we run this again just in case. */
   error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
 
-  if( FD_UNLIKELY( error ) )
-    FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state", device ));
+  if( FD_UNLIKELY( error ) ) {
+    if( FD_LIKELY( channels_error==EBUSY ) )
+      FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state. "
+                   "This is most commonly caused by an issue with the Intel ice driver on certain versions "
+                   "of Ubuntu.  If you are using the ice driver, `sudo dmesg | grep %s` contains "
+                   "messages about RDMA, and you do not need RDMA, try running `rmmod irdma` and/or "
+                   "blacklisting the irdma kernel module.", device, device ));
+    else
+      FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state", device ));
+  }
 
   fd_ethtool_ioctl_channels_t channels_new;
   error |= (0!=fd_ethtool_ioctl_channels_get_num( &ioc, &channels_new ));

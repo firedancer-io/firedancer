@@ -27,6 +27,8 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
+#include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/base64/fd_base64.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../third_party/cjson/cJSON_alloc.h"
@@ -107,13 +109,6 @@ typedef struct {
   ulong in_cnt;
   ulong idle_cnt;
 
-  /* Most of the gui tile uses fd_clock for timing, but some stem
-     timestamps still used tickcounts, so we keep separate timestamps
-     here to handle those cases until fd_clock is more widely adopted. */
-  long ref_wallclock;
-  long ref_tickcount;
-  double tick_per_ns;
-
   fd_clock_tile_t clock[1];
 
   ulong chunk;
@@ -134,7 +129,10 @@ typedef struct {
 
   fd_http_server_t * gui_server;
 
-  long next_poll_deadline;
+  char index_html_etag[ 3 ][ 24 ]; /* plain, zstd, gzip */
+  char index_html_link[ 1024 ];
+
+  long next_poll_nanos;
 
   fd_keyswitch_t * keyswitch;
   uchar const *    identity_key;
@@ -183,9 +181,6 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static inline void
 during_housekeeping( fd_gui_ctx_t * ctx ) {
-  ctx->ref_wallclock = fd_log_wallclock();
-  ctx->ref_tickcount = fd_tickcount();
-
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
     fd_clock_tile_recal( ctx->clock );
   }
@@ -264,15 +259,15 @@ before_credit( fd_gui_ctx_t *      ctx,
   ctx->idle_cnt = 0UL;
 
   int charge_busy_server = 0;
-  long now = fd_tickcount();
-  if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
+  long now = fd_clock_tile_now( ctx->clock );
+  if( FD_UNLIKELY( now>=ctx->next_poll_nanos ) ) {
     charge_busy_server = fd_http_server_poll( ctx->gui_server, 0, 1UL );
-    ctx->next_poll_deadline = fd_tickcount() + (long)(ctx->tick_per_ns * 128L * 1000L);
+    ctx->next_poll_nanos = fd_clock_tile_now( ctx->clock ) + 128L*1000L;
   }
 
   int charge_poll = 0;
-  charge_poll |= fd_gui_poll( ctx->gui, fd_clock_tile_now( ctx->clock ) );
-  charge_poll |= fd_gui_peers_poll( ctx->peers, fd_clock_tile_now( ctx->clock ) );
+  charge_poll |= fd_gui_poll( ctx->gui, now );
+  charge_poll |= fd_gui_peers_poll( ctx->peers, now );
 
   *charge_busy = charge_busy_server | charge_poll;
 }
@@ -387,9 +382,8 @@ after_frag( fd_gui_ctx_t *      ctx,
       if( FD_LIKELY( sig>>32==FD_EXECRP_TT_TXN_EXEC ) ) {
         fd_execrp_task_done_msg_t * msg = (fd_execrp_task_done_msg_t *)src;
 
-        long tickcount = fd_tickcount();
-        long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, tickcount ) - ctx->ref_tickcount) / ctx->tick_per_ns);
-        long tspub_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, tickcount ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+        long tsorig_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
+        long tspub_ns  = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub  );
         fd_gui_handle_exec_txn_done( ctx->gui, msg->txn_exec->slot, msg->txn_exec->start_shred_idx, msg->txn_exec->end_shred_idx, tsorig_ns, tspub_ns, fd_clock_tile_now( ctx->clock ) );
 
         int txn_succeeded = msg->txn_exec->is_committable && !msg->txn_exec->is_fees_only && !msg->txn_exec->txn_err;
@@ -456,7 +450,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_SHRED_OUT: {
-      long tsorig_nanos = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+      long tsorig_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
       uint sig_src      = fd_shred_sig_src( sig );
       if( FD_LIKELY( sig_src==SHRED_SIG_SRC_TURBINE || sig_src==SHRED_SIG_SRC_REPAIR || sig_src==SHRED_SIG_SRC_BAD_REPAIR ) ) {
         fd_shred_base_t const * msg = (fd_shred_base_t const *)fd_type_pun_const( src );
@@ -483,7 +477,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_REPAIR_NET: {
       if( FD_UNLIKELY( ctx->parsed.repair_net.slot==ULONG_MAX ) ) break;
-      long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+      long tsorig_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
       fd_gui_handle_repair_request( ctx->gui, ctx->parsed.repair_net.slot, ctx->parsed.repair_net.shred_idx, tsorig_ns );
       break;
     }
@@ -532,7 +526,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
         fd_microblock_execle_trailer_t trailer[1];
         fd_memcpy( trailer, src+sz-sizeof(fd_microblock_execle_trailer_t), sizeof(fd_microblock_execle_trailer_t) );
-        long tspub_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+        long tspub_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
         fd_gui_microblock_execution_begin( ctx->gui,
                                           tspub_ns,
                                           fd_disco_poh_sig_slot( sig ),
@@ -553,7 +547,7 @@ after_frag( fd_gui_ctx_t *      ctx,
 
       fd_microblock_trailer_t trailer[1];
       fd_memcpy( trailer, src+sz-sizeof(fd_microblock_trailer_t), sizeof(fd_microblock_trailer_t) );
-      long tspub_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+      long tspub_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
       ulong txn_cnt = (sz-sizeof( fd_microblock_trailer_t ))/sizeof(fd_txn_p_t);
       fd_gui_microblock_execution_end( ctx->gui,
                                       tspub_ns,
@@ -634,6 +628,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
       .static_body       = firedancer_svg,
       .static_body_len   = firedancer_svg_sz,
       .content_type      = "image/svg+xml",
+      .cache_control     = "public, max-age=86400",
       .upgrade_websocket = 0,
     };
   }
@@ -662,11 +657,13 @@ gui_http_request( fd_http_server_request_t const * request ) {
         else if( !strcmp( ext, ".svg" ) ) content_type = "image/svg+xml";
         else if( !strcmp( ext, ".woff" ) ) content_type = "font/woff";
         else if( !strcmp( ext, ".woff2" ) ) content_type = "font/woff2";
+        else if( !strcmp( ext, ".wasm" ) ) content_type = "application/wasm";
       }
 
       char const * cache_control = NULL;
       if( FD_LIKELY( !strncmp( request->path, "/assets", 7 ) ) ) cache_control = "public, max-age=31536000, immutable";
       else if( FD_LIKELY( !strcmp( f->name, "/index.html" ) ) )  cache_control = "no-cache";
+      else if( FD_UNLIKELY( !strcmp( f->name, "/version" ) ) )   cache_control = "no-cache";
 
       const uchar * data = f->data;
       ulong data_len = *(f->data_len);
@@ -682,14 +679,33 @@ gui_http_request( fd_http_server_request_t const * request ) {
       }
 
       char const * content_encoding = NULL;
+      ulong enc_idx = 0UL;
       if( FD_LIKELY( accepts_zstd && f->zstd_data ) ) {
         content_encoding = "zstd";
         data = f->zstd_data;
         data_len = *(f->zstd_data_len);
+        enc_idx = 1UL;
       } else if( FD_LIKELY( accepts_gzip && f->gzip_data ) ) {
         content_encoding = "gzip";
         data = f->gzip_data;
         data_len = *(f->gzip_data_len);
+        enc_idx = 2UL;
+      }
+
+      char const * etag = NULL;
+      char const * link = NULL;
+      if( FD_LIKELY( !strcmp( f->name, "/index.html" ) ) ) {
+        fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)request->ctx;
+        etag = ctx->index_html_etag[ enc_idx ];
+        link = ctx->index_html_link[ 0 ] ? ctx->index_html_link : NULL;
+        if( FD_UNLIKELY( fd_http_server_etag_matches( request->headers.if_none_match, etag ) ) ) {
+          return (fd_http_server_response_t){
+            .status        = 304,
+            .cache_control = cache_control,
+            .etag          = etag,
+            .link          = link,
+          };
+        }
       }
 
       return (fd_http_server_response_t){
@@ -699,6 +715,8 @@ gui_http_request( fd_http_server_request_t const * request ) {
         .content_type      = content_type,
         .cache_control     = cache_control,
         .content_encoding  = content_encoding,
+        .etag              = etag,
+        .link              = link,
         .upgrade_websocket = 0,
       };
     }
@@ -786,6 +804,15 @@ privileged_init( fd_topo_t const *      topo,
   }
 }
 
+static int
+index_html_refs( fd_http_static_file_t const * html,
+                 char const *                  name ) {
+  ulong name_len = strlen( name );
+  if( FD_UNLIKELY( name_len>*(html->data_len) ) ) return 0;
+  for( ulong i=0UL; i<=*(html->data_len)-name_len; i++ ) if( FD_UNLIKELY( !memcmp( html->data+i, name, name_len ) ) ) return 1;
+  return 0;
+}
+
 static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
@@ -800,6 +827,72 @@ unprivileged_init( fd_topo_t const *      topo,
                        FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
 
+  fd_http_static_file_t const * index_html = NULL;
+  for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
+    if( FD_UNLIKELY( !strcmp( f->name, "/index.html" ) ) ) index_html = f;
+  }
+  FD_TEST( index_html );
+
+  {
+    fd_http_static_file_t const * f = index_html;
+    uchar hash[ 32 ];
+    uchar const * rep_data[ 3 ]     = { f->data,     f->zstd_data,     f->gzip_data     };
+    ulong const * rep_data_len[ 3 ] = { f->data_len, f->zstd_data_len, f->gzip_data_len };
+    for( ulong e=0UL; e<3UL; e++ ) {
+      ctx->index_html_etag[ e ][ 0 ] = '\0';
+      if( FD_UNLIKELY( !rep_data[ e ] ) ) continue;
+      fd_sha256_hash( rep_data[ e ], *(rep_data_len[ e ]), hash );
+      char b64[ FD_BASE64_ENC_SZ( 9UL )+1UL ];
+      b64[ fd_base64_encode( b64, hash, 9UL ) ] = '\0';
+      FD_TEST( fd_cstr_printf_check( ctx->index_html_etag[ e ], sizeof(ctx->index_html_etag[ e ]), NULL, "\"%s\"", b64 ) );
+    }
+  }
+
+  char const * preload_js     = NULL;
+  char const * preload_css    = NULL;
+  char const * preload_worker = NULL;
+  char const * preload_wasm   = NULL;
+  char const * split_js[ 16 ];
+  ulong        split_js_cnt   = 0UL;
+  for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
+    char const * ext = strrchr( f->name, '.' );
+    if( FD_UNLIKELY( !ext ) ) continue;
+    if( FD_UNLIKELY( !strncmp( f->name, "/assets/index-", 14UL ) ) ) {
+      if( !strcmp( ext, ".js" ) ) {
+        if( FD_UNLIKELY( index_html_refs( index_html, f->name ) ) )                              preload_js = f->name;
+        else if( FD_LIKELY( split_js_cnt<sizeof(split_js)/sizeof(split_js[ 0 ]) ) )              split_js[ split_js_cnt++ ] = f->name;
+      }
+      else if( !strcmp( ext, ".css" ) && index_html_refs( index_html, f->name ) )                preload_css = f->name;
+    }
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/wsWorker-", 17UL ) && !strcmp( ext, ".js"   ) ) ) preload_worker = f->name;
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/zstd-dec-", 17UL ) && !strcmp( ext, ".wasm" ) ) ) preload_wasm   = f->name;
+    else if( FD_UNLIKELY( !strncmp( f->name, "/assets/UplotReact-", 19UL ) && !strcmp( ext, ".js" ) &&
+                          split_js_cnt<sizeof(split_js)/sizeof(split_js[ 0 ]) ) )                split_js[ split_js_cnt++ ] = f->name;
+  }
+
+  ctx->index_html_link[ 0 ] = '\0';
+  ulong off = 0UL, sz;
+  if( FD_LIKELY( preload_js ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=modulepreload", off ? ", " : "", preload_js ) );
+    off += sz;
+  }
+  if( FD_LIKELY( preload_css ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=preload; as=style; crossorigin", off ? ", " : "", preload_css ) );
+    off += sz;
+  }
+  if( FD_LIKELY( preload_worker ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=preload; as=worker", off ? ", " : "", preload_worker ) );
+    off += sz;
+  }
+  if( FD_LIKELY( preload_wasm ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=preload; as=fetch; crossorigin", off ? ", " : "", preload_wasm ) );
+    off += sz;
+  }
+  for( ulong i=0UL; i<split_js_cnt; i++ ) {
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_link+off, sizeof(ctx->index_html_link)-off, &sz, "%s<%s>; rel=modulepreload", off ? ", " : "", split_js[ i ] ) );
+    off += sz;
+  }
+
   /* The backtest topology has no repair tile (the backt tile stands in
      for repair and tower), but it is still the full Firedancer client. */
   ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "repair", 0UL ) ||
@@ -807,10 +900,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snapct", 0UL );
 
   fd_clock_tile_init( ctx->clock );
-
-  ctx->ref_wallclock = fd_log_wallclock();
-  ctx->ref_tickcount = fd_tickcount();
-  ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
 
   ctx->topo = topo;
   ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, ctx->seed, fd_clock_tile_now( ctx->clock ) ) );
@@ -837,7 +926,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( alloc );
   cJSON_alloc_install( alloc );
 
-  ctx->next_poll_deadline = fd_tickcount();
+  ctx->next_poll_nanos = fd_clock_tile_now( ctx->clock );
 
   ctx->idle_cnt = 0UL;
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );

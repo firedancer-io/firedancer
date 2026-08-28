@@ -9,11 +9,13 @@ static fd_config_t config[1];
 static void
 reset_auto( uint net_tile_cnt ) {
   memset( config, 0, sizeof(fd_config_t) );
-  strcpy( config->net.provider,      "xdp"  );
-  strcpy( config->net.xdp.xdp_mode,  "auto" );
-  strcpy( config->net.xdp.poll_mode, "auto" );
+  strcpy( config->net.provider,           "xdp"  );
+  strcpy( config->net.xdp.xdp_mode,       "auto" );
+  strcpy( config->net.xdp.poll_mode,      "auto" );
+  strcpy( config->net.xdp.rss_queue_mode, "auto" );
   config->net.xdp.xdp_zero_copy = 2;
   config->net.xdp.native_bond   = 2;
+  config->net.xdp.listen_gre    = 2;
   config->layout.net_tile_count = net_tile_cnt;
 }
 
@@ -29,8 +31,10 @@ main( int     argc,
   fd_auto_net( config, &info1 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "drv"      ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "prefbusy" ) );
+  FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
   FD_TEST( config->net.xdp.xdp_zero_copy==1 );
   FD_TEST( config->net.xdp.native_bond  ==0 );
+  FD_TEST( config->net.xdp.listen_gre   ==0 );
 
   /* Unsupported NIC falls back to safe defaults */
 
@@ -39,8 +43,36 @@ main( int     argc,
   fd_auto_net( config, &info2 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "skb"     ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "softirq" ) );
+  FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
   FD_TEST( config->net.xdp.xdp_zero_copy==0 );
   FD_TEST( config->net.xdp.native_bond  ==0 );
+  FD_TEST( config->net.xdp.listen_gre   ==0 );
+
+  /* An UP GRE interface enables GRE.  mlx5 supports GRE ntuple
+     rules while an unsupported driver falls back to simple queue mode. */
+
+  reset_auto( 1U );
+  fd_auto_info_t info_gre_mlx5 = info1;
+  info_gre_mlx5.is_using_gre = 1;
+  fd_auto_net( config, &info_gre_mlx5 );
+  FD_TEST( config->net.xdp.listen_gre==1 );
+  FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
+
+  reset_auto( 1U );
+  fd_auto_info_t info_gre_ixgbe = info2;
+  info_gre_ixgbe.is_using_gre = 1;
+  fd_auto_net( config, &info_gre_ixgbe );
+  FD_TEST( config->net.xdp.listen_gre==1 );
+  FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "simple" ) );
+
+  /* Explicit values are not changed by auto configuration. */
+
+  reset_auto( 1U );
+  config->net.xdp.listen_gre = 0;
+  strcpy( config->net.xdp.rss_queue_mode, "dedicated" );
+  fd_auto_net( config, &info_gre_mlx5 );
+  FD_TEST( config->net.xdp.listen_gre==0 );
+  FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) );
 
   /* Supported NIC on an old kernel falls back to safe defaults */
 
@@ -50,8 +82,10 @@ main( int     argc,
   fd_auto_net( config, &info3 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "skb"     ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "softirq" ) );
+  FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
   FD_TEST( config->net.xdp.xdp_zero_copy==0 );
   FD_TEST( config->net.xdp.native_bond  ==0 );
+  FD_TEST( config->net.xdp.listen_gre   ==0 );
 
   /* Bonded mlx5 on a recent kernel enables native bond and drv */
 
@@ -62,7 +96,9 @@ main( int     argc,
   fd_auto_net( config, &info4 );
   FD_TEST( config->net.xdp.native_bond==1 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode, "drv" ) );
+  FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
   FD_TEST( config->net.xdp.xdp_zero_copy==1 );
+  FD_TEST( config->net.xdp.listen_gre==0 );
 
   /* Non XDP provider still collapses "auto" fields to defaults */
 
@@ -71,8 +107,10 @@ main( int     argc,
   fd_auto_net( config, &info1 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "skb"     ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "softirq" ) );
+  FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "simple" ) );
   FD_TEST( config->net.xdp.xdp_zero_copy==0 );
   FD_TEST( config->net.xdp.native_bond  ==0 );
+  FD_TEST( config->net.xdp.listen_gre   ==0 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -708,23 +708,12 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
   return 0;
 }
 
-/* Returns the length of the given epoch in slots
-
-   https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_schedule.rs#L103 */
-static ulong
-get_slots_in_epoch( ulong                       epoch,
-                    fd_epoch_schedule_t const * epoch_schedule ) {
-  return epoch < epoch_schedule->first_normal_epoch ?
-         1UL << fd_ulong_sat_add( epoch, FD_EPOCH_LEN_MIN_TRAILING_ZERO ) :
-         epoch_schedule->slots_per_epoch;
-}
-
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L2082 */
 static double
 epoch_duration_in_years( fd_bank_t const * bank,
                          ulong             prev_epoch ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  ulong                       slots_in_epoch = get_slots_in_epoch( prev_epoch, epoch_schedule );
+  ulong                       slots_in_epoch = fd_epoch_slot_cnt( epoch_schedule, prev_epoch );
   double                      slots_per_year = fd_slot_params_at_slot( bank,
                                                                        fd_epoch_slot0( epoch_schedule, prev_epoch ) ).slots_per_year;
   return (double)slots_in_epoch / slots_per_year;
@@ -1866,7 +1855,7 @@ fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong                       epoch          = bank->f.epoch;
 
-  if( FD_UNLIKELY( get_slots_in_epoch( epoch, epoch_schedule ) <= fd_stake_rewards_num_partitions( stake_rewards, bank->stake_rewards_fork_id ) ) ) {
+  if( FD_UNLIKELY( fd_epoch_slot_cnt( epoch_schedule, epoch ) <= fd_stake_rewards_num_partitions( stake_rewards, bank->stake_rewards_fork_id ) ) ) {
     FD_LOG_CRIT(( "Should not be distributing rewards" ));
   }
 

@@ -6,6 +6,7 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../third_party/cjson/cJSON.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -284,7 +285,8 @@ struct fd_rpc_tile {
 
   fd_alloc_t * bz2_alloc;
 
-  long  next_poll_deadline;
+  fd_clock_tile_t clock[1];
+  long  next_poll_nanos;
   ulong in_cnt;
   ulong idle_cnt;
 
@@ -485,6 +487,10 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static inline void
 during_housekeeping( fd_rpc_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
+  }
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -511,11 +517,11 @@ before_credit( fd_rpc_tile_t *     ctx,
   if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
   ctx->idle_cnt = 0UL;
 
-  long now = fd_tickcount();
+  long now = fd_clock_tile_now( ctx->clock );
   int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
-  if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_deadline ) ) {
+  if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_nanos ) ) {
     *charge_busy = fd_http_server_poll( ctx->http, 0, 1UL );
-    ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL )*128L*1000L);
+    ctx->next_poll_nanos = fd_clock_tile_now( ctx->clock ) + 128L*1000L;
   }
 }
 
@@ -1847,6 +1853,11 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), id_cstr );
   }
+  if( FD_UNLIKELY( acct_sz->valuedouble>(double)FD_RUNTIME_ACC_SZ_MAX ) ) {
+    CSTR_JSON( id, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
+  }
+  ulong acct_sz_value = (ulong)acct_sz->valuedouble;
 
   bank_info_t const * bank = &ctx->banks[ bank_idx ];
 
@@ -1855,7 +1866,7 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
     .exemption_threshold = bank->rent.exemption_threshold,
     .burn_percent = bank->rent.burn_percent,
   };
-  ulong minimum = fd_rent_exempt_minimum_balance( &rent, acct_sz->valueulong );
+  ulong minimum = fd_rent_exempt_minimum_balance( &rent, acct_sz_value );
   CSTR_JSON( id, id_cstr );
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", minimum, id_cstr );
 }
@@ -2520,9 +2531,10 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_CHECK_ERR( ctx->zstd_cctx, "ZSTD_initStaticCCtx failed" );
 # endif
 
-  ctx->next_poll_deadline = fd_tickcount();
-  ctx->in_cnt             = tile->in_cnt;
-  ctx->idle_cnt           = 0UL;
+  fd_clock_tile_init( ctx->clock );
+  ctx->next_poll_nanos = fd_clock_tile_now( ctx->clock );
+  ctx->in_cnt          = tile->in_cnt;
+  ctx->idle_cnt        = 0UL;
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
   ctx->genesis_max_message_size = tile->rpc.genesis_max_message_size;

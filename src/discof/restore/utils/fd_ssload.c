@@ -25,6 +25,11 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
 
+  if( FD_UNLIKELY( !manifest->ticks_per_slot ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: ticks_per_slot must be non-zero" ));
+    return -1;
+  }
+
   /* slots_per_epoch must be at least FD_EPOCH_LEN_MIN, so that
      fd_slot_to_epoch and related functions produce valid data.
      This check must come before any epoch computation. */

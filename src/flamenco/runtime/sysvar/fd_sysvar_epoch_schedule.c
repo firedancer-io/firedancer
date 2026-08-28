@@ -71,7 +71,7 @@ ulong
 fd_epoch_slot0( fd_epoch_schedule_t const * schedule,
                 ulong                       epoch ) {
   if( FD_UNLIKELY( epoch <= schedule->first_normal_epoch ) ) {
-    ulong power = fd_ulong_if( epoch<64UL, 1UL<<epoch, ULONG_MAX );
+    ulong power = epoch<64UL ? 1UL<<epoch : ULONG_MAX;
     return fd_ulong_sat_mul( power-1UL, FD_EPOCH_LEN_MIN );
   }
 

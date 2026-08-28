@@ -448,8 +448,8 @@ test_prune( void ) {
     ag_parent_ready_state_map_t *             map  = tracker->states.map;
     ag_parent_ready_state_t * pool = tracker->states.pool;
     for( ag_parent_ready_state_map_iter_t iter = ag_parent_ready_state_map_iter_init( map, pool );
-         !ag_parent_ready_state_map_iter_done( iter, map, pool );
-         iter = ag_parent_ready_state_map_iter_next( iter, map, pool ) ) {
+                                                !ag_parent_ready_state_map_iter_done( iter, map, pool );
+                                          iter = ag_parent_ready_state_map_iter_next( iter, map, pool ) ) {
       ag_parent_ready_state_t const * ele = ag_parent_ready_state_map_iter_ele_const( iter, map, pool );
       if( ele->slot <  new_root ) below = 1;
       if( ele->slot == new_root ) at    = 1;
@@ -465,8 +465,8 @@ test_prune( void ) {
     ag_parent_ready_state_map_t *             map  = tracker->states.map;
     ag_parent_ready_state_t * pool = tracker->states.pool;
     for( ag_parent_ready_state_map_iter_t iter = ag_parent_ready_state_map_iter_init( map, pool );
-         !ag_parent_ready_state_map_iter_done( iter, map, pool );
-         iter = ag_parent_ready_state_map_iter_next( iter, map, pool ) ) {
+                                                !ag_parent_ready_state_map_iter_done( iter, map, pool );
+                                          iter = ag_parent_ready_state_map_iter_next( iter, map, pool ) ) {
       ag_parent_ready_state_t const * ele = ag_parent_ready_state_map_iter_ele_const( iter, map, pool );
       if( ele->slot <  new_root ) all_ge = 0;
       if( ele->slot == new_root ) at     = 1;
@@ -477,6 +477,47 @@ test_prune( void ) {
   FD_TEST( tracker->root==new_root );
 
   teardown_tracker( tracker );
+}
+
+/* On a slot tie the lowest hash wins, matching agave's
+   parents_ready.iter().min() over Block{slot,block_id}. */
+
+static void
+test_wait_tie_break( void ) {
+  ag_parent_ready_state_t state[1];
+  state_init( state, 8UL );
+  state->is_ready = 1;
+
+  ag_block_id_t hi = { .slot = 8UL };  fd_memset( hi.hash, 0xee, sizeof(ag_block_hash_t) );
+  ag_block_id_t lo = { .slot = 8UL };  fd_memset( lo.hash, 0x11, sizeof(ag_block_hash_t) );
+
+  /* higher hash first */
+  state->ready_ids[ 0 ] = hi;
+  state->ready_ids[ 1 ] = lo;
+  state->ready_id_cnt   = 2UL;
+  FD_TEST( !memcmp( wait_for_parent_ready( state ).hash, lo.hash, sizeof(ag_block_hash_t) ) );
+
+  /* lower hash first */
+  state->ready_ids[ 0 ] = lo;
+  state->ready_ids[ 1 ] = hi;
+  FD_TEST( !memcmp( wait_for_parent_ready( state ).hash, lo.hash, sizeof(ag_block_hash_t) ) );
+
+  /* a lower slot still wins regardless of hash */
+  ag_block_id_t older = { .slot = 4UL }; fd_memset( older.hash, 0xff, sizeof(ag_block_hash_t) );
+  state->ready_ids[ 0 ] = lo;
+  state->ready_ids[ 1 ] = older;
+  FD_TEST( wait_for_parent_ready( state ).slot==4UL );
+}
+
+/* Querying an unseen slot must not acquire a pool element. */
+
+static void
+test_wait_does_not_allocate( void ) {
+  ag_parent_ready_tracker_t * tracker = setup_tracker( TEST_SLOT_MAX );
+
+  ulong free_before = ag_parent_ready_state_pool_free( tracker->states.pool );
+  FD_TEST( ag_parent_ready_tracker_wait_for_parent_ready( tracker, 12345UL ).slot==ULONG_MAX );
+  FD_TEST( ag_parent_ready_state_pool_free( tracker->states.pool )==free_before );
 }
 
 int
@@ -496,6 +537,8 @@ main( int     argc,
   test_no_double_counting_skip_chain();
   test_no_double_counting_notar_and_skip();
   test_wait_for_parent_ready();
+  test_wait_tie_break();
+  test_wait_does_not_allocate();
   test_parent_ready_finalized();
   test_prune();
 

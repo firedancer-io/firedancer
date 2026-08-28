@@ -50,9 +50,8 @@ get_identity_cmd_fn( args_t *   args,
       break;
     }
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
-    case FD_GET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL:
-    case FD_GET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION:
-    case FD_GET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE:
+    case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
+    case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
       FD_LOG_ERR(( "Failed to get identity: the command was not able to successfully communicate "
                    "with the running Firedancer process. It is possible that you are running the "
                    "command from an older or newer version of Firedancer that is no longer compatible." ));

@@ -68,8 +68,8 @@ min_live_slot( ag_votor_t const * votor ) {
   slot_state_ele_t const * ele = votor->slot_states->pool;
   ulong min = ULONG_MAX;
   for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, ele );
-       !slot_state_map_iter_done( iter, map, ele );
-       iter = slot_state_map_iter_next( iter, map, ele ) ) {
+                                   !slot_state_map_iter_done( iter, map, ele );
+                             iter = slot_state_map_iter_next( iter, map, ele ) ) {
     min = fd_ulong_min( min, slot_state_map_iter_ele_const( iter, map, ele )->slot );
   }
   return min;
@@ -194,8 +194,7 @@ test_notar_and_final( void ) {
   ag_vote_t vote = send_block_and_expect_notar( votor, slot, &parent );
 
   /* vote finalize after seeing branch-certified */
-  ag_cert_t cert; cert.kind = AG_CERT_KIND_NOTAR;
-  cert.inner.notar = ag_notar_cert_construct( &vote.inner.notar, 1UL, g_epoch_info );
+  ag_cert_t cert = ag_cert_construct_notar( &vote.notar, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
 
@@ -315,7 +314,7 @@ test_safe_to_notar( void ) {
   ag_vote_t msg = recv( votor );
   FD_TEST( msg.kind==AG_VOTE_KIND_NOTAR_FALLBACK );
   FD_TEST( ag_vote_slot( &msg )==block.slot );
-  FD_TEST( !memcmp( ag_vote_block_hash( &msg ), block.hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( !memcmp( ag_vote_notar_fallback_block_hash( &msg.notar_fallback ), block.hash, sizeof(ag_block_hash_t) ) );
 
   teardown_votor( votor );
 }
@@ -366,9 +365,8 @@ test_prunes_to_finalized_window( void ) {
 
   /* finalizing a mid-window slot should drop only the slots before its
      window */
-  ag_final_vote_t fv; ag_final_vote_new( &fv, finalized, g_sk[1], (ushort)1, TEST_SHRED_VERSION );
-  ag_cert_t cert; cert.kind = AG_CERT_KIND_FINAL;
-  cert.inner.final = ag_final_cert_construct( &fv, 1UL, g_epoch_info );
+  ag_vote_t fv; fv = ag_vote_construct_final( finalized, g_sk[1], (ushort)1, TEST_SHRED_VERSION );
+  ag_cert_t cert = ag_cert_construct_final( &fv.final, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
   FD_TEST( votor->highest_final_cert_slot==finalized );

@@ -158,6 +158,7 @@ static char const * const jw_reported_keys[] = {
   "net.xdp.xdp_zero_copy",
   "net.xdp.poll_mode",
   "net.xdp.rss_queue_mode",
+  "net.xdp.listen_gre",
   "net.xdp.native_bond",
   "tiles.bundle.tls_domain_name",
   "tiles.bundle.tip_distribution_program_addr",
@@ -395,8 +396,8 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "max_retry_abort",                     f->snapshots.max_retry_abort );
     jw_ulong( &w, "min_download_speed_mibs",             f->snapshots.min_download_speed_mibs );
     jw_ulong( &w, "wait_for_peers_timeout_seconds",      f->snapshots.wait_for_peers_timeout_seconds );
-    jw_ulong( &w, "full_snapshot_interval_slots",        f->snapshots.full_snapshot_interval_slots );
-    jw_ulong( &w, "incremental_snapshot_interval_slots", f->snapshots.incremental_snapshot_interval_slots );
+    jw_ulong( &w, "full_snapshot_interval_blocks",       f->snapshots.full_snapshot_interval_blocks );
+    jw_ulong( &w, "incremental_snapshot_interval_blocks",f->snapshots.incremental_snapshot_interval_blocks );
     jw_ulong( &w, "max_incremental_snapshot_accounts",   f->snapshots.max_incremental_snapshot_accounts );
     jw_obj_open( &w, "server" );
       jw_bool ( &w, "enabled",              f->snapshots.server.enabled );
@@ -454,6 +455,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_bool( &w, "fixed_fec_sets",  f->development.fixed_fec_sets );
     jw_bool( &w, "alpenglow",       f->development.alpenglow );
     jw_obj_open( &w, "votor" );
+      jw_ulong( &w, "quic_client_listen_port", f->development.votor.quic_client_listen_port );
       jw_ulong( &w, "quic_server_listen_port", f->development.votor.quic_server_listen_port );
     jw_obj_close( &w );
     jw_obj_open( &w, "gossip" );

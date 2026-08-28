@@ -333,6 +333,9 @@ fd_accdb_shmem_new( void * shmem,
 
   fd_accdb_partition_t * partition_pool = partition_pool_join( partition_pool_new( _partition_pool, partition_cnt ) );
   FD_TEST( partition_pool );
+  for( ulong i=0UL; i<partition_cnt; i++ ) {
+    partition_pool_ele( partition_pool, i )->write_offset = 0UL;
+  }
 
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     compaction_dlist_t * dlist = compaction_dlist_join( compaction_dlist_new( _compaction_dlists[ k ] ) );
@@ -542,21 +545,29 @@ fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
   fd_accdb_partition_t const * p              = partition_pool_ele_const( partition_pool, partition_idx );
 
   out->file_offset       = partition_idx * accdb->partition_sz;
-  out->write_offset      = FD_VOLATILE_CONST( p->write_offset );
   out->is_write_head     = 0;
   /* If this partition is currently the active write head for any
      layer, partition->write_offset is stale (it's only updated at
      handoff in change_partition).  The live tip lives in whead[layer].
      Surface the live value so the GUI shows real-time fill, not the
-     "0 until rolled" snapshot. */
+     "0 until rolled" snapshot.  The tip is a reservation that can
+     briefly overrun the partition, so clamp rather than show >100%. */
+  ulong head_off = ULONG_MAX;
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     if( !FD_VOLATILE_CONST( accdb->has_partition[ k ] ) ) continue;
     accdb_offset_t whead = { .val = FD_VOLATILE_CONST( accdb->whead[ k ].val ) };
     if( packed_partition_idx( &whead )==partition_idx ) {
-      out->write_offset  = packed_partition_offset( &whead );
+      head_off           = packed_partition_offset( &whead );
       out->is_write_head = 1;
       break;
     }
+  }
+  if( FD_UNLIKELY( out->is_write_head ) ) {
+    out->write_offset_raw = head_off;
+    out->write_offset     = fd_ulong_min( head_off, accdb->partition_sz );
+  } else {
+    out->write_offset_raw = FD_VOLATILE_CONST( p->write_offset );
+    out->write_offset     = out->write_offset_raw;
   }
   out->bytes_freed       = FD_VOLATILE_CONST( p->bytes_freed );
   out->compaction_offset = FD_VOLATILE_CONST( p->compaction_offset );
@@ -570,4 +581,40 @@ fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
   uchar compacting       = FD_VOLATILE_CONST( p->compacting_now );
   uchar queued           = FD_VOLATILE_CONST( p->queued );
   out->compaction_state  = compacting ? 2 : ( queued ? 1 : 0 );
+}
+
+FD_STATIC_ASSERT( sizeof(((fd_accdb_shmem_writer_barrier_t *)0)->bits)*8UL==FD_ACCDB_MAX_JOINERS, barrier_width );
+
+void
+fd_accdb_shmem_writer_barrier_capture( fd_accdb_shmem_t const *          accdb,
+                                       fd_accdb_shmem_writer_barrier_t * barrier ) {
+  memset( barrier->bits, 0, sizeof(barrier->bits) );
+  ulong joiner_cnt = FD_VOLATILE_CONST( accdb->joiner_cnt );
+  for( ulong t=0UL; t<joiner_cnt; t++ ) {
+    if( FD_VOLATILE_CONST( accdb->joiner_epochs[ t ].val )==ULONG_MAX ) continue;
+    barrier->bits[ t/64UL ] |= 1UL<<(t%64UL);
+  }
+}
+
+ulong
+fd_accdb_shmem_writer_barrier_poll( fd_accdb_shmem_t const *          accdb,
+                                    fd_accdb_shmem_writer_barrier_t * barrier ) {
+  ulong remain = 0UL;
+  for( ulong w=0UL; w<sizeof(barrier->bits)/sizeof(ulong); w++ ) {
+    ulong bits = barrier->bits[ w ];
+    while( bits ) {
+      ulong b = (ulong)fd_ulong_find_lsb( bits );
+      bits &= bits-1UL;
+      if( FD_VOLATILE_CONST( accdb->joiner_epochs[ w*64UL+b ].val )==ULONG_MAX ) {
+        barrier->bits[ w ] &= ~(1UL<<b);
+      }
+    }
+    remain |= barrier->bits[ w ];
+  }
+  return remain;
+}
+
+ulong const *
+fd_accdb_shmem_snapshot_sync( fd_accdb_shmem_t const * accdb ) {
+  return &accdb->snapshot_sync;
 }

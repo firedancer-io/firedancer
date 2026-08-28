@@ -394,11 +394,9 @@ main( int     argc,
   ulong umem_sz = fd_ulong_align_dn( umem_dcache_data_sz, umem_frame_sz );
 
   ulong  const umem_chunk0    = ( (ulong)umem - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
-  ulong  const umem_wmark     = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
 
   ctx->umem        = umem;
   ctx->umem_chunk0 = (uint)umem_chunk0;
-  ctx->umem_wmark  = (uint)umem_wmark;
   ctx->umem_sz     = umem_sz;
 
   ctx->shred_listen_port = SHRED_PORT;
@@ -909,7 +907,7 @@ main( int     argc,
 
     /* after_frag */
     ulong tx_metric_before = ctx->metrics.tx_submit_cnt;
-    after_frag( ctx, 0, tx_seq, 0, during_frag_expected_sz, 0, 0, NULL );
+    after_frag( ctx, 0, tx_seq, 0, during_frag_src_sz, 0, 0, NULL );
     ulong tx_metric_after  = ctx->metrics.tx_submit_cnt;
     FD_TEST( tx_metric_before+1==tx_metric_after ); /* assert that XDP tile published a TX frame */
     ulong tx_prod = xsk->ring_tx.cached_prod;

@@ -785,7 +785,7 @@ after_alpen_fec( ctx_t      * ctx,
 
 static inline void
 after_votor_notar_fallback( ctx_t * ctx,
-                            fd_votor_repair_block_t const * nf ) {
+                            fd_votor_repair_t const * nf ) {
   fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( ctx->chainer, nf->slot, &nf->block_id );
   if( FD_LIKELY( slotv ) ) return; /* we already have this NF version recorded, no need for action */
   /* else, we don't have this NF version, we need to repair for it. */
@@ -868,8 +868,8 @@ after_frag( ctx_t *             ctx,
           if( FD_LIKELY( rooted->slot > ctx->chainer->root ) ) fd_chainer_publish( ctx->chainer, rooted->slot, &rooted->block_id );
           break;
         }
-        case FD_VOTOR_SIG_REPAIR_BLOCK_ID: {
-          fd_votor_repair_block_t const * nf = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
+        case FD_VOTOR_SIG_REPAIR: {
+          fd_votor_repair_t const * nf = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
           if( FD_UNLIKELY( nf->slot <= ctx->chainer->root ) ) return;
           after_votor_notar_fallback( ctx, nf );
           break;
@@ -1272,6 +1272,7 @@ after_credit( ctx_t *             ctx,
   /* Publish any FECs the chainer has delivered for replay. */
   if( publish_fec_replay( ctx, stem ) ) {
     *charge_busy = 1;
+    *opt_poll_in = 0;
     return;
   }
 
