@@ -274,7 +274,7 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
    same-thread pwritev2 (copy_from_user executes on the writing thread,
    TSO-ordered against the seqlock stores).
 
-   A single blocked bloom filter (10 bits/key over max_accounts) is the
+   A single blocked bloom filter (6 bits/key over max_accounts) is the
    RAM negative oracle: bloom-negative proves a key is not in the
    bucket (inserts happen before the RAM entry is unlinked; deletes
    accumulate as stale positives that only cost a wasted pread). */
@@ -342,12 +342,13 @@ fd_accdb_idx_page_of( ulong hash,
   return (ulong)( ( (__uint128_t)hash * (__uint128_t)npage )>>64 );
 }
 
-/* Blocked bloom filter: 64 B (8 ulong) blocks, 8 probe bits per key,
-   ~10 bits/key budget. */
+/* Blocked bloom filter: 64 B (8 ulong) blocks, 4 probe bits per key
+   (9 h2 bits each: 3 word-select + 6 bit-select), ~6 bits/key
+   budget. */
 
 static FD_FN_CONST inline ulong
 fd_accdb_idx_bloom_sz( ulong max_accounts ) {
-  return fd_ulong_align_up( max_accounts*10UL/8UL, 64UL );
+  return fd_ulong_align_up( max_accounts*6UL/8UL, 64UL );
 }
 
 static inline int
@@ -359,10 +360,12 @@ fd_accdb_idx_bloom_probe( ulong * bloom,     /* NULL for test-only via const cas
   ulong   nblock = bloom_sz>>6;
   ulong * block  = bloom + 8UL*fd_accdb_idx_page_of( h1, nblock );
   int hit = 1;
-  for( ulong j=0UL; j<8UL; j++ ) {
-    ulong bit = 1UL<<( ( h2>>(6UL*j) ) & 63UL );
-    if( insert ) FD_ATOMIC_FETCH_AND_OR( &block[ j ], bit );
-    else         hit &= !!( FD_VOLATILE_CONST( block[ j ] ) & bit );
+  for( ulong j=0UL; j<4UL; j++ ) {
+    ulong sel  = h2>>(9UL*j);
+    ulong word = sel & 7UL;
+    ulong bit  = 1UL<<( (sel>>3) & 63UL );
+    if( insert ) FD_ATOMIC_FETCH_AND_OR( &block[ word ], bit );
+    else         hit &= !!( FD_VOLATILE_CONST( block[ word ] ) & bit );
   }
   return hit;
 }
