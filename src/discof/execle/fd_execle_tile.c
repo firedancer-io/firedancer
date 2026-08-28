@@ -120,6 +120,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,      FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->execle.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, FD_RUNTIME_EBPF_HOST_ALIGN,  BPF_LOADER_SERIALIZATION_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_RUNTIME_EBPF_HOST_ALIGN,  FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -145,6 +146,10 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
   FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
   FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
+
+  FD_MCNT_SET  ( EXECLE, SER_ARENA_PROMOTE,        runtime->bpf_loader_serialization.promote_cnt      );
+  FD_MGAUGE_SET( EXECLE, SER_TOP_FRAME_HIGH_WATER, runtime->bpf_loader_serialization.frame1_watermark );
+  FD_MGAUGE_SET( EXECLE, SER_WINDOW_HIGH_WATER,    runtime->bpf_loader_serialization.window_watermark );
 
   fd_progcache_metrics_t * pm = ctx->progcache->metrics;
   FD_MCNT_SET( EXECLE, PROGCACHE_LOOKUP,                 pm->lookup_cnt     );
@@ -778,6 +783,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * bmtree          = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
   void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
   void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots ) );
+  void * _bpfser_frame1  = FD_SCRATCH_ALLOC_APPEND( l, FD_RUNTIME_EBPF_HOST_ALIGN, BPF_LOADER_SERIALIZATION_FOOTPRINT );
   void * _bpfser_window  = FD_SCRATCH_ALLOC_APPEND( l, FD_RUNTIME_EBPF_HOST_ALIGN, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
 
 #define NONNULL( x ) (__extension__({                                        \
@@ -818,7 +824,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( tile->execle.bpfser_arena_obj_id!=ULONG_MAX );
   fd_bpf_ser_arena_t * bpfser_arena = fd_bpf_ser_arena_join( fd_topo_obj_laddr( topo, tile->execle.bpfser_arena_obj_id ) );
   FD_TEST( bpfser_arena );
-  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena, _bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
+  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena,
+                           _bpfser_frame1, BPF_LOADER_SERIALIZATION_FOOTPRINT,
+                           _bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;

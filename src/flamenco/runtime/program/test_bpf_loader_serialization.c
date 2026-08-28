@@ -493,7 +493,7 @@ run_fixture( fd_svm_mini_t * mini,
   uchar * serialized = ctx->runtime->bpf_loader_serialization.frame1;
 
   int result = fd_bpf_loader_input_serialize_parameters(
-      ctx, serialized, BPF_LOADER_SERIALIZATION_FOOTPRINT,
+      ctx, serialized, ctx->runtime->bpf_loader_serialization.frame1_cap,
       pre_lens, regions, &region_cnt, acc_metas,
       in->virtual_address_space_adj, in->direct_mapping,
       in->direct_account_pointers_in_program_input,

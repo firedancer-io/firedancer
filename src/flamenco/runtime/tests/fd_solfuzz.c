@@ -158,11 +158,14 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   /* Full-capacity CPI frame overflow arena (1 bundle, never contended
      in the single threaded runner) + leader-budget window */
-  void * bpfser_mem = fd_wksp_alloc_laddr( wksp, fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL ), wksp_tag );
+  void * bpfser_mem = fd_wksp_alloc_laddr( wksp, fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ), wksp_tag );
   if( FD_UNLIKELY( !bpfser_mem ) ) goto bail2;
+  void * bpfser_frame1 = fd_wksp_alloc_laddr( wksp, FD_RUNTIME_EBPF_HOST_ALIGN, BPF_LOADER_SERIALIZATION_FOOTPRINT, wksp_tag );
+  if( FD_UNLIKELY( !bpfser_frame1 ) ) goto bail2;
   void * bpfser_window = fd_wksp_alloc_laddr( wksp, FD_RUNTIME_EBPF_HOST_ALIGN, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ), wksp_tag );
   if( FD_UNLIKELY( !bpfser_window ) ) goto bail2;
-  fd_runtime_bpf_ser_init( runner->runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL ) ),
+  fd_runtime_bpf_ser_init( runner->runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ) ),
+                           bpfser_frame1, BPF_LOADER_SERIALIZATION_FOOTPRINT,
                            bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;

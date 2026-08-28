@@ -203,9 +203,11 @@ setup_topo_txncache( fd_topo_t *  topo,
 fd_topo_obj_t *
 setup_topo_bpfser_arena( fd_topo_t *  topo,
                          char const * wksp_name,
-                         ulong        bundle_cnt ) {
+                         ulong        bundle_cnt,
+                         ulong        frame_cnt ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "bpfser_arena", wksp_name );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bundle_cnt, "obj.%lu.bundle_cnt", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, frame_cnt,  "obj.%lu.frame_cnt",  obj->id ) );
   return obj;
 }
 
@@ -1228,11 +1230,11 @@ fd_topo_initialize( config_t * config ) {
      deep-CPI whale txns to a full-size bundle here.  The leader pool
      is separate so leader-slot txns never queue behind replay. */
   fd_topob_wksp( topo, "bpfser_arena" )->demote_ok = 1; /* whale-only overflow bundles, cold at mainnet load */
-  fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL );
+  fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH ); /* execrp frame1 windowed: bundle frame 0 hosts depth 1 */
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], bpfser_rp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bpfser_rp_obj->id, "bpfser_rp" ) );
   if( FD_LIKELY( execle_tile_cnt ) ) {
-    fd_topo_obj_t * bpfser_le_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL );
+    fd_topo_obj_t * bpfser_le_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL, FD_MAX_INSTRUCTION_STACK_DEPTH-1UL ); /* execle frame1 fully provisioned */
     FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], bpfser_le_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, bpfser_le_obj->id, "bpfser_le" ) );
   }

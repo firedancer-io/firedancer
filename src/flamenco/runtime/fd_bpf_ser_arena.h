@@ -2,12 +2,16 @@
 #define HEADER_fd_src_flamenco_runtime_fd_bpf_ser_arena_h
 
 /* fd_bpf_ser_arena is a shared pool of full-size BPF loader
-   serialization bundles.  A bundle backs the CPI-depth frames (depths
-   2..FD_MAX_INSTRUCTION_STACK_DEPTH) of one in-flight transaction at
-   the full per-frame worst case.  Exec tiles keep a small per-tile
-   window for typical CPI frames (see fd_runtime.h) and fall back to a
-   bundle from this arena for the rare transaction whose CPI frames
-   exceed the window.
+   serialization bundles.  A bundle backs frame_cnt consecutive
+   instruction-depth frames of one in-flight transaction at the full
+   per-frame worst case: the deepest frame_cnt depths, i.e. depths
+   FD_MAX_INSTRUCTION_STACK_DEPTH+1-frame_cnt
+   ..FD_MAX_INSTRUCTION_STACK_DEPTH.  Exec tiles keep small per-tile
+   windows for typical frames (see fd_runtime.h) and fall back to a
+   bundle from this arena for the rare transaction whose frames exceed
+   a window.  Tiles whose depth-1 frame is fully provisioned per tile
+   pool 4-frame bundles (depths 2..5); tiles whose depth-1 frame is
+   also windowed pool 5-frame bundles (depths 1..5).
 
    Acquisition is an all-or-nothing FIFO ticket: a caller takes a
    ticket, waits until the pool has a free bundle for its turn, and
@@ -22,13 +26,13 @@
 #define FD_BPF_SER_ARENA_MAGIC      (0xF17EDA2CEB5E7A3EUL)
 #define FD_BPF_SER_ARENA_BUNDLE_MAX (8UL)
 
-/* Frames for depths 2..FD_MAX_INSTRUCTION_STACK_DEPTH */
-#define FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT ((FD_MAX_INSTRUCTION_STACK_DEPTH-1UL)*BPF_LOADER_SERIALIZATION_FOOTPRINT)
+#define FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( frame_cnt ) ((frame_cnt)*BPF_LOADER_SERIALIZATION_FOOTPRINT)
 
 struct __attribute__((aligned(FD_BPF_SER_ARENA_ALIGN))) fd_bpf_ser_arena {
   ulong magic;
   ulong bundle_cnt;
-  uchar pad0[ 112 ];
+  ulong frame_cnt;  /* full-size frames per bundle */
+  uchar pad0[ 104 ];
 
   ulong next_ticket; /* tickets issued */
   uchar pad1[ 120 ];
@@ -38,7 +42,7 @@ struct __attribute__((aligned(FD_BPF_SER_ARENA_ALIGN))) fd_bpf_ser_arena {
 
   struct { ulong used; uchar pad[ 120 ]; } slot[ FD_BPF_SER_ARENA_BUNDLE_MAX ];
 
-  /* bundle_cnt bundles of FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT follow */
+  /* bundle_cnt bundles of FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( frame_cnt ) follow */
 };
 typedef struct fd_bpf_ser_arena fd_bpf_ser_arena_t;
 
@@ -47,14 +51,17 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST static inline ulong fd_bpf_ser_arena_align( void ) { return FD_BPF_SER_ARENA_ALIGN; }
 
 FD_FN_CONST static inline ulong
-fd_bpf_ser_arena_footprint( ulong bundle_cnt ) {
+fd_bpf_ser_arena_footprint( ulong bundle_cnt,
+                            ulong frame_cnt ) {
   if( FD_UNLIKELY( !bundle_cnt || bundle_cnt>FD_BPF_SER_ARENA_BUNDLE_MAX ) ) return 0UL;
-  return sizeof(fd_bpf_ser_arena_t) + bundle_cnt*FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT;
+  if( FD_UNLIKELY( !frame_cnt || frame_cnt>FD_MAX_INSTRUCTION_STACK_DEPTH ) ) return 0UL;
+  return sizeof(fd_bpf_ser_arena_t) + bundle_cnt*FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( frame_cnt );
 }
 
 void *
 fd_bpf_ser_arena_new( void * shmem,
-                      ulong  bundle_cnt );
+                      ulong  bundle_cnt,
+                      ulong  frame_cnt );
 
 fd_bpf_ser_arena_t *
 fd_bpf_ser_arena_join( void * shmem );

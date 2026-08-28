@@ -1080,6 +1080,9 @@ EXAMPLES
     <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
     <counter name="AccdbWriteOperation" summary="Number of write operations performed on the account database" />
     <counter name="AccdbBytesCopied" summary="Number of bytes copied within the account database" />
+    <counter name="SerArenaPromote" summary="Transactions promoted to a full-size shared BPF serialization arena bundle" />
+    <gauge name="SerTopFrameHighWater" summary="Largest top-level (depth 1) BPF serialization frame observed, in bytes" />
+    <gauge name="SerWindowHighWater" summary="Largest deep-CPI (depth 2+) BPF serialization window fill observed, in bytes" />
 </tile>
 
 <enum name="TxnExecuteResult">
@@ -1865,6 +1868,9 @@ EXAMPLES
     <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
     <counter name="AccdbWriteOperation" summary="Number of write operations performed on the account database" />
     <counter name="AccdbBytesCopied" summary="Number of bytes copied within the account database" />
+    <counter name="SerArenaPromote" summary="Transactions promoted to a full-size shared BPF serialization arena bundle" />
+    <gauge name="SerTopFrameHighWater" summary="Largest top-level (depth 1) BPF serialization frame observed, in bytes" />
+    <gauge name="SerWindowHighWater" summary="Largest deep-CPI (depth 2+) BPF serialization window fill observed, in bytes" />
 </tile>
 
 <tile name="benchs" telemetry="false">

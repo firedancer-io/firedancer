@@ -310,8 +310,28 @@ FD_PROTOTYPES_BEGIN
 
 #define BPF_LOADER_SERIALIZATION_FOOTPRINT (FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0))
 
-/* Depth-1 (top-level) serialization is not CU-metered, so its frame
-   stays fully provisioned per exec tile.  Depth>=2 frames are only
+/* Depth-1 (top-level) serialization copies the ACTUAL loaded account
+   data of the instruction's accounts.  The static bound is the 64+20
+   MiB protocol caps (see FD_BPF_LOADER_INPUT_REGION_FOOTPRINT), but
+   mainnet depth-1 frames are KB-scale (p99.9 well under 16 MiB), so
+   the frame's RESIDENCY need not match its CAPACITY on every tile:
+
+   - Leader (execle) keeps a fully provisioned per-tile depth-1 frame
+     (BPF_LOADER_SERIALIZATION_FOOTPRINT) so leader slot timing never
+     touches the shared arena.
+
+   - Replay (execrp) keeps a FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT
+     (16 MiB) depth-1 window; the rare larger instruction promotes the
+     transaction to a full-size 5-frame arena bundle (frame 0 hosts
+     depth 1) at identical capacity, exactly like the depth>=2
+     overflow path below.  Unlike depth>=2, depth-1 serialization is
+     not CU-metered, so this window is sized off measured mainnet
+     load (gated by the SerTopFrameHighWater/SerArenaPromote
+     metrics), not off a charge bound; correctness never depends on
+     it (the serializer bounds-checks as it writes and promotes on
+     overflow).
+
+   Depth>=2 frames are only
    reachable through the CPI syscall, which charges >=1 CU per
    FD_VM_CPI_BYTES_PER_UNIT account-data bytes BEFORE the callee frame
    is written (fd_vm_syscall_cpi_common.c, FD_VM_CU_UPDATE on account
@@ -360,6 +380,8 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BPF_SER_WINDOW_CU_MAX_LE (300000UL)
 #define FD_BPF_SER_WINDOW_CU_MAX_RP (100000UL)
+
+#define FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT (16UL<<20)
 
 #define FD_BPF_SER_DEEP_FRAME_FIXED_FOOTPRINT (BPF_LOADER_SERIALIZATION_FOOTPRINT                 \
                                                - (ulong)FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT     \

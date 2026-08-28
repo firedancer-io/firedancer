@@ -660,6 +660,9 @@
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;write_&#8203;operation</span> | counter | Number of write operations performed on the account database |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
+| <span class="metrics-name">execle_&#8203;ser_&#8203;arena_&#8203;promote</span> | counter | Transactions promoted to a full-size shared BPF serialization arena bundle |
+| <span class="metrics-name">execle_&#8203;ser_&#8203;top_&#8203;frame_&#8203;high_&#8203;water</span> | gauge | Largest top-level (depth 1) BPF serialization frame observed, in bytes |
+| <span class="metrics-name">execle_&#8203;ser_&#8203;window_&#8203;high_&#8203;water</span> | gauge | Largest deep-CPI (depth 2+) BPF serialization window fill observed, in bytes |
 
 </div>
 
@@ -1293,6 +1296,9 @@
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;write_&#8203;operation</span> | counter | Number of write operations performed on the account database |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
+| <span class="metrics-name">execrp_&#8203;ser_&#8203;arena_&#8203;promote</span> | counter | Transactions promoted to a full-size shared BPF serialization arena bundle |
+| <span class="metrics-name">execrp_&#8203;ser_&#8203;top_&#8203;frame_&#8203;high_&#8203;water</span> | gauge | Largest top-level (depth 1) BPF serialization frame observed, in bytes |
+| <span class="metrics-name">execrp_&#8203;ser_&#8203;window_&#8203;high_&#8203;water</span> | gauge | Largest deep-CPI (depth 2+) BPF serialization window fill observed, in bytes |
 
 </div>
 

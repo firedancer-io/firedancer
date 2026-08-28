@@ -442,18 +442,21 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   uchar * input     = NULL;
   ulong   input_cap = 0UL;
   fd_runtime_bpf_ser_frame_begin( instr_ctx->runtime, depth, &input, &input_cap );
-  int in_window = (depth>1UL) & (!instr_ctx->runtime->bpf_loader_serialization.bundle);
+  int in_bundle = !!instr_ctx->runtime->bpf_loader_serialization.bundle;
+  int in_window = (depth>1UL) & (!in_bundle);
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, input, input_cap, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas, virtual_address_space_adjustments, direct_mapping,
                                                   direct_account_pointers_in_program_input, is_deprecated,
                                                   &instruction_data_offset, &input_sz );
   if( FD_UNLIKELY( err==FD_BPF_LOADER_SERIALIZE_FULL ) ) {
-    /* CPI frame outgrew the window: retry into a full-size arena
-       bundle (bounded FIFO wait; identical capacity).  A full frame at
-       depth 1 or in a bundle is impossible by the
-       FD_BPF_LOADER_INPUT_REGION_FOOTPRINT derivation. */
-    if( FD_UNLIKELY( !in_window ) ) FD_LOG_CRIT(( "bpf serialization overflowed a fully provisioned frame" ));
+    /* Frame outgrew its window (the depth-1 window on replay tiles,
+       or the CPI window): retry into a full-size arena bundle
+       (bounded FIFO wait; identical capacity).  A full frame in a
+       bundle or in a fully provisioned frame1 is impossible by the
+       FD_BPF_LOADER_INPUT_REGION_FOOTPRINT derivation (frame_promote
+       CRITs on the latter). */
+    if( FD_UNLIKELY( in_bundle ) ) FD_LOG_CRIT(( "bpf serialization overflowed a fully provisioned frame" ));
     input     = fd_runtime_bpf_ser_frame_promote( instr_ctx->runtime, depth );
     input_cap = BPF_LOADER_SERIALIZATION_FOOTPRINT;
     in_window = 0;
@@ -468,6 +471,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
+  if( depth==1UL ) instr_ctx->runtime->bpf_loader_serialization.frame1_watermark =
+    fd_ulong_max( instr_ctx->runtime->bpf_loader_serialization.frame1_watermark, input_sz );
   if( in_window ) fd_runtime_bpf_ser_frame_commit( instr_ctx->runtime, depth, input_sz );
 
   fd_sha256_t _sha[1];
