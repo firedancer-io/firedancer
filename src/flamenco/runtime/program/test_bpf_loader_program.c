@@ -107,7 +107,10 @@ deploy_env_init( deploy_env_t * env,
 
   void * bpfser_mem = fd_wksp_alloc_laddr( wksp, fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL ), tag++ );
   FD_TEST( bpfser_mem );
-  fd_runtime_bpf_ser_init( env->runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL ) ) );
+  void * bpfser_window = fd_wksp_alloc_laddr( wksp, FD_RUNTIME_EBPF_HOST_ALIGN, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ), tag++ );
+  FD_TEST( bpfser_window );
+  fd_runtime_bpf_ser_init( env->runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL ) ),
+                           bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
 
   env->txn_out = fd_wksp_alloc_laddr( wksp, alignof(fd_txn_out_t), sizeof(fd_txn_out_t), tag++ );
   FD_TEST( env->txn_out );

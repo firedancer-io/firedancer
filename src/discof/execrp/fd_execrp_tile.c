@@ -110,6 +110,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
+  l = FD_LAYOUT_APPEND(   l, FD_RUNTIME_EBPF_HOST_ALIGN,   FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP ) );
 
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
     l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
@@ -366,6 +367,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_execrp_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
+  void * _bpfser_window     = FD_SCRATCH_ALLOC_APPEND( l, FD_RUNTIME_EBPF_HOST_ALIGN,   FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP ) );
 
   void * _capture_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -419,7 +421,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( tile->execrp.bpfser_arena_obj_id!=ULONG_MAX );
   fd_bpf_ser_arena_t * bpfser_arena = fd_bpf_ser_arena_join( fd_topo_obj_laddr( topo, tile->execrp.bpfser_arena_obj_id ) );
   FD_TEST( bpfser_arena );
-  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena );
+  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena, _bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP ) );
 
 
   /* First find and setup the in-link from replay to exec. */

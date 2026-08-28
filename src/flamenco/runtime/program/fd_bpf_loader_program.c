@@ -16,11 +16,12 @@
 #include "fd_native_cpi.h"
 #include "fd_compute_budget_program.h"
 
-/* The serialization window (fd_runtime_const.h) budgets CPI byte
-   charges up to FD_BPF_SER_WINDOW_CU_MAX per txn; pin the CU cap the
-   derivation assumed so cost-model changes fail the build. */
+/* The serialization windows (fd_runtime_const.h) budget CPI byte
+   charges up to FD_BPF_SER_WINDOW_CU_MAX_{LE,RP} per txn; pin the CU
+   cap the derivation assumed so cost-model changes fail the build. */
 FD_STATIC_ASSERT( FD_MAX_COMPUTE_UNIT_LIMIT==1400000,                    bpf_ser_window_cost_model );
-FD_STATIC_ASSERT( FD_BPF_SER_WINDOW_CU_MAX<(ulong)FD_MAX_COMPUTE_UNIT_LIMIT, bpf_ser_window_cu_max );
+FD_STATIC_ASSERT( FD_BPF_SER_WINDOW_CU_MAX_LE<(ulong)FD_MAX_COMPUTE_UNIT_LIMIT, bpf_ser_window_cu_max );
+FD_STATIC_ASSERT( FD_BPF_SER_WINDOW_CU_MAX_RP<(ulong)FD_MAX_COMPUTE_UNIT_LIMIT, bpf_ser_window_cu_max );
 
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L290-L335 */
 static inline int

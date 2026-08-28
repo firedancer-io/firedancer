@@ -323,17 +323,34 @@ FD_PROTOTYPES_BEGIN
    the <FD_VM_CPI_BYTES_PER_UNIT flooring slack of each of the <=64
    unique per-frame charges.
 
-   FD_BPF_SER_WINDOW_FOOTPRINT sizes the per-exec-tile depth>=2 frame
-   window off that bound for a budget of FD_BPF_SER_WINDOW_CU_MAX CU
-   spent on CPI serialization charges alone.  A transaction only
-   outgrows the window after spending >FD_BPF_SER_WINDOW_CU_MAX CU
-   purely on CPI byte charges (i.e. after CPI-copying >75 MB into
-   depth>=2 frames); such transactions promote to a shared full-size
-   arena bundle (fd_bpf_ser_arena.h) at identical capacity.  Mainnet
-   transactions spend a tiny fraction of their CU on CPI byte charges
-   (even a full 64 MiB single deep CPI charges only ~268k CU and fits),
-   so the window covers mainnet traffic with wide margin and the arena
-   is contended only by adversarial deep-CPI whale transactions.
+   FD_BPF_SER_WINDOW_FOOTPRINT(cu_max) sizes a per-exec-tile depth>=2
+   frame window off that bound for a budget of cu_max CU spent on CPI
+   serialization charges alone.  A transaction only outgrows the
+   window after spending >cu_max CU purely on CPI byte charges (i.e.
+   after CPI-copying >cu_max*250 bytes into depth>=2 frames); such
+   transactions promote to a shared full-size arena bundle
+   (fd_bpf_ser_arena.h) at identical capacity.
+
+   Two budgets exist:
+
+   - Leader (execle): FD_BPF_SER_WINDOW_CU_MAX_LE = 300k is the
+     single-max-legal-CPI floor (one full 64 MiB deep CPI charges
+     268,435 CU) plus ~12% slack, so NO legal single CPI ever promotes
+     and leader slot timing never touches the arena.
+
+   - Replay (execrp): FD_BPF_SER_WINDOW_CU_MAX_RP = 100k trades that
+     property for memory.  Mainnet p99.9 CPI serialize volume is
+     KB-scale, and a 28.1 MB window still covers a single 25 MB deep
+     CPI (e.g. 2x 10 MiB accounts + growth); only a legal-but-exotic
+     >25 MB single CPI (or >25 MB aggregate) promotes, gracefully, at
+     identical capacity.  The threshold to enter the accepted
+     bundle-wide whale regime falls from >300k to >100k CU of pure
+     serialize charges.
+
+   Mainnet transactions spend a tiny fraction of their CU on CPI byte
+   charges, so both windows cover mainnet traffic with wide margin and
+   the arena is contended only by adversarial deep-CPI whale
+   transactions.
 
    Correctness never depends on this bound: the serializer bounds-
    checks the frame exactly as it writes and promotes on overflow.
@@ -341,13 +358,14 @@ FD_PROTOTYPES_BEGIN
    derives from so a future cost model change fails the build and
    forces this derivation to be revisited. */
 
-#define FD_BPF_SER_WINDOW_CU_MAX (300000UL)
+#define FD_BPF_SER_WINDOW_CU_MAX_LE (300000UL)
+#define FD_BPF_SER_WINDOW_CU_MAX_RP (100000UL)
 
 #define FD_BPF_SER_DEEP_FRAME_FIXED_FOOTPRINT (BPF_LOADER_SERIALIZATION_FOOTPRINT                 \
                                                - (ulong)FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT     \
                                                - FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN)
 
-#define FD_BPF_SER_WINDOW_FOOTPRINT (FD_BPF_SER_WINDOW_CU_MAX*FD_VM_CPI_BYTES_PER_UNIT            \
+#define FD_BPF_SER_WINDOW_FOOTPRINT( cu_max ) ((cu_max)*FD_VM_CPI_BYTES_PER_UNIT                  \
                                      + (FD_MAX_INSTRUCTION_STACK_DEPTH-1UL)*                      \
                                        (FD_BPF_SER_DEEP_FRAME_FIXED_FOOTPRINT                     \
                                         + 64UL*FD_VM_CPI_BYTES_PER_UNIT /* charge floor slack */  \
@@ -357,7 +375,8 @@ FD_STATIC_ASSERT( FD_VM_CPI_BYTES_PER_UNIT==250UL,                        bpf_se
 FD_STATIC_ASSERT( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT==(64UL<<20),      bpf_ser_window_cost_model );
 FD_STATIC_ASSERT( FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN==(20UL<<20),     bpf_ser_window_cost_model );
 FD_STATIC_ASSERT( MAX_PERMITTED_DATA_INCREASE==10240UL,                   bpf_ser_window_cost_model );
-FD_STATIC_ASSERT( FD_BPF_SER_WINDOW_FOOTPRINT%FD_RUNTIME_EBPF_HOST_ALIGN==0UL, bpf_ser_window_align );
+FD_STATIC_ASSERT( FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE )%FD_RUNTIME_EBPF_HOST_ALIGN==0UL, bpf_ser_window_align );
+FD_STATIC_ASSERT( FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP )%FD_RUNTIME_EBPF_HOST_ALIGN==0UL, bpf_ser_window_align );
 
 #define FD_HARD_FORKS_MAX (64UL)
 

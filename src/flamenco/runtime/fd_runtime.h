@@ -137,15 +137,18 @@ struct fd_runtime {
 
   /* BPF loader input region frames.  Depth 1 (top-level, unmetered) is
      fully provisioned.  Depths 2..FD_MAX_INSTRUCTION_STACK_DEPTH bump-
-     allocate LIFO out of a CU-charge-bounded window (see
-     FD_BPF_SER_WINDOW_FOOTPRINT); the rare frame that does not fit
-     promotes the transaction to a full-size 4-frame bundle from the
-     shared arena, held until the transaction ends.  Capacity per
-     transaction is identical either way. */
+     allocate LIFO out of a caller-attached CU-charge-bounded window
+     (see FD_BPF_SER_WINDOW_FOOTPRINT; leader tiles attach a window
+     budgeted so no legal single CPI ever promotes, replay tiles a
+     smaller one); the rare frame that does not fit promotes the
+     transaction to a full-size 4-frame bundle from the shared arena,
+     held until the transaction ends.  Capacity per transaction is
+     identical either way. */
   struct {
     uchar frame1[ BPF_LOADER_SERIALIZATION_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
-    uchar window[ FD_BPF_SER_WINDOW_FOOTPRINT        ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
-    ulong window_top;                                   /* window bump offset */
+    uchar * window;                                     /* depth>=2 frame window, window_cap bytes */
+    ulong   window_cap;
+    ulong   window_top;                                 /* window bump offset */
     ulong frame_off[ FD_MAX_INSTRUCTION_STACK_DEPTH ];  /* offset+1 of this depth's window frame, 0 if none */
     fd_bpf_ser_arena_t * arena;                         /* shared overflow arena, may be NULL (window only) */
     uchar *              bundle;                        /* held arena bundle, NULL if none */
@@ -236,14 +239,19 @@ typedef struct fd_runtime fd_runtime_t;
    only writer; fd_instr_stack_pop releases window frames and
    fd_runtime_prepare_and_execute_txn releases the arena bundle. */
 
-/* fd_runtime_bpf_ser_init attaches the (optional) shared overflow
-   arena and clears frame bookkeeping. */
+/* fd_runtime_bpf_ser_init attaches the depth>=2 frame window (sized
+   by FD_BPF_SER_WINDOW_FOOTPRINT for the caller's CU budget) and the
+   (optional) shared overflow arena, and clears frame bookkeeping. */
 
 static inline void
 fd_runtime_bpf_ser_init( fd_runtime_t *       runtime,
-                         fd_bpf_ser_arena_t * arena ) {
+                         fd_bpf_ser_arena_t * arena,
+                         void *               window,
+                         ulong                window_cap ) {
   runtime->bpf_loader_serialization.arena      = arena;
   runtime->bpf_loader_serialization.bundle     = NULL;
+  runtime->bpf_loader_serialization.window     = (uchar *)window;
+  runtime->bpf_loader_serialization.window_cap = window_cap;
   runtime->bpf_loader_serialization.window_top = 0UL;
   memset( runtime->bpf_loader_serialization.frame_off, 0, sizeof(runtime->bpf_loader_serialization.frame_off) );
 }
@@ -264,7 +272,7 @@ fd_runtime_bpf_ser_frame_begin( fd_runtime_t * runtime,
     *cap = BPF_LOADER_SERIALIZATION_FOOTPRINT;
   } else {
     *buf = runtime->bpf_loader_serialization.window + runtime->bpf_loader_serialization.window_top;
-    *cap = FD_BPF_SER_WINDOW_FOOTPRINT - runtime->bpf_loader_serialization.window_top;
+    *cap = runtime->bpf_loader_serialization.window_cap - runtime->bpf_loader_serialization.window_top;
   }
 }
 

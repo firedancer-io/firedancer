@@ -127,6 +127,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   sz += WKSP_ALLOC( fd_banks_align(),           banks_sz                         );
   sz += WKSP_ALLOC( alignof(fd_runtime_t),      sizeof(fd_runtime_t)             );
   sz += WKSP_ALLOC( fd_bpf_ser_arena_align(),   fd_bpf_ser_arena_footprint( 1UL ) );
+  sz += WKSP_ALLOC( FD_RUNTIME_EBPF_HOST_ALIGN, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
   sz += WKSP_ALLOC( fd_runtime_stack_align(),   runtime_stack_sz                 );
   sz += WKSP_ALLOC( fd_vm_align(),              fd_vm_footprint()                );
   sz += WKSP_ALLOC( 1UL,                        limits->max_progcache_heap_bytes );
@@ -169,6 +170,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   void *          banks_mem;     FD_TEST( (banks_mem      = fd_wksp_alloc_laddr( wksp, fd_banks_align(),           banks_sz,                       wksp_tag )) );
   fd_runtime_t *  runtime;       FD_TEST( (runtime        = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t),      sizeof(fd_runtime_t),           wksp_tag )) );
   void *          bpfser_mem;    FD_TEST( (bpfser_mem     = fd_wksp_alloc_laddr( wksp, fd_bpf_ser_arena_align(),   fd_bpf_ser_arena_footprint( 1UL ), wksp_tag )) );
+  void *          bpfser_window; FD_TEST( (bpfser_window  = fd_wksp_alloc_laddr( wksp, FD_RUNTIME_EBPF_HOST_ALIGN, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ), wksp_tag )) );
   void *          rstack_mem;    FD_TEST( (rstack_mem     = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(),   runtime_stack_sz,               wksp_tag )) );
   void *          vm_mem;        FD_TEST( (vm_mem         = fd_wksp_alloc_laddr( wksp, fd_vm_align(),              fd_vm_footprint(),              wksp_tag )) );
 
@@ -239,7 +241,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   fd_memset( &runtime->fuzz,    0, sizeof(runtime->fuzz)    );
 
   mini->bpfser_arena_mem = bpfser_mem;
-  fd_runtime_bpf_ser_init( runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL ) ) );
+  fd_runtime_bpf_ser_init( runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL ) ),
+                           bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
 
   mini->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( rstack_mem,
       limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts, 42UL ) );

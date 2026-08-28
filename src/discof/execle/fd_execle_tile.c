@@ -120,6 +120,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,      FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->execle.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, FD_RUNTIME_EBPF_HOST_ALIGN,  FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -777,6 +778,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * bmtree          = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
   void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
   void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots ) );
+  void * _bpfser_window  = FD_SCRATCH_ALLOC_APPEND( l, FD_RUNTIME_EBPF_HOST_ALIGN, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -816,7 +818,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( tile->execle.bpfser_arena_obj_id!=ULONG_MAX );
   fd_bpf_ser_arena_t * bpfser_arena = fd_bpf_ser_arena_join( fd_topo_obj_laddr( topo, tile->execle.bpfser_arena_obj_id ) );
   FD_TEST( bpfser_arena );
-  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena );
+  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena, _bpfser_window, FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE ) );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
