@@ -440,6 +440,12 @@ typedef struct fd_banks fd_banks_t;
 /* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
 
+/* fd_bank_banks_const returns the fd_banks_t that owns the given
+   bank.  Must only be used on pointers returned by fd_banks_bank_query. */
+
+fd_banks_t const *
+fd_bank_banks_const( fd_bank_t const * bank );
+
 /* fd_bank_epoch_credits{,_len} return the epoch credits of the fork the
    bank belongs to.  fd_bank_epoch_credits_new_fork acquires a fresh set
    for the bank and must be called before the bank captures new epoch
@@ -456,7 +462,7 @@ void
 fd_bank_epoch_credits_new_fork( fd_bank_t * bank );
 
 fd_collector_overrides_t *
-fd_bank_collector_overrides( fd_bank_t const * bank );
+fd_bank_collector_overrides( fd_bank_t * bank );
 
 fd_stake_rewards_t const *
 fd_bank_stake_rewards_query( fd_bank_t * bank );
@@ -472,14 +478,17 @@ fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank,
                               ulong       epoch );
 
+fd_vote_stakes_t const *
+fd_bank_vote_stakes_const( fd_bank_t const * bank );
+
 fd_vote_stakes_t *
-fd_bank_vote_stakes( fd_bank_t const * bank );
+fd_bank_vote_stakes( fd_bank_t * bank );
 
 fd_cost_tracker_t *
 fd_bank_cost_tracker_modify( fd_bank_t * bank );
 
 fd_cost_tracker_t const *
-fd_bank_cost_tracker_query( fd_bank_t * bank );
+fd_bank_cost_tracker_query( fd_bank_t const * bank );
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );

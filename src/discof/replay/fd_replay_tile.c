@@ -3337,7 +3337,7 @@ update_metric_active_stake( fd_bank_t const *   bank,
   ulong tot_active_stake = bank->f.total_epoch_stake;
 
   ulong stake = 0UL;
-  fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL, &stake, NULL );
+  fd_vote_stakes_query_t_1( fd_bank_vote_stakes_const( bank ), bank->vote_stakes_fork_id, vote_key, NULL, &stake, NULL );
   my_active_stake = stake;
 
   FD_MGAUGE_SET( REPLAY, ACTIVE_STAKE_LAMPORTS,         my_active_stake  );

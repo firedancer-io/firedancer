@@ -4,7 +4,7 @@
    states. */
 
 ENCODE_FN {
-  fd_bank_t const * bank = enc->bank;
+  fd_bank_t * bank = enc->bank;
 
   PREP
 
