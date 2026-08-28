@@ -31,6 +31,16 @@
 #define PCURVE_(x) FD_EXPAND_THEN_CONCAT3(PCURVE_NAME,_,x)
 #define SHA_(x)    FD_EXPAND_THEN_CONCAT3(PCURVE_SHA_NAME,_,x)
 
+int
+PCURVE_(public_key_compress)( uchar       compressed[ 1+PCURVE_SCALAR_SZ ],
+                              uchar const uncompressed[ 1+2*PCURVE_SCALAR_SZ ] ) {
+  if( FD_UNLIKELY( !PCURVE_(point_validate_uncompressed)( uncompressed ) ) ) return PCURVE_FAILURE;
+
+  compressed[ 0 ] = (uchar)( 0x02U | ( uncompressed[ 2*PCURVE_SCALAR_SZ ] & 0x01U ) );
+  fd_memcpy( compressed+1, uncompressed+1, PCURVE_SCALAR_SZ );
+  return PCURVE_SUCCESS;
+}
+
 static int
 PCURVE_(verify_impl)( uchar const    msg[],
                       ulong          msg_sz,
@@ -68,11 +78,11 @@ PCURVE_(verify)( uchar const    msg[],
 }
 
 int
-PCURVE_(verify_no_low_s)( uchar const    msg[],
-                          ulong          msg_sz,
-                          uchar const    sig[ 2*PCURVE_SCALAR_SZ ],
-                          uchar const    public_key[ 1+PCURVE_SCALAR_SZ ],
-                          PCURVE_SHA_T * sha ) {
+PCURVE_(verify_accept_low_s)( uchar const    msg[],
+                              ulong          msg_sz,
+                              uchar const    sig[ 2*PCURVE_SCALAR_SZ ],
+                              uchar const    public_key[ 1+PCURVE_SCALAR_SZ ],
+                              PCURVE_SHA_T * sha ) {
   return PCURVE_(verify_impl)( msg, msg_sz, sig, public_key, sha, 0 );
 }
 
