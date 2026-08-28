@@ -4177,8 +4177,11 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
       int covered = have_coverage && buckets[ i ].has_day &&
                     bucket_start>=(ulong)gui->timeline_skipped_coverage_start_ns &&
                     bucket_end<=(uint128)(ulong)gui->timeline_skipped_coverage_end_ns;
+      if( buckets[ i ].has_day && buckets[ i ].mine==ULONG_MAX ) buckets[ i ].mine = 0UL;
       if(      FD_UNLIKELY( !covered                        ) ) buckets[ i ].skipped = ULONG_MAX;
       else if( FD_UNLIKELY( buckets[ i ].skipped==ULONG_MAX ) ) buckets[ i ].skipped = 0UL;
+      if(      FD_UNLIKELY( !covered                             ) ) buckets[ i ].mine_skipped = ULONG_MAX;
+      else if( FD_UNLIKELY( buckets[ i ].mine_skipped==ULONG_MAX ) ) buckets[ i ].mine_skipped = 0UL;
     }
   }
 
