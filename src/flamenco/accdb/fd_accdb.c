@@ -2111,12 +2111,33 @@ hot_purge( fd_accdb_t * accdb,
   }
 }
 
+/* Promotion is a cache fill, not state: on hot pool exhaustion the
+   promoter must not abort but wait for background_hot_evict to free
+   slots.  The wait CANNOT happen here: freed slots only return to the
+   pool via drain_deferred_frees, which waits for all published joiner
+   epochs, and the promoter runs inside its caller's published epoch
+   section -- a naive in-epoch spin would block its own refill.  So
+   exhaustion propagates as a sentinel and fd_accdb_acquire_inner
+   cycles its epoch (unpublish/pause/republish) around a full STEP 1
+   retry. */
+
+#define IDX_PROMOTE_POOL_FULL ((fd_accdb_accmeta_t *)~0UL)
+
+/* Generous escalation deadline: exhaustion that background eviction
+   cannot clear in this long is a wedge (T2 dead/stalled, or the pool
+   is full of unevictable fork-overlay writes); keep the historical
+   abort with its diagnostics. */
+
+#define IDX_POOL_FULL_WAIT_NS (30L*1000L*1000L*1000L)
+
 /* promote_from_slot installs a bucket slot as a hot_map entry (full
    joiners only, called after a seqlock-validated bucket hit).  Returns
-   the accmeta on success (ours or a racing promoter's), or NULL if the
+   the accmeta on success (ours or a racing promoter's), NULL if the
    page's seqlock moved under us (T2 demoted a newer version, deleted
    the key, or relocated the record) -- the caller must re-do the
-   bucket lookup.  The re-check under the chain claim bit closes the
+   bucket lookup -- or IDX_PROMOTE_POOL_FULL on acc pool exhaustion
+   (never inserted anything; see note above).  The re-check under the
+   chain claim bit closes the
    validate-before-bit window: T2's bucket mutations for a pubkey
    always bump the page seqlock BEFORE taking this pubkey's chain bit,
    so a promoter that inserted under an older seq value is either
@@ -2138,7 +2159,7 @@ promote_from_slot( fd_accdb_t *                accdb,
                    ulong                       page,
                    uint                        seq ) {
   fd_accdb_accmeta_t * m = acc_pool_acquire( accdb->acc_pool_join );
-  if( FD_UNLIKELY( !m ) ) FD_LOG_ERR(( "accounts index hot pool exhausted, raise [accounts.index_ram_max] (current %lu)", accdb->shmem->index_ram_max ));
+  if( FD_UNLIKELY( !m ) ) return IDX_PROMOTE_POOL_FULL;
   FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->acc_pool_used.val, 1UL );
 
   fd_memcpy( m->key.pubkey, pubkey, 32UL );
@@ -2175,8 +2196,9 @@ promote_from_slot( fd_accdb_t *                accdb,
 
 /* disk_lookup_promote: the full-joiner cold read path,
    hot_map -> bloom -> bucket pread -> promote.  Returns the promoted
-   (or already hot) accmeta, or NULL if the account does not exist in
-   the rooted tier.  Runs under the caller's published epoch. */
+   (or already hot) accmeta, NULL if the account does not exist in
+   the rooted tier, or IDX_PROMOTE_POOL_FULL (caller must epoch-cycle
+   and retry).  Runs under the caller's published epoch. */
 
 static fd_accdb_accmeta_t *
 disk_lookup_promote( fd_accdb_t * accdb,
@@ -2188,7 +2210,7 @@ disk_lookup_promote( fd_accdb_t * accdb,
     fd_accdb_idx_slot_t slot[1]; ulong page; uint seq;
     if( FD_UNLIKELY( !idx_lookup( accdb, pubkey, slot, &page, &seq ) ) ) return NULL;
     fd_accdb_accmeta_t * m = promote_from_slot( accdb, pubkey, slot, page, seq );
-    if( FD_LIKELY( m ) ) return m;
+    if( FD_LIKELY( m ) ) return m; /* incl. IDX_PROMOTE_POOL_FULL */
     FD_SPIN_PAUSE();
   }
 }
@@ -3281,6 +3303,22 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
   FD_TEST( FD_VOLATILE_CONST( *accdb->my_epoch_slot )==ULONG_MAX );
 
+  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+
+  fd_accdb_accmeta_t * accmetas[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong acc_map_idxs[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+
+  /* STEP 1 runs inside a retry loop: if a cold-read promotion hits acc
+     pool exhaustion (IDX_PROMOTE_POOL_FULL), unpublish the epoch so T2
+     eviction can recycle slots (drain_deferred_frees waits on all
+     published epochs -- waiting while published would deadlock our own
+     refill), then republish and redo ALL of STEP 1: earlier accmetas[]
+     in the batch are epoch-protected only, not pinned, and cycling the
+     epoch invalidates them.  Nothing before STEP 2 has side effects
+     beyond the (idempotent) hot_map promotions themselves. */
+  long pool_full_deadline = 0L;
+  for(;;) {
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE(); /* StoreLoad: epoch store must be globally visible
@@ -3292,13 +3330,11 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   if it already exists, its size and other metadata, and which
   //   specific slot (generation) it was last written in.
 
-  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
 
   fd_racesan_hook( "accdb_acquire:post_root_gen" );
 
-  fd_accdb_accmeta_t * accmetas[ FD_ACCDB_MAX_ACQUIRE_CNT ];
-  ulong acc_map_idxs[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  int pool_full = 0;
 
   /* Walk the hash chain for each pubkey and take the first visible
      match.  Correctness relies on newer entries always being prepended
@@ -3343,7 +3379,10 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
          version newer than the rooted one would by definition be in
          acc_map and was found above, so tier precedence preserves the
          per-pubkey newest-first invariant. */
-      if( FD_UNLIKELY( idx_enabled( accdb ) ) ) accmetas[ i ] = disk_lookup_promote( accdb, pubkeys[ i ] );
+      if( FD_UNLIKELY( idx_enabled( accdb ) ) ) {
+        accmetas[ i ] = disk_lookup_promote( accdb, pubkeys[ i ] );
+        if( FD_UNLIKELY( accmetas[ i ]==IDX_PROMOTE_POOL_FULL ) ) { pool_full = 1; break; }
+      }
       else                                      accmetas[ i ] = NULL;
     }
     else                                                                     accmetas[ i ] = &accdb->acc_pool[ acc ];
@@ -3360,10 +3399,31 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 #endif
 
     if( FD_UNLIKELY( accmetas[ i ] && !writable[ i ] && !accmetas[ i ]->lamports ) ) accmetas[ i ] = NULL;
+  }
 
-    /* Attribute this acquired account to a size class for per-class
-       rate metrics.  Use the account's current size class when known;
-       otherwise (new account) bucket as class 0. */
+  if( FD_LIKELY( !pool_full ) ) break;
+
+  /* Hot pool exhausted mid-promotion: back off outside the epoch until
+     background_hot_evict frees slots, escalating to the historical
+     abort after a generous deadline (wedge diagnostics). */
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+  long now = fd_log_wallclock();
+  if( FD_UNLIKELY( !pool_full_deadline ) ) {
+    pool_full_deadline = now + IDX_POOL_FULL_WAIT_NS;
+    FD_LOG_WARNING(( "accounts index hot pool exhausted (%lu entries); acquire stalling while background eviction frees slots", accdb->shmem->index_ram_max ));
+    accdb->metrics->acquire_pool_full_waits++;
+  }
+  if( FD_UNLIKELY( now>pool_full_deadline ) )
+    FD_LOG_ERR(( "accounts index hot pool exhausted, raise [accounts.index_ram_max] (current %lu)", accdb->shmem->index_ram_max ));
+  fd_racesan_hook( "accdb_acquire:pool_full_wait" );
+  FD_SPIN_PAUSE();
+
+  } /* pool-full retry */
+
+  /* Attribute acquired accounts to size classes for per-class rate
+     metrics (outside the retry loop so pool-full retries don't double
+     count).  New/unknown accounts bucket as class 0. */
+  for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     ulong acq_class = 0UL;
     if( FD_LIKELY( accmetas[ i ] ) ) acq_class = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) );
     if( FD_LIKELY( writable[ i ] ) ) accdb->metrics->writable_accounts_acquired_per_class[ acq_class ]++;

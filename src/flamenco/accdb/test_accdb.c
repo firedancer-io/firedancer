@@ -2113,6 +2113,153 @@ test_disk_index( void ) {
   close( idx_fd );
 }
 
+/* Promote-path pool exhaustion is backpressure, not abort: a cold-read
+   acquire that finds the hot pool full must unpublish its epoch, wait
+   for background_hot_evict to free slots, and complete.  Fill a tiny
+   pool with promoted entries, then acquire one more cold account from
+   a second joiner thread while the main thread runs T2. */
+
+typedef struct {
+  fd_accdb_t *       accdb;
+  fd_accdb_fork_id_t fork_id;
+  uchar const *      pubkey;
+  ulong              lamports; /* out */
+  int                done;
+} test_pool_full_ctx_t;
+
+static void *
+run_pool_full_reader( void * _ctx ) {
+  test_pool_full_ctx_t * ctx = _ctx;
+  uchar const * pks[1] = { ctx->pubkey };
+  int wr[1] = { 0 };
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( ctx->accdb, ctx->fork_id, 1UL, pks, wr, acc );
+  ctx->lamports = acc[0].lamports;
+  fd_accdb_release( ctx->accdb, 1UL, acc );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( ctx->done ) = 1;
+  return NULL;
+}
+
+static void
+test_disk_index_pool_full_wait( void ) {
+  ulong max_accounts   = 4096UL;
+  ulong hot_max        = 8UL;    /* tiny promoted pool */
+  ulong max_live_slots = 256UL;
+  ulong mawps          = 8192UL;
+  ulong partition_cnt  = 8192UL;
+  ulong partition_sz   = 1UL<<30UL;
+  ulong n_accs         = 2UL*hot_max;
+
+  int fd = memfd_create( "accdb_poolfull_test", 0 );
+  FD_TEST( fd>=0 );
+  int idx_fd = memfd_create( "accdb_poolfull_test_idx", 0 );
+  FD_TEST( idx_fd>=0 );
+  FD_TEST( !ftruncate( idx_fd, (long)fd_accdb_idx_file_sz( max_accounts, hot_max ) ) );
+
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, hot_max, max_live_slots, mawps, partition_cnt, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL, 0UL );
+  FD_TEST( shmem_fp );
+  void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
+  FD_TEST( shmem_mem );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( shmem_mem, max_accounts, hot_max, max_live_slots, mawps, partition_cnt,
+                          partition_sz, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, 2UL, 0UL ) );
+  FD_TEST( shmem );
+
+  void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots ) );
+  FD_TEST( accdb_mem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, idx_fd, 0UL, NULL ) );
+  FD_TEST( accdb );
+  void * accdb_mem2 = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots ) );
+  FD_TEST( accdb_mem2 );
+  fd_accdb_t * reader = fd_accdb_join( fd_accdb_new( accdb_mem2, shmem, fd, idx_fd, 0UL, NULL ) );
+  FD_TEST( reader );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  uchar pk[ 16 ][ 32 ];
+  FD_TEST( n_accs<=16UL );
+  for( ulong i=0UL; i<n_accs; i++ ) { memset( pk[ i ], 0, 32UL ); pk[ i ][ 0 ] = (uchar)(0x40+i); pk[ i ][ 31 ] = (uchar)i; }
+
+  ulong rec_off[ 16 ]; ulong cum = 0UL;
+  for( ulong i=0UL; i<n_accs; i+=4UL ) {
+    uchar const * pks[ 4 ]; ulong slots[ 4 ]; ulong lams[ 4 ]; ulong dls[ 4 ]; int exs[ 4 ] = {0};
+    for( ulong j=0UL; j<4UL; j++ ) { pks[ j ] = pk[ i+j ]; slots[ j ] = 5UL; lams[ j ] = 100UL+i+j; dls[ j ] = 16UL; }
+    ulong ig, rp, ld, rl, il;
+    FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 4UL, pks, slots, lams, dls, exs, &ig, &rp, &ld, &rl, &il ) );
+    FD_TEST( ld==4UL );
+    for( ulong j=0UL; j<4UL; j++ ) { rec_off[ i+j ] = cum; cum += sizeof(fd_accdb_disk_meta_t)+dls[ j ]; }
+  }
+
+  ulong base = ULONG_MAX;
+  for( ulong p=0UL; p<fd_accdb_shmem_partition_max( shmem ); p++ ) {
+    fd_accdb_shmem_partition_info_t info[1];
+    fd_accdb_shmem_partition_info( shmem, p, info );
+    if( info->is_write_head ) { base = info->file_offset; break; }
+  }
+  FD_TEST( base!=ULONG_MAX );
+  for( ulong i=0UL; i<n_accs; i++ ) {
+    fd_accdb_disk_meta_t meta;
+    memcpy( meta.pubkey, pk[ i ], 32UL );
+    meta.size = 16U; meta.generation = 0U;
+    memset( meta.owner, (int)(0xA0+i), 32UL );
+    FD_TEST( sizeof(meta)==(ulong)pwrite( fd, &meta, sizeof(meta), (long)(base+rec_off[ i ]) ) );
+    uchar data[ 16 ]; memset( data, (int)(0xB0+i), sizeof(data) );
+    FD_TEST( 16L==pwrite( fd, data, 16UL, (long)(base+rec_off[ i ]+sizeof(meta)) ) );
+  }
+
+  fd_accdb_placement_stats_t pst[1];
+  FD_TEST( !fd_accdb_snapshot_placement( accdb, pst ) );
+  FD_TEST( pst->winners==n_accs );
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* Fill the pool: promote hot_max distinct accounts. */
+  fd_accdb_fork_id_t f1 = fd_accdb_attach_child( accdb, root );
+  for( ulong i=0UL; i<hot_max; i++ ) {
+    ulong lam;
+    FD_TEST( accdb_read( accdb, f1, pk[ i ], &lam, NULL, NULL, NULL ) );
+    FD_TEST( lam==100UL+i );
+  }
+  FD_TEST( FD_VOLATILE_CONST( shmem->acc_pool_used.val )==hot_max );
+
+  /* Cold-read one more from a second joiner: previously an instant
+     FD_LOG_ERR; now it must stall until T2 eviction frees a slot. */
+  test_pool_full_ctx_t ctx = { .accdb = reader, .fork_id = f1, .pubkey = pk[ hot_max ], .lamports = 0UL, .done = 0 };
+  pthread_t thread;
+  FD_TEST( !pthread_create( &thread, NULL, run_pool_full_reader, &ctx ) );
+
+  /* Run T2 until the reader completes (bounded; it needs at least one
+     evict pass plus one deferred-free drain). */
+  for( ulong iter=0UL; iter<(1UL<<22); iter++ ) {
+    if( FD_VOLATILE_CONST( ctx.done ) ) break;
+    drain_background( accdb );
+  }
+  FD_TEST( FD_VOLATILE_CONST( ctx.done ) );
+  FD_TEST( !pthread_join( thread, NULL ) );
+  FD_TEST( ctx.lamports==100UL+hot_max );
+  FD_TEST( FD_VOLATILE_CONST( shmem->acc_pool_used.val )<=hot_max );
+  FD_TEST( fd_accdb_metrics( reader )->acquire_pool_full_waits>=1UL );
+
+  /* Everything still readable afterwards.  Drain between reads: the
+     main thread is also the only T2 here, so it must keep the pool
+     below full before each cold promote or it would stall on itself. */
+  for( ulong i=0UL; i<n_accs; i++ ) {
+    drain_background( accdb );
+    drain_background( accdb );
+    ulong lam;
+    FD_TEST( accdb_read( accdb, f1, pk[ i ], &lam, NULL, NULL, NULL ) );
+    FD_TEST( lam==100UL+i );
+  }
+
+  free( accdb_mem2 );
+  free( accdb_mem );
+  free( shmem_mem );
+  close( fd );
+  close( idx_fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2123,6 +2270,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_disk_index ..." ));
   test_disk_index();
+
+  FD_LOG_NOTICE(( "test_disk_index_pool_full_wait ..." ));
+  test_disk_index_pool_full_wait();
 
   FD_LOG_NOTICE(( "test_background_preevict_ignores_uninitialized_tail ..." ));
   test_background_preevict_ignores_uninitialized_tail();

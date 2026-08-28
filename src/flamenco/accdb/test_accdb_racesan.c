@@ -80,6 +80,7 @@
 static void *             g_shmem_mem;
 static fd_accdb_shmem_t * g_shmem;
 static int                g_fd;
+static int                g_idx_fd = -1; /* >=0 only in disk-index-mode tests */
 
 static fd_accdb_shmem_t *
 test_shmem_new_cfg2( ulong cache_fp,
@@ -151,6 +152,33 @@ test_shmem_new_smallpart( void ) {
   return test_shmem_new_cfg2( test_tiny_cache_footprint(), TEST_TINY_CACHE_MIN_RESERVED, T_SMALL_PARTITION_SZ );
 }
 
+/* Disk-index-mode shmem: a tiny promoted pool (index_ram_max
+   T_HOT_MAX) over a bucket file memfd, for the promote-pool-full
+   weave. */
+
+#define T_HOT_MAX   (8UL)
+#define T_DISK_ACCS (16UL)
+
+static fd_accdb_shmem_t *
+test_shmem_new_diskidx( void ) {
+  g_fd = memfd_create( "accdb_racesan", 0 );
+  if( FD_UNLIKELY( g_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+  g_idx_fd = memfd_create( "accdb_racesan_idx", 0 );
+  if( FD_UNLIKELY( g_idx_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+  FD_TEST( !ftruncate( g_idx_fd, (long)fd_accdb_idx_file_sz( T_MAX_ACCOUNTS, T_HOT_MAX ) ) );
+
+  ulong shmem_fp = fd_accdb_shmem_footprint( T_MAX_ACCOUNTS, T_HOT_MAX, T_MAX_LIVE_SLOTS, T_WRITES_PER_SLOT, T_PARTITION_CNT, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, T_JOINER_CNT, 0UL );
+  FD_TEST( shmem_fp );
+  g_shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
+  FD_TEST( g_shmem_mem );
+  g_shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( g_shmem_mem, T_MAX_ACCOUNTS, T_HOT_MAX, T_MAX_LIVE_SLOTS,
+                          T_WRITES_PER_SLOT, T_PARTITION_CNT,
+                          T_PARTITION_SZ, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, T_JOINER_CNT, 0UL ) );
+  FD_TEST( g_shmem );
+  return g_shmem;
+}
+
 static void
 test_shmem_delete( void ) {
   free( g_shmem_mem );
@@ -158,6 +186,7 @@ test_shmem_delete( void ) {
   g_shmem     = NULL;
   close( g_fd );
   g_fd = -1;
+  if( g_idx_fd>=0 ) { close( g_idx_fd ); g_idx_fd = -1; }
 }
 
 /* A join is a heap-allocated fd_accdb_t local state over the shared
@@ -170,7 +199,7 @@ join_new( void ) {
   FD_TEST( accdb_fp );
   void * mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, -1, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, g_idx_fd, 0UL, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -3336,6 +3365,115 @@ test_pd_parent_hold_vs_advance_root( void ) {
   test_shmem_delete();
 }
 
+/* Promoter pool-full epoch-cycling vs T2 hot_evict + deferred-free
+   drain.  A cold-read promotion against a FULL hot pool must
+   unpublish its epoch (a published epoch would block
+   drain_deferred_frees from recycling T2's evictions -- its own
+   refill), wait, republish, redo STEP 1 and succeed: never abort,
+   never deadlock.  Interleave points: accdb_acquire:pool_full_wait
+   (promoter) vs accdb_epoch_drain:wait (T2 drain). */
+
+static uchar g_disk_pk[ T_DISK_ACCS ][ 32UL ];
+
+static void
+disk_snapshot_place( fd_accdb_t * ctl ) {
+  fd_accdb_snapshot_load_begin( ctl );
+  ulong rec_off[ T_DISK_ACCS ]; ulong cum = 0UL;
+  for( ulong i=0UL; i<T_DISK_ACCS; i+=4UL ) {
+    uchar const * pks[ 4 ]; ulong slots[ 4 ]; ulong lams[ 4 ]; ulong dls[ 4 ]; int exs[ 4 ] = {0};
+    for( ulong j=0UL; j<4UL; j++ ) { pks[ j ] = g_disk_pk[ i+j ]; slots[ j ] = 5UL; lams[ j ] = 100UL+i+j; dls[ j ] = 16UL; }
+    ulong ig, rp, ld, rl, il;
+    FD_TEST( !fd_accdb_snapshot_write_batch( ctl, SENTINEL, 4UL, pks, slots, lams, dls, exs, &ig, &rp, &ld, &rl, &il ) );
+    FD_TEST( ld==4UL );
+    for( ulong j=0UL; j<4UL; j++ ) { rec_off[ i+j ] = cum; cum += sizeof(fd_accdb_disk_meta_t)+dls[ j ]; }
+  }
+  ulong base = ULONG_MAX;
+  for( ulong p=0UL; p<fd_accdb_shmem_partition_max( g_shmem ); p++ ) {
+    fd_accdb_shmem_partition_info_t info[1];
+    fd_accdb_shmem_partition_info( g_shmem, p, info );
+    if( info->is_write_head ) { base = info->file_offset; break; }
+  }
+  FD_TEST( base!=ULONG_MAX );
+  for( ulong i=0UL; i<T_DISK_ACCS; i++ ) {
+    fd_accdb_disk_meta_t meta;
+    memcpy( meta.pubkey, g_disk_pk[ i ], 32UL );
+    meta.size = 16U; meta.generation = 0U;
+    memset( meta.owner, (int)(0xA0+i), 32UL );
+    FD_TEST( sizeof(meta)==(ulong)pwrite( g_fd, &meta, sizeof(meta), (long)(base+rec_off[ i ]) ) );
+    uchar data[ 16 ]; memset( data, (int)(0xB0+i), sizeof(data) );
+    FD_TEST( 16L==pwrite( g_fd, data, 16UL, (long)(base+rec_off[ i ]+sizeof(meta)) ) );
+  }
+  fd_accdb_placement_stats_t pst[1];
+  FD_TEST( !fd_accdb_snapshot_placement( ctl, pst ) );
+  FD_TEST( pst->winners==T_DISK_ACCS );
+  fd_accdb_snapshot_load_end( ctl );
+}
+
+static ulong
+seq_read_lamports( fd_accdb_t *       accdb,
+                   fd_accdb_fork_id_t fork_id,
+                   uchar const *      pubkey ) {
+  uchar const * pks[1] = { pubkey };
+  int wr[1] = { 0 };
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  ulong l = acc[0].lamports;
+  fd_accdb_release( accdb, 1UL, acc );
+  return l;
+}
+
+static void
+test_promote_pool_full_vs_evict( void ) {
+  test_shmem_new_diskidx();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new();
+  fd_accdb_t * jb  = join_new();
+
+  for( ulong i=0UL; i<T_DISK_ACCS; i++ ) { memset( g_disk_pk[ i ], 0, 32UL ); g_disk_pk[ i ][ 0 ] = (uchar)(0x40+i); g_disk_pk[ i ][ 31 ] = (uchar)i; }
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  disk_snapshot_place( ctl );
+  fd_accdb_fork_id_t f1 = fd_accdb_attach_child( ctl, root );
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    /* Fill the pool to exactly pool_max with filler promotions.  The
+       previous iteration's target survives its weave (promoted after
+       that weave's evict pass), so stop as soon as the pool is full:
+       a promote at full would stall ctl on itself (no T2 running
+       here).  All fillers were evicted during the previous weave, so
+       fillers always suffice to top up and the target stays cold. */
+    drain_background( ctl );
+    for( ulong k=0UL; k<T_HOT_MAX; k++ ) {
+      if( FD_VOLATILE_CONST( g_shmem->acc_pool_used.val )==T_HOT_MAX ) break;
+      FD_TEST( seq_read_lamports( ctl, f1, g_disk_pk[ k ] )==100UL+k );
+    }
+    FD_TEST( FD_VOLATILE_CONST( g_shmem->acc_pool_used.val )==T_HOT_MAX );
+
+    ulong         t          = T_HOT_MAX + (i%(T_DISK_ACCS-T_HOT_MAX));
+    uchar const * target     = g_disk_pk[ t ];
+    ulong         target_lam = 100UL+t;
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_acquire_expect( &g_fiber[0], jr, f1, target, target_lam ) );
+    fd_racesan_weave_add( w, fiber_compact_loop(   &g_fiber[1], jb, 16 ) );
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( i ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+    fd_racesan_weave_delete( w );
+    fiber_done( &g_fiber[0] );
+    fiber_done( &g_fiber[1] );
+  }
+
+  /* The weave must actually have exercised the pool-full wait path. */
+  FD_TEST( fd_accdb_metrics( jr )->acquire_pool_full_waits>=1UL );
+
+  join_delete( ctl );
+  join_delete( jr );
+  join_delete( jb );
+  test_shmem_delete();
+}
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -3379,6 +3517,7 @@ main( int     argc,
     TEST( test_pd_same_fork_read_vs_write ),
     TEST( test_pd_parent_read_vs_child_write ),
     TEST( test_pd_parent_hold_vs_advance_root ),
+    TEST( test_promote_pool_full_vs_evict ),
     {0}
   };
 # undef TEST
