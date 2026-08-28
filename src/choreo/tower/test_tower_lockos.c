@@ -1,6 +1,6 @@
 #include "fd_tower.c"
 
-FD_STATIC_ASSERT( sizeof(lockout_interval_t)==16UL, lockout_interval_compact );
+FD_STATIC_ASSERT( sizeof(lockout_interval_t)==12UL, lockout_interval_compact );
 FD_STATIC_ASSERT( alignof(lockout_interval_t)==4UL, lockout_interval_align );
 
 void
@@ -38,7 +38,7 @@ slot_interval_query( fd_tower_t * tower, ulong fork_slot, ulong end ) {
   lockout_interval_t * lck_pool = tower->lck_pool;
   for( uint idx = ls->head; idx!=UINT_MAX; ) {
     lockout_interval_t * interval = lockout_interval_pool_ele( lck_pool, idx );
-    if( interval->end==(uint)end ) return interval;
+    if( (ulong)interval->start + (1UL<<(interval->packed & 63U))==end ) return interval;
     idx = interval->next;
   }
   return NULL;
@@ -78,7 +78,7 @@ test_lockos( fd_wksp_t * wksp ) {
     lockout_interval_t * interval = slot_interval_query( tower, fork_slot, end_intervals[i] );
     FD_TEST( interval );
     FD_TEST( interval->start==(uint)(50 - i) );
-    lockout_pubkey_ref_t const * ref = lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, interval->pubkey_idx );
+    lockout_pubkey_ref_t const * ref = lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, interval->packed>>6 );
     FD_TEST( memcmp( &ref->addr, &acct.vote_acc, sizeof(fd_hash_t) )==0 );
   }
 
@@ -147,8 +147,8 @@ test_lockos_pubkey_pool( fd_wksp_t * wksp ) {
   lockout_interval_t * iv1 = slot_interval_query( tower, 1, 10 + (1UL << 1) );
   lockout_interval_t * iv2 = slot_interval_query( tower, 2, 10 + (1UL << 1) );
   FD_TEST( iv1 && iv2 );
-  FD_TEST( iv1->pubkey_idx==reused_idx );
-  FD_TEST( iv2->pubkey_idx==reused_idx );
+  FD_TEST( iv1->packed>>6==reused_idx );
+  FD_TEST( iv2->packed>>6==reused_idx );
 
   /* Distinct pubkey gets a distinct pool entry. */
   fd_tower_lockos_insert( tower, 1, &acct_b.vote_acc, acct_b.votes );

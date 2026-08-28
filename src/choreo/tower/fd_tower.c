@@ -51,14 +51,14 @@
    slot: switch_check walks one slot's list, lockos_remove frees it). */
 
 struct lockout_interval {
-  uint start;      /* interval start = vote slot */
-  uint end;        /* interval end = vote slot + lockout */
-  uint pubkey_idx; /* pool idx of vote account pubkey */
-  uint next;       /* pool freelist when free; next interval of the same executed slot when allocated */
+  uint start;  /* interval start = vote slot */
+  uint next;   /* pool freelist when free; next interval of the same executed slot when allocated */
+  uint packed; /* bits [0,6) conf, bits [6,32) pool idx of vote account pubkey.
+                  interval end = vote slot + lockout = start + (1UL<<conf) */
 };
 typedef struct lockout_interval lockout_interval_t;
 
-FD_STATIC_ASSERT( sizeof(lockout_interval_t)==16UL, lockout_interval );
+FD_STATIC_ASSERT( sizeof(lockout_interval_t)==12UL, lockout_interval );
 
 #define POOL_NAME  lockout_interval_pool
 #define POOL_T     lockout_interval_t
@@ -125,7 +125,7 @@ fd_tower_align( void ) {
 static int
 fd_tower_max_valid( ulong blk_max,
                     ulong vtr_max ) {
-  if( FD_UNLIKELY( blk_max>UINT_MAX || vtr_max>UINT_MAX/2UL ) ) return 0;
+  if( FD_UNLIKELY( blk_max>UINT_MAX || vtr_max>(1UL<<25) ) ) return 0; /* 2*vtr_max pubkey idxs must fit 26 packed bits */
   if( FD_UNLIKELY( blk_max && vtr_max>UINT_MAX/blk_max ) ) return 0;
 
   ulong pair_max = blk_max * vtr_max;
@@ -588,9 +588,9 @@ switch_check( fd_tower_t * tower,
            vote account with this particular lockout is NOT locked out
            from voting for the last vote slot, so skip it. */
 
-        if( FD_LIKELY( interval->end < vote_slot ) ) continue;
+        if( FD_LIKELY( (ulong)interval->start + (1UL<<(interval->packed & 63U)) < vote_slot ) ) continue;
 
-        fd_hash_t const * vote_acc = &lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, interval->pubkey_idx )->addr;
+        fd_hash_t const * vote_acc = &lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, interval->packed>>6 )->addr;
 
         if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, interval->start, vote_slot ) && interval->start > root_slot ) ) {
           fd_tower_stakes_vtr_xid_t     key         = { .addr = *vote_acc, .slot = switch_slot };
@@ -1594,11 +1594,11 @@ fd_tower_lockos_insert( fd_tower_t *      tower,
                             iter = fd_tower_vote_iter_next( votes, iter ) ) {
     fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( votes, iter );
 
+    FD_CHECK_CRIT( vote->conf<=FD_TOWER_LOCKOS_MAX, "tower lockout conf out of range" );
     FD_TEST( lockout_interval_pool_free( lck_pool ) );
     lockout_interval_t * interval = lockout_interval_pool_ele_acquire( lck_pool );
     interval->start      = (uint)vote->slot;
-    interval->end        = (uint)(vote->slot + (1UL << vote->conf));
-    interval->pubkey_idx = pubkey_idx;
+    interval->packed     = (uint)vote->conf | (pubkey_idx<<6);
     interval->next       = ls->head;
     ls->head             = (uint)lockout_interval_pool_idx( lck_pool, interval );
   }
@@ -1617,7 +1617,7 @@ fd_tower_lockos_remove( fd_tower_t * tower,
   for( uint idx = ls->head; idx!=UINT_MAX; ) {
     lockout_interval_t * itrvl = lockout_interval_pool_ele( lck_pool, idx );
     idx = itrvl->next;
-    lockout_pubkey_ref_t * ref = lockout_pubkey_pool_ele( tower->lck_pubkey_pool, itrvl->pubkey_idx );
+    lockout_pubkey_ref_t * ref = lockout_pubkey_pool_ele( tower->lck_pubkey_pool, itrvl->packed>>6 );
     if( FD_LIKELY( !--ref->ref_cnt ) ) {
       FD_CHECK_CRIT( lockout_pubkey_map_ele_remove( tower->lck_pubkey_map, &ref->addr, NULL, tower->lck_pubkey_pool ), "unable to remove tower lockout pubkey" );
       lockout_pubkey_pool_ele_release( tower->lck_pubkey_pool, ref );
