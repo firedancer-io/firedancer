@@ -66,6 +66,35 @@ typedef struct fd_stake_accum fd_stake_accum_t;
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* fd_bpf_migration_stack_t is staging memory for bpf migration.  This
+   is used to store and stage various accounts which is required for
+   deploying a new BPF program at the epoch boundary.
+
+   It does not get dedicated memory: it overlays the stakes
+   points/rewards result arrays.  Migrations run at an epoch boundary
+   strictly before those arrays are (re)filled by the rewards
+   calculation at the same boundary, and rewards distribution
+   (which re-derives from those arrays) completes within the first
+   num_partitions blocks of an epoch, long before another boundary can
+   run a migration.  The migration entry points FD_TEST that no
+   distribution is in flight. */
+struct fd_bpf_migration_stack {
+  fd_tmp_account_t source;
+  fd_tmp_account_t program_account;
+  fd_tmp_account_t new_target_program;
+  fd_tmp_account_t new_target_program_data;
+  fd_tmp_account_t empty;
+
+  /* Staging memory for ELF validation during BPF program
+     migrations. */
+  struct {
+    uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
+    uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
+    uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+  } progcache_validate;
+};
+typedef struct fd_bpf_migration_stack fd_bpf_migration_stack_t;
+
 /* fd_runtime_stack_t serves as stack memory to store temporary data
    for the runtime.  This object should only be used and owned by the
    replay tile and is used for short-lived allocations for the runtime,
@@ -82,30 +111,9 @@ struct fd_runtime_stack {
     ts_est_ele_t * staked_ts;
   } clock_ts;
 
-  struct {
-    /* Staging memory for bpf migration.  This is used to store and
-       stage various accounts which is required for deploying a new BPF
-       program at the epoch boundary.
-
-       TODO: These are only used by the replay tile on epoch boundaries
-       and don't need to be in the per-exec stacks.  Additionally, we
-       could just acquire these buffers out of the account database
-       directly to share them across tiles using the existing flexible
-       buffer management. */
-    fd_tmp_account_t source;
-    fd_tmp_account_t program_account;
-    fd_tmp_account_t new_target_program;
-    fd_tmp_account_t new_target_program_data;
-    fd_tmp_account_t empty;
-
-    /* Staging memory for ELF validation during BPF program
-       migrations. */
-    struct {
-      uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
-      uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
-      uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-    } progcache_validate;
-  } bpf_migration;
+  /* Overlays stakes.stake_points_result/stake_rewards_result, see
+     above. */
+  fd_bpf_migration_stack_t * bpf_migration;
 
   struct {
     fd_calculated_stake_points_t *  stake_points_result;
@@ -153,6 +161,17 @@ fd_runtime_stack_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
+fd_runtime_stack_points_rewards_overlay_sz( ulong max_stake_accounts ) {
+  /* bpf_migration staging shares memory with the points/rewards result
+     arrays (see fd_bpf_migration_stack_t).  The max() keeps small
+     configurations (test harnesses with few stake accounts) safe: the
+     region is never smaller than the migration staging. */
+  ulong points_sz  = sizeof(fd_calculated_stake_points_t) * max_stake_accounts;
+  ulong rewards_sz = sizeof(fd_calculated_stake_rewards_t) * max_stake_accounts;
+  return fd_ulong_max( points_sz + rewards_sz, sizeof(fd_bpf_migration_stack_t) );
+}
+
+FD_FN_PURE static inline ulong
 fd_runtime_stack_footprint( ulong max_vote_accounts,
                             ulong max_staked_vote_accounts,
                             ulong max_stake_accounts ) {
@@ -167,8 +186,7 @@ fd_runtime_stack_footprint( ulong max_vote_accounts,
   l = FD_LAYOUT_APPEND( l, fd_vote_rewards_map_align(),           fd_vote_rewards_map_footprint( vote_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, 128UL,                                 sizeof(fd_stake_accum_t) * max_staked_vote_accounts );
   l = FD_LAYOUT_APPEND( l, fd_stake_accum_map_align(),            fd_stake_accum_map_footprint( stake_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_calculated_stake_points_t), sizeof(fd_calculated_stake_points_t) * max_stake_accounts );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_calculated_stake_rewards_t),sizeof(fd_calculated_stake_rewards_t) * max_stake_accounts );
+  l = FD_LAYOUT_APPEND( l, 128UL,                                 fd_runtime_stack_points_rewards_overlay_sz( max_stake_accounts ) );
   return FD_LAYOUT_FINI( l, fd_runtime_stack_align() );
 }
 
@@ -190,13 +208,15 @@ fd_runtime_stack_new( void * shmem,
   void *                          vote_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_rewards_map_align(),            fd_vote_rewards_map_footprint( vote_chain_cnt ) );
   fd_stake_accum_t *              stake_accum          = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                                  sizeof(fd_stake_accum_t) * max_staked_vote_accounts );
   void *                          stake_accum_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_accum_map_align(),             fd_stake_accum_map_footprint( stake_chain_cnt ) );
-  fd_calculated_stake_points_t *  stake_points_result  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_calculated_stake_points_t),  sizeof(fd_calculated_stake_points_t) * max_stake_accounts );
-  fd_calculated_stake_rewards_t * stake_rewards_result = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_calculated_stake_rewards_t), sizeof(fd_calculated_stake_rewards_t) * max_stake_accounts );
+  uchar *                         overlay_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                                  fd_runtime_stack_points_rewards_overlay_sz( max_stake_accounts ) );
+  fd_calculated_stake_points_t *  stake_points_result  = (fd_calculated_stake_points_t *)overlay_mem;
+  fd_calculated_stake_rewards_t * stake_rewards_result = (fd_calculated_stake_rewards_t *)(overlay_mem + sizeof(fd_calculated_stake_points_t)*max_stake_accounts);
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_runtime_stack_align() )!=(ulong)shmem + fd_runtime_stack_footprint( max_vote_accounts, max_staked_vote_accounts, max_stake_accounts ) ) ) {
     FD_LOG_WARNING(( "fd_runtime_stack_new: bad layout" ));
     return NULL;
   }
 
+  runtime_stack->bpf_migration               = (fd_bpf_migration_stack_t *)overlay_mem;
   runtime_stack->max_vote_accounts           = max_vote_accounts;
   runtime_stack->max_staked_vote_accounts    = max_staked_vote_accounts;
   runtime_stack->max_stake_accounts          = max_stake_accounts;
