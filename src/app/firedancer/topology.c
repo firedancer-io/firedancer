@@ -1523,7 +1523,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     /* Please maintain same field order as fd_topo.h */
 
-    tile->replay.fec_max = config->firedancer.runtime.max_live_slots * 1024UL; /* FIXME temporary hack to run on 512 gb boxes */
+    tile->replay.fec_max = config->firedancer.runtime.max_live_slots * 512UL; /* half worst-case FEC density; reasm evicts on overflow */
     tile->replay.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
     tile->replay.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
