@@ -124,8 +124,7 @@ test_sysvar_map( void ) {
   s = sysvar_map_query( &fd_sysvar_slot_hashes_id, NULL );
   FD_TEST( s && s->desc_idx == FD_SYSVAR_slot_hashes_IDX );
 
-  s = sysvar_map_query( &fd_sysvar_slot_history_id, NULL );
-  FD_TEST( s && s->desc_idx == FD_SYSVAR_slot_history_IDX );
+  FD_TEST( !sysvar_map_query( &fd_sysvar_slot_history_id, NULL ) ); /* not cached */
 
   s = sysvar_map_query( &fd_sysvar_stake_history_id, NULL );
   FD_TEST( s && s->desc_idx == FD_SYSVAR_stake_history_IDX );
@@ -176,7 +175,6 @@ test_sysvar_cache_empty( void ) {
   FD_TEST( !fd_sysvar_cache_recent_hashes_is_valid    ( cache1 ) );
   FD_TEST( !fd_sysvar_cache_rent_is_valid             ( cache1 ) );
   FD_TEST( !fd_sysvar_cache_slot_hashes_is_valid      ( cache1 ) );
-  FD_TEST( !fd_sysvar_cache_slot_history_is_valid     ( cache1 ) );
   FD_TEST( !fd_sysvar_cache_stake_history_is_valid    ( cache1 ) );
 
   /* Test query */

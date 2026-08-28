@@ -2,7 +2,6 @@
 #include "fd_sysvar_cache_private.h"
 #include "fd_sysvar_recent_hashes.h"
 #include "fd_sysvar_slot_hashes.h"
-#include "fd_sysvar_slot_history.h"
 #include "fd_sysvar_stake_history.h"
 
 #include <errno.h>
@@ -227,10 +226,6 @@ fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
     { .name="slot hashes",
       .data_off=offsetof(fd_sysvar_cache_t, bin_slot_hashes      ), .data_max=FD_SYSVAR_SLOT_HASHES_BINCODE_SZ,
       .validate=fd_sysvar_slot_hashes_validate },
-  [FD_SYSVAR_slot_history_IDX] =
-    { .name="slot history",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_slot_history     ), .data_max=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ,
-      .validate=fd_sysvar_slot_history_validate },
   [FD_SYSVAR_stake_history_IDX] =
     { .name="stake history",
       .data_off=offsetof(fd_sysvar_cache_t, bin_stake_history    ), .data_max=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ,

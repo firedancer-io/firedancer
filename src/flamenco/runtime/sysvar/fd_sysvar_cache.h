@@ -23,7 +23,7 @@
 #include "fd_sysvar_base.h"
 #include "../../accdb/fd_accdb.h"
 
-#define FD_SYSVAR_CACHE_ENTRY_CNT 9
+#define FD_SYSVAR_CACHE_ENTRY_CNT 8
 
 /* fd_sysvar_cache_t is the header of a sysvar_cache object.
    A sysvar_cache object is position-independent and backed entirely by
@@ -55,15 +55,17 @@ struct fd_sysvar_cache {
   uchar bin_recent_hashes     [ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_rent              [ FD_SYSVAR_RENT_BINCODE_SZ              ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar bin_slot_history      [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_stake_history     [ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
 
-  /* Note that two sysvars are (deliberately) missing:
+  /* Note that three sysvars are (deliberately) missing:
      - The 'fees' sysvar was deprecated/demoted.  It is not part of the
        sysvar cache in Agave.
      - The 'instructions' sysvar is a virtual account, not a stored
        account.  It is never written to a database, therefore it does
-       not make sense to cache it. */
+       not make sense to cache it.
+     - The 'slot history' sysvar (131KB per bank) is written accdb
+       direct by fd_sysvar_slot_history_{init,update} and has no
+       cache reader: sol_get_sysvar excludes it (as in Agave). */
 };
 
 typedef struct fd_sysvar_cache fd_sysvar_cache_t;
@@ -75,8 +77,7 @@ typedef struct fd_sysvar_cache fd_sysvar_cache_t;
 #define FD_SYSVAR_recent_hashes_IDX       4
 #define FD_SYSVAR_rent_IDX                5
 #define FD_SYSVAR_slot_hashes_IDX         6
-#define FD_SYSVAR_slot_history_IDX        7
-#define FD_SYSVAR_stake_history_IDX       8
+#define FD_SYSVAR_stake_history_IDX       7
 
 FD_PROTOTYPES_BEGIN
 
@@ -270,15 +271,6 @@ fd_sysvar_cache_recent_hashes_is_empty( fd_sysvar_cache_t const * sysvar_cache )
 static inline int
 fd_sysvar_cache_slot_hashes_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, slot_hashes );
-}
-
-/* fd_sysvar_cache_slot_history_{join,leave}_const {attach,detach} the
-   caller {from,to} the "slot history" sysvar.  Behavior analogous to
-   above accessors. */
-
-static inline int
-fd_sysvar_cache_slot_history_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
-  return FD_SYSVAR_IS_VALID( sysvar_cache, slot_history );
 }
 
 static inline int

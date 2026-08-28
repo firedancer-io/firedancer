@@ -125,11 +125,25 @@ test_sysvar_slot_history_find_slot_synthetic( void ) {
   free( data );
 }
 
+/* The slot history sysvar is deliberately absent from the sysvar
+   cache; read the account straight out of the database. */
+
+static uchar acc_buf[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ+8UL ];
+
+static ulong
+read_slot_history_acc( test_sysvar_cache_env_t * env ) {
+  fd_acc_t acc = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, fd_sysvar_slot_history_id.uc );
+  FD_TEST( acc.lamports );
+  ulong sz = fd_ulong_min( acc.data_len, sizeof(acc_buf) );
+  fd_memcpy( acc_buf, acc.data, sz );
+  fd_accdb_unread_one( env->accdb, &acc );
+  return sz;
+}
+
 static void
 test_sysvar_slot_history_init( fd_wksp_t * wksp ) {
   test_sysvar_cache_env_t env[1];
   FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
-  FD_TEST( !fd_sysvar_cache_slot_history_is_valid( env->sysvar_cache ) );
 
   fd_rent_t const rent = {
     .lamports_per_uint8_year = 3480UL,
@@ -140,15 +154,12 @@ test_sysvar_slot_history_init( fd_wksp_t * wksp ) {
   env->bank->f.slot = 1234UL;
 
   fd_sysvar_slot_history_init( env->bank, env->accdb, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb );
-  FD_TEST( fd_sysvar_cache_slot_history_is_valid( env->sysvar_cache ) );
 
-  ulong sz = 0UL;
-  uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_history_id, &sz );
-  FD_TEST( data && sz==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  ulong sz = read_slot_history_acc( env );
+  FD_TEST( sz==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 
   fd_slot_history_view_t view[1];
-  FD_TEST( fd_sysvar_slot_history_view( view, data, sz ) );
+  FD_TEST( fd_sysvar_slot_history_view( view, acc_buf, sz ) );
   FD_TEST( view->next_slot==1235UL );
   FD_TEST( view->bits_len ==FD_SLOT_HISTORY_MAX_ENTRIES );
   FD_TEST( fd_sysvar_slot_history_find_slot( view, 1234UL )==FD_SLOT_HISTORY_SLOT_NOT_FOUND );
@@ -177,15 +188,11 @@ test_sysvar_slot_history_update( fd_wksp_t * wksp ) {
   env->bank->f.slot = 105UL;
   fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
 
-  fd_sysvar_cache_restore( env->bank, env->accdb );
-  FD_TEST( fd_sysvar_cache_slot_history_is_valid( env->sysvar_cache ) );
-
-  ulong sz = 0UL;
-  uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_history_id, &sz );
-  FD_TEST( data && sz==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  ulong sz = read_slot_history_acc( env );
+  FD_TEST( sz==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 
   fd_slot_history_view_t view[1];
-  FD_TEST( fd_sysvar_slot_history_view( view, data, sz ) );
+  FD_TEST( fd_sysvar_slot_history_view( view, acc_buf, sz ) );
   FD_TEST( view->next_slot==106UL );
 
   FD_TEST( fd_sysvar_slot_history_find_slot( view, 100UL )==FD_SLOT_HISTORY_SLOT_FOUND     );
@@ -218,14 +225,12 @@ test_sysvar_slot_history_update_large_gap( fd_wksp_t * wksp ) {
   ulong new_slot = 100UL + FD_SLOT_HISTORY_MAX_ENTRIES + 500UL;
   env->bank->f.slot = new_slot;
   fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb );
 
-  ulong sz = 0UL;
-  uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_history_id, &sz );
-  FD_TEST( data && sz==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  ulong sz = read_slot_history_acc( env );
+  FD_TEST( sz==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 
   fd_slot_history_view_t view[1];
-  FD_TEST( fd_sysvar_slot_history_view( view, data, sz ) );
+  FD_TEST( fd_sysvar_slot_history_view( view, acc_buf, sz ) );
   FD_TEST( view->next_slot == new_slot + 1UL );
 
   FD_TEST( fd_sysvar_slot_history_find_slot( view, new_slot     )==FD_SLOT_HISTORY_SLOT_FOUND     );
@@ -265,11 +270,9 @@ test_sysvar_slot_history_update_zero_blocks( fd_wksp_t * wksp ) {
   fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
 
   /* Verify data unchanged (update was a no-op) */
-  fd_sysvar_cache_restore( env->bank, env->accdb );
-  ulong sz = 0UL;
-  uchar const * out = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_history_id, &sz );
-  FD_TEST( out && sz==sizeof(data) );
-  FD_TEST( 0==memcmp( out, data, sizeof(data) ) );
+  ulong sz = read_slot_history_acc( env );
+  FD_TEST( sz==sizeof(data) );
+  FD_TEST( 0==memcmp( acc_buf, data, sizeof(data) ) );
 
   test_sysvar_cache_env_destroy( env );
 }
