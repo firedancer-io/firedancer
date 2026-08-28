@@ -81,6 +81,12 @@
    4+fec_resolver_depth/2.  That means we get
    2*d+2*(4+fec_resolver_depth/2) >= 2*d+6+fec_resolver_depth FEC sets.
 
+   The accounting above applies to the Frankendancer shred_store path,
+   where the arena doubles as the link dcache.  In Firedancer
+   (ctx->store!=NULL) every consumer copies the FEC set out within the
+   producing stem callback, so no set outlives its after_frag: the
+   arena shrinks to FD_SHRED_TILE_FD_FEC_SET_CNT (see fd_shred_tile.h).
+
    A note on parallelization.  From the network, shreds are distributed
    to tiles based on a validator-specific seeded hash of (slot, FEC set
    index) so all the shreds for a given FEC set (and any equivocating
@@ -112,6 +118,7 @@
 
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL,      poh_shred_mtu   );
 FD_STATIC_ASSERT( sizeof(fd_fec_set_t)==FD_SHRED_STORE_MTU, shred_store_mtu );
+FD_STATIC_ASSERT( FD_SHRED_TILE_FD_LEADER_FEC_SETS==FD_SHRED_BATCH_FEC_SETS_MAX, leader_fec_sets );
 
 #define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 2
 
@@ -1456,12 +1463,18 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   /* If the default partial_depth is ever changed, correspondingly
-     change the size of the fd_fec_intra_pool in fd_fec_repair. */
+     change the size of the fd_fec_intra_pool in fd_fec_repair.  The
+     resolver scratch stays sized for the larger Frankendancer
+     complete_depth to match scratch_footprint. */
   ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, shred_store_mcache_depth + 1UL,
                                                             128UL * tile->shred.fec_resolver_depth );
   /* See long comment at the top of this file for the computation of
      fec_set_cnt. */
-  ulong fec_set_cnt            = 2UL*shred_store_mcache_depth + tile->shred.fec_resolver_depth + FD_SHRED_BATCH_FEC_SETS_MAX + 2UL;
+  ulong leader_fec_set_cnt     = ctx->store ? FD_SHRED_TILE_FD_LEADER_FEC_SETS
+                                            : shred_store_mcache_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
+  ulong complete_depth         = ctx->store ? FD_SHRED_TILE_FD_COMPLETE_DEPTH
+                                            : shred_store_mcache_depth + 1UL;
+  ulong fec_set_cnt            = leader_fec_set_cnt + tile->shred.fec_resolver_depth + 1UL + complete_depth;
   ulong fec_sets_required_sz   = fec_set_cnt*sizeof(fd_fec_set_t);
 
   void * fec_sets_shmem = NULL;
@@ -1558,12 +1571,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->larger_shred_limits_per_block = tile->shred.larger_shred_limits_per_block;
   ulong shred_limit                  = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
   ctx->shred_limit                   = shred_limit;
-  fd_fec_set_t * resolver_sets       = fec_sets + shred_store_mcache_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
+  fd_fec_set_t * resolver_sets       = fec_sets + leader_fec_set_cnt;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
                                                                         fd_shred_signer, ctx->keyguard_client,
                                                                         tile->shred.fec_resolver_depth, 1UL,
-                                                                        shred_store_mcache_depth+1UL,
+                                                                        complete_depth,
                                                                         128UL * tile->shred.fec_resolver_depth, resolver_sets,
                                                                         ctx->resolver_seed ) ) );
 
@@ -1657,7 +1670,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->poh_in_expect_seq = 0UL;
 
   ctx->shredder_fec_set_idx = 0UL;
-  ctx->shredder_max_fec_set_idx = shred_store_mcache_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
+  ctx->shredder_max_fec_set_idx = leader_fec_set_cnt;
 
   ctx->chained_merkle_root = NULL;
   memset( ctx->out_merkle_roots, 0, sizeof(ctx->out_merkle_roots) );

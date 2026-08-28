@@ -424,9 +424,7 @@ fd_topo_initialize( config_t * config ) {
      load (~2.4k shreds/slot incl. parity, 2.5 slots/s), so 4096 is
      ~0.7s of buffer at mainnet and ~70ms at 10x mainnet, while the
      consumers (repair, tower, gui) each drain frags in well under a
-     microsecond.  The depth also sizes the store FEC-set arena at
-     2*depth entries of 76 KiB each per shred tile, so oversizing it is
-     very expensive.  repair_out (one frag per FEC completion, consumed
+     microsecond.  repair_out (one frag per FEC completion, consumed
      by replay) uses the same depth so the store retention cushion
      formula below covers both links. */
   ulong shred_depth = 4096UL;
@@ -1132,7 +1130,7 @@ fd_topo_initialize( config_t * config ) {
   /* Auto layout must run after all fd_topob_tile() calls so every tile gets a blocklist-aware CPU assignment. */
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
 
-  ulong fec_set_cnt = 2UL*shred_depth + config->tiles.shred.max_pending_shred_sets + 6UL;
+  ulong fec_set_cnt = FD_SHRED_TILE_FD_FEC_SET_CNT( config->tiles.shred.max_pending_shred_sets );
   ulong store_fec_set_cnt = shred_tile_cnt*fec_set_cnt;
 
    /* store_fec_max is the maximum number of FEC sets Store retains.

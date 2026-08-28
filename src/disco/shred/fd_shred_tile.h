@@ -10,6 +10,19 @@ typedef struct fd_fec_resolver fd_fec_resolver_t;
 typedef struct fd_keyswitch_private fd_keyswitch_t;
 typedef struct fd_keyguard_client fd_keyguard_client_t;
 
+/* Firedancer-path FEC-set arena sizing: fec_resolver in-progress sets
+   + 1 partial + a small completed-set reuse guard + leader batch slots
+   (== FD_SHRED_BATCH_FEC_SETS_MAX, static-asserted in fd_shred_tile.c).
+   Every Firedancer consumer copies FEC sets out within the producing
+   stem callback (store insert memcpys payload, shred_out/net publish
+   copies into their own compact dcaches), so unlike the Frankendancer
+   shred_store path (arena doubles as the link dcache) there are no
+   2*depth link-retention terms. */
+#define FD_SHRED_TILE_FD_LEADER_FEC_SETS (4UL)
+#define FD_SHRED_TILE_FD_COMPLETE_DEPTH  (8UL)
+#define FD_SHRED_TILE_FD_FEC_SET_CNT( fec_resolver_depth ) \
+  ( (fec_resolver_depth) + 1UL + FD_SHRED_TILE_FD_COMPLETE_DEPTH + FD_SHRED_TILE_FD_LEADER_FEC_SETS )
+
 /* Shred tile context structure */
 typedef struct {
   fd_shredder_t      * shredder;
