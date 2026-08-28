@@ -145,7 +145,7 @@ static void
 append_fec_event( fd_gui_t * gui,
                   long       ts_ns,
                   ulong      slot ) {
-  fd_gui_slot_history_tvu_event_t rec[ 1 ];
+  fd_gui_fec_event_record_t rec[ 1 ];
   memset( rec, 0, sizeof(*rec) );
   rec->slot      = (uint)slot;
   rec->timestamp = ts_ns;
@@ -690,6 +690,7 @@ test_timeline_db( fd_gui_t * gui ) {
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_TIMELINE_DAY     ].name, "timeline_day"     ) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_TXN       ].name, "replay_txn"       ) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_FEC_EVENTS       ].name, "fec_events"       ) );
+  FD_TEST( descs[ FD_GUI_HIST_FEC_EVENTS ].val_sz==sizeof(fd_gui_fec_event_record_t) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_TXN_BATCH ].name, "replay_txn_batch" ) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].val_sz==sizeof(fd_gui_timeline_day_t) );
 

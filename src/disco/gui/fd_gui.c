@@ -81,7 +81,7 @@ fd_gui_fec_event_append( fd_gui_t * gui,
                          ulong      event,
                          long       now,
                          long       timestamp ) {
-  fd_gui_slot_history_tvu_event_t value = {
+  fd_gui_fec_event_record_t value = {
     .timestamp = fd_gui_hist_ts_clamp( now, timestamp ),
     .slot      = (uint)slot,
     .idx       = (ushort)idx,
@@ -3099,6 +3099,13 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
    buckets of the next finer tier rather than rescanning raw events. */
 
 fd_gui_timeline_granularity_t const fd_gui_timeline_granularities[ FD_GUI_TIMELINE_GRANULARITY_CNT ] = {
+  { "1ms",        1000000UL, ULONG_MAX, 0UL },
+  { "2ms",        2000000UL, ULONG_MAX, 0UL },
+  { "5ms",        5000000UL, ULONG_MAX, 0UL },
+  { "10ms",      10000000UL, ULONG_MAX, 0UL },
+  { "25ms",      25000000UL, ULONG_MAX, 0UL },
+  { "50ms",      50000000UL, ULONG_MAX, 0UL },
+  { "100ms",    100000000UL, ULONG_MAX, 0UL },
   { "250ms",    250000000UL, FD_GUI_TIMELINE_STORED_250MS, 1UL },
   { "500ms",    500000000UL, FD_GUI_TIMELINE_STORED_250MS, 2UL },
   { "1s",      1000000000UL, FD_GUI_TIMELINE_STORED_250MS, 4UL },
@@ -3252,6 +3259,32 @@ fd_gui_timeline_handle_fec( fd_gui_t * gui,
                             long       now ) {
   ulong fec_shred_cnt = 2UL*(ulong)FD_FEC_SHRED_CNT; /* data plus coding */
 
+  long completion_ts = fd_gui_hist_ts_clamp( now, timestamp_ns );
+  fd_gui_hist_iter_t it;
+  if( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_FEC_EVENTS, completion_ts, completion_ts, NULL, NULL ) ) {
+    while( fd_gui_hist_range_next( &it ) ) {
+      fd_gui_fec_event_record_t const * prior = (fd_gui_fec_event_record_t const *)it.rec;
+      if( prior->kind==FD_GUI_FEC_ROW_COMPLETION && prior->slot==(uint)slot &&
+          prior->turbine==turbine_shred_cnt && prior->repair==repair_shred_cnt &&
+          prior->reconstructed==reconstructed_shred_cnt && prior->published==(published ? fec_shred_cnt : 0UL) ) {
+        fd_gui_hist_range_end( &it );
+        return;
+      }
+    }
+    fd_gui_hist_range_end( &it );
+  }
+
+  fd_gui_fec_event_record_t summary = {
+    .timestamp     = completion_ts,
+    .slot          = (uint)slot,
+    .kind          = FD_GUI_FEC_ROW_COMPLETION,
+    .turbine       = turbine_shred_cnt,
+    .repair        = repair_shred_cnt,
+    .reconstructed = reconstructed_shred_cnt,
+    .published     = published ? fec_shred_cnt : 0UL
+  };
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_FEC_EVENTS, now, summary.timestamp, &summary );
+
   /* All aggregate shred fields share the FEC completion timestamp.  A
      completed FEC makes every source contribution known, including
      zero. */
@@ -3313,6 +3346,23 @@ static inline void
 fd_gui_timeline_skipped_inc( uint * value ) {
   if( FD_UNLIKELY( *value==UINT_MAX ) ) *value = 1U;
   else if( FD_LIKELY( *value<UINT_MAX-1U ) ) (*value)++;
+}
+
+static void
+fd_gui_timeline_mine_add( fd_gui_t * gui,
+                          long       timestamp_ns,
+                          int        skipped,
+                          long       now ) {
+  if( FD_UNLIKELY( timestamp_ns<0L || timestamp_ns==LONG_MAX ) ) return;
+  ulong ts_ns   = (ulong)timestamp_ns;
+  ulong day_idx = ts_ns/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  ulong day_ns  = ts_ns%(ulong)FD_GUI_TIMELINE_DAY_NS;
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, day_idx, now );
+  if( FD_UNLIKELY( !day ) ) return;
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_STORED_GRANULARITY_CNT; g++ ) {
+    ulong idx = fd_gui_timeline_stored_granularity_off[ g ] + day_ns/fd_gui_timeline_stored_granularity_ns[ g ];
+    fd_gui_timeline_skipped_inc( skipped ? &day->mine_skipped[ idx ] : &day->mine[ idx ] );
+  }
 }
 
 /* Attribute one skipped slot to every stored tier.  Skipped slots are
@@ -3461,6 +3511,16 @@ fd_gui_timeline_skipped_update( fd_gui_t *            gui,
       uint128 segment_cnt      =  (uint128)2UL*(uint128)slot_delta;
       ulong offset_ns = (ulong)((segment_midpoint*(uint128)time_delta)/segment_cnt);
       fd_gui_timeline_skipped_add( gui, p->completed_time+(long)offset_ns );
+      ulong skipped_slot = p->slot+k;
+      fd_gui_hist_kv_slot_iter_t it[1];
+      for( fd_gui_hist_kv_iter_begin( gui, it, FD_GUI_HIST_SLOT, skipped_slot ); it->rec; fd_gui_hist_kv_iter_next( it ) ) {
+        fd_gui_slot_t * fork_slot = (fd_gui_slot_t *)it->rec;
+        if( FD_UNLIKELY( fork_slot->slot!=skipped_slot ) ) break;
+        if( fork_slot->mine && fork_slot->completed_time!=LONG_MAX && !fork_slot->timeline_mine_skipped_accounted ) {
+          fd_gui_timeline_mine_add( gui, fork_slot->completed_time, 1, now );
+          fork_slot->timeline_mine_skipped_accounted = 1U;
+        }
+      }
     }
     c = p;
   }
@@ -4465,6 +4525,11 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   slot->shred_cnt         = fd_uint_if( slot_completed->shred_cnt==ULONG_MAX, slot->shred_cnt, (uint)slot_completed->shred_cnt );
   slot->vote_slot         = vote_slot;
   slot->block_hash        = slot_completed->block_hash;
+
+  if( FD_UNLIKELY( slot->mine && !slot->timeline_mine_accounted ) ) {
+    fd_gui_timeline_mine_add( gui, slot->completed_time, 0, now );
+    slot->timeline_mine_accounted = 1U;
+  }
 
   fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, slot_completed->slot );
   if( FD_UNLIKELY( epoch && slot_completed->slot==epoch->start_slot+epoch->slot_cnt-1UL ) ) epoch->end_time = slot->completed_time;

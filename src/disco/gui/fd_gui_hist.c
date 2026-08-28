@@ -6,6 +6,7 @@
 
 /* Every record type must fit in one store region (header + record). */
 FD_STATIC_ASSERT( sizeof(fd_gui_slot_history_tvu_event_t  )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_record_t        )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_timers_hist_t        )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_scheduler_counts_t        )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_stats_t              )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
@@ -54,7 +55,7 @@ static inline ulong
 fd_gui_hist_dbi_ts_off( int dbi ) {
   switch( dbi ) {
     case FD_GUI_HIST_SHRED_EVENTS:
-    case FD_GUI_HIST_FEC_EVENTS:       return offsetof( fd_gui_slot_history_tvu_event_t,   timestamp           );
+    case FD_GUI_HIST_FEC_EVENTS:       return offsetof( fd_gui_fec_event_record_t,         timestamp           );
     case FD_GUI_HIST_TILE_TIMERS:      return offsetof( fd_gui_tile_timers_hist_t,         sample_time_nanos   );
     case FD_GUI_HIST_SCHEDULER_COUNTS: return offsetof( fd_gui_scheduler_counts_t,         sample_time_ns      );
     case FD_GUI_HIST_TILE_STATS:       return offsetof( fd_gui_tile_stats_t,               sample_time_nanos   );
@@ -169,7 +170,7 @@ static inline ulong
 fd_gui_hist_rec_sz( int dbi ) {
   switch( dbi ) {
     case FD_GUI_HIST_SHRED_EVENTS:
-    case FD_GUI_HIST_FEC_EVENTS:       return sizeof(fd_gui_slot_history_tvu_event_t);
+    case FD_GUI_HIST_FEC_EVENTS:       return sizeof(fd_gui_fec_event_record_t);
     case FD_GUI_HIST_TILE_TIMERS:      return sizeof(fd_gui_tile_timers_hist_t);
     case FD_GUI_HIST_SCHEDULER_COUNTS: return sizeof(fd_gui_scheduler_counts_t);
     case FD_GUI_HIST_TILE_STATS:       return sizeof(fd_gui_tile_stats_t);

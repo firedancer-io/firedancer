@@ -257,6 +257,8 @@ struct fd_gui_timeline_day {
   ulong vote_success   [ FD_GUI_TIMELINE_BUCKET_CNT ];
   ulong vote_failed    [ FD_GUI_TIMELINE_BUCKET_CNT ];
   uint  skipped        [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  uint  mine           [ FD_GUI_TIMELINE_BUCKET_CNT ];
+  uint  mine_skipped   [ FD_GUI_TIMELINE_BUCKET_CNT ];
 };
 typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
 
@@ -264,7 +266,8 @@ typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
    accepts, and says which stored tier serves it and how many of that
    tier's buckets merge into one response bucket. */
 
-#define FD_GUI_TIMELINE_GRANULARITY_CNT (20UL)
+#define FD_GUI_TIMELINE_FINE_GRANULARITY_CNT (7UL)
+#define FD_GUI_TIMELINE_GRANULARITY_CNT      (27UL)
 #define FD_GUI_TIMELINE_MAX_MERGE_CNT    (4UL)
 
 #define FD_GUI_TIMELINE_STORED_250MS (0UL)
@@ -427,6 +430,23 @@ struct __attribute__((packed)) fd_gui_slot_history_tvu_event {
 
 typedef struct fd_gui_slot_history_tvu_event fd_gui_slot_history_tvu_event_t;
 
+struct __attribute__((packed)) fd_gui_fec_event_record {
+  long   timestamp;
+  uint   slot;
+  ushort idx;
+  uchar  event;
+  uchar  kind;
+  ulong  turbine;
+  ulong  repair;
+  ulong  reconstructed;
+  ulong  published;
+};
+
+typedef struct fd_gui_fec_event_record fd_gui_fec_event_record_t;
+
+#define FD_GUI_FEC_ROW_EVENT      (0U)
+#define FD_GUI_FEC_ROW_COMPLETION (1U)
+
 struct __attribute__((packed)) fd_gui_slot {
   ulong     slot;             /* this record's slot number. */
   ulong     bank_seq;         /* this block's fork discriminator (the record's own key bank_seq).*/
@@ -436,6 +456,8 @@ struct __attribute__((packed)) fd_gui_slot {
   fd_hash_t block_hash;       /* block hash of the slot */
   uchar     mine:1;           /* 1 if this was our leader slot */
   uchar     is_voter:2;       /* one of FD_GUI_IS_VOTER_* */
+  uchar     timeline_mine_accounted:1;
+  uchar     timeline_mine_skipped_accounted:1;
   uint      vote_success;     /* successful vote txn count     (UINT_MAX if unknown) */
   uint      vote_failed;      /* failed vote txn count         (UINT_MAX if unknown) */
   uint      nonvote_success;  /* successful nonvote txn count  (UINT_MAX if unknown) */
@@ -1154,6 +1176,8 @@ struct fd_gui_timeline_query_bucket {
   ulong start_slot;
   ulong end_slot;
   ulong skipped;
+  ulong mine;
+  ulong mine_skipped;
   ulong turbine;
   ulong repair;
   ulong reconstructed;
@@ -1190,7 +1214,7 @@ typedef struct fd_gui_txn_batch_work fd_gui_txn_batch_work_t;
 
 FD_STATIC_ASSERT( sizeof(fd_gui_fec_query_event_t)      ==16UL,  fd_gui_fec_query_event_sz );
 FD_STATIC_ASSERT( sizeof(fd_gui_txn_batch_work_t)       ==56UL,  fd_gui_txn_batch_work_sz );
-FD_STATIC_ASSERT( sizeof(fd_gui_timeline_query_bucket_t)==136UL, fd_gui_timeline_query_bucket_sz );
+FD_STATIC_ASSERT( sizeof(fd_gui_timeline_query_bucket_t)==152UL, fd_gui_timeline_query_bucket_sz );
 
 union fd_gui_timeline_scratch {
   /* timeline.query_shreds at "fec" granularity.  Both arms are live
