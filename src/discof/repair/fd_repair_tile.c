@@ -169,11 +169,12 @@
    requests. Assuming an over-provisioned 4 sign tiles just for repair,
    this means we can make up to ~200k requests per second.  With a dedup
    timeout of 80ms, this means we can make up to ~16k requests within
-   the dedup timeout window.  We round up to the next power of two to
-   get the dedup cache max.  Since we are sizing the dedup cache for a
-   generous margin, and this number not particularly fragile or
+   the dedup timeout window.  We size to 8x that for margin; on
+   overflow the LRU (oldest) entry is evicted, which at worst allows
+   one early duplicate re-request.  Since we are sizing the dedup cache
+   for a generous margin, and this number not particularly fragile or
    sensitive, we can leave it static. */
-#define FD_REQLIM_CACHE_MAX (1<<20)
+#define FD_REQLIM_CACHE_MAX (1<<17)
 
 /* static map from request type to metric array index */
 static uint metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {

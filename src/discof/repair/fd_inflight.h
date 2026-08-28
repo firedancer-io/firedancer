@@ -18,8 +18,14 @@
    nonce.  The chances that an inflight request does not get a response
    are non-negligible due to shred tile upstream deduping duplicates. */
 
-/* Max number of pending requests */
-#define FD_INFLIGHT_REQ_MAX (1<<20)
+/* Max number of pending requests.  Outstanding entries drain to the
+   popped set after FD_REQLIM_DEDUP_TIMEOUT (80ms), so the live
+   outstanding population is bounded by request rate * 80ms (~16k at an
+   over-provisioned 200k req/s, see FD_REQLIM_CACHE_MAX); the remainder
+   of the pool is an evictable popped-response cache.  New requests are
+   paused while the pool is near-full (see after_credit), so overflow is
+   graceful. */
+#define FD_INFLIGHT_REQ_MAX (1<<17)
 
 struct fd_inflight_key {
   ulong slot;       /* slot of the request */
