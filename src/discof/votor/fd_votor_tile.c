@@ -585,8 +585,9 @@ handle_replay( fd_votor_tile_t *           ctx,
       ctx->rooted_block_id = block_id;
       ag_pool_init ( ctx->pool,  block_id.slot );
       ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock() );
+    } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
+      ag_pool_add_block( ctx->pool, &block_id, &parent_block_id );
     }
-    ag_pool_add_block( ctx->pool, &block_id, &parent_block_id );
     ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
     memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
     ag_votor_handle_replay_event( ctx->votor, &completed );
