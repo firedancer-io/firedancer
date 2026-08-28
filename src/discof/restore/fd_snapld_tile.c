@@ -92,8 +92,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 FD_FN_CONST static inline ulong
 loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  /* Leftover space for OpenSSL allocations */
-  return 1UL<<26UL; /* 64 MiB */
+  /* Leftover space for OpenSSL allocations (one TLS conn + CA store) */
+  return 1UL<<24UL; /* 16 MiB */
 }
 
 static void

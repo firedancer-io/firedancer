@@ -12,7 +12,7 @@
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS          128
 #define FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN    8192
-#define FD_HTTP_SERVER_METRICS_OUTGOING_BUFFER_SZ (32UL<<20UL) /* 32MiB reserved for buffering metrics responses */
+#define FD_HTTP_SERVER_METRICS_OUTGOING_BUFFER_SZ (8UL<<20UL) /* 8MiB reserved for buffering metrics responses (~1-2 MiB per full scrape) */
 
 const fd_http_server_params_t METRICS_PARAMS = {
   .max_connection_cnt    = FD_HTTP_SERVER_METRICS_MAX_CONNS,

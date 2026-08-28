@@ -231,8 +231,8 @@ download_enabled( fd_topo_tile_t const * tile ) {
 FD_FN_CONST static inline ulong
 loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  /* Leftover space for OpenSSL allocations */
-  return 1<<26UL; /* 64 MiB */
+  /* Leftover space for OpenSSL allocations (up to 128 resolver TLS conns + CA store) */
+  return 1UL<<25UL; /* 32 MiB */
 }
 
 #define ADNS_REQS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX+FD_TOPO_GOSSIP_ENTRYPOINTS_MAX)
