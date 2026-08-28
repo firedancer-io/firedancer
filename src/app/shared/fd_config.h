@@ -181,6 +181,7 @@ struct fd_configf {
     int alpenglow;
 
     struct {
+      ushort quic_client_listen_port;
       ushort quic_server_listen_port;
     } votor;
 

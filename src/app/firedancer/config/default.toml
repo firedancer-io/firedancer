@@ -1936,6 +1936,11 @@ telemetry = true
     alpenglow = false
 
     [development.votor]
+        # The votor tile makes outgoing QUIC connections from this port
+        # to broadcast the votes it produces.  Peers see it as the
+        # source port; it is never advertised in gossip.
+        quic_client_listen_port = 8005
+
         # Votes and certs are sent by peer validators via QUIC datagrams
         # to this port.
         quic_server_listen_port = 8004
