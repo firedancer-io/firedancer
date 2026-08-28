@@ -177,6 +177,7 @@ test_env_create( test_env_t * env ) {
 
   env->ctx->completed_slot     = 200UL;
   env->ctx->flush_pool_idx     = ULONG_MAX;
+  env->ctx->map_seed           = TEST_HASH_SEED;
   env->ctx->pool               = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
   env->ctx->map_chain          = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192UL ) ), 8192UL, TEST_HASH_SEED ) );
   env->ctx->blockhash_map      = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( MAP_LG_SLOT_CNT ) ), MAP_LG_SLOT_CNT, TEST_HASH_SEED ) );
@@ -228,7 +229,7 @@ FD_UNIT_TEST( resolv_blockhash_map_hashes_full_key ) {
     ulong suffix = i+1UL;
     fd_memcpy( key.b,     &prefix, sizeof(prefix) );
     fd_memcpy( key.b+8UL, &suffix, sizeof(suffix) );
-    inserted[ i ] = map_insert( blockhash_map, key );
+    inserted[ i ] = map_insert( blockhash_map, blockhash_trunc( key.b, TEST_HASH_SEED ) );
     FD_TEST( inserted[ i ] );
   }
 
@@ -283,7 +284,7 @@ static void
 test_add_blockhash( test_env_t * env,
                     fd_hash_t *  hash,
                     ulong        slot ) {
-  blockhash_map_t * entry = map_insert( env->ctx->blockhash_map, *(blockhash_t *)hash->uc );
+  blockhash_map_t * entry = map_insert( env->ctx->blockhash_map, blockhash_trunc( hash->uc, env->ctx->map_seed ) );
   entry->slot = slot;
 }
 

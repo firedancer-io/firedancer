@@ -17,10 +17,6 @@
 #include <time.h>
 #include "generated/fd_resolv_tile_seccomp.h"
 
-#if FD_HAS_AVX
-#include "../../util/simd/fd_avx.h"
-#endif
-
 #define IN_KIND_DEDUP  (0)
 #define IN_KIND_REPLAY (1)
 
@@ -31,13 +27,11 @@ struct blockhash {
 typedef struct blockhash blockhash_t;
 
 struct blockhash_map {
-  blockhash_t key;
-  ulong       slot;
+  ulong key; /* truncated blockhash (blockhash_trunc), 0 = empty slot */
+  ulong slot;
 };
 
 typedef struct blockhash_map blockhash_map_t;
-
-static const blockhash_t null_blockhash = { 0 };
 
 /* The blockhash ring holds recent blockhashes, so we can identify when
    a transaction arrives, what slot it will expire (and can no longer be
@@ -50,7 +44,15 @@ static const blockhash_t null_blockhash = { 0 };
    of blockhash history.  A transaction whose blockhash is older than
    the ring simply cannot be proven expired: it lands in the LRU stash
    instead of being dropped eagerly, which is a filtering-quality
-   tradeoff only. */
+   tradeoff only.
+
+   Ring and map store the seeded 64-bit fd_hash32 of the blockhash
+   (blockhash_trunc below) rather than the full 32 bytes.  The seed is
+   secret (fd_rng_secure) and inputs are PoH outputs, so collisions are
+   not adversarially steerable; a collision (~2^-44 per lookup against
+   the <=2^20 live keys) gives one txn a wrong expiry verdict or leaves
+   one slot's blockhash untracked, the same filtering-quality tradeoff
+   family as the ring aging out. */
 
 #define BLOCKHASH_LG_RING_CNT 20UL
 
@@ -62,21 +64,26 @@ static const blockhash_t null_blockhash = { 0 };
 
 #define MAP_NAME               map
 #define MAP_T                  blockhash_map_t
-#define MAP_KEY_T              blockhash_t
+#define MAP_KEY_T              ulong
 #define MAP_LG_SLOT_CNT        (BLOCKHASH_LG_RING_CNT+1UL)
-#define MAP_KEY_NULL           null_blockhash
-#if FD_HAS_AVX
-# define MAP_KEY_INVAL(k)      _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
-#else
-# define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_blockhash)
-#endif
-#define MAP_KEY_EQUAL(k0,k1)   (!memcmp((k0).b,(k1).b, 32UL))
+#define MAP_KEY_NULL           0UL
+#define MAP_KEY_INVAL(k)       (!(k))
+#define MAP_KEY_EQUAL(k0,k1)   ((k0)==(k1))
 #define MAP_MEMOIZE            0
-#define MAP_KEY_EQUAL_IS_SLOW  1
-#define MAP_KEY_HASH(key,seed) ((uint)fd_hash32( (key).b, (seed) ))
+#define MAP_KEY_EQUAL_IS_SLOW  0
+#define MAP_KEY_HASH(key,seed) ((uint)(key))
 #define MAP_QUERY_OPT          1
 
 #include "../../util/tmpl/fd_map_dynamic.c"
+
+/* blockhash_trunc gives the seeded truncated key for a 32-byte
+   blockhash; 0 is the map/ring null sentinel so it remaps to 1. */
+
+static inline ulong
+blockhash_trunc( uchar const b[ 32 ],
+                 ulong       seed ) {
+  return fd_ulong_max( fd_hash32( b, seed ), 1UL );
+}
 
 typedef struct {
   union {
@@ -171,7 +178,7 @@ typedef struct {
 
   ulong completed_slot;
   ulong blockhash_ring_idx;
-  blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
+  ulong blockhash_ring[ BLOCKHASH_RING_LEN ]; /* truncated blockhashes, 0 = empty */
 
   fd_replay_root_advanced_t  _rooted_slot_msg;
   fd_replay_slot_completed_t _completed_slot_msg;
@@ -430,23 +437,25 @@ after_frag( fd_resolv_ctx_t *   ctx,
       case REPLAY_SIG_SLOT_COMPLETED: {
         fd_replay_slot_completed_t const * msg = &ctx->_completed_slot_msg;
 
+        ulong trunc = blockhash_trunc( msg->block_hash.uc, ctx->map_seed );
+
         /* Equivocating slot with same blockhash, ignore.  See fd_txncache.h on how this is possible.
            TODO make sure matches how agave handles it */
-        if( FD_UNLIKELY( map_query( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc, NULL ) ) ) {
+        if( FD_UNLIKELY( map_query( ctx->blockhash_map, trunc, NULL ) ) ) {
           FD_LOG_WARNING(( "slot with same blockhash, ignoring: %lu", msg->slot ));
           return;
         }
 
-        /* blockhash_ring is initialized to all zeros. blockhash=0 is an illegal map query */
-        if( FD_UNLIKELY( memcmp( &ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], (uchar[ 32UL ]){ 0UL }, sizeof(blockhash_t) ) ) ) {
+        /* blockhash_ring is initialized to all zeros. 0 is an illegal map query */
+        if( FD_UNLIKELY( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ] ) ) {
           blockhash_map_t * entry = map_query( ctx->blockhash_map, ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], NULL );
           if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );
         }
 
-        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, msg->block_hash.uc, 32UL );
+        ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ] = trunc;
         ctx->blockhash_ring_idx++;
 
-        blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc );
+        blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, trunc );
         blockhash->slot = msg->slot;
 
         blockhash_t * hash = (blockhash_t *)msg->block_hash.uc;
@@ -523,11 +532,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   txnm->reference_slot = ctx->completed_slot;
 
-  blockhash_t const * recent_blockhash = (blockhash_t const *)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off );
-  blockhash_map_t const * blockhash = NULL;
-  if( FD_LIKELY( !map_key_inval( *recent_blockhash ) ) ) {
-    blockhash = map_query( ctx->blockhash_map, *recent_blockhash, NULL );
-  }
+  uchar const * recent_blockhash = fd_txn_m_payload( txnm )+txnt->recent_blockhash_off;
+  blockhash_map_t const * blockhash = map_query( ctx->blockhash_map, blockhash_trunc( recent_blockhash, ctx->map_seed ), NULL );
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_slot = blockhash->slot;
     if( FD_UNLIKELY( txnm->reference_slot+151UL<ctx->completed_slot ) ) {
