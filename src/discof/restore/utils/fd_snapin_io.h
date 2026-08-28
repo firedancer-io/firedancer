@@ -208,7 +208,7 @@ fd_snapio_snoop_align( void ) {
 static inline ulong
 fd_snapio_snoop_footprint( ulong worker_cnt ) {
   return fd_ulong_align_up( sizeof(fd_snapio_snoop_hdr_t), 4096UL )
-       + fd_ulong_align_up( FD_SNAPIO_STRIPE_CNT*sizeof(uint), 4096UL )
+       + fd_ulong_align_up( FD_SNAPIO_STRIPE_CNT*sizeof(int), 4096UL )
        + worker_cnt*sizeof(fd_snapio_worker_t);
 }
 
@@ -236,8 +236,8 @@ fd_snapio_snoop_new( void * mem,
   fd_memset( &hdr->slot_history, 0, sizeof(hdr->slot_history)  );
   fd_memset( &hdr->feature_snoop, 0, sizeof(fd_feature_snoop_t) );
   uchar * stripes = (uchar *)hdr + fd_ulong_align_up( sizeof(fd_snapio_snoop_hdr_t), 4096UL );
-  fd_memset( stripes, 0, FD_SNAPIO_STRIPE_CNT*sizeof(uint) );
-  uchar * workers = stripes + fd_ulong_align_up( FD_SNAPIO_STRIPE_CNT*sizeof(uint), 4096UL );
+  fd_memset( stripes, 0, FD_SNAPIO_STRIPE_CNT*sizeof(int) );
+  uchar * workers = stripes + fd_ulong_align_up( FD_SNAPIO_STRIPE_CNT*sizeof(int), 4096UL );
   for( ulong w=0UL; w<worker_cnt; w++ ) {
     fd_memset( workers + w*sizeof(fd_snapio_worker_t), 0, sizeof(fd_snapio_worker_t) );
   }
@@ -253,15 +253,15 @@ fd_snapio_snoop_join( void * mem ) {
   return hdr;
 }
 
-static inline uint *
+static inline int *
 fd_snapio_snoop_stripes( fd_snapio_snoop_hdr_t * hdr ) {
-  return (uint *)( (uchar *)hdr + fd_ulong_align_up( sizeof(fd_snapio_snoop_hdr_t), 4096UL ) );
+  return (int *)( (uchar *)hdr + fd_ulong_align_up( sizeof(fd_snapio_snoop_hdr_t), 4096UL ) );
 }
 
 static inline fd_snapio_worker_t *
 fd_snapio_snoop_worker( fd_snapio_snoop_hdr_t * hdr,
                         ulong                   worker_idx ) {
-  uchar * base = (uchar *)fd_snapio_snoop_stripes( hdr ) + fd_ulong_align_up( FD_SNAPIO_STRIPE_CNT*sizeof(uint), 4096UL );
+  uchar * base = (uchar *)fd_snapio_snoop_stripes( hdr ) + fd_ulong_align_up( FD_SNAPIO_STRIPE_CNT*sizeof(int), 4096UL );
   return (fd_snapio_worker_t *)( base + worker_idx*sizeof(fd_snapio_worker_t) );
 }
 

@@ -58,7 +58,7 @@ fd_gui_build_tile_order( fd_gui_t * gui ) {
   uchar placed[ FD_DIAG_SYSTEM_TILE_MAX ] = {0};
 
   char const * const tile_display_order[] = {
-    "gossvf", "gossip", "snapct", "snapld", "snapdc", "snapin", "snapwr",
+    "gossvf", "gossip", "snapct", "snapld", "snapdc", "snapin",
     "net", "shred", "repair", "replay", "execrp", "tower", "txsend", "sign",
     "quic", "verify", "dedup", "pack", "execle", "poh"
   };
@@ -315,7 +315,7 @@ fd_gui_new( void *                   shmem,
 
   /* Build the per-tile accdb slot table from the topology.  Order
      matters only for stable JSON ordering: RW joiners first, RO
-     joiners, then snapwr at the end. */
+     joiners, then the accdb tile at the end. */
   gui->summary.accdb->accdb_tile_cnt = 0UL;
   static const struct { char const * name; uchar kind; } accdb_kinds[] = {
     { "execle", FD_GUI_ACCDB_TILE_KIND_RW     },
@@ -324,7 +324,6 @@ fd_gui_new( void *                   shmem,
     { "tower",  FD_GUI_ACCDB_TILE_KIND_RW     },
     { "rpc",    FD_GUI_ACCDB_TILE_KIND_RO     },
     { "resolv", FD_GUI_ACCDB_TILE_KIND_RO     },
-    { "snapwr", FD_GUI_ACCDB_TILE_KIND_SNAPWR },
     { "accdb",  FD_GUI_ACCDB_TILE_KIND_ACCDB  },
   };
   for( ulong k=0UL; k<sizeof(accdb_kinds)/sizeof(accdb_kinds[0]); k++ ) {
@@ -945,7 +944,7 @@ fd_gui_accounts_stats_snap( fd_gui_t *                gui,
   }
 
   /* Walk the per-tile slot table built at init.  Each slot reads its
-     tile's accdb counters according to its kind (RW, RO, or SNAPWR),
+     tile's accdb counters according to its kind (RW, RO, or ACCDB),
      accumulates into the aggregate (cur->*), and stashes the per-tile
      cumulative values into gui->summary.accdb->tile_cur_* for the
      per-tile rate window pushes done later in
@@ -1021,15 +1020,6 @@ fd_gui_accounts_stats_snap( fd_gui_t *                gui,
         cur->read_ops     += t_read_ops;
         break;
 #   undef DO_RO
-
-      case FD_GUI_ACCDB_TILE_KIND_SNAPWR:
-        /* snapwr writes account data to disk directly during snapshot
-           load.  It does not declare the accdb counter surface, only a
-           BytesWritten gauge.  Include in the aggregate so the IO panel
-           reflects load-time disk activity. */
-        t_bytes_written = m[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
-        cur->bytes_written += t_bytes_written;
-        break;
 
       case FD_GUI_ACCDB_TILE_KIND_ACCDB:
         /* The accdb tile owns prewrite and compaction writes.  Its own
@@ -1481,15 +1471,6 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", 0UL ) ];
   volatile ulong * snapin_metrics = fd_metrics_tile( snapin->metrics );
 
-  /* No topology currently has a snapwr tile, so the write stage below
-     always falls back to tracking the insert stage.  The lookup stays so
-     that the JSON surface keeps working if one is reintroduced. */
-  volatile ulong * snapwr_metrics = NULL;
-  ulong            snapwr_tile_idx = fd_topo_find_tile( gui->topo, "snapwr", 0UL );
-  if( FD_UNLIKELY( snapwr_tile_idx!=ULONG_MAX ) ) {
-    snapwr_metrics = fd_metrics_tile( gui->topo->tiles[ snapwr_tile_idx ].metrics );
-  }
-
   /* Backtest topologies have no gossip tile; treat wait-for-supermajority
      as done. */
   ulong            wfs_state       = FD_GOSSIP_WFS_STATE_DONE;
@@ -1593,27 +1574,16 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       ulong _insert_bytes                  = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],                 snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ]                 );
 
       /* Sum over all snapin tiles: each of the N symmetric tiles
-         inserts (and, with no snapwr tile, writes) only its own share
-         of the accounts. */
+         inserts and writes only its own share of the accounts. */
       ulong _insert_accounts_total         = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapin", snapin_tile_cnt, MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) );
       ulong _insert_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].insert_accounts_current );
       ulong _insert_accounts               = fd_ulong_sat_sub( _insert_accounts_total, _insert_accounts_baseline );
 
-      /* Without a snapwr tile the snapin tiles write account data to
-         disk as they insert it, so the write stage tracks the insert
-         stage. */
-      ulong _snapwr_in_bytes;
-      ulong _snapwr_accounts_total;
-      ulong _snapwr_out_total;
-      if( FD_UNLIKELY( snapwr_metrics ) ) {
-        _snapwr_in_bytes      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapwr_metrics[ MIDX( GAUGE, SNAPWR, FULL_BYTES_READ ) ], snapwr_metrics[ MIDX( GAUGE, SNAPWR, INCREMENTAL_BYTES_READ ) ] );
-        _snapwr_accounts_total = snapwr_metrics[ MIDX( GAUGE, SNAPWR, ACCOUNTS_WRITTEN ) ];
-        _snapwr_out_total      = snapwr_metrics[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
-      } else {
-        _snapwr_in_bytes       = _insert_bytes;
-        _snapwr_accounts_total = _insert_accounts_total;
-        _snapwr_out_total      = _insert_bytes;
-      }
+      /* The snapin tiles write account data to disk as they insert it,
+         so the write stage of the JSON surface tracks the insert stage. */
+      ulong _snapwr_in_bytes       = _insert_bytes;
+      ulong _snapwr_accounts_total = _insert_accounts_total;
+      ulong _snapwr_out_total      = _insert_bytes;
 
       ulong _snapwr_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].snapwr_accounts_current );
       ulong _snapwr_accounts               = fd_ulong_sat_sub( _snapwr_accounts_total, _snapwr_accounts_baseline );

@@ -1581,7 +1581,7 @@ typedef struct {
   ulong              thread_idx;
   int                equal_slot; /* phase B? */
   fd_accdb_fork_id_t fork;       /* SENTINEL = full-snapshot mode */
-  uint *             stripe_locks;
+  int *              stripe_locks;
   ulong              stripe_msk;
   uchar            (*pks)[ 32UL ];
 
@@ -1727,7 +1727,7 @@ test_snapshot_striped_writers( void ) {
   fd_accdb_snapshot_load_begin_with_writers( accdb, PAR_THREADS );
 
   /* Tiny stripe count so distinct chains share stripes too. */
-  static uint stripe_locks[ 16UL ];
+  static int stripe_locks[ 16UL ];
   memset( stripe_locks, 0, sizeof(stripe_locks) );
   ulong stripe_msk = 15UL;
 
@@ -1962,7 +1962,7 @@ test_run_striped_incr_attempt( fd_accdb_t *       reader,
                                fd_accdb_t *       joins[],
                                int                fd,
                                fd_accdb_fork_id_t fork_id,
-                               uint *             stripe_locks,
+                               int *              stripe_locks,
                                ulong              stripe_msk,
                                uchar            (*pks)[ 32UL ],
                                ulong              max_accounts ) {
@@ -2082,7 +2082,7 @@ test_snapshot_striped_writers_incremental( void ) {
   fd_accdb_fork_id_t root = fd_accdb_attach_child( reader, SENTINEL );
   fd_accdb_snapshot_load_begin_with_writers( reader, PAR_THREADS );
 
-  static uint stripe_locks[ 16UL ];
+  static int stripe_locks[ 16UL ];
   memset( stripe_locks, 0, sizeof(stripe_locks) );
   ulong stripe_msk = 15UL;
 
@@ -2386,7 +2386,7 @@ test_incremental_release_partitions( void ) {
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
   fd_accdb_snapshot_load_begin_with_writers( accdb, 1UL );
 
-  static uint stripe_locks[ 16UL ];
+  static int stripe_locks[ 16UL ];
   memset( stripe_locks, 0, sizeof(stripe_locks) );
   ulong stripe_msk = 15UL;
 
@@ -2580,7 +2580,7 @@ test_snoop_winner_gated_callback( void ) {
     fd_accdb_snapshot_load_begin( accdb );
 
     fd_accdb_snapshot_whead_t          whead               = {0};
-    uint                                stripe_locks[ 4UL ] = {0};
+    int                                 stripe_locks[ 4UL ] = {0};
     fd_accdb_snapshot_worker_metrics_t metrics             = {0};
     test_snoop_ctx_t ctx = {0};
     ctx.cur_pubkey = pubkey;
@@ -2619,7 +2619,7 @@ test_snoop_winner_gated_callback( void ) {
     fd_accdb_snapshot_load_begin( accdb );
 
     fd_accdb_snapshot_whead_t          whead               = {0};
-    uint                                stripe_locks[ 4UL ] = {0};
+    int                                 stripe_locks[ 4UL ] = {0};
     fd_accdb_snapshot_worker_metrics_t metrics             = {0};
     test_snoop_ctx_t ctx = {0};
     ctx.cur_pubkey = pubkey;
@@ -2656,7 +2656,7 @@ test_snoop_winner_gated_callback( void ) {
     fd_accdb_snapshot_load_begin( accdb );
 
     fd_accdb_snapshot_whead_t          whead               = {0};
-    uint                                stripe_locks[ 4UL ] = {0};
+    int                                 stripe_locks[ 4UL ] = {0};
     fd_accdb_snapshot_worker_metrics_t metrics             = {0};
     test_snoop_ctx_t ctx = {0};
     ctx.cur_pubkey = pubkey;
@@ -2684,7 +2684,7 @@ test_snoop_winner_gated_callback( void ) {
     fd_accdb_snapshot_load_begin( accdb );
 
     fd_accdb_snapshot_whead_t          whead               = {0};
-    uint                                stripe_locks[ 4UL ] = {0};
+    int                                 stripe_locks[ 4UL ] = {0};
     fd_accdb_snapshot_worker_metrics_t metrics             = {0};
 
     FD_TEST( !fd_accdb_snapshot_write_batch_worker( accdb, SENTINEL, 1UL, pubkeys, 40UL,

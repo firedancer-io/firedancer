@@ -621,18 +621,3 @@ fd_ssparse_appendvec_parse( fd_ssparse_t * ssparse ) {
   FD_TEST( !ssparse->tar.file_bytes_consumed                    );
   ssparse->state = FD_SSPARSE_STATE_ACCOUNT_HEADER;
 }
-
-void
-fd_ssparse_accv_init( fd_ssparse_t * ssparse,
-                      ulong          slot,
-                      ulong          sz ) {
-  ssparse->state                         = FD_SSPARSE_STATE_ACCOUNT_HEADER;
-  ssparse->slot                          = slot;
-  ssparse->acc_vec_bytes                 = sz;
-  ssparse->tar.file_bytes                = sz;
-  ssparse->tar.file_bytes_consumed       = 0UL;
-  ssparse->tar.header_bytes_consumed     = 0UL;
-  ssparse->account.header_bytes_consumed = 0UL;
-  ssparse->account.data_bytes_consumed   = 0UL;
-  ssparse->account.data_len              = 0UL;
-}

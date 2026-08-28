@@ -130,10 +130,11 @@ fd_accdb_join_readonly( void *             ljoin,
    fd_accdb_snapshot_load_begin_with_writers declares the number of
    joiners that may concurrently mutate the snapshot index.  The
    coordinator calls it before any writer starts and calls load_end
-   after every writer stops.  Counts greater than one use the parallel
-   acc_pool allocator and atomic shared counters, and the on-disk layout
-   is no longer stream-ordered (each writer appends into its own
-   partitions from a private write head). */
+   after every writer stops.  With more than one writer the on-disk
+   layout is no longer stream-ordered: each writer appends into its own
+   partitions from a private write head, and every writer must use
+   fd_accdb_snapshot_write_batch_worker (the only entry point that
+   serializes chain access and allocates from a private write head). */
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
@@ -526,7 +527,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
 /* fd_accdb_reset reinitializes the accdb to the state immediately after
    fd_accdb_new.  All in-memory index state is cleared and all pool
    joins are re-established.  The caller is responsible for truncating
-   the on-disk file separately (e.g. via the snapwr tile).
+   the on-disk file separately (e.g. via the snapin tiles).
 
    The caller must guarantee that no other thread is concurrently
    accessing the accdb (no outstanding acquires, no background work). */
@@ -569,22 +570,6 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
                              ulong              data_len,
                              int                executable,
                              ulong *            out_replaced_lamports );
-
-/* fd_accdb_snapshot_prefetch_batch computes the hash chain bucket for each
-   pubkey and issues a prefetch for it, then returns.  It performs no lookup
-   and mutates nothing.
-
-   Call it as early as possible before fd_accdb_snapshot_write_batch on the
-   same pubkeys -- ideally with a few hundred cycles of unrelated work in
-   between.  The acc_map is indexed by a hash, so every bucket load is a
-   random access over gigabytes and misses to DRAM; write_batch's own
-   prefetch sits only a handful of cycles ahead of its use and cannot cover
-   that latency on its own. */
-
-void
-fd_accdb_snapshot_prefetch_batch( fd_accdb_t *        accdb,
-                                  ulong               cnt,
-                                  uchar const * const pubkeys[] );
 
 /* fd_accdb_snapshot_whead_t is a snapshot writer's private layer-0
    write head.  Each parallel snapshot writer appends into its own
@@ -688,7 +673,7 @@ fd_accdb_snapshot_write_batch_worker( fd_accdb_t *                         accdb
                                       int const                            executables[],
                                       int const                            snoop_candidates[],
                                       fd_accdb_snapshot_whead_t *          whead,
-                                      uint *                               stripe_locks,
+                                      int *                                stripe_locks,
                                       ulong                                stripe_msk,
                                       fd_accdb_snapshot_worker_metrics_t * metrics,
                                       ulong                                file_offsets[],

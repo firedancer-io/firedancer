@@ -165,18 +165,6 @@ fd_ssparse_appendvec_passthrough_enable( fd_ssparse_t * ssparse,
 void
 fd_ssparse_appendvec_parse( fd_ssparse_t * ssparse );
 
-/* fd_ssparse_accv_init initializes ssparse to parse a single appendvec
-   body mid-stream, without a surrounding tar stream.  slot is the slot
-   of the appendvec (from the tar entry name), sz is the appendvec body
-   size in bytes (the tar entry size).  The caller then feeds exactly
-   sz bytes of the appendvec body via fd_ssparse_advance, receiving
-   ACCOUNT_HEADER/ACCOUNT_DATA/ACCOUNT_BATCH results.  batch_enabled
-   is preserved. */
-void
-fd_ssparse_accv_init( fd_ssparse_t * ssparse,
-                      ulong          slot,
-                      ulong          sz );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssparse_h */

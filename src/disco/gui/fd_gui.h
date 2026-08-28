@@ -596,7 +596,7 @@ typedef struct fd_gui_snapsv_pending fd_gui_snapsv_pending_t;
 
 /* Per-tile accdb stats.  At init we walk the topology and assign a
    slot to each tile that uses the account database (execle, execrp,
-   replay, tower, rpc, resolv, snapwr).  Each slot keeps cumulative
+   replay, tower, rpc, resolv, accdb).  Each slot keeps cumulative
    previous values for delta computation and a triangular-weighted
    delta ring (same cadence / weighting as the aggregate rings). */
 #define FD_GUI_MAX_ACCDB_TILES 64UL
@@ -604,8 +604,7 @@ typedef struct fd_gui_snapsv_pending fd_gui_snapsv_pending_t;
 /* Tile kinds.  Determines which subset of metrics to read. */
 #define FD_GUI_ACCDB_TILE_KIND_RW     0  /* execle, execrp, replay, tower */
 #define FD_GUI_ACCDB_TILE_KIND_RO     1  /* rpc, resolv */
-#define FD_GUI_ACCDB_TILE_KIND_SNAPWR 2  /* snapwr (direct disk writer during snapshot load) */
-#define FD_GUI_ACCDB_TILE_KIND_ACCDB  3  /* accdb tile itself (prewrite + compaction writes) */
+#define FD_GUI_ACCDB_TILE_KIND_ACCDB  2  /* accdb tile itself (prewrite + compaction writes) */
 
 /* 60s-history rings for the per-tile sparkline.  Each bucket is the
    sum of per-snap deltas that fell into that bucket window.
