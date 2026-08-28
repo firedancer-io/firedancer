@@ -810,7 +810,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
      The same recomputation needs to be done as soon as fallback stake
      accounts are enabled. */
-  int fallback = fd_stake_delegations_pubkey_fallback( stake_delegations );
+  int fallback = fd_stake_delegations_fallback( stake_delegations );
   if( FD_UNLIKELY( fallback || FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
     fd_stake_history_t history[1];
     if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, history ) ) ) {

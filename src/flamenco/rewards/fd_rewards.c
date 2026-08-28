@@ -1304,7 +1304,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
           continue;
         }
 
-        fd_stake_rewards_insert( stake_rewards, fork_idx, &stake_delegation->stake_account, 0UL, stake_delegation->credits_observed );
+        fd_stake_rewards_insert_locked( stake_rewards, fork_idx, stake_delegation->pubkey_idx, 0UL, stake_delegation->credits_observed );
         continue;
       }
 
@@ -1356,7 +1356,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
           continue;
         }
 
-        fd_stake_rewards_insert( stake_rewards, fork_idx, &stake_delegation->stake_account, 0UL, stake_delegation->credits_observed );
+        fd_stake_rewards_insert_locked( stake_rewards, fork_idx, stake_delegation->pubkey_idx, 0UL, stake_delegation->credits_observed );
         continue;
       } else {
         calculated_stake_rewards->success = 1;
@@ -1367,10 +1367,10 @@ setup_stake_partitions( fd_bank_t *                    bank,
 
     if( FD_UNLIKELY( !calculated_stake_rewards->success ) ) continue;
 
-    fd_stake_rewards_insert(
+    fd_stake_rewards_insert_locked(
       stake_rewards,
       fork_idx,
-      &stake_delegation->stake_account,
+      stake_delegation->pubkey_idx,
       calculated_stake_rewards->staker_rewards,
       calculated_stake_rewards->new_credits_observed
     );
@@ -1447,7 +1447,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                               num_partitions,
                                                               runtime_stack->stakes.stake_rewards_cnt );
   if( FD_UNLIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
-    fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
+    fd_stake_rewards_release_locked( stake_rewards, bank->stake_rewards_fork_id );
   }
   bank->stake_rewards_fork_id = fork_idx;
 
@@ -2114,13 +2114,13 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
   fd_stake_history_t * frontier_stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, frontier_stake_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-  fd_stake_delegations_mark_fork_deltas( stake_delegations,
-                                         bank->f.epoch,
-                                         frontier_stake_history,
-                                         &bank->f.warmup_cooldown_rate_epoch,
-                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                         stake_delegations_fork_ids,
-                                         stake_delegations_fork_id_cnt );
+  fd_stake_delegations_frontier_begin( stake_delegations,
+                                       bank->f.epoch,
+                                       frontier_stake_history,
+                                       &bank->f.warmup_cooldown_rate_epoch,
+                                       FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                       stake_delegations_fork_ids,
+                                       stake_delegations_fork_id_cnt );
 
   calculate_stake_vote_rewards(
       bank,
@@ -2147,14 +2147,14 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
                                                               (uint)epoch_rewards_sysvar->num_partitions,
                                                               runtime_stack->stakes.stake_rewards_cnt );
   if( FD_LIKELY( win_lo ) ) {
-    fd_stake_rewards_window_advance( stake_rewards,
-                                     fork_idx,
-                                     &epoch_rewards_sysvar->parent_blockhash,
-                                     win_lo,
-                                     runtime_stack->stakes.stake_rewards_cnt );
+    fd_stake_rewards_window_advance_locked( stake_rewards,
+                                            fork_idx,
+                                            &epoch_rewards_sysvar->parent_blockhash,
+                                            win_lo,
+                                            runtime_stack->stakes.stake_rewards_cnt );
   }
   if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
-    fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
+    fd_stake_rewards_release_locked( stake_rewards, bank->stake_rewards_fork_id );
   }
   bank->stake_rewards_fork_id = fork_idx;
 
@@ -2169,13 +2169,13 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
       epoch_rewards_sysvar->total_rewards,
       epoch_rewards_sysvar->total_points.ud );
 
-  fd_stake_delegations_unmark_fork_deltas( stake_delegations,
-                                           bank->f.epoch-1UL,
-                                           frontier_stake_history,
-                                           &bank->f.warmup_cooldown_rate_epoch,
-                                           FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                           stake_delegations_fork_ids,
-                                           stake_delegations_fork_id_cnt );
+  fd_stake_delegations_frontier_end( stake_delegations,
+                                     bank->f.epoch-1UL,
+                                     frontier_stake_history,
+                                     &bank->f.warmup_cooldown_rate_epoch,
+                                     FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                     stake_delegations_fork_ids,
+                                     stake_delegations_fork_id_cnt );
 }
 
 void

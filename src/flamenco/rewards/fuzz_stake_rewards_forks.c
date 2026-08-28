@@ -51,6 +51,7 @@ typedef struct {
 
 typedef struct {
   fd_stake_rewards_t * stake_rewards;
+  fd_stake_pubkeys_t * pubkeys;
   ulong                epoch;
   ulong                root_slot;
   ulong                epoch_insert_cnt;
@@ -59,6 +60,7 @@ typedef struct {
 } model_t;
 
 static void * fuzz_mem;
+static void * fuzz_stake_pubkeys_mem;
 static model_t fuzz_model[ 1 ];
 
 static uchar
@@ -326,7 +328,11 @@ insert_reward( model_t *       m,
   e.lamports         = (fuzz_u8( r ) & 7U) ? 1UL + fuzz_bounded( r, FUZZ_REWARD_LAMPORT_BOUND ) : 0UL;
   e.credits_observed = fuzz_bounded( r, FUZZ_CREDITS_OBSERVED_BOUND );
 
-  fd_stake_rewards_insert( m->stake_rewards, f->fork_idx, &e.pubkey, e.lamports, e.credits_observed );
+  fd_stake_pubkeys_lock( m->pubkeys );
+  uint pubkey_idx = fd_stake_pubkeys_acquire( m->pubkeys, &e.pubkey );
+  fd_stake_rewards_insert_locked( m->stake_rewards, f->fork_idx, pubkey_idx, e.lamports, e.credits_observed );
+  fd_stake_pubkeys_release( m->pubkeys, pubkey_idx );
+  fd_stake_pubkeys_unlock( m->pubkeys );
 
   f->entry[ f->entry_cnt++ ] = e;
   f->total_rewards += e.lamports;
@@ -357,6 +363,7 @@ distribute_partition( model_t *       m,
 static void
 clear_rewards( model_t * m ) {
   fd_stake_rewards_clear( m->stake_rewards );
+  FD_TEST( !fd_stake_pubkeys_cnt( m->pubkeys ) );
   m->fork_cnt         = 0UL;
   m->epoch_insert_cnt = 0UL;
 }
@@ -377,6 +384,12 @@ LLVMFuzzerInitialize( int  *   argc,
   fuzz_mem = aligned_alloc( fd_stake_rewards_align(),
                             FD_ULONG_ALIGN_UP( footprint, fd_stake_rewards_align() ) );
   if( FD_UNLIKELY( !fuzz_mem ) ) FD_LOG_ERR(( "failed to allocate stake rewards fuzz memory" ));
+
+  ulong stake_pubkeys_footprint = fd_stake_pubkeys_footprint( FUZZ_MAX_STAKE_ACCOUNTS, FUZZ_EXPECTED_ACCOUNTS );
+  fuzz_stake_pubkeys_mem = aligned_alloc(
+      fd_stake_pubkeys_align(),
+      FD_ULONG_ALIGN_UP( stake_pubkeys_footprint, fd_stake_pubkeys_align() ) );
+  if( FD_UNLIKELY( !fuzz_stake_pubkeys_mem ) ) FD_LOG_ERR(( "failed to allocate stake pubkeys fuzz memory" ));
   return 0;
 }
 
@@ -389,13 +402,18 @@ LLVMFuzzerTestOneInput( uchar const * data,
     .salt = 0xa5c31f27d4e6b890UL ^ data_sz
   };
 
-  void * _stake_rewards = fd_stake_rewards_new( fuzz_mem, FUZZ_MAX_STAKE_ACCOUNTS, FUZZ_MAX_FORKS );
+  fd_stake_pubkeys_t * pubkeys = fd_stake_pubkeys_join(
+      fd_stake_pubkeys_new( fuzz_stake_pubkeys_mem, 0UL, FUZZ_MAX_STAKE_ACCOUNTS, FUZZ_EXPECTED_ACCOUNTS ) );
+  if( FD_UNLIKELY( !pubkeys ) ) FD_LOG_ERR(( "failed to initialize stake pubkeys" ));
+
+  void * _stake_rewards = fd_stake_rewards_new( fuzz_mem, FUZZ_MAX_STAKE_ACCOUNTS, FUZZ_MAX_FORKS, pubkeys );
   fd_stake_rewards_t * stake_rewards = fd_stake_rewards_join( _stake_rewards);
   if( FD_UNLIKELY( !stake_rewards ) ) FD_LOG_ERR(( "failed to initialize stake rewards" ));
 
   model_t * m = fuzz_model;
   fd_memset( m, 0, sizeof(model_t) );
   m->stake_rewards = stake_rewards;
+  m->pubkeys       = pubkeys;
   m->epoch         = 1UL + fuzz_bounded( &r, FUZZ_EPOCH_BOUND );
   m->root_slot     = fuzz_bounded( &r, FUZZ_ROOT_SLOT_BOUND );
 
@@ -431,5 +449,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     validate_model( m );
   }
 
+  fd_stake_rewards_clear( stake_rewards );
+  FD_TEST( !fd_stake_pubkeys_cnt( pubkeys ) );
   return 0;
 }
