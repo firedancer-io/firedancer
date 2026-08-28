@@ -210,6 +210,9 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->transaction_fee        = ctx->txn_out.details.execution_fee;
   msg->txn_exec->priority_fee           = ctx->txn_out.details.priority_fee;
   msg->txn_exec->tips                   = ctx->txn_out.details.tips;
+  msg->txn_exec->perf_cpu_cycles      = ctx->txn_out.details.pmc.cpu_cycles;
+  msg->txn_exec->perf_instructions    = ctx->txn_out.details.pmc.instructions;
+  msg->txn_exec->perf_demand_llc_miss = ctx->txn_out.details.pmc.demand_llc_miss;
   msg->txn_exec->slot            = ctx->slot;
   msg->txn_exec->bank_seq        = ctx->bank->bank_seq;
   msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;

@@ -810,6 +810,12 @@ message RuntimeTxn {
   repeated bytes readonly_accounts = 40;
   // Distinct program pubkeys invoked at the top level of this transaction
   repeated bytes program_ids = 41;
+  // CPU cycles spent executing this transaction; zero when AMD PMU profiling is unavailable
+  uint64 perf_cpu_cycles = 42;
+  // Instructions retired while executing this transaction; zero when AMD PMU profiling is unavailable
+  uint64 perf_instructions = 43;
+  // Demand-data fills sourced beyond the local LLC while executing this transaction; zero when AMD PMU profiling is unavailable
+  uint64 perf_demand_llc_miss = 44;
 }
 
 // A block finished production, or replay on this validator, or was marked dead, or was abandoned before completing. A block gets a row if it was ever replayed or produced (had a bank), or if it finished reception on a fork that had already died or been discarded; a block dropped before reception finished gets no row. Delivery is best-effort: rows travel a lossy telemetry link, and a large burst of simultaneous rows (mass death of a fork) can drop some. On-chain data is deliberately not part of this event. Reception and repair tallies are best-effort: they restart if repair transiently stopped tracking the block (forest eviction), and on equivocated slots they are slot-scoped — shreds from all observed versions of the slot merge into the same counts on every version's row.

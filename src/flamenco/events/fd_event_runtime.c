@@ -54,6 +54,10 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.loaded_accounts_data_size_limit = cb->loaded_accounts_data_size_limit;
   ev.accounts_resize_delta           = txn_out->details.accounts_resize_delta;
 
+  ev.perf_cpu_cycles      = txn_out->details.pmc.cpu_cycles;
+  ev.perf_instructions    = txn_out->details.pmc.instructions;
+  ev.perf_demand_llc_miss = txn_out->details.pmc.demand_llc_miss;
+
   /* Fees */
   ev.execution_fee   = txn_out->details.execution_fee;
   ev.priority_fee    = txn_out->details.priority_fee;
