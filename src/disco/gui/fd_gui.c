@@ -1476,13 +1476,14 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   ulong snapdc_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "snapdc" );
 
   /* N symmetric snapin tiles each walk the whole tar stream and insert
-     (and write) their own share of the accounts; there is no snapwr
-     tile in this topology (it still exists in the firedancer-dev
-     backtest/forktest topologies, so tolerate its absence here). */
+     (and write) their own share of the accounts. */
   ulong snapin_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "snapin" );
   fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", 0UL ) ];
   volatile ulong * snapin_metrics = fd_metrics_tile( snapin->metrics );
 
+  /* No topology currently has a snapwr tile, so the write stage below
+     always falls back to tracking the insert stage.  The lookup stays so
+     that the JSON surface keeps working if one is reintroduced. */
   volatile ulong * snapwr_metrics = NULL;
   ulong            snapwr_tile_idx = fd_topo_find_tile( gui->topo, "snapwr", 0UL );
   if( FD_UNLIKELY( snapwr_tile_idx!=ULONG_MAX ) ) {

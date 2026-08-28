@@ -430,10 +430,7 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
         if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) tile_uses_accdb = tile_uses_accdb_ro = 0;
 
-        /* snapwr writes accdb pwrite()s without joining accdb shmem, so
-           it needs the RW fd despite not appearing as an accdb obj user
-           in the topology. */
-        if( FD_UNLIKELY( tile_uses_accdb || !strcmp( tile->name, "snapwr" ) ) ) {
+        if( FD_UNLIKELY( tile_uses_accdb ) ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         } else {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
