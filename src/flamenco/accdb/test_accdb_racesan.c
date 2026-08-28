@@ -1266,6 +1266,70 @@ test_pin_vs_evict( void ) {
   test_shmem_delete();
 }
 
+/* test_cold_load_vs_purge: a reader cold-loads (and thereby CLOCK-evicts,
+   tiny cache) accounts on the surviving fork while T2 purges a sibling
+   subtree.  The purge walk depends on accmeta pubkey validity: it
+   recomputes each unlinked entry's acc_map chain index from
+   acc_pool[ txn->acc_pool_idx ].key.pubkey (the stored acc_map_idx was
+   dropped), so an evict/cold-load that could stomp a purge-referenced
+   accmeta would surface as a walk off-chain (crash) or a wrong-chain
+   unlink caught by the reader oracle. */
+
+static void
+test_cold_load_vs_purge( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new();
+  fd_accdb_t * jb  = join_new();
+
+  uchar key[ 32UL ]; mk_key( 5000UL, key );
+  uchar owner[ 32UL ] = { 7, 0 };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  seq_write( ctl, root, key, 100UL, owner );
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    fd_accdb_fork_id_t a  = fd_accdb_attach_child( ctl, root );
+    fd_accdb_fork_id_t b  = fd_accdb_attach_child( ctl, root );
+    fd_accdb_fork_id_t a1 = fd_accdb_attach_child( ctl, a );
+    seq_write( ctl, b,  key, 300UL+i, owner );
+    seq_write( ctl, a1, key, 200UL+i, owner );
+    /* evict the target's cache lines so the racing reader must
+       cold-load (and CLOCK-evict) while the purge walk runs.  Fillers
+       land on a1 so each advance_root(a1) unlinks the prior versions
+       and the acc pool stays bounded. */
+    for( ulong e=0UL; e<16UL; e++ ) {
+      uchar k2[ 32UL ]; mk_key( 600000UL + e, k2 );
+      seq_write( ctl, a1, k2, 1UL, owner );
+    }
+
+    fd_accdb_purge( ctl, b );
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_acquire_expect( &g_fiber[0], jr, a1, key, 200UL+i ) );
+    fd_racesan_weave_add( w, fiber_background(     &g_fiber[1], jb ) );
+
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( i ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+
+    fd_racesan_weave_delete( w );
+    fiber_done( &g_fiber[0] );
+    fiber_done( &g_fiber[1] );
+
+    fd_accdb_advance_root( ctl, a );
+    drain_background( ctl );
+    fd_accdb_advance_root( ctl, a1 );
+    drain_background( ctl );
+    root = a1;
+  }
+
+  join_delete( ctl );
+  join_delete( jr );
+  join_delete( jb );
+  test_shmem_delete();
+}
+
 /* test_read_vs_overwrite: the proposed acct[2]/[3]/[32] torn-read
    mechanism.  A read-only acquire of key on fork R races a writable
    overwrite of the SAME key on the SAME fork R (in-place, same
@@ -3292,6 +3356,7 @@ main( int     argc,
     TEST( test_cold_load_same ),
     TEST( test_cold_load_evict ),
     TEST( test_pin_vs_evict ),
+    TEST( test_cold_load_vs_purge ),
     TEST( test_read_vs_overwrite ),
     TEST( test_epoch_reclaim_pin ),
     TEST( test_nocache_vs_compaction ),

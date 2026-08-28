@@ -28,13 +28,21 @@ spin_lock_release( int * lock ) {
 # endif
 }
 
+/* Per-write txn record.  The acc_map chain index is not stored: it is
+   pure derived data, fd_hash32( acc_pool[ acc_pool_idx ].key.pubkey,
+   seed )&(chain_cnt-1), recomputed by the T2 walks (advance_root /
+   purge) that consume these records.  The pubkey is stable for the
+   record's lifetime: the accmeta slot it references is only released
+   by those same T2 walks (via the deferred buffer, after epoch drain)
+   and demotion never touches txn-referenced entries (their generation
+   is always within FD_ACCDB_DEMOTE_AGE of the root's). */
+
 struct fd_accdb_txn {
   union {
     struct { uint next; } pool;
     struct { uint next; } fork;
   };
 
-  uint acc_map_idx;
   uint acc_pool_idx;
 };
 
