@@ -659,11 +659,18 @@ expire( fd_crds_t *         crds,
   static const long STAKED_EXPIRE_DURATION_NANOS   = 432000L*SLOT_DURATION_NANOS;
   static const long UNSTAKED_EXPIRE_DURATION_NANOS = 15L*1000L*1000L*1000L;
 
-  while( !staked_expire_dlist_is_empty( crds->staked_expire_dlist, crds->pool ) ) {
+  /* Budgeted sweep: each contact info release publishes a gossip
+     update, so the gossip tile's STEM_BURST assumes at most
+     FD_CRDS_SWEEP_MAX releases per call.  Leftovers drain on
+     subsequent advance calls (~ms for a full table). */
+  ulong budget = FD_CRDS_SWEEP_MAX;
+
+  while( budget && !staked_expire_dlist_is_empty( crds->staked_expire_dlist, crds->pool ) ) {
     fd_crds_entry_t * head = staked_expire_dlist_ele_peek_head( crds->staked_expire_dlist, crds->pool );
 
     if( FD_LIKELY( head->expire.wallclock_nanos>now-STAKED_EXPIRE_DURATION_NANOS ) ) break;
     crds_release( crds, head, now, 0, stem );
+    budget--;
     if( charge_busy ) *charge_busy = 1;
   }
 
@@ -671,11 +678,12 @@ expire( fd_crds_t *         crds,
                                                     UNSTAKED_EXPIRE_DURATION_NANOS,
                                                     STAKED_EXPIRE_DURATION_NANOS );
 
-  while( !unstaked_expire_dlist_is_empty( crds->unstaked_expire_dlist, crds->pool ) ) {
+  while( budget && !unstaked_expire_dlist_is_empty( crds->unstaked_expire_dlist, crds->pool ) ) {
     fd_crds_entry_t * head = unstaked_expire_dlist_ele_peek_head( crds->unstaked_expire_dlist, crds->pool );
 
     if( FD_LIKELY( head->expire.wallclock_nanos>now-unstaked_expire_duration_nanos ) ) break;
     crds_release( crds, head, now, 0, stem );
+    budget--;
     if( charge_busy ) *charge_busy = 1;
   }
 }

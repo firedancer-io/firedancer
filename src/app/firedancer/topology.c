@@ -482,11 +482,15 @@ fd_topo_initialize( config_t * config ) {
      verified packets is ~0.27s of buffering at that rate (~27ms at
      10x), and the MTU is 25 KiB so depth is the dominant cost.
      Consumer is unreliable: overrun drops, gossip retransmits.
-     gossip_out/gossip_gossvf at 65536 buffer >1s of CRDS/ping updates
-     at 10x current mainnet rates. */
+     gossip_out/gossip_gossvf are reliable, so their depths must exceed
+     the gossip tile's STEM_BURST (~1k now that expiry sweeps are
+     budgeted; fd_stem.c checks at boot).  gossip_out at 16384 buffers
+     ~2s of CRDS updates at current mainnet ~7.5k/s against stall-prone
+     reliable consumers (snapct during load, replay at epoch boundary);
+     gossip_gossvf carries only low-rate ping updates to gossvf. */
   FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossip", "gossvf_gossip", 2048UL,                                   FD_GOSSIP_GOSSVF_MTU,          1UL );
-  /**/                 fd_topob_link( topo, "gossip_gossvf", "gossip_gossvf", 131072UL,                                  sizeof(fd_gossip_ping_update_t), 1UL );
-  /**/                 fd_topob_link( topo, "gossip_out",    "gossip_out",    131072UL,                                  sizeof(fd_gossip_update_message_t), 1UL );
+  /**/                 fd_topob_link( topo, "gossip_gossvf", "gossip_gossvf", 2048UL,                                   sizeof(fd_gossip_ping_update_t), 1UL );
+  /**/                 fd_topob_link( topo, "gossip_out",    "gossip_out",    16384UL,                                  sizeof(fd_gossip_update_message_t), 1UL );
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",   "quic_verify",   config->tiles.verify.receive_buffer_size, sizeof(fd_tpu_msg_t),          config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup",  "verify_dedup",  config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,             1UL );

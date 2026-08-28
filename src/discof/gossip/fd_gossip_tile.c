@@ -3,6 +3,7 @@
 #include "generated/fd_gossip_tile_seccomp.h"
 
 #include "../../choreo/eqvoc/fd_eqvoc.h"
+#include "../../flamenco/gossip/fd_crds.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
 #include "../../flamenco/gossip/fd_active_set.h"
 #include "../../flamenco/features/fd_features.h"
@@ -695,24 +696,24 @@ populate_allowed_fds( fd_topo_t const *      topo,
 /* STEM_BURST must bound the maximum number of fd_stem_publish
    calls on any single output link between two consecutive
    credit checks in the stem run loop.  One iteration consists
-   of after_credit (which calls fd_gossip_advance) followed by
-   processing one input fragment (returnable_frag).
+   of after_credit followed by processing one input fragment
+   (returnable_frag), and BOTH may call fd_gossip_advance, so
+   the budgeted sweeps below are counted twice.
 
    The two reliable output links and their per-iteration worst cases:
 
    gossvf_out (via gossip_ping_tracker_change_fn):
-     tx_ping evictions + expiries            FD_PING_TRACKER_MAX
+     tx_ping stale-peer removals             2*FD_PING_TRACKER_SWEEP_MAX
      fd_ping_tracker_track from rx_values    2*FD_GOSSIP_MESSAGE_MAX_CRDS
-     Total: FD_PING_TRACKER_MAX + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
 
    gossip_out (via fd_gossip_tx_publish_chunk):
-     fd_crds_advance expire (ContactInfos)   FD_CONTACT_INFO_TABLE_SIZE
+     fd_crds_advance expire (ContactInfos)   2*FD_CRDS_SWEEP_MAX
      fd_crds_insert publish + evictions      2*FD_GOSSIP_MESSAGE_MAX_CRDS
-     Total: FD_CONTACT_INFO_TABLE_SIZE + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
+     periodic self contact info insert       2
 
-   Among the reliable output links, gossvf_out dominates. */
-FD_STATIC_ASSERT( FD_PING_TRACKER_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS>=FD_CONTACT_INFO_TABLE_SIZE+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS, "STEM_BURST does not account for worst case output link" );
-#define STEM_BURST (FD_PING_TRACKER_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS)
+   Among the reliable output links, gossip_out dominates. */
+FD_STATIC_ASSERT( 2UL*FD_CRDS_SWEEP_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS+2UL>=2UL*FD_PING_TRACKER_SWEEP_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS, "STEM_BURST does not account for worst case output link" );
+#define STEM_BURST (2UL*FD_CRDS_SWEEP_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS+2UL)
 
 #define STEM_LAZY  (128L*3000L)
 

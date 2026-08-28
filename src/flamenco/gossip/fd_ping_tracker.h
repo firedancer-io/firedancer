@@ -137,11 +137,26 @@ fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
                         uchar const *       peer_pubkey,
                         long                now );
 
+/* FD_PING_TRACKER_SWEEP_MAX bounds how many stale peers a single
+   tx_ping sweep (a run of pop_request calls sharing one budget) may
+   remove.  Each removal of an active peer fires change_fn, which the
+   gossip tile turns into a reliable link publish, so this bound (not
+   FD_PING_TRACKER_MAX) is what sizes the tile's STEM_BURST.  A backlog
+   resumes on the next sweep, which stem runs continuously. */
+
+#define FD_PING_TRACKER_SWEEP_MAX (512UL)
+
 /* fd_ping_tracker_pop_request informs the caller if a ping request
    needs to be sent to a peer.  If a ping request needs to be sent, the
    peer pubkey is returned in out_peer_pubkey.  The caller should send a
    ping message to the peer.  The structure assumes the ping will be
    sent, and updates internal state accordingly.
+
+   Peers that stopped refreshing contact info are removed as they are
+   encountered.  opt_remove_budget, if non-NULL, is decremented once
+   per removal and pop_request returns 0 when it is exhausted, bounding
+   change_fn callbacks across a caller's pop loop; NULL means
+   unbounded.  Remaining removals happen on later calls.
 
    Returns 1 if a ping request needs to be sent, or 0 if no ping request
    is needed.
@@ -154,6 +169,7 @@ fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
 int
 fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              long                   now,
+                             ulong *                opt_remove_budget,
                              uchar const **         out_peer_pubkey,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token );

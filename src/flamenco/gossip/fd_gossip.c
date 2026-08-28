@@ -942,8 +942,10 @@ tx_ping( fd_gossip_t *       gossip,
   uchar const *         peer_pubkey;
   uchar const *         ping_token;
   fd_ip4_port_t const * peer_address;
+  ulong                 remove_budget = FD_PING_TRACKER_SWEEP_MAX;
   while( fd_ping_tracker_pop_request( gossip->ping_tracker,
                                       now,
+                                      &remove_budget,
                                       &peer_pubkey,
                                       &peer_address,
                                       &ping_token ) ) {

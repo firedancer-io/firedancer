@@ -407,6 +407,7 @@ fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
 int
 fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              long                   now,
+                             ulong *                opt_remove_budget,
                              uchar const **         out_peer_pubkey,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token ) {
@@ -445,7 +446,9 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     if( FD_UNLIKELY( next->last_rx_nanos<now-60L*1000L*1000L*1000L ) ) {
       /* The peer is no longer sending us contact information, no need
          to ping it and instead remove it from the table. */
+      if( FD_UNLIKELY( opt_remove_budget && !*opt_remove_budget ) ) return 0; /* removal budget exhausted, resume next sweep */
       remove_peer( ping_tracker, next, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
+      if( opt_remove_budget ) (*opt_remove_budget)--;
       continue;
     }
 
