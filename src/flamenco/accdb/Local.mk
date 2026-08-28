@@ -21,3 +21,10 @@ endif
 
 endif
 endif
+
+$(call add-hdrs,fd_zle.h)
+$(call add-objs,fd_zle,fd_flamenco)
+
+$(call make-unit-test,test_zle,test_zle,fd_flamenco fd_util)
+$(call run-unit-test,test_zle)
+$(call make-unit-test,bench_zle,bench_zle,fd_flamenco fd_util)
