@@ -231,8 +231,7 @@ replay_voter_rank( fd_replay_tile_t * ctx,
     ushort     rank;
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &vote_key, &identity,
                              NULL, NULL, NULL, NULL, NULL, &rank, NULL );
-    if( FD_LIKELY( !fd_pubkey_eq( &identity, ctx->identity_pubkey ) ) ) continue;
-    return rank;
+    if( FD_UNLIKELY( fd_pubkey_eq( &identity, ctx->identity_pubkey ) ) ) return rank;
   }
   return USHORT_MAX;
 }
