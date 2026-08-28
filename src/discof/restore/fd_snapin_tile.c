@@ -2395,16 +2395,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                       ctx->wb_kick_cnt, ctx->wb_wait_cnt ));
       if( FD_UNLIKELY( is_lead( ctx ) ) ) log_appendvec_stats( ctx );
 
-      if( FD_UNLIKELY( ctx->worker_metrics->eq_slot_dups ) ) {
-        /* Equal-slot cross-appendvec duplicates were ignored without a
-           stream-order tiebreak; the load result would be
-           schedule-dependent, so hard-fail the snapshot. */
-        FD_LOG_WARNING(( "tile %lu: %lu equal-slot cross-appendvec duplicates (lamports-diff=%lu) cannot be tiebroken; flagging snapshot malformed",
-                         ctx->tile_idx, ctx->worker_metrics->eq_slot_dups, ctx->worker_metrics->eq_slot_lamports_diff ));
-        transition_malformed( ctx, stem );
-        forward_msg = 0;
-        break;
-      }
+      /* Equal-slot cross-appendvec duplicates are accepted, not
+         fatal: Agave tolerates them too (see the eq-slot branch in
+         fd_accdb_snapshot_write_batch_worker), and the counters below
+         still flow into the shared totals so DONE can report them. */
 
       /* Fold this tile's counters into the shared totals (the
          snapin_ct link is mcache-only, so the counters cannot ride the
@@ -2519,6 +2513,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_LOG_NOTICE(( "parallel loader: equal-slot cross-appendvec dups=%lu (lamports-diff=%lu), worker bytes written=%lu",
                       ctx->worker_fold.eq_slot_dups, ctx->worker_fold.eq_slot_lamports_diff,
                       ctx->worker_fold.bytes_written ));
+      if( FD_UNLIKELY( ctx->worker_fold.eq_slot_dups ) ) {
+        FD_LOG_WARNING(( "parallel loader: accepted %lu equal-slot cross-appendvec duplicates (lamports-diff=%lu); "
+                         "stripe-lock arrival order picked the winner",
+                         ctx->worker_fold.eq_slot_dups, ctx->worker_fold.eq_slot_lamports_diff ));
+      }
       log_snoop_checksums( ctx );
 
       /* Notify replay when snapshot is fully loaded and verified. */

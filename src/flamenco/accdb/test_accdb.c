@@ -2148,9 +2148,9 @@ test_snapshot_striped_writers_incremental( void ) {
   fd_accdb_advance_root( reader, incr_b );
   drain_background( reader );
 
-  /* Equal-slot incremental duplicate: untiebreakable under worker-local
-     offsets, so it must be counted (for the FINI malform gate) and
-     treated as ignored. */
+  /* Equal-slot incremental duplicate: the writer counts it and treats
+     it as ignored (the loader now accepts these, see the eq-slot
+     branch in fd_accdb_snapshot_write_batch_worker). */
   fd_accdb_fork_id_t eq_fork = fd_accdb_attach_child( reader, incr_b );
   {
     par_writer_ctx_t eq[ 1 ];

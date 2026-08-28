@@ -932,7 +932,7 @@ test_retry_resets( void ) {
   test_cluster_delete( cl );
 }
 
-/* FINI malform gates **************************************************/
+/* FINI gates **********************************************************/
 
 /* FINI can only arrive after the tile's own parser reached EOF (every
    tile walks the whole tar itself).  A FINI in PROCESSING means the
@@ -972,17 +972,17 @@ test_fini_truncated_malform( void ) {
   test_cluster_delete( cl );
 }
 
-/* Equal-slot cross-appendvec duplicates cannot be tiebroken under
-   worker-local offsets, so the load result would be schedule dependent.
-   Every tile gates on its OWN count at FINI and flags the snapshot
-   malformed without folding its counters. */
+/* Equal-slot cross-appendvec duplicates are accepted, not fatal (see
+   the eq-slot branch in fd_accdb_snapshot_write_batch_worker): the
+   load completes and every tile, including the one that saw the
+   duplicates, acks FINI normally and folds its counters. */
 static void
-test_eq_slot_fini_malform( void ) {
+test_eq_slot_fini_accepts( void ) {
   ulong const n = 4UL;
   ulong const T = 6UL;
 
-  /* Drive the gate from a non-zero tile: the check is per tile, not a
-     tile-0 privilege. */
+  /* Drive the duplicate from a non-zero tile: counting is per tile,
+     not a tile-0 privilege. */
   for( ulong bad=1UL; bad<n; bad+=2UL ) {
     test_cluster_t * cl = test_cluster_new( n, 1UL );
     test_counters_reset();
@@ -999,19 +999,17 @@ test_eq_slot_fini_malform( void ) {
     ulong pub0 = test_pub_cnt;
     cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
 
-    /* The flagging tile published an ERROR instead of a FINI ack; the
-       clean tiles acked and folded normally. */
-    FD_TEST( cl->ctx[ bad ].state==FD_SNAPSHOT_STATE_ERROR );
+    /* Every tile acks FINI, no ERROR, no withheld fold. */
     FD_TEST( test_pub_cnt==pub0+n );
-    for( ulong t=0UL; t<n; t++ ) {
-      ulong sig = test_pub_sig[ pub0+t ];
-      if( t==bad ) FD_TEST( sig==FD_SNAPSHOT_MSG_CTRL_ERROR );
-      else         FD_TEST( sig==FD_SNAPSHOT_MSG_CTRL_FINI  );
-    }
-    /* The flagging tile folded nothing (its counters stay with it). */
-    FD_TEST( cl->hdr->totals.accounts_loaded==10UL*(n-1UL) );
-    FD_TEST( !cl->hdr->totals.eq_slot_dups );
-    FD_TEST( cl->hdr->totals.appendvecs_processed==T-cl->ctx[ bad ].owned_appendvecs );
+    for( ulong t=0UL; t<n; t++ ) FD_TEST( test_pub_sig[ pub0+t ]==FD_SNAPSHOT_MSG_CTRL_FINI );
+    for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_FINISHING );
+
+    /* The flagging tile's counters, dups included, are folded like
+       everyone else's. */
+    FD_TEST( cl->hdr->totals.accounts_loaded==10UL*n );
+    FD_TEST( cl->hdr->totals.eq_slot_dups==3UL );
+    FD_TEST( cl->hdr->totals.eq_slot_lamports_diff==2UL );
+    FD_TEST( cl->hdr->totals.appendvecs_processed==T );
 
     test_cluster_delete( cl );
   }
@@ -1323,7 +1321,7 @@ main( int     argc,
   test_eager_claim_coverage();
   test_retry_resets();
   test_fini_truncated_malform();
-  test_eq_slot_fini_malform();
+  test_eq_slot_fini_accepts();
   test_accumulator_fold();
   test_gauge_sum_continuity();
   test_full_lifecycle_8_tiles();

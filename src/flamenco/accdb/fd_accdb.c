@@ -4648,21 +4648,17 @@ fd_accdb_snapshot_write_batch_worker( fd_accdb_t *                         accdb
         if( FD_LIKELY( existing_slot>slot ) ) {
           skip = 1;
         } else if( FD_UNLIKELY( existing_slot==slot ) ) {
-          /* Equal-slot cross-appendvec duplicate.  The sequential
-             loader (and Agave) resolve these last-in-stream-wins, but
-             that order cannot be reproduced here: appendvecs are
-             processed concurrently and worker-local disk offsets are
-             not stream ordered, and a deterministic (appendvec_idx,
-             record_idx) tiebreak would need the incumbent's stream
-             position, which does not fit the 64-byte index entry and
-             would otherwise need a ~9 GiB per-account side table.  So
-             this path is deliberately STRICTER than Agave: count the
-             duplicate and treat it as ignored, and the caller fails
-             the load if any were seen (a retry cannot help, but a
-             wrong winner must not go unnoticed either).  No mainnet or
-             testnet snapshot has ever been observed to contain one --
-             a well-formed snapshot has exactly one version of an
-             account at one slot. */
+          /* Equal-slot cross-appendvec duplicate.  Agave tolerates
+             these (last-in-file wins); an honest producer never
+             emits one.  Under parallel load, the winner is whichever
+             writer takes the stripe lock first -- nondeterministic
+             for a non-identical payload, but outcome-identical for
+             the byte-identical duplicates every observed snapshot
+             actually contains.  eq_slot_lamports_diff surfaces the
+             nondeterministic case if it ever occurs.  A deterministic
+             (appendvec_idx, record_idx) tiebreak is a possible future
+             upgrade; it would need the incumbent's stream position,
+             which does not fit the 64-byte index entry today. */
           metrics->eq_slot_dups++;
           if( FD_UNLIKELY( candidate->lamports!=lamports[ i ] ) ) metrics->eq_slot_lamports_diff++;
           skip = 1;
