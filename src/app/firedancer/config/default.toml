@@ -495,9 +495,7 @@ telemetry = true
         # set higher than the incremental age because, as full snapshots
         # are much larger than incremental snapshots, the time penalty
         # for downloading a full snapshot is much higher.
-        # This should exceed [snapshots].full_snapshot_interval_slots to
-        # leave enough time for the next full snapshot to be created.
-        max_local_full_effective_age = 125000
+        max_local_full_effective_age = 1000
         max_local_incremental_age = 50
 
         # If any HTTP server URLs are listed, the following paths will
