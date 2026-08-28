@@ -2045,6 +2045,40 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
   }
 }
 
+/* Mark one round-robin leaf prunable and notify ref holders.  Used
+   when banks or the cost tracker pool are exhausted and replay cannot
+   otherwise make progress. */
+static int
+evict_one_bank( fd_replay_tile_t *  ctx,
+                fd_stem_context_t * stem ) {
+  ulong evictable_bank_idx = fd_banks_get_evictable_bank( ctx->banks, ctx->notified_root_bank );
+  if( FD_UNLIKELY( evictable_bank_idx==ULONG_MAX ) ) {
+    FD_LOG_DEBUG(( "replay has no banks to mark as prunable, it's possible that there is one bank already marked as prunable" ));
+    return 0;
+  }
+
+  FD_LOG_WARNING(( "banks full, evicting bank (idx=%lu)", evictable_bank_idx ));
+
+  timing_slot_release( ctx, evictable_bank_idx );
+
+  if( FD_UNLIKELY( fd_sched_block_is_discarded( ctx->sched, evictable_bank_idx ) ) ) {
+    fd_block_id_ele_t * ele = &ctx->block_id_arr[ evictable_bank_idx ];
+    report_block_incomplete( ctx, ele->slot, &ele->latest_mr, fd_banks_bank_query( ctx->banks, evictable_bank_idx ),
+                             FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED );
+  }
+
+  /* Send a notification to other tiles to drop a reference to the
+     evictable bank.  The RPC tile is the only tile which holds onto
+     non-rooted banks, non-transiently. */
+  fd_replay_drop_bank_ref_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_sched_block_abandon( ctx->sched, evictable_bank_idx, FD_SCHED_ABANDON_DISCARDED );
+  msg->bank_idx = evictable_bank_idx;
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_DROP_BANK_REF, ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+
+  return 1;
+}
+
 static int
 try_replay( fd_replay_tile_t *  ctx,
             fd_stem_context_t * stem ) {
@@ -2061,6 +2095,17 @@ try_replay( fd_replay_tile_t *  ctx,
 
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
+      if( FD_UNLIKELY( !fd_banks_can_acquire_cost_tracker( ctx->banks ) ) ) {
+        /* Cost tracker pool exhausted (pool is smaller than
+           max_fork_width): defer the clone and evict a leaf, exactly
+           like the banks-full path.  A tracker frees when any
+           replaying bank freezes or a victim is pruned; sched will
+           re-offer this task. */
+        fd_sched_block_start_defer( ctx->sched );
+        ctx->metrics.banks_full++;
+        evict_one_bank( ctx, stem );
+        break;
+      }
       replay_block_start( ctx, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
       break;
@@ -2815,34 +2860,7 @@ try_process_fec( fd_replay_tile_t *  ctx,
   /* If we need to evict banks, gather one evictable bank.  The bank is
      marked prunable by fd_banks_get_evictable_bank and pruned once refs
      drain. */
-  if( FD_UNLIKELY( evict_banks ) ) {
-    ulong evictable_bank_idx = fd_banks_get_evictable_bank( ctx->banks, ctx->notified_root_bank );
-    if( FD_UNLIKELY( evictable_bank_idx==ULONG_MAX ) ) {
-      FD_LOG_DEBUG(( "replay has no banks to mark as prunable, it's possible that there is one bank already marked as prunable" ));
-      return 0;
-    }
-
-    FD_LOG_WARNING(( "banks full, evicting bank (idx=%lu)", evictable_bank_idx ));
-
-    timing_slot_release( ctx, evictable_bank_idx );
-
-    if( FD_UNLIKELY( fd_sched_block_is_discarded( ctx->sched, evictable_bank_idx ) ) ) {
-      fd_block_id_ele_t * ele = &ctx->block_id_arr[ evictable_bank_idx ];
-      report_block_incomplete( ctx, ele->slot, &ele->latest_mr, fd_banks_bank_query( ctx->banks, evictable_bank_idx ),
-                               FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED );
-    }
-
-    /* Send a notification to other tiles to drop a reference to the
-       evictable bank.  The RPC tile is the only tile which holds onto
-       non-rooted banks, non-transiently. */
-    fd_replay_drop_bank_ref_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    fd_sched_block_abandon( ctx->sched, evictable_bank_idx, FD_SCHED_ABANDON_DISCARDED );
-    msg->bank_idx = evictable_bank_idx;
-    fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_DROP_BANK_REF, ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-
-    return 1;
-  }
+  if( FD_UNLIKELY( evict_banks ) ) return evict_one_bank( ctx, stem );
 
   return 0;
 }

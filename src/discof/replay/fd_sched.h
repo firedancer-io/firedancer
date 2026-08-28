@@ -350,6 +350,13 @@ fd_sched_is_drained( fd_sched_t * sched );
 ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 
+/* Re-queue a BLOCK_START task just returned by task_next_ready that
+   the caller could not act on (cost tracker pool exhausted).  The task
+   will be offered again on a later call.  Must not be called after the
+   task was marked done. */
+void
+fd_sched_block_start_defer( fd_sched_t * sched );
+
 /* Mark a task as complete.  For transaction execution, this means that
    the effects of the execution are now visible on any core that could
    execute a subsequent transaction.  Returns FD_SCHED_DEAD_REASON_NONE

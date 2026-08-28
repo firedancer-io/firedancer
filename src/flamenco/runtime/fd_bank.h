@@ -216,6 +216,16 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define POOL_T    fd_bank_cost_tracker_t
 #include "../../util/tmpl/fd_pool.c"
 
+/* Cost trackers only live while a bank is REPLAYABLE (acquired at
+   clone, released at freeze/prune/root advance), so concurrent demand
+   is the count of simultaneously-replaying leaves (mainnet: 2-4), not
+   max_fork_width.  The pool is capped; on exhaustion the clone defers
+   gracefully (replay evicts a leaf, exactly like banks-full) instead
+   of aborting.  Per-tracker capacity (the adversarial per-block
+   account write bound) is unchanged. */
+
+#define FD_BANKS_COST_TRACKER_POOL_CNT( max_fork_width ) (fd_ulong_min( (max_fork_width), 16UL ))
+
 /* The banks follow a state machine that generally transitions forward:
    All banks start off as INACTIVE.  Once a bank is provisioned (when
    the first FEC is received from the reassembler), it is in the state
@@ -767,6 +777,14 @@ fd_banks_get_evictable_bank( fd_banks_t *      banks,
 
 int
 fd_banks_can_start_bank( fd_banks_t * banks );
+
+/* fd_banks_can_acquire_cost_tracker returns 1 if a cost tracker pool
+   element is free.  fd_banks_clone_from_parent FD_LOG_CRITs if called
+   without one; callers that cannot rely on the fd_banks_can_start_bank
+   gate (the deferred block-start clone) must check and defer. */
+
+int
+fd_banks_can_acquire_cost_tracker( fd_banks_t * banks );
 
 /* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children and should only be used in

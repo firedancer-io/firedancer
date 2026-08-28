@@ -1477,6 +1477,15 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   return 0UL;
 }
 
+void
+fd_sched_block_start_defer( fd_sched_t * sched ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( sched->active_bank_idx!=ULONG_MAX );
+  fd_sched_block_t * block = block_pool_ele( sched, sched->active_bank_idx );
+  FD_TEST( block->block_start_signaled && !block->block_start_done );
+  block->block_start_signaled = 0;
+}
+
 int
 fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
