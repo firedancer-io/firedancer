@@ -107,13 +107,12 @@ setup_xdp_tile( fd_topo_t *             topo,
 
   tile->xdp.xsk_core_dump = xsk_core_dump;
 
-  /* Allocate free ring */
+  /* Allocate free ring.  Sized to the seeded TX frame count: the TX
+     free ring is shared between the physical and loopback XSKs, and
+     fd_xdp_tile only ever seeds and indexes xdp_tx_queue_size
+     entries. */
 
   tile->xdp.free_ring_depth = tile->xdp.xdp_tx_queue_size;
-  if( tile_kind_id==0 ) {
-    /* Allocate additional frames for loopback */
-    tile->xdp.free_ring_depth += 16384UL;
-  }
 }
 
 static void
@@ -320,18 +319,20 @@ fd_topos_tile_in_net( fd_topo_t *  topo,
 static void
 fd_topos_xdp_setup_mem( fd_topo_t *      topo,
                         fd_topo_tile_t * net_tile ) {
-  ulong rx_depth = net_tile->xdp.xdp_rx_queue_size;
-  ulong tx_depth = net_tile->xdp.xdp_tx_queue_size;
-  rx_depth += (rx_depth/2UL);
-  tx_depth += (tx_depth/2UL);
-
-  if( net_tile->kind_id==0 ) {
-    /* Double it for loopback XSK */
-    rx_depth *= 2UL;
-    tx_depth *= 2UL;
-  }
-
-  ulong cum_frame_cnt = rx_depth + tx_depth;
+  /* Exact fit to the tile's runtime frame consumption, which is a
+     closed set (fd_xdp_tile.c unprivileged_init): xdp_tx_queue_size
+     frames seeded into the shared TX free ring, one frame per out
+     link mcache line, and xdp_rx_queue_size FILL ring seeds per XSK.
+     Tile 0 is provisioned for two XSKs unconditionally: it hosts the
+     loopback XSK unless the main interface already is loopback, which
+     the topo build cannot know (over-provisioning is the safe
+     direction there).  RX strictly recycles each frame through its
+     own link mcache one-in-one-out and TX recycles free->tx->
+     completion with a capacity check, so frames beyond the seeded set
+     are never referenced; if this ever under-counts, the "UMEM is too
+     small" boot check in fd_xdp_tile.c fails loudly. */
+  ulong xsk_cnt = fd_ulong_if( net_tile->kind_id==0UL, 2UL, 1UL );
+  ulong cum_frame_cnt = net_tile->xdp.xdp_tx_queue_size + xsk_cnt*net_tile->xdp.xdp_rx_queue_size;
 
   /* Count up the depth of all RX mcaches */
 
