@@ -1419,7 +1419,7 @@ telemetry = true
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 16384
+        max_concurrent_connections = 8192
 
         # Controls how many transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -1445,7 +1445,7 @@ telemetry = true
         # very expensive.  So we allow only a limited number of
         # handshakes to occur concurrently.
         #
-        max_concurrent_handshakes = 4096
+        max_concurrent_handshakes = 2048
 
         # QUIC has a concept of an idle connection, one where neither
         # the client nor the server has sent any packet to the other for
