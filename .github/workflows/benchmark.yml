@@ -209,12 +209,34 @@ jobs:
           | \`firedancer mem\` usage with \`mainnet.toml\` | ${fmt(baseline_default_mem, "GiB")} | ${fmt(newval_default_mem, "GiB")} | \`${default_mem_pct_change}%\` ${changeIcon(default_mem_pct_change, 5.0)} |
           `;
 
-          const body = table;
+          const commentMarker = "<!-- firedancer-benchmark-comment -->";
+          const body = `${commentMarker}\n${table}`;
 
           const isFromFork = context.payload.pull_request.head.repo.fork;
 
           if (!isFromFork) {
-            github.rest.issues.createComment({
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+
+            const benchmarkComments = comments.filter(comment =>
+              comment.user?.type === "Bot" &&
+              (comment.body?.includes(commentMarker) ||
+                comment.body?.includes("## Performance Measurements ⏳"))
+            );
+
+            await Promise.all(benchmarkComments.map(comment =>
+              github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: comment.id
+              })
+            ));
+
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
