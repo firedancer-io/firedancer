@@ -1394,7 +1394,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 
     fd_cstr_ncpy( tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(tile->gossvf.identity_key_path) );
-    tile->gossvf.tcache_depth          = 1<<22UL; /* TODO: user defined option */
+    tile->gossvf.tcache_depth          = 1<<21UL; /* ~2-7 min dedup window at 10x mainnet gossip pps; TODO: user defined option */
     tile->gossvf.shred_version         = 0U;
     tile->gossvf.allow_private_address = config->development.gossip.allow_private_address;
     tile->gossvf.boot_timestamp_nanos   = config->boot_timestamp_nanos;
