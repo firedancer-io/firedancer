@@ -42,8 +42,8 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH (43200UL) /* 10% capacity should be enough for mainnet/testnet */
 
 /* FD_GUI_HIST_MAX_EPOCHS caps KV index provisioning at the number of
-   epochs reachable within the TS index horizon (30 days) +2 for partial
-   epochs at both ends of the horizon. */
+   epochs reachable within the TS index horizon +2 for partial epochs
+   at both ends of the horizon. */
 
 #define FD_GUI_HIST_MAX_EPOCHS ((FD_GUI_STORE_TS_IDX_DEPTH*(ulong)FD_GUI_HIST_RES_1S_NS)/(MAX_SLOTS_PER_EPOCH*((FD_SLOT_PARAMS_200MS).ns_per_slot))+2UL)
 

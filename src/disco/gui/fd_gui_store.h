@@ -104,7 +104,7 @@ typedef struct fd_gui_store_private fd_gui_store_t;
 
 /* FD_GUI_STORE_TS_IDX_DEPTH is the depth of the time-series index
    array, measured in one second window buckets. */
-#define FD_GUI_STORE_TS_IDX_DEPTH (30UL*24UL*60UL*60UL) /* 30 days of 1s windows */
+#define FD_GUI_STORE_TS_IDX_DEPTH (7UL*24UL*60UL*60UL) /* 7 days of 1s windows */
 
 struct fd_gui_store_desc {
   char const * name;    /* the name of the ring.  Must be non-NULL and unique within the store */
