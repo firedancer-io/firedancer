@@ -54,7 +54,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   /* Disk-resident index tier (NULL/unused in RAM-only mode). */
   uint *                 hot_map;     /* hot_chain_cnt chain heads    */
-  uint *                 idx_seqlock; /* per bucket page              */
+  uint *                 idx_seqlock; /* per 8-bucket-page group      */
   ulong *                idx_bloom;
   fd_accdb_idx_range_t * idx_ranges;  /* spill/placement state        */
   uchar *                idx_stage;
@@ -468,7 +468,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
      acc_map empty), so only the RAM side structures reset. */
   if( FD_UNLIKELY( shmem->index_ram_max ) ) {
     for( ulong i=0UL; i<shmem->hot_chain_cnt; i++ ) accdb->hot_map[ i ] = FD_ACCDB_HOT_EMPTY;
-    fd_memset( accdb->idx_seqlock, 0, shmem->idx_npage*sizeof(uint) );
+    fd_memset( accdb->idx_seqlock, 0, fd_accdb_idx_seqlock_cnt( shmem->idx_npage )*sizeof(uint) );
     fd_memset( accdb->idx_bloom,   0, shmem->idx_bloom_sz );
     fd_memset( accdb->idx_ranges,  0, shmem->idx_nrange*sizeof(fd_accdb_idx_range_t) );
     shmem->demote_chain_cursor = 0UL;
@@ -1417,13 +1417,21 @@ txn_append( fd_accdb_t * accdb,
    tile, and the snapin placement pass which runs before any reader
    exists).  idx_page_write is writer-only and brackets the page write
    odd/even; buffered same-thread pwritev2 keeps the data TSO-ordered
-   against the seqlock stores. */
+   against the seqlock stores.  Seqlock words are shared per 8-page
+   group (all indexing routes through idx_seqlock_word); sound only
+   because bucket writes are globally single-writer. */
+
+static inline uint *
+idx_seqlock_word( fd_accdb_t const * accdb,
+                  ulong              page ) {
+  return &accdb->idx_seqlock[ page>>FD_ACCDB_IDX_SEQ_LG_GROUP ];
+}
 
 static uint
 idx_page_read( fd_accdb_t *          accdb,
                ulong                 page,
                fd_accdb_idx_page_t * buf ) {
-  uint * seqp = &accdb->idx_seqlock[ page ];
+  uint * seqp = idx_seqlock_word( accdb, page );
   for(;;) {
     uint s0 = FD_VOLATILE_CONST( *seqp );
     if( FD_UNLIKELY( s0&1U ) ) { FD_SPIN_PAUSE(); continue; }
@@ -1447,7 +1455,7 @@ static void
 idx_page_write( fd_accdb_t *                accdb,
                 ulong                       page,
                 fd_accdb_idx_page_t const * buf ) {
-  uint * seqp = &accdb->idx_seqlock[ page ];
+  uint * seqp = idx_seqlock_word( accdb, page );
   uint   s    = FD_VOLATILE_CONST( *seqp );
   FD_VOLATILE( *seqp ) = s+1U;
   FD_COMPILER_MFENCE();
@@ -2152,7 +2160,7 @@ promote_from_slot( fd_accdb_t *                accdb,
     return &accdb->acc_pool[ dup ];
   }
 
-  if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->idx_seqlock[ page ] )!=seq ) ) {
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( *idx_seqlock_word( accdb, page ) )!=seq ) ) {
     hot_release( accdb, chain, head );
     acc_pool_release( accdb->acc_pool_join, m );
     FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->acc_pool_used.val, 1UL );

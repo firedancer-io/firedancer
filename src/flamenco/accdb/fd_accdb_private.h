@@ -267,12 +267,18 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
    capped at 0.5 so overflow is vanishingly rare (Poisson mean <=31.5
    keys on 63 slots).
 
-   A per-page seqlock word array lives in the workspace.  T2 (and the
+   A seqlock word array (one word per FD_ACCDB_IDX_SEQ_GROUP
+   consecutive bucket pages) lives in the workspace.  T2 (and the
    snapin placement pass, disjoint in time) is the sole bucket writer;
-   every page write is bracketed odd/even.  Readers pread the page and
-   validate against the shmem word.  Correctness relies on buffered
-   same-thread pwritev2 (copy_from_user executes on the writing thread,
-   TSO-ordered against the seqlock stores).
+   every page write is bracketed odd/even on the page's group word.
+   Readers pread the page and validate against the shmem word.  Sharing
+   a word across a group only widens the conflict set (a writer to any
+   sibling page spuriously retries the reader, one extra pread at
+   ~1e-8/read); it can never miss a real conflict -- but ONLY because
+   bucket writes are globally single-writer.  If bucket writes are ever
+   parallelized, per-group sharing becomes unsound.  Correctness relies
+   on buffered same-thread pwritev2 (copy_from_user executes on the
+   writing thread, TSO-ordered against the seqlock stores).
 
    A single blocked bloom filter (6 bits/key over max_accounts) is the
    RAM negative oracle: bloom-negative proves a key is not in the
@@ -283,6 +289,15 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 #define FD_ACCDB_IDX_SLOT_CNT    (63UL)
 #define FD_ACCDB_IDX_PROBE_MAX   (64UL)
 #define FD_ACCDB_IDX_PAGE_STICKY (1U)
+
+/* Bucket pages per seqlock word (lg).  See the seqlock note above:
+   sound only under the global single-bucket-writer discipline. */
+#define FD_ACCDB_IDX_SEQ_LG_GROUP (3)
+
+static FD_FN_CONST inline ulong
+fd_accdb_idx_seqlock_cnt( ulong npage ) {
+  return ( npage + (1UL<<FD_ACCDB_IDX_SEQ_LG_GROUP)-1UL )>>FD_ACCDB_IDX_SEQ_LG_GROUP;
+}
 
 /* fork_id stored in promoted (hot_map) entries' offset_fork.  Promoted
    entries are rooted, so the generation<=root_generation fast path
@@ -852,7 +867,7 @@ struct fd_accdb_shmem_private {
   ulong partition_pool_region_off; /* raw region (partition_pool_off
                                       above is the joined pointer)    */
   ulong hot_map_off;      /* hot_chain_cnt uints                     */
-  ulong idx_seqlock_off;  /* idx_npage uints                         */
+  ulong idx_seqlock_off;  /* fd_accdb_idx_seqlock_cnt(idx_npage) uints */
   ulong idx_bloom_off;    /* idx_bloom_sz bytes                      */
   ulong idx_range_off;    /* idx_nrange fd_accdb_idx_range_t         */
   ulong idx_stage_off;    /* idx_nrange * FD_ACCDB_IDX_STAGE_SZ      */

@@ -259,7 +259,7 @@ fd_accdb_shmem_layout( fd_accdb_shmem_layout_t * out,
   lo->hot_map_off = fd_ulong_align_up( l, 64UL );
   l = FD_LAYOUT_APPEND( l, 64UL,                     hot_chain_cnt*sizeof(uint)                              );
   lo->idx_seqlock_off = fd_ulong_align_up( l, 64UL );
-  l = FD_LAYOUT_APPEND( l, 64UL,                     npage*sizeof(uint)                                      );
+  l = FD_LAYOUT_APPEND( l, 64UL,                     fd_accdb_idx_seqlock_cnt( npage )*sizeof(uint)          );
   lo->idx_bloom_off = fd_ulong_align_up( l, 64UL );
   l = FD_LAYOUT_APPEND( l, 64UL,                     bloom_sz                                                );
   lo->idx_range_off = fd_ulong_align_up( l, 64UL );
@@ -631,7 +631,7 @@ fd_accdb_shmem_new( void * shmem,
   if( index_ram_max ) {
     uint * hot_map = (uint *)( base + lo->hot_map_off );
     for( ulong i=0UL; i<lo->hot_chain_cnt; i++ ) hot_map[ i ] = FD_ACCDB_HOT_EMPTY;
-    fd_memset( base + lo->idx_seqlock_off, 0, lo->npage*sizeof(uint) );
+    fd_memset( base + lo->idx_seqlock_off, 0, fd_accdb_idx_seqlock_cnt( lo->npage )*sizeof(uint) );
     fd_memset( base + lo->idx_bloom_off,   0, lo->bloom_sz );
     fd_memset( base + lo->idx_range_off,   0, lo->nrange*sizeof(fd_accdb_idx_range_t) );
   }
