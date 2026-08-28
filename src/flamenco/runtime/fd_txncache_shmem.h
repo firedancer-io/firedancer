@@ -21,8 +21,8 @@
 
    Sizing: entries stay queryable for the ~151 blockhash validity
    window plus the ~151 root retention window, roughly 134 seconds of
-   committed transactions.  2048 pages hold 16.7M entries, reached only
-   at ~125k sustained committed TPS (~25x the mainnet all-time-high),
+   committed transactions.  1024 pages hold 8.4M entries, reached only
+   at ~62k sustained committed TPS (~12x the mainnet all-time-high),
    so at mainnet load the disk tier is never touched.  Catchup with a
    deep unrooted backlog and adversarial max-fill regimes spill, which
    is graceful: total capacity is unchanged, only residency moves.
@@ -32,7 +32,7 @@
    which are latency experiments and must stay fully resident), no disk
    tier is created and behavior is identical to the untiered design. */
 
-#define FD_TXNCACHE_RAM_TXNPAGES (2048UL)
+#define FD_TXNCACHE_RAM_TXNPAGES (1024UL)
 
 /* File descriptor number where the txncache disk tier file is
    installed by the boot process (see initialize_accdb_fd), like
