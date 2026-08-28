@@ -214,6 +214,7 @@ typedef struct fd_sched_task fd_sched_task_t;
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST  (18) /* PoH hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions. */
 #define FD_SCHED_DEAD_REASON_DEAD_ANCESTOR               (19) /* The block went down with its lineage.  Whether the lineage was discarded or ruled invalid is distinguished by fd_sched_block_is_discarded. */
 #define FD_SCHED_DEAD_REASON_BAD_FOOTER                  (20) /* The block's footer was invalid. */
+#define FD_SCHED_DEAD_REASON_INVALID_LAST_TICK           (21) /* The block reached max tick height without being marked complete. */
 /* Cause to pass to fd_sched_block_abandon().  A block is considered
    invalid when it violates the protocol, so validity is a function of
    the block's content.  A block may be discarded (temporarily) because

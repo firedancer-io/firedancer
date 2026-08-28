@@ -248,6 +248,7 @@ run_bad_tick_case( fd_hash_t const * start_poh,
                    ulong             tick_cnt,
                    ulong             max_tick_height,
                    ulong             hashes_per_tick,
+                   int               is_last_in_block,
                    int               expect_mark_dead,
                    int               expect_poh_fail,
                    int               expect_dead_reason ) {
@@ -283,7 +284,7 @@ run_bad_tick_case( fd_hash_t const * start_poh,
     .data              = encoded,
     .shred_cnt         = 1U,
     .is_last_in_batch  = 1U,
-    .is_last_in_block  = 1U,
+    .is_last_in_block  = !!is_last_in_block,
     .is_first_in_block = 1U
   }};
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
@@ -338,17 +339,22 @@ run_bad_tick_cases( void ) {
 
   {
     ulong tick_hashcnt[ 1 ] = { 1UL };
-    run_bad_tick_case( start_poh, tick_hashcnt, 1UL, TEST_ROOT_TICK_HEIGHT + 2UL, 1UL, 1, 0, FD_SCHED_DEAD_REASON_TOO_FEW_TICKS );
+    run_bad_tick_case( start_poh, tick_hashcnt, 1UL, TEST_ROOT_TICK_HEIGHT + 2UL, 1UL, 1, 1, 0, FD_SCHED_DEAD_REASON_TOO_FEW_TICKS );
   }
 
   {
     ulong tick_hashcnt[ 2 ] = { 1UL, 1UL };
-    run_bad_tick_case( start_poh, tick_hashcnt, 2UL, TEST_ROOT_TICK_HEIGHT + 1UL, 1UL, 0, 1, FD_SCHED_DEAD_REASON_TOO_MANY_TICKS );
+    run_bad_tick_case( start_poh, tick_hashcnt, 2UL, TEST_ROOT_TICK_HEIGHT + 1UL, 1UL, 1, 0, 1, FD_SCHED_DEAD_REASON_TOO_MANY_TICKS );
+  }
+
+  {
+    ulong tick_hashcnt[ 1 ] = { 1UL };
+    run_bad_tick_case( start_poh, tick_hashcnt, 1UL, TEST_ROOT_TICK_HEIGHT + 1UL, 1UL, 0, 0, 1, FD_SCHED_DEAD_REASON_INVALID_LAST_TICK );
   }
 
   {
     ulong tick_hashcnt[ 2 ] = { 1UL, 2UL };
-    run_bad_tick_case( start_poh, tick_hashcnt, 2UL, TEST_ROOT_TICK_HEIGHT + 2UL, 2UL, 0, 1, FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK );
+    run_bad_tick_case( start_poh, tick_hashcnt, 2UL, TEST_ROOT_TICK_HEIGHT + 2UL, 2UL, 1, 0, 1, FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK );
   }
 }
 
