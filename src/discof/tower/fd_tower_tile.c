@@ -195,9 +195,29 @@ FD_STATIC_ASSERT( 1<<AUTH_VTR_LG_MAX==32, AUTH_VTR_LG_MAX );
 
 #define VOTES_SLOT_MAX (512UL)
 
+/* publishes entries are small: the two large message types (slot_done
+   ~4.2 KiB incl vote txn, slot_duplicate ~3.2 KiB of proof chunks) are
+   stored out-of-line in fd_tower_tile_t.big_msgs and referenced by
+   index, so the pub_max-deep deque costs 56 B/entry instead of 4.3 KiB.
+
+   PUB_BIG_MAX bounds concurrently queued large messages.  At runtime at
+   most ONE is ever queued: stem polls input only when after_credit saw
+   an empty deque (and skips both under backpressure), so the deque
+   never holds more than one frag's worth of messages, and no frag
+   pushes more than one large message (slot_done and slot_duplicate come
+   from different frag kinds).  64 also covers unit tests that batch
+   replay_slot_completed calls without draining. */
+
+#define PUB_BIG_MAX (64UL)
+
 struct publish {
-  ulong          sig;
-  fd_tower_msg_t msg;
+  ulong sig;
+  union {
+    fd_tower_slot_confirmed_t slot_confirmed;
+    fd_tower_slot_ignored_t   slot_ignored;
+    fd_tower_slot_rooted_t    slot_rooted;
+    ulong                     big_idx; /* into fd_tower_tile_t.big_msgs (slot_done / slot_duplicate) */
+  } msg;
 };
 typedef struct publish publish_t;
 
@@ -283,6 +303,8 @@ struct fd_tower_tile {
   fd_tower_vote_t *     scratch_tower; /* spare deque used during vote txn processing */
 
   publish_t *                publishes; /* deque of slot_confirmed msgs queued for publishing */
+  fd_tower_msg_t             big_msgs[ PUB_BIG_MAX ]; /* out-of-line slot_done / slot_duplicate storage */
+  ulong                      big_used_mask;           /* bit i set = big_msgs[i] queued */
   fd_multi_epoch_leaders_t * mleaders; /* multi-epoch leaders */
 
   /* borrowed joins */
@@ -740,10 +762,13 @@ publish_slot_done( fd_tower_tile_t *            ctx,
                    ulong                        tsorig FD_PARAM_UNUSED,
                    fd_stem_context_t *          stem FD_PARAM_UNUSED ) {
 
-  publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
-  pub->sig = FD_TOWER_SIG_SLOT_DONE;
+  ulong big_idx = (ulong)fd_ulong_find_lsb( ~ctx->big_used_mask );
+  FD_TEST( big_idx<PUB_BIG_MAX );
+  ctx->big_used_mask |= 1UL<<big_idx;
+  memset( &ctx->big_msgs[ big_idx ], 0, sizeof(fd_tower_msg_t) );
+  publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_DONE, .msg = { .big_idx = big_idx } } );
 
-  fd_tower_slot_done_t * msg = &pub->msg.slot_done;
+  fd_tower_slot_done_t * msg = &ctx->big_msgs[ big_idx ].slot_done;
   msg->replay_slot           = slot_completed->slot;
   msg->active_fork_cnt       = fd_ghost_width( ctx->ghost );
   msg->vote_slot             = out->vote_slot;
@@ -818,9 +843,12 @@ static void
 publish_slot_duplicate( fd_tower_tile_t *                ctx,
                         fd_gossip_duplicate_shred_t const chunks[static FD_EQVOC_CHUNK_CNT],
                         ulong                            slot ) {
-  publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
-  pub->sig        = FD_TOWER_SIG_SLOT_DUPLICATE;
-  memcpy( pub->msg.slot_duplicate.chunks, chunks, sizeof(pub->msg.slot_duplicate.chunks) );
+  ulong big_idx = (ulong)fd_ulong_find_lsb( ~ctx->big_used_mask );
+  FD_TEST( big_idx<PUB_BIG_MAX );
+  ctx->big_used_mask |= 1UL<<big_idx;
+  memset( &ctx->big_msgs[ big_idx ], 0, sizeof(fd_tower_msg_t) );
+  publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_DUPLICATE, .msg = { .big_idx = big_idx } } );
+  memcpy( ctx->big_msgs[ big_idx ].slot_duplicate.chunks, chunks, sizeof(ctx->big_msgs[ big_idx ].slot_duplicate.chunks) );
 
   /* If we already have a tower blk for this just-proved duplicate
      slot, then we know we have replayed one of the equivocating
@@ -1715,6 +1743,7 @@ init_choreo( void                 * scratch,
   memset( &ctx->compact_tower_sync_serde, 0, sizeof(ctx->compact_tower_sync_serde) );
   memset( ctx->vote_txn, 0, sizeof(ctx->vote_txn) );
 
+  ctx->big_used_mask   = 0UL;
   ctx->halt_signing    = 0;
   ctx->hard_fork_fatal = tile->tower.hard_fork_fatal;
   ctx->wfs             = tile->tower.wait_for_supermajority;
@@ -1832,7 +1861,14 @@ after_credit( fd_tower_tile_t *   ctx,
               int *               charge_busy ) {
   if( FD_LIKELY( !publishes_empty( ctx->publishes ) ) ) {
     publish_t * pub = publishes_pop_head_nocopy( ctx->publishes );
-    memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), &pub->msg, sizeof(fd_tower_msg_t) );
+    void * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    if( FD_UNLIKELY( pub->sig==FD_TOWER_SIG_SLOT_DONE || pub->sig==FD_TOWER_SIG_SLOT_DUPLICATE ) ) {
+      memcpy( dst, &ctx->big_msgs[ pub->msg.big_idx ], sizeof(fd_tower_msg_t) );
+      ctx->big_used_mask &= ~(1UL<<pub->msg.big_idx);
+    } else {
+      memset( dst, 0, sizeof(fd_tower_msg_t) );
+      memcpy( dst, &pub->msg, sizeof(pub->msg) );
+    }
     fd_stem_publish( stem, OUT_IDX, pub->sig, ctx->out_chunk, sizeof(fd_tower_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_msg_t), ctx->out_chunk0, ctx->out_wmark );
     ctx->out_seq   = stem->seqs[ OUT_IDX ];

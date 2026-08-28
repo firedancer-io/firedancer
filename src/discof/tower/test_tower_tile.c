@@ -130,10 +130,11 @@ test_publish_slot_done_identity_mismatch( void ) {
   publish_t * pub = publishes_peek_head( ctx->publishes );
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
-  FD_TEST( pub->msg.slot_done.has_vote_txn==1 );
-  FD_TEST( pub->msg.slot_done.is_voting==1 );
-  FD_TEST( pub->msg.slot_done.authority_idx==ULONG_MAX );
-  FD_TEST( pub->msg.slot_done.vote_acct_com==10000U );
+  fd_tower_slot_done_t * done = &ctx->big_msgs[ pub->msg.big_idx ].slot_done;
+  FD_TEST( done->has_vote_txn==1 );
+  FD_TEST( done->is_voting==1 );
+  FD_TEST( done->authority_idx==ULONG_MAX );
+  FD_TEST( done->vote_acct_com==10000U );
   publishes_pop_head_nocopy( ctx->publishes );
 
   /* Matching identity but no votable slot: voter with no vote txn */
@@ -143,8 +144,9 @@ test_publish_slot_done_identity_mismatch( void ) {
   pub = publishes_peek_head( ctx->publishes );
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
-  FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
-  FD_TEST( pub->msg.slot_done.is_voting==1 );
+  done = &ctx->big_msgs[ pub->msg.big_idx ].slot_done;
+  FD_TEST( done->has_vote_txn==0 );
+  FD_TEST( done->is_voting==1 );
   publishes_pop_head_nocopy( ctx->publishes );
 
   /* Other identity prevents vote publishing */
@@ -154,8 +156,9 @@ test_publish_slot_done_identity_mismatch( void ) {
   pub = publishes_peek_head( ctx->publishes );
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
-  FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
-  FD_TEST( pub->msg.slot_done.is_voting==0 );
+  done = &ctx->big_msgs[ pub->msg.big_idx ].slot_done;
+  FD_TEST( done->has_vote_txn==0 );
+  FD_TEST( done->is_voting==0 );
 
   fd_wksp_delete( fd_wksp_leave( wksp ) );
 
