@@ -163,8 +163,14 @@ FD_PROTOTYPES_BEGIN
 ulong
 fd_grpc_client_align( void );
 
+/* buf_max sizes the TX/frame buffers (largest outgoing message incl
+   framing overhead).  rx_msg_max sizes the per-stream RX message
+   reassembly buffers (largest incoming gRPC message; larger messages
+   kill the request with a warning). */
+
 ulong
-fd_grpc_client_footprint( ulong buf_max );
+fd_grpc_client_footprint( ulong buf_max,
+                          ulong rx_msg_max );
 
 fd_grpc_client_t *
 fd_grpc_client_new( void *                             mem,
@@ -172,6 +178,7 @@ fd_grpc_client_new( void *                             mem,
                     fd_grpc_client_metrics_t *         metrics,
                     void *                             app_ctx,
                     ulong                              buf_max,
+                    ulong                              rx_msg_max,
                     ulong                              rng_seed );
 
 void *

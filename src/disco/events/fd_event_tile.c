@@ -45,7 +45,7 @@ FD_STATIC_ASSERT( FD_EVENT_BOOT_BUF_MAX+5UL+9UL*( (FD_EVENT_BOOT_BUF_MAX+5UL+163
 
 /* Event retry queue.  fd_circq drops the oldest event when full, so
    this only bounds how long a collector outage can be bridged without
-   telemetry loss.  256 MiB keeps the event workspace (circq + ~144 MiB
+   telemetry loss.  256 MiB keeps the event workspace (circq + ~48 MiB
    client/ctx + 64 MiB OpenSSL loose) on 2 MiB pages, well under the
    gigantic page threshold. */
 #define EVENT_CIRCQ_SZ (256UL<<20UL)

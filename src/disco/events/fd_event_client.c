@@ -42,6 +42,10 @@
 #define FD_EVENT_CLIENT_HEARTBEAT_NANOS (15L*(long)1e9)
 #define FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS (60L*(long)1e9)
 
+/* Server responses (auth challenges, stream acks) are tiny; 64 KiB
+   bounds per-stream RX reassembly instead of the multi-MiB TX bound. */
+#define FD_EVENT_CLIENT_RX_MSG_MAX (65536UL)
+
 #define FD_EVENT_CLIENT_TOKEN_SZ (217UL)
 
 struct fd_event_client {
@@ -135,7 +139,7 @@ fd_event_client_footprint( ulong buf_max ) {
   ulong l;
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_client_t), sizeof(fd_event_client_t)           );
-  l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max, FD_EVENT_CLIENT_RX_MSG_MAX ) );
   return FD_LAYOUT_FINI( l, alignof(fd_event_client_t) );
 }
 
@@ -168,7 +172,7 @@ fd_event_client_new( void *                 shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_event_client_t * client = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_client_t), sizeof(fd_event_client_t)          );
-  void * grpc_client_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max ) );
+  void * grpc_client_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max, FD_EVENT_CLIENT_RX_MSG_MAX ) );
 
   fd_url_t url[1];
   _Bool _is_ssl = 0;
@@ -230,7 +234,7 @@ fd_event_client_new( void *                 shmem,
   client->keyguard_client = keyguard_client;
 
   extern fd_grpc_client_callbacks_t fd_event_client_grpc_callbacks;
-  client->grpc_client = fd_grpc_client_new( grpc_client_mem, &fd_event_client_grpc_callbacks, client->grpc_metrics, client, buf_max, fd_rng_ulong( rng ) );
+  client->grpc_client = fd_grpc_client_new( grpc_client_mem, &fd_event_client_grpc_callbacks, client->grpc_metrics, client, buf_max, FD_EVENT_CLIENT_RX_MSG_MAX, fd_rng_ulong( rng ) );
   FD_TEST( client->grpc_client );
 
   memset( &client->metrics, 0, sizeof(client->metrics) );

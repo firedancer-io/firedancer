@@ -424,7 +424,7 @@ main( int     argc,
 
   static uchar client_mem[ 131072 ] __attribute__((aligned(128)));
   ulong const buf_max = 4096UL;
-  FD_TEST( fd_grpc_client_footprint( buf_max )<=sizeof(client_mem) );
+  FD_TEST( fd_grpc_client_footprint( buf_max, buf_max )<=sizeof(client_mem) );
 
   fd_grpc_client_callbacks_t callbacks = {
     .rx_start   = cb_rx_start,
@@ -434,7 +434,7 @@ main( int     argc,
   fd_grpc_client_metrics_t metrics = {0};
   void * app_ctx = (void *)( 0x1234UL );
   ulong rng_seed = 1UL;
-  client = fd_grpc_client_new( client_mem, &callbacks, &metrics, app_ctx, buf_max, rng_seed );
+  client = fd_grpc_client_new( client_mem, &callbacks, &metrics, app_ctx, buf_max, buf_max, rng_seed );
   FD_TEST( client );
 
   fd_unit_tests( argc, argv );

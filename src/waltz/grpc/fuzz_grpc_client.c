@@ -58,7 +58,7 @@ LLVMFuzzerInitialize( int *argc,
   (void) atexit( fd_halt );
   fd_log_level_core_set( 3 ); /* crash on warning log */
 
-  FD_TEST( fd_grpc_client_footprint( buf_max )<=sizeof(client_mem));
+  FD_TEST( fd_grpc_client_footprint( buf_max, buf_max )<=sizeof(client_mem));
   return 0;
 }
 
@@ -72,7 +72,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
   fd_grpc_client_metrics_t metrics = {0};
   void *app_ctx = (void *) (0x1234UL);
   ulong rng_seed = 1UL;
-  fd_grpc_client_t *client = fd_grpc_client_new( client_mem, &callbacks, &metrics, app_ctx, buf_max, rng_seed );
+  fd_grpc_client_t *client = fd_grpc_client_new( client_mem, &callbacks, &metrics, app_ctx, buf_max, buf_max, rng_seed );
   FD_TEST( client );
 
   fd_grpc_client_reset( client );

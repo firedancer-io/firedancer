@@ -373,6 +373,7 @@ fuzz_client_reset( ulong seed ) {
                                  g_metrics,
                                  g_app,
                                  FUZZ_GRPC_BUF_MAX,
+                                 FUZZ_GRPC_BUF_MAX,
                                  seed );
   FD_TEST( g_client );
   fd_grpc_client_set_authority( g_client, "localhost", 9UL, 443U );
@@ -828,7 +829,7 @@ LLVMFuzzerInitialize( int *    pargc,
   atexit( fd_halt );
   fd_log_level_core_set( 4 );
   fd_log_level_stderr_set( 4 );
-  FD_TEST( fd_grpc_client_footprint( FUZZ_GRPC_BUF_MAX )<=sizeof(g_client_mem) );
+  FD_TEST( fd_grpc_client_footprint( FUZZ_GRPC_BUF_MAX, FUZZ_GRPC_BUF_MAX )<=sizeof(g_client_mem) );
 
   char const * replay_env = getenv( "FD_GRPC_ACTOR_FUZZ_REPLAY" );
   g_replay_trace = replay_env && replay_env[0] && replay_env[0]!='0';
