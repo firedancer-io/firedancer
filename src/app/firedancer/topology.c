@@ -419,7 +419,17 @@ fd_topo_initialize( config_t * config ) {
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
-  ulong shred_depth = 65536UL; /* from fdctl/topology.c shred_store link. MAKE SURE TO KEEP IN SYNC. */
+  /* shred_out carries at most one frag per received/reconstructed
+     shred plus one per FEC completion: ~6k frags/s at current mainnet
+     load (~2.4k shreds/slot incl. parity, 2.5 slots/s), so 4096 is
+     ~0.7s of buffer at mainnet and ~70ms at 10x mainnet, while the
+     consumers (repair, tower, gui) each drain frags in well under a
+     microsecond.  The depth also sizes the store FEC-set arena at
+     2*depth entries of 76 KiB each per shred tile, so oversizing it is
+     very expensive.  repair_out (one frag per FEC completion, consumed
+     by replay) uses the same depth so the store retention cushion
+     formula below covers both links. */
+  ulong shred_depth = 4096UL;
 
   /*                                  topo, link_name,       wksp_name,       depth,                                    mtu,                           burst */
   /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    32768UL,                                  FD_NET_MTU,                    1UL );
