@@ -531,7 +531,7 @@ static void
 test_simd0232_fee_capture_chain( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
-  params->slots_per_epoch    = 16UL;
+  params->slots_per_epoch    = FD_EPOCH_LEN_MIN;
   params->root_slot          = 1UL;
   params->mock_validator_cnt = 1UL;
   ulong root_idx = fd_svm_mini_reset( mini, params );
@@ -614,13 +614,13 @@ test_simd0232_fee_capture_chain( fd_svm_mini_t * mini ) {
 
   /* Cross into epoch 1 (capture) and epoch 2 (schedule derived from
      the captured state). */
-  ulong e1_idx = fd_svm_mini_attach_child( mini, root_idx, 16UL );
+  ulong e1_idx = fd_svm_mini_attach_child( mini, root_idx, FD_EPOCH_LEN_MIN );
   fd_svm_mini_freeze( mini, e1_idx );
-  ulong e2_idx = fd_svm_mini_attach_child( mini, e1_idx, 32UL );
+  ulong e2_idx = fd_svm_mini_attach_child( mini, e1_idx, 2UL*FD_EPOCH_LEN_MIN );
   fd_svm_mini_freeze( mini, e2_idx );
 
   /* Settle fees in epoch 2. */
-  ulong fee_idx = fd_svm_mini_attach_child( mini, e2_idx, 33UL );
+  ulong fee_idx = fd_svm_mini_attach_child( mini, e2_idx, 2UL*FD_EPOCH_LEN_MIN+1UL );
   fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, fee_idx );
   fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, fee_idx );
   FD_TEST( bank->f.epoch==2UL );

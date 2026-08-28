@@ -9,7 +9,7 @@
 
 #define MiB (1L << 20)
 
-#define TEST_SLOTS_PER_EPOCH       (3UL)
+#define TEST_SLOTS_PER_EPOCH       (FD_EPOCH_LEN_MIN)
 #define TEST_LAMPORTS              (100000000000UL)
 
 #define SYSTEM_PROGRAM_IX_ALLOCATE (8U)

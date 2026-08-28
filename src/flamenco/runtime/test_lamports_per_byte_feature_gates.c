@@ -5,7 +5,7 @@
 #include "sysvar/fd_sysvar_rent.h"
 #include "../features/fd_features.h"
 
-#define TEST_SLOTS_PER_EPOCH                (3UL)
+#define TEST_SLOTS_PER_EPOCH                (FD_EPOCH_LEN_MIN)
 #define TEST_INITIAL_LAMPORTS_PER_UINT8_YEAR (1UL)
 #define TEST_EXEMPTION_THRESHOLD            (1.0)
 #define TEST_BURN_PERCENT                   (50)

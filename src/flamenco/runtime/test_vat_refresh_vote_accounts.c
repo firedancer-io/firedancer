@@ -25,7 +25,7 @@
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
-#define TEST_SLOTS_PER_EPOCH (12UL)
+#define TEST_SLOTS_PER_EPOCH (FD_EPOCH_LEN_MIN)
 #define TEST_VAT_EPOCH       (3UL)
 
 /* Firedancer derives the clock's slot duration from the slot-time

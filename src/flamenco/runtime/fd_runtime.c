@@ -72,6 +72,8 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
   FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
+  ulong  epoch_leaders_fp  = fd_epoch_leaders_footprint( stake_weight_cnt, slot_cnt );
+  FD_CHECK_ERR( epoch_leaders_fp && epoch_leaders_fp <= fd_bank_banks_const( bank )->epoch_leaders_footprint, "invalid epoch schedule" );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
       epoch_leaders_mem,
       epoch,

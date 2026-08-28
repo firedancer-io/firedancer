@@ -1,6 +1,7 @@
 #include "fd_genesis_create.h"
 #include "fd_genesis_parse.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/fd_runtime_const.h"
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
@@ -82,6 +83,12 @@ main( int     argc,
 
   FD_TEST( genesis->epoch_schedule.slots_per_epoch == 8192UL );
   FD_TEST( genesis->epoch_schedule.leader_schedule_slot_offset == 8192UL );
+
+  ulong const epoch_schedule_off = result_sz - sizeof(uint) - FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ;
+  FD_STORE( ulong, result_mem + epoch_schedule_off, FD_RUNTIME_SLOTS_PER_EPOCH + 1UL );
+  FD_TEST( !fd_genesis_parse( genesis, result_mem, result_sz ) );
+  FD_STORE( ulong, result_mem + epoch_schedule_off, 8192UL );
+  FD_TEST( fd_genesis_parse( genesis, result_mem, result_sz ) );
 
   /* Verify rent defaults (Solana mainnet defaults) */
 
