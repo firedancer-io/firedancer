@@ -168,13 +168,15 @@ FD_STATIC_ASSERT( 1<<AUTH_VTR_LG_MAX==32, AUTH_VTR_LG_MAX );
 
 #define VTR_MAX (2000) /* the maximum # of unique voters ie. node pubkeys. */
 
-/* PER_VTR_MAX controls how many "entries" a validator is allowed to
-   occupy in various vote-tracking structures.  This is set somewhat
-   arbitrarily based on expected worst-case usage by an honest validator
-   and is set to guard against a malicious spamming validator attempting
-   to oom Firedancer structures.  Used by fd_hfork only. */
+/* HFORK_PER_VTR_MAX bounds live (vote_acc, block_id) entries per voter
+   in fd_hfork.  An honest voter votes once per live block and entries
+   are pruned on root advance, so live entries track the unrooted
+   window (~32 slots on mainnet); 128 gives 4x headroom.  Per-voter
+   FIFO eviction in fd_hfork bounds spamming voters, and losing a
+   voter's oldest entries only narrows hard-fork detection for blocks
+   that far behind that voter's tip. */
 
-#define PER_VTR_MAX (512) /* the maximum amount of slot history the sysvar retains */
+#define HFORK_PER_VTR_MAX (128)
 
 /* EQVOC_PER_VTR_MAX bounds in-progress duplicate-shred proof
    assemblies per voter in fd_eqvoc.  Matches Agave's per-pubkey
@@ -1619,7 +1621,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   /* auth_vtr_keyswitch */
   l = FD_LAYOUT_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, EQVOC_PER_VTR_MAX, VTR_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( blk_max, VTR_MAX )                        );
-  l = FD_LAYOUT_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( PER_VTR_MAX, VTR_MAX )                    );
+  l = FD_LAYOUT_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( HFORK_PER_VTR_MAX, VTR_MAX )              );
   l = FD_LAYOUT_APPEND( l, fd_votes_align(),         fd_votes_footprint( slot_max, VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
@@ -1657,7 +1659,7 @@ init_choreo( void                 * scratch,
   void  * auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),         auth_vtr_footprint()                                          );
   void  * eqvoc         = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, EQVOC_PER_VTR_MAX, VTR_MAX ) );
   void  * ghost         = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( blk_max, VTR_MAX )                        );
-  void  * hfork         = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( PER_VTR_MAX, VTR_MAX )                    );
+  void  * hfork         = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( HFORK_PER_VTR_MAX, VTR_MAX )              );
   void  * votes         = FD_SCRATCH_ALLOC_APPEND( l, fd_votes_align(),         fd_votes_footprint( slot_max, VTR_MAX )                       );
   void  * tower         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   void  * scratch_tower = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
@@ -1674,7 +1676,7 @@ init_choreo( void                 * scratch,
   (void)auth_vtr; /* privileged_init */
   ctx->eqvoc              = fd_eqvoc_join              ( fd_eqvoc_new              ( eqvoc, slot_max, fec_max, EQVOC_PER_VTR_MAX, VTR_MAX, ctx->seed ) );
   ctx->ghost              = fd_ghost_join              ( fd_ghost_new              ( ghost, blk_max, VTR_MAX, ctx->seed )                        );
-  ctx->hfork              = fd_hfork_join              ( fd_hfork_new              ( hfork, PER_VTR_MAX, VTR_MAX, ctx->seed )                    );
+  ctx->hfork              = fd_hfork_join              ( fd_hfork_new              ( hfork, HFORK_PER_VTR_MAX, VTR_MAX, ctx->seed )              );
   ctx->votes              = fd_votes_join              ( fd_votes_new              ( votes, slot_max, VTR_MAX, ctx->seed )                       );
   ctx->tower              = fd_tower_join              ( fd_tower_new              ( tower, slot_max, VTR_MAX, ctx->seed )                       );
   ctx->scratch_tower      = fd_tower_vote_join         ( fd_tower_vote_new         ( scratch_tower )                                             );
