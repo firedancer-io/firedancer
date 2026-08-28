@@ -201,6 +201,15 @@ setup_topo_txncache( fd_topo_t *  topo,
 }
 
 fd_topo_obj_t *
+setup_topo_bpfser_arena( fd_topo_t *  topo,
+                         char const * wksp_name,
+                         ulong        bundle_cnt ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "bpfser_arena", wksp_name );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, bundle_cnt, "obj.%lu.bundle_cnt", obj->id ) );
+  return obj;
+}
+
+fd_topo_obj_t *
 setup_topo_accdb( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_accounts,
@@ -1214,6 +1223,20 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
+  /* Shared overflow arenas for BPF CPI serialization frames: exec
+     tiles keep small CU-bounded per-tile windows and promote rare
+     deep-CPI whale txns to a full-size bundle here.  The leader pool
+     is separate so leader-slot txns never queue behind replay. */
+  fd_topob_wksp( topo, "bpfser_arena" );
+  fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 2UL );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], bpfser_rp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, bpfser_rp_obj->id, "bpfser_rp" ) );
+  if( FD_LIKELY( execle_tile_cnt ) ) {
+    fd_topo_obj_t * bpfser_le_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 1UL );
+    FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], bpfser_le_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, bpfser_le_obj->id, "bpfser_le" ) );
+  }
+
   /* +1 for either snapin (snapshots enabled) or genesi (bootstrap), which
      are mutually exclusive accdb writers. */
   ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+resolv_tile_cnt+1UL;
@@ -1619,6 +1642,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->execrp.txncache_obj_id !=ULONG_MAX );
     tile->execrp.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execrp.progcache_obj_id!=ULONG_MAX );
     tile->execrp.accdb_obj_id     = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execrp.accdb_obj_id    !=ULONG_MAX );
+    tile->execrp.bpfser_arena_obj_id = fd_pod_query_ulong( config->topo.props, "bpfser_rp", ULONG_MAX ); FD_TEST( tile->execrp.bpfser_arena_obj_id!=ULONG_MAX );
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
@@ -1744,6 +1768,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.txncache_obj_id    = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->execle.txncache_obj_id !=ULONG_MAX );
     tile->execle.progcache_obj_id   = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execle.progcache_obj_id!=ULONG_MAX );
     tile->execle.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execle.accdb_obj_id    !=ULONG_MAX );
+    tile->execle.bpfser_arena_obj_id = fd_pod_query_ulong( config->topo.props, "bpfser_le", ULONG_MAX ); FD_TEST( tile->execle.bpfser_arena_obj_id!=ULONG_MAX );
     tile->execle.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->execle.report_transaction_diffs = config->development.event.report_transaction_diffs;
 

@@ -813,6 +813,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_IDX_FD_RW, 0UL, NULL ) );
   FD_TEST( ctx->accdb );
 
+  FD_TEST( tile->execle.bpfser_arena_obj_id!=ULONG_MAX );
+  fd_bpf_ser_arena_t * bpfser_arena = fd_bpf_ser_arena_join( fd_topo_obj_laddr( topo, tile->execle.bpfser_arena_obj_id ) );
+  FD_TEST( bpfser_arena );
+  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena );
+
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
     for( ulong j=0UL; j<i; j++ ) ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];

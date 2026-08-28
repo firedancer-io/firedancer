@@ -50,6 +50,9 @@ struct fd_svm_mini {
   ulong                accdb_max_accounts;
   ulong                accdb_max_live_slots;
   ulong                accdb_joiner_cnt;
+
+  /* CPI serialization frame overflow arena (1 bundle) */
+  void *               bpfser_arena_mem;
 };
 
 typedef struct fd_svm_mini fd_svm_mini_t;

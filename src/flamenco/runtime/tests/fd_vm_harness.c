@@ -171,6 +171,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   ulong instr_data_offset = 0UL;
   int err = fd_bpf_loader_input_serialize_parameters( ctx,
+                                                      ctx->runtime->bpf_loader_serialization.frame1,
+                                                      BPF_LOADER_SERIALIZATION_FOOTPRINT,
                                                       pre_lens,
                                                       input_mem_regions,
                                                       &input_mem_regions_cnt,
@@ -410,8 +412,11 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   uint                    input_mem_regions_cnt   = 0U;
   ulong                   instr_data_offset       = 0UL;
 
+  uchar * serialized_buf = ctx->runtime->bpf_loader_serialization.frame1;
   int err = fd_bpf_loader_input_serialize_parameters(
     ctx,
+    serialized_buf,
+    BPF_LOADER_SERIALIZATION_FOOTPRINT,
     pre_lens,
     input_mem_regions,
     &input_mem_regions_cnt,
@@ -433,7 +438,6 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   }
 
   /* Hash the serialized memory buffer. */
-  uchar * serialized_buf = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
   effects->serialized_memory_hash = fd_hash( 0UL, serialized_buf, input_sz );
 
   /* Populate vm_input_memory_regions */

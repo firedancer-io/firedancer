@@ -1131,6 +1131,9 @@ fd_instr_stack_pop( fd_runtime_t *          runtime,
   }
   runtime->instr.stack_sz--;
 
+  /* Release the popped depth's serialization window frame (LIFO) */
+  fd_runtime_bpf_ser_frame_pop( runtime, (ulong)runtime->instr.stack_sz+1UL );
+
   /* Verify all executable accounts have no outstanding refs
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L367-L371 */
   for( ushort i=0; i<instr->acct_cnt; i++ ) {

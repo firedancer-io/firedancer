@@ -155,6 +155,12 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !runner->runtime ) ) goto bail2;
   runner->runtime->accounts.executable_cnt = 0UL;
   runner->runtime->accounts.account_cnt    = 0UL;
+
+  /* Full-capacity CPI frame overflow arena (1 bundle, never contended
+     in the single threaded runner) */
+  void * bpfser_mem = fd_wksp_alloc_laddr( wksp, fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL ), wksp_tag );
+  if( FD_UNLIKELY( !bpfser_mem ) ) goto bail2;
+  fd_runtime_bpf_ser_init( runner->runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL ) ) );
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
   if( FD_UNLIKELY( !fd_runtime_stack_join( fd_runtime_stack_new( runner->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) ) ) goto bail2;

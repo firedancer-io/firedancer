@@ -1359,6 +1359,10 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
     fd_dump_txn_result_to_protobuf( runtime->log.txn_dump_ctx, txn_in, txn_out, txn_out->err.txn_err );
     fd_dump_txn_fixture_to_file( runtime->log.txn_dump_ctx, runtime->log.dump_proto_ctx, txn_in );
   }
+
+  /* Serialization frames are dead past execution: release the arena
+     bundle (if this txn promoted) so waiters make progress. */
+  fd_runtime_bpf_ser_reset( runtime );
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responsible

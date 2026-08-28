@@ -490,10 +490,11 @@ run_fixture( fd_svm_mini_t * mini,
   fd_memset( regions,   0, sizeof(regions)   );
   fd_memset( acc_metas, 0, sizeof(acc_metas) );
 
-  uchar * serialized = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * serialized = ctx->runtime->bpf_loader_serialization.frame1;
 
   int result = fd_bpf_loader_input_serialize_parameters(
-      ctx, pre_lens, regions, &region_cnt, acc_metas,
+      ctx, serialized, BPF_LOADER_SERIALIZATION_FOOTPRINT,
+      pre_lens, regions, &region_cnt, acc_metas,
       in->virtual_address_space_adj, in->direct_mapping,
       in->direct_account_pointers_in_program_input,
       in->is_deprecated,

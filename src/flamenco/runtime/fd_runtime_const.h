@@ -310,6 +310,55 @@ FD_PROTOTYPES_BEGIN
 
 #define BPF_LOADER_SERIALIZATION_FOOTPRINT (FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0))
 
+/* Depth-1 (top-level) serialization is not CU-metered, so its frame
+   stays fully provisioned per exec tile.  Depth>=2 frames are only
+   reachable through the CPI syscall, which charges >=1 CU per
+   FD_VM_CPI_BYTES_PER_UNIT account-data bytes BEFORE the callee frame
+   is written (fd_vm_syscall_cpi_common.c, FD_VM_CU_UPDATE on account
+   data at translate time; the meter is monotone, never refunded, and
+   capped at FD_MAX_COMPUTE_UNIT_LIMIT).  Hence the aggregate account
+   data bytes live in depth>=2 frames of one transaction is bounded by
+   spent_cu*FD_VM_CPI_BYTES_PER_UNIT plus, per frame, the fixed
+   non-data overhead (metadata/realloc headroom/sysvar/trailers) and
+   the <FD_VM_CPI_BYTES_PER_UNIT flooring slack of each of the <=64
+   unique per-frame charges.
+
+   FD_BPF_SER_WINDOW_FOOTPRINT sizes the per-exec-tile depth>=2 frame
+   window off that bound for a budget of FD_BPF_SER_WINDOW_CU_MAX CU
+   spent on CPI serialization charges alone.  A transaction only
+   outgrows the window after spending >FD_BPF_SER_WINDOW_CU_MAX CU
+   purely on CPI byte charges (i.e. after CPI-copying >75 MB into
+   depth>=2 frames); such transactions promote to a shared full-size
+   arena bundle (fd_bpf_ser_arena.h) at identical capacity.  Mainnet
+   transactions spend a tiny fraction of their CU on CPI byte charges
+   (even a full 64 MiB single deep CPI charges only ~268k CU and fits),
+   so the window covers mainnet traffic with wide margin and the arena
+   is contended only by adversarial deep-CPI whale transactions.
+
+   Correctness never depends on this bound: the serializer bounds-
+   checks the frame exactly as it writes and promotes on overflow.
+   The static asserts below pin the cost-model constants the sizing
+   derives from so a future cost model change fails the build and
+   forces this derivation to be revisited. */
+
+#define FD_BPF_SER_WINDOW_CU_MAX (300000UL)
+
+#define FD_BPF_SER_DEEP_FRAME_FIXED_FOOTPRINT (BPF_LOADER_SERIALIZATION_FOOTPRINT                 \
+                                               - (ulong)FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT     \
+                                               - FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN)
+
+#define FD_BPF_SER_WINDOW_FOOTPRINT (FD_BPF_SER_WINDOW_CU_MAX*FD_VM_CPI_BYTES_PER_UNIT            \
+                                     + (FD_MAX_INSTRUCTION_STACK_DEPTH-1UL)*                      \
+                                       (FD_BPF_SER_DEEP_FRAME_FIXED_FOOTPRINT                     \
+                                        + 64UL*FD_VM_CPI_BYTES_PER_UNIT /* charge floor slack */  \
+                                        + FD_RUNTIME_EBPF_HOST_ALIGN))
+
+FD_STATIC_ASSERT( FD_VM_CPI_BYTES_PER_UNIT==250UL,                        bpf_ser_window_cost_model );
+FD_STATIC_ASSERT( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT==(64UL<<20),      bpf_ser_window_cost_model );
+FD_STATIC_ASSERT( FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN==(20UL<<20),     bpf_ser_window_cost_model );
+FD_STATIC_ASSERT( MAX_PERMITTED_DATA_INCREASE==10240UL,                   bpf_ser_window_cost_model );
+FD_STATIC_ASSERT( FD_BPF_SER_WINDOW_FOOTPRINT%FD_RUNTIME_EBPF_HOST_ALIGN==0UL, bpf_ser_window_align );
+
 #define FD_HARD_FORKS_MAX (64UL)
 
 FD_PROTOTYPES_END

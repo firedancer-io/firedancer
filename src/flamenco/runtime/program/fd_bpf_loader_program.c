@@ -14,6 +14,13 @@
 #include "fd_bpf_loader_serialization.h"
 #include "fd_builtin_programs.h"
 #include "fd_native_cpi.h"
+#include "fd_compute_budget_program.h"
+
+/* The serialization window (fd_runtime_const.h) budgets CPI byte
+   charges up to FD_BPF_SER_WINDOW_CU_MAX per txn; pin the CU cap the
+   derivation assumed so cost-model changes fail the build. */
+FD_STATIC_ASSERT( FD_MAX_COMPUTE_UNIT_LIMIT==1400000,                    bpf_ser_window_cost_model );
+FD_STATIC_ASSERT( FD_BPF_SER_WINDOW_CU_MAX<(ulong)FD_MAX_COMPUTE_UNIT_LIMIT, bpf_ser_window_cu_max );
 
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L290-L335 */
 static inline int
@@ -430,15 +437,37 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong instruction_data_offset = 0UL;
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
-  uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
-  err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
+  ulong   depth     = instr_ctx->runtime->instr.stack_sz;
+  uchar * input     = NULL;
+  ulong   input_cap = 0UL;
+  fd_runtime_bpf_ser_frame_begin( instr_ctx->runtime, depth, &input, &input_cap );
+  int in_window = (depth>1UL) & (!instr_ctx->runtime->bpf_loader_serialization.bundle);
+  err = fd_bpf_loader_input_serialize_parameters( instr_ctx, input, input_cap, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas, virtual_address_space_adjustments, direct_mapping,
                                                   direct_account_pointers_in_program_input, is_deprecated,
                                                   &instruction_data_offset, &input_sz );
+  if( FD_UNLIKELY( err==FD_BPF_LOADER_SERIALIZE_FULL ) ) {
+    /* CPI frame outgrew the window: retry into a full-size arena
+       bundle (bounded FIFO wait; identical capacity).  A full frame at
+       depth 1 or in a bundle is impossible by the
+       FD_BPF_LOADER_INPUT_REGION_FOOTPRINT derivation. */
+    if( FD_UNLIKELY( !in_window ) ) FD_LOG_CRIT(( "bpf serialization overflowed a fully provisioned frame" ));
+    input     = fd_runtime_bpf_ser_frame_promote( instr_ctx->runtime, depth );
+    input_cap = BPF_LOADER_SERIALIZATION_FOOTPRINT;
+    in_window = 0;
+    input_mem_regions_cnt = 0U;
+    err = fd_bpf_loader_input_serialize_parameters( instr_ctx, input, input_cap, pre_lens,
+                                                    input_mem_regions, &input_mem_regions_cnt,
+                                                    acc_region_metas, virtual_address_space_adjustments, direct_mapping,
+                                                    direct_account_pointers_in_program_input, is_deprecated,
+                                                    &instruction_data_offset, &input_sz );
+    if( FD_UNLIKELY( err==FD_BPF_LOADER_SERIALIZE_FULL ) ) FD_LOG_CRIT(( "bpf serialization overflowed a fully provisioned frame" ));
+  }
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
+  if( in_window ) fd_runtime_bpf_ser_frame_commit( instr_ctx->runtime, depth, input_sz );
 
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );

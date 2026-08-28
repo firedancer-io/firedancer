@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_h
 
 #include "fd_runtime_const.h"
+#include "fd_bpf_ser_arena.h"
 #include "fd_runtime_stack.h"
 #include "fd_compute_budget_details.h"
 #include "fd_runtime_helpers.h"
@@ -134,8 +135,20 @@ struct fd_runtime {
     uchar *               tracing_mem;
   } log;
 
+  /* BPF loader input region frames.  Depth 1 (top-level, unmetered) is
+     fully provisioned.  Depths 2..FD_MAX_INSTRUCTION_STACK_DEPTH bump-
+     allocate LIFO out of a CU-charge-bounded window (see
+     FD_BPF_SER_WINDOW_FOOTPRINT); the rare frame that does not fit
+     promotes the transaction to a full-size 4-frame bundle from the
+     shared arena, held until the transaction ends.  Capacity per
+     transaction is identical either way. */
   struct {
-    uchar serialization_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ BPF_LOADER_SERIALIZATION_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
+    uchar frame1[ BPF_LOADER_SERIALIZATION_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
+    uchar window[ FD_BPF_SER_WINDOW_FOOTPRINT        ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
+    ulong window_top;                                   /* window bump offset */
+    ulong frame_off[ FD_MAX_INSTRUCTION_STACK_DEPTH ];  /* offset+1 of this depth's window frame, 0 if none */
+    fd_bpf_ser_arena_t * arena;                         /* shared overflow arena, may be NULL (window only) */
+    uchar *              bundle;                        /* held arena bundle, NULL if none */
   } bpf_loader_serialization;
 
   struct {
@@ -218,6 +231,91 @@ struct fd_runtime {
   } fuzz;
 };
 typedef struct fd_runtime fd_runtime_t;
+
+/* BPF serialization frame management.  fd_bpf_loader_program.c is the
+   only writer; fd_instr_stack_pop releases window frames and
+   fd_runtime_prepare_and_execute_txn releases the arena bundle. */
+
+/* fd_runtime_bpf_ser_init attaches the (optional) shared overflow
+   arena and clears frame bookkeeping. */
+
+static inline void
+fd_runtime_bpf_ser_init( fd_runtime_t *       runtime,
+                         fd_bpf_ser_arena_t * arena ) {
+  runtime->bpf_loader_serialization.arena      = arena;
+  runtime->bpf_loader_serialization.bundle     = NULL;
+  runtime->bpf_loader_serialization.window_top = 0UL;
+  memset( runtime->bpf_loader_serialization.frame_off, 0, sizeof(runtime->bpf_loader_serialization.frame_off) );
+}
+
+/* fd_runtime_bpf_ser_frame_begin returns the serialize target and
+   capacity for the instruction at 1-based depth. */
+
+static inline void
+fd_runtime_bpf_ser_frame_begin( fd_runtime_t * runtime,
+                                ulong          depth,
+                                uchar **       buf,
+                                ulong *        cap ) {
+  if( FD_LIKELY( depth==1UL ) ) {
+    *buf = runtime->bpf_loader_serialization.frame1;
+    *cap = BPF_LOADER_SERIALIZATION_FOOTPRINT;
+  } else if( FD_UNLIKELY( runtime->bpf_loader_serialization.bundle ) ) {
+    *buf = runtime->bpf_loader_serialization.bundle + (depth-2UL)*BPF_LOADER_SERIALIZATION_FOOTPRINT;
+    *cap = BPF_LOADER_SERIALIZATION_FOOTPRINT;
+  } else {
+    *buf = runtime->bpf_loader_serialization.window + runtime->bpf_loader_serialization.window_top;
+    *cap = FD_BPF_SER_WINDOW_FOOTPRINT - runtime->bpf_loader_serialization.window_top;
+  }
+}
+
+/* fd_runtime_bpf_ser_frame_promote acquires (bounded FIFO wait) the
+   transaction's full-size arena bundle and returns depth's frame. */
+
+static inline uchar *
+fd_runtime_bpf_ser_frame_promote( fd_runtime_t * runtime,
+                                  ulong          depth ) {
+  if( FD_UNLIKELY( !runtime->bpf_loader_serialization.arena ) )
+    FD_LOG_CRIT(( "CPI frames exceed the serialization window and no overflow arena is attached" ));
+  if( FD_LIKELY( !runtime->bpf_loader_serialization.bundle ) )
+    runtime->bpf_loader_serialization.bundle = fd_bpf_ser_arena_acquire( runtime->bpf_loader_serialization.arena );
+  return runtime->bpf_loader_serialization.bundle + (depth-2UL)*BPF_LOADER_SERIALIZATION_FOOTPRINT;
+}
+
+/* fd_runtime_bpf_ser_frame_commit records a successful sz byte window
+   serialize at depth so the frame survives until the depth pops. */
+
+static inline void
+fd_runtime_bpf_ser_frame_commit( fd_runtime_t * runtime,
+                                 ulong          depth,
+                                 ulong          sz ) {
+  runtime->bpf_loader_serialization.frame_off[ depth-1UL ]  = runtime->bpf_loader_serialization.window_top+1UL;
+  runtime->bpf_loader_serialization.window_top             += fd_ulong_align_up( sz, FD_RUNTIME_EBPF_HOST_ALIGN );
+}
+
+/* fd_runtime_bpf_ser_frame_pop releases depth's window frame (no-op if
+   depth serialized elsewhere or not at all). */
+
+static inline void
+fd_runtime_bpf_ser_frame_pop( fd_runtime_t * runtime,
+                              ulong          depth ) {
+  ulong off1 = runtime->bpf_loader_serialization.frame_off[ depth-1UL ];
+  if( FD_LIKELY( !off1 ) ) return;
+  runtime->bpf_loader_serialization.window_top              = off1-1UL;
+  runtime->bpf_loader_serialization.frame_off[ depth-1UL ]  = 0UL;
+}
+
+/* fd_runtime_bpf_ser_reset releases the held arena bundle (if any) and
+   clears the window.  Must run when a transaction finishes. */
+
+static inline void
+fd_runtime_bpf_ser_reset( fd_runtime_t * runtime ) {
+  runtime->bpf_loader_serialization.window_top = 0UL;
+  memset( runtime->bpf_loader_serialization.frame_off, 0, sizeof(runtime->bpf_loader_serialization.frame_off) );
+  if( FD_UNLIKELY( runtime->bpf_loader_serialization.bundle ) ) {
+    fd_bpf_ser_arena_release( runtime->bpf_loader_serialization.arena, runtime->bpf_loader_serialization.bundle );
+    runtime->bpf_loader_serialization.bundle = NULL;
+  }
+}
 
 struct fd_txn_in {
   fd_txn_p_t const * txn;

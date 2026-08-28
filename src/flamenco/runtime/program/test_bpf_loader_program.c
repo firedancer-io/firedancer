@@ -105,6 +105,10 @@ deploy_env_init( deploy_env_t * env,
   fd_memset( env->runtime, 0, sizeof(fd_runtime_t) );
   env->runtime->instr.stack_sz = 1;
 
+  void * bpfser_mem = fd_wksp_alloc_laddr( wksp, fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL ), tag++ );
+  FD_TEST( bpfser_mem );
+  fd_runtime_bpf_ser_init( env->runtime, fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( bpfser_mem, 1UL ) ) );
+
   env->txn_out = fd_wksp_alloc_laddr( wksp, alignof(fd_txn_out_t), sizeof(fd_txn_out_t), tag++ );
   FD_TEST( env->txn_out );
   fd_memset( env->txn_out, 0, sizeof(fd_txn_out_t) );

@@ -63,6 +63,11 @@ setup_topo_txncache( fd_topo_t *  topo,
                      ulong        max_txn_per_slot,
                      int          larger_max_cost_per_block );
 
+fd_topo_obj_t *
+setup_topo_bpfser_arena( fd_topo_t *  topo,
+                         char const * wksp_name,
+                         ulong        bundle_cnt );
+
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config );

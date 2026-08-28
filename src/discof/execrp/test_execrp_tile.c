@@ -117,11 +117,13 @@ test_env_create( void ) {
   fd_topo_obj_t * progcache_obj  = test_topo_obj_laddr( topo, "progcache",  "execrp", env->mini->progcache->join->shmem );
   fd_topo_obj_t * banks_obj      = test_topo_obj_laddr( topo, "banks",      "execrp", env->mini->banks );
   fd_topo_obj_t * txncache_obj   = test_topo_obj_laddr( topo, "txncache",   "execrp", env->mini->txncache_shmem );
+  fd_topo_obj_t * bpfser_obj     = test_topo_obj_laddr( topo, "bpfser_arena", "execrp", env->mini->bpfser_arena_mem );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   topo_tile->execrp.accdb_obj_id     = accdb_obj->id;
   topo_tile->execrp.progcache_obj_id = progcache_obj->id;
   topo_tile->execrp.txncache_obj_id  = txncache_obj->id;
+  topo_tile->execrp.bpfser_arena_obj_id = bpfser_obj->id;
 
   unprivileged_init( topo, topo_tile );
 

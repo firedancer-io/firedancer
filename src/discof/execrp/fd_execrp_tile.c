@@ -416,6 +416,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_IDX_FD_RW, 0UL, NULL ) );
   FD_TEST( ctx->accdb );
 
+  FD_TEST( tile->execrp.bpfser_arena_obj_id!=ULONG_MAX );
+  fd_bpf_ser_arena_t * bpfser_arena = fd_bpf_ser_arena_join( fd_topo_obj_laddr( topo, tile->execrp.bpfser_arena_obj_id ) );
+  FD_TEST( bpfser_arena );
+  fd_runtime_bpf_ser_init( ctx->runtime, bpfser_arena );
+
 
   /* First find and setup the in-link from replay to exec. */
   ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", 0UL );
