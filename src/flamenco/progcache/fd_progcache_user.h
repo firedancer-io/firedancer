@@ -101,7 +101,11 @@ extern FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 /* fd_progcache_join joins the caller to a program cache shmem instance.
    scratch points to a FD_PROGCACHE_SCRATCH_ALIGN aligned scratch buffer
    and scratch_sz is the size of the largest program/ELF binary that is
-   going to be loaded (typically max account data sz). */
+   going to be loaded (typically max account data sz).  scratch is only
+   accessed inside fd_progcache_pull (rec_load on cache miss) and holds
+   no state across calls, so callers may alias it with other buffers
+   that are dead during pulls (the exec tiles pass the deploy rodata
+   buffer). */
 
 fd_progcache_t *
 fd_progcache_join( fd_progcache_t *       ljoin,

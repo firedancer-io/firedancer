@@ -139,7 +139,11 @@ struct fd_runtime {
   } bpf_loader_serialization;
 
   struct {
-    uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
+    /* rodata doubles as the progcache rec_load scratch in the exec
+       tiles (hence the 64B align): both are live only inside a single
+       call, fd_deploy_program never calls fd_progcache_pull, and
+       rec_load never calls fd_deploy_program. */
+    uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(64UL)));
     uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
     uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
   } bpf_loader_program;
