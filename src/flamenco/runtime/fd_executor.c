@@ -1227,6 +1227,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
        https://github.com/anza-xyz/agave/blob/v2.1.6/program-runtime/src/invoke_context.rs#L536-L537 */
     if( FD_LIKELY( !is_precompile ) ) {
       txn_out->details.return_data.len = 0;
+      txn_out->details.return_data.program_id = (fd_pubkey_t){0};
     }
 
     /* Execute the native program. */
