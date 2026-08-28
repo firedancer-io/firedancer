@@ -149,6 +149,9 @@ struct fd_replay_slot_completed {
   ulong tips;
   ulong shred_cnt;
 
+  /* alpenglow voting status */
+  ulong reward_slot;
+  int   reward_success;
   struct {
     ulong block_cost;
     ulong allocated_accounts_data_size;

@@ -919,6 +919,39 @@ replay_epoch_info( void * _ctx,
   return NULL;
 }
 
+/* replay_in_reward_cert reports whether our validator identity is
+   attested by the skip/notar reward cert carried in the block's
+   footer.  Sets *reward_cert_slot to the slot the certs reward
+   (ULONG_MAX if the footer carried no reward cert or the reward
+   epoch's validator set is unknown) and returns 1 if our identity's
+   rank bit is set in either cert. */
+
+static int
+replay_in_reward_cert( fd_replay_tile_t * ctx,
+                       fd_bank_t *        bank,
+                       ulong *            reward_cert_slot ) {
+  *reward_cert_slot = ULONG_MAX;
+
+  fd_reward_cert_t const * skip  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
+  fd_reward_cert_t const * notar = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
+  if( FD_UNLIKELY( !skip && !notar ) ) return 0;
+
+  ulong reward_slot  = skip ? skip->slot : notar->slot;
+  ulong reward_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, reward_slot, NULL );
+  *reward_cert_slot = reward_slot;
+
+  ag_epoch_info_t const * info = replay_epoch_info( ctx, reward_epoch );
+  if( FD_UNLIKELY( !info ) ) return 0;
+
+  for( ulong r=0UL; r<info->validator_cnt; r++ ) {
+    if( FD_LIKELY( !fd_memeq( info->validators[ r ].id_key, ctx->identity_pubkey->uc, 32UL ) ) ) continue;
+    int in_skip  = skip  && ( skip->signer_set [ r>>6 ] & (1UL<<(r&63UL)) );
+    int in_notar = notar && ( notar->signer_set[ r>>6 ] & (1UL<<(r&63UL)) );
+    return in_skip | in_notar;
+  }
+  return 0;
+}
+
 static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
@@ -978,6 +1011,12 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->identity_dirty || bank->f.slot%4096UL==0UL ) ) {
     ctx->identity_dirty = 0;
     slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
+  }
+
+  slot_info->reward_slot = ULONG_MAX;
+  slot_info->reward_success = 0;
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    slot_info->reward_success = replay_in_reward_cert( ctx, bank, &slot_info->reward_slot );
   }
 
   /* Mark the bank as frozen. */
@@ -1136,6 +1175,9 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     ctx->identity_dirty         = 0;
     slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, ctx->leader_bank->accdb_fork_id, ctx->identity_pubkey->uc );
   }
+  /* leader blocks are not parsed by the sched, so no footer certs */
+  slot_info->reward_slot    = ULONG_MAX;
+  slot_info->reward_success = 0;
 
   ctx->leader_bank->f.block_id = ctx->block_id_arr[ ctx->leader_bank->idx ].latest_mr;
   fd_banks_mark_bank_frozen( ctx->leader_bank );
@@ -1671,6 +1713,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
   cost_tracker_snap( bank, slot_info );
 
   slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
+  slot_info->reward_slot      = ULONG_MAX;
+  slot_info->reward_success   = 0;
 
   publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
   publish_root_advanced( ctx, stem, bank );
