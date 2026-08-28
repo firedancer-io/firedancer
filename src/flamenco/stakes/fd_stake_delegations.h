@@ -74,18 +74,20 @@
 
 /* The pubkey fallback tier is split between locked RAM and an
    explicit-I/O disk bucket file.  The RAM tier holds
-   min( max_fallback_stake_accounts, 4*max_stake_accounts ) entries.
+   min( max_fallback_stake_accounts, 2*max_stake_accounts ) entries.
    Outside fallback mode the tier is structurally bounded by root+delta
-   pool membership (2*max_stake_accounts), so the RAM tier alone covers
-   it with 2x margin and the disk tier is provably never touched.  The
-   remaining capacity, up to max_fallback_stake_accounts total, lives in
-   an open-addressed bucket file accessed with pread/pwrite on the
-   well-known fd below (see initialize_banks_spill_fds).  All accesses
-   run under the struct's write lock, so the file has a single writer at
-   a time.  The file is recreated on boot; fd_stake_delegations_reset
-   invalidates records by bumping a generation stamp. */
+   pool membership (each non-fallback ref pairs 1:1 with a root or
+   delta pool element, each pool capped at max_stake_accounts), so the
+   RAM tier alone covers it exactly and the disk tier is provably never
+   touched.  The remaining capacity, up to max_fallback_stake_accounts
+   total, lives in an open-addressed bucket file accessed with
+   pread/pwrite on the well-known fd below (see
+   initialize_banks_spill_fds).  All accesses run under the struct's
+   write lock, so the file has a single writer at a time.  The file is
+   recreated on boot; fd_stake_delegations_reset invalidates records by
+   bumping a generation stamp. */
 
-#define FD_STAKE_DELEGATIONS_PUBKEY_RAM_MUL (4UL)
+#define FD_STAKE_DELEGATIONS_PUBKEY_RAM_MUL (2UL)
 
 /* Well-known fd for the pubkey fallback bucket file.  123460/123461
    are accdb, 123462 is reserved by XDP. */
