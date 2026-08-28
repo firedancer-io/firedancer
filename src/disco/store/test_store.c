@@ -12,7 +12,7 @@ insert( fd_store_t * store, fd_store_map_t * map, fd_hash_t const * mr ) {
   fd_store_fec_t * fec = fd_store_fec_acquire( store );
   FD_TEST( fec );
   fec->key     = *mr;
-  fec->data_sz = 0UL;
+  fec->data_sz = 0U;
   FD_TEST( !fd_store_insert( map, fec ) );
   return fec;
 }
@@ -28,8 +28,8 @@ insert_payload( fd_store_t * store,
   uchar * data = fd_store_fec_data_acquire( store, disk_fd, fec );
   FD_TEST( data );
   fd_memset( data, byte, sz );
-  fec->data_sz = sz;
-  fec->shred_offs[0] = (uint)sz;
+  fec->data_sz = (uint)sz;
+  fec->shred_offs[0] = (ushort)sz;
   fd_store_fec_data_publish( store, fec );
   return fec;
 }
@@ -188,16 +188,16 @@ test_fec_data_max( fd_wksp_t * wksp ) {
   FD_TEST( data0 );
   FD_TEST( data1 );
 
-  FD_TEST( fec0->data_off != fec1->data_off );
-  ulong off_span = fec1->data_off > fec0->data_off
-                 ? fec1->data_off - fec0->data_off
-                 : fec0->data_off - fec1->data_off;
+  FD_TEST( fec0->data_idx != fec1->data_idx );
+  ulong off_span = ( fec1->data_idx > fec0->data_idx
+                 ? fec1->data_idx - fec0->data_idx
+                 : fec0->data_idx - fec1->data_idx ) * st->payload_slot_sz;
   FD_TEST( off_span >= 63985UL );
 
   fd_memset( data0, 0xAA, 63985UL );
   fd_memset( data1, 0xBB, 63985UL );
-  fec0->data_sz = 63985UL;
-  fec1->data_sz = 63985UL;
+  fec0->data_sz = 63985U;
+  fec1->data_sz = 63985U;
   fd_store_fec_data_publish( st, fec0 );
   fd_store_fec_data_publish( st, fec1 );
 
@@ -230,15 +230,15 @@ test_fec_data_max( fd_wksp_t * wksp ) {
   FD_TEST( data0 );
   FD_TEST( data1 );
 
-  off_span = fec1->data_off > fec0->data_off
-           ? fec1->data_off - fec0->data_off
-           : fec0->data_off - fec1->data_off;
+  off_span = (ulong)( fec1->data_idx > fec0->data_idx
+           ? fec1->data_idx - fec0->data_idx
+           : fec0->data_idx - fec1->data_idx ) * st->payload_slot_sz;
   FD_TEST( off_span >= 31840UL );
 
   fd_memset( data0, 0xCC, 31840UL );
   fd_memset( data1, 0xDD, 31840UL );
-  fec0->data_sz = 31840UL;
-  fec1->data_sz = 31840UL;
+  fec0->data_sz = 31840U;
+  fec1->data_sz = 31840U;
   fd_store_fec_data_publish( st, fec0 );
   fd_store_fec_data_publish( st, fec1 );
 
@@ -547,7 +547,7 @@ shred_tile_insert( int argc, char ** argv ) {
     fd_store_fec_t * fec = fd_store_fec_acquire( g_store );
     FD_TEST( fec );
     fec->key     = mr;
-    fec->data_sz = 0UL;
+    fec->data_sz = 0U;
     FD_TEST( !fd_store_insert( map, fec ) );
   }
   return 0;

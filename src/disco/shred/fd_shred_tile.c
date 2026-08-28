@@ -1213,7 +1213,7 @@ after_frag( fd_shred_ctx_t *    ctx,
         fec = fd_store_fec_acquire( ctx->store );
         if( FD_UNLIKELY( !fec ) ) FD_LOG_CRIT(( "store full" ));
         fec->key     = *mr;
-        fec->data_sz = 0UL;
+        fec->data_sz = 0U;
         FD_TEST( !fd_store_insert( ctx->map_join, fec ) );
 
         uchar * fec_data = fd_store_fec_data_acquire( ctx->store, ctx->disk_fd, fec );
@@ -1227,8 +1227,8 @@ after_frag( fd_shred_ctx_t *    ctx,
             FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu. Ignoring FEC set.", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, ctx->store->fec_data_max ));
           }
           fd_memcpy( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
-          fec->data_sz += payload_sz;
-          if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (uint)payload_sz +  (i==0UL ? 0U : fec->shred_offs[ i-1UL ]);
+          fec->data_sz = (uint)( fec->data_sz + payload_sz );
+          if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (ushort)( payload_sz + (i==0UL ? 0UL : (ulong)fec->shred_offs[ i-1UL ]) );
         }
         fd_store_fec_data_publish( ctx->store, fec );
       }

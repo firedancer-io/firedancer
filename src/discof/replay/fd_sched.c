@@ -859,7 +859,7 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
     print_metrics( sched );
     print_sched( sched );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
+    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %u, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
   }
 
   ulong fec_buf_sz = 0UL;
@@ -908,7 +908,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     sched->print_buf_sz = 0UL;
     print_all( sched, block );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
+    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %u, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
   }
 
   sched->metrics->fec_cnt++;
@@ -1090,7 +1090,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
        the buffer is sized to always fit the residual plus a single FEC
        set.  Otherwise, it's a bad block.  Instead of crashing, we
        should refuse to replay down the fork. */
-    FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, fec_buf_sz %u, fec->data_sz %lu, slot %lu, parent slot %lu", block->fec_buf_sz, fec->fec->data_sz, fec->slot, fec->parent_slot ));
+    FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, fec_buf_sz %u, fec->data_sz %u, slot %lu, parent slot %lu", block->fec_buf_sz, fec->fec->data_sz, fec->slot, fec->parent_slot ));
     handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT );
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
     return 0;

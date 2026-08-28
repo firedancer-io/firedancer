@@ -97,18 +97,25 @@ fd_shredb_max_slots( ulong gib ) {
 }
 
 
+/* Exactly 128 bytes.  Offsets are cumulative sizes <= fec_data_max
+   (63985) so they fit ushort, and payload locations are stored as
+   payload_slot_sz-granular slot indices (< fec_max <= UINT_MAX) rather
+   than byte offsets so they fit uint. */
+
 struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
   fd_hash_t key;
   ulong     next;                            /* managed by fd_pool / fd_map_chain_para */
-  uint      shred_offs[FD_FEC_SHRED_CNT];    /* shred_offs[i] = cumulative size of data shreds [0..i] */
-  ulong     data_sz;                         /* sz of the FEC set payload, <= fec_data_max */
-  ulong     data_off;                        /* RAM cache offset when RAM_*, spill-file offset when DISK */
+  ushort    shred_offs[FD_FEC_SHRED_CNT];    /* shred_offs[i] = cumulative size of data shreds [0..i] */
+  uint      data_sz;                         /* sz of the FEC set payload, <= fec_data_max */
+  uint      data_idx;                        /* RAM cache slot idx when RAM_*, spill-file slot idx when DISK */
   uint      cache_prev;                      /* RAM_READY LRU links, UINT_MAX when unlinked */
   uint      cache_next;
   uint      data_pin_cnt;                    /* active payload views */
   uint      data_state;                      /* FD_STORE_FEC_DATA_* */
 };
 typedef struct fd_store_fec fd_store_fec_t;
+
+FD_STATIC_ASSERT( sizeof(struct fd_store_fec)==FD_STORE_ALIGN, fd_store_fec );
 
 
 #define POOL_NAME  fd_store_pool
@@ -284,7 +291,7 @@ fd_store_map_ljoin( fd_store_t * store, fd_store_map_t * ljoin ) {
 FD_FN_PURE static inline uchar *
 fd_store_fec_data( fd_store_t const *     store,
                    fd_store_fec_t const * fec ) {
-  return (uchar *)( (ulong)store - store->store_gaddr + store->cache_data_gaddr + fec->data_off );
+  return (uchar *)( (ulong)store - store->store_gaddr + store->cache_data_gaddr + (ulong)fec->data_idx*store->payload_slot_sz );
 }
 
 struct fd_store_fec_data_view {

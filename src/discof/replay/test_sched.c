@@ -151,8 +151,8 @@ run_interleaved_fec_residual_case( void ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-    store_fec->data_sz         = split_off[ i ];
-    store_fec->shred_offs[ 0 ] = (uint)split_off[ i ];
+    store_fec->data_sz         = (uint)split_off[ i ];
+    store_fec->shred_offs[ 0 ] = (ushort)split_off[ i ];
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx          = 2UL+i,
       .parent_bank_idx   = 1UL,
@@ -171,14 +171,14 @@ run_interleaved_fec_residual_case( void ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-    store_fec->data_sz         = encoded_sz[ i ]-split_off[ i ];
+    store_fec->data_sz         = (uint)( encoded_sz[ i ]-split_off[ i ] );
     ulong txn_rem = txn_sz-txn_sz/2UL;
     if( !i ) {
-      store_fec->shred_offs[ 0 ] = (uint)(txn_rem/2UL);
-      store_fec->shred_offs[ 1 ] = (uint)txn_rem;
-      store_fec->shred_offs[ 2 ] = (uint)store_fec->data_sz;
+      store_fec->shred_offs[ 0 ] = (ushort)(txn_rem/2UL);
+      store_fec->shred_offs[ 1 ] = (ushort)txn_rem;
+      store_fec->shred_offs[ 2 ] = (ushort)store_fec->data_sz;
     } else {
-      store_fec->shred_offs[ 0 ] = (uint)store_fec->data_sz;
+      store_fec->shred_offs[ 0 ] = (ushort)store_fec->data_sz;
     }
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx         = 2UL+i,
@@ -271,8 +271,8 @@ run_bad_tick_case( fd_hash_t const * start_poh,
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-  store_fec->data_sz       = encoded_sz;
-  store_fec->shred_offs[0] = (uint)encoded_sz;
+  store_fec->data_sz       = (uint)encoded_sz;
+  store_fec->shred_offs[0] = (ushort)encoded_sz;
 
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = 2UL,

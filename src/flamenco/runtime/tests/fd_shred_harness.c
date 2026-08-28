@@ -401,8 +401,8 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
 
       fd_store_fec_t store_fec[1] = {0};
       store_fec->key = popped_rec->mr;
-      store_fec->data_sz         = popped_rec->payload_sz;
-      memcpy( store_fec->shred_offs, popped_rec->shred_offs, sizeof(store_fec->shred_offs) );
+      store_fec->data_sz         = (uint)popped_rec->payload_sz;
+      for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) store_fec->shred_offs[ i ] = (ushort)popped_rec->shred_offs[ i ];
 
       fd_sched_fec_t sched_fec = {
         .bank_idx          = bank_idx,

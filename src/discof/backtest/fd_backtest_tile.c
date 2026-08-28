@@ -223,7 +223,7 @@ after_credit( fd_backt_tile_t *   ctx,
     fd_store_fec_t * new_fec = fd_store_fec_acquire( ctx->store );
     FD_TEST( new_fec );
     new_fec->key     = mr;
-    new_fec->data_sz = 0UL;
+    new_fec->data_sz = 0U;
     FD_TEST( !fd_store_insert( ctx->map_join, new_fec ) );
     FD_TEST( fd_store_fec_data_acquire( ctx->store, ctx->store_disk_fd, new_fec ) );
   }
@@ -235,9 +235,9 @@ after_credit( fd_backt_tile_t *   ctx,
                  fec->data_sz+fd_shred_payload_sz( shred ), ctx->store->fec_data_max ));
   }
   fd_memcpy( fd_store_fec_data( ctx->store, fec ) + fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
-  fec->data_sz += fd_shred_payload_sz( shred );
+  fec->data_sz = (uint)( fec->data_sz + fd_shred_payload_sz( shred ) );
   ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
-  if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) fec->shred_offs[ shred_idx ] = (uint)fec->data_sz;
+  if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) fec->shred_offs[ shred_idx ] = (ushort)fec->data_sz;
   if( FD_UNLIKELY( completes_fec_set ) ) fd_store_fec_data_publish( ctx->store, fec );
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;

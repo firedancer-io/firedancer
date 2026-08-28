@@ -1652,7 +1652,7 @@ store_xinsert( fd_store_t     * store,
   fd_store_fec_t * fec = fd_store_fec_acquire( store );
   if( FD_UNLIKELY( !fec ) ) FD_LOG_CRIT(( "fd_store_fec_acquire failed" ));
   fec->key     = *merkle_root;
-  fec->data_sz = 0UL;
+  fec->data_sz = 0U;
   FD_TEST( !fd_store_insert( map_join, fec ) );
 }
 

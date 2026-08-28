@@ -98,8 +98,8 @@ fd_store_fec_acquire( fd_store_t * store ) {
   fd_store_pool_t pool = pool_ljoin( store );
   fd_store_fec_t * fec = fd_store_pool_acquire( &pool );
   if( FD_LIKELY( fec ) ) {
-    fec->data_sz      = 0UL;
-    fec->data_off     = 0UL;
+    fec->data_sz      = 0U;
+    fec->data_idx     = 0U;
     fec->cache_prev   = UINT_MAX;
     fec->cache_next   = UINT_MAX;
     fec->data_pin_cnt = 0U;
@@ -118,12 +118,12 @@ fd_store_fec_release( fd_store_t * store, fd_store_fec_t * fec ) {
 
 static int
 cache_slot_release_locked( fd_store_t * store,
-                           ulong        data_off ) {
-  if( FD_UNLIKELY( data_off>=store->cache_slot_cnt*store->payload_slot_sz ) ) return -1;
+                           ulong        data_idx ) {
+  if( FD_UNLIKELY( data_idx>=store->cache_slot_cnt ) ) return -1;
 
   ulong * free = cache_free_laddr( store );
   FD_TEST( store->cache_free_cnt<store->cache_slot_cnt );
-  free[ store->cache_free_cnt++ ] = data_off / store->payload_slot_sz;
+  free[ store->cache_free_cnt++ ] = data_idx;
   return 0;
 }
 
@@ -175,20 +175,20 @@ spill_one_locked( fd_store_t * store,
   FD_TEST( victim->data_state==FD_STORE_FEC_DATA_RAM_READY && !victim->data_pin_cnt );
   FD_TEST( victim->data_sz<=store->fec_data_max );
 
-  ulong ram_off   = victim->data_off;
+  ulong ram_idx   = victim->data_idx;
   ulong spill_off = (ulong)victim_idx * store->payload_slot_sz;
 
-  long res = pwrite( disk_fd, cache_data_laddr( store ) + ram_off, victim->data_sz, (off_t)spill_off );
+  long res = pwrite( disk_fd, cache_data_laddr( store ) + ram_idx*store->payload_slot_sz, victim->data_sz, (off_t)spill_off );
   if( FD_UNLIKELY( res!=(long)victim->data_sz ) ) {
     FD_LOG_ERR(( "error spilling FEC payload to disk: (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   cache_lru_remove_locked( store, victim );
-  victim->data_off   = spill_off;
+  victim->data_idx   = victim_idx;
   victim->data_state = FD_STORE_FEC_DATA_DISK;
   store->fec_spill_cnt++;
   store->fec_spill_bytes += victim->data_sz;
-  cache_slot_release_locked( store, ram_off );
+  cache_slot_release_locked( store, ram_idx );
   return 1;
 }
 
@@ -304,7 +304,7 @@ fd_store_new( void       * shmem,
   /* FEC metadata starts without a payload location. */
   fd_store_fec_t * fec0 = (fd_store_fec_t *)shele;
   for( ulong i=0UL; i<fec_max; i++ ) {
-    fec0[ i ].data_off     = 0UL;
+    fec0[ i ].data_idx     = 0U;
     fec0[ i ].cache_prev   = UINT_MAX;
     fec0[ i ].cache_next   = UINT_MAX;
     fec0[ i ].data_pin_cnt = 0U;
@@ -402,7 +402,7 @@ fd_store_fec_data_acquire( fd_store_t     * store,
   fd_rwlock_write( &store->cache_lock );
 
   if( FD_UNLIKELY( fec->data_state==FD_STORE_FEC_DATA_RAM_WRITING ) ) {
-    uchar * data = cache_data_laddr( store ) + fec->data_off;
+    uchar * data = cache_data_laddr( store ) + (ulong)fec->data_idx*store->payload_slot_sz;
     fd_rwlock_unwrite( &store->cache_lock );
     return data;
   }
@@ -422,13 +422,13 @@ fd_store_fec_data_acquire( fd_store_t     * store,
 
   ulong * free = cache_free_laddr( store );
   ulong slot = free[ --store->cache_free_cnt ];
-  fec->data_off     = slot * store->payload_slot_sz;
+  fec->data_idx     = (uint)slot;
   fec->cache_prev   = UINT_MAX;
   fec->cache_next   = UINT_MAX;
   fec->data_pin_cnt = 0U;
   fec->data_state   = FD_STORE_FEC_DATA_RAM_WRITING;
 
-  uchar * data = cache_data_laddr( store ) + fec->data_off;
+  uchar * data = cache_data_laddr( store ) + slot*store->payload_slot_sz;
   fd_rwlock_unwrite( &store->cache_lock );
   return data;
 }
@@ -486,7 +486,7 @@ fd_store_fec_data_view( fd_store_t *               store,
 
   if( FD_LIKELY( fec->data_state==FD_STORE_FEC_DATA_RAM_READY ) ) {
     cache_pin_locked( store, fec );
-    view->data = cache_data_laddr( store ) + fec->data_off;
+    view->data = cache_data_laddr( store ) + (ulong)fec->data_idx*store->payload_slot_sz;
     view->fec  = fec;
     fd_rwlock_unwrite( &store->cache_lock );
     return 0;
@@ -498,7 +498,7 @@ fd_store_fec_data_view( fd_store_t *               store,
       return -1;
     }
     ulong data_sz  = fec->data_sz;
-    ulong data_off = fec->data_off;
+    ulong data_off = (ulong)fec->data_idx*store->payload_slot_sz;
     uchar * spill_read_data = spill_read_data_laddr( store );
     cache_pin_locked( store, fec );
     fd_rwlock_unwrite( &store->cache_lock );
@@ -562,9 +562,9 @@ fd_store_fec_data_consumed( fd_store_t     * store,
   if( FD_LIKELY( fec->data_state==FD_STORE_FEC_DATA_RAM_WRITING ||
                  fec->data_state==FD_STORE_FEC_DATA_RAM_READY ) ) {
     if( fec->data_state==FD_STORE_FEC_DATA_RAM_READY ) cache_lru_remove_locked( store, fec );
-    FD_TEST( !cache_slot_release_locked( store, fec->data_off ) );
+    FD_TEST( !cache_slot_release_locked( store, fec->data_idx ) );
   }
-  fec->data_off   = 0UL;
+  fec->data_idx   = 0U;
   fec->cache_prev = UINT_MAX;
   fec->cache_next = UINT_MAX;
   fec->data_state = FD_STORE_FEC_DATA_CONSUMED;
