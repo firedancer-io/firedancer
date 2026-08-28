@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssload.h"
 #include "utils/fd_ssmsg.h"
@@ -24,6 +25,10 @@
 #include "../../disco/events/generated/fd_event_gen.h"
 
 #include "generated/fd_snapin_tile_seccomp.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define NAME "snapin"
 
@@ -61,8 +66,19 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 /* For a transaction to be valid to be inserted into the txncache, it
    must reference a blockhash that is in the set of recent blockhashes.
    This means that only transactions executed in the latest 151 slots
-   can be in the txncache: the remaining entries can be ignored. */
+   can be in the txncache: the remaining entries can be ignored.
+
+   The full worst-case staging capacity (151 slots x 2*98039 entries x
+   20 B = 565 MiB) lives in an unlinked spill file in the snapshots
+   directory, laid out exactly like the previous in-RAM array (entry
+   file offset = entry_idx*20).  The staging buffer is written once
+   while parsing slot deltas and read once when populating the
+   txncache, both on the boot path, so RAM only holds a one-slot window
+   (3.74 MiB): parsing appends to exactly one slot region at a time,
+   and consume reads are contiguous per blockhash group and bounded by
+   one slot region. */
 #define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (FD_TXNCACHE_MAX_SLOT_DELTAS*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
+#define FD_SNAPIN_TXNCACHE_SPILL_SZ    (FD_SNAPIN_TXNCACHE_MAX_ENTRIES*sizeof(fd_sstxncache_hash_t))
 
 FD_STATIC_ASSERT( FD_TXNCACHE_MAX_SLOT_DELTAS<=FD_SLOT_DELTA_MAX_ENTRIES, txncache_staging_slot_cnt );
 
@@ -165,7 +181,8 @@ struct fd_snapin_tile {
 
   int alpenglow;
 
-  fd_sstxncache_hash_t *  txncache_entries;
+  int                     txncache_spill_fd;
+  fd_sstxncache_hash_t *  txncache_spool; /* one-slot append window, reused as the read window at consume */
   txncache_staging_slot_t txncache_slots[ FD_TXNCACHE_MAX_SLOT_DELTAS ];
   ulong                   txncache_slots_len;
   ulong                   txncache_current_slot_idx;
@@ -270,7 +287,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                            );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
   l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -491,6 +508,56 @@ transition_malformed( fd_snapin_tile_t *  ctx,
   fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
+/* spool_flush writes the current slot's staged entries to their region
+   in the spill file (region base = slot_idx*FD_PACK_MAX_TXNCACHE_TXN_
+   PER_SLOT entries).  Entries only ever accumulate for the current
+   slot, starting from 0 whenever a region is (re)assigned, so flushing
+   at slot switch and before consume covers every staged byte.  Stale
+   file bytes from evicted or prior-pass regions are unreachable:
+   consume is bounded by current-pass slot/count metadata kept in RAM. */
+
+static void
+spool_flush( fd_snapin_tile_t * ctx ) {
+  ulong slot_idx = ctx->txncache_current_slot_idx;
+  if( slot_idx==ULONG_MAX ) return;
+
+  ulong         sz   = ctx->txncache_slots[ slot_idx ].entry_cnt*sizeof(fd_sstxncache_hash_t);
+  ulong         off  = slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT*sizeof(fd_sstxncache_hash_t);
+  uchar const * buf  = (uchar const *)ctx->txncache_spool;
+  ulong         done = 0UL;
+  while( done<sz ) {
+    long res = pwrite( ctx->txncache_spill_fd, buf+done, sz-done, (off_t)(off+done) );
+    if( FD_UNLIKELY( res<=0L ) ) {
+      if( FD_LIKELY( res==-1L && errno==EINTR ) ) continue;
+      FD_LOG_ERR(( "pwrite() txncache staging spill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    done += (ulong)res;
+  }
+}
+
+/* spool_read loads a blockhash group's contiguous entry range from the
+   spill file into the spool window.  Caller has verified the range
+   lies within one slot region written by the current pass. */
+
+static void
+spool_read( fd_snapin_tile_t * ctx,
+            ulong              entry_idx,
+            ulong              entry_cnt ) {
+  FD_TEST( entry_cnt<=FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
+  ulong   sz   = entry_cnt*sizeof(fd_sstxncache_hash_t);
+  ulong   off  = entry_idx*sizeof(fd_sstxncache_hash_t);
+  uchar * buf  = (uchar *)ctx->txncache_spool;
+  ulong   done = 0UL;
+  while( done<sz ) {
+    long res = pread( ctx->txncache_spill_fd, buf+done, sz-done, (off_t)(off+done) );
+    if( FD_UNLIKELY( res<=0L ) ) {
+      if( FD_LIKELY( res==-1L && errno==EINTR ) ) continue;
+      FD_LOG_ERR(( "pread() txncache staging spill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    done += (ulong)res;
+  }
+}
+
 static int
 populate_txncache( fd_snapin_tile_t *                     ctx,
                    fd_snapshot_manifest_blockhash_t const blockhashes[ static FD_BLOCKHASHES_MAX ],
@@ -573,6 +640,11 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     described above, and then go through slot deltas, to retrieve the
     offset for each slot, and stick it into the appropriate bank in
     our chain. */
+
+  /* Parsing is done: flush the last slot's staged entries so the spool
+     window can be reused for reads below. */
+  spool_flush( ctx );
+  ctx->txncache_current_slot_idx = ULONG_MAX;
 
   if( FD_UNLIKELY( blockhashes_len>FD_BLOCKHASHES_MAX ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: blockhash queue length %lu exceeds maximum %lu", blockhashes_len, FD_BLOCKHASHES_MAX ));
@@ -702,15 +774,14 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     ulong slot_entry_idx = group->txncache_entry_idx-slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
     FD_TEST( slot_entry_idx<=ctx->txncache_slots[ slot_idx ].entry_cnt );
     FD_TEST( group->txncache_entry_cnt<=ctx->txncache_slots[ slot_idx ].entry_cnt-slot_entry_idx );
-    fd_sstxncache_hash_t const * entries = &ctx->txncache_entries[ group->txncache_entry_idx ];
 
     fd_hash_t key;
     fd_memcpy( key.uc, group->blockhash, 32UL );
     if( FD_UNLIKELY( !blockhash_map_ele_query_const( blockhash_map, &key, NULL, blockhash_pool ) ) ) continue;
 
+    spool_read( ctx, group->txncache_entry_idx, group->txncache_entry_cnt );
     for( ulong j=0UL; j<group->txncache_entry_cnt; j++ ) {
-      fd_sstxncache_hash_t const * entry = &entries[ j ];
-      fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, group->blockhash, entry->txnhash );
+      fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, group->blockhash, ctx->txncache_spool[ j ].txnhash );
     }
   }
 
@@ -1136,6 +1207,10 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
             transition_malformed( ctx, stem );
             return 0;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_SLOT ) ) {
+            /* Flush the previous slot's staged entries before the
+               spool window is reused for the new slot. */
+            spool_flush( ctx );
+
             /* If we're parsing a new slot, add th new slot if we
                haven't parsed 151 slots yet.  Otherwise ignore or evict
                slots that are too old.  */
@@ -1201,7 +1276,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
               FD_TEST( staging_slot->entry_cnt<FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
               ulong entry_idx = slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT+staging_slot->entry_cnt;
               FD_TEST( entry_idx==group->txncache_entry_idx+group->txncache_entry_cnt );
-              memcpy( ctx->txncache_entries[ entry_idx ].txnhash, sd_result->entry->txnhash, sizeof(fd_sstxncache_hash_t) );
+              memcpy( ctx->txncache_spool[ staging_slot->entry_cnt ].txnhash, sd_result->entry->txnhash, sizeof(fd_sstxncache_hash_t) );
               staging_slot->entry_cnt++;
               group->txncache_entry_cnt++;
             }
@@ -1345,7 +1420,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->blockhash_groups_len    = 0UL;
       ctx->manifest_capitalization = 0UL;
 
-      ctx->txncache_slots_len = 0UL;
+      ctx->txncache_slots_len              = 0UL;
+      ctx->txncache_current_slot_idx       = ULONG_MAX;
+      ctx->txncache_current_slot_entry_cnt = 0UL;
 
       fd_txncache_reset( ctx->txncache );
       fd_ssparse_init( ctx->ssparse );
@@ -1671,11 +1748,13 @@ returnable_frag( fd_snapin_tile_t *  ctx,
 }
 
 static ulong
-populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
-                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+populate_allowed_fds( fd_topo_t      const * topo,
+                      fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+
+  fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
@@ -1684,6 +1763,7 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation fallback spill */
+  out_fds[ out_cnt++ ] = ctx->txncache_spill_fd; /* txncache staging spill */
 
   return out_cnt;
 }
@@ -1693,8 +1773,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo; (void)tile;
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD );
+  fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, (uint)ctx->txncache_spill_fd );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
@@ -1704,6 +1784,20 @@ privileged_init( fd_topo_t const *      topo,
   fd_snapin_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
+
+  /* Unlinked spill file holding the full worst-case txncache staging
+     capacity (565 MiB); RAM keeps only a one-slot window. */
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/.snapin-txncache-spill", tile->snapin.snapshots_path ) );
+  ctx->txncache_spill_fd = open( path, O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC, (mode_t)0600 );
+  if( FD_UNLIKELY( -1==ctx->txncache_spill_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==fallocate( ctx->txncache_spill_fd, 0, 0L, (off_t)FD_SNAPIN_TXNCACHE_SPILL_SZ ) ) ) {
+    /* Filesystem without fallocate support: size it sparse instead. */
+    if( FD_UNLIKELY( -1==ftruncate( ctx->txncache_spill_fd, (off_t)FD_SNAPIN_TXNCACHE_SPILL_SZ ) ) ) {
+      FD_LOG_ERR(( "sizing txncache staging spill file failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
 }
 
 static inline fd_snapin_out_link_t
@@ -1735,7 +1829,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                            );
   void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
   ctx->blockhash_groups   = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
-  ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  ctx->txncache_spool     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
 
   ctx->full            = 1;
   ctx->init_completed  = 0;
@@ -1765,6 +1859,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->bank->idx==0UL );
 
   ctx->blockhash_groups_len = 0UL;
+
+  ctx->txncache_current_slot_idx       = ULONG_MAX;
+  ctx->txncache_current_slot_entry_cnt = 0UL;
 
   ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
   FD_TEST( ctx->manifest_parser );

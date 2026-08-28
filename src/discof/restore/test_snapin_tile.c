@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "../../disco/stem/fd_stem.h"
 #include "utils/fd_ssparse.h"
 
@@ -854,7 +855,7 @@ test_streaming_stake_delegation( void ) {
 static void
 test_txncache_staging_entry_size( void ) {
   fd_snapin_tile_t ctx[ 1 ];
-  FD_TEST( sizeof(ctx->txncache_entries[ 0 ])==20UL );
+  FD_TEST( sizeof(ctx->txncache_spool[ 0 ])==20UL );
 }
 
 static ulong
@@ -899,8 +900,6 @@ test_txncache_staging_evicts_oldest_slot( void ) {
 
   FD_TEST( oldest_idx!=ULONG_MAX );
   ctx->txncache_slots[ oldest_idx ].entry_cnt = 7UL;
-  fd_sstxncache_hash_t oldest_entries[ 7UL ];
-  ctx->txncache_entries = oldest_entries;
 
   blockhash_group_t oldest_group = {
     .slot               = 1000UL,
@@ -925,7 +924,10 @@ static void
 test_txncache_staging_fits_one_gigantic_page( void ) {
   fd_topo_tile_t tile = {0};
   tile.snapin.max_live_slots = 2048UL;
-  FD_TEST( scratch_footprint( &tile )<(1UL<<30) );
+  /* Staging capacity lives in the spill file; scratch keeps only a
+     one-slot window and must stay far below the gigantic page (and
+     512 MiB page-size) threshold. */
+  FD_TEST( scratch_footprint( &tile )<(64UL<<20) );
 }
 
 static void
@@ -960,9 +962,6 @@ test_txncache_staging_validates_stale_group_offsets( void ) {
     test_txncache_staging_slot_begin( ctx, 1000UL+i );
   }
   test_txncache_staging_slot_begin( ctx, 1200UL );
-
-  fd_sstxncache_hash_t entries[ 1UL ];
-  ctx->txncache_entries = entries;
 
   ulong shmem_sz = fd_txncache_shmem_footprint( 1UL, 1UL, 0 );
   shmem_sz = fd_ulong_align_up( shmem_sz, fd_txncache_shmem_align() );

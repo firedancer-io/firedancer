@@ -5,7 +5,12 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint stake_spill_fd
+#
+# spill_fd: An unlinked spill file in the snapshots directory holding
+#           the full worst-case txncache staging capacity.  Entries are
+#           written while parsing status cache slot deltas and read
+#           back once when populating the txncache.
+uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint spill_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -33,9 +38,12 @@ fallocate: (and (eq (arg 0) accounts_fd)
                 (eq (arg 1) 0))
 
 # stake delegations: disk overflow of the pubkey fallback tier, only
-# touched in fallback mode (more stake accounts than the delegation
-# pools can hold).
-pread64: (eq (arg 0) stake_spill_fd)
+# touched in fallback mode; txncache staging spill: per-slot staging
+# window flushes while parsing status cache slot deltas, read back when
+# populating the txncache.
+pread64: (or (eq (arg 0) stake_spill_fd)
+             (eq (arg 0) spill_fd))
 
-# stake delegations: disk overflow of the pubkey fallback tier
-pwrite64: (eq (arg 0) stake_spill_fd)
+# stake delegations + txncache staging spill (see pread64)
+pwrite64: (or (eq (arg 0) stake_spill_fd)
+              (eq (arg 0) spill_fd))
