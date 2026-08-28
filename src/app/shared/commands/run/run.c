@@ -457,9 +457,11 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RW, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
-        /* Scratch spill file: only the accdb tile (T2 background work)
-           touches it. */
-        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_SCRATCH_FD, F_SETFD, !strcmp( tile->name, "accdb" ) ? 0 : FD_CLOEXEC ) ) )
+        /* Scratch spill file: the accdb tile (T2 background work) and
+           the snapin loader (incremental txn records past the RAM ring
+           window) touch it. */
+        int tile_uses_accdb_scratch = !strcmp( tile->name, "accdb" ) || !strcmp( tile->name, "snapin" );
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_SCRATCH_FD, F_SETFD, tile_uses_accdb_scratch ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {

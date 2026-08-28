@@ -74,7 +74,20 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   compaction_dlist_t * compaction_dlist[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   deferred_free_dlist_t * deferred_free_dlist;
 
-  txn_pool_t txn_pool[1];
+  /* Txn chunk store (see fd_accdb_private.h).  txn_nodes is the node
+     pool element array; txn_chunk_data is the RAM ring (txn_ring_cnt
+     chunks of FD_ACCDB_TXN_CHUNK_CAP uints). */
+  txn_node_pool_t  txn_node_pool [1];
+  txn_rslot_pool_t txn_rslot_pool[1];
+  txn_dslot_pool_t txn_dslot_pool[1];
+  fd_accdb_txn_node_t * txn_nodes;
+  uint *                txn_chunk_data;
+
+  /* Bounce buffer for reading one spilled txn chunk at walk time.
+     Only T2 and the snapin loader walk chunks, one chunk at a time,
+     so a single per-join buffer suffices (and keeps the recursive
+     purge_inner stack small). */
+  uint txn_bounce[ FD_ACCDB_TXN_CHUNK_CAP ] __attribute__((aligned(64)));
 
   /* Pointer into shmem->joiner_epochs[ my_slot ].val for writer
      joiners, or into a private per-tile fseq for read-only joiners.
@@ -271,14 +284,15 @@ fd_accdb_new( void *              ljoin,
 
   ulong max_live_slots = shmem->max_live_slots;
   ulong pool_max       = shmem->pool_max;
-  ulong txn_max        = shmem->max_live_slots * shmem->max_account_writes_per_slot;
 
   uchar * base = (uchar *)shmem;
   void * _fork_pool_ele       = base + shmem->fork_pool_ele_off;
   void * _descends_sets       = base + shmem->descends_off;
   void * _acc_map             = base + shmem->acc_map_off;
   void * _acc_pool_ele        = base + shmem->acc_pool_ele_off;
-  void * _txn_pool_ele        = base + shmem->txn_pool_ele_off;
+  void * _txn_node_ele        = base + shmem->txn_node_ele_off;
+  void * _txn_rslot_ele       = base + shmem->txn_rslot_ele_off;
+  void * _txn_dslot_ele       = base + shmem->txn_dslot_ele_off;
   void * _partition_pool      = base + shmem->partition_pool_region_off;
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -301,7 +315,11 @@ fd_accdb_new( void *              ljoin,
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, pool_max ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map = _acc_map;
-  FD_TEST( txn_pool_join( accdb->txn_pool, shmem->txn_pool, _txn_pool_ele, txn_max ) );
+  FD_TEST( txn_node_pool_join ( accdb->txn_node_pool,  shmem->txn_node_pool,  _txn_node_ele,  shmem->txn_node_max  ) );
+  FD_TEST( txn_rslot_pool_join( accdb->txn_rslot_pool, shmem->txn_rslot_pool, _txn_rslot_ele, shmem->txn_ring_cnt  ) );
+  FD_TEST( txn_dslot_pool_join( accdb->txn_dslot_pool, shmem->txn_dslot_pool, _txn_dslot_ele, shmem->txn_dslot_cnt ) );
+  accdb->txn_nodes      = accdb->txn_node_pool->ele;
+  accdb->txn_chunk_data = (uint *)( base + shmem->txn_chunk_data_off );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
 
   accdb->hot_map     = shmem->index_ram_max ? (uint  *)( base + shmem->hot_map_off     ) : NULL;
@@ -355,6 +373,8 @@ fd_accdb_new( void *              ljoin,
 
 static inline void wait_cmd( fd_accdb_t * accdb );
 static inline void submit_cmd( fd_accdb_t * accdb, uint op, ushort fork_id );
+static uint const * txn_chunk_entries( fd_accdb_t * accdb, fd_accdb_txn_node_t const * node );
+static void txn_append( fd_accdb_t * accdb, ulong fork_id, uint acc_pool_idx, ulong * popped );
 
 void
 fd_accdb_reset( fd_accdb_t * accdb ) {
@@ -365,12 +385,20 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   wait_cmd( accdb );
 
   /* Reset pools through the joiner's existing pointers.  acc_pool and
-     txn_pool use POOL_LAZY=1 so reset is O(1).  fork_pool and
-     partition_pool rebuild their free lists in O(max_live_slots) and
-     O(partition_cnt), both small. */
+     the txn store pools use POOL_LAZY=1 so reset is O(1).  fork_pool
+     and partition_pool rebuild their free lists in O(max_live_slots)
+     and O(partition_cnt), both small. */
   acc_pool_reset( accdb->acc_pool_join );
-  txn_pool_reset( accdb->txn_pool );
+  txn_node_pool_reset ( accdb->txn_node_pool  );
+  txn_rslot_pool_reset( accdb->txn_rslot_pool );
+  txn_dslot_pool_reset( accdb->txn_dslot_pool );
+  shmem->txn_ring_free.val = shmem->txn_ring_cnt;
   fork_pool_reset( accdb->fork_shmem_pool );
+  for( ulong i=0UL; i<shmem->max_live_slots; i++ ) {
+    fd_accdb_fork_shmem_t * fs = fork_pool_ele( accdb->fork_shmem_pool, i );
+    fs->txn_head   = UINT_MAX;
+    fs->txn_cursor = 0UL;
+  }
   partition_pool_reset( accdb->partition_pool );
 
   /* Clear hash chains */
@@ -569,12 +597,16 @@ fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
                   (uint)fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
   }
 
-  uint txn_idx = accdb->fork_pool[ fork_id.val ].shmem->txn_head;
-  while( txn_idx!=UINT_MAX ) {
-    fd_accdb_txn_t const * txn = txn_pool_ele( accdb->txn_pool, (ulong)txn_idx );
-    fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ txn->acc_pool_idx ];
-    if( FD_UNLIKELY( !delta_insert( accdb, acc->key.pubkey ) ) ) return -1;
-    txn_idx = txn->fork.next;
+  uint node_idx = accdb->fork_pool[ fork_id.val ].shmem->txn_head;
+  while( node_idx!=UINT_MAX ) {
+    fd_accdb_txn_node_t const * node = &accdb->txn_nodes[ node_idx ];
+    uint         cnt  = node->fill;
+    uint const * ents = txn_chunk_entries( accdb, node );
+    for( uint i=0U; i<cnt; i++ ) {
+      fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ ents[ i ] ];
+      if( FD_UNLIKELY( !delta_insert( accdb, acc->key.pubkey ) ) ) return -1;
+    }
+    node_idx = node->next;
   }
   return 0;
 }
@@ -870,7 +902,8 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
   }
 
   fork->shmem->generation = accdb->shmem->generation++;
-  fork->shmem->txn_head = UINT_MAX;
+  fork->shmem->txn_head   = UINT_MAX;
+  fork->shmem->txn_cursor = 0UL;
 
   FD_TEST( !descends_set_test( fork->descends, fork_id.val ) );
 
@@ -1128,6 +1161,254 @@ scratch_io_write( fd_accdb_t * accdb,
     accdb->metrics->bytes_written += (ulong)result;
     accdb->metrics->write_ops++;
   }
+}
+
+/* ---------------------------------------------------------------------
+   Txn chunk store (see the design comment in fd_accdb_private.h). */
+
+static int txn_spill_one( fd_accdb_t * accdb );
+
+static inline int
+txn_tiered( fd_accdb_shmem_t const * shmem ) {
+  return shmem->txn_ring_cnt<shmem->txn_node_max;
+}
+
+/* txn_ring_reserve claims `need` ring credits before the caller
+   publishes its epoch.  Spins outside any epoch while the ring is
+   dry; joiners that carry the scratch fd (single-threaded harnesses,
+   the accdb tile itself) self-serve by spilling a sealed chunk,
+   everyone else waits for T2's background refill.  No-op (returns 0)
+   when the ring covers full capacity: pops then fail only at true
+   capacity exhaustion, which aborts like the old pool. */
+
+static inline ulong
+txn_ring_reserve( fd_accdb_t * accdb,
+                  ulong        need ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_LIKELY( !txn_tiered( shmem ) ) ) return 0UL;
+  for(;;) {
+    long avail = (long)FD_ATOMIC_FETCH_AND_SUB( &shmem->txn_ring_free.val, need );
+    if( FD_LIKELY( avail>=(long)need ) ) return need;
+    FD_ATOMIC_FETCH_AND_ADD( &shmem->txn_ring_free.val, need );
+    if( FD_UNLIKELY( accdb->scratch_fd>=0 ) ) (void)txn_spill_one( accdb );
+    fd_racesan_hook( "accdb_txn:reserve_wait" );
+    FD_SPIN_PAUSE();
+  }
+}
+
+/* txn_ring_unreserve settles a reservation by the chunks actually
+   popped.  popped can exceed reserved when this thread crossed
+   boundaries another in-flight reservation paid for; the wrapped
+   two's-complement add keeps the global ledger exact. */
+
+static inline void
+txn_ring_unreserve( fd_accdb_t * accdb,
+                    ulong        reserved,
+                    ulong        popped ) {
+  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->txn_ring_free.val, reserved-popped );
+}
+
+/* txn_rslot_pop takes a free RAM ring slot.  reserved!=0 means the
+   caller holds ring credits (release path): the pop cannot fail.
+   Otherwise (snapin / boot loaders) a credit is claimed here first,
+   spilling or waiting when the ring is dry. */
+
+static uint
+txn_rslot_pop( fd_accdb_t * accdb,
+               int          reserved ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  int tiered = txn_tiered( shmem );
+  if( FD_UNLIKELY( !reserved && tiered ) ) {
+    ulong spins = 0UL;
+    for(;;) {
+      long avail = (long)FD_ATOMIC_FETCH_AND_SUB( &shmem->txn_ring_free.val, 1UL );
+      if( FD_LIKELY( avail>=1L ) ) break;
+      FD_ATOMIC_FETCH_AND_ADD( &shmem->txn_ring_free.val, 1UL );
+      if( FD_LIKELY( accdb->scratch_fd>=0 && txn_spill_one( accdb ) ) ) continue;
+      if( FD_UNLIKELY( ++spins>(1UL<<31) ) ) FD_LOG_ERR(( "accdb txn store exhausted (max_live_slots*max_account_writes_per_slot writes outstanding)" ));
+      fd_racesan_hook( "accdb_txn:pop_wait" );
+      FD_SPIN_PAUSE();
+    }
+  }
+  fd_accdb_txn_slot_t * s = txn_rslot_pool_acquire( accdb->txn_rslot_pool );
+  if( FD_UNLIKELY( !s ) ) {
+    /* Tiered pops are credit-backed and cannot get here; untiered
+       (ring==full capacity) this is genuine capacity exhaustion. */
+    if( FD_UNLIKELY( tiered ) ) FD_LOG_CRIT(( "txn ring credit ledger violated" ));
+    FD_LOG_ERR(( "accdb txn store exhausted (max_live_slots*max_account_writes_per_slot writes outstanding)" ));
+  }
+  return (uint)txn_rslot_pool_idx( accdb->txn_rslot_pool, s );
+}
+
+/* txn_chunk_entries returns a readable pointer to a chunk's entry
+   array, streaming spilled chunks through the join-local bounce
+   buffer.  Only valid until the next call on this join. */
+
+static uint const *
+txn_chunk_entries( fd_accdb_t *                accdb,
+                   fd_accdb_txn_node_t const * node ) {
+  uint loc = node->loc;
+  if( FD_LIKELY( !(loc & FD_ACCDB_TXN_NODE_DISK) ) ) return accdb->txn_chunk_data + ((ulong)loc<<FD_ACCDB_TXN_CHUNK_LG_CAP);
+  scratch_io_read( accdb, accdb->txn_bounce, FD_ACCDB_TXN_CHUNK_CAP*sizeof(uint),
+                   accdb->shmem->txn_spill_off + ( ((ulong)(loc&~FD_ACCDB_TXN_NODE_DISK))<<FD_ACCDB_TXN_CHUNK_LG_CAP )*sizeof(uint) );
+  return accdb->txn_bounce;
+}
+
+/* txn_chunk_release frees a chunk's data slot and node (T2 / snapin
+   walk paths; the fork is quiescent). */
+
+static void
+txn_chunk_release( fd_accdb_t *          accdb,
+                   fd_accdb_txn_node_t * node ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  uint loc = node->loc;
+  if( FD_UNLIKELY( loc & FD_ACCDB_TXN_NODE_DISK ) ) {
+    txn_dslot_pool_release( accdb->txn_dslot_pool, txn_dslot_pool_ele( accdb->txn_dslot_pool, (ulong)(loc&~FD_ACCDB_TXN_NODE_DISK) ) );
+  } else {
+    txn_rslot_pool_release( accdb->txn_rslot_pool, txn_rslot_pool_ele( accdb->txn_rslot_pool, (ulong)loc ) );
+    if( FD_UNLIKELY( txn_tiered( shmem ) ) ) FD_ATOMIC_FETCH_AND_ADD( &shmem->txn_ring_free.val, 1UL );
+  }
+  txn_node_pool_release( accdb->txn_node_pool, node );
+}
+
+/* txn_spill_one moves one sealed RAM chunk to the scratch file:
+   pick the live fork with the lowest generation owning a sealed
+   (fill==CAP, in-RAM) chunk, spill its oldest such chunk, and return
+   the freed ring slot.  Returns 0 when nothing is spillable (no
+   sealed chunks, or disk slots exhausted).
+
+   Callers are never concurrent by construction: T2's background
+   refill (gated off during snapshot loading), the snapin loader
+   (snapshot loading only, while FG is idle), and single-threaded dev
+   harnesses.  Racing FG appenders only prepend nodes / fill unsealed
+   chunks, which the scan tolerates (published node fields are
+   MFENCE-ordered before the head store; fill==CAP is terminal). */
+
+static int
+txn_spill_one( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  fd_accdb_txn_node_t * nodes = accdb->txn_nodes;
+
+  uint  best_node = UINT_MAX;
+  ulong best_gen  = ULONG_MAX;
+  for( ulong i=0UL; i<shmem->max_live_slots; i++ ) {
+    fd_accdb_fork_shmem_t * fs = fork_pool_ele( accdb->fork_shmem_pool, i );
+    uint h = FD_VOLATILE_CONST( fs->txn_head );
+    if( FD_LIKELY( h==UINT_MAX ) ) continue;
+    ulong gen = (ulong)FD_VOLATILE_CONST( fs->generation );
+    if( FD_UNLIKELY( gen>=best_gen ) ) continue;
+    /* Spilled chunks form a suffix (oldest end) of the chain because
+       this function always spills the deepest sealed RAM chunk, so
+       the walk can stop at the first spilled node. */
+    uint found = UINT_MAX;
+    for( uint n=h; n!=UINT_MAX; n=FD_VOLATILE_CONST( nodes[ n ].next ) ) {
+      uint loc = FD_VOLATILE_CONST( nodes[ n ].loc );
+      if( FD_UNLIKELY( loc & FD_ACCDB_TXN_NODE_DISK ) ) break;
+      if( FD_LIKELY( FD_VOLATILE_CONST( nodes[ n ].fill )==(uint)FD_ACCDB_TXN_CHUNK_CAP ) ) found = n;
+    }
+    if( FD_UNLIKELY( found!=UINT_MAX ) ) { best_gen = gen; best_node = found; }
+  }
+  if( FD_LIKELY( best_node==UINT_MAX ) ) return 0;
+
+  fd_accdb_txn_slot_t * d = txn_dslot_pool_acquire( accdb->txn_dslot_pool );
+  if( FD_UNLIKELY( !d ) ) return 0;
+  ulong dslot = txn_dslot_pool_idx( accdb->txn_dslot_pool, d );
+
+  fd_accdb_txn_node_t * node = &nodes[ best_node ];
+  uint rslot = node->loc;
+  scratch_io_write( accdb, accdb->txn_chunk_data + ((ulong)rslot<<FD_ACCDB_TXN_CHUNK_LG_CAP),
+                    FD_ACCDB_TXN_CHUNK_CAP*sizeof(uint),
+                    shmem->txn_spill_off + (dslot<<FD_ACCDB_TXN_CHUNK_LG_CAP)*sizeof(uint) );
+  FD_VOLATILE( node->loc ) = (uint)dslot | FD_ACCDB_TXN_NODE_DISK;
+  txn_rslot_pool_release( accdb->txn_rslot_pool, txn_rslot_pool_ele( accdb->txn_rslot_pool, (ulong)rslot ) );
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->txn_ring_free.val, 1UL );
+  return 1;
+}
+
+/* background_txn_refill keeps the RAM ring above its low-water mark by
+   spilling sealed chunks of the oldest forks, a bounded batch per
+   background tick.  Skipped during snapshot loading: the snapin loader
+   spills for itself there, and the two must not run concurrently. */
+
+static void
+background_txn_refill( fd_accdb_t * accdb,
+                       int *        charge_busy ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_UNLIKELY( accdb->scratch_fd<0 ) ) return;
+  if( FD_LIKELY( !txn_tiered( shmem ) ) ) return;
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( shmem->snapshot_loading ) ) ) return;
+  ulong low_water = shmem->txn_ring_cnt/4UL;
+  for( ulong b=0UL; b<8UL; b++ ) {
+    if( FD_LIKELY( (long)FD_VOLATILE_CONST( shmem->txn_ring_free.val )>=(long)low_water ) ) break;
+    if( FD_UNLIKELY( !txn_spill_one( accdb ) ) ) break;
+    *charge_busy = 1;
+  }
+}
+
+/* txn_append records one committed write on fork_id's chunk chain.
+   Lock-free: FAA the fork cursor; the winner of a chunk's slot 0
+   installs the chunk (installs are ordered by chunk_no, so the scheme
+   is ABA-free - the cursor never rewinds while the fork is live).
+   popped!=NULL means the caller holds ring credits and counts pops
+   for the refund (release path); NULL callers claim credits in the
+   pop itself. */
+
+static void
+txn_append( fd_accdb_t * accdb,
+            ulong        fork_id,
+            uint         acc_pool_idx,
+            ulong *      popped ) {
+  fd_accdb_fork_shmem_t * fs = fork_pool_ele( accdb->fork_shmem_pool, fork_id );
+  fd_accdb_txn_node_t * nodes = accdb->txn_nodes;
+
+  ulong off      = FD_ATOMIC_FETCH_AND_ADD( &fs->txn_cursor, 1UL );
+  uint  chunk_no = (uint)(off>>FD_ACCDB_TXN_CHUNK_LG_CAP);
+  ulong slot     = off & (FD_ACCDB_TXN_CHUNK_CAP-1UL);
+
+  fd_accdb_txn_node_t * node;
+  if( FD_UNLIKELY( !slot ) ) {
+    /* This thread owns the install of chunk chunk_no. */
+    node = txn_node_pool_acquire( accdb->txn_node_pool );
+    FD_TEST( node ); /* provisioned for full capacity + one partial per fork */
+    uint node_idx = (uint)txn_node_pool_idx( accdb->txn_node_pool, node );
+    node->chunk_no = chunk_no;
+    node->fill     = 0U;
+    node->loc      = txn_rslot_pop( accdb, !!popped );
+    if( popped ) (*popped)++;
+    if( FD_UNLIKELY( chunk_no ) ) {
+      /* Installs are ordered: wait for chunk_no-1's publish. */
+      for(;;) {
+        uint h = FD_VOLATILE_CONST( fs->txn_head );
+        if( FD_LIKELY( h!=UINT_MAX && FD_VOLATILE_CONST( nodes[ h ].chunk_no )==chunk_no-1U ) ) break;
+        fd_racesan_hook( "accdb_txn:install_wait" );
+        FD_SPIN_PAUSE();
+      }
+    }
+    node->next = FD_VOLATILE_CONST( fs->txn_head );
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( fs->txn_head ) = node_idx;
+  } else {
+    /* Find chunk_no's node: normally the head; a laggard that slept
+       across installs walks back (nodes never unlink while the fork
+       is live). */
+    for(;;) {
+      uint h = FD_VOLATILE_CONST( fs->txn_head );
+      if( FD_LIKELY( h!=UINT_MAX ) ) {
+        fd_accdb_txn_node_t * n = &nodes[ h ];
+        if( FD_LIKELY( n->chunk_no>=chunk_no ) ) {
+          while( FD_UNLIKELY( n->chunk_no>chunk_no ) ) n = &nodes[ FD_VOLATILE_CONST( n->next ) ];
+          node = n;
+          break;
+        }
+      }
+      fd_racesan_hook( "accdb_txn:chunk_wait" );
+      FD_SPIN_PAUSE();
+    }
+  }
+
+  accdb->txn_chunk_data[ ((ulong)node->loc<<FD_ACCDB_TXN_CHUNK_LG_CAP) + slot ] = acc_pool_idx;
+  FD_COMPILER_MFENCE(); /* entry visible before it counts as filled */
+  FD_ATOMIC_FETCH_AND_ADD( &node->fill, 1U );
 }
 
 /* idx_page_read: seqlock-validated read of one bucket page.  Returns
@@ -1983,14 +2264,17 @@ purge_inner( fd_accdb_t *              accdb,
     child = next;
   }
 
-  uint txn = fork->shmem->txn_head;
-  if( txn!=UINT_MAX ) {
-    fd_accdb_txn_t * txn_head = txn_pool_ele( accdb->txn_pool, (ulong)txn );
-    fd_accdb_txn_t * txn_tail = NULL;
-    while( txn!=UINT_MAX ) {
-      fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
-
-      uint acc_idx = txne->acc_pool_idx;
+  /* Walk chunks newest -> oldest, entries within a chunk backwards:
+     the reverse-append order the duplicate-pubkey unlink logic relies
+     on.  The fork is quiescent, so every reserved entry is written
+     (fill is final). */
+  uint node_idx = fork->shmem->txn_head;
+  while( node_idx!=UINT_MAX ) {
+    fd_accdb_txn_node_t * node = &accdb->txn_nodes[ node_idx ];
+    uint         cnt  = node->fill;
+    uint const * ents = txn_chunk_entries( accdb, node );
+    for( uint i=cnt; i>0U; i-- ) {
+      uint acc_idx = ents[ i-1U ];
       uint map_idx = (uint)( fd_hash32( accdb->acc_pool[ acc_idx ].key.pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) );
 
       uint prev = UINT_MAX;
@@ -2003,12 +2287,13 @@ purge_inner( fd_accdb_t *              accdb,
       fd_racesan_hook( "accdb_purge:pre_unlink" );
       acc_unlink( accdb, map_idx, prev, acc_idx );
       deferred_acc_append( accdb, acc_idx );
-
-      txn_tail = txne;
-      txn = txne->fork.next;
     }
-    txn_pool_release_chain( accdb->txn_pool, txn_head, txn_tail );
+    uint next = node->next;
+    txn_chunk_release( accdb, node );
+    node_idx = next;
   }
+  fork->shmem->txn_head   = UINT_MAX;
+  fork->shmem->txn_cursor = 0UL;
 
   fork_slot_defer( accdb, fork_id, fork_head, fork_tail );
 }
@@ -2061,14 +2346,19 @@ background_advance_root( fd_accdb_t *       accdb,
   /* And for any accounts which were updated in the newly rooted slot,
      we will now never need to access any older version, so we can
      discard any slots earlier than the one we are rooting. */
-  uint txn = fork->shmem->txn_head;
-  if( txn!=UINT_MAX ) {
-    fd_accdb_txn_t * txn_head = txn_pool_ele( accdb->txn_pool, (ulong)txn );
-    fd_accdb_txn_t * txn_tail = NULL;
-    while( txn!=UINT_MAX ) {
-      fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
+  /* Walk chunks newest -> oldest, entries within a chunk backwards:
+     duplicate-pubkey unlink correctness depends on this reverse-append
+     order (a later txn's inner walk unlinks the older new_acc; see the
+     new_acc_seen comment below). */
+  uint node_idx = fork->shmem->txn_head;
+  while( node_idx!=UINT_MAX ) {
+    fd_accdb_txn_node_t * node = &accdb->txn_nodes[ node_idx ];
+    uint         ent_cnt = node->fill;
+    uint const * ents    = txn_chunk_entries( accdb, node );
+    for( uint ei=ent_cnt; ei>0U; ei-- ) {
+      uint txn_acc_idx = ents[ ei-1U ];
 
-      fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
+      fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txn_acc_idx ];
       uint map_idx = (uint)( fd_hash32( new_acc->key.pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) );
 
       delta_insert( accdb, new_acc->key.pubkey );
@@ -2082,7 +2372,7 @@ background_advance_root( fd_accdb_t *       accdb,
         fd_accdb_accmeta_t const * cur_acc = &accdb->acc_pool[ acc ];
         uint cur_next = FD_VOLATILE_CONST( cur_acc->map.next );
 
-        if( FD_LIKELY( acc==txne->acc_pool_idx ) ) {
+        if( FD_LIKELY( acc==txn_acc_idx ) ) {
           new_acc_prev = prev;
           new_acc_seen = 1;
           prev = acc;
@@ -2130,28 +2420,26 @@ background_advance_root( fd_accdb_t *       accdb,
           }
           hot_purge( accdb, new_acc->key.pubkey );
         }
-        uint new_acc_idx = (uint)txne->acc_pool_idx;
-        acc_unlink( accdb, map_idx, new_acc_prev, new_acc_idx );
-        deferred_acc_append( accdb, new_acc_idx );
+        acc_unlink( accdb, map_idx, new_acc_prev, txn_acc_idx );
+        deferred_acc_append( accdb, txn_acc_idx );
       }
-
-      txn_tail = txne;
-      txn = txne->fork.next;
     }
-    txn_pool_release_chain( accdb->txn_pool, txn_head, txn_tail );
+    uint next = node->next;
+    txn_chunk_release( accdb, node );
+    node_idx = next;
   }
 
-  uint parent_txn = parent_fork->shmem->txn_head;
-  if( parent_txn!=UINT_MAX ) {
-    fd_accdb_txn_t * parent_head = txn_pool_ele( accdb->txn_pool, (ulong)parent_txn );
-    fd_accdb_txn_t * parent_tail = NULL;
-    while( parent_txn!=UINT_MAX ) {
-      fd_accdb_txn_t * t = txn_pool_ele( accdb->txn_pool, (ulong)parent_txn );
-      parent_tail = t;
-      parent_txn = t->fork.next;
-    }
-    txn_pool_release_chain( accdb->txn_pool, parent_head, parent_tail );
+  /* The parent's txn records are consumed without unlinking (its
+     versions are now rooted history); just release the chunks. */
+  uint parent_node = parent_fork->shmem->txn_head;
+  while( parent_node!=UINT_MAX ) {
+    fd_accdb_txn_node_t * node = &accdb->txn_nodes[ parent_node ];
+    uint next = node->next;
+    txn_chunk_release( accdb, node );
+    parent_node = next;
   }
+  parent_fork->shmem->txn_head   = UINT_MAX;
+  parent_fork->shmem->txn_cursor = 0UL;
 
   /* Remove the parent from all descends_sets and chain it for deferred
      release, so that when the slot is eventually recycled to a new
@@ -2164,6 +2452,7 @@ background_advance_root( fd_accdb_t *       accdb,
   fork->shmem->parent_id  = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   fork->shmem->sibling_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   fork->shmem->txn_head   = UINT_MAX;
+  fork->shmem->txn_cursor = 0UL;
   descends_set_null( fork->descends );
 
   /* Publish the new root_fork_id BEFORE bumping the epoch and deferring
@@ -3812,6 +4101,15 @@ release_inner( fd_accdb_t * accdb,
     FD_TEST( prev==ULONG_MAX || prev<=FD_VOLATILE_CONST( accdb->shmem->epoch ) );
   }
 
+  /* Reserve worst-case txn chunk credits BEFORE publishing the epoch:
+     an appender must never block on the ring inside its epoch (T2's
+     spill/refill waits for epoch drains).  accs_cnt <= MAX_ACQUIRE_CNT
+     <= CHUNK_CAP, so at most one boundary crossing plus the initial
+     partial: 2 chunks. */
+  FD_STATIC_ASSERT( FD_ACCDB_MAX_ACQUIRE_CNT<=FD_ACCDB_TXN_CHUNK_CAP, txn_reserve_bound );
+  ulong ring_reserved = txn_ring_reserve( accdb, 2UL );
+  ulong ring_popped   = 0UL;
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE(); /* StoreLoad: epoch store must be globally visible
@@ -4211,16 +4509,7 @@ release_inner( fd_accdb_t * accdb,
              head away between our load and CAS here.  The CAS retry
              loop handles this. */
 
-      fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
-      FD_TEST( txn ); /* Sized so it always succeeds */
-      txn->acc_pool_idx = (uint)acc_idx;
-      uint txn_idx = (uint)txn_pool_idx( accdb->txn_pool, txn );
-      for(;;) {
-        uint old_head = FD_VOLATILE_CONST( accdb->fork_pool[ accs[ i ]._fork_id ].shmem->txn_head );
-        txn->fork.next = old_head;
-        if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->fork_pool[ accs[ i ]._fork_id ].shmem->txn_head, old_head, txn_idx )==old_head ) ) break;
-        FD_SPIN_PAUSE();
-      }
+      txn_append( accdb, (ulong)accs[ i ]._fork_id, (uint)acc_idx, &ring_popped );
 
       FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->accounts_total, 1UL );
     }
@@ -4253,6 +4542,8 @@ release_inner( fd_accdb_t * accdb,
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+
+  if( FD_LIKELY( ring_reserved ) ) txn_ring_unreserve( accdb, ring_reserved, ring_popped );
 }
 
 void
@@ -5243,14 +5534,11 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
     accdb->acc_map[ hash ] = acc_idx;
 
     /* In incremental mode, record this insert in the fork's txn list
-       so purge can find and unlink it on failure. */
+       so purge can find and unlink it on failure.  Large incrementals
+       can exceed the RAM ring window; snapin carries the scratch fd
+       and spills sealed chunks inline. */
     if( FD_UNLIKELY( incremental ) ) {
-      fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
-      if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-      txn->acc_pool_idx = acc_idx;
-      uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
-      txn->fork.next          = fork->shmem->txn_head;
-      fork->shmem->txn_head   = txn_idx;
+      txn_append( accdb, (ulong)fork_id.val, acc_idx, NULL );
     }
   }
 
@@ -5474,12 +5762,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       accdb->acc_map[ hashes[ i ] ] = acc_idx;
 
       if( FD_UNLIKELY( incremental ) ) {
-        fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
-        if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-        txn->acc_pool_idx = acc_idx;
-        uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
-        txn->fork.next          = fork->shmem->txn_head;
-        fork->shmem->txn_head   = txn_idx;
+        txn_append( accdb, (ulong)fork_id.val, acc_idx, NULL );
       }
 
       if( cross_existing[ i ] ) {
@@ -5582,8 +5865,11 @@ fd_accdb_background( fd_accdb_t * accdb,
   if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
     switch( snap_sync ) {
     case FD_ACCDB_SNAPSHOT_SYNC_RUNNING:
-      /* while producing a snapshot, don't do compaction work */
+      /* while producing a snapshot, don't do compaction work.  The
+         txn ring still needs refilling: rooting is blocked for the
+         whole production, so txn records accumulate. */
       background_preevict( accdb, charge_busy, 0 );
+      background_txn_refill( accdb, charge_busy );
       return;
     case FD_ACCDB_SNAPSHOT_SYNC_DONE:
       fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
@@ -5616,6 +5902,7 @@ fd_accdb_background( fd_accdb_t * accdb,
   }
 
   background_preevict( accdb, charge_busy, 0 );
+  background_txn_refill( accdb, charge_busy );
 
   background_demote   ( accdb, charge_busy );
   background_hot_evict( accdb, charge_busy );

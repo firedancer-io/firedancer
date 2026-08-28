@@ -64,6 +64,9 @@ struct fd_accdb_shmem_layout {
   ulong pool_max;
   ulong chain_cnt;
   ulong txn_max;
+  ulong txn_node_max;
+  ulong txn_ring_cnt;
+  ulong txn_dslot_cnt;
   ulong defer_resident;
   ulong defer_stage;
   ulong delta_chain_cnt;
@@ -79,7 +82,10 @@ struct fd_accdb_shmem_layout {
   ulong descends_off;
   ulong acc_map_off;
   ulong acc_pool_ele_off;
-  ulong txn_pool_ele_off;
+  ulong txn_node_ele_off;
+  ulong txn_rslot_ele_off;
+  ulong txn_dslot_ele_off;
+  ulong txn_chunk_data_off;
   ulong partition_pool_off;
   ulong compaction_dlist_off[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   ulong deferred_free_dlist_off;
@@ -139,6 +145,17 @@ fd_accdb_shmem_layout( fd_accdb_shmem_layout_t * out,
   if( FD_UNLIKELY( txn_max/max_account_writes_per_slot!=max_live_slots ) ) return 0UL;
   if( FD_UNLIKELY( txn_max>=UINT_MAX                        ) ) return 0UL;
 
+  /* Txn chunk store: nodes and disk slots cover full txn_max capacity
+     (plus one partial chunk per live fork); the RAM ring covers a
+     ~128-slot root-lag window of worst-case writes plus per-fork
+     partial-chunk fragmentation plus appender reservation headroom,
+     capped at full coverage (in which case tiering is inactive). */
+  ulong txn_chunk_total = (txn_max+FD_ACCDB_TXN_CHUNK_CAP-1UL)>>FD_ACCDB_TXN_CHUNK_LG_CAP;
+  ulong txn_node_max    = txn_chunk_total + max_live_slots;
+  ulong window_chunks   = (128UL*max_account_writes_per_slot+FD_ACCDB_TXN_CHUNK_CAP-1UL)>>FD_ACCDB_TXN_CHUNK_LG_CAP;
+  ulong txn_ring_cnt    = fd_ulong_min( txn_node_max, window_chunks + max_live_slots + 2UL*FD_ACCDB_MAX_JOINERS );
+  ulong txn_dslot_cnt   = txn_chunk_total;
+
   /* Deferred buffer RAM window: full capacity resident when it fits,
      else a 64 MiB window (56 MiB resident + 8 MiB spill stage) with
      the tail in the scratch spill file. */
@@ -188,6 +205,9 @@ fd_accdb_shmem_layout( fd_accdb_shmem_layout_t * out,
   lo->pool_max        = pool_max;
   lo->chain_cnt       = chain_cnt;
   lo->txn_max         = txn_max;
+  lo->txn_node_max    = txn_node_max;
+  lo->txn_ring_cnt    = txn_ring_cnt;
+  lo->txn_dslot_cnt   = txn_dslot_cnt;
   lo->defer_resident  = defer_resident;
   lo->defer_stage     = defer_stage;
   lo->delta_chain_cnt = delta_chain_cnt;
@@ -210,8 +230,14 @@ fd_accdb_shmem_layout( fd_accdb_shmem_layout_t * out,
   l = FD_LAYOUT_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
   lo->acc_pool_ele_off = fd_ulong_align_up( l, alignof(fd_accdb_accmeta_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_accmeta_t), pool_max*sizeof(fd_accdb_accmeta_t)                  );
-  lo->txn_pool_ele_off = fd_ulong_align_up( l, alignof(fd_accdb_txn_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_t),  txn_max*sizeof(fd_accdb_txn_t)                          );
+  lo->txn_node_ele_off = fd_ulong_align_up( l, alignof(fd_accdb_txn_node_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_node_t), txn_node_max*sizeof(fd_accdb_txn_node_t)            );
+  lo->txn_rslot_ele_off = fd_ulong_align_up( l, alignof(fd_accdb_txn_slot_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_slot_t), txn_ring_cnt*sizeof(fd_accdb_txn_slot_t)            );
+  lo->txn_dslot_ele_off = fd_ulong_align_up( l, alignof(fd_accdb_txn_slot_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_slot_t), txn_dslot_cnt*sizeof(fd_accdb_txn_slot_t)           );
+  lo->txn_chunk_data_off = fd_ulong_align_up( l, 64UL );
+  l = FD_LAYOUT_APPEND( l, 64UL,                     txn_ring_cnt*FD_ACCDB_TXN_CHUNK_CAP*sizeof(uint)        );
   lo->partition_pool_off = fd_ulong_align_up( l, partition_pool_align() );
   l = FD_LAYOUT_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -253,9 +279,11 @@ ulong
 fd_accdb_scratch_sz( ulong max_live_slots,
                      ulong max_account_writes_per_slot ) {
   ulong txn_max = max_live_slots*max_account_writes_per_slot;
-  /* Deferred-free spill region: full capacity so the FD_TEST
-     exhaustion bound is never narrowed by the tiering. */
-  return txn_max*sizeof(uint);
+  /* Deferred-free spill region + txn chunk spill region, both at full
+     capacity so the exhaustion bounds are never narrowed by tiering. */
+  ulong defer_sz    = txn_max*sizeof(uint);
+  ulong chunk_total = (txn_max+FD_ACCDB_TXN_CHUNK_CAP-1UL)>>FD_ACCDB_TXN_CHUNK_LG_CAP;
+  return fd_ulong_align_up( defer_sz, 1UL<<20 ) + chunk_total*FD_ACCDB_TXN_CHUNK_CAP*sizeof(uint);
 }
 
 ulong
@@ -427,7 +455,9 @@ fd_accdb_shmem_new( void * shmem,
   void * _descends_sets       = base + lo->descends_off;
   void * _acc_map             = base + lo->acc_map_off;
   void * _acc_pool_ele        = base + lo->acc_pool_ele_off;
-  void * _txn_pool_ele        = base + lo->txn_pool_ele_off;
+  void * _txn_node_ele        = base + lo->txn_node_ele_off;
+  void * _txn_rslot_ele       = base + lo->txn_rslot_ele_off;
+  void * _txn_dslot_ele       = base + lo->txn_dslot_ele_off;
   void * _partition_pool      = base + lo->partition_pool_off;
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -452,6 +482,14 @@ fd_accdb_shmem_new( void * shmem,
   fork_pool_t _fork_pool_join[1];
   FD_TEST( fork_pool_join( _fork_pool_join, accdb->fork_pool, _fork_pool_ele, max_live_slots ) );
   fork_pool_reset( _fork_pool_join );
+  /* Init per-fork txn store fields on every slot (live or free): the
+     T2 spill scan walks all slots and treats txn_head!=UINT_MAX as
+     "has chunks". */
+  for( ulong i=0UL; i<max_live_slots; i++ ) {
+    fd_accdb_fork_shmem_t * fs = fork_pool_ele( _fork_pool_join, i );
+    fs->txn_head   = UINT_MAX;
+    fs->txn_cursor = 0UL;
+  }
   fork_pool_leave( _fork_pool_join );
 
   ulong descends_set_fp = descends_set_footprint( max_live_slots );
@@ -460,11 +498,23 @@ fd_accdb_shmem_new( void * shmem,
     FD_TEST( descends_set );
   }
 
-  FD_TEST( txn_pool_new( accdb->txn_pool ) );
-  txn_pool_t _txn_pool_join[1];
-  FD_TEST( txn_pool_join( _txn_pool_join, accdb->txn_pool, _txn_pool_ele, txn_max ) );
-  txn_pool_reset( _txn_pool_join );
-  txn_pool_leave( _txn_pool_join );
+  FD_TEST( txn_node_pool_new( accdb->txn_node_pool ) );
+  txn_node_pool_t _txn_node_pool_join[1];
+  FD_TEST( txn_node_pool_join( _txn_node_pool_join, accdb->txn_node_pool, _txn_node_ele, lo->txn_node_max ) );
+  txn_node_pool_reset( _txn_node_pool_join );
+  txn_node_pool_leave( _txn_node_pool_join );
+
+  FD_TEST( txn_rslot_pool_new( accdb->txn_rslot_pool ) );
+  txn_rslot_pool_t _txn_rslot_pool_join[1];
+  FD_TEST( txn_rslot_pool_join( _txn_rslot_pool_join, accdb->txn_rslot_pool, _txn_rslot_ele, lo->txn_ring_cnt ) );
+  txn_rslot_pool_reset( _txn_rslot_pool_join );
+  txn_rslot_pool_leave( _txn_rslot_pool_join );
+
+  FD_TEST( txn_dslot_pool_new( accdb->txn_dslot_pool ) );
+  txn_dslot_pool_t _txn_dslot_pool_join[1];
+  FD_TEST( txn_dslot_pool_join( _txn_dslot_pool_join, accdb->txn_dslot_pool, _txn_dslot_ele, lo->txn_dslot_cnt ) );
+  txn_dslot_pool_reset( _txn_dslot_pool_join );
+  txn_dslot_pool_leave( _txn_dslot_pool_join );
 
   fd_accdb_partition_t * partition_pool = partition_pool_join( partition_pool_new( _partition_pool, partition_cnt ) );
   FD_TEST( partition_pool );
@@ -541,6 +591,18 @@ fd_accdb_shmem_new( void * shmem,
   accdb->deferred_acc_resident = lo->defer_resident;
   accdb->deferred_acc_stage    = lo->defer_stage;
 
+  /* Txn chunk store geometry.  The chunk region of the scratch file
+     starts past the deferred-free region, 1 MiB aligned. */
+  accdb->txn_node_max      = lo->txn_node_max;
+  accdb->txn_ring_cnt      = lo->txn_ring_cnt;
+  accdb->txn_dslot_cnt     = lo->txn_dslot_cnt;
+  accdb->txn_spill_off     = fd_ulong_align_up( txn_max*sizeof(uint), 1UL<<20 );
+  accdb->txn_ring_free.val = lo->txn_ring_cnt;
+  accdb->txn_node_ele_off  = lo->txn_node_ele_off;
+  accdb->txn_rslot_ele_off = lo->txn_rslot_ele_off;
+  accdb->txn_dslot_ele_off = lo->txn_dslot_ele_off;
+  accdb->txn_chunk_data_off = lo->txn_chunk_data_off;
+
   /* Disk-resident index state and region offsets. */
   accdb->index_ram_max    = index_ram_max;
   accdb->pool_max         = pool_max;
@@ -554,7 +616,6 @@ fd_accdb_shmem_new( void * shmem,
   accdb->descends_off      = lo->descends_off;
   accdb->acc_map_off       = lo->acc_map_off;
   accdb->acc_pool_ele_off  = lo->acc_pool_ele_off;
-  accdb->txn_pool_ele_off  = lo->txn_pool_ele_off;
   accdb->partition_pool_region_off = lo->partition_pool_off;
   accdb->hot_map_off       = lo->hot_map_off;
   accdb->idx_seqlock_off   = lo->idx_seqlock_off;

@@ -910,6 +910,113 @@ test_deferred_spill( void ) {
   test_teardown( accdb, fd );
 }
 
+/* Force the txn chunk store through its spill tier: a tiered config
+   (RAM ring smaller than full chunk capacity), the ring drained down
+   to a few slots, then three forks each writing multiple chunks of
+   records so appends must spill sealed chunks to the scratch file.
+   Purge (sibling) and advance_root (trunk) then walk the spilled
+   chunks back off disk; every unlink landing correctly is the
+   correctness oracle (a corrupt spilled entry would walk off-chain or
+   leave accounts_total wrong). */
+static void
+test_txn_spill( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 65536UL, 192UL, 65536UL, 8192UL, 1UL<<30UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
+
+  fd_accdb_shmem_t * shmem = test_shmem_mem;
+  FD_TEST( shmem->txn_ring_cnt<shmem->txn_node_max ); /* tiered */
+
+  /* Drain the ring to a handful of free slots so a few thousand
+     writes create real spill pressure. */
+  {
+    txn_rslot_pool_t rj[1];
+    FD_TEST( txn_rslot_pool_join( rj, shmem->txn_rslot_pool, (uchar *)shmem + shmem->txn_rslot_ele_off, shmem->txn_ring_cnt ) );
+    ulong keep = 6UL;
+    for( ulong i=keep; i<shmem->txn_ring_cnt; i++ ) FD_TEST( txn_rslot_pool_acquire( rj ) );
+    shmem->txn_ring_free.val = keep;
+  }
+
+  ulong n = 2UL*FD_ACCDB_TXN_CHUNK_CAP + FD_ACCDB_TXN_CHUNK_CAP/2UL; /* 2.5 chunks per fork */
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32UL ] = { 0 }; FD_STORE( ulong, pk, i ); pk[ 9 ] = 0xA5;
+    accdb_write( accdb, root, pk, 1000UL+i, NULL, 0UL, owner2 );
+  }
+  fd_accdb_fork_id_t a = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t b = fd_accdb_attach_child( accdb, root );
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32UL ] = { 0 }; FD_STORE( ulong, pk, i ); pk[ 9 ] = 0xA5;
+    accdb_write( accdb, b, pk, 3000UL+i, NULL, 0UL, owner3 );
+  }
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32UL ] = { 0 }; FD_STORE( ulong, pk, i ); pk[ 9 ] = 0xA5;
+    accdb_write( accdb, a, pk, 2000UL+i, NULL, 0UL, owner3 );
+  }
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL*n );
+
+  /* Spill must actually have engaged. */
+  {
+    fd_accdb_txn_node_t * nodes = (fd_accdb_txn_node_t *)( (uchar *)shmem + shmem->txn_node_ele_off );
+    fd_accdb_fork_shmem_t * forks = (fd_accdb_fork_shmem_t *)( (uchar *)shmem + shmem->fork_pool_ele_off );
+    int spilled = 0;
+    ushort ids[ 3 ] = { root.val, a.val, b.val };
+    for( ulong f=0UL; f<3UL; f++ ) {
+      for( uint nd=forks[ ids[ f ] ].txn_head; nd!=UINT_MAX; nd=nodes[ nd ].next ) {
+        spilled |= !!( nodes[ nd ].loc & FD_ACCDB_TXN_NODE_DISK );
+      }
+    }
+    FD_TEST( spilled );
+  }
+
+  /* Purge the sibling: the walk preads its spilled chunks back and
+     unlinks every version it wrote. */
+  fd_accdb_purge( accdb, b );
+  drain_background( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==2UL*n );
+
+  /* Root the trunk: a's walk (spilled chunks included) unlinks all of
+     root's base versions; root's own chunks release without unlink. */
+  fd_accdb_advance_root( accdb, a );
+  drain_background( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==n );
+
+  for( ulong i=0UL; i<n; i+=997UL ) {
+    uchar pk[ 32UL ] = { 0 }; FD_STORE( ulong, pk, i ); pk[ 9 ] = 0xA5;
+    ulong lamports; uchar d; ulong data_len; uchar owner[ 32UL ];
+    FD_TEST( accdb_read( accdb, a, pk, &lamports, &d, &data_len, owner ) );
+    FD_TEST( lamports==2000UL+i );
+  }
+
+  /* Boot-path spill: an incremental-style load (snapshot_loading set,
+     so the T2 refill is off and the loader must spill for itself via
+     the non-credit append path), then the failure purge walks the
+     spilled records back off disk. */
+  {
+    txn_rslot_pool_t rj[1];
+    FD_TEST( txn_rslot_pool_join( rj, shmem->txn_rslot_pool, (uchar *)shmem + shmem->txn_rslot_ele_off, shmem->txn_ring_cnt ) );
+    ulong avail = shmem->txn_ring_free.val;
+    for( ulong i=2UL; i<avail; i++ ) FD_TEST( txn_rslot_pool_acquire( rj ) );
+    shmem->txn_ring_free.val = 2UL;
+  }
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, a );
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong replaced = 0UL;
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32UL ] = { 0 }; FD_STORE( ulong, pk, i ); pk[ 9 ] = 0xB6;
+    fd_accdb_snapshot_write_one( accdb, incr, pk, 20UL, 4000UL+i, 8UL, 0, &replaced );
+  }
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==2UL*n );
+
+  fd_accdb_purge( accdb, incr );
+  drain_background( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==n );
+
+  test_teardown( accdb, fd );
+}
+
 /* Write an account on the root fork, then overwrite it on a child
    fork.  After rooting the child, verify accounts_total stays at 1
    (the older version is tombstoned by the rooting pass). */
@@ -1078,7 +1185,14 @@ test_mainnet_footprint( void ) {
   ulong sz_descends       = max_live_slots*descends_fp;
   ulong sz_chain          = chain_cnt*sizeof(uint);
   ulong sz_acc_pool       = max_accounts*sizeof(fd_accdb_accmeta_t);
-  ulong sz_txn_pool       = txn_max*sizeof(fd_accdb_txn_t);
+  /* Txn chunk store: mirror the sizing in fd_accdb_shmem_layout. */
+  ulong txn_chunk_total = (txn_max+FD_ACCDB_TXN_CHUNK_CAP-1UL)>>FD_ACCDB_TXN_CHUNK_LG_CAP;
+  ulong txn_node_max    = txn_chunk_total + max_live_slots;
+  ulong window_chunks   = (128UL*max_account_writes_per_slot+FD_ACCDB_TXN_CHUNK_CAP-1UL)>>FD_ACCDB_TXN_CHUNK_LG_CAP;
+  ulong txn_ring_cnt    = fd_ulong_min( txn_node_max, window_chunks + max_live_slots + 2UL*FD_ACCDB_MAX_JOINERS );
+  ulong sz_txn_pool     = txn_node_max*sizeof(fd_accdb_txn_node_t)
+                        + (txn_ring_cnt+txn_chunk_total)*sizeof(fd_accdb_txn_slot_t)
+                        + txn_ring_cnt*FD_ACCDB_TXN_CHUNK_CAP*sizeof(uint);
   ulong sz_part_pool      = partition_pool_footprint( partition_cnt );
   ulong sz_compact_dlists = FD_ACCDB_COMPACTION_LAYER_CNT*compaction_dlist_footprint();
   ulong sz_deferred_dlist = deferred_free_dlist_footprint();
@@ -2054,6 +2168,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_deferred_spill ..." ));
   test_deferred_spill();
+
+  FD_LOG_NOTICE(( "test_txn_spill ..." ));
+  test_txn_spill();
 
   FD_LOG_NOTICE(( "test_root_tombstones_old_version ..." ));
   test_root_tombstones_old_version();

@@ -28,29 +28,102 @@ spin_lock_release( int * lock ) {
 # endif
 }
 
-/* Per-write txn record.  The acc_map chain index is not stored: it is
-   pure derived data, fd_hash32( acc_pool[ acc_pool_idx ].key.pubkey,
-   seed )&(chain_cnt-1), recomputed by the T2 walks (advance_root /
-   purge) that consume these records.  The pubkey is stable for the
-   record's lifetime: the accmeta slot it references is only released
-   by those same T2 walks (via the deferred buffer, after epoch drain)
-   and demotion never touches txn-referenced entries (their generation
-   is always within FD_ACCDB_DEMOTE_AGE of the root's). */
+/* ---------------------------------------------------------------------
+   Per-fork txn store: sealed chunks with a T2 disk spill tier.
 
-struct fd_accdb_txn {
-  union {
-    struct { uint next; } pool;
-    struct { uint next; } fork;
-  };
+   A txn record is one committed write: just the acc pool index of the
+   new version (4 bytes).  The acc_map chain index is not stored: it is
+   pure derived data, fd_hash32( acc_pool[ idx ].key.pubkey, seed )&
+   (chain_cnt-1), recomputed by the T2 walks (advance_root / purge)
+   that consume these records.  The pubkey is stable for the record's
+   lifetime: the accmeta slot it references is only released by those
+   same T2 walks (via the deferred buffer, after epoch drain) and
+   demotion never touches txn-referenced entries (their generation is
+   always within FD_ACCDB_DEMOTE_AGE of the root's).
 
-  uint acc_pool_idx;
+   Records are append-only per fork and consumed only by linear walks
+   (advance_root / purge / snapshot recover_delta) once the fork is
+   quiescent, so they live in per-fork chains of fixed-size CHUNKS
+   instead of a global random-access pool:
+
+     - fork.txn_cursor is a monotonic per-fork entry count; appenders
+       FAA it, entry off lives at slot off%CAP of chunk off/CAP.
+     - The appender that draws slot 0 of a chunk installs it: acquire
+       a node, pop a RAM data slot from the ring, wait for chunk_no-1
+       to be published (installs are ordered; ABA-free because the
+       cursor never goes backwards), prepend to fork.txn_head.
+     - node.fill counts COMPLETED entry writes; a chunk is sealed
+       (spillable) only at fill==CAP, so a reservation is never
+       confused with a written entry.
+     - Walks run newest chunk -> oldest, entries within a chunk
+       backwards, preserving the reverse-append order that the
+       duplicate-pubkey unlink logic in advance_root depends on.
+
+   The RAM ring holds the mainnet working set (a ~128-slot root-lag
+   window of worst-case writes, plus one partial chunk per live fork
+   plus reservation headroom).  Under ring pressure (multi-hundred-slot
+   no-root stalls, catchup, large incremental loads) sealed chunks of
+   the oldest forks are pwritten to the scratch spill file and pread
+   back at consume time; full capacity (txn_max entries) is provisioned
+   across ring + fallocated disk slots, so the abort-free guarantee is
+   bit-for-bit today's.  When the ring already covers full capacity
+   (small configs, tests), no tiering is active and exhaustion aborts
+   exactly like the old pool.
+
+   DEADLOCK AVOIDANCE: the append in release_inner runs inside the
+   joiner-epoch critical section while T2's advance_root/purge begin
+   with wait_for_epoch_drain, so an appender must never block on the
+   ring while holding an epoch.  release_inner reserves worst-case
+   chunk credits (txn_ring_free) BEFORE publishing its epoch, spinning
+   outside the epoch when the ring is dry; credits are a conservative
+   lower bound on actual free slots (reserve subtracts early, refunds
+   settle by actual pops), so a credit-backed pop cannot fail. */
+
+#define FD_ACCDB_TXN_CHUNK_LG_CAP (12)
+#define FD_ACCDB_TXN_CHUNK_CAP    (1UL<<FD_ACCDB_TXN_CHUNK_LG_CAP)  /* entries; 16 KiB data */
+#define FD_ACCDB_TXN_NODE_DISK    (0x80000000U)                     /* node.loc: spilled    */
+
+struct fd_accdb_txn_node {
+  uint pool_next; /* node pool freelist                              */
+  uint next;      /* next-older chunk on the fork chain, UINT_MAX end */
+  uint chunk_no;  /* position on the fork, == first entry off / CAP  */
+  uint loc;       /* RAM ring slot, or disk slot | TXN_NODE_DISK     */
+  uint fill;      /* completed entry writes; ==CAP means sealed      */
 };
 
-typedef struct fd_accdb_txn fd_accdb_txn_t;
+typedef struct fd_accdb_txn_node fd_accdb_txn_node_t;
 
-#define POOL_NAME       txn_pool
-#define POOL_ELE_T      fd_accdb_txn_t
-#define POOL_NEXT       pool.next
+#define POOL_NAME       txn_node_pool
+#define POOL_ELE_T      fd_accdb_txn_node_t
+#define POOL_NEXT       pool_next
+#define POOL_IDX_T      uint
+#define POOL_IDX_WIDTH  32
+#define POOL_IMPL_STYLE 0
+#define POOL_LAZY       1
+
+#include "../../util/tmpl/fd_pool_para.c"
+
+/* Freelists for chunk data slots (RAM ring and disk file). */
+
+struct fd_accdb_txn_slot {
+  uint next;
+};
+
+typedef struct fd_accdb_txn_slot fd_accdb_txn_slot_t;
+
+#define POOL_NAME       txn_rslot_pool
+#define POOL_ELE_T      fd_accdb_txn_slot_t
+#define POOL_NEXT       next
+#define POOL_IDX_T      uint
+#define POOL_IDX_WIDTH  32
+#define POOL_IMPL_STYLE 0
+#define POOL_LAZY       1
+
+#include "../../util/tmpl/fd_pool_para.c"
+
+#define POOL_NAME       txn_dslot_pool
+#define POOL_ELE_T      fd_accdb_txn_slot_t
+#define POOL_NEXT       next
 #define POOL_IDX_T      uint
 #define POOL_IDX_WIDTH  32
 #define POOL_IMPL_STYLE 0
@@ -73,7 +146,8 @@ struct fd_accdb_fork_shmem {
     ulong next;
   } pool;
 
-  uint txn_head;
+  uint  txn_head;   /* newest txn chunk node, UINT_MAX none         */
+  ulong txn_cursor; /* monotonic per-fork txn entry count (FAA'd)   */
 };
 
 typedef struct fd_accdb_fork_shmem fd_accdb_fork_shmem_t;
@@ -748,13 +822,30 @@ struct fd_accdb_shmem_private {
   ulong idx_spill_extent;/* per-range spill extent bytes            */
   ulong idx_nrange;      /* placement range count                   */
 
+  /* Txn chunk store geometry (see the chunk-store comment above).
+     txn_ring_cnt==txn_node_max means the ring covers full capacity
+     and tiering (credits, spill) is inactive. */
+  ulong txn_node_max;   /* chunk node pool capacity                  */
+  ulong txn_ring_cnt;   /* RAM ring data slots                       */
+  ulong txn_dslot_cnt;  /* disk data slots in the scratch file       */
+  ulong txn_spill_off;  /* chunk region base offset in scratch file  */
+
+  /* Ring credit ledger: conservative count of free RAM ring slots
+     (reservations subtract before their epoch, refunds settle by
+     actual pops, releases/spills add).  Signed arithmetic on a ulong;
+     transiently negative during refund races. */
+  struct __attribute__((aligned(64))) { ulong val; } txn_ring_free;
+
   /* Region offsets from shmem base (also for pre-existing regions so
      joiners need not mirror the layout computation). */
   ulong fork_pool_ele_off;
   ulong descends_off;
   ulong acc_map_off;
   ulong acc_pool_ele_off;
-  ulong txn_pool_ele_off;
+  ulong txn_node_ele_off;
+  ulong txn_rslot_ele_off;
+  ulong txn_dslot_ele_off;
+  ulong txn_chunk_data_off;
   ulong partition_pool_region_off; /* raw region (partition_pool_off
                                       above is the joined pointer)    */
   ulong hot_map_off;      /* hot_chain_cnt uints                     */
@@ -774,9 +865,11 @@ struct fd_accdb_shmem_private {
      deferred batches release).  Drives hot_map eviction. */
   struct __attribute__((aligned(64))) { ulong val; } acc_pool_used;
 
-  acc_pool_shmem_t  acc_pool [1];
-  fork_pool_shmem_t fork_pool[1];
-  txn_pool_shmem_t  txn_pool [1];
+  acc_pool_shmem_t        acc_pool      [1];
+  fork_pool_shmem_t       fork_pool     [1];
+  txn_node_pool_shmem_t   txn_node_pool [1];
+  txn_rslot_pool_shmem_t  txn_rslot_pool[1];
+  txn_dslot_pool_shmem_t  txn_dslot_pool[1];
 
   /* Track accounts modified since full snapshot.
 

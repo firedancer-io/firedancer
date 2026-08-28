@@ -55,6 +55,11 @@ bench_setup( int * out_fd,
   FD_TEST( accdb_mem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL ) );
   FD_TEST( accdb );
+
+  int scratch_fd = memfd_create( "accdb_scratch", 0 );
+  FD_TEST( scratch_fd>=0 );
+  FD_TEST( !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( max_live_slots, max_account_writes_per_slot ) ) );
+  fd_accdb_set_scratch_fd( accdb, scratch_fd );
   return accdb;
 }
 

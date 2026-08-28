@@ -1763,7 +1763,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
 
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
@@ -1777,6 +1777,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
   out_fds[ out_cnt++ ] = ctx->txncache_spill_fd; /* txncache staging spill */
   out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* txncache disk tier */
   out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RW; /* accounts index */
+  out_fds[ out_cnt++ ] = FD_ACCDB_SCRATCH_FD; /* accdb scratch spill */
 
   return out_cnt;
 }
@@ -1787,7 +1788,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, (uint)ctx->txncache_spill_fd, (uint)FD_TXNCACHE_FD, FD_ACCDB_IDX_FD_RW );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, (uint)ctx->txncache_spill_fd, (uint)FD_TXNCACHE_FD, FD_ACCDB_IDX_FD_RW, (uint)FD_ACCDB_SCRATCH_FD );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
@@ -1856,6 +1857,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( accdb_shmem );
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_IDX_FD_RW, 0UL, NULL ) );
   FD_TEST( ctx->accdb );
+  fd_accdb_set_scratch_fd( ctx->accdb, FD_ACCDB_SCRATCH_FD );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

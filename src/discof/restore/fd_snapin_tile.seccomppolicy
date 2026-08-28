@@ -14,7 +14,10 @@
 # txncache_fd: The file descriptor for the transaction cache disk
 #              tier.  Cold status cache pages are spilled to and read
 #              back from this file.
-uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint spill_fd, uint txncache_fd, uint accdb_idx_fd
+# accdb_scratch_fd: The accdb scratch spill file.  Incremental-load txn
+#                   records past the RAM ring window spill there and
+#                   are read back at recover/purge time.
+uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint spill_fd, uint txncache_fd, uint accdb_idx_fd, uint accdb_scratch_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -66,6 +69,10 @@ pwrite64: (or (eq (arg 0) stake_spill_fd)
 
 # accounts index: the on-disk bucket tier of the accounts index is
 # read (and for writer roles, written) with explicit positioned I/O.
-preadv2: (eq (arg 0) accdb_idx_fd)
+# The accdb scratch file's txn chunk region is spilled and read back
+# the same way during incremental loads.
+preadv2: (or (eq (arg 0) accdb_idx_fd)
+             (eq (arg 0) accdb_scratch_fd))
 
-pwritev2: (eq (arg 0) accdb_idx_fd)
+pwritev2: (or (eq (arg 0) accdb_idx_fd)
+              (eq (arg 0) accdb_scratch_fd))

@@ -31,11 +31,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_snapin_tile_instr_cnt = 61;
+static const uint sock_filter_policy_fd_snapin_tile_instr_cnt = 65;
 
-static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct sock_filter out[ static 61 ], uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint spill_fd, uint txncache_fd, uint accdb_idx_fd ) {
-  FD_TEST( out_cnt >= 61 );
-  struct sock_filter filter[61] = {
+static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct sock_filter out[ static 65 ], uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint spill_fd, uint txncache_fd, uint accdb_idx_fd, uint accdb_scratch_fd ) {
+  FD_TEST( out_cnt >= 65 );
+  struct sock_filter filter[65] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 9 ),
@@ -56,7 +56,7 @@ static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct so
     /* check preadv2 */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_preadv2, /* check_preadv2 */ 43, 0 ),
     /* check pwritev2 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwritev2, /* check_pwritev2 */ 46, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwritev2, /* check_pwritev2 */ 48, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -146,7 +146,11 @@ static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct so
 //  check_preadv2:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_idx_fd)), /* preadv2_ALLOW */ 1, /* preadv2_KILL */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_idx_fd)), /* preadv2_ALLOW */ 3, /* or_9 */ 0 ),
+//  or_9:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_scratch_fd)), /* preadv2_ALLOW */ 1, /* preadv2_KILL */ 0 ),
 //  preadv2_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  preadv2_ALLOW:
@@ -154,7 +158,11 @@ static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct so
 //  check_pwritev2:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_idx_fd)), /* pwritev2_ALLOW */ 1, /* pwritev2_KILL */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_idx_fd)), /* pwritev2_ALLOW */ 3, /* or_10 */ 0 ),
+//  or_10:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_scratch_fd)), /* pwritev2_ALLOW */ 1, /* pwritev2_KILL */ 0 ),
 //  pwritev2_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  pwritev2_ALLOW:
