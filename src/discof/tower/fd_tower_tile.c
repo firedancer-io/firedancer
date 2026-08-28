@@ -186,6 +186,15 @@ FD_STATIC_ASSERT( 1<<AUTH_VTR_LG_MAX==32, AUTH_VTR_LG_MAX );
 
 #define EQVOC_PER_VTR_MAX (128)
 
+/* VOTES_SLOT_MAX bounds how far ahead of the root fd_votes tracks vote
+   txns for forward confirmation.  Replay stays within ~32 slots of the
+   root on mainnet; votes beyond root+512 are dropped as TOO_NEW (as
+   they already were beyond root+max_live_slots) and recounted from
+   refresh/replay votes once in window.  Liveness-only bound; TowerBFT
+   and fork choice do not depend on fd_votes. */
+
+#define VOTES_SLOT_MAX (512UL)
+
 struct publish {
   ulong          sig;
   fd_tower_msg_t msg;
@@ -1622,7 +1631,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, EQVOC_PER_VTR_MAX, VTR_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( blk_max, VTR_MAX )                        );
   l = FD_LAYOUT_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( HFORK_PER_VTR_MAX, VTR_MAX )              );
-  l = FD_LAYOUT_APPEND( l, fd_votes_align(),         fd_votes_footprint( slot_max, VTR_MAX )                       );
+  l = FD_LAYOUT_APPEND( l, fd_votes_align(),         fd_votes_footprint( fd_ulong_min( slot_max, VOTES_SLOT_MAX ), VTR_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
@@ -1660,7 +1669,7 @@ init_choreo( void                 * scratch,
   void  * eqvoc         = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, EQVOC_PER_VTR_MAX, VTR_MAX ) );
   void  * ghost         = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( blk_max, VTR_MAX )                        );
   void  * hfork         = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( HFORK_PER_VTR_MAX, VTR_MAX )              );
-  void  * votes         = FD_SCRATCH_ALLOC_APPEND( l, fd_votes_align(),         fd_votes_footprint( slot_max, VTR_MAX )                       );
+  void  * votes         = FD_SCRATCH_ALLOC_APPEND( l, fd_votes_align(),         fd_votes_footprint( fd_ulong_min( slot_max, VOTES_SLOT_MAX ), VTR_MAX ) );
   void  * tower         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   void  * scratch_tower = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
@@ -1677,7 +1686,7 @@ init_choreo( void                 * scratch,
   ctx->eqvoc              = fd_eqvoc_join              ( fd_eqvoc_new              ( eqvoc, slot_max, fec_max, EQVOC_PER_VTR_MAX, VTR_MAX, ctx->seed ) );
   ctx->ghost              = fd_ghost_join              ( fd_ghost_new              ( ghost, blk_max, VTR_MAX, ctx->seed )                        );
   ctx->hfork              = fd_hfork_join              ( fd_hfork_new              ( hfork, HFORK_PER_VTR_MAX, VTR_MAX, ctx->seed )              );
-  ctx->votes              = fd_votes_join              ( fd_votes_new              ( votes, slot_max, VTR_MAX, ctx->seed )                       );
+  ctx->votes              = fd_votes_join              ( fd_votes_new              ( votes, fd_ulong_min( slot_max, VOTES_SLOT_MAX ), VTR_MAX, ctx->seed ) );
   ctx->tower              = fd_tower_join              ( fd_tower_new              ( tower, slot_max, VTR_MAX, ctx->seed )                       );
   ctx->scratch_tower      = fd_tower_vote_join         ( fd_tower_vote_new         ( scratch_tower )                                             );
   ctx->publishes          = publishes_join             ( publishes_new             ( publishes, pub_max )                                        );
