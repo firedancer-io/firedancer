@@ -246,15 +246,15 @@ static void
 eqvoc( fd_reasm_t     * reasm,
        fd_reasm_fec_t * root ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
-  ulong *          bfs  = reasm->bfs;
-  bfs_push_tail( bfs, pool_idx( pool, root ) );
+  uint *           bfs  = reasm->bfs;
+  bfs_push_tail( bfs, (uint)pool_idx( pool, root ) );
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
     fd_reasm_fec_t * descendant = pool_ele( pool, bfs_pop_head( bfs ) );
     if( FD_LIKELY( descendant->eqvoc ) ) continue;
     descendant->eqvoc      = 1;
     fd_reasm_fec_t * child = fd_reasm_child( reasm, descendant );
     while( FD_LIKELY( child ) ) {
-      bfs_push_tail( bfs, pool_idx( pool, child ) );
+      bfs_push_tail( bfs, (uint)pool_idx( pool, child ) );
       child = fd_reasm_sibling( reasm, child );
     }
   }
@@ -306,12 +306,12 @@ xid_update( fd_reasm_t * reasm, ulong slot, uint fec_set_idx, ulong pool_idx ) {
   xid_t          * xid     = xid_query( reasm->xid, (slot << 32) | fec_set_idx, NULL );
   if( FD_UNLIKELY( xid ) ) {
     new_fec->xid_next = (uint)xid->idx;
-    xid->idx = pool_idx; /* updates head ptr */
+    xid->idx = (uint)pool_idx; /* updates head ptr */
     xid->cnt++;
   } else {
     xid = xid_insert( reasm->xid, (slot << 32) | fec_set_idx );
     if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx ));
-    xid->idx = pool_idx;
+    xid->idx = (uint)pool_idx;
     xid->cnt = 1;
   }
   return xid;
@@ -344,16 +344,16 @@ subtrees_remove( fd_reasm_t     * reasm,
                  fd_store_t     * opt_store,
                  fd_store_map_t * opt_map_join ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
-  ulong *          bfs  = reasm->bfs;
+  uint *           bfs  = reasm->bfs;
 
   FD_TEST( bfs_empty( bfs ) );
-  bfs_push_tail( bfs, pool_idx( pool, root ) );
+  bfs_push_tail( bfs, (uint)pool_idx( pool, root ) );
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
     fd_reasm_fec_t * ele = pool_ele( pool, bfs_pop_head( bfs ) );
 
     fd_reasm_fec_t * child = fd_reasm_child( reasm, ele );
     while( FD_LIKELY( child ) ) {
-      bfs_push_tail( bfs, pool_idx( pool, child ) );
+      bfs_push_tail( bfs, (uint)pool_idx( pool, child ) );
       child = fd_reasm_sibling( reasm, child );
     }
 
@@ -459,13 +459,13 @@ fd_reasm_remove( fd_reasm_t     * reasm,
     /* subtree this child.  This code path should only be hit if this is
        banks-driven eviction, so children are guaranteed to be in main
        tree right now. */
-    ulong * bfs = reasm->bfs;
-    bfs_push_tail( bfs, pool_idx( pool, tail ) );
+    uint * bfs = reasm->bfs;
+    bfs_push_tail( bfs, (uint)pool_idx( pool, tail ) );
     while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
       fd_reasm_fec_t * ele   = pool_ele( pool, bfs_pop_head( bfs ) );
       fd_reasm_fec_t * child = fd_reasm_child( reasm, ele );
       while( FD_LIKELY( child ) ) {
-        bfs_push_tail( bfs, pool_idx( pool, child ) );
+        bfs_push_tail( bfs, (uint)pool_idx( pool, child ) );
         child = pool_ele( pool, child->sibling );
       }
 
@@ -558,9 +558,9 @@ fd_reasm_remove( fd_reasm_t     * reasm,
 fd_reasm_fec_t *
 latest_confirmed_fec( fd_reasm_t * reasm,
                       ulong        subtree_root ) {
-  ulong *          bfs  = reasm->bfs;
+  uint *           bfs  = reasm->bfs;
   fd_reasm_fec_t * pool = reasm_pool( reasm );
-  bfs_push_tail( bfs, subtree_root );
+  bfs_push_tail( bfs, (uint)subtree_root );
   fd_reasm_fec_t * latest_confirmed = NULL;
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
     fd_reasm_fec_t * ele = pool_ele( pool, bfs_pop_head( bfs ) );
@@ -572,7 +572,7 @@ latest_confirmed_fec( fd_reasm_t * reasm,
     }
     fd_reasm_fec_t * child = fd_reasm_child( reasm, ele );
     while( FD_LIKELY( child ) ) {
-      bfs_push_tail( bfs, pool_idx( pool, child ) );
+      bfs_push_tail( bfs, (uint)pool_idx( pool, child ) );
       child = pool_ele( pool, child->sibling );
     }
   }
@@ -770,7 +770,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   subtrees_t * subtrees = reasm->subtrees;
   subtreel_t * subtreel = reasm->subtreel;
 
-  ulong     * bfs = reasm->bfs;
+  uint      * bfs = reasm->bfs;
   out_t     * out = reasm->out;
 
   *evicted = NULL;
@@ -928,7 +928,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
        |
      orphan child <- advance to here */
 
-  if( FD_LIKELY( frontier_ele_query( frontier, &fec->key, NULL, pool ) ) ) bfs_push_tail( bfs, pool_idx( pool, fec ) );
+  if( FD_LIKELY( frontier_ele_query( frontier, &fec->key, NULL, pool ) ) ) bfs_push_tail( bfs, (uint)pool_idx( pool, fec ) );
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
     fd_reasm_fec_t * parent = pool_ele( pool, bfs_pop_head( bfs ) );
     fd_reasm_fec_t * child  = pool_ele( pool, parent->child );
@@ -939,7 +939,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     while( FD_LIKELY( child ) ) {
       FD_TEST( orphaned_ele_remove( orphaned, &child->key, NULL, pool ) );
       frontier_ele_insert( frontier, child, pool );
-      bfs_push_tail( bfs, pool_idx( pool, child ) );
+      bfs_push_tail( bfs, (uint)pool_idx( pool, child ) );
       out_ele_push_tail( out, child, pool );
       child->in_out = 1;
       child = pool_ele( pool, child->sibling );
@@ -985,9 +985,9 @@ fd_reasm_publish( fd_reasm_t      * reasm,
   uint              null = (uint)pool_idx_null( pool );
   fd_reasm_fec_t  * oldr = pool_ele( pool, reasm->root );
   fd_reasm_fec_t  * newr = fd_reasm_query( reasm, merkle_root );
-  ulong *           bfs  = reasm->bfs;
+  uint *            bfs  = reasm->bfs;
 
-  bfs_push_tail( bfs, pool_idx( pool, oldr ) );
+  bfs_push_tail( bfs, (uint)pool_idx( pool, oldr ) );
 
   /* First, BFS down the tree, pruning all of root's ancestors and also
      any descendants of those ancestors. */
@@ -1000,7 +1000,7 @@ fd_reasm_publish( fd_reasm_t      * reasm,
                        iter = subtreel_iter_fwd_next( iter, subtreel, pool ) ) {
     fd_reasm_fec_t * ele = subtreel_iter_ele( iter, subtreel, pool );
     if( ele->slot < newr->slot ) {
-      bfs_push_tail( bfs, pool_idx( pool, ele ) );
+      bfs_push_tail( bfs, (uint)pool_idx( pool, ele ) );
     }
   }
 
@@ -1018,7 +1018,7 @@ fd_reasm_publish( fd_reasm_t      * reasm,
     fd_reasm_fec_t * child = pool_ele( pool, head->child );
     while( FD_LIKELY( child ) ) {                                                       /* iterate over children */
       if( FD_LIKELY( child != newr ) ) {                                                /* stop at new root */
-        bfs_push_tail( bfs, pool_idx( pool, child ) );
+        bfs_push_tail( bfs, (uint)pool_idx( pool, child ) );
       }
       child = pool_ele( pool, child->sibling );                                         /* right-sibling */
     }

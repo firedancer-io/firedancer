@@ -56,12 +56,12 @@
 #include "../../util/tmpl/fd_dlist.c"
 
 #define DEQUE_NAME             bfs
-#define DEQUE_T                ulong
+#define DEQUE_T                uint
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct xid {
   ulong key; /* 32 msb slot | 32 lsb fec_set_idx */
-  ulong idx; /* pool idx of first FEC seen. Updated only on confirmation. */
+  uint  idx; /* pool idx of first FEC seen. Updated only on confirmation. */
   uint  cnt; /* count of FECs with this xid key.  If > 1, equivocation occurred on this FEC set */
 };
 typedef struct xid xid_t;
@@ -88,7 +88,7 @@ struct __attribute__((aligned(128UL))) fd_reasm {
   out_t        _out[1];     /* delivery queue(dlist) of elements to output */
   out_t *      out;         /* the join to the dlist */
 
-  ulong *      bfs;         /* internal queue of pool idxs for BFS */
+  uint *       bfs;         /* internal queue of pool idxs for BFS */
   xid_t *      xid;         /* map of (slot, fec_set_idx)->mr */
 };
 
