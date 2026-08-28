@@ -1354,8 +1354,12 @@ telemetry = true
         # The gossip protocol periodically expires old entries from the
         # table, and this number should be set so that the table never
         # gets full, and all entries expire before they would need to be
-        # evicted.
-        max_entries = 524_288
+        # evicted.  If it does fill, insertion evicts the lowest-staked
+        # origin's entries first, which peers then re-send.  Each entry
+        # costs ~1.5 KiB.  Mainnet steady state is on the order of 100k
+        # live entries (~3k nodes times a few dozen values each).  Must
+        # be a power of two.
+        max_entries = 262_144
 
     # QUIC tiles are responsible for serving network traffic, including
     # parsing and responding to packets and managing connection timeouts
