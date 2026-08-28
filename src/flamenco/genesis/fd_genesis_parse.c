@@ -80,6 +80,10 @@ fd_genesis_parse( fd_genesis_t * genesis,
   }
 
   CHECK_LEFT( 8UL ); genesis->poh.ticks_per_slot = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+  if( FD_UNLIKELY( !genesis->poh.ticks_per_slot ) ) {
+    FD_LOG_WARNING(( "genesis ticks_per_slot must be non-zero" ));
+    return NULL;
+  }
 
   CHECK_LEFT( sizeof(ulong) ); INC( sizeof(ulong) ); /* unused */
 
