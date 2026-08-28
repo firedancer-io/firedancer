@@ -1984,20 +1984,20 @@ telemetry = true
         # open.  The server closes an HTTP connection after each
         # request.  When no more connections are free, evicts the oldest
         # first.
-        max_http_connections = 1024
+        max_http_connections = 128
 
         # Maximum number of simultaneous WebSocket connections which can
         # be open.  Every browser tab currently showing the GUI has one
         # persistent WebSocket connection.  When a new WebSocket is
         # created but no connections are free, the oldest one is closed.
-        max_websocket_connections = 1024
+        max_websocket_connections = 64
 
         # All GUI connections share buffer space for outgoing GUI
         # WebSocket updates and HTTP response headers.  If this buffer
         # runs out, the connections with the slowest recipients are
         # dropped.  Larger values make the GUI server more tolerant to
         # slow clients but also increase memory usage.
-        send_buffer_size_mb = 512
+        send_buffer_size_mb = 256
 
         # The maximum size of the on disk event database.  This is an
         # upper bound on the disk space used.  The GUI tile will start
