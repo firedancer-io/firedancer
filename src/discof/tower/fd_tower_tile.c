@@ -31,6 +31,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+extern int fallocate( int fd, int mode, off_t offset, off_t len ); /* needs _GNU_SOURCE, which app-level includers of this file don't set */
+
 /* The Tower tile broadly processes three classes of frags, leading to
    three distinct kinds of frag processing:
 
@@ -280,6 +282,7 @@ struct fd_tower_tile {
   ulong            seed; /* map seed */
   int              checkpt_fd;
   int              restore_fd;
+  int              lockos_fd; /* tower lockout interval spill file */
   fd_pubkey_t      identity_key[1];
   fd_pubkey_t      vote_account[1];
   ulong            auth_vtr_path_cnt;  /* number of authorized voter paths passed to tile */
@@ -2036,6 +2039,19 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.base_path, identity_key_b58 ) );
   ctx->restore_fd = open( path, O_RDONLY );
   if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  /* The lockos spill file holds full worst-case lockout interval
+     capacity; RAM keeps only a recent-slot window.  Contents are
+     meaningless across boots, so unlink immediately. */
+
+  ulong slot_max  = fd_ulong_pow2_up( tile->tower.max_live_slots );
+  ulong lockos_sz = FD_TOWER_LOCKOS_SPILL_FOOTPRINT( slot_max, VTR_MAX );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-lockos-%s.bin", tile->tower.base_path, identity_key_b58 ) );
+  ctx->lockos_fd = open( path, O_RDWR|O_CREAT|O_TRUNC, 0600 );
+  if( FD_UNLIKELY( -1==ctx->lockos_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( path ) ) ) FD_LOG_ERR(( "unlink(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==ftruncate( ctx->lockos_fd, (off_t)lockos_sz ) ) ) FD_LOG_ERR(( "ftruncate(`%s`,%lu) failed (%i-%s)", path, lockos_sz, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fallocate( ctx->lockos_fd, 0, 0, (off_t)lockos_sz ) && errno!=EOPNOTSUPP ) ) FD_LOG_ERR(( "fallocate(`%s`,%lu) failed (%i-%s)", path, lockos_sz, errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -2043,6 +2059,8 @@ unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void *            scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_tower_tile_t * ctx     = init_choreo( scratch, topo, tile );
+
+  ctx->tower->lck_fd = ctx->lockos_fd;
 
   ctx->wksp               = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->identity_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
@@ -2101,7 +2119,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, FD_ACCDB_FD_RW );
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, FD_ACCDB_FD_RW, (uint)ctx->lockos_fd );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
 }
 
@@ -2114,7 +2132,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -2123,6 +2141,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( ctx->checkpt_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->checkpt_fd;
   if( FD_LIKELY( ctx->restore_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->restore_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts database */
+  out_fds[ out_cnt++ ] = ctx->lockos_fd; /* lockout interval spill */
 
   return out_cnt;
 }

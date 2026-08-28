@@ -379,6 +379,17 @@
 #define FD_TOWER_LOCKOS_MAX 31UL
 #define FD_TOWER_VOTE_MAX (FD_TOWER_LOCKOS_MAX)
 
+/* Lockout interval lists are tiered: the most recent FD_TOWER_LOCKOS_WND
+   executed slots' lists live in a RAM pool, older lists spill whole to
+   an explicit-I/O file (lck_fd) holding full blk_max*31*vtr_max
+   capacity.  Mainnet unrooted depth is ~32 slots so the disk tier is
+   never touched in steady state; only deep-unroot/catchup regimes
+   spill.  FD_TOWER_LOCKOS_SPILL_FOOTPRINT is the required file size:
+   blk_max regions of 31*vtr_max 8-byte {start,packed} records. */
+
+#define FD_TOWER_LOCKOS_WND (512UL)
+#define FD_TOWER_LOCKOS_SPILL_FOOTPRINT( blk_max, vtr_max ) (FD_TOWER_LOCKOS_MAX*(blk_max)*(vtr_max)*8UL)
+
 /* fd_tower is a representation of a validator's "vote tower" (described
    in detail in the preamble at the top of this file).  The votes in the
    tower are stored in an fd_deque.c ordered from lowest to highest vote
@@ -480,10 +491,21 @@ struct fd_tower {
   void *             blk_map;   /* map chain of blk_t elements (NULL if blk_max==0) */
   fd_tower_vtr_t *   vtrs;      /* deque of voter entries (NULL if vtr_max==0) */
 
-  void * lck_pool;        /* lockout interval pool */
+  void * lck_pool;        /* lockout interval pool (RAM window: 31*wnd*vtr_max) */
   void * lck_slot_map;    /* slot -> head of that slot's interval list in lck_pool */
   void * lck_pubkey_pool; /* refcounted vote-account pubkey pool for lockouts */
   void * lck_pubkey_map;  /* map of vote-account pubkeys for lockouts */
+
+  int    lck_fd;          /* lockout spill file (owner sets after join; -1 disables spill) */
+  ulong  lck_wnd;         /* max resident slot lists (min(FD_TOWER_LOCKOS_WND, blk_max)) */
+  ulong  lck_resident;    /* current resident slot list cnt */
+  ulong  lck_lru_head;    /* oldest resident slot (ULONG_MAX if none) */
+  ulong  lck_lru_tail;    /* newest resident slot (ULONG_MAX if none) */
+  ulong  lck_spill_cnt;   /* slot lists spilled to disk (0 at mainnet steady state) */
+  ulong  lck_load_cnt;    /* spilled slot lists read back */
+  void * lck_scratch;     /* pack/unpack buffer for one slot list (31*vtr_max records) */
+  void * lck_regions;     /* free stack of blk_max spill file region idxs */
+  ulong  lck_region_free; /* free stack top */
 
   fd_tower_stakes_vtr_map_t * stk_vtr_map;
   fd_tower_stakes_vtr_t *     stk_vtr_pool;

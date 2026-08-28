@@ -7,7 +7,10 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint checkpt_fd, uint restore_fd, uint accounts_fd
+#
+# lockos_fd: The spill file holding cold lockout interval slot lists
+#            (full worst-case capacity; RAM keeps a recent-slot window).
+uint logfile_fd, uint checkpt_fd, uint restore_fd, uint accounts_fd, uint lockos_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -56,3 +59,7 @@ preadv2: (eq (arg 0) accounts_fd)
 # device in chunks, as it runs out.
 fallocate: (and (eq (arg 0) accounts_fd)
                 (eq (arg 1) 0))
+
+# tower lockout spill: spill/reload cold slot lists whole
+pwrite64: (eq (arg 0) lockos_fd)
+pread64:  (eq (arg 0) lockos_fd)

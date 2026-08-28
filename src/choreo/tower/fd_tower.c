@@ -1,5 +1,7 @@
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "fd_tower.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
@@ -67,9 +69,22 @@ FD_STATIC_ASSERT( sizeof(lockout_interval_t)==12UL, lockout_interval );
 #define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
+/* lockout_rec is a lockout_interval spilled to the lck_fd file (chain
+   links dropped: spilled lists are stored as dense record arrays). */
+
+struct lockout_rec {
+  uint start;
+  uint packed;
+};
+typedef struct lockout_rec lockout_rec_t;
+
 struct lockout_slot {
-  ulong slot; /* executed (fork) slot, map key */
-  uint  head; /* head of this slot's interval list in lck_pool; UINT_MAX if empty */
+  ulong slot;     /* executed (fork) slot, map key */
+  uint  head;     /* head of this slot's interval list in lck_pool; UINT_MAX if empty/spilled */
+  uint  region;   /* spill file region idx if spilled; UINT_MAX if resident */
+  uint  disk_cnt; /* records in spill region (spilled only) */
+  ulong lru_prev; /* older resident slot (ULONG_MAX if oldest; unused when spilled) */
+  ulong lru_next; /* newer resident slot (ULONG_MAX if newest; unused when spilled) */
 };
 typedef struct lockout_slot lockout_slot_t;
 
@@ -117,6 +132,9 @@ FD_STATIC_ASSERT( sizeof(lockout_pubkey_ref_t)==40UL, lockout_pubkey_ref );
 #define THRESHOLD_RATIO (2.0 / 3.0)
 #define SWITCH_RATIO    (0.38)
 
+static ulong
+lockos_load( fd_tower_t * tower, lockout_slot_t const * ls );
+
 ulong
 fd_tower_align( void ) {
   return 128UL;
@@ -138,7 +156,9 @@ fd_tower_footprint( ulong blk_max,
                     ulong vtr_max ) {
   if( FD_UNLIKELY( !fd_tower_max_valid( blk_max, vtr_max ) ) ) return 0UL;
 
-  ulong lck_pool_max      = FD_TOWER_LOCKOS_MAX*blk_max*vtr_max;
+  ulong lck_wnd           = fd_ulong_min( FD_TOWER_LOCKOS_WND, blk_max );
+  ulong lck_pool_max      = FD_TOWER_LOCKOS_MAX*lck_wnd*vtr_max;
+  ulong lck_rec_max       = FD_TOWER_LOCKOS_MAX*vtr_max;
   int   lck_lg_slot_cnt   = fd_ulong_find_msb( fd_ulong_pow2_up( blk_max ) ) + 1;
   ulong lck_pubkey_max    = 2UL * vtr_max;
   ulong lck_pubkey_chains = lockout_pubkey_map_chain_cnt_est( lck_pubkey_max );
@@ -160,6 +180,8 @@ fd_tower_footprint( ulong blk_max,
   l = FD_LAYOUT_APPEND( l, lockout_slot_map_align(),         lockout_slot_map_footprint     ( lck_lg_slot_cnt )          );
   l = FD_LAYOUT_APPEND( l, lockout_pubkey_pool_align(),      lockout_pubkey_pool_footprint  ( lck_pubkey_max )           );
   l = FD_LAYOUT_APPEND( l, lockout_pubkey_map_align(),       lockout_pubkey_map_footprint   ( lck_pubkey_chains )        );
+  l = FD_LAYOUT_APPEND( l, alignof(lockout_rec_t),           lck_rec_max*sizeof(lockout_rec_t)                           );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                    blk_max*sizeof(uint)                                        );
   /* stakes */
   l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( stk_vtr_chain_cnt )     );
   l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * blk_max )     );
@@ -190,7 +212,9 @@ fd_tower_new( void * shmem,
     return NULL;
   }
 
-  ulong lck_pool_max      = FD_TOWER_LOCKOS_MAX*blk_max*vtr_max;
+  ulong lck_wnd           = fd_ulong_min( FD_TOWER_LOCKOS_WND, blk_max );
+  ulong lck_pool_max      = FD_TOWER_LOCKOS_MAX*lck_wnd*vtr_max;
+  ulong lck_rec_max       = FD_TOWER_LOCKOS_MAX*vtr_max;
   int   lck_lg_slot_cnt   = fd_ulong_find_msb( fd_ulong_pow2_up( blk_max ) ) + 1;
   ulong lck_pubkey_max    = 2UL * vtr_max;
   ulong lck_pubkey_chains = lockout_pubkey_map_chain_cnt_est( lck_pubkey_max );
@@ -212,6 +236,8 @@ fd_tower_new( void * shmem,
   void *       lck_slot_mem   = FD_SCRATCH_ALLOC_APPEND( l, lockout_slot_map_align(),         lockout_slot_map_footprint     ( lck_lg_slot_cnt )           );
   void *       lck_pk_pool    = FD_SCRATCH_ALLOC_APPEND( l, lockout_pubkey_pool_align(),      lockout_pubkey_pool_footprint  ( lck_pubkey_max )            );
   void *       lck_pk_map     = FD_SCRATCH_ALLOC_APPEND( l, lockout_pubkey_map_align(),       lockout_pubkey_map_footprint   ( lck_pubkey_chains )         );
+  void *       lck_scratch    = FD_SCRATCH_ALLOC_APPEND( l, alignof(lockout_rec_t),           lck_rec_max*sizeof(lockout_rec_t)                            );
+  void *       lck_regions    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    blk_max*sizeof(uint)                                         );
   void *       stk_vtr_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( stk_vtr_chain_cnt )      );
   void *       stk_vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * blk_max )      );
   void *       stk_slot_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( stk_lg_slot_cnt )            );
@@ -233,6 +259,17 @@ fd_tower_new( void * shmem,
   tower->lck_slot_map    = lockout_slot_map_new     ( lck_slot_mem, lck_lg_slot_cnt, seed   );
   tower->lck_pubkey_pool = lockout_pubkey_pool_new  ( lck_pk_pool,  lck_pubkey_max          );
   tower->lck_pubkey_map  = lockout_pubkey_map_new   ( lck_pk_map,   lck_pubkey_chains, seed );
+  tower->lck_fd          = -1;
+  tower->lck_wnd         = lck_wnd;
+  tower->lck_resident    = 0UL;
+  tower->lck_lru_head    = ULONG_MAX;
+  tower->lck_lru_tail    = ULONG_MAX;
+  tower->lck_spill_cnt   = 0UL;
+  tower->lck_load_cnt    = 0UL;
+  tower->lck_scratch     = lck_scratch;
+  tower->lck_regions     = lck_regions;
+  tower->lck_region_free = blk_max;
+  for( ulong i = 0; i < blk_max; i++ ) ((uint *)lck_regions)[i] = (uint)(blk_max-1UL-i);
   tower->stk_vtr_map  = fd_tower_stakes_vtr_map_new ( stk_vtr_map,  stk_vtr_chain_cnt, seed );
   tower->stk_vtr_pool = fd_tower_stakes_vtr_pool_new( stk_vtr_pool, vtr_max * blk_max       );
   tower->stk_slot_map = fd_tower_stakes_slot_new    ( stk_slot_map, stk_lg_slot_cnt,   seed );
@@ -579,20 +616,41 @@ switch_check( fd_tower_t * tower,
          created at the time that we processed the bank for this
          candidate slot. */
 
-      lockout_slot_t const * ls = lockout_slot_map_query( lck_slot_map, candidate_slot, NULL );
-      for( uint idx = ls ? ls->head : UINT_MAX; idx!=UINT_MAX; ) {
-        lockout_interval_t const * interval = lockout_interval_pool_ele_const( lck_pool, idx );
-        idx = interval->next;
+      /* A spilled candidate slot (only reachable in deep-unroot
+         regimes, never at mainnet root lag) is pread whole into
+         lck_scratch: switch attempts are rare and already heavy, and
+         the read is one sequential <=496 KB transfer. */
+
+      lockout_slot_t const * ls       = lockout_slot_map_query( lck_slot_map, candidate_slot, NULL );
+      int                    spilled  = ls && ls->region!=UINT_MAX;
+      ulong                  disk_cnt = spilled ? lockos_load( tower, ls ) : 0UL;
+      lockout_rec_t const *  rec      = tower->lck_scratch;
+      uint                   idx      = (ls && !spilled) ? ls->head : UINT_MAX;
+      ulong                  rec_i    = 0UL;
+      for(;;) {
+        uint start, packed;
+        if( FD_UNLIKELY( spilled ) ) {
+          if( rec_i>=disk_cnt ) break;
+          start  = rec[ rec_i ].start;
+          packed = rec[ rec_i ].packed;
+          rec_i++;
+        } else {
+          if( idx==UINT_MAX ) break;
+          lockout_interval_t const * interval = lockout_interval_pool_ele_const( lck_pool, idx );
+          start  = interval->start;
+          packed = interval->packed;
+          idx    = interval->next;
+        }
 
         /* If the end of the interval is < the last vote slot, then this
            vote account with this particular lockout is NOT locked out
            from voting for the last vote slot, so skip it. */
 
-        if( FD_LIKELY( (ulong)interval->start + (1UL<<(interval->packed & 63U)) < vote_slot ) ) continue;
+        if( FD_LIKELY( (ulong)start + (1UL<<(packed & 63U)) < vote_slot ) ) continue;
 
-        fd_hash_t const * vote_acc = &lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, interval->packed>>6 )->addr;
+        fd_hash_t const * vote_acc = &lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, packed>>6 )->addr;
 
-        if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, interval->start, vote_slot ) && interval->start > root_slot ) ) {
+        if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, start, vote_slot ) && start > root_slot ) ) {
           fd_tower_stakes_vtr_xid_t     key         = { .addr = *vote_acc, .slot = switch_slot };
           fd_tower_stakes_vtr_t const * voter_stake = fd_tower_stakes_vtr_map_ele_query_const( tower->stk_vtr_map, &key, NULL, tower->stk_vtr_pool );
 
@@ -1555,7 +1613,105 @@ fd_tower_blocks_remove( fd_tower_t * tower,
   }
 }
 
-/* Lockos implementation */
+/* Lockos implementation.
+
+   Slot lists are tiered: the lck_pool holds lists for at most lck_wnd
+   resident slots (a FIFO by residency age, linked by slot number
+   through lockout_slot_t so fd_map_dynamic entry moves are harmless).
+   When a new slot's list would exceed the window, the oldest resident
+   list spills whole to lck_fd as dense lockout_rec_t records in a
+   per-slot file region.  Spilled records keep their pubkey_idx: the
+   ref_cnt they hold pins the pubkey pool entry until removal.  Full
+   worst-case capacity (blk_max regions) lives in the file; at mainnet
+   root lag (~32 slots << lck_wnd) the file is never touched. */
+
+static ulong
+lockos_region_off( fd_tower_t const * tower, uint region ) {
+  return (ulong)region*FD_TOWER_LOCKOS_MAX*tower->vtr_max*sizeof(lockout_rec_t);
+}
+
+static void
+lockos_lru_push_tail( fd_tower_t * tower, lockout_slot_t * ls ) {
+  ls->lru_prev = tower->lck_lru_tail;
+  ls->lru_next = ULONG_MAX;
+  if( FD_LIKELY( tower->lck_lru_tail!=ULONG_MAX ) ) {
+    lockout_slot_t * tail = lockout_slot_map_query( (lockout_slot_t *)tower->lck_slot_map, tower->lck_lru_tail, NULL );
+    FD_CHECK_CRIT( tail, "tower lockout lru tail not in slot map" );
+    tail->lru_next = ls->slot;
+  } else {
+    tower->lck_lru_head = ls->slot;
+  }
+  tower->lck_lru_tail = ls->slot;
+  tower->lck_resident++;
+}
+
+static void
+lockos_lru_unlink( fd_tower_t * tower, lockout_slot_t * ls ) {
+  lockout_slot_t * m = tower->lck_slot_map;
+  if( FD_UNLIKELY( ls->lru_prev!=ULONG_MAX ) ) {
+    lockout_slot_t * prev = lockout_slot_map_query( m, ls->lru_prev, NULL );
+    FD_CHECK_CRIT( prev, "tower lockout lru prev not in slot map" );
+    prev->lru_next = ls->lru_next;
+  } else {
+    tower->lck_lru_head = ls->lru_next;
+  }
+  if( FD_LIKELY( ls->lru_next!=ULONG_MAX ) ) {
+    lockout_slot_t * next = lockout_slot_map_query( m, ls->lru_next, NULL );
+    FD_CHECK_CRIT( next, "tower lockout lru next not in slot map" );
+    next->lru_prev = ls->lru_prev;
+  } else {
+    tower->lck_lru_tail = ls->lru_prev;
+  }
+  tower->lck_resident--;
+}
+
+/* lockos_spill packs the oldest resident slot's list into lck_scratch
+   and pwrites it whole to a free file region. */
+
+static void
+lockos_spill( fd_tower_t * tower ) {
+  FD_CHECK_CRIT( tower->lck_fd>=0, "tower lockout window full and no spill file set" );
+  lockout_slot_t * ls = lockout_slot_map_query( (lockout_slot_t *)tower->lck_slot_map, tower->lck_lru_head, NULL );
+  FD_CHECK_CRIT( ls, "tower lockout lru head not in slot map" );
+
+  lockout_interval_t * lck_pool = tower->lck_pool;
+  lockout_rec_t *      rec      = tower->lck_scratch;
+  ulong                rec_max  = FD_TOWER_LOCKOS_MAX*tower->vtr_max;
+  uint                 cnt      = 0U;
+  for( uint idx = ls->head; idx!=UINT_MAX; ) {
+    lockout_interval_t * itrvl = lockout_interval_pool_ele( lck_pool, idx );
+    idx = itrvl->next;
+    FD_CHECK_CRIT( cnt<rec_max, "tower lockout slot list exceeds per-slot bound" );
+    rec[ cnt ].start  = itrvl->start;
+    rec[ cnt ].packed = itrvl->packed;
+    cnt++;
+    lockout_interval_pool_ele_release( lck_pool, itrvl );
+  }
+
+  FD_CHECK_CRIT( tower->lck_region_free, "no free tower lockout spill regions" );
+  uint  region = ((uint *)tower->lck_regions)[ --tower->lck_region_free ];
+  ulong sz     = (ulong)cnt*sizeof(lockout_rec_t);
+  if( FD_UNLIKELY( pwrite( tower->lck_fd, rec, sz, (off_t)lockos_region_off( tower, region ) )!=(long)sz ) )
+    FD_LOG_ERR(( "tower lockout spill pwrite failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  lockos_lru_unlink( tower, ls );
+  ls->head     = UINT_MAX;
+  ls->region   = region;
+  ls->disk_cnt = cnt;
+  tower->lck_spill_cnt++;
+}
+
+/* lockos_load preads a spilled slot's records into lck_scratch.
+   Returns the record cnt. */
+
+static ulong
+lockos_load( fd_tower_t * tower, lockout_slot_t const * ls ) {
+  ulong sz = (ulong)ls->disk_cnt*sizeof(lockout_rec_t);
+  if( FD_UNLIKELY( pread( tower->lck_fd, tower->lck_scratch, sz, (off_t)lockos_region_off( tower, ls->region ) )!=(long)sz ) )
+    FD_LOG_ERR(( "tower lockout pread failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  tower->lck_load_cnt++;
+  return (ulong)ls->disk_cnt;
+}
 
 void
 fd_tower_lockos_insert( fd_tower_t *      tower,
@@ -1583,10 +1739,41 @@ fd_tower_lockos_insert( fd_tower_t *      tower,
   uint pubkey_idx = (uint)lockout_pubkey_pool_idx( tower->lck_pubkey_pool, ref );
 
   lockout_slot_t * ls = lockout_slot_map_query( lck_slot_map, slot, NULL );
+
+  if( FD_UNLIKELY( ls && ls->region!=UINT_MAX ) ) {
+
+    /* Cold append to an already spilled slot (deep-unroot regimes
+       only, e.g. a minority fork slot executed long after eviction). */
+
+    lockout_rec_t * rec     = tower->lck_scratch;
+    ulong           rec_max = FD_TOWER_LOCKOS_MAX*tower->vtr_max;
+    uint            cnt     = 0U;
+    for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init( votes );
+                                    !fd_tower_vote_iter_done( votes, iter );
+                              iter = fd_tower_vote_iter_next( votes, iter ) ) {
+      fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( votes, iter );
+      FD_CHECK_CRIT( vote->conf<=FD_TOWER_LOCKOS_MAX, "tower lockout conf out of range" );
+      rec[ cnt ].start  = (uint)vote->slot;
+      rec[ cnt ].packed = (uint)vote->conf | (pubkey_idx<<6);
+      cnt++;
+    }
+    FD_CHECK_CRIT( (ulong)ls->disk_cnt+cnt<=rec_max, "tower lockout slot region overflow" );
+    ulong sz  = (ulong)cnt*sizeof(lockout_rec_t);
+    ulong off = lockos_region_off( tower, ls->region ) + (ulong)ls->disk_cnt*sizeof(lockout_rec_t);
+    if( FD_UNLIKELY( pwrite( tower->lck_fd, rec, sz, (off_t)off )!=(long)sz ) )
+      FD_LOG_ERR(( "tower lockout append pwrite failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    ls->disk_cnt += cnt;
+    return;
+  }
+
   if( FD_UNLIKELY( !ls ) ) {
+    if( FD_UNLIKELY( tower->lck_resident>=tower->lck_wnd ) ) lockos_spill( tower );
     ls = lockout_slot_map_insert( lck_slot_map, slot );
     FD_CHECK_CRIT( ls, "no free entries in tower lockout slot map" );
-    ls->head = UINT_MAX;
+    ls->head     = UINT_MAX;
+    ls->region   = UINT_MAX;
+    ls->disk_cnt = 0U;
+    lockos_lru_push_tail( tower, ls );
   }
 
   for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init( votes );
@@ -1595,7 +1782,7 @@ fd_tower_lockos_insert( fd_tower_t *      tower,
     fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( votes, iter );
 
     FD_CHECK_CRIT( vote->conf<=FD_TOWER_LOCKOS_MAX, "tower lockout conf out of range" );
-    FD_TEST( lockout_interval_pool_free( lck_pool ) );
+    FD_TEST( lockout_interval_pool_free( lck_pool ) ); /* only reachable if a slot exceeds the 31*vtr_max per-slot bound */
     lockout_interval_t * interval = lockout_interval_pool_ele_acquire( lck_pool );
     interval->start      = (uint)vote->slot;
     interval->packed     = (uint)vote->conf | (pubkey_idx<<6);
@@ -1614,15 +1801,29 @@ fd_tower_lockos_remove( fd_tower_t * tower,
   lockout_slot_t * ls = lockout_slot_map_query( lck_slot_map, slot, NULL );
   if( FD_UNLIKELY( !ls ) ) return;
 
-  for( uint idx = ls->head; idx!=UINT_MAX; ) {
-    lockout_interval_t * itrvl = lockout_interval_pool_ele( lck_pool, idx );
-    idx = itrvl->next;
-    lockout_pubkey_ref_t * ref = lockout_pubkey_pool_ele( tower->lck_pubkey_pool, itrvl->packed>>6 );
-    if( FD_LIKELY( !--ref->ref_cnt ) ) {
-      FD_CHECK_CRIT( lockout_pubkey_map_ele_remove( tower->lck_pubkey_map, &ref->addr, NULL, tower->lck_pubkey_pool ), "unable to remove tower lockout pubkey" );
-      lockout_pubkey_pool_ele_release( tower->lck_pubkey_pool, ref );
+  if( FD_UNLIKELY( ls->region!=UINT_MAX ) ) {
+    ulong                 cnt = lockos_load( tower, ls );
+    lockout_rec_t const * rec = tower->lck_scratch;
+    for( ulong i = 0; i < cnt; i++ ) {
+      lockout_pubkey_ref_t * ref = lockout_pubkey_pool_ele( tower->lck_pubkey_pool, rec[i].packed>>6 );
+      if( FD_LIKELY( !--ref->ref_cnt ) ) {
+        FD_CHECK_CRIT( lockout_pubkey_map_ele_remove( tower->lck_pubkey_map, &ref->addr, NULL, tower->lck_pubkey_pool ), "unable to remove tower lockout pubkey" );
+        lockout_pubkey_pool_ele_release( tower->lck_pubkey_pool, ref );
+      }
     }
-    lockout_interval_pool_ele_release( lck_pool, itrvl );
+    ((uint *)tower->lck_regions)[ tower->lck_region_free++ ] = ls->region;
+  } else {
+    for( uint idx = ls->head; idx!=UINT_MAX; ) {
+      lockout_interval_t * itrvl = lockout_interval_pool_ele( lck_pool, idx );
+      idx = itrvl->next;
+      lockout_pubkey_ref_t * ref = lockout_pubkey_pool_ele( tower->lck_pubkey_pool, itrvl->packed>>6 );
+      if( FD_LIKELY( !--ref->ref_cnt ) ) {
+        FD_CHECK_CRIT( lockout_pubkey_map_ele_remove( tower->lck_pubkey_map, &ref->addr, NULL, tower->lck_pubkey_pool ), "unable to remove tower lockout pubkey" );
+        lockout_pubkey_pool_ele_release( tower->lck_pubkey_pool, ref );
+      }
+      lockout_interval_pool_ele_release( lck_pool, itrvl );
+    }
+    lockos_lru_unlink( tower, ls );
   }
   lockout_slot_map_remove( lck_slot_map, ls );
 }
