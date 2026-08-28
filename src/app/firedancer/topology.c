@@ -488,7 +488,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup",  "verify_dedup",  config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,             1UL );
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  16UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* min pow2 >= replay's STEM_BURST (14); ideally 2, needs per-link burst */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    32768UL,                                  sizeof(fd_replay_message_t),   1UL ); /* ~0.5s of per-txn msgs at 65k TPS catchup replay */
-  /**/                 fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL,                                  sizeof(fd_execrp_task_msg_t),  1UL );
+  /**/                 fd_topob_link( topo, "replay_execrp", "replay_execrp", 4096UL,                                   sizeof(fd_execrp_task_msg_t),  1UL ); /* sched dispatches <=1 task/execrp tile, occupancy <=execrp_tile_cnt */
   /**/                 fd_topob_link( topo, "admin_replay",  "admin_replay",  32UL,                                     0UL,                           1UL );
   /**/                 fd_topob_link( topo, "replay_admin",  "admin_replay",  32UL,                                     0UL,                           1UL );
   if( leader_enabled ) {
@@ -534,7 +534,7 @@ fd_topo_initialize( config_t * config ) {
   }
   /**/                 fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
 
-  FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
+  FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 4096UL,                                   sizeof(fd_execrp_task_done_msg_t), 1UL ); /* >= replay_execrp depth; sized for gui (reliable) lag, ~630ms/link at 65k TPS catchup */
   if( FD_LIKELY( config->tiles.gui.enabled ) )
     fd_topob_link( topo, "diag_gui", "diag_gui", 4UL, sizeof(fd_diag_system_resources_t), 1UL );
 

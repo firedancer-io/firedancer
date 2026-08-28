@@ -4171,10 +4171,10 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
    conservative bound. */
 #define STEM_BURST (15UL)
 
-/* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
-   depth (i.e. cr_max) but excludes replay_epoch, which is so infrequent
-   credit availability is a non-issue.   */
-#define STEM_LAZY ((long)36865)
+/* fd_tempo_lazy_default( 4096 ) where 4096 is the minimum out-link
+   depth (i.e. cr_max, replay_execrp) but excludes replay_epoch, which
+   is so infrequent credit availability is a non-issue.   */
+#define STEM_LAZY ((long)9217)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_replay_tile_t)
