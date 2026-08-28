@@ -11,6 +11,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_conn.h"
@@ -93,9 +94,6 @@ typedef struct publish publish_t;
 #define QUEUE_T    publish_t
 #include "../../util/tmpl/fd_queue_dynamic.c"
 
-/* where gossip says to reach a peer's Alpenglow socket.  Written only
-   by handle_gossip, and sized to every contact info gossip can hold. */
-
 #define CONTACT_INFOS_LG_SLOT_CNT (16) /* FD_CONTACT_INFO_TABLE_SIZE keys, fill ratio 0.5 */
 FD_STATIC_ASSERT( (1UL<<CONTACT_INFOS_LG_SLOT_CNT)==2UL*FD_CONTACT_INFO_TABLE_SIZE, contact_infos );
 
@@ -124,9 +122,9 @@ FD_STATIC_ASSERT( (1UL<<PEERS_LG_SLOT_CNT)>=4UL*AG_VAT_MAX, peers );
 
 struct peer {
   fd_pubkey_t      id_key;
-  ushort           curr_rank;    /* USHORT_MAX when the identity is unranked in that epoch */
+  ushort           curr_rank;
   ushort           next_rank;
-  fd_quic_conn_t * conn;         /* our outbound connection, NULL when not dialled */
+  fd_quic_conn_t * conn;
 };
 typedef struct peer peer_t;
 
@@ -147,8 +145,8 @@ struct fd_votor_tile {
 
   /* Metadata */
 
-  uchar const * identity_keypair; /* FIXME */
-  fd_pubkey_t   identity;         /* identity_keypair's public half, as the peers key type */
+  uchar const * identity_keypair; /* FIXME keyguard */
+  fd_pubkey_t   id_key;
   ag_bls_sec_t  bls_key;
   uchar         sha512[ FD_SHA512_FOOTPRINT ] __attribute__((aligned(FD_SHA512_ALIGN)));
   ushort        shred_version;
@@ -158,17 +156,22 @@ struct fd_votor_tile {
   ag_block_id_t     rooted_block_id;
   ag_epoch_info_t * curr_epoch_info;
   ulong             curr_epoch_slot;
-  ushort            curr_epoch_rank; /* USHORT_MAX when we hold no stake this epoch */
+  ushort            curr_epoch_rank;
   ag_epoch_info_t * next_epoch_info;
   ulong             next_epoch_slot;
   ushort            next_epoch_rank;
-  contact_info_t *  contact_infos;   /* identity -> where gossip says to reach its Alpenglow socket */
-  peer_t *          peers;           /* identity -> its rank in each of the above, our conn */
+  contact_info_t *  contact_infos;
+  peer_t *          peers;
   ag_pool_t *       pool;
   ag_votor_t *      votor;
   replayed_t *      replayed;
   ag_block_id_t *   rooted;
   publish_t *       publishes;
+
+  /* Leader */
+
+  fd_multi_epoch_leaders_t * mleaders;
+  ulong                      next_leader_slot;
 
   /* Networking */
 
@@ -496,7 +499,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   /* update our own rank */
 
-  peer_t const * self = peers_query( ctx->peers, ctx->identity, NULL );
+  peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
   ctx->curr_epoch_rank = self ? self->curr_rank : USHORT_MAX;
   ctx->next_epoch_rank = self ? self->next_rank : USHORT_MAX;
 
@@ -505,6 +508,13 @@ handle_epoch( fd_votor_tile_t *           ctx,
   ushort epoch_rank = fd_ushort_if( !!ctx->next_epoch_info, ctx->next_epoch_rank, ctx->curr_epoch_rank );
   ag_pool_advance_epoch( ctx->pool, epoch_info, epoch_rank, msg->start_slot );
   ag_votor_advance_epoch( ctx->votor, epoch_rank, msg->start_slot );
+
+  /* update our leader schedule.  msg only points into the epoch dcache
+     for this callback, so it must be consumed here. */
+
+  fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
+  fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, msg->start_slot, &ctx->id_key );
 }
 
 static void
@@ -613,16 +623,17 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   int lg_blk_max = fd_ulong_find_msb( fd_ulong_pow2_up( AG_EQVOC_BLOCK_HASH_MAX*tile->votor.max_live_slots ) ) + 1;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                           );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &quic_client_limits )         );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &quic_server_limits )         );
-  l = FD_LAYOUT_APPEND( l, ag_pool_align(),          ag_pool_footprint( tile->votor.max_live_slots )   );
-  l = FD_LAYOUT_APPEND( l, ag_votor_align(),         ag_votor_footprint( tile->votor.max_live_slots )  );
-  l = FD_LAYOUT_APPEND( l, replayed_align(),         replayed_footprint( lg_blk_max )                          );
-  l = FD_LAYOUT_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots )    );
-  l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, peers_align(),            peers_footprint()                                 );
-  l = FD_LAYOUT_APPEND( l, contact_infos_align(),    contact_infos_footprint()                         );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                           );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
+  l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
+  l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
+  l = FD_LAYOUT_APPEND( l, replayed_align(),               replayed_footprint( lg_blk_max )                  );
+  l = FD_LAYOUT_APPEND( l, rooted_align(),                 rooted_footprint( tile->votor.max_live_slots )    );
+  l = FD_LAYOUT_APPEND( l, publishes_align(),              publishes_footprint( tile->votor.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                 );
+  l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
+  l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -723,6 +734,23 @@ after_credit( fd_votor_tile_t *   ctx,
     }
     *charge_busy = 1;
   }
+
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* no upcoming leader slot */
+
+  while( FD_UNLIKELY( ctx->next_leader_slot < ag_pool_finalized_slot( ctx->pool ) ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+1UL, &ctx->id_key );
+
+  ag_block_id_t parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
+  if( FD_UNLIKELY( parent.slot==ULONG_MAX ) ) return; /* the pool has not granted parent ready yet */
+
+  publish_t pub = { .sig = FD_VOTOR_SIG_LEADER };
+  pub.msg.leader.start_slot  = ctx->next_leader_slot;
+  pub.msg.leader.parent_slot = parent.slot;
+  memcpy( pub.msg.leader.parent_block_id.uc, parent.hash, sizeof(fd_hash_t) );
+  FD_TEST( !publishes_full( ctx->publishes ) );
+  publishes_push( ctx->publishes, pub );
+
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+1UL, &ctx->id_key );
+  *charge_busy = 1;
 }
 
 static int
@@ -848,7 +876,7 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_keypair = fd_keyload_load( tile->votor.identity_key_path, 0 );
-  memcpy( ctx->identity.uc, ctx->identity_keypair+32UL, sizeof(fd_pubkey_t) );
+  memcpy( ctx->id_key.uc, ctx->identity_keypair+32UL, sizeof(fd_pubkey_t) );
 
   static char const derive_msg[] = "bls-key-derive-alpenglow";
   uchar         ikm[ 64 ];
@@ -870,16 +898,17 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_votor_tile_t * ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                           );
-  void *            quic_client = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),         fd_quic_footprint( &quic_client_limits )         );
-  void *            quic_server = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),         fd_quic_footprint( &quic_server_limits )         );
-  void *            pool       = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),          ag_pool_footprint( tile->votor.max_live_slots )   );
-  void *            votor      = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),         ag_votor_footprint( tile->votor.max_live_slots )  );
-  void *            replayed   = FD_SCRATCH_ALLOC_APPEND( l, replayed_align(),         replayed_footprint( lg_blk_max )                  );
-  void *            rooted     = FD_SCRATCH_ALLOC_APPEND( l, rooted_align(),           rooted_footprint( tile->votor.max_live_slots )    );
-  void *            publishes  = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( tile->votor.max_live_slots ) );
-  void *            peers      = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),            peers_footprint()                                 );
-  void *        contact_infos  = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),    contact_infos_footprint()                         );
+  fd_votor_tile_t * ctx           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                           );
+  void *            quic_client   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
+  void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
+  void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
+  void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
+  void *            replayed      = FD_SCRATCH_ALLOC_APPEND( l, replayed_align(),               replayed_footprint( lg_blk_max )                  );
+  void *            rooted        = FD_SCRATCH_ALLOC_APPEND( l, rooted_align(),                 rooted_footprint( tile->votor.max_live_slots )    );
+  void *            publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),              publishes_footprint( tile->votor.max_live_slots ) );
+  void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                 );
+  void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
+  void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -894,9 +923,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->pool );
 
-  ctx->votor     = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
+  ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
-  ag_votor_set_bls_key ( ctx->votor, ctx->bls_key );
+  ag_votor_set_bls_key( ctx->votor, ctx->bls_key );
 
   ctx->curr_epoch_info = NULL;
   ctx->curr_epoch_slot = ULONG_MAX;
@@ -935,6 +964,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos ) );
   FD_TEST( ctx->contact_infos );
+
+  ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
+  FD_TEST( ctx->mleaders );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -980,17 +1012,17 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->quic_client );
   fd_quic_set_aio_net_tx( ctx->quic_client, quic_tx_aio );
 
-  ctx->quic_client->config.role         = FD_QUIC_ROLE_CLIENT;
-  ctx->quic_client->config.retry        = 0;
-  ctx->quic_client->config.keep_alive   = 1;
-  ctx->quic_client->config.idle_timeout = 5L*1000L*1000L*1000L;
-  ctx->quic_client->config.ack_delay    = 2L*1000L*1000L;
-  fd_memcpy( ctx->quic_client->config.identity_public_key, ctx->identity.uc, 32UL );
-  ctx->quic_client->config.sign         = quic_sign;
-  ctx->quic_client->config.sign_ctx     = ctx;
-  ctx->quic_client->config.alpn[ 0 ]    = 0x0c;
+  ctx->quic_client->config.role                       = FD_QUIC_ROLE_CLIENT;
+  ctx->quic_client->config.retry                      = 0;
+  ctx->quic_client->config.keep_alive                 = 1;
+  ctx->quic_client->config.idle_timeout               = 5L*1000L*1000L*1000L;
+  ctx->quic_client->config.ack_delay                  = 2L*1000L*1000L;
+  fd_memcpy( ctx->quic_client->config.identity_public_key, ctx->id_key.uc, 32UL );
+  ctx->quic_client->config.sign                       = quic_sign;
+  ctx->quic_client->config.sign_ctx                   = ctx;
+  ctx->quic_client->config.alpn[ 0 ]                  = 0x0c;
   fd_memcpy( ctx->quic_client->config.alpn+1, "alpenglow-v1", 12UL );
-  ctx->quic_client->config.alpn_sz      = 13UL;
+  ctx->quic_client->config.alpn_sz                    = 13UL;
   ctx->quic_client->config.initial_rx_max_stream_data = 0UL;
 
   ctx->quic_client->cb.quic_ctx         = ctx;
@@ -1003,16 +1035,16 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->quic_server );
   fd_quic_set_aio_net_tx( ctx->quic_server, quic_tx_aio );
 
-  ctx->quic_server->config.role         = FD_QUIC_ROLE_SERVER;
-  ctx->quic_server->config.retry        = 0;
-  ctx->quic_server->config.idle_timeout = 5L*1000L*1000L*1000L;
-  ctx->quic_server->config.ack_delay    = 2L*1000L*1000L;
-  fd_memcpy( ctx->quic_server->config.identity_public_key, ctx->identity.uc, 32UL );
-  ctx->quic_server->config.sign         = quic_sign;
-  ctx->quic_server->config.sign_ctx     = ctx;
-  ctx->quic_server->config.alpn[ 0 ]    = 0x0c;
+  ctx->quic_server->config.role                       = FD_QUIC_ROLE_SERVER;
+  ctx->quic_server->config.retry                      = 0;
+  ctx->quic_server->config.idle_timeout               = 5L*1000L*1000L*1000L;
+  ctx->quic_server->config.ack_delay                  = 2L*1000L*1000L;
+  fd_memcpy( ctx->quic_server->config.identity_public_key, ctx->id_key.uc, 32UL );
+  ctx->quic_server->config.sign                       = quic_sign;
+  ctx->quic_server->config.sign_ctx                   = ctx;
+  ctx->quic_server->config.alpn[ 0 ]                  = 0x0c;
   fd_memcpy( ctx->quic_server->config.alpn+1, "alpenglow-v1", 12UL );
-  ctx->quic_server->config.alpn_sz      = 13UL;
+  ctx->quic_server->config.alpn_sz                    = 13UL;
   ctx->quic_server->config.initial_rx_max_stream_data = 0UL;
   ctx->quic_server->config.max_datagram_frame_size    = 1280UL;
 

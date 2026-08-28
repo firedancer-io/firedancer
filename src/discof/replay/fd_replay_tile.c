@@ -697,11 +697,6 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   ulong slot = bank->f.slot;
 
-  /* Under Alpenglow nothing supplies a reset block, so shim the slot we
-     just replayed in for it to keep the reset slot metric live. */
-
-  if( FD_UNLIKELY( ctx->alpenglow ) ) ctx->reset_slot = slot;
-
   if( FD_UNLIKELY( is_initial ) ) bank->block_completed_nanos = fd_clock_tile_now( ctx->clock );
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->idx ];
@@ -3169,6 +3164,47 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
+try_become_leader_ag( fd_replay_tile_t *        ctx,
+                      fd_stem_context_t *       stem,
+                      fd_votor_leader_t const * msg ) {
+
+  ulong             leader_slot     =  msg->start_slot;
+  ulong             parent_slot     =  msg->parent_slot;
+  fd_hash_t const * parent_block_id = &msg->parent_block_id;
+
+  FD_TEST( leader_slot>parent_slot );
+  FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || leader_slot>ctx->highwater_leader_slot );
+
+  fd_block_id_ele_t * block_id_ele = dmr_map_ele_query( ctx->dmr_map, parent_block_id, NULL, ctx->block_id_arr );
+  if( FD_UNLIKELY( !block_id_ele ) ) {
+    FD_LOG_WARNING(( "ignoring leader trigger from votor because parent block has been evicted (slot=%lu)", parent_slot ));
+    return;
+  }
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
+  if( FD_UNLIKELY( !bank || bank->bank_seq!=block_id_ele->bank_seq || bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+    FD_LOG_WARNING(( "ignoring leader trigger from votor because parent bank has been evicted (slot=%lu)", parent_slot ));
+    return;
+  }
+  if( FD_UNLIKELY( bank->state!=FD_BANK_STATE_FROZEN ) ) {
+    FD_LOG_WARNING(( "ignoring leader trigger from votor because parent bank is not frozen (slot=%lu)", parent_slot ));
+    return;
+  }
+  FD_TEST( bank->f.slot==parent_slot );
+
+  ctx->reset_block_id        = *parent_block_id;
+  ctx->reset_slot            = parent_slot;
+  ctx->reset_timestamp_nanos = fd_clock_tile_now( ctx->clock );
+
+  ctx->next_leader_slot      = leader_slot;
+  ctx->next_leader_tickcount = fd_tickcount();
+
+  publish_reset( ctx, stem, bank );
+
+  FD_LOG_NOTICE(( "becoming leader for slot=%lu parent_slot=%lu", ctx->next_leader_slot, ctx->reset_slot ));
+  try_become_leader( ctx, stem );
+}
+
+static void
 process_fec_complete( fd_replay_tile_t *         ctx,
                       ulong                      sig,
                       fd_repair_fec_complete_t * complete_msg ) {
@@ -3659,6 +3695,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
         FD_TEST( msg->slot>ctx->consensus_root_slot );
         ctx->consensus_root_slot = msg->slot;
         ctx->consensus_root      = msg->block_id;
+      } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
+        try_become_leader_ag( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }
