@@ -580,10 +580,16 @@ static void
 write_snapshots( config_t const * config,
                  ulong const *    cur_tile,
                  ulong const *    prev_tile ) {
+  /* N symmetric snapin tiles each walk the whole tar stream and
+     insert (and write) their own share of the accounts; there is no
+     snapwr tile in this topology (it still exists in the
+     firedancer-dev backtest/forktest topologies, so tolerate its
+     absence here). */
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
   ulong snapin_idx = fd_topo_find_tile( &config->topo, "snapin", 0UL );
   ulong snapwr_idx = fd_topo_find_tile( &config->topo, "snapwr", 0UL );
   ulong snapdc_tile_cnt = fd_topo_tile_name_cnt( &config->topo, "snapdc" );
+  ulong snapin_tile_cnt = fd_topo_tile_name_cnt( &config->topo, "snapin" );
   ulong state = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, STATE ) ];
 
   double progress = 0.0;
@@ -614,8 +620,10 @@ write_snapshots( config_t const * config,
          merely downloaded by snapct. */
       ulong consumed, dc_in, dc_out, size_bytes;
       if( FD_UNLIKELY( incremental ) ) {
-        consumed   = fd_ulong_min( cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ],
-                                   cur_tile[ snapwr_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, INCREMENTAL_BYTES_READ ) ] );
+        consumed   = cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ];
+        if( FD_LIKELY( snapwr_idx!=ULONG_MAX ) ) {
+          consumed = fd_ulong_min( consumed, cur_tile[ snapwr_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, INCREMENTAL_BYTES_READ ) ] );
+        }
         dc_in      = 0UL;
         dc_out     = 0UL;
         for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
@@ -625,8 +633,10 @@ write_snapshots( config_t const * config,
         }
         size_bytes = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ];
       } else {
-        consumed   = fd_ulong_min( cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],
-                                   cur_tile[ snapwr_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FULL_BYTES_READ ) ] );
+        consumed   = cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ];
+        if( FD_LIKELY( snapwr_idx!=ULONG_MAX ) ) {
+          consumed = fd_ulong_min( consumed, cur_tile[ snapwr_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FULL_BYTES_READ ) ] );
+        }
         dc_in      = 0UL;
         dc_out     = 0UL;
         for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
@@ -670,8 +680,15 @@ write_snapshots( config_t const * config,
     ulong snapdc_idx = fd_topo_find_tile( &config->topo, "snapdc", i );
     snapdc_total_ticks += total_regime( &cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ ] );
   }
-  ulong snapin_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] );
-  ulong snapwr_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapwr", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapwr", 0UL )*FD_METRICS_TOTAL_SZ ] );
+  /* Aggregate every snapin tile's regime ticks: there is no separate
+     coordinator/worker split in this topology, so the "in" and "wr"
+     columns both describe the same N symmetric tiles. */
+  ulong snapin_total_ticks = 0UL;
+  for( ulong i=0UL; i<snapin_tile_cnt; i++ ) {
+    ulong idx = fd_topo_find_tile( &config->topo, "snapin", i );
+    snapin_total_ticks += total_regime( &cur_tile[ idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ idx*FD_METRICS_TOTAL_SZ ] );
+  }
+  ulong snapwr_total_ticks = snapin_total_ticks;
   snapct_total_ticks = fd_ulong_max( snapct_total_ticks, 1UL );
   snapld_total_ticks = fd_ulong_max( snapld_total_ticks, 1UL );
   snapdc_total_ticks = fd_ulong_max( snapdc_total_ticks, 1UL );
@@ -682,13 +699,13 @@ write_snapshots( config_t const * config,
   double snapld_backp_pct = 100.0*(double)diff_tile( config, "snapld", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapld_total_ticks;
   double snapdc_backp_pct = 100.0*(double)diff_tile( config, "snapdc", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapdc_total_ticks;
   double snapin_backp_pct = 100.0*(double)diff_tile( config, "snapin", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapin_total_ticks;
-  double snapwr_backp_pct = 100.0*(double)diff_tile( config, "snapwr", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapwr_total_ticks;
+  double snapwr_backp_pct = snapin_backp_pct;
 
   double snapct_idle_pct = 100.0*(double)diff_tile( config, "snapct", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapct_total_ticks;
   double snapld_idle_pct = 100.0*(double)diff_tile( config, "snapld", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapld_total_ticks;
   double snapdc_idle_pct = 100.0*(double)diff_tile( config, "snapdc", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapdc_total_ticks;
   double snapin_idle_pct = 100.0*(double)diff_tile( config, "snapin", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapin_total_ticks;
-  double snapwr_idle_pct = 100.0*(double)diff_tile( config, "snapwr", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapwr_total_ticks;
+  double snapwr_idle_pct = snapin_idle_pct;
 
   double busy [ 5 ] = { 100.0-snapct_idle_pct-snapct_backp_pct,
                         100.0-snapld_idle_pct-snapld_backp_pct,
@@ -1833,7 +1850,22 @@ run( config_t const * config,
       snapshot_rx_idx++;
       snapshot_acc_samples[ snapshot_acc_idx%(sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0])) ] = diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) );
       snapshot_acc_idx++;
-      snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = diff_tile( config, "snapwr", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) );
+      if( FD_LIKELY( fd_topo_find_tile( &config->topo, "snapwr", 0UL )!=ULONG_MAX ) ) {
+        snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = diff_tile( config, "snapwr", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) );
+      } else {
+        /* No snapwr tile: every snapin tile writes its own share of
+           the accounts database file as it inserts, so approximate
+           the write rate with the tar stream consumption rate.  Every
+           snapin tile walks the whole stream, so one of them (there
+           is no coordinator/worker split to pick a "the" tile) is a
+           representative sample; summing across all N would inflate
+           this by roughly N. */
+        ulong snapin_tile_idx = fd_topo_find_tile( &config->topo, "snapin", 0UL );
+        long  rd = snapin_tile_idx==ULONG_MAX ? 0L :
+                   diff_tile_idx( tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, snapin_tile_idx, MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ) +
+                   diff_tile_idx( tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, snapin_tile_idx, MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) );
+        snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = (ulong)fd_long_max( rd, 0L );
+      }
       snapshot_wr_idx++;
 
       /* Backup */

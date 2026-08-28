@@ -1475,11 +1475,19 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
 
   ulong snapdc_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "snapdc" );
 
+  /* N symmetric snapin tiles each walk the whole tar stream and insert
+     (and write) their own share of the accounts; there is no snapwr
+     tile in this topology (it still exists in the firedancer-dev
+     backtest/forktest topologies, so tolerate its absence here). */
+  ulong snapin_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "snapin" );
   fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", 0UL ) ];
   volatile ulong * snapin_metrics = fd_metrics_tile( snapin->metrics );
 
-  fd_topo_tile_t const * snapwr = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapwr", 0UL ) ];
-  volatile ulong * snapwr_metrics = fd_metrics_tile( snapwr->metrics );
+  volatile ulong * snapwr_metrics = NULL;
+  ulong            snapwr_tile_idx = fd_topo_find_tile( gui->topo, "snapwr", 0UL );
+  if( FD_UNLIKELY( snapwr_tile_idx!=ULONG_MAX ) ) {
+    snapwr_metrics = fd_metrics_tile( gui->topo->tiles[ snapwr_tile_idx ].metrics );
+  }
 
   /* Backtest topologies have no gossip tile; treat wait-for-supermajority
      as done. */
@@ -1582,17 +1590,33 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       ulong _decompress_decompressed_bytes = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapdc", snapdc_tile_cnt, fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ), MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ) );
       ulong _decompress_compressed_bytes   = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapdc", snapdc_tile_cnt, fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ),      MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ )      ) );
       ulong _insert_bytes                  = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],                 snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ]                 );
-      ulong _snapwr_in_bytes               = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapwr_metrics[ MIDX( GAUGE, SNAPWR, FULL_BYTES_READ ) ],                 snapwr_metrics[ MIDX( GAUGE, SNAPWR, INCREMENTAL_BYTES_READ ) ]                 );
 
-      ulong _insert_accounts_total         = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) ];
+      /* Sum over all snapin tiles: each of the N symmetric tiles
+         inserts (and, with no snapwr tile, writes) only its own share
+         of the accounts. */
+      ulong _insert_accounts_total         = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapin", snapin_tile_cnt, MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) );
       ulong _insert_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].insert_accounts_current );
       ulong _insert_accounts               = fd_ulong_sat_sub( _insert_accounts_total, _insert_accounts_baseline );
 
-      ulong _snapwr_accounts_total         = snapwr_metrics[ MIDX( GAUGE, SNAPWR, ACCOUNTS_WRITTEN ) ];
+      /* Without a snapwr tile the snapin tiles write account data to
+         disk as they insert it, so the write stage tracks the insert
+         stage. */
+      ulong _snapwr_in_bytes;
+      ulong _snapwr_accounts_total;
+      ulong _snapwr_out_total;
+      if( FD_UNLIKELY( snapwr_metrics ) ) {
+        _snapwr_in_bytes      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapwr_metrics[ MIDX( GAUGE, SNAPWR, FULL_BYTES_READ ) ], snapwr_metrics[ MIDX( GAUGE, SNAPWR, INCREMENTAL_BYTES_READ ) ] );
+        _snapwr_accounts_total = snapwr_metrics[ MIDX( GAUGE, SNAPWR, ACCOUNTS_WRITTEN ) ];
+        _snapwr_out_total      = snapwr_metrics[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
+      } else {
+        _snapwr_in_bytes       = _insert_bytes;
+        _snapwr_accounts_total = _insert_accounts_total;
+        _snapwr_out_total      = _insert_bytes;
+      }
+
       ulong _snapwr_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].snapwr_accounts_current );
       ulong _snapwr_accounts               = fd_ulong_sat_sub( _snapwr_accounts_total, _snapwr_accounts_baseline );
 
-      ulong _snapwr_out_total              = snapwr_metrics[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
       ulong _snapwr_out_baseline           = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].snapwr_out_bytes_decompressed );
       ulong _snapwr_out_bytes              = fd_ulong_sat_sub( _snapwr_out_total, _snapwr_out_baseline );
 
