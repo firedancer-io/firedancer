@@ -339,6 +339,68 @@ def event_buf_max(s: Schema) -> int:
 def event_buf_max_define(s: Schema) -> str:
     return to_screaming_snake_case(f"fd_event_{s.name}_buf_max")
 
+# JSON worst-case size model (mirrors event_buf_max above but for the
+# hand-rolled NDJSON encoder rather than the protobuf encoder).  Not
+# tight - just a safe upper bound so the encoder can bail out with 0
+# rather than overflow if the model is ever wrong.
+_JSON_SLACK       = 256  # envelope (tile/event/link_seq/ts_ns/braces) + margin
+_JSON_B58_32_SZ   = 44+2 # FD_BASE58_ENCODED_32_LEN, quoted
+_JSON_B58_64_SZ   = 88+2 # FD_BASE58_ENCODED_64_LEN, quoted
+_JSON_U64_SZ      = 21   # digits + sign, generous
+_JSON_BOOL_SZ     = 5    # "false"
+
+def _json_b64_sz(n: int) -> int:
+    return ((n+2)//3)*4 + 2  # FD_BASE64_ENC_SZ(n), quoted
+
+def json_scalar_max_sz(f: Field) -> int:
+    """Worst-case JSON bytes for a bare scalar/enum/fixed-byte value (no
+    key, no separators)."""
+    if f.variants:
+        return max(len(v) for v in f.variants) + len("unknown") + 2
+    if f.chtype == ClickHouseType.Signature:
+        return _JSON_B58_64_SZ
+    if f.chtype in (ClickHouseType.Pubkey, ClickHouseType.Hash):
+        return _JSON_B58_32_SZ
+    if f.chtype == ClickHouseType.IPv6:
+        return _json_b64_sz(16)
+    if _SCALAR_C[f.chtype][1] == "bool":
+        return _JSON_BOOL_SZ
+    return _JSON_U64_SZ
+
+def json_tuple_body_max_sz(f: Field) -> int:
+    """Worst-case JSON bytes for a Tuple/Flatten's '{...}' body (subfield
+    keys/values/commas), including the braces."""
+    return 2 + sum(json_field_max_sz(sn, sf) for sn, sf in f.fields.items())
+
+def json_array_element_max_sz(f: Field) -> int:
+    """Worst-case JSON bytes for one (unkeyed) array element, plus a
+    trailing comma."""
+    el = f.element
+    if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        return json_tuple_body_max_sz(el) + 1
+    return json_scalar_max_sz(el) + 1
+
+def json_field_max_sz(name: str, f: Field) -> int:
+    """Worst-case JSON bytes for one '"name":value,' struct field."""
+    key = len(name) + 3  # "name":
+    if f.chtype == ClickHouseType.Array:
+        val = 2 + f.max_len*json_array_element_max_sz(f)
+    elif f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        val = json_tuple_body_max_sz(f)
+    elif f.chtype == ClickHouseType.String:
+        val = 6*f.max_len + 2
+    elif f.chtype == ClickHouseType.Bytes:
+        val = _json_b64_sz(f.max_len)
+    else:
+        val = json_scalar_max_sz(f)
+    return key + val + 1  # +1 trailing comma
+
+def json_buf_max(s: Schema) -> int:
+    return sum(json_field_max_sz(n, f) for n, f in s.fields.items()) + _JSON_SLACK
+
+def json_buf_max_define(s: Schema) -> str:
+    return to_screaming_snake_case(f"fd_event_{s.name}_json_buf_max")
+
 def c_enum_value(schema_name: str, field_name: str, variant: str) -> str:
     return to_screaming_snake_case(f"fd_event_{schema_name}_{field_name}_{variant}")
 
@@ -397,6 +459,81 @@ def serializer_signature(s: Schema, terminator: str) -> List[str]:
     out.append(f"{pad}{t:<{tw}} {n}{terminator}")
     return out
 
+def json_enum_fn(schema_name: str, field_name: str) -> str:
+    return f"fd_event_{schema_name}_{field_name}_json_str"
+
+def json_serializer_signature(s: Schema, terminator: str) -> List[str]:
+    """Emit the fd_event_<name>_json signature, type-column aligned,
+    mirroring serializer_signature above."""
+    fn   = f"fd_event_{s.name}_json( "
+    pad  = " " * len(fn)
+    params = [
+        (f"fd_event_{s.name}_t const *", "msg"),
+        ("char const *",                 "tile_name"),
+        ("ulong",                        "link_seq"),
+        ("long",                         "timestamp_nanos"),
+        ("char *",                       "buf"),
+        ("ulong",                        "buf_sz"),
+    ]
+    tw = max(len(t) for t, _ in params)
+    out = [f"ulong", f"{fn}{params[0][0]:<{tw}} {params[0][1]},"]
+    for t, n in params[1:-1]:
+        out.append(f"{pad}{t:<{tw}} {n},")
+    t, n = params[-1]
+    out.append(f"{pad}{t:<{tw}} {n}{terminator}")
+    return out
+
+def json_append_scalar(f: Field, acc: str, ind: str) -> List[str]:
+    """Emit a JSON value (no key) for a scalar/fixed-byte field.  f must
+    not have variants - top-level enum fields are handled separately by
+    the caller via a generated *_json_str lookup function, since nested
+    enums are excluded by field_is_supported."""
+    if f.chtype == ClickHouseType.Signature:
+        return [f"{ind}p = fd_cstr_append_json_b58_64( p, {acc} );"]
+    if f.chtype in (ClickHouseType.Pubkey, ClickHouseType.Hash):
+        return [f"{ind}p = fd_cstr_append_json_b58_32( p, {acc} );"]
+    if f.chtype == ClickHouseType.IPv6:
+        return [f"{ind}p = fd_cstr_append_json_b64( p, {acc}, 16UL );"]
+    suffix = _SCALAR_C[f.chtype][1]
+    if suffix == "bool":     return [f"{ind}p = fd_cstr_append_cstr( p, ({acc}) ? \"true\" : \"false\" );"]
+    if suffix == "uint64":   return [f"{ind}p = fd_cstr_append_printf( p, \"%lu\", (ulong)({acc}) );"]
+    if suffix == "sint64":   return [f"{ind}p = fd_cstr_append_printf( p, \"%ld\", (long)({acc}) );"]
+    return                   [f"{ind}p = fd_cstr_append_printf( p, \"%u\", (uint)({acc}) );"]
+
+def json_append_tuple(f: Field, acc: str, ind: str) -> List[str]:
+    """Emit a '{...}' object (no key) for a Tuple/Flatten value."""
+    out = [f"{ind}p = fd_cstr_append_char( p, '{{' );"]
+    for j, (sn, sf) in enumerate(f.fields.items()):
+        if j: out.append(f"{ind}p = fd_cstr_append_char( p, ',' );")
+        out += json_append_field( sf, sn, f"{acc}.{sn}", ind )
+    out.append(f"{ind}p = fd_cstr_append_char( p, '}}' );")
+    return out
+
+def json_append_field(f: Field, name: str, acc: str, ind: str) -> List[str]:
+    """Emit '"name":value' (key included) for one struct field of any
+    supported type.  f must not have variants (see json_append_scalar)."""
+    lines = [f'{ind}p = fd_cstr_append_cstr( p, "\\"{name}\\":" );']
+    if f.chtype == ClickHouseType.String:
+        lines.append(f"{ind}p = fd_cstr_append_json_str( p, (char const *){acc}, {acc}_len );")
+    elif f.chtype == ClickHouseType.Bytes:
+        lines.append(f"{ind}p = fd_cstr_append_json_b64( p, {acc}, {acc}_len );")
+    elif f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        lines += json_append_tuple( f, acc, ind )
+    elif f.chtype == ClickHouseType.Array:
+        el = f.element
+        lines.append(f"{ind}p = fd_cstr_append_char( p, '[' );")
+        lines.append(f"{ind}for( ulong k=0UL; k<{acc}_cnt; k++ ) {{")
+        lines.append(f"{ind}  if( k ) p = fd_cstr_append_char( p, ',' );")
+        if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+            lines += json_append_tuple( el, f"{acc}[ k ]", ind + "  " )
+        else:
+            lines += json_append_scalar( el, f"{acc}[ k ]", ind + "  " )
+        lines.append(f"{ind}}}")
+        lines.append(f"{ind}p = fd_cstr_append_char( p, ']' );")
+    else:
+        lines += json_append_scalar( f, acc, ind )
+    return lines
+
 def generate_c_header(schemas: List[Schema]) -> str:
     eligible = [s for s in schemas if schema_is_supported(s)]
     lines = [
@@ -409,6 +546,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
         '#include "../fd_circq.h"',
         '#include "../fd_event_client.h"',
         '#include "../fd_event_report.h"',
+        '#include "../fd_event_json.h"',
         "",
     ]
 
@@ -530,6 +668,10 @@ def generate_c_header(schemas: List[Schema]) -> str:
             "   submsg + inner submsg + all fields, padded for encoder slack). */",
             f"#define {event_buf_max_define(s)} ({event_buf_max(s)}UL)",
             "",
+            f"/* Worst-case size of a {s.name} event NDJSON line (see",
+            "   fd_event_<name>_json below). */",
+            f"#define {json_buf_max_define(s)} ({json_buf_max(s)}UL)",
+            "",
         ]
 
     # Max sizeof over all generated event structs.  A sizeof-union stays O(n)
@@ -540,6 +682,11 @@ def generate_c_header(schemas: List[Schema]) -> str:
             "/* Largest generated event struct; a consumer can stage any incoming",
             "   event in a buffer of this size. */",
             f"#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union {{ {members} }}))",
+            "",
+            "/* Largest possible fd_event_<name>_json output (see block_completed's",
+            "   dynamic txn_timing array); a consumer can stage any incoming event's",
+            "   NDJSON encoding in a buffer of this size. */",
+            f"#define FD_EVENT_GEN_JSON_BUF_MAX ({max(json_buf_max(s) for s in eligible)}UL)",
             "",
         ]
 
@@ -564,6 +711,35 @@ def generate_c_header(schemas: List[Schema]) -> str:
         "                            ulong               link_seq,",
         "                            void const *        ev,",
         "                            ulong               ev_sz );",
+        "",
+    ]
+
+    # JSON encoder prototypes.  Each writes one NDJSON line (a '\0'
+    # terminated cstr, no trailing newline) to buf and returns the
+    # number of bytes written excluding the terminator, or 0 if buf_sz
+    # is smaller than the *_JSON_BUF_MAX bound (never truncates).
+    for s in eligible:
+        lines += [
+            f"/* Encode a {s.name} event as one NDJSON line: envelope fields",
+            "   (tile/event/link_seq/ts_ns) plus the event's own fields nested",
+            "   under \"fields\".  Returns 0 (and writes nothing) if buf_sz is too",
+            f"   small - buf_sz>={json_buf_max_define(s)} is always sufficient. */",
+        ] + json_serializer_signature( s, " );" ) + [""]
+
+    lines += [
+        "/* Encode an event of the given type id (the schema id carried in the",
+        "   report frag's sig) from a fully-formed fd_event_<name>_t at ev, as",
+        "   one NDJSON line.  Returns 0 if buf_sz is too small or type is",
+        "   unrecognized. */",
+        "ulong",
+        "fd_event_json_by_type( ulong        type,",
+        "                       void const * ev,",
+        "                       ulong        ev_sz,",
+        "                       char const * tile_name,",
+        "                       ulong        link_seq,",
+        "                       long         timestamp_nanos,",
+        "                       char *       buf,",
+        "                       ulong        buf_sz );",
         "",
     ]
 
@@ -653,6 +829,37 @@ def encode_field( f: Field, field_id: int, name: str, acc: str, ind: str ) -> Li
         return out
     return encode_scalar( f, field_id, acc, ind, omit_default=True )
 
+def gen_dyn_ptr_walk(s: Schema, ind: str = "  ") -> List[str]:
+    """Compute local pointers (and _cnt locals) for a schema's dynamic
+    arrays by walking from the fixed prefix end in declaration order.
+    Shared by the protobuf and JSON encoders, which both only ever see
+    packed events (fixed prefix followed by each dynamic array's used
+    entries, in declaration order) - see fd_event_report_<name>. """
+    dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+    if not dyn_names:
+        return []
+    up = s.name.upper()
+    lines = [f"{ind}uchar const * _dyn = (uchar const *)msg + FD_EVENT_{up}_PREFIX_SZ;"]
+    for dn in dyn_names:
+        f  = s.fields[dn]
+        el = f.element
+        if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+            ct = c_tuple_name( s.name, dn ) + " const *"
+        elif el.variants:
+            ct = "int const *"
+        elif el.chtype in _FIXED_BYTE_SZ:
+            ct = f"uchar const (*)[ {_FIXED_BYTE_SZ[el.chtype]}UL ]"
+        else:
+            ct = _SCALAR_C[el.chtype][0] + " const *"
+        if "(*)" in ct:
+            lines += [f"{ind}uchar const (* {dn})[ {_FIXED_BYTE_SZ[el.chtype]}UL ] = (uchar const (*)[ {_FIXED_BYTE_SZ[el.chtype]}UL ])_dyn;"]
+            lines += [f"{ind}_dyn += msg->{dn}_cnt*{_FIXED_BYTE_SZ[el.chtype]}UL;"]
+        else:
+            lines += [f"{ind}{ct} {dn} = ({ct})_dyn;"]
+            lines += [f"{ind}_dyn += msg->{dn}_cnt*sizeof({dn}[0]);"]
+        lines += [f"{ind}ulong {dn}_cnt = msg->{dn}_cnt;"]
+    return lines
+
 def generate_c_source(schemas: List[Schema]) -> str:
     eligible = [s for s in schemas if schema_is_supported(s)]
     lines = [
@@ -701,27 +908,7 @@ def generate_c_source(schemas: List[Schema]) -> str:
         # if it was packed first; serializers only ever see packed events.
         dyn_names = [n for n, f in s.fields.items() if f.dynamic]
         if dyn_names:
-            up = s.name.upper()
-            lines += [f"  uchar const * _dyn = (uchar const *)msg + FD_EVENT_{up}_PREFIX_SZ;"]
-            for dn in dyn_names:
-                f  = s.fields[dn]
-                el = f.element
-                if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
-                    ct = c_tuple_name( s.name, dn ) + " const *"
-                elif el.variants:
-                    ct = "int const *"
-                elif el.chtype in _FIXED_BYTE_SZ:
-                    ct = f"uchar const (*)[ {_FIXED_BYTE_SZ[el.chtype]}UL ]"
-                else:
-                    ct = _SCALAR_C[el.chtype][0] + " const *"
-                if "(*)" in ct:
-                    lines += [f"  uchar const (* {dn})[ {_FIXED_BYTE_SZ[el.chtype]}UL ] = (uchar const (*)[ {_FIXED_BYTE_SZ[el.chtype]}UL ])_dyn;"]
-                    lines += [f"  _dyn += msg->{dn}_cnt*{_FIXED_BYTE_SZ[el.chtype]}UL;"]
-                else:
-                    lines += [f"  {ct} {dn} = ({ct})_dyn;"]
-                    lines += [f"  _dyn += msg->{dn}_cnt*sizeof({dn}[0]);"]
-                lines += [f"  ulong {dn}_cnt = msg->{dn}_cnt;"]
-            lines += [""]
+            lines += gen_dyn_ptr_walk( s ) + [""]
         lines += [
             "  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */",
             f"  ok &= !!fd_pb_submsg_open( encoder, {s.id}U ); /* {to_pascal_case(s.name)} */",
@@ -782,6 +969,98 @@ def generate_c_source(schemas: List[Schema]) -> str:
             ]
     lines += [
         '  default: FD_LOG_ERR(( "unexpected event type %lu", type ));',
+        "  }",
+        "}",
+        "",
+    ]
+
+    # JSON encoders: one fd_event_<name>_json per schema, plus a dispatcher.
+    for s in eligible:
+        for name, f in s.fields.items():
+            if not f.variants: continue
+            fn = json_enum_fn( s.name, name )
+            lines += [f"static char const *", f"{fn}( int v ) {{", "  switch( v ) {"]
+            for vn in f.variants:
+                lines.append(f"  case {c_enum_value(s.name, name, vn)}: return \"{vn}\";")
+            lines += ["  default: return \"unknown\";", "  }", "}", ""]
+
+    for s in eligible:
+        bufmax = json_buf_max_define(s)
+        lines += json_serializer_signature( s, " ) {" ) + [
+            f"  if( FD_UNLIKELY( buf_sz<{bufmax} ) ) return 0UL;",
+            "",
+            "  char * p = fd_cstr_init( buf );",
+            '  p = fd_cstr_append_cstr( p, "{\\"tile\\":" );',
+            "  p = fd_cstr_append_json_str( p, tile_name, strlen( tile_name ) );",
+            f'  p = fd_cstr_append_cstr( p, ",\\"event\\":\\"{s.name}\\",\\"link_seq\\":" );',
+            "  p = fd_cstr_append_printf( p, \"%lu\", link_seq );",
+            '  p = fd_cstr_append_cstr( p, ",\\"ts_ns\\":" );',
+            "  p = fd_cstr_append_printf( p, \"%ld\", timestamp_nanos );",
+            '  p = fd_cstr_append_cstr( p, ",\\"fields\\":{" );',
+            "",
+        ]
+        dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+        if dyn_names:
+            lines += gen_dyn_ptr_walk( s ) + [""]
+        for i, (name, f) in enumerate(s.fields.items()):
+            acc = name if f.dynamic else f"msg->{name}"
+            if i: lines.append("  p = fd_cstr_append_char( p, ',' );")
+            if f.variants:
+                fn = json_enum_fn( s.name, name )
+                lines += [
+                    "  {",
+                    f"    char const * v_s = {fn}( (int){acc} );",
+                    f'    p = fd_cstr_append_cstr( p, "\\"{name}\\":" );',
+                    "    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );",
+                    "  }",
+                ]
+            else:
+                lines += json_append_field( f, name, acc, "  " )
+        lines += [
+            "",
+            "  p = fd_cstr_append_char( p, '}' );",
+            "  p = fd_cstr_append_char( p, '}' );",
+            "  fd_cstr_fini( p );",
+            "  return (ulong)(p-buf);",
+            "}",
+            "",
+        ]
+
+    lines += [
+        "ulong",
+        "fd_event_json_by_type( ulong        type,",
+        "                       void const * ev,",
+        "                       ulong        ev_sz,",
+        "                       char const * tile_name,",
+        "                       ulong        link_seq,",
+        "                       long         timestamp_nanos,",
+        "                       char *       buf,",
+        "                       ulong        buf_sz ) {",
+        "  switch( type ) {",
+    ]
+    for s in eligible:
+        dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+        if not dyn_names:
+            lines += [
+                f"  case {s.id}UL:",
+                f"    if( FD_UNLIKELY( ev_sz!=sizeof(fd_event_{s.name}_t) ) ) return 0UL;",
+                f"    return fd_event_{s.name}_json( (fd_event_{s.name}_t const *)ev, tile_name, link_seq, timestamp_nanos, buf, buf_sz );",
+            ]
+        else:
+            up = s.name.upper()
+            lines += [
+                f"  case {s.id}UL: {{",
+                f"    if( FD_UNLIKELY( ev_sz<FD_EVENT_{up}_PREFIX_SZ ) ) return 0UL;",
+                f"    fd_event_{s.name}_t const * msg = (fd_event_{s.name}_t const *)ev;",
+            ] + [
+                f"    if( FD_UNLIKELY( msg->{dn}_cnt>{f.max_len}UL ) ) return 0UL;" for dn, f in s.fields.items() if f.dynamic
+            ] + [
+                f"    if( FD_UNLIKELY( ev_sz!=fd_event_{s.name}_footprint( msg ) ) ) return 0UL;",
+                f"    return fd_event_{s.name}_json( msg, tile_name, link_seq, timestamp_nanos, buf, buf_sz );",
+                "  }",
+            ]
+    lines += [
+        "  default: return 0UL;",
         "  }",
         "}",
         "",

@@ -7,6 +7,7 @@
 #include "../fd_circq.h"
 #include "../fd_event_client.h"
 #include "../fd_event_report.h"
+#include "../fd_event_json.h"
 
 /* Slot that was voted on */
 struct fd_event_signed_vote_tower {
@@ -36,6 +37,10 @@ typedef struct fd_event_signed_vote fd_event_signed_vote_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SIGNED_VOTE_BUF_MAX (2780UL)
 
+/* Worst-case size of a signed_vote event NDJSON line (see
+   fd_event_<name>_json below). */
+#define FD_EVENT_SIGNED_VOTE_JSON_BUF_MAX (4764UL)
+
 /* Commitment level reached, weakest to strongest: processed, propagated, duplicate, optimistic, super, rooted. ignored is a terminal outcome, not a level. A block never named directly by any vote emits no propagated/duplicate/optimistic/super rows even when confirmed transitively through a descendant, and the transitive walk stops at it, so voted ancestors above it can miss those rows too; all still emit processed and rooted rows. */
 #define FD_EVENT_SLOT_CONFIRMED_LEVEL_IGNORED    (1) /* Replay finished a block consensus had already pruned, so no processed row is emitted. Forward vote-level rows for the block may precede this. */
 #define FD_EVENT_SLOT_CONFIRMED_LEVEL_PROCESSED  (2) /* Replayed locally, on any fork; no cluster stake required. Solana's 'processed' commitment. */
@@ -62,6 +67,10 @@ typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SLOT_CONFIRMED_BUF_MAX (236UL)
 
+/* Worst-case size of a slot_confirmed event NDJSON line (see
+   fd_event_<name>_json below). */
+#define FD_EVENT_SLOT_CONFIRMED_JSON_BUF_MAX (500UL)
+
 /* A single accounts-database partition finished compacting. Compaction scans one partition, relocates its still-live account records forward into the next storage tier, and reclaims the partition. Emitted once per partition per compaction pass by the accdb tile. Partitions are large (e.g. 32 GiB) so this is a rare, coarse-grained event rather than a hot-path counter. */
 struct fd_event_accdb_compaction_completed {
   ulong partition_idx;      /* Index of the partition that was compacted, identifying its slot in the accdb partition pool. */
@@ -81,6 +90,10 @@ typedef struct fd_event_accdb_compaction_completed fd_event_accdb_compaction_com
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_ACCDB_COMPACTION_COMPLETED_BUF_MAX (252UL)
 
+/* Worst-case size of a accdb_compaction_completed event NDJSON line (see
+   fd_event_<name>_json below). */
+#define FD_EVENT_ACCDB_COMPACTION_COMPLETED_JSON_BUF_MAX (625UL)
+
 /* The accounts database grew its backing file by one partition. The accounts DB is a single file divided into fixed-size partitions; when a write head runs off the end of the allocated file, a new partition is fallocated and the file grows. Emitted once per grow by the accdb tile. Partitions are large (e.g. 32 GiB) so grows are infrequent and each one is a meaningful step in the database's on-disk footprint. */
 struct fd_event_accdb_partition_added {
   ulong partition_idx;        /* Index of the newly allocated partition. Equals old_partition_max, i.e. it is appended at the end of the previously allocated range. */
@@ -96,6 +109,10 @@ typedef struct fd_event_accdb_partition_added fd_event_accdb_partition_added_t;
 /* Worst-case encoded size of a accdb_partition_added event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX (212UL)
+
+/* Worst-case size of a accdb_partition_added event NDJSON line (see
+   fd_event_<name>_json below). */
+#define FD_EVENT_ACCDB_PARTITION_ADDED_JSON_BUF_MAX (534UL)
 
 /* How the equivocation was detected. */
 #define FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_DUPLICATE_REPLAY (1) /* A second, different block for the slot finished replaying locally. */
@@ -125,6 +142,10 @@ typedef struct fd_event_block_equivocated fd_event_block_equivocated_t;
 /* Worst-case encoded size of a block_equivocated event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX (413UL)
+
+/* Worst-case size of a block_equivocated event NDJSON line (see
+   fd_event_<name>_json below). */
+#define FD_EVENT_BLOCK_EQUIVOCATED_JSON_BUF_MAX (845UL)
 
 /* Transaction execution error */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_SUCCESS                                 (1) /* Transaction succeeded */
@@ -287,6 +308,10 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_RUNTIME_TXN_BUF_MAX (23249UL)
 
+/* Worst-case size of a runtime_txn event NDJSON line (see
+   fd_event_<name>_json below). */
+#define FD_EVENT_RUNTIME_TXN_JSON_BUF_MAX (37968UL)
+
 /* Why the block was ruled invalid; not_dead otherwise. Blocks this validator produced are never dead: they do not go through replay's block checks. A block invalid for several independent reasons records the first one detected locally, which can differ across validators for the same block. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD                    (1) /* Not ruled invalid. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_PARENT_DEAD                 (2) /* The block went down with its lineage: an ancestor was ruled invalid, so this block cannot be replayed. */
@@ -440,6 +465,10 @@ fd_event_block_completed_footprint( fd_event_block_completed_t const * msg ) {
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_BLOCK_COMPLETED_BUF_MAX (11275587UL)
 
+/* Worst-case size of a block_completed event NDJSON line (see
+   fd_event_<name>_json below). */
+#define FD_EVENT_BLOCK_COMPLETED_JSON_BUF_MAX (28238642UL)
+
 /* Snapshot production result. */
 #define FD_EVENT_SNAPSHOT_CREATED_RESULT_SUCCESS                       (1) /* The snapshot was produced and published to the local snapshot directory. */
 #define FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS (2) /* The incremental snapshot could not be produced because more accounts changed than snapshots.max_incremental_snapshot_accounts permits. */
@@ -496,9 +525,18 @@ typedef struct fd_event_snapshot_created fd_event_snapshot_created_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SNAPSHOT_CREATED_BUF_MAX (2799UL)
 
+/* Worst-case size of a snapshot_created event NDJSON line (see
+   fd_event_<name>_json below). */
+#define FD_EVENT_SNAPSHOT_CREATED_JSON_BUF_MAX (4967UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
 #define FD_EVENT_GEN_STRUCT_MAX (sizeof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; }))
+
+/* Largest possible fd_event_<name>_json output (see block_completed's
+   dynamic txn_timing array); a consumer can stage any incoming event's
+   NDJSON encoding in a buffer of this size. */
+#define FD_EVENT_GEN_JSON_BUF_MAX (28238642UL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -592,6 +630,116 @@ fd_event_serialize_by_type( ulong               type,
                             ulong               link_seq,
                             void const *        ev,
                             ulong               ev_sz );
+
+/* Encode a signed_vote event as one NDJSON line: envelope fields
+   (tile/event/link_seq/ts_ns) plus the event's own fields nested
+   under "fields".  Returns 0 (and writes nothing) if buf_sz is too
+   small - buf_sz>=FD_EVENT_SIGNED_VOTE_JSON_BUF_MAX is always sufficient. */
+ulong
+fd_event_signed_vote_json( fd_event_signed_vote_t const * msg,
+                           char const *                   tile_name,
+                           ulong                          link_seq,
+                           long                           timestamp_nanos,
+                           char *                         buf,
+                           ulong                          buf_sz );
+
+/* Encode a slot_confirmed event as one NDJSON line: envelope fields
+   (tile/event/link_seq/ts_ns) plus the event's own fields nested
+   under "fields".  Returns 0 (and writes nothing) if buf_sz is too
+   small - buf_sz>=FD_EVENT_SLOT_CONFIRMED_JSON_BUF_MAX is always sufficient. */
+ulong
+fd_event_slot_confirmed_json( fd_event_slot_confirmed_t const * msg,
+                              char const *                      tile_name,
+                              ulong                             link_seq,
+                              long                              timestamp_nanos,
+                              char *                            buf,
+                              ulong                             buf_sz );
+
+/* Encode a accdb_compaction_completed event as one NDJSON line: envelope fields
+   (tile/event/link_seq/ts_ns) plus the event's own fields nested
+   under "fields".  Returns 0 (and writes nothing) if buf_sz is too
+   small - buf_sz>=FD_EVENT_ACCDB_COMPACTION_COMPLETED_JSON_BUF_MAX is always sufficient. */
+ulong
+fd_event_accdb_compaction_completed_json( fd_event_accdb_compaction_completed_t const * msg,
+                                          char const *                                  tile_name,
+                                          ulong                                         link_seq,
+                                          long                                          timestamp_nanos,
+                                          char *                                        buf,
+                                          ulong                                         buf_sz );
+
+/* Encode a accdb_partition_added event as one NDJSON line: envelope fields
+   (tile/event/link_seq/ts_ns) plus the event's own fields nested
+   under "fields".  Returns 0 (and writes nothing) if buf_sz is too
+   small - buf_sz>=FD_EVENT_ACCDB_PARTITION_ADDED_JSON_BUF_MAX is always sufficient. */
+ulong
+fd_event_accdb_partition_added_json( fd_event_accdb_partition_added_t const * msg,
+                                     char const *                             tile_name,
+                                     ulong                                    link_seq,
+                                     long                                     timestamp_nanos,
+                                     char *                                   buf,
+                                     ulong                                    buf_sz );
+
+/* Encode a block_equivocated event as one NDJSON line: envelope fields
+   (tile/event/link_seq/ts_ns) plus the event's own fields nested
+   under "fields".  Returns 0 (and writes nothing) if buf_sz is too
+   small - buf_sz>=FD_EVENT_BLOCK_EQUIVOCATED_JSON_BUF_MAX is always sufficient. */
+ulong
+fd_event_block_equivocated_json( fd_event_block_equivocated_t const * msg,
+                                 char const *                         tile_name,
+                                 ulong                                link_seq,
+                                 long                                 timestamp_nanos,
+                                 char *                               buf,
+                                 ulong                                buf_sz );
+
+/* Encode a runtime_txn event as one NDJSON line: envelope fields
+   (tile/event/link_seq/ts_ns) plus the event's own fields nested
+   under "fields".  Returns 0 (and writes nothing) if buf_sz is too
+   small - buf_sz>=FD_EVENT_RUNTIME_TXN_JSON_BUF_MAX is always sufficient. */
+ulong
+fd_event_runtime_txn_json( fd_event_runtime_txn_t const * msg,
+                           char const *                   tile_name,
+                           ulong                          link_seq,
+                           long                           timestamp_nanos,
+                           char *                         buf,
+                           ulong                          buf_sz );
+
+/* Encode a block_completed event as one NDJSON line: envelope fields
+   (tile/event/link_seq/ts_ns) plus the event's own fields nested
+   under "fields".  Returns 0 (and writes nothing) if buf_sz is too
+   small - buf_sz>=FD_EVENT_BLOCK_COMPLETED_JSON_BUF_MAX is always sufficient. */
+ulong
+fd_event_block_completed_json( fd_event_block_completed_t const * msg,
+                               char const *                       tile_name,
+                               ulong                              link_seq,
+                               long                               timestamp_nanos,
+                               char *                             buf,
+                               ulong                              buf_sz );
+
+/* Encode a snapshot_created event as one NDJSON line: envelope fields
+   (tile/event/link_seq/ts_ns) plus the event's own fields nested
+   under "fields".  Returns 0 (and writes nothing) if buf_sz is too
+   small - buf_sz>=FD_EVENT_SNAPSHOT_CREATED_JSON_BUF_MAX is always sufficient. */
+ulong
+fd_event_snapshot_created_json( fd_event_snapshot_created_t const * msg,
+                                char const *                        tile_name,
+                                ulong                               link_seq,
+                                long                                timestamp_nanos,
+                                char *                              buf,
+                                ulong                               buf_sz );
+
+/* Encode an event of the given type id (the schema id carried in the
+   report frag's sig) from a fully-formed fd_event_<name>_t at ev, as
+   one NDJSON line.  Returns 0 if buf_sz is too small or type is
+   unrecognized. */
+ulong
+fd_event_json_by_type( ulong        type,
+                       void const * ev,
+                       ulong        ev_sz,
+                       char const * tile_name,
+                       ulong        link_seq,
+                       long         timestamp_nanos,
+                       char *       buf,
+                       ulong        buf_sz );
 
 /* Report a signed_vote event (SignedVote, id 3) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */

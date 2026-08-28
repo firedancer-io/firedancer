@@ -563,3 +563,1160 @@ fd_event_serialize_by_type( ulong               type,
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }
 }
+
+static char const *
+fd_event_slot_confirmed_level_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_SLOT_CONFIRMED_LEVEL_IGNORED: return "ignored";
+  case FD_EVENT_SLOT_CONFIRMED_LEVEL_PROCESSED: return "processed";
+  case FD_EVENT_SLOT_CONFIRMED_LEVEL_PROPAGATED: return "propagated";
+  case FD_EVENT_SLOT_CONFIRMED_LEVEL_DUPLICATE: return "duplicate";
+  case FD_EVENT_SLOT_CONFIRMED_LEVEL_OPTIMISTIC: return "optimistic";
+  case FD_EVENT_SLOT_CONFIRMED_LEVEL_SUPER: return "super";
+  case FD_EVENT_SLOT_CONFIRMED_LEVEL_ROOTED: return "rooted";
+  default: return "unknown";
+  }
+}
+
+static char const *
+fd_event_block_equivocated_detection_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_DUPLICATE_REPLAY: return "duplicate_replay";
+  case FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_CONFIRM_MISMATCH: return "confirm_mismatch";
+  case FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_SHRED_PROOF: return "shred_proof";
+  default: return "unknown";
+  }
+}
+
+static char const *
+fd_event_runtime_txn_txn_err_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_SUCCESS: return "success";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_LOADED_TWICE: return "account_loaded_twice";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_NOT_FOUND: return "account_not_found";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND: return "program_account_not_found";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE: return "insufficient_funds_for_fee";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ACCOUNT_FOR_FEE: return "invalid_account_for_fee";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_ALREADY_PROCESSED: return "already_processed";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NOT_FOUND: return "blockhash_not_found";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_INSTRUCTION_ERROR: return "instruction_error";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_SIGNATURE_FAILURE: return "signature_failure";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION: return "invalid_program_for_execution";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_SANITIZE_FAILURE: return "sanitize_failure";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT: return "would_exceed_max_block_cost_limit";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT: return "would_exceed_max_account_cost_limit";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT: return "would_exceed_account_data_block_limit";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS: return "too_many_account_locks";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND: return "address_lookup_table_not_found";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER: return "invalid_address_lookup_table_owner";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA: return "invalid_address_lookup_table_data";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX: return "invalid_address_lookup_table_index";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_VOTE_COST_LIMIT: return "would_exceed_max_vote_cost_limit";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT: return "would_exceed_account_data_total_limit";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_DUPLICATE_INSTRUCTION: return "duplicate_instruction";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT: return "insufficient_funds_for_rent";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED: return "max_loaded_accounts_data_size_exceeded";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT: return "invalid_loaded_accounts_data_size_limit";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_UNBALANCED_TRANSACTION: return "unbalanced_transaction";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_BUNDLE_PEER: return "bundle_peer";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED: return "blockhash_nonce_already_advanced";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR: return "blockhash_fail_advance_nonce_instr";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE: return "blockhash_fail_wrong_nonce";
+  case FD_EVENT_RUNTIME_TXN_TXN_ERR_UNSUPPORTED_VERSION: return "unsupported_version";
+  default: return "unknown";
+  }
+}
+
+static char const *
+fd_event_runtime_txn_exec_err_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_SUCCESS: return "success";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_GENERIC_ERR: return "generic_err";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ARG: return "invalid_arg";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_INSTR_DATA: return "invalid_instr_data";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ACC_DATA: return "invalid_acc_data";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_DATA_TOO_SMALL: return "acc_data_too_small";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INSUFFICIENT_FUNDS: return "insufficient_funds";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INCORRECT_PROGRAM_ID: return "incorrect_program_id";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_MISSING_REQUIRED_SIGNATURE: return "missing_required_signature";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_ALREADY_INITIALIZED: return "acc_already_initialized";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNINITIALIZED_ACCOUNT: return "uninitialized_account";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNBALANCED_INSTR: return "unbalanced_instr";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_MODIFIED_PROGRAM_ID: return "modified_program_id";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND: return "external_account_lamport_spend";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXTERNAL_DATA_MODIFIED: return "external_data_modified";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_READONLY_LAMPORT_CHANGE: return "readonly_lamport_change";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_READONLY_DATA_MODIFIED: return "readonly_data_modified";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_MODIFIED: return "executable_modified";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_NOT_ENOUGH_ACC_KEYS: return "not_enough_acc_keys";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_DATA_SIZE_CHANGED: return "acc_data_size_changed";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_BORROW_FAILED: return "acc_borrow_failed";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_BORROW_OUTSTANDING: return "acc_borrow_outstanding";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_CUSTOM_ERR: return "custom_err";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ERR: return "invalid_err";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT: return "executable_account_not_rent_exempt";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNSUPPORTED_PROGRAM_ID: return "unsupported_program_id";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_CALL_DEPTH: return "call_depth";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_MISSING_ACC: return "missing_acc";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_REENTRANCY_NOT_ALLOWED: return "reentrancy_not_allowed";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_SEED_LENGTH_EXCEEDED: return "max_seed_length_exceeded";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_SEEDS: return "invalid_seeds";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_REALLOC: return "invalid_realloc";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_COMPUTE_BUDGET_EXCEEDED: return "compute_budget_exceeded";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_PRIVILEGE_ESCALATION: return "privilege_escalation";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE: return "program_environment_setup_failure";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_PROGRAM_FAILED_TO_COMPLETE: return "program_failed_to_complete";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_IMMUTABLE: return "acc_immutable";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INCORRECT_AUTHORITY: return "incorrect_authority";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_BORSH_IO_ERROR: return "borsh_io_error";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_NOT_RENT_EXEMPT: return "acc_not_rent_exempt";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ACC_OWNER: return "invalid_acc_owner";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_ARITHMETIC_OVERFLOW: return "arithmetic_overflow";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNSUPPORTED_SYSVAR: return "unsupported_sysvar";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_ILLEGAL_OWNER: return "illegal_owner";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED: return "max_accs_data_allocs_exceeded";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_ACCS_EXCEEDED: return "max_accs_exceeded";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_INSN_TRACE_LENS_EXCEEDED: return "max_insn_trace_lens_exceeded";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_BUILTINS_MUST_CONSUME_CUS: return "builtins_must_consume_cus";
+  default: return "unknown";
+  }
+}
+
+static char const *
+fd_event_runtime_txn_exec_err_kind_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_NONE: return "none";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_EBPF: return "ebpf";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_SYSCALL: return "syscall";
+  case FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_INSTR: return "instr";
+  default: return "unknown";
+  }
+}
+
+static char const *
+fd_event_block_completed_dead_reason_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD: return "not_dead";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_PARENT_DEAD: return "parent_dead";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_UNPARSEABLE_CONTENT: return "unparseable_content";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SHORT_BLOCK: return "short_block";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TRAILING_ENTRY: return "trailing_entry";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_MICROBLOCKS: return "too_many_microblocks";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TICK_HASHES_OVERFLOW: return "tick_hashes_overflow";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST: return "tick_hashes_overflow_ingest";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_INCONSISTENT_TICK_HASHES: return "inconsistent_tick_hashes";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ZERO_HASH_TICK: return "zero_hash_tick";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ZERO_HASH_TICK_INGEST: return "zero_hash_tick_ingest";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ZERO_MICROBLOCKS: return "zero_microblocks";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_TXNS: return "too_many_txns";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_TICKS: return "too_many_ticks";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_WRONG_HASHES_PER_TICK: return "wrong_hashes_per_tick";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_FEW_TICKS: return "too_few_ticks";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TICK_HASH_MISMATCH: return "tick_hash_mismatch";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_HASH_MISMATCH: return "entry_hash_mismatch";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST: return "entry_hash_mismatch_ingest";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED: return "sigverify_failed";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TXN_FAILED_TO_LOAD: return "txn_failed_to_load";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BLOCK_COST_LIMIT: return "block_cost_limit";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ACCOUNT_COST_LIMIT: return "account_cost_limit";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_VOTE_COST_LIMIT: return "vote_cost_limit";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ACCOUNT_DATA_LIMIT: return "account_data_limit";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_DUPLICATE_ACCOUNT: return "duplicate_account";
+  case FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER: return "bad_footer";
+  default: return "unknown";
+  }
+}
+
+static char const *
+fd_event_block_completed_abandoned_reason_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED: return "not_abandoned";
+  case FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED: return "pruned";
+  case FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_EVICTED: return "evicted";
+  case FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_RESET: return "reset";
+  default: return "unknown";
+  }
+}
+
+static char const *
+fd_event_block_completed_pack_end_reason_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_NOT_LEADER: return "not_leader";
+  case FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_TIME: return "time";
+  case FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_MICROBLOCK_LIMIT: return "microblock_limit";
+  case FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_ABANDONED: return "abandoned";
+  default: return "unknown";
+  }
+}
+
+static char const *
+fd_event_snapshot_created_result_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_SNAPSHOT_CREATED_RESULT_SUCCESS: return "success";
+  case FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS: return "too_many_incremental_accounts";
+  default: return "unknown";
+  }
+}
+
+static char const *
+fd_event_snapshot_created_zstd_strategy_json_str( int v ) {
+  switch( v ) {
+  case FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_FAST: return "fast";
+  case FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_DFAST: return "dfast";
+  case FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_GREEDY: return "greedy";
+  case FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_LAZY: return "lazy";
+  case FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_LAZY2: return "lazy2";
+  case FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTLAZY2: return "btlazy2";
+  case FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTOPT: return "btopt";
+  case FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTULTRA: return "btultra";
+  case FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_BTULTRA2: return "btultra2";
+  default: return "unknown";
+  }
+}
+
+ulong
+fd_event_signed_vote_json( fd_event_signed_vote_t const * msg,
+                           char const *                   tile_name,
+                           ulong                          link_seq,
+                           long                           timestamp_nanos,
+                           char *                         buf,
+                           ulong                          buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<FD_EVENT_SIGNED_VOTE_JSON_BUF_MAX ) ) return 0UL;
+
+  char * p = fd_cstr_init( buf );
+  p = fd_cstr_append_cstr( p, "{\"tile\":" );
+  p = fd_cstr_append_json_str( p, tile_name, strlen( tile_name ) );
+  p = fd_cstr_append_cstr( p, ",\"event\":\"signed_vote\",\"link_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", link_seq );
+  p = fd_cstr_append_cstr( p, ",\"ts_ns\":" );
+  p = fd_cstr_append_printf( p, "%ld", timestamp_nanos );
+  p = fd_cstr_append_cstr( p, ",\"fields\":{" );
+
+  p = fd_cstr_append_cstr( p, "\"signed_txn\":" );
+  p = fd_cstr_append_json_b64( p, msg->signed_txn, msg->signed_txn_len );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"vote_account\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->vote_account );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"vote_authority\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->vote_authority );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"fee_payer\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->fee_payer );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"signature\":" );
+  p = fd_cstr_append_json_b58_64( p, msg->signature );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"vote_slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->vote_slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"vote_bank_hash\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->vote_bank_hash );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"vote_block_id\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->vote_block_id );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"txn_blockhash\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->txn_blockhash );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"tower\":" );
+  p = fd_cstr_append_char( p, '[' );
+  for( ulong k=0UL; k<msg->tower_cnt; k++ ) {
+    if( k ) p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_char( p, '{' );
+    p = fd_cstr_append_cstr( p, "\"slot\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->tower[ k ].slot) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"confirmation_count\":" );
+    p = fd_cstr_append_printf( p, "%u", (uint)(msg->tower[ k ].confirmation_count) );
+    p = fd_cstr_append_char( p, '}' );
+  }
+  p = fd_cstr_append_char( p, ']' );
+
+  p = fd_cstr_append_char( p, '}' );
+  p = fd_cstr_append_char( p, '}' );
+  fd_cstr_fini( p );
+  return (ulong)(p-buf);
+}
+
+ulong
+fd_event_slot_confirmed_json( fd_event_slot_confirmed_t const * msg,
+                              char const *                      tile_name,
+                              ulong                             link_seq,
+                              long                              timestamp_nanos,
+                              char *                            buf,
+                              ulong                             buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<FD_EVENT_SLOT_CONFIRMED_JSON_BUF_MAX ) ) return 0UL;
+
+  char * p = fd_cstr_init( buf );
+  p = fd_cstr_append_cstr( p, "{\"tile\":" );
+  p = fd_cstr_append_json_str( p, tile_name, strlen( tile_name ) );
+  p = fd_cstr_append_cstr( p, ",\"event\":\"slot_confirmed\",\"link_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", link_seq );
+  p = fd_cstr_append_cstr( p, ",\"ts_ns\":" );
+  p = fd_cstr_append_printf( p, "%ld", timestamp_nanos );
+  p = fd_cstr_append_cstr( p, ",\"fields\":{" );
+
+  p = fd_cstr_append_cstr( p, "\"bank_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->bank_seq) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"block_id\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->block_id );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"stake\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->stake) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"total_stake\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->total_stake) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"valid\":" );
+  p = fd_cstr_append_cstr( p, (msg->valid) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  {
+    char const * v_s = fd_event_slot_confirmed_level_json_str( (int)msg->level );
+    p = fd_cstr_append_cstr( p, "\"level\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"forward\":" );
+  p = fd_cstr_append_cstr( p, (msg->forward) ? "true" : "false" );
+
+  p = fd_cstr_append_char( p, '}' );
+  p = fd_cstr_append_char( p, '}' );
+  fd_cstr_fini( p );
+  return (ulong)(p-buf);
+}
+
+ulong
+fd_event_accdb_compaction_completed_json( fd_event_accdb_compaction_completed_t const * msg,
+                                          char const *                                  tile_name,
+                                          ulong                                         link_seq,
+                                          long                                          timestamp_nanos,
+                                          char *                                        buf,
+                                          ulong                                         buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<FD_EVENT_ACCDB_COMPACTION_COMPLETED_JSON_BUF_MAX ) ) return 0UL;
+
+  char * p = fd_cstr_init( buf );
+  p = fd_cstr_append_cstr( p, "{\"tile\":" );
+  p = fd_cstr_append_json_str( p, tile_name, strlen( tile_name ) );
+  p = fd_cstr_append_cstr( p, ",\"event\":\"accdb_compaction_completed\",\"link_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", link_seq );
+  p = fd_cstr_append_cstr( p, ",\"ts_ns\":" );
+  p = fd_cstr_append_printf( p, "%ld", timestamp_nanos );
+  p = fd_cstr_append_cstr( p, ",\"fields\":{" );
+
+  p = fd_cstr_append_cstr( p, "\"partition_idx\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->partition_idx) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"src_layer\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->src_layer) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"dest_layer\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->dest_layer) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"bytes_scanned\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->bytes_scanned) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"bytes_freed\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->bytes_freed) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"accounts_relocated\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->accounts_relocated) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"bytes_relocated\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->bytes_relocated) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"dead_records\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->dead_records) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"start_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->start_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"end_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->end_time) );
+
+  p = fd_cstr_append_char( p, '}' );
+  p = fd_cstr_append_char( p, '}' );
+  fd_cstr_fini( p );
+  return (ulong)(p-buf);
+}
+
+ulong
+fd_event_accdb_partition_added_json( fd_event_accdb_partition_added_t const * msg,
+                                     char const *                             tile_name,
+                                     ulong                                    link_seq,
+                                     long                                     timestamp_nanos,
+                                     char *                                   buf,
+                                     ulong                                    buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<FD_EVENT_ACCDB_PARTITION_ADDED_JSON_BUF_MAX ) ) return 0UL;
+
+  char * p = fd_cstr_init( buf );
+  p = fd_cstr_append_cstr( p, "{\"tile\":" );
+  p = fd_cstr_append_json_str( p, tile_name, strlen( tile_name ) );
+  p = fd_cstr_append_cstr( p, ",\"event\":\"accdb_partition_added\",\"link_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", link_seq );
+  p = fd_cstr_append_cstr( p, ",\"ts_ns\":" );
+  p = fd_cstr_append_printf( p, "%ld", timestamp_nanos );
+  p = fd_cstr_append_cstr( p, ",\"fields\":{" );
+
+  p = fd_cstr_append_cstr( p, "\"partition_idx\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->partition_idx) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"prior_partition_idx\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->prior_partition_idx) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"layer\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->layer) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"old_partition_max\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->old_partition_max) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"new_partition_max\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->new_partition_max) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"partition_sz\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->partition_sz) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"disk_allocated_bytes\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->disk_allocated_bytes) );
+
+  p = fd_cstr_append_char( p, '}' );
+  p = fd_cstr_append_char( p, '}' );
+  fd_cstr_fini( p );
+  return (ulong)(p-buf);
+}
+
+ulong
+fd_event_block_equivocated_json( fd_event_block_equivocated_t const * msg,
+                                 char const *                         tile_name,
+                                 ulong                                link_seq,
+                                 long                                 timestamp_nanos,
+                                 char *                               buf,
+                                 ulong                                buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<FD_EVENT_BLOCK_EQUIVOCATED_JSON_BUF_MAX ) ) return 0UL;
+
+  char * p = fd_cstr_init( buf );
+  p = fd_cstr_append_cstr( p, "{\"tile\":" );
+  p = fd_cstr_append_json_str( p, tile_name, strlen( tile_name ) );
+  p = fd_cstr_append_cstr( p, ",\"event\":\"block_equivocated\",\"link_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", link_seq );
+  p = fd_cstr_append_cstr( p, ",\"ts_ns\":" );
+  p = fd_cstr_append_printf( p, "%ld", timestamp_nanos );
+  p = fd_cstr_append_cstr( p, ",\"fields\":{" );
+
+  p = fd_cstr_append_cstr( p, "\"bank_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->bank_seq) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"parent_slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->parent_slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"epoch\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->epoch) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"block_id\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->block_id );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"sibling_block_id\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->sibling_block_id );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"bank_hash\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->bank_hash );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"block_hash\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->block_hash );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"is_leader\":" );
+  p = fd_cstr_append_cstr( p, (msg->is_leader) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"our_block_voted\":" );
+  p = fd_cstr_append_cstr( p, (msg->our_block_voted) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"our_block_confirmed\":" );
+  p = fd_cstr_append_cstr( p, (msg->our_block_confirmed) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"block_stake\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->block_stake) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"sibling_stake\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->sibling_stake) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"total_stake\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->total_stake) );
+  p = fd_cstr_append_char( p, ',' );
+  {
+    char const * v_s = fd_event_block_equivocated_detection_json_str( (int)msg->detection );
+    p = fd_cstr_append_cstr( p, "\"detection\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+
+  p = fd_cstr_append_char( p, '}' );
+  p = fd_cstr_append_char( p, '}' );
+  fd_cstr_fini( p );
+  return (ulong)(p-buf);
+}
+
+ulong
+fd_event_runtime_txn_json( fd_event_runtime_txn_t const * msg,
+                           char const *                   tile_name,
+                           ulong                          link_seq,
+                           long                           timestamp_nanos,
+                           char *                         buf,
+                           ulong                          buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<FD_EVENT_RUNTIME_TXN_JSON_BUF_MAX ) ) return 0UL;
+
+  char * p = fd_cstr_init( buf );
+  p = fd_cstr_append_cstr( p, "{\"tile\":" );
+  p = fd_cstr_append_json_str( p, tile_name, strlen( tile_name ) );
+  p = fd_cstr_append_cstr( p, ",\"event\":\"runtime_txn\",\"link_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", link_seq );
+  p = fd_cstr_append_cstr( p, ",\"ts_ns\":" );
+  p = fd_cstr_append_printf( p, "%ld", timestamp_nanos );
+  p = fd_cstr_append_cstr( p, ",\"fields\":{" );
+
+  p = fd_cstr_append_cstr( p, "\"bank_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->bank_seq) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"index_in_slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->index_in_slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"commit_index_in_slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->commit_index_in_slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"fec_merkle_root\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->fec_merkle_root );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"epoch\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->epoch) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"signature\":" );
+  p = fd_cstr_append_json_b58_64( p, msg->signature );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"blockhash\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->blockhash );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"fee_payer\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->fee_payer );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"is_simple_vote\":" );
+  p = fd_cstr_append_cstr( p, (msg->is_simple_vote) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"is_bundle\":" );
+  p = fd_cstr_append_cstr( p, (msg->is_bundle) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"is_committable\":" );
+  p = fd_cstr_append_cstr( p, (msg->is_committable) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"is_fees_only\":" );
+  p = fd_cstr_append_cstr( p, (msg->is_fees_only) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  {
+    char const * v_s = fd_event_runtime_txn_txn_err_json_str( (int)msg->txn_err );
+    p = fd_cstr_append_cstr( p, "\"txn_err\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+  p = fd_cstr_append_char( p, ',' );
+  {
+    char const * v_s = fd_event_runtime_txn_exec_err_json_str( (int)msg->exec_err );
+    p = fd_cstr_append_cstr( p, "\"exec_err\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+  p = fd_cstr_append_char( p, ',' );
+  {
+    char const * v_s = fd_event_runtime_txn_exec_err_kind_json_str( (int)msg->exec_err_kind );
+    p = fd_cstr_append_cstr( p, "\"exec_err_kind\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"exec_err_idx\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->exec_err_idx) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"custom_err\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->custom_err) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"compute_unit_limit\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->compute_unit_limit) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"compute_unit_price\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->compute_unit_price) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"compute_units_consumed\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->compute_units_consumed) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"heap_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->heap_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"num_builtin_instrs\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->num_builtin_instrs) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"num_non_builtin_instrs\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->num_non_builtin_instrs) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"loaded_accounts_data_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->loaded_accounts_data_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"loaded_accounts_data_size_limit\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->loaded_accounts_data_size_limit) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"accounts_resize_delta\":" );
+  p = fd_cstr_append_printf( p, "%ld", (long)(msg->accounts_resize_delta) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"execution_fee\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->execution_fee) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"priority_fee\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->priority_fee) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"tips\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->tips) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"signature_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->signature_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_signature\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->cost_signature) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_write_lock\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->cost_write_lock) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_data_bytes\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->cost_data_bytes) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_programs_execution\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->cost_programs_execution) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_loaded_accounts_data_size\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->cost_loaded_accounts_data_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_allocated_accounts_data_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->cost_allocated_accounts_data_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"account_diffs\":" );
+  p = fd_cstr_append_char( p, '[' );
+  for( ulong k=0UL; k<msg->account_diffs_cnt; k++ ) {
+    if( k ) p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_char( p, '{' );
+    p = fd_cstr_append_cstr( p, "\"pubkey\":" );
+    p = fd_cstr_append_json_b58_32( p, msg->account_diffs[ k ].pubkey );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"owner\":" );
+    p = fd_cstr_append_json_b58_32( p, msg->account_diffs[ k ].owner );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"prev_owner\":" );
+    p = fd_cstr_append_json_b58_32( p, msg->account_diffs[ k ].prev_owner );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"lamports\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->account_diffs[ k ].lamports) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"prev_lamports\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->account_diffs[ k ].prev_lamports) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"data_sz\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->account_diffs[ k ].data_sz) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"prev_data_sz\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->account_diffs[ k ].prev_data_sz) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"is_executable\":" );
+    p = fd_cstr_append_cstr( p, (msg->account_diffs[ k ].is_executable) ? "true" : "false" );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"is_stake_update\":" );
+    p = fd_cstr_append_cstr( p, (msg->account_diffs[ k ].is_stake_update) ? "true" : "false" );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"is_vote_update\":" );
+    p = fd_cstr_append_cstr( p, (msg->account_diffs[ k ].is_vote_update) ? "true" : "false" );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"is_new_vote\":" );
+    p = fd_cstr_append_cstr( p, (msg->account_diffs[ k ].is_new_vote) ? "true" : "false" );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"is_rm_vote\":" );
+    p = fd_cstr_append_cstr( p, (msg->account_diffs[ k ].is_rm_vote) ? "true" : "false" );
+    p = fd_cstr_append_char( p, '}' );
+  }
+  p = fd_cstr_append_char( p, ']' );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"writable_accounts\":" );
+  p = fd_cstr_append_char( p, '[' );
+  for( ulong k=0UL; k<msg->writable_accounts_cnt; k++ ) {
+    if( k ) p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_json_b58_32( p, msg->writable_accounts[ k ] );
+  }
+  p = fd_cstr_append_char( p, ']' );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"readonly_accounts\":" );
+  p = fd_cstr_append_char( p, '[' );
+  for( ulong k=0UL; k<msg->readonly_accounts_cnt; k++ ) {
+    if( k ) p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_json_b58_32( p, msg->readonly_accounts[ k ] );
+  }
+  p = fd_cstr_append_char( p, ']' );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"program_ids\":" );
+  p = fd_cstr_append_char( p, '[' );
+  for( ulong k=0UL; k<msg->program_ids_cnt; k++ ) {
+    if( k ) p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_json_b58_32( p, msg->program_ids[ k ] );
+  }
+  p = fd_cstr_append_char( p, ']' );
+
+  p = fd_cstr_append_char( p, '}' );
+  p = fd_cstr_append_char( p, '}' );
+  fd_cstr_fini( p );
+  return (ulong)(p-buf);
+}
+
+ulong
+fd_event_block_completed_json( fd_event_block_completed_t const * msg,
+                               char const *                       tile_name,
+                               ulong                              link_seq,
+                               long                               timestamp_nanos,
+                               char *                             buf,
+                               ulong                              buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<FD_EVENT_BLOCK_COMPLETED_JSON_BUF_MAX ) ) return 0UL;
+
+  char * p = fd_cstr_init( buf );
+  p = fd_cstr_append_cstr( p, "{\"tile\":" );
+  p = fd_cstr_append_json_str( p, tile_name, strlen( tile_name ) );
+  p = fd_cstr_append_cstr( p, ",\"event\":\"block_completed\",\"link_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", link_seq );
+  p = fd_cstr_append_cstr( p, ",\"ts_ns\":" );
+  p = fd_cstr_append_printf( p, "%ld", timestamp_nanos );
+  p = fd_cstr_append_cstr( p, ",\"fields\":{" );
+
+  uchar const * _dyn = (uchar const *)msg + FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ;
+  fd_event_block_completed_txn_timing_t const * txn_timing = (fd_event_block_completed_txn_timing_t const *)_dyn;
+  _dyn += msg->txn_timing_cnt*sizeof(txn_timing[0]);
+  ulong txn_timing_cnt = msg->txn_timing_cnt;
+
+  p = fd_cstr_append_cstr( p, "\"bank_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->bank_seq) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"bank_idx\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->bank_idx) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"txncache_fork_id\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->txncache_fork_id) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"progcache_fork_id\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->progcache_fork_id) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"accdb_fork_id\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->accdb_fork_id) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"vote_stakes_fork_id\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->vote_stakes_fork_id) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"collector_overrides_fork_id\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->collector_overrides_fork_id) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"stake_rewards_fork_id\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->stake_rewards_fork_id) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"epoch_credits_fork_id\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->epoch_credits_fork_id) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"stake_delegations_fork_id\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->stake_delegations_fork_id) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_tracker_pool_idx\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->cost_tracker_pool_idx) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"epoch\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->epoch) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"parent_slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->parent_slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"root_slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->root_slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"storage_slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->storage_slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"turbine_slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->turbine_slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"caught_up\":" );
+  p = fd_cstr_append_cstr( p, (msg->caught_up) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"fork_width\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->fork_width) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"snapshot_in_progress\":" );
+  p = fd_cstr_append_cstr( p, (msg->snapshot_in_progress) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"live_bank_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->live_bank_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"block_id\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->block_id );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"parent_block_id\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->parent_block_id );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"bank_hash\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->bank_hash );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"dead\":" );
+  p = fd_cstr_append_cstr( p, (msg->dead) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  {
+    char const * v_s = fd_event_block_completed_dead_reason_json_str( (int)msg->dead_reason );
+    p = fd_cstr_append_cstr( p, "\"dead_reason\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"dead_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->dead_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"abandoned\":" );
+  p = fd_cstr_append_cstr( p, (msg->abandoned) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  {
+    char const * v_s = fd_event_block_completed_abandoned_reason_json_str( (int)msg->abandoned_reason );
+    p = fd_cstr_append_cstr( p, "\"abandoned_reason\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"abandoned_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->abandoned_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"is_leader\":" );
+  p = fd_cstr_append_cstr( p, (msg->is_leader) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"first_shred_received_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->first_shred_received_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"last_shred_received_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->last_shred_received_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"first_repair_request_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->first_repair_request_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"last_repair_received_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->last_repair_received_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"first_fec_set_received_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->first_fec_set_received_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"preparation_begin_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->preparation_begin_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"first_transaction_scheduled_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->first_transaction_scheduled_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"last_transaction_finished_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->last_transaction_finished_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"block_completed_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->block_completed_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"parent_block_completed_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->parent_block_completed_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"fec_set_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->fec_set_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"data_shred_count\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->data_shred_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"parity_shred_count\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->parity_shred_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"turbine_shred_count\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->turbine_shred_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"repair_shred_count\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->repair_shred_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"recovered_shred_count\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->recovered_shred_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"chain_confirmed\":" );
+  p = fd_cstr_append_cstr( p, (msg->chain_confirmed) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"lowest_verified_fec_index\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->lowest_verified_fec_index) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"last_completed_fec_set_index\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->last_completed_fec_set_index) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"slot_complete_flag\":" );
+  p = fd_cstr_append_cstr( p, (msg->slot_complete_flag) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"equivocation_detected_shred\":" );
+  p = fd_cstr_append_cstr( p, (msg->equivocation_detected_shred) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"repair_requests_retransmitted\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->repair_requests_retransmitted) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"repair_responses_received\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->repair_responses_received) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"repair_request_window_count\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->repair_request_window_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"repair_request_highest_window_count\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->repair_request_highest_window_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"repair_request_orphan_count\":" );
+  p = fd_cstr_append_printf( p, "%u", (uint)(msg->repair_request_orphan_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"repair_failed_chain_verify\":" );
+  p = fd_cstr_append_cstr( p, (msg->repair_failed_chain_verify) ? "true" : "false" );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_tracker_block_cost\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->cost_tracker_block_cost) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_tracker_allocated_accounts_data_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->cost_tracker_allocated_accounts_data_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_tracker_block_cost_limit\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->cost_tracker_block_cost_limit) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_tracker_vote_cost_limit\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->cost_tracker_vote_cost_limit) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cost_tracker_account_cost_limit\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->cost_tracker_account_cost_limit) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"became_leader_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->became_leader_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"leader_slot_start_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->leader_slot_start_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"pack_start_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->pack_start_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"pack_end_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->pack_end_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"microblock_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->microblock_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"pack_block_cost\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->pack_block_cost) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"pack_vote_cost\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->pack_vote_cost) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"pack_data_bytes\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->pack_data_bytes) );
+  p = fd_cstr_append_char( p, ',' );
+  {
+    char const * v_s = fd_event_block_completed_pack_end_reason_json_str( (int)msg->pack_end_reason );
+    p = fd_cstr_append_cstr( p, "\"pack_end_reason\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"bundle_txn_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->bundle_txn_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"txn_timing\":" );
+  p = fd_cstr_append_char( p, '[' );
+  for( ulong k=0UL; k<txn_timing_cnt; k++ ) {
+    if( k ) p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_char( p, '{' );
+    p = fd_cstr_append_cstr( p, "\"received_time\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(txn_timing[ k ].received_time) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"parsed_time\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(txn_timing[ k ].parsed_time) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"dispatched_time\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(txn_timing[ k ].dispatched_time) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"replayed_time\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(txn_timing[ k ].replayed_time) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"sigverify_dispatched_time\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(txn_timing[ k ].sigverify_dispatched_time) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"sigverify_done_time\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(txn_timing[ k ].sigverify_done_time) );
+    p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_cstr( p, "\"poh_mixed_time\":" );
+    p = fd_cstr_append_printf( p, "%lu", (ulong)(txn_timing[ k ].poh_mixed_time) );
+    p = fd_cstr_append_char( p, '}' );
+  }
+  p = fd_cstr_append_char( p, ']' );
+
+  p = fd_cstr_append_char( p, '}' );
+  p = fd_cstr_append_char( p, '}' );
+  fd_cstr_fini( p );
+  return (ulong)(p-buf);
+}
+
+ulong
+fd_event_snapshot_created_json( fd_event_snapshot_created_t const * msg,
+                                char const *                        tile_name,
+                                ulong                               link_seq,
+                                long                                timestamp_nanos,
+                                char *                              buf,
+                                ulong                               buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<FD_EVENT_SNAPSHOT_CREATED_JSON_BUF_MAX ) ) return 0UL;
+
+  char * p = fd_cstr_init( buf );
+  p = fd_cstr_append_cstr( p, "{\"tile\":" );
+  p = fd_cstr_append_json_str( p, tile_name, strlen( tile_name ) );
+  p = fd_cstr_append_cstr( p, ",\"event\":\"snapshot_created\",\"link_seq\":" );
+  p = fd_cstr_append_printf( p, "%lu", link_seq );
+  p = fd_cstr_append_cstr( p, ",\"ts_ns\":" );
+  p = fd_cstr_append_printf( p, "%ld", timestamp_nanos );
+  p = fd_cstr_append_cstr( p, ",\"fields\":{" );
+
+  {
+    char const * v_s = fd_event_snapshot_created_result_json_str( (int)msg->result );
+    p = fd_cstr_append_cstr( p, "\"result\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"base_slot\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->base_slot) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"filename\":" );
+  p = fd_cstr_append_json_str( p, (char const *)msg->filename, msg->filename_len );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"hash\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->hash );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"bank_hash\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->bank_hash );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"block_id\":" );
+  p = fd_cstr_append_json_b58_32( p, msg->block_id );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"bank_accounts_lthash\":" );
+  p = fd_cstr_append_json_b64( p, msg->bank_accounts_lthash, msg->bank_accounts_lthash_len );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"epoch\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->epoch) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"block_height\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->block_height) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"capitalization\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->capitalization) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"transaction_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->transaction_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"account_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->account_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"tombstone_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->tombstone_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"cached_accounts_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->cached_accounts_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"disk_accounts_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->disk_accounts_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"manifest_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->manifest_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"accounts_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->accounts_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"status_cache_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->status_cache_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"compressed_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->compressed_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"uncompressed_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->uncompressed_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"zstd_data_frame_count\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->zstd_data_frame_count) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"zstd_padding_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->zstd_padding_size) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"zstd_window_size\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->zstd_window_size) );
+  p = fd_cstr_append_char( p, ',' );
+  {
+    char const * v_s = fd_event_snapshot_created_zstd_strategy_json_str( (int)msg->zstd_strategy );
+    p = fd_cstr_append_cstr( p, "\"zstd_strategy\":" );
+    p = fd_cstr_append_json_str( p, v_s, strlen( v_s ) );
+  }
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"duration_compress_nanos\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->duration_compress_nanos) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"duration_io_blocked_nanos\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->duration_io_blocked_nanos) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"start_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->start_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"accounts_start_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->accounts_start_time) );
+  p = fd_cstr_append_char( p, ',' );
+  p = fd_cstr_append_cstr( p, "\"end_time\":" );
+  p = fd_cstr_append_printf( p, "%lu", (ulong)(msg->end_time) );
+
+  p = fd_cstr_append_char( p, '}' );
+  p = fd_cstr_append_char( p, '}' );
+  fd_cstr_fini( p );
+  return (ulong)(p-buf);
+}
+
+ulong
+fd_event_json_by_type( ulong        type,
+                       void const * ev,
+                       ulong        ev_sz,
+                       char const * tile_name,
+                       ulong        link_seq,
+                       long         timestamp_nanos,
+                       char *       buf,
+                       ulong        buf_sz ) {
+  switch( type ) {
+  case 3UL:
+    if( FD_UNLIKELY( ev_sz!=sizeof(fd_event_signed_vote_t) ) ) return 0UL;
+    return fd_event_signed_vote_json( (fd_event_signed_vote_t const *)ev, tile_name, link_seq, timestamp_nanos, buf, buf_sz );
+  case 4UL:
+    if( FD_UNLIKELY( ev_sz!=sizeof(fd_event_slot_confirmed_t) ) ) return 0UL;
+    return fd_event_slot_confirmed_json( (fd_event_slot_confirmed_t const *)ev, tile_name, link_seq, timestamp_nanos, buf, buf_sz );
+  case 5UL:
+    if( FD_UNLIKELY( ev_sz!=sizeof(fd_event_accdb_compaction_completed_t) ) ) return 0UL;
+    return fd_event_accdb_compaction_completed_json( (fd_event_accdb_compaction_completed_t const *)ev, tile_name, link_seq, timestamp_nanos, buf, buf_sz );
+  case 6UL:
+    if( FD_UNLIKELY( ev_sz!=sizeof(fd_event_accdb_partition_added_t) ) ) return 0UL;
+    return fd_event_accdb_partition_added_json( (fd_event_accdb_partition_added_t const *)ev, tile_name, link_seq, timestamp_nanos, buf, buf_sz );
+  case 7UL:
+    if( FD_UNLIKELY( ev_sz!=sizeof(fd_event_block_equivocated_t) ) ) return 0UL;
+    return fd_event_block_equivocated_json( (fd_event_block_equivocated_t const *)ev, tile_name, link_seq, timestamp_nanos, buf, buf_sz );
+  case 8UL:
+    if( FD_UNLIKELY( ev_sz!=sizeof(fd_event_runtime_txn_t) ) ) return 0UL;
+    return fd_event_runtime_txn_json( (fd_event_runtime_txn_t const *)ev, tile_name, link_seq, timestamp_nanos, buf, buf_sz );
+  case 9UL: {
+    if( FD_UNLIKELY( ev_sz<FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ ) ) return 0UL;
+    fd_event_block_completed_t const * msg = (fd_event_block_completed_t const *)ev;
+    if( FD_UNLIKELY( msg->txn_timing_cnt>98039UL ) ) return 0UL;
+    if( FD_UNLIKELY( ev_sz!=fd_event_block_completed_footprint( msg ) ) ) return 0UL;
+    return fd_event_block_completed_json( msg, tile_name, link_seq, timestamp_nanos, buf, buf_sz );
+  }
+  case 11UL:
+    if( FD_UNLIKELY( ev_sz!=sizeof(fd_event_snapshot_created_t) ) ) return 0UL;
+    return fd_event_snapshot_created_json( (fd_event_snapshot_created_t const *)ev, tile_name, link_seq, timestamp_nanos, buf, buf_sz );
+  default: return 0UL;
+  }
+}
