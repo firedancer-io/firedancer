@@ -1440,8 +1440,10 @@ telemetry = true
         # The maximum number of messages in-flight between a QUIC tile
         # and associated verify tile, after which earlier messages might
         # start being overwritten, and get dropped so that the system
-        # can keep up.
-        receive_buffer_size = 16384
+        # can keep up.  4096 is ~80ms of buffering at 10x current
+        # mainnet TPS (~50k/s); the verify and dedup tiles drain far
+        # faster than that.
+        receive_buffer_size = 4096
 
     # After being verified, all transactions are sent to a dedup tile to
     # ensure the same transaction is not repeated multiple times.  The
