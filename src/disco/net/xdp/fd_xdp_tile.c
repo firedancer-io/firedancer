@@ -1566,11 +1566,17 @@ privileged_init( fd_topo_t const *      topo,
     }
     FD_TEST( lo_xsk_map_fd>=0 );
 
-    /* init xsk 1 */
+    /* init xsk 1 with its own small rings: loopback traffic is
+       self-addressed only, so NIC-sized rings just waste UMEM fill
+       seeds and kernel ring pages */
     fd_xsk_params_t params1 = params0;
     params1.if_idx      = lo_idx; /* probably always 1 */
     params1.if_queue_id = 0;
     params1.bind_flags  = 0;
+    params1.fr_depth    = FD_NET_LO_RING_DEPTH*2UL;
+    params1.rx_depth    = FD_NET_LO_RING_DEPTH;
+    params1.cr_depth    = FD_NET_LO_RING_DEPTH;
+    params1.tx_depth    = FD_NET_LO_RING_DEPTH;
     if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 1 ], &params1 ) ) )          FD_LOG_ERR(( "failed to bind lo_xsk" ));
     if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 1 ], lo_xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate lo_xsk" ));
   }
@@ -1736,7 +1742,10 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   for( uint j=0U; j<2U; j++ ) {
-    ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tile->xdp.xdp_tx_queue_size * 0.7 );
+    /* XSK 1 (loopback) has its own smaller TX ring; the wmark must
+       derive from that ring or wmark-triggered flushes never fire. */
+    ulong tx_depth = j ? FD_NET_LO_RING_DEPTH : tile->xdp.xdp_tx_queue_size;
+    ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tx_depth * 0.7 );
     ctx->tx_flusher[ j ].tail_flush_backoff    = (long)( (double)tile->xdp.tx_flush_timeout_ns * fd_tempo_tick_per_ns( NULL ) );
     ctx->tx_flusher[ j ].next_tail_flush_ticks = LONG_MAX;
 

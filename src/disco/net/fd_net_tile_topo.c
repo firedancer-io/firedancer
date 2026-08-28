@@ -322,17 +322,18 @@ fd_topos_xdp_setup_mem( fd_topo_t *      topo,
   /* Exact fit to the tile's runtime frame consumption, which is a
      closed set (fd_xdp_tile.c unprivileged_init): xdp_tx_queue_size
      frames seeded into the shared TX free ring, one frame per out
-     link mcache line, and xdp_rx_queue_size FILL ring seeds per XSK.
-     Tile 0 is provisioned for two XSKs unconditionally: it hosts the
-     loopback XSK unless the main interface already is loopback, which
+     link mcache line, and per-XSK FILL ring seeds (xdp_rx_queue_size
+     for the physical XSK, FD_NET_LO_RING_DEPTH for the loopback XSK).
+     Tile 0 is provisioned for the loopback XSK unconditionally: it
+     hosts one unless the main interface already is loopback, which
      the topo build cannot know (over-provisioning is the safe
      direction there).  RX strictly recycles each frame through its
      own link mcache one-in-one-out and TX recycles free->tx->
      completion with a capacity check, so frames beyond the seeded set
      are never referenced; if this ever under-counts, the "UMEM is too
      small" boot check in fd_xdp_tile.c fails loudly. */
-  ulong xsk_cnt = fd_ulong_if( net_tile->kind_id==0UL, 2UL, 1UL );
-  ulong cum_frame_cnt = net_tile->xdp.xdp_tx_queue_size + xsk_cnt*net_tile->xdp.xdp_rx_queue_size;
+  ulong lo_fill = fd_ulong_if( net_tile->kind_id==0UL, FD_NET_LO_RING_DEPTH, 0UL );
+  ulong cum_frame_cnt = net_tile->xdp.xdp_tx_queue_size + net_tile->xdp.xdp_rx_queue_size + lo_fill;
 
   /* Count up the depth of all RX mcaches */
 
