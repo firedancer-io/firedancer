@@ -1403,8 +1403,10 @@ telemetry = true
         # Only fragmented (multi-packet) transactions occupy a
         # reassembly slot; single packet transactions bypass this
         # entirely.  On overflow the oldest in-progress reassembly is
-        # cancelled.
-        txn_reassembly_count = 16384
+        # cancelled.  4096 concurrent partials is ~270ms of FIFO grace
+        # at 10x mainnet fragmented-txn rates vs a us-scale happy path;
+        # overruns show in the reasm_overrun metric.
+        txn_reassembly_count = 4096
 
         # QUIC has a handshake process which establishes a secure
         # connection between two endpoints.  The handshake process is
