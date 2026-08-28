@@ -425,14 +425,23 @@ fini_device( char const * device ) {
   /* This should happen first, otherwise changing the number of channels may fail */
   error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
 
-  error |= (0!=fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ ));
+  int channels_error = fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ );
+  error |= (0!=channels_error);
 
   /* Some drivers (i40e) do not always evenly redistribute the RXFH table
      when increasing the channel count, so we run this again just in case. */
   error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
 
-  if( FD_UNLIKELY( error ) )
-    FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state", device ));
+  if( FD_UNLIKELY( error ) ) {
+    if( FD_LIKELY( channels_error==EBUSY ) )
+      FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state. "
+                   "This is most commonly caused by an issue with the Intel ice driver on certain versions "
+                   "of Ubuntu.  If you are using the ice driver, `sudo dmesg | grep %s` contains "
+                   "messages about RDMA, and you do not need RDMA, try running `rmmod irdma` and/or "
+                   "blacklisting the irdma kernel module.", device, device ));
+    else
+      FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state", device ));
+  }
 
   fd_ethtool_ioctl_channels_t channels_new;
   error |= (0!=fd_ethtool_ioctl_channels_get_num( &ioc, &channels_new ));
