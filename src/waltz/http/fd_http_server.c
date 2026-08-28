@@ -1162,7 +1162,7 @@ write_conn_http( fd_http_server_t * http,
         break;
       case FD_HTTP_SERVER_CONNECTION_STATE_WRITING_BODY:
         if( FD_LIKELY( conn->keep_alive ) ) {
-          if( FD_LIKELY( !conn->response.static_body ) ) conn_treap_ele_remove( http->conn_treap, conn, http->conns );
+          if( FD_LIKELY( !conn->response.static_body && conn->response._body_len ) ) conn_treap_ele_remove( http->conn_treap, conn, http->conns );
           ulong remaining = conn->request_bytes_read-conn->request_consumed;
           conn->state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
           conn->request_bytes_off      = conn->request_consumed;
