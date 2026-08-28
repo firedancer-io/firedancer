@@ -1012,7 +1012,7 @@ test_mainnet_footprint( void ) {
 
   /* Derived values for component breakdown */
   ulong txn_max   = max_live_slots * max_account_writes_per_slot;
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) ); /* must match fd_accdb_shmem_footprint */
+  ulong chain_cnt = fd_ulong_pow2_up( max_accounts ); /* must match fd_accdb_shmem_footprint */
 
   ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
   FD_TEST( fd_accdb_cache_class_cnt( cache_footprint, 640UL, cache_class_max ) );
