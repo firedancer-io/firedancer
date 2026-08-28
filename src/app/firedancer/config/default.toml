@@ -1431,7 +1431,7 @@ telemetry = true
         # recently, used to discard duplicate transactions before they
         # get verified to save signature verification resources.  See
         # [tiles.dedup.signature_cache_size] below for more information.
-        signature_cache_size = 4194302
+        signature_cache_size = 1048574
 
         # The maximum number of messages in-flight between a QUIC tile
         # and associated verify tile, after which earlier messages might
