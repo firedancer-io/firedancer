@@ -43,6 +43,11 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for res
 #define FD_SCHED_MAX_TXN_PER_FEC           ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/FD_TXN_MIN_SERIALIZED_SZ+1UL) /* 478 */
 #define FD_SCHED_MAX_MBLK_PER_FEC          ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/sizeof(fd_microblock_hdr_t)+1UL) /* 1334 */
 
+/* Per-block ring capacity for shred end offsets.  Must be a power of 2
+   and comfortably larger than the shreds one FEC set can append, so the
+   monotone shred_split scan only saturates on pathological blocks. */
+#define FD_SCHED_SHRED_RING                (2048UL)
+
 FD_STATIC_ASSERT( FD_SCHED_MIN_DEPTH>=FD_SCHED_MAX_TXN_PER_FEC, limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
@@ -93,8 +98,9 @@ struct fd_sched_block {
   uint                poh_hash_cmp_done_cnt; /* poh_hashing_done_cnt==poh_hash_cmp_done_cnt+len(mixin_in_progress) */
   uint                txn_done_cnt; /* A transaction is considered done when all types of tasks associated with it are done. */
   uint                shred_cnt;
-  uint                shred_scan_idx; /* First shred boundary not before shred_scan_off. */
-  uint                shred_scan_off; /* Block byte offset at the start of shred_scan_idx. */
+  uint                shred_scan_idx; /* First shred boundary whose end offset is not before the parse
+                                         frontier.  Scans forward monotonically. */
+  uint                shred_off_wmk;  /* Cumulative payload bytes ingested across all shreds so far. */
   uint                mblk_cnt;          /* Total number of microblocks, including ticks and non ticks.
                                             mblk_cnt==len(unhashed)+len(hashing_in_progress)+hashing_in_flight_cnt+len(mixin_in_progress)+hash_cmp_done_cnt */
   uint                mblk_tick_cnt;     /* Total number of tick microblocks. */
@@ -213,7 +219,15 @@ struct fd_sched_block {
                                                   block's residual is a partial batch header, microblock header,
                                                   or transaction, so it is bounded by FD_TXN_MTU; the parser
                                                   eagerly fails any block whose residual could exceed that. */
-  ushort              shred_sz[ FD_SHRED_BLK_MAX ];       /* Payload size of each ingested data shred. */
+  uint                shred_end_off[ FD_SCHED_SHRED_RING ]; /* Ring of cumulative end offsets (block byte domain) for
+                                                               the most recent FD_SCHED_SHRED_RING ingested data
+                                                               shreds; entry for shred i lives at i%FD_SCHED_SHRED_RING.
+                                                               Consumed only by the monotone shred_split scan, which
+                                                               trails ingest by at most the residual plus one FEC set
+                                                               for any block that intersperses transactions; on the
+                                                               pathological (txn-free run) blocks where the scan falls
+                                                               out of the window it saturates, degrading only the
+                                                               GUI-facing per-txn shred attribution. */
 
   /* Alpenglow block footer, deserialized out of the marker batch at
      parse time.  footer_present is set if the block carries a footer
@@ -226,7 +240,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==77632UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==20288UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -664,16 +678,20 @@ handle_bad_block( fd_sched_t * sched, fd_sched_block_t * block, int dead_reason 
 
 /* Returns the number of shred boundaries strictly before query.
    Transaction offsets are visited in nondecreasing order, so each
-   shred length is scanned at most once per block. */
+   shred length is scanned at most once per block.  If the scan fell
+   behind the ring window (only possible on pathological blocks with
+   long transaction-free shred runs), it saturates to the window start,
+   which can only overstate the returned boundary count; the consumers
+   of the derived start/end_shred_idx are GUI-facing only. */
 static uint
 shred_split( fd_sched_block_t * block,
              uint               query ) {
   FD_TEST( block->shred_scan_idx<=block->shred_cnt );
-  FD_TEST( block->shred_scan_off<=query );
+  if( FD_UNLIKELY( block->shred_scan_idx+(uint)FD_SCHED_SHRED_RING<block->shred_cnt ) )
+    block->shred_scan_idx = block->shred_cnt-(uint)FD_SCHED_SHRED_RING;
   while( block->shred_scan_idx<block->shred_cnt ) {
-    uint next_off = block->shred_scan_off + (uint)block->shred_sz[ block->shred_scan_idx ];
+    uint next_off = block->shred_end_off[ block->shred_scan_idx & ((uint)FD_SCHED_SHRED_RING-1U) ];
     if( next_off>=query ) break;
-    block->shred_scan_off = next_off;
     block->shred_scan_idx++;
   }
   return block->shred_scan_idx;
@@ -1130,8 +1148,10 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     } else {
       shred_off = (uint)fec->fec->data_sz;
     }
-    FD_TEST( shred_off>=prev_shred_off && shred_off-prev_shred_off<=USHORT_MAX );
-    block->shred_sz[ block->shred_cnt++ ] = (ushort)(shred_off-prev_shred_off);
+    FD_TEST( shred_off>=prev_shred_off );
+    block->shred_off_wmk += shred_off-prev_shred_off;
+    block->shred_end_off[ block->shred_cnt & ((uint)FD_SCHED_SHRED_RING-1U) ] = block->shred_off_wmk;
+    block->shred_cnt++;
     prev_shred_off = shred_off;
   }
 
@@ -2093,7 +2113,7 @@ add_block( fd_sched_t * sched,
   block->txn_done_cnt                = 0U;
   block->shred_cnt                   = 0U;
   block->shred_scan_idx              = 0U;
-  block->shred_scan_off              = 0U;
+  block->shred_off_wmk               = 0U;
   block->mblk_cnt                    = 0U;
   block->mblk_freed_cnt              = 0U;
   block->mblk_tick_cnt               = 0U;
