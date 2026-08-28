@@ -86,6 +86,7 @@ struct fd_http_server_params {
   ulong max_ws_recv_frame_len; /* Maximum size of an incoming websocket frame from the client.  Must be >= max_request_len */
   ulong max_ws_send_frame_cnt; /* Maximum number of outgoing websocket frames that can be queued before the client is disconnected */
   ulong outgoing_buffer_sz;    /* Size of the outgoing data ring, which is used to stage outgoing HTTP response bodies and WebSocket frames */
+  ulong send_buffer_sz;        /* SO_SNDBUF for the listen socket, inherited by accepted sockets.  Zero leaves the kernel default */
   int   compress_websocket;    /* True if large websocket messages are compressed and sent as binary websocket frames */
 };
 

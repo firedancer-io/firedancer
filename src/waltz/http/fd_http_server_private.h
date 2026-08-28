@@ -128,6 +128,7 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   ulong max_request_len;
   ulong max_ws_recv_frame_len;
   ulong max_ws_send_frame_cnt;
+  ulong send_buffer_sz;
 
   ulong evict_conn_id;
   ulong evict_ws_conn_id;
