@@ -11,6 +11,7 @@
 #define FD_VOTOR_SIG_SKIP           (4)
 // #define FD_VOTOR_SIG_ROOTED      (5)  /* defined in fd_votor_rooted.h */
 #define FD_VOTOR_SIG_REPAIR         (6)
+#define FD_VOTOR_SIG_LEADER         (7)
 
 typedef fd_votor_rooted_t fd_votor_repair_t;
 
@@ -43,6 +44,13 @@ struct fd_votor_fast_final {
 };
 typedef struct fd_votor_fast_final fd_votor_fast_final_t;
 
+struct fd_votor_leader {
+  ulong     start_slot;
+  ulong     parent_slot;
+  fd_hash_t parent_block_id;
+};
+typedef struct fd_votor_leader fd_votor_leader_t;
+
 union fd_votor_msg {
   fd_votor_final_t          final;
   fd_votor_fast_final_t     fast_final;
@@ -51,6 +59,7 @@ union fd_votor_msg {
   fd_votor_skip_t           skip;
   fd_votor_rooted_t         rooted;
   fd_votor_repair_t         repair;
+  fd_votor_leader_t         leader;
 };
 typedef union fd_votor_msg fd_votor_msg_t;
 
