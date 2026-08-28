@@ -21,6 +21,9 @@ SOL_COMPAT_FLAGS:=-Wl,--version-script=src/flamenco/runtime/tests/libfd_exec_sol
 $(call make-unit-test,test_sol_compat,test_sol_compat,fd_flamenco_test fd_discof fd_choreo fd_flamenco fd_disco fd_reedsol fd_tango fd_ballet fd_util)
 $(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_discof fd_choreo fd_flamenco fd_disco fd_reedsol fd_ballet fd_util,$(SOL_COMPAT_FLAGS))
 $(call make-unit-test,test_sol_compat_so,test_sol_compat_so,fd_util)
+# In-process sol_compat fuzz harnesses (buildable under msan, unlike the dlopen'd .so).
+$(call make-fuzz-test,fuzz_sol_compat_txn,fuzz_sol_compat_txn,fd_flamenco_test fd_discof fd_choreo fd_flamenco fd_disco fd_reedsol fd_tango fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_sol_compat_instr,fuzz_sol_compat_instr,fd_flamenco_test fd_discof fd_choreo fd_flamenco fd_disco fd_reedsol fd_tango fd_ballet fd_util)
 endif
 
 $(call add-hdrs,fd_svm_elfgen.h)
