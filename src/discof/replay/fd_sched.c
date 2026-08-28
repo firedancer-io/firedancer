@@ -206,8 +206,13 @@ struct fd_sched_block {
                                                              stageable unstaged descendants are counted. */
   int                 dead_reason;                        /* One of FD_SCHED_DEAD_REASON_*; records the first reason the block
                                                              was ruled invalid (set-once via record_dead_reason), NONE otherwise. */
-  uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
-                                                             parseable after the next FEC set is ingested. */
+  uchar *             fec_buf; /* Valid only during fd_sched_fec_ingest: points at the shared
+                                  sched->fec_stage staging buffer.  NULL between ingests. */
+  uchar               fec_resid[ FD_TXN_MTU ]; /* The previous FEC set could have some residual data that only
+                                                  becomes parseable after the next FEC set is ingested.  A live
+                                                  block's residual is a partial batch header, microblock header,
+                                                  or transaction, so it is bounded by FD_TXN_MTU; the parser
+                                                  eagerly fails any block whose residual could exceed that. */
   ushort              shred_sz[ FD_SHRED_BLK_MAX ];       /* Payload size of each ingested data shred. */
 
   /* Alpenglow block footer, deserialized out of the marker batch at
@@ -221,7 +226,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==141632UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==77632UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -278,6 +283,9 @@ typedef struct fd_sched_metrics fd_sched_metrics_t;
 
 struct fd_sched {
   fd_acct_addr_t        aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
+  uchar                 fec_stage[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* Shared parse staging buffer: residual + one FEC set.
+                                                                 Only one FEC set is ingested at a time, so blocks
+                                                                 don't each need a full-FEC-sized buffer. */
   char                  print_buf[ FD_SCHED_MAX_PRINT_BUF_SZ ];
   ulong                 print_buf_sz;
   fd_chkdup_t           chkdup[ 1 ];
@@ -1069,15 +1077,17 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   }
 
   FD_TEST( block->fec_buf_sz>=block->fec_buf_soff );
-  if( FD_LIKELY( block->fec_buf_sz>block->fec_buf_soff ) ) {
-    /* If there is residual data from the previous FEC set within the
-       same batch, we move it to the beginning of the buffer and append
-       the new FEC set. */
-    memmove( block->fec_buf, block->fec_buf+block->fec_buf_soff, block->fec_buf_sz-block->fec_buf_soff );
-  }
+  /* Stage the residual data from the previous FEC set within the same
+     batch (if any) at the beginning of the shared staging buffer and
+     append the new FEC set. */
+  block->fec_buf       = sched->fec_stage;
   block->fec_buf_boff += block->fec_buf_soff;
   block->fec_buf_sz   -= block->fec_buf_soff;
   block->fec_buf_soff  = 0;
+  if( FD_LIKELY( block->fec_buf_sz ) ) {
+    FD_TEST( block->fec_buf_sz<=FD_TXN_MTU );
+    memcpy( block->fec_buf, block->fec_resid, block->fec_buf_sz );
+  }
   /* Addition is safe and won't overflow because we checked the FEC
      set size above. */
   if( FD_UNLIKELY( block->fec_buf_sz+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
@@ -1177,6 +1187,20 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     }
     FD_TEST( mixin_res==1||mixin_res==2 );
   }
+
+  /* Unstage: keep only the bounded residual for the next ingest. */
+  uint resid_sz = block->fec_buf_sz-block->fec_buf_soff;
+  if( FD_UNLIKELY( resid_sz>FD_TXN_MTU ) ) {
+    sched->print_buf_sz = 0UL;
+    print_all( sched, block );
+    FD_LOG_NOTICE(( "%s", sched->print_buf ));
+    FD_LOG_CRIT(( "invariant violation: parse residual %u > %lu, slot %lu, parent slot %lu", resid_sz, FD_TXN_MTU, block->slot, block->parent_slot ));
+  }
+  if( FD_LIKELY( resid_sz ) ) memcpy( block->fec_resid, block->fec_buf+block->fec_buf_soff, resid_sz );
+  block->fec_buf_boff += block->fec_buf_soff;
+  block->fec_buf_sz    = resid_sz;
+  block->fec_buf_soff  = 0U;
+  block->fec_buf       = NULL;
 
   /* Check if we need to set the active block. */
   check_or_set_active_block( sched );
@@ -2099,6 +2123,7 @@ add_block( fd_sched_t * sched,
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
+  block->fec_buf          = NULL;
   block->fec_buf_sz       = 0U;
   block->fec_buf_boff     = 0U;
   block->fec_buf_soff     = 0U;
@@ -2573,7 +2598,17 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
                                          &pay_sz );
 
   /* Can't parse out a full transaction yet, EAGAIN. */
-  if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) return -1;
+  if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
+    if( FD_UNLIKELY( remaining>=FD_TXN_MTU ) ) {
+      /* A valid transaction occupies at most FD_TXN_MTU bytes, so more
+         bytes can never make this parseable.  Fail the block eagerly
+         (it would die on UNPARSEABLE_CONTENT/SHORT_BLOCK eventually
+         anyway); this also bounds the residual a live block carries. */
+      FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, unparseable transaction, remaining %lu, slot %lu, parent slot %lu", remaining, block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT;
+    }
+    return -1;
+  }
 
   if( FD_UNLIKELY( block->txn_parsed_cnt>=FD_MAX_TXN_PER_SLOT ) ) {
     /* Transaction count is enforced as invariant
