@@ -1307,7 +1307,7 @@ fd_boot_report_publish( fd_boot_report_t *  r,
   render_topology_json( r, topo );
 
   r->tile_count = (ushort)fd_ulong_min( topo->tile_cnt, USHORT_MAX );
-  ulong stack_bytes  = topo->tile_cnt*FD_SHMEM_HUGE_PAGE_SZ*( (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL );
+  ulong stack_bytes  = topo->tile_cnt*FD_TILE_PRIVATE_STACK_SZ;
   ulong normal_bytes = fd_topo_normal_page_cnt( topo )*FD_SHMEM_NORMAL_PAGE_SZ;
   r->memory_total = fd_topo_mlock( topo )+stack_bytes+normal_bytes;
   for( ulong i=0UL; i<fd_shmem_numa_cnt(); i++ ) {

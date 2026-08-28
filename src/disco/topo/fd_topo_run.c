@@ -4,6 +4,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../events/fd_event_report.h"
 #include "../../util/tile/fd_tile_private.h"
+#include "../../util/shmem/fd_shmem_private.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -221,27 +222,30 @@ fd_topo_tile_stack_join( char const * app_name,
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", app_name, tile_name, tile_kind_id ) );
 
+  /* Reserve stack plus flanking VA as PROT_NONE, then map the stack
+     file into the 2 MiB aligned middle.  The flanks (>=4 KiB each)
+     stay PROT_NONE and guard overflow/underflow at zero physical page
+     cost. */
+  ulong reserve_sz = FD_TILE_PRIVATE_STACK_SZ+2UL*FD_SHMEM_HUGE_PAGE_SZ;
+  uchar * reserve = (uchar *)mmap( NULL, reserve_sz, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE, -1, (off_t)0 );
+  if( FD_UNLIKELY( reserve==MAP_FAILED ) )
+    FD_LOG_ERR(( "mmap() for stack reservation failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  uchar * stack = (uchar *)fd_ulong_align_up( (ulong)reserve+FD_SHMEM_NORMAL_PAGE_SZ, FD_SHMEM_HUGE_PAGE_SZ );
+
+  char path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
+  int fd = open( fd_shmem_private_path( name, FD_SHMEM_HUGE_PAGE_SZ, path ), O_RDWR, (mode_t)0 );
+  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( mmap( stack, FD_TILE_PRIVATE_STACK_SZ, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED, fd, (off_t)0 )!=(void *)stack ) )
+    FD_LOG_ERR(( "mmap(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( fd_numa_mlock( stack, FD_TILE_PRIVATE_STACK_SZ ) ) )
+    FD_LOG_WARNING(( "mlock(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
+
   int dump = strcmp( tile_name, "sign" ) ? 1 : 0; /* avoid core dumps of sign tile stacks */
-  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, dump, NULL, NULL, NULL );
-  if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
-
-  /* Make space for guard lo and guard hi */
-  if( FD_UNLIKELY( fd_shmem_release( stack, FD_SHMEM_HUGE_PAGE_SZ, 1UL ) ) )
-    FD_LOG_ERR(( "fd_shmem_release (%d-%s)", errno, fd_io_strerror( errno ) ));
-  stack += FD_SHMEM_HUGE_PAGE_SZ;
-  if( FD_UNLIKELY( fd_shmem_release( stack + FD_TILE_PRIVATE_STACK_SZ, FD_SHMEM_HUGE_PAGE_SZ, 1UL ) ) )
-    FD_LOG_ERR(( "fd_shmem_release (%d-%s)", errno, fd_io_strerror( errno ) ));
-
-  /* Create the guard regions in the extra space */
-  void * guard_lo = (void *)(stack - FD_SHMEM_NORMAL_PAGE_SZ );
-  if( FD_UNLIKELY( mmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
-                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
-    FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  void * guard_hi = (void *)(stack + FD_TILE_PRIVATE_STACK_SZ);
-  if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
-                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
-    FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !dump && madvise( stack, FD_TILE_PRIVATE_STACK_SZ, MADV_DONTDUMP ) ) )
+    FD_LOG_ERR(( "madvise(MADV_DONTDUMP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   return stack;
 }

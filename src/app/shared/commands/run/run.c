@@ -859,7 +859,7 @@ initialize_stacks( config_t const * config ) {
     char name[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", config->name, tile->name, tile->kind_id ) );
 
-    ulong sub_page_cnt[ 1 ] = { 6 };
+    ulong sub_page_cnt[ 1 ] = { FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ };
     ulong sub_cpu_idx [ 1 ] = { stack_cpu_idx };
     int err;
     if( FD_UNLIKELY( update_existing ) ) {
