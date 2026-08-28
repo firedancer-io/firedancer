@@ -84,12 +84,16 @@ class MetricEnum:
         self.values = values
 
 class Metric:
-    def __init__(self, type: MetricType, name: str, tile: Optional[Tile], description: str):
+    def __init__(self, type: MetricType, name: str, tile: Optional[Tile], description: str, optional: bool = False):
         self.type = type
         self.name = name
         self.tile = tile
         self.description = description
+        self.optional = optional
         self.offset = 0
+        self.availability_offset = 0
+        self.availability_word = 0
+        self.availability_bit = 0
 
     def footprint(self) -> int:
         return 8
@@ -98,13 +102,13 @@ class Metric:
         return 1
 
 class CounterMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, converter: HistogramConverter = HistogramConverter.NONE):
-        super().__init__(MetricType.COUNTER, name, tile, description)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, converter: HistogramConverter = HistogramConverter.NONE, optional: bool = False):
+        super().__init__(MetricType.COUNTER, name, tile, description, optional)
         self.converter = converter
 
 class GaugeMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str):
-        super().__init__(MetricType.GAUGE, name, tile, description)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, optional: bool = False):
+        super().__init__(MetricType.GAUGE, name, tile, description, optional)
 
 class HistogramMetric(Metric):
     def __init__(self, name: str, tile: Optional[Tile], description: str, converter: HistogramConverter, min: str, max: str):
@@ -118,8 +122,8 @@ class HistogramMetric(Metric):
         return 136
 
 class CounterEnumMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum, converter: HistogramConverter = HistogramConverter.NONE):
-        super().__init__(MetricType.COUNTER, name, tile, description)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum, converter: HistogramConverter = HistogramConverter.NONE, optional: bool = False):
+        super().__init__(MetricType.COUNTER, name, tile, description, optional)
         self.type = MetricType.COUNTER
         self.enum = enum
         self.converter = converter
@@ -131,8 +135,8 @@ class CounterEnumMetric(Metric):
         return len(self.enum.values)
 
 class GaugeEnumMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum):
-        super().__init__(MetricType.GAUGE, name, tile, description)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum, optional: bool = False):
+        super().__init__(MetricType.GAUGE, name, tile, description, optional)
 
         self.enum = enum
 
@@ -149,32 +153,41 @@ class Metrics:
         self.link_in = link_in
         self.enums = enums
         self.tiles_no_telemetry = tiles_no_telemetry or set()
+        self.link_in_footprint = 0
+        self.common_footprint = 0
+        self.tile_footprints = {}
 
     def count(self):
         return sum([metric.count() for metric in self.common]) + \
             sum([sum([metric.count() for metric in tile_metrics]) for tile_metrics in self.tiles.values()]) + \
             sum([metric.count() for metric in self.link_in])
 
+    @staticmethod
+    def layout_group(metrics: List[Metric], start_offset: int) -> int:
+        offset = start_offset
+        for metric in metrics:
+            metric.offset = offset
+            offset += int(metric.footprint() / 8)
+
+        optional_metrics = [metric for metric in metrics if metric.optional]
+        for idx, metric in enumerate(optional_metrics):
+            metric.availability_offset = offset + idx // 64
+            metric.availability_word = idx // 64
+            metric.availability_bit = idx % 64
+
+        return offset + (len(optional_metrics) + 63) // 64
+
     def layout(self):
-        offset: int = 0
-        for metric in self.link_in:
-            metric.offset = offset
-            offset += int(metric.footprint() / 8)
+        self.link_in_footprint = self.layout_group(self.link_in, 0)
+        self.common_footprint = self.layout_group(self.common, 0)
 
-        offset: int = 0
-        for metric in self.common:
-            metric.offset = offset
-            offset += int(metric.footprint() / 8)
-
-        for tile_metrics in self.tiles.values():
-            tile_offset = offset
-            for metric in tile_metrics:
-                metric.offset = tile_offset
-                tile_offset += int(metric.footprint() / 8)
+        for tile, tile_metrics in self.tiles.items():
+            self.tile_footprints[tile] = self.layout_group(tile_metrics, self.common_footprint)
 
 def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, MetricEnum]) -> Metric:
     name = metric.attrib['name']
     description = ""
+    optional = metric.attrib.get('optional', 'false').lower() == 'true'
 
     summary_ele = metric.find('summary')
     if summary_ele is not None and summary_ele.text is not None:
@@ -190,15 +203,17 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
                 converter = HistogramConverter[converter_str]
 
         if 'enum' in metric.attrib:
-            return CounterEnumMetric(name, tile, description, enums[metric.attrib['enum']], converter)
+            return CounterEnumMetric(name, tile, description, enums[metric.attrib['enum']], converter, optional)
         else:
-            return CounterMetric(name, tile, description, converter)
+            return CounterMetric(name, tile, description, converter, optional)
     elif metric.tag == 'gauge':
         if 'enum' in metric.attrib:
-            return GaugeEnumMetric(name, tile, description, enums[metric.attrib['enum']])
+            return GaugeEnumMetric(name, tile, description, enums[metric.attrib['enum']], optional)
         else:
-            return GaugeMetric(name, tile, description)
+            return GaugeMetric(name, tile, description, optional)
     elif metric.tag == 'histogram':
+        if optional:
+            raise ValueError(f'Histogram metric {name} cannot be optional')
         converter = None
         if 'converter' in metric.attrib:
             converter = HistogramConverter[metric.attrib['converter'].upper()]
