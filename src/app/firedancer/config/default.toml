@@ -1706,8 +1706,10 @@ telemetry = true
 
         # Sets the FEC payload RAM cache size.  When full, the oldest
         # unpinned payloads spill to the shred database and are loaded back
-        # on demand. Zero disables the limit.
-        shred_cache_size_gib = 2
+        # on demand. Zero disables the limit.  1 GiB holds ~32k FEC
+        # payloads, several hundred mainnet slots of unreplayed data,
+        # while the steady-state working set is a few slots.
+        shred_cache_size_gib = 1
 
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just
