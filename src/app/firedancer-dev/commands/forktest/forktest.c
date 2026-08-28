@@ -257,9 +257,6 @@ forktest_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   if( FD_LIKELY( snapshots_enabled ) ) {
-                          fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_ct",    0UL                                            );
-                          fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapin_ct",    0UL,      FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-
     /**/              fd_topob_tile_in (    topo, "snapld",  0UL,          "metric_in", "snapct_ld",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/              fd_topob_tile_out(    topo, "snapld",  0UL,                       "snapld_dc",     0UL                                                );
 
