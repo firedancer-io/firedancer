@@ -43,9 +43,12 @@
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_BUF_MAX+5UL+9UL*( (FD_EVENT_BLOCK_COMPLETED_BUF_MAX+5UL+16383UL)/16384UL )<=GRPC_BUF_MAX, event_fits_grpc_tx_buf );
 FD_STATIC_ASSERT( FD_EVENT_BOOT_BUF_MAX+5UL+9UL*( (FD_EVENT_BOOT_BUF_MAX+5UL+16383UL)/16384UL )<=GRPC_BUF_MAX, boot_event_fits_grpc_tx_buf );
 
-/* Sized so the event workspace (circq + ~144 MiB client/ctx + 64 MiB
-   OpenSSL loose) fits in one gigantic page. */
-#define EVENT_CIRCQ_SZ ((1UL<<30UL)-(224UL<<20UL))
+/* Event retry queue.  fd_circq drops the oldest event when full, so
+   this only bounds how long a collector outage can be bridged without
+   telemetry loss.  256 MiB keeps the event workspace (circq + ~144 MiB
+   client/ctx + 64 MiB OpenSSL loose) on 2 MiB pages, well under the
+   gigantic page threshold. */
+#define EVENT_CIRCQ_SZ (256UL<<20UL)
 
 /* The worst-case size of a Txn event:
    - Fixed overhead:
