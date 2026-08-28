@@ -46,9 +46,11 @@ FD_STATIC_ASSERT( FD_EVENT_CLIENT_STATE_AUTHENTICATING==FD_METRICS_ENUM_EVENT_CO
 FD_STATIC_ASSERT( FD_EVENT_CLIENT_STATE_CONNECTED==FD_METRICS_ENUM_EVENT_CONN_STATE_V_CONNECTED_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_EVENT_CLIENT_FITS( FD_EVENT_BOOT_BUF_MAX, GRPC_BUF_MAX ), boot_event_fits_grpc_tx_buf );
 
-/* Sized so the event workspace (circq + ~144 MiB client/ctx) fits in one
-   gigantic page. */
-#define EVENT_CIRCQ_SZ ((1UL<<30UL)-(160UL<<20UL))
+/* Event retry queue.  fd_circq drops the oldest event when full, so
+   this only bounds how long a collector outage can be bridged without
+   telemetry loss.  256 MiB keeps the event workspace (circq + ~144 MiB
+   client/ctx) on 2 MiB pages, well under the gigantic page threshold. */
+#define EVENT_CIRCQ_SZ (256UL<<20UL)
 
 #define METRICS_SAMPLE_INTERVAL_SECS (10L)
 
