@@ -140,7 +140,6 @@ forktest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapld"      );
     fd_topob_wksp( topo, "snapdc"      );
     fd_topob_wksp( topo, "snapin"      );
-    fd_topob_wksp( topo, "snapwr"      );
     fd_topob_wksp( topo, "snapct_ld"   );
     fd_topob_wksp( topo, "snapld_dc"   );
     fd_topob_wksp( topo, "snapdc_in"   );
@@ -149,7 +148,7 @@ forktest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapct_repr"  );
 
     fd_topob_wksp( topo, "snapin_ct" );
-    fd_topob_wksp( topo, "snapwr_ct" );
+    fd_topob_wksp( topo, "snapio_snoop" );
   }
 
   fd_topob_wksp( topo, "forkt" );
@@ -171,8 +170,6 @@ forktest_topo( config_t * config ) {
     /**/               fd_topob_link( topo, "snapct_repr",   "snapct_repr",   128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
 
     /**/               fd_topob_link( topo, "snapin_ct",    "snapin_ct",    128UL,                                    0UL,                           1UL );
-
-    /**/               fd_topob_link( topo, "snapwr_ct",    "snapwr_ct",    128UL,                                    0UL,                           1UL );
   }
 
   if( FD_UNLIKELY( !snapshots_enabled ) ) {
@@ -227,7 +224,6 @@ forktest_topo( config_t * config ) {
                        snapin_tile =
     /**/               fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0 );
                        snapin_tile->allow_shutdown = 1;
-    /**/               fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0 )->allow_shutdown = 1;
   }
 
   if( FD_UNLIKELY( !snapshots_enabled ) ) {
@@ -271,17 +267,14 @@ forktest_topo( config_t * config ) {
     /**/              fd_topob_tile_out(    topo, "snapdc",  0UL,                       "snapdc_in",     0UL                                                );
 
                       fd_topob_tile_in (    topo, "snapin",  0UL,          "metric_in", "snapdc_in",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-                      fd_topob_tile_in (    topo, "snapwr",  0UL,          "metric_in", "snapdc_in",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                       fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_manif",  0UL                                                );
 
                       fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapin_ct",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-                      fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapwr_ct",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                       fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapld_dc",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                       fd_topob_tile_out(    topo, "snapct",  0UL,                       "snapct_ld",     0UL                                                );
                       fd_topob_tile_out(    topo, "snapct",  0UL,                       "snapct_repr",   0UL                                                );
 
                       fd_topob_tile_out(    topo, "snapin", 0UL,                        "snapin_ct",     0UL                                                );
-                      fd_topob_tile_out(    topo, "snapwr", 0UL,                        "snapwr_ct",     0UL                                                );
   }
 
   /**/                 fd_topob_tile_in (   topo, "forkt", 0UL,            "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -389,6 +382,7 @@ forktest_topo( config_t * config ) {
   /**/                 fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( FD_LIKELY( snapshots_enabled ) ) fd_topob_tile_uses( topo, snapin_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   fd_topo_obj_t * node_info_obj = fd_topob_obj( topo, "node_info", "replay" );
@@ -424,6 +418,17 @@ forktest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, accdb_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  if( FD_LIKELY( snapshots_enabled ) ) {
+    /* Striped accdb chain locks + per-tile snoop staging for the
+       fused parse+insert+write snapshot loader tile.  There is no
+       snapwr tile: the single snapin tile is the only worker, so
+       worker_cnt is 1. */
+    fd_topo_obj_t * snoop_obj = fd_topob_obj( topo, "snapio_snoop", "snapio_snoop" );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, 1UL, "obj.%lu.worker_cnt", snoop_obj->id ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, snoop_obj->id, "snapio_snoop" ) );
+    fd_topob_tile_uses( topo, snapin_tile, snoop_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
 
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 

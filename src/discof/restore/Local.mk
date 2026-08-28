@@ -13,9 +13,6 @@ endif # FD_HAS_ZSTD
 $(call add-objs,fd_snapin_tile,fd_discof)
 $(call make-unit-test,test_snapin_tile,test_snapin_tile,fd_discof fd_disco fd_flamenco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_snapin_tile)
-$(call add-objs,fd_snapwr_tile,fd_discof)
-$(call make-unit-test,test_snapwr_tile,test_snapwr_tile,fd_discof fd_disco fd_flamenco fd_ballet fd_tango fd_util)
-$(call run-unit-test,test_snapwr_tile)
 endif # FD_HAS_SSE
 ifdef FD_HAS_ZSTD
 $(call add-objs,utils/fd_zstd_frame,fd_discof)
