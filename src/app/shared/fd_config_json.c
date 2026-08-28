@@ -396,8 +396,8 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "max_retry_abort",                     f->snapshots.max_retry_abort );
     jw_ulong( &w, "min_download_speed_mibs",             f->snapshots.min_download_speed_mibs );
     jw_ulong( &w, "wait_for_peers_timeout_seconds",      f->snapshots.wait_for_peers_timeout_seconds );
-    jw_ulong( &w, "full_snapshot_interval_slots",        f->snapshots.full_snapshot_interval_slots );
-    jw_ulong( &w, "incremental_snapshot_interval_slots", f->snapshots.incremental_snapshot_interval_slots );
+    jw_ulong( &w, "full_snapshot_interval_blocks",       f->snapshots.full_snapshot_interval_blocks );
+    jw_ulong( &w, "incremental_snapshot_interval_blocks",f->snapshots.incremental_snapshot_interval_blocks );
     jw_ulong( &w, "max_incremental_snapshot_accounts",   f->snapshots.max_incremental_snapshot_accounts );
     jw_obj_open( &w, "server" );
       jw_bool ( &w, "enabled",              f->snapshots.server.enabled );

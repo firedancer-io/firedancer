@@ -786,6 +786,46 @@ drive_become_leader( fd_replay_tile_t * ctx,
 }
 
 static void
+test_snapshot_intervals_use_block_height( void ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_memset( ctx, 0, sizeof(fd_replay_tile_t) );
+
+  ctx->caught_up                             = 1;
+  ctx->snapmk.supported                      = 1;
+  ctx->snapmk.scheduled_at_slot              = ULONG_MAX;
+  ctx->snapmk.full_interval_blocks           = 100000UL;
+  ctx->snapmk.next_full_block_height         = ULONG_MAX;
+  ctx->snapmk.next_incremental_block_height  = ULONG_MAX;
+  ctx->snapmk.base_slot                      = ULONG_MAX;
+
+  int incremental = -1;
+  FD_TEST( !snapshot_due_for_root( ctx, 99998UL, 250000UL, 99999UL, 99999UL, &incremental ) );
+  FD_TEST( !incremental );
+  FD_TEST( ctx->snapmk.next_full_block_height==100000UL );
+
+  FD_TEST( snapshot_due_for_root( ctx, 99999UL, 250001UL, 100000UL, 100000UL, &incremental ) );
+  FD_TEST( !incremental );
+
+  ctx->snapmk.next_full_block_height        = 200000UL;
+  ctx->snapmk.incremental_interval_blocks   = 200UL;
+  ctx->snapmk.next_incremental_block_height = ULONG_MAX;
+  ctx->snapmk.base_slot                     = 100UL;
+  FD_TEST( !snapshot_due_for_root( ctx, 398UL, 250002UL, 399UL, 399UL, &incremental ) );
+  FD_TEST( !incremental );
+  FD_TEST( ctx->snapmk.next_incremental_block_height==400UL );
+
+  FD_TEST( snapshot_due_for_root( ctx, 399UL, 250003UL, 400UL, 400UL, &incremental ) );
+  FD_TEST( incremental );
+
+  ctx->snapmk.next_full_block_height        = 200000UL;
+  ctx->snapmk.next_incremental_block_height = 200000UL;
+  FD_TEST( snapshot_due_for_root( ctx, 199999UL, 400UL, 200000UL, 200000UL, &incremental ) );
+  FD_TEST( !incremental );
+
+  FD_LOG_NOTICE(( "pass: test_snapshot_intervals_use_block_height" ));
+}
+
+static void
 start_fec_with_epoch_boundary_mode( fd_replay_tile_t * ctx,
                                     fd_reasm_fec_t *   fec,
                                     int                freeze_bank,
@@ -2061,6 +2101,7 @@ main( int     argc,
 
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
   test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );
+  test_snapshot_intervals_use_block_height();
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
