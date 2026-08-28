@@ -28,6 +28,15 @@ typedef struct fd_net_rx_bounds fd_net_rx_bounds_t;
 
 #define FD_NET_BOND_SLAVE_MAX 16U
 
+/* Ring depth for the loopback XSK hosted by net tile 0.  Loopback
+   carries only self-addressed traffic (own votes, local RPC), orders
+   of magnitude below physical NIC rates, and runs in skb copy mode:
+   4096 entries is hundreds of ms of buffering even when a same-host
+   coexistence setup routes real gossip over lo.  Shared between the
+   tile (XSK ring sizes) and the topo build (UMEM fill seed
+   provisioning); must be a power of two. */
+#define FD_NET_LO_RING_DEPTH (4096UL)
+
 /* FD_MLX5_BATCH_SIZE is the descriptor and completion batch size. */
 
 #define FD_MLX5_BATCH_SIZE 64U
