@@ -11,7 +11,7 @@
 /* FD_SOCK_TILE_MAX_SOCKETS controls the max number of UDP ports that a
    sock tile can bind to. */
 
-#define FD_SOCK_TILE_MAX_SOCKETS (8)
+#define FD_SOCK_TILE_MAX_SOCKETS (9)
 
 /* MAX_NET_INS controls the max number of TX links that a sock tile can
    serve. */

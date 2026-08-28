@@ -455,6 +455,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_bool( &w, "fixed_fec_sets",  f->development.fixed_fec_sets );
     jw_bool( &w, "alpenglow",       f->development.alpenglow );
     jw_obj_open( &w, "votor" );
+      jw_ulong( &w, "quic_client_listen_port", f->development.votor.quic_client_listen_port );
       jw_ulong( &w, "quic_server_listen_port", f->development.votor.quic_server_listen_port );
     jw_obj_close( &w );
     jw_obj_open( &w, "gossip" );
