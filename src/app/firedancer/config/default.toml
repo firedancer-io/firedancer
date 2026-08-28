@@ -1686,8 +1686,11 @@ telemetry = true
         # maintain at once.  This is expected to be the largest at
         # startup, when the validator is catching up from the snapshot
         # slot, but still maintaining and receiving new turbine slots.
+        # Matches [runtime.max_live_slots]; when full, the repair
+        # forest evicts the newest unconfirmed tips and re-repairs
+        # them, so exceeding it slows catchup rather than failing.
         # Must be power of 2
-        slot_max = 4096
+        slot_max = 2048
 
     [tiles.rserve]
         # If the repair server is enabled.
