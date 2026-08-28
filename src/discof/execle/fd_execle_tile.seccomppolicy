@@ -5,7 +5,7 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd
+uint logfile_fd, uint accounts_fd, uint stake_spill_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -46,3 +46,11 @@ preadv2: (eq (arg 0) accounts_fd)
 # device in chunks, as it runs out.
 fallocate: (and (eq (arg 0) accounts_fd)
                 (eq (arg 1) 0))
+
+# stake delegations: disk overflow of the pubkey fallback tier, only
+# touched in fallback mode (more stake accounts than the delegation
+# pools can hold).
+pread64: (eq (arg 0) stake_spill_fd)
+
+# stake delegations: disk overflow of the pubkey fallback tier
+pwrite64: (eq (arg 0) stake_spill_fd)

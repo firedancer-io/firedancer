@@ -1,6 +1,10 @@
+#define _GNU_SOURCE
 #include "fd_stake_delegations.h"
 #include "fd_stake_types.h"
 #include "../runtime/fd_runtime_const.h"
+
+#include <sys/mman.h>
+#include <unistd.h>
 
 FD_STATIC_ASSERT( offsetof( fd_stake_state_t, stake_type  )==  0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_state_t, initialized )==  4UL, layout );
@@ -770,6 +774,58 @@ int main( int argc, char ** argv ) {
     FD_TEST( stake_delegations->fp_warmed_awarded==1 );
     fd_stake_delegations_invalidate_warmed( stake_delegations );
     FD_TEST( stake_delegations->fp_warmed_awarded==0 );
+  }
+
+  /* Case 34: overflowing the RAM pubkey tier spills to the disk bucket
+     file.  Uses a memfd dup2'd onto the well-known spill fd, like the
+     validator boot does with a real file. */
+  {
+    int mfd = memfd_create( "stakedel_spill", 0 );
+    FD_TEST( mfd>=0 );
+    FD_TEST( dup2( mfd, FD_STAKE_DELEGATIONS_FD )==FD_STAKE_DELEGATIONS_FD );
+    FD_TEST( !close( mfd ) );
+
+    fd_stake_delegations_reset( stake_delegations );
+
+    ulong const ram_max = stake_delegations->ram_pubkey_max_;
+    FD_TEST( ram_max==FD_STAKE_DELEGATIONS_PUBKEY_RAM_MUL*max_stake_accounts );
+    FD_TEST( stake_delegations->disk_pubkey_cap_==max_fallback_stake_accounts-ram_max );
+
+    /* Exhaust the delta pool to enter fallback, then keep pushing unique
+       pubkeys until they spill past the RAM tier onto disk. */
+    ushort      fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    ulong const total    = ram_max+17UL;
+    for( ulong i=0UL; i<total; i++ ) {
+      fd_pubkey_t k = { .ul = { 60000UL+i, 70000UL+i } };
+      fd_stake_delegations_fork_update( stake_delegations, fork_idx, &k, &voter_pubkey_0, i+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    }
+    FD_TEST( fd_stake_delegations_pubkey_fallback( stake_delegations ) );
+    FD_TEST( fd_stake_delegations_pubkey_cnt( stake_delegations )==total );
+    FD_TEST( stake_delegations->disk_pubkey_used_==total-ram_max );
+
+    /* Updating an already-spilled pubkey dedupes against the file
+       rather than inserting again. */
+    fd_pubkey_t dup_k = { .ul = { 60000UL+total-1UL, 70000UL+total-1UL } };
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &dup_k, &voter_pubkey_0, 7UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    FD_TEST( fd_stake_delegations_pubkey_cnt( stake_delegations )==total );
+    FD_TEST( stake_delegations->disk_pubkey_used_==total-ram_max );
+
+    /* Reset invalidates the file contents via the generation stamp: the
+       same keys spill cleanly again instead of colliding with stale
+       records. */
+    fd_stake_delegations_reset( stake_delegations );
+    FD_TEST( !fd_stake_delegations_pubkey_cnt( stake_delegations ) );
+    FD_TEST( !stake_delegations->disk_pubkey_used_ );
+
+    fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    for( ulong i=0UL; i<total; i++ ) {
+      fd_pubkey_t k = { .ul = { 60000UL+i, 70000UL+i } };
+      fd_stake_delegations_fork_update( stake_delegations, fork_idx, &k, &voter_pubkey_0, i+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    }
+    FD_TEST( fd_stake_delegations_pubkey_cnt( stake_delegations )==total );
+    FD_TEST( stake_delegations->disk_pubkey_used_==total-ram_max );
+
+    fd_stake_delegations_reset( stake_delegations );
   }
 
   /* Test stake delegations refresh */

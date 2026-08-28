@@ -3,6 +3,9 @@
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../util/fd_hash32.h"
 
+#include <errno.h>
+#include <unistd.h>
+
 #define POOL_NAME  root_pool
 #define POOL_T     fd_stake_delegation_t
 #define POOL_NEXT  next_
@@ -103,6 +106,135 @@ get_pubkey_map( fd_stake_delegations_t const * stake_delegations ) {
   return fd_type_pun( (uchar *)stake_delegations + stake_delegations->pubkey_map_offset_ );
 }
 
+/* Disk overflow of the pubkey fallback tier.  Records live in an
+   open-addressed (linear probe) bucket file on the well-known
+   FD_STAKE_DELEGATIONS_FD.  A record is live iff state==LIVE and its
+   generation matches the struct's; anything else is a free slot, with
+   TOMBSTONE keeping probe chains intact.  The file only ever holds
+   entries while the struct is in fallback mode: outside fallback the
+   tier is structurally bounded below the RAM tier capacity.  Every
+   access runs under the struct's write lock. */
+
+#define DISK_REF_EMPTY     (0U)
+#define DISK_REF_LIVE      (1U)
+#define DISK_REF_TOMBSTONE (2U)
+
+struct disk_ref {
+  fd_pubkey_t stake_account;
+  uint        refcnt;
+  uint        gen;
+  uint        state;
+  uint        pad;
+};
+typedef struct disk_ref disk_ref_t;
+
+FD_STATIC_ASSERT( sizeof(disk_ref_t)==FD_STAKE_DELEGATIONS_DISK_SLOT_SZ, disk_ref );
+
+/* Reads short at EOF zero-fill: the file is sparse and never
+   ftruncated, and all-zero records are DISK_REF_EMPTY. */
+
+static void
+disk_read( void * dst,
+           ulong  off,
+           ulong  sz ) {
+  ulong got = 0UL;
+  while( got<sz ) {
+    long n = pread( FD_STAKE_DELEGATIONS_FD, (uchar *)dst+got, sz-got, (long)(off+got) );
+    if( FD_UNLIKELY( n<0L ) ) {
+      if( FD_LIKELY( errno==EINTR ) ) continue;
+      FD_LOG_CRIT(( "pread(stake delegation bucket file, fd=%d) failed (%i-%s)", FD_STAKE_DELEGATIONS_FD, errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( !n ) ) break;
+    got += (ulong)n;
+  }
+  if( FD_UNLIKELY( got<sz ) ) fd_memset( (uchar *)dst+got, 0, sz-got );
+}
+
+static void
+disk_write( void const * src,
+            ulong        off,
+            ulong        sz ) {
+  ulong put = 0UL;
+  while( put<sz ) {
+    long n = pwrite( FD_STAKE_DELEGATIONS_FD, (uchar const *)src+put, sz-put, (long)(off+put) );
+    if( FD_UNLIKELY( n<0L ) ) {
+      if( FD_LIKELY( errno==EINTR ) ) continue;
+      FD_LOG_CRIT(( "pwrite(stake delegation bucket file, fd=%d) failed (%i-%s)", FD_STAKE_DELEGATIONS_FD, errno, fd_io_strerror( errno ) ));
+    }
+    put += (ulong)n;
+  }
+}
+
+static inline int
+disk_ref_is_live( fd_stake_delegations_t const * stake_delegations,
+                  disk_ref_t const *             rec ) {
+  return rec->state==DISK_REF_LIVE && rec->gen==stake_delegations->disk_gen_;
+}
+
+static inline int
+disk_ref_is_empty( fd_stake_delegations_t const * stake_delegations,
+                   disk_ref_t const *             rec ) {
+  return rec->state==DISK_REF_EMPTY || rec->gen!=stake_delegations->disk_gen_;
+}
+
+/* Linear probe for stake_account.  On return, *live_slot is the slot of
+   the live record (rec_out filled in) or ULONG_MAX, and *free_slot is
+   the first insertable slot on the probe path (always found: the live
+   count is capped strictly below the slot count). */
+
+#define DISK_PROBE_CHUNK (64UL)
+
+static void
+disk_ref_find( fd_stake_delegations_t const * stake_delegations,
+               fd_pubkey_t const *            stake_account,
+               disk_ref_t *                   rec_out,
+               ulong *                        live_slot,
+               ulong *                        free_slot ) {
+  ulong slot_cnt = stake_delegations->disk_slot_cnt_;
+  ulong slot     = (ulong)fd_hash32( stake_account->uc, stake_delegations->disk_seed_ ) & (slot_cnt-1UL);
+
+  *live_slot = ULONG_MAX;
+  *free_slot = ULONG_MAX;
+
+  disk_ref_t chunk[ DISK_PROBE_CHUNK ];
+  for( ulong probed=0UL; probed<slot_cnt; ) {
+    ulong chunk_cnt = fd_ulong_min( DISK_PROBE_CHUNK, slot_cnt-slot );
+    disk_read( chunk, slot*sizeof(disk_ref_t), chunk_cnt*sizeof(disk_ref_t) );
+    for( ulong i=0UL; i<chunk_cnt; i++ ) {
+      disk_ref_t const * rec = &chunk[ i ];
+      if( disk_ref_is_live( stake_delegations, rec ) ) {
+        if( FD_UNLIKELY( fd_pubkey_eq( &rec->stake_account, stake_account ) ) ) {
+          *live_slot = slot+i;
+          *rec_out   = *rec;
+          return;
+        }
+        continue;
+      }
+      if( *free_slot==ULONG_MAX ) *free_slot = slot+i;
+      if( disk_ref_is_empty( stake_delegations, rec ) ) return;
+    }
+    probed += chunk_cnt;
+    slot   += chunk_cnt;
+    if( slot>=slot_cnt ) slot = 0UL;
+  }
+}
+
+static void
+disk_ref_store( fd_stake_delegations_t const * stake_delegations,
+                ulong                          slot,
+                fd_pubkey_t const *            stake_account,
+                uint                           refcnt,
+                uint                           state ) {
+  disk_ref_t rec = {
+    .stake_account = *stake_account,
+    .refcnt        = refcnt,
+    .gen           = stake_delegations->disk_gen_,
+    .state         = state,
+    .pad           = 0U,
+  };
+  disk_write( &rec, slot*sizeof(disk_ref_t), sizeof(disk_ref_t) );
+}
+
 static void
 pubkey_ref_acquire( fd_stake_delegations_t * stake_delegations,
                     fd_pubkey_t const *      stake_account ) {
@@ -110,15 +242,47 @@ pubkey_ref_acquire( fd_stake_delegations_t * stake_delegations,
   pubkey_map_t *              map  = get_pubkey_map( stake_delegations );
 
   fd_stake_delegation_ref_t * ref = pubkey_map_ele_query( map, stake_account, NULL, pool );
-  if( FD_UNLIKELY( !ref ) ) {
-    FD_CHECK_CRIT( pubkey_pool_free( pool ), "no free entries in stake delegation pubkey pool" );
+  if( FD_LIKELY( ref ) ) {
+    ref->refcnt++;
+    return;
+  }
+
+  /* A pubkey lives in exactly one tier, so before inserting anywhere
+     check the disk tier whenever it holds anything (it only does in
+     fallback mode; at mainnet load this branch is never taken). */
+
+  ulong live_slot = ULONG_MAX;
+  ulong free_slot = ULONG_MAX;
+  disk_ref_t rec;
+  if( FD_UNLIKELY( stake_delegations->disk_pubkey_used_ ) ) {
+    disk_ref_find( stake_delegations, stake_account, &rec, &live_slot, &free_slot );
+    if( FD_LIKELY( live_slot!=ULONG_MAX ) ) {
+      rec.refcnt++;
+      disk_write( &rec, live_slot*sizeof(disk_ref_t), sizeof(disk_ref_t) );
+      return;
+    }
+  }
+
+  if( FD_LIKELY( pubkey_pool_free( pool ) ) ) {
     ref                = pubkey_pool_ele_acquire( pool );
     ref->stake_account = *stake_account;
     ref->refcnt        = 0U;
     stake_delegations->pubkey_idx_wmk_ = fd_ulong_max( stake_delegations->pubkey_idx_wmk_, pubkey_pool_idx( pool, ref )+1UL );
     FD_CHECK_CRIT( pubkey_map_ele_insert( map, ref, pool ), "unable to insert into stake delegation pubkey map" );
+    ref->refcnt++;
+    return;
   }
-  ref->refcnt++;
+
+  /* RAM tier full: overflow into the bucket file.  Only reachable in
+     fallback mode (the non-fallback tier population is structurally
+     below the RAM tier capacity). */
+
+  FD_CHECK_CRIT( stake_delegations->disk_pubkey_used_<stake_delegations->disk_pubkey_cap_,
+                 "no free entries in stake delegation pubkey pool" );
+  if( FD_LIKELY( free_slot==ULONG_MAX ) ) disk_ref_find( stake_delegations, stake_account, &rec, &live_slot, &free_slot );
+  FD_CHECK_CRIT( free_slot!=ULONG_MAX, "stake delegation pubkey bucket file has no free slot" );
+  disk_ref_store( stake_delegations, free_slot, stake_account, 1U, DISK_REF_LIVE );
+  stake_delegations->disk_pubkey_used_++;
 }
 
 static void
@@ -156,6 +320,15 @@ fd_stake_delegations_align( void ) {
   return FD_STAKE_DELEGATIONS_ALIGN;
 }
 
+/* RAM tier capacity of the pubkey fallback tier; the rest of
+   max_fallback_stake_accounts overflows to the bucket file. */
+
+static inline ulong
+pubkey_ram_max( ulong max_stake_accounts,
+                ulong max_fallback_stake_accounts ) {
+  return fd_ulong_min( max_fallback_stake_accounts, FD_STAKE_DELEGATIONS_PUBKEY_RAM_MUL*max_stake_accounts );
+}
+
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
                                 ulong max_fallback_stake_accounts,
@@ -163,7 +336,7 @@ fd_stake_delegations_footprint( ulong max_stake_accounts,
                                 ulong max_live_slots ) {
 
   ulong map_chain_cnt    = root_map_chain_cnt_est( expected_stake_accounts );
-  ulong pubkey_max       = max_fallback_stake_accounts;
+  ulong pubkey_max       = pubkey_ram_max( max_stake_accounts, max_fallback_stake_accounts );
   ulong pubkey_chain_cnt = pubkey_map_chain_cnt_est( expected_stake_accounts );
 
   ulong l = FD_LAYOUT_INIT;
@@ -207,7 +380,7 @@ fd_stake_delegations_new( void * mem,
   }
 
   ulong map_chain_cnt    = root_map_chain_cnt_est( expected_stake_accounts );
-  ulong pubkey_max       = max_fallback_stake_accounts;
+  ulong pubkey_max       = pubkey_ram_max( max_stake_accounts, max_fallback_stake_accounts );
   ulong pubkey_chain_cnt = pubkey_map_chain_cnt_est( expected_stake_accounts );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -278,8 +451,14 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->fork_map_offset_         = (ulong)fork_map_mem - (ulong)mem;
   stake_delegations->pubkey_pool_offset_      = (ulong)pubkey_pool - (ulong)mem;
   stake_delegations->pubkey_map_offset_       = (ulong)pubkey_map - (ulong)mem;
-  stake_delegations->max_pubkeys_             = pubkey_max;
+  stake_delegations->max_pubkeys_             = max_fallback_stake_accounts;
   stake_delegations->pubkey_idx_wmk_          = 0UL;
+  stake_delegations->ram_pubkey_max_          = pubkey_max;
+  stake_delegations->disk_pubkey_cap_         = max_fallback_stake_accounts - pubkey_max;
+  stake_delegations->disk_pubkey_used_        = 0UL;
+  stake_delegations->disk_slot_cnt_           = stake_delegations->disk_pubkey_cap_ ? fd_ulong_pow2_up( stake_delegations->disk_pubkey_cap_ + (stake_delegations->disk_pubkey_cap_>>1) ) : 0UL;
+  stake_delegations->disk_seed_               = seed;
+  stake_delegations->disk_gen_                = 1U;
 
   stake_delegations->effective_stake    = 0UL;
   stake_delegations->activating_stake   = 0UL;
@@ -333,6 +512,8 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
   fork_pool_reset( fork_pool );
   pubkey_pool_reset( get_pubkey_pool( stake_delegations ) );
   pubkey_map_reset( get_pubkey_map( stake_delegations ) );
+  stake_delegations->disk_pubkey_used_ = 0UL;
+  stake_delegations->disk_gen_++;
   stake_delegations->effective_stake    = 0UL;
   stake_delegations->activating_stake   = 0UL;
   stake_delegations->deactivating_stake = 0UL;
@@ -529,11 +710,109 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
 
     fd_accdb_release( accdb, batch_n, accs );
   }
+
+  /* Same sweep over the disk overflow of the pubkey tier (only nonempty
+     in fallback mode).  Dead accounts are tombstoned; survivors migrate
+     back into the RAM tier when it has room, so if everything fits in
+     the root map again the file drains completely. */
+
+  if( FD_UNLIKELY( stake_delegations->disk_pubkey_used_ ) ) {
+    fd_pubkey_t keys [ BATCH ];
+    disk_ref_t  recs [ BATCH ];
+    ulong       slots[ BATCH ];
+    uchar       chunk[ FD_STAKE_DELEGATIONS_DISK_SCAN_CHUNK*sizeof(disk_ref_t) ];
+
+    ulong slot = 0UL;
+    while( slot<stake_delegations->disk_slot_cnt_ ) {
+      ulong chunk_cnt = fd_ulong_min( FD_STAKE_DELEGATIONS_DISK_SCAN_CHUNK, stake_delegations->disk_slot_cnt_-slot );
+      disk_read( chunk, slot*sizeof(disk_ref_t), chunk_cnt*sizeof(disk_ref_t) );
+
+      ulong batch_n = 0UL;
+      for( ulong ci=0UL; ci<chunk_cnt; ci++ ) {
+        disk_ref_t const * rec = fd_type_pun_const( chunk+ci*sizeof(disk_ref_t) );
+        if( FD_LIKELY( !disk_ref_is_live( stake_delegations, rec ) ) ) continue;
+        keys    [ batch_n ] = rec->stake_account;
+        recs    [ batch_n ] = *rec;
+        slots   [ batch_n ] = slot+ci;
+        pubkeys [ batch_n ] = keys[ batch_n ].uc;
+        writable[ batch_n ] = 0;
+        batch_n++;
+        if( FD_UNLIKELY( batch_n==BATCH ) ) break; /* chunk_cnt<=BATCH*16; revisit leftovers below */
+      }
+      /* Chunks can hold more live records than a batch; process this
+         chunk in slices by rescanning from the first unprocessed slot. */
+      ulong next_slot = (batch_n==BATCH) ? slots[ batch_n-1UL ]+1UL : slot+chunk_cnt;
+
+      if( batch_n ) {
+        fd_accdb_acquire( accdb, fork_id, batch_n, pubkeys, writable, accs );
+
+        for( ulong j=0UL; j<batch_n; j++ ) {
+          fd_pubkey_t const *      stake_account = &keys[ j ];
+          fd_stake_state_t const * stake         = accs[ j ].lamports ? fd_stakes_get_state( &accs[ j ] ) : NULL;
+
+          if( FD_UNLIKELY( !stake || stake->stake_type!=FD_STAKE_STATE_STAKE ) ) {
+            fd_stake_delegation_t * delegation = root_map_ele_query( map, stake_account, NULL, pool );
+            if( FD_LIKELY( delegation ) ) {
+              root_map_idx_remove( map, stake_account, UINT_MAX, pool );
+              delegation->in_use = 0;
+              root_pool_ele_release( pool, delegation );
+            }
+            disk_ref_store( stake_delegations, slots[ j ], stake_account, 0U, DISK_REF_TOMBSTONE );
+            stake_delegations->disk_pubkey_used_--;
+            continue;
+          }
+
+          /* Live: pull the reference back into the RAM tier if it has
+             room, then apply the same update as the RAM sweep. */
+          if( FD_LIKELY( pubkey_pool_free( ref_pool ) ) ) {
+            fd_stake_delegation_ref_t * ref = pubkey_pool_ele_acquire( ref_pool );
+            ref->stake_account = *stake_account;
+            ref->refcnt        = recs[ j ].refcnt ? recs[ j ].refcnt : 1U;
+            stake_delegations->pubkey_idx_wmk_ = fd_ulong_max( stake_delegations->pubkey_idx_wmk_, pubkey_pool_idx( ref_pool, ref )+1UL );
+            FD_CHECK_CRIT( pubkey_map_ele_insert( ref_map, ref, ref_pool ), "unable to insert into stake delegation pubkey map" );
+            disk_ref_store( stake_delegations, slots[ j ], stake_account, 0U, DISK_REF_TOMBSTONE );
+            stake_delegations->disk_pubkey_used_--;
+          }
+
+          fd_stake_delegation_t * delegation = root_update(
+              stake_delegations,
+              stake_account,
+              &stake->stake.stake.delegation.voter_pubkey,
+              stake->stake.stake.delegation.stake,
+              stake->stake.stake.delegation.activation_epoch,
+              stake->stake.stake.delegation.deactivation_epoch,
+              stake->stake.stake.credits_observed,
+              accs[ j ].lamports,
+              (uint)accs[ j ].data_len,
+              fd_stake_warmup_cooldown_rate( epoch, warmup_cooldown_rate_epoch ) );
+
+          fd_stake_history_entry_t history = fd_delegation_activation_status( &stake->stake.stake.delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+          stake_delegations->effective_stake    += history.effective;
+          stake_delegations->activating_stake   += history.activating;
+          stake_delegations->deactivating_stake += history.deactivating;
+
+          if( FD_LIKELY( delegation ) ) {
+            uchar state = fd_stake_delegation_classify( delegation, history, epoch );
+            delegation->state = !history_contiguous ? FD_STAKE_DELEGATION_STATE_UNKNOWN : state;
+            if( FD_LIKELY( delegation->state==FD_STAKE_DELEGATION_STATE_WARMED && !use_fixed_point_stake_math ) ) {
+              stake_delegations->fp_warmed_awarded = 1;
+            }
+          }
+        }
+
+        fd_accdb_release( accdb, batch_n, accs );
+      }
+
+      slot = next_slot;
+    }
+  }
 #undef BATCH
 
   /* Every surviving entry now holds exactly one reference, the root map's,
      because there are no fork deltas at boot.  Rewriting the refcounts
-     repairs any that fallback mode left unpaired. */
+     repairs any that fallback mode left unpaired.  (Records still on
+     disk keep their counts as-is: while the disk tier is nonempty the
+     struct stays in fallback mode, where only nonzero-ness matters.) */
   for( ulong idx=0UL; idx<stake_delegations->pubkey_idx_wmk_; idx++ ) {
     if( FD_LIKELY( ref_pool[ idx ].refcnt ) ) ref_pool[ idx ].refcnt = 1U;
   }
@@ -542,6 +821,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
      the fallback is no longer needed.  This is the only place the sticky
      flag is cleared. */
   if( FD_UNLIKELY( stake_delegations->pubkey_fallback ) &&
+      !stake_delegations->disk_pubkey_used_ &&
       pubkey_pool_used( ref_pool )==root_pool_used( pool ) ) {
     FD_LOG_NOTICE(( "stake delegations no longer need the pubkey fallback; %lu stake accounts fit in the root map",
                     root_pool_used( pool ) ));
@@ -560,7 +840,7 @@ fd_stake_delegations_base_cnt( fd_stake_delegations_t const * stake_delegations 
 
 ulong
 fd_stake_delegations_pubkey_cnt( fd_stake_delegations_t const * stake_delegations ) {
-  return pubkey_pool_used( get_pubkey_pool( stake_delegations ) );
+  return pubkey_pool_used( get_pubkey_pool( stake_delegations ) ) + stake_delegations->disk_pubkey_used_;
 }
 
 /* Fork-aware delta operations */
@@ -784,11 +1064,6 @@ fd_stake_delegations_iter_advance_fallback( fd_stake_delegations_iter_t * iter )
       return;
     }
 
-    if( FD_UNLIKELY( iter->scan_idx>=iter->wmk ) ) {
-      iter->ele = NULL;
-      return;
-    }
-
     uchar const * pubkeys [ FD_STAKE_DELEGATIONS_ITER_BATCH ];
     int           writable[ FD_STAKE_DELEGATIONS_ITER_BATCH ];
     ulong         pool_idx[ FD_STAKE_DELEGATIONS_ITER_BATCH ];
@@ -805,7 +1080,38 @@ fd_stake_delegations_iter_advance_fallback( fd_stake_delegations_iter_t * iter )
       }
       iter->scan_idx++;
     }
-    if( FD_UNLIKELY( !batch_n ) ) continue;
+
+    /* Continue into the disk overflow of the pubkey tier.  Slots are
+       scanned sequentially in chunk-sized preads; disk entries iterate
+       with idx>=ram_pubkey_max_, which is disjoint from RAM pool
+       indices.  The caller holds the struct's write lock across the
+       whole bracket, so the file is stable while we scan. */
+
+    if( FD_UNLIKELY( stake_delegations->disk_pubkey_used_ ) ) {
+      while( batch_n<FD_STAKE_DELEGATIONS_ITER_BATCH && iter->disk_scan_idx<stake_delegations->disk_slot_cnt_ ) {
+        if( FD_UNLIKELY( iter->disk_scan_idx>=iter->chunk_lo+iter->chunk_cnt || iter->disk_scan_idx<iter->chunk_lo ) ) {
+          iter->chunk_lo  = iter->disk_scan_idx;
+          iter->chunk_cnt = fd_ulong_min( FD_STAKE_DELEGATIONS_DISK_SCAN_CHUNK, stake_delegations->disk_slot_cnt_-iter->chunk_lo );
+          disk_read( iter->chunk, iter->chunk_lo*sizeof(disk_ref_t), iter->chunk_cnt*sizeof(disk_ref_t) );
+        }
+        disk_ref_t const * rec = fd_type_pun_const( iter->chunk + (iter->disk_scan_idx-iter->chunk_lo)*sizeof(disk_ref_t) );
+        if( FD_UNLIKELY( disk_ref_is_live( stake_delegations, rec ) ) ) {
+          iter->batch_key[ batch_n ] = rec->stake_account;
+          pubkeys [ batch_n ] = iter->batch_key[ batch_n ].uc;
+          writable[ batch_n ] = 0;
+          pool_idx[ batch_n ] = stake_delegations->ram_pubkey_max_ + iter->disk_scan_idx;
+          batch_n++;
+        }
+        iter->disk_scan_idx++;
+      }
+    }
+
+    if( FD_UNLIKELY( !batch_n ) ) {
+      /* Both the RAM scan and the disk scan are exhausted: the batch
+         assembly loops only stop early when the batch is full. */
+      iter->ele = NULL;
+      return;
+    }
 
     fd_accdb_acquire( iter->accdb, iter->accdb_fork_id, batch_n, pubkeys, writable, accs );
 
@@ -864,6 +1170,9 @@ fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
   iter->batch_cnt         = 0UL;
   iter->batch_idx         = 0UL;
   iter->fallback          = stake_delegations->pubkey_fallback;
+  iter->disk_scan_idx     = 0UL;
+  iter->chunk_lo          = 0UL;
+  iter->chunk_cnt         = 0UL;
 
   if( FD_UNLIKELY( iter->fallback ) ) {
     if( FD_UNLIKELY( !accdb ) ) {

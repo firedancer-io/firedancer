@@ -72,6 +72,26 @@
 #define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
 #define FD_STAKE_DELEGATIONS_FORK_MAP_CHAIN_CNT (8192UL)
 
+/* The pubkey fallback tier is split between locked RAM and an
+   explicit-I/O disk bucket file.  The RAM tier holds
+   min( max_fallback_stake_accounts, 4*max_stake_accounts ) entries.
+   Outside fallback mode the tier is structurally bounded by root+delta
+   pool membership (2*max_stake_accounts), so the RAM tier alone covers
+   it with 2x margin and the disk tier is provably never touched.  The
+   remaining capacity, up to max_fallback_stake_accounts total, lives in
+   an open-addressed bucket file accessed with pread/pwrite on the
+   well-known fd below (see initialize_banks_spill_fds).  All accesses
+   run under the struct's write lock, so the file has a single writer at
+   a time.  The file is recreated on boot; fd_stake_delegations_reset
+   invalidates records by bumping a generation stamp. */
+
+#define FD_STAKE_DELEGATIONS_PUBKEY_RAM_MUL (4UL)
+
+/* Well-known fd for the pubkey fallback bucket file.  123460/123461
+   are accdb, 123462 is reserved by XDP. */
+
+#define FD_STAKE_DELEGATIONS_FD (123458)
+
 /* The warmup cooldown rate can only be one of two values: 0.25 or 0.09.
    The reason that the double is mapped to an enum is to save space in
    the stake delegations struct. */
@@ -215,9 +235,17 @@ struct fd_stake_delegations {
   /* Pubkey fallback tier. */
   ulong pubkey_pool_offset_;
   ulong pubkey_map_offset_;
-  ulong max_pubkeys_;
-  ulong pubkey_idx_wmk_; /* One past the highest pubkey pool index ever acquired */
+  ulong max_pubkeys_;      /* Total tier capacity, RAM + disk */
+  ulong pubkey_idx_wmk_;   /* One past the highest pubkey pool index ever acquired */
   int   pubkey_fallback;
+
+  /* Disk overflow of the pubkey fallback tier. */
+  ulong ram_pubkey_max_;   /* RAM tier capacity (pubkey pool max) */
+  ulong disk_pubkey_cap_;  /* max_pubkeys_ - ram_pubkey_max_ */
+  ulong disk_pubkey_used_; /* live records in the bucket file */
+  ulong disk_slot_cnt_;    /* pow2 slot count of the bucket file */
+  ulong disk_seed_;
+  uint  disk_gen_;         /* records with an older generation are free slots */
 
   /* Stake totals for the current root. */
   ulong effective_stake;
@@ -232,6 +260,12 @@ struct fd_stake_delegations {
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
 #define FD_STAKE_DELEGATIONS_ITER_BATCH (32UL)
+
+/* Disk bucket file record size and slots read per pread while the
+   fallback iterator or refresh scans the file. */
+
+#define FD_STAKE_DELEGATIONS_DISK_SLOT_SZ    (48UL)
+#define FD_STAKE_DELEGATIONS_DISK_SCAN_CHUNK (512UL)
 
 struct fd_stake_delegations_iter {
   fd_stake_delegation_t * root_pool;
@@ -251,7 +285,14 @@ struct fd_stake_delegations_iter {
   ulong                          epoch;
   ulong *                        warmup_cooldown_rate_epoch;
   ulong                          batch_pool_idx[ FD_STAKE_DELEGATIONS_ITER_BATCH ];
+  fd_pubkey_t                    batch_key[ FD_STAKE_DELEGATIONS_ITER_BATCH ];
   fd_stake_delegation_t          batch[ FD_STAKE_DELEGATIONS_ITER_BATCH ];
+
+  /* Disk tier scan state, fallback mode only. */
+  ulong                          disk_scan_idx; /* next bucket file slot to scan */
+  ulong                          chunk_lo;      /* first slot resident in chunk */
+  ulong                          chunk_cnt;     /* slots resident in chunk */
+  uchar                          chunk[ FD_STAKE_DELEGATIONS_DISK_SCAN_CHUNK*FD_STAKE_DELEGATIONS_DISK_SLOT_SZ ];
 };
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 
