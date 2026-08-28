@@ -184,6 +184,43 @@ test_secp256r1_point_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
+test_secp256r1_public_key_compress( void ) {
+  uchar uncompressed[ 65 ];
+  uchar compressed  [ 33 ];
+  uchar expected    [ 33 ];
+
+  fd_hex_decode( uncompressed,
+                 "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
+                 "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+                 65UL );
+  fd_hex_decode( expected,
+                 "036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+                 33UL );
+
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, uncompressed )==FD_SECP256R1_SUCCESS );
+  FD_TEST( fd_memeq( compressed, expected, sizeof(expected) ) );
+
+  /* Changing y without changing its parity used to silently map this input
+     back to the original valid compressed point. */
+  uchar bad[ 65 ];
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  bad[ 33 ] ^= 1U;
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, bad )==FD_SECP256R1_FAILURE );
+
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  bad[ 0 ] = 0x02U;
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, bad )==FD_SECP256R1_FAILURE );
+
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  fd_hex_decode( bad+1, "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 32UL );
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, bad )==FD_SECP256R1_FAILURE );
+
+  fd_memcpy( bad, uncompressed, sizeof(bad) );
+  fd_hex_decode( bad+33, "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 32UL );
+  FD_TEST( fd_secp256r1_public_key_compress( compressed, bad )==FD_SECP256R1_FAILURE );
+}
+
+static void
 test_secp256r1_point_eq_x( FD_FN_UNUSED fd_rng_t * rng ) {
 
   uchar _pub[ 33 ] = { 0 }; uchar * pub = _pub;
@@ -342,14 +379,28 @@ test_secp256r1_verify( FD_FN_UNUSED fd_rng_t * rng ) {
   // test malleability (r,-s)
   msg = (uchar *)"hello";
   msg_sz = 5;
+  fd_hex_decode( pub, "02d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 33 );
   {
     fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d3a79a96599c9b3c50c1102bde558038aec5ece23b96547e189e599b2c1b767b04", 64 );
     FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+    FD_TEST( fd_secp256r1_verify_no_low_s( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_SUCCESS );
   }
 
   fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d3586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
-  fd_hex_decode( pub, "02d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 33 );
   FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_SUCCESS );
+  FD_TEST( fd_secp256r1_verify_no_low_s( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_SUCCESS );
+
+  /* The no-low-S verifier still rejects zero and out-of-range scalars. */
+  memset( sig, 0, 32UL );
+  FD_TEST( fd_secp256r1_verify_no_low_s( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  fd_hex_decode( sig, "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
+  FD_TEST( fd_secp256r1_verify_no_low_s( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d0000000000000000000000000000000000000000000000000000000000000000", 64 );
+  FD_TEST( fd_secp256r1_verify_no_low_s( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967dffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551", 64 );
+  FD_TEST( fd_secp256r1_verify_no_low_s( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+
+  fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d3586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
 
   // bench
   {
@@ -380,6 +431,7 @@ main( int     argc,
   test_secp256r1_fp_sqrt         ( rng );
 
   test_secp256r1_point_frombytes ( rng );
+  test_secp256r1_public_key_compress();
   test_secp256r1_point_eq_x      ( rng );
 
   test_secp256r1_point_add_mixed ( rng );

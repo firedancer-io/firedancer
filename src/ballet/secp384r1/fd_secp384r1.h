@@ -9,6 +9,16 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_secp384r1_public_key_compress validates and compresses an SEC1
+   uncompressed public key.  In particular, this validates both canonical
+   coordinates and the curve equation before discarding the y coordinate.
+   Returns FD_SECP384R1_SUCCESS on success and FD_SECP384R1_FAILURE on
+   failure. */
+
+int
+fd_secp384r1_public_key_compress( uchar       compressed[ 49 ],
+                                  uchar const uncompressed[ 97 ] );
+
 int
 fd_secp384r1_verify( uchar const   msg[],
                      ulong         msg_sz,
