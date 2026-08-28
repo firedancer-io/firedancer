@@ -294,7 +294,7 @@ fd_topo_initialize( config_t * config ) {
   if( rserve_enabled ) fd_topob_wksp( topo, "rserve" );
   fd_topob_wksp( topo, "replay" );
   fd_topob_wksp( topo, "accdb"  );
-  fd_topob_wksp( topo, "execrp" );
+  fd_topob_wksp( topo, "execrp" )->demote_ok = 1; /* sequential-fill serialization buffers, ~223 2MiB pages per tile */
   if( alpenglow_enabled ) fd_topob_wksp( topo, "votor" );
   else                    fd_topob_wksp( topo, "tower" )->demote_ok = 1; /* slot-cadence consensus tile, ~433 2MiB pages */
   fd_topob_wksp( topo, "txsend" );
@@ -307,7 +307,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "dedup"  );
     fd_topob_wksp( topo, "resolv" );
     fd_topob_wksp( topo, "pack"   );
-    fd_topob_wksp( topo, "execle" );
+    fd_topob_wksp( topo, "execle" )->demote_ok = 1; /* same layout as execrp, leader slots only */
     fd_topob_wksp( topo, "poh"    );
   } else {
     execle_tile_cnt = 0UL;
