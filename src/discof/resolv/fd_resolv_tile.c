@@ -46,12 +46,18 @@ static const blockhash_t null_blockhash = { 0 };
 
    Unfortunately, poorly written transaction senders frequently send
    transactions from millions of slots ago, so we need a large ring to
-   be able to determine and evict these.  The highest practically useful
-   value here is around 22, which works out to 19 days of blockhash
-   history.  Beyond this, the validator is likely to be restarted, and
-   lose the history anyway. */
+   be able to determine and evict these.  2^20 works out to ~4.9 days
+   of blockhash history.  A transaction whose blockhash is older than
+   the ring simply cannot be proven expired: it lands in the LRU stash
+   instead of being dropped eagerly, which is a filtering-quality
+   tradeoff only. */
 
-#define BLOCKHASH_LG_RING_CNT 22UL
+#define BLOCKHASH_LG_RING_CNT 20UL
+
+/* Txns referencing an unknown (typically future) blockhash wait here
+   until it appears; LRU evicted when full.  16384 is ~1.4s of inflow
+   at 10x current mainnet non-vote TPS. */
+#define STASH_POOL_CNT (1UL<<14UL)
 #define BLOCKHASH_RING_LEN   (1UL<<BLOCKHASH_LG_RING_CNT)
 
 #define MAP_NAME               map
@@ -200,7 +206,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t )                          );
-  l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL )                   );
+  l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( STASH_POOL_CNT )              );
   l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    )                   );
   l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( MAP_LG_SLOT_CNT )                   );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->resolv.max_live_slots )  );
@@ -613,7 +619,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->flush_pool_idx = ULONG_MAX;
 
-  ctx->pool = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
+  ctx->pool = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( STASH_POOL_CNT ) ), STASH_POOL_CNT ) );
   FD_TEST( ctx->pool );
 
   ctx->map_chain = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192ULL ) ), 8192UL, ctx->map_seed ) );
