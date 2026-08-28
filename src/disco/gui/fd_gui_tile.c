@@ -173,7 +173,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 128UL * (1UL<<20UL); /* 128MiB of heap space for the cJSON allocator */
+  return 16UL * (1UL<<20UL); /* heap for the cJSON parser; inputs capped at 64 KiB ws frames / 643 B config accounts */
 }
 
 static inline void

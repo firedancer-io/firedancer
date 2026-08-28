@@ -32,8 +32,9 @@ fd_gui_config_parse_validator_info_check( uchar const * data,
       "iconUrl": "<icon url>"
     }
 
-    Since accounts are at most 10MB, we should be safely within cJSON's
-    allocator limits.
+    Inputs are capped at FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ (643 B)
+    by the snapin filter and the snapin_gui link MTU, so the parse tree
+    is tiny.
 */
   ulong i = 0UL;
 
