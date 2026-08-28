@@ -726,7 +726,7 @@ telemetry = true
     # With bundles enabled the in-place execution floor alone is
     # ~10.5 GiB, leaving little discretionary cache at 11; raise this
     # (e.g. back to 12 or more) on bundle-enabled configurations.
-    cache_size_gib = 11
+    cache_size_gib = 8
 
 [runtime]
     # Certain slots are considered "live" in the validator if we must
