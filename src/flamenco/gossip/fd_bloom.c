@@ -21,6 +21,23 @@ fd_bloom_align( void ) {
   return FD_BLOOM_ALIGN;
 }
 
+/* fd_bloom_max_keys returns an upper bound on the key count
+   fd_bloom_initialize can ever pick for a filter with the given false
+   positive rate.  Initialize picks
+
+     num_keys = max( 1, round( (num_bits/num_items)*ln2 ) )
+
+   with num_bits <= ceil( num_items*bits_per_item ) (possibly clamped
+   further down to max_bits), where bits_per_item depends only on the
+   false positive rate.  So num_bits/num_items <= bits_per_item+1 and
+   the key count is bounded independently of max_bits. */
+
+FD_FN_CONST static ulong
+fd_bloom_max_keys( double false_positive_rate ) {
+  double bits_per_item = log( false_positive_rate ) / log( 1.0 / pow( 2.0, log( 2.0 ) ) );
+  return fd_ulong_max( 1UL, (ulong)round( (bits_per_item+1.0)*FD_BLOOM_LN_2 ) );
+}
+
 FD_FN_CONST ulong
 fd_bloom_footprint( double false_positive_rate,
                     ulong  max_bits ) {
@@ -29,7 +46,7 @@ fd_bloom_footprint( double false_positive_rate,
 
   if( FD_UNLIKELY( max_bits<1UL || max_bits>32768UL ) ) return 0UL;
 
-  ulong num_keys = (ulong)( round( (double)max_bits*FD_BLOOM_LN_2 ) );
+  ulong num_keys = fd_bloom_max_keys( false_positive_rate );
 
   ulong l;
   l = FD_LAYOUT_INIT;
@@ -62,7 +79,7 @@ fd_bloom_new( void *     shmem,
 
   if( FD_UNLIKELY( !rng ) ) return NULL;
 
-  ulong num_keys = (ulong)( round( (double)max_bits*FD_BLOOM_LN_2 ) );
+  ulong num_keys = fd_bloom_max_keys( false_positive_rate );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_bloom_t * bloom = FD_SCRATCH_ALLOC_APPEND( l, FD_BLOOM_ALIGN, sizeof(fd_bloom_t) );
@@ -122,6 +139,7 @@ fd_bloom_initialize( fd_bloom_t * bloom,
   } else {
     num_keys = fd_ulong_max( 1UL, (ulong)( round( ((double)num_bits/(double)num_items) * FD_BLOOM_LN_2 ) ) );
   }
+  FD_TEST( num_keys<=fd_bloom_max_keys( bloom->false_positive_rate ) ); /* keys array is sized by this bound */
   for( ulong i=0UL; i<num_keys; i++ ) bloom->keys[ i ] = fd_rng_ulong( bloom->rng );
 
   bloom->keys_len = num_keys;
