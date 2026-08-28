@@ -387,7 +387,7 @@
    spill.  FD_TOWER_LOCKOS_SPILL_FOOTPRINT is the required file size:
    blk_max regions of 31*vtr_max 8-byte {start,packed} records. */
 
-#define FD_TOWER_LOCKOS_WND (512UL)
+#define FD_TOWER_LOCKOS_WND (128UL)
 #define FD_TOWER_LOCKOS_SPILL_FOOTPRINT( blk_max, vtr_max ) (FD_TOWER_LOCKOS_MAX*(blk_max)*(vtr_max)*8UL)
 
 /* fd_tower is a representation of a validator's "vote tower" (described
