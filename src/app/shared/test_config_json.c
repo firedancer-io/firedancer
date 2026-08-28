@@ -56,6 +56,9 @@ main( int     argc,
   static fd_config_t config[1];
   fd_config_load( 1, 0, default_config, strlen( default_config ), NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 );
 
+  /* default config checks */
+  FD_TEST( config->firedancer.snapshots.sources.max_local_full_effective_age>config->firedancer.snapshots.full_snapshot_interval_slots );
+
   strcpy( config->tiles.bundle.url, "https://user:hunter2@mainnet.example.com:443/v1/txns?api-key=SECRET#frag" );
   strcpy( config->tiles.event.url,  "https://events.example.com/submit" );
 
