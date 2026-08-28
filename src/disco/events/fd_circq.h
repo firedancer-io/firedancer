@@ -24,7 +24,20 @@
 
    Here, the meta elements are fd_circq_message_t, which each point to
    the next message in the queue, and head, tail are the head and tail
-   of the queue respectively. */
+   of the queue respectively.
+
+   Optionally, a spool file can be attached with fd_circq_spool_init.
+   The buffer then becomes a two-tier queue: instead of dropping the
+   oldest messages when the in-memory window overflows, they migrate
+   (in order) to a file ring accessed only with explicit pread/pwrite,
+   and messages are dropped oldest-first only once the file ring is
+   also full.  The logical queue order is [spool: oldest][memory:
+   newest], and cursor iteration, pop_until, and reset_cursor operate
+   transparently across both tiers (spool messages are read back
+   through a bounce buffer placed after the data region, so the caller
+   must size the backing memory with fd_circq_spool_footprint).  The
+   file is only touched when the queue depth exceeds the memory
+   window. */
 
 #include "../../util/fd_util_base.h"
 
@@ -46,6 +59,21 @@ struct __attribute__((aligned(FD_CIRCQ_ALIGN))) fd_circq_private {
   ulong cursor_seq;      /* Monotonic counter - cursor value for current position */
   ulong cursor_push_seq; /* Monotonic counter - incremented on each push */
 
+  /* Optional explicit-I/O spool tier holding the oldest messages, see
+     fd_circq_spool_init.  Records are { ulong sz; ulong seq; } headers
+     followed by the message bytes, appended into a file ring; a header
+     sz of ULONG_MAX marks an end-of-ring wrap. */
+  int   spool_fd;         /* -1 if no spool attached */
+  ulong spool_cap;        /* file ring capacity in bytes */
+  ulong spool_max_msg;    /* larger messages cannot migrate; also the bounce buffer size */
+  ulong spool_head;       /* file offset of the oldest record */
+  ulong spool_tail;       /* file offset where the next record is appended */
+  ulong spool_cnt;        /* messages in the spool tier */
+  ulong spool_bytes;      /* bytes of live records in the spool tier */
+  int   cursor_spool;     /* cursor is iterating spool records (cursor==ULONG_MAX) */
+  int   cursor_ram_entry; /* next advance starts at the memory head, cursor_seq already seeded (cursor==ULONG_MAX) */
+  ulong spool_cursor;     /* file offset of the next spool record to return */
+
   struct {
     ulong drop_cnt;
   } metrics;
@@ -63,9 +91,32 @@ fd_circq_align( void );
 FD_FN_CONST ulong
 fd_circq_footprint( ulong sz );
 
+/* fd_circq_spool_footprint gives the required backing memory for a
+   circq of in-memory window sz that will have a spool attached with
+   max message size max_msg (the extra max_msg bytes are the bounce
+   buffer spool reads return through). */
+
+FD_FN_CONST ulong
+fd_circq_spool_footprint( ulong sz,
+                          ulong max_msg );
+
 void *
 fd_circq_new( void * shmem,
               ulong  sz );
+
+/* fd_circq_spool_init attaches a spool file to the circq.  fd is an
+   open file descriptor to a (typically unlinked) file of at least cap
+   bytes, owned by the caller; cap is the file ring capacity; max_msg
+   must be at least the largest footprint ever passed to push_back.
+   The backing memory must have been sized with
+   fd_circq_spool_footprint, and sz must be a multiple of
+   FD_CIRCQ_ALIGN.  Must be called before any messages are pushed. */
+
+void
+fd_circq_spool_init( fd_circq_t * circq,
+                     int          fd,
+                     ulong        cap,
+                     ulong        max_msg );
 
 fd_circq_t *
 fd_circq_join( void * shbuf );

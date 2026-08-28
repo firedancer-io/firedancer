@@ -1,5 +1,9 @@
+#define _GNU_SOURCE
 #include "../../util/fd_util.h"
 #include "fd_circq.h"
+
+#include <sys/mman.h>
+#include <unistd.h>
 
 static void
 test_fuzz( void ) {
@@ -316,6 +320,134 @@ test_edge_cases( void ) {
   FD_TEST( out );
 }
 
+/* Spool tests: a two-tier queue over a small memory window plus a
+   file ring.  Messages carry their push seq at [0] so order and
+   contiguity can be checked end to end. */
+
+#define SPOOL_MSG_SZ (256UL)
+
+static int
+spool_fd_new( ulong cap ) {
+  int fd = memfd_create( "test_circq_spool", 0U );
+  FD_TEST( fd>=0 );
+  FD_TEST( !ftruncate( fd, (off_t)cap ) );
+  return fd;
+}
+
+static void
+spool_push( fd_circq_t * circq,
+            ulong        id ) {
+  uchar * msg = fd_circq_push_back( circq, 1UL, SPOOL_MSG_SZ );
+  FD_TEST( msg );
+  FD_TEST( circq->cursor_push_seq-1UL==id );
+  FD_STORE( ulong, msg, id );
+  for( ulong i=8UL; i<SPOOL_MSG_SZ; i++ ) msg[ i ] = (uchar)(id+i);
+}
+
+static ulong
+spool_check_next( fd_circq_t * circq ) {
+  ulong msg_sz;
+  uchar const * msg = fd_circq_cursor_advance( circq, &msg_sz );
+  FD_TEST( msg );
+  FD_TEST( msg_sz==SPOOL_MSG_SZ );
+  ulong id = FD_LOAD( ulong, msg );
+  for( ulong i=8UL; i<SPOOL_MSG_SZ; i++ ) FD_TEST( msg[ i ]==(uchar)(id+i) );
+  return id;
+}
+
+static void
+test_spool_migration( void ) {
+  static uchar buf[ 4096UL+4096UL+SPOOL_MSG_SZ ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 4096UL ) );
+  int fd = spool_fd_new( 1UL<<20UL );
+  fd_circq_spool_init( circq, fd, 1UL<<20UL, SPOOL_MSG_SZ );
+  ulong msg_sz;
+
+  /* Push far more than the memory window holds: oldest migrate to the
+     spool, nothing drops. */
+  for( ulong i=0UL; i<100UL; i++ ) spool_push( circq, i );
+  FD_TEST( circq->spool_cnt>0UL );
+  FD_TEST( circq->cnt+circq->spool_cnt==100UL );
+  FD_TEST( !circq->metrics.drop_cnt );
+  FD_TEST( fd_circq_unsent_cnt( circq )==100UL );
+
+  /* Iterate everything in order across both tiers. */
+  for( ulong i=0UL; i<100UL; i++ ) FD_TEST( spool_check_next( circq )==i );
+  FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+  FD_TEST( !fd_circq_unsent_cnt( circq ) );
+
+  /* Ack into the spool region, then into the memory region. */
+  FD_TEST( !fd_circq_pop_until( circq, 10UL ) );
+  FD_TEST( circq->cnt+circq->spool_cnt==89UL );
+  ulong ram_cnt = circq->cnt;
+  FD_TEST( !fd_circq_pop_until( circq, 99UL-ram_cnt+2UL ) );
+  FD_TEST( !circq->spool_cnt );
+  FD_TEST( circq->cnt==ram_cnt-2UL );
+
+  /* Reconnect: reset and resend the remaining unacked tail. */
+  fd_circq_reset_cursor( circq );
+  for( ulong i=0UL; i<ram_cnt-2UL; i++ ) FD_TEST( spool_check_next( circq )==99UL-ram_cnt+3UL+i );
+  FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+
+  FD_TEST( !fd_circq_pop_until( circq, 99UL ) );
+  FD_TEST( !circq->cnt && !circq->spool_cnt );
+  FD_TEST( !circq->spool_bytes );
+  FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+  FD_TEST( !close( fd ) );
+}
+
+static void
+test_spool_drop_oldest( void ) {
+  static uchar buf[ 4096UL+4096UL+SPOOL_MSG_SZ ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 4096UL ) );
+  ulong cap = 4096UL;
+  int fd = spool_fd_new( cap );
+  fd_circq_spool_init( circq, fd, cap, SPOOL_MSG_SZ );
+  ulong msg_sz;
+
+  /* Overflow memory AND spool: oldest drop, the surviving window is a
+     contiguous tail ending at the newest push. */
+  for( ulong i=0UL; i<200UL; i++ ) spool_push( circq, i );
+  FD_TEST( circq->metrics.drop_cnt>0UL );
+  ulong live = circq->cnt+circq->spool_cnt;
+  FD_TEST( live<200UL );
+
+  ulong expected = 200UL-live;
+  for( ulong i=0UL; i<live; i++ ) FD_TEST( spool_check_next( circq )==expected+i );
+  FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+  FD_TEST( !close( fd ) );
+}
+
+static void
+test_spool_wrap_cycles( void ) {
+  static uchar buf[ 4096UL+4096UL+SPOOL_MSG_SZ ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 4096UL ) );
+  ulong cap = 8192UL;
+  int fd = spool_fd_new( cap );
+  fd_circq_spool_init( circq, fd, cap, SPOOL_MSG_SZ );
+  ulong msg_sz;
+
+  /* Steady spill/ack cycles force the file ring tail to wrap many
+     times without ever dropping. */
+  ulong id = 0UL;
+  ulong acked = 0UL;
+  for( ulong round=0UL; round<50UL; round++ ) {
+    for( ulong i=0UL; i<20UL; i++ ) spool_push( circq, id++ );
+    fd_circq_reset_cursor( circq );
+    ulong live = circq->cnt+circq->spool_cnt;
+    FD_TEST( acked+live==id );
+    for( ulong i=0UL; i<live; i++ ) FD_TEST( spool_check_next( circq )==acked+i );
+    FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+    /* Ack all but 5, leaving a tail that straddles the tiers over
+       time. */
+    FD_TEST( !fd_circq_pop_until( circq, id-6UL ) );
+    acked = id-5UL;
+    FD_TEST( circq->cnt+circq->spool_cnt==5UL );
+  }
+  FD_TEST( !circq->metrics.drop_cnt );
+  FD_TEST( !close( fd ) );
+}
+
 static void
 test_bounds( void ) {
   uchar buf[ 128UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
@@ -344,6 +476,9 @@ main( int     argc,
   test_pop_recover();                  FD_LOG_NOTICE(( "pass: pop_recover" ));
   test_cursor_sequence_monotonicity(); FD_LOG_NOTICE(( "pass: cursor_sequence_monotonicity" ));
   test_edge_cases();                   FD_LOG_NOTICE(( "pass: edge_cases" ));
+  test_spool_migration();              FD_LOG_NOTICE(( "pass: spool_migration" ));
+  test_spool_drop_oldest();            FD_LOG_NOTICE(( "pass: spool_drop_oldest" ));
+  test_spool_wrap_cycles();            FD_LOG_NOTICE(( "pass: spool_wrap_cycles" ));
   test_bounds();                       FD_LOG_NOTICE(( "pass: bounds" ));
 
   FD_LOG_NOTICE(( "pass" ));
