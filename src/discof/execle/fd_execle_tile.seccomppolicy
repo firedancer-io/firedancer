@@ -5,7 +5,11 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint stake_spill_fd
+#
+# txncache_fd: The file descriptor for the transaction cache disk
+#              tier.  Cold status cache pages are spilled to and read
+#              back from this file.
+uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint txncache_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -50,7 +54,14 @@ fallocate: (and (eq (arg 0) accounts_fd)
 # stake delegations: disk overflow of the pubkey fallback tier, only
 # touched in fallback mode (more stake accounts than the delegation
 # pools can hold).
-pread64: (eq (arg 0) stake_spill_fd)
+#
+# txncache disk tier: reads of spilled status cache entries
+pread64: (or (eq (arg 0) stake_spill_fd)
+             (eq (arg 0) txncache_fd))
 
 # stake delegations: disk overflow of the pubkey fallback tier
-pwrite64: (eq (arg 0) stake_spill_fd)
+#
+# txncache disk tier: spill cold status cache pages when the RAM
+# window runs out during insert
+pwrite64: (or (eq (arg 0) stake_spill_fd)
+              (eq (arg 0) txncache_fd))

@@ -44,7 +44,7 @@ ENCODE_FN {
       fd_txncache_writer_blockcache_t const * bc = &tc->blockcache_pool[ bc_idx ];
       enc->page_idx    = 0UL;
       enc->txn_idx     = 0UL;
-      enc->txns_in_page = FD_TXNCACHE_TXNS_PER_PAGE - (ulong)tc->txnpages[ bc->pages[ 0 ] ].free;
+      enc->txns_in_page = FD_TXNCACHE_TXNS_PER_PAGE - (ulong)writer_page( tc, bc->pages[ 0 ] )->free;
       enc->state = STATE_TXNS;
     } else {
       enc->root_iter = root_slist_iter_next( enc->root_iter, tc->shmem->root_ll, tc->blockcache_shmem_pool );
@@ -61,7 +61,7 @@ ENCODE_FN {
     fd_txncache_writer_blockcache_t const * bc      = &tc->blockcache_pool[ bc_idx ];
 
     while( enc->page_idx < (ulong)bc_shmem->pages_cnt ) {
-      fd_txncache_txnpage_t const * page = &tc->txnpages[ bc->pages[ enc->page_idx ] ];
+      fd_txncache_txnpage_t const * page = writer_page( tc, bc->pages[ enc->page_idx ] );
       while( enc->txn_idx < enc->txns_in_page ) {
         fd_txncache_single_txn_t const * txn = page->txns[ enc->txn_idx ];
         if( FD_UNLIKELY( !txncache_txn_on_snapshot_root( tc, enc->snapshot_root_idx, txn ) ) ) {
@@ -77,7 +77,7 @@ ENCODE_FN {
       enc->page_idx++;
       enc->txn_idx = 0UL;
       if( enc->page_idx < (ulong)bc_shmem->pages_cnt ) {
-        enc->txns_in_page = FD_TXNCACHE_TXNS_PER_PAGE - (ulong)tc->txnpages[ bc->pages[ enc->page_idx ] ].free;
+        enc->txns_in_page = FD_TXNCACHE_TXNS_PER_PAGE - (ulong)writer_page( tc, bc->pages[ enc->page_idx ] )->free;
       }
     }
 

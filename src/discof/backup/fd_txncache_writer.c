@@ -2,6 +2,9 @@
 #include "../../flamenco/runtime/fd_txncache_private.h"
 #include "../../util/fd_util.h"
 
+#include <errno.h>
+#include <unistd.h>
+
 /* Mirror of blockcache_t and fd_txncache_private from fd_txncache.c.
    Needed to access the page index array and txnpages. */
 
@@ -21,9 +24,41 @@ struct fd_txncache_writer_tc {
   blockhash_map_t *                     blockhash_map;
   ushort *                              txnpages_free;
   fd_txncache_txnpage_t *               txnpages;
+  ushort *                              scratch_pages;
+  uint *                                scratch_heads;
+  fd_txncache_txnpage_t *               scratch_txnpage;
+  ushort *                              disk_free;
+  fd_txncache_txnpage_t *               scratch_rdpage;
+  ushort *                              scratch_remap;
+  int                                   fd;
 };
 
 typedef struct fd_txncache_writer_tc fd_txncache_writer_tc_t;
+
+/* writer_page loads a txnpage either directly from RAM or, for disk
+   tier pages, with a pread into the shared read scratchpad.  Safe
+   under the read lock: the scratchpad's only other user is compaction,
+   which runs under the write lock, and the writer is the sole
+   read-side user (one snapmk tile). */
+
+static fd_txncache_txnpage_t const *
+writer_page( fd_txncache_writer_tc_t const * tc,
+             ushort                          page_idx ) {
+  if( FD_LIKELY( page_idx<tc->shmem->ram_txnpages ) ) return &tc->txnpages[ page_idx ];
+
+  uchar * p   = (uchar *)tc->scratch_rdpage;
+  ulong   sz  = sizeof(fd_txncache_txnpage_t);
+  ulong   off = (ulong)(page_idx-tc->shmem->ram_txnpages)*sizeof(fd_txncache_txnpage_t);
+  while( sz ) {
+    long res = pread( tc->fd, p, sz, (off_t)off );
+    if( FD_UNLIKELY( res<=0L ) ) {
+      if( FD_UNLIKELY( res<0L && errno==EINTR ) ) continue;
+      FD_LOG_ERR(( "txncache disk tier pread(%lu,%lu) failed (%i-%s)", sz, off, errno, fd_io_strerror( errno ) ));
+    }
+    p += res; sz -= (ulong)res; off += (ulong)res;
+  }
+  return tc->scratch_rdpage;
+}
 
 #define STATE_HEADER    1
 #define STATE_BLOCKHASH 2
@@ -53,7 +88,7 @@ txncache_count_txns( fd_txncache_writer_tc_t const * tc,
   fd_txncache_writer_blockcache_t const * bc      = &tc->blockcache_pool[ bc_idx ];
   ulong cnt = 0UL;
   for( ushort p=0; p<bc_shmem->pages_cnt; p++ ) {
-    fd_txncache_txnpage_t const * page = &tc->txnpages[ bc->pages[ p ] ];
+    fd_txncache_txnpage_t const * page = writer_page( tc, bc->pages[ p ] );
     ulong txns_in_page = FD_TXNCACHE_TXNS_PER_PAGE - (ulong)page->free;
     for( ulong t=0UL; t<txns_in_page; t++ ) {
       fd_txncache_single_txn_t const * txn = page->txns[ t ];
@@ -68,6 +103,7 @@ fd_txncache_writer_init( fd_txncache_writer_t * writer,
                          fd_txncache_t *        tc,
                          ulong                  slot ) {
   fd_txncache_writer_tc_t const * ltc = (fd_txncache_writer_tc_t const *)tc;
+  fd_rwlock_read( ltc->shmem->lock );
   writer->state      = STATE_INIT;
   writer->tc         = tc;
   writer->slot       = slot;
@@ -78,6 +114,7 @@ fd_txncache_writer_init( fd_txncache_writer_t * writer,
   writer->page_idx   = 0UL;
   writer->txn_idx    = 0UL;
   writer->txns_in_page = 0UL;
+  fd_rwlock_unread( ltc->shmem->lock );
   return writer;
 }
 
@@ -94,12 +131,15 @@ fd_txncache_writer_serialized_sz( fd_txncache_t * tc,
                                   ulong           slot ) {
   fd_txncache_writer_t writer[1];
   fd_txncache_writer_init( writer, tc, slot );
+  fd_txncache_writer_tc_t const * ltc = (fd_txncache_writer_tc_t const *)tc;
+  fd_rwlock_read( ltc->shmem->lock );
   ulong sz = 0UL;
   for(;;) {
     ulong chunk = txncache_estimate( writer );
     if( FD_UNLIKELY( !chunk ) ) break;
     sz += chunk;
   }
+  fd_rwlock_unread( ltc->shmem->lock );
   return sz;
 }
 
@@ -113,10 +153,10 @@ static void fail( fd_txncache_writer_t const * enc,
 }
 
 #define ENCODE_FN                                                         \
-  ulong                                                                   \
-  fd_txncache_writer_serialize( fd_txncache_writer_t * enc,               \
-                                uchar out_buf[ FD_TXNCACHE_WRITER_BUF_MIN ], \
-                                ulong buf_sz )
+  static ulong                                                            \
+  txncache_serialize_( fd_txncache_writer_t * enc,                        \
+                       uchar out_buf[ FD_TXNCACHE_WRITER_BUF_MIN ],       \
+                       ulong buf_sz )
 #define PREP                                                              \
   uchar * p  = out_buf;                                                   \
   uchar * p1 __attribute__((unused)) = out_buf+buf_sz;
@@ -129,3 +169,14 @@ static void fail( fd_txncache_writer_t const * enc,
   }), (n) )
 #define RET_EXPR (ulong)( p - out_buf )
 #include "fd_txncache_encoder.c"
+
+ulong
+fd_txncache_writer_serialize( fd_txncache_writer_t * enc,
+                              uchar out_buf[ FD_TXNCACHE_WRITER_BUF_MIN ],
+                              ulong buf_sz ) {
+  fd_txncache_writer_tc_t const * ltc = (fd_txncache_writer_tc_t const *)enc->tc;
+  fd_rwlock_read( ltc->shmem->lock );
+  ulong ret = txncache_serialize_( enc, out_buf, buf_sz );
+  fd_rwlock_unread( ltc->shmem->lock );
+  return ret;
+}

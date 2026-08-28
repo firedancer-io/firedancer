@@ -5,7 +5,11 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint rewards_spill_fd
+#
+# txncache_fd: The file descriptor for the transaction cache disk
+#              tier.  Cold status cache pages are spilled to and read
+#              back from this file.
+uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint rewards_spill_fd, uint txncache_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -59,13 +63,20 @@ futex: (and (eq (arg 1) FUTEX_WAKE)
 #
 # stake rewards: per-partition reads of a sealed reward window that is
 # no longer RAM resident (concurrent boundary-crossing forks only).
+#
+# txncache disk tier: reads of spilled status cache entries
 pread64: (or (eq (arg 0) store_fd)
              (eq (arg 0) stake_spill_fd)
-             (eq (arg 0) rewards_spill_fd))
+             (eq (arg 0) rewards_spill_fd)
+             (eq (arg 0) txncache_fd))
 
 # stake delegations: disk overflow of the pubkey fallback tier
 #
 # stake rewards: sealing an epoch boundary's reward window streams it to
 # the spill file.
+#
+# txncache disk tier: spill cold status cache pages when advancing the
+# root with the RAM window low
 pwrite64: (or (eq (arg 0) stake_spill_fd)
-              (eq (arg 0) rewards_spill_fd))
+              (eq (arg 0) rewards_spill_fd)
+              (eq (arg 0) txncache_fd))

@@ -297,6 +297,7 @@ struct fd_config {
     char accounts[ PATH_MAX ];
     char shredb[ PATH_MAX ];
     char guidb[ PATH_MAX ];
+    char txncache[ PATH_MAX ];
   } paths;
 
   struct {

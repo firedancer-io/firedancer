@@ -6,6 +6,9 @@
 #include "fd_txncache_shmem.h"
 #include "fd_txncache_private.h"
 
+#include <stdlib.h>
+#include <unistd.h>
+
 FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN==128UL, unit_test );
 
 #define BLOCKHASH( x ) (&((fd_hash_t){ .ul = { (x) } }))->uc
@@ -28,8 +31,19 @@ test_page_sizing( void ) {
   ulong const max_active_slots = 2199UL;
   ulong const max_txn_per_slot = 196078UL;
 
-  FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot, 0 )==32118UL );
-  FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot, 0 )==32118UL );
+  /* Full worst-case capacity, provisioned in the disk tier. */
+  FD_TEST( fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot, 0 )==32118UL );
+
+  /* Page index space is the RAM window plus the disk tier. */
+  FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot, 0 )==32118UL+FD_TXNCACHE_RAM_TXNPAGES );
+
+  FD_TEST( fd_txncache_disk_footprint( 2048UL, max_txn_per_slot, 0 )==32118UL*sizeof(fd_txncache_txnpage_t) );
+
+  /* Bench topologies stay fully RAM resident. */
+  FD_TEST( fd_txncache_disk_footprint( 2048UL, max_txn_per_slot, 1 )==0UL );
+
+  /* Configurations that fit the RAM window have no disk tier. */
+  FD_TEST( fd_txncache_disk_footprint( 4UL, 4UL, 0 )==0UL );
 }
 
 void
@@ -39,7 +53,7 @@ test0( uchar * scratch0,
 
   fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0, 0UL ) );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc, -1 ) );
   FD_TEST( tc );
 
   fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
@@ -91,7 +105,7 @@ test_advance_root( uchar * scratch0,
 
   fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0, 0UL ) );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc, -1 ) );
   FD_TEST( tc );
 
   fd_txncache_fork_id_t slot = fd_txncache_attach_child( tc, NULL_FORK );
@@ -135,7 +149,7 @@ test_purge_stale( uchar * scratch0,
 
   fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, max_txn_per_slot, 0, 0UL ) );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc, -1 ) );
   FD_TEST( tc );
 
   ulong const max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+4UL;
@@ -272,7 +286,7 @@ test_purge_stale_global( uchar * scratch0,
 
   fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, max_live_slots, max_txn_per_slot, 0, 0UL ) );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc, -1 ) );
   FD_TEST( tc );
 
   /* Step 1: Create root R0 with blockhash 0. */
@@ -406,7 +420,7 @@ test_advance_past_minority_then_purge( uchar * scratch0,
 
   fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0, 0UL ) );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc, -1 ) );
   FD_TEST( tc );
 
   fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
@@ -505,6 +519,106 @@ test_advance_past_minority_then_purge( uchar * scratch0,
   }
 }
 
+void
+test_disk_tier( uchar * scratch0,
+                uchar * scratch1 ) {
+  FD_LOG_NOTICE(( "TEST DISK TIER" ));
+
+  /* max_live_slots=2048 with tiny slots gives a 2200 page capacity,
+     just above the 2048 page RAM window, activating the disk tier with
+     a 3 page per-blockhash cap so the spill, disk compaction, overlay
+     insert, disk query, and slot reclaim paths can all be hit with a
+     handful of pages. */
+
+  ulong const max_live_slots   = 2048UL;
+  ulong const max_txn_per_slot = 8UL;
+  ulong const max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
+
+  ulong const capacity = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot, 0 );
+  FD_TEST( capacity>FD_TXNCACHE_RAM_TXNPAGES );
+  FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot, 0 )==3UL );
+
+  char path[] = "/tmp/test_txncache_tier.XXXXXX";
+  int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
+  FD_TEST( !unlink( path ) );
+  FD_TEST( !ftruncate( fd, (off_t)fd_txncache_disk_footprint( max_live_slots, max_txn_per_slot, 0 ) ) );
+
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, max_live_slots, max_txn_per_slot, 0, 0UL ) );
+  FD_TEST( shtc );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc, fd ) );
+  FD_TEST( tc );
+
+  FD_TEST( shtc->ram_txnpages==FD_TXNCACHE_RAM_TXNPAGES );
+  FD_TEST( shtc->disk_txnpages==capacity );
+  ushort const disk_total = shtc->disk_txnpages;
+
+  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(0UL) );
+
+  fd_txncache_fork_id_t loser  = fd_txncache_attach_child( tc, root );
+  fd_txncache_fork_id_t winner = fd_txncache_attach_child( tc, root );
+
+  /* Fill the root's blockcache to its exact 3 page cap: one full page
+     from a fork that will be cancelled, two from the survivor. */
+  for( ulong i=0UL; i<FD_TXNCACHE_TXNS_PER_PAGE; i++ )     fd_txncache_insert( tc, loser,  BLOCKHASH(0UL), TXNHASH(1000000UL+i) );
+  for( ulong i=0UL; i<2UL*FD_TXNCACHE_TXNS_PER_PAGE; i++ ) fd_txncache_insert( tc, winner, BLOCKHASH(0UL), TXNHASH(i) );
+
+  fd_txncache_cancel_fork( tc, loser );
+
+  /* Fake RAM exhaustion so the next insert must go through the spill
+     path (the clobbered free list entries just leak a few pages for
+     the rest of the test). */
+  FD_TEST( shtc->txnpages_free_cnt>=3 );
+  shtc->txnpages_free_cnt = 0;
+
+  /* The trigger insert finds no RAM page and the blockcache at its
+     page cap: it spills all three pages to disk, compacts the
+     cancelled fork's stale page out of the disk tier, and retries onto
+     a fresh RAM overlay page. */
+  fd_txncache_insert( tc, winner, BLOCKHASH(0UL), TXNHASH(3000000UL) );
+
+  FD_TEST( shtc->disk_free_cnt==disk_total-2 ); /* 3 spilled, 1 compacted away */
+  FD_TEST( shtc->txnpages_free_cnt==2 );        /* 3 freed by the spill, 1 reallocated */
+
+  /* Disk resident entries stay queryable (sampled: the tiny bucket
+     count makes chains long, and every disk hop is a pread)... */
+  for( ulong i=0UL; i<2UL*FD_TXNCACHE_TXNS_PER_PAGE; i+=1021UL ) FD_TEST( fd_txncache_query( tc, winner, BLOCKHASH(0UL), TXNHASH(i) ) );
+  FD_TEST( fd_txncache_query( tc, winner, BLOCKHASH(0UL), TXNHASH(2UL*FD_TXNCACHE_TXNS_PER_PAGE-1UL) ) );
+  FD_TEST( fd_txncache_query( tc, winner, BLOCKHASH(0UL), TXNHASH(3000000UL) ) ); /* RAM overlay */
+
+  /* ... the cancelled fork's entries are gone... */
+  FD_TEST( !fd_txncache_query( tc, winner, BLOCKHASH(0UL), TXNHASH(1000000UL) ) );
+  FD_TEST( !fd_txncache_query( tc, winner, BLOCKHASH(0UL), TXNHASH(1000777UL) ) );
+
+  /* ... and fork isolation holds across the disk tier: a sibling fork
+     must not see them (a false ALREADY_PROCESSED would diverge). */
+  fd_txncache_fork_id_t sibling = fd_txncache_attach_child( tc, root );
+  FD_TEST( !fd_txncache_query( tc, sibling, BLOCKHASH(0UL), TXNHASH(0UL) ) );
+  fd_txncache_insert( tc, sibling, BLOCKHASH(0UL), TXNHASH(0UL) );
+  FD_TEST(  fd_txncache_query( tc, sibling, BLOCKHASH(0UL), TXNHASH(0UL) ) );
+
+  /* Descendants of the winner see the disk entries. */
+  fd_txncache_finalize_fork( tc, winner, 0UL, BLOCKHASH(1UL) );
+  fd_txncache_fork_id_t child = fd_txncache_attach_child( tc, winner );
+  FD_TEST(  fd_txncache_query( tc, child, BLOCKHASH(0UL), TXNHASH(512UL) ) );
+  FD_TEST( !fd_txncache_query( tc, child, BLOCKHASH(0UL), TXNHASH(1000000UL) ) );
+
+  /* Rooting out the spilled blockcache returns its disk slots. */
+  fd_txncache_finalize_fork( tc, child, 0UL, BLOCKHASH(2UL) );
+  fd_txncache_advance_root( tc, winner ); /* prunes sibling */
+  fd_txncache_advance_root( tc, child );
+  fd_txncache_fork_id_t tip = child;
+  for( ulong i=0UL; i<FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE; i++ ) {
+    tip = fd_txncache_attach_child( tc, tip );
+    fd_txncache_finalize_fork( tc, tip, 0UL, BLOCKHASH(10UL+i) );
+    fd_txncache_advance_root( tc, tip );
+  }
+  FD_TEST( shtc->disk_free_cnt==disk_total );
+
+  FD_TEST( !close( fd ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -513,7 +627,7 @@ main( int     argc,
   test_bucket_cnt();
   test_page_sizing();
 
-  ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, FD_MAX_TXN_PER_SLOT, 0 );
+  ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), 0 );
   ulong max_footprint_local = fd_txncache_footprint( FD_MAX_TXN_PER_SLOT );
 
   ulong max_footprint = fd_ulong_align_up( max_footprint_shmem, 4096UL ) + max_footprint_local;
@@ -529,6 +643,7 @@ main( int     argc,
   test_purge_stale( scratch0, scratch1, 256UL, 2000000UL ); /* Several pages per blockhash. */
   test_purge_stale_global( scratch0, scratch1 );
   test_advance_past_minority_then_purge( scratch0, scratch1 );
+  test_disk_tier( scratch0, scratch1 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

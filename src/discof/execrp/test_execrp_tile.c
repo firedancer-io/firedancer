@@ -377,13 +377,15 @@ test_execrp_run( test_env_t * env,
 }
 
 FD_UNIT_TEST( execrp_seccomp ) {
-  int   out_fds[3];
-  ulong nfds = populate_allowed_fds( NULL, NULL, 3UL, out_fds );
-  FD_TEST( nfds>=2 && nfds<=3 );
+  int   out_fds[5];
+  ulong nfds = populate_allowed_fds( NULL, NULL, 5UL, out_fds );
+  FD_TEST( nfds>=4 && nfds<=5 );
   FD_TEST( out_fds[0]==STDERR_FILENO );
-  /* logfile fd is optional; the accounts db fd is always last */
-  FD_TEST( out_fds[ nfds-1UL ]==FD_ACCDB_FD_RW );
-  if( nfds==3 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
+  /* logfile fd is optional; accounts db, stake spill, then txncache tier are last */
+  FD_TEST( out_fds[ nfds-3UL ]==FD_ACCDB_FD_RW );
+  FD_TEST( out_fds[ nfds-2UL ]==FD_STAKE_DELEGATIONS_FD );
+  FD_TEST( out_fds[ nfds-1UL ]==FD_TXNCACHE_FD );
+  if( nfds==5 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
 
   struct sock_filter filter[ sock_filter_policy_fd_execrp_tile_instr_cnt ];
   populate_allowed_seccomp( NULL, NULL, sock_filter_policy_fd_execrp_tile_instr_cnt, filter );

@@ -130,10 +130,15 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
   ulong  bucket_cnt;      /* Hash buckets per blockcache.  Decoupled from txn_per_slot_max (load
                              factor 8) to reduce the heads arrays' memory footprint. */
   ushort txnpages_per_blockhash_max;
-  ushort max_txnpages;
+  ushort max_txnpages;    /* Total addressable pages: RAM pages [0,ram_txnpages) followed by
+                             disk tier slots [ram_txnpages,max_txnpages).  Page indices in
+                             blockcache->pages and chain links are global in this space. */
+  ushort ram_txnpages;    /* Pages resident in memory (the txnpages array). */
+  ushort disk_txnpages;   /* Pages in the disk tier file (0 means no tier). */
 
   uint blockcache_generation; /* Incremented for every blockcache. */
-  ushort txnpages_free_cnt; /* The number of pages in the txnpages that are not currently in use. */
+  ushort txnpages_free_cnt; /* The number of RAM pages in the txnpages that are not currently in use. */
+  ushort disk_free_cnt;     /* The number of free disk tier slots. */
 
   ulong root_cnt;
   root_slist_t root_ll[1]; /* A singly linked list of the forks that are roots of fork chains.  The tail is the
@@ -159,6 +164,32 @@ fd_txncache_max_txnpages( ulong max_active_slots,
 FD_FN_CONST static inline ulong
 fd_txncache_bucket_cnt( ulong max_txn_per_slot ) {
   return fd_ulong_max( 1UL, (max_txn_per_slot+7UL)/8UL );
+}
+
+/* fd_txncache_ram_txnpages_ gives the RAM resident page count for a
+   capacity of max_txnpages pages.  Bench topologies
+   (larger_max_cost_per_block) and small configurations are fully
+   resident (no disk tier); otherwise the full capacity is provisioned
+   on disk and FD_TXNCACHE_RAM_TXNPAGES RAM pages sit in front of it. */
+
+FD_FN_CONST static inline ulong
+fd_txncache_ram_txnpages_( ulong max_txnpages,
+                           int   larger_max_cost_per_block ) {
+  if( larger_max_cost_per_block || max_txnpages<=FD_TXNCACHE_RAM_TXNPAGES ) return max_txnpages;
+  return FD_TXNCACHE_RAM_TXNPAGES;
+}
+
+/* fd_txncache_total_txnpages_ gives the total addressable page count
+   (RAM pages plus disk slots) for a capacity of max_txnpages pages.
+   Returns 0 if it does not fit the ushort page index space. */
+
+FD_FN_CONST static inline ulong
+fd_txncache_total_txnpages_( ulong max_txnpages,
+                             int   larger_max_cost_per_block ) {
+  ulong ram = fd_txncache_ram_txnpages_( max_txnpages, larger_max_cost_per_block );
+  ulong total = ram==max_txnpages ? max_txnpages : max_txnpages+ram;
+  if( FD_UNLIKELY( total>USHORT_MAX-2UL ) ) return 0UL; /* MAX is the invalid flag, MAX-1 is the xbusy flag. */
+  return total;
 }
 
 FD_PROTOTYPES_END

@@ -214,7 +214,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
 
   FD_TEST( fd_progcache_join( mini->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
   mini->txncache_shmem = shtxncache;
-  FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache ) )) );
+  FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache, -1 ) )) );
 
   mini->banks = fd_banks_join( fd_banks_new( banks_mem, txn_max, limits->max_fork_width,
                                limits->max_stake_accounts, limits->max_fallback_stake_accounts,

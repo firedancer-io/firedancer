@@ -13,6 +13,35 @@
 
 #define FD_TXNCACHE_MAX_SLOT_DELTAS (151UL)
 
+/* FD_TXNCACHE_RAM_TXNPAGES is the number of txnpages resident in
+   locked memory.  The remaining capacity lives in a disk file accessed
+   with explicit pread/pwrite ("the disk tier").  Entries are only
+   written to RAM pages; when the RAM pool runs low, the pages of the
+   coldest blockhashes are migrated wholesale to the disk tier.
+
+   Sizing: entries stay queryable for the ~151 blockhash validity
+   window plus the ~151 root retention window, roughly 134 seconds of
+   committed transactions.  2048 pages hold 16.7M entries, reached only
+   at ~125k sustained committed TPS (~25x the mainnet all-time-high),
+   so at mainnet load the disk tier is never touched.  Catchup with a
+   deep unrooted backlog and adversarial max-fill regimes spill, which
+   is graceful: total capacity is unchanged, only residency moves.
+
+   If the configured capacity is at most this many pages (tests, small
+   topologies), or larger_max_cost_per_block is set (bench topologies,
+   which are latency experiments and must stay fully resident), no disk
+   tier is created and behavior is identical to the untiered design. */
+
+#define FD_TXNCACHE_RAM_TXNPAGES (2048UL)
+
+/* File descriptor number where the txncache disk tier file is
+   installed by the boot process (see initialize_accdb_fd), like
+   FD_ACCDB_FD_RW (123461)/FD_ACCDB_FD_RO (123460).  123458/123459 are
+   the stake delegation/reward spill files, 123462 is reserved by
+   XDP. */
+
+#define FD_TXNCACHE_FD (123457)
+
 typedef struct { ushort val; } fd_txncache_fork_id_t;
 
 struct fd_txncache_shmem_private;
@@ -34,6 +63,15 @@ FD_FN_CONST ulong
 fd_txncache_shmem_footprint( ulong max_live_slots,
                              ulong max_txn_per_slot,
                              int   larger_max_cost_per_block );
+
+/* fd_txncache_disk_footprint returns the size in bytes of the disk
+   tier file backing a txncache created with the given parameters, or
+   0UL if the configuration has no disk tier. */
+
+FD_FN_CONST ulong
+fd_txncache_disk_footprint( ulong max_live_slots,
+                            ulong max_txn_per_slot,
+                            int   larger_max_cost_per_block );
 
 void *
 fd_txncache_shmem_new( void * shmem,

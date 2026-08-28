@@ -129,7 +129,7 @@ setup( ulong max_live_slots, ulong max_txn_per_slot ) {
   fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0, 0UL ) );
   FD_TEST( shtc );
 
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc, -1 ) );
   FD_TEST( tc );
   return tc;
 }

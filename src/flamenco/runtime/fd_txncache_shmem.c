@@ -84,10 +84,26 @@ fd_txncache_max_txnpages_per_blockhash( ulong max_active_slots,
   ulong max_txnpages = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot, larger_max_cost_per_block );
   if( FD_UNLIKELY( !max_txnpages ) ) return 0;
 
+  ulong total_txnpages = fd_txncache_total_txnpages_( max_txnpages, larger_max_cost_per_block );
+  if( FD_UNLIKELY( !total_txnpages ) ) return 0;
+
   ulong result = 1UL+(max_txn_per_slot*max_active_slots)/FD_TXNCACHE_TXNS_PER_PAGE;
-  result = fd_ulong_min( result, max_txnpages );
+  result = fd_ulong_min( result, total_txnpages );
   if( FD_UNLIKELY( result>USHORT_MAX-2UL ) ) return 0; /* MAX is the invalid flag, MAX-1 is the xbusy flag. */
   return (ushort)result;
+}
+
+FD_FN_CONST ulong
+fd_txncache_disk_footprint( ulong max_live_slots,
+                            ulong max_txn_per_slot,
+                            int   larger_max_cost_per_block ) {
+  if( FD_UNLIKELY( !max_live_slots || !max_txn_per_slot ) ) return 0UL;
+  ulong max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
+  ulong max_txnpages = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot, larger_max_cost_per_block );
+  if( FD_UNLIKELY( !max_txnpages ) ) return 0UL;
+  ulong ram = fd_txncache_ram_txnpages_( max_txnpages, larger_max_cost_per_block );
+  if( ram==max_txnpages ) return 0UL;
+  return max_txnpages*sizeof(fd_txncache_txnpage_t);
 }
 
 FD_FN_CONST ulong
@@ -111,6 +127,10 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
   ushort _max_txnpages = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot, larger_max_cost_per_block );
   if( FD_UNLIKELY( !_max_txnpages ) ) return 0UL;
 
+  ulong _ram_txnpages  = fd_txncache_ram_txnpages_( _max_txnpages, larger_max_cost_per_block );
+  ulong _disk_txnpages = fd_txncache_total_txnpages_( _max_txnpages, larger_max_cost_per_block )-_ram_txnpages;
+  if( FD_UNLIKELY( !fd_txncache_total_txnpages_( _max_txnpages, larger_max_cost_per_block ) ) ) return 0UL;
+
   ulong _max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot, larger_max_cost_per_block );
   if( FD_UNLIKELY( !_max_txnpages_per_blockhash ) ) return 0UL;
 
@@ -125,11 +145,14 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
   l = FD_LAYOUT_APPEND( l, alignof(ushort),                max_active_slots*_max_txnpages_per_blockhash*sizeof(ushort) ); /* blockcache->pages */
   l = FD_LAYOUT_APPEND( l, alignof(uint),                  max_active_slots*bucket_cnt*sizeof(uint)                    ); /* blockcache->heads */
   l = FD_LAYOUT_APPEND( l, descends_set_align(),           max_active_slots*_descends_footprint                        ); /* blockcache->descends */
-  l = FD_LAYOUT_APPEND( l, alignof(ushort),                _max_txnpages*sizeof(ushort)                                ); /* txnpages_free */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), _max_txnpages*sizeof(fd_txncache_txnpage_t)                 ); /* txnpages */
+  l = FD_LAYOUT_APPEND( l, alignof(ushort),                _ram_txnpages*sizeof(ushort)                                ); /* txnpages_free */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), _ram_txnpages*sizeof(fd_txncache_txnpage_t)                 ); /* txnpages */
   l = FD_LAYOUT_APPEND( l, alignof(ushort),                _max_txnpages_per_blockhash*sizeof(ushort)                  ); /* scratchpad txnpage pointer array for purge stale */
   l = FD_LAYOUT_APPEND( l, alignof(uint),                  bucket_cnt*sizeof(uint)                                     ); /* scratchpad heads for purge stale */
   l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), sizeof(fd_txncache_txnpage_t)                               ); /* scratchpad txnpage for purge stale */
+  l = FD_LAYOUT_APPEND( l, alignof(ushort),                _disk_txnpages*sizeof(ushort)                               ); /* disk_free */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), _disk_txnpages ? sizeof(fd_txncache_txnpage_t) : 0UL        ); /* scratchpad txnpage for disk reads */
+  l = FD_LAYOUT_APPEND( l, alignof(ushort),                _disk_txnpages ? _ram_txnpages*sizeof(ushort) : 0UL         ); /* scratchpad page remap for spills */
   return FD_LAYOUT_FINI( l, FD_TXNCACHE_SHMEM_ALIGN );
 }
 
@@ -162,6 +185,11 @@ fd_txncache_shmem_new( void * shmem,
   if( FD_UNLIKELY( !_max_txnpages ) ) return NULL;
   if( FD_UNLIKELY( !_max_txnpages_per_blockhash ) ) return NULL;
 
+  ulong _total_txnpages = fd_txncache_total_txnpages_( _max_txnpages, larger_max_cost_per_block );
+  if( FD_UNLIKELY( !_total_txnpages ) ) return NULL;
+  ulong _ram_txnpages  = fd_txncache_ram_txnpages_( _max_txnpages, larger_max_cost_per_block );
+  ulong _disk_txnpages = _total_txnpages-_ram_txnpages;
+
   ulong _descends_footprint = descends_set_footprint( max_active_slots );
   if( FD_UNLIKELY( !_descends_footprint ) ) return NULL;
 
@@ -172,11 +200,14 @@ fd_txncache_shmem_new( void * shmem,
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 max_active_slots*_max_txnpages_per_blockhash*sizeof(ushort) );
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*bucket_cnt*sizeof(uint)                    );
   void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            max_active_slots*_descends_footprint                        );
-  void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages*sizeof(ushort)                                );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _max_txnpages*sizeof(fd_txncache_txnpage_t)                 );
+  void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _ram_txnpages*sizeof(ushort)                                );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _ram_txnpages*sizeof(fd_txncache_txnpage_t)                 );
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages_per_blockhash*sizeof(ushort)                  );
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   bucket_cnt*sizeof(uint)                                     );
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  sizeof(fd_txncache_txnpage_t)                               );
+  void * _disk_free           = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _disk_txnpages*sizeof(ushort)                               );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _disk_txnpages ? sizeof(fd_txncache_txnpage_t) : 0UL        );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _disk_txnpages ? _ram_txnpages*sizeof(ushort) : 0UL         );
 
   fd_txncache_blockcache_shmem_t * blockcache_pool = blockcache_pool_join( blockcache_pool_new( _blockcache_pool, max_active_slots ) );
   FD_TEST( blockcache_pool );
@@ -199,12 +230,18 @@ fd_txncache_shmem_new( void * shmem,
   tc->active_slots_max           = max_active_slots;
   tc->bucket_cnt                 = bucket_cnt;
   tc->txnpages_per_blockhash_max = _max_txnpages_per_blockhash;
-  tc->max_txnpages               = _max_txnpages;
+  tc->max_txnpages               = (ushort)_total_txnpages;
+  tc->ram_txnpages               = (ushort)_ram_txnpages;
+  tc->disk_txnpages              = (ushort)_disk_txnpages;
 
   tc->blockcache_generation = 0U;
-  tc->txnpages_free_cnt = _max_txnpages;
+  tc->txnpages_free_cnt = (ushort)_ram_txnpages;
   ushort * txnpages_free = (ushort *)_txnpages_free;
-  for( ushort i=0; i<_max_txnpages; i++ ) txnpages_free[ i ] = i;
+  for( ushort i=0; i<(ushort)_ram_txnpages; i++ ) txnpages_free[ i ] = i;
+
+  tc->disk_free_cnt = (ushort)_disk_txnpages;
+  ushort * disk_free = (ushort *)_disk_free;
+  for( ulong i=0UL; i<_disk_txnpages; i++ ) disk_free[ i ] = (ushort)(_ram_txnpages+i);
 
   tc->seed = seed;
 

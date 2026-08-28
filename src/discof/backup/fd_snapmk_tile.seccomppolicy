@@ -10,7 +10,11 @@
 #         well known FD_SNAP_FD numbers before the tile is
 #         spawned; the tile writes snapshots through these and never
 #         opens or unlinks files itself.
-uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd
+#
+# txncache_fd: The file descriptor for the transaction cache disk
+#              tier.  Snapshot production reads spilled status cache
+#              pages from this file (never writes it).
+uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint txncache_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -98,3 +102,7 @@ exit: (eq (arg 0) 0)
 # other power saving tiles (snapsv).
 futex: (or (eq (arg 1) FUTEX_WAIT)
            (eq (arg 1) FUTEX_WAKE))
+
+# txncache disk tier: snapshot production reads spilled status cache
+# pages
+pread64: (eq (arg 0) txncache_fd)

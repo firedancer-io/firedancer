@@ -136,7 +136,10 @@ FD_PROTOTYPES_BEGIN
    the first byte of a memory region owned by the caller with suitable
    alignment and footprint.  Assumes shmem is a valid joined txn cache
    shared-memory region (typically from fd_txncache_shmem_join) created
-   with a matching max_live_slots.  Returns ljoin on success and NULL
+   with a matching max_live_slots.  fd is this process's file
+   descriptor for the disk tier file (see FD_TXNCACHE_RAM_TXNPAGES), or
+   -1 if the txn cache has no disk tier (fd_txncache_disk_footprint
+   returns 0 for its parameters).  Returns ljoin on success and NULL
    on failure (logs details).  The caller is not joined on return.
 
    fd_txncache_join joins the caller to a txn cache.  Assumes ljoin
@@ -153,7 +156,8 @@ fd_txncache_footprint( ulong max_live_slots );
 
 void *
 fd_txncache_new( void *                ljoin,
-                 fd_txncache_shmem_t * shmem );
+                 fd_txncache_shmem_t * shmem,
+                 int                   fd );
 
 fd_txncache_t *
 fd_txncache_join( void * ljoin );

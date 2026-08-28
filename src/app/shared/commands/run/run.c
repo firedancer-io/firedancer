@@ -3,6 +3,8 @@
 #include "../../../../flamenco/accdb/fd_accdb.h"
 #include "../../../../flamenco/stakes/fd_stake_delegations.h"
 #include "../../../../flamenco/rewards/fd_stake_rewards.h"
+#include "../../../../flamenco/runtime/fd_txncache_shmem.h"
+#include "../../../../disco/pack/fd_pack_cost.h"
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
@@ -441,6 +443,13 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_STAKE_REWARDS_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+        int tile_uses_txncache = 0;
+        for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
+          fd_topo_obj_t const * obj = &config->topo.objs[ tile->uses_obj_id[ i ] ];
+          if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) { tile_uses_txncache = 1; break; }
+        }
+        if( FD_UNLIKELY( -1==fcntl( FD_TXNCACHE_FD, F_SETFD, tile_uses_txncache ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         int tile_uses_snap_fd     = !strcmp( tile->name, "snapct" ) ||
                                     !strcmp( tile->name, "snapmk" );
         int tile_uses_snap_dio_fd = !strcmp( tile->name, "snapzp" );
@@ -495,6 +504,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_REWARDS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     for( ulong j=0UL; j<snap_max; j++ ) {
       if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( snapshot_dio_enabled )
@@ -1013,6 +1023,27 @@ initialize_accdb_fd( config_t const * config ) {
     if( FD_UNLIKELY( -1==dup2( spill_fd, spills[ i ].fd ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+
+  /* Transaction cache disk tier.  Contents do not persist across a
+     restart, but skip the truncate in development anyway to keep
+     reboots fast (stale contents are never read: slots are only read
+     after being written in the same run). */
+  int txncache_fd = open( config->paths.txncache, oflags, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==txncache_fd ) ) FD_LOG_ERR(( "failed to open txncache.db (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ulong txncache_disk_sz = fd_txncache_disk_footprint( config->firedancer.runtime.max_live_slots,
+                                                       FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT,
+                                                       config->development.bench.larger_max_cost_per_block );
+  if( FD_LIKELY( txncache_disk_sz ) ) {
+    /* Reserve the full worst-case capacity up front so spills cannot
+       hit ENOSPC later; fall back to a sparse file where unsupported. */
+    if( FD_UNLIKELY( -1==fallocate( txncache_fd, 0, 0, (off_t)txncache_disk_sz ) ) ) {
+      FD_LOG_WARNING(( "fallocate(txncache.db,%lu) failed (%i-%s); falling back to a sparse file", txncache_disk_sz, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==ftruncate( txncache_fd, (off_t)txncache_disk_sz ) ) ) FD_LOG_ERR(( "ftruncate(txncache.db,%lu) failed (%i-%s)", txncache_disk_sz, errno, fd_io_strerror( errno ) ));
+    }
+  }
+  if( FD_UNLIKELY( -1==dup2( txncache_fd, FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( txncache_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 /* Snapshot production prep

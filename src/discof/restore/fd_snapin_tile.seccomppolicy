@@ -10,7 +10,11 @@
 #           the full worst-case txncache staging capacity.  Entries are
 #           written while parsing status cache slot deltas and read
 #           back once when populating the txncache.
-uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint spill_fd
+#
+# txncache_fd: The file descriptor for the transaction cache disk
+#              tier.  Cold status cache pages are spilled to and read
+#              back from this file.
+uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint spill_fd, uint txncache_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -41,9 +45,16 @@ fallocate: (and (eq (arg 0) accounts_fd)
 # touched in fallback mode; txncache staging spill: per-slot staging
 # window flushes while parsing status cache slot deltas, read back when
 # populating the txncache.
+#
+# txncache disk tier: reads of spilled status cache entries
 pread64: (or (eq (arg 0) stake_spill_fd)
-             (eq (arg 0) spill_fd))
+             (eq (arg 0) spill_fd)
+             (eq (arg 0) txncache_fd))
 
 # stake delegations + txncache staging spill (see pread64)
+#
+# txncache disk tier: spill cold status cache pages when the RAM
+# window runs out during insert
 pwrite64: (or (eq (arg 0) stake_spill_fd)
-              (eq (arg 0) spill_fd))
+              (eq (arg 0) spill_fd)
+              (eq (arg 0) txncache_fd))

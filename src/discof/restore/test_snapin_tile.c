@@ -973,7 +973,7 @@ test_txncache_staging_validates_stale_group_offsets( void ) {
   ulong local_sz = fd_ulong_align_up( fd_txncache_footprint( 1UL ), fd_txncache_align() );
   void * local = aligned_alloc( fd_txncache_align(), local_sz );
   FD_TEST( local );
-  ctx->txncache = fd_txncache_join( fd_txncache_new( local, txncache_shmem ) );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( local, txncache_shmem, -1 ) );
   FD_TEST( ctx->txncache );
 
   fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {{ .hash_index = 0UL }};

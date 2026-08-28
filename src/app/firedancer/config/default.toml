@@ -233,6 +233,22 @@ telemetry = true
     # Firedancer instance.
     guidb = ""
 
+    # File path to the transaction cache spill file.
+    #
+    # The transaction cache keeps a bounded working set of recently
+    # executed transaction hashes in memory, and migrates cold entries
+    # to this file to preserve full worst-case capacity.  Contents do
+    # not persist across a restart.
+    #
+    # If no path is provided, it defaults to the `txncache.db` path
+    # within the base directory above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    txncache = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not

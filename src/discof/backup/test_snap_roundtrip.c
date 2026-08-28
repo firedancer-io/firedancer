@@ -74,7 +74,7 @@ create_txncache( void ) {
   ulong ljoin_fp = fd_txncache_footprint( MAX_LIVE_SLOTS );
   void * ljoin_raw = aligned_alloc( fd_txncache_align(), ljoin_fp );
   FD_TEST( ljoin_raw );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( ljoin_raw, shmem ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( ljoin_raw, shmem, -1 ) );
   FD_TEST( tc );
   return (test_txncache_t){ .tc = tc, .shmem = shmem_raw, .ljoin = ljoin_raw };
 }

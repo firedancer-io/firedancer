@@ -131,6 +131,13 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.guidb, sizeof(config->paths.guidb), NULL, "%s/gui.db", config->paths.base ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->paths.txncache, "" ) ) ) {
+    replace( config->paths.txncache, "{user}", config->user );
+    replace( config->paths.txncache, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.txncache, sizeof(config->paths.txncache), NULL, "%s/txncache.db", config->paths.base ) );
+  }
+
   for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
