@@ -21,9 +21,9 @@ static void
 test_bucket_cnt( void ) {
   FD_TEST( fd_txncache_bucket_cnt( 0UL )==1UL );
   FD_TEST( fd_txncache_bucket_cnt( 1UL )==1UL );
-  FD_TEST( fd_txncache_bucket_cnt( 8UL )==1UL );
-  FD_TEST( fd_txncache_bucket_cnt( 9UL )==2UL );
-  FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==24510UL );
+  FD_TEST( fd_txncache_bucket_cnt( 32UL )==1UL );
+  FD_TEST( fd_txncache_bucket_cnt( 33UL )==2UL );
+  FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==6128UL );
 }
 
 static void

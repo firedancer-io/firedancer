@@ -128,7 +128,7 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
   ulong  txn_per_slot_max;
   ulong  active_slots_max;
   ulong  bucket_cnt;      /* Hash buckets per blockcache.  Decoupled from txn_per_slot_max (load
-                             factor 8) to reduce the heads arrays' memory footprint. */
+                             factor 32) to reduce the heads arrays' memory footprint. */
   ushort txnpages_per_blockhash_max;
   ushort max_txnpages;    /* Total addressable pages: RAM pages [0,ram_txnpages) followed by
                              disk tier slots [ram_txnpages,max_txnpages).  Page indices in
@@ -163,7 +163,7 @@ fd_txncache_max_txnpages( ulong max_active_slots,
 
 FD_FN_CONST static inline ulong
 fd_txncache_bucket_cnt( ulong max_txn_per_slot ) {
-  return fd_ulong_max( 1UL, (max_txn_per_slot+7UL)/8UL );
+  return fd_ulong_max( 1UL, (max_txn_per_slot+31UL)/32UL );
 }
 
 /* fd_txncache_ram_txnpages_ gives the RAM resident page count for a
