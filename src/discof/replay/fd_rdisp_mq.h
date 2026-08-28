@@ -50,15 +50,15 @@ fd_rdisp_mq_new( void * mem,
 
 fd_rdisp_mq_t * fd_rdisp_mq_join( void * mem );
 
-/* fd_rdisp_mq_query returns 1 if the element (acct_idx, staging_lane)
+/* fd_rdisp_mq_test returns 1 if the element (acct_idx, staging_lane)
    is in mq, and 0 otherwise.  acct_idx and staging_lane must be in the
    requisite range and mq must be a valid local join.  An element is in
    the multiprq if it has been inserted one more time than it has been
    popped. */
 int
-fd_rdisp_mq_query( fd_rdisp_mq_t const * mq,
-                   ulong                 acct_idx,
-                   ulong                 staging_lane );
+fd_rdisp_mq_test( fd_rdisp_mq_t const * mq,
+                  ulong                 acct_idx,
+                  ulong                 staging_lane );
 
 /* fd_rdisp_mq_insert inserts the element (acct_idx, staging_lane) into
    the multiprq with priority prio.  The element must not be in the
@@ -82,7 +82,8 @@ fd_rdisp_mq_adjust( fd_rdisp_mq_t * mq,
 
 /* fd_rdisp_mq_pop returns and removes the best priority element with
    the specified staging lane.  The caller promises that there is at
-   least one element in the multiprq with the specified staging lane. */
+   least one element in the multiprq with the specified staging lane.
+   Ties are broken arbitrarily. */
 ulong
 fd_rdisp_mq_pop( fd_rdisp_mq_t * mq,
                  ulong           staging_lane );
@@ -113,6 +114,7 @@ fd_rdisp_mq_delete( void * mem );
 
 
 struct fd_rdisp_mq_4u {
+  /* The current position in prq, or UINT_MAX if it's not present. */
   uint per_lane[4];
 };
 typedef struct fd_rdisp_mq_4u fd_rdisp_mq_4u_t;
@@ -190,7 +192,7 @@ fd_rdisp_mq_new( void * mem,
   mq->max_writers_per_block = max_writers_per_block;
   memset( mq->prio0_cnt, '\0', 4UL*sizeof(ulong) );
 
-  memset( u4, '\0', (acct_depth+1UL)*sizeof(fd_rdisp_mq_4u_t) );
+  memset( u4, '\xFF', (acct_depth+1UL)*sizeof(fd_rdisp_mq_4u_t) );
 
   for( ulong i=0UL; i<4UL; i++ ) {
     void * _pq = FD_SCRATCH_ALLOC_APPEND( l, 8UL, sizeof(void *)+fd_rdisp_mprq_footprint( max_writers_per_block ) );
@@ -219,10 +221,10 @@ fd_rdisp_mq_join( void * mem ) {
 }
 
 int
-fd_rdisp_mq_query( fd_rdisp_mq_t const * mq,
-                   ulong                 acct_idx,
-                   ulong                 staging_lane ) {
-  return mq->flat[acct_idx].per_lane[staging_lane]==0;
+fd_rdisp_mq_test( fd_rdisp_mq_t const * mq,
+                  ulong                 acct_idx,
+                  ulong                 staging_lane ) {
+  return mq->flat[acct_idx].per_lane[staging_lane]!=UINT_MAX;
 }
 
 void
@@ -269,6 +271,8 @@ fd_rdisp_mq_adjust( fd_rdisp_mq_t * mq,
     fd_rdisp_mprq_remove( prq, fidx );
   }
 
+  temp.prio = prio;
+
   if( new_prio0 ) {
     ulong new_idx = M-(p0_cnt++);
     prq[new_idx] = temp;
@@ -288,11 +292,12 @@ fd_rdisp_mq_pop( fd_rdisp_mq_t * mq,
   if( FD_LIKELY( mq->prio0_cnt[ staging_lane ] ) ) {
     ulong tail_idx  = mq->max_writers_per_block - (--mq->prio0_cnt[staging_lane]);
     ulong to_return = prq[tail_idx].idx;
-    mq->flat[to_return].per_lane[staging_lane] = 0;
+    mq->flat[to_return].per_lane[staging_lane] = UINT_MAX;
     return to_return;
   } else {
     ulong to_return = prq->idx;
     fd_rdisp_mprq_remove_min( prq );
+    mq->flat[to_return].per_lane[staging_lane] = UINT_MAX;
     return to_return;
   }
 }
