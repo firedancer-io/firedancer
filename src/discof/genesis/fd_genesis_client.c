@@ -19,13 +19,15 @@ fd_genesis_client_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_genesis_client_footprint( ulong peer_max ) {
-  return sizeof(fd_genesis_client_t) + peer_max*sizeof(fd_genesis_client_peer_t);
+fd_genesis_client_footprint( ulong peer_max,
+                             ulong response_max ) {
+  return sizeof(fd_genesis_client_t) + peer_max*(sizeof(fd_genesis_client_peer_t)+response_max);
 }
 
 void *
 fd_genesis_client_new( void * shmem,
-                       ulong  peer_max ) {
+                       ulong  peer_max,
+                       ulong  response_max ) {
   fd_genesis_client_t * gen = (fd_genesis_client_t *)shmem;
 
   if( FD_UNLIKELY( !shmem ) ) {
@@ -43,7 +45,11 @@ fd_genesis_client_new( void * shmem,
     return NULL;
   }
 
-  gen->peer_max = peer_max;
+  gen->peer_max     = peer_max;
+  gen->response_max = response_max;
+
+  uchar * responses = (uchar *)(gen->peers+peer_max);
+  for( ulong i=0UL; i<peer_max; i++ ) gen->peers[ i ].response = responses+i*response_max;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( gen->magic ) = FD_GENESIS_CLIENT_MAGIC;
@@ -195,7 +201,7 @@ read_conn( fd_genesis_client_t * client,
   if( FD_UNLIKELY( peer->writing ) ) return 1;
   long read = recvfrom( client->pollfds[ conn_idx ].fd,
                         peer->response+peer->response_bytes_read,
-                        sizeof(peer->response)-peer->response_bytes_read,
+                        client->response_max-peer->response_bytes_read,
                         0,
                         NULL,
                         NULL );
@@ -233,7 +239,9 @@ read_conn( fd_genesis_client_t * client,
     close_one( client, conn_idx );
     return 1;
   }
-  if( FD_UNLIKELY( content_length+(ulong)len>sizeof(peer->response) ) ) {
+  if( FD_UNLIKELY( content_length+(ulong)len>client->response_max ) ) {
+    FD_LOG_WARNING(( "genesis response from peer at `http://" FD_IP4_ADDR_FMT ":%hu` exceeds `development.genesis.max_file_size_mib` (content_length=%lu max=%lu)",
+                     FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), content_length, client->response_max ));
     close_one( client, conn_idx );
     return 1;
   }

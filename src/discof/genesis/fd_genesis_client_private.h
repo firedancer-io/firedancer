@@ -11,7 +11,7 @@ struct fd_genesis_client_peer {
   int writing;
   ulong request_bytes_sent;
   ulong response_bytes_read;
-  uchar response[ 10UL*1024UL*1024UL ]; /* 10 MiB max response */
+  uchar * response; /* response_max byte buffer, tail of the client region */
 };
 
 typedef struct fd_genesis_client_peer fd_genesis_client_peer_t;
@@ -21,12 +21,13 @@ struct fd_genesis_client_private {
   ulong peer_cnt;
   ulong remaining_peer_cnt;
   ulong peer_max;
+  ulong response_max;
 
   struct pollfd pollfds[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
   ulong magic;
 
-  fd_genesis_client_peer_t peers[]; /* peer_max entries */
+  fd_genesis_client_peer_t peers[]; /* peer_max entries, then peer_max response buffers */
 };
 
 #endif /* HEADER_fd_src_discof_genesis_fd_genesis_client_private_h */

@@ -28,7 +28,7 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_log_level_stderr_set(4);
 
   ulong align     = fd_genesis_client_align();
-  ulong footprint = fd_genesis_client_footprint( 1UL );
+  ulong footprint = fd_genesis_client_footprint( 1UL, 10UL<<20 );
   client_mem = aligned_alloc( align, footprint );
   FD_TEST( client_mem );
 
@@ -38,7 +38,7 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         data_sz ) {
-  fd_genesis_client_t * client = fd_genesis_client_join( fd_genesis_client_new( client_mem, 1UL ) );
+  fd_genesis_client_t * client = fd_genesis_client_join( fd_genesis_client_new( client_mem, 1UL, 10UL<<20 ) );
   FD_TEST( client );
   int sockfds[2];
   FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM, 0, sockfds ) );
