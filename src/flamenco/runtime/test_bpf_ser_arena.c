@@ -65,9 +65,11 @@ static void
 test_window_promotion( void ) {
   fd_runtime_t * runtime = (fd_runtime_t *)alloc_aligned( 4096UL, sizeof(fd_runtime_t) );
 
+  ulong  window_cap = FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP );
+  void * window     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, window_cap );
   void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL ) );
   fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL ) );
-  fd_runtime_bpf_ser_init( runtime, arena );
+  fd_runtime_bpf_ser_init( runtime, arena, window, window_cap );
 
   uchar * buf; ulong cap;
 
@@ -79,13 +81,13 @@ test_window_promotion( void ) {
   /* Depth 2 bumps out of the window */
   fd_runtime_bpf_ser_frame_begin( runtime, 2UL, &buf, &cap );
   FD_TEST( buf==runtime->bpf_loader_serialization.window );
-  FD_TEST( cap==FD_BPF_SER_WINDOW_FOOTPRINT );
-  ulong d2_sz = FD_BPF_SER_WINDOW_FOOTPRINT-4096UL;
+  FD_TEST( cap==window_cap );
+  ulong d2_sz = window_cap-4096UL;
   fd_runtime_bpf_ser_frame_commit( runtime, 2UL, d2_sz );
 
   /* Depth 3 sees only the leftover window */
   fd_runtime_bpf_ser_frame_begin( runtime, 3UL, &buf, &cap );
-  FD_TEST( cap==FD_BPF_SER_WINDOW_FOOTPRINT-fd_ulong_align_up( d2_sz, FD_RUNTIME_EBPF_HOST_ALIGN ) );
+  FD_TEST( cap==window_cap-fd_ulong_align_up( d2_sz, FD_RUNTIME_EBPF_HOST_ALIGN ) );
   FD_TEST( cap<4096UL+FD_RUNTIME_EBPF_HOST_ALIGN );
 
   /* ...and promotes to the arena bundle when that is too small */
@@ -118,10 +120,11 @@ test_window_promotion( void ) {
   fd_runtime_bpf_ser_frame_pop( runtime, 2UL );
   fd_runtime_bpf_ser_frame_begin( runtime, 2UL, &buf, &cap );
   FD_TEST( buf==runtime->bpf_loader_serialization.window );
-  FD_TEST( cap==FD_BPF_SER_WINDOW_FOOTPRINT );
+  FD_TEST( cap==window_cap );
   fd_runtime_bpf_ser_reset( runtime );
 
   free( mem );
+  free( window );
   free( runtime );
   FD_LOG_NOTICE(( "test_window_promotion: pass" ));
 }
