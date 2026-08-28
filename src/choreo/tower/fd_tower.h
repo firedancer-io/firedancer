@@ -379,16 +379,20 @@
 #define FD_TOWER_LOCKOS_MAX 31UL
 #define FD_TOWER_VOTE_MAX (FD_TOWER_LOCKOS_MAX)
 
-/* Lockout interval lists are tiered: the most recent FD_TOWER_LOCKOS_WND
-   executed slots' lists live in a RAM pool, older lists spill whole to
-   an explicit-I/O file (lck_fd) holding full blk_max*31*vtr_max
-   capacity.  Mainnet unrooted depth is ~32 slots so the disk tier is
-   never touched in steady state; only deep-unroot/catchup regimes
-   spill.  FD_TOWER_LOCKOS_SPILL_FOOTPRINT is the required file size:
-   blk_max regions of 31*vtr_max 8-byte {start,packed} records. */
+/* Lockout interval lists and per-slot stake sets are tiered: the most
+   recent FD_TOWER_LOCKOS_WND executed slots' data lives in RAM pools,
+   older slots spill whole to an explicit-I/O file (lck_fd) holding
+   full blk_max capacity for both.  Mainnet unrooted depth is ~32 slots
+   so the disk tier is never touched in steady state; only deep-unroot/
+   catchup regimes spill.  The file layout is the lockos area (blk_max
+   regions of 31*vtr_max 8-byte {start,packed} records) followed by the
+   stakes area (blk_max regions of vtr_max 40-byte {addr,stake}
+   records); FD_TOWER_SPILL_FOOTPRINT is the required file size. */
 
 #define FD_TOWER_LOCKOS_WND (128UL)
 #define FD_TOWER_LOCKOS_SPILL_FOOTPRINT( blk_max, vtr_max ) (FD_TOWER_LOCKOS_MAX*(blk_max)*(vtr_max)*8UL)
+#define FD_TOWER_STAKES_SPILL_FOOTPRINT( blk_max, vtr_max ) ((blk_max)*(vtr_max)*40UL)
+#define FD_TOWER_SPILL_FOOTPRINT( blk_max, vtr_max ) (FD_TOWER_LOCKOS_SPILL_FOOTPRINT( blk_max, vtr_max )+FD_TOWER_STAKES_SPILL_FOOTPRINT( blk_max, vtr_max ))
 
 /* fd_tower is a representation of a validator's "vote tower" (described
    in detail in the preamble at the top of this file).  The votes in the
@@ -511,6 +515,19 @@ struct fd_tower {
   fd_tower_stakes_vtr_t *     stk_vtr_pool;
   fd_tower_stakes_slot_t *    stk_slot_map;
   fd_used_acc_scratch_t *     stk_used_acc;
+
+  /* Stakes tier (mirrors the lockos tier; shares lck_fd, stakes area
+     follows the lockos area in the file). */
+
+  ulong  stk_wnd;         /* max resident slot sets (min(FD_TOWER_LOCKOS_WND, blk_max)) */
+  ulong  stk_resident;    /* current resident slot set cnt */
+  ulong  stk_lru_head;    /* oldest resident slot (ULONG_MAX if none) */
+  ulong  stk_lru_tail;    /* newest resident slot (ULONG_MAX if none) */
+  ulong  stk_spill_cnt;   /* slot sets spilled to disk (0 at mainnet steady state) */
+  ulong  stk_load_cnt;    /* spilled slot sets read back */
+  void * stk_scratch;     /* load buffer for one slot set (vtr_max records) */
+  void * stk_regions;     /* free stack of blk_max spill file region idxs */
+  ulong  stk_region_free; /* free stack top */
 };
 typedef struct fd_tower fd_tower_t;
 

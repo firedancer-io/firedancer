@@ -163,7 +163,8 @@ fd_tower_footprint( ulong blk_max,
   ulong lck_pubkey_max    = 2UL * vtr_max;
   ulong lck_pubkey_chains = lockout_pubkey_map_chain_cnt_est( lck_pubkey_max );
 
-  ulong stk_vtr_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * blk_max );
+  ulong stk_wnd           = fd_ulong_min( FD_TOWER_LOCKOS_WND, blk_max );
+  ulong stk_vtr_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * stk_wnd );
   int   stk_lg_slot_cnt   = fd_ulong_find_msb( fd_ulong_pow2_up( blk_max ) ) + 1;
 
   ulong l = FD_LAYOUT_INIT;
@@ -184,9 +185,11 @@ fd_tower_footprint( ulong blk_max,
   l = FD_LAYOUT_APPEND( l, alignof(uint),                    blk_max*sizeof(uint)                                        );
   /* stakes */
   l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( stk_vtr_chain_cnt )     );
-  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * blk_max )     );
+  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * stk_wnd )     );
   l = FD_LAYOUT_APPEND( l, fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( stk_lg_slot_cnt )           );
-  l = FD_LAYOUT_APPEND( l, fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( vtr_max * blk_max )          );
+  l = FD_LAYOUT_APPEND( l, fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( vtr_max * stk_wnd )          );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_tower_stakes_rec_t),   vtr_max*sizeof(fd_tower_stakes_rec_t)                       );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                    blk_max*sizeof(uint)                                        );
   return FD_LAYOUT_FINI( l, fd_tower_align() );
 }
 
@@ -219,7 +222,8 @@ fd_tower_new( void * shmem,
   ulong lck_pubkey_max    = 2UL * vtr_max;
   ulong lck_pubkey_chains = lockout_pubkey_map_chain_cnt_est( lck_pubkey_max );
 
-  ulong stk_vtr_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * blk_max );
+  ulong stk_wnd           = fd_ulong_min( FD_TOWER_LOCKOS_WND, blk_max );
+  ulong stk_vtr_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * stk_wnd );
   int   stk_lg_slot_cnt   = fd_ulong_find_msb( fd_ulong_pow2_up( blk_max ) ) + 1;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
@@ -239,9 +243,11 @@ fd_tower_new( void * shmem,
   void *       lck_scratch    = FD_SCRATCH_ALLOC_APPEND( l, alignof(lockout_rec_t),           lck_rec_max*sizeof(lockout_rec_t)                            );
   void *       lck_regions    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    blk_max*sizeof(uint)                                         );
   void *       stk_vtr_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( stk_vtr_chain_cnt )      );
-  void *       stk_vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * blk_max )      );
+  void *       stk_vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * stk_wnd )      );
   void *       stk_slot_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( stk_lg_slot_cnt )            );
-  void *       stk_used_acc   = FD_SCRATCH_ALLOC_APPEND( l, fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( vtr_max * blk_max )           );
+  void *       stk_used_acc   = FD_SCRATCH_ALLOC_APPEND( l, fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( vtr_max * stk_wnd )           );
+  void *       stk_scratch    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_stakes_rec_t),   vtr_max*sizeof(fd_tower_stakes_rec_t)                        );
+  void *       stk_regions    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    blk_max*sizeof(uint)                                         );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_tower_align() ) == (ulong)shmem + footprint );
 
   tower->root     = ULONG_MAX;
@@ -271,9 +277,19 @@ fd_tower_new( void * shmem,
   tower->lck_region_free = blk_max;
   for( ulong i = 0; i < blk_max; i++ ) ((uint *)lck_regions)[i] = (uint)(blk_max-1UL-i);
   tower->stk_vtr_map  = fd_tower_stakes_vtr_map_new ( stk_vtr_map,  stk_vtr_chain_cnt, seed );
-  tower->stk_vtr_pool = fd_tower_stakes_vtr_pool_new( stk_vtr_pool, vtr_max * blk_max       );
+  tower->stk_vtr_pool = fd_tower_stakes_vtr_pool_new( stk_vtr_pool, vtr_max * stk_wnd       );
   tower->stk_slot_map = fd_tower_stakes_slot_new    ( stk_slot_map, stk_lg_slot_cnt,   seed );
-  tower->stk_used_acc = fd_used_acc_scratch_new     ( stk_used_acc, vtr_max * blk_max       );
+  tower->stk_used_acc = fd_used_acc_scratch_new     ( stk_used_acc, vtr_max * stk_wnd       );
+  tower->stk_wnd         = stk_wnd;
+  tower->stk_resident    = 0UL;
+  tower->stk_lru_head    = ULONG_MAX;
+  tower->stk_lru_tail    = ULONG_MAX;
+  tower->stk_spill_cnt   = 0UL;
+  tower->stk_load_cnt    = 0UL;
+  tower->stk_scratch     = stk_scratch;
+  tower->stk_regions     = stk_regions;
+  tower->stk_region_free = blk_max;
+  for( ulong i = 0; i < blk_max; i++ ) ((uint *)stk_regions)[i] = (uint)(blk_max-1UL-i);
 
   return shmem;
 }
@@ -565,6 +581,20 @@ switch_check( fd_tower_t * tower,
   ulong vote_slot    = fd_tower_vote_peek_tail_const( tower->votes )->slot;
   ulong root_slot    = tower->root;
 
+  /* Resolve the switch slot's stake set tier.  All stake queries below
+     are keyed at switch_slot, so a spilled set (deep-unroot regimes
+     only, never at mainnet root lag) is pread+sorted once up front and
+     bsearched per query; used_acc then dedups by record idx instead of
+     pool idx. */
+
+  fd_tower_stakes_rec_t const * stk_rec = NULL;
+  ulong                         stk_cnt = 0UL;
+  fd_tower_stakes_slot_t const * ss = fd_tower_stakes_slot_query( tower->stk_slot_map, switch_slot, NULL );
+  if( FD_UNLIKELY( ss && ss->region!=UINT_MAX ) ) {
+    stk_cnt = fd_tower_stakes_load( tower, ss );
+    stk_rec = tower->stk_scratch;
+  }
+
   ulong            null = fd_ghost_blk_idx_null( ghost );
   fd_ghost_blk_t * head = fd_ghost_blk_map_remove( ghost, fd_ghost_root( ghost ) );
   fd_ghost_blk_t * tail = head;
@@ -651,18 +681,28 @@ switch_check( fd_tower_t * tower,
         fd_hash_t const * vote_acc = &lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, packed>>6 )->addr;
 
         if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, start, vote_slot ) && start > root_slot ) ) {
-          fd_tower_stakes_vtr_xid_t     key         = { .addr = *vote_acc, .slot = switch_slot };
-          fd_tower_stakes_vtr_t const * voter_stake = fd_tower_stakes_vtr_map_ele_query_const( tower->stk_vtr_map, &key, NULL, tower->stk_vtr_pool );
+          ulong voter_idx;
+          ulong voter_stake_amt;
+          if( FD_UNLIKELY( stk_rec ) ) { /* spilled switch slot set */
+            ulong rec_idx = fd_tower_stakes_spilled_idx( stk_rec, stk_cnt, vote_acc );
+            if( FD_UNLIKELY( rec_idx==ULONG_MAX ) ) continue;
+            voter_idx       = rec_idx;
+            voter_stake_amt = stk_rec[ rec_idx ].stake;
+          } else {
+            fd_tower_stakes_vtr_xid_t     key         = { .addr = *vote_acc, .slot = switch_slot };
+            fd_tower_stakes_vtr_t const * voter_stake = fd_tower_stakes_vtr_map_ele_query_const( tower->stk_vtr_map, &key, NULL, tower->stk_vtr_pool );
 
-          /* Vote account could have been closed on the switch fork,
-             and therefore not in the tower stakes map.  In this case
-             just count the vote stake as 0 and skip this voter.
-             matches Agave.  */
-          if( FD_UNLIKELY( !voter_stake ) ) continue;
-          ulong voter_idx = fd_tower_stakes_vtr_pool_idx( tower->stk_vtr_pool, voter_stake );
+            /* Vote account could have been closed on the switch fork,
+               and therefore not in the tower stakes map.  In this case
+               just count the vote stake as 0 and skip this voter.
+               matches Agave.  */
+            if( FD_UNLIKELY( !voter_stake ) ) continue;
+            voter_idx       = fd_tower_stakes_vtr_pool_idx( tower->stk_vtr_pool, voter_stake );
+            voter_stake_amt = voter_stake->stake;
+          }
           if( FD_UNLIKELY( fd_used_acc_scratch_test( tower->stk_used_acc, voter_idx ) ) ) continue; /* exclude already counted voters */
           fd_used_acc_scratch_insert( tower->stk_used_acc, voter_idx );
-          switch_stake += voter_stake->stake;
+          switch_stake += voter_stake_amt;
           if( FD_LIKELY( (double)switch_stake / (double)total_stake > SWITCH_RATIO ) ) {
             fd_used_acc_scratch_null( tower->stk_used_acc );
             FD_LOG_DEBUG(( "[%s] vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));

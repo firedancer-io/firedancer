@@ -77,7 +77,11 @@ typedef struct fd_tower_stakes_vtr fd_tower_stakes_vtr_t;
 
 struct fd_tower_stakes_slot {
   ulong slot;
-  uint  head; /* pool idx of the head of a linked list of voters in this slot */
+  uint  head;     /* pool idx of the head of a linked list of voters in this slot; UINT_MAX if empty/spilled */
+  uint  region;   /* spill file region idx if spilled; UINT_MAX if resident */
+  uint  disk_cnt; /* records in spill region (spilled only) */
+  ulong lru_prev; /* older resident slot (ULONG_MAX if oldest; unused when spilled) */
+  ulong lru_next; /* newer resident slot (ULONG_MAX if newest; unused when spilled) */
 };
 typedef struct fd_tower_stakes_slot fd_tower_stakes_slot_t;
 
@@ -115,5 +119,29 @@ fd_tower_stakes_insert( struct fd_tower *  tower,
 void
 fd_tower_stakes_remove( struct fd_tower * tower,
                         ulong             slot );
+
+/* Spilled stake sets.  Slot sets past the resident window live in the
+   shared tower spill file (after the lockos area) as dense
+   fd_tower_stakes_rec_t records, one region per slot.
+   fd_tower_stakes_load preads a spilled slot's region into
+   tower->stk_scratch, sorts it by vote account, and returns the record
+   cnt.  fd_tower_stakes_spilled_idx bsearches the sorted records and
+   returns the record idx (usable for used_acc dedup), or ULONG_MAX if
+   absent. */
+
+struct fd_tower_stakes_rec {
+  fd_hash_t addr;
+  ulong     stake;
+};
+typedef struct fd_tower_stakes_rec fd_tower_stakes_rec_t;
+
+ulong
+fd_tower_stakes_load( struct fd_tower *              tower,
+                      fd_tower_stakes_slot_t const * ss );
+
+ulong
+fd_tower_stakes_spilled_idx( fd_tower_stakes_rec_t const * rec,
+                             ulong                         cnt,
+                             fd_hash_t const *             addr );
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_stakes_h */

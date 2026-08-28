@@ -2041,12 +2041,12 @@ privileged_init( fd_topo_t const *      topo,
   ctx->restore_fd = open( path, O_RDONLY );
   if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
-  /* The lockos spill file holds full worst-case lockout interval
-     capacity; RAM keeps only a recent-slot window.  Contents are
-     meaningless across boots, so unlink immediately. */
+  /* The spill file holds full worst-case lockout interval and per-slot
+     stake set capacity; RAM keeps only a recent-slot window of each.
+     Contents are meaningless across boots, so unlink immediately. */
 
   ulong slot_max  = fd_ulong_pow2_up( tile->tower.max_live_slots );
-  ulong lockos_sz = FD_TOWER_LOCKOS_SPILL_FOOTPRINT( slot_max, VTR_MAX );
+  ulong lockos_sz = FD_TOWER_SPILL_FOOTPRINT( slot_max, VTR_MAX );
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-lockos-%s.bin", tile->tower.base_path, identity_key_b58 ) );
   ctx->lockos_fd = open( path, O_RDWR|O_CREAT|O_TRUNC, 0600 );
   if( FD_UNLIKELY( -1==ctx->lockos_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));

@@ -205,7 +205,7 @@ test_lockos_spill( fd_wksp_t * wksp ) {
   int  fd     = mkstemp( tmpl );
   FD_TEST( fd>=0 );
   FD_TEST( !unlink( tmpl ) );
-  FD_TEST( !ftruncate( fd, (off_t)FD_TOWER_LOCKOS_SPILL_FOOTPRINT( blk_max, voter_max ) ) );
+  FD_TEST( !ftruncate( fd, (off_t)FD_TOWER_SPILL_FOOTPRINT( blk_max, voter_max ) ) );
   tower->lck_fd = fd;
 
   uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) mock_votes_mem[ FD_TOWER_VOTE_FOOTPRINT ];
@@ -293,6 +293,92 @@ test_lockos_spill( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
 }
 
+/* test_stakes_spill exercises the stakes disk tier: spill on window
+   overflow, sorted load + bsearch round-trip, cold append to a spilled
+   slot, and spilled remove (pure region drop). */
+
+void
+test_stakes_spill( fd_wksp_t * wksp ) {
+  ulong blk_max   = 1024; /* > FD_TOWER_LOCKOS_WND so the window binds */
+  ulong voter_max = 4;
+
+  void *       tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, voter_max ), 1UL );
+  fd_tower_t * tower     = fd_tower_join( fd_tower_new( tower_mem, blk_max, voter_max, 0UL ) );
+  FD_TEST( tower->stk_wnd==FD_TOWER_LOCKOS_WND );
+  FD_TEST( fd_tower_stakes_vtr_pool_max( tower->stk_vtr_pool )==FD_TOWER_LOCKOS_WND*voter_max );
+
+  char tmpl[] = "/tmp/test_tower_stakes_XXXXXX";
+  int  fd     = mkstemp( tmpl );
+  FD_TEST( fd>=0 );
+  FD_TEST( !unlink( tmpl ) );
+  FD_TEST( !ftruncate( fd, (off_t)FD_TOWER_SPILL_FOOTPRINT( blk_max, voter_max ) ) );
+  tower->lck_fd = fd;
+
+  /* Fill the window plus 100 slots: each overflow spills the oldest
+     resident set whole.  Each slot gets voter_max-1 voters (leaving
+     region room for the cold append below) with slot-derived
+     addrs/stakes. */
+
+  ulong wnd       = tower->stk_wnd;
+  ulong voter_cnt = voter_max-1UL;
+  for( ulong slot = 1; slot <= wnd+100UL; slot++ ) {
+    ulong prev = ULONG_MAX;
+    for( ulong v = 0; v < voter_cnt; v++ ) {
+      fd_hash_t addr = { .ul = { slot, v, 0, 0 } };
+      prev = fd_tower_stakes_insert( tower, slot, &addr, slot*1000UL+v, prev );
+    }
+  }
+  FD_TEST( tower->stk_spill_cnt==100UL );
+  FD_TEST( tower->stk_resident==wnd );
+  FD_TEST( tower->stk_region_free==blk_max-100UL );
+
+  /* Slot 1 spilled first: load + bsearch round-trips bit-exact. */
+
+  fd_tower_stakes_slot_t * ss = fd_tower_stakes_slot_query( tower->stk_slot_map, 1UL, NULL );
+  FD_TEST( ss && ss->region!=UINT_MAX && ss->disk_cnt==voter_cnt );
+  ulong cnt = fd_tower_stakes_load( tower, ss );
+  FD_TEST( cnt==voter_cnt );
+  FD_TEST( tower->stk_load_cnt==1UL );
+  fd_tower_stakes_rec_t const * rec = tower->stk_scratch;
+  for( ulong v = 0; v < voter_cnt; v++ ) {
+    fd_hash_t addr = { .ul = { 1UL, v, 0, 0 } };
+    ulong idx = fd_tower_stakes_spilled_idx( rec, cnt, &addr );
+    FD_TEST( idx!=ULONG_MAX );
+    FD_TEST( rec[ idx ].stake==1000UL+v );
+  }
+  fd_hash_t absent = { .ul = { 999999UL, 0, 0, 0 } };
+  FD_TEST( fd_tower_stakes_spilled_idx( rec, cnt, &absent )==ULONG_MAX );
+
+  /* Cold append to a spilled slot lands in its region. */
+
+  fd_hash_t extra = { .ul = { 1UL, 77UL, 0, 0 } };
+  FD_TEST( fd_tower_stakes_insert( tower, 1UL, &extra, 42UL, ULONG_MAX )==ULONG_MAX );
+  ss = fd_tower_stakes_slot_query( tower->stk_slot_map, 1UL, NULL );
+  FD_TEST( ss && ss->disk_cnt==voter_cnt+1UL );
+  cnt = fd_tower_stakes_load( tower, ss );
+  FD_TEST( cnt==voter_cnt+1UL );
+  ulong extra_idx = fd_tower_stakes_spilled_idx( rec, cnt, &extra );
+  FD_TEST( extra_idx!=ULONG_MAX );
+  FD_TEST( rec[ extra_idx ].stake==42UL );
+
+  /* Spilled remove is a pure region drop. */
+
+  ulong region_free_pre = tower->stk_region_free;
+  fd_tower_stakes_remove( tower, 2UL );
+  FD_TEST( tower->stk_region_free==region_free_pre+1UL );
+  FD_TEST( !fd_tower_stakes_slot_query( tower->stk_slot_map, 2UL, NULL ) );
+
+  /* Resident slots stay queryable through the map. */
+
+  ulong resident_slot = wnd+100UL;
+  fd_tower_stakes_vtr_xid_t xid = { .addr = { .ul = { resident_slot, 0, 0, 0 } }, .slot = resident_slot };
+  fd_tower_stakes_vtr_t const * vs = fd_tower_stakes_vtr_map_ele_query_const( tower->stk_vtr_map, &xid, NULL, tower->stk_vtr_pool );
+  FD_TEST( vs && vs->stake==resident_slot*1000UL );
+
+  FD_TEST( !close( fd ) );
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -306,6 +392,7 @@ main( int argc, char ** argv ) {
   test_lockos( wksp );
   test_lockos_pubkey_pool( wksp );
   test_lockos_spill( wksp );
+  test_stakes_spill( wksp );
 
   fd_halt();
   return 0;
