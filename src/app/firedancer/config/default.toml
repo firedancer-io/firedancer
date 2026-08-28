@@ -1399,7 +1399,12 @@ telemetry = true
         # Higher values reduce TPU packet loss over unreliable networks.
         # If this parameter is set too low, packet loss can cause some
         # large transactions to get dropped.  Must be 2 or larger.
-        txn_reassembly_count = 131072
+        #
+        # Only fragmented (multi-packet) transactions occupy a
+        # reassembly slot; single packet transactions bypass this
+        # entirely.  On overflow the oldest in-progress reassembly is
+        # cancelled.
+        txn_reassembly_count = 16384
 
         # QUIC has a handshake process which establishes a secure
         # connection between two endpoints.  The handshake process is
