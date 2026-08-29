@@ -329,6 +329,9 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+    fd_topo_install_mlx5( topo, NULL );
+  }
 
   /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );

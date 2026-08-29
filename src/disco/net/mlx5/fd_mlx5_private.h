@@ -9,12 +9,11 @@
    depend on libibverbs or libmlx5.
 
    fd_uverbs_init opens one uverbs context, validates the selected device
-   and port, maps a UAR, registers packet memory, and creates a protection
-   domain, one send-only raw-packet QP, one receive WQ, a one-entry RWQ
-   indirection table, and an RSS QP over caller-owned queue memory.  The tile
-   installs flow steering separately.  Linux creates and tracks these
-   resources, while the packet path uses the mapped queues and doorbells
-   directly.
+   and port, registers packet memory, and creates a shared protection domain
+   and receive indirection table over caller-owned queue memory.  Each tile
+   gets a UAR, RX CQ, TX CQ, receive WQ, and send-only raw-packet QP.  Linux
+   creates and tracks these resources, while the packet path uses the mapped
+   queues and doorbells directly.
 
    mlx5 queue fields are big-endian.  This implementation reserves 64
    bytes for each TX WQE and 16 bytes for each RX WQE. */
@@ -117,6 +116,7 @@ struct fd_mlx5_tx_qp {
 
   fd_mlx5_qp_control_t * control;
   volatile uchar *       sq_doorbell;      /* points to the SQ doorbell register in a non-cached UAR mapping. */
+  ulong                  uar_mmap_offset;  /* maps this QP's non-cached mlx5 UAR page. */
   uint                   handle;           /* identifies this QP in later Linux uverbs commands. */
   uint                   qpn;              /* identifies this QP to the NIC. */
   uchar                  tx_inline_hdr_sz; /* number of Ethernet header bytes copied into each TX WQE. */
@@ -129,6 +129,20 @@ struct fd_mlx5_rss_qp {
   uint handle;
 };
 typedef struct fd_mlx5_rss_qp fd_mlx5_rss_qp_t;
+
+/* fd_mlx5_uverbs_tile identifies one tile's queues and packet-memory region
+   during shared uverbs initialization. */
+struct fd_mlx5_uverbs_tile {
+  fd_mlx5_cq_t *    rx_cq;
+  fd_mlx5_cq_t *    tx_cq;
+  fd_mlx5_rx_wq_t * rx_wq;
+  fd_mlx5_tx_qp_t * tx_qp;
+  uint *            lkey;
+  void *            packet_memory;
+  ulong             packet_memory_sz;
+  ulong             packet_iova;
+};
+typedef struct fd_mlx5_uverbs_tile fd_mlx5_uverbs_tile_t;
 
 /* fd_netlink_rdma_ctx stores the state used to request one QP-bound counter
    through Linux NETLINK_RDMA. */
@@ -143,22 +157,23 @@ typedef struct fd_netlink_rdma_ctx fd_netlink_rdma_ctx_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_uverbs_init creates one UAR, RX CQ, TX CQ, PD, MR, send-only QP,
-   receive WQ, one-entry indirection table, and RSS QP over caller-initialized
-   queue and packet memory.  On failure, process-scoped resources can remain
-   live.  Callers must exit rather than retry initialization. */
+/* fd_uverbs_init creates one shared context, PD, receive indirection table,
+   and RSS QP.  It creates an MR, UAR, RX CQ, TX CQ, receive WQ, and send-only
+   QP for each entry in tiles.  tile_cnt must be a power of two.  On failure,
+   process-scoped resources can remain live.  Callers must exit rather than
+   retry initialization. */
 fd_mlx5_rss_qp_t *
-fd_uverbs_init( fd_uverbs_ctx_t *  uverbs,
-                fd_mlx5_cq_t *     rx_cq,
-                fd_mlx5_cq_t *     tx_cq,
-                fd_mlx5_rx_wq_t *  rx_wq,
-                fd_mlx5_tx_qp_t *  tx_qp,
-                fd_mlx5_rss_qp_t * rss_qp,
-                uint *             lkey,
-                char const *       rdma_name,
-                uint               port_num,
-                void *             packet_memory,
-                ulong              packet_memory_sz );
+fd_uverbs_init( fd_uverbs_ctx_t *         uverbs,
+                fd_mlx5_uverbs_tile_t *   tiles,
+                ulong                     tile_cnt,
+                fd_mlx5_rss_qp_t *        rss_qp,
+                char const *              rdma_name,
+                uint                      port_num );
+
+/* fd_uverbs_map_uar maps a previously allocated non-cached mlx5 UAR. */
+volatile uchar *
+fd_uverbs_map_uar( fd_uverbs_ctx_t * uverbs,
+                   ulong             mmap_offset );
 
 /* fd_uverbs_create_udp_flow and fd_uverbs_create_gre_udp_flow steer matching
    IPv4 traffic to an RSS QP.  The GRE destination IP and port select the inner
