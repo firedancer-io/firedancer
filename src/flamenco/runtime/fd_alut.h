@@ -18,7 +18,6 @@
 
 /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L19 */
 #define FD_LOOKUP_TABLE_META_SIZE      (56)
-#define FD_ADDRLUT_MAX_ENTRIES         FD_SYSVAR_SLOT_HASHES_CAP
 
 /* Discriminants for the ProgramState enum wrapping the lookup table
    metadata in the on-disk account format. */

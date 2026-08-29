@@ -18,13 +18,6 @@ struct fd_h2_settings {
 
 typedef struct fd_h2_settings fd_h2_settings_t;
 
-/* FD_H2_MAX_PENDING_SETTINGS limits the number of SETTINGS frames that
-   fd_h2 can burst without an acknowledgement.  Aborts the conn with a
-   TCP RST if fd_h2 or the peer pile on too many unacknowledged SETTINGS
-   frames. */
-
-#define FD_H2_MAX_PENDING_SETTINGS 64
-
 /* fd_h2_conn is a framing-layer HTTP/2 connection handle.
    It implements RFC 9113 mandatory behavior, such as negotiating conn
    settings with a peer. */

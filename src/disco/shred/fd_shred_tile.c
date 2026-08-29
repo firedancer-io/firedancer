@@ -87,8 +87,6 @@
    state while Solana moves to a newer shred format that support better
    parallelization. */
 
-#define FD_SHRED_TILE_SCRATCH_ALIGN 128UL
-
 #define IN_KIND_CONTACT ( 0UL)
 #define IN_KIND_EPOCH   ( 1UL) /* Firedancer */
 #define IN_KIND_STAKE   ( 2UL) /* Frankendancer */
@@ -131,10 +129,7 @@ FD_STATIC_ASSERT( sizeof(fd_fec_set_t)==FD_SHRED_STORE_MTU, shred_store_mtu );
    Frankendancer vs Firedancer.  For example, Frankendancer produces
    chained merkle shreds, while Firedancer doesn't yet.  We can check
    at runtime the difference by inspecting the topology. The simplest
-   way is to test if ctx->store is initialized.
-
-   FIXME don't assume only frank vs. fire */
-#define IS_FIREDANCER ( ctx->store!=NULL )
+   way is to test if ctx->store is initialized. */
 
 typedef union {
   struct {

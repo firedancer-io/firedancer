@@ -8,6 +8,4 @@
 #define fd_quic_uint   uint
 #define fd_quic_ulong  ulong
 
-#define FD_QUIC_CONN_ID_TYPE ulong
-
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_types_h */
