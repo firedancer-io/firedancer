@@ -215,8 +215,7 @@ if( is_working ) { ... }
 ### 5. Function Documentation
 
 - Documentation for a function is typically before the function
-  prototype in a comment block to help with potential automated
-  documentation extraction ala Doxygen.
+  prototype in a comment block.
 - Such comments should try to mention the name of the function they are
   toward the beginning of the comment to eliminate ambiguity. E.g. no
   confusion from devs from environments where comments chase the
