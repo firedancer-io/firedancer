@@ -871,10 +871,7 @@ telemetry = true
     #
     # If snapshot production is disabled, the validator will have to
     # download a snapshot on every restart.
-    #
-    # WARNING: This feature is not currently supported and should not be
-    # enabled.  It may reduce the stability of the running validator.
-    enable_snapshot_production = false
+    enable_snapshot_production = true
 
     # How many net tiles to run.  This is configurable and designed to
     # scale out for future network conditions, but there is no need to
