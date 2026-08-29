@@ -1317,7 +1317,7 @@ validate_transaction( fd_pack_t               * pack,
                       fd_txn_t          const * txn,
                       fd_acct_addr_t    const * accts,
                       fd_acct_addr_t    const * alt_adj,
-                      int                       check_bundle_blacklist ) {
+                      int                       blacklist_mask ) {
   int writes_to_sysvar = 0;
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
@@ -1328,7 +1328,7 @@ validate_transaction( fd_pack_t               * pack,
   int acct_blocklist   = 0;
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    bundle_blacklist |= (3==fd_pack_tip_prog_check_blacklist( ACCT_ITER_TO_PTR( iter ) ));
+    bundle_blacklist |= !!(fd_pack_tip_prog_check_blacklist( ACCT_ITER_TO_PTR( iter ) ) & blacklist_mask);
     /* querying for the inval key is a violation of the fd_map
        contract, even though it's actually fine... */
     acct_blocklist   |= (!acct_blocklist_key_inval( *ACCT_ITER_TO_PTR( iter ) )) &&
@@ -1352,7 +1352,7 @@ validate_transaction( fd_pack_t               * pack,
   /*           ... that try to write to a sysvar */
   if( FD_UNLIKELY( writes_to_sysvar                                        ) ) return FD_PACK_INSERT_REJECT_WRITES_SYSVAR;
   /*           ... that use an account that violates bundle rules */
-  if( FD_UNLIKELY( bundle_blacklist & !!check_bundle_blacklist             ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
+  if( FD_UNLIKELY( bundle_blacklist                                        ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
   /*           ... that use a blocklisted account */
   if( FD_UNLIKELY( acct_blocklist                                          ) ) return FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST;
 
@@ -1471,7 +1471,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   ord->txn->flags &= ~FD_TXN_P_FLAGS_DURABLE_NONCE;
   ord->txn->flags |= fd_uint_if( is_durable_nonce, FD_TXN_P_FLAGS_DURABLE_NONCE, 0U );
 
-  int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !!pack->bundle_meta_sz );
+  int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, fd_int_if( !!pack->bundle_meta_sz, 1, 0 ) );
   if( FD_UNLIKELY( validation_result ) ) {
     trp_pool_ele_release( pack->pool, ord );
     return validation_result;
@@ -1661,7 +1661,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
       }
     }
 
-    int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !initializer_bundle );
+    int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, fd_int_if( initializer_bundle, 0, 2 ) );
     if( FD_UNLIKELY( validation_result ) ) { err = validation_result; break; }
   }
 
