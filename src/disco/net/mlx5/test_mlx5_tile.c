@@ -109,11 +109,13 @@ test_hardware( char const * rdma_name,
   }
 
   if( FD_UNLIKELY( !fd_uverbs_init( &tile[ 0 ].uverbs, queues, tile_cnt,
-                                    &tile[ 0 ].rss_qp, rdma_name, port_num ) ) ) {
+                                    &tile[ 0 ].outer_rss_qp, &tile[ 0 ].gre_rss_qp,
+                                    rdma_name, port_num ) ) ) {
     FD_LOG_ERR(( "fd_uverbs_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   FD_TEST( tile[ 0 ].uverbs.cmd_fd>=0 && tile[ 0 ].uverbs.async_fd>=0 );
+  FD_TEST( tile[ 0 ].outer_rss_qp.handle!=tile[ 0 ].gre_rss_qp.handle );
   for( ulong i=0UL; i<tile_cnt; i++ ) {
     tile[ i ].tx_qp.sq_doorbell = fd_uverbs_map_uar( &tile[ 0 ].uverbs, tile[ i ].tx_qp.uar_mmap_offset );
     FD_TEST( tile[ i ].tx_qp.sq_doorbell );
@@ -130,8 +132,8 @@ test_hardware( char const * rdma_name,
   }
   if( tile_cnt>1UL ) FD_TEST( tile[ 0 ].tx_qp.sq_doorbell!=tile[ 1 ].tx_qp.sq_doorbell );
 
-  FD_TEST( !fd_uverbs_create_udp_flow( &tile[ 0 ].uverbs, &tile[ 0 ].rss_qp, 0U, 65535U ) );
-  FD_TEST( !fd_uverbs_create_gre_udp_flow( &tile[ 0 ].uverbs, &tile[ 0 ].rss_qp,
+  FD_TEST( !fd_uverbs_create_udp_flow( &tile[ 0 ].uverbs, &tile[ 0 ].outer_rss_qp, 0U, 65535U ) );
+  FD_TEST( !fd_uverbs_create_gre_udp_flow( &tile[ 0 ].uverbs, &tile[ 0 ].gre_rss_qp,
                                            FD_IP4_ADDR( 192,0,2,1 ), 65535U ) );
 
   FD_LOG_NOTICE(( "initialized `%s` port %u with tile count %lu, RX depth %u and TX depth %u",
@@ -216,7 +218,7 @@ test_rx_routes( void ) {
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile1, "net_quic", 1UL ) );
   FD_TEST( proto==DST_PROTO_TPU_UDP );
 
-  FD_TEST( fd_mlx5_tile_rx_dst_port_lookup( tile1, 9001U, 128UL, &out_idx, &proto ) );
+  FD_TEST( fd_mlx5_tile_rx_dst_port_lookup( tile1, 9001U, AG_REPAIR_RESPONSE_MAX_SZ+256UL, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile1, "net_shred", 1UL ) );
   FD_TEST( proto==DST_PROTO_REPAIR );
   FD_TEST( fd_mlx5_tile_rx_dst_port_lookup( tile1, 9001U, REPAIR_PING_SZ, &out_idx, &proto ) );
@@ -1017,6 +1019,17 @@ main( int     argc,
   memset( &tile->tx_route, 0, sizeof(tile->tx_route) );
   ulong tx_sig = fd_disco_netmux_sig( 0U, 0, neigh2_ip4_addr, DST_PROTO_OUTGOING, 0UL );
   FD_TEST( 0==before_frag( tile, 0UL, tx_seq, tx_sig ) );
+
+  /* Exactly one net tile accepts each outgoing packet. */
+  uint const target_tile_id = (uint)fd_disco_netmux_sig_hash( tx_sig ) % 2U;
+  tile->net_tile_cnt = 2U;
+  for( uint net_tile_id=0U; net_tile_id<2U; net_tile_id++ ) {
+    memset( &tile->tx_route, 0, sizeof(tile->tx_route) );
+    tile->net_tile_id = net_tile_id;
+    FD_TEST( (int)(net_tile_id!=target_tile_id)==before_frag( tile, 0UL, tx_seq, tx_sig ) );
+  }
+  tile->net_tile_id  = 0U;
+  tile->net_tile_cnt = 1U;
 
   /* TX packet targeting default gateway */
   memset( &tile->tx_route, 0, sizeof(tile->tx_route) );

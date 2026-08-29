@@ -1877,7 +1877,6 @@
 |--------|------|-------------|
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx</span> | counter | Number of packets successfully published to output links. |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Number of bytes in packets successfully published to output links (including Ethernet header). |
-| <span class="metrics-name">mlx5_&#8203;rx_&#8203;out_&#8203;of_&#8203;buffer</span> | counter | Number of packets dropped by the NIC because this QP's receive queue had no posted buffer. |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;malformed</span> | counter | Number of packets dropped because they exceeded the receive buffer or had malformed Ethernet, IPv4, or UDP headers. |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;route_&#8203;fail</span> | counter | Number of packets dropped because the destination UDP port could not be routed to an output link. |
 | <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;rx</span> | counter | Number of GRE packets successfully decapsulated and published. |

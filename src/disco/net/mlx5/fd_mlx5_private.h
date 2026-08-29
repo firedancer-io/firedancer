@@ -158,15 +158,17 @@ typedef struct fd_netlink_rdma_ctx fd_netlink_rdma_ctx_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_uverbs_init creates one shared context, PD, receive indirection table,
-   and RSS QP.  It creates an MR, UAR, RX CQ, TX CQ, receive WQ, and send-only
-   QP for each entry in tiles.  tile_cnt must be a power of two.  On failure,
+   and two RSS QPs, one hashing outer headers and one hashing inner tunnel
+   headers.  It creates an MR, UAR, RX CQ, TX CQ, receive WQ, and send-only QP
+   for each entry in tiles.  tile_cnt must be a power of two.  On failure,
    process-scoped resources can remain live.  Callers must exit rather than
    retry initialization. */
 fd_mlx5_rss_qp_t *
 fd_uverbs_init( fd_uverbs_ctx_t *         uverbs,
                 fd_mlx5_uverbs_tile_t *   tiles,
                 ulong                     tile_cnt,
-                fd_mlx5_rss_qp_t *        rss_qp,
+                fd_mlx5_rss_qp_t *        outer_rss_qp,
+                fd_mlx5_rss_qp_t *        gre_rss_qp,
                 char const *              rdma_name,
                 uint                      port_num );
 

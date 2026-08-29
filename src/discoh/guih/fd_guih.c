@@ -777,13 +777,6 @@ fd_guih_txn_waterfall_snap( fd_guih_t *               gui,
     cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED ) ];
     cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_FILL_RING_EMPTY ) ];
   }
-  for( ulong i=0UL; i<gui->summary.mlx5_tile_cnt; i++ ) {
-    fd_topo_tile_t const * mlx5 = &topo->tiles[ fd_topo_find_tile( topo, "mlx5", i ) ];
-    volatile ulong * mlx5_metrics = fd_metrics_tile( mlx5->metrics );
-
-    cur->out.net_overrun += mlx5_metrics[ MIDX( COUNTER, MLX5, RX_OUT_OF_BUFFER ) ];
-  }
-
   ulong bundle_txns_received = 0UL;
   ulong bundle_tile_idx = fd_topo_find_tile( topo, "bundle", 0UL );
   if( FD_LIKELY( bundle_tile_idx!=ULONG_MAX ) ) {
