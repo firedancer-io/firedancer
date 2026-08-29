@@ -145,7 +145,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   ulong entry_bytes_remaining = entry_sz - offset;
 
   /* Set the shred type */
-  int block_complete = !!shredder->meta.block_complete;
+  int block_complete = shredder->meta.block_complete==1;
   int is_chained     = 1;
   int is_resigned    = block_complete & (entry_bytes_remaining<=FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ);
 
