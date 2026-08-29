@@ -3,7 +3,7 @@
 
 #if defined(__linux__)
 
-#include "../../../util/bits/fd_bits.h"
+#include "fd_mlx5.h"
 
 /* fd_mlx5 sets up raw mlx5 resources through Linux uverbs.  It does not
    depend on libibverbs or libmlx5.
@@ -22,7 +22,6 @@
 #define FD_MLX5_RQ_WQE_SZ     (16UL)
 #define FD_MLX5_CQE_SZ        (64UL)
 #define FD_MLX5_PAGE_SZ       (4096UL)
-#define FD_MLX5_RDMA_NAME_MAX (64UL)
 
 struct __attribute__((aligned(FD_MLX5_TX_WQE_SZ))) fd_mlx5_tx_wqe {
   uchar bytes[ FD_MLX5_TX_WQE_SZ ];

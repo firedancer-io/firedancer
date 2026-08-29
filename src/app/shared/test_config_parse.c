@@ -119,6 +119,10 @@ main( int     argc,
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   fd_config_validate( config );  /* exits process with code 1 on failure */
 
+  strcpy( config->net.provider, "auto" );
+  fd_config_validate( config );
+  strcpy( config->net.provider, "xdp" );
+
   /* bzip2's avail_in and avail_out fields are uint. */
 
   config->is_firedancer = 1;

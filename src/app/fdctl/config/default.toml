@@ -905,6 +905,9 @@ dynamic_port_range = "8900-9000"
     # The provider determines how Firedancer sends and receives
     # network packets.  Possible values for the option are:
     #
+    #  "auto"
+    #   Firedancer auto selects based on what your system is safely capable of.
+    #
     #  "xdp" (default)
     #   Use Linux express data path APIs for high performance
     #   networking. These APIs map memory from the network device

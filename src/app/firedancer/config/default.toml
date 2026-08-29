@@ -1087,7 +1087,10 @@ telemetry = true
     # The provider determines how Firedancer sends and receives
     # network packets.  Possible values for the option are:
     #
-    #  "xdp" (default)
+    #  "auto" (default)
+    #   Firedancer auto selects based on what your system is safely capable of.
+    #
+    #  "xdp"
     #   Use Linux express data path APIs for high performance
     #   networking. These APIs map memory from the network device
     #   directly into Firedancer to bypass parts of the kernel when
@@ -1105,7 +1108,7 @@ telemetry = true
     #   NICs.  Requires Linux 5.8 or newer and uses a kernel-bypass
     #   packet data path.  Bonding is supported when every bond member
     #   is a port on the same NIC.
-    provider = "xdp"
+    provider = "auto"
 
     # Which interface to bind to for network traffic.  Currently,
     # only one interface is supported for networking.  If this is

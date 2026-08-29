@@ -1,6 +1,7 @@
 #include "fd_config_auto.h"
 #include "../../disco/net/fd_linux_bond.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/net/mlx5/fd_mlx5.h"
 #include "../../disco/netlink/fd_netlink_tile.h"
 #include "../../waltz/mib/fd_netdev_netlink.h"
 
@@ -12,7 +13,7 @@
 #include <sys/utsname.h>
 #include <linux/if_arp.h>
 
-#define PROVIDER_CNT       ( 1UL)
+#define PROVIDER_CNT       ( 2UL)
 #define FEAT_CNT_MAX       (16UL)
 #define NET_DRIVER_CNT_MAX (16UL)
 
@@ -27,6 +28,7 @@ struct fd_auto_info {
   int  is_bonded_if;
   uint bonded_if_slave_count;
   int  is_using_gre;
+  int  has_mlx5_rdma_port;
 };
 typedef struct fd_auto_info fd_auto_info_t;
 
@@ -58,14 +60,16 @@ struct fd_auto_feat {
 typedef struct fd_auto_feat fd_auto_feat_t;
 
 struct fd_auto_provider {
-  char const *   name;
+  char const *         name;
   /* Later features observe earlier features updates to config,
      so the order is important.  e.g. ZC checks xdp_mode is DRV
      so DRV needs to come before ZC in the feats ordering. */
-  fd_auto_feat_t feats[ FEAT_CNT_MAX ];
+  fd_auto_feat_t       feats            [ FEAT_CNT_MAX ];
+  fd_auto_driver_rq_t  supported_drivers[ NET_DRIVER_CNT_MAX ];
 
-  int (*check)( fd_config_t    const * config,
-                fd_auto_info_t const * info );
+  int  (*check)( fd_config_t    const * config,
+                 fd_auto_info_t const * info   );
+  void (*apply)( fd_config_t          * config );
 };
 typedef struct fd_auto_provider fd_auto_provider_t;
 
@@ -100,10 +104,15 @@ fd_auto_check_driver( fd_auto_info_t      const * info,
 /* XDP checks/apply */
 
 static int
-check_xdp_auto( fd_config_t    const * config,
-                fd_auto_info_t const * info FD_PARAM_UNUSED ) {
-  if( strcmp( config->net.provider, "xdp" ) ) return 0;
+xdp_check( fd_config_t    const * config,
+           fd_auto_info_t const * info FD_PARAM_UNUSED ) {
+  if( strcmp( config->net.provider, "auto" ) ) return 0;
   return 1;
+}
+
+static void
+xdp_apply( fd_config_t * config ) {
+  fd_memcpy( config->net.provider, "xdp", 4 );
 }
 
 static int
@@ -238,12 +247,34 @@ xdp_zc_apply( fd_config_t * config ) {
   config->net.xdp.xdp_zero_copy = 1;
 }
 
+/* mlx5 tile checks/apply */
+static int
+mlx5_check( fd_config_t    const * config,
+            fd_auto_info_t const * info ) {
+  if( strcmp( config->net.provider, "auto" ) ) return 0;
+  if( !info->has_mlx5_rdma_port ) return 0;
+  if( !fd_ulong_is_pow2( config->layout.net_tile_count ) ) return 0;
+  return 1;
+}
+
+static void
+mlx5_apply( fd_config_t * config ) {
+  fd_memcpy( config->net.provider, "mlx5", 5 );
+}
+
 /* Each feature's supported Linux version matrix per driver decided
    based on fd-linux-version-testbed test results. */
 static const fd_auto_provider_t NET_PROVIDERS[] = {
   {
-    .name  = "XDP",
-    .check = check_xdp_auto,
+    .name = "mlx5",
+    .supported_drivers = { { "mlx5_core", 5, 14, 0, 0 } },
+    .check = mlx5_check,
+    .apply = mlx5_apply
+  },
+  {
+    .name  = "xdp",
+    .check = xdp_check,
+    .apply = xdp_apply,
     .feats = {
       {
         .name              = "Listen GRE",
@@ -425,6 +456,12 @@ scrape_networking( fd_auto_info_t * info,
   } else {
     scrape_driver( info->driver, if_name );
   }
+
+  if( !strcmp( info->driver, "mlx5_core" ) ) {
+    char rdma_name[ FD_MLX5_RDMA_NAME_MAX ];
+    uint rdma_port;
+    info->has_mlx5_rdma_port = fd_mlx5_rdma_dev_find( rdma_name, &rdma_port, if_name );
+  }
 }
 
 static fd_auto_info_t
@@ -444,13 +481,27 @@ static void
 fd_auto_net( fd_config_t          * config,
              fd_auto_info_t const * info ) {
   /* Providers are in order of priority with first being the highest */
+  int const is_provider_auto = !strcmp( config->net.provider, "auto" );
   int is_provider_set = 0;
   for( ulong p=0UL; p<PROVIDER_CNT; p++ ) {
     fd_auto_provider_t const * provider = &NET_PROVIDERS[p];
 
     /* Check provider requirements */
-    int is_chosen_provider = !is_provider_set && ( !provider->check || provider->check( config, info ) );
-    if( is_chosen_provider ) is_provider_set = 1;
+    int const is_explicit_provider = !is_provider_auto && !strcmp( config->net.provider, provider->name );
+    int is_chosen_provider = !is_provider_set &&
+                             ( is_explicit_provider ||
+                               ( is_provider_auto &&
+                                 ( !provider->check || provider->check( config, info ) ) &&
+                                 fd_auto_check_driver( info, provider->supported_drivers ) ) );
+    if( is_chosen_provider ) {
+      is_provider_set = 1;
+      if( is_provider_auto ) {
+        if( FD_UNLIKELY( !provider->apply ) ) {
+          FD_LOG_ERR(( "Applying auto configure net provider %s failed since no apply function was found.", provider->name ));
+        }
+        provider->apply( config );
+      }
+    }
 
     for( ulong f=0UL; f<FEAT_CNT_MAX; f++ ) {
       fd_auto_feat_t const * feat = &provider->feats[f];
