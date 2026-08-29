@@ -238,9 +238,6 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topob_tile_out( topo, "netlnk", 0UL, "iproute_out", 0UL );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
 
-    if( FD_UNLIKELY( !fd_ulong_is_pow2( net_tile_cnt ) ) ) {
-      FD_LOG_ERR(( "net.provider=\"mlx5\" requires layout.net_tile_count to be a power of two" ));
-    }
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
       setup_mlx5_tile( topo, i, netlink_tile, tile_to_cpu, net_cfg, netlnk_max_routes, netlnk_max_peer_routes );
     }

@@ -1235,8 +1235,8 @@ void
 fd_topo_install_mlx5( fd_topo_t *     topo,
                       fd_mlx5_fds_t * fds ) {
   ulong const tile_cnt = fd_topo_tile_name_cnt( topo, "mlx5" );
-  if( FD_UNLIKELY( !fd_ulong_is_pow2( tile_cnt ) || tile_cnt>FD_TOPO_MAX_TILES ) ) {
-    FD_LOG_ERR(( "mlx5 tile count must be a power of two" ));
+  if( FD_UNLIKELY( !tile_cnt || tile_cnt>FD_TOPO_MAX_TILES ) ) {
+    FD_LOG_ERR(( "mlx5 tile count %lu must be in [1,%lu]", tile_cnt, FD_TOPO_MAX_TILES ));
   }
 
   fd_mlx5_tile_t *       ctxs  [ FD_TOPO_MAX_TILES ];
