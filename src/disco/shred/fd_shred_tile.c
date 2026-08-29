@@ -732,7 +732,7 @@ during_frag( fd_shred_ctx_t * ctx,
       /* All fec sets in the last batch of a block need to be resigned.
          This needs to match Agave's behavior - as a reference, see:
          https://github.com/anza-xyz/agave/blob/v2.3/ledger/src/shred/merkle.rs#L1040 */
-      if( FD_UNLIKELY( entry_meta->block_complete ) ) {
+      if( FD_UNLIKELY( entry_meta->block_complete==1 ) ) {
         pending_batch_wmark = FD_SHRED_BATCH_WMARK_RESIGNED;
         /* chained_merkle_root also applies to resigned FEC sets. */
         load_for_32_shreds = FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ;
@@ -746,10 +746,12 @@ during_frag( fd_shred_ctx_t * ctx,
          place, and the microblock is added to the current batch.
          Pack limits entry bytes so this batching cannot exceed
          max_shred_idx. */
+      int is_marker                = entry_meta->block_complete==-1;
+      int writing_marker           = 0;
       int forced_end_batch         = entry_meta->block_complete | new_slot;
       int batch_would_exceed_wmark = ( ctx->pending_batch.pos + entry_sz ) > pending_batch_wmark;
-      int include_in_current_batch = forced_end_batch | ( !batch_would_exceed_wmark );
-      int process_current_batch    = forced_end_batch | batch_would_exceed_wmark;
+      int include_in_current_batch = !is_marker && ( forced_end_batch | ( !batch_would_exceed_wmark ) );
+      int process_current_batch    = is_marker ? !!ctx->pending_batch.pos : ( forced_end_batch | batch_would_exceed_wmark );
       int init_new_batch           = !include_in_current_batch;
 
       if( FD_LIKELY( include_in_current_batch ) ) {
@@ -762,6 +764,7 @@ during_frag( fd_shred_ctx_t * ctx,
         ctx->pending_batch.txn_cnt        += microblock->txn_cnt;
       }
 
+alpenglow_marker:
       if( FD_LIKELY( process_current_batch )) {
         /* Batch and padding size calculation. */
         ulong batch_sz        = sizeof(ulong) + ctx->pending_batch.pos; /* without padding */
@@ -776,13 +779,13 @@ during_frag( fd_shred_ctx_t * ctx,
 
           fd_memset( ctx->pending_batch.payload + ctx->pending_batch.pos, 0, padding_sz );
 
-          ctx->send_fec_set_cnt = 0UL; /* verbose */
+          if( FD_UNLIKELY( !writing_marker ) ) ctx->send_fec_set_cnt = 0UL; /* verbose */
           ctx->shredded_txn_cnt = ctx->pending_batch.txn_cnt;
 
           fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz_padded, target_slot, entry_meta );
 
           ulong pend_sz  = batch_sz_padded;
-          ulong pend_idx = 0;
+          ulong pend_idx = ctx->send_fec_set_cnt;
           while( pend_sz > 0UL ) {
 
             fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
@@ -811,9 +814,9 @@ during_frag( fd_shred_ctx_t * ctx,
           fd_histf_sample( ctx->metrics->batch_microblock_cnt, ctx->pending_batch.microblock_cnt );
           fd_histf_sample( ctx->metrics->shredding_timing,     (ulong)shredding_timing           );
         } else {
-          ctx->send_fec_set_cnt = 0UL; /* verbose */
+          if( FD_UNLIKELY( !writing_marker ) ) ctx->send_fec_set_cnt = 0UL; /* verbose */
 
-          fd_shredder_skip_batch( ctx->shredder, batch_sz_padded, target_slot, entry_meta->block_complete );
+          fd_shredder_skip_batch( ctx->shredder, batch_sz_padded, target_slot, entry_meta->block_complete==1 );
         }
 
         ctx->pending_batch.slot           = 0UL;
@@ -823,18 +826,25 @@ during_frag( fd_shred_ctx_t * ctx,
         ctx->batch_cnt++;
       }
 
-      if( FD_UNLIKELY( init_new_batch ) ) {
+      if( FD_UNLIKELY( init_new_batch && !writing_marker ) ) {
         /* TODO: this assumes that SHOULD_PROCESS_THESE_SHREDS is
            constant across batches.  Otherwise, the condition may
            need to be removed (or adjusted). */
         if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
           /* Ugh, yet another memcpy */
-          fd_memcpy( ctx->pending_batch.payload + 0UL /* verbose */, entry, entry_sz );
+          fd_memcpy( is_marker ? ctx->pending_batch.raw : ctx->pending_batch.payload + 0UL /* verbose */, entry, entry_sz );
         }
         ctx->pending_batch.slot           = target_slot;
-        ctx->pending_batch.pos            = entry_sz;
-        ctx->pending_batch.microblock_cnt = 1UL;
-        ctx->pending_batch.txn_cnt        = microblock->txn_cnt;
+        ctx->pending_batch.pos            = fd_ulong_if( is_marker, entry_sz-sizeof(ulong), entry_sz );
+        ctx->pending_batch.microblock_cnt = fd_ulong_if( is_marker, 0UL, 1UL                 );
+        ctx->pending_batch.txn_cnt        = fd_ulong_if( is_marker, 0UL, microblock->txn_cnt );
+      }
+
+      /* The entry opened a batch of its own, so close it now. */
+      if( FD_UNLIKELY( is_marker && !writing_marker ) ) {
+        process_current_batch = 1;
+        writing_marker        = 1;
+        goto alpenglow_marker;
       }
     }
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
