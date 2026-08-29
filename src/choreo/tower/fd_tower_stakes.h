@@ -41,8 +41,6 @@ struct fd_tower_stakes_vtr_xid {
 };
 typedef struct fd_tower_stakes_vtr_xid fd_tower_stakes_vtr_xid_t;
 
-static const fd_tower_stakes_vtr_xid_t fd_tower_stakes_vtr_xid_null = { .addr = {{ 0 }}, .slot = 0UL };
-
 struct fd_tower_stakes_vtr {
   fd_tower_stakes_vtr_xid_t key;
   uint                      prev;

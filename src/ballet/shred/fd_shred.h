@@ -161,9 +161,6 @@ FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing th
 /* 36,536,320 bytes per slot */
 #define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_BLK_MAX)
 
-/* Offset of the shred variant. Used for parsing. */
-#define FD_SHRED_VARIANT_OFF 0x40
-
 /* Firedancer-specific internal error codes.
 
    These are not part of the Solana protocol. */

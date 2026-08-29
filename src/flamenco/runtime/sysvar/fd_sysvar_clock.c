@@ -44,11 +44,6 @@
    Solana's behavior. */
 #define NS_IN_S ((long)1e9)
 
-/* FD_SYSVAR_CLOCK_STAKE_WEIGHTS_MAX specifies the max number of stake
-   weights processed in a clock update. */
-
-#define FD_SYSVAR_CLOCK_STAKE_WEIGHTS_MAX (10240UL)
-
 /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2110-L2117 */
 static inline long
 unix_timestamp_from_genesis( fd_bank_t * bank ) {
@@ -179,9 +174,8 @@ accum_vote_stakes( fd_bank_t *          bank,
 /* get_timestamp_estimate calculates a timestamp estimate.  Does not
    modify the slot context.  Walks all cached vote accounts (from the
    "bank") and calculates a unix timestamp estimate. Returns the
-   timestamp estimate.  spad is used for scratch allocations (allocates
-   a treap of size FD_SYSVAR_CLOCK_STAKE_WEIGHTS_MAX). Crashes the
-   process with FD_LOG_ERR on failure (e.g. too many vote accounts).
+   timestamp estimate.  Crashes the process with FD_LOG_ERR on failure
+   (e.g. too many vote accounts).
 
   https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2563-L2601 */
 static long

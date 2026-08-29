@@ -26,7 +26,7 @@ enum {
 
 #define FD_METRICS_GAUGE_EVENT_CONN_STATE_NAME "event_conn_state"
 #define FD_METRICS_GAUGE_EVENT_CONN_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_EVENT_CONN_STATE_DESC "0=disconnected, 1=connecting, 2=connected"
+#define FD_METRICS_GAUGE_EVENT_CONN_STATE_DESC "0=disconnected, 1=connecting, 2=authenticating, 4=connected"
 #define FD_METRICS_GAUGE_EVENT_CONN_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_EVENT_QUEUE_DEPTH_NAME "event_queue_depth"

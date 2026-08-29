@@ -6,8 +6,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-#define FD_RUNTIME_MAX_FORK_CNT (4096UL)
-
 /* FD_INSTR_SIGNERS_MAX: The (inclusive) maximum number of distinct
    signers a single instruction can have.
 
@@ -68,10 +66,6 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN (3UL)
 
 #define FD_RUNTIME_SLOTS_PER_EPOCH (432000UL)
-
-/* Maximum amount of writable accounts per transaction
-   https://github.com/anza-xyz/agave/blob/v3.0.8/runtime/src/bank.rs#L2946 */
-#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION (64UL)
 
 /* FD_RUNTIME_ACC_SZ_MAX is the protocol level hardcoded size limit of a
    Solana account. */
@@ -158,12 +152,7 @@ FD_PROTOTYPES_BEGIN
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
 
 #define DEFAULT_HASHES_PER_TICK  (12500)
-#define UPDATED_HASHES_PER_TICK2 (17500)
-#define UPDATED_HASHES_PER_TICK3 (27500)
-#define UPDATED_HASHES_PER_TICK4 (47500)
-#define UPDATED_HASHES_PER_TICK5 (57500)
-#define UPDATED_HASHES_PER_TICK6 (62500)
-#define FD_RUNTIME_MAX_HASHES_PER_TICK ((ulong)UPDATED_HASHES_PER_TICK6)
+#define FD_RUNTIME_MAX_HASHES_PER_TICK (62500UL)
 
 #define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
 

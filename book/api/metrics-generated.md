@@ -1590,7 +1590,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">event_&#8203;conn_&#8203;state</span> | gauge | 0=disconnected, 1=connecting, 2=connected |
+| <span class="metrics-name">event_&#8203;conn_&#8203;state</span> | gauge | 0=disconnected, 1=connecting, 2=authenticating, 4=connected |
 | <span class="metrics-name">event_&#8203;queue_&#8203;depth</span> | gauge | Total events in the event queue (sent-but-unacknowledged plus unsent) |
 | <span class="metrics-name">event_&#8203;queue_&#8203;unsent</span> | gauge | Events in the event queue not yet sent to the event service |
 | <span class="metrics-name">event_&#8203;queue_&#8203;dropped</span> | counter | Events dropped because the event queue was full |

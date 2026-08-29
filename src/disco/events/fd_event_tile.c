@@ -80,10 +80,6 @@ FD_STATIC_ASSERT( FD_EVENT_BOOT_BUF_MAX+5UL+9UL*( (FD_EVENT_BOOT_BUF_MAX+5UL+163
 #define IN_KIND_IPECHO (4)
 #define IN_KIND_EVENT  (5)
 
-#define FD_EVENT_TYPE_TXN         1
-#define FD_EVENT_TYPE_SHRED       2
-#define FD_EVENT_TYPE_SIGNED_VOTE 3
-
 union fd_event_tile_in {
   struct {
     fd_wksp_t * mem;

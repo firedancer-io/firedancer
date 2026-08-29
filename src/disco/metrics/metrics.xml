@@ -2043,7 +2043,7 @@ EXAMPLES
 </enum>
 
 <tile name="event">
-    <gauge name="ConnState" summary="0=disconnected, 1=connecting, 2=connected" />
+    <gauge name="ConnState" summary="0=disconnected, 1=connecting, 2=authenticating, 4=connected" />
     <gauge name="QueueDepth" summary="Total events in the event queue (sent-but-unacknowledged plus unsent)" />
     <gauge name="QueueUnsent" summary="Events in the event queue not yet sent to the event service" />
 
