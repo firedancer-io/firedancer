@@ -3,12 +3,16 @@
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/rng/fd_rng.h"
+#include "../fd_linux_bond.h"
 
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <net/if.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -146,6 +150,178 @@
 #define FD_MLX5_QP_TUNNEL_OFFLOADS    (1U<<2)   /* MLX5_QP_FLAG_TUNNEL_OFFLOADS */
 #define FD_MLX5_TUNNEL_OFFLOADS_GRE   (1U<<1)   /* MLX5_IB_TUNNELED_OFFLOADS_GRE */
 #define FD_MLX5_INDIRECTION_MAX       (1UL<<13) /* 1UL << IB_USER_VERBS_MAX_LOG_IND_TBL_SIZE */
+
+static int
+fd_mlx5_rdma_port_contains_if( char const * rdma_name,
+                               uint         port,
+                               char const * interface_name ) {
+  char netdev_dir_path[ PATH_MAX ];
+  int path_sz = snprintf( netdev_dir_path, sizeof(netdev_dir_path),
+                          "/sys/class/infiniband/%s/ports/%u/gid_attrs/ndevs", rdma_name, port );
+  if( FD_UNLIKELY( path_sz<=0 || (ulong)path_sz>=sizeof(netdev_dir_path) ) ) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+
+  DIR * netdev_dir = opendir( netdev_dir_path );
+  if( FD_UNLIKELY( !netdev_dir ) ) return errno==ENOENT ? 0 : -1;
+
+  int result = 0;
+  for(;;) {
+    errno = 0;
+    struct dirent * netdev_entry = readdir( netdev_dir );
+    if( FD_UNLIKELY( !netdev_entry ) ) {
+      if( errno ) result = -1;
+      break;
+    }
+    if( netdev_entry->d_name[0]=='.' ) continue;
+
+    char netdev_name_path[ PATH_MAX ];
+    int netdev_name_path_sz = snprintf( netdev_name_path, sizeof(netdev_name_path),
+                                        "%s/%s", netdev_dir_path, netdev_entry->d_name );
+    if( FD_UNLIKELY( netdev_name_path_sz<=0 || (ulong)netdev_name_path_sz>=sizeof(netdev_name_path) ) ) {
+      errno  = ENAMETOOLONG;
+      result = -1;
+      break;
+    }
+
+    int netdev_fd = open( netdev_name_path, O_RDONLY );
+    if( FD_UNLIKELY( netdev_fd<0 ) ) {
+      if( errno==ENOENT ) continue;
+      result = -1;
+      break;
+    }
+
+    char netdev_name[ IF_NAMESIZE+1 ];
+    ssize_t read_sz = read( netdev_fd, netdev_name, IF_NAMESIZE );
+    int const read_err  = read_sz<0          ? errno : 0;
+    int const close_err = close( netdev_fd ) ? errno : 0;
+    if( FD_UNLIKELY( (read_err && read_err!=EINVAL) || close_err ) ) {
+      errno  = read_err && read_err!=EINVAL ? read_err : close_err;
+      result = -1;
+      break;
+    }
+    /* Empty Linux RDMA GID attribute entries return EINVAL. */
+    if( FD_UNLIKELY( read_err==EINVAL ) ) continue;
+
+    if( FD_UNLIKELY( !read_sz ) ) continue;
+    while( read_sz>0 && (netdev_name[read_sz-1]=='\n' || netdev_name[read_sz-1]=='\r') ) read_sz--;
+    netdev_name[read_sz] = '\0';
+    if( !strcmp( netdev_name, interface_name ) ) {
+      result = 1;
+      break;
+    }
+  }
+
+  int err = result<0 ? errno : 0;
+  if( FD_UNLIKELY( closedir( netdev_dir ) && !err ) ) err = errno;
+  if( FD_UNLIKELY( err ) ) {
+    errno = err;
+    return -1;
+  }
+  return result;
+}
+
+static int
+fd_mlx5_rdma_port_matches_if( char const * rdma_name,
+                              uint         port,
+                              char const * interface_name ) {
+  int match = fd_mlx5_rdma_port_contains_if( rdma_name, port, interface_name );
+  if( FD_UNLIKELY( match<0 ) ) return -1;
+  if( match ) return 1;
+  if( !fd_bonding_is_master( interface_name ) ) return 0;
+
+  fd_bonding_slave_iter_t   iter_mem[1];
+  fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_mem, interface_name );
+  while( !fd_bonding_slave_iter_done( iter ) ) {
+    char const * slave_interface_name = fd_bonding_slave_iter_ele( iter );
+    match = fd_mlx5_rdma_port_contains_if( rdma_name, port, slave_interface_name );
+    if( FD_UNLIKELY( match<0 ) ) return -1;
+    if( match ) return 1;
+    fd_bonding_slave_iter_next( iter );
+  }
+
+  return 0;
+}
+
+int
+fd_mlx5_rdma_dev_find( char         rdma_name[ FD_MLX5_RDMA_NAME_MAX ],
+                       uint *       rdma_port,
+                       char const * interface_name ) {
+  rdma_name[0] = '\0';
+  *rdma_port   = 0U;
+
+  DIR * infiniband_dir = opendir( "/sys/class/infiniband" );
+  if( FD_UNLIKELY( !infiniband_dir ) ) return 0;
+
+  ulong match_cnt = 0UL;
+  int err = 0;
+  for(;;) {
+    errno = 0;
+    struct dirent * device_entry = readdir( infiniband_dir );
+    if( FD_UNLIKELY( !device_entry ) ) {
+      err = errno;
+      break;
+    }
+    if( device_entry->d_name[0]=='.' ) continue;
+
+    char device_ports_path[ PATH_MAX ];
+    int const device_ports_path_sz = snprintf( device_ports_path, sizeof(device_ports_path),
+                                               "/sys/class/infiniband/%s/ports", device_entry->d_name );
+    if( FD_UNLIKELY( device_ports_path_sz<=0 || (ulong)device_ports_path_sz>=sizeof(device_ports_path) ) ) {
+      err = ENAMETOOLONG;
+      break;
+    }
+
+    DIR * ports_dir = opendir( device_ports_path );
+    if( FD_UNLIKELY( !ports_dir ) ) {
+      if( errno==ENOENT ) continue;
+      err = errno;
+      break;
+    }
+
+    for(;;) {
+      errno = 0;
+      struct dirent * port_entry = readdir( ports_dir );
+      if( FD_UNLIKELY( !port_entry ) ) {
+        err = errno;
+        break;
+      }
+      char * port_end;
+      ulong const port_num = strtoul( port_entry->d_name, &port_end, 10 );
+      if( !port_num || *port_end || port_num>(ulong)UCHAR_MAX ) continue;
+      int const match = fd_mlx5_rdma_port_matches_if( device_entry->d_name, (uint)port_num, interface_name );
+      if( FD_UNLIKELY( match<0 ) ) {
+        err = errno;
+        break;
+      }
+      if( !match ) continue;
+
+      match_cnt++;
+      if( match_cnt==1UL ) {
+        fd_cstr_ncpy( rdma_name, device_entry->d_name, FD_MLX5_RDMA_NAME_MAX );
+        *rdma_port = (uint)port_num;
+      }
+    }
+    if( FD_UNLIKELY( closedir( ports_dir ) && !err ) ) err = errno;
+    if( FD_UNLIKELY( err ) ) break;
+  }
+
+  if( FD_UNLIKELY( closedir( infiniband_dir ) && !err ) ) err = errno;
+  if( FD_UNLIKELY( err ) ) {
+    rdma_name[0] = '\0';
+    *rdma_port   = 0U;
+    errno        = err;
+    return 0;
+  }
+  if( FD_UNLIKELY( match_cnt!=1UL ) ) {
+    errno = match_cnt ? EEXIST : ENOENT;
+    rdma_name[0] = '\0';
+    *rdma_port   = 0U;
+    return 0;
+  }
+  return 1;
+}
 
 struct fd_mlx5_pd {
   fd_uverbs_ctx_t * ctx;    /* uverbs context */

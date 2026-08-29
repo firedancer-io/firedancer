@@ -393,6 +393,10 @@ fd_config_fill( fd_config_t * config,
   }
 
   fd_config_auto( config );
+  if( FD_UNLIKELY( !strcmp( config->net.provider, "auto" ) ) ) {
+    FD_LOG_ERR(( "failed to resolve automatic network provider" ));
+  }
+  fd_config_validate( config );
 
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
@@ -605,8 +609,10 @@ fd_config_validate( fd_config_t const * config ) {
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
+  } else if( 0==strcmp( config->net.provider, "auto" ) ) {
+    /* "auto" is resolved after interface discovery in fd_config_fill(). */
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"xdp\", \"socket\" or \"mlx5\"",
+    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\" or \"mlx5\"",
                  config->net.provider ));
   }
 

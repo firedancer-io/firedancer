@@ -11,9 +11,9 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <net/if.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <net/if.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -34,7 +34,6 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <linux/rtnetlink.h>
-#include <dirent.h>
 #include <rdma/ib_user_verbs.h>
 
 #include "generated/fd_mlx5_tile_seccomp.h"
@@ -1136,112 +1135,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( layout, scratch_align() );
 }
 
-static int
-fd_mlx5_tile_rdma_port_contains_if( char const * rdma_name,
-                                    uint         port,
-                                    char const * if_name ) {
-  char netdev_dir_path[ PATH_MAX ];
-  int path_sz = snprintf( netdev_dir_path, sizeof(netdev_dir_path),
-                          "/sys/class/infiniband/%s/ports/%u/gid_attrs/ndevs", rdma_name, port );
-  if( FD_UNLIKELY( path_sz<=0 || (ulong)path_sz>=sizeof(netdev_dir_path) ) ) return 0;
-
-  DIR * netdev_dir = opendir( netdev_dir_path );
-  if( FD_UNLIKELY( !netdev_dir ) ) return 0;
-
-  struct dirent * netdev_entry;
-  int netdev_found = 0;
-  while( !netdev_found && (netdev_entry=readdir( netdev_dir )) ) {
-    if( netdev_entry->d_name[0]=='.' ) continue;
-    char netdev_name_path[ PATH_MAX ];
-    int netdev_name_path_sz = snprintf( netdev_name_path, sizeof(netdev_name_path),
-                                        "%s/%s", netdev_dir_path, netdev_entry->d_name );
-    if( FD_UNLIKELY( netdev_name_path_sz<=0 || (ulong)netdev_name_path_sz>=sizeof(netdev_name_path) ) ) continue;
-    int netdev_fd = open( netdev_name_path, O_RDONLY );
-    if( FD_UNLIKELY( netdev_fd<0 ) ) continue;
-
-    char netdev_name[ IF_NAMESIZE+1 ];
-    ssize_t read_sz = read( netdev_fd, netdev_name, IF_NAMESIZE );
-    close( netdev_fd );
-
-    if( FD_UNLIKELY( read_sz<=0 ) ) continue;
-    while( read_sz>0 && (netdev_name[read_sz-1]=='\n' || netdev_name[read_sz-1]=='\r') ) read_sz--;
-    netdev_name[read_sz] = '\0';
-    netdev_found = !strcmp( netdev_name, if_name );
-  }
-  closedir( netdev_dir );
-  return netdev_found;
-}
-
-static int
-fd_mlx5_tile_rdma_port_matches_if( char const * rdma_name,
-                                   uint         port,
-                                   char const * if_name ) {
-  if( fd_mlx5_tile_rdma_port_contains_if( rdma_name, port, if_name ) ) return 1;
-  if( !fd_bonding_is_master( if_name ) ) return 0;
-
-  fd_bonding_slave_iter_t   iter_mem[1];
-  fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_mem, if_name );
-  while( !fd_bonding_slave_iter_done( iter ) ) {
-    char const * slave_if_name = fd_bonding_slave_iter_ele( iter );
-    if( fd_mlx5_tile_rdma_port_contains_if( rdma_name, port, slave_if_name ) ) return 1;
-    fd_bonding_slave_iter_next( iter );
-  }
-
-  return 0;
-}
-
-/* fd_mlx5_tile_rdma_dev_find maps the configured network interface or
-   one of its bond slaves to Linux's RDMA device and numbered port. */
-FD_FN_UNUSED static void
-fd_mlx5_tile_rdma_dev_find( char                   rdma_device_name[ FD_MLX5_RDMA_NAME_MAX ],
-                            uint *                 rdma_port_num,
-                            fd_topo_tile_t const * tile ) {
-  char const * interface_name = tile->mlx5.if_name;
-  DIR * infiniband_dir = opendir( "/sys/class/infiniband" );
-  if( FD_UNLIKELY( !infiniband_dir ) ) {
-    FD_LOG_ERR(( "opendir(/sys/class/infiniband) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
-  rdma_device_name[0] = '\0';
-  *rdma_port_num = 0U;
-
-  struct dirent * device_entry;
-  while( (device_entry=readdir( infiniband_dir )) ) {
-    if( device_entry->d_name[0]=='.' ) continue;
-
-    char device_ports_path[ PATH_MAX ];
-    int const device_ports_path_sz = snprintf( device_ports_path, sizeof(device_ports_path),
-                                               "/sys/class/infiniband/%s/ports", device_entry->d_name );
-    if( FD_UNLIKELY( device_ports_path_sz<=0 || (ulong)device_ports_path_sz>=sizeof(device_ports_path) ) ) continue;
-    DIR * ports_dir = opendir( device_ports_path );
-    if( FD_UNLIKELY( !ports_dir ) ) continue;
-
-    struct dirent * port_entry;
-    while( (port_entry=readdir( ports_dir )) ) {
-      char * port_end;
-      ulong const port_num = strtoul( port_entry->d_name, &port_end, 10 );
-      if( !port_num || *port_end || port_num>(ulong)UCHAR_MAX ) continue;
-
-      if( !fd_mlx5_tile_rdma_port_matches_if( device_entry->d_name, (uint)port_num, interface_name ) ) continue;
-
-      if( FD_UNLIKELY( rdma_device_name[0] ) ) {
-        FD_LOG_ERR(( "multiple RDMA ports match interface `%s` (`%s` port %u and `%s` port %lu)",
-                     interface_name, rdma_device_name, *rdma_port_num, device_entry->d_name, port_num ));
-      }
-      fd_cstr_ncpy( rdma_device_name, device_entry->d_name, FD_MLX5_RDMA_NAME_MAX );
-      *rdma_port_num = (uint)port_num;
-    }
-    closedir( ports_dir );
-  }
-
-  if( FD_UNLIKELY( closedir( infiniband_dir ) ) ) {
-    FD_LOG_ERR(( "closedir(/sys/class/infiniband) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  if( FD_UNLIKELY( !rdma_device_name[0] ) ) {
-    FD_LOG_ERR(( "RDMA device port for interface `%s` not found", interface_name ));
-  }
-}
-
 /* fd_mlx5_tile_rx_dst_port_add maps an IPv4 UDP destination port to the
    output link with the requested name and tile kind.  Published fragments
    encode dst_proto in their netmux signatures. */
@@ -1387,7 +1280,12 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
 
     if( !i ) {
       first_tile = tile;
-      fd_mlx5_tile_rdma_dev_find( rdma_device_name, &rdma_port_num, tile );
+      if( FD_UNLIKELY( !fd_mlx5_rdma_dev_find( rdma_device_name, &rdma_port_num, tile->mlx5.if_name ) ) ) {
+        if( errno==EEXIST ) FD_LOG_ERR(( "multiple RDMA ports match interface `%s`", tile->mlx5.if_name ));
+        if( errno==ENOENT ) FD_LOG_ERR(( "RDMA device port for interface `%s` not found", tile->mlx5.if_name ));
+        FD_LOG_ERR(( "finding RDMA device port for interface `%s` failed (%i-%s)",
+                     tile->mlx5.if_name, errno, fd_io_strerror( errno ) ));
+      }
     }
   }
 

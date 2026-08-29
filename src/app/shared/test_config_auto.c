@@ -19,15 +19,60 @@ reset_auto( uint net_tile_cnt ) {
   config->layout.net_tile_count = net_tile_cnt;
 }
 
+static void
+reset_provider_auto( uint net_tile_cnt ) {
+  reset_auto( net_tile_cnt );
+  strcpy( config->net.provider, "auto" );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  /* Auto selects mlx5 only for a supported driver, kernel, RDMA port,
+     and tile count.  Otherwise it falls back to XDP. */
+
+  fd_auto_info_t info1 = { .linux_major=7, .linux_minor=0, .driver="mlx5_core", .has_mlx5_rdma_port=1 };
+
+  reset_provider_auto( 1U );
+  fd_auto_net( config, &info1 );
+  FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
+
+  reset_provider_auto( 3U );
+  fd_auto_net( config, &info1 );
+  FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+
+  reset_provider_auto( 1U );
+  fd_auto_info_t info_old_mlx5 = { .linux_major=5, .linux_minor=13, .driver="mlx5_core" };
+  fd_auto_net( config, &info_old_mlx5 );
+  FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+
+  reset_provider_auto( 1U );
+  fd_auto_info_t info_i40e = { .linux_major=7, .linux_minor=0, .driver="i40e" };
+  fd_auto_net( config, &info_i40e );
+  FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+
+  reset_provider_auto( 1U );
+  fd_auto_info_t info_no_rdma = info1;
+  info_no_rdma.has_mlx5_rdma_port = 0;
+  fd_auto_net( config, &info_no_rdma );
+  FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+
+  /* Explicit providers bypass automatic provider requirements. */
+
+  reset_auto( 1U );
+  fd_auto_net( config, &info1 );
+  FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+
+  reset_auto( 3U );
+  strcpy( config->net.provider, "mlx5" );
+  fd_auto_net( config, &info_i40e );
+  FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
+
   /* Supported NIC on a recent kernel */
 
   reset_auto( 1U );
-  fd_auto_info_t info1 = { .linux_major=7, .linux_minor=0, .driver="mlx5_core" };
   fd_auto_net( config, &info1 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "drv"      ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "prefbusy" ) );
