@@ -136,16 +136,19 @@ typedef struct fd_mlx5_tile_input_ctx fd_mlx5_tile_input_ctx_t;
 
 /* fd_mlx5_tile_t is private tile state */
 struct fd_mlx5_tile {
-  fd_uverbs_ctx_t       uverbs;
-  fd_mlx5_cq_t          rx_cq;
-  fd_mlx5_cq_t          tx_cq;
-  fd_mlx5_rx_wq_t       rx_wq;
-  fd_mlx5_tx_qp_t       tx_qp;
-  fd_mlx5_rss_qp_t      rss_qp;
-  uint                  lkey;
-  uint                  prepared;
+  fd_uverbs_ctx_t  uverbs;
+  fd_mlx5_cq_t     rx_cq;
+  fd_mlx5_cq_t     tx_cq;
+  fd_mlx5_rx_wq_t  rx_wq;
+  fd_mlx5_tx_qp_t  tx_qp;
+  fd_mlx5_rss_qp_t outer_rss_qp;
+  fd_mlx5_rss_qp_t gre_rss_qp;
+  uint             lkey;
+  uint             prepared;
 
   uint batch_size; /* used for both SQ/RQ and TX/RX CQ batching */
+  uint net_tile_id;
+  uint net_tile_cnt;
 
   /* RQ batching */
   uint rq_pending_chunk[ FD_MLX5_BATCH_SIZE ];
@@ -806,6 +809,11 @@ before_frag( fd_mlx5_tile_t * ctx,
   ulong dst_proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( dst_proto!=DST_PROTO_OUTGOING ) ) return 1;
 
+  uint const hash        = (uint)fd_disco_netmux_sig_hash( sig );
+  uint       target_idx  = hash % ctx->net_tile_cnt;
+  uint const net_tile_id = ctx->net_tile_id;
+  if( net_tile_id!=0U && net_tile_id!=target_idx ) return 1;
+
   uint dst_ip = fd_disco_netmux_sig_ip( sig );
   if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, dst_ip, &ctx->tx_route ) ) ) return 1;
   if( FD_UNLIKELY( ctx->tx_route.use_gre ) ) {
@@ -826,6 +834,9 @@ before_frag( fd_mlx5_tile_t * ctx,
     ctx->tx_route.gre_outer_dst_ip = outer_dst_ip;
     ctx->tx_route.use_gre          = 1U;
   }
+
+  if( ctx->tx_route.use_loopback ) target_idx = 0U;
+  if( net_tile_id!=target_idx ) return 1;
 
   /* Drop the packet if no SQ WQE is available. */
   fd_mlx5_tx_qp_t const * tx_qp       = &ctx->tx_qp;
@@ -1008,7 +1019,6 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
 
   FD_MCNT_SET(   MLX5, PKT_RX,             ctx->metrics.rx_pkt_cnt           );
   FD_MCNT_SET(   MLX5, PKT_RX_BYTES,       ctx->metrics.rx_bytes_total       );
-  FD_MCNT_SET(   MLX5, RX_OUT_OF_BUFFER,   0UL                               );
   FD_MCNT_SET(   MLX5, PKT_RX_MALFORMED,   ctx->metrics.rx_malformed_cnt     );
   FD_MCNT_SET(   MLX5, PKT_RX_ROUTE_FAIL,  ctx->metrics.rx_route_fail_cnt    );
   FD_MCNT_SET(   MLX5, GRE_PKT_RX,         ctx->metrics.rx_gre_cnt           );
@@ -1354,13 +1364,6 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
     ulong const queue_memory_sz = fd_mlx5_queue_footprint( tile->mlx5.rx_queue_size, tile->mlx5.tx_queue_size );
     void * queue_memory = FD_SCRATCH_ALLOC_APPEND( scratch, FD_MLX5_PAGE_SZ, queue_memory_sz );
     ctxs[ i ] = ctx;
-    if( i==0UL && ctx->prepared ) {
-      if( fds ) {
-        fds->cmd_fd   = ctx->uverbs.cmd_fd;
-        fds->async_fd = ctx->uverbs.async_fd;
-      }
-      return;
-    }
     fd_memset( ctx, 0, sizeof(*ctx) );
     FD_TEST( fd_mlx5_hw_init_queues( ctx, queue_memory,
                                      tile->mlx5.rx_queue_size,
@@ -1392,7 +1395,8 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
   FD_LOG_INFO(( "Opening direct mlx5 device `%s` port %u for %lu tiles",
                 rdma_device_name, rdma_port_num, tile_cnt ));
   if( FD_UNLIKELY( !fd_uverbs_init( &first->uverbs, queues, tile_cnt,
-                                    &first->rss_qp, rdma_device_name, rdma_port_num ) ) ) {
+                                    &first->outer_rss_qp, &first->gre_rss_qp,
+                                    rdma_device_name, rdma_port_num ) ) ) {
     FD_LOG_ERR(( "direct mlx5 setup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -1404,18 +1408,19 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
   }
 
   for( ulong i=0UL; i<tile_cnt; i++ ) {
-    ctxs[ i ]->uverbs   = first->uverbs;
-    ctxs[ i ]->rss_qp   = first->rss_qp;
-    ctxs[ i ]->prepared = 1U;
+    ctxs[ i ]->uverbs       = first->uverbs;
+    ctxs[ i ]->outer_rss_qp = first->outer_rss_qp;
+    ctxs[ i ]->gre_rss_qp   = first->gre_rss_qp;
+    ctxs[ i ]->prepared     = 1U;
   }
 
   for( ulong flow_idx=0UL; flow_idx<first->dst_port_cnt; flow_idx++ ) {
-    if( FD_UNLIKELY( fd_uverbs_create_udp_flow( &first->uverbs, &first->rss_qp,
+    if( FD_UNLIKELY( fd_uverbs_create_udp_flow( &first->uverbs, &first->outer_rss_qp,
                                                 first_tile->mlx5.net.bind_address,
                                                 first->dst_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    if( FD_UNLIKELY( fd_uverbs_create_gre_udp_flow( &first->uverbs, &first->rss_qp,
+    if( FD_UNLIKELY( fd_uverbs_create_gre_udp_flow( &first->uverbs, &first->gre_rss_qp,
                                                     first_tile->mlx5.net.bind_address,
                                                     first->dst_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_gre_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1478,6 +1483,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->sq_wqe_buf_chunk       = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint), tile->mlx5.tx_queue_size*sizeof(uint) );
   ctx->batch_size             = tile->mlx5.batch_size;
   ctx->sq_flush_timeout_ticks = (long)( FD_MLX5_TX_FLUSH_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
+  ctx->net_tile_id            = (uint)tile->kind_id;
+  ctx->net_tile_cnt           = (uint)fd_topo_tile_name_cnt( topo, tile->name );
 
   void * netdev_tbl_local = FD_SCRATCH_ALLOC_APPEND( scratch, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
   void * fib_local_mem    = FD_SCRATCH_ALLOC_APPEND( scratch, fd_fib4_align(), fd_fib4_footprint( tile->mlx5.route_max, tile->mlx5.route_peer_max ) );

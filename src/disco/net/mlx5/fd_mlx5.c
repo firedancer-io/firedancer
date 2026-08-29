@@ -140,6 +140,11 @@
 #define FD_MLX5_RX_HASH_DST_IPV4      (1UL<<1)  /* MLX5_RX_HASH_DST_IPV4 */
 #define FD_MLX5_RX_HASH_SRC_PORT_UDP  (1UL<<6)  /* MLX5_RX_HASH_SRC_PORT_UDP */
 #define FD_MLX5_RX_HASH_DST_PORT_UDP  (1UL<<7)  /* MLX5_RX_HASH_DST_PORT_UDP */
+#define FD_MLX5_RX_HASH_INNER         (1UL<<31) /* MLX5_RX_HASH_INNER */
+#define FD_MLX5_RX_HASH_IPV4_UDP      ( FD_MLX5_RX_HASH_SRC_IPV4     | FD_MLX5_RX_HASH_DST_IPV4     | \
+                                        FD_MLX5_RX_HASH_SRC_PORT_UDP | FD_MLX5_RX_HASH_DST_PORT_UDP )
+#define FD_MLX5_QP_TUNNEL_OFFLOADS    (1U<<2)   /* MLX5_QP_FLAG_TUNNEL_OFFLOADS */
+#define FD_MLX5_TUNNEL_OFFLOADS_GRE   (1U<<1)   /* MLX5_IB_TUNNELED_OFFLOADS_GRE */
 #define FD_MLX5_INDIRECTION_MAX       (1UL<<13) /* 1UL << IB_USER_VERBS_MAX_LOG_IND_TBL_SIZE */
 
 struct fd_mlx5_pd {
@@ -182,11 +187,16 @@ typedef struct fd_uverbs_get_context_resp fd_uverbs_get_context_resp_t;
 FD_STATIC_ASSERT( sizeof(fd_uverbs_get_context_resp_t)==80UL, uverbs_get_context_resp_sz );
 
 struct fd_uverbs_query_device_req {
-  struct ib_uverbs_cmd_hdr hdr;
-  ulong                    response;
+  fd_uverbs_ex_hdr_t                 hdr;
+  struct ib_uverbs_ex_query_device   core;
 };
 typedef struct fd_uverbs_query_device_req fd_uverbs_query_device_req_t;
-FD_STATIC_ASSERT( sizeof(fd_uverbs_query_device_req_t)==16UL, uverbs_query_device_req_sz );
+
+struct fd_uverbs_query_device_resp {
+  struct ib_uverbs_ex_query_device_resp core;
+  struct mlx5_ib_query_device_resp      mlx5;
+};
+typedef struct fd_uverbs_query_device_resp fd_uverbs_query_device_resp_t;
 
 struct fd_uverbs_query_port_req {
   struct ib_uverbs_cmd_hdr hdr;
@@ -687,24 +697,45 @@ fd_uverbs_get_context( fd_uverbs_ctx_t * ctx,
 static int
 fd_uverbs_query_device( fd_uverbs_ctx_t * ctx,
                         fd_mlx5_caps_t *  caps ) {
-  fd_uverbs_query_device_req_t       req [1];
-  struct ib_uverbs_query_device_resp resp[1];
+  fd_uverbs_query_device_req_t  req [1];
+  fd_uverbs_query_device_resp_t resp[1];
   fd_memset( req,  0, sizeof(req ) );
   fd_memset( resp, 0, sizeof(resp) );
 
-  req->response = (ulong)resp;
-  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_QUERY_DEVICE,
-                                    sizeof(req), sizeof(resp) ) );
+  FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_QUERY_DEVICE,
+                                   sizeof(req), sizeof(req), resp,
+                                   sizeof(resp->core), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( ctx->cmd_fd, req, sizeof(req) ) ) ) return -1;
 
-  caps->max_mr_size = resp->max_mr_size;
-  caps->max_cqe     = resp->max_cqe;
-  if( FD_UNLIKELY( !caps->max_mr_size || !resp->max_qp_wr || !resp->max_sge || !caps->max_cqe ||
-                   resp->phys_port_cnt<ctx->port_num ) ) {
+  struct ib_uverbs_query_device_resp const * core = &resp->core.base;
+  caps->max_mr_size = core->max_mr_size;
+  caps->max_cqe     = core->max_cqe;
+  if( FD_UNLIKELY( resp->core.response_length<sizeof(*core) ||
+                   !caps->max_mr_size                       ||
+                   !core->max_qp_wr                         ||
+                   !core->max_sge                           ||
+                   !caps->max_cqe                           ||
+                   core->phys_port_cnt<ctx->port_num ) ) {
     FD_LOG_WARNING(( "unsupported mlx5 device capabilities (max MR size %lu, max QP WRs %u, max SGEs %u, "
                      "max CQEs %u, physical ports %u, requested port %u)",
-                     caps->max_mr_size, resp->max_qp_wr, resp->max_sge, caps->max_cqe,
-                     (uint)resp->phys_port_cnt, ctx->port_num ));
+                     caps->max_mr_size, core->max_qp_wr, core->max_sge, caps->max_cqe,
+                     (uint)core->phys_port_cnt, ctx->port_num ));
+    errno = EPROTONOSUPPORT;
+    return -1;
+  }
+
+  ulong const tunnel_caps_sz = offsetof( struct mlx5_ib_query_device_resp, tunnel_offloads_caps )+
+                               sizeof(resp->mlx5.tunnel_offloads_caps);
+  ulong const required_hash_fields = FD_MLX5_RX_HASH_IPV4_UDP | FD_MLX5_RX_HASH_INNER;
+
+  if( FD_UNLIKELY( resp->mlx5.response_length<tunnel_caps_sz                                              ||
+                   !(resp->mlx5.rss_caps.rx_hash_function & FD_MLX5_RX_HASH_FUNC_TOEPLITZ)                ||
+                   (resp->mlx5.rss_caps.rx_hash_fields_mask & required_hash_fields)!=required_hash_fields ||
+                   !(resp->mlx5.tunnel_offloads_caps & FD_MLX5_TUNNEL_OFFLOADS_GRE) ) ) {
+    FD_LOG_WARNING(( "unsupported mlx5 GRE RSS capabilities (response length %u, hash functions %#x, "
+                     "hash fields %#lx, tunnel offloads %#x)",
+                     resp->mlx5.response_length, (uint)resp->mlx5.rss_caps.rx_hash_function,
+                     (ulong)resp->mlx5.rss_caps.rx_hash_fields_mask, resp->mlx5.tunnel_offloads_caps ));
     errno = EPROTONOSUPPORT;
     return -1;
   }
@@ -1158,7 +1189,8 @@ fd_uverbs_create_rss_qp( fd_uverbs_ctx_t *  uverbs,
                          fd_mlx5_rss_qp_t * rss_qp,
                          fd_mlx5_pd_t *     pd,
                          uint               rwq_ind_table_handle,
-                         ulong              hash_fields ) {
+                         ulong              hash_fields,
+                         uint               flags ) {
   fd_uverbs_create_rss_qp_req_t  req [1];
   fd_uverbs_create_rss_qp_resp_t resp[1];
   fd_memset( req,  0, sizeof(req ) );
@@ -1171,6 +1203,7 @@ fd_uverbs_create_rss_qp( fd_uverbs_ctx_t *  uverbs,
   req->mlx5.rx_hash_fields_mask = hash_fields;
   req->mlx5.rx_hash_function    = FD_MLX5_RX_HASH_FUNC_TOEPLITZ;
   req->mlx5.rx_key_len          = FD_MLX5_RX_HASH_KEY_SZ;
+  req->mlx5.flags               = flags;
 
   if( FD_UNLIKELY( !fd_rng_secure( req->mlx5.rx_hash_key, FD_MLX5_RX_HASH_KEY_SZ ) ) ) return NULL;
 
@@ -1322,20 +1355,20 @@ fd_mlx5_rss_qp_t *
 fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
                 fd_mlx5_uverbs_tile_t * tiles,
                 ulong                   tile_cnt,
-                fd_mlx5_rss_qp_t *      rss_qp,
+                fd_mlx5_rss_qp_t *      outer_rss_qp,
+                fd_mlx5_rss_qp_t *      gre_rss_qp,
                 char const *            rdma_name,
                 uint                    port_num ) {
   if( FD_UNLIKELY( !uverbs || !tiles || !tile_cnt || !fd_ulong_is_pow2( tile_cnt ) ||
-                   tile_cnt>FD_MLX5_INDIRECTION_MAX || !rss_qp ) ) {
+                   tile_cnt>FD_MLX5_INDIRECTION_MAX || !outer_rss_qp || !gre_rss_qp ) ) {
     errno = EINVAL;
     return NULL;
   }
   for( ulong i=0UL; i<tile_cnt; i++ ) {
     fd_mlx5_uverbs_tile_t const * tile = tiles+i;
     if( FD_UNLIKELY( !tile->rx_cq || !tile->tx_cq || !tile->rx_wq || !tile->tx_qp || !tile->lkey ||
-                     !tile->packet_memory || !tile->packet_memory_sz ||
-                     !tile->rx_wq->rq || !tile->rx_wq->control ||
-                     tile->rx_wq->rx_cq!=tile->rx_cq || tile->tx_qp->tx_cq!=tile->tx_cq ||
+                     !tile->packet_memory || !tile->packet_memory_sz || !tile->rx_wq->rq ||
+                     !tile->rx_wq->control || tile->rx_wq->rx_cq!=tile->rx_cq || tile->tx_qp->tx_cq!=tile->tx_cq ||
                      tile->rx_wq->rx_depth!=tile->rx_cq->depth || tile->tx_qp->tx_depth!=tile->tx_cq->depth ) ) {
       errno = EINVAL;
       return NULL;
@@ -1379,11 +1412,13 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
     tx_qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;
   }
 
-  ulong const hash_fields = tile_cnt>1UL ? ( FD_MLX5_RX_HASH_SRC_IPV4 | FD_MLX5_RX_HASH_DST_IPV4 |
-                                           FD_MLX5_RX_HASH_SRC_PORT_UDP | FD_MLX5_RX_HASH_DST_PORT_UDP ) : 0UL;
   if( FD_UNLIKELY( !fd_uverbs_create_rwq_ind_table( &rwq_ind_table_handle, uverbs, tiles, tile_cnt ) ||
-                   !fd_uverbs_create_rss_qp( uverbs, rss_qp, pd, rwq_ind_table_handle, hash_fields ) ) ) return NULL;
-  return rss_qp;
+                   !fd_uverbs_create_rss_qp( uverbs, outer_rss_qp, pd, rwq_ind_table_handle,
+                                             FD_MLX5_RX_HASH_IPV4_UDP, 0U ) ||
+                   !fd_uverbs_create_rss_qp( uverbs, gre_rss_qp, pd, rwq_ind_table_handle,
+                                             FD_MLX5_RX_HASH_IPV4_UDP | FD_MLX5_RX_HASH_INNER,
+                                             FD_MLX5_QP_TUNNEL_OFFLOADS ) ) ) return NULL;
+  return outer_rss_qp;
 }
 
 #define FD_MLX5_NL_RECV_BUF_SZ (8192UL)

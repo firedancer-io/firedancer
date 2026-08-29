@@ -463,7 +463,6 @@ EXAMPLES
 <tile name="mlx5">
     <counter name="PktRx" summary="Number of packets successfully published to output links." />
     <counter name="PktRxBytes" summary="Number of bytes in packets successfully published to output links (including Ethernet header)." />
-    <counter name="RxOutOfBuffer" summary="Number of packets dropped by the NIC because this QP's receive queue had no posted buffer." />
     <counter name="PktRxMalformed" summary="Number of packets dropped because they exceeded the receive buffer or had malformed Ethernet, IPv4, or UDP headers." />
     <counter name="PktRxRouteFail" summary="Number of packets dropped because the destination UDP port could not be routed to an output link." />
     <counter name="GrePktRx" summary="Number of GRE packets successfully decapsulated and published." />
