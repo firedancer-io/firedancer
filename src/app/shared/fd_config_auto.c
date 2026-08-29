@@ -259,7 +259,10 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
       },
       {
         .name              = "Native Bond",
-        .supported_drivers = { { "mlx5_core", 5, 15, 0, 0} },
+        .supported_drivers = {
+          { "mlx5_core", 5, 15, 0, 0 },
+          { "i40e",      5, 15, 0, 0 },
+        },
         .is_feat_auto      = is_xdp_native_bond_auto,
         .check             = xdp_native_bond_check,
         .apply             = xdp_native_bond_apply
@@ -269,6 +272,7 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
         .supported_drivers = {
           { "mlx5_core", 5, 15, 6, 3 },
           { "mlx5_core", 6,  5, 0, 0 },
+          { "i40e",      5, 19, 0, 0 }
         },
         .is_feat_auto      = is_xdp_mode_auto,
         .check             = xdp_drv_check,
@@ -276,14 +280,20 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
       },
       {
         .name              = "Prefbusy",
-        .supported_drivers = { { "mlx5_core", 5, 15, 0, 0 } },
+        .supported_drivers = {
+          { "mlx5_core", 5, 15, 0, 0 },
+          { "i40e",      5, 15, 0, 0 }
+        },
         .is_feat_auto      = is_xdp_prefbusy_auto,
         .check             = xdp_prefbusy_check,
         .apply             = xdp_prefbusy_apply
       },
       {
         .name              = "Zero Copy",
-        .supported_drivers = { { "mlx5_core", 6, 1, 0, 0  } },
+        .supported_drivers = {
+          { "mlx5_core", 6,  1, 0, 0 },
+          { "i40e",      5, 19, 0, 0 }
+        },
         .is_feat_auto      = is_xdp_zc_auto,
         .check             = xdp_zc_check,
         .apply             = xdp_zc_apply
