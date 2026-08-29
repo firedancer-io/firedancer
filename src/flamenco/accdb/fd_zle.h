@@ -14,6 +14,11 @@
 #define FD_ZLE_OVERHEAD (8UL)
 #define FD_ZLE_COMPRESS_BOUND( in_sz ) (FD_ZLE_OVERHEAD + (in_sz))
 
+/* FD_ZLE_MAX_SZ is the largest input fd_zle_compress accepts (approx
+   512 TiB). */
+
+#define FD_ZLE_MAX_SZ ((1UL<<49)+14UL)
+
 #define FD_ZLE_ERR_SPACE   (-1L) /* out of buffer space */
 #define FD_ZLE_ERR_CORRUPT (-2L) /* malformed compressed data */
 
@@ -21,7 +26,11 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_zle_compress compresses data_sz bytes at data.  Writes up to
    FD_ZLE_COMPRESS_BOUND( data_sz ) compressed bytes to comp.  Returns
-   the number of compressed bytes written. */
+   the number of compressed bytes written.  data_sz<=FD_ZLE_MAX_SZ.
+
+   data has no alignment requirement, but the readable span starting at
+   data must cover fd_ulong_align_up( data_sz, 64 ) bytes.  The tail
+   padding does not affect the output. */
 
 ulong
 fd_zle_compress( void *       FD_RESTRICT comp,
@@ -31,7 +40,11 @@ fd_zle_compress( void *       FD_RESTRICT comp,
 /* fd_zle_decompress takes an fd_zle compressed blob at comp.  Writes up
    to data_sz decompressed bytes to data.  Returns the number of bytes
    decompressed (>=0) on success, or a negative FD_ZLE_ERR_* number on
-   failure. */
+   failure.  data, data_sz have no alignment requirements.  comp and
+   comp_sz have no alignment requirements, no OOB reads at comp are
+   done.  Safe (but possibly slow) given arbitrary input.
+
+   The caller assumes all data_sz output bytes are invalidated. */
 
 long
 fd_zle_decompress( void *       FD_RESTRICT data,

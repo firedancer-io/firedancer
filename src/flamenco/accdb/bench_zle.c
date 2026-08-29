@@ -6,9 +6,9 @@
 
 #define MAX_SZ (8UL<<20)
 
-static uchar in  [ MAX_SZ ];
-static uchar comp[ FD_ZLE_COMPRESS_BOUND( MAX_SZ ) ];
-static uchar out [ MAX_SZ ];
+static uchar in  [ MAX_SZ ] __attribute__((aligned(64)));
+static uchar comp[ FD_ZLE_COMPRESS_BOUND( MAX_SZ ) ] __attribute__((aligned(64)));
+static uchar out [ MAX_SZ ] __attribute__((aligned(64)));
 
 static ulong volatile sink;
 
@@ -57,6 +57,15 @@ main( int     argc,
   fd_memset( in, 0, 256UL<<10 );
   for( ulong j=0UL; j<1024UL; j++ ) in[j] = (uchar)( fd_rng_uint( rng ) | 1U );
   bench( "serum 256 KiB", 256UL<<10 );
+
+  /* stake/vote-shaped: short random fields split by short zero runs */
+  for( ulong j=0UL; j<(64UL<<10); ) {
+    ulong lit = 4UL+fd_rng_ulong_roll( rng, 20UL );
+    ulong run = 2UL+fd_rng_ulong_roll( rng, 10UL );
+    for( ulong k=0UL; k<lit && j<(64UL<<10); k++ ) in[j++] = (uchar)( fd_rng_uint( rng ) | 1U );
+    for( ulong k=0UL; k<run && j<(64UL<<10); k++ ) in[j++] = 0;
+  }
+  bench( "dense mixed 64 KiB", 64UL<<10 );
 
   /* uniform random: a stray zero every ~256 bytes, none elidable */
   for( ulong j=0UL; j<MAX_SZ; j++ ) in[j] = (uchar)fd_rng_uint( rng );
