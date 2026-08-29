@@ -337,6 +337,12 @@ main_pid_namespace( void * _args ) {
   int config_memfd = fd_config_to_memfd( config );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  int need_mlx5 = 0==strcmp( config->net.provider, "mlx5" );
+  fd_mlx5_fds_t mlx5_fds = { .cmd_fd=-1, .async_fd=-1 };
+  if( need_mlx5 ) {
+    fd_topo_install_mlx5( (fd_topo_t *)&config->topo, &mlx5_fds );
+  }
+
   ulong child_cnt = 0UL;
   if( FD_LIKELY( !config->is_firedancer && !config->development.no_agave ) ) {
     int pipefd[ 2 ];
@@ -392,6 +398,16 @@ main_pid_namespace( void * _args ) {
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
+        }
+      }
+
+      if( need_mlx5 ) {
+        int const fd_flags = strcmp( tile->name, "mlx5" ) ? FD_CLOEXEC : 0;
+        if( FD_UNLIKELY( -1==fcntl( mlx5_fds.cmd_fd, F_SETFD, fd_flags ) ) ) {
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+        if( FD_UNLIKELY( -1==fcntl( mlx5_fds.async_fd, F_SETFD, fd_flags ) ) ) {
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
       }
 
@@ -490,7 +506,7 @@ main_pid_namespace( void * _args ) {
     }
   }
 
-  int allow_fds[ 4+FD_TOPO_MAX_TILES ];
+  int allow_fds[ 6+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
@@ -498,6 +514,10 @@ main_pid_namespace( void * _args ) {
   allow_fds[ allow_fds_cnt++ ] = args->pipefd[ 1 ]; /* write end of main pipe */
   for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
+  if( need_mlx5 ) {
+    allow_fds[ allow_fds_cnt++ ] = mlx5_fds.cmd_fd;
+    allow_fds[ allow_fds_cnt++ ] = mlx5_fds.async_fd;
+  }
 
   struct sock_filter seccomp_filter[ 128UL ];
   unsigned int instr_cnt;

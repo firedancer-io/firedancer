@@ -138,6 +138,21 @@ fd_net_tile_fib4_join( fd_fib4_t *                 out,
 
 #if defined(__linux__)
 
+/* fd_mlx5_fds identifies the shared uverbs descriptors retained by the
+   supervisor and inherited by mlx5 tiles. */
+struct fd_mlx5_fds {
+  int cmd_fd;
+  int async_fd;
+};
+typedef struct fd_mlx5_fds fd_mlx5_fds_t;
+
+/* fd_topo_install_mlx5 creates the shared mlx5 context, protection domain,
+   receive indirection table, RSS QP, flow rules, and each tile's queues before
+   the tiles are launched. */
+void
+fd_topo_install_mlx5( fd_topo_t *     topo,
+                      fd_mlx5_fds_t * fds );
+
 /* fd_topo_install_xdp installs XDP programs to all network devices used
    by the topology.  This creates a number of file descriptors which
    will be returned into the fds array.  On entry *fds_cnt is the array

@@ -261,6 +261,9 @@ send_test_cmd_fn( args_t *   args ,
   }
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+    fd_topo_install_mlx5( &config->topo, NULL );
+  }
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 
   send_test_ctx_t ctx = {0};

@@ -134,6 +134,9 @@ run_firedancer_threaded( config_t * config,
      name, when it should be (name, mode)). */
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, config->development.core_dump_level );
+  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+    fd_topo_install_mlx5( &config->topo, NULL );
+  }
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 
   if( FD_UNLIKELY( agave_main && !config->development.no_agave ) ) {

@@ -847,6 +847,9 @@ repair_cmd_fn_catchup( args_t *   args,
   run_firedancer_init( config, 1, 0 );
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+    fd_topo_install_mlx5( &config->topo, NULL );
+  }
 
   fd_topo_fill( &config->topo );
 
@@ -976,6 +979,9 @@ repair_cmd_fn_eqvoc( args_t *   args,
 
   run_firedancer_init( config, 1, 0 );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+    fd_topo_install_mlx5( &config->topo, NULL );
+  }
   fd_topo_fill( &config->topo );
 
   repair_load_manifest( &config->topo, args->repair.manifest_path );

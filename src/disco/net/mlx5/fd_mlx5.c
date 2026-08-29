@@ -2,6 +2,7 @@
 #include "../../../util/log/fd_log.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
+#include "../../../util/rng/fd_rng.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -135,6 +136,11 @@
 
 #define FD_MLX5_RX_HASH_FUNC_TOEPLITZ (1U)  /* MLX5_RX_HASH_FUNC_TOEPLITZ */
 #define FD_MLX5_RX_HASH_KEY_SZ        (40U) /* MLX5_FLD_SZ_BYTES(tirc, rx_hash_toeplitz_key) */
+#define FD_MLX5_RX_HASH_SRC_IPV4      (1UL<<0)  /* MLX5_RX_HASH_SRC_IPV4 */
+#define FD_MLX5_RX_HASH_DST_IPV4      (1UL<<1)  /* MLX5_RX_HASH_DST_IPV4 */
+#define FD_MLX5_RX_HASH_SRC_PORT_UDP  (1UL<<6)  /* MLX5_RX_HASH_SRC_PORT_UDP */
+#define FD_MLX5_RX_HASH_DST_PORT_UDP  (1UL<<7)  /* MLX5_RX_HASH_DST_PORT_UDP */
+#define FD_MLX5_INDIRECTION_MAX       (1UL<<13) /* 1UL << IB_USER_VERBS_MAX_LOG_IND_TBL_SIZE */
 
 struct fd_mlx5_pd {
   fd_uverbs_ctx_t * ctx;    /* uverbs context */
@@ -345,8 +351,7 @@ struct fd_uverbs_create_rwq_ind_table_req {
   fd_uverbs_ex_hdr_t hdr;
   uint               comp_mask;
   uint               log_ind_tbl_size;
-  uint               wq_handle;
-  uint               reserved;
+  uint               wq_handles[];
 };
 typedef struct fd_uverbs_create_rwq_ind_table_req fd_uverbs_create_rwq_ind_table_req_t;
 
@@ -796,10 +801,12 @@ fd_uverbs_register_mr( uint *         lkey,
                        fd_mlx5_pd_t * pd,
                        void *         memory,
                        ulong          memory_sz,
+                       ulong          iova,
                        ulong          max_mr_size ) {
   ulong memory_addr = (ulong)memory;
-  if( FD_UNLIKELY( !memory || !memory_sz || memory_sz>ULONG_MAX-memory_addr ||
-                   memory_sz>max_mr_size ) ) {
+  if( FD_UNLIKELY( !memory || !memory_sz || memory_sz>ULONG_MAX-memory_addr || memory_sz>ULONG_MAX-iova ||
+                   memory_sz>max_mr_size ||
+                   (memory_addr & (FD_MLX5_PAGE_SZ-1UL))!=(iova & (FD_MLX5_PAGE_SZ-1UL)) ) ) {
     errno = EINVAL;
     return NULL;
   }
@@ -811,7 +818,7 @@ fd_uverbs_register_mr( uint *         lkey,
   req->response     = (ulong)resp;
   req->start        = memory_addr;
   req->length       = memory_sz;
-  req->hca_va       = memory_addr;
+  req->hca_va       = iova;
   req->pd_handle    = pd->handle;
   req->access_flags = IB_UVERBS_ACCESS_LOCAL_WRITE;
   FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_REG_MR,
@@ -879,18 +886,10 @@ fd_uverbs_destroy_uar( fd_uverbs_ctx_t * ctx,
   return ioctl( ctx->cmd_fd, RDMA_VERBS_IOCTL, &req->hdr );
 }
 
-static volatile uchar *
-fd_uverbs_map_uar( fd_uverbs_ctx_t * ctx,
-                   uint *            page_id ) {
-  if( FD_UNLIKELY( !page_id ) ) {
-    errno = EINVAL;
-    return NULL;
-  }
-  *page_id = 0U;
-  if( FD_UNLIKELY( !ctx || ctx->cmd_fd<0 ) ) {
-    errno = EINVAL;
-    return NULL;
-  }
+static ulong *
+fd_uverbs_alloc_uar( fd_uverbs_ctx_t * ctx,
+                     uint *            page_id,
+                     ulong *           mmap_offset_out ) {
   ulong mmap_offset = 0UL;
   uint  mmap_sz     = 0U;
   uint  uar_page_id = 0U;
@@ -912,15 +911,22 @@ fd_uverbs_map_uar( fd_uverbs_ctx_t * ctx,
     return NULL;
   }
 
-  void * uar_mapping = mmap( NULL, (ulong)mmap_sz, PROT_WRITE, MAP_SHARED, ctx->cmd_fd, (off_t)mmap_offset );
-  if( FD_UNLIKELY( uar_mapping==MAP_FAILED ) ) {
-    int err = errno;
-    fd_uverbs_destroy_uar( ctx, (uint)handle_raw );
-    errno = err;
+  *page_id         = uar_page_id;
+  *mmap_offset_out = mmap_offset;
+  return mmap_offset_out;
+}
+
+volatile uchar *
+fd_uverbs_map_uar( fd_uverbs_ctx_t * ctx,
+                   ulong             mmap_offset ) {
+  if( FD_UNLIKELY( !ctx || ctx->cmd_fd<0 ||
+                   (mmap_offset & (FD_MLX5_PAGE_SZ-1UL)) || mmap_offset>(ulong)LONG_MAX ) ) {
+    errno = EINVAL;
     return NULL;
   }
-
-  *page_id = uar_page_id;
+  void * uar_mapping = mmap( NULL, FD_MLX5_PAGE_SZ, PROT_WRITE, MAP_SHARED,
+                             ctx->cmd_fd, (off_t)mmap_offset );
+  if( FD_UNLIKELY( uar_mapping==MAP_FAILED ) ) return NULL;
   return (volatile uchar *)uar_mapping + FD_MLX5_UAR_DB_OFFSET;
 }
 
@@ -1117,18 +1123,32 @@ fd_uverbs_start_rx_wq( fd_uverbs_ctx_t * uverbs,
 }
 
 static uint *
-fd_uverbs_create_rwq_ind_table( uint *                  handle,
-                                fd_uverbs_ctx_t *       uverbs,
-                                fd_mlx5_rx_wq_t const * rx_wq ) {
-  fd_uverbs_create_rwq_ind_table_req_t          req [1];
+fd_uverbs_create_rwq_ind_table( uint *                        handle,
+                                fd_uverbs_ctx_t *             uverbs,
+                                fd_mlx5_uverbs_tile_t const * tiles,
+                                ulong                         tile_cnt ) {
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( tile_cnt ) || tile_cnt>FD_MLX5_INDIRECTION_MAX ) ) {
+    errno = EINVAL;
+    return NULL;
+  }
+  ulong const req_sz = fd_ulong_align_up( sizeof(fd_uverbs_create_rwq_ind_table_req_t)+tile_cnt*sizeof(uint), 8UL );
+  fd_uverbs_create_rwq_ind_table_req_t * req = aligned_alloc( 8UL, req_sz );
+  if( FD_UNLIKELY( !req ) ) return NULL;
   struct ib_uverbs_ex_create_rwq_ind_table_resp resp[1];
-  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( req,  0, req_sz );
   fd_memset( resp, 0, sizeof(resp) );
-  req->wq_handle = rx_wq->handle;
+  req->log_ind_tbl_size = (uint)fd_ulong_find_lsb( tile_cnt );
+  for( ulong i=0UL; i<tile_cnt; i++ ) req->wq_handles[ i ] = tiles[ i ].rx_wq->handle;
   FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_RWQ_IND_TBL,
-                                   sizeof(req), sizeof(req), resp,
+                                   req_sz, req_sz, resp,
                                    sizeof(resp), sizeof(resp) ) );
-  if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
+  int err = fd_uverbs_write_cmd( uverbs->cmd_fd, req, req_sz );
+  int saved_errno = errno;
+  free( req );
+  if( FD_UNLIKELY( err ) ) {
+    errno = saved_errno;
+    return NULL;
+  }
   *handle = resp->ind_tbl_handle;
   return handle;
 }
@@ -1137,20 +1157,26 @@ static fd_mlx5_rss_qp_t *
 fd_uverbs_create_rss_qp( fd_uverbs_ctx_t *  uverbs,
                          fd_mlx5_rss_qp_t * rss_qp,
                          fd_mlx5_pd_t *     pd,
-                         uint               rwq_ind_table_handle ) {
+                         uint               rwq_ind_table_handle,
+                         ulong              hash_fields ) {
   fd_uverbs_create_rss_qp_req_t  req [1];
   fd_uverbs_create_rss_qp_resp_t resp[1];
   fd_memset( req,  0, sizeof(req ) );
   fd_memset( resp, 0, sizeof(resp) );
-  req->core.user_handle        = (ulong)rss_qp;
-  req->core.pd_handle          = pd->handle;
-  req->core.qp_type            = IB_UVERBS_QPT_RAW_PACKET;
-  req->core.comp_mask          = IB_UVERBS_CREATE_QP_MASK_IND_TABLE;
-  req->core.rwq_ind_tbl_handle = rwq_ind_table_handle;
-  req->mlx5.rx_hash_function   = FD_MLX5_RX_HASH_FUNC_TOEPLITZ;
-  req->mlx5.rx_key_len         = FD_MLX5_RX_HASH_KEY_SZ;
+  req->core.user_handle         = (ulong)rss_qp;
+  req->core.pd_handle           = pd->handle;
+  req->core.qp_type             = IB_UVERBS_QPT_RAW_PACKET;
+  req->core.comp_mask           = IB_UVERBS_CREATE_QP_MASK_IND_TABLE;
+  req->core.rwq_ind_tbl_handle  = rwq_ind_table_handle;
+  req->mlx5.rx_hash_fields_mask = hash_fields;
+  req->mlx5.rx_hash_function    = FD_MLX5_RX_HASH_FUNC_TOEPLITZ;
+  req->mlx5.rx_key_len          = FD_MLX5_RX_HASH_KEY_SZ;
+
+  if( FD_UNLIKELY( !fd_rng_secure( req->mlx5.rx_hash_key, FD_MLX5_RX_HASH_KEY_SZ ) ) ) return NULL;
+
   ulong const core_req_sz  = offsetof( fd_uverbs_create_rss_qp_req_t,  mlx5 );
   ulong const core_resp_sz = offsetof( fd_uverbs_create_rss_qp_resp_t, mlx5 );
+
   FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_QP,
                                    core_req_sz, sizeof(req), resp,
                                    core_resp_sz, sizeof(resp) ) );
@@ -1293,52 +1319,70 @@ fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *        uverbs,
 }
 
 fd_mlx5_rss_qp_t *
-fd_uverbs_init( fd_uverbs_ctx_t *  uverbs,
-                fd_mlx5_cq_t *     rx_cq,
-                fd_mlx5_cq_t *     tx_cq,
-                fd_mlx5_rx_wq_t *  rx_wq,
-                fd_mlx5_tx_qp_t *  tx_qp,
-                fd_mlx5_rss_qp_t * rss_qp,
-                uint *             lkey,
-                char const *       rdma_name,
-                uint               port_num,
-                void *             packet_memory,
-                ulong              packet_memory_sz ) {
-  if( FD_UNLIKELY( !uverbs || !rx_cq || !tx_cq || !rx_wq || !tx_qp || !rss_qp || !lkey ||
-                   !rx_wq->rq || !rx_wq->control ||
-                   rx_wq->rx_cq!=rx_cq || tx_qp->tx_cq!=tx_cq ||
-                   rx_wq->rx_depth!=rx_cq->depth || tx_qp->tx_depth!=tx_cq->depth ) ) {
+fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
+                fd_mlx5_uverbs_tile_t * tiles,
+                ulong                   tile_cnt,
+                fd_mlx5_rss_qp_t *      rss_qp,
+                char const *            rdma_name,
+                uint                    port_num ) {
+  if( FD_UNLIKELY( !uverbs || !tiles || !tile_cnt || !fd_ulong_is_pow2( tile_cnt ) ||
+                   tile_cnt>FD_MLX5_INDIRECTION_MAX || !rss_qp ) ) {
     errno = EINVAL;
     return NULL;
+  }
+  for( ulong i=0UL; i<tile_cnt; i++ ) {
+    fd_mlx5_uverbs_tile_t const * tile = tiles+i;
+    if( FD_UNLIKELY( !tile->rx_cq || !tile->tx_cq || !tile->rx_wq || !tile->tx_qp || !tile->lkey ||
+                     !tile->packet_memory || !tile->packet_memory_sz ||
+                     !tile->rx_wq->rq || !tile->rx_wq->control ||
+                     tile->rx_wq->rx_cq!=tile->rx_cq || tile->tx_qp->tx_cq!=tile->tx_cq ||
+                     tile->rx_wq->rx_depth!=tile->rx_cq->depth || tile->tx_qp->tx_depth!=tile->tx_cq->depth ) ) {
+      errno = EINVAL;
+      return NULL;
+    }
   }
 
   fd_mlx5_caps_t caps[1];
   fd_mlx5_pd_t   pd[1];
-  uint           uar_page_id;
-  uint           rx_cq_handle;
-  uint           tx_cq_handle;
   uint           rwq_ind_table_handle;
   if( FD_UNLIKELY( !fd_uverbs_open_context( uverbs, caps, rdma_name, port_num ) ) ) return NULL;
-  if( FD_UNLIKELY( !fd_uint_is_pow2( rx_wq->rx_depth ) || !fd_uint_is_pow2( tx_qp->tx_depth ) ||
-                   rx_wq->rx_depth>caps->max_recv_wr || tx_qp->tx_depth>caps->max_send_wqe ||
-                   rx_wq->rx_depth-1U>caps->max_cqe || tx_qp->tx_depth-1U>caps->max_cqe ) ) {
-    errno = EINVAL;
-    return NULL;
+  if( FD_UNLIKELY( !fd_uverbs_alloc_pd( pd, uverbs ) ) ) return NULL;
+
+  for( ulong i=0UL; i<tile_cnt; i++ ) {
+    fd_mlx5_uverbs_tile_t * tile = tiles+i;
+    fd_mlx5_rx_wq_t * rx_wq = tile->rx_wq;
+    fd_mlx5_tx_qp_t * tx_qp = tile->tx_qp;
+    if( FD_UNLIKELY( !fd_uint_is_pow2( rx_wq->rx_depth ) ||
+                     !fd_uint_is_pow2( tx_qp->tx_depth ) ||
+                     rx_wq->rx_depth>caps->max_recv_wr   ||
+                     tx_qp->tx_depth>caps->max_send_wqe  ||
+                     rx_wq->rx_depth-1U>caps->max_cqe    ||
+                     tx_qp->tx_depth-1U>caps->max_cqe ) ) {
+      errno = EINVAL;
+      return NULL;
+    }
+
+    uint uar_page_id;
+    uint rx_cq_handle;
+    uint tx_cq_handle;
+    if( FD_UNLIKELY( !fd_uverbs_alloc_uar( uverbs, &uar_page_id, &tx_qp->uar_mmap_offset )                  ||
+                     !fd_uverbs_create_cq( &rx_cq_handle, uverbs, tile->rx_cq, uar_page_id, caps->max_cqe ) ||
+                     !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tile->tx_cq, uar_page_id, caps->max_cqe ) ||
+                     !fd_uverbs_register_mr( tile->lkey, pd, tile->packet_memory, tile->packet_memory_sz,
+                                             tile->packet_iova, caps->max_mr_size )                         ||
+                     !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id )                ||
+                     !fd_uverbs_start_tx_qp( uverbs, tx_qp )                                                ||
+                     !fd_uverbs_create_rx_wq( uverbs, rx_wq, pd, rx_cq_handle )                             ||
+                     !fd_uverbs_start_rx_wq( uverbs, rx_wq ) ) ) {
+      return NULL;
+    }
+    tx_qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;
   }
 
-  tx_qp->sq_doorbell = fd_uverbs_map_uar( uverbs, &uar_page_id );
-  if( FD_UNLIKELY( !tx_qp->sq_doorbell ||
-                   !fd_uverbs_create_cq( &rx_cq_handle, uverbs, rx_cq, uar_page_id, caps->max_cqe ) ||
-                   !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tx_cq, uar_page_id, caps->max_cqe ) ||
-                   !fd_uverbs_alloc_pd( pd, uverbs ) ||
-                   !fd_uverbs_register_mr( lkey, pd, packet_memory, packet_memory_sz, caps->max_mr_size ) ||
-                   !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id ) ||
-                   !fd_uverbs_start_tx_qp( uverbs, tx_qp ) ||
-                   !fd_uverbs_create_rx_wq( uverbs, rx_wq, pd, rx_cq_handle ) ||
-                   !fd_uverbs_start_rx_wq( uverbs, rx_wq ) ||
-                   !fd_uverbs_create_rwq_ind_table( &rwq_ind_table_handle, uverbs, rx_wq ) ||
-                   !fd_uverbs_create_rss_qp( uverbs, rss_qp, pd, rwq_ind_table_handle ) ) ) return NULL;
-  tx_qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;
+  ulong const hash_fields = tile_cnt>1UL ? ( FD_MLX5_RX_HASH_SRC_IPV4 | FD_MLX5_RX_HASH_DST_IPV4 |
+                                           FD_MLX5_RX_HASH_SRC_PORT_UDP | FD_MLX5_RX_HASH_DST_PORT_UDP ) : 0UL;
+  if( FD_UNLIKELY( !fd_uverbs_create_rwq_ind_table( &rwq_ind_table_handle, uverbs, tiles, tile_cnt ) ||
+                   !fd_uverbs_create_rss_qp( uverbs, rss_qp, pd, rwq_ind_table_handle, hash_fields ) ) ) return NULL;
   return rss_qp;
 }
 
@@ -1548,22 +1592,27 @@ fd_mlx5_nl_parse_dev( struct nlmsghdr const * nlh,
     errno = EPROTO;
     return -1;
   }
-  fd_mlx5_nl_dev_find_t * dev_find = parse_arg;
-  void const * attr_data = nlh+1;
-  ulong attr_data_sz = nlh->nlmsg_len-sizeof(*nlh);
+
+  fd_mlx5_nl_dev_find_t * dev_find     = parse_arg;
+  void const *            attr_data    = nlh+1;
+  ulong                   attr_data_sz  = nlh->nlmsg_len-sizeof(*nlh);
+
   struct nlattr const * dev_idx_attr;
   int found = fd_mlx5_nla_find( attr_data, attr_data_sz, RDMA_NLDEV_ATTR_DEV_INDEX, &dev_idx_attr );
   if( FD_UNLIKELY( found<=0 ) ) return found;
   struct nlattr const * dev_name_attr;
-  found = fd_mlx5_nla_find( attr_data, attr_data_sz, RDMA_NLDEV_ATTR_DEV_NAME, &dev_name_attr );
+  found     = fd_mlx5_nla_find( attr_data, attr_data_sz, RDMA_NLDEV_ATTR_DEV_NAME, &dev_name_attr );
   if( FD_UNLIKELY( found<=0 ) ) return found;
+
   uint dev_idx;
   if( FD_UNLIKELY( fd_mlx5_nla_u32( dev_idx_attr, &dev_idx ) ) ) return -1;
+
   ulong const expected_name_sz = strlen( dev_find->rdma_name )+1UL;
-  ulong const dev_name_sz = dev_name_attr->nla_len-sizeof(*dev_name_attr);
+  ulong const dev_name_sz      = dev_name_attr->nla_len-sizeof(*dev_name_attr);
   if( dev_name_sz==expected_name_sz && !memcmp( dev_name_attr+1, dev_find->rdma_name, expected_name_sz ) ) {
     dev_find->dev_idx = dev_idx;
   }
+
   return 0;
 }
 
@@ -1696,21 +1745,27 @@ fd_mlx5_netlink_rdma_init( fd_netlink_rdma_ctx_t * netlink_rdma,
                        NLM_F_REQUEST|NLM_F_DUMP, request_seq );
   fd_mlx5_nl_dev_find_t dev_find = { .rdma_name=rdma_name };
   if( FD_UNLIKELY( fd_mlx5_nl_send( netlink_fd, req ) ||
-                   fd_mlx5_nl_recv( netlink_fd, request_seq, 1, fd_mlx5_nl_parse_dev, &dev_find ) ) ) goto fail;
+                   fd_mlx5_nl_recv( netlink_fd, request_seq, 1, fd_mlx5_nl_parse_dev, &dev_find ) ) ) {
+    goto fail;
+  }
   if( FD_UNLIKELY( !dev_find.dev_idx ) ) { errno = ENODEV; goto fail; }
 
   request_seq = ++netlink_rdma->seq;
   fd_mlx5_nl_req_init( req, RDMA_NL_GET_TYPE( RDMA_NL_NLDEV, RDMA_NLDEV_CMD_STAT_SET ),
                        NLM_F_REQUEST|NLM_F_ACK, request_seq );
   if( FD_UNLIKELY( fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_STAT_MODE, RDMA_COUNTER_MODE_MANUAL ) ||
-                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_STAT_RES,  RDMA_NLDEV_ATTR_RES_QP ) ||
-                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_DEV_INDEX, dev_find.dev_idx ) ||
-                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_PORT_INDEX, port_num ) ||
-                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_RES_LQPN, qpn ) ) ) goto fail;
+                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_STAT_RES,  RDMA_NLDEV_ATTR_RES_QP   ) ||
+                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_DEV_INDEX, dev_find.dev_idx         ) ||
+                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_PORT_INDEX, port_num                ) ||
+                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_RES_LQPN, qpn                       ) ) ) {
+    goto fail;
+  }
+
   fd_mlx5_nl_counter_find_t counter_find = {0};
   if( FD_UNLIKELY( fd_mlx5_nl_send( netlink_fd, req ) ||
-                   fd_mlx5_nl_recv( netlink_fd, request_seq, 0, fd_mlx5_nl_parse_counter_id,
-                                    &counter_find ) ) ) goto fail;
+                   fd_mlx5_nl_recv( netlink_fd, request_seq, 0, fd_mlx5_nl_parse_counter_id, &counter_find ) ) ) {
+    goto fail;
+  }
   if( FD_UNLIKELY( !counter_find.found ) ) { errno = EPROTO; goto fail; }
 
   netlink_rdma->dev_idx    = dev_find.dev_idx;
@@ -1739,15 +1794,17 @@ fd_mlx5_netlink_rdma_qp_counter_read( fd_netlink_rdma_ctx_t * netlink_rdma,
   fd_mlx5_nl_req_t req[1];
   fd_mlx5_nl_req_init( req, RDMA_NL_GET_TYPE( RDMA_NL_NLDEV, RDMA_NLDEV_CMD_STAT_GET ),
                        NLM_F_REQUEST|NLM_F_DUMP, request_seq );
-  if( FD_UNLIKELY( fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_DEV_INDEX, netlink_rdma->dev_idx ) ||
+  if( FD_UNLIKELY( fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_DEV_INDEX, netlink_rdma->dev_idx )   ||
                    fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_PORT_INDEX, netlink_rdma->port_num ) ||
-                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_STAT_RES, RDMA_NLDEV_ATTR_RES_QP ) ||
+                   fd_mlx5_nl_req_u32( req, RDMA_NLDEV_ATTR_STAT_RES, RDMA_NLDEV_ATTR_RES_QP )   ||
                    fd_mlx5_nl_send( netlink_rdma->fd, req ) ) ) return -1;
 
   fd_mlx5_nl_stat_find_t stat_find = { .counter_id=netlink_rdma->counter_id };
-  if( FD_UNLIKELY( fd_mlx5_nl_recv( netlink_rdma->fd, request_seq, 1, fd_mlx5_nl_parse_stats,
-                                    &stat_find ) ) ) return -1;
-  if( FD_UNLIKELY( !stat_find.found ) ) { errno = ENOENT; return -1; }
+  if( FD_UNLIKELY( fd_mlx5_nl_recv( netlink_rdma->fd, request_seq, 1, fd_mlx5_nl_parse_stats, &stat_find ) ) ) return -1;
+  if( FD_UNLIKELY( !stat_find.found ) ) {
+    errno = ENOENT;
+    return -1;
+  }
   *out_of_buffer = stat_find.out_of_buffer;
   return 0;
 }
