@@ -115,7 +115,7 @@ test_main( int     argc,
 
       pat[j] = (tile_idx<<32) | i;
       ulong b;
-      for( b=0UL; (b+7UL)<sz[j]; b+=8UL ) *((ulong *)(mem[j]+b)) = pat[j];
+      for( b=0UL; (b+7UL)<sz[j]; b+=8UL ) FD_STORE( ulong, mem[j]+b, pat[j] );
       for( ; b<sz[j]; b++ ) mem[j][b] = ((uchar)tile_idx);
 
       /* This allocation is now outstanding */
@@ -132,7 +132,7 @@ test_main( int     argc,
 
       ulong b;
       for( b=0UL; (b+7UL)<sz[k]; b+=8UL )
-        if( (*(ulong *)(mem[k]+b))!=pat[k] ) FD_LOG_ERR(( "On tile %lu, memory corruption detected", tile_idx ));
+        if( FD_LOAD( ulong, mem[k]+b )!=pat[k] ) FD_LOG_ERR(( "On tile %lu, memory corruption detected", tile_idx ));
       for( ; b<sz[k]; b++ ) if( mem[k][b]!=((uchar)tile_idx) ) FD_LOG_ERR(( "On tile %lu, memory corruption detected", tile_idx ));
 
       /* Free the allocation */
@@ -262,7 +262,7 @@ test2_main( int     argc,
 
       ulong pat = (tile_idx<<32) | i;
       ulong b;
-      for( b=0UL; (b+7UL)<sz; b+=8UL ) *((ulong *)(mem+b)) = pat;
+      for( b=0UL; (b+7UL)<sz; b+=8UL ) FD_STORE( ulong, mem+b, pat );
       for( ; b<sz; b++ ) mem[b] = ((uchar)tile_idx);
 
       /* This allocation is now outstanding */
@@ -282,7 +282,7 @@ test2_main( int     argc,
 
       ulong b;
       for( b=0UL; (b+7UL)<sz; b+=8UL )
-        if( (*(ulong *)(mem+b))!=pat ) { FD_LOG_ERR(( "On tile %lu, memory corruption detected", tile_idx )); break; }
+        if( FD_LOAD( ulong, mem+b )!=pat ) { FD_LOG_ERR(( "On tile %lu, memory corruption detected", tile_idx )); break; }
       for( ; b<sz; b++ ) if( mem[b]!=((uchar)src) ) { FD_LOG_ERR(( "On tile %lu, memory corruption detected", tile_idx )); break; }
 
       /* Free the allocation */

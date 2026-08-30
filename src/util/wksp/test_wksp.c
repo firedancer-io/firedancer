@@ -124,7 +124,7 @@ test_main( int     argc,
 
       pat[j] = (tile_idx<<32) | i;
       ulong b;
-      for( b=0UL; (b+7UL)<sz[j]; b+=8UL ) *((ulong *)(mem[j]+b)) = pat[j];
+      for( b=0UL; (b+7UL)<sz[j]; b+=8UL ) FD_STORE( ulong, mem[j]+b, pat[j] );
       for( ; b<sz[j]; b++ ) mem[j][b] = ((uchar)tile_idx);
 
       #if FD_HAS_DEEPASAN
@@ -145,7 +145,7 @@ test_main( int     argc,
       /* Validate the bit pattern was preserved between alloc and free */
 
       ulong b;
-      for( b=0UL; (b+7UL)<sz[k]; b+=8UL ) FD_TEST( (*(ulong *)(mem[k]+b))==pat[k] );
+      for( b=0UL; (b+7UL)<sz[k]; b+=8UL ) FD_TEST( FD_LOAD( ulong, mem[k]+b )==pat[k] );
       for( ; b<sz[k]; b++ ) FD_TEST( mem[k][b]==((uchar)tile_idx) );
 
       /* Check the tag */
