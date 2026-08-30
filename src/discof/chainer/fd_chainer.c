@@ -612,8 +612,13 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
        it computed: a notar-fallback version already learned its block_id
        from the cert. */
     if( FD_UNLIKELY( slotv->complete_idx != UINT_MAX && slotv->buffered_fec_idx == slotv->complete_idx && fd_hash_check_zero( &slotv->block_id ) ) ) {
-      if( FD_UNLIKELY( slotv->parent_slot == AG_UNKNOWN_SLOT ) ) FD_LOG_CRIT(( "slot %lu is complete, but parent_slot is still unknown", slot ));
-      if( FD_UNLIKELY( !finalize_block_id( chainer, slotv ) ) ) FD_LOG_CRIT(( "failed to finalize block_id for slot %lu", slot ));
+      if( FD_UNLIKELY( slotv->parent_slot == AG_UNKNOWN_SLOT ) ) {
+        FD_LOG_WARNING(( "slot %lu is complete, but parent_slot is still unknown "
+                         "(turbine %d buffered_fec_idx %u complete_idx %u parent_slot_batch %u has_shred0 %d fec0_idx %u)",
+                         slot, slotv->turbine, slotv->buffered_fec_idx, slotv->complete_idx, slotv->parent_slot_batch,
+                         fd_chainer_shred_test( chainer, slotv, 0U ), slotv->fec[ 0 ] ));
+      }
+      if( FD_UNLIKELY( !finalize_block_id( chainer, slotv ) ) ) FD_LOG_WARNING(( "failed to finalize block_id for slot %lu", slot ));
     }
 
     chainer_advance( chainer, slotv );
@@ -720,6 +725,46 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
   chainer_advance( chainer, slotv );
 }
 
+void
+fd_chainer_fec_rekey( fd_chainer_t *    chainer,
+                      ulong             slot,
+                      fd_hash_t const * block_id,
+                      uint              fec_set_idx,
+                      fd_hash_t const * full_mr ) {
+  fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( chainer, slot, block_id );
+  if( FD_UNLIKELY( !slotv ) ) return;
+  fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, fec_set_idx );
+  if( FD_UNLIKELY( !fec ) ) return;
+  if( FD_LIKELY( fd_hash_eq( &fec->merkle_root, full_mr ) ) ) return; /* already keyed by the full root */
+
+  fd_chainer_fec_t * existing = fec_query( chainer, full_mr );
+  if( FD_UNLIKELY( existing ) ) {
+    /* A separate full-root FEC already exists -- e.g. turbine saw this
+       FEC first. Merge the versions. */
+    uint sentinel_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
+    uint existing_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, existing );
+    uint k            = fec_set_idx / FD_FEC_SHRED_CNT;
+    for( ulong _i=slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=slotv_iter_next( chainer, _i ) ) {
+      fd_chainer_slotv_t * v = slotv_iter_ele( chainer, _i );
+      if( FD_UNLIKELY( v->fec[ k ]==sentinel_idx ) ) v->fec[ k ] = existing_idx;
+    }
+    fd_fec_map_ele_remove_fast( chainer->fec_map, fec, chainer->fec_pool );
+    fd_fec_pool_ele_release   ( chainer->fec_pool, fec );
+
+    if( FD_LIKELY( existing->complete ) ) {
+      fd_hash_t full = *full_mr;
+      fd_chainer_fec_complete( chainer, slot, fec_set_idx, existing->slot_complete, existing->data_complete, &full );
+    }
+    fd_chainer_repair_add( chainer, slotv ); /* re-add for remaining shred fill */
+    chainer_advance( chainer, slotv );
+    return;
+  }
+
+  fd_fec_map_ele_remove_fast( chainer->fec_map, fec, chainer->fec_pool );
+  fec->merkle_root = *full_mr;
+  fd_fec_map_ele_insert( chainer->fec_map, fec, chainer->fec_pool );
+}
+
 int
 fd_chainer_shred_for_block_id_verify( fd_chainer_t *    chainer,
                                       ulong             slot,
@@ -730,7 +775,8 @@ fd_chainer_shred_for_block_id_verify( fd_chainer_t *    chainer,
   if( FD_UNLIKELY( !slotv ) ) return 0;
   fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, fec_set_idx );
   if( FD_UNLIKELY( !fec ) ) return 0;
-  return fd_hash_eq( &fec->merkle_root, mr );
+  /* Compare only the 20-byte FEC-set merkle root prefix only */
+  return !memcmp( fec->merkle_root.uc, mr->uc, FD_SHRED_MERKLE_NODE_SZ );
 }
 
 void

@@ -16,7 +16,11 @@
    time bucketed by 16ms, which is less than the retransmission timeout,
    it's highly unlikely that a retransmission request will have the same
    nonce.  The chances that an inflight request does not get a response
-   are non-negligible due to shred tile upstream deduping duplicates. */
+   are non-negligible due to shred tile upstream deduping duplicates.
+
+   Alpenglow shredForBlockId requests are also tracked by fd_inflight,
+   because they go through the same rnonce and shred path as regular
+   shred repair requests. */
 
 /* Max number of pending requests */
 #define FD_INFLIGHT_REQ_MAX (1<<20)
@@ -68,7 +72,12 @@ typedef struct fd_inflight fd_inflight_t;
 #define DLIST_NEXT      nextll
 #include "../../util/tmpl/fd_dlist.c"
 
-struct ag_inflight {
+/* fd_meta_inflight tracks Alpenglow metadata requests that are
+   inflight. This contains exclusively requests for ParentAndFecSetCount
+   and FecSetRoot, and is keyed by nonce. This is because metadata
+   responses are routed directly to rotor, not through the shred tile.
+   */
+struct fd_meta_inflight {
   ulong     nonce;
   uint      kind;          /* AG_REPAIR_KIND_{PARENT_FEC_COUNT,FEC_ROOT} */
   ulong     next;          /* reserved for internal use by fd_pool and fd_map_chain */
@@ -76,24 +85,24 @@ struct ag_inflight {
   fd_hash_t block_id;
   uint      fec_set_idx;
   long      timestamp_ns;  /* timestamp when request was created (nanoseconds) */
-  ulong     prevll;        /* for ag_inflight_dlist (outstanding order) */
+  ulong     prevll;        /* for fd_meta_inflight_dlist (outstanding order) */
   ulong     nextll;
 };
-typedef struct ag_inflight ag_inflight_t;
+typedef struct fd_meta_inflight fd_meta_inflight_t;
 
-#define POOL_NAME            ag_inflight_pool
-#define POOL_T               ag_inflight_t
+#define POOL_NAME    fd_meta_inflight_pool
+#define POOL_T       fd_meta_inflight_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define MAP_NAME            ag_inflight_map
-#define MAP_KEY             nonce
-#define MAP_ELE_T           ag_inflight_t
+#define MAP_NAME     fd_meta_inflight_map
+#define MAP_KEY      nonce
+#define MAP_ELE_T    fd_meta_inflight_t
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define DLIST_NAME      ag_inflight_dlist
-#define DLIST_ELE_T     ag_inflight_t
-#define DLIST_PREV      prevll
-#define DLIST_NEXT      nextll
+#define DLIST_NAME   fd_meta_inflight_dlist
+#define DLIST_ELE_T  fd_meta_inflight_t
+#define DLIST_PREV   prevll
+#define DLIST_NEXT   nextll
 #include "../../util/tmpl/fd_dlist.c"
 struct fd_inflights {
   /* Each element in the pool is either OUTSTANDING, POPPED (when it
@@ -119,9 +128,12 @@ struct fd_inflights {
 
   /* Alpenglow metadata requests */
 
-  ag_inflight_t       * ag_pool;
-  ag_inflight_map_t   * ag_map;
-  ag_inflight_dlist_t   ag_outstanding_dl[1]; /* ag requests in insertion order, oldest at head */
+  fd_meta_inflight_t       * ag_pool;
+  fd_meta_inflight_map_t   * ag_map;
+  fd_meta_inflight_map_t   * ag_popped_map;
+  fd_meta_inflight_dlist_t   ag_outstanding_dl[1]; /* ag requests in insertion order, oldest at head */
+  fd_meta_inflight_dlist_t   ag_popped_dl[1];
+  ulong                      ag_popped_cnt;
 };
 typedef struct fd_inflights fd_inflights_t;
 
@@ -138,13 +150,15 @@ fd_inflights_footprint( void ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_inflights_t),  sizeof(fd_inflights_t)                            ),
       fd_inflight_pool_align(), fd_inflight_pool_footprint( FD_INFLIGHT_REQ_MAX ) ),
       fd_inflight_map_align(),  fd_inflight_map_footprint ( chain_cnt           ) ),
       fd_inflight_map_align(),  fd_inflight_map_footprint ( chain_cnt           ) ),
-      ag_inflight_pool_align(), ag_inflight_pool_footprint( FD_INFLIGHT_REQ_MAX ) ),
-      ag_inflight_map_align(),  ag_inflight_map_footprint ( chain_cnt           ) ),
+      fd_meta_inflight_pool_align(), fd_meta_inflight_pool_footprint( FD_INFLIGHT_REQ_MAX ) ),
+      fd_meta_inflight_map_align(),  fd_meta_inflight_map_footprint ( chain_cnt           ) ),
+      fd_meta_inflight_map_align(),  fd_meta_inflight_map_footprint ( chain_cnt           ) ),
     fd_inflights_align() );
 }
 
@@ -169,6 +183,32 @@ fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t co
    otherwise. */
 long
 fd_inflights_request_match( fd_inflights_t * table, ulong nonce, ulong slot, ulong shred_idx, fd_pubkey_t * peer_out, fd_hash_t * block_id_out );
+
+/* fd_inflights_request_remove consumes a single entry ele, and removes it
+   from its map and dlist and releases it.  Returns RTT in nanoseconds
+   from now. */
+long
+fd_inflights_request_remove( fd_inflights_t * table, fd_inflight_t * ele );
+
+/* fd_inflights_request_query / fd_inflights_request_query_next iterate
+   the entries with key (slot, shred_idx, nonce) across BOTH the
+   outstanding and popped sets: query returns the first such entry (or
+   NULL), query_next the next entry with the same key after ele (or
+   NULL), visiting all outstanding entries and then all popped ones.
+   Usage:
+
+     for( fd_inflight_t * ele = fd_inflights_request_query( table, nonce, slot, shred_idx );
+                          ele;
+                          ele = fd_inflights_request_query_next( table, ele ) ) {
+       ...
+     }
+
+   Entries must not be removed while iterating. */
+fd_inflight_t *
+fd_inflights_request_query( fd_inflights_t * table, ulong nonce, ulong slot, ulong shred_idx );
+
+fd_inflight_t *
+fd_inflights_request_query_next( fd_inflights_t * table, fd_inflight_t * ele );
 
 /* Important! Caller must guarantee that the request list is not empty.
    This function cannot fail and will always try to populate the output
@@ -197,54 +237,56 @@ fd_inflights_outstanding_free( fd_inflights_t * table ) {
   return fd_inflight_pool_free( table->pool ) + table->popped_cnt;
 }
 
-/* ag_inflights_should_drain mirrors fd_inflights_should_drain for the
+/* fd_meta_inflights_should_drain mirrors fd_inflights_should_drain for the
    Alpenglow metadata (ParentAndFecSetCount / FecSetRoot) requests */
 
 static inline int
-ag_inflights_should_drain( fd_inflights_t * table, long now ) {
+fd_meta_inflights_should_drain( fd_inflights_t * table, long now ) {
   /* peek at head */
-  if( FD_UNLIKELY( ag_inflight_dlist_is_empty( table->ag_outstanding_dl, table->ag_pool ) ) ) return 0;
+  if( FD_UNLIKELY( fd_meta_inflight_dlist_is_empty( table->ag_outstanding_dl, table->ag_pool ) ) ) return 0;
 
-  ag_inflight_t * inflight_req = ag_inflight_dlist_ele_peek_head( table->ag_outstanding_dl, table->ag_pool );
+  fd_meta_inflight_t * inflight_req = fd_meta_inflight_dlist_ele_peek_head( table->ag_outstanding_dl, table->ag_pool );
   if( FD_UNLIKELY( inflight_req->timestamp_ns + FD_REQLIM_DEDUP_TIMEOUT < now ) ) return 1;
   return 0;
 }
 
-/* ag_inflights_request_insert adds an Alpenglow metadata request to the
+/* fd_meta_inflights_request_insert adds an Alpenglow metadata request to the
    outstanding set (map + outstanding dlist, stamped with the current
    time).  Evicts the oldest outstanding request if the ag pool is
    full.  TODO are evictions okay? */
 void
-ag_inflights_request_insert( fd_inflights_t *    table,
+fd_meta_inflights_request_insert( fd_inflights_t *    table,
                              ulong               nonce,
                              uint                kind,
                              ulong               slot,
                              fd_hash_t const *   block_id,
                              uint                fec_set_idx );
 
-/* ag_inflights_request_pop pops the oldest outstanding ag request,
+/* fd_meta_inflights_request_pop pops the oldest outstanding ag request,
    returns its fields (including kind, so the caller can rebuild the
-   exact request), removes it from the outstanding set and releases it.
+   exact request), and moves it from the outstanding set to the popped
+   set (so a late response to this nonce can still match) rather than
+   releasing it.
 
    Similar to fd_inflights_request_pop, caller must guarantee that the
    request list is not empty. This function cannot fail and will always
    try to populate the output parameters. Typical use should only call
-   this after ag_inflights_should_drain returns true. */
+   this after fd_meta_inflights_should_drain returns true. */
 void
-ag_inflights_request_pop( fd_inflights_t * table,
+fd_meta_inflights_request_pop( fd_inflights_t * table,
                           ulong *          nonce_out,
                           uint *           kind_out,
                           ulong *          slot_out,
                           fd_hash_t *      block_id_out,
                           uint *           fec_set_idx_out );
 
-/* ag_inflights_request_match returns the outstanding ag request matching
-   nonce (from both the map and the outstanding dlist), or NULL.  The
-   returned element remains valid until the caller releases it with
-   ag_inflight_pool_ele_release. TODO update fd_inflight API or this one
-   to match */
-ag_inflight_t *
-ag_inflights_request_match( fd_inflights_t * table, ulong nonce );
+/* fd_meta_inflights_request_match returns the ag request matching nonce
+   from either the outstanding or the popped set (searched in that
+   order), removing it from that set, or NULL.  The returned element
+   remains valid until the caller releases it with
+   fd_meta_inflight_pool_ele_release. */
+fd_meta_inflight_t *
+fd_meta_inflights_request_match( fd_inflights_t * table, ulong nonce );
 
 void
 fd_inflights_print( fd_inflight_dlist_t * dlist, fd_inflight_t * pool );

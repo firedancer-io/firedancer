@@ -386,6 +386,22 @@ fd_chainer_shred_for_block_id_verify( fd_chainer_t *    chainer,
                                       fd_hash_t const * block_id,
                                       fd_hash_t const * mr );
 
+/* fd_chainer_fec_rekey re-keys the FEC that the version of slot
+   identified by block_id owns at fec_set_idx.  Should be used when a
+   shred with the full merkle root is delivered for a FEC created from a
+   FecSetRoot repair response. FecSetRoot responses carry only the
+   20-byte root prefix.
+
+   No-op if the FEC is missing, already keyed by full_mr, or a full-root
+   entry already exists. */
+
+void
+fd_chainer_fec_rekey( fd_chainer_t *    chainer,
+                      ulong             slot,
+                      fd_hash_t const * block_id,
+                      uint              fec_set_idx,
+                      fd_hash_t const * full_mr );
+
 /* fd_chainer_fec_query returns the FEC that the version of slot identified
    by block_id owns at fec_set_idx, or NULL. */
 fd_chainer_fec_t *
