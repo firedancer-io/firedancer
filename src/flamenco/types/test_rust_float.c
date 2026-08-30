@@ -54,6 +54,12 @@ rng_next( ulong * state ) {
   return z ^ (z>>31);
 }
 
+/* Rust and IEEE 754 define floating-point division by zero. */
+#if FD_HAS_UBSAN
+__attribute__((no_sanitize("float-divide-by-zero")))
+#endif
+static inline double rust_f64_div( double x, double y ) { return x/y; }
+
 /* Bit patterns worth hitting exactly: zeros, subnormals, the normal
    boundaries, the integer-exactness boundary at 2^53, the u64 cast
    boundary at 2^64, infinities and both nan kinds. */
@@ -286,7 +292,7 @@ main( int     argc,
     emit_f64( "log10", ab, log10( a ) );
     emit_f64( "exp",   ab, exp  ( a ) );
     emit_f64( "exp2",  ab, exp2 ( a ) );
-    emit_f64( "recip", ab, 1.0/a );
+    emit_f64( "recip", ab, rust_f64_div( 1.0, a ) );
     emit_f64( "neg",   ab, -a );
 
     /* `as` saturates; a plain C cast would be undefined behaviour. */
@@ -309,7 +315,7 @@ main( int     argc,
     emit_f64_2( "add",      ab, bb, a+b );
     emit_f64_2( "sub",      ab, bb, a-b );
     emit_f64_2( "mul",      ab, bb, a*b );
-    emit_f64_2( "div",      ab, bb, a/b );
+    emit_f64_2( "div",      ab, bb, rust_f64_div( a, b ) );
     emit_f64_2( "rem",      ab, bb, fmod    ( a, b ) );
     emit_f64_2_z( "min",    ab, bb, fmin    ( a, b ) );
     emit_f64_2_z( "max",    ab, bb, fmax    ( a, b ) );
