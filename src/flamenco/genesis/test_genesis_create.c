@@ -38,6 +38,8 @@ main( int     argc,
   /* Buffer too small */
 
   FD_TEST( !fd_genesis_create( NULL, 0UL, options ) );
+  uchar tiny_buf[ 7 ];
+  FD_TEST( !fd_genesis_create( tiny_buf, sizeof(tiny_buf), options ) );
 
   /* No more warnings expected */
 
