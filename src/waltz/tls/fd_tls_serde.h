@@ -42,7 +42,8 @@
 
 #define FD_TLS_SERDE_DECODE( IDX, FIELD, FIELD_TYPE, FIELD_CNT ) \
   do {                                                           \
-    memcpy( (FIELD), (void const *)_field_##IDX##_laddr, _field_##IDX##_sz ); \
+    if( _field_##IDX##_sz )                                      \
+      memcpy( (FIELD), (void const *)_field_##IDX##_laddr, _field_##IDX##_sz ); \
     FIELD_TYPE * _field_##IDX##_ptr = (FIELD);                   \
     for( ulong i=0; i < (FIELD_CNT); i++ ) {                     \
       *((_field_##IDX##_ptr)++) = __extension__                  \
@@ -53,7 +54,8 @@
 #define FD_TLS_SERDE_ENCODE( IDX, FIELD, FIELD_TYPE, FIELD_CNT ) \
   do {                                                           \
     uchar * dest = (uchar *)_field_##IDX##_laddr;                \
-    memcpy( dest, (FIELD), _field_##IDX##_sz );                  \
+    if( _field_##IDX##_sz )                                      \
+      memcpy( dest, (FIELD), _field_##IDX##_sz );                \
     for( ulong i=0; i<(FIELD_CNT); i++ ) {                       \
       FIELD_TYPE temp;                                           \
       memcpy( &temp, dest, sizeof(FIELD_TYPE) );                 \
