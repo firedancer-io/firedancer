@@ -240,9 +240,11 @@ main( int     argc,
     TEST(add,0,LONG_MAX);
     TEST(add,LONG_MAX,10);
     TEST(add,LONG_MAX - 10,LONG_MAX - 10);
+    TEST(add,LONG_MIN,-1);
     TEST(sub,0,LONG_MAX);
     TEST(add,LONG_MAX,10);
     TEST(sub,LONG_MAX - 10,LONG_MAX - 10);
+    TEST(sub,LONG_MIN,1);
     TEST(mul,0,LONG_MAX);
     TEST(mul,LONG_MAX,10);
     TEST(mul,LONG_MAX - 10,LONG_MAX - 10);

@@ -60,26 +60,26 @@ fd_long_sat_add( long x, long y ) {
   long res;
   int cf = __builtin_saddl_overflow ( x, y, &res );
   /* https://stackoverflow.com/a/56531252
-     x + y overflows => x, y have the same sign
-     we can use either to determine the result,
-     with the trick described in the SO answer.
-     We chose x because it works also for sub.
-     It is not UB because we compile with -fwrapv. */
-  return fd_long_if( cf, (long)((ulong)x >> 63) + LONG_MAX, res );
+     x+y overflows only when x and y have the same sign, so x selects
+     the saturation direction for addition and subtraction.  Select
+     the limits directly because fd_long_if evaluates both candidates;
+     constructing LONG_MIN as LONG_MAX+1 is still diagnosed by UBSan
+     despite -fwrapv. */
+  return fd_long_if( cf, fd_long_if( x<0L, LONG_MIN, LONG_MAX ), res );
 }
 
 FD_FN_CONST static inline long
 fd_long_sat_sub( long x, long y ) {
   long res;
   int cf = __builtin_ssubl_overflow ( x, y, &res );
-  return fd_long_if( cf, (long)((ulong)x >> 63) + LONG_MAX, res );
+  return fd_long_if( cf, fd_long_if( x<0L, LONG_MIN, LONG_MAX ), res );
 }
 
 FD_FN_CONST static inline long
 fd_long_sat_mul( long x, long y ) {
   long res;
   int cf = __builtin_smull_overflow ( x, y, &res );
-  return fd_long_if( cf, (long)((ulong)(x ^ y) >> 63) + LONG_MAX, res );
+  return fd_long_if( cf, fd_long_if( (x<0L) ^ (y<0L), LONG_MIN, LONG_MAX ), res );
 }
 
 FD_FN_CONST static inline uint
