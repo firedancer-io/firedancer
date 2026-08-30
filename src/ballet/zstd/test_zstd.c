@@ -31,7 +31,7 @@ test_decompress( void ) {
 
   ulong window_sz = 1UL<<21;
   ulong mem_sz    = fd_zstd_dstream_footprint( window_sz );
-  uchar mem[mem_sz];  /* Use VLA to assist AddressSanitizer */
+  uchar mem[mem_sz] __attribute__((aligned(FD_ZSTD_DSTREAM_ALIGN)));  /* Use VLA to assist AddressSanitizer */
 
   fd_zstd_dstream_t * dstream = fd_zstd_dstream_new( mem, window_sz );
   FD_TEST( dstream );
