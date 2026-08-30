@@ -105,7 +105,7 @@ enum {
 
 #define FD_METRICS_GAUGE_ACCDB_DISK_USED_BYTES_NAME "accdb_disk_used_bytes"
 #define FD_METRICS_GAUGE_ACCDB_DISK_USED_BYTES_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_ACCDB_DISK_USED_BYTES_DESC "Total size of the account database on disk that is currently used"
+#define FD_METRICS_GAUGE_ACCDB_DISK_USED_BYTES_DESC "Size of the live account revisions in the database, counted uncompressed (records are stored fd_zle compressed, so this reads above the space they actually occupy)"
 #define FD_METRICS_GAUGE_ACCDB_DISK_USED_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_ACCDB_IN_COMPACTION_NAME "accdb_in_compaction"

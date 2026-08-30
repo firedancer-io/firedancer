@@ -11,6 +11,48 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
+/* TEST_REC_SZ is the on-disk record size the snapshot-load tests report
+   for an account of n data bytes.  These tests have no account bodies to
+   compress and no snapwr counterpart, so they size records as if the
+   data were incompressible. */
+
+#define TEST_REC_SZ(n) (sizeof(fd_accdb_disk_meta_t)+(n))
+
+/* snap_write does a snapshot-load write of an all-zero account body and
+   lays the matching on-disk record down, standing in for the snapin +
+   snapwr pair.  Use it wherever the test reads the account back; the
+   raw fd_accdb_snapshot_write_* calls only move the index and the
+   accounting, and leave a hole on disk. */
+
+static ulong snap_write_rec_sz; /* on-disk record size of the last snap_write */
+
+static int
+snap_write( fd_accdb_t *       accdb,
+            fd_accdb_fork_id_t fork_id,
+            uchar const *      pubkey,
+            ulong              slot,
+            ulong              lamports,
+            ulong              data_len,
+            int                executable,
+            ulong *            out_replaced_lamports ) {
+  static uchar * body;
+  static uchar * rec;
+  if( FD_UNLIKELY( !body ) ) {
+    body = aligned_alloc( 64UL, FD_ACCDB_ACC_DATA_MAX+64UL );
+    rec  = aligned_alloc( 64UL, fd_ulong_align_up( FD_ACCDB_REC_MAX, 64UL ) );
+    FD_TEST( body && rec );
+    memset( body, 0, FD_ACCDB_ACC_DATA_MAX+64UL );
+  }
+  FD_TEST( data_len<=FD_ACCDB_ACC_DATA_MAX );
+  uchar owner[ 32UL ] = {0};
+  ulong rec_sz = fd_accdb_snapshot_stage_record( rec, pubkey, owner, body, data_len );
+  snap_write_rec_sz = rec_sz;
+  int   res    = fd_accdb_snapshot_write_one( accdb, fork_id, pubkey, slot, lamports,
+                                              data_len, rec_sz, executable, out_replaced_lamports );
+  if( FD_LIKELY( res!=-1 ) ) fd_accdb_debug_write_record( accdb, pubkey, rec, rec_sz );
+  return res;
+}
+
 static uchar pubkey0[ 32UL ]  = { 0 };
 static uchar pubkey1[ 32UL ]  = { 1, 0 };
 
@@ -1246,8 +1288,7 @@ test_revert_whead( void ) {
   for( ulong i=0UL; i<5UL; i++ ) {
     fd_memset( snap_pks[ i ], 0, 32UL );
     snap_pks[ i ][ 0 ] = (uchar)( 0xF0+i );
-    fd_accdb_snapshot_write_one( accdb, SENTINEL, snap_pks[ i ],
-                                 10UL, (i+1UL)*100UL, 4UL<<20UL, 0, &replaced );
+    snap_write( accdb, SENTINEL, snap_pks[ i ], 10UL, (i+1UL)*100UL, 4UL<<20UL, 0, &replaced );
   }
   fd_accdb_snapshot_load_end( accdb );
 
@@ -1270,8 +1311,7 @@ test_revert_whead( void ) {
   for( ulong i=0UL; i<5UL; i++ ) {
     fd_memset( incr_pks[ i ], 0, 32UL );
     incr_pks[ i ][ 0 ] = (uchar)( 0xE0+i );
-    fd_accdb_snapshot_write_one( accdb, incr_fork, incr_pks[ i ],
-                                 20UL, (i+1UL)*1000UL, 4UL<<20UL, 0, &replaced );
+    snap_write( accdb, incr_fork, incr_pks[ i ], 20UL, (i+1UL)*1000UL, 4UL<<20UL, 0, &replaced );
   }
   fd_accdb_snapshot_load_end( accdb );
 
@@ -1323,11 +1363,12 @@ test_deferred_write_stats( void ) {
   ulong slots      [ 2 ] = { 10UL,  10UL };
   ulong lamports   [ 2 ] = { 1UL,   2UL  };
   ulong data_lens  [ 2 ] = { 100UL, 200UL };
+  ulong rec_lens   [ 2 ] = { TEST_REC_SZ( 100UL ), TEST_REC_SZ( 200UL ) };
   int   executables[ 2 ] = { 0, 0 };
   ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports;
 
   FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 2UL, pubkeys, slots,
-                                           lamports, data_lens, executables,
+                                           lamports, data_lens, rec_lens, executables,
                                            &ignored, &replaced, &loaded,
                                            &replaced_lamports, &ignored_lamports ) );
   FD_TEST( !ignored && !replaced && loaded==2UL );
@@ -1340,11 +1381,11 @@ test_deferred_write_stats( void ) {
   FD_TEST( shmetrics->accounts_total    ==2UL );
 
   /* Replace pk_a at a newer slot, ignore pk_b at an older one. */
-  slots[ 0 ] = 20UL; data_lens[ 0 ] = 300UL;
-  slots[ 1 ] =  5UL; data_lens[ 1 ] = 400UL;
+  slots[ 0 ] = 20UL; data_lens[ 0 ] = 300UL; rec_lens[ 0 ] = TEST_REC_SZ( 300UL );
+  slots[ 1 ] =  5UL; data_lens[ 1 ] = 400UL; rec_lens[ 1 ] = TEST_REC_SZ( 400UL );
 
   FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 2UL, pubkeys, slots,
-                                           lamports, data_lens, executables,
+                                           lamports, data_lens, rec_lens, executables,
                                            &ignored, &replaced, &loaded,
                                            &replaced_lamports, &ignored_lamports ) );
   FD_TEST( ignored==1UL && replaced==1UL && !loaded );
@@ -1388,6 +1429,7 @@ test_deferred_write_stats_rollover( void ) {
   ulong slots      [ 4 ];
   ulong lamports   [ 4 ];
   ulong data_lens  [ 4 ];
+  ulong rec_lens   [ 4 ];
   int   executables[ 4 ];
   for( ulong i=0UL; i<4UL; i++ ) {
     fd_memset( pks[ i ], 0, 32UL );
@@ -1396,12 +1438,13 @@ test_deferred_write_stats_rollover( void ) {
     slots[ i ]       = 10UL;
     lamports[ i ]    = i+1UL;
     data_lens[ i ]   = entry_sz-sizeof(fd_accdb_disk_meta_t);
+    rec_lens[ i ]    = entry_sz;
     executables[ i ] = 0;
   }
 
   ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports;
   FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 4UL, pubkeys, slots,
-                                           lamports, data_lens, executables,
+                                           lamports, data_lens, rec_lens, executables,
                                            &ignored, &replaced, &loaded,
                                            &replaced_lamports, &ignored_lamports ) );
   FD_TEST( !ignored && !replaced && loaded==4UL );
@@ -1441,7 +1484,7 @@ test_default_deferred_write_stats( void ) {
   uchar pubkey[ 32UL ] = { 0xC0 };
   ulong data_len = 123UL;
   ulong replaced_lamports;
-  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pubkey, 1UL, 1UL, data_len, 0, &replaced_lamports )==1 );
+  FD_TEST( snap_write( accdb, SENTINEL, pubkey, 1UL, 1UL, data_len, 0, &replaced_lamports )==1 );
 
   fd_accdb_shmem_partition_info_t info;
   fd_accdb_shmem_partition_info( test_shmem_mem, 0UL, &info );
@@ -1451,7 +1494,7 @@ test_default_deferred_write_stats( void ) {
 
   fd_accdb_flush_metrics( accdb );
 
-  ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
+  ulong entry_sz = snap_write_rec_sz;
   fd_accdb_shmem_partition_info( test_shmem_mem, 0UL, &info );
   FD_TEST( shmetrics->disk_current_bytes==entry_sz );
   FD_TEST( info.bytes_written==entry_sz );
@@ -1477,9 +1520,9 @@ test_deferred_write_stats_two_joiners( void ) {
   ulong replaced_lamports;
 
   FD_TEST( fd_accdb_snapshot_write_one( accdb_a, SENTINEL, pubkey_a, 1UL, 1UL,
-                                        entry_sz_a-sizeof(fd_accdb_disk_meta_t), 0, &replaced_lamports )==1 );
+                                        entry_sz_a-sizeof(fd_accdb_disk_meta_t), entry_sz_a, 0, &replaced_lamports )==1 );
   FD_TEST( fd_accdb_snapshot_write_one( accdb_b, SENTINEL, pubkey_b, 1UL, 1UL,
-                                        entry_sz_b-sizeof(fd_accdb_disk_meta_t), 0, &replaced_lamports )==1 );
+                                        entry_sz_b-sizeof(fd_accdb_disk_meta_t), entry_sz_b, 0, &replaced_lamports )==1 );
 
   FD_TEST( fd_accdb_shmem_partition_max( test_shmem_mem )==2UL );
 
@@ -1543,9 +1586,9 @@ test_incremental_cross_fork_override( void ) {
   /* Full-snapshot load: write 3 accounts with 1 KiB data each. */
   fd_accdb_snapshot_load_begin( accdb );
   ulong replaced = 0UL;
-  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk0, 10UL, 100UL, 1024UL, 0, &replaced );
-  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk1, 10UL, 200UL, 1024UL, 0, &replaced );
-  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk2, 10UL, 300UL, 1024UL, 0, &replaced );
+  snap_write( accdb, SENTINEL, pk0, 10UL, 100UL, 1024UL, 0, &replaced );
+  snap_write( accdb, SENTINEL, pk1, 10UL, 200UL, 1024UL, 0, &replaced );
+  snap_write( accdb, SENTINEL, pk2, 10UL, 300UL, 1024UL, 0, &replaced );
   fd_accdb_snapshot_load_end( accdb );
 
   /* Save whead. */
@@ -1557,8 +1600,8 @@ test_incremental_cross_fork_override( void ) {
 
   /* Incremental snapshot load: override pk0 and pk1 with new lamports. */
   fd_accdb_snapshot_load_begin( accdb );
-  fd_accdb_snapshot_write_one( accdb, incr_fork, pk0, 20UL, 111UL, 1024UL, 0, &replaced );
-  fd_accdb_snapshot_write_one( accdb, incr_fork, pk1, 20UL, 222UL, 1024UL, 0, &replaced );
+  snap_write( accdb, incr_fork, pk0, 20UL, 111UL, 1024UL, 0, &replaced );
+  snap_write( accdb, incr_fork, pk1, 20UL, 222UL, 1024UL, 0, &replaced );
   fd_accdb_snapshot_load_end( accdb );
 
   /* Verify accounts_total reflects the cross-fork overrides: 3 original
@@ -1601,7 +1644,7 @@ test_incremental_retry_reuses_acc_pool( void ) {
   ulong replaced_lamports;
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
   fd_accdb_snapshot_load_begin( accdb );
-  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, full_pk, 10UL, 1UL, 0UL, 0,
+  FD_TEST( snap_write( accdb, SENTINEL, full_pk, 10UL, 1UL, 0UL, 0,
                                         &replaced_lamports )==1 );
 
   fd_accdb_snapshot_recovery_t recovery;
@@ -1616,7 +1659,7 @@ test_incremental_retry_reuses_acc_pool( void ) {
     for( ulong i=0UL; i<2UL; i++ ) {
       uchar failed_pk[ 32UL ] = {0};
       failed_pk[ 0 ] = (uchar)(0xD0UL + 2UL*attempt + i);
-      FD_TEST( fd_accdb_snapshot_write_one( accdb, failed, failed_pk,
+      FD_TEST( snap_write( accdb, failed, failed_pk,
                                             20UL+attempt, 2UL+i, 0UL, 0,
                                             &replaced_lamports )==1 );
     }
@@ -1637,11 +1680,12 @@ test_incremental_retry_reuses_acc_pool( void ) {
   ulong slots      [ 2 ] = { 30UL, 30UL };
   ulong lamports   [ 2 ] = { 10UL, 20UL };
   ulong data_lens  [ 2 ] = { 0UL,  0UL };
+  ulong rec_lens   [ 2 ] = { TEST_REC_SZ( 0UL ), TEST_REC_SZ( 0UL ) };
   int   executables[ 2 ] = { 0,    0 };
   ulong ignored, replaced, loaded, ignored_lamports;
 
   FD_TEST( !fd_accdb_snapshot_write_batch( accdb, success, 2UL, pubkeys, slots,
-                                           lamports, data_lens, executables,
+                                           lamports, data_lens, rec_lens, executables,
                                            &ignored, &replaced, &loaded,
                                            &replaced_lamports, &ignored_lamports ) );
   FD_TEST( !ignored && replaced==1UL && loaded==1UL );

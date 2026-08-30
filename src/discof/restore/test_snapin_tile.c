@@ -70,6 +70,7 @@ mock_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                  ulong  const        slots[],
                                  ulong  const        lamports[],
                                  ulong  const        data_lens[],
+                                 ulong  const        rec_lens[],
                                  int    const        executables[],
                                  ulong *             accounts_ignored,
                                  ulong *             accounts_replaced,
@@ -82,6 +83,7 @@ mock_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   (void)slots;
   (void)lamports;
   (void)data_lens;
+  (void)rec_lens;
   (void)executables;
   *accounts_ignored       = 0UL;
   *accounts_replaced      = 0UL;
@@ -98,6 +100,7 @@ mock_accdb_snapshot_write_one( fd_accdb_t *       accdb,
                                ulong              slot,
                                ulong              lamports,
                                ulong              data_len,
+                               ulong              rec_len,
                                int                executable,
                                ulong *            out_replaced_lamports ) {
   (void)accdb;
@@ -106,6 +109,7 @@ mock_accdb_snapshot_write_one( fd_accdb_t *       accdb,
   (void)slot;
   (void)lamports;
   (void)data_len;
+  (void)rec_len;
   (void)executable;
   *out_replaced_lamports = 0UL;
   return 1;
@@ -651,6 +655,16 @@ test_partial_and_zero_byte_eom( void ) {
   ctx->gui_config_acct_sz  = 2UL;
   ctx->gui_config_acct_off = 0UL;
 
+  /* The scripted parser emits ACCOUNT_DATA without a preceding
+     ACCOUNT_HEADER, so arm the account reassembly by hand. */
+  static uchar acc_buf[ 128UL ] __attribute__((aligned(64)));
+  static uchar acc_rec[ 256UL ] __attribute__((aligned(64)));
+  ctx->acc_buf       = acc_buf;
+  ctx->acc_rec       = acc_rec;
+  ctx->acc.active    = 1;
+  ctx->acc.data_len  = 2UL;
+  ctx->acc.data_used = 0UL;
+
   test_parser_script   = 1;
   test_parser_call_cnt = 0UL;
   ulong sig = FD_SNAPSHOT_MSG_DATA;
@@ -794,7 +808,9 @@ test_batch_stake_delegation( void ) {
   fd_memcpy( entry+64UL,  &fd_solana_stake_program_id,  sizeof(fd_pubkey_t)      );
   fd_memcpy( entry+136UL, state,                        sizeof(fd_stake_state_t) );
 
-  fd_snapin_tile_t ctx = { .full = 1, .banks = banks };
+  static uchar bsd_acc_buf[ sizeof(fd_stake_state_t)+64UL ] __attribute__((aligned(64)));
+  static uchar bsd_acc_rec[ sizeof(fd_stake_state_t)+256UL ] __attribute__((aligned(64)));
+  fd_snapin_tile_t ctx = { .full = 1, .banks = banks, .acc_buf = bsd_acc_buf, .acc_rec = bsd_acc_rec };
   fd_ssparse_advance_result_t result = {
     .account_batch = {
       .batch     = { entry },
@@ -820,7 +836,9 @@ test_streaming_stake_delegation( void ) {
   fd_stake_state_t state[1];
   make_stake_state( state, &vote_account );
 
-  fd_snapin_tile_t ctx = { .full = 1, .banks = banks };
+  static uchar sd_acc_buf[ sizeof(fd_stake_state_t)+64UL ] __attribute__((aligned(64)));
+  static uchar sd_acc_rec[ sizeof(fd_stake_state_t)+256UL ] __attribute__((aligned(64)));
+  fd_snapin_tile_t ctx = { .full = 1, .banks = banks, .acc_buf = sd_acc_buf, .acc_rec = sd_acc_rec };
   fd_ssparse_advance_result_t header = {
     .account_header = {
       .pubkey     = stake_account.uc,

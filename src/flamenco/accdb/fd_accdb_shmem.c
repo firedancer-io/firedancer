@@ -222,7 +222,7 @@ fd_accdb_shmem_new( void * shmem,
      account write (disk metadata header + largest cache class payload).
      Without this, allocate_next_write can never fit the entry in a
      single partition. */
-  ulong min_partition_sz = sizeof(fd_accdb_disk_meta_t) + fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT-1UL ] - FD_ACCDB_CACHE_META_SZ;
+  ulong min_partition_sz = FD_ACCDB_REC_MAX;
   if( FD_UNLIKELY( partition_sz<min_partition_sz ) ) {
     FD_LOG_WARNING(( "partition_sz must be at least %lu to fit worst-case account write", min_partition_sz ));
     return NULL;

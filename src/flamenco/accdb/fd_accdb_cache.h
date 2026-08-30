@@ -33,6 +33,12 @@
 #define FD_ACCDB_CACHE_CLASS_CNT    (8UL)
 #define FD_ACCDB_CACHE_META_SZ     (88UL)
 
+/* FD_ACCDB_ACC_DATA_MAX is the largest account data length the accdb
+   supports, i.e. the data capacity of the largest size class.  (Mirrors
+   FD_RUNTIME_ACC_SZ_MAX without pulling in the runtime headers.) */
+
+#define FD_ACCDB_ACC_DATA_MAX (10UL<<20)
+
 /* Per-class line count ceiling.  The acc cache index packs (class, line)
    into 32 bits as 3 bits of class and FD_ACCDB_CACHE_LINE_BITS bits of
    line index (see FD_ACCDB_ACC_CIDX_* in fd_accdb_private.h).  A class
@@ -114,6 +120,8 @@ static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
   1048576UL+FD_ACCDB_CACHE_META_SZ,  /* class 6: 128K-1 MiB  */
   10485760UL+FD_ACCDB_CACHE_META_SZ, /* class 7: 1M-10 MiB   */
 };
+
+FD_STATIC_ASSERT( 10485760UL==FD_ACCDB_ACC_DATA_MAX, layout );
 
 /* fd_accdb_cache_class_cnt computes the number of slots to allocate for
    each of the 8 size classes, given a total cache memory budget.
