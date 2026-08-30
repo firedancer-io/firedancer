@@ -17,7 +17,6 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 
-#include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/features/fd_feature_snoop.h"
 #include "../../flamenco/stakes/fd_stake_types.h"
@@ -53,13 +52,10 @@
    All controls (INIT/FINI/...) ride the data lanes as barriers exactly
    as in the sequential loader, and every tile acks them to snapct on
    its own snapin_ct link (snapct counts ack links by name).  Tile 0
-   additionally parses the manifest and status cache (the stream places
-   them before all appendvecs; the other tiles discard those byte
-   ranges), owns the manif/gui out links, publishes the attempt slot,
-   and at end of load reads the shared totals and winner-gated snoop
-   targets and runs the readback gate.  Cross-tile coordination happens
-   exclusively through the snapio_snoop shared object; see
-   utils/fd_snapin_io.h for the happens-before chains.
+   parses the manifest and status cache while other tiles skip them.  It
+   also owns the manif/gui outputs, publishes the attempt slot, and runs
+   the final checks.  Cross-tile coordination uses snapio_snoop; see
+   utils/fd_snapin_io.h for its ordering rules.
 
    Every write a tile makes to that shared object is one of exactly
    three kinds: an atomic read-modify-write (`next_appendvec`,
@@ -73,28 +69,10 @@
 
 #define FD_SNAPIN_WRITE_BUF_SZ (2UL<<20)
 
-/* Write-behind: tiles kick async writeback of their flushed records in
-   large contiguous runs and bound their in-flight (kicked but not yet
-   completed) dirty bytes.  Without this, N tiles writing ~9 GB/s
-   aggregate into the page cache outrun the array's sustained
-   multi-stream writeback rate; once the accumulated dirty pages cross
-   the kernel's balance_dirty_pages engagement point, every pwrite gets
-   throttled with coarse (up to ~100 ms) sleeps -- and a sleeping tile
-   freezes its lane fseqs (tile fseq == scan position), which convoys
-   the ENTIRE pipe (measured at eight writers: raw intake collapsed from
-   9.3 GB/s to an oscillating 1.4-7 GB/s once ~100 GB of dirty pages had
-   accumulated).  The write-behind backstop replaces those coarse kernel
-   sleeps with smooth kick-granular self-throttling to the device, and
-   starting writeback immediately maximizes the bytes drained during the
-   load.  The aggregate window must stay below the throttle engagement
-   point ((dirty_background_ratio+dirty_ratio)/2, ~6.5% of RAM by
-   default) to preserve the page-cache elasticity that low tile counts
-   rely on -- so it is a fraction of the host's RAM, not a fixed byte
-   count: window = min( WB_WINDOW_MAX, WB_MEM_PCT% of MemTotal ), read
-   at privileged_init (before the sandbox closes /proc) and divided
-   evenly across the tiles.  WB_WINDOW_MAX is what was swept on the
-   ~1.2 TB reference host, where the percentage term is not the binding
-   one. */
+/* At eight writers, dirty-page throttling cut measured intake from
+   9.3 GB/s to 1.4-7 GB/s.  Async writeback avoids those stalls.  Its
+   aggregate pending window is the smaller of 80 GiB and 5% of host
+   memory, divided evenly across the tiles. */
 
 #define FD_SNAPIN_WB_KICK_SZ      (64UL<<20) /* kick writeback per this many contiguous flushed bytes */
 #define FD_SNAPIN_WB_WINDOW_MAX   (80UL<<30) /* aggregate kicked-not-waited budget across all tiles */
@@ -106,6 +84,25 @@
    riding the page cache is measurably faster. */
 
 #define FD_SNAPIN_WB_MIN_WORKERS  (8UL)
+
+#define SNAPIN_IO_FAIL   (-1)
+#define SNAPIN_IO_RETRY  ( 0)
+#define SNAPIN_IO_NOSYNC ( 1)
+
+#define SNAPIN_WB_OFF         (0UL)
+#define SNAPIN_WB_ON          (1UL)
+#define SNAPIN_WB_UNSUPPORTED (2UL)
+
+FD_FN_CONST static inline int
+snapin_pwrite_class( int err ) {
+  return err==EINTR ? SNAPIN_IO_RETRY : SNAPIN_IO_FAIL;
+}
+
+FD_FN_CONST static inline int
+snapin_sfr_class( int err ) {
+  if( FD_LIKELY( err==EINTR ) ) return SNAPIN_IO_RETRY;
+  return (err==ENOSYS || err==EOPNOTSUPP) ? SNAPIN_IO_NOSYNC : SNAPIN_IO_FAIL;
+}
 
 /* Rate limit for the attempt-slot gate diagnostic.  The gate holds the
    tile's data lanes (it does not spin inside a frag handler), so an
@@ -178,6 +175,31 @@ struct fd_snapin_out_link {
   ulong       mtu;
 };
 typedef struct fd_snapin_out_link fd_snapin_out_link_t;
+
+/* One tile owns each writer.  The pending writeback ring spans snapshot
+   attempts and only successful waits retire entries. */
+struct snapin_writer {
+  int     fd;
+  uchar * buf;
+  ulong   buf_used;
+  ulong   buf_off;
+
+  ulong bytes_written;
+
+  ulong wb_state;
+  ulong wb_window;
+  ulong wb_kick_sz;
+  ulong wb_run_off;
+  ulong wb_run_sz;
+  ulong wb_pending;
+  ulong wb_head;
+  ulong wb_tail;
+  ulong wb_kick_cnt;
+  ulong wb_wait_cnt;
+  struct { ulong off; ulong sz; } wb_ring[ FD_SNAPIN_WB_RING_CNT ];
+};
+
+typedef struct snapin_writer snapin_writer_t;
 
 struct fd_snapin_tile {
   int  state;
@@ -325,10 +347,7 @@ struct fd_snapin_tile {
 
   /* Write engine: private explicit-offset write head + staging buffer. */
   fd_accdb_snapshot_whead_t whead;
-  uchar * write_buf;
-  ulong   write_buf_used;
-  ulong   flush_off;        /* file offset of write_buf[0] */
-  ulong   bytes_written;
+  snapin_writer_t writer;
   fd_accdb_snapshot_worker_metrics_t worker_metrics[1];
   struct {
     int   accepted;    /* 0 = ignored duplicate: drop the data bytes */
@@ -373,25 +392,13 @@ struct fd_snapin_tile {
     uchar buf   [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
   } pending;
 
-  /* Write-behind (bounded in-flight dirty bytes). */
-  ulong wb_total_window;    /* aggregate cap, sized from MemTotal at privileged_init */
-  ulong wb_kick_sz;         /* kick granularity (lowered by tests) */
-  ulong wb_window;          /* per-tile in-flight cap; 0 disables */
-  ulong wb_run_off;         /* current un-kicked contiguous flushed run */
-  ulong wb_run_sz;
-  ulong wb_pending;         /* kicked but not yet waited-on bytes */
-  ulong wb_head;            /* ring of kicked ranges */
-  ulong wb_tail;
-  ulong wb_kick_cnt;        /* instrumentation */
-  ulong wb_wait_cnt;
-  struct { ulong off; ulong sz; } wb_ring[ FD_SNAPIN_WB_RING_CNT ];
+  ulong wb_total_window;
 
   /* Tile 0: end-of-attempt fold state. */
   int   attempt_folded;     /* shared totals and snoop targets read out for this attempt? */
   struct {
     ulong eq_slot_dups;
     ulong eq_slot_lamports_diff;
-    ulong bytes_written;
   } worker_fold;
 
   /* Tile 0: cross-tile account totals, accumulated out of the shared
@@ -495,13 +502,7 @@ should_shutdown( fd_snapin_tile_t * ctx ) {
 
 static ulong
 scratch_align( void ) {
-  /* Must cover the largest FD_LAYOUT_APPEND alignment in
-     scratch_footprint (the 4096-aligned write buffer).  The footprint
-     is computed from a zero base, so if the topology placed the tile
-     object at a smaller alignment the runtime layout could consume up
-     to align-scratch_align more bytes than the footprint and overflow
-     into the next workspace object (with >=2 tiles that is the next
-     tile's ctx). */
+  /* Must cover the largest alignment in scratch_footprint. */
   return 4096UL;
 }
 
@@ -528,6 +529,9 @@ metrics_write( fd_snapin_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
   FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
+  FD_MCNT_SET  ( SNAPIN, DISK_BYTES_WRITTEN,     ctx->writer.bytes_written );
+  FD_MGAUGE_SET( SNAPIN, WRITEBACK_STATE,        ctx->writer.wb_state );
+  FD_MCNT_SET  ( SNAPIN, WRITEBACK_WAITS,        ctx->writer.wb_wait_cnt );
   FD_MGAUGE_SET( SNAPIN, ACCOUNT_LOADED,         ctx->metrics.accounts_loaded );
   FD_MGAUGE_SET( SNAPIN, ACCOUNT_REPLACED,       ctx->metrics.accounts_replaced );
   FD_MGAUGE_SET( SNAPIN, ACCOUNT_IGNORED,        ctx->metrics.accounts_ignored );
@@ -535,11 +539,8 @@ metrics_write( fd_snapin_tile_t * ctx ) {
   FD_MCNT_SET  ( SNAPIN, ACCOUNT_BATCH_PROCESSED, ctx->metrics.total_account_batches_processed );
 }
 
-/* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
-   sysvar account after loading a snapshot.  Uses the in-memory copy
-   read out of the shared winner-gated capture.  We cannot read from
-   accdb at this point because the write-behind may not have completed
-   yet for the SlotHistory bytes.
+/* verify_slot_deltas_with_slot_history checks the in-memory copy chosen
+   by the same account-stripe winner as accdb.
 
    Returns 0 if verification passed, -1 if not. */
 
@@ -1103,147 +1104,184 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
 
 /* Write engine ********************************************************/
 
-static void
-worker_reset_write_engine( fd_snapin_tile_t * ctx ) {
-  ctx->write_buf_used      = 0UL;
-  ctx->flush_off           = 0UL;
-  ctx->bytes_written       = 0UL;
-  ctx->whead.val           = 0UL;
-  ctx->whead.has_partition = 0;
-  ctx->whead.attempt_partition_cnt = 0UL; /* tracker buffer/capacity are set once at init */
-  fd_memset( &ctx->open_acc, 0, sizeof(ctx->open_acc) );
-  ctx->wb_run_sz  = 0UL;
-  ctx->wb_pending = 0UL;
-  ctx->wb_head    = 0UL;
-  ctx->wb_tail    = 0UL;
-  ctx->wb_kick_cnt = 0UL;
-  ctx->wb_wait_cnt = 0UL;
-}
-
-/* Write-behind machinery.  worker_wb_disable turns it off for the rest
-   of the run (unsupported filesystem); worker_wb_kick starts async
-   writeback of the accumulated contiguous run; worker_wb_track records
-   a flushed range and applies the smooth self-throttle backstop. */
-
-static void
-worker_wb_disable( fd_snapin_tile_t * ctx ) {
-  FD_LOG_WARNING(( "sync_file_range failed (%d-%s); disabling write-behind", errno, fd_io_strerror( errno ) ));
-  ctx->wb_window  = 0UL;
-  ctx->wb_run_sz  = 0UL;
-  ctx->wb_pending = 0UL;
-  ctx->wb_head    = ctx->wb_tail;
+FD_FN_CONST static inline ulong
+writer_window( ulong tile_cnt,
+               ulong total_window ) {
+  return tile_cnt>=FD_SNAPIN_WB_MIN_WORKERS ? total_window/tile_cnt : 0UL;
 }
 
 static void
-worker_wb_kick( fd_snapin_tile_t * ctx ) {
-  if( FD_LIKELY( !ctx->wb_run_sz ) ) return;
+writer_init( snapin_writer_t * writer,
+             int               fd,
+             uchar *           buf,
+             ulong             wb_window,
+             ulong             wb_kick_sz ) {
+  fd_memset( writer, 0, sizeof(*writer) );
+  writer->fd         = fd;
+  writer->buf        = buf;
+  writer->wb_state   = wb_window ? SNAPIN_WB_ON : SNAPIN_WB_OFF;
+  writer->wb_window  = wb_window;
+  writer->wb_kick_sz = wb_kick_sz;
+}
 
-  /* Ring full: retire the oldest range first. */
-  if( FD_UNLIKELY( ctx->wb_tail-ctx->wb_head>=FD_SNAPIN_WB_RING_CNT ) ) {
-    ulong idx = ctx->wb_head & (FD_SNAPIN_WB_RING_CNT-1UL);
-    while( FD_UNLIKELY( -1==sync_file_range( FD_ACCDB_FD_RW, (long)ctx->wb_ring[ idx ].off, (long)ctx->wb_ring[ idx ].sz,
-                                             SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER ) ) ) {
-      if( FD_LIKELY( errno==EINTR ) ) continue;
-      worker_wb_disable( ctx );
-      return;
+static void
+writer_begin( snapin_writer_t * writer ) {
+  FD_TEST( !writer->buf_used );
+  FD_TEST( !writer->wb_run_sz );
+}
+
+static void
+writer_wb_off( snapin_writer_t * writer,
+               int               err ) {
+  FD_LOG_WARNING(( "sync_file_range unsupported (%d-%s); disabling write-behind", err, fd_io_strerror( err ) ));
+  writer->wb_state  = SNAPIN_WB_UNSUPPORTED;
+  writer->wb_window = 0UL;
+  writer->wb_run_sz = 0UL;
+}
+
+static int
+writer_wb_wait( snapin_writer_t * writer ) {
+  if( FD_UNLIKELY( writer->wb_head==writer->wb_tail ) ) return 0;
+  ulong idx = writer->wb_head & (FD_SNAPIN_WB_RING_CNT-1UL);
+  for(;;) {
+    if( FD_LIKELY( -1!=sync_file_range( writer->fd, (long)writer->wb_ring[ idx ].off, (long)writer->wb_ring[ idx ].sz,
+                                        SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER ) ) ) break;
+    int err = errno;
+    int cls = snapin_sfr_class( err );
+    if( FD_LIKELY( cls==SNAPIN_IO_RETRY ) ) continue;
+    if( FD_UNLIKELY( cls==SNAPIN_IO_NOSYNC ) ) {
+      writer_wb_off( writer, err );
+      return 0;
     }
-    ctx->wb_pending -= ctx->wb_ring[ idx ].sz;
-    ctx->wb_head++;
-    ctx->wb_wait_cnt++;
+    FD_LOG_WARNING(( "sync_file_range wait failed (%d-%s)", err, fd_io_strerror( err ) ));
+    return -1;
   }
-
-  while( FD_UNLIKELY( -1==sync_file_range( FD_ACCDB_FD_RW, (long)ctx->wb_run_off, (long)ctx->wb_run_sz, SYNC_FILE_RANGE_WRITE ) ) ) {
-    if( FD_LIKELY( errno==EINTR ) ) continue;
-    worker_wb_disable( ctx );
-    return;
-  }
-  ctx->wb_ring[ ctx->wb_tail & (FD_SNAPIN_WB_RING_CNT-1UL) ] = (__typeof__(ctx->wb_ring[0])){ .off = ctx->wb_run_off, .sz = ctx->wb_run_sz };
-  ctx->wb_tail++;
-  ctx->wb_pending += ctx->wb_run_sz;
-  ctx->wb_run_sz   = 0UL;
-  ctx->wb_kick_cnt++;
+  writer->wb_pending -= writer->wb_ring[ idx ].sz;
+  writer->wb_head++;
+  writer->wb_wait_cnt++;
+  return 0;
 }
 
-static void
-worker_wb_track( fd_snapin_tile_t * ctx,
-                 ulong              off,
-                 ulong              sz ) {
-  if( FD_LIKELY( !ctx->wb_window ) ) return;
+static int
+writer_wb_kick( snapin_writer_t * writer ) {
+  if( FD_LIKELY( !writer->wb_window || !writer->wb_run_sz ) ) return 0;
 
-  if( FD_UNLIKELY( ctx->wb_run_sz && off!=ctx->wb_run_off+ctx->wb_run_sz ) ) worker_wb_kick( ctx ); /* partition rotation */
-  if( FD_UNLIKELY( !ctx->wb_run_sz ) ) ctx->wb_run_off = off;
-  ctx->wb_run_sz += sz;
-  if( FD_UNLIKELY( ctx->wb_run_sz>=ctx->wb_kick_sz ) ) worker_wb_kick( ctx );
+  if( FD_UNLIKELY( writer->wb_tail-writer->wb_head>=FD_SNAPIN_WB_RING_CNT ) ) {
+    if( FD_UNLIKELY( writer_wb_wait( writer ) ) ) return -1;
+    if( FD_UNLIKELY( !writer->wb_window ) ) return 0;
+  }
 
-  /* Backstop: wait on the oldest kicked range whenever the in-flight
-     window is exceeded.  That range was kicked tens of kicks ago
-     (window/kick_sz), so the wait is short and kick granular: the lane
-     runway rides through it where the kernel's coarse dirty-throttle
-     sleeps would stall the pipe. */
-  while( FD_UNLIKELY( ctx->wb_window && ctx->wb_pending>ctx->wb_window && ctx->wb_head!=ctx->wb_tail ) ) {
-    ulong idx = ctx->wb_head & (FD_SNAPIN_WB_RING_CNT-1UL);
-    while( FD_UNLIKELY( -1==sync_file_range( FD_ACCDB_FD_RW, (long)ctx->wb_ring[ idx ].off, (long)ctx->wb_ring[ idx ].sz,
-                                             SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER ) ) ) {
-      if( FD_LIKELY( errno==EINTR ) ) continue;
-      worker_wb_disable( ctx );
-      return;
+  for(;;) {
+    if( FD_LIKELY( -1!=sync_file_range( writer->fd, (long)writer->wb_run_off, (long)writer->wb_run_sz,
+                                        SYNC_FILE_RANGE_WRITE ) ) ) break;
+    int err = errno;
+    int cls = snapin_sfr_class( err );
+    if( FD_LIKELY( cls==SNAPIN_IO_RETRY ) ) continue;
+    if( FD_UNLIKELY( cls==SNAPIN_IO_NOSYNC ) ) {
+      writer_wb_off( writer, err );
+      return 0;
     }
-    ctx->wb_pending -= ctx->wb_ring[ idx ].sz;
-    ctx->wb_head++;
-    ctx->wb_wait_cnt++;
+    FD_LOG_WARNING(( "sync_file_range write failed (%d-%s)", err, fd_io_strerror( err ) ));
+    return -1;
   }
+
+  writer->wb_ring[ writer->wb_tail & (FD_SNAPIN_WB_RING_CNT-1UL) ] =
+      (__typeof__(writer->wb_ring[0])){ .off = writer->wb_run_off, .sz = writer->wb_run_sz };
+  writer->wb_tail++;
+  writer->wb_pending += writer->wb_run_sz;
+  writer->wb_run_sz   = 0UL;
+  writer->wb_kick_cnt++;
+  return 0;
 }
 
-/* Staging buffer: buffered pwrites into the tile's own accdb
-   partitions.  flush_off is explicit because per-tile offsets are only
-   sequential within a partition; worker_buffer_write flushes whenever
-   the allocator rotates. */
+static int
+writer_wb_track( snapin_writer_t * writer,
+                 ulong             off,
+                 ulong             sz ) {
+  if( FD_LIKELY( !writer->wb_window ) ) return 0;
 
-static void
-worker_buffer_flush( fd_snapin_tile_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->write_buf_used ) ) return;
+  if( FD_UNLIKELY( writer->wb_run_sz && off!=writer->wb_run_off+writer->wb_run_sz ) ) {
+    if( FD_UNLIKELY( writer_wb_kick( writer ) ) ) return -1;
+    if( FD_UNLIKELY( !writer->wb_window ) ) return 0;
+  }
+  if( FD_UNLIKELY( !writer->wb_run_sz ) ) writer->wb_run_off = off;
+  writer->wb_run_sz += sz;
+  if( FD_UNLIKELY( writer->wb_run_sz>=writer->wb_kick_sz ) ) {
+    if( FD_UNLIKELY( writer_wb_kick( writer ) ) ) return -1;
+  }
 
-  ulong sz  = ctx->write_buf_used;
-  ulong off = ctx->flush_off;
-  ulong bytes_written = 0UL;
-  while( bytes_written<sz ) {
-    long res = pwrite( FD_ACCDB_FD_RW, ctx->write_buf+bytes_written, sz-bytes_written, (long)(off+bytes_written) );
-    if( FD_UNLIKELY( -1L==res ) ) {
-      if( FD_LIKELY( errno==EINTR ) ) continue;
-      FD_LOG_ERR(( "error writing to disk (%d-%s)", errno, fd_io_strerror( errno ) ));
+  while( FD_UNLIKELY( writer->wb_window &&
+                      writer->wb_pending>writer->wb_window &&
+                      writer->wb_head!=writer->wb_tail ) ) {
+    if( FD_UNLIKELY( writer_wb_wait( writer ) ) ) return -1;
+  }
+  return 0;
+}
+
+static int
+writer_flush( snapin_writer_t * writer ) {
+  if( FD_UNLIKELY( !writer->buf_used ) ) return 0;
+
+  ulong sz   = writer->buf_used;
+  ulong off  = writer->buf_off;
+  ulong done = 0UL;
+  while( done<sz ) {
+    long res = pwrite( writer->fd, writer->buf+done, sz-done, (long)(off+done) );
+    if( FD_UNLIKELY( res<=0L ) ) {
+      int err = res<0L ? errno : EIO;
+      if( res<0L && FD_LIKELY( snapin_pwrite_class( err )==SNAPIN_IO_RETRY ) ) continue;
+      if( done ) {
+        memmove( writer->buf, writer->buf+done, sz-done );
+        writer->buf_off  += done;
+        writer->buf_used -= done;
+      }
+      FD_LOG_WARNING(( "snapshot write failed at offset %lu (%d-%s)", off+done, err, fd_io_strerror( err ) ));
+      return -1;
     }
-    bytes_written      += (ulong)res;
-    ctx->bytes_written += (ulong)res;
+    done                  += (ulong)res;
+    writer->bytes_written += (ulong)res;
   }
-  ctx->flush_off      += sz;
-  ctx->write_buf_used  = 0UL;
-
-  worker_wb_track( ctx, off, sz );
+  writer->buf_off  += sz;
+  writer->buf_used  = 0UL;
+  return writer_wb_track( writer, off, sz );
 }
 
-static void
-worker_buffer_write( fd_snapin_tile_t * ctx,
-                     ulong              file_off,
-                     uchar const *      data,
-                     ulong              sz ) {
-  /* Force a flush whenever the next offset is not the natural append
-     point (first write, or the allocator rotated to a new partition). */
-  if( FD_UNLIKELY( file_off!=ctx->flush_off+ctx->write_buf_used ) ) {
-    worker_buffer_flush( ctx );
-    ctx->flush_off = file_off;
+static int
+writer_write( snapin_writer_t * writer,
+              ulong             file_off,
+              uchar const *     data,
+              ulong             sz ) {
+  if( FD_UNLIKELY( !sz ) ) return 0;
+  if( FD_UNLIKELY( file_off!=writer->buf_off+writer->buf_used ) ) {
+    if( FD_UNLIKELY( writer_flush( writer ) ) ) return -1;
+    writer->buf_off = file_off;
   }
   while( sz ) {
-    ulong avail = FD_SNAPIN_WRITE_BUF_SZ - ctx->write_buf_used;
+    ulong avail = FD_SNAPIN_WRITE_BUF_SZ-writer->buf_used;
     ulong n     = fd_ulong_min( sz, avail );
-    fd_memcpy( ctx->write_buf + ctx->write_buf_used, data, n );
-    ctx->write_buf_used += n;
+    fd_memcpy( writer->buf+writer->buf_used, data, n );
+    writer->buf_used += n;
     data += n;
     sz   -= n;
-    if( FD_UNLIKELY( ctx->write_buf_used==FD_SNAPIN_WRITE_BUF_SZ ) ) worker_buffer_flush( ctx );
+    if( FD_UNLIKELY( writer->buf_used==FD_SNAPIN_WRITE_BUF_SZ && writer_flush( writer ) ) ) return -1;
   }
+  return 0;
+}
+
+static int
+writer_end( snapin_writer_t * writer ) {
+  if( FD_UNLIKELY( writer_flush( writer ) ) ) return -1;
+  return writer_wb_kick( writer );
 }
 
 static void
+writer_abort( snapin_writer_t * writer ) {
+  /* Submitted file ranges remain valid if their partitions are reused. */
+  writer->buf_used  = 0UL;
+  writer->wb_run_sz = 0UL;
+}
+
+static int
 worker_stage_meta( fd_snapin_tile_t * ctx,
                    ulong              file_off,
                    uchar const *      pubkey,
@@ -1254,7 +1292,7 @@ worker_stage_meta( fd_snapin_tile_t * ctx,
   meta.size       = (uint)data_len;
   meta.generation = 0U;
   fd_memcpy( meta.owner, owner, 32UL );
-  worker_buffer_write( ctx, file_off, meta.b, sizeof(fd_accdb_disk_meta_t) );
+  return writer_write( &ctx->writer, file_off, meta.b, sizeof(fd_accdb_disk_meta_t) );
 }
 
 /* Winner-gated snoops ***********************************************/
@@ -1299,23 +1337,11 @@ worker_snoop_need( uchar const * pubkey,
 FD_STATIC_ASSERT( sizeof(fd_feature_t)    <=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, snoop_prefix_buf );
 FD_STATIC_ASSERT( sizeof(fd_stake_state_t)<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, snoop_prefix_buf );
 
-/* worker_snoop_winner is the accdb snoop callback: the striped writer
-   invokes it for every insert-or-replace winner the tile flagged as a
-   candidate, with that account's stripe lock STILL HELD.  Because one
-   pubkey always hashes to one stripe, and because equal-slot
-   cross-appendvec duplicates hard-fail the load, the winners for a
-   given pubkey fire serialized and in strictly increasing slot order:
-   the last callback to fire is the highest-slot version, which is the
-   version the sequential loader would have kept.  Writing the shared
-   snoop targets only from here is therefore both race-free and
-   stream-order equivalent, with no positional tiebreak needed.
-
-   Distinct pubkeys may run here concurrently, but they only ever touch
-   disjoint targets: distinct elements of the feature snoop's per-id
-   arrays, or the stake-delegations struct, which serializes mutators on
-   its own write lock.  That nests the stake lock inside a stripe lock;
-   the order is one-way (no accdb path takes a stripe lock while holding
-   the stake lock), so it cannot deadlock. */
+/* The accdb writer calls worker_snoop_winner while holding the account
+   stripe.  Writes to one pubkey are serialized, so the last accepted
+   version also updates the shared snoop last.  Stake updates take the
+   stake lock inside the stripe lock.  No path takes these locks in the
+   opposite order. */
 
 static void
 worker_snoop_winner( void * cb_ctx,
@@ -1384,29 +1410,19 @@ worker_reset_attempt( fd_snapin_tile_t * ctx ) {
   ctx->owned_bytes      = 0UL;
   ctx->incr_fork        = ULONG_MAX;
   ctx->gate_pending     = 0;
-  worker_reset_write_engine( ctx );
+  ctx->whead.val                    = 0UL;
+  ctx->whead.has_partition          = 0;
+  ctx->whead.attempt_partition_cnt  = 0UL;
+  fd_memset( &ctx->open_acc, 0, sizeof(ctx->open_acc) );
   fd_memset( &ctx->worker, 0, sizeof(ctx->worker) );
   fd_memset( ctx->worker_metrics, 0, sizeof(ctx->worker_metrics) );
   ctx->pending.active            = 0;
   fd_ssparse_init( ctx->ssparse );
   fd_ssparse_batch_enable( ctx->ssparse, 1 );
   fd_ssparse_appendvec_passthrough_enable( ctx->ssparse, 1 );
-  /* claimed_appendvec is deliberately NOT reset here: a fresh claim is
-     drawn for every attempt when the attempt-slot gate opens, so there
-     is no unclaimed sentinel to restore.
-
-     The metrics.accounts_* gauges are likewise NOT reset here: they are
-     load-session cumulative, not attempt scoped, so that the cross-tile
-     sum the dashboards take never dips.  The INIT handler rebases them
-     (see the struct comment).
-
-     my_snoop's fail_partition_cnt is likewise NOT touched -- only the
-     owning tile's FAIL handler stamps it and only tile 0 clears it (at
-     the deferred-rollback gather), because INIT barriers complete in
-     arbitrary tile order and a tile zeroing its own list at INIT would
-     race tile 0's gather.  The shared next_appendvec, totals and
-     winner-gated snoop targets are re-zeroed once by tile 0 in its INIT
-     critical sequence, not per-tile here. */
+  /* The gate draws a fresh appendvec claim.  Tile 0 resets shared
+     attempt state and clears failed-partition lists after gathering
+     them.  Per-tile account gauges span the full and incremental load. */
 }
 
 /* worker_record_insert_metrics folds the outcome of one accepted
@@ -1489,9 +1505,10 @@ worker_process_account_batch( fd_snapin_tile_t *            ctx,
      the allocated explicit offsets; ignored dups burn no space). */
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( file_offsets[ i ]==ULONG_MAX ) ) continue;
-    worker_stage_meta( ctx, file_offsets[ i ], pubkeys[ i ], owners[ i ], data_lens[ i ] );
+    if( FD_UNLIKELY( worker_stage_meta( ctx, file_offsets[ i ], pubkeys[ i ], owners[ i ], data_lens[ i ] ) ) ) return -1;
     if( FD_LIKELY( data_lens[ i ] ) ) {
-      worker_buffer_write( ctx, file_offsets[ i ]+sizeof(fd_accdb_disk_meta_t), datas[ i ], data_lens[ i ] );
+      if( FD_UNLIKELY( writer_write( &ctx->writer, file_offsets[ i ]+sizeof(fd_accdb_disk_meta_t),
+                                    datas[ i ], data_lens[ i ] ) ) ) return -1;
     }
   }
 
@@ -1551,7 +1568,8 @@ worker_insert_one( fd_snapin_tile_t * ctx,
   ctx->open_acc.accepted = !ignored;
   ctx->open_acc.received = 0UL;
   ctx->open_acc.file_off = file_offsets[ 0 ];
-  if( FD_LIKELY( !ignored ) ) worker_stage_meta( ctx, file_offsets[ 0 ], pubkey, owner, data_len );
+  if( FD_LIKELY( !ignored ) &&
+      FD_UNLIKELY( worker_stage_meta( ctx, file_offsets[ 0 ], pubkey, owner, data_len ) ) ) return -1;
 
   worker_record_insert_metrics( ctx, 1UL, accounts_ignored, accounts_replaced, accounts_loaded,
                                 lamports, replaced_lamports, ignored_lamports );
@@ -1570,8 +1588,8 @@ worker_pending_flush( fd_snapin_tile_t * ctx ) {
                                          ctx->pending.lamports, ctx->pending.data_len, ctx->pending.executable,
                                          1, ctx->pending.buf, ctx->pending.write_pos ) ) ) return -1;
   if( FD_LIKELY( ctx->open_acc.accepted && ctx->pending.write_pos ) ) {
-    worker_buffer_write( ctx, ctx->open_acc.file_off+sizeof(fd_accdb_disk_meta_t),
-                         ctx->pending.buf, ctx->pending.write_pos );
+    if( FD_UNLIKELY( writer_write( &ctx->writer, ctx->open_acc.file_off+sizeof(fd_accdb_disk_meta_t),
+                                  ctx->pending.buf, ctx->pending.write_pos ) ) ) return -1;
   }
   ctx->open_acc.received = ctx->pending.write_pos;
   return 0;
@@ -1626,8 +1644,9 @@ worker_process_account_data( fd_snapin_tile_t *            ctx,
   }
 
   if( FD_LIKELY( ctx->open_acc.accepted ) ) {
-    worker_buffer_write( ctx, ctx->open_acc.file_off+sizeof(fd_accdb_disk_meta_t)+ctx->open_acc.received,
-                         data, data_sz );
+    if( FD_UNLIKELY( writer_write( &ctx->writer,
+                                  ctx->open_acc.file_off+sizeof(fd_accdb_disk_meta_t)+ctx->open_acc.received,
+                                  data, data_sz ) ) ) return -1;
   }
   ctx->open_acc.received += data_sz;
   return 0;
@@ -1966,7 +1985,6 @@ tile0_fold_attempt( fd_snapin_tile_t * ctx ) {
   ctx->dup_capitalization = totals->replaced_lamports;
   ctx->worker_fold.eq_slot_dups          += totals->eq_slot_dups;
   ctx->worker_fold.eq_slot_lamports_diff += totals->eq_slot_lamports_diff;
-  ctx->worker_fold.bytes_written         += totals->bytes_written;
 
   /* Slot history: hdr already holds the single winner-gated copy. */
   fd_snapio_snoop_hdr_t const * hdr = ctx->snoop_hdr;
@@ -2159,7 +2177,7 @@ tile0_init_attempt( fd_snapin_tile_t * ctx,
     fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
     ctx->accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
 
-    fd_accdb_snapshot_load_begin_with_writers( ctx->accdb, ctx->tile_cnt );
+    fd_accdb_snapshot_load_begin( ctx->accdb );
 
     ctx->slot_history.captured = 0;
 
@@ -2257,6 +2275,7 @@ attempt_gate_open( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->full ? ctx->incr_fork!=(ulong)USHORT_MAX : ctx->incr_fork>=(ulong)USHORT_MAX ) ) {
     FD_LOG_ERR(( "invalid attempt fork %lu (full=%d); this is a bug", ctx->incr_fork, (int)ctx->full ));
   }
+  writer_begin( &ctx->writer );
   fd_accdb_snapshot_writer_begin( ctx->accdb );
 
   /* Eager claim.  The counter was re-zeroed by tile 0 before it
@@ -2382,17 +2401,20 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      /* Make every staged byte durable and hand off the final partition
-         before acking: tile 0's readback gate and load_end at the DONE
-         barrier run only after all FINI acks. */
-      worker_buffer_flush( ctx );
+      /* Flush every record before acking.  DONE requires page-cache
+         readability, not stable-storage durability. */
+      if( FD_UNLIKELY( writer_end( &ctx->writer ) ) ) {
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
       fd_accdb_snapshot_worker_close( ctx->accdb, &ctx->whead );
       fd_accdb_snapshot_writer_end( ctx->accdb );
       fd_accdb_snapshot_flush_worker_metrics( ctx->accdb, ctx->worker_metrics );
 
       FD_LOG_NOTICE(( "snapin %lu: owned appendvecs=%lu owned_bytes=%lu bytes_written=%lu, wb kicks=%lu waits=%lu",
-                      ctx->tile_idx, ctx->owned_appendvecs, ctx->owned_bytes, ctx->bytes_written,
-                      ctx->wb_kick_cnt, ctx->wb_wait_cnt ));
+                      ctx->tile_idx, ctx->owned_appendvecs, ctx->owned_bytes, ctx->writer.bytes_written,
+                      ctx->writer.wb_kick_cnt, ctx->writer.wb_wait_cnt ));
       if( FD_UNLIKELY( is_lead( ctx ) ) ) log_appendvec_stats( ctx );
 
       /* Equal-slot cross-appendvec duplicates are accepted, not
@@ -2412,7 +2434,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_ATOMIC_FETCH_AND_ADD( &totals->input_lamports,        ctx->worker.input_lamports                 );
       FD_ATOMIC_FETCH_AND_ADD( &totals->replaced_lamports,     ctx->worker.replaced_lamports              );
       FD_ATOMIC_FETCH_AND_ADD( &totals->ignored_lamports,      ctx->worker.ignored_lamports               );
-      FD_ATOMIC_FETCH_AND_ADD( &totals->bytes_written,         ctx->bytes_written                         );
       FD_ATOMIC_FETCH_AND_ADD( &totals->eq_slot_dups,          ctx->worker_metrics->eq_slot_dups          );
       FD_ATOMIC_FETCH_AND_ADD( &totals->eq_slot_lamports_diff, ctx->worker_metrics->eq_slot_lamports_diff );
       FD_ATOMIC_FETCH_AND_ADD( &totals->appendvecs_processed,  ctx->owned_appendvecs                      );
@@ -2510,9 +2531,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       fd_feature_snoop_finalize( &ctx->bank->f.features, ctx->bank_slot, &ctx->epoch_schedule, ctx->feature_snoop );
 
-      FD_LOG_NOTICE(( "parallel loader: equal-slot cross-appendvec dups=%lu (lamports-diff=%lu), worker bytes written=%lu",
-                      ctx->worker_fold.eq_slot_dups, ctx->worker_fold.eq_slot_lamports_diff,
-                      ctx->worker_fold.bytes_written ));
+      FD_LOG_NOTICE(( "parallel loader: equal-slot cross-appendvec dups=%lu (lamports-diff=%lu)",
+                      ctx->worker_fold.eq_slot_dups, ctx->worker_fold.eq_slot_lamports_diff ));
       if( FD_UNLIKELY( ctx->worker_fold.eq_slot_dups ) ) {
         FD_LOG_WARNING(( "parallel loader: accepted %lu equal-slot cross-appendvec duplicates (lamports-diff=%lu); "
                          "stripe-lock arrival order picked the winner",
@@ -2534,20 +2554,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
-      /* Worker-side teardown.  Close the final open partition (stamps
-         its write_offset and books the tail slack, exactly like a
-         rotation would) and publish this attempt's partition list
-         before dropping the tracker: tile 0 gathers the lists at its
-         deferred rollback and releases the partitions once the index
-         purge completed.  Fold the attempt's buffered shared-counter
-         deltas (disk_used_bytes, accounts_total) BEFORE they are
-         discarded: the purge subtracts per unlinked entry, so
-         discarding the additions would leave the shared counters
-         net-negative by the attempt's contribution.  The staging
-         buffer and private write head are then simply forgotten.  The
-         FAIL ack below is this tile's quiesce certificate: after it,
-         the tile touches no shared accdb state until the next attempt's
-         slot gate opens. */
+      /* Drop buffered bytes and close the partition.  Flush metrics
+         before rollback subtracts this attempt's inserted entries. */
+      writer_abort( &ctx->writer );
       fd_accdb_snapshot_worker_close( ctx->accdb, &ctx->whead );
       fd_accdb_snapshot_flush_worker_metrics( ctx->accdb, ctx->worker_metrics );
       ctx->my_snoop->fail_partition_cnt = ctx->whead.attempt_partition_cnt;
@@ -2863,12 +2872,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->whead.attempt_partition_max = FD_SNAPIO_FAIL_PARTITION_MAX;
 
   /* wb_total_window was sized from MemTotal in privileged_init. */
-  ctx->wb_kick_sz = FD_SNAPIN_WB_KICK_SZ;
-  ctx->wb_window  = ctx->tile_cnt>=FD_SNAPIN_WB_MIN_WORKERS
-                  ? ctx->wb_total_window/ctx->tile_cnt : 0UL;
+  ulong wb_window = writer_window( ctx->tile_cnt, ctx->wb_total_window );
   if( FD_UNLIKELY( is_lead( ctx ) ) ) {
     FD_LOG_NOTICE(( "snapin: write-behind window %lu MiB aggregate, %lu MiB per tile (%lu tiles)",
-                    ctx->wb_total_window>>20, ctx->wb_window>>20, ctx->tile_cnt ));
+                    ctx->wb_total_window>>20, wb_window>>20, ctx->tile_cnt ));
   }
 
   /* Every tile updates the root stake delegations from its snoop
@@ -2903,7 +2910,8 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( ctx->slot_delta_parser );
   }
 
-  ctx->write_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096UL, FD_SNAPIN_WRITE_BUF_SZ );
+  uchar * write_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096UL, FD_SNAPIN_WRITE_BUF_SZ );
+  writer_init( &ctx->writer, FD_ACCDB_FD_RW, write_buf, wb_window, FD_SNAPIN_WB_KICK_SZ );
 
   ctx->alpenglow = tile->snapin.alpenglow;
   ctx->blockhash_groups_len = 0UL;

@@ -1686,6 +1686,9 @@ EXAMPLES
     <gauge name="State" summary="0=idle, 1=processing, 2=finishing, 3=error, 4=shutdown" />
     <gauge name="FullBytesRead" summary="Bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalBytesRead" summary="Bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <counter name="DiskBytesWritten" summary="Bytes this tile has written to the accounts database file" />
+    <gauge name="WritebackState" summary="Write-behind state: 0=off, 1=on, 2=off because sync_file_range is unsupported" />
+    <counter name="WritebackWaits" summary="Times this tile waited because its write-behind window was full" />
     <gauge name="AccountLoaded" summary="Accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts" />
     <gauge name="AccountReplaced" summary="Previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts" />
     <gauge name="AccountIgnored" summary="Stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" />

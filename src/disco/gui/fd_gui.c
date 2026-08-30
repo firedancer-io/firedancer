@@ -1560,11 +1560,14 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
     case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: {
       ulong snapshot_idx = fd_ulong_if( gui->summary.boot_progress.phase==FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
       ulong _retry_cnt = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_RETRY ) ], snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_RETRY ) ]);
+      ulong _snapwr_out_total = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapin", snapin_tile_cnt,
+                                                                  MIDX( COUNTER, SNAPIN, DISK_BYTES_WRITTEN ) );
 
       /* reset boot state if necessary */
       if( FD_UNLIKELY( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt!=_retry_cnt ) ) {
         gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_time_nanos = now;
         gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt = _retry_cnt;
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].snapwr_out_baseline = _snapwr_out_total;
       }
 
       ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ],                 snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ]                );
@@ -1579,16 +1582,14 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       ulong _insert_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].insert_accounts_current );
       ulong _insert_accounts               = fd_ulong_sat_sub( _insert_accounts_total, _insert_accounts_baseline );
 
-      /* The snapin tiles write account data to disk as they insert it,
-         so the write stage of the JSON surface tracks the insert stage. */
+      /* Keep the legacy snapwr fields, but report real file writes. */
       ulong _snapwr_in_bytes       = _insert_bytes;
       ulong _snapwr_accounts_total = _insert_accounts_total;
-      ulong _snapwr_out_total      = _insert_bytes;
 
       ulong _snapwr_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].snapwr_accounts_current );
       ulong _snapwr_accounts               = fd_ulong_sat_sub( _snapwr_accounts_total, _snapwr_accounts_baseline );
 
-      ulong _snapwr_out_baseline           = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].snapwr_out_bytes_decompressed );
+      ulong _snapwr_out_baseline           = gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].snapwr_out_baseline;
       ulong _snapwr_out_bytes              = fd_ulong_sat_sub( _snapwr_out_total, _snapwr_out_baseline );
 
       /* metadata */

@@ -354,7 +354,6 @@ fd_accdb_shmem_new( void * shmem,
 
   accdb->partition_lock   = 0;
   accdb->snapshot_loading = 0;
-  accdb->snapshot_writer_cnt = 0UL;
   accdb->bundle_enabled   = bundle_enabled;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->clock_hand[ c ].val = 0UL;

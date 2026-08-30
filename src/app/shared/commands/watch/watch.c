@@ -1840,19 +1840,7 @@ run( config_t const * config,
       snapshot_rx_idx++;
       snapshot_acc_samples[ snapshot_acc_idx%(sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0])) ] = diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) );
       snapshot_acc_idx++;
-      /* There is no snapwr tile in any topology, so the write rate is
-         not directly observable: every snapin tile writes its own share
-         of the accounts database file as it inserts.  Approximate it
-         with one snapin tile's tar-stream intake rate -- every snapin
-         tile walks the whole stream, so any one of them (there is no
-         coordinator/worker split to pick a "the" tile) is a
-         representative sample; summing across all N would inflate this
-         by roughly N. */
-      ulong snapin_tile_idx = fd_topo_find_tile( &config->topo, "snapin", 0UL );
-      long  rd = snapin_tile_idx==ULONG_MAX ? 0L :
-                 diff_tile_idx( tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, snapin_tile_idx, MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ) +
-                 diff_tile_idx( tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, snapin_tile_idx, MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) );
-      snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = (ulong)fd_long_max( rd, 0L );
+      snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, SNAPIN, DISK_BYTES_WRITTEN ) );
       snapshot_wr_idx++;
 
       /* Backup */

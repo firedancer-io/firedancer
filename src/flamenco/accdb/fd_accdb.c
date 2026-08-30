@@ -433,7 +433,6 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->cmd_fork_id = USHORT_MAX;
 
   shmem->snapshot_loading = 0;
-  shmem->snapshot_writer_cnt = 0UL;
 
   FD_COMPILER_MFENCE();
 
@@ -454,18 +453,10 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
 }
 
 void
-fd_accdb_snapshot_load_begin_with_writers( fd_accdb_t * accdb,
-                                           ulong        writer_cnt ) {
-  FD_TEST( writer_cnt );
+fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
   FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE,
                  "snapshot load started while snapshot production active" );
-  FD_VOLATILE( accdb->shmem->snapshot_writer_cnt ) = writer_cnt;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
-}
-
-void
-fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
-  fd_accdb_snapshot_load_begin_with_writers( accdb, 1UL );
 }
 
 void
@@ -563,7 +554,6 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   }
 
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 0;
-  FD_VOLATILE( accdb->shmem->snapshot_writer_cnt ) = 0UL;
 
   /* Sweep all partitions written during the load — any that crossed
      the fragmentation threshold while enqueue was suppressed are
@@ -694,6 +684,9 @@ fd_accdb_snapshot_worker_release_partitions( fd_accdb_t * accdb,
     ulong current = part->bytes_written + ( accdb->shmem->partition_sz - part->write_offset );
     FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_current_bytes, current );
 
+    part->bytes_freed       = 0UL;
+    part->marked_compaction = 0UL;
+    part->queued            = 0;
     partition_pool_ele_release( accdb->partition_pool, part );
   }
   spin_lock_release( &accdb->shmem->partition_lock );
@@ -3645,7 +3638,7 @@ release_inner( fd_accdb_t * accdb,
 
       fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
       FD_TEST( txn ); /* Sized so it always succeeds */
-      txn->acc_map_idx  = accs[ i ]._acc_map_idx;
+      txn->acc_map_idx  = (uint)accs[ i ]._acc_map_idx;
       txn->acc_pool_idx = (uint)acc_idx;
       uint txn_idx = (uint)txn_pool_idx( accdb->txn_pool, txn );
       for(;;) {
@@ -4274,7 +4267,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
     if( FD_UNLIKELY( incremental ) ) {
       fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
       if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-      txn->acc_map_idx  = hash;
+      txn->acc_map_idx  = (uint)hash;
       txn->acc_pool_idx = acc_idx;
       uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
       txn->fork.next          = fork->shmem->txn_head;
@@ -4483,7 +4476,7 @@ fd_accdb_snapshot_write_batch_impl( fd_accdb_t *        accdb,
       if( FD_UNLIKELY( incremental ) ) {
         fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
         if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-        txn->acc_map_idx  = hashes[ i ];
+        txn->acc_map_idx  = (uint)hashes[ i ];
         txn->acc_pool_idx = acc_idx;
         uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
         txn->fork.next          = fork->shmem->txn_head;
@@ -4648,20 +4641,11 @@ fd_accdb_snapshot_write_batch_worker( fd_accdb_t *                         accdb
         if( FD_LIKELY( existing_slot>slot ) ) {
           skip = 1;
         } else if( FD_UNLIKELY( existing_slot==slot ) ) {
-          /* Equal-slot cross-appendvec duplicate.  Agave tolerates
-             these (last-in-file wins); an honest producer never
-             emits one.  Under parallel load, the winner is whichever
-             writer takes the stripe lock first -- nondeterministic
-             for a non-identical payload, but outcome-identical for
-             the byte-identical duplicates every observed snapshot
-             actually contains.  eq_slot_lamports_diff surfaces the
-             nondeterministic case if it ever occurs.  A deterministic
-             (appendvec_idx, record_idx) tiebreak is a possible future
-             upgrade; it would need the incumbent's stream position,
-             which does not fit the 64-byte index entry today. */
+          /* Equal-slot duplicates use last-arrival-wins ordering. */
           metrics->eq_slot_dups++;
           if( FD_UNLIKELY( candidate->lamports!=lamports[ i ] ) ) metrics->eq_slot_lamports_diff++;
-          skip = 1;
+          if( FD_UNLIKELY( incremental && candidate->key.generation!=gen ) ) cross_existing = candidate;
+          else                                                               existing       = candidate;
         } else if( FD_UNLIKELY( incremental ) && candidate->key.generation!=gen ) {
           cross_existing = candidate;
         } else {
@@ -4755,7 +4739,7 @@ fd_accdb_snapshot_write_batch_worker( fd_accdb_t *                         accdb
          advance_root on T2) only run after all workers quiesced. */
       fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
       if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-      txn->acc_map_idx  = hashes[ i ];
+      txn->acc_map_idx  = (uint)hashes[ i ];
       txn->acc_pool_idx = acc_idx;
       uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
       for(;;) {

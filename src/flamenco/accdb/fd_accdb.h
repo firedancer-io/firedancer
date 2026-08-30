@@ -113,35 +113,14 @@ fd_accdb_join_readonly( void *             ljoin,
                         ulong *            my_epoch_slot_rw,
                         int                fd_ro );
 
-/* fd_accdb_snapshot_load_{begin,end} toggle a mode on this writer
-   joiner that causes layer-0 partition handoffs to backfill tiering
-   for older snapshot-loaded partitions.  Specifically, when a new
-   partition P is opened at layer 0, the partition at P-2 is retiered
-   to Warm (layer 1) and the partition at P-3 is retiered to Cold
-   (layer 2).  This compensates for the fact that snapshot-loaded
-   accounts never get a second write and therefore never get promoted
-   by normal compaction-driven tiering.
-
-   A single-writer snapshot loader has exclusive write access to
-   acc_pool.  Multi-writer loaders serialize hash-chain access with the
-   striped locks of fd_accdb_snapshot_write_batch_worker.
-
-   fd_accdb_snapshot_load_begin is the single-writer entry point.
-   fd_accdb_snapshot_load_begin_with_writers declares the number of
-   joiners that may concurrently mutate the snapshot index.  The
-   coordinator calls it before any writer starts and calls load_end
-   after every writer stops.  With more than one writer the on-disk
-   layout is no longer stream-ordered: each writer appends into its own
-   partitions from a private write head, and every writer must use
-   fd_accdb_snapshot_write_batch_worker (the only entry point that
-   serializes chain access and allocates from a private write head). */
+/* fd_accdb_snapshot_load_{begin,end} suspend compaction while snapshot
+   writers build the index.  New layer-0 partitions are tagged Cold;
+   load_end opens a fresh Hot partition for runtime writes.  Call begin
+   before any writer starts and end after all writers stop.  Parallel
+   writers must use fd_accdb_snapshot_write_batch_worker. */
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
-
-void
-fd_accdb_snapshot_load_begin_with_writers( fd_accdb_t * accdb,
-                                           ulong        writer_cnt );
 
 /* Each parallel snapshot index writer brackets its job stream with
    writer_begin/writer_end.  This lets it amortize shared acc_pool
@@ -632,11 +611,9 @@ typedef void (*fd_accdb_snapshot_snoop_fn_t)( void * cb_ctx, ulong batch_idx );
    Each writer allocates its own disk offsets from whead, and the
    insert/replace/ignore decision is made BEFORE allocation, so ignored
    duplicates burn no disk space.  Partition rotation is hoisted outside
-   the stripe lock so a partition fallocate never runs under a contended
-   lock.  Equal-slot cross-appendvec duplicates cannot be tiebroken
-   (worker-local offsets are not stream ordered): they are counted in
-   metrics->eq_slot_dups and treated as ignored; the caller must fail
-   the load if the count is nonzero.
+   the stripe lock.  Equal-slot duplicates replace the current value, so
+   the last writer through the stripe lock wins.  This order depends on
+   scheduling.  metrics->eq_slot_dups counts these replacements.
 
    fork_id has the same semantics as in fd_accdb_snapshot_write_batch:
    USHORT_MAX selects full-snapshot mode, otherwise incremental mode

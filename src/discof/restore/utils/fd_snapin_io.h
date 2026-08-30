@@ -1,55 +1,11 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_snapin_io_h
 #define HEADER_fd_src_discof_restore_utils_fd_snapin_io_h
 
-/* fd_snapin_io defines the shared-memory coordination state between
-   the N symmetric fused parse+insert+write snapin tiles of the
-   tar-boundary-sharded snapshot-load topology.  There is no
-   coordinator and no message-passing protocol between the tiles: every
-   tile independently reassembles the decompressed stream from all
-   snapdc lanes, walks the tar entry headers, and parses+inserts only
-   the appendvecs it claims from the shared `next_appendvec` counter.
-   All controls (INIT/FINI/...) ride the data lanes as barriers, exactly
-   as in the sequential loader, and every tile acks them to snapct on
-   its own snapin_ct link.
-
-   The "snapio_snoop" topology object holds:
-
-     - the striped spin locks serializing accdb hash-chain access
-       across the parallel writers;
-
-     - the attempt slot, published by tile 0 at its INIT barrier (after
-       its attempt-scoped accdb work: reset+attach for a full load,
-       attach_child+doomed-partition release for an incremental one).
-       Every tile gates its first insert of the attempt on it, because
-       nothing else orders tile 0's INIT-time accdb work against another
-       tile's first insert: snapct does not gate DATA on INIT acks.  The
-       gate is non-blocking -- a tile holds its data lanes until the slot
-       carries its generation, so an attempt whose INIT barrier was
-       aborted on tile 0 still drains and retries.  The accdb fork id for
-       the attempt rides the slot;
-
-     - `next_appendvec`, the eager-claim counter every tile
-       fetch-and-adds to pick the appendvecs it owns (no static
-       ownership rule, no load-balancing pass);
-
-     - `totals`, the cross-tile account/byte accumulator each tile
-       folds its FINI counters into directly (no per-tile staging left
-       to gather: tile 0 reads `totals` straight at the NEXT/DONE
-       barrier, once all FINI acks -- and therefore all folds -- have
-       completed);
-
-     - winner-gated snoop targets (the SlotHistory sysvar capture and
-       the feature-gate snoop block) that every tile updates in place
-       as it streams past the relevant accounts, replacing the old
-       per-tile staging + end-of-load k-way merge: whichever tile last
-       wins the account's stripe lock in the accdb writer also wins the
-       snoop target, so there is exactly one copy to read at DONE, not
-       N to merge;
-
-     - the fail_partitions list each tile stamps before its FAIL ack,
-       which tile 0 gathers during its deferred rollback at the retry's
-       INIT barrier (snapct gates the retry INIT on all FAIL acks, so
-       every tile has provably quiesced by then). */
+/* Shared state for the parallel snapin tiles.  Every tile scans the tar
+   headers and claims appendvecs from next_appendvec.  Tile 0 publishes
+   the attempt before any tile writes.  The object also owns accdb
+   stripe locks, end-of-attempt totals, shared snoop results, and each
+   tile's failed-partition list. */
 
 #include "fd_ssctrl.h"
 #include "../../../flamenco/features/fd_feature_snoop.h"
@@ -92,7 +48,6 @@ struct __attribute__((aligned(64))) fd_snapio_totals {
   ulong input_lamports;
   ulong replaced_lamports;
   ulong ignored_lamports;
-  ulong bytes_written;
   ulong eq_slot_dups;
   ulong eq_slot_lamports_diff;
   ulong appendvecs_processed;
@@ -168,15 +123,9 @@ struct fd_snapio_snoop_hdr {
 
   fd_snapio_totals_t totals;
 
-  /* Winner-gated SlotHistory sysvar capture.  Whichever tile last
-     writes (or replaces) the SlotHistory account -- i.e. whichever
-     tile last wins that account's accdb stripe lock -- also owns this
-     capture, so there is exactly one copy to read at DONE instead of N
-     per-tile copies to merge.  Reproduces the sequential loader's
-     "last write wins" semantics without the old (slot, appendvec_idx,
-     record_idx) stream-position tiebreak: the accdb stripe lock is
-     already the single serialization point for "which write is last",
-     so no secondary positional arbitration is needed. */
+  /* The last accepted SlotHistory write also updates this capture while
+     holding the account stripe.  The database and snoop therefore keep
+     the same schedule-selected value. */
   struct __attribute__((aligned(64))) {
     int   captured;
     int   executable;
@@ -187,12 +136,7 @@ struct fd_snapio_snoop_hdr {
     uchar buf[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
   } slot_history;
 
-  /* Winner-gated feature-gate snoop.  Same principle as slot_history
-     above, per feature id: the tile that wins the account's stripe
-     lock records that feature's activation state directly here, so the
-     old per-id (appendvec_idx, record_idx) positional arrays
-     (feature_av[]/feature_rec[]) used only to arbitrate between
-     per-tile copies are gone -- there is only ever one copy. */
+  /* Feature accounts use the same winner rule as SlotHistory. */
   fd_feature_snoop_t feature_snoop;
 };
 
