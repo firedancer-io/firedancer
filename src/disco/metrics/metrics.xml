@@ -1169,7 +1169,7 @@ EXAMPLES
     <counter name="AccountRelocated" summary="Total number of accounts moved in the account database during compaction" />
     <gauge name="DiskAllocatedBytes" summary="Total allocated size of the account database on disk" />
     <gauge name="DiskCurrentBytes" summary="Total written-through size of the account database on disk, excluding never-written partition tail space" />
-    <gauge name="DiskUsedBytes" summary="Total size of the account database on disk that is currently used" />
+    <gauge name="DiskUsedBytes" summary="Size of the live account revisions in the database, counted uncompressed (records are stored fd_zle compressed, so this reads above the space they actually occupy)" />
     <gauge name="InCompaction" summary="1 if a compaction is currently in progress, 0 if not" />
     <counter name="CompactionRequested" summary="Total number of compactions requested on the account database" />
     <counter name="CompactionCompleted" summary="Total number of compactions fully completed on the account database, less than or equal to the requested amount" />

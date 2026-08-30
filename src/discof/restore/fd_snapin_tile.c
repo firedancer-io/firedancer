@@ -131,6 +131,26 @@ struct fd_snapin_tile {
     uchar       buf[ sizeof(fd_stake_state_t) ];
   } stake_reasm;
 
+  /* Account being reassembled on the streaming (non-batch) path.
+     Accounts are stored on disk fd_zle compressed, and the compressed
+     size is only known once the whole body is in hand, so the accdb
+     write is deferred until the body is complete.  buf carries 64 bytes
+     of tail slack because fd_zle_compress reads its input a 64 byte
+     word at a time.  rec stages the finished record; only its size is
+     used here (snapwr writes the bytes). */
+  struct {
+    int     active;
+    uchar   pubkey[ 32UL ];
+    uchar   owner [ 32UL ];
+    ulong   slot;
+    ulong   lamports;
+    ulong   data_len;
+    ulong   data_used;
+    int     executable;
+  } acc;
+  uchar * acc_buf;
+  uchar * acc_rec;
+
   fd_ssparse_t             ssparse[1];
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
@@ -271,6 +291,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
   l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  l = FD_LAYOUT_APPEND( l, 64UL,                          FD_ACCDB_ACC_DATA_MAX+64UL                                  );
+  l = FD_LAYOUT_APPEND( l, 64UL,                          FD_ACCDB_REC_MAX                                            );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -884,6 +906,7 @@ process_account_batch( fd_snapin_tile_t *            ctx,
   ulong         slots      [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   ulong         lamports   [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   ulong         data_lens  [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  ulong         rec_lens   [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   int           executables[ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
 
   for( ulong i=0UL; i<cnt; i++ ) {
@@ -893,6 +916,23 @@ process_account_batch( fd_snapin_tile_t *            ctx,
     lamports[ i ]    = fd_ulong_load_8_fast( e+48UL );
     data_lens[ i ]   = fd_ulong_load_8_fast( e+8UL );
     executables[ i ] = e[ 96UL ];
+
+    /* Size the on-disk record exactly as snapwr will write it.  The two
+       tiles never talk, so both derive the layout from the account
+       bytes through fd_accdb_snapshot_stage_record.
+
+       fd_zle_compress reads its input a 64 byte word at a time.  For
+       every entry but the last that reads into the following entry's
+       header, which is inside the frag.  The last entry can end at the
+       frag's last byte, so it is staged through acc_buf, whose tail
+       slack is zeroed. */
+    uchar const * body = e+136UL;
+    if( FD_UNLIKELY( i==cnt-1UL ) ) {
+      fd_memcpy( ctx->acc_buf, body, data_lens[ i ] );
+      fd_memset( ctx->acc_buf+data_lens[ i ], 0, fd_ulong_align_up( data_lens[ i ], 64UL )-data_lens[ i ] );
+      body = ctx->acc_buf;
+    }
+    rec_lens[ i ] = fd_accdb_snapshot_stage_record( ctx->acc_rec, pubkeys[ i ], e+64UL, body, data_lens[ i ] );
 
     /* Snoop SlotHistory sysvar.  Account body in the batch path is
        contiguous starting at e+136. */
@@ -919,7 +959,7 @@ process_account_batch( fd_snapin_tile_t *            ctx,
 
   ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
   fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
-  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
+  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens, rec_lens,
                                                      executables, &accounts_ignored, &accounts_replaced, &accounts_loaded,
                                                      &replaced_lamports, &ignored_lamports ) ) ) {
     return -1;
@@ -942,20 +982,33 @@ process_account_batch( fd_snapin_tile_t *            ctx,
   return 0;
 }
 
-static int
-process_account_header( fd_snapin_tile_t * ctx,
-                        fd_ssparse_advance_result_t * result ) {
-  ctx->metrics.total_account_batches_processed++;
-  ctx->metrics.total_accounts_processed++;
+/* account_flush commits the reassembled streaming-path account to the
+   accdb index.  The write is deferred to here (rather than done at
+   header time) because the on-disk record is fd_zle compressed, so how
+   much file space to reserve is only known once the whole body is in
+   hand.  snapwr reserves the same space for the same account by staging
+   the same record. */
+
+static void
+account_flush( fd_snapin_tile_t * ctx ) {
+  ulong data_len = ctx->acc.data_len;
+  fd_memset( ctx->acc_buf+data_len, 0, fd_ulong_align_up( data_len, 64UL )-data_len );
+  ulong rec_len = fd_accdb_snapshot_stage_record( ctx->acc_rec,
+                                                  ctx->acc.pubkey,
+                                                  ctx->acc.owner,
+                                                  ctx->acc_buf,
+                                                  data_len );
+
   ulong replaced_lamports = 0UL;
   fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
   int account = fd_accdb_snapshot_write_one( ctx->accdb,
                                              fork_id,
-                                             result->account_header.pubkey,
-                                             result->account_header.slot,
-                                             result->account_header.lamports,
-                                             result->account_header.data_len,
-                                             result->account_header.executable,
+                                             ctx->acc.pubkey,
+                                             ctx->acc.slot,
+                                             ctx->acc.lamports,
+                                             data_len,
+                                             rec_len,
+                                             ctx->acc.executable,
                                              &replaced_lamports );
   if( FD_UNLIKELY( -1==account ) ) {
     ctx->metrics.accounts_ignored++;
@@ -966,8 +1019,27 @@ process_account_header( fd_snapin_tile_t * ctx,
     } else {
       ctx->metrics.accounts_loaded++;
     }
-    ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, result->account_header.lamports );
+    ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, ctx->acc.lamports );
   }
+
+  ctx->acc.active = 0;
+}
+
+static int
+process_account_header( fd_snapin_tile_t * ctx,
+                        fd_ssparse_advance_result_t * result ) {
+  ctx->metrics.total_account_batches_processed++;
+  ctx->metrics.total_accounts_processed++;
+
+  FD_TEST( result->account_header.data_len<=FD_ACCDB_ACC_DATA_MAX );
+  fd_memcpy( ctx->acc.pubkey, result->account_header.pubkey, 32UL );
+  fd_memcpy( ctx->acc.owner,  result->account_header.owner,  32UL );
+  ctx->acc.slot       = result->account_header.slot;
+  ctx->acc.lamports   = result->account_header.lamports;
+  ctx->acc.data_len   = result->account_header.data_len;
+  ctx->acc.data_used  = 0UL;
+  ctx->acc.executable = result->account_header.executable;
+  ctx->acc.active     = 1;
 
   /* Snoop SlotHistory sysvar.  Streaming path: arm the capture window
      here; process_account_data appends bytes while armed. */
@@ -1001,8 +1073,7 @@ process_account_header( fd_snapin_tile_t * ctx,
   }
 
   ctx->stake_reasm.capturing = 0;
-  if( FD_UNLIKELY( account!=-1 &&
-                   result->account_header.lamports &&
+  if( FD_UNLIKELY( result->account_header.lamports &&
                    result->account_header.data_len>=sizeof(fd_stake_state_t) &&
                    !memcmp( result->account_header.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
     memcpy( ctx->stake_reasm.pubkey.uc, result->account_header.pubkey, sizeof(fd_pubkey_t) );
@@ -1012,12 +1083,19 @@ process_account_header( fd_snapin_tile_t * ctx,
     ctx->stake_reasm.capturing = 1;
   }
 
+  if( FD_UNLIKELY( !ctx->acc.data_len ) ) account_flush( ctx );
+
   return 0;
 }
 
 static void
 process_account_data( fd_snapin_tile_t *            ctx,
                       fd_ssparse_advance_result_t * result ) {
+  FD_TEST( ctx->acc.active );
+  FD_TEST( ctx->acc.data_used+result->account_data.data_sz<=ctx->acc.data_len );
+  fd_memcpy( ctx->acc_buf+ctx->acc.data_used, result->account_data.data, result->account_data.data_sz );
+  ctx->acc.data_used += result->account_data.data_sz;
+
   if( FD_UNLIKELY( ctx->slot_history.capturing ) ) {
     ulong remaining = ctx->slot_history.data_len - ctx->slot_history.write_pos;
     ulong copy_sz   = fd_ulong_min( result->account_data.data_sz, remaining );
@@ -1054,6 +1132,8 @@ process_account_data( fd_snapin_tile_t *            ctx,
       ctx->stake_reasm.capturing = 0;
     }
   }
+
+  if( FD_LIKELY( ctx->acc.data_used==ctx->acc.data_len ) ) account_flush( ctx );
 }
 
 static int
@@ -1379,6 +1459,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_memset( ctx->feature_snoop, 0, sizeof(ctx->feature_snoop) );
         ctx->feature_reasm.capturing = 0;
         ctx->stake_reasm.capturing   = 0;
+        ctx->acc.active              = 0;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
@@ -1393,6 +1474,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->slot_history.capturing = 0;
         ctx->feature_reasm.capturing = 0;
         ctx->stake_reasm.capturing   = 0;
+        ctx->acc.active              = 0;
 
         /* Create a child fork for incremental writes.  On failure,
            fd_accdb_purge(child) reverts just the incremental changes.
@@ -1735,6 +1817,9 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
   ctx->blockhash_groups   = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
   ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  ctx->acc_buf            = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                          FD_ACCDB_ACC_DATA_MAX+64UL                                  );
+  ctx->acc_rec            = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                          FD_ACCDB_REC_MAX                                            );
+  ctx->acc.active         = 0;
 
   ctx->full            = 1;
   ctx->init_completed  = 0;

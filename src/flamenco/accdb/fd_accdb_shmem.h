@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h
 
 #include "fd_accdb_cache.h"
+#include "fd_zle.h"
 #include <stddef.h> /* offsetof */
 
 #define FD_ACCDB_SHMEM_ALIGN (128UL)
@@ -62,7 +63,23 @@ struct fd_accdb_metrics {
 
 typedef struct fd_accdb_metrics fd_accdb_metrics_t;
 
-/* fd_accdb_disk_meta_t is the on-disk account revision header. */
+/* fd_accdb_disk_meta_t is the on-disk account revision header.  A
+   record is one fd_accdb_disk_meta_t followed by fd_zle-compressed
+   account data.
+
+   The size field packs the on-disk (compressed) byte count of the
+   record payload together with the fd_accdb cache size class of the
+   uncompressed data:
+
+     bits 31       unused (zero)
+     bits 30..28   cache size class of the uncompressed data
+     bits 27..0    compressed payload byte count */
+
+#define FD_ACCDB_DISK_SZ_MASK           ((uint)((1U<<28)-1U))
+#define FD_ACCDB_DISK_CLS_SHIFT         (28)
+#define FD_ACCDB_DISK_PACK(comp_sz,cls) ((uint)(comp_sz)|((uint)(cls)<<FD_ACCDB_DISK_CLS_SHIFT))
+#define FD_ACCDB_DISK_COMP_SZ(packed)   ((ulong)((packed)&FD_ACCDB_DISK_SZ_MASK))
+#define FD_ACCDB_DISK_CLASS(packed)     ((ulong)(((packed)>>FD_ACCDB_DISK_CLS_SHIFT)&7U))
 
 union fd_accdb_disk_meta {
   struct __attribute__((packed)) {
@@ -77,6 +94,11 @@ union fd_accdb_disk_meta {
 typedef union fd_accdb_disk_meta fd_accdb_disk_meta_t;
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)==72UL, layout );
+
+/* FD_ACCDB_REC_MAX is the largest on-disk record: a header plus the
+   fd_zle compress bound of the largest supported account. */
+
+#define FD_ACCDB_REC_MAX (sizeof(fd_accdb_disk_meta_t)+FD_ZLE_COMPRESS_BOUND( FD_ACCDB_ACC_DATA_MAX ))
 FD_STATIC_ASSERT( offsetof(fd_accdb_disk_meta_t,owner)+32UL==sizeof(fd_accdb_disk_meta_t), layout );
 
 FD_PROTOTYPES_BEGIN

@@ -514,6 +514,10 @@ fd_accdb_reset( fd_accdb_t * accdb );
    is set to the lamports of the replaced acc.  Otherwise it is set to
    0.  out_replaced_lamports must be non-NULL.
 
+   rec_len is the on-disk record size for this account, as returned by
+   fd_accdb_snapshot_stage_record.  It determines how much file space the
+   write reserves, and must match what snapwr writes byte for byte.
+
    slot must be <= UINT_MAX.  The slot is held in a 32-bit scratch field
    during snapshot loading; the accdb format must be widened before
    Solana reaches slot 2^32.  Passing a larger slot crashes the
@@ -533,6 +537,39 @@ fd_accdb_reset( fd_accdb_t * accdb );
                  (same pubkey from the same fork) are still replaced
                  in-place. */
 
+/* fd_accdb_snapshot_stage_record builds the on-disk accdb record for one
+   snapshot account into rec: an fd_accdb_disk_meta_t header followed by
+   the fd_zle compressed account body.  rec must have room for
+   sizeof(fd_accdb_disk_meta_t)+FD_ZLE_COMPRESS_BOUND( data_len ) bytes
+   (FD_ACCDB_REC_MAX covers any account).  data must be readable up to
+   fd_ulong_align_up( data_len, 64 ) bytes; see fd_zle_compress.
+   Returns the record size in bytes.
+
+   Snapshot loading splits disk layout across two tiles: snapin owns the
+   index (and therefore reserves the file offsets) while snapwr owns the
+   bytes.  Neither talks to the other, so they must derive identical
+   record sizes from identical inputs — both go through this function,
+   and the size it returns is what they pass as rec_len below. */
+
+ulong
+fd_accdb_snapshot_stage_record( void *        rec,
+                                uchar const * pubkey,
+                                uchar const * owner,
+                                void const *  data,
+                                ulong         data_len );
+
+/* fd_accdb_debug_write_record lays a staged record (as built by
+   fd_accdb_snapshot_stage_record) down on disk at the file offset that
+   fd_accdb_snapshot_write_one reserved for pubkey.  Test-only: in
+   production snapin indexes the account and snapwr writes the bytes,
+   and neither needs to look the other's work up. */
+
+void
+fd_accdb_debug_write_record( fd_accdb_t *  accdb,
+                             uchar const * pubkey,
+                             void const *  rec,
+                             ulong         rec_sz );
+
 int
 fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
                              fd_accdb_fork_id_t fork_id,
@@ -540,6 +577,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
                              ulong              slot,
                              ulong              lamports,
                              ulong              data_len,
+                             ulong              rec_len,
                              int                executable,
                              ulong *            out_replaced_lamports );
 
@@ -572,6 +610,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong  const        slots[],
                                ulong  const        lamports[],
                                ulong  const        data_lens[],
+                               ulong  const        rec_lens[],
                                int    const        executables[],
                                ulong *             accounts_ignored,
                                ulong *             accounts_replaced,

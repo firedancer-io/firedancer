@@ -1293,7 +1293,7 @@
 | <span class="metrics-name">accdb_&#8203;account_&#8203;relocated</span> | counter | Total number of accounts moved in the account database during compaction |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Total allocated size of the account database on disk |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;current_&#8203;bytes</span> | gauge | Total written-through size of the account database on disk, excluding never-written partition tail space |
-| <span class="metrics-name">accdb_&#8203;disk_&#8203;used_&#8203;bytes</span> | gauge | Total size of the account database on disk that is currently used |
+| <span class="metrics-name">accdb_&#8203;disk_&#8203;used_&#8203;bytes</span> | gauge | Size of the live account revisions in the database, counted uncompressed (records are stored fd_zle compressed, so this reads above the space they actually occupy) |
 | <span class="metrics-name">accdb_&#8203;in_&#8203;compaction</span> | gauge | 1 if a compaction is currently in progress, 0 if not |
 | <span class="metrics-name">accdb_&#8203;compaction_&#8203;requested</span> | counter | Total number of compactions requested on the account database |
 | <span class="metrics-name">accdb_&#8203;compaction_&#8203;completed</span> | counter | Total number of compactions fully completed on the account database, less than or equal to the requested amount |

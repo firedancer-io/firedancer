@@ -5,6 +5,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 
 #include "generated/fd_snapwr_tile_seccomp.h"
@@ -16,6 +17,15 @@
 #define NAME "snapwr"
 
 #define FD_SNAPWR_WRITE_BUF_SZ  (2UL<<20)   /* 2MiB */
+
+/* Accounts are stored on disk fd_zle compressed, and the compressed
+   size is only known once the whole account body is in hand, so snapwr
+   reassembles each account into acc_buf and stages the finished record
+   into rec_buf before it writes anything.  acc_buf carries 64 bytes of
+   tail slack because fd_zle_compress reads its input a 64 byte word at
+   a time. */
+
+#define FD_SNAPWR_ACC_BUF_SZ (FD_ACCDB_ACC_DATA_MAX+64UL)
 
 struct fd_snapwr_out {
   ulong       idx;
@@ -44,6 +54,17 @@ struct fd_snapwr_tile {
 
   uchar * write_buf;
   ulong   write_buf_used;
+
+  /* Account being reassembled.  active is 0 between accounts. */
+  struct {
+    int     active;
+    uchar   pubkey[ 32UL ];
+    uchar   owner [ 32UL ];
+    ulong   data_len;
+    ulong   data_used;
+    uchar * buf;
+    uchar * rec;
+  } acc;
 
   ulong seed;
 
@@ -103,6 +124,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapwr_tile_t),    sizeof(fd_snapwr_tile_t)         );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
   l = FD_LAYOUT_APPEND( l, 1UL,                          FD_SNAPWR_WRITE_BUF_SZ           );
+  l = FD_LAYOUT_APPEND( l, 64UL,                         FD_SNAPWR_ACC_BUF_SZ             );
+  l = FD_LAYOUT_APPEND( l, 64UL,                         FD_ACCDB_REC_MAX                 );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -161,32 +184,60 @@ buffer_skip( fd_snapwr_tile_t * ctx,
   ctx->flush_off    += sz;
 }
 
+/* account_emit compresses the reassembled account into an on-disk accdb
+   record and appends it to the write buffer.  snapin reserves file
+   offsets for the same accounts, in the same order, sizing them with
+   the same fd_accdb_snapshot_stage_record, so the two tiles agree on
+   the layout without ever talking to each other. */
+
 static void
-process_account_header( fd_snapwr_tile_t *            ctx,
-                        fd_ssparse_advance_result_t * result ) {
-  /* Ensure header+data does not cross a partition boundary.  If it
+account_emit( fd_snapwr_tile_t * ctx ) {
+  /* fd_zle_compress reads its input in 64 byte words.  Zero the slack
+     so the record is a pure function of the account body. */
+  ulong data_len = ctx->acc.data_len;
+  fd_memset( ctx->acc.buf+data_len, 0, fd_ulong_align_up( data_len, 64UL )-data_len );
+
+  ulong rec_sz = fd_accdb_snapshot_stage_record( ctx->acc.rec,
+                                                 ctx->acc.pubkey,
+                                                 ctx->acc.owner,
+                                                 ctx->acc.buf,
+                                                 data_len );
+
+  /* Ensure the record does not cross a partition boundary.  If it
      would, pad with zeros so the account starts at the next one. */
-  ulong account_sz    = sizeof(fd_accdb_disk_meta_t) + (ulong)result->account_header.data_len;
-  ulong cur_boundary  = ctx->accounts_off / ctx->partition_sz;
-  ulong end_boundary  = (ctx->accounts_off + account_sz - 1UL) / ctx->partition_sz;
+  ulong cur_boundary = ctx->accounts_off / ctx->partition_sz;
+  ulong end_boundary = (ctx->accounts_off + rec_sz - 1UL) / ctx->partition_sz;
   if( FD_UNLIKELY( cur_boundary!=end_boundary ) ) {
     ulong next = (cur_boundary + 1UL) * ctx->partition_sz;
     buffer_skip( ctx, next - ctx->accounts_off );
   }
 
-  fd_accdb_disk_meta_t meta;
-  fd_memcpy( meta.pubkey, result->account_header.pubkey, 32UL );
-  meta.size       = (uint)result->account_header.data_len;
-  meta.generation = 0U;
-  fd_memcpy( meta.owner, result->account_header.owner, 32UL );
-  buffer_write( ctx, meta.b, sizeof(fd_accdb_disk_meta_t) );
+  buffer_write( ctx, ctx->acc.rec, rec_sz );
+  ctx->acc.active = 0;
   ctx->metrics.accounts_written++;
+}
+
+static void
+process_account_header( fd_snapwr_tile_t *            ctx,
+                        fd_ssparse_advance_result_t * result ) {
+  fd_memcpy( ctx->acc.pubkey, result->account_header.pubkey, 32UL );
+  fd_memcpy( ctx->acc.owner,  result->account_header.owner,  32UL );
+  ctx->acc.data_len  = result->account_header.data_len;
+  ctx->acc.data_used = 0UL;
+  ctx->acc.active    = 1;
+  FD_TEST( ctx->acc.data_len<=FD_ACCDB_ACC_DATA_MAX );
+  if( FD_UNLIKELY( !ctx->acc.data_len ) ) account_emit( ctx );
 }
 
 static void
 process_account_data( fd_snapwr_tile_t *            ctx,
                       fd_ssparse_advance_result_t * result ) {
-  buffer_write( ctx, result->account_data.data, result->account_data.data_sz );
+  FD_TEST( ctx->acc.active );
+  ulong sz = result->account_data.data_sz;
+  FD_TEST( ctx->acc.data_used+sz<=ctx->acc.data_len );
+  fd_memcpy( ctx->acc.buf+ctx->acc.data_used, result->account_data.data, sz );
+  ctx->acc.data_used += sz;
+  if( FD_LIKELY( ctx->acc.data_used==ctx->acc.data_len ) ) account_emit( ctx );
 }
 
 static int
@@ -295,7 +346,9 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
         ctx->in[ i ].pos = 0UL;
       }
       fd_ssparse_init( ctx->ssparse );
+      fd_ssparse_batch_enable( ctx->ssparse, 0 );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
+      ctx->acc.active = 0;
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
@@ -551,6 +604,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_snapwr_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapwr_tile_t),    sizeof(fd_snapwr_tile_t)          );
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint()  );
   void * _write_buf       = FD_SCRATCH_ALLOC_APPEND( l, 1UL,                          FD_SNAPWR_WRITE_BUF_SZ            );
+  void * _acc_buf         = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                         FD_SNAPWR_ACC_BUF_SZ              );
+  void * _acc_rec         = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                         FD_ACCDB_REC_MAX                  );
 
   ctx->full            = 1;
   ctx->state           = FD_SNAPSHOT_STATE_IDLE;
@@ -567,6 +622,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->recovery.flush_off    = 0UL;
   ctx->write_buf             = _write_buf;
   ctx->write_buf_used        = 0UL;
+  ctx->acc.buf               = _acc_buf;
+  ctx->acc.rec               = _acc_rec;
+  ctx->acc.active            = 0;
 
   ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
   FD_TEST( ctx->manifest_parser );
