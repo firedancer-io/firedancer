@@ -314,6 +314,9 @@ test_remove_idx( void ) {
   fd_wsample_t * sample = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial, 2UL ), 1UL ), 0UL ) );
   FD_TEST( sample );
 
+  fd_wsample_remove_idx( sample, 0UL );
+  FD_TEST( fd_wsample_restore_all( sample ) );
+
   fd_wsample_remove_idx( sample, 1UL );
 
   for( ulong j=0UL; j<10UL; j++ ) FD_TEST( fd_wsample_sample( sample ) != 1UL );

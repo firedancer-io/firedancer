@@ -141,10 +141,10 @@ struct __attribute__((aligned(64UL))) fd_wsample_private {
      implemented as a memcpy.
 
      The tree itself is surrounded by two dummy elements, dummy, and
-     tree[internal_node_cnt], that aren't actually used.  This is
-     because searching the tree branchlessly involves some out of bounds
-     reads, and although the value is immediately discarded, it's better
-     to know where exactly those reads might go. */
+     tree[internal_node_cnt].  Branchless searches historically used
+     these as physical sentinels, but that still accesses outside the
+     left_sum array subobject.  Loads now stay in bounds; the padding is
+     retained to preserve the existing workspace layout. */
   tree_ele_t        dummy;
   tree_ele_t        tree[];
 };
@@ -443,24 +443,11 @@ fd_wsample_map_sample_i( fd_wsample_t const * sampler,
 #endif
 
     /* See the note at the top of this file for the explanation of l[i]
-       and l[i-1].  Because this is fd_ulong_if and not a ternary, these
-       can read/write out of what you would think the appropriate bounds
-       are.  The dummy elements, as described along with tree makes this
-       safe. */
-#if 0
-    ulong li  = fd_ulong_if( child_idx<R-1UL, e->left_sum[ child_idx     ], S   );
-    ulong lm1 = fd_ulong_if( child_idx>0UL,   e->left_sum[ child_idx-1UL ], 0UL );
-#elif 0
-    ulong li  = fd_ulong_if_force( child_idx<R-1UL, e->left_sum[ child_idx     ], S   );
-    ulong lm1 = fd_ulong_if_force( child_idx>0UL,   e->left_sum[ child_idx-1UL ], 0UL );
-#else
-    ulong * temp = (ulong *)e->left_sum;
-    ulong orig_m1 = temp[ -1 ];    ulong orig_Rm1 = temp[ R-1UL ];
-    temp[ -1 ] = 0UL;              temp[ R-1UL ] = S;
-    ulong li  = temp[ child_idx     ];
-    ulong lm1 = temp[ child_idx-1UL ];
-    temp[ -1 ] = orig_m1;          temp[ R-1UL ] = orig_Rm1;
-#endif
+       and l[i-1].  fd_ulong_if evaluates both candidates, so clamp the
+       physical loads to left_sum before the muxes select the conceptual
+       sentinel values. */
+    ulong li  = fd_ulong_if( child_idx<R-1UL, e->left_sum[ fd_ulong_min( child_idx, R-2UL ) ], S   );
+    ulong lm1 = fd_ulong_if( child_idx>0UL,   e->left_sum[ child_idx-(ulong)!!child_idx     ], 0UL );
 
     query -= lm1;
     S = li - lm1;
@@ -533,8 +520,10 @@ fd_wsample_find_weight( fd_wsample_t const * sampler,
 
     /* If child_idx < R-1, we can compute the weight easily.  If
        child_idx==R-1, the computation is S - left_sum[ R-2 ], but we
-       don't know S, so we need to continue up the tree. */
-    lm1  += fd_ulong_if( child_idx>0UL, tree[ parent ].left_sum[ child_idx-1UL ], 0UL );
+       don't know S, so we need to continue up the tree.  fd_ulong_if
+       evaluates both candidates, so keep the predecessor load in bounds
+       even when child_idx is zero. */
+    lm1  += fd_ulong_if( child_idx>0UL, tree[ parent ].left_sum[ child_idx-(ulong)!!child_idx ], 0UL );
     if( FD_LIKELY( child_idx<R-1UL ) ) {
       li = tree[ parent ].left_sum[ child_idx ];
       break;
