@@ -2350,28 +2350,31 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
       jsonp_close_object( gui->http );
 
       if( FD_UNLIKELY( have_lmeta && lmeta->unbecame_leader ) ) {
+        fd_done_packing_t scheduler_stats[ 1 ];
+        fd_memcpy( scheduler_stats, lmeta->scheduler_stats, sizeof(scheduler_stats) );
+
         jsonp_open_object( gui->http, "limits" );
-          jsonp_ulong( gui->http, "used_total_block_cost",        lmeta->scheduler_stats->limits_usage->block_cost          );
-          jsonp_ulong( gui->http, "used_total_vote_cost",         fd_ulong_if( gui->summary.is_alpenglow, 0UL, lmeta->scheduler_stats->limits_usage->vote_cost ) );
-          jsonp_ulong( gui->http, "used_total_bytes",             lmeta->scheduler_stats->limits_usage->block_data_bytes    );
-          jsonp_ulong( gui->http, "used_total_microblocks",       lmeta->scheduler_stats->limits_usage->microblocks         );
+          jsonp_ulong( gui->http, "used_total_block_cost",        scheduler_stats->limits_usage->block_cost          );
+          jsonp_ulong( gui->http, "used_total_vote_cost",         fd_ulong_if( gui->summary.is_alpenglow, 0UL, scheduler_stats->limits_usage->vote_cost ) );
+          jsonp_ulong( gui->http, "used_total_bytes",             scheduler_stats->limits_usage->block_data_bytes    );
+          jsonp_ulong( gui->http, "used_total_microblocks",       scheduler_stats->limits_usage->microblocks         );
           jsonp_open_array( gui->http, "used_account_write_costs" );
             for( ulong i = 0; i<FD_PACK_TOP_WRITERS_CNT; i++ ) {
-              if( FD_UNLIKELY( !memcmp( lmeta->scheduler_stats->limits_usage->top_writers[ i ].key.b, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
+              if( FD_UNLIKELY( !memcmp( scheduler_stats->limits_usage->top_writers[ i ].key.b, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
 
               jsonp_open_object( gui->http, NULL );
                 char account_base58[ FD_BASE58_ENCODED_32_SZ ];
-                fd_base58_encode_32( lmeta->scheduler_stats->limits_usage->top_writers[ i ].key.b, NULL, account_base58 );
+                fd_base58_encode_32( scheduler_stats->limits_usage->top_writers[ i ].key.b, NULL, account_base58 );
                 jsonp_string( gui->http, "account", account_base58 );
-                jsonp_ulong( gui->http, "cost", lmeta->scheduler_stats->limits_usage->top_writers[ i ].total_cost );
+                jsonp_ulong( gui->http, "cost", scheduler_stats->limits_usage->top_writers[ i ].total_cost );
               jsonp_close_object( gui->http );
             }
           jsonp_close_array( gui->http );
 
-          jsonp_ulong( gui->http, "max_total_block_cost",        lmeta->scheduler_stats->limits->max_cost_per_block        );
-          jsonp_ulong( gui->http, "max_total_vote_cost",         fd_ulong_if( gui->summary.is_alpenglow, 0UL, lmeta->scheduler_stats->limits->max_vote_cost_per_block ) );
-          jsonp_ulong( gui->http, "max_account_write_cost",      lmeta->scheduler_stats->limits->max_write_cost_per_acct   );
-          jsonp_ulong( gui->http, "max_total_bytes",             lmeta->scheduler_stats->limits->max_data_bytes_per_block  );
+          jsonp_ulong( gui->http, "max_total_block_cost",        scheduler_stats->limits->max_cost_per_block        );
+          jsonp_ulong( gui->http, "max_total_vote_cost",         fd_ulong_if( gui->summary.is_alpenglow, 0UL, scheduler_stats->limits->max_vote_cost_per_block ) );
+          jsonp_ulong( gui->http, "max_account_write_cost",      scheduler_stats->limits->max_write_cost_per_acct   );
+          jsonp_ulong( gui->http, "max_total_bytes",             scheduler_stats->limits->max_data_bytes_per_block  );
           jsonp_ulong( gui->http, "max_total_microblocks",       lmeta->max_microblocks                                    );
         jsonp_close_object( gui->http );
 
@@ -2384,7 +2387,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
           fd_base58_encode_32( block_hash.uc, NULL, block_hash_base58 );
           jsonp_string( gui->http, "block_hash", block_hash_base58 );
 
-          switch( lmeta->scheduler_stats->end_slot_reason ) {
+          switch( scheduler_stats->end_slot_reason ) {
             case FD_PACK_END_SLOT_REASON_TIME: {
               jsonp_string( gui->http, "end_slot_reason", "timeout" );
               break;
@@ -2400,14 +2403,14 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
             default: FD_LOG_ERR(( "unreachable" ));
           }
           jsonp_open_array( gui->http, "slot_schedule_counts" );
-            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT; i++ ) jsonp_ulong( gui->http, NULL, lmeta->scheduler_stats->block_results[ i ] );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT; i++ ) jsonp_ulong( gui->http, NULL, scheduler_stats->block_results[ i ] );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "end_slot_schedule_counts" );
-            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT; i++ ) jsonp_ulong( gui->http, NULL, lmeta->scheduler_stats->end_block_results[ i ] );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT; i++ ) jsonp_ulong( gui->http, NULL, scheduler_stats->end_block_results[ i ] );
           jsonp_close_array( gui->http );
 
-          fd_pack_smallest_t pending_smallest       = *lmeta->scheduler_stats->pending_smallest;
-          fd_pack_smallest_t pending_votes_smallest = *lmeta->scheduler_stats->pending_votes_smallest;
+          fd_pack_smallest_t pending_smallest       = *scheduler_stats->pending_smallest;
+          fd_pack_smallest_t pending_votes_smallest = *scheduler_stats->pending_votes_smallest;
           if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
             pending_smallest.cus         = fd_ulong_min( pending_smallest.cus,   pending_votes_smallest.cus   );
             pending_smallest.bytes       = fd_ulong_min( pending_smallest.bytes, pending_votes_smallest.bytes );

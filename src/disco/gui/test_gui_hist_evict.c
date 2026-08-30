@@ -560,7 +560,7 @@ test_waterfall_snapshots( fd_gui_t * gui ) {
   gui->leader_bank_seq_pending = ULONG_MAX;
   memset( gui->summary.txn_waterfall_reference, 0, sizeof(gui->summary.txn_waterfall_reference) );
 
-  fd_done_packing_t done_packing = {0};
+  fd_done_packing_t done_packing = { .microblocks_in_slot = 7UL };
   fd_gui_txn_waterfall_t zero = {0};
 
   fd_gui_leader_slot_t * first = fd_gui_slot_leader_get_or_create( gui, 100UL, 11UL );
@@ -571,7 +571,8 @@ test_waterfall_snapshots( fd_gui_t * gui ) {
   fd_gui_done_draining( gui, 123L );
   FD_TEST( first->has_waterfall );
   FD_TEST( !memcmp( first->waterfall_reference, &zero, sizeof(zero) ) );
-  FD_TEST( first->waterfall->sample_time_nanos==123L );
+  FD_TEST( !memcmp( first->waterfall,       &(long){ 123L }, sizeof(long)         ) );
+  FD_TEST( !memcmp( first->scheduler_stats, &done_packing,   sizeof(done_packing) ) );
   FD_TEST( !memcmp( gui->summary.txn_waterfall_reference, first->waterfall, sizeof(fd_gui_txn_waterfall_t) ) );
   FD_TEST( fd_gui_slot_leader_get( gui, 100UL, 11UL )==first );
   FD_TEST( !fd_gui_slot_leader_get( gui, 100UL, 12UL ) );
@@ -583,13 +584,13 @@ test_waterfall_snapshots( fd_gui_t * gui ) {
   fd_gui_done_draining( gui, 456L );
   FD_TEST( second->has_waterfall );
   FD_TEST( !memcmp( second->waterfall_reference, first->waterfall, sizeof(fd_gui_txn_waterfall_t) ) );
-  FD_TEST( second->waterfall->sample_time_nanos==456L );
+  FD_TEST( !memcmp( second->waterfall, &(long){ 456L }, sizeof(long) ) );
   FD_TEST( !memcmp( gui->summary.txn_waterfall_reference, second->waterfall, sizeof(fd_gui_txn_waterfall_t) ) );
 
   fd_gui_unbecame_leader( gui, 104UL, &done_packing );
   fd_gui_done_draining( gui, 789L );
   FD_TEST( !memcmp( second->waterfall_reference, first->waterfall, sizeof(fd_gui_txn_waterfall_t) ) );
-  FD_TEST( second->waterfall->sample_time_nanos==456L );
+  FD_TEST( !memcmp( second->waterfall, &(long){ 456L }, sizeof(long) ) );
 
   free( topo );
   FD_LOG_NOTICE(( "test_waterfall_snapshots: ok" ));
