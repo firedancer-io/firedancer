@@ -204,6 +204,13 @@ FD_PROTOTYPES_BEGIN
    triggered a Retry.  retry_src_conn_id is the SCID chosen by the server
    in the Retry packet. */
 
+FD_FN_CONST static inline long
+fd_quic_retry_expire_after( long now, long ttl ) {
+  long expire_at;
+  int overflow = __builtin_saddl_overflow( now, ttl, &expire_at );
+  return fd_long_if( overflow, LONG_MAX, expire_at );
+}
+
 ulong
 fd_quic_retry_create(
     uchar                     retry[FD_QUIC_RETRY_LOCAL_SZ], /* out */

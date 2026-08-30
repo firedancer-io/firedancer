@@ -353,7 +353,7 @@ fd_quic_init( fd_quic_t * quic ) {
   if( FD_UNLIKELY( !config->role          ) ) { FD_LOG_WARNING(( "cfg.role not set"      )); return NULL; }
   if( FD_UNLIKELY( !config->idle_timeout  ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout" )); return NULL; }
   if( FD_UNLIKELY( !config->ack_delay     ) ) { FD_LOG_WARNING(( "zero cfg.ack_delay"    )); return NULL; }
-  if( FD_UNLIKELY( !config->retry_ttl     ) ) { FD_LOG_WARNING(( "zero cfg.retry_ttl"    )); return NULL; }
+  if( FD_UNLIKELY( config->retry_ttl<=0L  ) ) { FD_LOG_WARNING(( "non-positive cfg.retry_ttl" )); return NULL; }
 
   do {
     ulong x = 0U;
@@ -1337,7 +1337,7 @@ fd_quic_send_retry( fd_quic_t *               quic,
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  long  expire_at = state->now + quic->config.retry_ttl;
+  long  expire_at = fd_quic_retry_expire_after( state->now, quic->config.retry_ttl );
   uchar retry_pkt[ FD_QUIC_RETRY_LOCAL_SZ ];
   ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, expire_at );
 
