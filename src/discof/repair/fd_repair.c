@@ -241,9 +241,9 @@ ag_repair_response_de( ag_repair_response_t * response,
     case AG_REPAIR_RESPONSE_FEC_SET_ROOT: {
       ag_fec_root_res_t * res = &response->fec_set_root;
 
-      if( FD_UNLIKELY( rem < sizeof(fd_hash_t) ) ) return -1;
-      memcpy( res->root.uc, cur, sizeof(fd_hash_t) );
-      cur += sizeof(fd_hash_t); rem -= sizeof(fd_hash_t);
+      if( FD_UNLIKELY( rem < FD_SHRED_MERKLE_NODE_SZ ) ) return -1;
+      memcpy( res->root, cur, FD_SHRED_MERKLE_NODE_SZ );
+      cur += FD_SHRED_MERKLE_NODE_SZ; rem -= FD_SHRED_MERKLE_NODE_SZ;
 
       if( FD_UNLIKELY( rem < sizeof(ulong) ) ) return -1;
       proof_sz = fd_ulong_load_8_fast( cur );
@@ -304,8 +304,8 @@ int
 ag_repair_fec_set_root_verify( ag_fec_root_res_t const * res,
                                fd_hash_t const *         block_id,
                                uint                      fec_set_idx ) {
-  fd_bmtree_node_t leaf[1];
-  memcpy( leaf->hash, res->root.uc, sizeof(fd_hash_t) );
+  fd_bmtree_node_t leaf[1] = {0};
+  memcpy( leaf->hash, res->root, FD_SHRED_MERKLE_NODE_SZ );
 
   return verify_merkle_proof( leaf, fec_set_idx / FD_FEC_SHRED_CNT, res->fec_proof[0], res->proof_len, block_id );
 }

@@ -142,6 +142,11 @@ typedef struct sign_pending sign_pending_t;
 #define QUEUE_MAX        (2*FD_REPAIR_PEER_MAX)
 #include "../../util/tmpl/fd_queue.c"
 
+#define QUEUE_NAME       ag_req_queue
+#define QUEUE_T          fd_repair_msg_t
+#define QUEUE_MAX        (FD_FEC_BLK_MAX)
+#include "../../util/tmpl/fd_queue.c"
+
 struct ctx {
   long tsdebug; /* timestamp for debug printing */
   long ts_diag; /* timestamp for catchup diagnostic printing */
@@ -194,8 +199,9 @@ struct ctx {
   /* Pending sign requests for async operations */
 
   uint             pending_key_next;
-  sign_req_t     * signs_map;  /* contains any request currently in the repair->sign or sign->repair dcache */
-  sign_pending_t * pong_queue;  /* contains any pong or initial warmup request waiting to be dispatched to repair->sign. Size is 2*FD_REPAIR_PEER_MAX */
+  sign_req_t     * signs_map;    /* contains any request currently in the repair->sign or sign->repair dcache */
+  sign_pending_t * pong_queue;   /* contains any pong or initial warmup request waiting to be dispatched to repair->sign. Size is 2*FD_REPAIR_PEER_MAX */
+  fd_repair_msg_t * ag_req_queue; /* contains any alpenglow request waiting to be dispatched to sign->repair. Sized to FD_FEC_BLK_MAX */
 
   ushort net_id;
 
@@ -276,6 +282,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                         );
   l = FD_LAYOUT_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint  ( lg_sign_depth )                          );
   l = FD_LAYOUT_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                         );
+  l = FD_LAYOUT_APPEND( l, ag_req_queue_align(),      ag_req_queue_footprint()                                           );
   l = FD_LAYOUT_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -611,22 +618,24 @@ after_ping( ctx_t *              ctx,
    directly to repair tile, as they do not contain a shred. */
 
 static inline void
-after_alpen_repair( ctx_t * ctx,
-                    ag_repair_response_t * response ) {
+after_alpen_meta_repair( ctx_t * ctx,
+                         ag_repair_response_t * response ) {
   uint nonce = response->nonce;
-  ag_inflight_t * request = ag_inflights_request_match( ctx->inflights, nonce );
-  if( FD_UNLIKELY( !request ) ) {
-    // probably got popped on rerequested. TODO do the popped queue for ag inflights
-    return;
-  }
+  fd_meta_inflight_t * request = fd_meta_inflights_request_match( ctx->inflights, nonce );
+  if( FD_UNLIKELY( !request ) ) return;
+
+  fd_pubkey_t to = {0};
+  if( FD_UNLIKELY( request->slot <= ctx->chainer->root ) ) goto cleanup; /* rooted in flight: obsolete */
 
   if( FD_UNLIKELY( ( response->kind == AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT && request->kind != AG_REPAIR_KIND_PARENT_FEC_COUNT ) ||
                    ( response->kind == AG_REPAIR_RESPONSE_FEC_SET_ROOT         && request->kind != AG_REPAIR_KIND_FEC_ROOT ) ) ) {
-    FD_LOG_WARNING(("TODO unexpected response kind: %u for request kind: %u", response->kind, request->kind));
+    // recreate original message for req_queue
+    fd_repair_msg_t * msg = ( request->kind==AG_REPAIR_KIND_PARENT_FEC_COUNT )
+                              ? ag_repair_parent_and_fec_set_count( ctx->protocol, &to, (ulong)(fd_log_wallclock()/(long)1e6), ctx->ag_nonce++, request->slot, &request->block_id )
+                              : ag_repair_fec_set_root            ( ctx->protocol, &to, (ulong)(fd_log_wallclock()/(long)1e6), ctx->ag_nonce++, request->slot, &request->block_id, request->fec_set_idx );
+    ag_req_queue_push( ctx->ag_req_queue, *msg );
     goto cleanup;
   }
-
-  if( FD_UNLIKELY( request->slot <= ctx->chainer->root ) ) goto cleanup;
 
   /* Each case verifies the response's merkle proof chains up to the block
      id we requested before handing the metadata to the chainer */
@@ -636,8 +645,10 @@ after_alpen_repair( ctx_t * ctx,
 
       if( FD_UNLIKELY( ag_repair_parent_fec_count_verify( parent_fec_set_res, &request->block_id ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( request->block_id.uc, block_id );
-        FD_LOG_WARNING(( "failed to verify ParentFecSetCount response for nonce: %u, slot: %lu, block_id: %s", nonce, request->slot, block_id ));
+        FD_LOG_INFO(( "failed to verify ParentFecSetCount response for nonce: %u, slot: %lu, block_id: %s", nonce, request->slot, block_id ));
         ctx->metrics->failed_parent_fec_count_cnt++;
+        fd_repair_msg_t * msg = ag_repair_parent_and_fec_set_count( ctx->protocol, &to, (ulong)(fd_log_wallclock()/(long)1e6), ctx->ag_nonce++, request->slot, &request->block_id );
+        ag_req_queue_push( ctx->ag_req_queue, *msg );
         goto cleanup;
       }
 
@@ -645,19 +656,11 @@ after_alpen_repair( ctx_t * ctx,
 
       ulong now_ms = (ulong)(fd_log_wallclock()/(long)1e6);
       for( uint i = 0; i < parent_fec_set_res->fec_set_count; i++ ) {
-        uint                req_nonce = ctx->ag_nonce++;
-        fd_pubkey_t const * peer      = fd_policy_peer_select( ctx->policy );
-        if( FD_LIKELY( peer ) ) {
-          fd_repair_msg_t * msg = ag_repair_fec_set_root( ctx->protocol, peer, now_ms, req_nonce,
-                                                          request->slot, &request->block_id, i*FD_FEC_SHRED_CNT );
-          if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) FD_LOG_CRIT(( "TODO: separate to different queue" ));
-          fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
-        }
+        uint              req_nonce = ctx->ag_nonce++;
 
-        /* Whether or not the request was actually sent, record it in
-           the ag inflights table.  If no peer was available we defer
-           the request until a peer is available. */
-        ag_inflights_request_insert( ctx->inflights, req_nonce, AG_REPAIR_KIND_FEC_ROOT, request->slot, &request->block_id, i*FD_FEC_SHRED_CNT );
+        fd_repair_msg_t * msg = ag_repair_fec_set_root( ctx->protocol, &to, now_ms, req_nonce,
+                                                        request->slot, &request->block_id, i*FD_FEC_SHRED_CNT );
+        ag_req_queue_push( ctx->ag_req_queue, *msg );
       }
       break;
     }
@@ -666,18 +669,23 @@ after_alpen_repair( ctx_t * ctx,
 
       if( FD_UNLIKELY( ag_repair_fec_set_root_verify( fec_set_root, &request->block_id, request->fec_set_idx ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( request->block_id.uc, block_id );
-        FD_LOG_WARNING(( "failed to verify FecSetRoot response for nonce: %u, slot: %lu, fec_set_idx: %u, block_id: %s", nonce, request->slot, request->fec_set_idx, block_id ));
+        FD_LOG_INFO(( "failed to verify FecSetRoot response for nonce: %u, slot: %lu, fec_set_idx: %u, block_id: %s", nonce, request->slot, request->fec_set_idx, block_id ));
         ctx->metrics->failed_fec_root_cnt++;
+        fd_repair_msg_t * msg = ag_repair_fec_set_root( ctx->protocol, &to, (ulong)(fd_log_wallclock()/(long)1e6), ctx->ag_nonce++, request->slot, &request->block_id, request->fec_set_idx );
+        ag_req_queue_push( ctx->ag_req_queue, *msg );
         goto cleanup;
       }
 
-      fd_chainer_verified_hash_insert( ctx->chainer, request->slot, &request->block_id, request->fec_set_idx, &fec_set_root->root );
+      /* The response carries only the 20-byte FEC-set root prefix */
+      fd_hash_t fec_root_mr = {0};
+      memcpy( fec_root_mr.uc, fec_set_root->root, FD_SHRED_MERKLE_NODE_SZ );
+      fd_chainer_verified_hash_insert( ctx->chainer, request->slot, &request->block_id, request->fec_set_idx, &fec_root_mr );
       break;
     }
   }
 
 cleanup:
-  if( FD_LIKELY( request ) ) ag_inflight_pool_ele_release( ctx->inflights->ag_pool, request );
+  fd_meta_inflight_pool_ele_release( ctx->inflights->ag_pool, request );
   return;
 }
 
@@ -729,25 +737,47 @@ after_alpen_shred( ctx_t      * ctx,
   if( FD_UNLIKELY( shred->slot <= ctx->chainer->root ) ) return;
   if( FD_UNLIKELY( fd_shred_is_code( fd_shred_type( shred->variant ) ) ) ) return; /* TODO */
 
-  /* Match this response to its inflight request (repair, data shreds).
-     If the inflight was a ShredForBlockId (non-zero block_id), verify
-     the shred belongs to that certified version. A mismatch means a
-     peer returned a shred from the wrong (equivocating) version -- drop
-     it without admitting it to the chainer. */
-  int src = fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE ? SHRED_SRC_TURBINE : SHRED_SRC_REPAIR;
-  if( FD_LIKELY( src==SHRED_SRC_REPAIR ) ) {
-    fd_pubkey_t peer;
-    fd_hash_t   req_block_id;
-    long        rtt = fd_inflights_request_match( ctx->inflights, nonce, shred->slot, shred->idx, &peer, &req_block_id );
-    if( FD_LIKELY( rtt>0 ) ) {
-      fd_policy_peer_response_update( ctx->policy, &peer, rtt );
-      fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
-      if( FD_UNLIKELY( !fd_hash_check_zero( &req_block_id ) ) ) {
-        uint fec_set_idx = shred->idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
-        if( FD_UNLIKELY( !fd_chainer_shred_for_block_id_verify( ctx->chainer, shred->slot, fec_set_idx, &req_block_id, mr ) ) ) {
-          ctx->metrics->failed_shred_block_id_cnt++;
-          return;
+  if( FD_UNLIKELY( fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR ) ) {
+    if( FD_UNLIKELY( !(nonce & 0x80000000UL) ) ) {
+      /* not normal repair */
+      if( FD_UNLIKELY( !(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) ) ) return;
+    } else {
+      /* Ordinary per-shred repair.  Requests for different versions of
+         the same (slot, idx) share the time-bucketed rnonce, so scan
+         all inflights with this key.  Prefer an entry whose block-id
+         version verifies against this shred's merkle root; fall back to
+         a plain positional (block_id zero) entry. */
+      uint            fec_set_idx     = shred->idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
+      fd_inflight_t * match           = NULL;
+      fd_inflight_t * match_zero      = NULL;
+
+      for( fd_inflight_t * ele = fd_inflights_request_query( ctx->inflights, nonce, shred->slot, shred->idx );
+                           ele;
+                           ele = fd_inflights_request_query_next( ctx->inflights, ele ) ) {
+        if( FD_UNLIKELY( fd_hash_check_zero( &ele->block_id ) ) ) {
+          if( FD_LIKELY( !match_zero || ele->timestamp_ns<match_zero->timestamp_ns ) ) match_zero = ele;
+        } else if( FD_LIKELY( fd_chainer_shred_for_block_id_verify( ctx->chainer, shred->slot, fec_set_idx, &ele->block_id, mr ) ) ) {
+          if( FD_LIKELY( !match || ele->timestamp_ns<match->timestamp_ns ) ) match = ele;
         }
+      }
+      if( FD_UNLIKELY( !match ) ) match = match_zero;
+
+      if( FD_LIKELY( match ) ) {
+        fd_pubkey_t peer     = match->pubkey;
+        fd_hash_t   block_id = match->block_id;
+        long        rtt      = fd_inflights_request_remove( ctx->inflights, match );
+        fd_policy_peer_response_update( ctx->policy, &peer, rtt );
+        fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
+
+        /* A FEC created from a FecSetRoot repair response is keyed by
+           only its 20-byte root prefix.  Now that a real shred delivered
+           the full merkle root, re-key it so the following shred_insert
+           (and later shreds) associate with this FEC via the full root. */
+        if( FD_LIKELY( !fd_hash_check_zero( &block_id ) ) ) {
+          fd_chainer_fec_rekey( ctx->chainer, shred->slot, &block_id, fec_set_idx, mr );
+        }
+      } else {
+        return;
       }
     }
   }
@@ -763,8 +793,11 @@ after_alpen_shred( ctx_t      * ctx,
   fd_hash_t   parent_block_id    = {0};
   if( FD_UNLIKELY( shred->idx == 0 ) ) {
     if( FD_UNLIKELY( !ag_parse_parent_marker( shred, &parent_slot, &parent_block_id ) ) ) {
-      /* TODO what to do with this slot if theres no block header? */
-      FD_LOG_ERR(("we would fail an FD_TEST finalize_block_id in fd_chainer so decide what to do here"));
+      /* What to do with this slot if theres no block header?  Replay
+         handles this fine downstream - it would just immediately mark
+         the block dead. */
+      FD_LOG_WARNING(( "invalid block header in slot: %lu, ignoring shred 0", shred->slot ));
+      return;
     }
   }
 
@@ -804,7 +837,7 @@ after_votor_notar_fallback( ctx_t * ctx,
     if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) FD_LOG_CRIT(( "TODO: separate to different queue" ));
     fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
   }
-  ag_inflights_request_insert( ctx->inflights, nonce, AG_REPAIR_KIND_PARENT_FEC_COUNT, nf->slot, &nf->block_id, 0U );
+  fd_meta_inflights_request_insert( ctx->inflights, nonce, AG_REPAIR_KIND_PARENT_FEC_COUNT, nf->slot, &nf->block_id, 0U );
 }
 
 static void
@@ -837,7 +870,7 @@ after_frag( ctx_t *             ctx,
       } else { /* alpen repair response */
         ag_repair_response_t response[1];
         if( FD_UNLIKELY( ag_repair_response_de( response, data, data_sz ) ) ) return; /* malformed */
-        after_alpen_repair( ctx, response );
+        after_alpen_meta_repair( ctx, response );
       }
       break;
     }
@@ -901,7 +934,7 @@ after_frag( ctx_t *             ctx,
       fd_shred_t      * shred     = &shred_msg->shred; /* completes & shred messages all have a shred header at the same offset (after merkle root) */
 
       if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot && sig_src == SHRED_SIG_SRC_TURBINE ) ) {
-        FD_LOG_INFO(( "[Turbine] slot: %lu, root: ", shred->slot ));
+        FD_LOG_INFO(( "[Turbine] slot: %lu, root: %lu", shred->slot, ctx->chainer->root ));
         ctx->metrics->current_slot = shred->slot;
       }
 
@@ -930,7 +963,7 @@ after_frag( ctx_t *             ctx,
            bypasses forest entirely and dispatches directly via the sign
            queue. Cap at half queue capacity to leave room for pongs. */
         ulong root = ctx->chainer->root;
-        if( FD_LIKELY( root != ULONG_MAX && shred->slot > root ) ) {
+        if( FD_LIKELY( root != ULONG_MAX && shred->slot > root && !ctx->block_id_repair_only ) ) {
           ulong capacity = fd_signs_queue_max( ctx->pong_queue ) - fd_signs_queue_cnt( ctx->pong_queue );
           ulong seed_cnt = fd_ulong_min( shred->slot-root, capacity/2 );
           long  now_ms   = fd_log_wallclock()/(long)1e6;
@@ -969,12 +1002,20 @@ after_frag( ctx_t *             ctx,
    by a shred response. */
 static void
 defer_inflight_request( ctx_t * ctx, ulong slot, ulong shred_idx, fd_hash_t const * hash ) {
-  fd_inflight_key_t inflight_req = { .slot = slot, .shred_idx = shred_idx, .nonce = 0 };
-  if( FD_LIKELY( !fd_inflight_map_ele_query( ctx->inflights->map, &inflight_req, NULL, ctx->inflights->pool ) ) ) {
-    if( FD_LIKELY( hash && fd_hash_check_zero( hash ) ) ) hash = NULL;
-    fd_hash_t peer = { .ul[0] = 0 };
-    fd_inflights_request_insert( ctx->inflights, 0, &peer, slot, shred_idx, hash );
+  if( FD_LIKELY( hash && fd_hash_check_zero( hash ) ) ) hash = NULL;
+  fd_hash_t target = {0};
+  if( FD_UNLIKELY( hash ) ) target = *hash;
+
+  fd_inflight_key_t key  = { .slot = slot, .shred_idx = shred_idx, .nonce = 0 };
+  fd_inflight_t *   pool = ctx->inflights->pool;
+  for( ulong idx = fd_inflight_map_idx_query_const( ctx->inflights->map, &key, ULONG_MAX, pool );
+             idx != ULONG_MAX;
+             idx = fd_inflight_map_idx_next_const( idx, ULONG_MAX, pool ) ) {
+    if( fd_hash_eq( &pool[ idx ].block_id, &target ) ) return; /* this version already in map */
   }
+
+  fd_hash_t peer = { .ul[0] = 0 };
+  fd_inflights_request_insert( ctx->inflights, 0, &peer, slot, shred_idx, hash );
 }
 
 /* Should be called for any shred request made.  block_id is the
@@ -987,8 +1028,155 @@ record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulo
   fd_policy_peer_request_update( ctx->policy, peer );
 }
 
-/* ag_policy_next is the full Alpenglow repair pipeline, driven once per
-   after_credit.  In priority order it: (1) redispatches an outstanding
+static void
+ag_policy_block_id_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy ) {
+  fd_chainer_t       * chainer    = ctx->chainer;
+  fd_chainer_slotv_t * pool       = chainer->slotv_pool;
+  fd_sched_ele_t     * sched_pool = chainer->sched_pool;
+  fd_sched_repair_t  * treap      = chainer->repair_treap;
+
+  long now_ms = now/(long)1e6;
+
+  /* (1) Redispatch an aged-out metadata request under a fresh nonce, so
+     a late response to the old request is simply unmatched. */
+  if( FD_UNLIKELY( fd_meta_inflights_should_drain( ctx->inflights, now ) ) ) {
+    fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+    if( FD_LIKELY( peer ) ) {
+      *charge_busy = 1;
+      ulong nonce; uint kind; ulong slot; fd_hash_t block_id; uint fec_set_idx;
+      fd_meta_inflights_request_pop( ctx->inflights, &nonce, &kind, &slot, &block_id, &fec_set_idx );
+
+      if( FD_UNLIKELY( slot <= ctx->chainer->root ) ) return; /* rooted while outstanding: drop, don't re-request */
+
+      uint              new_nonce = ctx->ag_nonce++;
+      fd_repair_msg_t * msg       = ( kind==AG_REPAIR_KIND_PARENT_FEC_COUNT )
+        ? ag_repair_parent_and_fec_set_count( ctx->protocol, peer, (ulong)now_ms, new_nonce, slot, &block_id )
+        : ag_repair_fec_set_root            ( ctx->protocol, peer, (ulong)now_ms, new_nonce, slot, &block_id, fec_set_idx );
+      fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+      fd_meta_inflights_request_insert( ctx->inflights, new_nonce, kind, slot, &block_id, fec_set_idx );
+      return;
+    }
+  }
+
+  /* (2) Redispatch an aged-out ShredForBlockId request at DEDUP_TIMEOUT
+     intervals. */
+  if( FD_UNLIKELY( fd_inflights_should_drain( ctx->inflights, now ) ) ) {
+    ulong nonce; ulong slot; ulong shred_idx; fd_hash_t block_id;
+    *charge_busy = 1;
+    fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &block_id, &shred_idx );
+
+    fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( ctx->chainer, slot, &block_id );
+    if( FD_UNLIKELY( slot > ctx->chainer->root && slotv && !fd_chainer_shred_test( ctx->chainer, slotv, (uint)shred_idx ) ) ) {
+      /* The re-request needs the prior getFecRoot to still be present:
+         without it the response would be dropped by
+         fd_chainer_shred_for_block_id_verify. */
+      uint fec_set_idx = (uint)shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
+      int  fec_present = !!fd_chainer_fec_query( ctx->chainer, slot, fec_set_idx, &block_id );
+
+      fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+      if( FD_UNLIKELY( !peer || !fec_present || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
+        /* No peers available (or getFecRoot evicted), park the request
+           in inflights. */
+        defer_inflight_request( ctx, slot, shred_idx, &block_id );
+      } else {
+        ctx->metrics->rerequest++;
+        nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, (uint)shred_idx, now );
+        fd_repair_msg_t * msg = ag_repair_shred_block_id( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, slot, &block_id, (uint)shred_idx );
+        fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+        record_inflight_request( ctx, nonce, peer, slot, shred_idx, &block_id );
+        return;
+      }
+    }
+  }
+
+  /* (3) No new requests allowed if inflights is near capacity. */
+  if( FD_UNLIKELY( fd_inflights_outstanding_free( ctx->inflights ) <= fd_signs_map_key_cnt( ctx->signs_map ) ) ) return;
+
+  /* Orphan (ancestry) pass: for orphans whose block_id is known, issue
+     getParentAndFecSetCount to discover ancestry.  Orphans without a
+     block_id are skipped -- there is no positional fallback in this
+     mode. */
+  fd_sched_orphan_t * otreap = chainer->orphan_treap;
+  fd_sched_orphan_fwd_iter_t onext;
+  for( fd_sched_orphan_fwd_iter_t oit = fd_sched_orphan_fwd_iter_init( otreap, sched_pool );
+                                       !fd_sched_orphan_fwd_iter_done( oit ); oit = onext ) {
+    onext = fd_sched_orphan_fwd_iter_next( oit, sched_pool );
+    fd_chainer_slotv_t * o = fd_slotv_pool_ele( pool, fd_sched_orphan_fwd_iter_ele( oit, sched_pool )->slotv_idx );
+
+    /* parent present or covered by the snapshot -> resolved */
+    if( o->parent_slot!=AG_UNKNOWN_SLOT &&
+        ( o->parent_slot<=chainer->root || fd_chainer_slot_query( chainer, o->parent_slot ) ) ) {
+      fd_chainer_orphan_remove( chainer, o );
+      continue;
+    }
+
+    if( FD_UNLIKELY( fd_hash_check_zero( &o->block_id ) ) ) continue; /* need block_id first */
+
+    ulong oslot = o->slot;
+    if( !fd_reqlim_next( ctx->dedup, fd_reqlim_key( AG_REPAIR_KIND_PARENT_FEC_COUNT, oslot, 0 ), now ) ) {
+      fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+      if( FD_UNLIKELY( !peer ) ) break;
+      uint nonce = ctx->ag_nonce++;
+      fd_repair_msg_t * msg = ag_repair_parent_and_fec_set_count( ctx->protocol, peer, (ulong)now_ms, nonce, oslot, &o->block_id );
+      *charge_busy = 1;
+      fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+      fd_meta_inflights_request_insert( ctx->inflights, nonce, AG_REPAIR_KIND_PARENT_FEC_COUNT, oslot, &o->block_id, 0U );
+      return;
+    }
+  }
+
+  /* Shred-fill pass: only versions whose block_id is known are
+     repairable; the tip / fec count is learned from
+     getParentAndFecSetCount, not HighestShred. */
+  for( fd_sched_repair_fwd_iter_t it = fd_sched_repair_fwd_iter_init( treap, sched_pool );
+                                      !fd_sched_repair_fwd_iter_done( it ); ) {
+    fd_chainer_slotv_t * e = fd_slotv_pool_ele( pool, fd_sched_repair_fwd_iter_ele( it, sched_pool )->slotv_idx );
+    it = fd_sched_repair_fwd_iter_next( it, sched_pool );
+
+    ulong slot = e->slot;
+
+    if( FD_UNLIKELY( fd_hash_check_zero( &e->block_id ) ) ) continue; /* need block_id first */
+
+    if( e->buffered_idx!=UINT_MAX &&
+      ( e->highest_requested==UINT_MAX || e->buffered_idx > e->highest_requested ) )
+      e->highest_requested = e->buffered_idx;
+
+    if( FD_UNLIKELY( e->complete_idx==UINT_MAX ) ) continue; /* fec count comes from getParentAndFecSetCount */
+
+    /* make individual shred request */
+
+    uint idx = e->highest_requested+1;
+    while( FD_UNLIKELY( idx<FD_SHRED_BLK_MAX && fd_chainer_shred_test( chainer, e, idx ) ) ) idx++;
+
+    if( FD_UNLIKELY( idx > e->complete_idx ) ) {
+      e->highest_requested = idx;
+      fd_chainer_repair_remove( chainer, e );
+      continue;
+    };
+
+    /* Gate on prior getFecRoot being present.  The ShredForBlockId
+       response would race the getFecRoot and be dropped by
+       fd_chainer_shred_for_block_id_verify, then re-requested only
+       after the reqlim timeout.  Retry this idx on a later walk, once
+       the root lands. */
+    uint fec_set_idx = idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
+    if( FD_UNLIKELY( !fd_chainer_fec_query( chainer, slot, fec_set_idx, &e->block_id ) ) ) continue;
+
+    fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+    if( FD_UNLIKELY( !peer ) ) break;
+    ulong nonce           = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, idx, now );
+    fd_repair_msg_t * msg = ag_repair_shred_block_id( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, slot, &e->block_id, idx );
+    *charge_busy = 1;
+    fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+    record_inflight_request( ctx, nonce, peer, slot, idx, &e->block_id );
+    e->highest_requested = idx;
+    return;
+  }
+}
+
+/* ag_policy_next is the standard Alpenglow repair pipeline, driven once
+   per after_credit (ag_policy_block_id_next is the block-id-only
+   variant).  In priority order it: (1) redispatches an outstanding
    metadata request (ParentAndFecSetCount / FecSetRoot) that has aged
    past its drain timeout, (2) redispatches an outstanding shred request
    likewise, (3) gates on inflight capacity, then (4) walks the chainer's
@@ -1013,19 +1201,28 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
 
   /* (1) Redispatch an aged-out metadata request under a fresh nonce, so
      a late response to the old request is simply unmatched. */
-  if( FD_UNLIKELY( ag_inflights_should_drain( ctx->inflights, now ) ) ) {
+  if( FD_UNLIKELY( fd_meta_inflights_should_drain( ctx->inflights, now ) ) ) {
     fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
     if( FD_LIKELY( peer ) ) {
       *charge_busy = 1;
       ulong nonce; uint kind; ulong slot; fd_hash_t block_id; uint fec_set_idx;
-      ag_inflights_request_pop( ctx->inflights, &nonce, &kind, &slot, &block_id, &fec_set_idx );
+      fd_meta_inflights_request_pop( ctx->inflights, &nonce, &kind, &slot, &block_id, &fec_set_idx );
+
+      /* conditions where we can toss this request:
+          1. rooted this slot
+          2. this is a ParentFecSetCount request, but we already have that information.
+          3. this is a FecSetRoot request, but we already have that information. */
+      if( FD_UNLIKELY( slot <= ctx->chainer->root ) ) return; /* rooted while outstanding: drop, don't re-request */
+      fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( ctx->chainer, slot, &block_id );
+      if(  kind==AG_REPAIR_KIND_PARENT_FEC_COUNT && slotv && slotv->complete_idx!=UINT_MAX && slotv->parent_slot!=AG_UNKNOWN_SLOT ) return; /* we already have the ParentFecSetCount */
+      if(  kind==AG_REPAIR_KIND_FEC_ROOT         && fd_chainer_fec_query( ctx->chainer, slot, fec_set_idx, &block_id ) ) return; /* we already have the FecSetRoot */
 
       uint              new_nonce = ctx->ag_nonce++;
       fd_repair_msg_t * msg       = ( kind==AG_REPAIR_KIND_PARENT_FEC_COUNT )
-        ? ag_repair_parent_and_fec_set_count( ctx->protocol, peer, (ulong)now_ms, new_nonce, slot, &block_id )
-        : ag_repair_fec_set_root            ( ctx->protocol, peer, (ulong)now_ms, new_nonce, slot, &block_id, fec_set_idx );
+                                    ? ag_repair_parent_and_fec_set_count( ctx->protocol, peer, (ulong)now_ms, new_nonce, slot, &block_id )
+                                    : ag_repair_fec_set_root            ( ctx->protocol, peer, (ulong)now_ms, new_nonce, slot, &block_id, fec_set_idx );
       fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
-      ag_inflights_request_insert( ctx->inflights, new_nonce, kind, slot, &block_id, fec_set_idx );
+      fd_meta_inflights_request_insert( ctx->inflights, new_nonce, kind, slot, &block_id, fec_set_idx );
       return;
     }
   }
@@ -1037,15 +1234,25 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
     fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &block_id, &shred_idx );
 
     fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( ctx->chainer, slot, &block_id );
-    if( FD_UNLIKELY( slotv && !fd_chainer_shred_test( ctx->chainer, slotv, (uint)shred_idx ) ) ) {
+    if( FD_UNLIKELY( slot > ctx->chainer->root && slotv && !fd_chainer_shred_test( ctx->chainer, slotv, (uint)shred_idx ) ) ) {
+      /* A block-id request is re-driven as ShredForBlockId, which needs
+         the prior getFecRoot to still be present: without it the
+         response would be dropped by
+         fd_chainer_shred_for_block_id_verify. */
+      uint fec_set_idx  = (uint)shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
+      int  has_block_id = !fd_hash_check_zero( &block_id );
+      int  fec_present  = !has_block_id || !!fd_chainer_fec_query( ctx->chainer, slot, fec_set_idx, &block_id );
+
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-      if( FD_UNLIKELY( !peer || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
+      if( FD_UNLIKELY( !peer || !fec_present || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
         /* No peers available, park the request in inflights. */
         defer_inflight_request( ctx, slot, shred_idx, &block_id );
       } else {
         ctx->metrics->rerequest++;
         nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, (uint)shred_idx, now );
-        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, slot, shred_idx );
+        fd_repair_msg_t * msg = has_block_id
+                                 ? ag_repair_shred_block_id( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, slot, &block_id, (uint)shred_idx )
+                                 : fd_repair_shred( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, slot, (uint)shred_idx );
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
         record_inflight_request( ctx, nonce, peer, slot, shred_idx, &block_id );
         return;
@@ -1053,45 +1260,8 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
     }
   }
 
-  /* (3) No new requests allowed if inflights is near capacity. */
+  /* (3) No new shred requests allowed if inflights is near capacity. */
   if( FD_UNLIKELY( fd_inflights_outstanding_free( ctx->inflights ) <= fd_signs_map_key_cnt( ctx->signs_map ) ) ) return;
-
-  /* Block-id orphan pass (block_id_repair_only): for orphans whose
-     block_id is known, issue getParentAndFecSetCount to discover
-     ancestry. Orphans without a block_id are skipped -- there is no
-     legacy fallback in this mode. */
-  if( FD_UNLIKELY( ctx->block_id_repair_only ) ) {
-    fd_sched_orphan_t * otreap = chainer->orphan_treap;
-    fd_sched_orphan_fwd_iter_t onext;
-    for( fd_sched_orphan_fwd_iter_t oit = fd_sched_orphan_fwd_iter_init( otreap, sched_pool );
-                                         !fd_sched_orphan_fwd_iter_done( oit );
-                                         oit = onext ) {
-      onext = fd_sched_orphan_fwd_iter_next( oit, sched_pool );
-      fd_chainer_slotv_t * o = fd_slotv_pool_ele( pool, fd_sched_orphan_fwd_iter_ele( oit, sched_pool )->slotv_idx );
-      //FD_LOG_NOTICE(( "orphan slot %lu, parent slot %lu", o->slot, o->parent_slot ));
-
-      /* parent present or covered by the snapshot -> resolved */
-      if( o->parent_slot!=AG_UNKNOWN_SLOT &&
-          ( o->parent_slot<=chainer->root || fd_chainer_slot_query( chainer, o->parent_slot ) ) ) {
-        fd_chainer_orphan_remove( chainer, o );
-        continue;
-      }
-
-      if( FD_UNLIKELY( fd_hash_check_zero( &o->block_id ) ) ) continue; /* need block_id first */
-
-      ulong oslot = o->slot;
-      if( !fd_reqlim_next( ctx->dedup, fd_reqlim_key( AG_REPAIR_KIND_PARENT_FEC_COUNT, oslot, 0 ), now ) ) {
-        fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-        if( FD_UNLIKELY( !peer ) ) break;
-        uint nonce = ctx->ag_nonce++;
-        fd_repair_msg_t * msg = ag_repair_parent_and_fec_set_count( ctx->protocol, peer, (ulong)now_ms, nonce, oslot, &o->block_id );
-        *charge_busy = 1;
-        fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
-        ag_inflights_request_insert( ctx->inflights, nonce, AG_REPAIR_KIND_PARENT_FEC_COUNT, oslot, &o->block_id, 0U );
-        return;
-      }
-    }
-  }
 
   /* Orphan (ancestry) pass
      - Parent slot unknown: request our own shred 0 (contents names the
@@ -1101,44 +1271,40 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
 
      An orphan whose parent slotv exists (or whose parent is covered by
      the snapshot, i.e. at/below the chainer root) is resolved: remove
-     it from the treap.
+     it from the treap. */
+  fd_sched_orphan_t * otreap = chainer->orphan_treap;
+  fd_sched_orphan_fwd_iter_t onext;
+  for( fd_sched_orphan_fwd_iter_t oit = fd_sched_orphan_fwd_iter_init( otreap, sched_pool );
+                                       !fd_sched_orphan_fwd_iter_done( oit ); oit = onext ) {
+    onext = fd_sched_orphan_fwd_iter_next( oit, sched_pool );
+    fd_chainer_slotv_t * o = fd_slotv_pool_ele( pool, fd_sched_orphan_fwd_iter_ele( oit, sched_pool )->slotv_idx );
 
-     Skipped entirely in block-id-only mode: ancestry there is discovered
-     via getParentAndFecSetCount / the block header, not shred-0/Orphan. */
-  if( FD_LIKELY( !ctx->block_id_repair_only ) ) {
-    fd_sched_orphan_t * otreap = chainer->orphan_treap;
-    fd_sched_orphan_fwd_iter_t onext;
-    for( fd_sched_orphan_fwd_iter_t oit = fd_sched_orphan_fwd_iter_init( otreap, sched_pool );
-                                         !fd_sched_orphan_fwd_iter_done( oit ); oit = onext ) {
-      onext = fd_sched_orphan_fwd_iter_next( oit, sched_pool );
-      fd_chainer_slotv_t * o = fd_slotv_pool_ele( pool, fd_sched_orphan_fwd_iter_ele( oit, sched_pool )->slotv_idx );
+    /* parent present or covered by the snapshot -> resolved TODO - can potentially remove this call */
+    if( o->parent_slot!=AG_UNKNOWN_SLOT &&
+      ( o->parent_slot<=chainer->root || fd_chainer_slot_query( chainer, o->parent_slot ) ) ) {
+      fd_chainer_orphan_remove( chainer, o );
+      continue;
+    }
 
-      /* parent present or covered by the snapshot -> resolved TODO - can potentially remove this call */
-      if( o->parent_slot!=AG_UNKNOWN_SLOT &&
-        ( o->parent_slot<=chainer->root || fd_chainer_slot_query( chainer, o->parent_slot ) ) ) {
-        fd_chainer_orphan_remove( chainer, o );
-        continue;
-      }
+    ulong oslot = o->slot;
 
-      ulong oslot = o->slot;
-
-      if( o->parent_slot==AG_UNKNOWN_SLOT && !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, oslot, 0 ), now ) ) {
-        fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-        if( FD_UNLIKELY( !peer ) ) break;
-        uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, oslot, 0U, now );
-        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, oslot, 0 );
-        *charge_busy = 1;
-        fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
-        return;
-      } else if( o->parent_slot!=AG_UNKNOWN_SLOT && !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_ORPHAN, oslot, UINT_MAX ), now ) ) {
-        fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-        if( FD_UNLIKELY( !peer ) ) break;
-        uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 0, oslot, 0U, now );
-        fd_repair_msg_t * msg = fd_repair_orphan( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, oslot );
-        *charge_busy = 1;
-        fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
-        return;
-      }
+    if( o->parent_slot==AG_UNKNOWN_SLOT && !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, oslot, 0 ), now ) ) {
+      fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+      if( FD_UNLIKELY( !peer ) ) break;
+      uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, oslot, 0U, now );
+      fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, oslot, 0 );
+      *charge_busy = 1;
+      fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+      record_inflight_request( ctx, nonce, peer, oslot, 0UL, NULL );
+      return;
+    } else if( o->parent_slot!=AG_UNKNOWN_SLOT && !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_ORPHAN, oslot, UINT_MAX ), now ) ) {
+      fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+      if( FD_UNLIKELY( !peer ) ) break;
+      uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 0, oslot, 0U, now );
+      fd_repair_msg_t * msg = fd_repair_orphan( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, oslot );
+      *charge_busy = 1;
+      fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+      return;
     }
   }
 
@@ -1149,17 +1315,11 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
 
     ulong slot = e->slot;
 
-    /* Block-id-only: repair only versions whose block_id we know; the
-       tip / fec count is learned from getParentAndFecSetCount, not
-       HighestShred, so skip anything without a block_id. */
-    if( FD_UNLIKELY( ctx->block_id_repair_only && fd_hash_check_zero( &e->block_id ) ) ) continue;
-
     if( e->buffered_idx!=UINT_MAX &&
       ( e->highest_requested==UINT_MAX || e->buffered_idx > e->highest_requested ) )
       e->highest_requested = e->buffered_idx;
 
     if( FD_UNLIKELY( e->complete_idx==UINT_MAX ) ) {
-      if( FD_UNLIKELY( ctx->block_id_repair_only ) ) continue; /* fec count comes from getParentAndFecSetCount */
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
       /* No peers available.  Nothing has been consumed for this slotv
          and it stays in the repair treap. Retry it on next walk. */
@@ -1249,11 +1409,12 @@ publish_fec_replay( ctx_t * ctx, fd_stem_context_t * stem ) {
 
   if( FD_UNLIKELY( fec->slot_complete ) ) {
     FD_BASE58_ENCODE_32_BYTES( slotv->block_id.uc, block_id );
-    FD_LOG_INFO(( "[%s] slot is complete %lu. num_data_shreds: %u. block_id: %s",
+    FD_LOG_INFO(( "[%s] slot is complete %lu. num_data_shreds: %u. block_id: %s, parent_slot: %lu",
                     __func__,
                     slotv->slot,
                     slotv->complete_idx + 1,
-                    block_id ));
+                    block_id,
+                    slotv->parent_slot ));
   }
 
   fd_stem_publish( stem, ctx->repair_out_ctx->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -1301,10 +1462,28 @@ after_credit( ctx_t *             ctx,
     return;
   }
 
+  if( FD_UNLIKELY( !ag_req_queue_empty( ctx->ag_req_queue ) ) ) {
+    fd_repair_msg_t     msg  = ag_req_queue_pop( ctx->ag_req_queue );
+    fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+    fd_pubkey_t to = {0};
+    if( FD_LIKELY( peer ) ) {
+      msg.header.to = *peer;
+      fd_repair_send_sign_request( ctx, sign_out, &msg, NULL );
+    } else {
+      peer = &to;
+    }
+    if( FD_LIKELY( msg.kind==AG_REPAIR_KIND_FEC_ROOT ) ) fd_meta_inflights_request_insert( ctx->inflights, msg.fec_set_root.nonce,         AG_REPAIR_KIND_FEC_ROOT,         msg.fec_set_root.slot,         &msg.fec_set_root.block_id,         msg.fec_set_root.fec_set_idx );
+    else                                                 fd_meta_inflights_request_insert( ctx->inflights, msg.parent_fec_set_count.nonce, AG_REPAIR_KIND_PARENT_FEC_COUNT, msg.parent_fec_set_count.slot, &msg.parent_fec_set_count.block_id, 0U );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* Alpenglow drives its entire request pipeline (metadata/shred
      redispatch, capacity gate, and the orphan + shred-fill walk) from
-     ag_policy_next. */
-  ag_policy_next( ctx, sign_out, now, charge_busy );
+     the policy walk. */
+  if( FD_UNLIKELY( ctx->block_id_repair_only ) ) ag_policy_block_id_next( ctx, sign_out, now, charge_busy );
+  else                                           ag_policy_next         ( ctx, sign_out, now, charge_busy );
   return;
 }
 
@@ -1326,12 +1505,6 @@ signs_queue_update_identity( ctx_t * ctx ) {
       case FD_REPAIR_KIND_ORPHAN:
         memcpy( signable.msg.orphan.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
         break;
-      case AG_REPAIR_KIND_PARENT_FEC_COUNT:
-        memcpy( signable.msg.parent_fec_set_count.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
-        break;
-      case AG_REPAIR_KIND_FEC_ROOT:
-        memcpy( signable.msg.fec_set_root.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
-        break;
       case AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID:
         memcpy( signable.msg.shred_block_id.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
         break;
@@ -1340,6 +1513,22 @@ signs_queue_update_identity( ctx_t * ctx ) {
         break;
     }
     fd_signs_queue_push( ctx->pong_queue, signable );
+  }
+  queue_cnt = ag_req_queue_cnt( ctx->ag_req_queue );
+  for( ulong i=0UL; i<queue_cnt; i++ ) {
+    fd_repair_msg_t msg = ag_req_queue_pop( ctx->ag_req_queue );
+    switch( msg.kind ) {
+      case AG_REPAIR_KIND_FEC_ROOT:
+        memcpy( msg.fec_set_root.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
+        break;
+      case AG_REPAIR_KIND_PARENT_FEC_COUNT:
+        memcpy( msg.parent_fec_set_count.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
+        break;
+      default:
+        FD_LOG_CRIT(( "Unhandled repair kind %u", msg.kind ));
+        break;
+    }
+    ag_req_queue_push( ctx->ag_req_queue, msg );
   }
 }
 
@@ -1419,6 +1608,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->inflights    = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint()                                      );
   ctx->signs_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint( lg_sign_depth )                       );
   ctx->pong_queue   = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                    );
+  ctx->ag_req_queue = FD_SCRATCH_ALLOC_APPEND( l, ag_req_queue_align(),      ag_req_queue_footprint()                                        );
   ctx->slot_metrics = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                 );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -1431,6 +1621,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( ctx->inflights, ctx->repair_seed+1234UL                                                       ) );
   ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( ctx->signs_map, lg_sign_depth, 0UL                                                            ) );
   ctx->pong_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( ctx->pong_queue                                                                               ) );
+  ctx->ag_req_queue = ag_req_queue_join     ( ag_req_queue_new     ( ctx->ag_req_queue                                                                             ) );
   ctx->slot_metrics = fd_repair_metrics_join( fd_repair_metrics_new( ctx->slot_metrics                                                                             ) );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );

@@ -16,25 +16,30 @@ fd_inflights_new( void * shmem,
   void *           pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_inflight_pool_align(), fd_inflight_pool_footprint( FD_INFLIGHT_REQ_MAX ) );
   void *           map   = FD_SCRATCH_ALLOC_APPEND( l, fd_inflight_map_align(),  fd_inflight_map_footprint ( chain_cnt           ) );
   void *           pmap  = FD_SCRATCH_ALLOC_APPEND( l, fd_inflight_map_align(),  fd_inflight_map_footprint ( chain_cnt           ) );
-  void *           apool = FD_SCRATCH_ALLOC_APPEND( l, ag_inflight_pool_align(), ag_inflight_pool_footprint( FD_INFLIGHT_REQ_MAX ) );
-  void *           agmap = FD_SCRATCH_ALLOC_APPEND( l, ag_inflight_map_align(),  ag_inflight_map_footprint ( chain_cnt           ) );
+  void *           apool = FD_SCRATCH_ALLOC_APPEND( l, fd_meta_inflight_pool_align(), fd_meta_inflight_pool_footprint( FD_INFLIGHT_REQ_MAX ) );
+  void *           agmap = FD_SCRATCH_ALLOC_APPEND( l, fd_meta_inflight_map_align(),  fd_meta_inflight_map_footprint ( chain_cnt           ) );
+  void *           agpmap= FD_SCRATCH_ALLOC_APPEND( l, fd_meta_inflight_map_align(),  fd_meta_inflight_map_footprint ( chain_cnt           ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_inflights_align() ) == (ulong)shmem + footprint );
 
-  table->pool       = fd_inflight_pool_join ( fd_inflight_pool_new ( pool, FD_INFLIGHT_REQ_MAX    ) );
-  table->map        = fd_inflight_map_join  ( fd_inflight_map_new  ( map,  chain_cnt, seed ) );
-  table->popped_map = fd_inflight_map_join  ( fd_inflight_map_new  ( pmap, chain_cnt, seed ) );
-  table->ag_map     = ag_inflight_map_join  ( ag_inflight_map_new  ( agmap, chain_cnt, seed ) );
-  table->ag_pool    = ag_inflight_pool_join ( ag_inflight_pool_new ( apool, FD_INFLIGHT_REQ_MAX    ) );
-  table->popped_cnt = 0UL;
+  table->pool          = fd_inflight_pool_join ( fd_inflight_pool_new ( pool, FD_INFLIGHT_REQ_MAX    ) );
+  table->map           = fd_inflight_map_join  ( fd_inflight_map_new  ( map,  chain_cnt, seed ) );
+  table->popped_map    = fd_inflight_map_join  ( fd_inflight_map_new  ( pmap, chain_cnt, seed ) );
+  table->ag_map        = fd_meta_inflight_map_join  ( fd_meta_inflight_map_new  ( agmap,  chain_cnt, seed ) );
+  table->ag_popped_map = fd_meta_inflight_map_join  ( fd_meta_inflight_map_new  ( agpmap, chain_cnt, seed ) );
+  table->ag_pool       = fd_meta_inflight_pool_join ( fd_meta_inflight_pool_new ( apool, FD_INFLIGHT_REQ_MAX    ) );
+  table->popped_cnt    = 0UL;
+  table->ag_popped_cnt = 0UL;
   FD_TEST( table->outstanding_dl   ==fd_inflight_dlist_join( fd_inflight_dlist_new( table->outstanding_dl    ) ) );
   FD_TEST( table->popped_dl        ==fd_inflight_dlist_join( fd_inflight_dlist_new( table->popped_dl         ) ) );
-  FD_TEST( table->ag_outstanding_dl==ag_inflight_dlist_join( ag_inflight_dlist_new( table->ag_outstanding_dl ) ) );
+  FD_TEST( table->ag_outstanding_dl==fd_meta_inflight_dlist_join( fd_meta_inflight_dlist_new( table->ag_outstanding_dl ) ) );
+  FD_TEST( table->ag_popped_dl     ==fd_meta_inflight_dlist_join( fd_meta_inflight_dlist_new( table->ag_popped_dl      ) ) );
 
-  FD_TEST( table->pool       );
-  FD_TEST( table->map        );
-  FD_TEST( table->popped_map );
-  FD_TEST( table->ag_map     );
-  FD_TEST( table->ag_pool    );
+  FD_TEST( table->pool          );
+  FD_TEST( table->map           );
+  FD_TEST( table->popped_map    );
+  FD_TEST( table->ag_map        );
+  FD_TEST( table->ag_popped_map );
+  FD_TEST( table->ag_pool       );
   return shmem;
 }
 
@@ -136,6 +141,62 @@ fd_inflights_request_match( fd_inflights_t * table,
   return now-req_ts; /* 0 if nothing found */
 }
 
+/* inflight_in_map returns 1 if ele is reachable in map's duplicate chain
+   for its key.  Used to tell which set (outstanding vs popped) an entry
+   belongs to */
+static int
+inflight_in_map( fd_inflight_map_t const * map,
+                 fd_inflights_t *          table,
+                 fd_inflight_t const *     ele ) {
+  ulong ele_idx = (ulong)( ele - table->pool );
+  for( ulong i = fd_inflight_map_idx_query_const( map, &ele->key, ULONG_MAX, table->pool );
+             i != ULONG_MAX;
+             i = fd_inflight_map_idx_next_const( i, ULONG_MAX, table->pool ) ) {
+    if( i==ele_idx ) return 1;
+  }
+  return 0;
+}
+
+long
+fd_inflights_request_remove( fd_inflights_t * table,
+                           fd_inflight_t *  ele ) {
+  long rtt = fd_log_wallclock()-ele->timestamp_ns;
+  if( FD_LIKELY( inflight_in_map( table->map, table, ele ) ) ) {
+    fd_inflight_map_ele_remove_fast( table->map,            ele, table->pool );
+    fd_inflight_dlist_ele_remove   ( table->outstanding_dl, ele, table->pool );
+  } else {
+    fd_inflight_map_ele_remove_fast( table->popped_map, ele, table->pool );
+    fd_inflight_dlist_ele_remove   ( table->popped_dl,  ele, table->pool );
+    table->popped_cnt--;
+  }
+  fd_inflight_pool_ele_release( table->pool, ele );
+  return fd_long_max( rtt, 1L ); /* >0 marks a match even under clock skew */
+}
+
+fd_inflight_t *
+fd_inflights_request_query( fd_inflights_t * table,
+                            ulong            nonce,
+                            ulong            slot,
+                            ulong            shred_idx ) {
+  fd_inflight_key_t key[1] = {{ .slot = slot, .shred_idx = shred_idx, .nonce = nonce }};
+  fd_inflight_t * ele = fd_inflight_map_ele_query( table->map, key, NULL, table->pool );
+  if( FD_UNLIKELY( !ele ) ) ele = fd_inflight_map_ele_query( table->popped_map, key, NULL, table->pool );
+  return ele;
+}
+
+fd_inflight_t *
+fd_inflights_request_query_next( fd_inflights_t * table,
+                                 fd_inflight_t *  ele ) {
+  /* Continue the current map's duplicate chain. */
+  ulong idx = fd_inflight_map_idx_next_const( (ulong)(ele-table->pool), ULONG_MAX, table->pool );
+  if( FD_LIKELY( idx!=ULONG_MAX ) ) return fd_inflight_pool_ele( table->pool, idx );
+
+  /* cross over to the popped set's chain */
+  if( inflight_in_map( table->map, table, ele ) )
+    return fd_inflight_map_ele_query( table->popped_map, &ele->key, NULL, table->pool );
+  return NULL;
+}
+
 void
 fd_inflights_request_pop( fd_inflights_t * table,
                           ulong *          nonce_out,
@@ -154,23 +215,31 @@ fd_inflights_request_pop( fd_inflights_t * table,
 }
 
 void
-ag_inflights_request_insert( fd_inflights_t *  table,
+fd_meta_inflights_request_insert( fd_inflights_t *  table,
                              ulong             nonce,
                              uint              kind,
                              ulong             slot,
                              fd_hash_t const * block_id,
                              uint              fec_set_idx ) {
-  if( FD_UNLIKELY( !ag_inflight_pool_free( table->ag_pool ) ) ) {
-    /* pool full: evict the oldest outstanding ag request */
-    if( FD_LIKELY( !ag_inflight_dlist_is_empty( table->ag_outstanding_dl, table->ag_pool ) ) ) {
-      ag_inflight_t * evict = ag_inflight_dlist_ele_pop_head( table->ag_outstanding_dl, table->ag_pool );
-      ag_inflight_map_ele_remove( table->ag_map, &evict->nonce, NULL, table->ag_pool );
-      ag_inflight_pool_ele_release( table->ag_pool, evict );
-      FD_LOG_CRIT(( "evicting outstanding ag request for slot %lu", slot ));
+  if( FD_UNLIKELY( !fd_meta_inflight_pool_free( table->ag_pool ) ) ) {
+    /* pool full: evict the oldest popped (already timed-out) ag request
+       first, and only an outstanding one as a last resort. */
+    if( FD_LIKELY( !fd_meta_inflight_dlist_is_empty( table->ag_popped_dl, table->ag_pool ) ) ) {
+      fd_meta_inflight_t * evict = fd_meta_inflight_dlist_ele_pop_head( table->ag_popped_dl, table->ag_pool );
+      table->ag_popped_cnt--;
+      fd_meta_inflight_map_ele_remove( table->ag_popped_map, &evict->nonce, NULL, table->ag_pool );
+      fd_meta_inflight_pool_ele_release( table->ag_pool, evict );
+    } else {
+      /* (pool free) + (ag_popped_dl cnt) + (ag_outstanding_dl cnt) ==
+         INFLIGHT_REQ_MAX, so they can't all be 0. */
+      fd_meta_inflight_t * evict = fd_meta_inflight_dlist_ele_pop_head( table->ag_outstanding_dl, table->ag_pool );
+      FD_LOG_WARNING(( "evicting outstanding ag request for slot %lu, nonce %lu", evict->slot, evict->nonce ));
+      fd_meta_inflight_map_ele_remove( table->ag_map, &evict->nonce, NULL, table->ag_pool );
+      fd_meta_inflight_pool_ele_release( table->ag_pool, evict );
     }
   }
 
-  ag_inflight_t * req = ag_inflight_pool_ele_acquire( table->ag_pool );
+  fd_meta_inflight_t * req = fd_meta_inflight_pool_ele_acquire( table->ag_pool );
   req->nonce        = nonce;
   req->kind         = kind;
   req->slot         = slot;
@@ -178,32 +247,46 @@ ag_inflights_request_insert( fd_inflights_t *  table,
   req->fec_set_idx  = fec_set_idx;
   req->timestamp_ns = fd_log_wallclock();
 
-  ag_inflight_map_ele_insert     ( table->ag_map,             req, table->ag_pool );
-  ag_inflight_dlist_ele_push_tail( table->ag_outstanding_dl,  req, table->ag_pool );
+  fd_meta_inflight_map_ele_insert     ( table->ag_map,             req, table->ag_pool );
+  fd_meta_inflight_dlist_ele_push_tail( table->ag_outstanding_dl,  req, table->ag_pool );
 }
 
 void
-ag_inflights_request_pop( fd_inflights_t * table,
+fd_meta_inflights_request_pop( fd_inflights_t * table,
                           ulong *          nonce_out,
                           uint *           kind_out,
                           ulong *          slot_out,
                           fd_hash_t *      block_id_out,
                           uint *           fec_set_idx_out ) {
-  ag_inflight_t * req = ag_inflight_dlist_ele_pop_head( table->ag_outstanding_dl, table->ag_pool );
-  ag_inflight_map_ele_remove( table->ag_map, &req->nonce, NULL, table->ag_pool );
+  fd_meta_inflight_t * req = fd_meta_inflight_dlist_ele_pop_head( table->ag_outstanding_dl, table->ag_pool );
+  fd_meta_inflight_map_ele_remove( table->ag_map, &req->nonce, NULL, table->ag_pool );
   *nonce_out       = req->nonce;
   *kind_out        = req->kind;
   *slot_out        = req->slot;
   *block_id_out    = req->block_id;
   *fec_set_idx_out = req->fec_set_idx;
-  ag_inflight_pool_ele_release( table->ag_pool, req );
+  /* Move to the popped set (rather than releasing) so a late response to
+     this nonce can still match, mirroring fd_inflights_request_pop. */
+  fd_meta_inflight_map_ele_insert     ( table->ag_popped_map, req, table->ag_pool );
+  fd_meta_inflight_dlist_ele_push_tail( table->ag_popped_dl,  req, table->ag_pool );
+  table->ag_popped_cnt++;
 }
 
-ag_inflight_t *
-ag_inflights_request_match( fd_inflights_t * table, ulong nonce ) {
-  ag_inflight_t * req = ag_inflight_map_ele_remove( table->ag_map, &nonce, NULL, table->ag_pool );
-  if( FD_LIKELY( req ) ) ag_inflight_dlist_ele_remove( table->ag_outstanding_dl, req, table->ag_pool );
-  return req; /* caller releases via ag_inflight_pool_ele_release */
+fd_meta_inflight_t *
+fd_meta_inflights_request_match( fd_inflights_t * table, ulong nonce ) {
+  fd_meta_inflight_t * req = fd_meta_inflight_map_ele_remove( table->ag_map, &nonce, NULL, table->ag_pool );
+  if( FD_LIKELY( req ) ) {
+    fd_meta_inflight_dlist_ele_remove( table->ag_outstanding_dl, req, table->ag_pool );
+    return req;
+  }
+  /* Fall back to the popped set: a response can arrive after its request
+     timed out and was popped. */
+  req = fd_meta_inflight_map_ele_remove( table->ag_popped_map, &nonce, NULL, table->ag_pool );
+  if( FD_LIKELY( req ) ) {
+    fd_meta_inflight_dlist_ele_remove( table->ag_popped_dl, req, table->ag_pool );
+    table->ag_popped_cnt--;
+  }
+  return req; /* caller releases via fd_meta_inflight_pool_ele_release */
 }
 
 #include <stdio.h>
