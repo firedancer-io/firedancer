@@ -49,36 +49,36 @@ typedef struct fd_genesis_account_pair fd_genesis_account_pair_t;
 
 static inline uchar *
 emit_u8( uchar * p, uchar * end, uchar v ) {
-  if( FD_UNLIKELY( p+1>end ) ) return NULL;
+  if( FD_UNLIKELY( (ulong)end-(ulong)p<1UL ) ) return NULL;
   *p = v;
   return p+1;
 }
 
 static inline uchar *
 emit_u32( uchar * p, uchar * end, uint v ) {
-  if( FD_UNLIKELY( p+4>end ) ) return NULL;
+  if( FD_UNLIKELY( (ulong)end-(ulong)p<4UL ) ) return NULL;
   FD_STORE( uint, p, v );
   return p+4;
 }
 
 static inline uchar *
 emit_u64( uchar * p, uchar * end, ulong v ) {
-  if( FD_UNLIKELY( p+8>end ) ) return NULL;
+  if( FD_UNLIKELY( (ulong)end-(ulong)p<8UL ) ) return NULL;
   FD_STORE( ulong, p, v );
   return p+8;
 }
 
 static inline uchar *
 emit_f64( uchar * p, uchar * end, double v ) {
-  if( FD_UNLIKELY( p+8>end ) ) return NULL;
+  if( FD_UNLIKELY( (ulong)end-(ulong)p<8UL ) ) return NULL;
   FD_STORE( double, p, v );
   return p+8;
 }
 
 static inline uchar *
 emit_bytes( uchar * p, uchar * end, void const * src, ulong n ) {
-  if( FD_UNLIKELY( p+n>end ) ) return NULL;
-  fd_memcpy( p, src, n );
+  if( FD_UNLIKELY( (ulong)end-(ulong)p<n ) ) return NULL;
+  if( FD_LIKELY( n ) ) fd_memcpy( p, src, n );
   return p+n;
 }
 
@@ -111,6 +111,8 @@ static ulong
 genesis_encode( genesis_solana_t const * g,
                 uchar *                  buf,
                 ulong                    bufsz ) {
+  if( FD_UNLIKELY( !buf ) ) return 0UL;
+
   uchar * p   = buf;
   uchar * end = buf + bufsz;
 
