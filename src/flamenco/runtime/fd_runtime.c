@@ -1679,11 +1679,15 @@ apply_footer( fd_bank_t *               bank,
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot, NULL );
+  ulong current_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot,        NULL );
+  ulong parent_epoch  = fd_slot_to_epoch( epoch_schedule, bank->f.parent_slot, NULL );
+
+  long epoch_start_timestamp = clock->epoch_start_timestamp;
+  if( FD_UNLIKELY( bank->f.slot && parent_epoch!=current_epoch ) ) epoch_start_timestamp = unix_timestamp;
 
   fd_sol_sysvar_clock_t new_clock = {
     .slot                  = bank->f.slot,
-    .epoch_start_timestamp = clock->epoch_start_timestamp,
+    .epoch_start_timestamp = epoch_start_timestamp,
     .epoch                 = current_epoch,
     .leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, bank->f.slot ),
     .unix_timestamp        = unix_timestamp,
