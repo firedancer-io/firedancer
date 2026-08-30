@@ -9,7 +9,9 @@
 #include "../../flamenco/features/fd_features_generated.h"
 #undef HEADER_fd_src_flamenco_features_fd_features_h
 
+#if defined(__x86_64__)
 #include <cpuid.h>
+#endif
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -281,6 +283,7 @@ collect_cpu( fd_boot_report_t * r ) {
     else if( !strncmp( un.machine, "aarch64", 7 ) || !strncmp( un.machine, "arm", 3 ) ) r->cpu_arch = 2;
   }
 
+# if defined(__x86_64__)
   uint eax, ebx, ecx, edx;
   if( FD_LIKELY( __get_cpuid( 0U, &eax, &ebx, &ecx, &edx ) ) ) {
     char vendor[ 13 ];
@@ -302,6 +305,7 @@ collect_cpu( fd_boot_report_t * r ) {
     r->cpu_model_id = (ushort)( base_model | fd_uint_if( base_family==0x6U || base_family==0xFU, ext_model<<4, 0U ) );
     r->cpu_stepping = (uchar)( eax&0xFU );
   }
+# endif /* defined(__x86_64__) */
 
   char cpuinfo[ 16384 ];
   if( FD_LIKELY( !read_file( "/proc/cpuinfo", cpuinfo, sizeof(cpuinfo), NULL ) ) ) {
@@ -742,8 +746,9 @@ collect_platform( fd_boot_report_t * r,
     }
   }
 
-  uint eax, ebx, ecx, edx;
   r->hypervisor_vendor = 1; /* none */
+# if defined(__x86_64__)
+  uint eax, ebx, ecx, edx;
   if( __get_cpuid( 1U, &eax, &ebx, &ecx, &edx ) && ( ecx&(1U<<31) ) ) {
     r->hypervisor_vendor = 13; /* unknown */
     __cpuid( 0x40000000U, eax, ebx, ecx, edx ); /* __get_cpuid rejects hypervisor leaves */
@@ -766,6 +771,7 @@ collect_platform( fd_boot_report_t * r,
     else if( !strncmp( sig, "VBoxVBoxVBox", 12UL ) ) r->hypervisor_vendor = 11; /* virtualbox */
     if( r->hypervisor_vendor==13 && strcasestr( r->dmi_product_name, "bochs" ) ) r->hypervisor_vendor = 12;
   }
+# endif /* defined(__x86_64__) */
 
   /* virtualized hosts override the chassis form factor: a recognized
      cloud platform reports cloud, any other hypervisor virtual (bare
