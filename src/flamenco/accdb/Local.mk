@@ -28,3 +28,7 @@ $(call add-objs,fd_zle,fd_flamenco)
 $(call make-unit-test,test_zle,test_zle,fd_flamenco fd_util)
 $(call run-unit-test,test_zle)
 $(call make-unit-test,bench_zle,bench_zle,fd_flamenco fd_util)
+ifdef FD_HAS_HOSTED
+$(call make-fuzz-test,fuzz_zle_diff,fuzz_zle_diff,fd_flamenco fd_util)
+$(call make-fuzz-test,fuzz_zle_decompress,fuzz_zle_decompress,fd_flamenco fd_util)
+endif
