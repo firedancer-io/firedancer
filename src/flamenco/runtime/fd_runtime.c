@@ -1531,6 +1531,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
   fd_feature_snoop_finalize( &bank->f.features, bank->f.slot, &bank->f.epoch_schedule, feature_snoop );
 
+  bank->f.slot_params = fd_slot_params_at_slot( bank, bank->f.slot );
+
   /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6101-L6109 */
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, double_disinflation_rate ) ) ) {
     fd_apply_double_disinflation_rate( bank );
