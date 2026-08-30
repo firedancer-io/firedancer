@@ -401,9 +401,9 @@ run_input( test_input_t const * input,
 
   /* Set up VM */
 
-  uchar * input_copy = malloc( input->input_sz );
+  uchar * input_copy = malloc( input->input_sz ? input->input_sz : 1UL );
   FD_TEST( input_copy );
-  memcpy( input_copy, input->input, input->input_sz );
+  if( input->input_sz ) memcpy( input_copy, input->input, input->input_sz );
 
   /* Turn input into a single memory region */
   fd_vm_input_region_t input_region[32];
