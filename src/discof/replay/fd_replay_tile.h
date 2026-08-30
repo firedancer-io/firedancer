@@ -79,8 +79,9 @@
 #define REPLAY_SIG_REASM_EVICTED  (7)
 #define REPLAY_SIG_WFS_DONE       (8)
 #define REPLAY_SIG_DROP_BANK_REF  (9)
-#define REPLAY_SIG_SNAP_START    (10)
-#define REPLAY_SIG_FINAL_CERT    (11)
+#define REPLAY_SIG_SNAP_START     (10)
+#define REPLAY_SIG_FINAL_CERT     (11)
+#define REPLAY_SIG_LEADER_FOOTER  (12)
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -253,6 +254,15 @@ struct fd_replay_final_cert {
 };
 typedef struct fd_replay_final_cert fd_replay_final_cert_t;
 
+#define FD_REPLAY_LEADER_FOOTER_MAX (512UL)
+
+struct fd_replay_leader_footer {
+  ulong slot;
+  ulong sz;
+  uchar footer[ FD_REPLAY_LEADER_FOOTER_MAX ];
+};
+typedef struct fd_replay_leader_footer fd_replay_leader_footer_t;
+
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
   fd_replay_slot_dead_t       slot_dead;
@@ -263,6 +273,7 @@ union fd_replay_message {
   fd_replay_txn_executed_t    txn_executed;
   fd_replay_fec_evicted_t     reasm_evicted;
   fd_replay_drop_bank_ref_t   drop_bank_ref;
+  fd_replay_leader_footer_t   leader_footer;
 };
 
 typedef union fd_replay_message fd_replay_message_t;
