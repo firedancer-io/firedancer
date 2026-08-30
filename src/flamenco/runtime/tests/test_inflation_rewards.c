@@ -295,9 +295,7 @@ test_commission_split( void ) {
 
 static fd_pubkey_t
 alpenglow_feature_id( void ) {
-  fd_pubkey_t id[1];
-  FD_TEST( fd_base58_decode_32( "A1PeNGc3D8SQmKwdYf4qj1XG7XgWVSuFQaiJSCQj775h", id->uc ) );
-  return *id;
+  return ids[ offsetof( fd_features_t, alpenglow )>>3 ].id;
 }
 
 static void
