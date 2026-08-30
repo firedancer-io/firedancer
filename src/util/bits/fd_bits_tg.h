@@ -117,7 +117,7 @@
 
 #define fd_is_pow2( x ) (__extension__({                                                      \
     __typeof__((x)) _fd_bits_x = (x);                                                         \
-    ((_fd_bits_x > (__typeof__((x)))0) &                                                      \
+    ((_fd_bits_x > (__typeof__((x)))0) &&                                                     \
       !fd_tg_and( _fd_bits_x, fd_tg_sub( _fd_bits_x, (__typeof__((x)))1 ) ));                 \
   }))
 
