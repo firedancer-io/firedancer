@@ -41,9 +41,7 @@ jobs:
         count_gigantic: 398
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
-    - uses: actions/setup-node@v6
-      with:
-        node-version: '14'
+    - uses: actions/setup-node@v7
     - run: make -j
     - run: echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
