@@ -5,6 +5,7 @@
 
 #include "fd_replay_tile.h"
 #include "fd_replay_tile_private.h"
+#include "fd_block_marker.h"
 #include "fd_sched.h"
 #include "fd_execrp.h"
 #include "generated/fd_replay_tile_seccomp.h"
@@ -675,6 +676,8 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   ulong slot = bank->f.slot;
 
+  if( FD_UNLIKELY( ctx->alpenglow ) ) ctx->reset_slot = fd_ulong_max( ctx->reset_slot, slot );
+
   if( FD_UNLIKELY( is_initial ) ) bank->block_completed_nanos = fd_clock_tile_now( ctx->clock );
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->idx ];
@@ -1131,6 +1134,29 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   fd_vote_tracker_reset( ctx->vote_tracker );
 }
 
+static void
+publish_leader_footer( fd_replay_tile_t *  ctx,
+                       fd_stem_context_t * stem,
+                       fd_bank_t const *   bank,
+                       ulong               producer_time_nanos ) {
+  fd_replay_leader_footer_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->slot = bank->f.slot;
+
+  fd_block_marker_t marker[1];
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  marker->variant                          = FOOTER;
+  marker->footer.bank_hash                 = bank->f.bank_hash;
+  marker->footer.block_producer_time_nanos = producer_time_nanos;
+
+  /* TODO add the certs */
+
+  FD_TEST( !fd_block_marker_ser( marker, msg->footer, sizeof(msg->footer), &msg->sz ) );
+
+  ulong sz = sizeof(fd_replay_leader_footer_t);
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_LEADER_FOOTER, ctx->replay_out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sz, ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
 static int
 try_fini_leader( fd_replay_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
@@ -1146,16 +1172,29 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   if( !ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen ) return 0;
   FD_TEST( ctx->block_id_arr[ ctx->leader_bank->idx ].slot==ctx->leader_bank->f.slot );
 
-  ctx->leader_bank->last_transaction_finished_nanos = fd_clock_tile_now( ctx->clock );
-
   ulong curr_slot = ctx->leader_bank->f.slot;
 
-  fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx, curr_slot );
+  ulong execution_fees_pre_settle;
+  ulong priority_fees_pre_settle;
 
-  ulong execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
-  ulong priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
 
-  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL );
+    /* Already finalized above, when the footer was published. */
+
+    execution_fees_pre_settle = ctx->leader_execution_fees;
+    priority_fees_pre_settle  = ctx->leader_priority_fees;
+
+  } else {
+
+    ctx->leader_bank->last_transaction_finished_nanos = fd_clock_tile_now( ctx->clock );
+
+    fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx, curr_slot );
+
+    execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
+    priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
+
+    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL );
+  }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
@@ -1554,6 +1593,24 @@ process_poh_message( fd_replay_tile_t *                 ctx,
   memcpy( &ctx->leader_bank->f.poh, slot_ended->blockhash, sizeof(fd_hash_t) );
 
   ctx->recv_poh = 1;
+
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    ctx->leader_bank->last_transaction_finished_nanos = fd_clock_tile_now( ctx->clock );
+    fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx, ctx->leader_bank->f.slot );
+
+    /* cache fees before runtime zeros */
+
+    ctx->leader_execution_fees = ctx->leader_bank->f.execution_fees;
+    ctx->leader_priority_fees  = ctx->leader_bank->f.priority_fees;
+
+    ulong producer_time_nanos = (ulong)fd_clock_tile_now( ctx->clock );
+
+    fd_footer_certs_t certs[1]; /* TODO */
+    fd_memset( certs, 0, sizeof(fd_footer_certs_t) );
+    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, certs, producer_time_nanos );
+
+    publish_leader_footer( ctx, stem, ctx->leader_bank, producer_time_nanos );
+  }
 }
 
 static void
@@ -1681,7 +1738,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->has_cluster_type = 1;
 
   ctx->is_booted = 1;
-  try_become_leader( ctx, stem );
+  if( FD_LIKELY( !ctx->alpenglow ) ) try_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
   fd_reasm_fec_t * fec       = fd_reasm_init( ctx->reasm, &initial_block_id, 0 /* genesis slot */ );
@@ -2871,7 +2928,7 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( try_become_leader( ctx, stem ) ) ) {
+  if( FD_UNLIKELY( !ctx->alpenglow && try_become_leader( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;

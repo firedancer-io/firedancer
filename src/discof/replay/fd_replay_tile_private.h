@@ -402,6 +402,12 @@ struct fd_replay_tile {
   uint        is_leader : 1;
   uint        supports_leader : 1;
   int         recv_poh;
+
+  /* alpenglow-only: cache fees because runtime zeros */
+
+  ulong       leader_execution_fees;
+  ulong       leader_priority_fees;
+
   ulong       next_leader_slot;
   long        next_leader_tickcount;
   double      tick_per_ns;

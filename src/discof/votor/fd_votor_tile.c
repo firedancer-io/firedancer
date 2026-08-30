@@ -378,8 +378,10 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
 
     peer_t const * peer = fd_quic_conn_get_context( conn );
 
-    ushort rank = fd_ushort_if( ag_vote_slot( &ctx->scratch.vote )>=ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
-    if( FD_UNLIKELY( rank==USHORT_MAX ) ) return; /* not an authenticated validator this epoch */
+    ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote );
+    ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
+    ushort                  rank       = fd_ushort_if( vote_slot>=ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
+    if( FD_UNLIKELY( !epoch_info || rank>=epoch_info->validator_cnt ) ) return; /* not a ranked validator this epoch */
     ag_vote_set_rank( &ctx->scratch.vote, rank );
     // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, epoch_info->validators[ rank ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
@@ -691,9 +693,10 @@ after_credit( fd_votor_tile_t *   ctx,
   }
 
   if( FD_UNLIKELY( ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) ) ) { /* our own vote */
-    ulong vote_slot = ag_vote_slot( &ctx->scratch.vote_event.vote );
-    ulong rank      = fd_ulong_if( vote_slot<ctx->next_epoch_slot, ctx->curr_epoch_rank, ctx->next_epoch_rank );
-    if( FD_LIKELY( vote_slot>=ctx->curr_epoch_slot && rank!=USHORT_MAX ) ) {
+    ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote_event.vote );
+    ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
+    ulong                   rank       = ag_vote_rank( &ctx->scratch.vote_event.vote );
+    if( FD_LIKELY( vote_slot>=ctx->curr_epoch_slot && epoch_info && rank<epoch_info->validator_cnt ) ) {
       ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote );
       broadcast_vote  ( ctx,       &ctx->scratch.vote_event.vote );
       *charge_busy = 1;
