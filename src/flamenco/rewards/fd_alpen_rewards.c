@@ -261,14 +261,17 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
 
     ulong reward_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, reward_slot, NULL );
 
+    /* Agave v4.3.0-beta.2 charges rewards against the processing bank's
+       epoch inflation budget, not the reward slot's epoch.  Watch this
+       closely. */
     fd_epoch_inflation_account_state_t inflation[1];
     fd_epoch_inflation_state_t const * inflation_state = NULL;
     if( FD_LIKELY( fd_epoch_inflation_account_read( bank, accdb, inflation ) ) ) {
-      if(      inflation->current.epoch==reward_epoch                     ) inflation_state = &inflation->current;
-      else if( inflation->has_prev && inflation->prev.epoch==reward_epoch ) inflation_state = &inflation->prev;
+      if(      inflation->current.epoch==current_epoch                     ) inflation_state = &inflation->current;
+      else if( inflation->has_prev && inflation->prev.epoch==current_epoch ) inflation_state = &inflation->prev;
     }
     if( FD_UNLIKELY( !inflation_state ) ) {
-      FD_LOG_WARNING(( "slot %lu: no epoch inflation state for reward slot %lu", bank_slot, reward_slot ));
+      FD_LOG_WARNING(( "slot %lu: no epoch inflation state for epoch %lu", bank_slot, current_epoch ));
       return -1;
     }
     ulong max_reward      = inflation_state->max_possible_validator_reward;
