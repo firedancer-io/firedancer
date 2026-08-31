@@ -30,21 +30,9 @@
 
 #define NAME "snapin"
 
-/* All snapin tiles parse the same stream.
-   Each tile writes only its claimed appendvecs.
-   Tile 0 handles shared state and final checks. */
-
 /* Batch disk records into one pwrite. */
 
 #define FD_SNAPIN_WRITE_BUF_SZ (2UL<<20)
-
-#define SNAPIN_IO_FAIL  (-1)
-#define SNAPIN_IO_RETRY ( 0)
-
-FD_FN_CONST static inline int
-snapin_pwrite_class( int err ) {
-  return err==EINTR ? SNAPIN_IO_RETRY : SNAPIN_IO_FAIL;
-}
 
 /* Warn every 10 seconds while data waits for tile 0. */
 
@@ -126,7 +114,7 @@ typedef struct snapin_writer snapin_writer_t;
 struct fd_snapin_tile {
   int  state;
   uint full           : 1;  /* loading a full snapshot? */
-  uint init_completed : 1;  /* tile 0 finished INIT */
+  uint init_completed : 1;  /* tile 0: did INIT complete for this attempt? */
   uint gate_pending   : 1;  /* waiting for attempt slot */
 
   ulong tile_idx;           /* tile kind ID */
@@ -171,14 +159,14 @@ struct fd_snapin_tile {
   ulong full_genesis_creation_time_seconds;
   uchar advertised_hash[ FD_HASH_FOOTPRINT ];
 
-  ulong capitalization;          /* tile 0 account total */
-  ulong dup_capitalization;      /* tile 0 duplicate total */
+  ulong capitalization;          /* tile 0: capitalization of all loaded accounts, from the shared totals */
+  ulong dup_capitalization;      /* tile 0: capitalization of duplicate accounts, from the shared totals */
   ulong manifest_capitalization; /* capitalization according to the current snapshot manifest */
 
   struct {
     ulong              capitalization;
     fd_feature_snoop_t feature_snoop;
-  } recovery; /* tile 0 full-snapshot state */
+  } recovery; /* tile 0: stores state from the last full snapshot for incremental revert */
 
   ulong               blockhash_groups_len;
   blockhash_group_t * blockhash_groups;
@@ -192,19 +180,19 @@ struct fd_snapin_tile {
   ulong                   txncache_current_slot_entry_cnt;
 
   fd_accdb_fork_id_t accdb_root_fork_id;
-  fd_accdb_fork_id_t accdb_incr_fork_id; /* tile 0 incremental fork */
+  fd_accdb_fork_id_t accdb_incr_fork_id; /* tile 0: child fork for incremental writes (purge on failure) */
   fd_txncache_fork_id_t txncache_root_fork_id;
 
   struct {
     ulong full_bytes_read;
     ulong incremental_bytes_read;
 
-    /* Per-tile counts across full and incremental loads. */
+    /* Account counters (full + incremental) */
     ulong accounts_loaded;
     ulong accounts_replaced;
     ulong accounts_ignored;
 
-    /* This tile's full-snapshot counts. */
+    /* Account counters (snapshot taken for full snapshot only) */
     ulong full_accounts_loaded;
     ulong full_accounts_replaced;
     ulong full_accounts_ignored;
@@ -402,7 +390,9 @@ metrics_write( fd_snapin_tile_t * ctx ) {
   FD_MCNT_SET  ( SNAPIN, ACCOUNT_BATCH_PROCESSED, ctx->metrics.total_account_batches_processed );
 }
 
-/* Checks the SlotHistory copy chosen by the account stripe winner.
+/* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
+   sysvar account after loading a snapshot.  Uses the in-memory copy
+   chosen by the same account-stripe winner as accdb.
 
    Returns 0 if verification passed, -1 if not. */
 
@@ -991,7 +981,7 @@ writer_flush( snapin_writer_t * writer ) {
     long res = pwrite( writer->fd, writer->buf+done, sz-done, (long)(off+done) );
     if( FD_UNLIKELY( res<=0L ) ) {
       int err = res<0L ? errno : EIO;
-      if( res<0L && FD_LIKELY( snapin_pwrite_class( err )==SNAPIN_IO_RETRY ) ) continue;
+      if( res<0L && err==EINTR ) continue;
       if( done ) {
         memmove( writer->buf, writer->buf+done, sz-done );
         writer->buf_off  += done;
@@ -2487,9 +2477,10 @@ unprivileged_init( fd_topo_t const *      topo,
 }
 
 /* There are 3 output links that affect the calculation of STEM_BURST:
-    1. snapin_ct    - 1 ack or ERROR
-    2. snapin_manif - 1 message from tile 0
-    3. snapin_gui   - 1 config message from tile 0
+    1. snapin_ct    - worst case: 1 message (ack or unsolicited ERROR)
+    2. snapin_manif - worst case: 1 message (tile 0 only)
+    3. snapin_gui   - worst case: 1 message (config program account,
+       tile 0 only)
    The STEM_BURST is the max value across these 3 links (not the sum).
    Note that snapin_txn is excluded from this calculation, since it is
    an unreliable link, working as a dcache place holder. */

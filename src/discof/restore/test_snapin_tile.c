@@ -1379,16 +1379,6 @@ test_full_lifecycle_9_tiles( void ) {
 }
 
 static void
-test_io_error_classes( void ) {
-  FD_TEST( snapin_pwrite_class( EINTR      )==SNAPIN_IO_RETRY );
-  FD_TEST( snapin_pwrite_class( EIO        )==SNAPIN_IO_FAIL  );
-  FD_TEST( snapin_pwrite_class( ENOSPC     )==SNAPIN_IO_FAIL  );
-  FD_TEST( snapin_pwrite_class( EINVAL     )==SNAPIN_IO_FAIL  );
-  FD_TEST( snapin_pwrite_class( EBADF      )==SNAPIN_IO_FAIL  );
-  FD_TEST( snapin_pwrite_class( EOPNOTSUPP )==SNAPIN_IO_FAIL  );
-}
-
-static void
 test_writer_short_write_and_eintr( void ) {
   uchar data[ 5UL ] = { 1, 2, 3, 4, 5 };
   snapin_writer_t writer[ 1 ];
@@ -1437,7 +1427,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  test_io_error_classes();
   test_writer_short_write_and_eintr();
   test_writer_errors();
   test_scratch_layout_fits();
