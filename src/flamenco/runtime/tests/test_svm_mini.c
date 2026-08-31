@@ -36,7 +36,7 @@ main( int     argc,
   fd_bank_t * bank = fd_svm_mini_bank( mini, root_idx );
   FD_TEST( bank );
   FD_TEST( bank->f.slot==1UL );
-  FD_TEST( bank->f.epoch_schedule.slots_per_epoch==16UL );
+  FD_TEST( bank->f.epoch_schedule.slots_per_epoch==FD_EPOCH_LEN_MIN );
   FD_TEST( bank->f.rent.lamports_per_uint8_year==3480UL );
   FD_TEST( bank->f.rent.burn_percent==50 );
 
@@ -148,7 +148,7 @@ main( int     argc,
   /* mock_validator_cnt=0: no validators, no leader schedule */
   params->mock_validator_cnt = 0UL;
   params->root_slot          = 0UL;
-  params->slots_per_epoch    = 16UL;
+  params->slots_per_epoch    = FD_EPOCH_LEN_MIN;
   root_idx = fd_svm_mini_reset( mini, params );
   bank = fd_svm_mini_bank( mini, root_idx );
   FD_TEST( bank );

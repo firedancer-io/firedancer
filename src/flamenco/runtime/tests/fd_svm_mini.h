@@ -24,6 +24,7 @@
 #include "../fd_runtime.h"
 #include "../fd_runtime_stack.h"
 #include "../fd_txncache.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../vm/fd_vm.h"
 
 /* fd_svm_mini_t holds handles to all relevant Firedancer runtime
@@ -205,7 +206,7 @@ fd_svm_mini_params_default( fd_svm_mini_params_t * params ) {
   *params = (fd_svm_mini_params_t) {
     .hash_seed              = 1UL,
     .root_slot              = 1UL,
-    .slots_per_epoch        = 16UL,
+    .slots_per_epoch        = FD_EPOCH_LEN_MIN,
     .init_sysvars           = 1,
     .init_feature_accounts  = 0,
     .init_builtins          = 1,

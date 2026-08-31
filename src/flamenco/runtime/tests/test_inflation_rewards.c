@@ -15,10 +15,10 @@
 #include <stdlib.h>
 
 #define TEST_STAKE_ACCOUNT_STORES_PER_BLOCK (4096UL)
-#define TEST_SLOTS_PER_EPOCH                (16UL)
+#define TEST_SLOTS_PER_EPOCH                (FD_EPOCH_LEN_MIN)
 #define TEST_ROOT_SLOT                      (1UL)
-#define TEST_EPOCH_BOUNDARY                 (16UL)
-#define TEST_DISTRIB_SLOT                   (17UL)
+#define TEST_EPOCH_BOUNDARY                 (TEST_SLOTS_PER_EPOCH)
+#define TEST_DISTRIB_SLOT                   (TEST_EPOCH_BOUNDARY+1UL)
 
 static ulong
 read_lamports( fd_svm_mini_t *     mini,

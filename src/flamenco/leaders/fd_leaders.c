@@ -67,9 +67,10 @@ fd_epoch_leaders_align( void ) {
 FD_FN_CONST ulong
 fd_epoch_leaders_footprint( ulong pub_cnt,
                             ulong slot_cnt ) {
-  if( FD_UNLIKELY( ( pub_cnt  ==     0UL     )
-                 | ( pub_cnt   >UINT_MAX-3UL )
-                 | ( slot_cnt==     0UL  ) ) )
+  if( FD_UNLIKELY( ( pub_cnt  == 0UL            ) |
+                   ( pub_cnt  >= (ulong)INT_MAX ) |
+                   ( slot_cnt == 0UL            ) |
+                   ( slot_cnt > (ulong)UINT_MAX ) ) )
     return 0UL;
   return FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, slot_cnt );
 }
@@ -92,8 +93,8 @@ fd_epoch_leaders_new( void  *                  shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !pub_cnt ) ) {
-    FD_LOG_WARNING(( "pub_cnt is 0" ));
+  if( FD_UNLIKELY( !fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) ) ) {
+    FD_LOG_WARNING(( "invalid pub_cnt or slot_cnt" ));
     return NULL;
   }
 

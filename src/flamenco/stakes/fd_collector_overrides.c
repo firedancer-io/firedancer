@@ -51,12 +51,12 @@ struct fd_collector_overrides {
 typedef struct fd_collector_overrides fd_collector_overrides_t;
 
 static inline override_ele_t *
-get_pool( fd_collector_overrides_t const * co ) {
+get_pool( fd_collector_overrides_t * co ) {
   return fd_type_pun( (uchar *)co + co->pool_off );
 }
 
 static inline override_map_t *
-get_map( fd_collector_overrides_t const * co ) {
+get_map( fd_collector_overrides_t * co ) {
   return fd_type_pun( (uchar *)co + co->map_off );
 }
 

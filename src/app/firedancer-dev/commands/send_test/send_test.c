@@ -215,7 +215,7 @@ init( send_test_ctx_t * ctx, config_t * config ) {
 
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   ctx->delay    [    MOCK_CI_IDX   ] = (long)(tick_per_ns * 5e9);
-  ctx->delay    [  MOCK_STAKE_IDX  ] = (long)(tick_per_ns * 400e6 * MAX_SLOTS_PER_EPOCH);
+  ctx->delay    [  MOCK_STAKE_IDX  ] = (long)(tick_per_ns * 400e6 * FD_RUNTIME_SLOTS_PER_EPOCH);
   ctx->delay    [ MOCK_TRIGGER_IDX ] = (long)(tick_per_ns * 400e6); /* 400ms */
   if( live_gossip ) {
     ctx->delay[ MOCK_CI_IDX ] = LONG_MAX;

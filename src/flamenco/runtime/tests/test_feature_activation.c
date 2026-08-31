@@ -10,7 +10,8 @@
 #include "../fd_system_ids.h"
 #include "../../features/fd_features.h"
 
-#define TEST_SLOTS_PER_EPOCH (3UL)
+#define TEST_SLOTS_PER_EPOCH (FD_EPOCH_LEN_MIN)
+#define TEST_ROOT_SLOT       (TEST_SLOTS_PER_EPOCH-2UL)
 
 /* Pick a non-cleaned-up feature to use as a test subject.
    We'll find one dynamically in the test. */
@@ -67,25 +68,23 @@ get_feature_slot( fd_bank_t *             bank,
 
 /* Advance the svm_mini environment from root through an epoch boundary.
 
-   With slots_per_epoch=3 and root_slot=1 (epoch 0):
-   - Slot 2 (epoch 0): attach, freeze, advance
-   - Slot 3 (epoch 1): epoch boundary triggers feature activation
+   Starting two slots before end of epoch 0:
+   - Penultimate slot: attach, freeze, advance
+   - First slot of epoch 1: epoch boundary triggers feature activation
 
    Returns the bank index of the epoch-boundary slot. */
 
 static ulong
 advance_to_epoch_boundary( fd_svm_mini_t * mini, ulong root_idx ) {
-  /* Slot 2: still epoch 0 */
-  ulong idx2 = fd_svm_mini_attach_child( mini, root_idx, 2UL );
-  fd_svm_mini_freeze( mini, idx2 );
-  fd_svm_mini_advance_root( mini, idx2 );
+  ulong pre_boundary_idx = fd_svm_mini_attach_child( mini, root_idx, TEST_SLOTS_PER_EPOCH-1UL );
+  fd_svm_mini_freeze( mini, pre_boundary_idx );
+  fd_svm_mini_advance_root( mini, pre_boundary_idx );
 
-  /* Slot 3: epoch boundary (epoch 0 -> epoch 1).
+  /* Epoch boundary (epoch 0 -> epoch 1).
      fd_runtime_block_execute_prepare (called by attach_child) calls
      fd_compute_and_apply_new_feature_activations which calls
      fd_features_activate -> fd_feature_activate for each feature. */
-  ulong idx3 = fd_svm_mini_attach_child( mini, idx2, 3UL );
-  return idx3;
+  return fd_svm_mini_attach_child( mini, pre_boundary_idx, TEST_SLOTS_PER_EPOCH );
 }
 
 /* Test: pending feature with proper 9-byte account gets activated
@@ -99,6 +98,7 @@ test_normal_activation( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
   params->slots_per_epoch        = TEST_SLOTS_PER_EPOCH;
+  params->root_slot              = TEST_ROOT_SLOT;
   params->init_feature_accounts  = 0;
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
@@ -118,7 +118,7 @@ test_normal_activation( fd_svm_mini_t * mini ) {
   /* The feature should now be activated at the epoch boundary slot. */
   ulong activation_slot = get_feature_slot( bank, feat );
   FD_TEST( activation_slot != FD_FEATURE_DISABLED );
-  FD_TEST( activation_slot == 3UL );
+  FD_TEST( activation_slot == TEST_SLOTS_PER_EPOCH );
 
   FD_LOG_NOTICE(( "test_normal_activation: PASSED (activated at slot %lu)", activation_slot ));
 }
@@ -135,6 +135,7 @@ test_too_small_account_skipped( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
   params->slots_per_epoch        = TEST_SLOTS_PER_EPOCH;
+  params->root_slot              = TEST_ROOT_SLOT;
   params->init_feature_accounts  = 0;
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
@@ -168,6 +169,7 @@ test_already_active_recognized( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
   params->slots_per_epoch        = TEST_SLOTS_PER_EPOCH;
+  params->root_slot              = TEST_ROOT_SLOT;
   params->init_feature_accounts  = 0;
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
@@ -182,7 +184,7 @@ test_already_active_recognized( fd_svm_mini_t * mini ) {
   fd_bank_t * bank = fd_svm_mini_bank( mini, boundary_idx );
 
   /* The feature should be recognized as activated at slot 1 (its
-     original activation slot), not re-activated at slot 3. */
+     original activation slot), not re-activated at epoch boundary. */
   ulong activation_slot = get_feature_slot( bank, feat );
   FD_TEST( activation_slot == 1UL );
 
@@ -200,6 +202,7 @@ test_wrong_owner_skipped( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
   params->slots_per_epoch        = TEST_SLOTS_PER_EPOCH;
+  params->root_slot              = TEST_ROOT_SLOT;
   params->init_feature_accounts  = 0;
   ulong root_idx = fd_svm_mini_reset( mini, params );
 

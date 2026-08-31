@@ -1,5 +1,6 @@
 #include "fd_sysvar_cache.h"
 #include "fd_sysvar_cache_private.h"
+#include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar_recent_hashes.h"
 #include "fd_sysvar_slot_hashes.h"
 #include "fd_sysvar_slot_history.h"
@@ -195,6 +196,10 @@ fd_sysvar_validate_epoch_schedule( uchar const * data, ulong data_sz ) {
   fd_epoch_schedule_t es = FD_LOAD( fd_epoch_schedule_t, data );
   uchar warmup = es.warmup;
   if( FD_UNLIKELY( warmup!=0 && warmup!=1 ) ) return 0;
+  /* Firedancer constants */
+  if( FD_UNLIKELY( es.slots_per_epoch < FD_EPOCH_LEN_MIN ) ) return 0;
+  if( FD_UNLIKELY( es.slots_per_epoch > FD_RUNTIME_SLOTS_PER_EPOCH ) ) return 0;
+  if( FD_UNLIKELY( es.leader_schedule_slot_offset > es.slots_per_epoch ) ) return 0;
   return 1;
 }
 

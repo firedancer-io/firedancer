@@ -727,7 +727,7 @@ struct fd_guih {
     ulong catch_up_repair[ FD_GUIH_REPAIR_CATCH_UP_HISTORY_SZ ];
     ulong catch_up_repair_sz;
 
-    ulong late_votes[ MAX_SLOTS_PER_EPOCH ];
+    ulong late_votes[ FD_RUNTIME_SLOTS_PER_EPOCH ];
     ulong late_votes_sz;
 
     ulong estimated_tps_history_idx;
@@ -813,7 +813,7 @@ struct fd_guih {
       ulong end_slot;
       ulong target_slot_duration_nanos;
       fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, FD_RUNTIME_SLOTS_PER_EPOCH) ];
       fd_vote_stake_weight_t stakes[ MAX_STAKE_WEIGHTS ];
 
       ulong rankings_slot; /* One more than the largest slot we've processed into our rankings */

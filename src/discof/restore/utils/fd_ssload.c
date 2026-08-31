@@ -40,6 +40,12 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
 
+  if( FD_UNLIKELY( manifest->epoch_schedule_params.slots_per_epoch>FD_RUNTIME_SLOTS_PER_EPOCH ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: slots_per_epoch %lu exceeds max %lu",
+                     manifest->epoch_schedule_params.slots_per_epoch, FD_RUNTIME_SLOTS_PER_EPOCH ));
+    return -1;
+  }
+
   if( FD_UNLIKELY( manifest->epoch_schedule_params.warmup>1 ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: warmup %u is not boolean", (uint)manifest->epoch_schedule_params.warmup ));
     return -1;

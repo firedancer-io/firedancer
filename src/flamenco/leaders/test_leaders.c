@@ -20,6 +20,18 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  FD_TEST( fd_epoch_leaders_footprint( 1UL,               1UL             )==
+           FD_EPOCH_LEADERS_FOOTPRINT( 1UL,               1UL             ) );
+  FD_TEST( fd_epoch_leaders_footprint( (ulong)INT_MAX-1UL, (ulong)UINT_MAX )==
+           FD_EPOCH_LEADERS_FOOTPRINT( (ulong)INT_MAX-1UL, (ulong)UINT_MAX ) );
+
+  FD_TEST( !fd_epoch_leaders_footprint( 0UL,              1UL                 ) );
+  FD_TEST( !fd_epoch_leaders_footprint( (ulong)INT_MAX,   1UL                 ) );
+  FD_TEST( !fd_epoch_leaders_footprint( ULONG_MAX,        1UL                 ) );
+  FD_TEST( !fd_epoch_leaders_footprint( 1UL,              0UL                 ) );
+  FD_TEST( !fd_epoch_leaders_footprint( 1UL,              (ulong)UINT_MAX+1UL ) );
+  FD_TEST( !fd_epoch_leaders_footprint( 1UL,              ULONG_MAX           ) );
+
   ulong pub_cnt  = e454_stakes_sz      / sizeof(fd_stake_weight_t);
   ulong slot_cnt = e454_leaders_idx_sz / sizeof(uint             );
   ulong slot0    = 196128000UL;

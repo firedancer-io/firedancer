@@ -54,6 +54,11 @@ fd_banks_get_epoch_leaders( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset );
 }
 
+static fd_epoch_leaders_t const *
+fd_banks_get_epoch_leaders_const( fd_banks_t const * banks_data ) {
+  return fd_type_pun_const( (uchar const *)banks_data + banks_data->epoch_leaders_offset );
+}
+
 static fd_stake_delegations_t *
 fd_banks_get_stake_delegations( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_offset );
@@ -64,9 +69,19 @@ fd_banks_get_vote_stakes( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->vote_stakes_offset );
 }
 
+static fd_vote_stakes_t const *
+fd_banks_get_vote_stakes_const( fd_banks_t const * banks_data ) {
+  return fd_type_pun_const( (uchar const *)banks_data + banks_data->vote_stakes_offset );
+}
+
 static fd_bank_cost_tracker_t *
 fd_banks_get_cost_tracker_pool( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
+}
+
+static fd_bank_cost_tracker_t const *
+fd_banks_get_cost_tracker_pool_const( fd_banks_t const * banks_data ) {
+  return fd_type_pun_const( (uchar const *)banks_data + banks_data->cost_tracker_pool_offset );
 }
 
 static fd_collector_overrides_t *
@@ -116,21 +131,29 @@ fd_banks_get_stake_rewards( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->stake_rewards_offset );
 }
 
+fd_banks_t *
+fd_bank_banks( fd_bank_t * bank ) {
+  return fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+}
+
+fd_banks_t const *
+fd_bank_banks_const( fd_bank_t const * bank ) {
+  return fd_type_pun_const( (uchar const *)bank - bank->banks_data_offset );
+}
+
 fd_epoch_credits_t *
 fd_bank_epoch_credits( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return fd_banks_get_epoch_credits( banks_data ) + (ulong)bank->epoch_credits_fork_id * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS;
+  return fd_banks_get_epoch_credits( fd_bank_banks( bank ) ) + (ulong)bank->epoch_credits_fork_id * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS;
 }
 
 ulong *
 fd_bank_epoch_credits_len( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return fd_banks_get_epoch_credits_len( banks_data ) + (ulong)bank->epoch_credits_fork_id;
+  return fd_banks_get_epoch_credits_len( fd_bank_banks( bank ) ) + (ulong)bank->epoch_credits_fork_id;
 }
 
 void
 fd_bank_epoch_credits_new_fork( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  fd_banks_t * banks_data = fd_bank_banks( bank );
 
   ulong   set_cnt = fd_banks_epoch_credits_set_cnt( banks_data );
   ulong * refcnt  = fd_banks_get_epoch_credits_refcnt( banks_data );
@@ -154,26 +177,25 @@ fd_bank_epoch_credits_new_fork( fd_bank_t * bank ) {
 }
 
 fd_collector_overrides_t *
-fd_bank_collector_overrides( fd_bank_t const * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return fd_banks_get_collector_overrides( banks_data );
+fd_bank_collector_overrides( fd_bank_t * bank ) {
+  return fd_banks_get_collector_overrides( fd_bank_banks( bank ) );
 }
 
 fd_stake_delegations_t *
 fd_bank_stake_delegations_modify( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  fd_banks_t * banks_data = fd_bank_banks( bank );
   return fd_banks_get_stake_delegations( banks_data );
 }
 
 fd_stake_rewards_t const *
 fd_bank_stake_rewards_query( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  fd_banks_t * banks_data = fd_bank_banks( bank );
   return fd_type_pun_const( fd_banks_get_stake_rewards( banks_data ) );
 }
 
 fd_stake_rewards_t *
 fd_bank_stake_rewards_modify( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  fd_banks_t * banks_data = fd_bank_banks( bank );
   return fd_banks_get_stake_rewards( banks_data );
 }
 
@@ -181,27 +203,31 @@ fd_epoch_leaders_t const *
 fd_bank_epoch_leaders_query( fd_bank_t const * bank,
                              ulong             epoch ) {
   FD_TEST( bank->f.epoch==epoch || bank->f.epoch==epoch-1UL );
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return (fd_epoch_leaders_t const *)fd_type_pun( (uchar *)fd_banks_get_epoch_leaders( banks_data ) + (epoch % 2UL) * banks_data->epoch_leaders_footprint );
+  fd_banks_t const * banks_data = fd_bank_banks_const( bank );
+  return fd_type_pun_const( (uchar const *)fd_banks_get_epoch_leaders_const( banks_data ) + (epoch % 2UL) * banks_data->epoch_leaders_footprint );
 }
 
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank,
                               ulong       epoch ) {
   FD_TEST( bank->f.epoch==epoch || bank->f.epoch==epoch-1UL );
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  fd_banks_t * banks_data = fd_bank_banks( bank );
   return (fd_epoch_leaders_t *)fd_type_pun( (uchar *)fd_banks_get_epoch_leaders( banks_data ) + (epoch % 2UL) * banks_data->epoch_leaders_footprint );
 }
 
 fd_vote_stakes_t *
-fd_bank_vote_stakes( fd_bank_t const * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return fd_banks_get_vote_stakes( banks_data );
+fd_bank_vote_stakes( fd_bank_t * bank ) {
+  return fd_banks_get_vote_stakes( fd_bank_banks( bank ) );
+}
+
+fd_vote_stakes_t const *
+fd_bank_vote_stakes_const( fd_bank_t const * bank ) {
+  return fd_banks_get_vote_stakes_const( fd_bank_banks_const( bank ) );
 }
 
 fd_cost_tracker_t *
 fd_bank_cost_tracker_modify( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  fd_banks_t * banks_data = fd_bank_banks( bank );
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
   FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
   uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
@@ -209,12 +235,11 @@ fd_bank_cost_tracker_modify( fd_bank_t * bank ) {
 }
 
 fd_cost_tracker_t const *
-fd_bank_cost_tracker_query( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
+fd_bank_cost_tracker_query( fd_bank_t const * bank ) {
+  fd_banks_t const * banks_data = fd_bank_banks_const( bank );
+  fd_bank_cost_tracker_t const * cost_tracker_pool = fd_banks_get_cost_tracker_pool_const( banks_data );
   FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
-  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
-  return fd_type_pun_const( cost_tracker_mem );
+  return fd_type_pun_const( fd_bank_cost_tracker_pool_ele_const( cost_tracker_pool, bank->cost_tracker_pool_idx )->data );
 }
 
 fd_bank_t *
@@ -1223,7 +1248,7 @@ fd_banks_prune_one_bank( fd_banks_t *                   banks,
 
 void
 fd_banks_mark_bank_frozen( fd_bank_t * bank ) {
-  fd_banks_t * banks = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  fd_banks_t * banks = fd_bank_banks( bank );
 
   FD_CHECK_CRIT( bank->state==FD_BANK_STATE_REPLAYABLE, "invariant violation: bank is not replayable" );
   bank->state = FD_BANK_STATE_FROZEN;

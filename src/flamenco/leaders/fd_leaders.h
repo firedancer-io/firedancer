@@ -87,7 +87,8 @@ FD_PROTOTYPES_BEGIN
 /* fd_epoch_leaders_{align,footprint} describe the required footprint
    and alignment of the leader schedule object.  pub_cnt is the number
    of vote-account stake entries.  slot_cnt is the number of slots in
-   the epoch. */
+   the epoch.  fd_epoch_leaders_footprint silently returns zero if the
+   given params are invalid. */
 
 FD_FN_CONST ulong
 fd_epoch_leaders_align( void );

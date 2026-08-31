@@ -695,7 +695,7 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
 
   if( FD_LIKELY( gui->summary.slot_tower==ULONG_MAX ) ) return;
   ulong first_replay_slot = fd_gui_first_replay_slot( gui );
-  for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_tower+1UL, MAX_SLOTS_PER_EPOCH ); i++ ) {
+  for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_tower+1UL, FD_RUNTIME_SLOTS_PER_EPOCH ); i++ ) {
     ulong _slot = gui->summary.slot_tower-i;
     if( FD_UNLIKELY( first_replay_slot!=ULONG_MAX && _slot<first_replay_slot ) ) break;
     fd_gui_slot_t const * slot = fd_gui_slot_get_canon( gui, _slot );
@@ -2294,7 +2294,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           fd_epoch_info_msg_t const * epoch_info,
                           long                        now ) {
   FD_TEST( epoch_info->staked_vote_cnt<=MAX_STAKE_WEIGHTS );
-  FD_TEST( epoch_info->slot_cnt<=MAX_SLOTS_PER_EPOCH );
+  FD_TEST( epoch_info->slot_cnt<=FD_RUNTIME_SLOTS_PER_EPOCH );
   FD_TEST( epoch_info->staked_vote_cnt );
 
   if( FD_UNLIKELY( !gui->epoch.has_epoch_schedule ) ) {
@@ -2349,7 +2349,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
   }
 
   epoch->start_time = now;
-  for( ulong i=0UL; i<fd_ulong_min( fd_ulong_sat_sub( epoch_info->start_slot, 1UL ), MAX_SLOTS_PER_EPOCH ); i++ ) {
+  for( ulong i=0UL; i<fd_ulong_min( fd_ulong_sat_sub( epoch_info->start_slot, 1UL ), FD_RUNTIME_SLOTS_PER_EPOCH ); i++ ) {
     fd_gui_slot_t const * slot = fd_gui_slot_get_any( gui, epoch_info->start_slot-i );
     if( FD_UNLIKELY( !slot ) ) break;
     else if( FD_UNLIKELY( slot->skip==FD_GUI_SKIP_STATUS_SKIPPED ) ) continue;

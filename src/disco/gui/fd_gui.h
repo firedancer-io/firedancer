@@ -363,7 +363,7 @@ struct fd_gui_slot_rankings {
 
 typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 
-#define FD_GUI_EPOCH_SCHED_CNT ((MAX_SLOTS_PER_EPOCH+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION)
+#define FD_GUI_EPOCH_SCHED_CNT ((FD_RUNTIME_SLOTS_PER_EPOCH+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION)
 #define FD_GUI_EPOCH_PUB_CNT   (MAX_STAKE_WEIGHTS)
 
 #define FD_GUI_VOTE_LATENCY_NOT_VOTED ((uchar)(UCHAR_MAX))     /* vote missing */
@@ -382,9 +382,9 @@ struct fd_gui_epoch {
   fd_gui_slot_rankings_t rankings   [ 1 ]; /* global slot rankings */
   fd_gui_slot_rankings_t my_rankings[ 1 ]; /* my slots only */
 
-  uchar latency_exact[ MAX_SLOTS_PER_EPOCH ]; /* skip-discounted latency or FD_GUI_VOTE_LATENCY_* */
-  uchar is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* 1 if we were structurally a voter when this slot was replayed */
-  uchar skipped      [ MAX_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
+  uchar latency_exact[ FD_RUNTIME_SLOTS_PER_EPOCH ]; /* skip-discounted latency or FD_GUI_VOTE_LATENCY_* */
+  uchar is_voter     [ FD_RUNTIME_SLOTS_PER_EPOCH ]; /* 1 if we were structurally a voter when this slot was replayed */
+  uchar skipped      [ FD_RUNTIME_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
 
   fd_epoch_schedule_t epoch_schedule;    /* slot<->epoch conversion (fd_slot_to_epoch) */
   ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
@@ -916,7 +916,7 @@ struct fd_gui {
     int                 has_epoch_schedule;
     fd_epoch_schedule_t epoch_schedule;
 
-    uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) lsched_scratch[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+    uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) lsched_scratch[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, FD_RUNTIME_SLOTS_PER_EPOCH) ];
     fd_vote_stake_weight_t stakes_scratch[ MAX_STAKE_WEIGHTS ];
   } epoch;
 

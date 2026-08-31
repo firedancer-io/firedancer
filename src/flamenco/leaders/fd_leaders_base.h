@@ -2,11 +2,11 @@
 #define HEADER_fd_src_flamenco_leaders_fd_leaders_base_h
 
 #include "../stakes/fd_stake_weight.h"
+#include "../runtime/fd_runtime_const.h"
 #include "../runtime/sysvar/fd_sysvar_base.h"
 #include "../features/fd_features.h"
 
 #define MAX_SHRED_DESTS     40200UL /* 200 * 201 - 1 (exclude self) */
-#define MAX_SLOTS_PER_EPOCH 432000UL
 #define MAX_STAKE_WEIGHTS   2000UL  /* validator_admission_ticket limit */
 
 /* Follows message structure in fd_stake_ci_stake_msg_init.
