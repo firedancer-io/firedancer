@@ -37,6 +37,7 @@ jobs:
       EXTRAS: llvm-cov
       COMPILER: clang
       COMPILER_VERSION: 15.0.6
+      BUILDDIR: linux/clang/icelake-covtv
 
     steps:
       # ── base commit ────────────────────────────────────────────────────────
@@ -56,6 +57,9 @@ jobs:
 
       - name: Set OBJDIR
         run: echo "OBJDIR=$(make help | grep OBJDIR | awk '{print $4}')" >> $GITHUB_ENV
+
+      - name: Clean coverage data for base run
+        run: rm -rf "$OBJDIR/cov"
 
       - name: Build (base)
         run: |
