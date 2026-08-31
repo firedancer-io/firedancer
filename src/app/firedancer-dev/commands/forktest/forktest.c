@@ -395,7 +395,8 @@ forktest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], node_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, node_info_obj->id, "node_info" ) );
 
-  ulong fec_set_cnt = 2UL*shred_depth + config->tiles.shred.max_pending_shred_sets + 6UL;
+  ulong fec_set_cnt = fd_shred_tile_fec_set_cnt( FD_SHRED_FIREDANCER_FEC_EXPOSURE,
+                                                 config->tiles.shred.max_pending_shred_sets );
   ulong store_fec_set_cnt = shred_tile_cnt*fec_set_cnt;
 
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,

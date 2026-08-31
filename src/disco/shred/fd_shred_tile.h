@@ -7,6 +7,13 @@
 #include "fd_shred_batch.h"
 
 #define FD_SHRED_STEM_BURST ( FD_SHRED_BATCH_FEC_SETS_MAX*(FD_FEC_SHRED_CNT+1UL) )
+#define FD_SHRED_FIREDANCER_FEC_EXPOSURE ( FD_SHRED_BATCH_FEC_SETS_MAX )
+
+FD_FN_CONST static inline ulong
+fd_shred_tile_fec_set_cnt( ulong fec_exposure,
+                           ulong fec_resolver_depth ) {
+  return 2UL*fec_exposure + fec_resolver_depth + FD_SHRED_BATCH_FEC_SETS_MAX + 2UL;
+}
 
 /* Forward declarations */
 typedef struct fd_fec_resolver fd_fec_resolver_t;

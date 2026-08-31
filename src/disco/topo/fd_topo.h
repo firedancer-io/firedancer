@@ -385,7 +385,7 @@ struct fd_topo_tile {
     } motor;
 
     struct {
-      ulong             depth;
+      ulong             fec_exposure;
       ulong             fec_resolver_depth;
       char              identity_key_path[ PATH_MAX ];
       ushort            shred_listen_port;
