@@ -72,6 +72,7 @@
 
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/shred/fd_fec_set.h"
+#include "../../disco/store/fd_store.h"
 
 #define FD_CHAINER_MAGIC (0xf17eda2ce7c4a112UL) /* firedancer chainer v1 */
 
@@ -447,12 +448,15 @@ fd_chainer_slotv_shred_cnt( fd_chainer_t *             chainer,
 /* fd_chainer_publish advances the root to slot.  block_id identifies
    which version of slot is being rooted; every other version of it is
    pruned along with the slots below.  Pass NULL (or a block_id no
-   version matches) to keep all versions of slot. */
+   version matches) to keep all versions of slot.  If store is non-NULL,
+   each pruned FEC set is removed from it (rotor is the store
+   publisher). */
 
 void
 fd_chainer_publish( fd_chainer_t *    chainer,
                     ulong             slot,
-                    fd_hash_t const * block_id );
+                    fd_hash_t const * block_id,
+                    fd_store_t *      store );
 
 static inline fd_chainer_slotv_t *
 fd_chainer_slot_version_query( fd_chainer_t *    chainer,

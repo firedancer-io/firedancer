@@ -875,7 +875,8 @@ fd_chainer_notar_fallback( fd_chainer_t * chainer,
 void
 fd_chainer_publish( fd_chainer_t *    chainer,
                     ulong             new_root,
-                    fd_hash_t const * new_root_block_id ) {
+                    fd_hash_t const * new_root_block_id,
+                    fd_store_t *      store ) {
   fd_slotv_map_t     * slotv_map  = chainer->slotv_map;
   fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
   fd_chainer_fec_t   * fec_pool   = chainer->fec_pool;
@@ -906,6 +907,8 @@ fd_chainer_publish( fd_chainer_t *    chainer,
            equivocating slots we can end up double-freeing the same FEC.
            So we need to query against the map to check if the FEC is still in use. */
         if( FD_UNLIKELY( fec && fd_fec_map_ele_query_const( fec_map, &fec->merkle_root, NULL, fec_pool ) ) ) {
+          /* Only complete FECs were inserted into the store */
+          if( FD_LIKELY( store ) && fec->complete ) fd_store_remove( store, &fec->merkle_root );
           fd_fec_map_ele_remove_fast( fec_map, fec, fec_pool );
           fd_fec_pool_ele_release( fec_pool, fec );
         }
@@ -940,9 +943,9 @@ fd_chainer_publish( fd_chainer_t *    chainer,
     for( uint k = 0; k < FD_FEC_BLK_MAX; k++ ) {
       fd_chainer_fec_t * fec = slotv_fec( chainer, s, k * FD_FEC_SHRED_CNT );
       if( FD_UNLIKELY( fec && fd_fec_map_ele_query_const( fec_map, &fec->merkle_root, NULL, fec_pool ) ) ) {
+        if( FD_LIKELY( store && fec->complete ) ) fd_store_remove( store, &fec->merkle_root );
         fd_fec_map_ele_remove_fast( fec_map, fec, fec_pool );
         fd_fec_pool_ele_release( fec_pool, fec );
-        if( FD_LIKELY( store && fec->complete ) ) fd_store_remove( store, &fec->merkle_root );
       }
     }
 
