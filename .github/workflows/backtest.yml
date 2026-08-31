@@ -68,16 +68,20 @@ jobs:
 
       - name: download ledgers
         timeout-minutes: 45
+        env:
+          SCRIPT: ${{ inputs.script }}
         run: |
-          DUMP_DIR=../dump DOWNLOAD_ONLY=true ${{ inputs.script }}
+          DUMP_DIR=../dump DOWNLOAD_ONLY=true $SCRIPT
 
       - name: run backtest
         timeout-minutes: 45
+        env:
+          SCRIPT: ${{ inputs.script }}
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
           sudo $OBJDIR/bin/firedancer-dev configure fini all || true
-          DUMP_DIR=../dump ${{ inputs.script }}
+          DUMP_DIR=../dump $SCRIPT
 
       - name: fini
         if: always()
