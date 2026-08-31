@@ -1125,7 +1125,8 @@ fd_topo_initialize( config_t * config ) {
   /* Auto layout must run after all fd_topob_tile() calls so every tile gets a blocklist-aware CPU assignment. */
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
 
-  ulong fec_set_cnt = 2UL*shred_depth + config->tiles.shred.max_pending_shred_sets + 6UL;
+  ulong fec_set_cnt = fd_shred_tile_fec_set_cnt( FD_SHRED_FIREDANCER_FEC_EXPOSURE,
+                                                  config->tiles.shred.max_pending_shred_sets );
   ulong store_fec_set_cnt = shred_tile_cnt*fec_set_cnt;
 
    /* store_fec_max is the maximum number of FEC sets Store retains.
@@ -1734,7 +1735,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     fd_cstr_ncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
 
-    tile->shred.depth                         = config->topo.links[ tile->out_link_id[ 0 ] ].depth;
+    tile->shred.fec_exposure                  = FD_SHRED_FIREDANCER_FEC_EXPOSURE;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;

@@ -3,6 +3,7 @@
    testnet and/or a private cluster. */
 
 #include "../../../discof/repair/fd_repair_tile.h"
+#include "../../../disco/shred/fd_shred_tile.h"
 #include "../../../disco/net/fd_net_tile.h"
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
@@ -367,19 +368,18 @@ repair_topo( config_t * config ) {
 
   /*                                              topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch */
   FOR(shred_tile_cnt)              fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
-  fd_topo_tile_t * repair_tile =   fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
+  /**/                             fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
 
   /* Setup a shared wksp object for fec sets. */
 
-  ulong shred_depth = 65536UL; /* from fdctl/topology.c shred_store link. MAKE SURE TO KEEP IN SYNC. */
-  ulong fec_set_cnt = 2UL*shred_depth + config->tiles.shred.max_pending_shred_sets + 6UL;
-  ulong fec_sets_sz = fec_set_cnt*sizeof(fd_fec_set_t); /* mirrors # of dcache entries in frankendancer */
+  ulong fec_set_cnt = fd_shred_tile_fec_set_cnt( FD_SHRED_FIREDANCER_FEC_EXPOSURE,
+                                                 config->tiles.shred.max_pending_shred_sets );
+  ulong fec_sets_sz = fec_set_cnt*sizeof(fd_fec_set_t);
   fd_topo_obj_t * fec_sets_obj = setup_topo_fec_sets( topo, "fec_sets", shred_tile_cnt*fec_sets_sz );
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
     fd_topob_tile_uses( topo, shred_tile,  fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
-  fd_topob_tile_uses( topo, repair_tile, fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
   /* There's another special fseq that's used to communicate the shred
