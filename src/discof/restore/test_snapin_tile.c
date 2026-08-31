@@ -1024,7 +1024,7 @@ test_fini_storage_error_retries( void ) {
   cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
 
   uchar data = 1U;
-  FD_TEST( !writer_write( &cl->ctx[ 0 ].writer, 0UL, &data, 1UL ) );
+  FD_TEST( !buffer_write( &cl->ctx[ 0 ].writer, 0UL, &data, 1UL ) );
   test_pwrite_push( -1L, ENOSPC );
 
   ulong pub0 = test_pub_cnt;
@@ -1390,7 +1390,7 @@ test_writer_short_write_and_eintr( void ) {
 
   writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf );
   writer_begin( writer );
-  FD_TEST( !writer_write( writer, 10UL, data, sizeof(data) ) );
+  FD_TEST( !buffer_write( writer, 10UL, data, sizeof(data) ) );
   FD_TEST( !writer_end( writer ) );
   FD_TEST( test_pwrite_call_cnt==3UL );
   FD_TEST( writer->bytes_written==sizeof(data) );
@@ -1406,7 +1406,7 @@ test_writer_errors( void ) {
   writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf );
   writer_begin( writer );
   test_pwrite_push( -1L, ENOSPC );
-  FD_TEST( !writer_write( writer, 0UL, data, sizeof(data) ) );
+  FD_TEST( !buffer_write( writer, 0UL, data, sizeof(data) ) );
   FD_TEST( writer_end( writer )==-1 );
   writer_abort( writer );
   FD_TEST( !writer->buf_used );
@@ -1416,7 +1416,7 @@ test_writer_errors( void ) {
   writer_begin( writer );
   test_pwrite_push(  2L, 0   );
   test_pwrite_push( -1L, EIO );
-  FD_TEST( !writer_write( writer, 0UL, data, sizeof(data) ) );
+  FD_TEST( !buffer_write( writer, 0UL, data, sizeof(data) ) );
   FD_TEST( writer_end( writer )==-1 );
   FD_TEST( writer->bytes_written==2UL );
   FD_TEST( writer->buf_off==2UL && writer->buf_used==2UL );

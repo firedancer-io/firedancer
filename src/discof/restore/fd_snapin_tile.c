@@ -30,12 +30,15 @@
 
 #define NAME "snapin"
 
-/* Batch disk records into one pwrite. */
+/* The snapin tiles are state machines that parse and load a full
+   and optionally an incremental snapshot.  They are responsible
+   for loading accounts into the accounts database and writing their
+   records to disk. */
 
+/* Batch disk records into one pwrite. */
 #define FD_SNAPIN_WRITE_BUF_SZ (2UL<<20)
 
 /* Warn every 10 seconds while data waits for tile 0. */
-
 #define FD_SNAPIN_GATE_WARN_NS (10L*1000L*1000L*1000L)
 
 /* 300 root slots in the slot deltas array, and each one references all
@@ -971,7 +974,7 @@ writer_begin( snapin_writer_t * writer ) {
 }
 
 static int
-writer_flush( snapin_writer_t * writer ) {
+buffer_flush( snapin_writer_t * writer ) {
   if( FD_UNLIKELY( !writer->buf_used ) ) return 0;
 
   ulong sz   = writer->buf_used;
@@ -999,13 +1002,13 @@ writer_flush( snapin_writer_t * writer ) {
 }
 
 static int
-writer_write( snapin_writer_t * writer,
+buffer_write( snapin_writer_t * writer,
               ulong             file_off,
               uchar const *     data,
               ulong             sz ) {
   if( FD_UNLIKELY( !sz ) ) return 0;
   if( FD_UNLIKELY( file_off!=writer->buf_off+writer->buf_used ) ) {
-    if( FD_UNLIKELY( writer_flush( writer ) ) ) return -1;
+    if( FD_UNLIKELY( buffer_flush( writer ) ) ) return -1;
     writer->buf_off = file_off;
   }
   while( sz ) {
@@ -1015,14 +1018,14 @@ writer_write( snapin_writer_t * writer,
     writer->buf_used += n;
     data += n;
     sz   -= n;
-    if( FD_UNLIKELY( writer->buf_used==FD_SNAPIN_WRITE_BUF_SZ && writer_flush( writer ) ) ) return -1;
+    if( FD_UNLIKELY( writer->buf_used==FD_SNAPIN_WRITE_BUF_SZ && buffer_flush( writer ) ) ) return -1;
   }
   return 0;
 }
 
 static int
 writer_end( snapin_writer_t * writer ) {
-  return writer_flush( writer );
+  return buffer_flush( writer );
 }
 
 static void
@@ -1041,7 +1044,7 @@ worker_stage_meta( fd_snapin_tile_t * ctx,
   meta.size       = (uint)data_len;
   meta.generation = 0U;
   fd_memcpy( meta.owner, owner, 32UL );
-  return writer_write( &ctx->writer, file_off, meta.b, sizeof(fd_accdb_disk_meta_t) );
+  return buffer_write( &ctx->writer, file_off, meta.b, sizeof(fd_accdb_disk_meta_t) );
 }
 
 /* Shared account data */
@@ -1239,7 +1242,7 @@ worker_process_account_batch( fd_snapin_tile_t *            ctx,
     if( FD_UNLIKELY( file_offsets[ i ]==ULONG_MAX ) ) continue;
     if( FD_UNLIKELY( worker_stage_meta( ctx, file_offsets[ i ], pubkeys[ i ], owners[ i ], data_lens[ i ] ) ) ) return -1;
     if( FD_LIKELY( data_lens[ i ] ) ) {
-      if( FD_UNLIKELY( writer_write( &ctx->writer, file_offsets[ i ]+sizeof(fd_accdb_disk_meta_t),
+      if( FD_UNLIKELY( buffer_write( &ctx->writer, file_offsets[ i ]+sizeof(fd_accdb_disk_meta_t),
                                     datas[ i ], data_lens[ i ] ) ) ) return -1;
     }
   }
@@ -1316,7 +1319,7 @@ worker_pending_flush( fd_snapin_tile_t * ctx ) {
                                          ctx->pending.lamports, ctx->pending.data_len, ctx->pending.executable,
                                          1, ctx->pending.buf, ctx->pending.write_pos ) ) ) return -1;
   if( FD_LIKELY( ctx->open_acc.accepted && ctx->pending.write_pos ) ) {
-    if( FD_UNLIKELY( writer_write( &ctx->writer, ctx->open_acc.file_off+sizeof(fd_accdb_disk_meta_t),
+    if( FD_UNLIKELY( buffer_write( &ctx->writer, ctx->open_acc.file_off+sizeof(fd_accdb_disk_meta_t),
                                   ctx->pending.buf, ctx->pending.write_pos ) ) ) return -1;
   }
   ctx->open_acc.received = ctx->pending.write_pos;
@@ -1370,7 +1373,7 @@ worker_process_account_data( fd_snapin_tile_t *            ctx,
   }
 
   if( FD_LIKELY( ctx->open_acc.accepted ) ) {
-    if( FD_UNLIKELY( writer_write( &ctx->writer,
+    if( FD_UNLIKELY( buffer_write( &ctx->writer,
                                   ctx->open_acc.file_off+sizeof(fd_accdb_disk_meta_t)+ctx->open_acc.received,
                                   data, data_sz ) ) ) return -1;
   }
