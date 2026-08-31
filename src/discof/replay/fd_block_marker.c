@@ -1,5 +1,6 @@
 #include "fd_block_marker.h"
 
+#include "../../ballet/bls/fd_bls12_381.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../choreo/votor/ag_cert_serde.h"
 
@@ -73,6 +74,94 @@ reward_cert_de( fd_reward_cert_t * cert,
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
 
+/* TODO: check serde accepting AG_BLS_SIGNERS_MAX (2048) vs AG_VAT_MAX
+   (2000); reward processing ignores bits past the validator count
+   instead of rejecting the cert. Check what Agave does with rank bits
+   >= the epoch's validator set size and match it. */
+
+/* votes_aggregate_de deserializes a VotesAggregate.  The bitmap is the
+   same solana_signer_store encoding the wire framing uses, so the codes
+   returned here are AG_CERT_DE_*; the only caller just tests for
+   nonzero. */
+
+static int
+votes_aggregate_de( ag_bls_agg_t * agg,
+                    uchar const *  buf,
+                    ulong          buf_max,
+                    ulong *        buf_sz ) {
+  if( FD_UNLIKELY( buf_max<sizeof(fd_block_votes_aggregate_serde_t) ) ) return AG_CERT_DE_ERR_SZ;
+  fd_block_votes_aggregate_serde_t const * aggregate = (fd_block_votes_aggregate_serde_t const *)buf;
+
+  ulong  sz     = sizeof(fd_block_votes_aggregate_serde_t);
+  ushort bm_cnt = aggregate->bitmap_cnt;
+  if( FD_UNLIKELY( bm_cnt>buf_max-sz ) ) return AG_CERT_DE_ERR_SZ;
+
+  int err = ag_cert_base2_bitmap_de( agg, buf+sz, bm_cnt );  if( FD_UNLIKELY( err ) ) return err;
+  memcpy( agg->sig, aggregate->signature, AG_BLS_SIG_COMPRESSED_SZ );
+  *buf_sz = sz + bm_cnt;
+  return AG_CERT_DE_SUCCESS;
+}
+
+static int
+decompress( ag_bls_agg_t * agg ) {
+  uchar csig[ AG_BLS_SIG_COMPRESSED_SZ ];
+  memcpy( csig, agg->sig, AG_BLS_SIG_COMPRESSED_SZ );
+  return fd_bls12_381_g2_decompress_syscall( agg->sig, csig, 1 );
+}
+
+int
+fd_block_final_cert_de( ag_cert_fast_final_t * fast_final,
+                        ag_cert_final_t *      final,
+                        ag_cert_notar_t *      notar,
+                        uchar const *          buf,
+                        ulong                  buf_max,
+                        ulong *                buf_sz ) {
+  ulong remaining = buf_max;
+
+  if( FD_UNLIKELY( remaining<sizeof(fd_block_final_cert_serde_t) ) ) return -1;
+  fd_block_final_cert_serde_t const * block_final = (fd_block_final_cert_serde_t const *)buf;
+  buf       += sizeof(fd_block_final_cert_serde_t);
+  remaining -= sizeof(fd_block_final_cert_serde_t);
+
+  ag_bls_agg_t final_agg[1];
+  ulong        consumed;
+  if( FD_UNLIKELY( votes_aggregate_de( final_agg, buf, remaining, &consumed ) ) ) return -1;
+  buf       += consumed;
+  remaining -= consumed;
+
+  if( FD_UNLIKELY( remaining<1UL ) ) return -1;
+  uchar has_notar_aggregate = *buf;
+  buf       += 1UL;
+  remaining -= 1UL;
+  if( FD_UNLIKELY( has_notar_aggregate>1 ) ) return -1;
+
+  if( !has_notar_aggregate ) {
+    fd_memset( fast_final, 0, sizeof(ag_cert_fast_final_t) );
+    fast_final->slot    = block_final->slot;
+    fast_final->agg_sig = *final_agg;
+    memcpy( fast_final->block_hash, block_final->block_id, sizeof(ag_block_hash_t) );
+    if( FD_UNLIKELY( decompress( &fast_final->agg_sig ) ) ) return -1;
+    if( buf_sz ) *buf_sz = buf_max - remaining;
+    return 1;
+  }
+
+  ag_bls_agg_t notar_agg[1];
+  if( FD_UNLIKELY( votes_aggregate_de( notar_agg, buf, remaining, &consumed ) ) ) return -1;
+  remaining -= consumed;
+
+  fd_memset( final, 0, sizeof(ag_cert_final_t) );
+  fd_memset( notar, 0, sizeof(ag_cert_notar_t) );
+  final->slot    = block_final->slot;
+  final->agg_sig = *final_agg;
+  notar->slot    = block_final->slot;
+  notar->agg_sig = *notar_agg;
+  memcpy( notar->block_hash, block_final->block_id, sizeof(ag_block_hash_t) );
+  if( FD_UNLIKELY( decompress( &final->agg_sig ) ) ) return -1;
+  if( FD_UNLIKELY( decompress( &notar->agg_sig ) ) ) return -1;
+  if( buf_sz ) *buf_sz = buf_max - remaining;
+  return 0;
+}
+
 int
 fd_block_header_de( fd_block_header_t * header,
                     uchar const *       buf,
@@ -144,7 +233,7 @@ fd_block_footer_de( fd_block_footer_t * footer,
   if( FD_UNLIKELY( (err=option_de( &buf, &rem, &present )) ) ) return err;
   if( present ) {
     ulong consumed;
-    int   is_fast = ag_cert_block_final_de( &footer->fast_final_cert, &footer->final_cert, &footer->notar_cert, buf, rem, &consumed );
+    int   is_fast = fd_block_final_cert_de( &footer->fast_final_cert, &footer->final_cert, &footer->notar_cert, buf, rem, &consumed );
     if( FD_UNLIKELY( is_fast<0 ) ) return FD_BLOCK_MARKER_DE_ERR_MALFORMED;
     footer->has_fast_final_cert = is_fast==1;
     footer->has_final_cert      = is_fast==0;
@@ -201,9 +290,11 @@ fd_block_marker_de( fd_block_marker_t * marker,
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
 
-FD_STATIC_ASSERT( sizeof(fd_block_marker_serde_t)==FD_BLOCK_MARKER_PREAMBLE_SZ, fd_block_marker_serde );
-FD_STATIC_ASSERT( sizeof(fd_block_header_serde_t)==41UL,                        fd_block_marker_serde );
-FD_STATIC_ASSERT( sizeof(fd_block_footer_serde_t)==42UL,                        fd_block_marker_serde );
+FD_STATIC_ASSERT( sizeof(fd_block_marker_serde_t         )==FD_BLOCK_MARKER_PREAMBLE_SZ,  fd_block_marker_serde );
+FD_STATIC_ASSERT( sizeof(fd_block_header_serde_t         )==41UL,                         fd_block_marker_serde );
+FD_STATIC_ASSERT( sizeof(fd_block_footer_serde_t         )==42UL,                         fd_block_marker_serde );
+FD_STATIC_ASSERT( sizeof(fd_block_votes_aggregate_serde_t)==AG_BLS_SIG_COMPRESSED_SZ+2UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( sizeof(fd_block_final_cert_serde_t     )==8UL+sizeof(ag_block_hash_t),  fd_block_marker_serde );
 
 #define CHECK_SPACE( n ) do {                                          \
   if( FD_UNLIKELY( (n)>rem ) ) return FD_BLOCK_MARKER_SER_ERR_NOSPACE; \

@@ -43,6 +43,24 @@ typedef struct fd_update_parent fd_update_parent_t;
 
 #define FD_BLOCK_FOOTER_USER_AGENT_MAX (255UL)
 
+/* FD_BLOCK_FOOTER_SER_MAX bounds a serialized footer marker: the marker
+   preamble, the fixed footer fields, a full length user agent, and all
+   three optional certificates.  Every certificate carries a compressed
+   BLS signature and a signer bitmap over at most AG_VAT_MAX validators,
+   which is what dominates the bound. */
+
+#define FD_BLOCK_MARKER_BITMAP_MAX (3UL+(AG_VAT_MAX+7UL)/8UL)                                     /* version, bit_cnt, payload    */
+#define FD_BLOCK_MARKER_AGG_MAX    (AG_BLS_SIG_COMPRESSED_SZ+2UL+FD_BLOCK_MARKER_BITMAP_MAX)      /* VotesAggregate               */
+#define FD_BLOCK_MARKER_REWARD_MAX (8UL+32UL+AG_BLS_SIG_COMPRESSED_SZ+3UL+FD_BLOCK_MARKER_BITMAP_MAX) /* slot, block_id, sig, cu16 */
+
+#define FD_BLOCK_FOOTER_SER_MAX    ( FD_BLOCK_MARKER_PREAMBLE_SZ        + /* marker preamble           */ \
+                                     1UL+32UL+8UL+1UL                   + /* version, hash, time, ualen*/ \
+                                     FD_BLOCK_FOOTER_USER_AGENT_MAX     +                                 \
+                                     3UL                                + /* three option bytes        */ \
+                                     8UL+32UL+1UL                       + /* block_final slot, id, opt */ \
+                                     2UL*FD_BLOCK_MARKER_AGG_MAX        + /* final + notar aggregates  */ \
+                                     2UL*FD_BLOCK_MARKER_REWARD_MAX )     /* skip + notar reward certs */
+
 struct fd_block_footer {
    fd_hash_t bank_hash;
    ulong     block_producer_time_nanos;
@@ -111,7 +129,43 @@ struct __attribute__((packed)) fd_block_footer_serde {
 };
 typedef struct fd_block_footer_serde fd_block_footer_serde_t;
 
+/* The footer framing of a certificate is not the wire framing in
+   ag_cert_serde.h: the aggregate signature is compressed and the bitmap
+   carries a u16 length prefix rather than a u64.  The bitmap payload
+   itself (ag_cert_bitmap_serde_t) is common to both. */
+
+struct __attribute__((packed)) fd_block_votes_aggregate_serde {
+  uchar  signature[ AG_BLS_SIG_COMPRESSED_SZ ]; /* VotesAggregate::signature (BLSSignatureCompressed)         */
+  ushort bitmap_cnt;                            /* VotesAggregate::bitmap    (WincodeVec<u8, FixIntLen<u16>>) */
+/*uchar  bitmap[];*/                            /* VotesAggregate::bitmap    (WincodeVec<u8, FixIntLen<u16>>) */
+};
+typedef struct fd_block_votes_aggregate_serde fd_block_votes_aggregate_serde_t;
+
+struct __attribute__((packed)) fd_block_final_cert_serde {
+  ulong           slot;                                    /* BlockFinalizationCert::slot            (Slot)                   */
+  ag_block_hash_t block_id;                                /* BlockFinalizationCert::block_id        (Hash)                   */
+/*fd_block_votes_aggregate_serde_t final_aggregate;    */   /* BlockFinalizationCert::final_aggregate (VotesAggregate)         */
+/*uchar                            has_notar_aggregate;*/   /* BlockFinalizationCert::notar_aggregate (Option<VotesAggregate>) */
+/*fd_block_votes_aggregate_serde_t notar_aggregate;    */   /* BlockFinalizationCert::notar_aggregate (Option<VotesAggregate>) */
+};
+typedef struct fd_block_final_cert_serde fd_block_final_cert_serde_t;
+
 FD_PROTOTYPES_BEGIN
+
+/* fd_block_final_cert_de deserializes the BlockFinalizationCert at buf,
+   which a block footer carries inline.  Agg signatures are decompressed
+   but not verified.  Returns 1 when the cert is a fast finalization, in
+   which case only fast_final is written, 0 when it is a slow one, in
+   which case only final and notar are written, and -1 on failure.  On
+   success buf_sz (if non-NULL) receives the number of bytes consumed. */
+
+int
+fd_block_final_cert_de( ag_cert_fast_final_t * fast_final,
+                        ag_cert_final_t *      final,
+                        ag_cert_notar_t *      notar,
+                        uchar const *          buf,
+                        ulong                  buf_max,
+                        ulong *                buf_sz );
 
 /* The deserializers below decode a versioned block marker payload,
    with buf pointing at the payload byte (FD_BLOCK_MARKER_PREAMBLE_SZ

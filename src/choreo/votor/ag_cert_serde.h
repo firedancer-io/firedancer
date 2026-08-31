@@ -39,22 +39,6 @@ struct __attribute__((packed)) ag_cert_bitmap_serde {
 };
 typedef struct ag_cert_bitmap_serde ag_cert_bitmap_serde_t;
 
-struct __attribute__((packed)) ag_cert_votes_aggregate_serde {
-  uchar  signature[ AG_BLS_SIG_COMPRESSED_SZ ]; /* VotesAggregate::signature (BLSSignatureCompressed)         */
-  ushort bitmap_cnt;                            /* VotesAggregate::bitmap    (WincodeVec<u8, FixIntLen<u16>>) */
-/*uchar  bitmap[];*/                            /* VotesAggregate::bitmap    (WincodeVec<u8, FixIntLen<u16>>) */
-};
-typedef struct ag_cert_votes_aggregate_serde ag_cert_votes_aggregate_serde_t;
-
-struct __attribute__((packed)) ag_cert_block_final_serde {
-  ulong           slot;                                  /* BlockFinalizationCert::slot            (Slot)                   */
-  ag_block_hash_t block_id;                              /* BlockFinalizationCert::block_id        (Hash)                   */
-/*ag_cert_votes_aggregate_serde_t final_aggregate;    */ /* BlockFinalizationCert::final_aggregate (VotesAggregate)         */
-/*uchar                           has_notar_aggregate;*/ /* BlockFinalizationCert::notar_aggregate (Option<VotesAggregate>) */
-/*ag_cert_votes_aggregate_serde_t notar_aggregate;    */ /* BlockFinalizationCert::notar_aggregate (Option<VotesAggregate>) */
-};
-typedef struct ag_cert_block_final_serde ag_cert_block_final_serde_t;
-
 #define AG_CERT_SER_MAX (sizeof(ag_cert_serde_t) + sizeof(ag_cert_bitmap_serde_t) + (AG_BLS_SIGNERS_MAX+4UL)/5UL + 2UL) /* max serialized sz of ag_cert_serde */
 
 FD_PROTOTYPES_BEGIN
@@ -73,13 +57,16 @@ ag_cert_de( ag_cert_t *   cert,
             uchar const * buf,
             ulong         buf_sz );
 
+/* ag_cert_base2_bitmap_de zeroes agg and decodes the b_sz byte base2
+   solana_signer_store bitmap at b into its signer set.  The block footer
+   framing (fd_block_marker.h) shares this bitmap encoding, hence the
+   decoder is not static.  Returns AG_CERT_DE_SUCCESS on success and
+   AG_CERT_DE_ERR_* on failure. */
+
 int
-ag_cert_block_final_de( ag_cert_fast_final_t * fast_final,
-                        ag_cert_final_t *      final,
-                        ag_cert_notar_t *      notar,
-                        uchar const *          buf,
-                        ulong                  buf_max,
-                        ulong *                buf_sz );
+ag_cert_base2_bitmap_de( ag_bls_agg_t * agg,
+                         uchar const *  b,
+                         ulong          b_sz );
 
 FD_PROTOTYPES_END
 
