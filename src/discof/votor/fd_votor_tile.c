@@ -388,7 +388,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     ushort                  rank       = fd_ushort_if( vote_slot>=ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) return; /* peer is not ranked in their vote slot's epoch */
     ag_vote_set_rank( &ctx->scratch.vote, rank );
-    // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, epoch_info->validators[ rank ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
+    // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, &epoch_info->validators[ rank ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
     return;
   }

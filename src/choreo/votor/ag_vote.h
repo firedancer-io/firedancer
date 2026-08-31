@@ -105,9 +105,9 @@ ag_vote_construct_final( ulong              slot,
                          ushort             shred_version );
 
 int
-ag_vote_verify( ag_vote_t const *  self,
-                ag_bls_pub_t const pub,
-                ushort             shred_version );
+ag_vote_verify( ag_vote_t const *    self,
+                ag_bls_pub_t const * pub,
+                ushort               shred_version );
 
 FD_FN_PURE static inline ulong
 ag_vote_slot( ag_vote_t const * self ) {

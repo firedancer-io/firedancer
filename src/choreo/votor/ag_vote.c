@@ -34,7 +34,7 @@ verify( ag_bls_sig_t const    sig,
         uint                  kind,
         ulong                 slot,
         ag_block_hash_t const hash,
-        ag_bls_pub_t const    pub,
+        ag_bls_pub_t const *  pub,
         ushort                shred_version ) {
   uchar buf[ AG_VOTE_PAYLOAD_MAX ];
   ulong sz = ag_vote_payload_bytes_to_sign( buf, kind, slot, hash, shred_version );
@@ -57,9 +57,9 @@ ag_vote_construct_notar( ulong                 slot,
 }
 
 static int
-verify_notar( ag_vote_t const *  self,
-                      ag_bls_pub_t const pub,
-                      ushort             shred_version ) {
+verify_notar( ag_vote_t const *    self,
+              ag_bls_pub_t const * pub,
+              ushort               shred_version ) {
   return verify( self->notar.sig, AG_VOTE_KIND_NOTAR, self->notar.slot, self->notar.block_hash, pub, shred_version );
 }
 
@@ -79,9 +79,9 @@ ag_vote_construct_notar_fallback( ulong                 slot,
 }
 
 static int
-verify_notar_fallback( ag_vote_t const *  self,
-                               ag_bls_pub_t const pub,
-                               ushort             shred_version ) {
+verify_notar_fallback( ag_vote_t const *    self,
+                       ag_bls_pub_t const * pub,
+                       ushort               shred_version ) {
   return verify( self->notar_fallback.sig, AG_VOTE_KIND_NOTAR_FALLBACK, self->notar_fallback.slot, self->notar_fallback.block_hash, pub, shred_version );
 }
 
@@ -99,9 +99,9 @@ ag_vote_construct_skip( ulong              slot,
 }
 
 static int
-verify_skip( ag_vote_t const *  self,
-                     ag_bls_pub_t const pub,
-                     ushort             shred_version ) {
+verify_skip( ag_vote_t const *    self,
+             ag_bls_pub_t const * pub,
+             ushort               shred_version ) {
   return verify( self->skip.sig, AG_VOTE_KIND_SKIP, self->skip.slot, NULL, pub, shred_version );
 }
 
@@ -119,9 +119,9 @@ ag_vote_construct_skip_fallback( ulong              slot,
 }
 
 static int
-verify_skip_fallback( ag_vote_t const *  self,
-                              ag_bls_pub_t const pub,
-                              ushort             shred_version ) {
+verify_skip_fallback( ag_vote_t const *    self,
+                      ag_bls_pub_t const * pub,
+                      ushort               shred_version ) {
   return verify( self->skip_fallback.sig, AG_VOTE_KIND_SKIP_FALLBACK, self->skip_fallback.slot, NULL, pub, shred_version );
 }
 
@@ -139,16 +139,16 @@ ag_vote_construct_final( ulong              slot,
 }
 
 static int
-verify_final( ag_vote_t const *  self,
-                      ag_bls_pub_t const pub,
-                      ushort             shred_version ) {
+verify_final( ag_vote_t const *    self,
+              ag_bls_pub_t const * pub,
+              ushort               shred_version ) {
   return verify( self->final.sig, AG_VOTE_KIND_FINAL, self->final.slot, NULL, pub, shred_version );
 }
 
 int
-ag_vote_verify( ag_vote_t const *  self,
-                ag_bls_pub_t const pub,
-                ushort             shred_version ) {
+ag_vote_verify( ag_vote_t const *    self,
+                ag_bls_pub_t const * pub,
+                ushort               shred_version ) {
   switch( self->kind ) {
   case AG_VOTE_KIND_NOTAR:          return verify_notar         ( self, pub, shred_version );
   case AG_VOTE_KIND_NOTAR_FALLBACK: return verify_notar_fallback( self, pub, shred_version );
