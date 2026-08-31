@@ -4,5 +4,5 @@
 # everything.mk and LDFLAGS is simply-expanded.
 FD_HAS_LZ4:=1
 CFLAGS+=-DFD_HAS_LZ4=1
-CPPFLAGS+=-isystem src/third_party/lz4/lib
+CPPFLAGS:=-isystem src/third_party/lz4/lib $(CPPFLAGS)
 LDFLAGS+=$(BASEDIR)/$(BUILDDIR)/lib/libfd_lz4.a
