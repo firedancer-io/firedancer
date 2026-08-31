@@ -66,14 +66,26 @@ runs:
       shell: bash
       run: FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' check
 
+    # -m stamps extraction-time mtimes so opt-dependent objects rebuild after a
+    # bundle swap; the key guard skips re-extraction when the bundle is unchanged.
     - name: Install dependencies from cache
       shell: bash
-      run: tar -Izstd -xvf deps-bundle.tar.zst
+      run: |
+        BUNDLE_KEY='deps-sh-${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ steps.extras_trimmed.outputs.extras_key }}-${{ steps.deps-sh-hash.outputs.HASH }}'
+        if [ ! -f opt/.bundle-key ] || [ "$(cat opt/.bundle-key)" != "$BUNDLE_KEY" ]; then
+          rm -f opt/.bundle-key
+          rm -rf opt/include opt/lib
+          tar -Izstd -xmf deps-bundle.tar.zst
+          echo "$BUNDLE_KEY" > opt/.bundle-key
+        fi
       if: steps.deps-sh-cache.outputs.cache-hit == 'true'
 
     - name: Install dependencies from scratch
       shell: bash
       run: |
+        # Drop stale stamp first (fail-safe) and previous-key leftovers.
+        rm -f opt/.bundle-key
+        rm -rf opt/include opt/lib
         if [[ "${{ inputs.compiler-version }}" != "system" ]]; then
           source /opt/${{ inputs.compiler }}/${{ inputs.compiler }}-${{ inputs.compiler-version }}/activate
         fi
@@ -82,4 +94,7 @@ runs:
         FD_AUTO_INSTALL_PACKAGES=1 \
         '${{ inputs.deps-script-path }}' ${{ inputs.extras }} fetch install
         '${{ inputs.deps-bundle-path }}'
+        # Stamp so later cache-hit runs skip re-extraction.
+        BUNDLE_KEY='deps-sh-${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ steps.extras_trimmed.outputs.extras_key }}-${{ steps.deps-sh-hash.outputs.HASH }}'
+        echo "$BUNDLE_KEY" > opt/.bundle-key
       if: steps.deps-sh-cache.outputs.cache-hit != 'true'
