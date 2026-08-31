@@ -5,5 +5,5 @@
 # everything.mk and LDFLAGS is simply-expanded.
 FD_HAS_ZSTD:=1
 CFLAGS+=-DFD_HAS_ZSTD=1
-CPPFLAGS+=-isystem src/third_party/zstd/lib
+CPPFLAGS:=-isystem src/third_party/zstd/lib $(CPPFLAGS)
 LDFLAGS+=$(BASEDIR)/$(BUILDDIR)/lib/libfd_zstd.a
