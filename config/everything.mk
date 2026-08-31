@@ -28,10 +28,25 @@ endif
 endif
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend env
+AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend frontend-clean env
 
 # Dry rules that should set up dependency targets, but not generate them
 DRY_RULES:=check show-deps proof
+
+# Mixing aux or dry goals with any other goal class silently skips the
+# rule graph ('make clean all' builds nothing green) or dependency tracking
+# ('make check bin' links stale objects, 'make clean check' checks
+# nothing); fail loudly instead
+ifneq ($(filter $(AUX_RULES),$(MAKECMDGOALS)),)
+ifneq ($(filter-out $(AUX_RULES),$(MAKECMDGOALS)),)
+$(error aux goals [$(filter $(AUX_RULES),$(MAKECMDGOALS))] cannot be mixed with other goals; use separate make invocations)
+endif
+endif
+ifneq ($(filter $(DRY_RULES),$(MAKECMDGOALS)),)
+ifneq ($(filter-out $(DRY_RULES),$(MAKECMDGOALS)),)
+$(error dry goals [$(filter $(DRY_RULES),$(MAKECMDGOALS))] cannot be mixed with other goals; use separate make invocations)
+endif
+endif
 
 # Quiet/verbose build switch
 Q=@
@@ -349,7 +364,7 @@ $(OBJDIR)/include/firedancer/% : src/%
 $(CP) $^ $@ && \
 $(TOUCH) $@
 
-ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES)),)
+ifeq ($(filter $(AUX_RULES),$(MAKECMDGOALS)),)
 # If we are not in an auxiliary rule (aka we need to actually build something/need dep tree)
 
 # Include all the make fragments
@@ -375,7 +390,7 @@ show-deps:
 
 check: $(DEPFILES:.d=.check)
 
-ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES) $(DRY_RULES)),)
+ifeq ($(filter $(AUX_RULES) $(DRY_RULES),$(MAKECMDGOALS)),)
 # Include dependency files emitted as a side effect of C/C++ object builds.
 # The leading dash avoids the old up-front dependency generation pass on clean
 # trees, which kept make busy before it could start compiling objects.
