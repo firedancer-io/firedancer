@@ -1479,25 +1479,24 @@ test_block_id_repair_only( fd_wksp_t * wksp ) {
   pump( ctx );
 
   /* Repair shreds create turbine-side bookkeeping, so the block is
-     tracked -- and delivered -- under both the lazily created turbine
-     version (whose block id stays zero until it finalizes to the cert
-     block id at slot completion) and the cert version; replay dedups
-     the redelivery.  Every FEC set reached replay in order under both
-     versions, and the slot-complete deliveries carry the cert block
-     id. */
+     tracked under both the lazily created turbine version (whose block
+     id stays zero until it finalizes to the cert block id at slot
+     completion) and the cert version.  FEC set 0 is delivered under
+     both while their block ids still differ.  At slot completion the
+     turbine version finalizes to the cert block id and fec_complete
+     removes the now-duplicate cert version, so the final FEC set is
+     delivered once -- under the surviving version -- rather than twice. */
 
   FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==slot );
-  FD_TEST( rep_cnt==4UL );
+  FD_TEST( rep_cnt==3UL );
   rep_expect( 0UL, slot, 0U,               &blk->fec_root[ 0 ], NULL,           0 ); /* turbine version, pre-finalize */
   rep_expect( 1UL, slot, 0U,               &blk->fec_root[ 0 ], &blk->block_id, 0 ); /* cert version */
-  rep_expect( 2UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 ); /* turbine version, finalized */
-  rep_expect( 3UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 ); /* cert version */
+  rep_expect( 2UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 ); /* turbine version, finalized (dup removed) */
 
-  /* Both versions coexist -- the turbine version finalized to the same
-     block id as the cert -- until rooting prunes all but the canonical
-     one. */
+  /* The turbine version finalized to the cert block id and the
+     duplicate cert version was removed, leaving one canonical version. */
 
-  FD_TEST( slot_version_cnt( ctx->chainer, slot )==2UL );
+  FD_TEST( slot_version_cnt( ctx->chainer, slot )==1UL );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
   /* block-id-only mode never emitted a legacy positional request. */

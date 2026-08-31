@@ -40,6 +40,7 @@ struct fd_rotor_replay_fec {
    int       slot_complete;
    int       data_complete;
    int       is_leader;
+   int       verified;
    fd_hash_t block_id;         /* only populated if slot_complete is 1 */
 };
 typedef struct fd_rotor_replay_fec fd_rotor_replay_fec_t;

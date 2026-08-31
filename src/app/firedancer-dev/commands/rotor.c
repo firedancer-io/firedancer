@@ -21,22 +21,22 @@ static fd_chainer_t
 rotor_chainer_reloc( void * chainer_laddr, ulong ele_max ) {
   fd_chainer_t c = *(fd_chainer_t *)chainer_laddr;
 
-  ulong fec_max         = ele_max * FD_FEC_BLK_MAX;
-  ulong fec_chain_cnt   = fd_fec_map_chain_cnt_est  ( fec_max );
-  ulong slot_chain_cnt  = fd_slotv_map_chain_cnt_est( ele_max );
-  ulong sched_chain_cnt = fd_sched_map_chain_cnt_est( ele_max );
+  ulong blk_max       = ele_max * FD_CHAINER_SLOT_VER_MAX;
+  ulong fec_max       = blk_max * FD_FEC_BLK_MAX;
+  ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
+  ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );
 
   FD_SCRATCH_ALLOC_INIT( l, chainer_laddr );
   (void)          FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(),      sizeof(fd_chainer_t)                        );
   c.fec_pool     = fd_fec_pool_join    ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_pool_align(),     fd_fec_pool_footprint    ( fec_max )        ) );
   c.fec_map      = fd_fec_map_join     ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_map_align(),      fd_fec_map_footprint     ( fec_chain_cnt )  ) );
-  c.slotv_pool   = fd_slotv_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( ele_max )        ) );
-  c.slotv_map    = fd_slotv_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( slot_chain_cnt ) ) );
-  c.sched_pool   = fd_sched_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_pool_align(),   fd_sched_pool_footprint  ( ele_max )        ) );
-  c.sched_map    = fd_sched_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_map_align(),    fd_sched_map_footprint   ( sched_chain_cnt )) );
-  c.repair_treap = fd_sched_repair_join( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_repair_align(), fd_sched_repair_footprint( ele_max )        ) );
-  c.orphan_treap = fd_sched_orphan_join( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_orphan_align(), fd_sched_orphan_footprint( ele_max )        ) );
-  c.bfs          = bfs_join            ( FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( ele_max )        ) );
+  c.slotv_pool   = fd_slotv_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( blk_max )        ) );
+  c.slotv_map    = fd_slotv_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( blk_chain_cnt ) ) );
+  c.sched_pool   = fd_sched_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_pool_align(),   fd_sched_pool_footprint  ( blk_max )        ) );
+  c.sched_map    = fd_sched_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_map_align(),    fd_sched_map_footprint   ( blk_chain_cnt )) );
+  c.repair_treap = fd_sched_repair_join( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_repair_align(), fd_sched_repair_footprint( blk_max )        ) );
+  c.orphan_treap = fd_sched_orphan_join( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_orphan_align(), fd_sched_orphan_footprint( blk_max )        ) );
+  c.bfs          = bfs_join            ( FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( blk_max )        ) );
   c.out_queue    = out_queue_join      ( FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),       out_queue_footprint      ( fec_max )        ) );
 
   return c;
@@ -68,8 +68,8 @@ rotor_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   /* Walk the tile scratch layout (ctx, protocol, chainer) to the chainer
      local address; mirrors the rotor tile's unprivileged_init. */
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  (void)               FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),     sizeof(ctx_t)                    );
-  (void)               FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),  fd_repair_footprint()            );
+  (void)               FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),        sizeof(ctx_t)                    );
+  (void)               FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),    fd_repair_footprint()            );
   void * chainer_laddr = FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(), fd_chainer_footprint( ele_max ) );
 
   fd_chainer_t c = rotor_chainer_reloc( chainer_laddr, ele_max );

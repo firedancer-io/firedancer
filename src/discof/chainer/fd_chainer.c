@@ -569,6 +569,18 @@ chainer_advance( fd_chainer_t * chainer, fd_chainer_slotv_t * root ) {
   }
 }
 
+/* extend_buffered_fec extends slotv's contiguous buffered FEC prefix
+   over consecutive completed FEC sets. */
+
+static void
+extend_buffered_fec( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv ) {
+  for(;;) {
+    fd_chainer_fec_t * next = slotv_fec( chainer, slotv, slotv->buffered_fec_idx + 1U );
+    if( !next || !next->complete ) break;
+    slotv->buffered_fec_idx += FD_FEC_SHRED_CNT;
+  }
+}
+
 int
 fd_chainer_fec_complete( fd_chainer_t * chainer,
                          ulong          slot,
@@ -593,34 +605,68 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
   if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
   if( FD_UNLIKELY( data_complete ) ) fec->data_complete = 1;
 
-  /* Advance every version that owns this FEC root at this position. */
+  /* Process the turbine version first.  It is the only version whose
+     block_id may finalize here, and the finalized block_id may reveal
+     that a notar-fallback version of the same block already exists.
+     Removing such duplicates before the remaining versions are
+     processed ensures a duplicate is never advanced or delivered. */
   uint  fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
   ulong k       = fec_set_idx / FD_FEC_SHRED_CNT;
+
+  fd_chainer_slotv_t * turbine = NULL;
   for( ulong _i=slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=slotv_iter_next( chainer, _i ) ) {
     fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, _i );
-    if( FD_UNLIKELY( slotv->fec[ k ]!=fec_idx ) ) continue;
+    if( FD_LIKELY( slotv->turbine ) ) { turbine = slotv; break; }
+  }
 
-    /* Extend this version's contiguous buffered FEC prefix. */
-    for(;;) {
-      fd_chainer_fec_t * next = slotv_fec( chainer, slotv, slotv->buffered_fec_idx + 1U );
-      if( !next || !next->complete ) break;
-      slotv->buffered_fec_idx += FD_FEC_SHRED_CNT;
-    }
+  if( FD_LIKELY( turbine && turbine->fec[ k ]==fec_idx ) ) {
+    extend_buffered_fec( chainer, turbine );
 
     /* Slot is complete -> we can record the block_id, and we must have
        all of its components at this point.  Only a turbine version needs
        it computed: a notar-fallback version already learned its block_id
        from the cert. */
-    if( FD_UNLIKELY( slotv->complete_idx != UINT_MAX && slotv->buffered_fec_idx == slotv->complete_idx && fd_hash_check_zero( &slotv->block_id ) ) ) {
-      if( FD_UNLIKELY( slotv->parent_slot == AG_UNKNOWN_SLOT ) ) {
-        FD_LOG_WARNING(( "slot %lu is complete, but parent_slot is still unknown "
-                         "(turbine %d buffered_fec_idx %u complete_idx %u parent_slot_batch %u has_shred0 %d fec0_idx %u)",
-                         slot, slotv->turbine, slotv->buffered_fec_idx, slotv->complete_idx, slotv->parent_slot_batch,
-                         fd_chainer_shred_test( chainer, slotv, 0U ), slotv->fec[ 0 ] ));
+    if( FD_UNLIKELY( turbine->complete_idx != UINT_MAX && turbine->buffered_fec_idx == turbine->complete_idx && fd_hash_check_zero( &turbine->block_id ) ) ) {
+      if( FD_UNLIKELY( turbine->parent_slot == AG_UNKNOWN_SLOT ) ) FD_LOG_WARNING(( "slot %lu is complete, but parent_slot is still unknown", slot ));
+      if( FD_UNLIKELY( !finalize_block_id( chainer, turbine ) ) ) FD_LOG_WARNING(( "failed to finalize block_id for slot %lu", slot ));
+
+      /* A notar-fallback version created earlier from a cert may carry
+         the block_id we just computed: same block, so remove the
+         duplicate. */
+      for( ulong j=slotv_iter_init( chainer, slot ); j!=ULONG_MAX; j=slotv_iter_next( chainer, j ) ) {
+        fd_chainer_slotv_t * other = slotv_iter_ele( chainer, j );
+        if( FD_UNLIKELY( other!=turbine && fd_hash_eq( &other->block_id, &turbine->block_id ) ) ) {
+          fd_chainer_repair_remove( chainer, other );
+          fd_chainer_orphan_remove( chainer, other );
+
+          /* Void any queued deliveries so the drain never reads a
+             released slotv. */
+          uint dup_idx   = (uint)fd_slotv_pool_idx( chainer->slotv_pool, other   );
+          out_ele_t * out_queue = chainer->out_queue;
+          for( out_queue_iter_t it = out_queue_iter_init( out_queue ); !out_queue_iter_done( out_queue, it ); it = out_queue_iter_next( out_queue, it ) ) {
+            out_ele_t * ele = out_queue_iter_ele( out_queue, it );
+            if( FD_UNLIKELY( ele->slotv_idx==dup_idx ) ) {
+              ele->slotv_idx = UINT_MAX;
+            }
+          }
+          fd_slotv_map_ele_remove_fast( chainer->slotv_map, other, chainer->slotv_pool );
+          fd_slotv_pool_ele_release( chainer->slotv_pool, other );
+          break; /* at most one version per block_id can exist */
+        }
       }
-      if( FD_UNLIKELY( !finalize_block_id( chainer, slotv ) ) ) FD_LOG_WARNING(( "failed to finalize block_id for slot %lu", slot ));
     }
 
+    chainer_advance( chainer, turbine );
+  }
+
+  /* Advance every remaining version that owns this FEC root at this
+     position. */
+  for( ulong _i=slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=slotv_iter_next( chainer, _i ) ) {
+    fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, _i );
+    if( FD_UNLIKELY( slotv==turbine ) ) continue;
+    if( FD_UNLIKELY( slotv->fec[ k ]!=fec_idx ) ) continue;
+
+    extend_buffered_fec( chainer, slotv );
     chainer_advance( chainer, slotv );
   }
 
@@ -679,6 +725,7 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
   slotv->complete_idx    = (fec_set_cnt*FD_FEC_SHRED_CNT) - 1;
   slotv->parent_slot     = parent_slot;
   slotv->parent_block_id = *parent_block_id;
+
   fd_chainer_repair_add( chainer, slotv ); /* tip now known -> re-add for shred fill */
 
   fd_chainer_slotv_t * parent_slotv = fd_chainer_slot_version_query( chainer, parent_slot, parent_block_id );
@@ -890,6 +937,24 @@ fd_chainer_publish( fd_chainer_t *    chainer,
     s->delivered_idx = 0;
     s->buffered_fec_idx = UINT_MAX; /* rooted slot has no buffered FEC set */
   }
+
+  /* The new root becomes a delivered anchor here WITHOUT going through
+     chainer_advance's slot_complete cascade, so children that already
+     completed while waiting on it were never connected/delivered.
+     Cascade to them now, mirroring chainer_advance's child scan. */
+  for( ulong i=slotv_iter_init( chainer, new_root ); i!=ULONG_MAX; i=slotv_iter_next( chainer, i ) ) {
+    fd_chainer_slotv_t * s = slotv_iter_ele( chainer, i );
+    if( FD_UNLIKELY( fd_hash_check_zero( &s->block_id ) ) ) continue;
+    for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( slotv_map, slotv_pool );
+                                 !fd_slotv_map_iter_done( it, slotv_map, slotv_pool );
+                             it = fd_slotv_map_iter_next( it, slotv_map, slotv_pool ) ) {
+      fd_chainer_slotv_t * child = fd_slotv_map_iter_ele( it, slotv_map, slotv_pool );
+      if( FD_UNLIKELY( fd_hash_eq( &child->parent_block_id, &s->block_id ) ) ) {
+        child->connected = 1;
+        chainer_advance( chainer, child );
+      }
+    }
+  }
 }
 
 void
@@ -912,8 +977,9 @@ fd_chainer_print( fd_chainer_t * chainer ) {
 
     /* buffered_idx / complete_idx are UINT_MAX when unknown; +1 wraps
        those to 0 (same convention as fd_forest_print) */
-    if( FD_UNLIKELY( o->parent_slot==AG_UNKNOWN_SLOT ) ) printf( "%lu <- ??? (%u/%u)\n", slot, o->buffered_idx+1U, o->complete_idx+1U );
-    else                                                 printf( "%lu (%u/%u)<- %lu\n ", slot, o->buffered_idx+1U, o->complete_idx+1U, o->parent_slot );
+    FD_BASE58_ENCODE_32_BYTES( o->block_id.uc, out)
+    if( FD_UNLIKELY( o->parent_slot==AG_UNKNOWN_SLOT ) ) printf( "%lu <- ??? (%u/%u) turbine: %d block_id: %s \n", slot, o->buffered_idx+1U, o->complete_idx+1U, o->turbine, out );
+    else                                                 printf( "%lu (%u/%u) -> %lu turbine: %d block_id: %s connected: %d\n ", slot, o->buffered_idx+1U, o->complete_idx+1U, o->parent_slot, o->turbine, out, o->connected );
     cnt++;
   }
   printf( "(%lu total slotvs)\n", cnt );
