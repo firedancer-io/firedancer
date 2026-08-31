@@ -1467,6 +1467,13 @@ gossip_frag( fd_snapct_tile_t *  ctx,
                                                                             FD_SSPEER_SLOT_UNKNOWN, NULL, NULL ) ) ) {
               fd_ssping_add( ctx->ssping, new_addr );
             }
+          } else {
+            /* Evict stale old address from selector to stay in sync
+               with the CI table update below.  Increment ssping
+               refcnt for new_addr to balance the fd_ssping_remove
+               on the next address change or peer removal. */
+            fd_sspeer_selector_remove( ctx->selector, &entry_key );
+            fd_ssping_add( ctx->ssping, new_addr );
           }
         } else {
           if( FD_UNLIKELY( !!unfiltered_addr ) ) {
