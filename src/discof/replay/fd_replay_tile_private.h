@@ -155,6 +155,16 @@ struct fd_replay_tile {
   int wait_for_vote_to_start_leader;
   int alpenglow;
 
+  /* Alpenglow-only: stake-ranked validator info (including
+     decompressed BLS pubkeys) for the two epochs most recently
+     published via publish_epoch_info, used to verify the finalization
+     certs carried in block footers.  epoch is ULONG_MAX for an unset
+     entry. */
+  struct {
+    ulong           epoch;
+    ag_epoch_info_t info;
+  } ag_epoch_info[ 2 ];
+
   /* wfs_enabled is 1 if the validator is booted in
      wait_for_supermajority mode. In this mode replay (and, by extension,
      downstream consumers) is not allowed to make progress until 80% of

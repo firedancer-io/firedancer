@@ -79,6 +79,30 @@ typedef struct replayed replayed_t;
 #define MAP_MEMOIZE            0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+/* Blocks replay ruled invalid (not merely abandoned).  A finalization
+   cert forming for one of these means this node has diverged from the
+   cluster.  The bank hashes are zero unless the block died of a bank
+   hash mismatch, in which case they carry the footer-declared and
+   locally executed bank hashes. */
+struct dead_block {
+  ag_block_id_t block_id;
+  fd_hash_t     expected_bank_hash;
+  fd_hash_t     bank_hash;
+};
+typedef struct dead_block dead_block_t;
+
+#define MAP_NAME               dead_blocks
+#define MAP_T                  dead_block_t
+#define MAP_KEY                block_id
+#define MAP_KEY_T              ag_block_id_t
+#define MAP_KEY_NULL           ((ag_block_id_t){ .slot = ULONG_MAX })
+#define MAP_KEY_INVAL(k)       ((k).slot==ULONG_MAX)
+#define MAP_KEY_EQUAL(k0,k1)   (!memcmp( &(k0), &(k1), sizeof(ag_block_id_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_KEY_HASH(key,seed) ((uint)fd_hash( (seed), &(key), sizeof(ag_block_id_t) ))
+#define MAP_MEMOIZE            0
+#include "../../util/tmpl/fd_map_dynamic.c"
+
 #define STACK_NAME rooted
 #define STACK_T    ag_block_id_t
 #include "../../util/tmpl/fd_stack.c"
@@ -166,6 +190,7 @@ struct fd_votor_tile {
   ag_pool_t *       pool;
   ag_votor_t *      votor;
   replayed_t *      replayed;
+  dead_block_t *    dead_blocks;
   ag_block_id_t *   rooted;
   publish_t *       publishes;
 
@@ -613,6 +638,11 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     if( FD_LIKELY( !replayed_query( ctx->replayed, block_id, NULL ) ) ) replayed_insert( ctx->replayed, block_id )->parent_block_id = parent_block_id;
 
+    /* A previously dead block that completed replay (e.g. after repair
+       delivered the correct version) is no longer dead. */
+    dead_block_t * dead = dead_blocks_query( ctx->dead_blocks, block_id, NULL );
+    if( FD_UNLIKELY( dead ) ) dead_blocks_remove( ctx->dead_blocks, dead );
+
     /* the first block replay completes is the one it booted on */
 
     if( FD_UNLIKELY( ctx->rooted_block_id.slot==ULONG_MAX ) ) {
@@ -630,7 +660,32 @@ handle_replay( fd_votor_tile_t *           ctx,
   }
   case REPLAY_SIG_SLOT_DEAD: {
     fd_replay_slot_dead_t const * slot_dead = &replay->slot_dead;
-    ag_event_replay_t             dead      = { .kind = AG_EVENT_REPLAY_DEAD, .slot = slot_dead->slot };
+
+    /* Remember blocks replay ruled invalid (not merely abandoned): a
+       finalization cert forming for one of them means this node has
+       diverged from the cluster.  Entries at or below the root can
+       never be finalized again, so lazily prune them when the map gets
+       crowded. */
+    if( FD_LIKELY( !slot_dead->abandoned ) ) {
+      if( FD_UNLIKELY( ctx->rooted_block_id.slot!=ULONG_MAX &&
+                       dead_blocks_key_cnt( ctx->dead_blocks )>=dead_blocks_key_max( ctx->dead_blocks )/2UL ) ) {
+        ulong slot_cnt = dead_blocks_slot_cnt( ctx->dead_blocks );
+        for( ulong i=0UL; i<slot_cnt; i++ ) {
+          dead_block_t * ele = &ctx->dead_blocks[ i ];
+          if( FD_LIKELY( dead_blocks_key_inval( ele->block_id ) ) ) continue;
+          if( FD_LIKELY( ele->block_id.slot<=ctx->rooted_block_id.slot ) ) { dead_blocks_remove( ctx->dead_blocks, ele ); i--; }
+        }
+      }
+      ag_block_id_t  block_id = ag_block_id( slot_dead->slot, slot_dead->block_id.uc );
+      dead_block_t * ele      = dead_blocks_query( ctx->dead_blocks, block_id, NULL );
+      if( FD_LIKELY( !ele ) ) ele = dead_blocks_insert( ctx->dead_blocks, block_id );
+      if( FD_LIKELY( ele  ) ) {
+        ele->expected_bank_hash = slot_dead->expected_bank_hash;
+        ele->bank_hash          = slot_dead->bank_hash;
+      }
+    }
+
+    ag_event_replay_t dead = { .kind = AG_EVENT_REPLAY_DEAD, .slot = slot_dead->slot };
     ag_votor_handle_replay_event( ctx->votor, &dead );
     break;
   }
@@ -654,6 +709,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
   l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
   l = FD_LAYOUT_APPEND( l, replayed_align(),               replayed_footprint( lg_blk_max )                  );
+  l = FD_LAYOUT_APPEND( l, dead_blocks_align(),            dead_blocks_footprint( lg_blk_max )               );
   l = FD_LAYOUT_APPEND( l, rooted_align(),                 rooted_footprint( tile->votor.max_live_slots )    );
   l = FD_LAYOUT_APPEND( l, publishes_align(),              publishes_footprint( tile->votor.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                 );
@@ -741,6 +797,25 @@ after_credit( fd_votor_tile_t *   ctx,
         FD_TEST( !rooted_full( ctx->rooted ) );
         rooted_push( ctx->rooted, ancestor_block_id );
         ancestor_block_id = replayed->parent_block_id;
+      }
+
+      /* The walk stopped short of the root at a block that never
+         completed replay.  If replay ruled that block invalid, the
+         cluster has finalized a block we cannot accept: halt instead of
+         stalling silently. */
+      if( FD_UNLIKELY( ancestor_block_id.slot>ctx->rooted_block_id.slot && !replayed ) ) {
+        dead_block_t const * dead = dead_blocks_query( ctx->dead_blocks, ancestor_block_id, NULL );
+        if( FD_UNLIKELY( dead ) ) {
+          FD_BASE58_ENCODE_32_BYTES( ancestor_block_id.hash, block_id_b58 );
+          int bank_hash_mismatch = !fd_hash_check_zero( &dead->expected_bank_hash ) &&
+                                   !fd_hash_eq( &dead->expected_bank_hash, &dead->bank_hash );
+          if( FD_UNLIKELY( bank_hash_mismatch ) ) {
+            FD_BASE58_ENCODE_32_BYTES( dead->expected_bank_hash.uc, expected_bank_hash_b58 );
+            FD_BASE58_ENCODE_32_BYTES( dead->bank_hash.uc,          bank_hash_b58          );
+            FD_LOG_CRIT(( "HARD FORK DETECTED for slot %lu: the cluster finalized block id %s whose footer declares bank hash %s but we executed bank hash %s", ancestor_block_id.slot, block_id_b58, expected_bank_hash_b58, bank_hash_b58 ));
+          }
+          FD_LOG_CRIT(( "the cluster finalized block id %s in slot %lu, which we marked dead as invalid", block_id_b58, ancestor_block_id.slot ));
+        }
       }
 
       if( FD_UNLIKELY( !ag_block_id_eq( &ancestor_block_id, &ctx->rooted_block_id ) ) ) rooted_remove_all( ctx->rooted );
@@ -938,6 +1013,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
   void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
   void *            replayed      = FD_SCRATCH_ALLOC_APPEND( l, replayed_align(),               replayed_footprint( lg_blk_max )                  );
+  void *            dead_blocks   = FD_SCRATCH_ALLOC_APPEND( l, dead_blocks_align(),            dead_blocks_footprint( lg_blk_max )               );
   void *            rooted        = FD_SCRATCH_ALLOC_APPEND( l, rooted_align(),                 rooted_footprint( tile->votor.max_live_slots )    );
   void *            publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),              publishes_footprint( tile->votor.max_live_slots ) );
   void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                 );
@@ -986,6 +1062,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->replayed = replayed_join( replayed_new( replayed, lg_blk_max, seed ) );
   FD_TEST( ctx->replayed );
+
+  ctx->dead_blocks = dead_blocks_join( dead_blocks_new( dead_blocks, lg_blk_max, seed ) );
+  FD_TEST( ctx->dead_blocks );
 
   ctx->rooted = rooted_join( rooted_new( rooted, tile->votor.max_live_slots ) );
   FD_TEST( ctx->rooted );

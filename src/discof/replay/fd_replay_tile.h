@@ -169,6 +169,20 @@ typedef struct fd_replay_slot_completed fd_replay_slot_completed_t;
 struct fd_replay_slot_dead {
   ulong     slot;
   fd_hash_t block_id;
+
+  /* Nonzero if the block was abandoned (e.g. pruned off a minority
+     fork or aborted by a leader reset) rather than ruled invalid.  An
+     abandoned block may later be re-replayed and complete. */
+  int       abandoned;
+
+  /* The bank hash declared in the block footer and the locally
+     executed bank hash.  Zero if not relevant / not calculated (e.g.
+     the block died before execution finished).  Both populated and
+     differing means the block died of a bank hash mismatch: if the
+     cluster finalizes this block, this node has hard forked away from
+     the cluster. */
+  fd_hash_t expected_bank_hash;
+  fd_hash_t bank_hash;
 };
 typedef struct fd_replay_slot_dead fd_replay_slot_dead_t;
 

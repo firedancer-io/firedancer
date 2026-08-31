@@ -308,6 +308,19 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   fd_stake_weight_t * src_id_weights = next_epoch ? runtime_stack->epoch_weights.next_id_weights : runtime_stack->epoch_weights.id_weights;
   fd_memcpy( id_weights, src_id_weights, epoch_info_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
+  /* Keep a ranked copy of the epoch's validator info around for footer
+     cert verification.  Epochs are published in order, so parity
+     indexing evicts the entry two epochs back.  TODO we compute ranks
+     for banks already, but the G1 pubkey decompression is needed. */
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    ulong idx = epoch & 1UL;
+    if( FD_LIKELY( ag_epoch_info_rank( &ctx->ag_epoch_info[ idx ].info, src_stake_weights, epoch_info_msg->staked_vote_cnt ) ) ) {
+      ctx->ag_epoch_info[ idx ].epoch = epoch;
+    } else {
+      ctx->ag_epoch_info[ idx ].epoch = ULONG_MAX;
+    }
+  }
+
   ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt, epoch_info_msg->staked_id_cnt );
   ulong epoch_info_sig = 4UL;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -886,10 +899,18 @@ static void
 publish_slot_dead( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem,
                    ulong               slot,
-                   fd_hash_t const *   block_id ) {
+                   fd_hash_t const *   block_id,
+                   int                 abandoned,
+                   fd_hash_t const *   expected_bank_hash_opt,
+                   fd_hash_t const *   bank_hash_opt ) {
   fd_replay_slot_dead_t * slot_dead = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_dead->slot                   = slot;
   slot_dead->block_id               = *block_id;
+  slot_dead->abandoned              = abandoned;
+  if( FD_UNLIKELY( expected_bank_hash_opt ) ) slot_dead->expected_bank_hash = *expected_bank_hash_opt;
+  else                                        memset( &slot_dead->expected_bank_hash, 0, sizeof(fd_hash_t) );
+  if( FD_UNLIKELY( bank_hash_opt ) )          slot_dead->bank_hash = *bank_hash_opt;
+  else                                        memset( &slot_dead->bank_hash, 0, sizeof(fd_hash_t) );
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_DEAD, ctx->replay_out->chunk, sizeof(fd_replay_slot_dead_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_dead_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
@@ -947,12 +968,88 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*txn_executed), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+/* mark_bank_dead marks bank_idx and its descendants dead and publishes
+   a slot dead message for the block.  expected_bank_hash_opt /
+   bank_hash_opt are only non-NULL when the block died of a bank hash
+   mismatch, carrying the footer-declared and locally executed bank
+   hashes respectively. */
+
 static void
 mark_bank_dead( fd_replay_tile_t *  ctx,
                 fd_stem_context_t * stem,
                 ulong               bank_idx,
                 int                 dead_reason,
-                int                 abandoned_reason );
+                int                 abandoned_reason,
+                fd_hash_t const *   expected_bank_hash_opt,
+                fd_hash_t const *   bank_hash_opt );
+
+static ushort
+replay_shred_version( fd_replay_tile_t * ctx ) {
+  if( FD_LIKELY( ctx->expected_shred_version ) ) return ctx->expected_shred_version;
+  if( FD_LIKELY( ctx->ipecho_shred_version   ) ) return ctx->ipecho_shred_version;
+  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX ) ) {
+    return compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+  }
+  return (ushort)0;
+}
+
+/* replay_footer_cert_verify verifies one finalization cert extracted
+   from a block footer.  Returns 1 if the cert is valid (or cannot be
+   checked because the cert's epoch info is not held), and 0 if the
+   cert failed verification. */
+
+static int
+replay_footer_cert_verify( fd_replay_tile_t * ctx,
+                           fd_bank_t *        bank,
+                           ag_cert_t const *  cert ) {
+  ulong epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ag_cert_slot( cert ), NULL );
+
+  ag_epoch_info_t const * epoch_info = NULL;
+  if( FD_LIKELY( ctx->ag_epoch_info[ epoch&1UL ].epoch==epoch ) ) epoch_info = &ctx->ag_epoch_info[ epoch&1UL ].info;
+
+  ushort shred_version = replay_shred_version( ctx );
+  if( FD_UNLIKELY( !epoch_info || !shred_version ) ) {
+    FD_LOG_WARNING(( "slot %lu: unable to verify footer %s cert for slot %lu (epoch %lu): %s unknown",
+                     bank->f.slot, ag_cert_str( cert ), ag_cert_slot( cert ), epoch,
+                     !epoch_info ? "epoch info" : "shred version" ));
+    return 1;
+  }
+
+  if( FD_UNLIKELY( !ag_cert_verify( cert, epoch_info, shred_version ) ) ) {
+    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed verification",
+                     bank->f.slot, ag_cert_str( cert ), ag_cert_slot( cert ) ));
+    return 0;
+  }
+  return 1;
+}
+
+/* replay_footer_certs_verify verifies the finalization certs carried in
+   the block footer: either a fast finalization cert, or a slow
+   finalization cert plus the notarization cert accompanying it.
+   Returns 1 if all present certs are valid and 0 otherwise. */
+
+static int
+replay_footer_certs_verify( fd_replay_tile_t *        ctx,
+                            fd_bank_t *               bank,
+                            fd_footer_certs_t const * certs ) {
+  ag_cert_t cert[1];
+  if( certs->fast_final_cert ) {
+    cert->kind       = AG_CERT_KIND_FAST_FINAL;
+    cert->fast_final = *certs->fast_final_cert;
+    if( FD_UNLIKELY( !replay_footer_cert_verify( ctx, bank, cert ) ) ) return 0;
+  }
+  if( certs->final_cert ) {
+    cert->kind  = AG_CERT_KIND_FINAL;
+    cert->final = *certs->final_cert;
+    if( FD_UNLIKELY( !replay_footer_cert_verify( ctx, bank, cert ) ) ) return 0;
+  }
+  if( certs->final_notar_cert ) {
+    cert->kind  = AG_CERT_KIND_NOTAR;
+    cert->notar = *certs->final_notar_cert;
+    if( FD_UNLIKELY( !replay_footer_cert_verify( ctx, bank, cert ) ) ) return 0;
+  }
+  return 1;
+}
 
 static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
@@ -979,14 +1076,17 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     certs->final_notar_cert  = fd_sched_get_final_notar_cert ( ctx->sched, bank->idx );
     certs->skip_reward_cert  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
     certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
-    // TODO missing cert verify - inline to replay or use new verify tiles
+    if( FD_UNLIKELY( !replay_footer_certs_verify( ctx, bank, certs ) ) ) {
+      mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL, NULL );
+      return;
+    }
     certs_opt        = certs;
     footer_time_nanos = fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx );
   }
 
   /* Do hashing and other end-of-block processing. */
   if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, certs_opt, footer_time_nanos ) ) ) {
-    mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+    mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL, NULL );
     return;
   }
 
@@ -996,7 +1096,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
       FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
       FD_LOG_WARNING(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
-      mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+      mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, footer_bank_hash, &bank->f.bank_hash );
       return;
     } else {
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58 );
@@ -1585,7 +1685,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
     ctx->leader_bank = NULL;
     ctx->recv_poh    = 0;
     ctx->is_leader   = 0;
-    mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_RESET );
+    mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_RESET, NULL, NULL );
     maybe_switch_identity( ctx );
     return;
   }
@@ -2045,13 +2145,21 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
                 fd_stem_context_t * stem,
                 ulong               bank_idx,
                 int                 dead_reason,
-                int                 abandoned_reason ) {
+                int                 abandoned_reason,
+                fd_hash_t const *   expected_bank_hash_opt,
+                fd_hash_t const *   bank_hash_opt ) {
   ulong dead_idxs[ FD_BANKS_MAX_BANKS ];
   ulong dead_idxs_cnt = 0UL;
   fd_banks_mark_bank_dead( ctx->banks, bank_idx, dead_idxs, &dead_idxs_cnt );
 
+  int abandoned = abandoned_reason!=FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
+
+  /* In alpenglow, votes and certs are on the double merkle root, so
+     publish that as the block id so votor can match the dead block
+     against finalization certs. */
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank_idx ];
-  if( block_id_ele->block_id_seen ) publish_slot_dead( ctx, stem, block_id_ele->slot, &block_id_ele->latest_mr );
+  fd_hash_t const *   dead_block_id = fd_ptr_if( ctx->alpenglow, fd_type_pun_const( block_id_ele->block_info.hash ), &block_id_ele->latest_mr );
+  if( block_id_ele->block_id_seen ) publish_slot_dead( ctx, stem, block_id_ele->slot, dead_block_id, abandoned, expected_bank_hash_opt, bank_hash_opt );
 
   /* Report each newly dead bank now (dead_idxs excludes already-dead,
      already-reported subtrees): the failing bank with its real reason and
@@ -2061,7 +2169,6 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
      here like any other: eviction emits no row, and the sched-drain
      emission is gated on the state still being PRUNABLE.  Blocks still
      receiving FECs dedup the slot-completion report via dead_reported. */
-  int abandoned = abandoned_reason!=FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
   for( ulong i=0UL; i<dead_idxs_cnt; i++ ) {
     fd_block_id_ele_t * ele = &ctx->block_id_arr[ dead_idxs[ i ] ];
 
@@ -2114,7 +2221,7 @@ try_replay( fd_replay_tile_t *  ctx,
       int dr = sched_block_dead_reason_to_event( ctx, task->mark_dead->bank_idx );
       int ar = dr==FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD ? FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED
                                                                  : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
-      mark_bank_dead( ctx, stem, task->mark_dead->bank_idx, dr, ar );
+      mark_bank_dead( ctx, stem, task->mark_dead->bank_idx, dr, ar, NULL, NULL );
       break;
     }
     default: {
@@ -2432,7 +2539,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     int dr = sched_block_dead_reason_to_event( ctx, sched_fec->bank_idx );
     int ar = dr==FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD ? FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED
                                                                : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
-    mark_bank_dead( ctx, stem, sched_fec->bank_idx, dr, ar );
+    mark_bank_dead( ctx, stem, sched_fec->bank_idx, dr, ar, NULL, NULL );
     return 1;
   } else if( FD_UNLIKELY( ctx->alpenglow ) ) {
     ag_cert_final_t const *      final_cert      = fd_sched_get_final_cert( ctx->sched, sched_fec->bank_idx );
@@ -2510,8 +2617,8 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
     }
     reasm_fec->bank_dead = bank_dead;
     if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
-      publish_slot_dead( ctx, stem, reasm_fec->slot, &reasm_fec->key );
       int abandoned = bank_dead==2U;
+      publish_slot_dead( ctx, stem, reasm_fec->slot, &reasm_fec->key, abandoned, NULL, NULL );
       report_block_incomplete( ctx, reasm_fec->slot, &reasm_fec->key, NULL,
                                abandoned ? FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD    : FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_PARENT_DEAD,
                                abandoned ? FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
@@ -2547,7 +2654,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
     reasm_fec->dead_reported = ( parent->slot==reasm_fec->slot && reasm_fec->xid_next==UINT_MAX )
                              ? parent->dead_reported : 0UL;
     if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
-      publish_slot_dead( ctx, stem, reasm_fec->slot, &reasm_fec->key );
+      publish_slot_dead( ctx, stem, reasm_fec->slot, &reasm_fec->key, reasm_fec->bank_dead==2U, NULL, NULL );
       if( !reasm_fec->dead_reported ) {
         int abandoned = reasm_fec->bank_dead==2UL;
         report_block_incomplete( ctx, reasm_fec->slot, &reasm_fec->key, NULL,
@@ -3078,7 +3185,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
           default:
             dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TXN_FAILED_TO_LOAD;
         }
-        mark_bank_dead( ctx, stem, bank->idx, dead_reason, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+        mark_bank_dead( ctx, stem, bank->idx, dead_reason, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL, NULL );
         fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, NULL );
@@ -3125,7 +3232,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
-        mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+        mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL, NULL );
         fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
@@ -3138,7 +3245,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
     case FD_EXECRP_TT_POH_HASH: {
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
       if( FD_UNLIKELY( res && bank->state!=FD_BANK_STATE_DEAD ) ) {
-        mark_bank_dead( ctx, stem, bank->idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+        mark_bank_dead( ctx, stem, bank->idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL, NULL );
       }
       break;
     }
@@ -3498,7 +3605,7 @@ process_rotor_fec( fd_replay_tile_t * ctx, fd_stem_context_t * stem, fd_rotor_re
   }
 
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
-    mark_bank_dead( ctx, stem, sched_fec->bank_idx, 0, 0 );
+    mark_bank_dead( ctx, stem, sched_fec->bank_idx, 0, 0, NULL, NULL );
     return 1;
   }
   } FD_STORE_SLOCK_END;
@@ -4185,6 +4292,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->expected_shred_version = tile->replay.expected_shred_version;
   ctx->ipecho_shred_version = 0;
+  ctx->ag_epoch_info[ 0 ].epoch = ULONG_MAX;
+  ctx->ag_epoch_info[ 1 ].epoch = ULONG_MAX;
   fd_memcpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
   ctx->has_genesis_hash = 0;
   ctx->has_cluster_type = 0;
@@ -4344,7 +4453,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) {
-    ctx->block_id_arr[ i ].block_id_seen = 0;
+    ctx->block_id_arr[ i ].block_id_seen      = 0;
     memset( &ctx->block_id_arr[ i ].block_info, 0, sizeof(ag_block_id_t) );
   }
 
