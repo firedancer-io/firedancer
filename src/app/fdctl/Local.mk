@@ -113,28 +113,18 @@ cargo-ledger-tool: $(RUST_VERSION_DEPS)
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) $(RUST_VERSION_LIBS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
 endif
 
-# We sleep as a workaround for a bizarre problem where the build system
-# looks at the mtime of this file before `cargo build` has finished
-# writing to it and updating the mtime. It will then sometimes see that
-# the file is "older" than the fdctl binary and think it does not need
-# to rebuild.
-agave/target/$(RUST_PROFILE)/libagave_validator.a: cargo-validator
-	@sleep 0.1
+# Phony prereq reruns the copy every build; cp only on content change
+# so dependents relink exactly when the cargo output changed.
+$(OBJDIR)/lib/libagave_validator.a: cargo-validator
+	$(MKDIR) $(dir $@) && { cmp -s agave/target/$(RUST_PROFILE)/libagave_validator.a $@ || cp agave/target/$(RUST_PROFILE)/libagave_validator.a $@; }
 
-agave/target/$(RUST_PROFILE)/solana: cargo-solana
-
-agave/target/$(RUST_PROFILE)/agave-ledger-tool: cargo-ledger-tool
-
-$(OBJDIR)/lib/libagave_validator.a: agave/target/$(RUST_PROFILE)/libagave_validator.a
-	$(MKDIR) $(dir $@) && cp agave/target/$(RUST_PROFILE)/libagave_validator.a $@
-
-$(OBJDIR)/bin/solana: agave/target/$(RUST_PROFILE)/solana
-	$(MKDIR) -p $(dir $@) && cp agave/target/$(RUST_PROFILE)/solana $@
+$(OBJDIR)/bin/solana: cargo-solana
+	$(MKDIR) -p $(dir $@) && { cmp -s agave/target/$(RUST_PROFILE)/solana $@ || cp agave/target/$(RUST_PROFILE)/solana $@; }
 
 solana: $(OBJDIR)/bin/solana
 
-$(OBJDIR)/bin/agave-ledger-tool: agave/target/$(RUST_PROFILE)/agave-ledger-tool
-	$(MKDIR) -p $(dir $@) && cp agave/dev-bins/target/$(RUST_PROFILE)/agave-ledger-tool $@
+$(OBJDIR)/bin/agave-ledger-tool: cargo-ledger-tool
+	$(MKDIR) -p $(dir $@) && { cmp -s agave/dev-bins/target/$(RUST_PROFILE)/agave-ledger-tool $@ || cp agave/dev-bins/target/$(RUST_PROFILE)/agave-ledger-tool $@; }
 
 agave-ledger-tool: $(OBJDIR)/bin/agave-ledger-tool
 
