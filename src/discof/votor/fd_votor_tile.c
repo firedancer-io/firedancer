@@ -364,10 +364,12 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
                   uchar const *    data,
                   ulong            data_sz,
                   void *           _ctx ) {
-  fd_votor_tile_t * ctx = _ctx;
-  if( FD_UNLIKELY( data_sz<2UL ) ) return;
 
+  fd_votor_tile_t * ctx = _ctx;
+  if( FD_UNLIKELY( !ctx->init  ) ) return;
+  if( FD_UNLIKELY( data_sz<2UL ) ) return;
   uchar kind = data[ 1 ];
+
   switch( kind ) {
   case DATAGRAM_KIND_NOTAR_VOTE:
   case DATAGRAM_KIND_FINALIZE_VOTE:
@@ -383,9 +385,8 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     if( FD_UNLIKELY( !peer ) ) return;
 
     ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote );
-    ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
     ushort                  rank       = fd_ushort_if( vote_slot>=ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
-    if( FD_UNLIKELY( !epoch_info || rank>=epoch_info->validator_cnt ) ) return; /* not a ranked validator this epoch */
+    if( FD_UNLIKELY( rank==USHORT_MAX ) ) return; /* peer is not ranked in their vote slot's epoch */
     ag_vote_set_rank( &ctx->scratch.vote, rank );
     // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, epoch_info->validators[ rank ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
@@ -398,8 +399,16 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
   case DATAGRAM_KIND_SKIP_CERT:
   case DATAGRAM_KIND_GENESIS_CERT: {
     if( FD_UNLIKELY( ag_cert_de( &ctx->scratch.cert, ctx->shred_version, data, data_sz, NULL ) ) ) return;
-    ag_epoch_info_t const * epoch_info = fd_ptr_if( ag_cert_slot( &ctx->scratch.cert )>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
-    if( FD_UNLIKELY( !epoch_info ) ) return;
+
+    fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
+    if( FD_UNLIKELY( !id_key ) ) return;
+    peer_t const * peer = peers_query( ctx->peers, *id_key, NULL );
+    if( FD_UNLIKELY( !peer ) ) return;
+
+    ulong                   cert_slot = ag_cert_slot( &ctx->scratch.cert );
+    ushort                  rank      = fd_ushort_if( cert_slot>=ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
+    if( FD_UNLIKELY( rank==USHORT_MAX ) ) return; /* peer is not ranked in this cert slot's epoch */
+
     // if( FD_UNLIKELY( !ag_cert_verify( &ctx->scratch.cert, epoch_info, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive, 35x duplicate certs each cost a pairing */
     ag_pool_add_cert( ctx->pool, &ctx->scratch.cert );
     return;
