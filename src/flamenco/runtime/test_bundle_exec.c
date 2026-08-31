@@ -1300,6 +1300,86 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test nondelegated stake close skips tombstone... ok" ));
 }
 
+static void
+test_inactive_stake_update( fd_svm_mini_t * mini ) {
+  static test_env_t env_storage[1];
+  test_env_t * env = env_storage;
+
+  struct {
+    ulong activation_epoch;
+    ulong deactivation_epoch;
+    int   feature_active;
+    int   retained;
+  } const cases[] = {
+    { 4UL, ULONG_MAX, 1, 1 }, /* activating */
+    { ULONG_MAX, ULONG_MAX, 1, 1 }, /* active */
+    { ULONG_MAX, 4UL, 1, 1 }, /* deactivating */
+    { ULONG_MAX, 3UL, 1, 1 }, /* newly inactive */
+    { ULONG_MAX, 2UL, 1, 0 }, /* inactive in current and previous epochs */
+    { 4UL, 4UL, 1, 0 }, /* activated and deactivated together */
+    { ULONG_MAX, 2UL, 0, 1 }, /* feature disabled */
+  };
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    setup_env( env, mini );
+    env->bank->f.features.remove_inactive_stakes =
+        cases[i].feature_active ? 0UL : FD_FEATURE_DISABLED;
+
+    fd_pubkey_t stake_acct = { .ul[0] = 0x494e455254000000UL+i };
+    fd_pubkey_t vote_acct  = { .ul[0] = 0x564f5445494e4552UL };
+    uchar prior_data[ FD_STAKE_STATE_SZ ] = {0};
+    uchar data      [ FD_STAKE_STATE_SZ ] = {0};
+    FD_STORE( fd_stake_state_t, prior_data, ((fd_stake_state_t){
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = {
+        .meta = { .staker = stake_acct, .withdrawer = stake_acct },
+        .stake = {
+          .delegation = {
+            .voter_pubkey        = vote_acct,
+            .stake               = 1UL,
+            .activation_epoch    = cases[i].activation_epoch,
+            .deactivation_epoch  = cases[i].deactivation_epoch,
+            .warmup_cooldown_rate = 0.25
+          }
+        }
+      }
+    }) );
+    fd_memcpy( data, prior_data, sizeof(data) );
+
+    fd_stake_delegations_root_update(
+        fd_banks_stake_delegations_root_query( env->mini->banks ),
+        &stake_acct,
+        &vote_acct,
+        1UL,
+        cases[i].activation_epoch,
+        cases[i].deactivation_epoch,
+        0UL,
+        2000000000UL,
+        (uint)FD_STAKE_STATE_SZ,
+        FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+
+    fd_acc_t acc = {
+      .lamports       = 2000000001UL,
+      .data_len       = FD_STAKE_STATE_SZ,
+      .data           = data,
+      .prior_lamports = 2000000000UL,
+      .prior_data_len = FD_STAKE_STATE_SZ,
+      .prior_data     = prior_data,
+    };
+    fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
+    fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
+
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
+
+    fd_stake_delegations_t * frontier =
+        fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    FD_TEST( !!find_visible_stake_delegation( frontier, &stake_acct )==cases[i].retained );
+    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+  }
+
+  FD_LOG_NOTICE(( "test inactive stake update... ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1308,6 +1388,7 @@ main( int     argc,
   fd_svm_mini_t * mini = fd_svm_test_boot( &argc, &argv, limits );
 
   test_execute_bundles( mini );
+  test_inactive_stake_update( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

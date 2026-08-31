@@ -471,7 +471,7 @@ calculate_stake_points_and_credits( fd_epoch_credits_t const *     epoch_credits
 
     new_credits_observed = fd_ulong_max( new_credits_observed, final_epoch_credits );
 
-    ulong stake_amount = fd_stakes_activating_and_deactivating( stake, epoch_credits->epoch[ i ], stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+    ulong stake_amount = fd_stake_delegation_activation_status( stake, epoch_credits->epoch[ i ], stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
     if( coalesce_eligible && stake_amount==0UL && epoch_credits->epoch[ i ]>stake->deactivation_epoch ) {
       /* Multi-term Cases 1 and 2.  Note that
          deactivation_epoch!=USHORT_MAX is implied since epoch[ i ] is
@@ -820,7 +820,7 @@ calculate_stake_points_fast( fd_epoch_credits_t *           epoch_credits,
              get to the final and only contributing term.  Computing it
              right here reduces about 800 instructions retired per such
              delegation. */
-          effective_stake = fd_stakes_activating_and_deactivating( stake, target_epoch, stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+          effective_stake = fd_stake_delegation_activation_status( stake, target_epoch, stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
         }
         result->points.ud            = (uint128)effective_stake * (uint128)( credits_in_vote - credits_in_stake );
         result->new_credits_observed = credits_in_vote;
@@ -894,7 +894,7 @@ calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
   result->new_credits_observed = credits_in_vote;
   if( FD_UNLIKELY( !earned_credits ) ) return;
 
-  ulong effective_stake = fd_stakes_activating_and_deactivating(
+  ulong effective_stake = fd_stake_delegation_activation_status(
       stake,
       rewarded_epoch,
       stake_history,
@@ -974,6 +974,15 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
     ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
 
+    if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) &&
+                     fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch,
+                                                      FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) ) {
+      if( FD_LIKELY( stake_delegation_idx<runtime_stack->max_stake_accounts ) ) {
+        runtime_stack->stakes.stake_points_result[ stake_delegation_idx ].vote_idx = UINT_MAX;
+      }
+      continue;
+    }
+
     /* Note that we don't check minimum delegation here, as there are
        no plans to activate stake_minimum_delegation_for_rewards.
        If this changes we need to skip stake accounts that are
@@ -1036,7 +1045,7 @@ delegation_may_need_adjustment( fd_bank_t *                   bank,
   /* Delegations that are neither effective nor activating are left
      alone.  This is checked last because it can walk many stake history
      entries. */
-  fd_stake_history_entry_t status = fd_stakes_activating_and_deactivating(
+  fd_stake_history_entry_t status = fd_stake_delegation_activation_status(
     stake_delegation,
     rewarded_epoch,
     stake_history,
@@ -1101,6 +1110,13 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation_idx ];
     }
     calculated_stake_rewards->success = 0;
+
+
+    if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) &&
+                     fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch,
+                                                      FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) ) {
+      continue;
+    }
 
     int cached = !is_recalculation && stake_delegation_idx<runtime_stack->max_stake_accounts;
     uint idx;
@@ -1254,6 +1270,12 @@ setup_stake_partitions( fd_bank_t *                    bank,
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
     ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
+
+    if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) &&
+                     fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch,
+                                                      FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) ) {
+      continue;
+    }
 
     fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
     fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;

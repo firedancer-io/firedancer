@@ -424,11 +424,59 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
 #if FD_HAS_DOUBLE
 
 void
+fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_delegations,
+                                          ulong                      epoch,
+                                          fd_stake_history_t const * stake_history,
+                                          ulong *                    warmup_cooldown_rate_epoch,
+                                          int                        use_fixed_point_stake_math ) {
+  fd_rwlock_write( &stake_delegations->lock );
+
+  root_map_t *            map        = get_root_map( stake_delegations );
+  fd_stake_delegation_t * pool       = get_root_pool( stake_delegations );
+  ulong                   prev_epoch = epoch ? epoch-1UL : 0UL;
+
+  for( ulong idx=0UL; idx<stake_delegations->pool_idx_wmk_; idx++ ) {
+    fd_stake_delegation_t * delegation = pool+idx;
+    if( FD_LIKELY( !delegation->in_use ) ) continue;
+
+    if( FD_LIKELY( !fd_stake_delegation_is_inactive( delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math ) ||
+                   !fd_stake_delegation_is_inactive( delegation, prev_epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math ) ) ) continue;
+
+    fd_pubkey_t stake_account = delegation->stake_account;
+    root_map_idx_remove( map, &stake_account, (uint)idx, pool );
+    delegation->in_use = 0;
+    root_pool_idx_release( pool, (uint)idx );
+    pubkey_ref_release( stake_delegations, &stake_account );
+  }
+
+  fd_rwlock_unwrite( &stake_delegations->lock );
+}
+
+static void
+refresh_remove( root_map_t *                  map,
+                fd_stake_delegation_t *       pool,
+                pubkey_map_t *                ref_map,
+                fd_stake_delegation_ref_t *   ref_pool,
+                fd_pubkey_t const *           stake_account,
+                ulong                         ref_idx ) {
+  fd_stake_delegation_t * delegation = root_map_ele_query( map, stake_account, NULL, pool );
+  if( FD_LIKELY( delegation ) ) {
+    root_map_idx_remove( map, stake_account, UINT_MAX, pool );
+    delegation->in_use = 0;
+    root_pool_ele_release( pool, delegation );
+  }
+  pubkey_map_ele_remove( ref_map, stake_account, NULL, ref_pool );
+  ref_pool[ ref_idx ].refcnt = 0U;
+  pubkey_pool_ele_release( ref_pool, &ref_pool[ ref_idx ] );
+}
+
+void
 fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               ulong                      epoch,
                               fd_stake_history_t const * stake_history,
                               ulong *                    warmup_cooldown_rate_epoch,
                               int                        use_fixed_point_stake_math,
+                              int                        remove_inactive_stakes,
                               fd_accdb_t *               accdb,
                               fd_accdb_fork_id_t         fork_id ) {
   fd_rwlock_write( &stake_delegations->lock );
@@ -481,15 +529,16 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
       fd_stake_state_t const * stake         = accs[ j ].lamports ? fd_stakes_get_state( &accs[ j ] ) : NULL;
 
       if( FD_UNLIKELY( !stake || stake->stake_type!=FD_STAKE_STATE_STAKE ) ) {
-        fd_stake_delegation_t * delegation = root_map_ele_query( map, stake_account, NULL, pool );
-        if( FD_LIKELY( delegation ) ) {
-          root_map_idx_remove( map, stake_account, UINT_MAX, pool );
-          delegation->in_use = 0;
-          root_pool_ele_release( pool, delegation );
-        }
-        pubkey_map_ele_remove( ref_map, stake_account, NULL, ref_pool );
-        ref_pool[ ref_idx[ j ] ].refcnt = 0U;
-        pubkey_pool_ele_release( ref_pool, &ref_pool[ ref_idx[ j ] ] );
+        refresh_remove( map, pool, ref_map, ref_pool, stake_account, ref_idx[ j ] );
+        continue;
+      }
+
+      fd_delegation_t const * account_delegation = &stake->stake.stake.delegation;
+      ulong prev_epoch = epoch ? epoch-1UL : 0UL;
+      if( FD_UNLIKELY( remove_inactive_stakes &&
+                       fd_delegation_is_inactive( account_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math ) &&
+                       fd_delegation_is_inactive( account_delegation, prev_epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math ) ) ) {
+        refresh_remove( map, pool, ref_map, ref_pool, stake_account, ref_idx[ j ] );
         continue;
       }
 
@@ -703,7 +752,7 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
          - Add the new version's stake to the totals */
       fd_stake_delegation_t const * old_delegation = fd_stake_delegation_root_query( stake_delegations, &stake_delegation->stake_account );
       if( FD_LIKELY( old_delegation ) ) {
-        fd_stake_history_entry_t old_entry     = fd_stakes_activating_and_deactivating( old_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+        fd_stake_history_entry_t old_entry     = fd_stake_delegation_activation_status( old_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
         stake_delegations->effective_stake    -= old_entry.effective;
         stake_delegations->activating_stake   -= old_entry.activating;
         stake_delegations->deactivating_stake -= old_entry.deactivating;
@@ -721,7 +770,7 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
           stake_delegation->acc_dlen,
           stake_delegation->warmup_cooldown_rate );
 
-      fd_stake_history_entry_t new_acc = fd_stakes_activating_and_deactivating( stake_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+      fd_stake_history_entry_t new_acc = fd_stake_delegation_activation_status( stake_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
       stake_delegations->effective_stake    += new_acc.effective;
       stake_delegations->activating_stake   += new_acc.activating;
       stake_delegations->deactivating_stake += new_acc.deactivating;
@@ -745,7 +794,7 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
       ulong delegation_idx = root_map_idx_query( root_map, &stake_delegation->stake_account, UINT_MAX, root_pool );
       if( FD_LIKELY( delegation_idx!=UINT_MAX ) ) {
         fd_stake_delegation_t * old_delegation = root_pool + delegation_idx;
-        fd_stake_history_entry_t old_entry = fd_stakes_activating_and_deactivating( old_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+        fd_stake_history_entry_t old_entry = fd_stake_delegation_activation_status( old_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
         stake_delegations->effective_stake    -= old_entry.effective;
         stake_delegations->activating_stake   -= old_entry.activating;
         stake_delegations->deactivating_stake -= old_entry.deactivating;
@@ -921,7 +970,7 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
       /* Subtract the old version's stake if it's not a tombstone. */
       fd_stake_delegation_t *  old_delegation = base_delegation->delta_idx==UINT_MAX ? base_delegation : delta_pool_ele( delta_pool, base_delegation->delta_idx );
       if( FD_LIKELY( base_delegation->delta_idx==UINT_MAX || !old_delegation->is_tombstone ) ) {
-        fd_stake_history_entry_t old_entry      = fd_stakes_activating_and_deactivating( old_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+        fd_stake_history_entry_t old_entry      = fd_stake_delegation_activation_status( old_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
         stake_delegations->effective_stake    -= old_entry.effective;
         stake_delegations->activating_stake   -= old_entry.activating;
         stake_delegations->deactivating_stake -= old_entry.deactivating;
@@ -933,7 +982,7 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
     /* Add the new version's stake to the totals (as long as it's not a
        tombstone).*/
     if( FD_LIKELY( !delta_delegation->is_tombstone ) ) {
-      fd_stake_history_entry_t new_acc = fd_stakes_activating_and_deactivating( delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+      fd_stake_history_entry_t new_acc = fd_stake_delegation_activation_status( delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
       stake_delegations->effective_stake    += new_acc.effective;
       stake_delegations->activating_stake   += new_acc.activating;
       stake_delegations->deactivating_stake += new_acc.deactivating;
@@ -965,7 +1014,7 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
 
     if( FD_UNLIKELY( base_delegation->dne_in_root )) {
       if( FD_LIKELY( !delta_delegation->is_tombstone ) ) {
-        fd_stake_history_entry_t acc = fd_stakes_activating_and_deactivating( delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+        fd_stake_history_entry_t acc = fd_stake_delegation_activation_status( delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
         stake_delegations->effective_stake    -= acc.effective;
         stake_delegations->activating_stake   -= acc.activating;
         stake_delegations->deactivating_stake -= acc.deactivating;
@@ -979,7 +1028,7 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
 
     } else {
       if( FD_LIKELY( !delta_delegation->is_tombstone ) ) {
-        fd_stake_history_entry_t acc = fd_stakes_activating_and_deactivating( delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+        fd_stake_history_entry_t acc = fd_stake_delegation_activation_status( delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
         stake_delegations->effective_stake    -= acc.effective;
         stake_delegations->activating_stake   -= acc.activating;
         stake_delegations->deactivating_stake -= acc.deactivating;
@@ -987,7 +1036,7 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
 
       base_delegation->delta_idx = UINT_MAX;
 
-      fd_stake_history_entry_t acc = fd_stakes_activating_and_deactivating( base_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+      fd_stake_history_entry_t acc = fd_stake_delegation_activation_status( base_delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
       stake_delegations->effective_stake    += acc.effective;
       stake_delegations->activating_stake   += acc.activating;
       stake_delegations->deactivating_stake += acc.deactivating;

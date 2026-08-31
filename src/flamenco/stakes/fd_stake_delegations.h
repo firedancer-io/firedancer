@@ -396,6 +396,19 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   uint                     acc_dlen,
                                   uchar                    warmup_cooldown_rate );
 
+/* fd_stake_delegations_prune_inactive_root removes root delegations
+   that are inactive in both epoch and epoch-1.  This function removes
+   all inactive delegations from the root map.  It is a parallel to
+   Agave removing inactive stake accounts directly at the epoch
+   boundary. */
+
+void
+fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_delegations,
+                                          ulong                      epoch,
+                                          fd_stake_history_t const * stake_history,
+                                          ulong *                    warmup_cooldown_rate_epoch,
+                                          int                        use_fixed_point_stake_math );
+
 /* fd_stake_delegations_refresh is used to refresh the stake
    delegations stored in fd_stake_delegations_t which is owned by
    the bank. For a given database handle, read in the state of all
@@ -421,6 +434,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               fd_stake_history_t const * stake_history,
                               ulong *                    warmup_cooldown_rate_epoch,
                               int                        use_fixed_point_stake_math,
+                              int                        remove_inactive_stakes,
                               fd_accdb_t *               accdb,
                               fd_accdb_fork_id_t         fork_id );
 
