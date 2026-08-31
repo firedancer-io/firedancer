@@ -403,10 +403,8 @@ struct fd_replay_tile {
   uint        supports_leader : 1;
   int         recv_poh;
 
-  /* alpenglow-only: cache fees because runtime zeros */
-
-  ulong       leader_execution_fees;
-  ulong       leader_priority_fees;
+  ulong       leader_execution_fees; /* ALPENGLOW-ONLY */
+  ulong       leader_priority_fees;  /* ALPENGLOW-ONLY */
 
   ulong       next_leader_slot;
   long        next_leader_tickcount;
@@ -421,7 +419,8 @@ struct fd_replay_tile {
   ulong       catch_up_max_fec_slot;
   ulong       catch_up_tip_advance_cnt;
   long        boot_timestamp_nanos;
-  fd_hash_t   reset_block_id;
+  fd_hash_t   reset_cmr; /* chained merkle root of the reset block */
+  fd_hash_t   reset_dmr; /* ALPENGLOW-ONLY double merkle root of the reset block */
   long        reset_timestamp_nanos;
   fd_bank_t * leader_bank;
 

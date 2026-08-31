@@ -14,7 +14,8 @@ struct fd_poh_reset {
   ulong tick_duration_ns;
   ulong next_leader_slot;
   ulong max_microblocks_in_slot;
-  uchar completed_block_id[ 32UL ];
+  uchar completed_cmr[ 32UL ];
+  uchar completed_dmr[ 32UL ]; /* ALPENGLOW-ONLY */
   int   wfs_paused;
 };
 

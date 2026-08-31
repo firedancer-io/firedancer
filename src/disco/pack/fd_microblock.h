@@ -27,7 +27,18 @@ struct fd_entry_batch_meta {
 
   /* Whether this is the last microblock in the slot or not.  The last
      microblock will always be an empty tick with no transactions in
-     it. */
+     it.
+
+     For backwards compatibility with pre-Alpenglow code, block_complete
+     is defined in the following way when Alpenglow is enabled:
+
+     header     -1  a complete entry batch of its own, and the first
+                    frag of the slot, because the shred tile chains the
+                    block off the parent block id carried by the first
+                    frag it sees for the slot
+     entries     0  ordinary microblocks, passed through from pack
+     footer     -1
+     alpentick   1  the last frag of the slot */
   int   block_complete;
 
   /* Chained merkle root needed by shred tile.  This is the merkle

@@ -1,4 +1,5 @@
 #include "../poh/fd_poh.h"
+#include "../replay/fd_block_marker.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../disco/tiles.h"
@@ -7,14 +8,35 @@
 #include <time.h>
 #include "generated/fd_motor_tile_seccomp.h"
 
-/* The motor tile is the Alpenglow leader tile.  It replaces the poh tile
-   when alpenglow is enabled, taking over its links, and additionally
-   takes votor_out, which will carry parent-ready.
+/* The motor tile replaces the poh tile under Alpenglow.
 
-   Block production is not implemented yet, so motor declines every
-   leader slot: it answers REPLAY_SIG_BECAME_LEADER with an incomplete
-   fd_poh_leader_slot_ended_t so replay releases the leader bank instead
-   of holding a refcnt on it forever. */
+   Structure of an Alpenglow block:
+
+     header | entries* | footer | alpentick
+
+   PoH is no longer relevant in the Alpenglow protocol, but for legacy
+   reasons Agave continues to produce PoH-style ticks.  This format is
+   validated by Agave or the block will not be accepted, so Firedancer
+   is required to do the same.
+
+   Every entry in the block has num_hashes==1.  A transaction entry
+   hashes sha256(prev || merkle_root(txn signatures)), where the mixin
+   is computed by the execle tile (this is the same as in PoH).  Every
+   block concludes with the alpentick, the only tick in the block, which
+   as in PoH is sha256(prev) with no mixin.
+
+   The footer requires a bank hash, which replay computes, not motor,
+   but the block finishes with the alpentick which motor computes, but
+   replay needs in order to compute the bank hash.  The result is a
+   circular dance involving delicate coordination between motor and
+   replay.
+
+   When pack is done, motor hashes the alpentick and sends it to replay
+   in the slot ended message.  Replay picks the footer timestamp,
+   applies it, computes the bank hash, serializes the footer, and
+   publishes the marker bytes back (REPLAY_SIG_LEADER_FOOTER).  Motor
+   then sends both the footer and alpentick to shred to finish the
+   block. */
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_PACK   (1)
@@ -31,7 +53,19 @@ struct fd_motor_in {
 typedef struct fd_motor_in fd_motor_in_t;
 
 struct fd_motor_tile {
-  fd_poh_t poh[1];
+  fd_poh_t  poh[1];
+  fd_hash_t poh_hash; /* alpenglow retains remnants of poh... see top-level documentation  */
+
+  uint expect_pack_idx; /* see long comment in fd_poh_tile */
+
+  /* Replay only ever resets us to the parent of the block we are about
+     to produce, and publishes the reset immediately before became
+     leader, so the reset is latched straight into the parent. */
+  ulong     slot;
+  ulong     parent_slot;
+  fd_hash_t parent_cmr; /* what the shred tile chains our block off */
+  fd_hash_t parent_dmr; /* what the block header names its parent by */
+  fd_hash_t parent_alpentick;
 
   ulong in_cnt;
   ulong idle_cnt;
@@ -81,19 +115,175 @@ after_credit( fd_motor_tile_t *   ctx,
   ctx->idle_cnt++;
 }
 
+/* batch_payload returns the payload of the entry batch frag motor is
+   about to publish.  The caller writes at most
+   FD_POH_SHRED_MTU-sizeof(fd_entry_batch_meta_t) bytes there and then
+   calls publish_batch. */
+
+static inline uchar *
+batch_payload( fd_motor_tile_t * ctx ) {
+  return (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t);
+}
+
 static void
-decline_leader_slot( fd_motor_tile_t *   ctx,
-                     fd_stem_context_t * stem,
-                     ulong               slot ) {
+publish_batch( fd_motor_tile_t *   ctx,
+               fd_stem_context_t * stem,
+               ulong               payload_sz,
+               int                 block_complete ) {
+  fd_entry_batch_meta_t * meta = fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
+  meta->parent_offset  = ctx->slot-ctx->parent_slot;
+  meta->reference_tick = 0UL; /* Alpenglow blocks have no tick schedule */
+  meta->block_complete = block_complete;
+
+  /* The shred tile chains the block off this, but only for the first
+     frag of the slot. */
+  meta->parent_block_id_valid = 1;
+  fd_memcpy( meta->parent_block_id, ctx->parent_cmr.uc, sizeof(fd_hash_t) );
+
+  ulong sz    = sizeof(fd_entry_batch_meta_t)+payload_sz;
+  ulong sig   = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
+  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
+}
+
+/* publish_entry publishes one transaction entry, hashing the merkle
+   root of the transaction signatures into the entry chain.  An entry
+   with no transactions in it would be a tick, and the alpentick is the
+   only tick in an Alpenglow block, so microblocks where nothing
+   executed successfully are dropped rather than published. */
+
+static void
+publish_entry( fd_motor_tile_t *   ctx,
+               fd_stem_context_t * stem,
+               uchar const *       mixin,
+               ulong               txn_cnt,
+               fd_txn_p_t const *  txns ) {
+  ulong executed_txn_cnt = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) executed_txn_cnt += !!(txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
+  if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
+
+  uchar data[ 64 ];
+  fd_memcpy( data,      ctx->poh_hash.uc, sizeof(fd_hash_t) );
+  fd_memcpy( data+32UL, mixin,        sizeof(fd_hash_t) );
+  fd_sha256_hash( data, sizeof(data), ctx->poh_hash.uc );
+
+  fd_entry_batch_header_t * entry = (fd_entry_batch_header_t *)batch_payload( ctx );
+  entry->hashcnt_delta = 1UL; /* every Alpenglow entry has num_hashes==1 */
+  entry->txn_cnt       = executed_txn_cnt;
+  fd_memcpy( entry->hash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
+
+  uchar * payload    = (uchar *)(entry+1UL);
+  ulong   payload_sz = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_p_t const * txn = txns + i;
+    if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
+
+    fd_memcpy( payload+payload_sz, txn->payload, txn->payload_sz );
+    payload_sz += txn->payload_sz;
+  }
+
+  publish_batch( ctx, stem, sizeof(fd_entry_batch_header_t)+payload_sz, 0 );
+}
+
+static void
+begin_leader_slot( fd_motor_tile_t *          ctx,
+                   fd_stem_context_t *        stem,
+                   fd_became_leader_t const * became_leader ) {
+  FD_TEST( ctx->slot==ULONG_MAX );
+  if( FD_UNLIKELY( ctx->parent_slot==ULONG_MAX ) ) FD_LOG_ERR(( "became leader for slot %lu before any reset", became_leader->slot ));
+  FD_TEST( became_leader->slot>ctx->parent_slot );
+
+  ctx->slot     = became_leader->slot;
+  ctx->poh_hash = ctx->parent_alpentick;
+
+  /* The header must be the first frag of the slot.  It names its parent
+     by double merkle root, which is the namespace votor and the
+     certificates use, not by the chained merkle root that parent_cmr
+     carries and the shred tile chains our own shreds off. */
+  fd_block_marker_t marker[1];
+  marker->variant                = HEADER;
+  marker->header.parent_slot     = ctx->parent_slot;
+  marker->header.parent_block_id = ctx->parent_dmr;
+
+  ulong marker_sz;
+  int err = fd_block_marker_ser( marker,
+                                 batch_payload( ctx ),
+                                 FD_POH_SHRED_MTU-sizeof(fd_entry_batch_meta_t),
+                                 &marker_sz );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_block_marker_ser(HEADER) failed (%d)", err ));
+
+  publish_batch( ctx, stem, marker_sz, -1 );
+}
+
+/* end_leader_slot is the first half of ending the block: all of the
+   transaction entries have been published, so motor closes the entry
+   chain with the alpentick hash and tells replay to finish the bank.
+   Nothing is published to shred until the footer comes back.  A block
+   pack abandoned is instead handed back incomplete, exactly as the poh
+   tile does, so that replay releases the leader bank; the alpentick was
+   never published so no slot complete FEC set will ever arrive. */
+
+static void
+end_leader_slot( fd_motor_tile_t *         ctx,
+                 fd_stem_context_t *       stem,
+                 fd_done_packing_t const * done_packing ) {
+  int completed = done_packing->end_slot_reason!=FD_PACK_END_SLOT_REASON_ABANDONED;
+
+  /* The alpentick is a tick, so it mixes nothing in and its hash is
+     known before it is published. */
+  if( FD_LIKELY( completed ) ) fd_sha256_hash( ctx->poh_hash.uc, sizeof(fd_hash_t), ctx->poh_hash.uc );
+
   fd_poh_leader_slot_ended_t * dst = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   fd_memset( dst, 0, sizeof(fd_poh_leader_slot_ended_t) );
-  dst->completed        = 0;
-  dst->slot             = slot;
+  dst->completed        = completed;
+  dst->slot             = ctx->slot;
   dst->timing_table_idx = ULONG_MAX;
+  fd_memcpy( dst->blockhash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
+
+  dst->microblock_count = done_packing->microblocks_in_slot;
+  dst->pack_block_cost  = done_packing->limits_usage->block_cost;
+  dst->pack_vote_cost   = done_packing->limits_usage->vote_cost;
+  dst->pack_data_bytes  = done_packing->limits_usage->block_data_bytes;
+  dst->bundle_txn_count = done_packing->bundle_txn_count;
+  dst->pack_end_reason  = done_packing->end_slot_reason;
+  dst->pack_start_ns    = done_packing->pack_start_ns;
+  dst->pack_end_ns      = done_packing->pack_end_ns;
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->replay_out->idx, 0UL, ctx->replay_out->chunk, sizeof(fd_poh_leader_slot_ended_t), 0UL, 0UL, tspub );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_leader_slot_ended_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+
+  if( FD_UNLIKELY( !completed ) ) ctx->slot = ULONG_MAX;
+}
+
+/* complete_leader_slot is the second half: replay serialized the
+   footer, so motor forwards the marker bytes verbatim, and the
+   alpentick closes the block. */
+
+static void
+complete_leader_slot( fd_motor_tile_t *                 ctx,
+                      fd_stem_context_t *               stem,
+                      fd_replay_leader_footer_t const * footer ) {
+  FD_TEST( footer->slot==ctx->slot );
+  FD_TEST( footer->sz  >=sizeof(fd_entry_batch_header_t) && footer->sz<=FD_REPLAY_LEADER_FOOTER_MAX );
+
+  /* publish footer */
+
+  fd_memcpy( batch_payload( ctx ), footer->footer, footer->sz );
+  publish_batch( ctx, stem, footer->sz, -1 );
+
+  /* publish alpentick */
+
+  fd_entry_batch_header_t * entry = (fd_entry_batch_header_t *)batch_payload( ctx );
+  entry->hashcnt_delta            = 1UL;
+  entry->txn_cnt                  = 0UL;
+  fd_memcpy( entry->hash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
+  publish_batch( ctx, stem, sizeof(fd_entry_batch_header_t), 1 );
+
+  /* mark done */
+
+  ctx->slot = ULONG_MAX;
 }
 
 static int
@@ -102,7 +292,8 @@ before_frag( fd_motor_tile_t * ctx,
              ulong             seq FD_PARAM_UNUSED,
              ulong             sig ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) )
-    return sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_BECAME_LEADER && sig!=REPLAY_SIG_WFS_DONE;
+    return sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_BECAME_LEADER && sig!=REPLAY_SIG_WFS_DONE &&
+           sig!=REPLAY_SIG_LEADER_FOOTER;
 
   /* motor consumes no votor frags yet. */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) ) return 1;
@@ -125,19 +316,20 @@ returnable_frag( fd_motor_tile_t *   ctx,
   (void)ctl;
   (void)tsorig;
   (void)tspub;
-  (void)stem;
 
   fd_startup_gate_busy( ctx->startup_gate );
 
-  /* Control frags carrying no payload, published with chunk 0.  These
-     must be handled before the bounds check below. */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK &&
-                   ( sig==FD_PACK_MSG_DONE_DRAINING || sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) ) {
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
     ctx->idle_cnt = 0UL;
     return 0;
   }
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && sig==REPLAY_SIG_WFS_DONE ) ) {
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( sig==REPLAY_SIG_WFS_DONE && ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
     ctx->idle_cnt = 0UL;
     return 0;
   }
@@ -145,16 +337,50 @@ returnable_frag( fd_motor_tile_t *   ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
+  if( FD_UNLIKELY( ( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) && ctx->slot==ULONG_MAX ) ) return 1;
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && sig!=REPLAY_SIG_LEADER_FOOTER && ctx->slot!=ULONG_MAX ) ) return 1;
+
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
+    if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
+    if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return 1;
+    ctx->expect_pack_idx++;
+  }
+
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_REPLAY: {
       if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t const * became_leader = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        decline_leader_slot( ctx, stem, became_leader->slot );
+        begin_leader_slot( ctx, stem, became_leader );
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_LEADER_FOOTER ) ) {
+        fd_replay_leader_footer_t const * footer = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        complete_leader_slot( ctx, stem, footer );
+      } else if( FD_LIKELY( sig==REPLAY_SIG_RESET ) ) {
+        FD_TEST( ctx->slot==ULONG_MAX ); /* currently do not support mid-block resets in Alpenglow */
+        fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        ctx->parent_slot = reset->completed_slot;
+        fd_memcpy( ctx->parent_cmr.uc,       reset->completed_cmr,       sizeof(fd_hash_t) );
+        fd_memcpy( ctx->parent_dmr.uc,       reset->completed_dmr,       sizeof(fd_hash_t) );
+        fd_memcpy( ctx->parent_alpentick.uc, reset->completed_blockhash, sizeof(fd_hash_t) );
       }
       break;
     }
-    case IN_KIND_PACK:   break;
-    case IN_KIND_EXECLE: break;
+    case IN_KIND_PACK: {
+      fd_done_packing_t const * done_packing = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      FD_TEST( fd_disco_execle_sig_slot( sig )==ctx->slot );
+      end_leader_slot( ctx, stem, done_packing );
+      break;
+    }
+    case IN_KIND_EXECLE: {
+      FD_TEST( fd_disco_execle_sig_slot( sig )==ctx->slot );
+      FD_TEST( sz>=sizeof(fd_microblock_trailer_t) && (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
+      ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
+      fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const *)txns+sz-sizeof(fd_microblock_trailer_t) );
+      publish_entry( ctx, stem, trailer->hash, txn_cnt, txns );
+      break;
+    }
     case IN_KIND_VOTOR:  break;
     default: {
       FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));
@@ -196,6 +422,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_motor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_motor_tile_t ), sizeof( fd_motor_tile_t ) );
+
+  ctx->expect_pack_idx = 0U;
+  ctx->parent_slot     = ULONG_MAX;
+  ctx->slot            = ULONG_MAX;
 
   ctx->in_cnt   = tile->in_cnt;
   ctx->idle_cnt = 0UL;
@@ -263,8 +493,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* One declined leader slot */
-#define STEM_BURST (1UL)
+/* The footer and the alpentick, or one entry batch, or one slot ended
+   message */
+#define STEM_BURST (2UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
