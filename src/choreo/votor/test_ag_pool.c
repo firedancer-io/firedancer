@@ -803,18 +803,27 @@ test_standstill_recovery( void ) {
   }
 
   for( ulong i=0UL; i<certs_cnt; i++ ) {
-    uchar buf[ sizeof(ag_cert_serde_t) + sizeof(ag_cert_bitmap_serde_t) + (AG_BLS_SIGNERS_MAX+4UL)/5UL + 2UL ];
+    uchar buf[ AG_CERT_SER_MAX ];
     ulong sz;
-    FD_TEST( ag_cert_ser( &certs[i], TEST_SHRED_VERSION, buf, sizeof(buf), &sz )==0 );
-    ag_cert_t rt; ulong consumed;
-    FD_TEST( ag_cert_de( &rt, TEST_SHRED_VERSION, buf, sz, &consumed )==AG_CERT_DE_SUCCESS );
-    FD_TEST( consumed==sz );
+    sz = ag_cert_ser( &certs[i], TEST_SHRED_VERSION, buf );
+    ag_cert_t rt;
+    FD_TEST( ag_cert_de( &rt, TEST_SHRED_VERSION, buf, sz )==AG_CERT_DE_SUCCESS );
     FD_TEST( rt.kind==certs[i].kind );
     FD_TEST( ag_cert_slot( &rt )==ag_cert_slot( &certs[i] ) );
 
+    /* Votor rebroadcasts certificates it learned from a peer, so a cert
+       that came out of ag_cert_de has to reserialize to the same bytes. */
+
+    uchar rebroadcast[ AG_CERT_SER_MAX ];
+    ulong rebroadcast_sz;
+    rebroadcast_sz = ag_cert_ser( &rt, TEST_SHRED_VERSION, rebroadcast );
+    FD_TEST( rebroadcast_sz==sz );
+    FD_TEST( !memcmp( rebroadcast, buf, sz ) );
+
     ag_cert_t bad;
-    FD_TEST( ag_cert_de( &bad, (ushort)(TEST_SHRED_VERSION+1), buf, sz,      NULL )==AG_CERT_DE_ERR_SHRED_VERSION );
-    FD_TEST( ag_cert_de( &bad, TEST_SHRED_VERSION,             buf, sz-1UL,  NULL )==AG_CERT_DE_ERR_TRUNCATED     );
+    FD_TEST( ag_cert_de( &bad, (ushort)(TEST_SHRED_VERSION+1), buf, sz     )==AG_CERT_DE_ERR_SHRED_VERSION );
+    FD_TEST( ag_cert_de( &bad, TEST_SHRED_VERSION,             buf, sz-1UL )==AG_CERT_DE_ERR_SZ     ); /* too few  */
+    FD_TEST( ag_cert_de( &bad, TEST_SHRED_VERSION,             buf, sz+1UL )==AG_CERT_DE_ERR_SZ     ); /* trailing */
   }
 
   teardown_pool( pool );

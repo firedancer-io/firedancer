@@ -397,8 +397,8 @@ negate_sec( ag_bls_sec_t       out,
 
 static uchar
 bitmap_version( ag_cert_t const * c ) {
-  uchar buf[ 512 ];
-  FD_TEST( ag_cert_ser( c, TEST_SHRED_VERSION, buf, sizeof(buf), NULL )==0 );
+  uchar buf[ AG_CERT_SER_MAX ];
+  ag_cert_ser( c, TEST_SHRED_VERSION, buf );
   return buf[ sizeof(ag_cert_serde_t) ];
 }
 

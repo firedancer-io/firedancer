@@ -47,7 +47,7 @@ ag_bls_sec_derive( ag_bls_sec_t  sk,
   FD_TEST( ikm_sz>=32UL );
   blst_scalar scalar[1];
   blst_keygen( scalar, ikm, ikm_sz, NULL, 0UL );
-  fd_memcpy( sk, scalar->b, AG_BLS_SEC_SZ );
+  memcpy( sk, scalar->b, AG_BLS_SEC_SZ );
 }
 
 static int
@@ -67,7 +67,7 @@ pub_aggregate( uchar *       out,
 
   for( ulong i=0UL; i<cnt; i++ ) {
     uchar const * pk = pks + i*AG_BLS_PUB_SZ; /* assumes pks are validated epoch_info keys */
-    if( FD_UNLIKELY( !i ) ) { fd_memcpy( out, pk, AG_BLS_PUB_SZ ); continue; }
+    if( FD_UNLIKELY( !i ) ) { memcpy( out, pk, AG_BLS_PUB_SZ ); continue; }
     if( FD_UNLIKELY( fd_bls12_381_g1_add_syscall( out, out, pk, 1 ) ) ) return -1;
   }
   return 0;
@@ -83,13 +83,13 @@ ag_bls_pub_try_from_bytes( ag_bls_pub_t  out,
     if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( affine, in, 1 ) ) ) return -1;
     break;
   case AG_BLS_PUB_SZ:
-    fd_memcpy( affine, in, AG_BLS_PUB_SZ );
+    memcpy( affine, in, AG_BLS_PUB_SZ );
     break;
   default:
     return -1;
   }
   if( FD_UNLIKELY( !pub_validate( affine ) ) ) return -1;
-  fd_memcpy( out, affine, AG_BLS_PUB_SZ );
+  memcpy( out, affine, AG_BLS_PUB_SZ );
   return 0;
 }
 
@@ -159,7 +159,7 @@ ag_bls_agg_add( ag_bls_agg_t *     self,
   signer_set_insert( self->bitmask, rank );
 
   if( FD_UNLIKELY( first ) ) {
-    fd_memcpy( self->sig, sig, AG_BLS_SIG_SZ );
+    memcpy( self->sig, sig, AG_BLS_SIG_SZ );
     return;
   }
 
@@ -172,7 +172,7 @@ ag_bls_agg_merge( ag_bls_agg_t * dst,
   if( FD_UNLIKELY( signer_set_cnt( src->bitmask )==0UL ) ) return;
 
   if( signer_set_cnt( dst->bitmask )==0UL ) {
-    fd_memcpy( dst->sig, src->sig, AG_BLS_SIG_SZ );
+    memcpy( dst->sig, src->sig, AG_BLS_SIG_SZ );
   } else {
     fd_bls12_381_g2_add_syscall( dst->sig, dst->sig, src->sig, 1 );
   }
@@ -200,7 +200,7 @@ ag_bls_agg_verify( ag_bls_agg_t const * self,
   ulong k = 0UL;
   for( ulong i=0UL; i<pk_cnt; i++ ) {
     if( FD_LIKELY( signer_set_test( self->bitmask, i ) ) ) {
-      fd_memcpy( gathered + k*AG_BLS_PUB_SZ, pk0 + i*pk_stride, AG_BLS_PUB_SZ );
+      memcpy( gathered + k*AG_BLS_PUB_SZ, pk0 + i*pk_stride, AG_BLS_PUB_SZ );
       k++;
     }
   }
@@ -228,7 +228,7 @@ ag_bls_agg_verify_without_bitmask( ag_bls_agg_t const * self,
   static FD_TL uchar gathered[ AG_BLS_SIGNERS_MAX * AG_BLS_PUB_SZ ];
   if( FD_UNLIKELY( pk_cnt>AG_BLS_SIGNERS_MAX ) ) return 0;
   for( ulong i=0UL; i<pk_cnt; i++ ) {
-    fd_memcpy( gathered + i*AG_BLS_PUB_SZ, pk0 + i*pk_stride, AG_BLS_PUB_SZ );
+    memcpy( gathered + i*AG_BLS_PUB_SZ, pk0 + i*pk_stride, AG_BLS_PUB_SZ );
   }
 
   uchar apk[ AG_BLS_PUB_SZ ];
@@ -262,7 +262,7 @@ ag_bls_agg_verify_merged( ag_bls_agg_t const * agg_base,
   for( ulong g=0UL; g<2UL; g++ ) {
     ulong k = 0UL;
     for( ulong i=0UL; i<pk_cnt; i++ ) {
-      if( signer_set_test( masks[g], i ) ) { fd_memcpy( gathered + k*AG_BLS_PUB_SZ, pk0 + i*pk_stride, AG_BLS_PUB_SZ ); k++; }
+      if( signer_set_test( masks[g], i ) ) { memcpy( gathered + k*AG_BLS_PUB_SZ, pk0 + i*pk_stride, AG_BLS_PUB_SZ ); k++; }
     }
     cnt[g] = k;
     if( k && FD_UNLIKELY( pub_aggregate( apk + g*AG_BLS_PUB_SZ, gathered, k ) ) ) return 0;

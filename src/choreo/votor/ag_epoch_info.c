@@ -81,7 +81,7 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
     if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( rank[m].pk, bls, 1 ) ) ) continue; /* no / invalid BLS key */
 #else
     memset( &rank[m].pk, 0, sizeof(ag_bls_pub_t) );
-    fd_memcpy( rank[m].pk, bls, AG_BLS_PUB_COMPRESSED_SZ ); /* stub builds do not verify signatures */
+    memcpy( rank[m].pk, bls, AG_BLS_PUB_COMPRESSED_SZ ); /* stub builds do not verify signatures */
 #endif
     rank[m].stake = stakes[i].stake;
     rank[m].bls   = bls;
@@ -125,10 +125,10 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
     memset( vi, 0, sizeof(ag_validator_info_t) );
     vi->id    = r;
     vi->stake = stakes[src].stake;
-    fd_memcpy( vi->id_key,   stakes[src].id_key.uc,   sizeof(ag_id_key_t)   );
-    fd_memcpy( vi->vote_key, stakes[src].vote_key.uc, sizeof(ag_vote_key_t) );
-    fd_memcpy( vi->bls_key,  rank[r].pk,              sizeof(ag_bls_pub_t)  );
-    fd_memcpy( epoch_info->pubkeys[ r ], rank[r].pk,          sizeof(ag_bls_pub_t)  );
+    memcpy( vi->id_key,   stakes[src].id_key.uc,   sizeof(ag_id_key_t)   );
+    memcpy( vi->vote_key, stakes[src].vote_key.uc, sizeof(ag_vote_key_t) );
+    memcpy( vi->bls_key,  rank[r].pk,              sizeof(ag_bls_pub_t)  );
+    memcpy( epoch_info->pubkeys[ r ], rank[r].pk,          sizeof(ag_bls_pub_t)  );
     total += vi->stake;
   }
   epoch_info->validator_cnt = k;

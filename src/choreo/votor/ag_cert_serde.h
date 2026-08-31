@@ -3,11 +3,10 @@
 
 #include "ag_cert.h"
 
-#define AG_CERT_DE_SUCCESS           ( 0)
-#define AG_CERT_DE_ERR_TRUNCATED     (-1)
-#define AG_CERT_DE_ERR_MALFORMED     (-2)
-#define AG_CERT_DE_ERR_UNSUPPORTED   (-3)
-#define AG_CERT_DE_ERR_SHRED_VERSION (-4)
+#define AG_CERT_DE_SUCCESS           (  0)
+#define AG_CERT_DE_ERR_SZ            ( -1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */
+#define AG_CERT_DE_ERR_INVAL         ( -2) /* InvalidTagEncoding, InvalidValue                                                 */
+#define AG_CERT_DE_ERR_SHRED_VERSION ( -3) /* Custom("shred version mismatch")                                                 */
 
 struct __attribute__((packed)) ag_cert_signature_serde {
   ag_bls_sig_t signature;  /* WireCertSignature::signature (BLSSignature) */
@@ -56,21 +55,23 @@ struct __attribute__((packed)) ag_cert_block_final_serde {
 };
 typedef struct ag_cert_block_final_serde ag_cert_block_final_serde_t;
 
+#define AG_CERT_SER_MAX (sizeof(ag_cert_serde_t) + sizeof(ag_cert_bitmap_serde_t) + (AG_BLS_SIGNERS_MAX+4UL)/5UL + 2UL) /* max serialized sz of ag_cert_serde */
+
 FD_PROTOTYPES_BEGIN
 
-int
+/* buf must hold at least AG_CERT_SER_MAX bytes; returns the number of
+   bytes written. */
+
+ulong
 ag_cert_ser( ag_cert_t const * self,
              ushort            shred_version,
-             uchar *           buf,
-             ulong             buf_max,
-             ulong *           buf_sz );
+             uchar             buf[ static AG_CERT_SER_MAX ] );
 
 int
 ag_cert_de( ag_cert_t *   cert,
             ushort        shred_version,
             uchar const * buf,
-            ulong         buf_max,
-            ulong *       buf_sz );
+            ulong         buf_sz );
 
 int
 ag_cert_block_final_de( ag_cert_fast_final_t * fast_final,

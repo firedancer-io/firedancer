@@ -11,7 +11,7 @@ ag_vote_payload_bytes_to_sign( uchar *               out,
   FD_STORE( ulong, out+off, slot ); off += 8UL;
   if( kind==AG_VOTE_KIND_NOTAR || kind==AG_VOTE_KIND_NOTAR_FALLBACK ) {
     FD_TEST( hash );
-    fd_memcpy( out+off, hash, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t);
+    memcpy( out+off, hash, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t);
   }
   FD_STORE( ushort, out+off, shred_version ); off += 2UL;
   return off;
