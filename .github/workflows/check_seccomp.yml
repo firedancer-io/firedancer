@@ -1,6 +1,12 @@
 name: Check Generated Seccomp Files
 on:
   pull_request:
+    paths:
+      - '**.seccomppolicy'
+      - '**_seccomp.h'
+      - 'contrib/codegen/generate_filters.py'
+      - 'config/everything.mk'
+      - '.github/workflows/check_seccomp.yml'
 
 permissions: {}
 

@@ -1,0 +1,64 @@
+# Checks that manually-regenerated code (metrics, events, features) is in
+# sync with its sources.  Protobufs are excluded (regeneration is not
+# hermetic).  Breaking-change checks on the events schema live in
+# proto_check.yml.
+
+name: Check Generated Code
+on:
+  pull_request:
+    paths:
+      - 'src/disco/metrics/metrics.xml'
+      - 'src/disco/metrics/Makefile'
+      - 'src/disco/metrics/gen_metrics.py'
+      - 'src/disco/metrics/generate/**'
+      - 'src/disco/metrics/generated/**'
+      - 'book/api/metrics-generated.md'
+      - 'src/disco/events/gen_events.py'
+      - 'src/disco/events/schema/**'
+      - 'src/disco/events/generated/**'
+      - 'src/flamenco/features/feature_map.json'
+      - 'src/flamenco/features/gen_features.py'
+      - 'src/flamenco/features/fd_features_generated.h'
+      - 'src/flamenco/features/fd_features_generated.c'
+      - '.github/workflows/check_generated.yml'
+
+concurrency:
+  group: check-generated-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  check-generated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout current commit
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install generator dependencies
+        run: python3 -m pip install base58
+
+      - name: Regenerate code
+        run: |
+          set -e
+          rm -f src/disco/metrics/generated/fd_metrics_*
+          make -C src/disco/metrics metrics
+          python3 src/disco/events/gen_events.py --skip-check
+          python3 src/flamenco/features/gen_features.py
+
+      - name: Check generated files are up to date
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Generated files are out of date. Please rerun the generators and commit the changes."
+            git --no-pager diff
+            exit 1
+          else
+            echo "All generated files are up to date."
+          fi
