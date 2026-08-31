@@ -61,4 +61,11 @@ printf '\n' | "$@" -march=native -E -dM - | awk '
     print "CPPFLAGS_NATIVE+=-DFD_HAS_DOUBLE=1"
     printf "%s", cppflags
   }
-' > "$OUT"
+' > "$OUT.tmp.$$"
+
+# Touch OUT only on real feature drift
+if cmp -s "$OUT.tmp.$$" "$OUT" 2>/dev/null; then
+  rm -f "$OUT.tmp.$$"
+else
+  mv -f "$OUT.tmp.$$" "$OUT"
+fi
