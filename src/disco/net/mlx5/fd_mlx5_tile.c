@@ -1181,6 +1181,8 @@ fd_mlx5_tile_rx_dst_ports_init( fd_mlx5_tile_t *       ctx,
   fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->mlx5.net.repair_client_listen_port,      1 );
   fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_RSERVE,   "net_rserve", tile->mlx5.net.repair_serve_listen_port,       0 );
   fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_SEND,     "net_txsend", tile->mlx5.net.txsend_src_port,                1 );
+  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->mlx5.net.votor_quic_client_listen_port,  1 );
+  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->mlx5.net.votor_quic_server_listen_port,  1 );
 
   if( tile->mlx5.net.repair_client_listen_port ) {
     ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "net_repair", tile->kind_id );

@@ -1270,7 +1270,7 @@ fd_topo_initialize( config_t * config ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_configure_tile( &topo->tiles[ i ], config );
     if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, "gui" ) ) ) topo->tiles[ i ].gui.tile_cnt = topo->tile_cnt;
-    if( FD_UNLIKELY( alpenglow_enabled && ( !strcmp( topo->tiles[ i ].name, "net" ) || !strcmp( topo->tiles[ i ].name, "sock" ) ) ) ) {
+    if( FD_UNLIKELY( alpenglow_enabled && ( !strcmp( topo->tiles[ i ].name, "net" ) || !strcmp( topo->tiles[ i ].name, "sock" ) || !strcmp( topo->tiles[ i ].name, "mlx5" ) ) ) ) {
       topo->tiles[ i ].net.votor_quic_client_listen_port = config->firedancer.development.votor.quic_client_listen_port;
       topo->tiles[ i ].net.votor_quic_server_listen_port = config->firedancer.development.votor.quic_server_listen_port;
     }
