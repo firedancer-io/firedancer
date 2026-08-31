@@ -1409,6 +1409,133 @@ test_fec_rekey_merge( fd_wksp_t * wksp ) {
 }
 
 /* =====================================================================
+   Test 2c: notar-fallback for the same block still in flight from
+   turbine (the race described in fd_rotor_tile.h).
+
+   Turbine delivers FEC sets 0 and 1 of a 3-set block unverified
+   ({verified=0, block_id=null}), then a notar-fallback cert arrives for
+   the very same block.  The turbine block_id is not computable yet, so
+   we cannot tell it is the same block: the turbine version is abandoned
+   and the cert version re-delivers the prefix verified.  The remaining
+   shreds then arrive through turbine: they fill the shared FEC, and the
+   final set is delivered exactly once, verified, under the cert
+   version.  The turbine version must never deliver its slot-complete
+   FEC: replay would re-key its {slot, 0} bank onto the {slot, block_id}
+   the cert version's bank already occupies. */
+
+static void
+test_notar_fallback_same_block( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  ulong slot = SNAP_SLOT+1UL;
+  blk_t blk[1] = {{ .slot = slot, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 3U }};
+  blk->fec_root[ 0 ] = mkhash( 0xEE0UL );
+  blk->fec_root[ 1 ] = mkhash( 0xEE1UL );
+  blk->fec_root[ 2 ] = mkhash( 0xEE2UL );
+  blk_build( blk );
+
+  /* Turbine delivers sets 0 and 1; set 2 has not arrived (*blip*). */
+
+  for( uint k=0U; k<2U; k++ ) {
+    for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
+      uint  idx   = k*FD_FEC_SHRED_CNT+i;
+      uchar flags = (uchar)( i==FD_FEC_SHRED_CNT-1U ? blk_fec_flags( blk, k ) : 0 );
+      deliver_shred( ctx, slot, idx, flags, &blk->fec_root[ k ], 0U, SHRED_SIG_SRC_TURBINE,
+                     blk->parent_slot, &blk->parent_block_id );
+    }
+    deliver_fec_complete( ctx, slot, k*FD_FEC_SHRED_CNT, blk_fec_flags( blk, k ), &blk->fec_root[ k ] );
+  }
+  pump( ctx );
+  FD_TEST( rep_cnt==2UL );
+  rep_expect( 0UL, slot, 0U,               &blk->fec_root[ 0 ], NULL, 0 );
+  rep_expect( 1UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], NULL, 0 );
+  FD_TEST( !rep_log[ 0 ].verified && !rep_log[ 1 ].verified );
+
+  /* Notar-fallback cert for the same block abandons the in-flight
+     turbine version. */
+
+  ulong mark = req_cnt;
+  deliver_votor( ctx, FD_VOTOR_SIG_REPAIR, slot, &blk->block_id );
+  fd_hash_t zero = {0};
+  fd_chainer_slotv_t * vT = fd_chainer_slot_version_query( ctx->chainer, slot, &zero );
+  FD_TEST( vT && vT->turbine && vT->abandoned );
+  fd_chainer_slotv_t * vC = fd_chainer_slot_version_query( ctx->chainer, slot, &blk->block_id );
+  FD_TEST( vC && vC!=vT && !vC->turbine );
+
+  /* Metadata teaches the cert version its shape and ancestry. */
+
+  pump( ctx );
+  req_t * meta_req = req_find( mark, AG_REPAIR_KIND_PARENT_FEC_COUNT, slot, UINT_MAX, &blk->block_id );
+  FD_TEST( meta_req );
+  respond_parent_fec_count( ctx, blk, meta_req->nonce, 0 );
+  FD_TEST( vC->complete_idx==3U*FD_FEC_SHRED_CNT-1U );
+  FD_TEST( vC->connected );
+
+  /* Root responses: the shared sets 0 and 1 complete immediately from
+     local data and are re-delivered verified under the cert version;
+     set 2's sentinel awaits shreds. */
+
+  pump( ctx );
+  ulong rep_mark = rep_cnt;
+  for( uint k=0U; k<3U; k++ ) {
+    req_t * root_req = req_find( mark, AG_REPAIR_KIND_FEC_ROOT, slot, k*FD_FEC_SHRED_CNT, &blk->block_id );
+    FD_TEST( root_req );
+    respond_fec_root( ctx, blk, k*FD_FEC_SHRED_CNT, root_req->nonce, 0 );
+  }
+  pump( ctx );
+  FD_TEST( rep_cnt==rep_mark+2UL );
+  rep_expect( rep_mark,     slot, 0U,               &blk->fec_root[ 0 ], &blk->block_id, 0 );
+  rep_expect( rep_mark+1UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 0 );
+  FD_TEST( rep_log[ rep_mark ].verified && rep_log[ rep_mark+1UL ].verified );
+
+  /* The remaining set arrives through turbine (not repair): its shreds
+     fill the cert version's sentinel (same root), and the slot-complete
+     FEC is delivered exactly once -- verified, under the cert version.
+     The abandoned turbine version never delivers it and never finalizes
+     a block id. */
+
+  rep_mark = rep_cnt;
+  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
+    uint  idx   = 2U*FD_FEC_SHRED_CNT+i;
+    uchar flags = (uchar)( i==FD_FEC_SHRED_CNT-1U ? blk_fec_flags( blk, 2U ) : 0 );
+    deliver_shred( ctx, slot, idx, flags, &blk->fec_root[ 2 ], 0U, SHRED_SIG_SRC_TURBINE,
+                   blk->parent_slot, &blk->parent_block_id );
+  }
+  deliver_fec_complete( ctx, slot, 2U*FD_FEC_SHRED_CNT, blk_fec_flags( blk, 2U ), &blk->fec_root[ 2 ] );
+  pump( ctx );
+
+  FD_TEST( rep_cnt==rep_mark+1UL );
+  rep_expect( rep_mark, slot, 2U*FD_FEC_SHRED_CNT, &blk->fec_root[ 2 ], &blk->block_id, 1 );
+  FD_TEST( rep_log[ rep_mark ].verified );
+  FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==slot );
+  FD_TEST( fd_hash_check_zero( &vT->block_id ) );        /* never finalized */
+  FD_TEST( slot_version_cnt( ctx->chainer, slot )==2UL ); /* cert version + abandoned anchor */
+
+  /* Exactly one slot-complete delivery across the whole run, and
+     everything delivered after the cert arrived is verified: replay's
+     turbine bank (keyed {slot, 0}) never re-keys, so it can never
+     collide with the cert bank keyed {slot, block_id}. */
+
+  ulong sc_cnt = 0UL;
+  for( ulong i=0UL; i<rep_cnt; i++ ) {
+    if( rep_log[ i ].slot==slot && rep_log[ i ].slot_complete ) sc_cnt++;
+    if( i>=2UL ) FD_TEST( rep_log[ i ].verified );
+  }
+  FD_TEST( sc_cnt==1UL );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  /* Rooting the block prunes the abandoned anchor. */
+
+  deliver_votor( ctx, FD_VOTOR_SIG_ROOTED, slot, &blk->block_id );
+  FD_TEST( ctx->chainer->root==slot );
+  FD_TEST( slot_version_cnt( ctx->chainer, slot )==1UL );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  FD_LOG_NOTICE(( "pass: test_notar_fallback_same_block" ));
+}
+
+/* =====================================================================
    Test 3: block-id-only repair (catchup mode).
 
    With ctx->block_id_repair_only set, every legacy positional emission
@@ -1478,24 +1605,22 @@ test_block_id_repair_only( fd_wksp_t * wksp ) {
   serve_shred_requests( ctx, mark, blk, UINT_MAX, NULL, served );
   pump( ctx );
 
-  /* Repair shreds create turbine-side bookkeeping, so the block is
-     tracked -- and delivered -- under both the lazily created turbine
-     version (whose block id stays zero until it finalizes to the cert
-     block id at slot completion) and the cert version; replay dedups
-     the redelivery.  Every FEC set reached replay in order under both
-     versions, and the slot-complete deliveries carry the cert block
-     id. */
+  /* Repair shreds still land on turbine-side bookkeeping, but the
+     turbine version of the slot was created abandoned (the cert version
+     predates it), so it only anchors the roots and shred bitmaps: it
+     never delivers and never finalizes a block id.  Every FEC is
+     delivered exactly once, under the cert version, verified and
+     carrying the cert block id. */
 
   FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==slot );
-  FD_TEST( rep_cnt==4UL );
-  rep_expect( 0UL, slot, 0U,               &blk->fec_root[ 0 ], NULL,           0 ); /* turbine version, pre-finalize */
-  rep_expect( 1UL, slot, 0U,               &blk->fec_root[ 0 ], &blk->block_id, 0 ); /* cert version */
-  rep_expect( 2UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 ); /* turbine version, finalized */
-  rep_expect( 3UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 ); /* cert version */
+  FD_TEST( rep_cnt==2UL );
+  rep_expect( 0UL, slot, 0U,               &blk->fec_root[ 0 ], &blk->block_id, 0 );
+  rep_expect( 1UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 );
+  FD_TEST( rep_log[ 0 ].verified );
+  FD_TEST( rep_log[ 1 ].verified );
 
-  /* Both versions coexist -- the turbine version finalized to the same
-     block id as the cert -- until rooting prunes all but the canonical
-     one. */
+  /* Both versions are tracked (the abandoned turbine anchor plus the
+     cert version); rooting below prunes down to the canonical one. */
 
   FD_TEST( slot_version_cnt( ctx->chainer, slot )==2UL );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
@@ -1649,6 +1774,9 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_fec_rekey_merge( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_notar_fallback_same_block( wksp );
 
   fd_wksp_reset( wksp, 1U );
   test_block_id_repair_only( wksp );

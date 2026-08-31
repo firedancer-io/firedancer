@@ -52,15 +52,19 @@ typedef struct fd_replay_out_link fd_replay_out_link_t;
    block id). */
 
 struct fd_block_id_ele {
-  fd_hash_t latest_mr;
-  uint      latest_fec_idx;
-  int       block_id_seen;
-  ulong     slot;
-  ulong     bank_seq;
-  ulong     next_;
-  fd_hash_t dmr;
-  fd_hash_t parent_dmr;
-  ulong     dmr_next_;
+  fd_hash_t     latest_mr;  /* merkle root of the latest observed FEC set.  Under tower this is
+                               the block id once the block is complete.  Under alpenglow this is
+                               NEVER the block id: on completion it holds the last FEC set's
+                               merkle root, which the next block's shreds chain off (the cmr). */
+  fd_hash_t     dmr;        /* ALPENGLOW-ONLY block id (double merkle root).  Only valid once
+                               block_id_seen is set. */
+  ag_block_id_t block_info; /* unpopulated for non alpenglow, but key for the compound map under alpenglow */
+  uint          latest_fec_idx;
+  int           block_id_seen;
+  ulong         slot;
+  ulong         bank_seq;
+  ulong         next_;
+  ulong         ag_next_;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
@@ -110,13 +114,24 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 #define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define MAP_NAME               dmr_map
+/* fd_ag_block_id_map indexes the same fd_block_id_ele_t array by the
+   compound {slot, block_id} key.  A block that is still being received
+   through turbing is keyed by {slot, 0}: the DMR is only known once the
+   slot-complete FEC arrives. FECs of a block thus resolve their bank
+   via {slot, 0} without any per-FEC re-keying; on slot complete the
+   entry is re-keyed once to the real {slot, block_id}.
+
+   For blocks that were repaired due to a votor block id event, the
+   block id is known at the slot start.  So the entry is keyed by {slot,
+   block_id} from the start and never rekeyed. */
+
+#define MAP_NAME               fd_ag_block_id_map
 #define MAP_ELE_T              fd_block_id_ele_t
-#define MAP_KEY_T              fd_hash_t
-#define MAP_KEY                dmr
-#define MAP_NEXT               dmr_next_
-#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
+#define MAP_KEY_T              ag_block_id_t
+#define MAP_KEY                block_info
+#define MAP_NEXT               ag_next_
+#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
@@ -356,10 +371,12 @@ struct fd_replay_tile {
   ulong               block_id_len;
   ulong               max_live_slots;
   fd_block_id_ele_t * block_id_arr;
+
   ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
-  dmr_map_t *         dmr_map;
-  uchar *             dmr_tree_arr;
+
+  ulong                  ag_block_id_map_seed;
+  fd_ag_block_id_map_t * ag_block_id_map;
 
   /* Capture-related configs */
   fd_capture_ctx_t *     capture_ctx;
