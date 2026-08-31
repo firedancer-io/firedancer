@@ -45,12 +45,3 @@ pwrite64: (eq (arg 0) accounts_fd)
 #
 # arg 0 is the file descriptor to read from.
 pread64: (eq (arg 0) accounts_fd)
-
-# accounts database: start and bound asynchronous writeback
-#
-# Parallel snapshot loader tiles kick kernel writeback of their
-# written records in large contiguous runs, and wait on the oldest
-# in-flight range to bound dirty page accumulation.
-#
-# arg 0 is the file descriptor being written back.
-sync_file_range: (eq (arg 0) accounts_fd)

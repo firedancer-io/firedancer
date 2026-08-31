@@ -1,4 +1,3 @@
-#define _GNU_SOURCE /* sync_file_range */
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssload.h"
 #include "utils/fd_ssmsg.h"
@@ -27,7 +26,6 @@
 #include "generated/fd_snapin_tile_seccomp.h"
 
 #include <errno.h>
-#include <fcntl.h>
 #include <unistd.h>
 
 #define NAME "snapin"
@@ -40,34 +38,12 @@
 
 #define FD_SNAPIN_WRITE_BUF_SZ (2UL<<20)
 
-/* Limit writeback to 80 GiB or 5% of RAM. */
-
-#define FD_SNAPIN_WB_KICK_SZ      (64UL<<20) /* bytes per writeback */
-#define FD_SNAPIN_WB_WINDOW_MAX   (80UL<<30) /* total pending bytes */
-#define FD_SNAPIN_WB_MEM_PCT      (5UL)      /* percent of MemTotal */
-#define FD_SNAPIN_WB_RING_CNT     (4096UL)   /* pending ranges; power of two */
-
-/* Use writeback with 8 or more tiles. */
-
-#define FD_SNAPIN_WB_MIN_WORKERS  (8UL)
-
-#define SNAPIN_IO_FAIL   (-1)
-#define SNAPIN_IO_RETRY  ( 0)
-#define SNAPIN_IO_NOSYNC ( 1)
-
-#define SNAPIN_WB_OFF         (0UL)
-#define SNAPIN_WB_ON          (1UL)
-#define SNAPIN_WB_UNSUPPORTED (2UL)
+#define SNAPIN_IO_FAIL  (-1)
+#define SNAPIN_IO_RETRY ( 0)
 
 FD_FN_CONST static inline int
 snapin_pwrite_class( int err ) {
   return err==EINTR ? SNAPIN_IO_RETRY : SNAPIN_IO_FAIL;
-}
-
-FD_FN_CONST static inline int
-snapin_sfr_class( int err ) {
-  if( FD_LIKELY( err==EINTR ) ) return SNAPIN_IO_RETRY;
-  return (err==ENOSYS || err==EOPNOTSUPP) ? SNAPIN_IO_NOSYNC : SNAPIN_IO_FAIL;
 }
 
 /* Warn every 10 seconds while data waits for tile 0. */
@@ -143,18 +119,6 @@ struct snapin_writer {
   ulong   buf_off;
 
   ulong bytes_written;
-
-  ulong wb_state;
-  ulong wb_window;
-  ulong wb_kick_sz;
-  ulong wb_run_off;
-  ulong wb_run_sz;
-  ulong wb_pending;
-  ulong wb_head;
-  ulong wb_tail;
-  ulong wb_kick_cnt;
-  ulong wb_wait_cnt;
-  struct { ulong off; ulong sz; } wb_ring[ FD_SNAPIN_WB_RING_CNT ];
 };
 
 typedef struct snapin_writer snapin_writer_t;
@@ -322,8 +286,6 @@ struct fd_snapin_tile {
     uchar buf   [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
   } pending;
 
-  ulong wb_total_window;
-
   /* Tile 0 end-of-attempt state. */
   int   attempt_folded;     /* attempt data already read */
   struct {
@@ -433,8 +395,6 @@ metrics_write( fd_snapin_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
   FD_MCNT_SET  ( SNAPIN, DISK_BYTES_WRITTEN,     ctx->writer.bytes_written );
-  FD_MGAUGE_SET( SNAPIN, WRITEBACK_STATE,        ctx->writer.wb_state );
-  FD_MCNT_SET  ( SNAPIN, WRITEBACK_WAITS,        ctx->writer.wb_wait_cnt );
   FD_MGAUGE_SET( SNAPIN, ACCOUNT_LOADED,         ctx->metrics.accounts_loaded );
   FD_MGAUGE_SET( SNAPIN, ACCOUNT_REPLACED,       ctx->metrics.accounts_replaced );
   FD_MGAUGE_SET( SNAPIN, ACCOUNT_IGNORED,        ctx->metrics.accounts_ignored );
@@ -1006,118 +966,18 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
 
 /* Write engine */
 
-FD_FN_CONST static inline ulong
-writer_window( ulong tile_cnt,
-               ulong total_window ) {
-  return tile_cnt>=FD_SNAPIN_WB_MIN_WORKERS ? total_window/tile_cnt : 0UL;
-}
-
 static void
 writer_init( snapin_writer_t * writer,
              int               fd,
-             uchar *           buf,
-             ulong             wb_window,
-             ulong             wb_kick_sz ) {
+             uchar *           buf ) {
   fd_memset( writer, 0, sizeof(*writer) );
-  writer->fd         = fd;
-  writer->buf        = buf;
-  writer->wb_state   = wb_window ? SNAPIN_WB_ON : SNAPIN_WB_OFF;
-  writer->wb_window  = wb_window;
-  writer->wb_kick_sz = wb_kick_sz;
+  writer->fd  = fd;
+  writer->buf = buf;
 }
 
 static void
 writer_begin( snapin_writer_t * writer ) {
   FD_TEST( !writer->buf_used );
-  FD_TEST( !writer->wb_run_sz );
-}
-
-static void
-writer_wb_off( snapin_writer_t * writer,
-               int               err ) {
-  FD_LOG_WARNING(( "sync_file_range unsupported (%d-%s); disabling write-behind", err, fd_io_strerror( err ) ));
-  writer->wb_state  = SNAPIN_WB_UNSUPPORTED;
-  writer->wb_window = 0UL;
-  writer->wb_run_sz = 0UL;
-}
-
-static int
-writer_wb_wait( snapin_writer_t * writer ) {
-  if( FD_UNLIKELY( writer->wb_head==writer->wb_tail ) ) return 0;
-  ulong idx = writer->wb_head & (FD_SNAPIN_WB_RING_CNT-1UL);
-  for(;;) {
-    if( FD_LIKELY( -1!=sync_file_range( writer->fd, (long)writer->wb_ring[ idx ].off, (long)writer->wb_ring[ idx ].sz,
-                                        SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER ) ) ) break;
-    int err = errno;
-    int cls = snapin_sfr_class( err );
-    if( FD_LIKELY( cls==SNAPIN_IO_RETRY ) ) continue;
-    if( FD_UNLIKELY( cls==SNAPIN_IO_NOSYNC ) ) {
-      writer_wb_off( writer, err );
-      return 0;
-    }
-    FD_LOG_WARNING(( "sync_file_range wait failed (%d-%s)", err, fd_io_strerror( err ) ));
-    return -1;
-  }
-  writer->wb_pending -= writer->wb_ring[ idx ].sz;
-  writer->wb_head++;
-  writer->wb_wait_cnt++;
-  return 0;
-}
-
-static int
-writer_wb_kick( snapin_writer_t * writer ) {
-  if( FD_LIKELY( !writer->wb_window || !writer->wb_run_sz ) ) return 0;
-
-  if( FD_UNLIKELY( writer->wb_tail-writer->wb_head>=FD_SNAPIN_WB_RING_CNT ) ) {
-    if( FD_UNLIKELY( writer_wb_wait( writer ) ) ) return -1;
-    if( FD_UNLIKELY( !writer->wb_window ) ) return 0;
-  }
-
-  for(;;) {
-    if( FD_LIKELY( -1!=sync_file_range( writer->fd, (long)writer->wb_run_off, (long)writer->wb_run_sz,
-                                        SYNC_FILE_RANGE_WRITE ) ) ) break;
-    int err = errno;
-    int cls = snapin_sfr_class( err );
-    if( FD_LIKELY( cls==SNAPIN_IO_RETRY ) ) continue;
-    if( FD_UNLIKELY( cls==SNAPIN_IO_NOSYNC ) ) {
-      writer_wb_off( writer, err );
-      return 0;
-    }
-    FD_LOG_WARNING(( "sync_file_range write failed (%d-%s)", err, fd_io_strerror( err ) ));
-    return -1;
-  }
-
-  writer->wb_ring[ writer->wb_tail & (FD_SNAPIN_WB_RING_CNT-1UL) ] =
-      (__typeof__(writer->wb_ring[0])){ .off = writer->wb_run_off, .sz = writer->wb_run_sz };
-  writer->wb_tail++;
-  writer->wb_pending += writer->wb_run_sz;
-  writer->wb_run_sz   = 0UL;
-  writer->wb_kick_cnt++;
-  return 0;
-}
-
-static int
-writer_wb_track( snapin_writer_t * writer,
-                 ulong             off,
-                 ulong             sz ) {
-  if( FD_LIKELY( !writer->wb_window ) ) return 0;
-
-  if( FD_UNLIKELY( writer->wb_run_sz && off!=writer->wb_run_off+writer->wb_run_sz ) ) {
-    if( FD_UNLIKELY( writer_wb_kick( writer ) ) ) return -1;
-    if( FD_UNLIKELY( !writer->wb_window ) ) return 0;
-  }
-  if( FD_UNLIKELY( !writer->wb_run_sz ) ) writer->wb_run_off = off;
-  writer->wb_run_sz += sz;
-  if( FD_UNLIKELY( writer->wb_run_sz>=writer->wb_kick_sz ) ) {
-    if( FD_UNLIKELY( writer_wb_kick( writer ) ) ) return -1;
-  }
-
-  while( FD_UNLIKELY( writer->wb_window &&
-                      writer->wb_pending>writer->wb_window &&
-                      writer->wb_head!=writer->wb_tail ) ) {
-    if( FD_UNLIKELY( writer_wb_wait( writer ) ) ) return -1;
-  }
-  return 0;
 }
 
 static int
@@ -1145,7 +1005,7 @@ writer_flush( snapin_writer_t * writer ) {
   }
   writer->buf_off  += sz;
   writer->buf_used  = 0UL;
-  return writer_wb_track( writer, off, sz );
+  return 0;
 }
 
 static int
@@ -1172,15 +1032,12 @@ writer_write( snapin_writer_t * writer,
 
 static int
 writer_end( snapin_writer_t * writer ) {
-  if( FD_UNLIKELY( writer_flush( writer ) ) ) return -1;
-  return writer_wb_kick( writer );
+  return writer_flush( writer );
 }
 
 static void
 writer_abort( snapin_writer_t * writer ) {
-  /* Pending ranges stay valid when partitions are reused. */
-  writer->buf_used  = 0UL;
-  writer->wb_run_sz = 0UL;
+  writer->buf_used = 0UL;
 }
 
 static int
@@ -2164,9 +2021,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_accdb_snapshot_writer_end( ctx->accdb );
       fd_accdb_snapshot_flush_worker_metrics( ctx->accdb, ctx->worker_metrics );
 
-      FD_LOG_NOTICE(( "snapin %lu: owned appendvecs=%lu owned_bytes=%lu bytes_written=%lu, wb kicks=%lu waits=%lu",
-                      ctx->tile_idx, ctx->owned_appendvecs, ctx->owned_bytes, ctx->writer.bytes_written,
-                      ctx->writer.wb_kick_cnt, ctx->writer.wb_wait_cnt ));
+      FD_LOG_NOTICE(( "snapin %lu: owned appendvecs=%lu owned_bytes=%lu bytes_written=%lu",
+                      ctx->tile_idx, ctx->owned_appendvecs, ctx->owned_bytes, ctx->writer.bytes_written ));
       if( FD_UNLIKELY( is_lead( ctx ) ) ) log_appendvec_stats( ctx );
 
       /* Agave accepts equal-slot duplicates. */
@@ -2469,48 +2325,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
-/* Returns MemTotal in bytes, or 0 if unknown. */
-
-static ulong
-read_mem_total_bytes( void ) {
-  int fd = open( "/proc/meminfo", O_RDONLY );
-  if( FD_UNLIKELY( -1==fd ) ) return 0UL;
-  char  buf[ 4096 ];
-  long  n = read( fd, buf, sizeof(buf)-1UL );
-  if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close(/proc/meminfo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( n<=0L ) ) return 0UL;
-  buf[ n ] = '\0';
-
-  char const * p = strstr( buf, "MemTotal:" );
-  if( FD_UNLIKELY( !p ) ) return 0UL;
-  p += strlen( "MemTotal:" );
-  while( *p==' ' || *p=='\t' ) p++;
-  if( FD_UNLIKELY( *p<'0' || *p>'9' ) ) return 0UL;
-  ulong kib = 0UL;
-  for( ; *p>='0' && *p<='9'; p++ ) {
-    if( FD_UNLIKELY( kib>(ULONG_MAX-9UL)/10UL ) ) return 0UL; /* avoid overflow */
-    kib = kib*10UL + (ulong)(*p-'0');
-  }
-  if( FD_UNLIKELY( kib>(ULONG_MAX>>10) ) ) return 0UL;
-  return kib<<10;
-}
-
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   fd_snapin_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
-
-  /* Set the writeback limit while /proc is available.
-     Disable it when RAM size is unknown. */
-  ulong mem_total = read_mem_total_bytes();
-  if( FD_UNLIKELY( !mem_total ) ) {
-    FD_LOG_WARNING(( "could not read MemTotal from /proc/meminfo; disabling snapshot write-behind" ));
-    ctx->wb_total_window = 0UL;
-  } else {
-    ctx->wb_total_window = fd_ulong_min( FD_SNAPIN_WB_WINDOW_MAX, (mem_total/100UL)*FD_SNAPIN_WB_MEM_PCT );
-  }
 }
 
 static inline fd_snapin_out_link_t
@@ -2576,13 +2396,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->whead.attempt_partition_cnt = 0UL;
   ctx->whead.attempt_partition_max = FD_SNAPIO_FAIL_PARTITION_MAX;
 
-  /* privileged_init set wb_total_window from MemTotal. */
-  ulong wb_window = writer_window( ctx->tile_cnt, ctx->wb_total_window );
-  if( FD_UNLIKELY( is_lead( ctx ) ) ) {
-    FD_LOG_NOTICE(( "snapin: write-behind window %lu MiB aggregate, %lu MiB per tile (%lu tiles)",
-                    ctx->wb_total_window>>20, wb_window>>20, ctx->tile_cnt ));
-  }
-
   /* Every tile updates stakes. Only tile 0 owns the bank. */
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->snapin.banks_obj_id ) );
   FD_TEST( ctx->banks );
@@ -2614,7 +2427,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   uchar * write_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096UL, FD_SNAPIN_WRITE_BUF_SZ );
-  writer_init( &ctx->writer, FD_ACCDB_FD_RW, write_buf, wb_window, FD_SNAPIN_WB_KICK_SZ );
+  writer_init( &ctx->writer, FD_ACCDB_FD_RW, write_buf );
 
   ctx->alpenglow = tile->snapin.alpenglow;
   ctx->blockhash_groups_len = 0UL;

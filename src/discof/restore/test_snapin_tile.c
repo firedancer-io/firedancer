@@ -26,22 +26,15 @@ struct test_io_step {
 typedef struct test_io_step test_io_step_t;
 
 static test_io_step_t test_pwrite_steps[ 16UL ];
-static test_io_step_t test_sfr_steps   [ 16UL ];
 static ulong test_pwrite_step_cnt;
 static ulong test_pwrite_step_idx;
-static ulong test_sfr_step_cnt;
-static ulong test_sfr_step_idx;
 static ulong test_pwrite_call_cnt;
-static ulong test_sfr_call_cnt;
 
 static void
 test_io_reset( void ) {
   test_pwrite_step_cnt = 0UL;
   test_pwrite_step_idx = 0UL;
-  test_sfr_step_cnt    = 0UL;
-  test_sfr_step_idx    = 0UL;
   test_pwrite_call_cnt = 0UL;
-  test_sfr_call_cnt    = 0UL;
 }
 
 static void
@@ -49,13 +42,6 @@ test_pwrite_push( long result,
                   int  err ) {
   FD_TEST( test_pwrite_step_cnt<16UL );
   test_pwrite_steps[ test_pwrite_step_cnt++ ] = (test_io_step_t){ result, err };
-}
-
-static void
-test_sfr_push( long result,
-               int  err ) {
-  FD_TEST( test_sfr_step_cnt<16UL );
-  test_sfr_steps[ test_sfr_step_cnt++ ] = (test_io_step_t){ result, err };
 }
 
 static long
@@ -71,22 +57,6 @@ test_pwrite( int          fd,
   test_io_step_t step = test_pwrite_steps[ test_pwrite_step_idx++ ];
   if( step.result<0L ) errno = step.err;
   return step.result;
-}
-
-static int
-test_sync_file_range( int  fd,
-                      long off,
-                      long sz,
-                      uint flags ) {
-  (void)fd;
-  (void)off;
-  (void)sz;
-  (void)flags;
-  test_sfr_call_cnt++;
-  if( test_sfr_step_idx>=test_sfr_step_cnt ) return 0;
-  test_io_step_t step = test_sfr_steps[ test_sfr_step_idx++ ];
-  if( step.result<0L ) errno = step.err;
-  return (int)step.result;
 }
 
 /* Recorded stem publishes. */
@@ -174,9 +144,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_ssparse_advance                           test_ssparse_advance
 #define fd_ssparse_appendvec_parse                   test_ssparse_appendvec_parse
 #define pwrite                                       test_pwrite
-#define sync_file_range                              test_sync_file_range
 #include "fd_snapin_tile.c"
-#undef sync_file_range
 #undef pwrite
 #undef fd_ssparse_appendvec_parse
 #undef fd_ssparse_advance
@@ -436,7 +404,7 @@ test_cluster_new( ulong tile_cnt,
     ctx->whead.attempt_partition_max = FD_SNAPIO_FAIL_PARTITION_MAX;
 
     ctx->stake_delegations = cl->stake_delegations;
-    writer_init( &ctx->writer, FD_ACCDB_FD_RW, cl->write_buf+t*FD_SNAPIN_WRITE_BUF_SZ, 0UL, FD_SNAPIN_WB_KICK_SZ );
+    writer_init( &ctx->writer, FD_ACCDB_FD_RW, cl->write_buf+t*FD_SNAPIN_WRITE_BUF_SZ );
 
     ctx->ct_out.idx       = 1UL+t;
     ctx->manifest_out.idx = ULONG_MAX;
@@ -1068,14 +1036,12 @@ test_fini_storage_error_retries( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( cl->ctx[ 0 ].state==FD_SNAPSHOT_STATE_IDLE );
   FD_TEST( !cl->ctx[ 0 ].writer.buf_used );
-  FD_TEST( !cl->ctx[ 0 ].writer.wb_run_sz );
 
   test_counters_reset();
   test_io_reset();
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
   FD_TEST( cl->ctx[ 0 ].state==FD_SNAPSHOT_STATE_PROCESSING );
   FD_TEST( !cl->ctx[ 0 ].writer.buf_used );
-  FD_TEST( !cl->ctx[ 0 ].writer.wb_run_sz );
 
   test_cluster_delete( cl );
 }
@@ -1420,15 +1386,6 @@ test_io_error_classes( void ) {
   FD_TEST( snapin_pwrite_class( EINVAL     )==SNAPIN_IO_FAIL  );
   FD_TEST( snapin_pwrite_class( EBADF      )==SNAPIN_IO_FAIL  );
   FD_TEST( snapin_pwrite_class( EOPNOTSUPP )==SNAPIN_IO_FAIL  );
-
-  FD_TEST( snapin_sfr_class( EINTR      )==SNAPIN_IO_RETRY  );
-  FD_TEST( snapin_sfr_class( ENOSYS     )==SNAPIN_IO_NOSYNC );
-  FD_TEST( snapin_sfr_class( EOPNOTSUPP )==SNAPIN_IO_NOSYNC );
-  FD_TEST( snapin_sfr_class( EINVAL     )==SNAPIN_IO_FAIL   );
-  FD_TEST( snapin_sfr_class( EBADF      )==SNAPIN_IO_FAIL   );
-  FD_TEST( snapin_sfr_class( ESPIPE     )==SNAPIN_IO_FAIL   );
-  FD_TEST( snapin_sfr_class( EIO        )==SNAPIN_IO_FAIL   );
-  FD_TEST( snapin_sfr_class( ENOSPC     )==SNAPIN_IO_FAIL   );
 }
 
 static void
@@ -1441,89 +1398,22 @@ test_writer_short_write_and_eintr( void ) {
   test_pwrite_push(  2L, 0     );
   test_pwrite_push(  3L, 0     );
 
-  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf, 0UL, 4UL );
+  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf );
   writer_begin( writer );
   FD_TEST( !writer_write( writer, 10UL, data, sizeof(data) ) );
   FD_TEST( !writer_end( writer ) );
   FD_TEST( test_pwrite_call_cnt==3UL );
   FD_TEST( writer->bytes_written==sizeof(data) );
   FD_TEST( !writer->buf_used );
-  FD_TEST( writer->wb_state==SNAPIN_WB_OFF );
 }
 
 static void
-test_writer_writeback_lifecycle( void ) {
-  uchar data[ 8UL ] = {0};
-  snapin_writer_t writer[ 1 ];
-
-  for( ulong tile_cnt=1UL; tile_cnt<=9UL; tile_cnt++ ) {
-    ulong expected = tile_cnt>=FD_SNAPIN_WB_MIN_WORKERS ? 90UL/tile_cnt : 0UL;
-    FD_TEST( writer_window( tile_cnt, 90UL )==expected );
-  }
-
-  test_io_reset();
-  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf, 8UL, 4UL );
-  writer_begin( writer );
-  test_sfr_push( -1L, EINTR );
-  test_sfr_push(  0L, 0     );
-  FD_TEST( !writer_write( writer, 0UL, data, 2UL ) );
-  FD_TEST( !writer_end( writer ) );
-  FD_TEST( writer->wb_state==SNAPIN_WB_ON );
-  FD_TEST( writer->wb_pending==2UL );
-  FD_TEST( writer->wb_head==0UL && writer->wb_tail==1UL );
-  FD_TEST( test_sfr_call_cnt==2UL );
-
-  writer_begin( writer );
-  FD_TEST( writer->wb_pending==2UL );
-  writer_abort( writer );
-  FD_TEST( writer->wb_pending==2UL );
-
-  writer_begin( writer );
-  FD_TEST( !writer_write( writer, 16UL, data, sizeof(data) ) );
-  FD_TEST( !writer_end( writer ) );
-  FD_TEST( writer->wb_pending<=writer->wb_window );
-  FD_TEST( writer->wb_wait_cnt==1UL );
-}
-
-static void
-test_writer_writeback_errors( void ) {
+test_writer_errors( void ) {
   uchar data[ 4UL ] = {0};
   snapin_writer_t writer[ 1 ];
 
   test_io_reset();
-  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf, 8UL, 4UL );
-  writer_begin( writer );
-  test_sfr_push( -1L, EOPNOTSUPP );
-  FD_TEST( !writer_write( writer, 0UL, data, sizeof(data) ) );
-  FD_TEST( !writer_end( writer ) );
-  FD_TEST( writer->wb_state==SNAPIN_WB_UNSUPPORTED );
-  FD_TEST( !writer->wb_window && !writer->wb_pending );
-
-  test_io_reset();
-  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf, 8UL, 4UL );
-  writer_begin( writer );
-  FD_TEST( !writer_write( writer, 0UL, data, sizeof(data) ) );
-  FD_TEST( !writer_end( writer ) );
-  writer_begin( writer );
-  test_sfr_push( -1L, EOPNOTSUPP );
-  FD_TEST( !writer_write( writer, 8UL, data, sizeof(data) ) );
-  FD_TEST( !writer_end( writer ) );
-  FD_TEST( writer->wb_state==SNAPIN_WB_UNSUPPORTED );
-  FD_TEST( writer->wb_pending==sizeof(data) );
-  FD_TEST( writer->wb_head==0UL && writer->wb_tail==1UL );
-
-  test_io_reset();
-  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf, 8UL, 4UL );
-  writer_begin( writer );
-  test_sfr_push( -1L, EIO );
-  FD_TEST( !writer_write( writer, 0UL, data, sizeof(data) ) );
-  FD_TEST( writer_end( writer )==-1 );
-  FD_TEST( writer->wb_run_sz==sizeof(data) );
-  writer_abort( writer );
-  FD_TEST( !writer->wb_run_sz );
-
-  test_io_reset();
-  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf, 0UL, 4UL );
+  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf );
   writer_begin( writer );
   test_pwrite_push( -1L, ENOSPC );
   FD_TEST( !writer_write( writer, 0UL, data, sizeof(data) ) );
@@ -1532,7 +1422,7 @@ test_writer_writeback_errors( void ) {
   FD_TEST( !writer->buf_used );
 
   test_io_reset();
-  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf, 0UL, 4UL );
+  writer_init( writer, FD_ACCDB_FD_RW, test_writer_buf );
   writer_begin( writer );
   test_pwrite_push(  2L, 0   );
   test_pwrite_push( -1L, EIO );
@@ -1549,8 +1439,7 @@ main( int     argc,
 
   test_io_error_classes();
   test_writer_short_write_and_eintr();
-  test_writer_writeback_lifecycle();
-  test_writer_writeback_errors();
+  test_writer_errors();
   test_scratch_layout_fits();
   test_init_gate_holds_data();
   test_init_aborted_barrier_retries();

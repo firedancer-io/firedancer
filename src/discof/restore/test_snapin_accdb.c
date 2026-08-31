@@ -161,7 +161,7 @@ test_env_init( test_env_t * env,
 
     env->write_buf[ i ] = aligned_alloc( 4096UL, FD_SNAPIN_WRITE_BUF_SZ );
     FD_TEST( env->write_buf[ i ] );
-    writer_init( &ctx->writer, FD_ACCDB_FD_RW, env->write_buf[ i ], 0UL, FD_SNAPIN_WB_KICK_SZ );
+    writer_init( &ctx->writer, FD_ACCDB_FD_RW, env->write_buf[ i ] );
   }
 
   env->root = fd_accdb_attach_child( env->worker[ 0 ].accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
