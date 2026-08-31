@@ -1381,7 +1381,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, ctx->leader_bank->accdb_fork_id, ctx->identity_pubkey->uc );
   }
 
-  ctx->leader_bank->f.block_id = ctx->block_id_arr[ ctx->leader_bank->idx ].latest_mr;
+  ctx->leader_bank->f.block_id = fd_ptr_if( ctx->alpenglow, &ctx->block_id_arr[ ctx->leader_bank->idx ].dmr, &ctx->block_id_arr[ ctx->leader_bank->idx ].latest_mr )[0];
   fd_banks_mark_bank_frozen( ctx->leader_bank );
   ctx->leader_bank->block_completed_nanos = fd_clock_tile_now( ctx->clock );
 
