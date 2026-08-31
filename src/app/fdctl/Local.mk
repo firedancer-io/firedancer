@@ -119,12 +119,12 @@ $(OBJDIR)/lib/libagave_validator.a: cargo-validator
 	$(MKDIR) $(dir $@) && { cmp -s agave/target/$(RUST_PROFILE)/libagave_validator.a $@ || cp agave/target/$(RUST_PROFILE)/libagave_validator.a $@; }
 
 $(OBJDIR)/bin/solana: cargo-solana
-	$(MKDIR) -p $(dir $@) && { cmp -s agave/target/$(RUST_PROFILE)/solana $@ || cp agave/target/$(RUST_PROFILE)/solana $@; }
+	$(MKDIR) -p $(dir $@) && { cmp -s agave/target/$(RUST_PROFILE)/solana $@ || { cp agave/target/$(RUST_PROFILE)/solana $@.tmp && mv -f $@.tmp $@; }; } && $(call publish,$@,$(BASEDIR)/solana)
 
 solana: $(OBJDIR)/bin/solana
 
 $(OBJDIR)/bin/agave-ledger-tool: cargo-ledger-tool
-	$(MKDIR) -p $(dir $@) && { cmp -s agave/dev-bins/target/$(RUST_PROFILE)/agave-ledger-tool $@ || cp agave/dev-bins/target/$(RUST_PROFILE)/agave-ledger-tool $@; }
+	$(MKDIR) -p $(dir $@) && { cmp -s agave/dev-bins/target/$(RUST_PROFILE)/agave-ledger-tool $@ || { cp agave/dev-bins/target/$(RUST_PROFILE)/agave-ledger-tool $@.tmp && mv -f $@.tmp $@; }; } && $(call publish,$@,$(BASEDIR)/agave-ledger-tool)
 
 agave-ledger-tool: $(OBJDIR)/bin/agave-ledger-tool
 

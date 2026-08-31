@@ -3,7 +3,8 @@
 source contrib/test/ledger_common.sh
 
 POSITION_ARGS=()
-OBJDIR=${OBJDIR:-build/native/gcc}
+OBJDIR=${OBJDIR:-$(make --silent --no-print-directory objdir 2>/dev/null || true)}
+: "${OBJDIR:?cannot determine OBJDIR (make objdir failed)}"
 
 LEDGER=""
 RESTORE_ARCHIVE=""

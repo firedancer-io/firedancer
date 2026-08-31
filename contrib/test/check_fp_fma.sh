@@ -15,7 +15,7 @@
 # incompatible objdump, unreadable object) is a hard error, so the
 # guard can never be silently skipped.
 #
-# Expects OBJDIR to be set (e.g. build/native/gcc).  OBJDUMP overrides
+# Expects OBJDIR to be set (see `make objdir`).  OBJDUMP overrides
 # the disassembler.
 
 set -uo pipefail

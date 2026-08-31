@@ -9,7 +9,8 @@ DIR="$( dirname -- "${BASH_SOURCE[0]}"; )"
 DIR="$( realpath -e -- "$DIR"; )"
 cd "$DIR/../.."
 
-OBJDIR=${OBJDIR:-build/native/gcc}
+OBJDIR=${OBJDIR:-$(make --silent --no-print-directory objdir 2>/dev/null || true)}
+: "${OBJDIR:?cannot determine OBJDIR (make objdir failed)}"
 NUM_PROCESSES=${NUM_PROCESSES:-12}
 PAGE_SZ=gigantic
 PAGE_CNT=$(( 7 * NUM_PROCESSES ))

@@ -6,7 +6,7 @@ ifdef FD_HAS_LZ4
 # -lfd_util, and LDFLAGS is last in _make-exe.
 LZ4_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS)))
 
-$(OBJDIR)/obj/third_party/lz4/lib/%.o : src/third_party/lz4/lib/%.c
+$(OBJDIR)/obj/third_party/lz4/lib/%.o : src/third_party/lz4/lib/%.c $(OBJDIR)/.flags
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(LZ4_CFLAGS_NOWARN) -c $< -o $@

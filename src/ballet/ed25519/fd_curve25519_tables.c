@@ -10,8 +10,8 @@
       $ MACHINE=linux_gcc_noarch64 make -j
 
    3. Run the scripts:
-      $ ./build/linux/gcc/icelake/unit-test/fd_curve25519_tables
-      $ ./build/linux/gcc/noarch64/unit-test/fd_curve25519_tables
+      $ $(MACHINE=linux_gcc_icelake make --silent objdir)/unit-test/fd_curve25519_tables
+      $ $(MACHINE=linux_gcc_noarch64 make --silent objdir)/unit-test/fd_curve25519_tables
 
    4. Commit the changes. */
 

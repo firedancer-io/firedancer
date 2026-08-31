@@ -27,19 +27,19 @@ ZSTD_OBJS:=\
 
 ZSTD_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS))) -DZSTD_TRACE=0 -DDEBUGLEVEL=0 -DZSTD_LEGACY_SUPPORT=0 -DZSTD_ASAN_DONT_POISON_WORKSPACE=1 -DZSTD_MSAN_DONT_POISON_WORKSPACE=1
 
-$(OBJDIR)/obj/third_party/zstd/lib/%.o : src/third_party/zstd/lib/%.c
+$(OBJDIR)/obj/third_party/zstd/lib/%.o : src/third_party/zstd/lib/%.c $(OBJDIR)/.flags
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(ZSTD_CFLAGS_NOWARN) -c $< -o $@
 
 # upstream builds this TU with -fno-tree-vectorize
-$(OBJDIR)/obj/third_party/zstd/lib/decompress/zstd_decompress_block.o : src/third_party/zstd/lib/decompress/zstd_decompress_block.c
+$(OBJDIR)/obj/third_party/zstd/lib/decompress/zstd_decompress_block.o : src/third_party/zstd/lib/decompress/zstd_decompress_block.c $(OBJDIR)/.flags
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(ZSTD_CFLAGS_NOWARN) -fno-tree-vectorize -c $< -o $@
 
 # self-gated on __x86_64__/ZSTD_ASM_SUPPORTED; empty object elsewhere
-$(OBJDIR)/obj/third_party/zstd/lib/decompress/huf_decompress_amd64.o : src/third_party/zstd/lib/decompress/huf_decompress_amd64.S
+$(OBJDIR)/obj/third_party/zstd/lib/decompress/huf_decompress_amd64.o : src/third_party/zstd/lib/decompress/huf_decompress_amd64.S $(OBJDIR)/.flags
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(ZSTD_CFLAGS_NOWARN) -c $< -o $@

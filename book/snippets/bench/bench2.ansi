@@ -1,4 +1,4 @@
-$ ./build/native/gcc/bin/fddev monitor
+$ ./build/fddev monitor
 snapshot for 2024-07-29 16:44:59.066296419 GMT+00
     tile |     pid |      stale | heart |        sig | in backp |           backp cnt |  % hkeep |  % backp |   % wait |  % ovrnp |  % ovrnr |  % filt1 |  % filt2 | % finish
 ---------+---------+------------+-------+------------+----------+---------------------+----------+----------+----------+----------+----------+----------+----------+----------

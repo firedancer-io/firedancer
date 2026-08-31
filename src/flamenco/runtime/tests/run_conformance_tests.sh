@@ -118,6 +118,9 @@ export PATH
 PKG_CONFIG_PATH=/usr/lib64/pkgconfig:$PKG_CONFIG_PATH
 echo "y"|./deps.sh
 make -j
+FD_OBJDIR=$(make --silent --no-print-directory objdir 2>/dev/null || true)
+: "${FD_OBJDIR:?cannot determine OBJDIR (make objdir failed)}"
+FD_OBJDIR=$(realpath -m "$FD_OBJDIR")   # cwd is FIREDANCER_REPO; absolute either way
 
 # setup solfuzz-agave
 cd $AGAVE_REPO
@@ -137,4 +140,4 @@ if [ -z "${OUTPUT_DIR}" ]; then
 fi
 mkdir -p $OUTPUT_DIR
 
-solana-test-suite run-tests --input-dir $TEST_INPUTS --solana-target ${AGAVE_REPO}/target/debug/libsolfuzz_agave.so --target ${FIREDANCER_REPO}/build/native/gcc/lib/libfd_exec_sol_compat.so --output-dir $OUTPUT_DIR --consensus-mode --failures-only --save-failures
+solana-test-suite run-tests --input-dir $TEST_INPUTS --solana-target ${AGAVE_REPO}/target/debug/libsolfuzz_agave.so --target ${FD_OBJDIR}/lib/libfd_exec_sol_compat.so --output-dir $OUTPUT_DIR --consensus-mode --failures-only --save-failures

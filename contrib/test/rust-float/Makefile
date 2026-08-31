@@ -2,10 +2,11 @@
 #
 #   make -C contrib/test/rust-float
 #
-# Builds the C unit test too, so this is the only step needed.  OBJDIR
-# selects which Firedancer build to use, RUSTC which compiler.
+# Builds the C unit test too, so this is the only step needed.  The usual
+# MACHINE/CC/EXTRAS (or an explicit OBJDIR) select which Firedancer build
+# to use, RUSTC which Rust compiler.
 #
-#   make -C contrib/test/rust-float OBJDIR=build/linux/clang/icelake
+#   MACHINE=linux_clang_icelake make -C contrib/test/rust-float
 #
 # Both programs print raw results on stdout, nan payloads included, so
 # the diff names the exact operation and operands that disagree.  A
@@ -16,10 +17,13 @@
 # which is the form CI runs as a unit test.
 
 FD_ROOT := ../../..
-OBJDIR  ?= build/native/gcc
+# derive the keyed build dir under the same CC/MACHINE/EXTRAS/BUILDDIR the
+# recipe's sub-make will see; MAKEFLAGS dropped (-n/-w corrupt the output)
+FD_VARS := $(foreach v,CC MACHINE EXTRAS BASEDIR BUILDDIR BUILDDIR1,$(if $(filter command% environment,$(origin $(v))),'$(v)=$($(v))'))
+OBJDIR  ?= $(shell MAKEFLAGS= $(MAKE) --silent --no-print-directory -C ../../.. objdir $(FD_VARS) 2>/dev/null)
 RUSTC   ?= rustc
 OUT     := out
-C_BIN   := $(FD_ROOT)/$(OBJDIR)/unit-test/test_rust_float
+C_BIN   := $(if $(filter /%,$(OBJDIR)),,$(FD_ROOT)/)$(OBJDIR)/unit-test/test_rust_float
 
 .PHONY: test diff clean
 test: $(OUT)/rust-float
