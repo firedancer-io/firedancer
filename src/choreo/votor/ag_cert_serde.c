@@ -1,12 +1,8 @@
 #include "ag_cert_serde.h"
 
-#include "../../ballet/bls/fd_bls12_381.h"
-
 FD_STATIC_ASSERT( sizeof(ag_cert_signature_serde_t      )==AG_BLS_SIG_SZ+8UL,                                              ag_cert_serde );
 FD_STATIC_ASSERT( sizeof(ag_cert_serde_t                )==10UL+sizeof(ag_block_hash_t)+sizeof(ag_cert_signature_serde_t), ag_cert_serde );
 FD_STATIC_ASSERT( sizeof(ag_cert_bitmap_serde_t         )==3UL,                                                            ag_cert_serde );
-FD_STATIC_ASSERT( sizeof(ag_cert_votes_aggregate_serde_t)==AG_BLS_SIG_COMPRESSED_SZ+2UL,                                   ag_cert_serde );
-FD_STATIC_ASSERT( sizeof(ag_cert_block_final_serde_t    )==8UL+sizeof(ag_block_hash_t),                                    ag_cert_serde );
 
 #define BASE2_BITMAP (0)
 #define BASE3_BITMAP (1)
@@ -66,10 +62,10 @@ base3_bitmap_ser( uchar *              out,
   return sizeof(ag_cert_bitmap_serde_t) + nchunks;
 }
 
-static int
-base2_bitmap_de( ag_bls_agg_t * agg,
-                 uchar const *  b,
-                 ulong          b_sz ) {
+int
+ag_cert_base2_bitmap_de( ag_bls_agg_t * agg,
+                         uchar const *  b,
+                         ulong          b_sz ) {
   if( FD_UNLIKELY( b_sz<sizeof(ag_cert_bitmap_serde_t) ) ) return AG_CERT_DE_ERR_SZ;
 
   ag_cert_bitmap_serde_t const * bm      = (ag_cert_bitmap_serde_t const *)b;
@@ -117,29 +113,6 @@ base3_bitmap_de( ag_bls_agg_t * base,
       else if( digit==2U ) signer_set_insert( fb->bitmask,   i );
     }
   }
-  return AG_CERT_DE_SUCCESS;
-}
-
-/* TODO: check serde accepting AG_BLS_SIGNERS_MAX (2048) vs AG_VAT_MAX
-   (2000); reward processing ignores bits past the validator count
-   instead of rejecting the cert. Check what Agave does with rank bits
-   >= the epoch's validator set size and match it. */
-
-static int
-footer_aggregate_de( ag_bls_agg_t * agg,
-                     uchar const *  buf,
-                     ulong          buf_max,
-                     ulong *        buf_sz ) {
-  if( FD_UNLIKELY( buf_max<sizeof(ag_cert_votes_aggregate_serde_t) ) ) return AG_CERT_DE_ERR_SZ;
-  ag_cert_votes_aggregate_serde_t const * aggregate = (ag_cert_votes_aggregate_serde_t const *)buf;
-
-  ulong  sz     = sizeof(ag_cert_votes_aggregate_serde_t);
-  ushort bm_cnt = aggregate->bitmap_cnt;
-  if( FD_UNLIKELY( bm_cnt>buf_max-sz ) ) return AG_CERT_DE_ERR_SZ;
-
-  int err = base2_bitmap_de( agg, buf+sz, bm_cnt );  if( FD_UNLIKELY( err ) ) return err;
-  memcpy( agg->sig, aggregate->signature, AG_BLS_SIG_COMPRESSED_SZ );
-  *buf_sz = sz + bm_cnt;
   return AG_CERT_DE_SUCCESS;
 }
 
@@ -248,19 +221,19 @@ ag_cert_de( ag_cert_t *   cert,
   switch( cert->kind ) {
   case AG_CERT_KIND_FINAL:
     cert->final.slot = slot;
-    if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->final.agg_sig, bm, bm_cnt ) ) ) return err;
+    if( FD_UNLIKELY( err = ag_cert_base2_bitmap_de( &cert->final.agg_sig, bm, bm_cnt ) ) ) return err;
     memcpy( cert->final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_KIND_FAST_FINAL:
     cert->fast_final.slot = slot;
     memcpy( cert->fast_final.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->fast_final.agg_sig, bm, bm_cnt ) ) ) return err;
+    if( FD_UNLIKELY( err = ag_cert_base2_bitmap_de( &cert->fast_final.agg_sig, bm, bm_cnt ) ) ) return err;
     memcpy( cert->fast_final.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_KIND_NOTAR:
     cert->notar.slot = slot;
     memcpy( cert->notar.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( err = base2_bitmap_de(  &cert->notar.agg_sig, bm, bm_cnt ) ) ) return err;
+    if( FD_UNLIKELY( err = ag_cert_base2_bitmap_de( &cert->notar.agg_sig, bm, bm_cnt ) ) ) return err;
     memcpy( cert->notar.agg_sig.sig, sig, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_KIND_NOTAR_FALLBACK: {
@@ -269,7 +242,7 @@ ag_cert_de( ag_cert_t *   cert,
     cert->notar_fallback.slot = slot;
     memcpy( cert->notar_fallback.block_hash, cert_->block_cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( bm_cnt<1UL ) ) return AG_CERT_DE_ERR_SZ;
-    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_zero( f ); }
+    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = ag_cert_base2_bitmap_de( b, bm, bm_cnt ) ) ) return err; ag_bls_agg_zero( f ); }
     else                      { if( FD_UNLIKELY( err = base3_bitmap_de( b, f, bm, bm_cnt ) ) ) return err; }
     memcpy( b->sig, sig, AG_BLS_SIG_SZ );
     break;
@@ -279,7 +252,7 @@ ag_cert_de( ag_cert_t *   cert,
     ag_bls_agg_t * f = &cert->skip.agg_sig_skip_fallback;
     cert->skip.slot = slot;
     if( FD_UNLIKELY( bm_cnt<1UL ) ) return AG_CERT_DE_ERR_SZ;
-    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = base2_bitmap_de( b,    bm, bm_cnt ) ) ) return err; ag_bls_agg_zero( f ); }
+    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = ag_cert_base2_bitmap_de( b, bm, bm_cnt ) ) ) return err; ag_bls_agg_zero( f ); }
     else                      { if( FD_UNLIKELY( err = base3_bitmap_de( b, f, bm, bm_cnt ) ) ) return err; }
     memcpy( b->sig, sig, AG_BLS_SIG_SZ );
     break;
@@ -290,64 +263,4 @@ ag_cert_de( ag_cert_t *   cert,
 
 
   return AG_CERT_DE_SUCCESS;
-}
-
-static int
-decompress( ag_bls_agg_t * agg ) {
-  uchar csig[ AG_BLS_SIG_COMPRESSED_SZ ];
-  memcpy( csig, agg->sig, AG_BLS_SIG_COMPRESSED_SZ );
-  return fd_bls12_381_g2_decompress_syscall( agg->sig, csig, 1 );
-}
-
-int
-ag_cert_block_final_de( ag_cert_fast_final_t * fast_final,
-                        ag_cert_final_t *      final,
-                        ag_cert_notar_t *      notar,
-                        uchar const *          buf,
-                        ulong                  buf_max,
-                        ulong *                buf_sz ) {
-  ulong remaining = buf_max;
-
-  if( FD_UNLIKELY( remaining<sizeof(ag_cert_block_final_serde_t) ) ) return -1;
-  ag_cert_block_final_serde_t const * block_final = (ag_cert_block_final_serde_t const *)buf;
-  buf       += sizeof(ag_cert_block_final_serde_t);
-  remaining -= sizeof(ag_cert_block_final_serde_t);
-
-  ag_bls_agg_t final_agg[1];
-  ulong        consumed;
-  if( FD_UNLIKELY( footer_aggregate_de( final_agg, buf, remaining, &consumed ) ) ) return -1;
-  buf       += consumed;
-  remaining -= consumed;
-
-  if( FD_UNLIKELY( remaining<1UL ) ) return -1;
-  uchar has_notar_aggregate = *buf;
-  buf       += 1UL;
-  remaining -= 1UL;
-  if( FD_UNLIKELY( has_notar_aggregate>1 ) ) return -1;
-
-  if( !has_notar_aggregate ) {
-    fd_memset( fast_final, 0, sizeof(ag_cert_fast_final_t) );
-    fast_final->slot    = block_final->slot;
-    fast_final->agg_sig = *final_agg;
-    memcpy( fast_final->block_hash, block_final->block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( decompress( &fast_final->agg_sig ) ) ) return -1;
-    if( buf_sz ) *buf_sz = buf_max - remaining;
-    return 1;
-  }
-
-  ag_bls_agg_t notar_agg[1];
-  if( FD_UNLIKELY( footer_aggregate_de( notar_agg, buf, remaining, &consumed ) ) ) return -1;
-  remaining -= consumed;
-
-  fd_memset( final, 0, sizeof(ag_cert_final_t) );
-  fd_memset( notar, 0, sizeof(ag_cert_notar_t) );
-  final->slot    = block_final->slot;
-  final->agg_sig = *final_agg;
-  notar->slot    = block_final->slot;
-  notar->agg_sig = *notar_agg;
-  memcpy( notar->block_hash, block_final->block_id, sizeof(ag_block_hash_t) );
-  if( FD_UNLIKELY( decompress( &final->agg_sig ) ) ) return -1;
-  if( FD_UNLIKELY( decompress( &notar->agg_sig ) ) ) return -1;
-  if( buf_sz ) *buf_sz = buf_max - remaining;
-  return 0;
 }

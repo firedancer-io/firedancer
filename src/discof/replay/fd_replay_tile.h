@@ -68,6 +68,7 @@
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
 #include "../../choreo/votor/ag_cert.h"
+#include "fd_block_marker.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)
@@ -255,7 +256,9 @@ struct fd_replay_final_cert {
 };
 typedef struct fd_replay_final_cert fd_replay_final_cert_t;
 
-#define FD_REPLAY_LEADER_FOOTER_MAX (512UL)
+/* Sized by the footer format itself rather than a guess: a footer that
+   carries certificates is ~1.8 KiB, well over the 512 this used to be. */
+#define FD_REPLAY_LEADER_FOOTER_MAX FD_BLOCK_FOOTER_SER_MAX
 
 struct fd_replay_leader_footer {
   ulong slot;

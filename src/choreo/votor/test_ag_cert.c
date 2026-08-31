@@ -455,72 +455,6 @@ test_identity_partition( void ) {
   free( em );
 }
 
-static ulong
-put_aggregate( uchar * p, ulong bits, ulong signer_cnt ) {
-  memset( p, 0, AG_BLS_SIG_COMPRESSED_SZ );
-  p[0] = 0xc0;
-  ulong payload = (bits+7UL)/8UL;
-  ulong bm_cnt  = 3UL+payload;
-  p[ AG_BLS_SIG_COMPRESSED_SZ     ] = (uchar)( bm_cnt     & 0xffUL );
-  p[ AG_BLS_SIG_COMPRESSED_SZ+1UL ] = (uchar)( (bm_cnt>>8) & 0xffUL );
-  uchar * b = p+AG_BLS_SIG_COMPRESSED_SZ+2UL;
-  b[0] = 0;
-  b[1] = (uchar)( bits & 0xffUL ); b[2] = (uchar)( bits>>8 );
-  memset( b+3UL, 0, payload );
-  for( ulong i=0UL; i<signer_cnt; i++ ) b[ 3UL+(i>>3) ] = (uchar)( b[ 3UL+(i>>3) ] | (1U<<(i&7UL)) );
-  return AG_BLS_SIG_COMPRESSED_SZ+2UL+bm_cnt;
-}
-
-static void
-test_footer_de( void ) {
-  ulong n = 11UL;
-  create_signers( n );
-  ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
-
-  uchar buf[ 1024 ];
-  ulong off = 0UL;
-  FD_STORE( ulong, buf, 7UL ); off += 8UL;
-  memcpy( buf+off, h, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t);
-  off += put_aggregate( buf+off, n, 7UL );
-  buf[ off++ ] = 1;
-  off += put_aggregate( buf+off, n, 7UL );
-
-  ag_cert_fast_final_t fast_final; ag_cert_final_t final; ag_cert_notar_t notar;
-  ag_cert_t            c;
-
-  ulong consumed;
-  FD_TEST( ag_cert_block_final_de( &fast_final, &final, &notar, buf, off, &consumed )==0 );
-  FD_TEST( consumed==off );
-  FD_TEST( final.slot==7UL );
-  FD_TEST( notar.slot==7UL );
-  FD_TEST( !memcmp( notar.block_hash, h, sizeof(ag_block_hash_t) ) );
-  c.kind = AG_CERT_KIND_FINAL; c.final = final;
-  for( ulong i=0UL; i<7UL; i++ ) FD_TEST( cert_is_signer( &c, i ) );
-  FD_TEST( !cert_is_signer( &c, 7UL ) );
-  c.kind = AG_CERT_KIND_NOTAR; c.notar = notar;
-  for( ulong i=0UL; i<7UL; i++ ) FD_TEST( cert_is_signer( &c, i ) );
-
-  buf[ off ] = 0xaa;
-  FD_TEST( ag_cert_block_final_de( &fast_final, &final, &notar, buf, off+1UL, &consumed )==0 );
-  FD_TEST( consumed==off );
-
-  FD_TEST( ag_cert_block_final_de( &fast_final, &final, &notar, buf, off-1UL, NULL )==-1 );
-
-  ulong off2 = 8UL+sizeof(ag_block_hash_t);
-  off2 += put_aggregate( buf+off2, n, 9UL );
-  buf[ off2++ ] = 0;
-  FD_TEST( ag_cert_block_final_de( &fast_final, &final, &notar, buf, off2, &consumed )==1 );
-  FD_TEST( consumed==off2 );
-  FD_TEST( fast_final.slot==7UL );
-  FD_TEST( !memcmp( fast_final.block_hash, h, sizeof(ag_block_hash_t) ) );
-  c.kind = AG_CERT_KIND_FAST_FINAL; c.fast_final = fast_final;
-  for( ulong i=0UL; i<9UL; i++ ) FD_TEST( cert_is_signer( &c, i ) );
-  FD_TEST( !cert_is_signer( &c, 9UL ) );
-
-  buf[ off2-1UL ] = 2;
-  FD_TEST( ag_cert_block_final_de( &fast_final, &final, &notar, buf, off2, NULL )==-1 );
-}
-
 int
 main( int     argc,
       char ** argv ) {
@@ -532,7 +466,6 @@ main( int     argc,
   test_sig_validity();
   test_identity_partition();
 
-  test_footer_de();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
