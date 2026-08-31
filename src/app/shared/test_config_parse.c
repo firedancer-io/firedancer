@@ -47,6 +47,22 @@ genesis_max_file_size_is_valid( config_t * config,
   return WIFEXITED( status ) && !WEXITSTATUS( status );
 }
 
+static int
+snapin_tile_count_is_valid( config_t * config,
+                            uint       snapin_tile_count ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    config->firedancer.layout.snapin_tile_count = snapin_tile_count;
+    fd_config_validate( config );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -142,10 +158,13 @@ main( int     argc,
   config->firedancer.accounts.cache_size_gib                   = 1UL;
   config->firedancer.runtime.program_cache.mean_cache_entry_size = 4096UL;
   config->firedancer.runtime.program_cache.heap_size_mib         = 32UL;
+  config->firedancer.development.genesis.max_file_size_mib       = 4055UL;
   config->tiles.repair.slot_max                                   = 1UL;
 
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
+  FD_TEST(  snapin_tile_count_is_valid( config, 10U ) );
+  FD_TEST( !snapin_tile_count_is_valid( config,  0U ) );
 
   /* Ensure we can selectively override a field */
 

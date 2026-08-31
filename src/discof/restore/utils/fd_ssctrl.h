@@ -97,7 +97,6 @@
    exceed the control structs. */
 #define FD_SNAPSHOT_DATA_DEPTH                 (256UL)
 #define FD_SNAPSHOT_DATA_MTU                   (65408UL)
-#define FD_SNAPIN_TILE_MAX                     (9UL) /* symmetric fused parse+insert+write loader tiles */
 
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
 #define FD_SNAPSHOT_STATE_PROCESSING           (1UL) /* Performing usual work, no errors / EoF condition encountered */

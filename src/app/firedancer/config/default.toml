@@ -975,11 +975,7 @@ telemetry = true
     # How many snapshot decompressor tiles to run.
     snapdc_tile_count = 1
 
-    # How many snapshot loader tiles to run.  The tiles are identical:
-    # each one walks the snapshot tar stream and parses, inserts, and
-    # writes the appendvecs it claims from a shared counter.  Faster
-    # tiles claim more work.  The first tile also parses snapshot
-    # metadata.  These tiles do not consume CPU when idle.
+    # How many parallel snapshot loader tiles to run.
     snapin_tile_count = 4
 
     # How many snapshot compressor tiles to run.  These tiles do not

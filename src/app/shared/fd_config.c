@@ -11,7 +11,6 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
 #include "../../discof/restore/utils/fd_snapin_io.h"
-#include "../../discof/restore/utils/fd_ssctrl.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -474,9 +473,7 @@ fd_config_validatef( fd_configf_t const * config ) {
   if( FD_UNLIKELY( !config->layout.snapdc_tile_count || config->layout.snapdc_tile_count>FD_SNAPIN_IO_LANE_MAX ) ) {
     FD_LOG_ERR(( "`layout.snapdc_tile_count` must be in [1,%lu] (each snapshot decompressor lane is tracked by every snapshot loader tile)", FD_SNAPIN_IO_LANE_MAX ));
   }
-  if( FD_UNLIKELY( !config->layout.snapin_tile_count || config->layout.snapin_tile_count>FD_SNAPIN_TILE_MAX ) ) {
-    FD_LOG_ERR(( "`layout.snapin_tile_count` must be in [1,%lu]", FD_SNAPIN_TILE_MAX ));
-  }
+  CFG_HAS_NON_ZERO( layout.snapin_tile_count );
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }

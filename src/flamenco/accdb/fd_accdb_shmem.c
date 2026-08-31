@@ -249,7 +249,6 @@ fd_accdb_shmem_new( void * shmem,
     return NULL;
   }
 
-  /* Must match fd_accdb_shmem_footprint. */
   ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
 
   if( FD_UNLIKELY( chain_cnt>ULONG_MAX/sizeof(uint) ) ) {
