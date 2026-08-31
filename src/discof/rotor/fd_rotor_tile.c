@@ -34,6 +34,7 @@
 
 
 #include "../../discof/chainer/fd_chainer.h"
+#include "../../disco/store/fd_store.h"
 #include "../../discof/replay/fd_block_marker.h"
 
 #define DEBUG_LOGGING 0
@@ -161,12 +162,22 @@ struct ctx {
      test the block-id repair + catchup path in isolation. */
   int   block_id_repair_only;
 
+  /* When set, publish_fec_replay re-publishes the entire ancestry path
+     of FECs -- from the chainer root down to the FEC being delivered,
+     in root-to-target order -- on every delivery, instead of just the
+     single delivered FEC.  Lets replay reconstruct a fork from root
+     without relying on incremental delivery.  The path is queued onto
+     deliver_queue and drained one FEC per after_credit. */
+  int         deliver_from_root;
+  out_ele_t * deliver_queue; /* sized to the chainer's FEC capacity */
+
   fd_keyswitch_t * keyswitch;
   int              halt_signing;
 
   fd_ip4_port_t repair_intake_addr;
 
   fd_chainer_t   * chainer; /* alpenglow chainer */
+  fd_store_t     * store;   /* rotor publishes/removes FEC sets to/from the store */
   fd_policy_t    * policy;
   fd_reqlim_t    * dedup;
   fd_inflights_t * inflights;
@@ -806,15 +817,21 @@ after_alpen_shred( ctx_t      * ctx,
 }
 
 /* fec_completes */
-static inline int
+static inline void
 after_alpen_fec( ctx_t      * ctx,
                  ulong        sig,
                  fd_shred_t * shred,
                  fd_hash_t  * mr ) {
-  if( FD_UNLIKELY( shred->slot <= ctx->chainer->root ) ) return 1;
+  if( FD_UNLIKELY( shred->slot <= ctx->chainer->root ) ) {
+    fd_store_remove( ctx->store, mr );
+    return;
+  }
+
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   int data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
-  return fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, mr );
+  if( fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, mr ) ) {
+    fd_store_remove( ctx->store, mr );
+  };
 }
 
 static inline void
@@ -899,7 +916,7 @@ after_frag( ctx_t *             ctx,
       switch( sig ) {
         case FD_VOTOR_SIG_ROOTED: {
           fd_votor_rooted_t const * rooted = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
-          if( FD_LIKELY( rooted->slot > ctx->chainer->root ) ) fd_chainer_publish( ctx->chainer, rooted->slot, &rooted->block_id );
+          if( FD_LIKELY( rooted->slot > ctx->chainer->root ) ) fd_chainer_publish( ctx->chainer, rooted->slot, &rooted->block_id, ctx->store );
           break;
         }
         case FD_VOTOR_SIG_REPAIR: {
@@ -1641,6 +1658,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
+
+  ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
+  FD_TEST( store_obj_id!=ULONG_MAX );
+  ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
+  FD_TEST( ctx->store );
 
   ctx->halt_signing = 0;
 

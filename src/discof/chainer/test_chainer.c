@@ -620,7 +620,7 @@ test_publish( fd_wksp_t * wksp ) {
   out_ele_t * out_queue = chainer->out_queue;
   while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
 
-  fd_chainer_publish( chainer, 62UL, NULL );
+  fd_chainer_publish( chainer, 62UL, NULL, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( chainer->root==62UL );
@@ -685,7 +685,7 @@ test_publish_large_block( fd_wksp_t * wksp ) {
   /* drain the out queue */
   out_ele_t * out_queue = chainer->out_queue;
   while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
-  fd_chainer_publish( chainer, 72UL, NULL );
+  fd_chainer_publish( chainer, 72UL, NULL, NULL );
 
   FD_TEST( chainer->root==72UL );
   FD_TEST( !slotv_at( chainer, 70UL, 0UL ) );
@@ -744,7 +744,7 @@ test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
 
   out_ele_t * out_queue = chainer->out_queue;
   while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
-  fd_chainer_publish( chainer, 61UL, &bidX );
+  fd_chainer_publish( chainer, 61UL, &bidX, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) ); /* a root without a version 0 is legal */
 
   FD_TEST( chainer->root==61UL );
@@ -765,7 +765,7 @@ test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
   FD_TEST( slotv_at( chainer, 62UL, 0UL )->connected );
 
   while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
-  fd_chainer_publish( chainer, 62UL, NULL );
+  fd_chainer_publish( chainer, 62UL, NULL, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( chainer->root==62UL );
