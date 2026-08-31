@@ -2007,6 +2007,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "alpenglow",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, relax_fee_payer_constraint)>>3,
+    .id                        = {"\xd3\x67\x76\x96\x3e\x25\x7f\x1e\x4e\xa2\x79\xb4\x3b\xf4\xe5\xf1\x35\xea\xf4\xd9\xf9\xd7\xf1\xfa\x82\x59\x8a\xfb\xa8\xfb\x03\xab"},
+                                 /* FEEXbxUuKobtrt1qNK5pjtzbPQhsppBTrNNG74xu4mai */
+    .name                      = "relax_fee_payer_constraint",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2316,6 +2322,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_290 0x9c92e629e8d74f0dUL, .val = &ids[290]
 #define MAP_PERFECT_291 0x8ea2469cb4e5a93cUL, .val = &ids[291]
 #define MAP_PERFECT_292 0xb2513619e40fef85UL, .val = &ids[292]
+#define MAP_PERFECT_293 0x1e7f253e967667d3UL, .val = &ids[293]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2619,4 +2626,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, custom_commission_collector          
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_tx_v1                                            )>>3==290UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, double_disinflation_rate                                )>>3==291UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, alpenglow                                               )>>3==292UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_fee_payer_constraint                              )>>3==293UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
