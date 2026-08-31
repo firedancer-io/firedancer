@@ -431,7 +431,7 @@ init_root_fec( fd_replay_tile_t * ctx,
   block_id_ele->latest_mr      = *mr_root;
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
-  ctx->reset_block_id = *mr_root;
+  ctx->reset_cmr = *mr_root;
   return f_root;
 }
 
@@ -763,14 +763,14 @@ drive_one_fec( fd_replay_tile_t * ctx,
 
 static fd_bank_t *
 drive_become_leader( fd_replay_tile_t * ctx,
-                     fd_hash_t const *  reset_block_id,
+                     fd_hash_t const *  reset_cmr,
                      ulong              leader_slot ) {
   fd_bank_t * reset_bank = fd_banks_root( ctx->banks );
   FD_TEST( reset_bank );
 
   mock_next_leader_slot = leader_slot;
   ctx->reset_slot       = reset_bank->f.slot;
-  ctx->reset_block_id   = *reset_block_id;
+  ctx->reset_cmr        = *reset_cmr;
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, leader_slot, ctx->identity_pubkey );
   FD_TEST( ctx->next_leader_slot==leader_slot );
   ctx->next_leader_tickcount = 0L;
