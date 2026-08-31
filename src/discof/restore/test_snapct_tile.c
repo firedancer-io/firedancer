@@ -603,6 +603,55 @@ test_contact_info_invalid_rpc_address_cleared( fd_ssping_t * ssping ) {
 }
 
 static void
+test_rpc_flap_to_invalidated_addr_evicts_selector( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_snapct_tile_t * ctx;
+  setup_full_snapct( scratch, ssping, &ctx, msg );
+
+  ulong const idx = 8UL;
+  fd_pubkey_t   peer   = test_pubkey( 0x88 );
+  fd_ip4_port_t addr_a = test_addr( 0x08080404 /* 8.8.4.4 */,  8899 );
+  fd_ip4_port_t addr_b = test_addr( 0x08080808 /* 8.8.8.8 */, 18899 );
+
+  /* Peer arrives with a valid public RPC address.  It should be in both
+     the CI table and the selector. */
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_a );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr_a.l );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  /* Simulate addr_b being invalidated by ssping (e.g. another peer at
+     that address failed pings). */
+  fd_ssping_add( ctx->ssping, addr_b );
+  fd_ssping_invalidate( ctx->ssping, addr_b, fd_log_wallclock() );
+  FD_TEST( fd_ssping_is_invalidated( ctx->ssping, addr_b ) );
+
+  /* Gossip flap: the peer now advertises addr_b (the invalidated
+     address).  The selector must evict the stale addr_a entry to stay
+     in sync with the CI table, otherwise log_download would abort. */
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_b );
+
+  /* The CI table must reflect the new address. */
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr_b.l );
+
+  /* The selector must have evicted the peer so that
+     fd_sspeer_selector_best cannot return a stale addr_a entry. */
+  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( best.score==FD_SSPEER_SCORE_INVALID );
+
+  /* Clean up ssping state so the shared instance can be reused.
+     Two references exist: one from the test setup and one from the
+     production code (refcnt balance for the CI table entry). */
+  FD_TEST( !fd_ssping_remove( ctx->ssping, addr_b ) );
+  FD_TEST( fd_ssping_is_invalidated( ctx->ssping, addr_b ) );
+  FD_TEST( fd_ssping_remove( ctx->ssping, addr_b ) );
+
+  free( scratch );
+}
+
+static void
 test_contact_info_public_to_invalid_update( fd_ssping_t * ssping ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
 
@@ -659,6 +708,7 @@ main( int     argc,
   test_contact_info_public_rpc_address( ssping );
   test_contact_info_invalid_rpc_address_cleared( ssping );
   test_contact_info_public_to_invalid_update( ssping );
+  test_rpc_flap_to_invalidated_addr_evicts_selector( ssping );
 
   test_blacklist_peer_basic( ssping );
   test_blacklist_peer_dedup( ssping );
