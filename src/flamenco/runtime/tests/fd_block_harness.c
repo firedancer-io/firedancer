@@ -328,7 +328,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar missing or invalid" ));
   }
-  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), accdb, fork_id );
+  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ), accdb, fork_id );
 
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( runtime_stack->max_vote_accounts );
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map, chain_cnt, 999 ) ) );

@@ -1,4 +1,5 @@
 #include "fd_stake_delegations.h"
+#include "fd_stakes.h"
 #include "fd_stake_types.h"
 #include "../runtime/fd_runtime_const.h"
 
@@ -80,8 +81,51 @@ assert_delegation( fd_stake_delegation_t const * d,
   FD_TEST( d->warmup_cooldown_rate == warmup_cooldown_rate );
 }
 
+static void
+test_inactive_predicates( void ) {
+  ulong const epoch = 4UL;
+  ulong       warmup_cooldown_rate_epoch = ULONG_MAX;
+  fd_stake_history_t history[1] = {0};
+
+  fd_delegation_t active = {
+    .stake               = 100UL,
+    .activation_epoch    = ULONG_MAX,
+    .deactivation_epoch  = ULONG_MAX,
+  };
+  fd_delegation_t activating = {
+    .stake               = 100UL,
+    .activation_epoch    = epoch,
+    .deactivation_epoch  = ULONG_MAX,
+  };
+  fd_delegation_t deactivating = {
+    .stake               = 100UL,
+    .activation_epoch    = ULONG_MAX,
+    .deactivation_epoch  = epoch,
+  };
+  fd_delegation_t inactive = {
+    .stake               = 100UL,
+    .activation_epoch    = epoch,
+    .deactivation_epoch  = epoch,
+  };
+
+  FD_TEST( !fd_delegation_is_inactive( &active,       epoch, history, &warmup_cooldown_rate_epoch, 1 ) );
+  FD_TEST( !fd_delegation_is_inactive( &activating,   epoch, history, &warmup_cooldown_rate_epoch, 1 ) );
+  FD_TEST( !fd_delegation_is_inactive( &deactivating, epoch, history, &warmup_cooldown_rate_epoch, 1 ) );
+  FD_TEST(  fd_delegation_is_inactive( &inactive,     epoch, history, &warmup_cooldown_rate_epoch, 1 ) );
+
+  fd_stake_delegation_t cached_inactive = {
+    .stake              = 100UL,
+    .activation_epoch   = (ushort)epoch,
+    .deactivation_epoch = (ushort)epoch,
+  };
+  FD_TEST( fd_stake_delegation_is_inactive(
+      &cached_inactive, epoch, history, &warmup_cooldown_rate_epoch, 1 ) );
+}
+
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_inactive_predicates();
 
   char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,            NULL );
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );
@@ -770,6 +814,50 @@ int main( int argc, char ** argv ) {
     FD_TEST( stake_delegations->fp_warmed_awarded==1 );
     fd_stake_delegations_invalidate_warmed( stake_delegations );
     FD_TEST( stake_delegations->fp_warmed_awarded==0 );
+  }
+
+  /* Case 34: Root pruning removes only delegations that are inactive
+     in both the current and previous epochs. */
+  {
+    fd_stake_delegations_reset( stake_delegations );
+    ulong const prune_epoch = 4UL;
+
+    fd_stake_delegations_root_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_root_update( stake_delegations, &stake_account_1, &voter_pubkey_0, 1UL, ULONG_MAX, 3UL,       0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_root_update( stake_delegations, &stake_account_2, &voter_pubkey_0, 1UL, ULONG_MAX, 2UL,       0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_root_update( stake_delegations, &stake_account_3, &voter_pubkey_0, 1UL, 4UL,       4UL,       0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+
+    fd_stake_delegations_prune_inactive_root(
+        stake_delegations,
+        prune_epoch,
+        stake_history,
+        &warmup_cooldown_rate_epoch,
+        use_fixed_point_stake_math );
+    FD_TEST(  fd_stake_delegation_root_query( stake_delegations, &stake_account_0 ) );
+    FD_TEST(  fd_stake_delegation_root_query( stake_delegations, &stake_account_1 ) );
+    FD_TEST( !fd_stake_delegation_root_query( stake_delegations, &stake_account_2 ) );
+    FD_TEST( !fd_stake_delegation_root_query( stake_delegations, &stake_account_3 ) );
+    FD_TEST( fd_stake_delegations_base_cnt( stake_delegations )==2UL );
+    FD_TEST( fd_stake_delegations_pubkey_cnt( stake_delegations )==2UL );
+
+    /* Applying the winning fork before pruning preserves a delegation
+       that was reactivated after it became inert. */
+    fd_stake_delegations_reset( stake_delegations );
+    fd_stake_delegations_root_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 1UL, ULONG_MAX, 2UL, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_1, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_apply_fork_delta( prune_epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork_idx );
+    fd_stake_delegations_prune_inactive_root(
+        stake_delegations,
+        prune_epoch,
+        stake_history,
+        &warmup_cooldown_rate_epoch,
+        use_fixed_point_stake_math );
+    fd_stake_delegation_t const * reactivated =
+        fd_stake_delegation_root_query( stake_delegations, &stake_account_0 );
+    FD_TEST( reactivated );
+    FD_TEST( !memcmp( &reactivated->vote_account, &voter_pubkey_1, sizeof(fd_pubkey_t) ) );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
   }
 
   /* Test stake delegations refresh */

@@ -943,6 +943,79 @@ test_bank_max_fork_width_limit( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( mem );
 }
 
+static void
+test_bank_advance_root_prunes_inactive_stakes( void * mem ) {
+  for( int feature_active=0; feature_active<=1; feature_active++ ) {
+    fd_banks_t * banks = fd_banks_join(
+        fd_banks_new( mem, 4UL, 2UL, 8UL, 128UL, 8UL, 0, 10001UL+(ulong)feature_active ) );
+    FD_TEST( banks );
+
+    fd_bank_t * root = fd_banks_init_bank( banks );
+    FD_TEST( root );
+    root->f.epoch = 3UL;
+    root->f.features.remove_inactive_stakes =
+        feature_active ? 0UL : FD_FEATURE_DISABLED;
+
+    fd_pubkey_t stake_account = { .ul[0] = 0x494e455254UL };
+    fd_pubkey_t vote_account  = { .ul[0] = 0x564f5445UL };
+    fd_stake_delegations_t * stake_delegations =
+        fd_banks_stake_delegations_root_query( banks );
+    fd_stake_delegations_root_update(
+        stake_delegations,
+        &stake_account,
+        &vote_account,
+        1UL,
+        ULONG_MAX,
+        2UL,
+        0UL,
+        TEST_BANK_STAKE_LAMPORTS,
+        TEST_BANK_STAKE_ACC_DLEN,
+        FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+
+    fd_bank_t * child = fd_banks_new_bank( banks, root->idx, 0L, 0 );
+    child = fd_banks_clone_from_parent( banks, child->idx );
+    FD_TEST( child );
+    child->f.epoch = 4UL;
+    child->f.features.remove_inactive_stakes =
+        feature_active ? 0UL : FD_FEATURE_DISABLED;
+    fd_banks_mark_bank_frozen( child );
+
+    fd_bank_t * sibling = fd_banks_new_bank( banks, root->idx, 0L, 0 );
+    sibling = fd_banks_clone_from_parent( banks, sibling->idx );
+    FD_TEST( sibling );
+    sibling->f.epoch = 4UL;
+    fd_banks_mark_bank_frozen( sibling );
+    fd_stake_delegations_fork_update(
+        fd_bank_stake_delegations_modify( sibling ),
+        sibling->stake_delegations_fork_id,
+        &stake_account,
+        &vote_account,
+        1UL,
+        ULONG_MAX,
+        ULONG_MAX,
+        0UL,
+        TEST_BANK_STAKE_LAMPORTS,
+        TEST_BANK_STAKE_ACC_DLEN,
+        FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+
+    fd_stake_delegations_t * child_frontier =
+        fd_bank_stake_delegations_frontier_query( banks, child );
+    FD_TEST( test_bank_frontier_delegation_query(
+        banks, child_frontier, &stake_account )->deactivation_epoch==2U );
+    fd_bank_stake_delegations_end_frontier_query( banks, child );
+
+    fd_stake_delegations_t * sibling_frontier =
+        fd_bank_stake_delegations_frontier_query( banks, sibling );
+    FD_TEST( test_bank_frontier_delegation_query(
+        banks, sibling_frontier, &stake_account )->deactivation_epoch==USHORT_MAX );
+    fd_bank_stake_delegations_end_frontier_query( banks, sibling );
+
+    fd_banks_advance_root( banks, child->idx );
+    FD_TEST( !!fd_stake_delegation_root_query(
+        stake_delegations, &stake_account )==!feature_active );
+  }
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1303,6 +1376,7 @@ main( int argc, char ** argv ) {
   test_bank_stake_delegations_dynamic_sizing( mem );
 
   test_bank_advance_root_preserves_inherited_stake_rewards( mem );
+  test_bank_advance_root_prunes_inactive_stakes( mem );
 
   test_bank_clear( mem );
   test_bank_epoch_credits_singleton( mem );

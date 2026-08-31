@@ -371,6 +371,32 @@ fd_delegation_activation_status( fd_delegation_t const *    self,
   }
 }
 
+int
+fd_delegation_is_inactive( fd_delegation_t const *    delegation,
+                           ulong                      target_epoch,
+                           fd_stake_history_t const * stake_history,
+                           ulong *                    new_rate_activation_epoch,
+                           int                        use_fixed_point_stake_math ) {
+  fd_stake_history_entry_t status = fd_delegation_activation_status(
+      delegation,
+      target_epoch,
+      stake_history,
+      new_rate_activation_epoch,
+      use_fixed_point_stake_math );
+  return !status.effective && !status.activating;
+}
+
+static fd_delegation_t
+fd_delegation_from_stake_delegation( fd_stake_delegation_t const * delegation ) {
+  return (fd_delegation_t) {
+    .voter_pubkey         = delegation->vote_account,
+    .stake                = delegation->stake,
+    .deactivation_epoch   = delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : delegation->deactivation_epoch,
+    .activation_epoch     = delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : delegation->activation_epoch,
+    .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( delegation->warmup_cooldown_rate ),
+  };
+}
+
 /**********************************************************************/
 /* Public API                                                         */
 /**********************************************************************/
@@ -405,20 +431,27 @@ fd_stakes_get_state( fd_acc_t const * acc ) {
 }
 
 fd_stake_history_entry_t
-fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * stake_delegation,
+fd_stake_delegation_activation_status( fd_stake_delegation_t const * stake_delegation,
                                        ulong                         target_epoch,
                                        fd_stake_history_t const *    stake_history,
                                        ulong *                       new_rate_activation_epoch,
                                        int                           use_fixed_point_stake_math ) {
-  fd_delegation_t delegation = {
-    .voter_pubkey         = stake_delegation->vote_account,
-    .stake                = stake_delegation->stake,
-    .deactivation_epoch   = stake_delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->deactivation_epoch,
-    .activation_epoch     = stake_delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->activation_epoch,
-    .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( stake_delegation->warmup_cooldown_rate ),
-  };
-
+  fd_delegation_t delegation = fd_delegation_from_stake_delegation( stake_delegation );
   return fd_delegation_activation_status( &delegation, target_epoch, stake_history, new_rate_activation_epoch, use_fixed_point_stake_math );
+}
+
+int
+fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
+                                 ulong                         target_epoch,
+                                 fd_stake_history_t const *    stake_history,
+                                 ulong *                       new_rate_activation_epoch,
+                                 int                           use_fixed_point_stake_math ) {
+  fd_delegation_t raw_delegation = fd_delegation_from_stake_delegation( delegation );
+  return fd_delegation_is_inactive( &raw_delegation,
+                                    target_epoch,
+                                    stake_history,
+                                    new_rate_activation_epoch,
+                                    use_fixed_point_stake_math );
 }
 
 ulong
@@ -538,7 +571,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     } else if( st==FD_STAKE_DELEGATION_STATE_COOLED ) {
       new_acc = (fd_stake_history_entry_t){ .effective = 0UL, .activating = 0UL, .deactivating = 0UL };
     } else {
-      new_acc = fd_stakes_activating_and_deactivating( stake_delegation, epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math );
+      new_acc = fd_stake_delegation_activation_status( stake_delegation, epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math );
     }
 
     ulong reward_stake = 0UL;
@@ -546,7 +579,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       if( FD_LIKELY( st==FD_STAKE_DELEGATION_STATE_WARMED ) ) {
         reward_stake = stake_delegation->stake;
       } else if( st!=FD_STAKE_DELEGATION_STATE_COOLED ) {
-        reward_stake = fd_stakes_activating_and_deactivating( stake_delegation, rewarded_epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+        reward_stake = fd_stake_delegation_activation_status( stake_delegation, rewarded_epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
       }
     }
 
@@ -794,7 +827,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
          !fd_stake_delegations_iter_done( iter );
          fd_stake_delegations_iter_next( iter ) ) {
       fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
-      fd_stake_history_entry_t      acc              = fd_stakes_activating_and_deactivating(
+      fd_stake_history_entry_t      acc              = fd_stake_delegation_activation_status(
           stake_delegation, bank->f.epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math );
       effective    += acc.effective;
       activating   += acc.activating;
@@ -885,6 +918,18 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
   if( FD_LIKELY( prior_has_delegation && !account_changed ) ) return;
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
+  if( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) ) {
+    fd_stake_history_t         stake_history_[1];
+    fd_stake_history_t const * stake_history     = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+    int                        use_fp_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
+    fd_delegation_t const *    delegation        = &stake_state->stake.stake.delegation;
+    if( FD_UNLIKELY( fd_delegation_is_inactive( delegation, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) &&
+                     fd_delegation_is_inactive( delegation, fd_ulong_sat_sub( bank->f.epoch, 1UL ), stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) ) ) {
+      fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+      return;
+    }
+  }
+
   ulong new_stake = stake_state->stake.stake.delegation.stake;
   fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
                                     &stake_state->stake.stake.delegation.voter_pubkey,

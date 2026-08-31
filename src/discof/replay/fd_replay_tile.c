@@ -1534,6 +1534,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
       stake_history, /* may be NULL */
       &bank->f.warmup_cooldown_rate_epoch,
       FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+      FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ),
       ctx->accdb,
       bank->accdb_fork_id );
   bank->f.total_effective_stake    = root_delegations->effective_stake;

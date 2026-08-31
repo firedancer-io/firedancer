@@ -210,7 +210,7 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_multi_epoch_leaders_epoch_msg_fini(m)     do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_fini)(m); } while(0)
 #define fd_progcache_reset(cache)                    do { if( !mock_snapshot_boot ) (fd_progcache_reset)(cache); } while(0)
 #define fd_sysvar_cache_stake_history_view(cache,view) (mock_snapshot_boot ? NULL : (fd_sysvar_cache_stake_history_view)(cache,view))
-#define fd_stake_delegations_refresh(d,e,h,w,f,a,i) do { if( !mock_snapshot_boot ) (fd_stake_delegations_refresh)(d,e,h,w,f,a,i); } while(0)
+#define fd_stake_delegations_refresh(d,e,h,w,f,r,a,i) do { if( !mock_snapshot_boot ) (fd_stake_delegations_refresh)(d,e,h,w,f,r,a,i); } while(0)
 #define fd_vote_stakes_refresh(v,f,a,i)              do { if( !mock_snapshot_boot ) (fd_vote_stakes_refresh)(v,f,a,i); } while(0)
 #define fd_rewards_recalculate_partitioned_rewards(b,k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(b,k,a,s,c); } while(0)
 #define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
