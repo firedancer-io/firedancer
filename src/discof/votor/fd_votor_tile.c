@@ -153,6 +153,7 @@ struct fd_votor_tile {
 
   /* Data */
 
+  int               init;
   ag_block_id_t     rooted_block_id;
   ag_epoch_info_t * curr_epoch_info;
   ulong             curr_epoch_slot;
@@ -175,8 +176,8 @@ struct fd_votor_tile {
 
   /* Networking */
 
-  fd_pubkey_t        client_conn_ctxs[ QUIC_CONN_MAX ];  /* a conn names its peer by identity, not by */
-  fd_pubkey_t        server_conn_ctxs[ QUIC_CONN_MAX ];  /* pointer: peers relocates entries on remove */
+  fd_pubkey_t        client_peer_id_keys[ QUIC_CONN_MAX ];
+  fd_pubkey_t        server_peer_id_keys[ QUIC_CONN_MAX ];
   fd_net_rx_bounds_t net_in_bounds[ 32 ];
   uchar              net_buf[ FD_NET_MTU ];
   fd_quic_t *        quic_client;
@@ -354,8 +355,8 @@ quic_server_conn_new( fd_quic_conn_t * conn,
     fd_quic_conn_close( conn, 0U );
     return;
   }
-  ctx->server_conn_ctxs[ conn->conn_idx ] = *id_key;
-  fd_quic_conn_set_context( conn, &ctx->server_conn_ctxs[ conn->conn_idx ] );
+  ctx->server_peer_id_keys[ conn->conn_idx ] = *id_key;
+  fd_quic_conn_set_context( conn, &ctx->server_peer_id_keys[ conn->conn_idx ] );
 }
 
 static void
@@ -376,7 +377,10 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
   case DATAGRAM_KIND_GENESIS_VOTE: {
     if( FD_UNLIKELY( ag_vote_de( &ctx->scratch.vote, ctx->shred_version, data, data_sz, NULL ) ) ) return;
 
-    peer_t const * peer = fd_quic_conn_get_context( conn );
+    fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
+    if( FD_UNLIKELY( !id_key ) ) return;
+    peer_t const * peer = peers_query( ctx->peers, *id_key, NULL );
+    if( FD_UNLIKELY( !peer ) ) return;
 
     ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote );
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
@@ -407,7 +411,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
 
 static void
 handle_epoch( fd_votor_tile_t *           ctx,
-               fd_epoch_info_msg_t const * msg ) {
+              fd_epoch_info_msg_t const * msg ) {
 
   ag_epoch_info_t * epoch_info;
   if     ( FD_UNLIKELY( !ctx->curr_epoch_info ) ) epoch_info = &ctx->scratch.curr_epoch_info;
@@ -516,7 +520,9 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, msg->start_slot, &ctx->id_key );
+  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, msg->start_slot, &ctx->id_key );
+
+  ctx->init = ctx->rooted_block_id.slot!=ULONG_MAX;
 }
 
 static void
@@ -572,8 +578,8 @@ handle_gossip( fd_votor_tile_t *                  ctx,
   if( FD_LIKELY( peer && !peer->conn ) ) {
     fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, fd_log_wallclock() );
     if( FD_LIKELY( conn ) ) {
-      ctx->client_conn_ctxs[ conn->conn_idx ] = peer->id_key;
-      fd_quic_conn_set_context( conn, &ctx->client_conn_ctxs[ conn->conn_idx ] );
+      ctx->client_peer_id_keys[ conn->conn_idx ] = peer->id_key;
+      fd_quic_conn_set_context( conn, &ctx->client_peer_id_keys[ conn->conn_idx ] );
       peer->conn = conn;
     }
   }
@@ -597,6 +603,7 @@ handle_replay( fd_votor_tile_t *           ctx,
       ctx->rooted_block_id = block_id;
       ag_pool_init ( ctx->pool,  block_id.slot );
       ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock() );
+      ctx->init = !!ctx->curr_epoch_info;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id );
     }
@@ -644,6 +651,11 @@ after_credit( fd_votor_tile_t *   ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+
+  long now     = fd_log_wallclock();
+  ctx->stem    = stem;
+  *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
+
   if( FD_LIKELY( !publishes_empty( ctx->publishes ) ) ) {
     publish_t pub = publishes_pop( ctx->publishes );
     memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
@@ -654,10 +666,7 @@ after_credit( fd_votor_tile_t *   ctx,
     return;
   }
 
-  ctx->stem = stem;
-
-  long now     = fd_log_wallclock();
-  *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
+  if( FD_UNLIKELY( !ctx->init ) ) return;
 
   if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
     ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
@@ -738,9 +747,15 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* no upcoming leader slot */
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* never will be leader */
 
-  while( FD_UNLIKELY( ctx->next_leader_slot < ag_pool_finalized_slot( ctx->pool ) ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+1UL, &ctx->id_key );
+  /* Check if it's time to become leader. */
+
+  ulong finalized = ag_pool_finalized_slot( ctx->pool );
+  while( FD_UNLIKELY( ctx->next_leader_slot<=finalized ) ) {
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
+    if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* schedule exhausted */
+  }
 
   ag_block_id_t parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
   if( FD_UNLIKELY( parent.slot==ULONG_MAX ) ) return; /* the pool has not granted parent ready yet */
@@ -752,7 +767,7 @@ after_credit( fd_votor_tile_t *   ctx,
   FD_TEST( !publishes_full( ctx->publishes ) );
   publishes_push( ctx->publishes, pub );
 
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+1UL, &ctx->id_key );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
   *charge_busy = 1;
 }
 
@@ -936,8 +951,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_epoch_info = NULL;
   ctx->next_epoch_slot = ULONG_MAX;
   ctx->next_epoch_rank = USHORT_MAX;
-  fd_memset( ctx->client_conn_ctxs, 0, sizeof(ctx->client_conn_ctxs) );
-  fd_memset( ctx->server_conn_ctxs, 0, sizeof(ctx->server_conn_ctxs) );
+  fd_memset( ctx->client_peer_id_keys, 0, sizeof(ctx->client_peer_id_keys) );
+  fd_memset( ctx->server_peer_id_keys, 0, sizeof(ctx->server_peer_id_keys) );
 
   if( FD_UNLIKELY( !tile->votor.quic_client_listen_port ) )
     FD_LOG_ERR(( "[development.votor.quic_client_listen_port] must be non-zero when alpenglow is enabled" ));
@@ -970,6 +985,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
   FD_TEST( ctx->mleaders );
+
+  ctx->init             = 0;
+  ctx->next_leader_slot = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
