@@ -786,6 +786,7 @@ alpenglow_marker:
             fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
 
             FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, chained_merkle_root ) );
+            FD_TEST( pend_idx<FD_SHRED_BATCH_FEC_SETS_MAX );
             memcpy( ctx->out_merkle_roots[pend_idx].hash, chained_merkle_root, 32UL );
 
             out->data_shred_rcvd     = 0U;
@@ -793,6 +794,7 @@ alpenglow_marker:
             out->turbine_shred_rcvd  = 0UL;
             out->repair_shred_rcvd   = 0UL;
 
+            FD_TEST( ctx->send_fec_set_cnt<FD_SHRED_BATCH_FEC_SETS_MAX );
             ctx->send_fec_set_idx[ ctx->send_fec_set_cnt ] = ctx->shredder_fec_set_idx;
             ctx->send_fec_set_cnt += 1UL;
             ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
