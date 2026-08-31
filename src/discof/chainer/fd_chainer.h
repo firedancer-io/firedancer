@@ -47,6 +47,15 @@
    re-requesting the shreds.  This case should be rare enough that the
    redundancy is worth the simplicity.
 
+   When that happens the turbine version is ABANDONED: arriving shreds
+   are still accepted and fill the FECs, but it never delivers to
+   replay, never finalizes a block_id, and is dropped from the repair
+   worklists.  Were it to keep delivering, and its block_id to finalize
+   to the same block a votor version is repairing, replay would
+   materialize two banks for the same {slot, block_id} (see
+   fd_rotor_tile.h).  An abandoned slotv is pruned with its slot at
+   publish.
+
    *Parent Discovery*
 
    The trickiness with chaining is that there's 3 different sources of
@@ -88,6 +97,7 @@ struct fd_chainer_fec {
                               contiguous-FEC prefix gate on this. */
   uchar     slot_complete;
   uchar     data_complete;
+  uchar     is_leader;
 };
 typedef struct fd_chainer_fec fd_chainer_fec_t;
 
@@ -110,7 +120,13 @@ struct fd_chainer_slotv {
   ulong           next; /* reserved by pool and map_chain */
   ulong           prev; /* reserved by map_chain */
 
-  uchar           turbine; /* 1 for the slotv created through turbine */
+  uchar           turbine;   /* 1 for the slotv created through turbine */
+  uchar           abandoned; /* 1 once a votor-driven version of the slot was
+                                created while this (turbine) version's block_id
+                                was still unknown: keeps accepting shred/FEC
+                                bookkeeping but never delivers, never finalizes
+                                a block_id, and stays off the repair worklists.
+                                See the header comment above. */
   fd_hash_t       block_id;
   uint            fec[FD_FEC_BLK_MAX]; /* fec[k] = fd_fec_pool idx of the FEC this
                                           version owns. TODO assert pool_idx < UINT_MAX */
@@ -343,6 +359,7 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
                          uint           fec_set_idx,
                          int            slot_complete,
                          int            data_complete,
+                         int            is_leader,
                          fd_hash_t    * mr );
 
 /* Clears out the received shreds for a given FEC set, and also updates
