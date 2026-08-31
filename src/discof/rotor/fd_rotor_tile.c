@@ -295,6 +295,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                         );
   l = FD_LAYOUT_APPEND( l, ag_req_queue_align(),      ag_req_queue_footprint()                                           );
   l = FD_LAYOUT_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                      );
+  l = FD_LAYOUT_APPEND( l, out_queue_align(),         out_queue_footprint( (ulong)tile->rotor.slot_max * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -425,7 +426,7 @@ before_frag( ctx_t * ctx,
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
-  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) return 1; // skip all replay frags TODO may remove
+  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) return sig!=REPLAY_SIG_MISSING_FEC;
   return 0;
 }
 
@@ -887,6 +888,10 @@ after_frag( ctx_t *             ctx,
         if( FD_UNLIKELY( ag_repair_response_de( response, data, data_sz ) ) ) return; /* malformed */
         after_alpen_meta_repair( ctx, response );
       }
+      break;
+    }
+    case IN_KIND_REPLAY: {
+      ctx->deliver_from_root = 1;
       break;
     }
     case IN_KIND_SIGN: {
@@ -1404,36 +1409,34 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
   }
 }
 
-/* publish_fec_replay pops one delivered FEC off the chainer's out_queue
-   and publishes it to replay on repair_out with ROTOR_SIG_FEC_REPLAY.
-   Returns 1 if a FEC was consumed. */
-static int
-publish_fec_replay( ctx_t * ctx, fd_stem_context_t * stem ) {
-  out_ele_t * out_queue = ctx->chainer->out_queue;
-  if( FD_LIKELY( out_queue_empty( out_queue ) ) ) return 0;
-
-  out_ele_t out_ele = out_queue_pop_head( out_queue );
-  if( FD_UNLIKELY( out_ele.slotv_idx == UINT_MAX ) ) return 1;
-
-  fd_chainer_fec_t   * fec   = fd_fec_pool_ele( ctx->chainer->fec_pool, out_ele.fec_idx );
-  fd_chainer_slotv_t * slotv = fd_slotv_pool_ele( ctx->chainer->slotv_pool, out_ele.slotv_idx );
-
-  ulong slot        = fec->slot;
-  uint  fec_set_idx = fec->fec_set_idx;
-
+/* publish_fec builds and publishes a single ROTOR_SIG_FEC_REPLAY
+   message to replay for the FEC fec owned by version slotv.  When
+   from_root is set (the deliver_from_root recovery redelivery), the
+   block_id is always populated with the version's finalized block_id
+   -- even for mid-slot turbine FECs that the normal path leaves zero --
+   so replay can dedup the redelivered path by (slot, block_id) and skip
+   blocks it has already replayed. */
+static void
+publish_fec( ctx_t *              ctx,
+             fd_stem_context_t *  stem,
+             fd_chainer_slotv_t * slotv,
+             fd_chainer_fec_t *   fec,
+             int                  from_root ) {
   fd_hash_t null_hash = {0};
 
   fd_rotor_replay_fec_t * msg = fd_chunk_to_laddr( ctx->repair_out_ctx->mem, ctx->repair_out_ctx->chunk );
-  msg->slot            = slot;
-  msg->fec_set_idx     = fec_set_idx;
+  msg->slot            = fec->slot;
+  msg->fec_set_idx     = fec->fec_set_idx;
   msg->mr              = fec->merkle_root;
   msg->parent_slot     = slotv->parent_slot;
   msg->parent_block_id = slotv->parent_block_id;
   msg->slot_complete   = fec->slot_complete;
   msg->data_complete   = fec->data_complete;
   msg->is_leader       = fec->is_leader;
-  msg->verified        = !slotv->turbine;
-  msg->block_id        = slotv->turbine && !fec->slot_complete ? null_hash : slotv->block_id;
+  /* Redelivered (from_root) FECs carry the finalized DMR in block_id so
+     mark them known (replay needs to lookup on the DMR and SKIP). */
+  msg->known_id        = !slotv->turbine || from_root;
+  msg->block_id        = ( slotv->turbine && !fec->slot_complete && !from_root ) ? null_hash : slotv->block_id;
 
   if( FD_UNLIKELY( fec->slot_complete ) ) {
     FD_BASE58_ENCODE_32_BYTES( slotv->block_id.uc, block_id );
@@ -1449,6 +1452,60 @@ publish_fec_replay( ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_stem_publish( stem, ctx->repair_out_ctx->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->repair_out_ctx->chunk = fd_dcache_compact_next( ctx->repair_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), ctx->repair_out_ctx->chunk0, ctx->repair_out_ctx->wmark );
   ctx->metrics->fecs_delivered++;
+}
+
+/* full_fec_path_queue queues every FEC from the chainer root down to
+   (target_slotv, target_fec), inclusive, onto ctx->deliver_queue in
+   root-to-target order. */
+static void
+full_fec_path_queue( ctx_t *              ctx,
+                     fd_chainer_slotv_t * target_slotv,
+                     fd_chainer_fec_t *   target_fec ) {
+  fd_chainer_t * chainer = ctx->chainer;
+
+  for( fd_chainer_slotv_t * slotv = target_slotv;
+                            slotv && slotv->slot > chainer->root;
+                            slotv = fd_chainer_slot_version_query( chainer, slotv->parent_slot, &slotv->parent_block_id ) ) {
+    uint slotv_idx = (uint)fd_slotv_pool_idx( chainer->slotv_pool, slotv );
+
+    uint kmax;
+    if( FD_LIKELY( slotv==target_slotv ) ) {
+      kmax = target_fec->fec_set_idx / (uint)FD_FEC_SHRED_CNT; /* target: up to the delivered FEC */
+    } else {
+      if( FD_UNLIKELY( slotv->buffered_fec_idx==UINT_MAX ) ) continue; /* ancestor with no complete FEC buffered */
+      kmax = slotv->buffered_fec_idx / (uint)FD_FEC_SHRED_CNT;         /* ancestor: all buffered FECs */
+    }
+
+    for( int k=(int)kmax; k>=0; k-- ) {
+      if( FD_UNLIKELY( out_queue_full( ctx->deliver_queue ) ) ) FD_LOG_ERR(( "deliver_from_root queue full" ));
+      out_queue_push_head( ctx->deliver_queue, (out_ele_t){ .slotv_idx = slotv_idx, .fec_idx = slotv->fec[ k ] } );
+    }
+  }
+}
+
+/* publish_fec_replay pops one delivered FEC off the chainer's out_queue
+   and publishes it to replay on repair_out with ROTOR_SIG_FEC_REPLAY.
+   When ctx->deliver_from_root is set the entire ancestry path from the
+   chainer root to that FEC is instead queued onto ctx->deliver_queue,
+   which after_credit drains one FEC per call.  Returns 1 if a delivered
+   FEC was consumed. */
+static int
+publish_fec_replay( ctx_t * ctx, fd_stem_context_t * stem ) {
+  out_ele_t * out_queue = ctx->chainer->out_queue;
+  if( FD_LIKELY( out_queue_empty( out_queue ) ) ) return 0;
+
+  out_ele_t out_ele = out_queue_pop_head( out_queue );
+  if( FD_UNLIKELY( out_ele.slotv_idx == UINT_MAX ) ) return 1;
+
+  fd_chainer_fec_t   * fec   = fd_fec_pool_ele( ctx->chainer->fec_pool, out_ele.fec_idx );
+  fd_chainer_slotv_t * slotv = fd_slotv_pool_ele( ctx->chainer->slotv_pool, out_ele.slotv_idx );
+
+  if( FD_UNLIKELY( ctx->deliver_from_root ) ) {
+    full_fec_path_queue( ctx, slotv, fec );
+    ctx->deliver_from_root = 0;
+  }
+  else publish_fec( ctx, stem, slotv, fec, 0 /* from_root */ );
+
   return 1;
 }
 
@@ -1458,6 +1515,19 @@ after_credit( ctx_t *             ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   long now = fd_log_wallclock();
+
+  /* deliver_queue has FECs when replay has signaled a bank eviction,
+     and we added the full path of FECs from root up until the next FEC we need to deliver.
+     TODO: bad hygeine, either move into chainer or move the out_queue to the rotor tile. */
+  if( FD_UNLIKELY( !out_queue_empty( ctx->deliver_queue ) ) ) {
+    out_ele_t            e     = out_queue_pop_head( ctx->deliver_queue );
+    fd_chainer_slotv_t * slotv = fd_slotv_pool_ele( ctx->chainer->slotv_pool, e.slotv_idx );
+    fd_chainer_fec_t   * fec   = fd_fec_pool_ele  ( ctx->chainer->fec_pool,   e.fec_idx   );
+    publish_fec( ctx, stem, slotv, fec, 1 /* from_root: always populate block_id */ );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
 
   /* Publish any FECs the chainer has delivered for replay. */
   if( publish_fec_replay( ctx, stem ) ) {
@@ -1639,11 +1709,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->pong_queue   = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                    );
   ctx->ag_req_queue = FD_SCRATCH_ALLOC_APPEND( l, ag_req_queue_align(),      ag_req_queue_footprint()                                        );
   ctx->slot_metrics = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                 );
+  ctx->deliver_queue = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),        out_queue_footprint( (ulong)tile->rotor.slot_max * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ) );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  ctx->chainer      = fd_chainer_join       ( fd_chainer_new       ( ctx->chainer,   tile->rotor.slot_max, ctx->repair_seed                                        ) );
+  ctx->chainer       = fd_chainer_join      ( fd_chainer_new       ( ctx->chainer,   tile->rotor.slot_max, ctx->repair_seed                                        ) );
+  ctx->deliver_queue = out_queue_join       ( out_queue_new        ( ctx->deliver_queue, (ulong)tile->rotor.slot_max * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX     ) );
+
   ctx->protocol     = fd_repair_join        ( fd_repair_new        ( ctx->protocol,  &ctx->identity_public_key                                                      ) );
   ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,    FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->dedup        = fd_reqlim_join        ( fd_reqlim_new        ( ctx->dedup,     FD_REQLIM_CACHE_MAX, ctx->repair_seed                      ) );
@@ -1665,6 +1738,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* Flip to 1 to exercise block-id-only repair/catchup */
   ctx->block_id_repair_only = 0;
+  ctx->deliver_from_root    = 0;
 
   /* Process in links */
 
