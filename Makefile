@@ -64,8 +64,7 @@ undefine LD
 endif
 # Disable implicit rules
 .SUFFIXES:
-# Re-evaluate the Makefile to apply $(MAKEFLAGS)
-.SECONDARY:
+.NOTINTERMEDIATE:
 .SECONDEXPANSION:
 
 ifndef MACHINE
