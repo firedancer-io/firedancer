@@ -4,6 +4,10 @@
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
+# A failed recipe must not leave a fresh-mtime partial target that later
+# builds accept as up to date
+.DELETE_ON_ERROR:
+
 # Grab all the Local.mk files in the source tree, save to a variable so that
 # other rules can depend on this list. We will include these files later on.
 # Don't use "-L" if source code directory structure has symlink loops.
@@ -230,7 +234,7 @@ $(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/li
 	@echo -e "LD\t$$(notdir $$@) ($(5))"
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $(if $(filter bin,$(5)),{ echo 'char const fd_bin_build_info[] ='; echo "  \"# date     $$$$(date +'%Y-%m-%d %H:%M:%S %z')\\n\""; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $$@.buildinfo.c && $$(CC) -c -o $$@.buildinfo.o $$@.buildinfo.c && ) \
-$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@
+$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@.tmp && mv -f $$@.tmp $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
 
@@ -323,17 +327,25 @@ echo -e \
 "# date     `date +'%Y-%m-%d %H:%M:%S %z'`\n"\
 "# source   `whoami`@`hostname`:`pwd`\n"\
 "# machine  $(MACHINE)\n"\
-"# extras   $(EXTRAS)" > $(OBJDIR)/info && \
-git status --porcelain=2 --branch >> $(OBJDIR)/info
+"# extras   $(EXTRAS)" > $@.tmp && \
+{ git status --porcelain=2 --branch 2>/dev/null || echo '# git      unavailable'; } >> $@.tmp && \
+mv -f $@.tmp $@
 
 $(OBJDIR)/obj/util/log/fd_log.o: $(OBJDIR)/info
 
-DEPFLAGS=-MD -MP -MF $(basename $@).d -MT "$(basename $@).o" -MT "$(basename $@).S" -MT "$(basename $@).i" -MT "$(basename $@).d"
+# Depfiles are written to a tmp and published by $(DEPFIX): the compiler
+# truncates the .d in place near the end of the compile, so a killed/failed
+# compile can otherwise leave an empty .d (silently dropped header edges) or
+# a mid-token .d (wedges every later parse).  The tmp is keyed on the full
+# target ($@.dtmp): a TU's .o/.S/.i rules may run concurrently and must
+# not share a tmp path
+DEPFLAGS=-MD -MP -MF $@.dtmp -MT "$(basename $@).o" -MT "$(basename $@).S" -MT "$(basename $@).i" -MT "$(basename $@).d"
+DEPFIX=mv -f $@.dtmp $(basename $@).d
 
 $(OBJDIR)/obj/%.o : src/%.c
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 $(OBJDIR)/obj/%.o : src/%.S
 	@echo -e "AS\t$(notdir $@)"
@@ -344,11 +356,11 @@ $(OBJDIR)/obj/%.S : src/%.c
 	$(MKDIR) $(dir $@) && \
 $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
+$(RM) $@.tmp && $(DEPFIX)
 
 $(OBJDIR)/obj/%.i : src/%.c
 	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@
+$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@ && $(DEPFIX)
 
 $(OBJDIR)/obj/%.check : src/%.c
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
