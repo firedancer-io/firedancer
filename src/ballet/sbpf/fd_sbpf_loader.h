@@ -255,7 +255,8 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
   void * rodata;     /* rodata segment data */
   ulong  rodata_sz;  /* size of read-only data */
 
-  /* text section within rodata segment */
+  /* text section within rodata segment.  Not necessarily 8 byte
+     aligned; read words with FD_LOAD. */
   ulong * text;
   ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc ]). ULONG_MAX if not set. */
 

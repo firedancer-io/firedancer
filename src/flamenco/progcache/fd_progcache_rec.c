@@ -133,7 +133,8 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
   fd_sbpf_program_t prog[1] = {{
     .info     = *elf_info,
     .rodata   = rodata_mem,
-    .text     = (ulong *)((ulong)rodata_mem + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
+    /* Not necessarily 8 byte aligned; see fd_sbpf_program_new. */
+    .text     = (ulong *)((ulong)rodata_mem + elf_info->text_off),
     .entry_pc = ULONG_MAX
   }};
   if( has_calldests && elf_info->text_cnt>0UL ) {
