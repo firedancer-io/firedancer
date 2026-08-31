@@ -100,6 +100,13 @@ struct fd_policy {
   long              tsmax; /* maximum time for an iteration before resetting the DFS to root */
   long              tsref; /* reference timestamp for resetting DFS */
 
+  struct {
+    ulong slot;
+    uint  idx;
+    int   throttled;
+    long  until;
+  } skip;
+
   fd_rnonce_ss_t    rnonce_ss[1];
 
   ulong turbine_slot0;

@@ -1,4 +1,5 @@
 #include "fd_policy.h"
+#include "../../disco/metrics/fd_metrics.h"
 
 void
 test_peer_removal( fd_wksp_t * wksp ) {
@@ -339,6 +340,102 @@ test_orphan_due_prq( fd_wksp_t * wksp ) {
   msg = fd_policy_next( policy, dedup, forest, repair, now+1L, ULONG_MAX, &charge_busy );
   FD_TEST( !msg || msg->kind!=FD_REPAIR_KIND_ORPHAN );
   FD_TEST( !fd_forest_verify( forest ) );
+}
+
+/* Helper: run fd_policy_next up to 4 turns (the DFS iterator may need
+   a turn to rewind) and return the first message produced. */
+static fd_repair_msg_t const *
+next_msg( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest ) {
+  int charge_busy;
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_repair_msg_t const * msg = fd_policy_next( policy, dedup, forest, repair, now+(long)i, highest, &charge_busy );
+    if( FD_LIKELY( msg ) ) return msg;
+  }
+  return NULL;
+}
+
+/* Declined head-slot shred candidates are memoized until the dedup
+   window opens, a shred arrives, or the highest known slot moves. */
+static void
+test_shred_skip_memo( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+
+  fd_forest_init( forest, 0UL );
+
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  /* Head-of-turbine slot: shreds 0..4 buffered, end unknown. */
+  fd_forest_blk_t * blk = fd_forest_blk_insert( forest, 1UL, 0UL, NULL );
+  FD_TEST( blk );
+  blk->buffered_idx = 4U;
+
+  /* Candidate (1,5) is fresh: requested immediately. */
+  long now = 1000000000L;
+  fd_repair_msg_t const * msg = next_msg( policy, dedup, forest, repair, now, 1UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==5UL );
+
+  /* Requests are recorded in the dedup table at the repair tile level:
+     model that, then the deduped candidate memoizes to the window
+     expiry with no further dedup probes. */
+  long t1 = now+10L;
+  FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 1UL, 5U ), t1 ) );
+  FD_TEST( !next_msg( policy, dedup, forest, repair, t1+1L, 1UL ) );
+  FD_TEST( policy->skip.slot==1UL && policy->skip.idx==5U );
+  FD_TEST( policy->skip.until==t1+FD_REQLIM_DEDUP_TIMEOUT );
+  FD_TEST( !next_msg( policy, dedup, forest, repair, t1+10L, 1UL ) );
+
+  /* A new shred moves the candidate and bypasses the memo. */
+  blk->buffered_idx = 5U;
+  msg = next_msg( policy, dedup, forest, repair, t1+20L, 1UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==6UL );
+
+  /* Memoize (1,6), then advance the highest known slot: the memo must
+     not suppress the now-due highest-shred request for slot 1. */
+  long t2 = t1+30L;
+  FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 1UL, 6U ), t2 ) );
+  FD_TEST( !next_msg( policy, dedup, forest, repair, t2+1L, 1UL ) );
+  FD_TEST( policy->skip.slot==1UL && policy->skip.idx==6U );
+  msg = next_msg( policy, dedup, forest, repair, t1+40L, 2UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_HIGHEST_SHRED );
+
+  /* Back at the head, the memo holds until its recorded expiry. */
+  FD_TEST( !next_msg( policy, dedup, forest, repair, policy->skip.until-1L-3L, 1UL ) );
+  msg = next_msg( policy, dedup, forest, repair, policy->skip.until, 1UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==6UL );
+
+  /* A concrete hole under an active throttle memoizes too: the decline
+     resets the iterator to UINT_MAX, the next visit restores the
+     concrete index, and the memo must still match. */
+  fd_policy_set_turbine_slot0( policy, 1UL ); /* live slot: throttle applies */
+  blk->est_buffered_tick_recv = 1000; /* deadline far out: throttle active, memo capped at 1ms */
+  blk->first_shred_ts         = fd_tickcount();
+  blk->complete_idx           = 8U;   /* end known: iterator yields concrete missing idxs */
+  long t3 = t2+50L;
+  FD_TEST( !next_msg( policy, dedup, forest, repair, t3, 1UL ) );
+  FD_TEST( policy->skip.slot==1UL && policy->skip.throttled );
+  long until = policy->skip.until;
+  FD_TEST( until==t3+(long)1e6 );
+  FD_TEST( !next_msg( policy, dedup, forest, repair, t3+10L, 1UL ) );
+  FD_TEST( policy->skip.until==until ); /* memo hit: throttle not re-derived */
+
+  /* Throttle clears: the hole is requested. */
+  blk->est_buffered_tick_recv = 0;
+  blk->first_shred_ts         = 0L;
+  msg = next_msg( policy, dedup, forest, repair, until+1L, 1UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL );
 }
 
 /* A pop whose reqlim key is still in its dedup window reschedules the
@@ -803,9 +900,12 @@ test_multi_peer_bucket_transitions( fd_wksp_t * wksp ) {
         == fd_policy_peer_pool_used( policy->peers.pool ) );
 }
 
+static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                      );
@@ -818,6 +918,7 @@ main( int argc, char ** argv ) {
   test_ewma_latency( wksp );
   test_remove_sole_peer( wksp );
   test_orphan_due_prq( wksp );
+  test_shred_skip_memo( wksp );
   test_orphan_dedup_reschedule( wksp );
   test_orphan_reclaim_and_rehead( wksp );
   test_orphan_rehead_revival( wksp );
