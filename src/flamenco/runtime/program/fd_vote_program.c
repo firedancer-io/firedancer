@@ -12,6 +12,7 @@
 #include "vote/fd_vote_codec.h"
 #include "vote/fd_vote_state_versioned.h"
 #include "vote/fd_vote_state_v4.h"
+#include "../../rewards/fd_alpen_rewards.h"
 #include "../../../ballet/bls/fd_bls12_381.h"
 
 #include <limits.h>
@@ -1608,6 +1609,13 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
 /* mod vote_processor                                                 */
 /**********************************************************************/
 
+/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/programs/vote/src/vote_processor.rs#L78-L81 */
+static inline int
+should_reject_legacy_vote_instructions( fd_exec_instr_ctx_t const * ctx ) {
+  return FD_FEATURE_ACTIVE_BANK( ctx->bank, deprecate_legacy_vote_ixs ) ||
+         fd_alpenglow_migration_slot( ctx->bank, ctx->runtime->accdb )!=ULONG_MAX;
+}
+
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L21-L51 */
 static int
 process_authorize_with_seed_instruction( /* invoke_context */
@@ -1946,7 +1954,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L154
    */
   case fd_vote_instruction_enum_vote_switch: {
-    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, deprecate_legacy_vote_ixs ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/programs/vote/src/vote_processor.rs#L222-L224 */
+    if( should_reject_legacy_vote_instructions( ctx ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
@@ -2011,7 +2020,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L169
    */
   case fd_vote_instruction_enum_update_vote_state_switch: {
-    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, deprecate_legacy_vote_ixs ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/programs/vote/src/vote_processor.rs#L243-L245 */
+    if( should_reject_legacy_vote_instructions( ctx ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
@@ -2081,8 +2091,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * - Feature gated, but live on mainnet.
    */
   case fd_vote_instruction_enum_compact_update_vote_state_switch: {
-    /* https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/vote/src/vote_processor.rs#L183-L191 */
-    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, deprecate_legacy_vote_ixs ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/programs/vote/src/vote_processor.rs#L260-L262 */
+    if( should_reject_legacy_vote_instructions( ctx ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
@@ -2138,6 +2148,11 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   case fd_vote_instruction_enum_tower_sync:
   case fd_vote_instruction_enum_tower_sync_switch: {
+    /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/programs/vote/src/vote_processor.rs#L277-L279 */
+    if( FD_UNLIKELY( fd_alpenglow_migration_slot( ctx->bank, ctx->runtime->accdb )!=ULONG_MAX ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
     fd_tower_sync_t * tower_sync = (instruction->discriminant == fd_vote_instruction_enum_tower_sync)
         ? &instruction->tower_sync
         : &instruction->tower_sync_switch.tower_sync;
